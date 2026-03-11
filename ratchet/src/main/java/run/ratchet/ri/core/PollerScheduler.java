@@ -1,0 +1,157 @@
+package run.ratchet.ri.core;
+
+import run.ratchet.spi.ExecutorProvider;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
+import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+/**
+ * Owns the scheduling infrastructure for the job poller.
+ *
+ * <p>This class is responsible for:
+ *
+ * <ul>
+ *   <li>Managing the scheduled executor lifecycle
+ *   <li>Scheduling poll cycles with dynamic delays
+ *   <li>Handling wakeup signals for immediate polling
+ *   <li>Calling {@link Poller#tick()} for each poll cycle
+ * </ul>
+ *
+ * @see Poller
+ */
+@ApplicationScoped
+public class PollerScheduler {
+
+  private static final Logger log = Logger.getLogger(PollerScheduler.class.getName());
+
+  private final AtomicBoolean started = new AtomicBoolean();
+  private final ExecutorProvider executorProvider;
+  private final Poller poller;
+
+  @SuppressWarnings("java:S3077")
+  private volatile Future<?> handle;
+
+  /**
+   * Cached executor reference resolved once during {@link #start()}, avoiding CDI proxy lookups.
+   */
+  @SuppressWarnings("java:S3077")
+  private volatile ScheduledExecutorService executor;
+
+  // Required by CDI proxy
+  protected PollerScheduler() {
+    this.executorProvider = null;
+    this.poller = null;
+  }
+
+  @Inject
+  public PollerScheduler(ExecutorProvider executorProvider, Poller poller) {
+    this.executorProvider = executorProvider;
+    this.poller = poller;
+  }
+
+  /** Starts the polling scheduler. Schedules the first poll cycle immediately. */
+  public void start() {
+    if (!started.compareAndSet(false, true)) {
+      log.warning("PollerScheduler already started; skipping re-start");
+      return;
+    }
+
+    executor = executorProvider.getScheduledExecutor();
+    log.info("PollerScheduler starting");
+    scheduleNext(0);
+    log.info("PollerScheduler started");
+  }
+
+  /** Stops the polling scheduler. Cancels any pending scheduled poll. */
+  public void stop() {
+    if (!started.compareAndSet(true, false)) {
+      return;
+    }
+
+    log.info("PollerScheduler stopping");
+    cancelCurrentSchedule();
+    log.info("PollerScheduler stopped");
+  }
+
+  /**
+   * Wakes up the poller to immediately check for available jobs.
+   *
+   * <p>Called when a job notification is received from the cluster, indicating that new work is
+   * available.
+   */
+  public void wakeup() {
+    if (!started.get()) {
+      return;
+    }
+
+    poller.onWakeup();
+
+    cancelCurrentSchedule();
+    scheduleNext(0);
+
+    log.fine("PollerScheduler wakeup triggered - immediate poll scheduled");
+  }
+
+  void scheduleNext(long delayMs) {
+    if (!started.get()) {
+      return;
+    }
+
+    handle = executor.schedule(this::executePollCycle, delayMs, TimeUnit.MILLISECONDS);
+  }
+
+  private void cancelCurrentSchedule() {
+    Future<?> currentHandle = handle;
+    if (currentHandle != null && !currentHandle.isDone()) {
+      currentHandle.cancel(false);
+    }
+    handle = null;
+  }
+
+  @SuppressWarnings("java:S1181")
+  private void executePollCycle() {
+    if (!started.get()) {
+      return;
+    }
+
+    try {
+      long nextDelayMs = poller.tick();
+      scheduleNext(nextDelayMs);
+    } catch (Throwable t) {
+      if (!started.get()) {
+        return;
+      }
+      // CDI context gone (e.g. Arquillian undeploy) — stop permanently, next deploy starts fresh
+      if (isCdiContextGone(t)) {
+        started.set(false);
+        log.log(Level.INFO, "Poll cycle detected inactive CDI context — stopping permanently");
+        return;
+      }
+      log.log(Level.SEVERE, "Poll cycle failed", t);
+      try {
+        scheduleNext(5000);
+      } catch (Exception e) {
+        log.log(
+            Level.FINE, "Cannot reschedule poll cycle — scheduler will restart on next deploy", e);
+      }
+    }
+  }
+
+  /** Checks whether the throwable indicates the CDI application context has been torn down. */
+  private static boolean isCdiContextGone(Throwable t) {
+    Throwable current = t;
+    while (current != null) {
+      String name = current.getClass().getName();
+      if (name.contains("ContextNotActiveException") || name.contains("ContextNotAliveException")) {
+        return true;
+      }
+      current = current.getCause();
+    }
+    return false;
+  }
+}

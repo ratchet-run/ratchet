@@ -1,0 +1,255 @@
+package run.ratchet.ri.core;
+
+import run.ratchet.api.BatchContext;
+import run.ratchet.api.JobHandle;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobType;
+import run.ratchet.api.SerializableCheckedConsumer;
+import run.ratchet.api.SerializableCheckedRunnable;
+import run.ratchet.api.SerializableConsumer;
+import run.ratchet.api.SerializablePredicate;
+import run.ratchet.api.StreamingBatchBuilder;
+import run.ratchet.api.StreamingBatchContext;
+import run.ratchet.api.WorkflowBranch;
+import run.ratchet.api.WorkflowCondition;
+import run.ratchet.ri.payload.JobPayloadFactory;
+import run.ratchet.ri.util.LambdaSerializer;
+import run.ratchet.store.entity.BatchEntity;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobStatus;
+import run.ratchet.store.entity.WorkflowConditionEntity;
+import run.ratchet.store.spi.BatchStore;
+import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.TagStore;
+import run.ratchet.store.spi.WorkflowConditionStore;
+import jakarta.transaction.Transactional;
+import java.io.Serializable;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+import java.util.function.Consumer;
+import java.util.logging.Logger;
+import java.util.stream.Stream;
+
+/**
+ * Default implementation of {@link StreamingBatchBuilder} for memory-efficient batch processing.
+ *
+ * <p>Processes items from a stream in chunks, creating BATCH_CHILD jobs for each item. This avoids
+ * loading the entire dataset into memory at once.
+ *
+ * @param <T> the type of items in the stream
+ */
+@SuppressWarnings("unchecked")
+@Transactional
+public class DefaultStreamingBatchBuilder<T extends Serializable>
+    implements StreamingBatchBuilder<T> {
+
+  private static final Logger log = Logger.getLogger(DefaultStreamingBatchBuilder.class.getName());
+  private static final int DEFAULT_CHUNK_SIZE = 100;
+
+  private final String name;
+  private final JobCrudStore jobCrudStore;
+  private final BatchStore batchStore;
+  private final TagStore tagStore;
+  private final WorkflowConditionStore workflowConditionStore;
+  private final LambdaSerializer lambdaSerializer;
+  private final JobWakeupService wakeupService;
+
+  private final List<WorkflowBranch> workflowBranches = new ArrayList<>();
+  private Stream<T> stream;
+  private SerializableCheckedConsumer<T> action;
+  private int chunkSize = DEFAULT_CHUNK_SIZE;
+  private Consumer<StreamingBatchContext> localProgressHook;
+  private SerializableConsumer<BatchContext> batchProgressHook;
+
+  DefaultStreamingBatchBuilder(
+      String name,
+      JobCrudStore jobCrudStore,
+      BatchStore batchStore,
+      TagStore tagStore,
+      WorkflowConditionStore workflowConditionStore,
+      LambdaSerializer lambdaSerializer,
+      JobWakeupService wakeupService) {
+    this.name = name;
+    this.jobCrudStore = jobCrudStore;
+    this.batchStore = batchStore;
+    this.tagStore = tagStore;
+    this.workflowConditionStore = workflowConditionStore;
+    this.lambdaSerializer = lambdaSerializer;
+    this.wakeupService = wakeupService;
+  }
+
+  @Override
+  public <U extends Serializable> StreamingBatchBuilder<U> fromStream(Stream<U> stream) {
+    DefaultStreamingBatchBuilder<U> cast = (DefaultStreamingBatchBuilder<U>) this;
+    cast.stream = stream;
+    return cast;
+  }
+
+  @Override
+  public StreamingBatchBuilder<T> process(SerializableCheckedConsumer<T> action) {
+    this.action = action;
+    return this;
+  }
+
+  @Override
+  public StreamingBatchBuilder<T> withChunkSize(int size) {
+    this.chunkSize = size;
+    return this;
+  }
+
+  @Override
+  public StreamingBatchBuilder<T> onProgress(Consumer<StreamingBatchContext> hook) {
+    this.localProgressHook = hook;
+    return this;
+  }
+
+  @Override
+  public StreamingBatchBuilder<T> onBatchProgress(SerializableConsumer<BatchContext> hook) {
+    this.batchProgressHook = hook;
+    return this;
+  }
+
+  @Override
+  public JobHandle start() {
+    if (stream == null) {
+      throw new IllegalStateException("Stream must be set via fromStream() before calling start()");
+    }
+    if (action == null) {
+      throw new IllegalStateException(
+          "Processing action must be set via process() before calling start()");
+    }
+
+    // Create parent job
+    JobEntity parent = new JobEntity();
+    parent.setJobType(JobType.BATCH_PARENT);
+    parent.setStatus(JobStatus.PENDING);
+    parent.setPriority(JobPriority.NORMAL);
+    parent.setScheduledTime(Instant.now());
+    parent.setPayload(JobPayloadFactory.noop());
+    parent.setIdempotencyKey(UUID.randomUUID().toString());
+    parent.setBusinessKey(name);
+    JobEntity savedParent = jobCrudStore.save(parent);
+    Long parentId = savedParent.getId();
+
+    // Process stream in chunks, creating child jobs
+    int totalItems = 0;
+    List<T> chunk = new ArrayList<>(chunkSize);
+
+    var iterator = stream.iterator();
+    while (iterator.hasNext()) {
+      chunk.add(iterator.next());
+      if (chunk.size() >= chunkSize) {
+        totalItems += createChildJobs(parentId, chunk);
+        chunk.clear();
+      }
+    }
+    // Flush remaining items
+    if (!chunk.isEmpty()) {
+      totalItems += createChildJobs(parentId, chunk);
+    }
+
+    // Create batch entity
+    BatchEntity batch = new BatchEntity();
+    batch.setId(parentId);
+    batch.setTotalItems(totalItems);
+    batch.setCompletedItems(0);
+    batch.setFailedItems(0);
+    if (batchProgressHook != null) {
+      batch.setProgressHook(JobPayloadFactory.fromLambda(batchProgressHook));
+    }
+    batchStore.saveBatch(batch);
+
+    // Create workflow branches
+    for (WorkflowBranch branch : workflowBranches) {
+      createWorkflowBranch(parentId, branch);
+    }
+
+    // Notify wakeup service
+    wakeupService.notifyIfNeeded(JobType.BATCH_PARENT, JobPriority.NORMAL, Duration.ZERO);
+
+    log.info(
+        "Streaming batch '"
+            + name
+            + "' submitted with "
+            + totalItems
+            + " items (id="
+            + parentId
+            + ")");
+    return () -> parentId;
+  }
+
+  @Override
+  public StreamingBatchBuilder<T> thenOnBatchSuccess(SerializableCheckedRunnable next) {
+    workflowBranches.add(new WorkflowBranch(WorkflowCondition.batchSuccess(), next));
+    return this;
+  }
+
+  @Override
+  public StreamingBatchBuilder<T> thenOnBatchFailure(SerializableCheckedRunnable next) {
+    workflowBranches.add(new WorkflowBranch(WorkflowCondition.batchFailure(), next));
+    return this;
+  }
+
+  @Override
+  public StreamingBatchBuilder<T> thenWhenBatch(
+      SerializablePredicate<BatchContext> condition, SerializableCheckedRunnable next) {
+    workflowBranches.add(new WorkflowBranch(WorkflowCondition.batchCustom(condition), next));
+    return this;
+  }
+
+  @Override
+  public StreamingBatchBuilder<T> thenWhenFailureCount(
+      int maxFailures, SerializableCheckedRunnable next) {
+    workflowBranches.add(new WorkflowBranch(WorkflowCondition.failureCount(maxFailures), next));
+    return this;
+  }
+
+  @Override
+  public StreamingBatchBuilder<T> thenWhenSuccessRate(
+      double minRate, SerializableCheckedRunnable next) {
+    workflowBranches.add(new WorkflowBranch(WorkflowCondition.successRate(minRate), next));
+    return this;
+  }
+
+  private int createChildJobs(Long parentId, List<T> items) {
+    int count = 0;
+    for (T item : items) {
+      JobEntity child = new JobEntity();
+      child.setJobType(JobType.BATCH_CHILD);
+      child.setStatus(JobStatus.PENDING);
+      child.setPriority(JobPriority.NORMAL);
+      child.setScheduledTime(Instant.now());
+      child.setPayload(JobPayloadFactory.fromLambda(action, List.of(item)));
+      child.setIdempotencyKey(UUID.randomUUID().toString());
+      child.setDependsOn(parentId);
+      jobCrudStore.save(child);
+      count++;
+    }
+    return count;
+  }
+
+  private void createWorkflowBranch(Long parentId, WorkflowBranch branch) {
+    JobEntity branchJob = new JobEntity();
+    branchJob.setJobType(JobType.WORKFLOW_BRANCH);
+    branchJob.setStatus(JobStatus.PENDING);
+    branchJob.setPriority(JobPriority.NORMAL);
+    branchJob.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
+    branchJob.setPayload(JobPayloadFactory.fromLambda(branch.task()));
+    branchJob.setIdempotencyKey(UUID.randomUUID().toString());
+    branchJob.setDependsOn(parentId);
+    JobEntity savedBranch = jobCrudStore.save(branchJob);
+
+    WorkflowConditionEntity condition = new WorkflowConditionEntity();
+    condition.setParentJobId(parentId);
+    condition.setChildJobId(savedBranch.getId());
+    condition.setConditionType(branch.condition().type());
+    condition.setConditionPriority(branch.condition().priority());
+    if (branch.condition().expression() != null) {
+      condition.setConditionExpressionSerialized(branch.condition().expression());
+    }
+    workflowConditionStore.saveCondition(condition);
+  }
+}
