@@ -1,0 +1,23 @@
+package run.ratchet.store.spi;
+
+import run.ratchet.store.entity.ArchivedJobEntity;
+import run.ratchet.store.entity.JobEntity;
+import java.time.Instant;
+import java.util.List;
+
+/** Job archiving operations for completed/failed job history. */
+public interface ArchiveStore {
+
+  ArchivedJobEntity archiveJob(JobEntity job, String reason, String archivedBy);
+
+  int archiveJobsBatch(List<JobEntity> jobs, String reason, String archivedBy);
+
+  List<JobEntity> findJobsForArchiving(Instant olderThan, int limit);
+
+  long countJobsForArchiving(Instant olderThan);
+
+  List<ArchivedJobEntity> findArchivedJobs(
+      String targetClass, String businessKey, Instant from, Instant to, int limit);
+
+  int purgeArchivedJobs(Instant olderThan);
+}
