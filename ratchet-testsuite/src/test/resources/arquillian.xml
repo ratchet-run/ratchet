@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<arquillian xmlns="http://jboss.org/schema/arquillian"
+            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+            xsi:schemaLocation="http://jboss.org/schema/arquillian
+                http://jboss.org/schema/arquillian/arquillian_1_0.xsd">
+
+  <defaultProtocol type="Servlet 5.0"/>
+
+  <engine>
+    <property name="deploymentExportPath">target/deployments</property>
+  </engine>
+
+  <container qualifier="wildfly-managed" default="true">
+    <configuration>
+      <property name="jbossHome">${project.build.directory}/wildfly-${wildfly.version}</property>
+      <property name="serverConfig">standalone.xml</property>
+      <property name="javaVmArguments">
+        -Xms256m -Xmx512m
+        -Djboss.socket.binding.port-offset=20000
+        ${jacoco.it.argLine}
+        -Dratchet.test.db.url=${ratchet.test.db.url}
+        -Dratchet.test.db.username=${ratchet.test.db.username}
+        -Dratchet.test.db.password=${ratchet.test.db.password}
+        -Dratchet.test.db.driver=${ratchet.test.db.driver}
+        -Dratchet.test.db.driver.name=${ratchet.test.db.driver.name}
+        -Dratchet.test.db.type=${ratchet.test.db.type}
+      </property>
+      <property name="managementPort">29990</property>
+      <property name="allowConnectingToRunningServer">false</property>
+    </configuration>
+  </container>
+
+</arquillian>

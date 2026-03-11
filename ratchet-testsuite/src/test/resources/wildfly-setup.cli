@@ -1,0 +1,38 @@
+# WildFly CLI script to configure JDBC driver and datasource for integration tests.
+# System properties (ratchet.test.db.*) are passed via JVM args in arquillian.xml.
+# This script is idempotent — safe to run multiple times.
+
+embed-server --std-out=echo --server-config=standalone.xml
+
+# Add MySQL JDBC driver (skip if already exists)
+if (outcome != success) of /subsystem=datasources/jdbc-driver=mysql:read-resource
+  /subsystem=datasources/jdbc-driver=mysql:add( \
+    driver-name=mysql, \
+    driver-module-name=com.mysql, \
+    driver-class-name=com.mysql.cj.jdbc.Driver \
+  )
+end-if
+
+# Add PostgreSQL JDBC driver (skip if already exists)
+if (outcome != success) of /subsystem=datasources/jdbc-driver=postgresql:read-resource
+  /subsystem=datasources/jdbc-driver=postgresql:add( \
+    driver-name=postgresql, \
+    driver-module-name=org.postgresql, \
+    driver-class-name=org.postgresql.Driver \
+  )
+end-if
+
+# Add the Ratchet test datasource (skip if already exists)
+if (outcome != success) of /subsystem=datasources/data-source=RatchetDS:read-resource
+  data-source add \
+    --name=RatchetDS \
+    --jndi-name=java:jboss/datasources/RatchetDS \
+    --connection-url=${ratchet.test.db.url:jdbc:h2:mem:ratchet} \
+    --driver-name=${ratchet.test.db.driver.name:h2} \
+    --user-name=${ratchet.test.db.username:sa} \
+    --password=${ratchet.test.db.password:sa} \
+    --enabled=true \
+    --use-java-context=true
+end-if
+
+stop-embedded-server

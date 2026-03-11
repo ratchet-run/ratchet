@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module xmlns="urn:jboss:module:1.9" name="org.jacoco">
+  <resources>
+    <resource-root path="org.jacoco.agent-0.8.12-runtime.jar"/>
+  </resources>
+</module>
