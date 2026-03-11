@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: m2-
+      - name: Compile
+        run: mvn clean compile -B
+      - name: Unit tests
+        run: mvn clean test -B
+      - name: Upload unit test coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-coverage
+          path: ratchet/target/site/jacoco/
+      - name: Format check
+        run: mvn spotless:check -B
+
+  integration-test:
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        database: [mysql, postgresql]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: m2-
+      - name: Integration tests (${{ matrix.database }})
+        run: mvn verify -P wildfly-managed,${{ matrix.database }} -B -pl ratchet-testsuite,ratchet-coverage -am
+      - name: Upload coverage report
+        if: matrix.database == 'mysql'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: ratchet-coverage/target/site/jacoco-aggregate/
