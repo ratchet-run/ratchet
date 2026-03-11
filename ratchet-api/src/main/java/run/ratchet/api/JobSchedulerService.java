@@ -1,0 +1,117 @@
+package run.ratchet.api;
+
+import java.io.Serializable;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.util.Set;
+import java.util.function.Consumer;
+
+/**
+ * Primary entry point for scheduling background jobs.
+ *
+ * <p>Implementations provide job creation, batch processing, recurring scheduling, and job
+ * replacement capabilities. All operations are transactional.
+ */
+public interface JobSchedulerService {
+
+  /** Enqueues a task for immediate execution, returning a builder for further configuration. */
+  JobBuilder enqueue(SerializableCheckedRunnable task);
+
+  /** Enqueues a task for immediate execution with no further configuration. */
+  JobHandle enqueueNow(SerializableCheckedRunnable task);
+
+  /** Schedules a task to execute after the specified delay. */
+  JobBuilder schedule(Duration delay, SerializableCheckedRunnable task);
+
+  /** Creates a batch builder for parallel execution of multiple tasks. */
+  BatchBuilder enqueueBatch(String name);
+
+  /** Creates a streaming batch builder for memory-efficient processing of large datasets. */
+  <T extends Serializable> StreamingBatchBuilder<T> streamingBatch(String name);
+
+  /** Schedules a recurring job based on a cron expression. */
+  RecurringJobBuilder scheduleRecurring(
+      String cron, ZoneId zone, SerializableCheckedRunnable task);
+
+  /** Replaces an existing job with a new one. */
+  JobHandle replace(
+      long jobId, Duration delay, SerializableCheckedRunnable newTask, JobOptions opts);
+
+  /**
+   * Cancels a job by its ID.
+   *
+   * <p>If the job is PENDING, it transitions directly to CANCELED. If the job is RUNNING, it
+   * transitions to CANCELED and the executor should check status before committing results. Jobs in
+   * terminal states (SUCCEEDED, FAILED, CANCELED) cannot be canceled.
+   *
+   * @param jobId the ID of the job to cancel
+   * @return true if the job was successfully canceled, false if the job was not found or already in
+   *     a terminal state
+   */
+  boolean cancelJob(long jobId);
+
+  /** Registers an event listener that will receive all scheduler events. */
+  void addEventListener(Consumer<Object> listener);
+
+  /** Removes a previously registered event listener. */
+  void removeEventListener(Consumer<Object> listener);
+
+  /**
+   * Pauses a job, preventing it from being picked up for execution.
+   *
+   * <p>Only PENDING or FAILED jobs can be paused. The job's previous status is recorded so it can
+   * be restored on resume. Jobs in RUNNING state cannot be paused (cancel them instead).
+   *
+   * <p>Idempotent: pausing an already-PAUSED job returns {@code true} without error.
+   *
+   * @param jobId the ID of the job to pause
+   * @return true if the job was paused or was already paused, false if the job was not found or in
+   *     an incompatible state (RUNNING, SUCCEEDED, FAILED, CANCELED)
+   */
+  boolean pauseJob(long jobId);
+
+  /**
+   * Resumes a paused job, making it eligible for execution again.
+   *
+   * <p>The job returns to PENDING status. If the original scheduled time has passed, the job
+   * becomes immediately eligible for polling.
+   *
+   * <p>Idempotent: resuming a non-paused job returns {@code false} without error.
+   *
+   * @param jobId the ID of the job to resume
+   * @return true if the job was resumed, false if the job was not found or not in PAUSED state
+   */
+  boolean resumeJob(long jobId);
+
+  /**
+   * Retries a failed job by resetting it to PENDING status.
+   *
+   * <p>This is the primary mechanism for manual retry of jobs in the Dead Letter Queue. The job's
+   * attempt counter is reset to 0, error information is cleared, and scheduled time is set to now
+   * so the job becomes immediately eligible for execution.
+   *
+   * <p>Only FAILED jobs can be retried. Jobs in other states return {@code false}.
+   *
+   * @param jobId the ID of the failed job to retry
+   * @return true if the job was successfully reset to PENDING, false if not found or not FAILED
+   */
+  boolean retryJob(long jobId);
+
+  /**
+   * Cancels all recurring jobs associated with the specified tag.
+   *
+   * @param tag the tag identifying the recurring jobs to cancel
+   * @return the number of jobs canceled
+   */
+  int cancelRecurringJobsByTag(String tag);
+
+  /**
+   * Cancels orphaned recurring annotation jobs that are no longer present in the codebase.
+   *
+   * @param registeredIds the set of currently registered job IDs
+   * @param nodeStartTime the time when registration started, used for grace period calculation
+   * @return the number of orphaned jobs canceled
+   */
+  int cancelOrphanedRecurringAnnotationJobs(Set<String> registeredIds, Instant nodeStartTime);
+}
