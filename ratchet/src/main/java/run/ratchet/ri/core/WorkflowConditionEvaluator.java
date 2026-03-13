@@ -3,11 +3,12 @@ package run.ratchet.ri.core;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import run.ratchet.api.BatchContext;
 import run.ratchet.api.JobResult;
-import run.ratchet.api.JobType;
+import run.ratchet.api.SerializableFunction;
 import run.ratchet.api.SerializablePredicate;
-import run.ratchet.spi.SerializationStrategy;
+import run.ratchet.ri.util.LambdaSerializer;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.BatchStore;
@@ -41,26 +42,25 @@ public class WorkflowConditionEvaluator {
 
   private static final Logger log = Logger.getLogger(WorkflowConditionEvaluator.class.getName());
 
-  /** Jackson ObjectMapper for deserializing job result JSON. */
-  private final ObjectMapper objectMapper = new ObjectMapper();
+  /** Jackson ObjectMapper for deserializing job result JSON. Thread-safe singleton. */
+  private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
   /** Store for accessing batch job information. */
   private final BatchStore batchStore;
 
   /** Strategy for serializing/deserializing lambda expressions used in custom conditions. */
-  private final SerializationStrategy serializationStrategy;
+  private final LambdaSerializer lambdaSerializer;
 
   // Required by CDI proxy
   protected WorkflowConditionEvaluator() {
     this.batchStore = null;
-    this.serializationStrategy = null;
+    this.lambdaSerializer = null;
   }
 
   @Inject
-  public WorkflowConditionEvaluator(
-      BatchStore batchStore, SerializationStrategy serializationStrategy) {
+  public WorkflowConditionEvaluator(BatchStore batchStore, LambdaSerializer lambdaSerializer) {
     this.batchStore = batchStore;
-    this.serializationStrategy = serializationStrategy;
+    this.lambdaSerializer = lambdaSerializer;
   }
 
   /**
@@ -98,7 +98,7 @@ public class WorkflowConditionEvaluator {
   }
 
   private Optional<BatchEntity> getBatchForParent(JobEntity parentJob) {
-    if (parentJob.getJobType() != JobType.BATCH_PARENT) {
+    if (parentJob.getJobType() != JobExecutionType.BATCH_PARENT) {
       return Optional.empty();
     }
     return batchStore.findBatchById(parentJob.getId());
@@ -119,7 +119,7 @@ public class WorkflowConditionEvaluator {
   private Map<String, Object> createMetadata(JobEntity job) {
     Map<String, Object> metadata = new HashMap<>();
     metadata.put("jobId", job.getId());
-    metadata.put("jobType", job.getJobType().name());
+    metadata.put("jobType", job.getPublicJobType().name());
     metadata.put("businessKey", job.getBusinessKey());
     metadata.put("attempts", job.getAttempts());
     return metadata;
@@ -143,10 +143,8 @@ public class WorkflowConditionEvaluator {
 
       String expression = condition.getConditionExpression();
 
-      @SuppressWarnings("unchecked")
       SerializablePredicate<BatchContext> predicate =
-          (SerializablePredicate<BatchContext>)
-              serializationStrategy.deserialize(expression.getBytes(), SerializablePredicate.class);
+          lambdaSerializer.deserializeBatchContextPredicate(expression);
 
       if (predicate != null) {
         return predicate.test(context);
@@ -206,7 +204,6 @@ public class WorkflowConditionEvaluator {
         .orElse(false);
   }
 
-  @SuppressWarnings("unchecked")
   private boolean evaluateCustomCondition(WorkflowConditionEntity condition, JobEntity parentJob) {
     try {
       JobResult<?> result = createJobResult(parentJob);
@@ -218,8 +215,7 @@ public class WorkflowConditionEvaluator {
 
       // Try to deserialize lambda expression
       SerializablePredicate<JobResult<?>> predicate =
-          (SerializablePredicate<JobResult<?>>)
-              serializationStrategy.deserialize(expression.getBytes(), SerializablePredicate.class);
+          lambdaSerializer.deserializeJobResultPredicate(expression);
 
       if (predicate != null) {
         return predicate.test(result);
@@ -244,7 +240,6 @@ public class WorkflowConditionEvaluator {
     return parentJob.getStatus() == JobStatus.FAILED;
   }
 
-  @SuppressWarnings("unchecked")
   private boolean evaluateResultCondition(WorkflowConditionEntity condition, JobEntity parentJob) {
     try {
       if (parentJob.getJobResult() == null) {
@@ -254,12 +249,11 @@ public class WorkflowConditionEvaluator {
       String expression = condition.getConditionExpression();
       Object jobResult = parseJobResult(parentJob.getJobResult(), parentJob.getResultType());
 
-      SerializablePredicate<Object> predicate =
-          (SerializablePredicate<Object>)
-              serializationStrategy.deserialize(expression.getBytes(), SerializablePredicate.class);
+      SerializableFunction<Object, Boolean> function =
+          lambdaSerializer.deserializeResultFunction(expression);
 
-      if (predicate != null && jobResult != null) {
-        return predicate.test(jobResult);
+      if (function != null && jobResult != null) {
+        return Boolean.TRUE.equals(function.apply(jobResult));
       }
 
       if (expression != null && jobResult != null) {
@@ -335,9 +329,9 @@ public class WorkflowConditionEvaluator {
     try {
       if (resultType != null) {
         Class<?> clazz = Class.forName(resultType);
-        return objectMapper.readValue(jobResultJson, clazz);
+        return OBJECT_MAPPER.readValue(jobResultJson, clazz);
       } else {
-        return objectMapper.readValue(jobResultJson, Object.class);
+        return OBJECT_MAPPER.readValue(jobResultJson, Object.class);
       }
     } catch (Exception e) {
       log.warning("Failed to parse job result: " + e.getMessage());

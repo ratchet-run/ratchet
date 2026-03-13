@@ -8,6 +8,7 @@ import run.ratchet.api.JobOptions;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.Recurring;
 import run.ratchet.api.RecurringJobBuilder;
+import run.ratchet.ri.core.RecurringAnnotationMaintenanceService;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.Initialized;
 import jakarta.enterprise.event.Observes;
@@ -56,11 +57,29 @@ public class RecurringJobProcessor {
 
   private final Map<String, String> registeredJobIds = new ConcurrentHashMap<>();
 
-  @Inject private JobSchedulerService schedulerService;
+  private final JobSchedulerService schedulerService;
+  private final RecurringAnnotationMaintenanceService recurringAnnotationMaintenanceService;
+  private final BeanManager beanManager;
+  private final RecurringMethodInvoker methodInvoker;
 
-  @Inject private BeanManager beanManager;
+  protected RecurringJobProcessor() {
+    this.schedulerService = null;
+    this.recurringAnnotationMaintenanceService = null;
+    this.beanManager = null;
+    this.methodInvoker = null;
+  }
 
-  @Inject private RecurringMethodInvoker methodInvoker;
+  @Inject
+  public RecurringJobProcessor(
+      JobSchedulerService schedulerService,
+      RecurringAnnotationMaintenanceService recurringAnnotationMaintenanceService,
+      BeanManager beanManager,
+      RecurringMethodInvoker methodInvoker) {
+    this.schedulerService = schedulerService;
+    this.recurringAnnotationMaintenanceService = recurringAnnotationMaintenanceService;
+    this.beanManager = beanManager;
+    this.methodInvoker = methodInvoker;
+  }
 
   /**
    * Triggers registration of @Recurring jobs at application startup.
@@ -88,7 +107,8 @@ public class RecurringJobProcessor {
     try {
       Set<String> registeredIds = registeredJobIds.keySet();
       int canceled =
-          schedulerService.cancelOrphanedRecurringAnnotationJobs(registeredIds, startTime);
+          recurringAnnotationMaintenanceService.cancelOrphanedRecurringAnnotationJobs(
+              registeredIds, startTime);
       if (canceled > 0) {
         log.info(
             "Canceled "
@@ -101,7 +121,7 @@ public class RecurringJobProcessor {
   }
 
   private void cancelExistingJobs(String jobId) {
-    int canceled = schedulerService.cancelRecurringJobsByTag(jobId);
+    int canceled = schedulerService.cancelRecurringJobByBusinessKey(jobId);
     if (canceled > 0) {
       log.info("Canceled " + canceled + " existing recurring job(s) with ID: " + jobId);
     }
@@ -206,12 +226,12 @@ public class RecurringJobProcessor {
             .withTimeout(Duration.ofSeconds(annotation.timeoutSeconds()));
 
     builder.withOptions(options);
+    builder.withBusinessKey(jobId);
 
     String signature =
         className + "#" + methodName + "(" + (hasJobContextParam ? "JobContext" : "") + ")";
     List<String> tags = new ArrayList<>(Arrays.asList(annotation.tags()));
     tags.add("recurring-annotation");
-    tags.add(jobId);
     tags.add("sig:" + signature.hashCode());
     builder.withTags(tags);
 

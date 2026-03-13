@@ -1,6 +1,7 @@
 package run.ratchet.ri.cdi;
 
 import run.ratchet.api.JobContext;
+import run.ratchet.spi.ClassPolicy;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Any;
@@ -32,8 +33,19 @@ public class RecurringMethodInvoker {
   private record MethodCacheKey(String className, String methodName, boolean hasJobContextParam) {}
 
   private final ConcurrentMap<MethodCacheKey, Method> methodCache = new ConcurrentHashMap<>();
+  private final Instance<Object> allBeans;
+  private final ClassPolicy classPolicy;
 
-  @Inject @Any private Instance<Object> allBeans;
+  protected RecurringMethodInvoker() {
+    this.allBeans = null;
+    this.classPolicy = null;
+  }
+
+  @Inject
+  public RecurringMethodInvoker(@Any Instance<Object> allBeans, ClassPolicy classPolicy) {
+    this.allBeans = allBeans;
+    this.classPolicy = classPolicy;
+  }
 
   /**
    * Invokes a recurring job method by class and method name.
@@ -46,6 +58,7 @@ public class RecurringMethodInvoker {
   @SuppressWarnings("java:S112")
   public void invoke(String beanClassName, String methodName, boolean hasJobContextParam)
       throws Exception {
+    ensureClassAllowed(beanClassName);
     Class<?> beanClass = Class.forName(beanClassName);
     Instance<?> instance = allBeans.select(beanClass);
 
@@ -71,6 +84,7 @@ public class RecurringMethodInvoker {
    * @throws IllegalStateException if the bean cannot be resolved from CDI
    */
   public void validateBeanResolvable(Class<?> beanClass) {
+    ensureClassAllowed(beanClass.getName());
     Instance<?> instance = allBeans.select(beanClass);
     if (instance.isUnsatisfied()) {
       throw new IllegalStateException(
@@ -131,5 +145,12 @@ public class RecurringMethodInvoker {
 
     methodCache.put(key, resolved);
     return resolved;
+  }
+
+  private void ensureClassAllowed(String className) {
+    if (!classPolicy.isAllowed(className)) {
+      throw new SecurityException(
+          "Class " + className + " is not allowed for recurring job execution.");
+    }
   }
 }

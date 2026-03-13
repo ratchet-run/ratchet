@@ -1,6 +1,5 @@
 package run.ratchet.ri.cdi;
 
-import run.ratchet.api.JobType;
 import run.ratchet.ri.core.DefaultNodeIdentityProvider;
 import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.DynamicHeartbeatCalculator;
@@ -13,6 +12,8 @@ import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.ri.core.PostExecutionHandler;
 import run.ratchet.ri.core.PreExecutionValidator;
 import run.ratchet.ri.core.ThreadPoolManager;
+import run.ratchet.ri.resilience.CircuitBreakerRegistry;
+import run.ratchet.ri.resilience.DefaultResilienceStrategy;
 import run.ratchet.ri.security.JobSecurityValidator;
 import run.ratchet.ri.security.PackagePrefixClassPolicy;
 import run.ratchet.ri.util.SchedulerConfig;
@@ -20,6 +21,8 @@ import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.spi.ResilienceStrategy;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.ExecutionStore;
 import run.ratchet.store.spi.JobClaimStore;
 import run.ratchet.store.spi.JobCrudStore;
@@ -44,31 +47,54 @@ import java.util.Map;
 @ApplicationScoped
 public class RatchetProducer {
 
-  @Inject private ExecutorProvider executorProvider;
+  private final ExecutorProvider executorProvider;
+  private final MetricsCollector metricsCollector;
+  private final JobCrudStore jobCrudStore;
+  private final JobStatusStore jobStatusStore;
+  private final PostExecutionHandler postExecutionHandler;
+  private final NodeStore nodeStore;
 
-  @Inject private MetricsCollector metricsCollector;
+  protected RatchetProducer() {
+    this.executorProvider = null;
+    this.metricsCollector = null;
+    this.jobCrudStore = null;
+    this.jobStatusStore = null;
+    this.postExecutionHandler = null;
+    this.nodeStore = null;
+  }
 
-  @Inject private JobCrudStore jobCrudStore;
-
-  @Inject private JobStatusStore jobStatusStore;
-
-  @Inject private PostExecutionHandler postExecutionHandler;
-
-  @Inject private NodeStore nodeStore;
+  @Inject
+  public RatchetProducer(
+      ExecutorProvider executorProvider,
+      MetricsCollector metricsCollector,
+      JobCrudStore jobCrudStore,
+      JobStatusStore jobStatusStore,
+      PostExecutionHandler postExecutionHandler,
+      NodeStore nodeStore) {
+    this.executorProvider = executorProvider;
+    this.metricsCollector = metricsCollector;
+    this.jobCrudStore = jobCrudStore;
+    this.jobStatusStore = jobStatusStore;
+    this.postExecutionHandler = postExecutionHandler;
+    this.nodeStore = nodeStore;
+  }
 
   @Produces
   @ApplicationScoped
   public ThreadPoolManager threadPoolManager() {
     boolean useVirtualThreads = SchedulerConfig.isWorkerUseVirtualThreads();
 
-    Map<JobType, Integer> maxConcurrencyMap = new EnumMap<>(JobType.class);
-    maxConcurrencyMap.put(JobType.SINGLE, SchedulerConfig.getThreadPoolSizeSingle());
-    maxConcurrencyMap.put(JobType.RECURRING, SchedulerConfig.getThreadPoolSizeRecurring());
-    maxConcurrencyMap.put(JobType.BATCH_CHILD, SchedulerConfig.getThreadPoolSizeBatchChild());
-    maxConcurrencyMap.put(JobType.BATCH_PARENT, SchedulerConfig.getThreadPoolSizeBatchParent());
-    maxConcurrencyMap.put(JobType.CHAIN_STEP, SchedulerConfig.getThreadPoolSizeChain());
-    maxConcurrencyMap.put(JobType.DLQ_ALERT, SchedulerConfig.getThreadPoolSizeDlq());
-    maxConcurrencyMap.put(JobType.WORKFLOW_BRANCH, SchedulerConfig.getThreadPoolSizeDefault());
+    Map<JobExecutionType, Integer> maxConcurrencyMap = new EnumMap<>(JobExecutionType.class);
+    maxConcurrencyMap.put(JobExecutionType.SINGLE, SchedulerConfig.getThreadPoolSizeSingle());
+    maxConcurrencyMap.put(JobExecutionType.RECURRING, SchedulerConfig.getThreadPoolSizeRecurring());
+    maxConcurrencyMap.put(
+        JobExecutionType.BATCH_CHILD, SchedulerConfig.getThreadPoolSizeBatchChild());
+    maxConcurrencyMap.put(
+        JobExecutionType.BATCH_PARENT, SchedulerConfig.getThreadPoolSizeBatchParent());
+    maxConcurrencyMap.put(JobExecutionType.CHAIN_STEP, SchedulerConfig.getThreadPoolSizeChain());
+    maxConcurrencyMap.put(JobExecutionType.DLQ_ALERT, SchedulerConfig.getThreadPoolSizeDlq());
+    maxConcurrencyMap.put(
+        JobExecutionType.WORKFLOW_BRANCH, SchedulerConfig.getThreadPoolSizeDefault());
 
     return new ThreadPoolManager(
         executorProvider, metricsCollector, useVirtualThreads, maxConcurrencyMap);
@@ -163,12 +189,24 @@ public class RatchetProducer {
 
   /**
    * Produces the default {@link ClassPolicy} bean. Users can override by providing their own
-   * {@code @ApplicationScoped ClassPolicy} bean.
+   * {@code @Alternative @Priority(APPLICATION) ClassPolicy} bean.
    */
   @Produces
   @Default
   @ApplicationScoped
   public ClassPolicy classPolicy() {
     return new PackagePrefixClassPolicy();
+  }
+
+  /**
+   * Produces the default {@link ResilienceStrategy} bean backed by the built-in circuit breaker.
+   * Users can override by providing their own {@code @Alternative @Priority(APPLICATION)
+   * ResilienceStrategy} bean (e.g., backed by Resilience4j or MicroProfile Fault Tolerance).
+   */
+  @Produces
+  @Default
+  @ApplicationScoped
+  public ResilienceStrategy resilienceStrategy(CircuitBreakerRegistry circuitBreakerRegistry) {
+    return new DefaultResilienceStrategy(circuitBreakerRegistry);
   }
 }

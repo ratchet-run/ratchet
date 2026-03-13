@@ -1,13 +1,16 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.api.JobType;
 import run.ratchet.ri.core.RetryBufferManager.BufferedJob;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.MetricsCollector;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobCrudStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import java.util.Queue;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -139,19 +142,19 @@ public class RetryBufferDrainer {
   }
 
   /**
-   * Drains retry buffers associated with specific {@code JobType}s by attempting to resubmit jobs
-   * under the current system constraints.
+   * Drains retry buffers associated with specific {@code JobExecutionType}s by attempting to
+   * resubmit jobs under the current system constraints.
    *
    * <p>This method processes jobs stored in retry buffers managed by {@code retryBufferManager},
    * which holds jobs that failed on initial attempts and are awaiting resource availability for
-   * retry. It iterates through all {@link JobType} categories, polling jobs from their respective
-   * buffers.
+   * retry. It iterates through all {@link JobExecutionType} categories, polling jobs from their
+   * respective buffers.
    *
    * <p>The draining process is governed by the {@code drainController}. If the drain mode is
    * activated (via {@code drainController.isDraining()}), the method exits immediately to avoid
-   * unnecessary processing. Similarly, it checks resource availability for each {@code JobType} via
-   * the {@code threadPoolManager}. If no resources are available, the processing for that {@code
-   * JobType} is paused.
+   * unnecessary processing. Similarly, it checks resource availability for each {@code
+   * JobExecutionType} via the {@code threadPoolManager}. If no resources are available, the
+   * processing for that {@code JobExecutionType} is paused.
    *
    * <p>The method submits retry jobs to the {@code jobSubmissionService} for further execution,
    * ensuring that each job is adequately polled from the retry buffer before submission.
@@ -166,27 +169,40 @@ public class RetryBufferDrainer {
       return;
     }
 
-    for (JobType jobType : JobType.values()) {
-      Queue<BufferedJob> buffer = retryBufferManager.getBuffer(jobType);
-
-      while (!buffer.isEmpty()
-          && !drainController.isDraining()
-          && threadPoolManager.canAcceptWork(jobType)) {
-        BufferedJob buffered = buffer.poll();
-        if (buffered == null) {
+    for (JobExecutionType jobType : JobExecutionType.values()) {
+      while (!retryBufferManager.isBufferEmpty(jobType) && !drainController.isDraining()) {
+        int capacity = threadPoolManager.getAvailableCapacity(jobType);
+        if (capacity <= 0) {
           break;
         }
 
-        // Load full entity from database for submission
-        jobCrudStore
-            .findById(buffered.jobId())
-            .ifPresentOrElse(
-                jobSubmissionService::submitBuffered,
-                () ->
-                    log.warning(
-                        "Buffered job "
-                            + buffered.jobId()
-                            + " no longer exists in database, skipping"));
+        List<BufferedJob> bufferedJobs = retryBufferManager.pollBatchFromBuffer(jobType, capacity);
+        if (bufferedJobs.isEmpty()) {
+          break;
+        }
+
+        Map<Long, JobEntity> jobsById = new LinkedHashMap<>();
+        for (var job :
+            jobCrudStore.findByIds(bufferedJobs.stream().map(BufferedJob::jobId).toList())) {
+          jobsById.put(job.getId(), job);
+        }
+
+        for (BufferedJob buffered : bufferedJobs) {
+          JobEntity job = jobsById.get(buffered.jobId());
+          if (drainController.isDraining() || !threadPoolManager.canAcceptWork(jobType)) {
+            if (job != null) {
+              retryBufferManager.forceOffer(job);
+            }
+            continue;
+          }
+
+          if (job == null) {
+            log.warning(
+                "Buffered job " + buffered.jobId() + " no longer exists in database, skipping");
+            continue;
+          }
+          jobSubmissionService.submitBuffered(job);
+        }
       }
     }
   }

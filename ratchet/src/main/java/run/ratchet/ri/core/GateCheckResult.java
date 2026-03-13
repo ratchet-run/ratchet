@@ -1,6 +1,6 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.api.JobType;
+import run.ratchet.store.entity.JobExecutionType;
 
 /**
  * Represents the result of checking all submission gates before job execution.
@@ -90,11 +90,11 @@ public record GateCheckResult(GateStatus status, String reason) {
    * <p>This is a normal condition under high load and enables work-stealing across cluster nodes
    * for better load distribution.
    *
-   * @param jobType the {@link JobType} with no available executor capacity
+   * @param jobType the {@link JobExecutionType} with no available executor capacity
    * @param jobId the database ID of the job being rejected
    * @return a new GateCheckResult with NO_PERMITS status
    */
-  public static GateCheckResult noPermits(JobType jobType, Long jobId) {
+  public static GateCheckResult noPermits(JobExecutionType jobType, Long jobId) {
     return new GateCheckResult(
         GateStatus.NO_PERMITS,
         String.format(
@@ -109,14 +109,14 @@ public record GateCheckResult(GateStatus status, String reason) {
    * by this gate should be returned to PENDING status with a slight delay before retry, or
    * redirected to other nodes.
    *
-   * @param jobType the {@link JobType} that exceeded its rate limit
+   * @param jobType the {@link JobExecutionType} that exceeded its rate limit
    * @param jobId the database ID of the job being rejected
    * @param currentCount the current number of jobs processed in the time window
    * @param limit the configured maximum jobs per minute for this type
    * @return a new GateCheckResult with RATE_LIMITED status and detailed reason
    */
   public static GateCheckResult rateLimited(
-      JobType jobType, Long jobId, int currentCount, int limit) {
+      JobExecutionType jobType, Long jobId, int currentCount, int limit) {
     return new GateCheckResult(
         GateStatus.RATE_LIMITED,
         String.format(

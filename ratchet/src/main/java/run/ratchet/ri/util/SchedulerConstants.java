@@ -18,7 +18,7 @@ package run.ratchet.ri.util;
  */
 public final class SchedulerConstants {
 
-  // ============ JPA Query Parameter Names ============
+  // ============ Metrics Component Values ============
 
   /** Component tag value for job-scheduler metrics. */
   public static final String COMPONENT_JOB_SCHEDULER = "job-scheduler";
@@ -33,7 +33,7 @@ public final class SchedulerConstants {
   public static final String MSG_CLUSTERED_COUNTER_FALLBACK =
       "Failed to increment clustered counter, using local fallback";
 
-  // ============ Metrics Tag Keys ============
+  // ============ Log Message Suffixes ============
 
   /** Log message suffix for idempotent operations. */
   public static final String MSG_IDEMPOTENT = " (idempotent)";
@@ -41,7 +41,7 @@ public final class SchedulerConstants {
   /** Log message suffix for bulk operation context. */
   public static final String MSG_IN_BULK_OPERATION = " in bulk operation";
 
-  // ============ Metrics Tag Values ============
+  // ============ Log Message Fragments ============
 
   /** Log message fragment for job context in error messages. */
   public static final String MSG_IN_JOB = " in job ";
@@ -52,12 +52,12 @@ public final class SchedulerConstants {
   /** Named parameter for batch ID in queries. */
   public static final String PARAM_BATCH_ID = "batchId";
 
-  // ============ Metrics Tag Values - Services ============
+  // ============ Query Parameter Names ============
 
   /** Named parameter for parent job ID in workflow queries. */
   public static final String PARAM_PARENT_JOB_ID = "parentJobId";
 
-  // ============ Log Message Fragments ============
+  // ============ Metrics Tags And Units ============
 
   /** Named parameter for since/cutoff time in queries. */
   public static final String PARAM_SINCE = "since";

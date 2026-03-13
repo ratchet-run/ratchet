@@ -1,6 +1,6 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.api.JobType;
+import run.ratchet.store.entity.JobExecutionType;
 import jakarta.enterprise.context.ApplicationScoped;
 import java.util.EnumMap;
 import java.util.Map;
@@ -42,15 +42,15 @@ import java.util.logging.Logger;
  * <p><b>Thread Safety:</b> This class is thread-safe and can be called from multiple threads
  * concurrently.
  *
- * @see JobType for the enumeration of job types
+ * @see JobExecutionType for the scheduler execution categories
  */
 @ApplicationScoped
 public class JobTypeRateLimiter {
 
   private static final Logger log = Logger.getLogger(JobTypeRateLimiter.class.getName());
 
-  private final Map<JobType, Integer> rateLimits = new EnumMap<>(JobType.class);
-  private final Map<JobType, RateWindow> rateWindows = new ConcurrentHashMap<>();
+  private final Map<JobExecutionType, Integer> rateLimits = new EnumMap<>(JobExecutionType.class);
+  private final Map<JobExecutionType, RateWindow> rateWindows = new ConcurrentHashMap<>();
 
   /** Creates a new rate limiter and initializes rate limits from environment variables. */
   public JobTypeRateLimiter() {
@@ -63,7 +63,7 @@ public class JobTypeRateLimiter {
    * @param jobType the job type
    * @return current count in the current minute window
    */
-  public int getCurrentCount(JobType jobType) {
+  public int getCurrentCount(JobExecutionType jobType) {
     RateWindow window = rateWindows.get(jobType);
     if (window == null) {
       return 0;
@@ -77,7 +77,7 @@ public class JobTypeRateLimiter {
    * @param jobType the job type
    * @return rate limit (0 = unlimited)
    */
-  public int getRateLimit(JobType jobType) {
+  public int getRateLimit(JobExecutionType jobType) {
     return rateLimits.getOrDefault(jobType, 0);
   }
 
@@ -87,7 +87,7 @@ public class JobTypeRateLimiter {
    * @param jobType the job type
    * @return true if rate limiting is configured, false otherwise
    */
-  public boolean isRateLimited(JobType jobType) {
+  public boolean isRateLimited(JobExecutionType jobType) {
     Integer limit = rateLimits.get(jobType);
     return limit != null && limit > 0;
   }
@@ -98,7 +98,7 @@ public class JobTypeRateLimiter {
    * @param jobType the job type to check
    * @return true if within rate limit, false if rate limit exceeded
    */
-  public boolean tryAcquire(JobType jobType) {
+  public boolean tryAcquire(JobExecutionType jobType) {
     Integer maxPerMinute = rateLimits.get(jobType);
 
     // No rate limit configured (0 or null = unlimited)
@@ -119,16 +119,20 @@ public class JobTypeRateLimiter {
    * limits are logged at INFO level when enabled for visibility into the configured limits.
    */
   void init() {
-    rateLimits.put(JobType.SINGLE, getRateLimitFromEnv("SCHEDULER_RATE_LIMIT_SINGLE", 0));
-    rateLimits.put(JobType.RECURRING, getRateLimitFromEnv("SCHEDULER_RATE_LIMIT_RECURRING", 0));
-    rateLimits.put(JobType.BATCH_CHILD, getRateLimitFromEnv("SCHEDULER_RATE_LIMIT_BATCH_CHILD", 0));
-    rateLimits.put(JobType.CHAIN_STEP, getRateLimitFromEnv("SCHEDULER_RATE_LIMIT_CHAIN_STEP", 0));
-    rateLimits.put(JobType.DLQ_ALERT, getRateLimitFromEnv("SCHEDULER_RATE_LIMIT_DLQ_ALERT", 0));
+    rateLimits.put(JobExecutionType.SINGLE, getRateLimitFromEnv("SCHEDULER_RATE_LIMIT_SINGLE", 0));
     rateLimits.put(
-        JobType.BATCH_PARENT, getRateLimitFromEnv("SCHEDULER_RATE_LIMIT_BATCH_PARENT", 0));
+        JobExecutionType.RECURRING, getRateLimitFromEnv("SCHEDULER_RATE_LIMIT_RECURRING", 0));
+    rateLimits.put(
+        JobExecutionType.BATCH_CHILD, getRateLimitFromEnv("SCHEDULER_RATE_LIMIT_BATCH_CHILD", 0));
+    rateLimits.put(
+        JobExecutionType.CHAIN_STEP, getRateLimitFromEnv("SCHEDULER_RATE_LIMIT_CHAIN_STEP", 0));
+    rateLimits.put(
+        JobExecutionType.DLQ_ALERT, getRateLimitFromEnv("SCHEDULER_RATE_LIMIT_DLQ_ALERT", 0));
+    rateLimits.put(
+        JobExecutionType.BATCH_PARENT, getRateLimitFromEnv("SCHEDULER_RATE_LIMIT_BATCH_PARENT", 0));
 
     boolean anyConfigured = false;
-    for (Map.Entry<JobType, Integer> entry : rateLimits.entrySet()) {
+    for (Map.Entry<JobExecutionType, Integer> entry : rateLimits.entrySet()) {
       if (entry.getValue() > 0) {
         log.info("Rate limit for " + entry.getKey() + ": " + entry.getValue() + " jobs/minute");
         anyConfigured = true;

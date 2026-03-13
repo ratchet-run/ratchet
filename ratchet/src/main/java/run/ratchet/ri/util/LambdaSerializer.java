@@ -2,6 +2,7 @@ package run.ratchet.ri.util;
 
 import run.ratchet.api.BatchContext;
 import run.ratchet.api.JobResult;
+import run.ratchet.api.SerializableFunction;
 import run.ratchet.api.SerializablePredicate;
 import jakarta.enterprise.context.ApplicationScoped;
 import java.io.ByteArrayInputStream;
@@ -180,6 +181,45 @@ public class LambdaSerializer {
       return null;
     } catch (Exception e) {
       log.log(Level.SEVERE, "Failed to deserialize JobResult predicate", e);
+      return null;
+    }
+  }
+
+  /**
+   * Deserializes a result-value function from a Base64-encoded string.
+   *
+   * @param serialized the Base64-encoded serialized function
+   * @return the deserialized function, or null if deserialization fails
+   */
+  @SuppressWarnings("unchecked")
+  public SerializableFunction<Object, Boolean> deserializeResultFunction(String serialized) {
+    if (serialized == null || serialized.trim().isEmpty()) {
+      return null;
+    }
+
+    try {
+      byte[] bytes = Base64.getDecoder().decode(serialized);
+
+      try (ByteArrayInputStream bais = new ByteArrayInputStream(bytes);
+          ObjectInputStream ois = createSecureObjectInputStream(bais)) {
+
+        Object obj = ois.readObject();
+
+        if (obj instanceof SerializableFunction<?, ?>) {
+          return (SerializableFunction<Object, Boolean>) obj;
+        }
+
+        log.warning("Deserialized object is not a SerializableFunction: " + obj.getClass());
+        return null;
+      }
+    } catch (InvalidClassException e) {
+      log.log(
+          Level.SEVERE,
+          "Security: Blocked deserialization of unauthorized class in result function",
+          e);
+      return null;
+    } catch (Exception e) {
+      log.log(Level.SEVERE, "Failed to deserialize result function", e);
       return null;
     }
   }

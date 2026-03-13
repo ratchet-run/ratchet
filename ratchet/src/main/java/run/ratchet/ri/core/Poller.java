@@ -1,5 +1,6 @@
 package run.ratchet.ri.core;
 
+import run.ratchet.ri.util.SchedulerConfig;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.spi.JobClaimStore;
@@ -105,7 +106,15 @@ public class Poller {
       return;
     }
 
-    this.strategy = new PollingStrategy();
+    this.strategy =
+        new PollingStrategy(
+            SchedulerConfig.getPollerBurstDelayMs(),
+            SchedulerConfig.getPollerMinDelayMs(),
+            SchedulerConfig.getPollerMaxDelayMs(),
+            SchedulerConfig.getPollerDeepIdleDelayMs(),
+            SchedulerConfig.getPollerDeepIdleThresholdMs(),
+            SchedulerConfig.getPollerIdleThreshold(),
+            batchSize);
 
     pollerScheduler.start();
 

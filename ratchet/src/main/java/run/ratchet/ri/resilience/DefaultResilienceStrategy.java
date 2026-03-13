@@ -1,6 +1,7 @@
 package run.ratchet.ri.resilience;
 
 import run.ratchet.spi.ResilienceStrategy;
+import java.time.Duration;
 import java.util.concurrent.Callable;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -10,6 +11,11 @@ import java.util.logging.Logger;
  *
  * <p>Delegates to the {@link CircuitBreakerRegistry} for circuit breaker management. If the circuit
  * is OPEN, throws {@link ServiceUnavailableException} without executing the task.
+ *
+ * <p>This class is intentionally not annotated with CDI annotations. The default instance is
+ * produced by {@code RatchetProducer}. Users may override by providing their own
+ * {@code @ApplicationScoped ResilienceStrategy} bean (e.g., backed by Resilience4j or MicroProfile
+ * Fault Tolerance).
  */
 public class DefaultResilienceStrategy implements ResilienceStrategy {
 
@@ -36,5 +42,10 @@ public class DefaultResilienceStrategy implements ResilienceStrategy {
   public boolean isServiceAvailable(String serviceName) {
     CircuitBreaker.State state = registry.getBreakerState(serviceName);
     return state == null || state != CircuitBreaker.State.OPEN;
+  }
+
+  @Override
+  public Duration getRetryDelay(String serviceName) {
+    return Duration.ofMillis(registry.getBreaker(serviceName).getWaitDurationMs());
   }
 }

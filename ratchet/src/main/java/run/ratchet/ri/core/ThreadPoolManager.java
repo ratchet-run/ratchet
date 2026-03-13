@@ -1,8 +1,8 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.api.JobType;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.MetricsCollector;
+import run.ratchet.store.entity.JobExecutionType;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -17,12 +17,13 @@ import java.util.logging.Logger;
  * <p>The ThreadPoolManager implements a sophisticated resource management strategy:
  *
  * <ul>
- *   <li><b>Type Isolation:</b> Each JobType gets its own concurrency limit to prevent starvation
+ *   <li><b>Type Isolation:</b> Each execution type gets its own concurrency limit to prevent
+ *       starvation
  *   <li><b>Capacity Management:</b> Semaphore-based permits ensure pools don't become overloaded
  *   <li><b>Virtual Thread Support:</b> Seamlessly switches between platform and virtual threads
  * </ul>
  *
- * @see JobType for the different job type categories
+ * @see JobExecutionType for the internal execution categories
  * @see JobExecutionCoordinator for job submission to these pools
  */
 public class ThreadPoolManager {
@@ -31,15 +32,19 @@ public class ThreadPoolManager {
 
   private static final int DEFAULT_VIRTUAL_THREAD_LIMIT = 1000;
 
-  private final Map<JobType, Semaphore> concurrencyLimits = new EnumMap<>(JobType.class);
-  private final Map<JobType, AtomicInteger> virtualThreadCounts = new EnumMap<>(JobType.class);
-  private final Map<JobType, Integer> virtualThreadLimits = new EnumMap<>(JobType.class);
-  private final Map<JobType, AtomicInteger> activeCounts = new EnumMap<>(JobType.class);
+  private final Map<JobExecutionType, Semaphore> concurrencyLimits =
+      new EnumMap<>(JobExecutionType.class);
+  private final Map<JobExecutionType, AtomicInteger> virtualThreadCounts =
+      new EnumMap<>(JobExecutionType.class);
+  private final Map<JobExecutionType, Integer> virtualThreadLimits =
+      new EnumMap<>(JobExecutionType.class);
+  private final Map<JobExecutionType, AtomicInteger> activeCounts =
+      new EnumMap<>(JobExecutionType.class);
 
   private final ExecutorProvider executorProvider;
   private final MetricsCollector metricsCollector;
   private final boolean useVirtualThreads;
-  private final Map<JobType, Integer> maxConcurrencyMap;
+  private final Map<JobExecutionType, Integer> maxConcurrencyMap;
 
   // Required by CDI proxy
   protected ThreadPoolManager() {
@@ -61,7 +66,7 @@ public class ThreadPoolManager {
       ExecutorProvider executorProvider,
       MetricsCollector metricsCollector,
       boolean useVirtualThreads,
-      Map<JobType, Integer> maxConcurrencyMap) {
+      Map<JobExecutionType, Integer> maxConcurrencyMap) {
     this.executorProvider = executorProvider;
     this.metricsCollector = metricsCollector;
     this.useVirtualThreads = useVirtualThreads;
@@ -76,21 +81,31 @@ public class ThreadPoolManager {
    * @param jobType the type of job to check capacity for
    * @return true if the pool can safely accept more work
    */
-  public boolean canAcceptWork(JobType jobType) {
+  public boolean canAcceptWork(JobExecutionType jobType) {
+    return getAvailableCapacity(jobType) > 0;
+  }
+
+  /**
+   * Returns the currently available execution capacity for the given job type.
+   *
+   * @param jobType the type of job to inspect
+   * @return the number of additional jobs that can be accepted immediately
+   */
+  public int getAvailableCapacity(JobExecutionType jobType) {
     if (useVirtualThreads) {
       AtomicInteger counter = virtualThreadCounts.get(jobType);
       if (counter == null) {
-        return true;
+        return DEFAULT_VIRTUAL_THREAD_LIMIT;
       }
       int maxLimit = virtualThreadLimits.getOrDefault(jobType, DEFAULT_VIRTUAL_THREAD_LIMIT);
-      return counter.get() < maxLimit;
+      return Math.max(0, maxLimit - counter.get());
     }
 
     Semaphore semaphore = concurrencyLimits.get(jobType);
     if (semaphore == null) {
-      return false;
+      return 0;
     }
-    return semaphore.availablePermits() > 0;
+    return semaphore.availablePermits();
   }
 
   /**
@@ -121,7 +136,7 @@ public class ThreadPoolManager {
    * @return the ExecutorService for this job type
    * @throws IllegalStateException if called when virtual threads are enabled
    */
-  public ExecutorService getExecutor(JobType jobType) {
+  public ExecutorService getExecutor(JobExecutionType jobType) {
     if (useVirtualThreads) {
       throw new IllegalStateException(
           "getExecutor() should not be called when virtual threads are enabled. "
@@ -140,7 +155,7 @@ public class ThreadPoolManager {
     if (useVirtualThreads) {
       int totalActive = 0;
       int totalMax = 0;
-      for (JobType jobType : JobType.values()) {
+      for (JobExecutionType jobType : JobExecutionType.values()) {
         AtomicInteger counter = virtualThreadCounts.get(jobType);
         if (counter != null) {
           totalActive += counter.get();
@@ -152,7 +167,7 @@ public class ThreadPoolManager {
 
     int totalActive = 0;
     int totalMax = 0;
-    for (JobType jobType : JobType.values()) {
+    for (JobExecutionType jobType : JobExecutionType.values()) {
       AtomicInteger activeCount = activeCounts.get(jobType);
       if (activeCount != null) {
         totalActive += activeCount.get();
@@ -168,7 +183,7 @@ public class ThreadPoolManager {
    * @param jobType the type of job to get utilization for
    * @return the utilization percentage (0-100)
    */
-  public double getUtilization(JobType jobType) {
+  public double getUtilization(JobExecutionType jobType) {
     if (useVirtualThreads) {
       return 0;
     }
@@ -190,7 +205,7 @@ public class ThreadPoolManager {
    *
    * @param jobType the type of job
    */
-  public void releasePermit(JobType jobType) {
+  public void releasePermit(JobExecutionType jobType) {
     if (useVirtualThreads) {
       AtomicInteger counter = virtualThreadCounts.get(jobType);
       if (counter != null) {
@@ -212,7 +227,7 @@ public class ThreadPoolManager {
    * @param jobType the type of job
    * @return true if permit was acquired, false if no permits available
    */
-  public boolean tryAcquirePermit(JobType jobType) {
+  public boolean tryAcquirePermit(JobExecutionType jobType) {
     if (useVirtualThreads) {
       AtomicInteger counter = virtualThreadCounts.get(jobType);
       if (counter == null) {
@@ -252,10 +267,10 @@ public class ThreadPoolManager {
    *
    * @return a map of job types to their thread pool health information
    */
-  public Map<JobType, ThreadPoolHealth> getThreadPoolHealth() {
-    Map<JobType, ThreadPoolHealth> health = new EnumMap<>(JobType.class);
+  public Map<JobExecutionType, ThreadPoolHealth> getThreadPoolHealth() {
+    Map<JobExecutionType, ThreadPoolHealth> health = new EnumMap<>(JobExecutionType.class);
 
-    for (JobType jobType : JobType.values()) {
+    for (JobExecutionType jobType : JobExecutionType.values()) {
       if (useVirtualThreads) {
         health.put(jobType, new ThreadPoolHealth(jobType, true, 0, 0, 0, 0, 0));
       } else {
@@ -282,7 +297,7 @@ public class ThreadPoolManager {
   }
 
   private void init() {
-    for (JobType jobType : JobType.values()) {
+    for (JobExecutionType jobType : JobExecutionType.values()) {
       int maxConcurrency = getMaxConcurrency(jobType);
 
       if (useVirtualThreads) {
@@ -301,7 +316,7 @@ public class ThreadPoolManager {
                 : "managed executors with semaphore-based limiting"));
   }
 
-  private int getVirtualThreadLimit(JobType jobType) {
+  private int getVirtualThreadLimit(JobExecutionType jobType) {
     String envKey = "VIRTUAL_THREAD_LIMIT_" + jobType.name();
     String value = System.getenv(envKey);
     if (value != null && !value.isBlank()) {
@@ -320,7 +335,7 @@ public class ThreadPoolManager {
     return DEFAULT_VIRTUAL_THREAD_LIMIT;
   }
 
-  private int getMaxConcurrency(JobType jobType) {
+  private int getMaxConcurrency(JobExecutionType jobType) {
     return maxConcurrencyMap.getOrDefault(jobType, 10);
   }
 
@@ -336,7 +351,7 @@ public class ThreadPoolManager {
    * @param rejectionCount total number of jobs rejected due to capacity
    */
   public record ThreadPoolHealth(
-      JobType jobType,
+      JobExecutionType jobType,
       boolean isVirtual,
       int corePoolSize,
       int maxPoolSize,

@@ -1,9 +1,9 @@
 package run.ratchet.ri.core;
 
 import run.ratchet.api.JobPriority;
-import run.ratchet.api.JobType;
 import run.ratchet.spi.ClusterCoordinator;
 import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.store.entity.JobExecutionType;
 import jakarta.annotation.Resource;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -79,7 +79,7 @@ public class JobWakeupService {
    * @param priority the job priority
    * @param delay the scheduled delay (zero means immediate execution)
    */
-  public void notifyIfNeeded(JobType jobType, JobPriority priority, Duration delay) {
+  public void notifyIfNeeded(JobExecutionType jobType, JobPriority priority, Duration delay) {
     if (!enabled) {
       return;
     }
@@ -94,16 +94,16 @@ public class JobWakeupService {
     log.info("JobWakeupService initialized with ClusterCoordinator");
   }
 
-  boolean shouldNotify(JobType jobType, JobPriority priority, Duration delay) {
+  boolean shouldNotify(JobExecutionType jobType, JobPriority priority, Duration delay) {
     if (priority == JobPriority.CRITICAL) {
       return true;
     }
 
-    if (jobType == JobType.SINGLE && (delay == null || delay.isZero())) {
+    if (jobType == JobExecutionType.SINGLE && (delay == null || delay.isZero())) {
       return true;
     }
 
-    return jobType == JobType.BATCH_PARENT;
+    return jobType == JobExecutionType.BATCH_PARENT;
   }
 
   private void publishNotification(JobPriority priority) {

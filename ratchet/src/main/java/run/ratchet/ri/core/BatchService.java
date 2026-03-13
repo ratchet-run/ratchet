@@ -163,12 +163,19 @@ public class BatchService {
    * @return the number of batches that were recovered
    */
   public int recoverStuckBatches() {
-    // Delegate to store-level stuck batch detection; implementations should handle
-    // finding batches where completed_items + failed_items = total_items
-    // but completion_processed is false, and marking them as complete.
-    // This is a simplified version; the actual query-based recovery requires
-    // store-specific native queries.
-    return 0;
+    int recovered = 0;
+    for (Long batchId : batchStore.findRecoverableBatchIds(100)) {
+      var batchOpt = batchStore.findBatchById(batchId);
+      if (batchOpt.isEmpty()) {
+        continue;
+      }
+
+      if (batchStore.markBatchCompleteIfReady(batchId)) {
+        processBatchCompletion(batchId, batchOpt.get());
+        recovered++;
+      }
+    }
+    return recovered;
   }
 
   /**
@@ -274,7 +281,7 @@ public class BatchService {
                     .ifPresent(
                         metrics ->
                             metricsCollector.jobCompleted(
-                                parentId, parent.getJobType(), metrics.getTotalDurationMs()));
+                                parentId, parent.getPublicJobType(), metrics.getTotalDurationMs()));
 
                 // Publish batch completion event
                 publishBatchEvent(batch);
@@ -303,7 +310,7 @@ public class BatchService {
         new BatchCompletingEvent(
             batch.getId(),
             null, // businessKey
-            JobType.BATCH_PARENT,
+            JobType.BATCH,
             JobPriority.NORMAL,
             "system",
             batch.getTotalItems(),

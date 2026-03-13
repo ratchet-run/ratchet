@@ -102,7 +102,7 @@ public class PostExecutionHandler {
    *
    * <ul>
    *   <li>BATCH_CHILD - marks batch child as succeeded
-   *   <li>CHAIN_STEP, WORKFLOW_BRANCH - schedules next workflow step
+   *   <li>SINGLE, CHAIN_STEP, WORKFLOW_BRANCH, WORKFLOW_JOIN - schedules next workflow step
    *   <li>Other types - no additional handling required
    * </ul>
    *
@@ -111,7 +111,10 @@ public class PostExecutionHandler {
   public void handleJobSuccess(JobEntity job) {
     switch (job.getJobType()) {
       case BATCH_CHILD -> markBatchChildSucceeded(job);
-      default -> scheduleNext(job);
+      case SINGLE, CHAIN_STEP, WORKFLOW_BRANCH, WORKFLOW_JOIN -> scheduleNext(job);
+      default -> {
+        // No additional post-success work for recurring or system jobs.
+      }
     }
     // Wake the poller so it picks up any newly created jobs (workflow branches, chain steps)
     pollerScheduler.wakeup();
@@ -124,7 +127,7 @@ public class PostExecutionHandler {
    *
    * <ul>
    *   <li>BATCH_CHILD - marks batch child as failed
-   *   <li>CHAIN_STEP, WORKFLOW_BRANCH - cancels the chain
+   *   <li>SINGLE, CHAIN_STEP, WORKFLOW_BRANCH, WORKFLOW_JOIN - moves to DLQ and schedules next
    *   <li>Other types - moves to DLQ
    * </ul>
    *
@@ -134,9 +137,12 @@ public class PostExecutionHandler {
   public void handlePermanentFailure(JobEntity job, Throwable ex) {
     switch (job.getJobType()) {
       case BATCH_CHILD -> markBatchChildFailed(job);
-      default -> {
+      case SINGLE, CHAIN_STEP, WORKFLOW_BRANCH, WORKFLOW_JOIN -> {
         moveToDlq(job, ex);
         scheduleNext(job);
+      }
+      default -> {
+        moveToDlq(job, ex);
       }
     }
     // Wake the poller so it picks up any newly created jobs (workflow branches, chain steps)

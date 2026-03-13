@@ -3,7 +3,6 @@ package run.ratchet.ri.core;
 import run.ratchet.api.BatchContext;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobPriority;
-import run.ratchet.api.JobType;
 import run.ratchet.api.SerializableCheckedConsumer;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.SerializableConsumer;
@@ -13,9 +12,9 @@ import run.ratchet.api.StreamingBatchContext;
 import run.ratchet.api.WorkflowBranch;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.ri.payload.JobPayloadFactory;
-import run.ratchet.ri.util.LambdaSerializer;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.BatchStore;
@@ -47,6 +46,7 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
     implements StreamingBatchBuilder<T> {
 
   private static final Logger log = Logger.getLogger(DefaultStreamingBatchBuilder.class.getName());
+  private static final int MIN_CHUNK_SIZE = 1;
   private static final int DEFAULT_CHUNK_SIZE = 100;
 
   private final String name;
@@ -54,7 +54,6 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
   private final BatchStore batchStore;
   private final TagStore tagStore;
   private final WorkflowConditionStore workflowConditionStore;
-  private final LambdaSerializer lambdaSerializer;
   private final JobWakeupService wakeupService;
 
   private final List<WorkflowBranch> workflowBranches = new ArrayList<>();
@@ -70,14 +69,12 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
       BatchStore batchStore,
       TagStore tagStore,
       WorkflowConditionStore workflowConditionStore,
-      LambdaSerializer lambdaSerializer,
       JobWakeupService wakeupService) {
     this.name = name;
     this.jobCrudStore = jobCrudStore;
     this.batchStore = batchStore;
     this.tagStore = tagStore;
     this.workflowConditionStore = workflowConditionStore;
-    this.lambdaSerializer = lambdaSerializer;
     this.wakeupService = wakeupService;
   }
 
@@ -96,6 +93,9 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
 
   @Override
   public StreamingBatchBuilder<T> withChunkSize(int size) {
+    if (size < MIN_CHUNK_SIZE) {
+      throw new IllegalArgumentException("Chunk size must be greater than zero");
+    }
     this.chunkSize = size;
     return this;
   }
@@ -124,31 +124,39 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
 
     // Create parent job
     JobEntity parent = new JobEntity();
-    parent.setJobType(JobType.BATCH_PARENT);
+    parent.setJobType(JobExecutionType.BATCH_PARENT);
     parent.setStatus(JobStatus.PENDING);
     parent.setPriority(JobPriority.NORMAL);
     parent.setScheduledTime(Instant.now());
     parent.setPayload(JobPayloadFactory.noop());
     parent.setIdempotencyKey(UUID.randomUUID().toString());
-    parent.setBusinessKey(name);
     JobEntity savedParent = jobCrudStore.save(parent);
     Long parentId = savedParent.getId();
 
     // Process stream in chunks, creating child jobs
     int totalItems = 0;
+    int chunksInserted = 0;
     List<T> chunk = new ArrayList<>(chunkSize);
 
-    var iterator = stream.iterator();
-    while (iterator.hasNext()) {
-      chunk.add(iterator.next());
-      if (chunk.size() >= chunkSize) {
-        totalItems += createChildJobs(parentId, chunk);
-        chunk.clear();
+    try {
+      var iterator = stream.iterator();
+      while (iterator.hasNext()) {
+        chunk.add(iterator.next());
+        if (chunk.size() >= chunkSize) {
+          totalItems += createChildJobs(parentId, chunk);
+          chunksInserted++;
+          invokeLocalProgressHook(parentId, totalItems, chunksInserted);
+          chunk.clear();
+        }
       }
-    }
-    // Flush remaining items
-    if (!chunk.isEmpty()) {
-      totalItems += createChildJobs(parentId, chunk);
+
+      if (!chunk.isEmpty()) {
+        totalItems += createChildJobs(parentId, chunk);
+        chunksInserted++;
+        invokeLocalProgressHook(parentId, totalItems, chunksInserted);
+      }
+    } finally {
+      stream.close();
     }
 
     // Create batch entity
@@ -168,7 +176,7 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
     }
 
     // Notify wakeup service
-    wakeupService.notifyIfNeeded(JobType.BATCH_PARENT, JobPriority.NORMAL, Duration.ZERO);
+    wakeupService.notifyIfNeeded(JobExecutionType.BATCH_PARENT, JobPriority.NORMAL, Duration.ZERO);
 
     log.info(
         "Streaming batch '"
@@ -218,7 +226,7 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
     int count = 0;
     for (T item : items) {
       JobEntity child = new JobEntity();
-      child.setJobType(JobType.BATCH_CHILD);
+      child.setJobType(JobExecutionType.BATCH_CHILD);
       child.setStatus(JobStatus.PENDING);
       child.setPriority(JobPriority.NORMAL);
       child.setScheduledTime(Instant.now());
@@ -233,7 +241,7 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
 
   private void createWorkflowBranch(Long parentId, WorkflowBranch branch) {
     JobEntity branchJob = new JobEntity();
-    branchJob.setJobType(JobType.WORKFLOW_BRANCH);
+    branchJob.setJobType(JobExecutionType.WORKFLOW_BRANCH);
     branchJob.setStatus(JobStatus.PENDING);
     branchJob.setPriority(JobPriority.NORMAL);
     branchJob.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
@@ -251,5 +259,17 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
       condition.setConditionExpressionSerialized(branch.condition().expression());
     }
     workflowConditionStore.saveCondition(condition);
+  }
+
+  private void invokeLocalProgressHook(Long batchId, int processedItems, int chunksInserted) {
+    if (localProgressHook == null) {
+      return;
+    }
+
+    try {
+      localProgressHook.accept(new StreamingBatchContext(batchId, processedItems, chunksInserted));
+    } catch (Exception e) {
+      log.warning("Streaming progress hook threw exception: " + e.getMessage());
+    }
   }
 }

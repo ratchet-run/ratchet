@@ -1,19 +1,22 @@
 package run.ratchet.ri.core;
 
 import run.ratchet.api.JobPriority;
-import run.ratchet.api.JobType;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.spi.JobCrudStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.PriorityBlockingQueue;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -29,8 +32,8 @@ import java.util.logging.Logger;
  * <ul>
  *   <li><b>Priority Ordering:</b> Jobs are ordered by priority (descending) then by scheduled time
  *       (ascending), so urgent jobs execute first
- *   <li><b>Type Isolation:</b> Separate buffers per {@link JobType} prevent one job type from
- *       starving others
+ *   <li><b>Type Isolation:</b> Separate buffers per {@link JobExecutionType} prevent one execution
+ *       type from starving others
  *   <li><b>Bounded Size:</b> Each buffer is limited to {@link #MAX_BUFFER_SIZE_PER_TYPE} entries to
  *       prevent memory exhaustion under sustained overload
  *   <li><b>Thread Safety:</b> Uses {@link PriorityBlockingQueue} for safe concurrent access
@@ -45,7 +48,7 @@ import java.util.logging.Logger;
  * </pre>
  *
  * @see RetryBufferDrainer for the periodic drain mechanism
- * @see JobType for the buffer partitioning dimension
+ * @see JobExecutionType for the buffer partitioning dimension
  */
 @ApplicationScoped
 @Transactional
@@ -91,7 +94,11 @@ public class RetryBufferManager {
    * priority ordering. Jobs are compared first by priority (higher ordinal = higher priority,
    * reversed for descending order) then by scheduled time (earlier = first).
    */
-  private final Map<JobType, Queue<BufferedJob>> retryBuffers = new EnumMap<>(JobType.class);
+  private final Map<JobExecutionType, Queue<BufferedJob>> retryBuffers =
+      new EnumMap<>(JobExecutionType.class);
+
+  private final Map<JobExecutionType, ReentrantLock> bufferLocks =
+      new EnumMap<>(JobExecutionType.class);
 
   /**
    * Initializes retry buffers for all job types with priority-based ordering.
@@ -115,8 +122,9 @@ public class RetryBufferManager {
                 (BufferedJob job) -> job.priority().ordinal(), Comparator.reverseOrder())
             .thenComparing(BufferedJob::scheduledTime);
 
-    for (JobType jobType : JobType.values()) {
+    for (JobExecutionType jobType : JobExecutionType.values()) {
       retryBuffers.put(jobType, new PriorityBlockingQueue<>(100, jobComparator));
+      bufferLocks.put(jobType, new ReentrantLock());
     }
   }
 
@@ -136,8 +144,10 @@ public class RetryBufferManager {
    */
   public boolean forceOffer(JobEntity job) {
     Queue<BufferedJob> buffer = retryBuffers.get(job.getJobType());
+    ReentrantLock lock = bufferLocks.get(job.getJobType());
 
-    synchronized (buffer) {
+    lock.lock();
+    try {
       // Enforce hard cap even for forced offers to prevent memory exhaustion
       if (buffer.size() >= HARD_CAP_PER_TYPE) {
         log.severe(
@@ -164,6 +174,8 @@ public class RetryBufferManager {
       }
 
       return buffer.offer(BufferedJob.from(job));
+    } finally {
+      lock.unlock();
     }
   }
 
@@ -176,8 +188,71 @@ public class RetryBufferManager {
    * @param jobType the job type to get the buffer for
    * @return the priority queue for the specified job type
    */
-  public Queue<BufferedJob> getBuffer(JobType jobType) {
+  public Queue<BufferedJob> getBuffer(JobExecutionType jobType) {
     return retryBuffers.get(jobType);
+  }
+
+  /**
+   * Thread-safe poll from the retry buffer for a specific job type.
+   *
+   * <p>This method synchronizes on the buffer to ensure safe access from concurrent drain
+   * operations. Prefer this over {@code getBuffer(jobType).poll()} in production code paths.
+   *
+   * @param jobType the job type to poll from
+   * @return the highest-priority buffered job, or null if the buffer is empty
+   */
+  public BufferedJob pollFromBuffer(JobExecutionType jobType) {
+    Queue<BufferedJob> buffer = retryBuffers.get(jobType);
+    ReentrantLock lock = bufferLocks.get(jobType);
+    lock.lock();
+    try {
+      return buffer.poll();
+    } finally {
+      lock.unlock();
+    }
+  }
+
+  /**
+   * Polls up to {@code limit} buffered jobs for a single job type while preserving priority order.
+   *
+   * @param jobType the job type to drain
+   * @param limit maximum number of entries to remove
+   * @return buffered jobs in poll order
+   */
+  public List<BufferedJob> pollBatchFromBuffer(JobExecutionType jobType, int limit) {
+    Queue<BufferedJob> buffer = retryBuffers.get(jobType);
+    ReentrantLock lock = bufferLocks.get(jobType);
+    lock.lock();
+    try {
+      List<BufferedJob> jobs = new ArrayList<>(Math.max(limit, 0));
+      for (int i = 0; i < limit; i++) {
+        BufferedJob buffered = buffer.poll();
+        if (buffered == null) {
+          break;
+        }
+        jobs.add(buffered);
+      }
+      return jobs;
+    } finally {
+      lock.unlock();
+    }
+  }
+
+  /**
+   * Returns whether the retry buffer for a specific job type is empty.
+   *
+   * @param jobType the job type to check
+   * @return true if the buffer is empty
+   */
+  public boolean isBufferEmpty(JobExecutionType jobType) {
+    Queue<BufferedJob> buffer = retryBuffers.get(jobType);
+    ReentrantLock lock = bufferLocks.get(jobType);
+    lock.lock();
+    try {
+      return buffer.isEmpty();
+    } finally {
+      lock.unlock();
+    }
   }
 
   /**
@@ -192,11 +267,15 @@ public class RetryBufferManager {
    */
   public boolean offer(JobEntity job) {
     Queue<BufferedJob> buffer = retryBuffers.get(job.getJobType());
-    synchronized (buffer) {
+    ReentrantLock lock = bufferLocks.get(job.getJobType());
+    lock.lock();
+    try {
       if (buffer.size() >= MAX_BUFFER_SIZE_PER_TYPE) {
         return false;
       }
       return buffer.offer(BufferedJob.from(job));
+    } finally {
+      lock.unlock();
     }
   }
 
@@ -210,9 +289,14 @@ public class RetryBufferManager {
    */
   public int totalSize() {
     int total = 0;
-    for (Queue<BufferedJob> buffer : retryBuffers.values()) {
-      synchronized (buffer) {
+    for (Map.Entry<JobExecutionType, Queue<BufferedJob>> entry : retryBuffers.entrySet()) {
+      ReentrantLock lock = bufferLocks.get(entry.getKey());
+      lock.lock();
+      try {
+        Queue<BufferedJob> buffer = entry.getValue();
         total += buffer.size();
+      } finally {
+        lock.unlock();
       }
     }
     return total;
@@ -227,9 +311,11 @@ public class RetryBufferManager {
    */
   public void flushOnShutdown() {
     int flushed = 0;
-    for (Map.Entry<JobType, Queue<BufferedJob>> entry : retryBuffers.entrySet()) {
+    for (Map.Entry<JobExecutionType, Queue<BufferedJob>> entry : retryBuffers.entrySet()) {
       Queue<BufferedJob> buffer = entry.getValue();
-      synchronized (buffer) {
+      ReentrantLock lock = bufferLocks.get(entry.getKey());
+      lock.lock();
+      try {
         BufferedJob buffered;
         while ((buffered = buffer.poll()) != null) {
           try {
@@ -250,6 +336,8 @@ public class RetryBufferManager {
                 e);
           }
         }
+      } finally {
+        lock.unlock();
       }
     }
     if (flushed > 0) {
@@ -263,7 +351,7 @@ public class RetryBufferManager {
    * entity is loaded from the database only when the job is drained for resubmission.
    */
   public record BufferedJob(
-      Long jobId, JobType jobType, JobPriority priority, Instant scheduledTime) {
+      Long jobId, JobExecutionType jobType, JobPriority priority, Instant scheduledTime) {
 
     /** Creates a BufferedJob from a full JobEntity. */
     static BufferedJob from(JobEntity job) {

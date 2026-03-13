@@ -61,7 +61,7 @@ public class ExecutionObserver {
    * @param job the job entity being started
    */
   public void recordJobStart(JobEntity job) {
-    metricsCollector.jobStarted(job.getId(), job.getJobType(), job.getPriority());
+    metricsCollector.jobStarted(job.getId(), job.getPublicJobType(), job.getPriority());
   }
 
   /**
@@ -70,7 +70,7 @@ public class ExecutionObserver {
    * @param job the job entity that succeeded
    */
   public void recordJobSuccess(JobEntity job) {
-    metricsCollector.jobCompleted(job.getId(), job.getJobType(), 0);
+    metricsCollector.jobCompleted(job.getId(), job.getPublicJobType(), 0);
   }
 
   /**
@@ -80,7 +80,7 @@ public class ExecutionObserver {
    * @param ex the exception that caused the failure
    */
   public void recordJobFailure(JobEntity job, Throwable ex) {
-    metricsCollector.jobFailed(job.getId(), job.getJobType(), ex, job.getAttempts());
+    metricsCollector.jobFailed(job.getId(), job.getPublicJobType(), ex, job.getAttempts());
   }
 
   /**
@@ -90,7 +90,7 @@ public class ExecutionObserver {
    */
   public void recordJobCancellation(JobEntity job) {
     // Cancellation is treated as a completion with zero execution time
-    metricsCollector.jobCompleted(job.getId(), job.getJobType(), 0);
+    metricsCollector.jobCompleted(job.getId(), job.getPublicJobType(), 0);
   }
 
   /**
@@ -99,7 +99,7 @@ public class ExecutionObserver {
    * @param job the job entity being retried
    */
   public void recordJobRetry(JobEntity job) {
-    metricsCollector.jobFailed(job.getId(), job.getJobType(), null, job.getAttempts());
+    metricsCollector.jobFailed(job.getId(), job.getPublicJobType(), null, job.getAttempts());
   }
 
   /**

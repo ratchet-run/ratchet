@@ -1,7 +1,5 @@
 package run.ratchet.ri.core;
 
-import jakarta.enterprise.context.ApplicationScoped;
-
 /**
  * Pure computation class implementing the adaptive polling delay algorithm.
  *
@@ -23,12 +21,15 @@ import jakarta.enterprise.context.ApplicationScoped;
  *
  * @see Poller
  */
-@ApplicationScoped
 public class PollingStrategy {
 
   private static final long ABSOLUTE_MIN_DELAY_MS = 50;
   private static final long AGGRESSIVE_BACKOFF_THRESHOLD_MS = 30_000;
   private static final int ROLLING_WINDOW_SIZE = 10;
+  private static final double HIGH_LOAD_THRESHOLD = 0.8;
+  private static final double LOW_LOAD_THRESHOLD = 0.2;
+  private static final long FLOOR_DELAY_MS = 100;
+  private static final int CONSECUTIVE_FULL_BATCH_THRESHOLD = 3;
 
   private static final long DEFAULT_BURST_DELAY_MS = 500;
   private static final long DEFAULT_MIN_DELAY_MS = 2000;
@@ -103,7 +104,7 @@ public class PollingStrategy {
    *
    * @return current delay in milliseconds
    */
-  public long getCurrentDelay() {
+  public synchronized long getCurrentDelay() {
     return currentDelayMs;
   }
 
@@ -112,7 +113,7 @@ public class PollingStrategy {
    *
    * @return immutable statistics record
    */
-  public PollingStats getStats() {
+  public synchronized PollingStats getStats() {
     double avgRecentJobs = 0;
     for (long count : recentJobCounts) {
       avgRecentJobs += count;
@@ -131,7 +132,7 @@ public class PollingStrategy {
   }
 
   /** Called when the poller receives a wakeup signal. Enters burst mode with aggressive polling. */
-  public void onWakeup() {
+  public synchronized void onWakeup() {
     lastJobFoundTime = System.currentTimeMillis();
     inDeepIdle = false;
     inBurstMode = true;
@@ -145,7 +146,7 @@ public class PollingStrategy {
    * @param pollStartTime timestamp when the poll started
    * @return the recommended delay before the next poll in milliseconds
    */
-  public long recordPollResult(int jobCount, long pollStartTime) {
+  public synchronized long recordPollResult(int jobCount, long pollStartTime) {
     recentJobCounts[recentJobCountIndex] = jobCount;
     recentJobCountIndex = (recentJobCountIndex + 1) % ROLLING_WINDOW_SIZE;
 
@@ -163,7 +164,7 @@ public class PollingStrategy {
    *
    * @param avgUtilization average utilization percentage (0-100) across thread pools
    */
-  public void updateSystemLoadFactor(double avgUtilization) {
+  public synchronized void updateSystemLoadFactor(double avgUtilization) {
     this.systemLoadFactor = 0.5 + (avgUtilization / 100.0) * 1.5;
   }
 
@@ -172,7 +173,7 @@ public class PollingStrategy {
    *
    * @return true if in deep idle mode
    */
-  public boolean isInDeepIdle() {
+  public synchronized boolean isInDeepIdle() {
     return inDeepIdle;
   }
 
@@ -181,7 +182,7 @@ public class PollingStrategy {
    *
    * @return true if in burst mode
    */
-  public boolean isInBurstMode() {
+  public synchronized boolean isInBurstMode() {
     return inBurstMode;
   }
 
@@ -201,16 +202,16 @@ public class PollingStrategy {
     long effectiveMinDelay = inBurstMode ? burstDelayMs : minDelayMs;
     long baseDelay = effectiveMinDelay;
 
-    if (avgRecentJobs > batchSize * 0.8) {
-      baseDelay = Math.max(effectiveMinDelay / 2, 100);
-    } else if (avgRecentJobs < batchSize * 0.2 && !inBurstMode) {
+    if (avgRecentJobs > batchSize * HIGH_LOAD_THRESHOLD) {
+      baseDelay = Math.max(effectiveMinDelay / 2, FLOOR_DELAY_MS);
+    } else if (avgRecentJobs < batchSize * LOW_LOAD_THRESHOLD && !inBurstMode) {
       baseDelay = effectiveMinDelay * 2;
     }
 
-    if (consecutiveFullBatches >= 3) {
+    if (consecutiveFullBatches >= CONSECUTIVE_FULL_BATCH_THRESHOLD) {
       baseDelay = Math.max(effectiveMinDelay / 4, ABSOLUTE_MIN_DELAY_MS);
     } else if (consecutiveFullBatches >= 1) {
-      baseDelay = Math.max(baseDelay / 2, 100);
+      baseDelay = Math.max(baseDelay / 2, FLOOR_DELAY_MS);
     }
 
     baseDelay = (long) (baseDelay / systemLoadFactor);

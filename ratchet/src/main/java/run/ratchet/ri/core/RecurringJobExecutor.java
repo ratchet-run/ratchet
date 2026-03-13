@@ -2,8 +2,8 @@ package run.ratchet.ri.core;
 
 import com.cronutils.model.Cron;
 import com.cronutils.model.time.ExecutionTime;
-import run.ratchet.api.JobType;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.spi.JobClaimStore;
 import run.ratchet.store.spi.JobCrudStore;
@@ -146,7 +146,7 @@ public class RecurringJobExecutor {
   private JobEntity createChildFromMaster(JobEntity master, Instant fireTs) {
     JobEntity child = new JobEntity();
     child.setPayload(master.getPayload());
-    child.setJobType(JobType.SINGLE);
+    child.setJobType(JobExecutionType.SINGLE);
     child.setStatus(JobStatus.PENDING);
     child.setScheduledTime(fireTs);
     child.setPriority(master.getPriority());

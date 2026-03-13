@@ -7,14 +7,13 @@ import run.ratchet.api.JobOptions;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.JobSubmitter;
-import run.ratchet.api.JobType;
 import run.ratchet.api.RecurringJobBuilder;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.StreamingBatchBuilder;
 import run.ratchet.api.WorkflowBranch;
 import run.ratchet.ri.payload.JobPayloadFactory;
-import run.ratchet.ri.util.LambdaSerializer;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.entity.WorkflowConditionEntity;
@@ -53,7 +52,8 @@ import java.util.logging.Logger;
  */
 @ApplicationScoped
 @Transactional
-public class DefaultJobSchedulerService implements JobSchedulerService, JobSubmitter {
+public class DefaultJobSchedulerService
+    implements JobSchedulerService, JobSubmitter, RecurringAnnotationMaintenanceService {
 
   private static final Logger log = Logger.getLogger(DefaultJobSchedulerService.class.getName());
 
@@ -64,7 +64,6 @@ public class DefaultJobSchedulerService implements JobSchedulerService, JobSubmi
   private final TagStore tagStore;
   private final WorkflowConditionStore workflowConditionStore;
   private final JobWakeupService wakeupService;
-  private final LambdaSerializer lambdaSerializer;
   private final RecurringScheduler recurringScheduler;
 
   // Required by CDI proxy
@@ -76,7 +75,6 @@ public class DefaultJobSchedulerService implements JobSchedulerService, JobSubmi
     this.tagStore = null;
     this.workflowConditionStore = null;
     this.wakeupService = null;
-    this.lambdaSerializer = null;
     this.recurringScheduler = null;
   }
 
@@ -89,7 +87,6 @@ public class DefaultJobSchedulerService implements JobSchedulerService, JobSubmi
       TagStore tagStore,
       WorkflowConditionStore workflowConditionStore,
       JobWakeupService wakeupService,
-      LambdaSerializer lambdaSerializer,
       RecurringScheduler recurringScheduler) {
     this.eventPublisher = eventPublisher;
     this.jobStatusStore = jobStatusStore;
@@ -98,7 +95,6 @@ public class DefaultJobSchedulerService implements JobSchedulerService, JobSubmi
     this.tagStore = tagStore;
     this.workflowConditionStore = workflowConditionStore;
     this.wakeupService = wakeupService;
-    this.lambdaSerializer = lambdaSerializer;
     this.recurringScheduler = recurringScheduler;
   }
 
@@ -154,25 +150,13 @@ public class DefaultJobSchedulerService implements JobSchedulerService, JobSubmi
   @Override
   public BatchBuilder enqueueBatch(String name) {
     return new DefaultBatchBuilder(
-        name,
-        jobCrudStore,
-        batchStore,
-        tagStore,
-        workflowConditionStore,
-        lambdaSerializer,
-        wakeupService);
+        name, jobCrudStore, batchStore, tagStore, workflowConditionStore, wakeupService);
   }
 
   @Override
   public <T extends Serializable> StreamingBatchBuilder<T> streamingBatch(String name) {
     return new DefaultStreamingBatchBuilder<>(
-        name,
-        jobCrudStore,
-        batchStore,
-        tagStore,
-        workflowConditionStore,
-        lambdaSerializer,
-        wakeupService);
+        name, jobCrudStore, batchStore, tagStore, workflowConditionStore, wakeupService);
   }
 
   @Override
@@ -310,6 +294,10 @@ public class DefaultJobSchedulerService implements JobSchedulerService, JobSubmi
   }
 
   @Override
+  public int cancelRecurringJobByBusinessKey(String businessKey) {
+    return jobStatusStore.cancelRecurringJobByBusinessKey(businessKey);
+  }
+
   public int cancelOrphanedRecurringAnnotationJobs(
       Set<String> registeredIds, Instant nodeStartTime) {
     return jobStatusStore.cancelOrphanedRecurringAnnotationJobs(registeredIds, nodeStartTime);
@@ -360,7 +348,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService, JobSubmi
     // Build the job entity
     JobOptions opts = builder.opts();
     JobEntity job = new JobEntity();
-    job.setJobType(JobType.SINGLE);
+    job.setJobType(JobExecutionType.SINGLE);
     job.setStatus(JobStatus.PENDING);
     job.setPriority(opts.priority());
     job.setScheduledTime(Instant.now().plus(builder.delay()));
@@ -416,7 +404,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService, JobSubmi
     Long prevId = predecessorId;
     for (SerializableCheckedRunnable chainTask : chainTasks) {
       JobEntity step = new JobEntity();
-      step.setJobType(JobType.CHAIN_STEP);
+      step.setJobType(JobExecutionType.CHAIN_STEP);
       step.setStatus(JobStatus.PENDING);
       step.setPriority(opts.priority());
       step.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
@@ -437,7 +425,7 @@ public class DefaultJobSchedulerService implements JobSchedulerService, JobSubmi
     for (WorkflowBranch branch : branches) {
       // Create a child job for the branch (locked until condition is evaluated)
       JobEntity branchJob = new JobEntity();
-      branchJob.setJobType(JobType.WORKFLOW_BRANCH);
+      branchJob.setJobType(JobExecutionType.WORKFLOW_BRANCH);
       branchJob.setStatus(JobStatus.PENDING);
       branchJob.setPriority(JobPriority.NORMAL);
       branchJob.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);

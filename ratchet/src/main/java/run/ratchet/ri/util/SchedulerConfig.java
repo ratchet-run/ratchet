@@ -186,6 +186,10 @@ public final class SchedulerConfig {
 
   private static String getEnvOrDefault(String key, String defaultValue) {
     String value = System.getenv(key);
+    if (value != null && !value.isEmpty()) {
+      return value;
+    }
+    value = System.getProperty(key);
     return (value != null && !value.isEmpty()) ? value : defaultValue;
   }
 

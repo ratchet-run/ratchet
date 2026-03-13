@@ -34,10 +34,17 @@ public class DynamicHeartbeatCalculator {
 
   private static final Logger log = Logger.getLogger(DynamicHeartbeatCalculator.class.getName());
 
+  private static final long CACHE_TTL_MS = 5000;
+
   private final JobCrudStore jobCrudStore;
   private final long baseHeartbeatIntervalSeconds;
   private final long pollerMinDelayMs;
   private final long pollerMaxDelayMs;
+  private final Object cacheRefreshLock = new Object();
+
+  private volatile long cachedNodes;
+  private volatile long cachedPending;
+  private volatile long cacheTimestamp;
 
   // Required by CDI proxy
   protected DynamicHeartbeatCalculator() {
@@ -73,8 +80,9 @@ public class DynamicHeartbeatCalculator {
    */
   public long calculateHeartbeatInterval() {
     try {
-      long activeNodes = jobCrudStore.countActiveNodes();
-      long pendingJobs = jobCrudStore.countPendingJobs();
+      refreshCacheIfStale();
+      long activeNodes = cachedNodes;
+      long pendingJobs = cachedPending;
 
       long adjustedInterval =
           calculateNodeBasedInterval(baseHeartbeatIntervalSeconds, (int) activeNodes);
@@ -106,7 +114,8 @@ public class DynamicHeartbeatCalculator {
    */
   public long calculatePollerDelay() {
     try {
-      long pendingJobs = jobCrudStore.countPendingJobs();
+      refreshCacheIfStale();
+      long pendingJobs = cachedPending;
 
       if (pendingJobs == 0) {
         return pollerMaxDelayMs;
@@ -118,6 +127,24 @@ public class DynamicHeartbeatCalculator {
     } catch (Exception e) {
       log.log(Level.SEVERE, "Error calculating poller delay, using minimum", e);
       return pollerMinDelayMs;
+    }
+  }
+
+  private void refreshCacheIfStale() {
+    long now = System.currentTimeMillis();
+    if (now - cacheTimestamp <= CACHE_TTL_MS) {
+      return;
+    }
+
+    synchronized (cacheRefreshLock) {
+      long refreshedAt = System.currentTimeMillis();
+      if (refreshedAt - cacheTimestamp <= CACHE_TTL_MS) {
+        return;
+      }
+
+      cachedNodes = jobCrudStore.countActiveNodes();
+      cachedPending = jobCrudStore.countPendingJobs();
+      cacheTimestamp = refreshedAt;
     }
   }
 

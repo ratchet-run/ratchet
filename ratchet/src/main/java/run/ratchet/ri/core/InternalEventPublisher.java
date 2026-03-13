@@ -17,8 +17,16 @@ import java.util.logging.Logger;
 public class InternalEventPublisher {
   private static final Logger log = Logger.getLogger(InternalEventPublisher.class.getName());
   private final List<Consumer<Object>> listeners = new CopyOnWriteArrayList<>();
+  private final Event<Object> cdiEvent;
 
-  @Inject private Event<Object> cdiEvent;
+  protected InternalEventPublisher() {
+    this.cdiEvent = null;
+  }
+
+  @Inject
+  public InternalEventPublisher(Event<Object> cdiEvent) {
+    this.cdiEvent = cdiEvent;
+  }
 
   public void addListener(Consumer<Object> listener) {
     listeners.add(listener);

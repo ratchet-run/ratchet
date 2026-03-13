@@ -4,11 +4,11 @@ import com.cronutils.model.Cron;
 import com.cronutils.model.time.ExecutionTime;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobOptions;
-import run.ratchet.api.JobType;
 import run.ratchet.api.RecurringJobBuilder;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.TagStore;
@@ -41,6 +41,7 @@ public class DefaultRecurringJobBuilder implements RecurringJobBuilder {
 
   private JobOptions options = JobOptions.defaults();
   private List<String> tags = new ArrayList<>();
+  private String businessKey;
 
   DefaultRecurringJobBuilder(
       String cronExpr,
@@ -70,6 +71,12 @@ public class DefaultRecurringJobBuilder implements RecurringJobBuilder {
   }
 
   @Override
+  public RecurringJobBuilder withBusinessKey(String key) {
+    this.businessKey = (key != null && !key.isBlank()) ? key.trim() : null;
+    return this;
+  }
+
+  @Override
   public JobHandle submit() {
     // Validate and parse cron expression
     Cron cron = RecurringScheduler.PARSER.parse(cronExpr);
@@ -89,12 +96,13 @@ public class DefaultRecurringJobBuilder implements RecurringJobBuilder {
 
     // Create the recurring job entity
     JobEntity job = new JobEntity();
-    job.setJobType(JobType.RECURRING);
+    job.setJobType(JobExecutionType.RECURRING);
     job.setStatus(JobStatus.PENDING);
     job.setPriority(options.priority());
     job.setScheduledTime(Instant.now());
     job.setPayload(JobPayloadFactory.fromLambda(task));
     job.setIdempotencyKey(UUID.randomUUID().toString());
+    job.setBusinessKey(businessKey);
     job.setCronExpr(cronExpr);
     job.setZoneId(zone.getId());
     job.setNextFire(nextFire);

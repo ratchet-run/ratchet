@@ -1,6 +1,5 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.api.JobType;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.spi.JobCrudStore;
@@ -177,11 +176,11 @@ public class JobTimeoutHandler {
           jobCrudStore
               .findById(jobId)
               .ifPresent(
-                  job -> {
-                    if (job.getJobType() == JobType.BATCH_CHILD) {
-                      lifecycleFacade.markBatchChildFailed(job);
-                    }
-                  });
+                  job ->
+                      lifecycleFacade.handlePermanentFailure(
+                          job,
+                          new java.util.concurrent.TimeoutException(
+                              "Hard timeout exceeded (" + timeoutSec + "s)")));
         } else {
           log.info("Job " + jobId + " already in terminal state when timeout handler ran");
         }

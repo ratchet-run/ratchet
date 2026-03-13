@@ -120,7 +120,7 @@ public class ChainScheduler {
         c.setScheduledTime(Instant.now());
         jobCrudStore.save(c);
         // Update metrics - job is now visible in the queue
-        metricsCollector.jobStarted(c.getId(), c.getJobType(), c.getPriority());
+        metricsCollector.jobStarted(c.getId(), c.getPublicJobType(), c.getPriority());
         log.info("Chain step " + c.getId() + " unlocked (prev=" + finished.getId() + ")");
       }
     }

@@ -1,8 +1,8 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.api.JobType;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.spi.JobCrudStore;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -148,7 +148,7 @@ public class SubmissionFailureHandler {
    * @param jobType the job type (for permit release)
    * @param isFirstAttempt true if initial submission, false if from retry buffer
    */
-  public void handleRejection(JobEntity job, JobType jobType, boolean isFirstAttempt) {
+  public void handleRejection(JobEntity job, JobExecutionType jobType, boolean isFirstAttempt) {
     threadPoolManager.releasePermit(jobType);
 
     if (isFirstAttempt) {
@@ -180,7 +180,7 @@ public class SubmissionFailureHandler {
    * @param claim the rejected job claim DTO
    * @param jobType the job type (for permit release)
    */
-  public void handleRejection(JobClaimDto claim, JobType jobType) {
+  public void handleRejection(JobClaimDto claim, JobExecutionType jobType) {
     threadPoolManager.releasePermit(jobType);
 
     // Try reset first (DTO path is always first attempt from Poller)
@@ -211,7 +211,7 @@ public class SubmissionFailureHandler {
    * @param exception the exception that occurred
    */
   public void handleUnexpectedException(
-      JobEntity job, JobType jobType, boolean isFirstAttempt, Exception exception) {
+      JobEntity job, JobExecutionType jobType, boolean isFirstAttempt, Exception exception) {
     threadPoolManager.releasePermit(jobType);
     log.log(
         Level.SEVERE,
@@ -233,7 +233,8 @@ public class SubmissionFailureHandler {
    * @param jobType the job type (for permit release)
    * @param exception the exception that occurred
    */
-  public void handleUnexpectedException(JobClaimDto claim, JobType jobType, Exception exception) {
+  public void handleUnexpectedException(
+      JobClaimDto claim, JobExecutionType jobType, Exception exception) {
     threadPoolManager.releasePermit(jobType);
     log.log(
         Level.SEVERE,

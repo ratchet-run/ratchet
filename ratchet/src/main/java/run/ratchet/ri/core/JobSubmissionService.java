@@ -1,8 +1,8 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.api.JobType;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.logging.Logger;
@@ -95,7 +95,7 @@ public class JobSubmissionService {
    * @param isFirstAttempt true if this is the initial submission attempt
    */
   private void trySubmit(JobEntity job, boolean isFirstAttempt) {
-    JobType jobType = job.getJobType();
+    JobExecutionType jobType = job.getJobType();
 
     GateCheckResult gateResult = gateChecker.check(job, isFirstAttempt);
 
@@ -121,7 +121,7 @@ public class JobSubmissionService {
    * @param claim the job claim DTO to submit
    */
   private void trySubmit(JobClaimDto claim) {
-    JobType jobType = claim.jobType();
+    JobExecutionType jobType = claim.jobType();
 
     GateCheckResult gateResult = gateChecker.check(claim, true);
 

@@ -4,16 +4,15 @@ import run.ratchet.api.BatchBuilder;
 import run.ratchet.api.BatchContext;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobPriority;
-import run.ratchet.api.JobType;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.SerializableConsumer;
 import run.ratchet.api.SerializablePredicate;
 import run.ratchet.api.WorkflowBranch;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.ri.payload.JobPayloadFactory;
-import run.ratchet.ri.util.LambdaSerializer;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.entity.WorkflowConditionEntity;
@@ -47,7 +46,6 @@ public class DefaultBatchBuilder implements BatchBuilder {
   private final BatchStore batchStore;
   private final TagStore tagStore;
   private final WorkflowConditionStore workflowConditionStore;
-  private final LambdaSerializer lambdaSerializer;
   private final JobWakeupService wakeupService;
 
   private final List<ChildSpec> children = new ArrayList<>();
@@ -60,14 +58,12 @@ public class DefaultBatchBuilder implements BatchBuilder {
       BatchStore batchStore,
       TagStore tagStore,
       WorkflowConditionStore workflowConditionStore,
-      LambdaSerializer lambdaSerializer,
       JobWakeupService wakeupService) {
     this.name = name;
     this.jobCrudStore = jobCrudStore;
     this.batchStore = batchStore;
     this.tagStore = tagStore;
     this.workflowConditionStore = workflowConditionStore;
-    this.lambdaSerializer = lambdaSerializer;
     this.wakeupService = wakeupService;
   }
 
@@ -90,13 +86,12 @@ public class DefaultBatchBuilder implements BatchBuilder {
   public JobHandle submit() {
     // Create parent job
     JobEntity parent = new JobEntity();
-    parent.setJobType(JobType.BATCH_PARENT);
+    parent.setJobType(JobExecutionType.BATCH_PARENT);
     parent.setStatus(JobStatus.PENDING);
     parent.setPriority(JobPriority.NORMAL);
     parent.setScheduledTime(Instant.now());
     parent.setPayload(JobPayloadFactory.noop());
     parent.setIdempotencyKey(UUID.randomUUID().toString());
-    parent.setBusinessKey(name);
     JobEntity savedParent = jobCrudStore.save(parent);
     Long parentId = savedParent.getId();
 
@@ -114,7 +109,7 @@ public class DefaultBatchBuilder implements BatchBuilder {
     // Create child jobs
     for (ChildSpec child : children) {
       JobEntity childJob = new JobEntity();
-      childJob.setJobType(JobType.BATCH_CHILD);
+      childJob.setJobType(JobExecutionType.BATCH_CHILD);
       childJob.setStatus(JobStatus.PENDING);
       childJob.setPriority(JobPriority.NORMAL);
       childJob.setScheduledTime(Instant.now());
@@ -130,7 +125,7 @@ public class DefaultBatchBuilder implements BatchBuilder {
     }
 
     // Notify wakeup service
-    wakeupService.notifyIfNeeded(JobType.BATCH_PARENT, JobPriority.NORMAL, Duration.ZERO);
+    wakeupService.notifyIfNeeded(JobExecutionType.BATCH_PARENT, JobPriority.NORMAL, Duration.ZERO);
 
     log.info(
         "Batch '"
@@ -184,7 +179,7 @@ public class DefaultBatchBuilder implements BatchBuilder {
   private void createWorkflowBranch(Long parentId, WorkflowBranch branch) {
     // Create the child job for this branch (locked until parent completes)
     JobEntity branchJob = new JobEntity();
-    branchJob.setJobType(JobType.WORKFLOW_BRANCH);
+    branchJob.setJobType(JobExecutionType.WORKFLOW_BRANCH);
     branchJob.setStatus(JobStatus.PENDING);
     branchJob.setPriority(JobPriority.NORMAL);
     branchJob.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);

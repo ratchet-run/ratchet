@@ -20,9 +20,19 @@ public class RatchetLifecycle {
 
   private static final Logger log = Logger.getLogger(RatchetLifecycle.class.getName());
 
-  @Inject private Poller poller;
+  private final Poller poller;
+  private final RecurringScheduler recurringScheduler;
 
-  @Inject private RecurringScheduler recurringScheduler;
+  protected RatchetLifecycle() {
+    this.poller = null;
+    this.recurringScheduler = null;
+  }
+
+  @Inject
+  public RatchetLifecycle(Poller poller, RecurringScheduler recurringScheduler) {
+    this.poller = poller;
+    this.recurringScheduler = recurringScheduler;
+  }
 
   /**
    * Initializes the job scheduler subsystem at application startup.

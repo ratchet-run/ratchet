@@ -1,8 +1,8 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.api.JobType;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.JobCrudStore;
@@ -37,7 +37,7 @@ import java.util.logging.Logger;
  * @see WorkflowConditionEntity for condition storage
  * @see WorkflowConditionEvaluator for condition logic
  * @see ChainScheduler for linear chaining support
- * @see JobType#WORKFLOW_BRANCH for branch job identification
+ * @see JobExecutionType#WORKFLOW_BRANCH for branch job identification
  */
 @ApplicationScoped
 @Transactional
@@ -246,7 +246,7 @@ public class WorkflowScheduler extends ChainScheduler {
     }
 
     childJob.setScheduledTime(Instant.now());
-    childJob.setJobType(JobType.WORKFLOW_BRANCH);
+    childJob.setJobType(JobExecutionType.WORKFLOW_BRANCH);
     jobCrudStore.save(childJob);
     return true;
   }

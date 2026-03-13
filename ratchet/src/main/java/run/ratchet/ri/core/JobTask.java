@@ -1,30 +1,32 @@
 package run.ratchet.ri.core;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import run.ratchet.api.JobType;
+import run.ratchet.api.CircuitBreakerProtected;
 import run.ratchet.api.event.JobCancelledEvent;
 import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.api.event.JobDlqEvent;
 import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobStartedEvent;
+import run.ratchet.ri.resilience.ServiceUnavailableException;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.spi.ResilienceStrategy;
 import run.ratchet.spi.RetryPolicy;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.spi.JobStore;
-import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import jakarta.transaction.Transactional;
 import java.io.Serial;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.objectweb.asm.Type;
@@ -52,8 +54,6 @@ import org.objectweb.asm.Type;
  * @see JobExecutionCoordinator for the thread pool management
  * @see JobPayload for the execution specification format
  */
-@ApplicationScoped
-@Transactional
 public class JobTask implements Callable<Void> {
 
   private static final Logger log = Logger.getLogger(JobTask.class.getName());
@@ -64,6 +64,10 @@ public class JobTask implements Callable<Void> {
    */
   private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
+  private static final ConcurrentHashMap<String, Method> METHOD_CACHE = new ConcurrentHashMap<>();
+  private static final ConcurrentHashMap<String, String> SERVICE_NAME_CACHE =
+      new ConcurrentHashMap<>();
+
   private final JobStore jobStore;
   private final ResourcePermitService resourcePermitService;
   private final PostExecutionHandler lifecycleFacade;
@@ -73,8 +77,6 @@ public class JobTask implements Callable<Void> {
   private final BeanResolver beanResolver;
   private final RetryPolicy retryPolicy;
 
-  /** Nullable resilience strategy for future circuit breaker integration (Phase 4f). */
-  @SuppressWarnings("unused")
   private final ResilienceStrategy resilienceStrategy;
 
   private JobEntity job;
@@ -106,6 +108,7 @@ public class JobTask implements Callable<Void> {
    * @param validationFacade facade for pre-execution validation
    * @param beanResolver resolver for bean instances by type
    * @param retryPolicy policy for retry decisions and delay calculation
+   * @param resilienceStrategy strategy for resilience protection (e.g. circuit breakers)
    */
   @Inject
   public JobTask(
@@ -116,7 +119,8 @@ public class JobTask implements Callable<Void> {
       ExecutionObserver observabilityFacade,
       PreExecutionValidator validationFacade,
       BeanResolver beanResolver,
-      RetryPolicy retryPolicy) {
+      RetryPolicy retryPolicy,
+      ResilienceStrategy resilienceStrategy) {
     this.jobStore = jobStore;
     this.resourcePermitService = resourcePermitService;
     this.lifecycleFacade = lifecycleFacade;
@@ -125,7 +129,7 @@ public class JobTask implements Callable<Void> {
     this.validationFacade = validationFacade;
     this.beanResolver = beanResolver;
     this.retryPolicy = retryPolicy;
-    this.resilienceStrategy = null;
+    this.resilienceStrategy = resilienceStrategy;
   }
 
   /**
@@ -174,7 +178,7 @@ public class JobTask implements Callable<Void> {
         new JobStartedEvent(
             jobEntity.getId(),
             jobEntity.getBusinessKey(),
-            jobEntity.getJobType(),
+            jobEntity.getPublicJobType(),
             jobEntity.getPriority(),
             jobEntity.getPickedBy()));
 
@@ -198,9 +202,20 @@ public class JobTask implements Callable<Void> {
     Instant start = Instant.now();
     Object jobResult;
     permitAcquired = false;
+    String resilienceServiceName = resolveResilienceServiceName(jobEntity.getPayload());
     try {
       if (wasJobCanceledDuringExecution()) {
         handleCanceledDuringExecution(start);
+        return null;
+      }
+
+      if (!resilienceStrategy.isServiceAvailable(resilienceServiceName)) {
+        log.info(
+            "Job "
+                + jobId
+                + " skipped - circuit breaker OPEN for service: "
+                + resilienceServiceName);
+        rescheduleForCircuitBreaker(jobEntity, resilienceServiceName);
         return null;
       }
 
@@ -208,7 +223,9 @@ public class JobTask implements Callable<Void> {
         return null;
       }
 
-      jobResult = runPayload(jobEntity.getPayload());
+      jobResult =
+          resilienceStrategy.execute(
+              resilienceServiceName, () -> runPayload(jobEntity.getPayload()));
 
       if (wasJobCanceledDuringExecution()) {
         handleCanceledDuringExecution(start);
@@ -329,6 +346,28 @@ public class JobTask implements Callable<Void> {
     }
   }
 
+  /**
+   * Reschedules a job when the circuit breaker is open, without counting it as a retry attempt.
+   * Uses the same pattern as resource permit unavailability — the job goes back to PENDING with a
+   * delay matching the circuit breaker's typical OPEN-to-HALF_OPEN transition window.
+   */
+  private void rescheduleForCircuitBreaker(JobEntity jobEntity, String serviceName) {
+    long delayMs = resilienceStrategy.getRetryDelay(serviceName).toMillis();
+    Instant newScheduledTime = Instant.now().plusMillis(delayMs);
+
+    if (currentExecution != null) {
+      currentExecution.markFailed(
+          new ServiceUnavailableException("Circuit breaker OPEN for service: " + serviceName));
+      observabilityFacade.saveExecution(currentExecution);
+    }
+
+    jobStore.scheduleJobRetry(
+        jobEntity.getId(),
+        "Circuit breaker OPEN for service: " + serviceName,
+        newScheduledTime,
+        jobEntity.getAttempts());
+  }
+
   private boolean wasJobCanceledDuringExecution() {
     JobStatus freshStatus = jobStore.getJobStatus(job.getId());
     if (freshStatus == null) {
@@ -359,7 +398,7 @@ public class JobTask implements Callable<Void> {
         new JobCancelledEvent(
             job.getId(),
             job.getBusinessKey(),
-            job.getJobType(),
+            job.getPublicJobType(),
             job.getPriority(),
             job.getPickedBy(),
             JobStatus.RUNNING.name(),
@@ -373,7 +412,7 @@ public class JobTask implements Callable<Void> {
    * execution. Cancels all dependents unconditionally.
    */
   private void handleBatchOrWorkflowCancellation() {
-    if (job.getJobType() == JobType.BATCH_CHILD) {
+    if (job.getJobType() == JobExecutionType.BATCH_CHILD) {
       lifecycleFacade.markBatchChildFailed(job);
     } else {
       lifecycleFacade.cancelChain(job);
@@ -385,7 +424,7 @@ public class JobTask implements Callable<Void> {
    * evaluates workflow conditions so that FAILURE branches can fire.
    */
   private void handleBatchOrWorkflowPermanentFailure() {
-    if (job.getJobType() == JobType.BATCH_CHILD) {
+    if (job.getJobType() == JobExecutionType.BATCH_CHILD) {
       lifecycleFacade.markBatchChildFailed(job);
     } else {
       lifecycleFacade.scheduleNext(job);
@@ -484,7 +523,7 @@ public class JobTask implements Callable<Void> {
         new JobCompletedEvent(
             job.getId(),
             job.getBusinessKey(),
-            job.getJobType(),
+            job.getPublicJobType(),
             job.getPriority(),
             job.getPickedBy(),
             executionMs));
@@ -539,7 +578,7 @@ public class JobTask implements Callable<Void> {
         new JobDlqEvent(
             job.getId(),
             job.getBusinessKey(),
-            job.getJobType(),
+            job.getPublicJobType(),
             job.getPriority(),
             job.getPickedBy(),
             ex.toString(),
@@ -547,9 +586,16 @@ public class JobTask implements Callable<Void> {
   }
 
   private Method resolveMethod(Class<?> clazz, JobPayload payload) throws NoSuchMethodException {
+    String cacheKey = clazz.getName() + "#" + payload.method() + ":" + payload.methodDescriptor();
+    Method cached = METHOD_CACHE.get(cacheKey);
+    if (cached != null) {
+      return cached;
+    }
+
     for (Method m : clazz.getMethods()) {
       if (m.getName().equals(payload.method())
           && Type.getMethodDescriptor(m).equals(payload.methodDescriptor())) {
+        METHOD_CACHE.put(cacheKey, m);
         return m;
       }
     }
@@ -574,6 +620,39 @@ public class JobTask implements Callable<Void> {
 
     throw new NoSuchMethodException(
         payload.method() + " with descriptor " + payload.methodDescriptor());
+  }
+
+  private String resolveResilienceServiceName(JobPayload payload) {
+    String cacheKey = payload.target() + "#" + payload.method() + ":" + payload.methodDescriptor();
+    String cached = SERVICE_NAME_CACHE.get(cacheKey);
+    if (cached != null) {
+      return cached;
+    }
+
+    String fallbackServiceName = simpleClassName(payload.target()) + "." + payload.method();
+    try {
+      Class<?> clazz = Class.forName(payload.target());
+      Method method = resolveMethod(clazz, payload);
+      CircuitBreakerProtected annotation = method.getAnnotation(CircuitBreakerProtected.class);
+      if (annotation == null) {
+        annotation = clazz.getAnnotation(CircuitBreakerProtected.class);
+      }
+
+      String resolved =
+          annotation != null && annotation.service() != null && !annotation.service().isBlank()
+              ? annotation.service()
+              : clazz.getSimpleName() + "." + method.getName();
+      SERVICE_NAME_CACHE.put(cacheKey, resolved);
+      return resolved;
+    } catch (Exception e) {
+      SERVICE_NAME_CACHE.put(cacheKey, fallbackServiceName);
+      return fallbackServiceName;
+    }
+  }
+
+  private static String simpleClassName(String fqcn) {
+    int lastDot = fqcn.lastIndexOf('.');
+    return lastDot >= 0 ? fqcn.substring(lastDot + 1) : fqcn;
   }
 
   @SuppressWarnings("java:S112")
@@ -677,7 +756,7 @@ public class JobTask implements Callable<Void> {
           new JobRetryingEvent(
               job.getId(),
               job.getBusinessKey(),
-              job.getJobType(),
+              job.getPublicJobType(),
               job.getPriority(),
               job.getPickedBy(),
               ex.toString(),
@@ -699,15 +778,6 @@ public class JobTask implements Callable<Void> {
               + ": "
               + ex.getMessage());
     }
-  }
-
-  /**
-   * Functional interface for future resilience strategy integration (Phase 4f). When non-null,
-   * wraps job method invocations with circuit breaker or bulkhead protection.
-   */
-  @FunctionalInterface
-  public interface ResilienceStrategy {
-    Object execute(Callable<Object> action) throws Exception;
   }
 
   private static class ResourceCapacityException extends RuntimeException {

@@ -1,12 +1,13 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.api.JobType;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.spi.ResilienceStrategy;
 import run.ratchet.spi.RetryPolicy;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -52,6 +53,7 @@ public class JobExecutorService {
   private final PreExecutionValidator preExecutionValidator;
   private final BeanResolver beanResolver;
   private final RetryPolicy retryPolicy;
+  private final ResilienceStrategy resilienceStrategy;
 
   // Required by CDI proxy
   protected JobExecutorService() {
@@ -66,6 +68,7 @@ public class JobExecutorService {
     this.preExecutionValidator = null;
     this.beanResolver = null;
     this.retryPolicy = null;
+    this.resilienceStrategy = null;
   }
 
   @Inject
@@ -80,7 +83,8 @@ public class JobExecutorService {
       ExecutionObserver executionObserver,
       PreExecutionValidator preExecutionValidator,
       BeanResolver beanResolver,
-      RetryPolicy retryPolicy) {
+      RetryPolicy retryPolicy,
+      ResilienceStrategy resilienceStrategy) {
     this.threadPoolManager = threadPoolManager;
     this.timeoutHandler = timeoutHandler;
     this.executorProvider = executorProvider;
@@ -92,6 +96,7 @@ public class JobExecutorService {
     this.preExecutionValidator = preExecutionValidator;
     this.beanResolver = beanResolver;
     this.retryPolicy = retryPolicy;
+    this.resilienceStrategy = resilienceStrategy;
   }
 
   /**
@@ -104,7 +109,7 @@ public class JobExecutorService {
    * @return the execution result indicating success or rejection
    */
   public ExecutionResult execute(JobEntity job) {
-    JobType jobType = job.getJobType();
+    JobExecutionType jobType = job.getJobType();
     Callable<Void> callable = createPermitAwareRunner(job, jobType);
     Instant executionStartTime = Instant.now();
 
@@ -124,7 +129,7 @@ public class JobExecutorService {
    * @return the execution result indicating success or rejection
    */
   public ExecutionResult execute(JobClaimDto claim) {
-    JobType jobType = claim.jobType();
+    JobExecutionType jobType = claim.jobType();
     Callable<Void> callable = createPermitAwareRunner(claim, jobType);
     Instant executionStartTime = Instant.now();
 
@@ -137,7 +142,7 @@ public class JobExecutorService {
     }
   }
 
-  private Callable<Void> createPermitAwareRunner(JobEntity job, JobType jobType) {
+  private Callable<Void> createPermitAwareRunner(JobEntity job, JobExecutionType jobType) {
     JobTask task = createTask();
     task.init(job);
 
@@ -150,7 +155,7 @@ public class JobExecutorService {
     };
   }
 
-  private Callable<Void> createPermitAwareRunner(JobClaimDto claim, JobType jobType) {
+  private Callable<Void> createPermitAwareRunner(JobClaimDto claim, JobExecutionType jobType) {
     JobTask task = createTask();
     task.initFromClaim(claim);
 
@@ -172,7 +177,8 @@ public class JobExecutorService {
         executionObserver,
         preExecutionValidator,
         beanResolver,
-        retryPolicy);
+        retryPolicy,
+        resilienceStrategy);
   }
 
   private void scheduleWatchdog(
@@ -189,7 +195,8 @@ public class JobExecutorService {
     }
   }
 
-  private Future<Void> submitToExecutor(Long jobId, JobType jobType, Callable<Void> callable) {
+  private Future<Void> submitToExecutor(
+      Long jobId, JobExecutionType jobType, Callable<Void> callable) {
     if (threadPoolManager.isUseVirtualThreads()) {
       return submitVirtualThread(jobId, jobType, callable);
     }
@@ -197,7 +204,8 @@ public class JobExecutorService {
     return executor.submit(callable);
   }
 
-  private Future<Void> submitVirtualThread(Long jobId, JobType jobType, Callable<Void> callable) {
+  private Future<Void> submitVirtualThread(
+      Long jobId, JobExecutionType jobType, Callable<Void> callable) {
     CompletableFuture<Void> future = new CompletableFuture<>();
     Thread thread =
         new Thread(

@@ -2,6 +2,7 @@ package run.ratchet.ri.resilience;
 
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -30,8 +31,8 @@ public class CircuitBreaker {
   private final String name;
   private final CircuitBreakerConfiguration config;
   private final AtomicReference<State> state = new AtomicReference<>(State.CLOSED);
-  // Sliding window: ring buffer of outcomes (true = success, false = failure)
-  private final boolean[] window;
+  // Sliding window: ring buffer of outcomes (1 = success, 0 = failure)
+  private final AtomicIntegerArray window;
   private final AtomicInteger windowIndex = new AtomicInteger(0);
   private final AtomicInteger totalCalls = new AtomicInteger(0);
   private final AtomicInteger failureCount = new AtomicInteger(0);
@@ -44,7 +45,7 @@ public class CircuitBreaker {
   public CircuitBreaker(String name, CircuitBreakerConfiguration config) {
     this.name = name;
     this.config = config;
-    this.window = new boolean[config.slidingWindowSize()];
+    this.window = new AtomicIntegerArray(config.slidingWindowSize());
   }
 
   /** Returns the circuit breaker name. */
@@ -91,13 +92,14 @@ public class CircuitBreaker {
 
   /** Manually transitions to OPEN state. */
   public void transitionToOpen() {
-    state.set(State.OPEN);
     openedAtMs = System.currentTimeMillis();
+    state.set(State.OPEN);
   }
 
   /** Resets to CLOSED state, clearing all counters. */
   public void reset() {
     state.set(State.CLOSED);
+    openedAtMs = 0L;
     totalCalls.set(0);
     failureCount.set(0);
     windowIndex.set(0);
@@ -114,6 +116,11 @@ public class CircuitBreaker {
       recordFailure();
       throw e;
     }
+  }
+
+  /** Returns the configured OPEN-state wait duration in milliseconds. */
+  public long getWaitDurationMs() {
+    return config.waitDurationMs();
   }
 
   private <T> T executeInHalfOpen(Callable<T> task) throws Exception {
@@ -143,23 +150,23 @@ public class CircuitBreaker {
   }
 
   private void recordSuccess() {
-    int idx = windowIndex.getAndUpdate(i -> (i + 1) % window.length);
-    boolean wasFailure = !window[idx];
-    window[idx] = true;
+    int len = window.length();
+    int idx = windowIndex.getAndUpdate(i -> (i + 1) % len);
+    int previous = window.getAndSet(idx, 1);
 
     int total = totalCalls.incrementAndGet();
-    if (total > window.length && wasFailure) {
+    if (total > len && previous == 0) {
       failureCount.decrementAndGet();
     }
   }
 
   private void recordFailure() {
-    int idx = windowIndex.getAndUpdate(i -> (i + 1) % window.length);
-    boolean wasSuccess = window[idx];
-    window[idx] = false;
+    int len = window.length();
+    int idx = windowIndex.getAndUpdate(i -> (i + 1) % len);
+    int previous = window.getAndSet(idx, 0);
 
     int total = totalCalls.incrementAndGet();
-    if (total <= window.length || wasSuccess) {
+    if (total <= len || previous == 1) {
       failureCount.incrementAndGet();
     }
 
@@ -167,7 +174,7 @@ public class CircuitBreaker {
   }
 
   private void evaluateThreshold() {
-    int total = Math.min(totalCalls.get(), window.length);
+    int total = Math.min(totalCalls.get(), window.length());
     if (total < config.minimumCalls()) {
       return;
     }

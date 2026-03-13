@@ -1,8 +1,8 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.api.JobType;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
@@ -104,7 +104,8 @@ public class SubmissionGateChecker {
   }
 
   /** Internal gate check implementation used by both entity and DTO methods. */
-  private GateCheckResult checkInternal(JobType jobType, Long jobId, boolean isFirstAttempt) {
+  private GateCheckResult checkInternal(
+      JobExecutionType jobType, Long jobId, boolean isFirstAttempt) {
     if (isFirstAttempt && drainController.isDraining()) {
       return GateCheckResult.draining(jobId);
     }
