@@ -1,0 +1,160 @@
+package run.ratchet.testsuite.util;
+
+import static org.junit.jupiter.api.Assertions.fail;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.util.Properties;
+import java.util.TreeMap;
+import java.util.logging.Logger;
+
+/**
+ * Loads, saves, and compares performance baselines per database type.
+ *
+ * <p>On first run (no baseline file), metrics are recorded to {@code target/perf-baselines/} for
+ * the user to copy into {@code src/test/resources/perf-baselines/}. On subsequent runs, actual
+ * values are compared against baselines with a configurable tolerance.
+ */
+public class PerformanceBaseline {
+
+  private static final Logger log = Logger.getLogger(PerformanceBaseline.class.getName());
+
+  private final Properties baselines;
+  private final String dbType;
+  private final double tolerance;
+  private final Path outputDir;
+  private final TreeMap<String, Double> recorded = new TreeMap<>();
+
+  /**
+   * Creates a baseline instance, loading existing baselines from classpath if available.
+   *
+   * @param dbType the database type (e.g., "postgresql", "mysql")
+   * @param tolerance fractional regression tolerance (e.g., 0.20 for 20%)
+   * @param baselineDir the directory containing baseline properties files
+   */
+  public PerformanceBaseline(String dbType, double tolerance, String baselineDir) {
+    this.dbType = dbType;
+    this.tolerance = tolerance;
+    this.baselines = new Properties();
+    this.outputDir =
+        Path.of(System.getProperty("project.build.directory", "target"), "perf-baselines");
+
+    String resourcePath = "perf-baselines/" + dbType + "-baselines.properties";
+    try (InputStream in =
+        Thread.currentThread().getContextClassLoader().getResourceAsStream(resourcePath)) {
+      if (in != null) {
+        baselines.load(in);
+        log.info("Loaded " + baselines.size() + " baseline values from " + resourcePath);
+      } else {
+        log.info("[BASELINE] No baseline file found at " + resourcePath + " — recording mode");
+      }
+    } catch (IOException e) {
+      log.warning("Failed to load baselines: " + e.getMessage());
+    }
+  }
+
+  /**
+   * Asserts that the actual value is within tolerance of the baseline. If no baseline exists,
+   * records the value for later output.
+   *
+   * @param metric the metric key (e.g., "throughput.noOp.jobsPerSec")
+   * @param actual the measured value
+   */
+  public void assertWithinTolerance(String metric, double actual) {
+    recorded.put(metric, actual);
+
+    String baselineStr = baselines.getProperty(metric);
+    if (baselineStr == null) {
+      log.info(String.format("[BASELINE] No baseline for %s, recording: %.2f", metric, actual));
+      return;
+    }
+
+    double baseline = Double.parseDouble(baselineStr);
+    double lowerBound = baseline * (1.0 - tolerance);
+
+    if (actual < lowerBound) {
+      fail(
+          String.format(
+              "Performance regression for %s: baseline=%.2f, actual=%.2f, "
+                  + "tolerance=%.0f%%, lower bound=%.2f",
+              metric, baseline, actual, tolerance * 100, lowerBound));
+    }
+
+    log.info(
+        String.format(
+            "[BASELINE] %s: actual=%.2f, baseline=%.2f (within %.0f%% tolerance)",
+            metric, actual, baseline, tolerance * 100));
+  }
+
+  /**
+   * Asserts that a latency metric is within tolerance of the baseline. Higher latency is a
+   * regression, so the check is inverted compared to throughput.
+   *
+   * @param metric the metric key (e.g., "latency.queueWait.light.p99Ms")
+   * @param actualMs the measured latency in milliseconds
+   */
+  public void assertLatencyWithinTolerance(String metric, double actualMs) {
+    recorded.put(metric, actualMs);
+
+    String baselineStr = baselines.getProperty(metric);
+    if (baselineStr == null) {
+      log.info(
+          String.format("[BASELINE] No baseline for %s, recording: %.2f ms", metric, actualMs));
+      return;
+    }
+
+    double baseline = Double.parseDouble(baselineStr);
+    double upperBound = baseline * (1.0 + tolerance);
+
+    if (actualMs > upperBound) {
+      fail(
+          String.format(
+              "Latency regression for %s: baseline=%.2f ms, actual=%.2f ms, "
+                  + "tolerance=%.0f%%, upper bound=%.2f ms",
+              metric, baseline, actualMs, tolerance * 100, upperBound));
+    }
+
+    log.info(
+        String.format(
+            "[BASELINE] %s: actual=%.2f ms, baseline=%.2f ms (within %.0f%% tolerance)",
+            metric, actualMs, baseline, tolerance * 100));
+  }
+
+  /**
+   * Writes all recorded metrics to {@code target/perf-baselines/{dbType}-baselines.properties}.
+   * Merges with any existing file so that results from multiple test classes accumulate rather than
+   * overwriting each other.
+   */
+  public void writeRecordedBaselines() {
+    if (recorded.isEmpty()) {
+      return;
+    }
+
+    try {
+      Files.createDirectories(outputDir);
+      Path outputFile = outputDir.resolve(dbType + "-baselines.properties");
+
+      // Load existing entries so we merge rather than overwrite
+      Properties output = new Properties();
+      if (Files.exists(outputFile)) {
+        try (InputStream existing = Files.newInputStream(outputFile)) {
+          output.load(existing);
+        }
+      }
+
+      recorded.forEach((k, v) -> output.setProperty(k, String.format("%.2f", v)));
+
+      try (OutputStream out = Files.newOutputStream(outputFile)) {
+        output.store(
+            out, "Generated by Ratchet Performance Tests - " + dbType + " - " + Instant.now());
+      }
+      log.info("[BASELINE] Recorded baselines written to " + outputFile);
+    } catch (IOException e) {
+      log.warning("Failed to write baseline file: " + e.getMessage());
+    }
+  }
+}

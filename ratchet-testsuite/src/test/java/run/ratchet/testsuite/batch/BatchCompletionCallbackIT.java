@@ -1,5 +1,6 @@
 package run.ratchet.testsuite.batch;
 
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import run.ratchet.api.JobHandle;
@@ -58,20 +59,18 @@ class BatchCompletionCallbackIT extends BaseRatchetIT {
             .thenOnBatchSuccess(SimpleJob::execute)
             .submit();
 
-    // Wait for the batch parent to complete
-    JobAssertions.assertBatchCompleted(jobCrudStore, handle, Duration.ofSeconds(30));
+    // Wait for the batch parent to succeed
+    JobAssertions.assertBatchSucceeded(jobCrudStore, handle, Duration.ofSeconds(30));
 
     // The success callback should eventually fire
     JobAssertions.assertJobStatus(jobCrudStore, handle, JobStatus.SUCCEEDED);
 
-    // Give the workflow branch time to execute
-    try {
-      Thread.sleep(2000);
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-    }
-
     assertEquals(2, BatchItemProcessor.processedCount());
-    assertEquals(1, SimpleJob.getInvocationCount(), "Success callback should have fired once");
+    await()
+        .atMost(Duration.ofSeconds(10))
+        .untilAsserted(
+            () ->
+                assertEquals(
+                    1, SimpleJob.getInvocationCount(), "Success callback should have fired once"));
   }
 }

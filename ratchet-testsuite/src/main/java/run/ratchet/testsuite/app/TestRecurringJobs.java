@@ -13,7 +13,7 @@ public class TestRecurringJobs {
 
   private static final AtomicInteger EVERY_MINUTE_COUNT = new AtomicInteger(0);
 
-  @Recurring(cron = "0 * * * * ?", id = "test-every-minute")
+  @Recurring(cron = "*/5 * * * * ?", id = "test-every-5-seconds")
   public void everyMinute() {
     EVERY_MINUTE_COUNT.incrementAndGet();
   }

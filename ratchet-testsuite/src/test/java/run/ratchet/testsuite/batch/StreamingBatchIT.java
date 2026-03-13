@@ -56,7 +56,7 @@ class StreamingBatchIT extends BaseRatchetIT {
             .withChunkSize(2)
             .start();
 
-    JobAssertions.assertBatchCompleted(jobCrudStore, handle, Duration.ofSeconds(30));
+    JobAssertions.assertBatchSucceeded(jobCrudStore, handle, Duration.ofSeconds(30));
     assertEquals(6, BatchItemProcessor.processedCount());
   }
 }

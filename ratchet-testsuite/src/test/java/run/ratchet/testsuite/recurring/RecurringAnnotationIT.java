@@ -55,11 +55,10 @@ class RecurringAnnotationIT extends BaseRatchetIT {
 
   @Test
   void recurringAnnotation_shouldBeDiscoveredAndScheduled() {
-    // The @Recurring(cron = "0 * * * * ?") method should fire at the next minute boundary.
-    // We wait up to 90s to allow for one full cron cycle.
+    // The @Recurring(cron = "*/5 * * * * ?") method should fire quickly after deployment.
     await()
-        .atMost(Duration.ofSeconds(90))
-        .pollInterval(Duration.ofSeconds(2))
+        .atMost(Duration.ofSeconds(15))
+        .pollInterval(Duration.ofSeconds(1))
         .untilAsserted(
             () ->
                 assertTrue(

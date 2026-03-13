@@ -1,9 +1,12 @@
 package run.ratchet.testsuite.resilience;
 
+import static org.awaitility.Awaitility.await;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import run.ratchet.ri.resilience.CircuitBreaker;
+import run.ratchet.ri.resilience.CircuitBreakerConfiguration;
 import run.ratchet.ri.resilience.CircuitBreakerRegistry;
 import run.ratchet.ri.resilience.ServiceUnavailableException;
 import run.ratchet.testsuite.app.CircuitBreakerTestService;
@@ -11,6 +14,7 @@ import run.ratchet.testsuite.app.TestJobService;
 import run.ratchet.testsuite.util.BaseRatchetIT;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 import jakarta.inject.Inject;
+import java.time.Duration;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
@@ -94,5 +98,34 @@ class CircuitBreakerIT extends BaseRatchetIT {
     CircuitBreakerTestService.setShouldFail(false);
     String result = service.callService();
     assertEquals("success", result);
+  }
+
+  @Test
+  void circuitBreaker_shouldTransitionFromHalfOpenToClosedAfterSuccessfulTrials() throws Exception {
+    // Create a breaker with 1ms wait duration so OPEN → HALF_OPEN transition happens immediately
+    CircuitBreakerConfiguration fastConfig =
+        new CircuitBreakerConfiguration(50.0f, 20, 1L, 2_000L, 2, 3);
+    CircuitBreaker breaker = new CircuitBreaker("test-fast-transition", fastConfig);
+
+    // Drive to OPEN: 3 failures (minimum calls = 3, failure rate = 100% >= 50% threshold)
+    for (int i = 0; i < 3; i++) {
+      assertThrows(
+          RuntimeException.class,
+          () ->
+              breaker.execute(
+                  () -> {
+                    throw new RuntimeException("fail");
+                  }));
+    }
+    assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
+
+    await()
+        .atMost(Duration.ofSeconds(1))
+        .untilAsserted(() -> assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState()));
+
+    // Successful trial calls (permittedCallsInHalfOpen = 2) should transition to CLOSED
+    assertDoesNotThrow(() -> breaker.execute(() -> "ok"));
+    assertDoesNotThrow(() -> breaker.execute(() -> "ok"));
+    assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
   }
 }

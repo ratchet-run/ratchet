@@ -76,15 +76,13 @@ class ConditionalExecutionIT extends BaseRatchetIT {
 
     JobAssertions.assertJobFailed(jobCrudStore, handle);
 
-    // Give enough time for a potential (incorrect) branch execution
-    try {
-      Thread.sleep(3000);
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-    }
-
-    assertFalse(
-        WorkflowBranchTracker.conditionalBranchFired(),
-        "Conditional branch should not fire when condition is false");
+    await()
+        .during(Duration.ofSeconds(3))
+        .atMost(Duration.ofSeconds(5))
+        .untilAsserted(
+            () ->
+                assertFalse(
+                    WorkflowBranchTracker.conditionalBranchFired(),
+                    "Conditional branch should not fire when condition is false"));
   }
 }

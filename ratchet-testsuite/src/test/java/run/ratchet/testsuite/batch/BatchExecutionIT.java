@@ -53,7 +53,7 @@ class BatchExecutionIT extends BaseRatchetIT {
     JobHandle handle =
         jobService.enqueueBatch("test-batch").forEach(items, BatchItemProcessor::process).submit();
 
-    JobAssertions.assertBatchCompleted(jobCrudStore, handle, Duration.ofSeconds(30));
+    JobAssertions.assertBatchSucceeded(jobCrudStore, handle, Duration.ofSeconds(30));
     Set<String> processed = BatchItemProcessor.processedItems();
     assertEquals(3, processed.size());
     assertTrue(processed.containsAll(items));

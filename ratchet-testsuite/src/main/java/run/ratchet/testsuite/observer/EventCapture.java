@@ -21,13 +21,18 @@ public class EventCapture {
   private final CopyOnWriteArrayList<AbstractJobSchedulerEvent> events =
       new CopyOnWriteArrayList<>();
 
-  private volatile CountDownLatch latch = new CountDownLatch(1);
-  private volatile Class<? extends AbstractJobSchedulerEvent> expectedType;
+  private CountDownLatch latch = new CountDownLatch(1);
+  private Class<? extends AbstractJobSchedulerEvent> expectedType;
+
+  /** Lock object for synchronizing the check-and-setup sequence in awaitEvent. */
+  private final Object awaitLock = new Object();
 
   public void onEvent(@Observes AbstractJobSchedulerEvent event) {
     events.add(event);
-    if (expectedType != null && expectedType.isInstance(event)) {
-      latch.countDown();
+    synchronized (awaitLock) {
+      if (expectedType != null && expectedType.isInstance(event)) {
+        latch.countDown();
+      }
     }
   }
 
@@ -52,27 +57,29 @@ public class EventCapture {
    */
   public boolean awaitEvent(Class<? extends AbstractJobSchedulerEvent> type, Duration timeout)
       throws InterruptedException {
-    // Check if already received
-    if (events.stream().anyMatch(type::isInstance)) {
-      return true;
+    CountDownLatch awaitLatch;
+    synchronized (awaitLock) {
+      // Check if already received while holding the lock
+      if (events.stream().anyMatch(type::isInstance)) {
+        return true;
+      }
+
+      // Set up latch for future events — atomically with the check above,
+      // so no event can slip between the check and the setup
+      this.expectedType = type;
+      this.latch = new CountDownLatch(1);
+      awaitLatch = this.latch;
     }
 
-    // Set up latch for future events
-    this.expectedType = type;
-    this.latch = new CountDownLatch(1);
-
-    // Double-check after setting up latch (event may have arrived between check and setup)
-    if (events.stream().anyMatch(type::isInstance)) {
-      return true;
-    }
-
-    return latch.await(timeout.toMillis(), TimeUnit.MILLISECONDS);
+    return awaitLatch.await(timeout.toMillis(), TimeUnit.MILLISECONDS);
   }
 
   /** Clears all captured events. Call in test setup for isolation. */
   public void clear() {
     events.clear();
-    expectedType = null;
-    latch = new CountDownLatch(1);
+    synchronized (awaitLock) {
+      expectedType = null;
+      latch = new CountDownLatch(1);
+    }
   }
 }

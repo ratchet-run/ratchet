@@ -127,14 +127,19 @@ class JobArchivingIT extends BaseRatchetIT {
     archivingService.init(true, 1, 100, CRON_PARSER.parse("0 0 2 * * ?"));
     archivingService.triggerArchiving();
 
-    // Give async trigger time to complete — asserting zero results, no Awaitility target
-    Thread.sleep(3000);
+    // Wait sufficient time to confirm no archiving occurs — use Awaitility's "during" to assert
+    // the condition holds continuously (not just at the end)
+    await()
+        .during(Duration.ofSeconds(2))
+        .atMost(Duration.ofSeconds(5))
+        .pollInterval(Duration.ofMillis(200))
+        .untilAsserted(
+            () -> {
+              var archived2 = archiveStore.findArchivedJobs(null, null, null, null, 100);
+              assertTrue(archived2.isEmpty(), "Recent jobs should not be archived");
+            });
 
-    // Verify no jobs were archived
-    var archived = archiveStore.findArchivedJobs(null, null, null, null, 100);
-    assertTrue(archived.isEmpty(), "Recent jobs should not be archived");
-
-    // Verify original jobs still in active table
+    // Verify original jobs still in active table (also verified by Awaitility above)
     assertTrue(
         jobCrudStore.findById(handle1.id()).isPresent(), "Job 1 should still be in active table");
     assertTrue(

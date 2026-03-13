@@ -2,8 +2,10 @@ package run.ratchet.testsuite.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import run.ratchet.api.JobHandle;
+import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.testsuite.app.SimpleJob;
 import run.ratchet.testsuite.app.TestJobService;
@@ -64,9 +66,10 @@ class JobLifecycleIT extends BaseRatchetIT {
   void enqueue_shouldStartInPendingStatus() {
     JobHandle handle = jobService.enqueue(SimpleJob::execute).submit();
 
-    // The job should exist in the store
+    // The job should exist in the store with PENDING status immediately after enqueue
     assertNotNull(handle);
     var job = jobCrudStore.findById(handle.id());
-    assertNotNull(job);
+    assertTrue(job.isPresent(), "Job should exist in store immediately after enqueue");
+    assertEquals(JobStatus.PENDING, job.get().getStatus(), "Job should start in PENDING status");
   }
 }

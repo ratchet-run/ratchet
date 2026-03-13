@@ -59,7 +59,7 @@ class BatchProgressIT extends BaseRatchetIT {
             .onProgress(BatchCompletionTracker::onProgress)
             .submit();
 
-    JobAssertions.assertBatchCompleted(jobCrudStore, handle, Duration.ofSeconds(30));
+    JobAssertions.assertBatchSucceeded(jobCrudStore, handle, Duration.ofSeconds(30));
 
     List<BatchContext> snapshots = BatchCompletionTracker.progressSnapshots();
     assertFalse(snapshots.isEmpty(), "Should have received at least one progress callback");

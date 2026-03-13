@@ -1,0 +1,43 @@
+package run.ratchet.testsuite.app;
+
+import run.ratchet.spi.ResilienceStrategy;
+import jakarta.annotation.Priority;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Alternative;
+import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicInteger;
+
+/**
+ * Custom {@link ResilienceStrategy} for testing SPI overridability.
+ *
+ * <p>Passes through all executions without any circuit breaker protection. Tracks the number of
+ * {@link #execute} calls so tests can verify that the custom strategy was actually used by the
+ * engine.
+ */
+@Alternative
+@Priority(1000)
+@ApplicationScoped
+public class NoOpResilienceStrategy implements ResilienceStrategy {
+
+  private static final AtomicInteger EXECUTE_COUNT = new AtomicInteger(0);
+
+  @Override
+  public <T> T execute(String serviceName, Callable<T> task) throws Exception {
+    EXECUTE_COUNT.incrementAndGet();
+    return task.call();
+  }
+
+  @Override
+  public boolean isServiceAvailable(String serviceName) {
+    // Always available — no circuit breaker
+    return true;
+  }
+
+  public static int getExecuteCount() {
+    return EXECUTE_COUNT.get();
+  }
+
+  public static void resetCounts() {
+    EXECUTE_COUNT.set(0);
+  }
+}

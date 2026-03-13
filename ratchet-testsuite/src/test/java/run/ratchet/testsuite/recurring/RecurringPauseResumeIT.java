@@ -76,20 +76,19 @@ class RecurringPauseResumeIT extends BaseRatchetIT {
     // Verify the job is in PAUSED status
     JobAssertions.assertJobStatus(jobCrudStore, handle, JobStatus.PAUSED);
 
-    // Record tick count at pause time, wait 3 seconds, verify no new ticks
+    // Record tick count at pause time and verify it remains stable while paused.
     int ticksAtPause = CronTestJobs.tickCount();
-    try {
-      Thread.sleep(3000);
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-    }
-
-    assertEquals(
-        ticksAtPause,
-        CronTestJobs.tickCount(),
-        "Expected no new ticks after pause but got "
-            + (CronTestJobs.tickCount() - ticksAtPause)
-            + " additional ticks");
+    await()
+        .during(Duration.ofSeconds(3))
+        .atMost(Duration.ofSeconds(5))
+        .untilAsserted(
+            () ->
+                assertEquals(
+                    ticksAtPause,
+                    CronTestJobs.tickCount(),
+                    "Expected no new ticks after pause but got "
+                        + (CronTestJobs.tickCount() - ticksAtPause)
+                        + " additional ticks"));
   }
 
   @Test
