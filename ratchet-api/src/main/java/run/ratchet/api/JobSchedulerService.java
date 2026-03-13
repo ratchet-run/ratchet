@@ -2,9 +2,7 @@ package run.ratchet.api;
 
 import java.io.Serializable;
 import java.time.Duration;
-import java.time.Instant;
 import java.time.ZoneId;
-import java.util.Set;
 import java.util.function.Consumer;
 
 /**
@@ -107,11 +105,14 @@ public interface JobSchedulerService {
   int cancelRecurringJobsByTag(String tag);
 
   /**
-   * Cancels orphaned recurring annotation jobs that are no longer present in the codebase.
+   * Cancels the active recurring job with the specified business key.
    *
-   * @param registeredIds the set of currently registered job IDs
-   * @param nodeStartTime the time when registration started, used for grace period calculation
-   * @return the number of orphaned jobs canceled
+   * <p>This is the primary mechanism for replacing a recurring job definition during redeployment.
+   * Only jobs in active states (PENDING, RUNNING, PAUSED) with matching business key and recurring
+   * job type are affected.
+   *
+   * @param businessKey the business key identifying the recurring job to cancel
+   * @return the number of jobs canceled (0 or 1, since business keys are active-unique)
    */
-  int cancelOrphanedRecurringAnnotationJobs(Set<String> registeredIds, Instant nodeStartTime);
+  int cancelRecurringJobByBusinessKey(String businessKey);
 }

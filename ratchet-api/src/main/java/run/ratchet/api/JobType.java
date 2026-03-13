@@ -1,32 +1,15 @@
 package run.ratchet.api;
 
 /**
- * Categorizes jobs by their execution pattern and orchestration semantics.
+ * Represents the public, high-level job categories exposed by the scheduling API.
  *
- * <p>JobType determines how the scheduler handles job lifecycle, dependencies, and execution flow.
- * Each type implements specific patterns for common distributed computing scenarios, from simple
- * one-off tasks to complex workflow orchestration.
+ * <p>These values intentionally describe the user-visible scheduling pattern rather than the
+ * scheduler's internal execution mechanics. For example, a batch may be implemented internally
+ * using parent and child jobs, but external observers still see it as a single {@link #BATCH}
+ * category.
  *
- * <h2>Type Categories:</h2>
- *
- * <ul>
- *   <li><b>Basic Execution:</b> SINGLE, RECURRING - Standard job patterns
- *   <li><b>Batch Processing:</b> BATCH_PARENT, BATCH_CHILD - Parallel work distribution
- *   <li><b>Orchestration:</b> CHAIN_STEP, WORKFLOW_BRANCH, WORKFLOW_JOIN - Complex dependencies
- *   <li><b>System:</b> DLQ_ALERT - Internal scheduler operations
- * </ul>
- *
- * <h2>Scheduler Behaviors by Type:</h2>
- *
- * <ul>
- *   <li>Polling queries use job_type indexes for efficient type-specific operations
- *   <li>Dependency resolution logic varies based on type semantics
- *   <li>Archival policies may differ (e.g., batch children archived with parent)
- *   <li>Monitoring and metrics aggregation considers type hierarchy
- * </ul>
- *
- * @see JobEntity#getJobType()
- * @see JobBuilder
+ * <p>This enum is used in public events and SPIs where callers need a stable semantic category that
+ * is portable across implementations.
  */
 public enum JobType {
   /**
@@ -61,98 +44,53 @@ public enum JobType {
   RECURRING,
 
   /**
-   * Orchestrator job managing a collection of parallel child jobs.
+   * Batch-style work consisting of multiple coordinated child executions.
    *
    * <p>Characteristics:
    *
    * <ul>
-   *   <li>Tracks overall batch progress via BatchEntity
-   *   <li>Completes when all children finish (success or failure)
-   *   <li>Provides aggregated metrics across all children
-   *   <li>Supports continuation jobs after batch completion
-   *   <li>Created via {@code BatchJobBuilder} API
-   *   <li>Used for map-reduce patterns and bulk operations
+   *   <li>Created through batch builders
+   *   <li>May execute many individual items behind the scenes
+   *   <li>Reports progress and completion at the batch level
    * </ul>
    */
-  BATCH_PARENT,
+  BATCH,
 
   /**
-   * Individual work unit within a batch processing operation.
+   * Sequential multi-step work such as pipelines or chained tasks.
    *
    * <p>Characteristics:
    *
    * <ul>
-   *   <li>Executes independently but reports to parent batch
-   *   <li>Updates parent's progress atomically on completion
-   *   <li>Failures don't prevent other children from executing
-   *   <li>Inherits retry and timeout config from parent
-   *   <li>Automatically created by batch job expansion
-   *   <li>Archived together with parent for consistency
+   *   <li>Created through chaining APIs
+   *   <li>Represents ordered step-by-step processing
+   *   <li>May be executed internally as multiple linked jobs
    * </ul>
    */
-  BATCH_CHILD,
+  CHAIN,
 
   /**
-   * Sequential step in a job chain or pipeline.
+   * Workflow-driven execution using conditional branches or future join semantics.
    *
    * <p>Characteristics:
    *
    * <ul>
-   *   <li>Executes after previous step completes successfully
-   *   <li>Can access results from previous steps in chain
-   *   <li>Chain breaks on first failure unless configured otherwise
-   *   <li>Created via {@code JobBuilder.then()} fluent API
-   *   <li>Supports branching and conditional execution
-   *   <li>Used for multi-stage processing pipelines
+   *   <li>Created through workflow/conditional APIs
+   *   <li>Can react to prior results or batch outcomes
+   *   <li>May be implemented with internal branch or join jobs
    * </ul>
    */
-  CHAIN_STEP,
+  WORKFLOW,
 
   /**
-   * System-generated alert job for dead letter queue notifications.
+   * Scheduler-managed system work not directly created by users.
    *
    * <p>Characteristics:
    *
    * <ul>
-   *   <li>Created automatically on permanent job failures
-   *   <li>Triggers administrative notifications and alerts
-   *   <li>Contains failure context and diagnostic information
-   *   <li>High priority to ensure timely incident response
-   *   <li>Not user-creatable - system use only
-   *   <li>May trigger escalation workflows
+   *   <li>Reserved for framework-owned execution paths
+   *   <li>Not user-creatable through the public scheduling API
    * </ul>
    */
-  DLQ_ALERT,
-
-  /**
-   * Conditional branch in a workflow based on parent job results.
-   *
-   * <p>Characteristics:
-   *
-   * <ul>
-   *   <li>Executes only if parent's result matches conditions
-   *   <li>Supports complex predicates on parent output
-   *   <li>Multiple branches can execute from same parent
-   *   <li>Created via workflow builder conditional methods
-   *   <li>Enables if-then-else patterns in job flows
-   *   <li>Conditions evaluated by WorkflowConditionRepository
-   * </ul>
-   */
-  WORKFLOW_BRANCH,
-
-  /**
-   * Synchronization point waiting for multiple parent jobs.
-   *
-   * <p>Characteristics:
-   *
-   * <ul>
-   *   <li>Waits for ALL configured parents to complete
-   *   <li>Supports both "all-success" and "any-complete" semantics
-   *   <li>Aggregates results from all parent jobs
-   *   <li>Created via workflow builder join methods
-   *   <li>Implements fork-join parallelism patterns
-   *   <li>Critical for complex DAG workflows
-   * </ul>
-   */
-  WORKFLOW_JOIN
+  SYSTEM
 }

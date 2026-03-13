@@ -11,11 +11,12 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
-import jakarta.persistence.Lob;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.Objects;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * Represents an archived job entity for completed, failed, or canceled jobs.
@@ -57,7 +58,7 @@ public class ArchivedJobEntity {
 
   @Enumerated(EnumType.STRING)
   @Column(name = "job_type", nullable = false, length = 16)
-  private JobType jobType;
+  private JobExecutionType jobType;
 
   @Enumerated(EnumType.ORDINAL)
   @Column(nullable = false)
@@ -121,18 +122,17 @@ public class ArchivedJobEntity {
   @Column(name = "archive_reason", length = 128)
   private String archiveReason;
 
-  @Column(name = "job_result", columnDefinition = "json")
+  @Column(name = "job_result")
+  @JdbcTypeCode(SqlTypes.JSON)
   private String jobResult;
 
   @Column(name = "result_type", length = 100)
   private String resultType;
 
-  @Lob
-  @Column(name = "final_error", columnDefinition = "TEXT")
+  @Column(name = "final_error")
   private String finalError;
 
-  @Lob
-  @Column(name = "payload_summary", columnDefinition = "TEXT")
+  @Column(name = "payload_summary")
   private String payloadSummary;
 
   @Column(name = "depended_on")
@@ -170,12 +170,16 @@ public class ArchivedJobEntity {
     this.finalStatus = finalStatus;
   }
 
-  public JobType getJobType() {
+  public JobExecutionType getJobType() {
     return jobType;
   }
 
-  public void setJobType(JobType jobType) {
+  public void setJobType(JobExecutionType jobType) {
     this.jobType = jobType;
+  }
+
+  public JobType getPublicJobType() {
+    return jobType != null ? jobType.toPublicType() : null;
   }
 
   public JobPriority getPriority() {

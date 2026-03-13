@@ -2,6 +2,7 @@ package run.ratchet.store.dto;
 
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobStatus;
 import java.io.Serializable;
 import java.time.Instant;
@@ -14,7 +15,7 @@ import java.time.Instant;
  *
  * @param id the unique job identifier
  * @param status the current job status (will be RUNNING after claiming)
- * @param jobType the type of job for executor routing
+ * @param jobType the internal execution type for executor routing
  * @param priority the job priority for ordering
  * @param scheduledTime when the job was scheduled to run
  * @param version the optimistic locking version
@@ -28,7 +29,7 @@ import java.time.Instant;
 public record JobClaimDto(
     Long id,
     JobStatus status,
-    JobType jobType,
+    JobExecutionType jobType,
     JobPriority priority,
     Instant scheduledTime,
     Integer version,
@@ -47,6 +48,10 @@ public record JobClaimDto(
    */
   public boolean isValid() {
     return id != null && status != null && jobType != null;
+  }
+
+  public JobType publicJobType() {
+    return jobType.toPublicType();
   }
 
   /**

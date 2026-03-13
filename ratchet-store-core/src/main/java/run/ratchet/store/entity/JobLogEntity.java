@@ -10,11 +10,12 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
-import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * Entity representing an immutable log entry for job execution events and diagnostics.
@@ -46,12 +47,11 @@ public class JobLogEntity {
   @Column(nullable = false, length = 8)
   private LogLevel level;
 
-  @Lob
   @Column(nullable = false)
   private String message;
 
   @Convert(converter = JsonObjectMapConverter.class)
-  @Column(columnDefinition = "json")
+  @JdbcTypeCode(SqlTypes.JSON)
   private Map<String, Object> mdc;
 
   // ── Getters ──────────────────────────────────────────────────────────────

@@ -1,8 +1,8 @@
 package run.ratchet.store.spi;
 
 import run.ratchet.api.JobPriority;
-import run.ratchet.api.JobType;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobStatus;
 import java.time.Instant;
 import java.util.List;
@@ -11,57 +11,84 @@ import java.util.Optional;
 /** Core CRUD operations and query methods for jobs. */
 public interface JobCrudStore {
 
+  /** Creates or updates a job row and returns the persisted entity view. */
   JobEntity save(JobEntity job);
 
+  /** Loads a job by primary key. */
   Optional<JobEntity> findById(long id);
 
+  /** Loads and locks a job row for in-transaction mutation. */
   Optional<JobEntity> findByIdForUpdate(long id);
 
+  /** Deletes a job by primary key. */
   void delete(long id);
 
+  /** Returns the current persisted status for a job, or store-specific null handling if absent. */
   JobStatus getJobStatus(long id);
 
+  /** Batch-loads jobs by primary key for hot-path recovery and draining flows. */
+  List<JobEntity> findByIds(List<Long> ids);
+
+  /** Finds the active job currently associated with a business key, if any. */
   Optional<JobEntity> findActiveByBusinessKey(String businessKey);
 
+  /** Finds a job by its idempotency key. */
   Optional<JobEntity> findByIdempotencyKey(String idempotencyKey);
 
+  /** Returns direct dependant jobs whose {@code dependsOn} points at the supplied parent. */
   List<JobEntity> findDependants(long parentJobId);
 
-  List<JobEntity> findExistingRecurringJobsByTag(String tag);
-
+  /** Returns the next fire time of the earliest pending recurring master job. */
   Optional<Instant> findEarliestRecurringNextFire();
 
+  /** Counts jobs currently in {@code PENDING}. */
   long countPendingJobs();
 
+  /** Counts jobs in the supplied status. */
   long countJobsByStatus(JobStatus status);
 
-  long countActiveJobs(JobType jobType);
+  /** Counts active jobs of the supplied type. */
+  long countActiveJobs(JobExecutionType jobType);
 
+  /** Counts currently registered scheduler nodes. */
   long countActiveNodes();
 
+  /** Counts jobs ready to execute at or before the supplied instant. */
   long countReadyJobs(Instant now);
 
+  /** Counts running jobs whose pickup timestamp is older than the supplied threshold. */
   long countStuckJobs(Instant stuckThreshold);
 
+  /** Counts running jobs whose execution start time is older than the supplied threshold. */
   long countLongRunningJobs(Instant threshold);
 
+  /** Counts pending batch-child jobs. */
   long countPendingBatchChildren();
 
+  /** Counts pending jobs at the supplied priority. */
   long countPendingJobsByPriority(JobPriority priority);
 
-  long countPendingJobsByType(JobType jobType);
+  /** Counts pending jobs of the supplied type. */
+  long countPendingJobsByType(JobExecutionType jobType);
 
+  /** Counts jobs in a status whose last update was at or after the supplied instant. */
   long countJobsByStatusSince(JobStatus status, Instant since);
 
+  /** Counts jobs that have recorded at least one retry attempt. */
   long countJobsWithRetries();
 
+  /** Returns the fraction of recently updated jobs that have retried at least once. */
   double getRetryRateStats(Instant since);
 
+  /** Returns average execution duration for jobs included in the store's metric definition. */
   double getAverageProcessingTime(Instant since);
 
+  /** Returns the average number of child items for batches updated since the cutoff. */
   double getAverageBatchSize(Instant since);
 
+  /** Returns the scheduled time of the oldest pending job. */
   Optional<Instant> getOldestPendingJobTime();
 
+  /** Returns the queue wait time percentile using the store's native percentile semantics. */
   long getQueueWaitTimePercentile(double percentile);
 }

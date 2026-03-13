@@ -27,13 +27,14 @@ import java.util.logging.Logger;
  *
  * <ol>
  *   <li><b>Built-in list:</b> Well-known JDK and Jakarta EE exception classes
- *   <li><b>Annotation:</b> Custom exceptions annotated with {@link DoNotRetry}
+ *   <li><b>Annotation:</b> Custom exceptions annotated with {@link
+ *       run.ratchet.api.DoNotRetry}
  * </ol>
  *
  * <p>The entire exception cause chain is examined, so wrapping a non-retryable exception in another
  * exception will still prevent retries.
  *
- * @see DoNotRetry for marking custom exceptions as non-retryable
+ * @see run.ratchet.api.DoNotRetry for marking custom exceptions as non-retryable
  */
 @ApplicationScoped
 public class DoNotRetryPolicy {
@@ -71,7 +72,7 @@ public class DoNotRetryPolicy {
    * <ol>
    *   <li>If the exception class name is in the do-not-retry list
    *   <li>If any cause of the exception is in the do-not-retry list
-   *   <li>If the exception or its cause is annotated with @DoNotRetry
+   *   <li>If the exception or its cause is annotated with {@code @DoNotRetry}
    * </ol>
    *
    * @param exception the exception to check
@@ -109,7 +110,7 @@ public class DoNotRetryPolicy {
    * <ol>
    *   <li>Whether the exception's fully qualified class name is in the {@link
    *       #DO_NOT_RETRY_EXCEPTIONS} set
-   *   <li>Whether the exception class is annotated with {@link DoNotRetry}
+   *   <li>Whether the exception class is annotated with {@link run.ratchet.api.DoNotRetry}
    * </ol>
    *
    * <p>This method only checks the given exception instance, not its cause chain. The cause chain
@@ -118,6 +119,7 @@ public class DoNotRetryPolicy {
    * @param exception the specific exception instance to check (not the cause chain)
    * @return true if this specific exception type should not be retried
    */
+  @SuppressWarnings("removal")
   private boolean isDoNotRetryException(Throwable exception) {
     // Check if exception class is in the do-not-retry list
     String className = exception.getClass().getName();
@@ -125,7 +127,8 @@ public class DoNotRetryPolicy {
       return true;
     }
 
-    // Check if exception is annotated with @DoNotRetry
-    return exception.getClass().isAnnotationPresent(DoNotRetry.class);
+    // Support both the API annotation and the deprecated RI alias during migration.
+    return exception.getClass().isAnnotationPresent(run.ratchet.api.DoNotRetry.class)
+        || exception.getClass().isAnnotationPresent(run.ratchet.ri.core.DoNotRetry.class);
   }
 }

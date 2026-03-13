@@ -1,6 +1,8 @@
 package run.ratchet.spi;
 
 import run.ratchet.api.Incubating;
+import java.util.Arrays;
+import java.util.Objects;
 
 /** Describes a lambda expression's target method for serialization and execution. */
 @Incubating
@@ -9,4 +11,43 @@ public record LambdaDescriptor(
     String methodName,
     String methodDescriptor,
     boolean isStatic,
-    Object[] capturedArgs) {}
+    Object[] capturedArgs) {
+  @Override
+  public boolean equals(Object o) {
+    if (!(o instanceof LambdaDescriptor that)) return false;
+    return isStatic() == that.isStatic()
+        && Objects.equals(methodName(), that.methodName())
+        && Objects.equals(targetClass(), that.targetClass())
+        && Objects.deepEquals(capturedArgs(), that.capturedArgs())
+        && Objects.equals(methodDescriptor(), that.methodDescriptor());
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(
+        targetClass(),
+        methodName(),
+        methodDescriptor(),
+        isStatic(),
+        Arrays.hashCode(capturedArgs()));
+  }
+
+  @Override
+  public String toString() {
+    return "LambdaDescriptor{"
+        + "targetClass='"
+        + targetClass
+        + '\''
+        + ", methodName='"
+        + methodName
+        + '\''
+        + ", methodDescriptor='"
+        + methodDescriptor
+        + '\''
+        + ", isStatic="
+        + isStatic
+        + ", capturedArgs="
+        + Arrays.toString(capturedArgs)
+        + '}';
+  }
+}

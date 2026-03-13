@@ -1,5 +1,7 @@
 package run.ratchet.api.event;
 
+import java.io.Serial;
+import java.io.Serializable;
 import java.util.Map;
 
 /**
@@ -28,6 +30,16 @@ import java.util.Map;
  *   <li><b>memoryPercent:</b> Memory usage as percentage of available
  * </ul>
  *
+ * <p>Note: This event intentionally does NOT extend {@link AbstractJobSchedulerEvent} because it
+ * represents system-level aggregate metrics, not a per-job lifecycle event. {@code
+ * AbstractJobSchedulerEvent} carries per-job metadata (jobId, businessKey, jobType, priority,
+ * nodeId) that does not apply to system-wide performance snapshots. The {@link
+ * run.ratchet.ri.core.InternalEventPublisher} uses {@code Event<Object>} and accepts any
+ * event type.
+ *
  * @param performanceData Map containing performance metrics for the job scheduler.
  */
-public record PerformanceMetricsEvent(Map<String, Object> performanceData) {}
+public record PerformanceMetricsEvent(Map<String, Object> performanceData) implements Serializable {
+
+  @Serial private static final long serialVersionUID = 1L;
+}

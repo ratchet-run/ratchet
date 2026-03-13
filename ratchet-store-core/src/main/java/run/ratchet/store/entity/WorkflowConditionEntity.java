@@ -1,5 +1,7 @@
 package run.ratchet.store.entity;
 
+import run.ratchet.api.SerializableFunction;
+import run.ratchet.api.SerializablePredicate;
 import run.ratchet.api.WorkflowCondition;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -11,13 +13,16 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
-import jakarta.persistence.Lob;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.ObjectOutputStream;
 import java.io.Serial;
 import java.io.Serializable;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.Objects;
 
 /**
@@ -54,7 +59,6 @@ public class WorkflowConditionEntity implements Serializable {
   @Column(name = "condition_type", nullable = false)
   private WorkflowCondition.ConditionType conditionType;
 
-  @Lob
   @Column(name = "condition_expression")
   private String conditionExpression;
 
@@ -177,8 +181,22 @@ public class WorkflowConditionEntity implements Serializable {
   public void setConditionExpressionSerialized(Serializable expression) {
     if (expression == null) {
       this.conditionExpression = null;
+    } else if (expression instanceof SerializablePredicate<?>
+        || expression instanceof SerializableFunction<?, ?>) {
+      this.conditionExpression = serializeExpression(expression);
     } else {
       this.conditionExpression = expression.toString();
+    }
+  }
+
+  private static String serializeExpression(Serializable expression) {
+    try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        ObjectOutputStream oos = new ObjectOutputStream(baos)) {
+      oos.writeObject(expression);
+      oos.flush();
+      return Base64.getEncoder().encodeToString(baos.toByteArray());
+    } catch (IOException e) {
+      throw new IllegalArgumentException("Failed to serialize workflow condition expression", e);
     }
   }
 

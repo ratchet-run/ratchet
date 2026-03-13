@@ -18,7 +18,6 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
-import jakarta.persistence.Lob;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
@@ -27,6 +26,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * Core entity representing a unit of work in the distributed job scheduler.
@@ -45,7 +46,7 @@ import java.util.Objects;
  * </ol>
  *
  * @see JobStatus for state machine details
- * @see JobType for execution patterns
+ * @see JobExecutionType for internal execution roles
  */
 @Entity
 @Table(
@@ -86,7 +87,7 @@ public class JobEntity {
 
   @Enumerated(EnumType.STRING)
   @Column(name = "job_type", nullable = false, length = 16)
-  private JobType jobType;
+  private JobExecutionType jobType;
 
   @Enumerated(EnumType.ORDINAL)
   @Column(nullable = false)
@@ -118,11 +119,12 @@ public class JobEntity {
   private Instant nextFire;
 
   @Convert(converter = JobPayloadConverter.class)
-  @Column(columnDefinition = "json", nullable = false)
+  @Column(nullable = false)
+  @JdbcTypeCode(SqlTypes.JSON)
   private JobPayload payload;
 
   @Convert(converter = JsonMapConverter.class)
-  @Column(columnDefinition = "json")
+  @JdbcTypeCode(SqlTypes.JSON)
   private Map<String, String> params;
 
   @Column(name = "target_class", insertable = false, updatable = false)
@@ -157,8 +159,7 @@ public class JobEntity {
   @Column(name = "picked_at")
   private Instant pickedAt;
 
-  @Lob
-  @Column(name = "last_error", columnDefinition = "TEXT")
+  @Column(name = "last_error")
   private String lastError;
 
   @Column(name = "created_at", updatable = false)
@@ -182,7 +183,8 @@ public class JobEntity {
   @Column(name = "queue_wait_ms")
   private Long queueWaitMs;
 
-  @Column(name = "job_result", columnDefinition = "json")
+  @Column(name = "job_result")
+  @JdbcTypeCode(SqlTypes.JSON)
   private String jobResult;
 
   @Column(name = "result_type", length = 100)
@@ -226,12 +228,16 @@ public class JobEntity {
     this.scheduledTime = scheduledTime;
   }
 
-  public JobType getJobType() {
+  public JobExecutionType getJobType() {
     return jobType;
   }
 
-  public void setJobType(JobType jobType) {
+  public void setJobType(JobExecutionType jobType) {
     this.jobType = jobType;
+  }
+
+  public JobType getPublicJobType() {
+    return jobType != null ? jobType.toPublicType() : null;
   }
 
   public JobPriority getPriority() {

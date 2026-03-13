@@ -8,6 +8,8 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.util.Objects;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /**
  * Entity representing batch job progress tracking in the scheduler system.
@@ -43,7 +45,8 @@ public class BatchEntity {
   private Integer version;
 
   @Convert(converter = JobPayloadConverter.class)
-  @Column(name = "progress_hook", columnDefinition = "json")
+  @Column(name = "progress_hook")
+  @JdbcTypeCode(SqlTypes.JSON)
   private JobPayload progressHook;
 
   // ── Getters ──────────────────────────────────────────────────────────────

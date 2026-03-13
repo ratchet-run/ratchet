@@ -1,6 +1,7 @@
 package run.ratchet.spi;
 
 import run.ratchet.api.Incubating;
+import java.time.Duration;
 import java.util.concurrent.Callable;
 
 /**
@@ -32,4 +33,18 @@ public interface ResilienceStrategy {
    * @return true if calls are permitted, false if the circuit is open
    */
   boolean isServiceAvailable(String serviceName);
+
+  /**
+   * Returns the recommended delay before retrying work that was rejected because the protected
+   * service is unavailable.
+   *
+   * <p>The default implementation preserves the existing RI behavior of 30 seconds so existing SPI
+   * implementations remain source- and binary-compatible.
+   *
+   * @param serviceName the protected service
+   * @return the recommended retry delay
+   */
+  default Duration getRetryDelay(String serviceName) {
+    return Duration.ofSeconds(30);
+  }
 }

@@ -2,7 +2,6 @@ package run.ratchet.store.postgresql;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import run.ratchet.api.JobPriority;
-import run.ratchet.api.JobType;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobClaimDto;
@@ -12,6 +11,7 @@ import run.ratchet.store.entity.BatchMetricsEntity;
 import run.ratchet.store.entity.DlqAlertEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.entity.NodeEntity;
@@ -47,6 +47,7 @@ import java.util.logging.Logger;
 public class PostgresqlJobStore implements JobStore {
 
   private static final Logger log = Logger.getLogger(PostgresqlJobStore.class.getName());
+  private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
   @PersistenceContext private EntityManager em;
 
@@ -97,11 +98,24 @@ public class PostgresqlJobStore implements JobStore {
   }
 
   @Override
+  public List<JobEntity> findByIds(List<Long> ids) {
+    if (ids.isEmpty()) {
+      return List.of();
+    }
+    @SuppressWarnings("unchecked")
+    List<JobEntity> results =
+        em.createNativeQuery("SELECT * FROM scheduler_job WHERE job_id IN (:ids)", JobEntity.class)
+            .setParameter("ids", ids)
+            .getResultList();
+    return results;
+  }
+
+  @Override
   public Optional<JobEntity> findActiveByBusinessKey(String businessKey) {
     @SuppressWarnings("unchecked")
     List<JobEntity> results =
         em.createNativeQuery(
-                "SELECT * FROM scheduler_job WHERE business_key = ? AND status IN ('PENDING','RUNNING') LIMIT 1",
+                "SELECT * FROM scheduler_job WHERE business_key = ? AND status IN ('PENDING','RUNNING','PAUSED') LIMIT 1",
                 JobEntity.class)
             .setParameter(1, businessKey)
             .getResultList();
@@ -130,32 +144,17 @@ public class PostgresqlJobStore implements JobStore {
   }
 
   @Override
-  public List<JobEntity> findExistingRecurringJobsByTag(String tag) {
-    @SuppressWarnings("unchecked")
-    List<JobEntity> results =
-        em.createNativeQuery(
-                "SELECT j.* FROM scheduler_job j "
-                    + "INNER JOIN scheduler_job_tag t ON j.job_id = t.job_id "
-                    + "WHERE t.tag = ? AND j.job_type IN ('RECURRING','CRON') "
-                    + "AND j.status IN ('PENDING','RUNNING','PAUSED')",
-                JobEntity.class)
-            .setParameter(1, tag)
-            .getResultList();
-    return results;
-  }
-
-  @Override
   public Optional<Instant> findEarliestRecurringNextFire() {
     @SuppressWarnings("unchecked")
-    List<Timestamp> results =
+    List<Object> results =
         em.createNativeQuery(
                 "SELECT MIN(next_fire) FROM scheduler_job "
-                    + "WHERE job_type IN ('RECURRING','CRON') AND status = 'PENDING' AND next_fire IS NOT NULL")
+                    + "WHERE job_type = 'RECURRING' AND status = 'PENDING' AND next_fire IS NOT NULL")
             .getResultList();
     if (results.isEmpty() || results.get(0) == null) {
       return Optional.empty();
     }
-    return Optional.of(results.get(0).toInstant());
+    return Optional.of(toInstant(results.get(0)));
   }
 
   @Override
@@ -169,7 +168,7 @@ public class PostgresqlJobStore implements JobStore {
   }
 
   @Override
-  public long countActiveJobs(JobType jobType) {
+  public long countActiveJobs(JobExecutionType jobType) {
     return countByNative(
         "SELECT COUNT(*) FROM scheduler_job WHERE job_type = ? AND status IN ('PENDING','RUNNING')",
         jobType.name());
@@ -215,7 +214,7 @@ public class PostgresqlJobStore implements JobStore {
   }
 
   @Override
-  public long countPendingJobsByType(JobType jobType) {
+  public long countPendingJobsByType(JobExecutionType jobType) {
     return countByNative(
         "SELECT COUNT(*) FROM scheduler_job WHERE status = 'PENDING' AND job_type = ?",
         jobType.name());
@@ -273,14 +272,14 @@ public class PostgresqlJobStore implements JobStore {
   @Override
   public Optional<Instant> getOldestPendingJobTime() {
     @SuppressWarnings("unchecked")
-    List<Timestamp> results =
+    List<Object> results =
         em.createNativeQuery(
                 "SELECT MIN(scheduled_time) FROM scheduler_job WHERE status = 'PENDING'")
             .getResultList();
     if (results.isEmpty() || results.get(0) == null) {
       return Optional.empty();
     }
-    return Optional.of(results.get(0).toInstant());
+    return Optional.of(toInstant(results.get(0)));
   }
 
   @Override
@@ -305,10 +304,8 @@ public class PostgresqlJobStore implements JobStore {
         em.createNativeQuery(
                 "SELECT job_id FROM scheduler_job "
                     + "WHERE status = 'PENDING' "
-                    + "AND job_type NOT IN ('RECURRING','CRON','BATCH_PARENT') "
+                    + "AND job_type NOT IN ('RECURRING','BATCH_PARENT') "
                     + "AND scheduled_time <= statement_timestamp() "
-                    + "AND (depends_on IS NULL OR depends_on IN "
-                    + "  (SELECT job_id FROM scheduler_job WHERE status = 'SUCCEEDED')) "
                     + "ORDER BY priority ASC, scheduled_time ASC "
                     + "FOR UPDATE SKIP LOCKED "
                     + "LIMIT ?")
@@ -320,10 +317,10 @@ public class PostgresqlJobStore implements JobStore {
     }
 
     em.createNativeQuery(
-            "UPDATE scheduler_job SET status = 'RUNNING', picked_by = ?, "
+            "UPDATE scheduler_job SET status = 'RUNNING', picked_by = :nodeId, "
                 + "picked_at = statement_timestamp(), updated_at = statement_timestamp() "
                 + "WHERE job_id IN (:ids)")
-        .setParameter(1, nodeId)
+        .setParameter("nodeId", nodeId)
         .setParameter("ids", ids)
         .executeUpdate();
 
@@ -344,10 +341,8 @@ public class PostgresqlJobStore implements JobStore {
         em.createNativeQuery(
                 "SELECT job_id FROM scheduler_job "
                     + "WHERE status = 'PENDING' "
-                    + "AND job_type NOT IN ('RECURRING','CRON','BATCH_PARENT') "
+                    + "AND job_type NOT IN ('RECURRING','BATCH_PARENT') "
                     + "AND scheduled_time <= statement_timestamp() "
-                    + "AND (depends_on IS NULL OR depends_on IN "
-                    + "  (SELECT job_id FROM scheduler_job WHERE status = 'SUCCEEDED')) "
                     + "ORDER BY priority ASC, scheduled_time ASC "
                     + "FOR UPDATE SKIP LOCKED "
                     + "LIMIT ?")
@@ -359,10 +354,10 @@ public class PostgresqlJobStore implements JobStore {
     }
 
     em.createNativeQuery(
-            "UPDATE scheduler_job SET status = 'RUNNING', picked_by = ?, "
+            "UPDATE scheduler_job SET status = 'RUNNING', picked_by = :nodeId, "
                 + "picked_at = statement_timestamp(), updated_at = statement_timestamp() "
                 + "WHERE job_id IN (:ids)")
-        .setParameter(1, nodeId)
+        .setParameter("nodeId", nodeId)
         .setParameter("ids", ids)
         .executeUpdate();
 
@@ -383,13 +378,13 @@ public class PostgresqlJobStore implements JobStore {
           new JobClaimDto(
               ((Number) row[0]).longValue(),
               JobStatus.valueOf((String) row[1]),
-              JobType.valueOf((String) row[2]),
+              JobExecutionType.valueOf((String) row[2]),
               JobPriority.values()[((Number) row[3]).intValue()],
-              ((Timestamp) row[4]).toInstant(),
+              toInstant(row[4]),
               row[5] == null ? null : ((Number) row[5]).intValue(),
               ((Number) row[6]).intValue(),
               (String) row[7],
-              row[8] == null ? null : ((Timestamp) row[8]).toInstant(),
+              row[8] == null ? null : toInstant(row[8]),
               (String) row[9],
               ((Number) row[10]).intValue(),
               ((Number) row[11]).intValue()));
@@ -403,7 +398,7 @@ public class PostgresqlJobStore implements JobStore {
     List<Long> ids =
         em.createNativeQuery(
                 "SELECT job_id FROM scheduler_job "
-                    + "WHERE job_type IN ('RECURRING','CRON') "
+                    + "WHERE job_type = 'RECURRING' "
                     + "AND status = 'PENDING' "
                     + "AND next_fire <= statement_timestamp() "
                     + "ORDER BY priority ASC, next_fire ASC "
@@ -417,10 +412,10 @@ public class PostgresqlJobStore implements JobStore {
     }
 
     em.createNativeQuery(
-            "UPDATE scheduler_job SET status = 'RUNNING', picked_by = ?, "
+            "UPDATE scheduler_job SET status = 'RUNNING', picked_by = :nodeId, "
                 + "picked_at = statement_timestamp(), updated_at = statement_timestamp() "
                 + "WHERE job_id IN (:ids)")
-        .setParameter(1, nodeId)
+        .setParameter("nodeId", nodeId)
         .setParameter("ids", ids)
         .executeUpdate();
 
@@ -467,15 +462,19 @@ public class PostgresqlJobStore implements JobStore {
 
   @Override
   public int incrementRetryAttempt(long id) {
-    Object result =
+    List<?> results =
         em.createNativeQuery(
                 "UPDATE scheduler_job SET attempts = attempts + 1, "
                     + "updated_at = statement_timestamp() "
                     + "WHERE job_id = ? "
+                    + "AND status = 'RUNNING' "
                     + "RETURNING attempts")
             .setParameter(1, id)
-            .getSingleResult();
-    return ((Number) result).intValue();
+            .getResultList();
+    if (results.isEmpty()) {
+      return -1;
+    }
+    return ((Number) results.get(0)).intValue();
   }
 
   @Override
@@ -587,10 +586,21 @@ public class PostgresqlJobStore implements JobStore {
                 + "WHERE job_id IN ("
                 + "  SELECT j.job_id FROM scheduler_job j "
                 + "  INNER JOIN scheduler_job_tag t ON j.job_id = t.job_id "
-                + "  WHERE t.tag = ? AND j.job_type IN ('RECURRING','CRON') "
+                + "  WHERE t.tag = ? AND j.job_type = 'RECURRING' "
                 + "  AND j.status IN ('PENDING','RUNNING','PAUSED')"
                 + ")")
         .setParameter(1, tag)
+        .executeUpdate();
+  }
+
+  @Override
+  public int cancelRecurringJobByBusinessKey(String businessKey) {
+    return em.createNativeQuery(
+            "UPDATE scheduler_job SET status = 'CANCELED', "
+                + "updated_at = statement_timestamp() "
+                + "WHERE business_key = ? AND job_type = 'RECURRING' "
+                + "AND status IN ('PENDING','RUNNING','PAUSED')")
+        .setParameter(1, businessKey)
         .executeUpdate();
   }
 
@@ -603,11 +613,12 @@ public class PostgresqlJobStore implements JobStore {
     return em.createNativeQuery(
             "UPDATE scheduler_job SET status = 'CANCELED', "
                 + "updated_at = statement_timestamp() "
-                + "WHERE job_type IN ('RECURRING','CRON') "
+                + "WHERE job_type = 'RECURRING' "
                 + "AND status IN ('PENDING','RUNNING','PAUSED') "
-                + "AND created_at < ? "
-                + "AND idempotency_key NOT IN (:ids)")
-        .setParameter(1, Timestamp.from(nodeStartTime))
+                + "AND created_at < :cutoff "
+                + "AND business_key IS NOT NULL "
+                + "AND business_key NOT IN (:ids)")
+        .setParameter("cutoff", Timestamp.from(nodeStartTime))
         .setParameter("ids", registeredIds)
         .executeUpdate();
   }
@@ -818,6 +829,20 @@ public class PostgresqlJobStore implements JobStore {
             .setParameter(1, batchId)
             .executeUpdate();
     return updated > 0;
+  }
+
+  @Override
+  public List<Long> findRecoverableBatchIds(int limit) {
+    @SuppressWarnings("unchecked")
+    List<Number> results =
+        em.createNativeQuery(
+                "SELECT batch_id FROM scheduler_batch "
+                    + "WHERE completion_processed = FALSE "
+                    + "AND (completed_items + failed_items) >= total_items "
+                    + "LIMIT ?")
+            .setParameter(1, limit)
+            .getResultList();
+    return results.stream().map(Number::longValue).toList();
   }
 
   @Override
@@ -1416,8 +1441,7 @@ public class PostgresqlJobStore implements JobStore {
       return "{}";
     }
     try {
-      var mapper = new ObjectMapper();
-      return mapper.writeValueAsString(job.getPayload());
+      return OBJECT_MAPPER.writeValueAsString(job.getPayload());
     } catch (Exception e) {
       log.log(Level.WARNING, "Failed to serialize payload", e);
       return "{}";
@@ -1429,11 +1453,23 @@ public class PostgresqlJobStore implements JobStore {
       return null;
     }
     try {
-      var mapper = new ObjectMapper();
-      return mapper.writeValueAsString(job.getParams());
+      return OBJECT_MAPPER.writeValueAsString(job.getParams());
     } catch (Exception e) {
       log.log(Level.WARNING, "Failed to serialize params", e);
       return null;
     }
+  }
+
+  private static Instant toInstant(Object value) {
+    if (value instanceof Instant) {
+      return (Instant) value;
+    }
+    if (value instanceof Timestamp) {
+      return ((Timestamp) value).toInstant();
+    }
+    if (value instanceof java.time.OffsetDateTime) {
+      return ((java.time.OffsetDateTime) value).toInstant();
+    }
+    throw new IllegalArgumentException("Cannot convert " + value.getClass() + " to Instant");
   }
 }

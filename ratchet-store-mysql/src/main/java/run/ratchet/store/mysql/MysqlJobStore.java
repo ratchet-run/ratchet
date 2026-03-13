@@ -3,7 +3,6 @@ package run.ratchet.store.mysql;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import run.ratchet.api.JobPriority;
-import run.ratchet.api.JobType;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobClaimDto;
@@ -13,6 +12,7 @@ import run.ratchet.store.entity.BatchMetricsEntity;
 import run.ratchet.store.entity.DlqAlertEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.entity.NodeEntity;
@@ -49,6 +49,8 @@ import java.util.stream.Collectors;
 @ApplicationScoped
 @Transactional
 public class MysqlJobStore implements JobStore {
+
+  private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
   @PersistenceContext private EntityManager em;
 
@@ -91,6 +93,17 @@ public class MysqlJobStore implements JobStore {
   }
 
   @Override
+  public List<JobEntity> findByIds(List<Long> ids) {
+    if (ids.isEmpty()) {
+      return List.of();
+    }
+    return em.createNativeQuery(
+            "SELECT * FROM scheduler_job WHERE job_id IN (:ids)", JobEntity.class)
+        .setParameter("ids", ids)
+        .getResultList();
+  }
+
+  @Override
   public Optional<JobEntity> findActiveByBusinessKey(String businessKey) {
     List<JobEntity> results =
         em.createQuery(
@@ -123,23 +136,11 @@ public class MysqlJobStore implements JobStore {
   }
 
   @Override
-  public List<JobEntity> findExistingRecurringJobsByTag(String tag) {
-    return em.createNativeQuery(
-            "SELECT j.* FROM scheduler_job j "
-                + "JOIN scheduler_job_tag t ON j.job_id = t.job_id "
-                + "WHERE t.tag = :tag AND j.job_type IN ('RECURRING', 'CRON') "
-                + "AND j.status IN ('PENDING', 'RUNNING', 'PAUSED')",
-            JobEntity.class)
-        .setParameter("tag", tag)
-        .getResultList();
-  }
-
-  @Override
   public Optional<Instant> findEarliestRecurringNextFire() {
     List<?> results =
         em.createNativeQuery(
                 "SELECT MIN(next_fire) FROM scheduler_job "
-                    + "WHERE job_type IN ('RECURRING', 'CRON') AND status = 'PENDING' AND next_fire IS NOT NULL")
+                    + "WHERE job_type = 'RECURRING' AND status = 'PENDING' AND next_fire IS NOT NULL")
             .getResultList();
     if (results.isEmpty() || results.get(0) == null) {
       return Optional.empty();
@@ -164,7 +165,7 @@ public class MysqlJobStore implements JobStore {
   }
 
   @Override
-  public long countActiveJobs(JobType jobType) {
+  public long countActiveJobs(JobExecutionType jobType) {
     return em.createQuery(
             "SELECT COUNT(j) FROM JobEntity j WHERE j.jobType = :jt "
                 + "AND j.status IN (run.ratchet.store.entity.JobStatus.PENDING, "
@@ -212,7 +213,7 @@ public class MysqlJobStore implements JobStore {
   @Override
   public long countPendingBatchChildren() {
     return em.createQuery(
-            "SELECT COUNT(j) FROM JobEntity j WHERE j.jobType = run.ratchet.api.JobType.BATCH_CHILD "
+            "SELECT COUNT(j) FROM JobEntity j WHERE j.jobType = run.ratchet.store.entity.JobExecutionType.BATCH_CHILD "
                 + "AND j.status = run.ratchet.store.entity.JobStatus.PENDING",
             Long.class)
         .getSingleResult();
@@ -229,7 +230,7 @@ public class MysqlJobStore implements JobStore {
   }
 
   @Override
-  public long countPendingJobsByType(JobType jobType) {
+  public long countPendingJobsByType(JobExecutionType jobType) {
     return em.createQuery(
             "SELECT COUNT(j) FROM JobEntity j WHERE j.jobType = :jt "
                 + "AND j.status = run.ratchet.store.entity.JobStatus.PENDING",
@@ -270,7 +271,8 @@ public class MysqlJobStore implements JobStore {
     Object result =
         em.createNativeQuery(
                 "SELECT COALESCE(AVG(execution_duration_ms), 0) FROM scheduler_job "
-                    + "WHERE execution_duration_ms IS NOT NULL AND updated_at >= :since")
+                    + "WHERE status = 'SUCCEEDED' AND execution_duration_ms IS NOT NULL "
+                    + "AND updated_at >= :since")
             .setParameter("since", Timestamp.from(since))
             .getSingleResult();
     return ((Number) result).doubleValue();
@@ -306,6 +308,18 @@ public class MysqlJobStore implements JobStore {
 
   @Override
   public long getQueueWaitTimePercentile(double percentile) {
+    // MySQL does not support expressions in the OFFSET clause, so compute the offset in Java.
+    Number countResult =
+        (Number)
+            em.createNativeQuery(
+                    // language=MySQL
+                    "SELECT COUNT(*) FROM scheduler_job WHERE queue_wait_ms IS NOT NULL")
+                .getSingleResult();
+    long total = countResult.longValue();
+    if (total == 0) {
+      return 0L;
+    }
+    int offset = (int) Math.floor(percentile * total);
     Object result =
         em
             .createNativeQuery(
@@ -315,8 +329,8 @@ public class MysqlJobStore implements JobStore {
                 FROM scheduler_job
                 WHERE queue_wait_ms IS NOT NULL
                 ORDER BY queue_wait_ms ASC
-                LIMIT 1 OFFSET FLOOR(:pct * (SELECT COUNT(*) FROM scheduler_job WHERE queue_wait_ms IS NOT NULL))""")
-            .setParameter("pct", percentile)
+                LIMIT 1 OFFSET ?1""")
+            .setParameter(1, offset)
             .getResultList()
             .stream()
             .findFirst()
@@ -329,14 +343,17 @@ public class MysqlJobStore implements JobStore {
   @Override
   @SuppressWarnings("unchecked")
   public List<JobEntity> claimNextBatch(int limit, String nodeId) {
+    // Dependency resolution is handled by the orchestration layer (PostExecutionHandler
+    // schedules child jobs only after the parent completes), so the claim query only needs
+    // to find PENDING jobs that are due. No self-joins needed — matching the original
+    // nets4 JobClaimStrategy pattern.
     List<JobEntity> candidates =
         em.createNativeQuery(
                 // language=MySQL
                 """
-                SELECT *
-                FROM scheduler_job
+                SELECT * FROM scheduler_job
                 WHERE status = 'PENDING' AND scheduled_time <= NOW(3)
-                  AND job_type NOT IN ('BATCH_PARENT', 'RECURRING', 'CRON')
+                  AND job_type NOT IN ('BATCH_PARENT', 'RECURRING')
                 ORDER BY priority ASC, scheduled_time ASC
                 LIMIT :lim
                 FOR UPDATE SKIP LOCKED""",
@@ -356,9 +373,15 @@ public class MysqlJobStore implements JobStore {
         .setParameter("ids", ids)
         .executeUpdate();
 
-    // Refresh entities to get updated state
-    candidates.forEach(em::refresh);
-    return candidates;
+    // Clear persistence context and batch-load updated entities
+    em.clear();
+
+    @SuppressWarnings("unchecked")
+    List<JobEntity> refreshed =
+        em.createNativeQuery("SELECT * FROM scheduler_job WHERE job_id IN (:ids)", JobEntity.class)
+            .setParameter("ids", ids)
+            .getResultList();
+    return refreshed;
   }
 
   @Override
@@ -366,14 +389,17 @@ public class MysqlJobStore implements JobStore {
   public List<JobClaimDto> claimNextBatchOptimized(int limit, String nodeId) {
     List<Object[]> rows =
         em.createNativeQuery(
-                "SELECT job_id, status, job_type, priority, scheduled_time, version, "
-                    + "timeout_sec, picked_by, picked_at, business_key, attempts, max_retries "
-                    + "FROM scheduler_job "
-                    + "WHERE status = 'PENDING' AND scheduled_time <= NOW(3) "
-                    + "AND job_type NOT IN ('BATCH_PARENT', 'RECURRING', 'CRON') "
-                    + "ORDER BY priority ASC, scheduled_time ASC "
-                    + "LIMIT :lim "
-                    + "FOR UPDATE SKIP LOCKED")
+                """
+                SELECT job_id, status, job_type, priority, scheduled_time,
+                       version, timeout_sec, picked_by, picked_at, business_key,
+                       attempts, max_retries
+                FROM scheduler_job
+                WHERE status = 'PENDING'
+                  AND scheduled_time <= NOW(3)
+                  AND job_type NOT IN ('BATCH_PARENT', 'RECURRING')
+                ORDER BY priority ASC, scheduled_time ASC
+                LIMIT :lim
+                FOR UPDATE SKIP LOCKED""")
             .setParameter("lim", limit)
             .getResultList();
 
@@ -398,7 +424,7 @@ public class MysqlJobStore implements JobStore {
                 new JobClaimDto(
                     ((Number) r[0]).longValue(),
                     JobStatus.RUNNING,
-                    JobType.valueOf((String) r[2]),
+                    JobExecutionType.valueOf((String) r[2]),
                     JobPriority.values()[((Number) r[3]).intValue()],
                     toInstant(r[4]),
                     ((Number) r[5]).intValue(),
@@ -417,7 +443,7 @@ public class MysqlJobStore implements JobStore {
     List<JobEntity> candidates =
         em.createNativeQuery(
                 "SELECT * FROM scheduler_job "
-                    + "WHERE job_type IN ('RECURRING', 'CRON') "
+                    + "WHERE job_type = 'RECURRING' "
                     + "AND status = 'PENDING' AND next_fire <= NOW(3) "
                     + "LIMIT :lim "
                     + "FOR UPDATE SKIP LOCKED",
@@ -437,8 +463,14 @@ public class MysqlJobStore implements JobStore {
         .setParameter("ids", ids)
         .executeUpdate();
 
-    candidates.forEach(em::refresh);
-    return candidates;
+    em.clear();
+
+    @SuppressWarnings("unchecked")
+    List<JobEntity> refreshed =
+        em.createNativeQuery("SELECT * FROM scheduler_job WHERE job_id IN (:ids)", JobEntity.class)
+            .setParameter("ids", ids)
+            .getResultList();
+    return refreshed;
   }
 
   // ── JobStatusStore ────────────────────────────────────────────────────
@@ -471,16 +503,27 @@ public class MysqlJobStore implements JobStore {
 
   @Override
   public int incrementRetryAttempt(long id) {
+    // Lock row, read current attempts, then update atomically
+    Object result =
+        em
+            .createNativeQuery(
+                "SELECT attempts FROM scheduler_job WHERE job_id = :id AND status = 'RUNNING' FOR UPDATE")
+            .setParameter("id", id)
+            .getResultList()
+            .stream()
+            .findFirst()
+            .orElse(null);
+    if (result == null) {
+      return -1;
+    }
+    int newAttempts = ((Number) result).intValue() + 1;
     em.createNativeQuery(
-            "UPDATE scheduler_job SET attempts = attempts + 1, updated_at = NOW(3) "
-                + "WHERE job_id = :id")
+            "UPDATE scheduler_job SET attempts = :a, updated_at = NOW(3) "
+                + "WHERE job_id = :id AND status = 'RUNNING'")
+        .setParameter("a", newAttempts)
         .setParameter("id", id)
         .executeUpdate();
-    return ((Number)
-            em.createNativeQuery("SELECT attempts FROM scheduler_job WHERE job_id = :id")
-                .setParameter("id", id)
-                .getSingleResult())
-        .intValue();
+    return newAttempts;
   }
 
   @Override
@@ -548,7 +591,7 @@ public class MysqlJobStore implements JobStore {
         em.createNativeQuery(
                 "UPDATE scheduler_job SET status = 'PENDING', last_error = :err, "
                     + "scheduled_time = :st, attempts = :att, picked_by = NULL, picked_at = NULL, "
-                    + "updated_at = NOW(3) WHERE job_id = :id")
+                    + "updated_at = NOW(3) WHERE job_id = :id AND status IN ('RUNNING','FAILED')")
             .setParameter("err", error)
             .setParameter("st", Timestamp.from(newScheduledTime))
             .setParameter("att", attempts)
@@ -583,9 +626,19 @@ public class MysqlJobStore implements JobStore {
     return em.createNativeQuery(
             "UPDATE scheduler_job j JOIN scheduler_job_tag t ON j.job_id = t.job_id "
                 + "SET j.status = 'CANCELED', j.updated_at = NOW(3) "
-                + "WHERE t.tag = :tag AND j.job_type IN ('RECURRING', 'CRON') "
+                + "WHERE t.tag = :tag AND j.job_type = 'RECURRING' "
                 + "AND j.status IN ('PENDING', 'RUNNING', 'PAUSED')")
         .setParameter("tag", tag)
+        .executeUpdate();
+  }
+
+  @Override
+  public int cancelRecurringJobByBusinessKey(String businessKey) {
+    return em.createNativeQuery(
+            "UPDATE scheduler_job SET status = 'CANCELED', updated_at = NOW(3) "
+                + "WHERE business_key = :bk AND job_type = 'RECURRING' "
+                + "AND status IN ('PENDING', 'RUNNING', 'PAUSED')")
+        .setParameter("bk", businessKey)
         .executeUpdate();
   }
 
@@ -596,12 +649,12 @@ public class MysqlJobStore implements JobStore {
       return 0;
     }
     return em.createNativeQuery(
-            "UPDATE scheduler_job j JOIN scheduler_job_tag t ON j.job_id = t.job_id "
-                + "SET j.status = 'CANCELED', j.updated_at = NOW(3) "
-                + "WHERE j.job_type IN ('RECURRING', 'CRON') "
-                + "AND j.status IN ('PENDING', 'RUNNING', 'PAUSED') "
-                + "AND j.created_at < :nodeStart "
-                + "AND t.tag NOT IN (:ids)")
+            "UPDATE scheduler_job SET status = 'CANCELED', updated_at = NOW(3) "
+                + "WHERE job_type = 'RECURRING' "
+                + "AND status IN ('PENDING', 'RUNNING', 'PAUSED') "
+                + "AND created_at < :nodeStart "
+                + "AND business_key IS NOT NULL "
+                + "AND business_key NOT IN (:ids)")
         .setParameter("nodeStart", Timestamp.from(nodeStartTime))
         .setParameter("ids", registeredIds)
         .executeUpdate();
@@ -760,46 +813,44 @@ public class MysqlJobStore implements JobStore {
 
   @Override
   public BatchProgress incrementCompletedAtomic(long batchId) {
-    em.createNativeQuery(
-            "UPDATE scheduler_batch SET completed_items = (@ci := completed_items + 1) "
-                + "WHERE batch_id = :bid")
-        .setParameter("bid", batchId)
-        .executeUpdate();
-
-    Object[] row =
+    // Lock the row first to ensure atomicity of read + update
+    Object[] locked =
         (Object[])
             em.createNativeQuery(
-                    "SELECT @ci, failed_items, total_items FROM scheduler_batch WHERE batch_id = :bid")
+                    "SELECT completed_items, failed_items, total_items "
+                        + "FROM scheduler_batch WHERE batch_id = :bid FOR UPDATE")
                 .setParameter("bid", batchId)
                 .getSingleResult();
 
+    int newCompleted = ((Number) locked[0]).intValue() + 1;
+    em.createNativeQuery("UPDATE scheduler_batch SET completed_items = :ci WHERE batch_id = :bid")
+        .setParameter("ci", newCompleted)
+        .setParameter("bid", batchId)
+        .executeUpdate();
+
     return new BatchProgress(
-        batchId,
-        ((Number) row[2]).intValue(),
-        ((Number) row[0]).intValue(),
-        ((Number) row[1]).intValue());
+        batchId, ((Number) locked[2]).intValue(), newCompleted, ((Number) locked[1]).intValue());
   }
 
   @Override
   public BatchProgress incrementFailedAtomic(long batchId) {
-    em.createNativeQuery(
-            "UPDATE scheduler_batch SET failed_items = (@ci := failed_items + 1) "
-                + "WHERE batch_id = :bid")
-        .setParameter("bid", batchId)
-        .executeUpdate();
-
-    Object[] row =
+    // Lock the row first to ensure atomicity of read + update
+    Object[] locked =
         (Object[])
             em.createNativeQuery(
-                    "SELECT completed_items, @ci, total_items FROM scheduler_batch WHERE batch_id = :bid")
+                    "SELECT completed_items, failed_items, total_items "
+                        + "FROM scheduler_batch WHERE batch_id = :bid FOR UPDATE")
                 .setParameter("bid", batchId)
                 .getSingleResult();
 
+    int newFailed = ((Number) locked[1]).intValue() + 1;
+    em.createNativeQuery("UPDATE scheduler_batch SET failed_items = :fi WHERE batch_id = :bid")
+        .setParameter("fi", newFailed)
+        .setParameter("bid", batchId)
+        .executeUpdate();
+
     return new BatchProgress(
-        batchId,
-        ((Number) row[2]).intValue(),
-        ((Number) row[0]).intValue(),
-        ((Number) row[1]).intValue());
+        batchId, ((Number) locked[2]).intValue(), ((Number) locked[0]).intValue(), newFailed);
   }
 
   @Override
@@ -812,6 +863,20 @@ public class MysqlJobStore implements JobStore {
             .setParameter("bid", batchId)
             .executeUpdate();
     return updated > 0;
+  }
+
+  @Override
+  public List<Long> findRecoverableBatchIds(int limit) {
+    @SuppressWarnings("unchecked")
+    List<Number> results =
+        em.createNativeQuery(
+                "SELECT batch_id FROM scheduler_batch "
+                    + "WHERE completion_processed = 0 "
+                    + "AND (completed_items + failed_items) >= total_items "
+                    + "LIMIT :lim")
+            .setParameter("lim", limit)
+            .getResultList();
+    return results.stream().map(Number::longValue).toList();
   }
 
   @Override
@@ -1385,7 +1450,7 @@ public class MysqlJobStore implements JobStore {
       return "{}";
     }
     try {
-      return new ObjectMapper().writeValueAsString(job.getPayload());
+      return OBJECT_MAPPER.writeValueAsString(job.getPayload());
     } catch (JsonProcessingException e) {
       throw new RuntimeException("Failed to serialize payload", e);
     }
@@ -1396,7 +1461,7 @@ public class MysqlJobStore implements JobStore {
       return null;
     }
     try {
-      return new ObjectMapper().writeValueAsString(job.getParams());
+      return OBJECT_MAPPER.writeValueAsString(job.getParams());
     } catch (JsonProcessingException e) {
       throw new RuntimeException("Failed to serialize params", e);
     }
