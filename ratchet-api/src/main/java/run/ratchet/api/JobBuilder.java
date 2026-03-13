@@ -108,8 +108,8 @@ public final class JobBuilder {
   /**
    * Sequential chain of tasks to execute after the primary task completes.
    *
-   * <p>Tasks in the chain execute in order, each as a separate {@link JobType#CHAIN_STEP} job that
-   * depends on the previous one. This enables building multi-step workflows where each step must
+   * <p>Tasks in the chain execute in order as linked internal jobs within the public {@link
+   * JobType#CHAIN} category. This enables building multi-step workflows where each step must
    * complete successfully before the next begins.
    */
   private final List<SerializableCheckedRunnable> chain = new ArrayList<>();

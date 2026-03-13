@@ -29,11 +29,19 @@ final class RecurringMethodValidator {
    */
   static void validate(Method method) {
     validateIsPublic(method);
+    validateNotStatic(method);
     validateParameters(method);
   }
 
   private static String formatMethodName(Method method) {
     return method.getDeclaringClass().getName() + "." + method.getName();
+  }
+
+  private static void validateNotStatic(Method method) {
+    if (Modifier.isStatic(method.getModifiers())) {
+      throw new IllegalArgumentException(
+          "@Recurring method must not be static: " + formatMethodName(method));
+    }
   }
 
   private static void validateIsPublic(Method method) {

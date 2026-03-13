@@ -12,9 +12,10 @@ import java.time.Duration;
  * Duration#ZERO} for {@link #getDelay}, meaning the job's own configuration (maxRetries,
  * backoffPolicy, backoffParamMs) controls retry behavior entirely.
  *
- * <p>Users can override by providing their own {@code @ApplicationScoped RetryPolicy} bean to
- * implement custom retry logic (e.g., circuit-breaker-aware retries, exception-type-based
- * strategies, or rate-limited retries).
+ * <p>Users can override by providing their own {@code @Alternative @Priority(APPLICATION)
+ * RetryPolicy} bean to implement custom retry logic (e.g., circuit-breaker-aware retries,
+ * exception-type-based strategies, or rate-limited retries). See {@code CustomRetryPolicyIT} in the
+ * test suite for an example.
  */
 @ApplicationScoped
 public class DefaultRetryPolicy implements RetryPolicy {

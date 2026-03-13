@@ -27,7 +27,7 @@ public abstract class AbstractJobSchedulerEvent implements Serializable {
    */
   private final String businessKey;
 
-  /** The type of job (e.g., SINGLE, BATCH_CHILD, CHAIN_STEP). */
+  /** The public job category (e.g., SINGLE, BATCH, CHAIN). */
   private final JobType jobType;
 
   /** The priority level of the job. */

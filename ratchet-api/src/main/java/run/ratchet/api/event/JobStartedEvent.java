@@ -5,7 +5,18 @@ import run.ratchet.api.JobType;
 import java.io.Serial;
 import java.time.Instant;
 
-/** Fired when a job begins execution on a worker node. */
+/**
+ * Represents an event indicating the start of a job in the scheduling system.
+ *
+ * <p>This event is triggered when a job begins execution, providing metadata such as job ID,
+ * business key, job type, priority, and node identifier.
+ *
+ * <p>Two constructors are provided: one that allows explicitly specifying the event timestamp, and
+ * another that defaults the timestamp to the value at the time of object creation.
+ *
+ * <p>This class extends {@code AbstractJobSchedulerEvent}, inheriting core metadata fields
+ * representing details about the job.
+ */
 public class JobStartedEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = -1805923320335775574L;

@@ -10,7 +10,12 @@ import java.util.concurrent.ScheduledExecutorService;
  * Default {@link ExecutorProvider} that delegates to the container's managed executor services.
  *
  * <p>Uses Jakarta Concurrency {@code @Resource} injection to obtain managed executors from the
- * application server. Users can override by providing their own {@code @ApplicationScoped
+ * application server. This requires a full Jakarta EE 10 container with JNDI support — the {@code
+ * java:comp/DefaultManagedExecutorService} and {@code
+ * java:comp/DefaultManagedScheduledExecutorService} JNDI names are specified by Jakarta Concurrency
+ * 3.0 and available in all compliant application servers.
+ *
+ * <p>Users can override by providing their own {@code @Alternative @Priority(APPLICATION)
  * ExecutorProvider} bean.
  */
 @ApplicationScoped

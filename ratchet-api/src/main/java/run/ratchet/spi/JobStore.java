@@ -1,13 +1,23 @@
 package run.ratchet.spi;
 
 /**
- * Marker interface for job persistence operations.
+ * Defines an interface for persisting and retrieving job-related data necessary for execution and
+ * recovery. Implementations of this interface are responsible for managing the storage and
+ * retrieval of jobs and related metadata in a durable, scalable, and efficient manner.
  *
- * <p>The full composed interface with all method signatures is {@link
- * run.ratchet.store.spi.JobStore} in the {@code ratchet-store-core} module. This marker
- * exists in {@code ratchet-api} so that higher-level API types can reference the store concept
- * without depending on JPA entity types.
+ * <p>This interface serves as an abstraction for job storage mechanisms, ensuring that job
+ * execution can be resilient to process or system failures. Implementations may use underlying
+ * technologies such as databases, file systems, or distributed storage systems to provide the
+ * required durability and scalability.
  *
- * <p>Implementations must be thread-safe.
+ * <p>Key responsibilities of any implementation of this interface include: - Storing job
+ * definitions, states, or execution metadata. - Facilitating retrieval of the aforementioned
+ * information for job recovery or audit purposes. - Ensuring reasonable performance and consistency
+ * in distributed environments if applicable.
+ *
+ * <p>The design of this interface is intended to allow integration with various storage backends,
+ * enabling flexibility in deployment and scaling. Users should ensure thread-safety and proper
+ * concurrency handling when implementing this interface, especially in scenarios where jobs are
+ * processed in parallel or distributed deployments.
  */
 public interface JobStore {}

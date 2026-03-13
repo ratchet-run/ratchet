@@ -226,30 +226,70 @@ public class JobResult<T> implements Serializable {
         success, value, error, exception, executionTimeMs, startTime, endTime, metadata);
   }
 
+  /**
+   * Retrieves the value returned from the job execution.
+   *
+   * @return the value of type T if available, or null if the job did not produce a value.
+   */
   public T getValue() {
     return value;
   }
 
+  /**
+   * Retrieves the error message associated with the job execution.
+   *
+   * @return the error message if available, or null if no error occurred
+   */
   public String getError() {
     return error;
   }
 
+  /**
+   * Retrieves the exception associated with the job execution, if any.
+   *
+   * @return the exception that caused the failure, or null if no exception occurred
+   */
   public Throwable getException() {
     return exception;
   }
 
+  /**
+   * Retrieves the total execution time of the job in milliseconds.
+   *
+   * @return the execution time in milliseconds, or null if not recorded
+   */
   public Long getExecutionTimeMs() {
     return executionTimeMs;
   }
 
+  /**
+   * Retrieves the timestamp indicating when the job execution began.
+   *
+   * @return the start time of the job execution as an {@code Instant}, or null if the start time is
+   *     not recorded.
+   */
   public Instant getStartTime() {
     return startTime;
   }
 
+  /**
+   * Retrieves the timestamp indicating when the job execution completed.
+   *
+   * @return the end time of the job execution as an {@code Instant}, or null if the end time is not
+   *     recorded.
+   */
   public Instant getEndTime() {
     return endTime;
   }
 
+  /**
+   * Retrieves the metadata associated with the job result.
+   *
+   * <p>Metadata provides an extensible way to store custom key-value pairs relevant to the job's
+   * execution. This map may include additional details beyond the standard job result fields.
+   *
+   * @return a map containing metadata key-value pairs, or an empty map if no metadata is present
+   */
   public Map<String, Object> getMetadata() {
     return metadata;
   }

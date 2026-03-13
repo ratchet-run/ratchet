@@ -5,7 +5,12 @@ import run.ratchet.api.JobType;
 import java.io.Serial;
 import java.time.Instant;
 
-/** Fired after a job cancellation has been completed. */
+/**
+ * Represents an event that is triggered when a job is cancelled in the job scheduler.
+ *
+ * <p>This event extends the {@code AbstractJobSchedulerEvent} class, inheriting fields such as job
+ * metadata and provides additional information specific to the cancellation of jobs.
+ */
 public class JobCancelledEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = -3714116971496582534L;
@@ -43,6 +48,11 @@ public class JobCancelledEvent extends AbstractJobSchedulerEvent {
     this.executionTimeMs = executionTimeMs;
   }
 
+  /**
+   * Retrieves the status of the job before it was cancelled.
+   *
+   * @return the previous status of the job as a {@code String}.
+   */
   public String getPreviousStatus() {
     return previousStatus;
   }

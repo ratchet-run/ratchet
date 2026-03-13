@@ -5,7 +5,16 @@ import run.ratchet.api.JobType;
 import java.io.Serial;
 import java.time.Instant;
 
-/** Fired when a job is paused and will not execute until resumed. */
+/**
+ * Event representing the pausing of a job within the job scheduler system.
+ *
+ * <p>This event is triggered when a job transitions to a paused state, indicating that it has been
+ * temporarily halted and will not be executed until it is resumed. It encapsulates metadata about
+ * the paused job, such as its identifier, type, priority, associated business key, the node that
+ * processed the job, and the event timestamp.
+ *
+ * <p>Extends the {@link AbstractJobSchedulerEvent} class to inherit common job metadata fields.
+ */
 public class JobPausedEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = -3743348949914580646L;

@@ -5,7 +5,16 @@ import run.ratchet.api.JobType;
 import java.io.Serial;
 import java.time.Instant;
 
-/** Fired when a job chain fails due to a job failure. */
+/**
+ * Represents an event triggered when a chain execution fails in the job scheduler.
+ *
+ * <p>This event contains metadata identifying the failed chain and provides additional details
+ * about the failure such as the ID of the parent job and the specific error message associated with
+ * the failure.
+ *
+ * <p>This class extends {@code AbstractJobSchedulerEvent} to include common scheduler event
+ * metadata.
+ */
 public class ChainFailedEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = 5542623623918947230L;
@@ -43,10 +52,20 @@ public class ChainFailedEvent extends AbstractJobSchedulerEvent {
     this.errorMessage = errorMessage;
   }
 
+  /**
+   * Retrieves the ID of the parent job associated with this chain event.
+   *
+   * @return the ID of the parent job, or {@code null} if no parent job is defined.
+   */
   public Long getParentJobId() {
     return parentJobId;
   }
 
+  /**
+   * Retrieves the error message associated with the event.
+   *
+   * @return the error message describing the failure or issue.
+   */
   public String getErrorMessage() {
     return errorMessage;
   }

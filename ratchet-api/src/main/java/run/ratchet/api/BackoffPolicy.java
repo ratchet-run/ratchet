@@ -1,23 +1,45 @@
 package run.ratchet.api;
 
 /**
- * Defines the strategy for calculating delays between job retry attempts.
+ * Specifies the retry backoff strategy applied between job execution attempts.
  *
- * <p>This enum controls how the scheduler introduces delays between consecutive retry attempts when
- * a job fails and needs to be retried. The backoff strategy helps prevent overwhelming external
- * systems and provides time for transient issues to resolve.
+ * <p>The backoff policy determines how delays between retries are handled when a job execution
+ * fails. This ensures robustness by allowing appropriate cooldown periods, based on the nature of
+ * the failure and the configured policy.
  *
- * <p>The actual delay calculation depends on the policy and the configured backoffParamMs value in
- * the job entity. Different policies are suitable for different failure scenarios:
+ * <h2>Available Policies:</h2>
  *
  * <ul>
- *   <li>Use NONE for immediate retries when failures are unlikely to be transient
- *   <li>Use FIXED for consistent spacing when dealing with rate-limited services
- *   <li>Use EXPONENTIAL for increasing delays when failures might indicate overload
+ *   <li><b>NONE:</b> No delay between retries. Best for non-recoverable errors.
+ *   <li><b>FIXED:</b> A constant delay between retries. Useful for predictable retry intervals.
+ *   <li><b>EXPONENTIAL:</b> Delays grow exponentially. Ideal for minimizing burden on stressed
+ *       systems.
  * </ul>
  *
- * @see JobEntity#getBackoffPolicy()
- * @see JobEntity#getBackoffParamMs()
+ * <h2>Behavior:</h2>
+ *
+ * <ul>
+ *   <li>The policy is configured at the time of job creation.
+ *   <li>Each policy relies on the `backoffParamMs` to compute actual delays.
+ *   <li>Policies apply until a job completes successfully or reaches its retry limit.
+ * </ul>
+ *
+ * <h2>Considerations:</h2>
+ *
+ * <ul>
+ *   <li>Choose a policy that aligns with system capabilities and failure characteristics.
+ *   <li>EXAMPLES: - Use {@code NONE} for immediate retries of non-transient errors. - Use {@code
+ *       FIXED} when a predictable retry schedule is needed. - Use {@code EXPONENTIAL} to gradually
+ *       reduce retry frequency for transient issues.
+ * </ul>
+ *
+ * <h2>Interaction with Overall Job Scheduling:</h2>
+ *
+ * <ul>
+ *   <li>A retry limit or end condition may override the backoff delay.
+ *   <li>This policy does not affect job concurrency or task dependencies.
+ *   <li>The delay is enforced per job execution attempt within the scheduler's lifecycle.
+ * </ul>
  */
 public enum BackoffPolicy {
 

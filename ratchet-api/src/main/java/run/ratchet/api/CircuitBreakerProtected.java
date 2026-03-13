@@ -30,11 +30,29 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface CircuitBreakerProtected {
 
-  /** The service name for circuit breaker identification. Defaults to ClassName.methodName. */
+  /**
+   * Specifies the service name associated with the circuit breaker protection.
+   *
+   * <p>This value is intended to provide metadata about the system or service being protected. It
+   * can be used for logging, monitoring, or grouping circuit breakers based on service contexts.
+   *
+   * <p>If not explicitly set, the annotation default value is an empty string.
+   *
+   * @return the service name as a {@code String}
+   */
   @Nonbinding
   String service() default "";
 
-  /** The circuit breaker profile to use. */
+  /**
+   * Specifies the circuit breaker profile to be used for the annotated target.
+   *
+   * <p>Circuit breaker profiles define pre-configured settings for common use cases, such as
+   * thresholds, window sizes, and wait durations. This allows for easier customization and reuse of
+   * circuit breaker configurations. If not explicitly set, the default profile {@link
+   * CircuitBreakerProfile#DEFAULT} will be applied.
+   *
+   * @return the selected {@link CircuitBreakerProfile} for circuit breaker protection
+   */
   @Nonbinding
   CircuitBreakerProfile profile() default CircuitBreakerProfile.DEFAULT;
 }

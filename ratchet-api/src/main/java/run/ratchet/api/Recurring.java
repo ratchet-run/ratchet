@@ -132,18 +132,17 @@ public @interface Recurring {
   /**
    * Job execution priority. Higher priority jobs are executed before lower priority ones.
    *
-   * <p>Maps to {@link JobPriority} enum ordinal values:
+   * <p>The annotation uses a 1-10 scale which the RI maps into {@link JobPriority} buckets:
    *
    * <ul>
-   *   <li>{@code 0} = LOWEST
-   *   <li>{@code 1} = LOW
-   *   <li>{@code 2} = NORMAL (default)
-   *   <li>{@code 3} = HIGH
-   *   <li>{@code 4} = CRITICAL
+   *   <li>{@code 1-2} = LOWEST
+   *   <li>{@code 3-4} = LOW
+   *   <li>{@code 5-6} = NORMAL
+   *   <li>{@code 7-8} = HIGH
+   *   <li>{@code 9-10} = CRITICAL
    * </ul>
    *
-   * <p>The default value of 5 exceeds the enum range and is treated as NORMAL by the scheduler when
-   * no explicit mapping is found.
+   * <p>The default value of {@code 5} maps to {@link JobPriority#NORMAL}.
    */
   int priority() default 5;
 
