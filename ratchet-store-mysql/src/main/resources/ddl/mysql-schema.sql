@@ -86,6 +86,7 @@ CREATE TABLE scheduler_job
     PRIMARY KEY (job_id),
     UNIQUE KEY uk_idempotency_key (idempotency_key),
     UNIQUE KEY uk_active_business_key (active_business_key),
+    CONSTRAINT chk_job_priority CHECK (priority BETWEEN 0 AND 4),
     INDEX idx_job_due (status, scheduled_time),
     INDEX idx_job_priority_due (priority, scheduled_time),
     INDEX idx_job_picked_by (picked_by),
@@ -194,10 +195,10 @@ CREATE TABLE scheduler_job_archive
 (
     archive_id              BIGINT UNSIGNED AUTO_INCREMENT,
     original_job_id         BIGINT UNSIGNED                                                                                                     NOT NULL,
-    final_status            ENUM ('PENDING','RUNNING','SUCCEEDED','FAILED','CANCELED','PAUSED')                                                 NOT NULL,
+    final_status            ENUM ('SUCCEEDED','FAILED','CANCELED')                                                                                 NOT NULL,
     job_type                ENUM ('SINGLE','RECURRING','BATCH_PARENT','BATCH_CHILD','CHAIN_STEP','DLQ_ALERT','WORKFLOW_BRANCH','WORKFLOW_JOIN') NOT NULL,
     priority                TINYINT UNSIGNED                                                                                                    NOT NULL,
-    total_attempts          INT                                                                                                                 NOT NULL,
+    total_attempts          INT                                                                                                                 NOT NULL DEFAULT 0,
     max_retries             INT                                                                                                                 NOT NULL,
     backoff_policy          ENUM ('NONE','FIXED','EXPONENTIAL')                                                                                 NOT NULL,
     backoff_param_ms        INT                                                                                                                 NOT NULL,
@@ -224,6 +225,7 @@ CREATE TABLE scheduler_job_archive
     superseded_by           BIGINT UNSIGNED                                                                                                     NULL,
     tags                    VARCHAR(512)                                                                                                        NULL,
     PRIMARY KEY (archive_id),
+    CONSTRAINT chk_archive_priority CHECK (priority BETWEEN 0 AND 4),
     INDEX idx_archive_original_id (original_job_id),
     INDEX idx_archive_status (final_status),
     INDEX idx_archive_created_range (original_created_at),
@@ -252,7 +254,11 @@ CREATE TABLE scheduler_workflow_condition
     INDEX idx_workflow_child (child_job_id),
     INDEX idx_workflow_priority (parent_job_id, condition_priority),
     CONSTRAINT fk_workflow_parent FOREIGN KEY (parent_job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE,
-    CONSTRAINT fk_workflow_child FOREIGN KEY (child_job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
+    CONSTRAINT fk_workflow_child FOREIGN KEY (child_job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE,
+    CONSTRAINT chk_condition_type CHECK (condition_type IN
+                                         ('SUCCESS', 'FAILURE', 'CUSTOM', 'RESULT_VALUE',
+                                          'BATCH_SUCCESS', 'BATCH_FAILURE', 'BATCH_SUCCESS_RATE',
+                                          'BATCH_FAILURE_COUNT', 'BATCH_CUSTOM'))
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci;
@@ -267,7 +273,8 @@ CREATE TABLE scheduler_dlq_alerts
     alert_channel VARCHAR(100)    NULL,
     PRIMARY KEY (id),
     UNIQUE KEY uk_job_error_hash (job_id, error_hash),
-    INDEX idx_dlq_sent_at (alert_sent_at)
+    INDEX idx_dlq_sent_at (alert_sent_at),
+    CONSTRAINT fk_dlq_alert_job FOREIGN KEY (job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci;
@@ -282,7 +289,8 @@ CREATE TABLE scheduler_resource_permit
     acquired_at   DATETIME(6)     NOT NULL,
     PRIMARY KEY (id),
     INDEX idx_resource_permit_resource (resource_name),
-    INDEX idx_resource_permit_job (job_id)
+    INDEX idx_resource_permit_job (job_id),
+    CONSTRAINT fk_resource_permit_job FOREIGN KEY (job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci;

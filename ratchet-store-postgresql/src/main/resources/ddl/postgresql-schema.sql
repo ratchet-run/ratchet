@@ -85,6 +85,7 @@ CREATE TABLE scheduler_job
     CONSTRAINT chk_job_type CHECK (job_type IN
                                    ('SINGLE', 'RECURRING', 'BATCH_PARENT', 'BATCH_CHILD',
                                     'CHAIN_STEP', 'DLQ_ALERT', 'WORKFLOW_BRANCH', 'WORKFLOW_JOIN')),
+    CONSTRAINT chk_job_priority CHECK (priority BETWEEN 0 AND 4),
     CONSTRAINT chk_backoff_policy CHECK (backoff_policy IN ('NONE', 'FIXED', 'EXPONENTIAL'))
 );
 
@@ -160,7 +161,8 @@ CREATE TABLE scheduler_job_execution
     error_class   VARCHAR(255),
     duration_ms   BIGINT,
     CONSTRAINT pk_scheduler_job_execution PRIMARY KEY (id),
-    CONSTRAINT chk_execution_status CHECK (status IN ('RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELED'))
+    CONSTRAINT chk_execution_status CHECK (status IN ('RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELED')),
+    CONSTRAINT fk_execution_job FOREIGN KEY (job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_job_execution_job ON scheduler_job_execution (job_id);
@@ -176,7 +178,9 @@ CREATE TABLE scheduler_job_log
     level   VARCHAR(8) NOT NULL,
     message TEXT       NOT NULL,
     mdc JSONB,
-    CONSTRAINT pk_scheduler_job_log PRIMARY KEY (log_id)
+    CONSTRAINT pk_scheduler_job_log PRIMARY KEY (log_id),
+    CONSTRAINT fk_log_job FOREIGN KEY (job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE,
+    CONSTRAINT chk_log_level CHECK (level IN ('TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR'))
 );
 
 CREATE INDEX idx_joblog_job_ts ON scheduler_job_log (job_id, ts);
@@ -220,7 +224,8 @@ CREATE TABLE scheduler_job_archive
     CONSTRAINT chk_archive_status CHECK (final_status IN ('SUCCEEDED', 'FAILED', 'CANCELED')),
     CONSTRAINT chk_archive_job_type CHECK (job_type IN
                                            ('SINGLE', 'RECURRING', 'BATCH_PARENT', 'BATCH_CHILD',
-                                            'CHAIN_STEP', 'DLQ_ALERT', 'WORKFLOW_BRANCH', 'WORKFLOW_JOIN'))
+                                            'CHAIN_STEP', 'DLQ_ALERT', 'WORKFLOW_BRANCH', 'WORKFLOW_JOIN')),
+    CONSTRAINT chk_archive_priority CHECK (priority BETWEEN 0 AND 4)
 );
 
 CREATE INDEX idx_archive_original_id ON scheduler_job_archive (original_job_id);
@@ -245,7 +250,11 @@ CREATE TABLE scheduler_workflow_condition
     created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT pk_scheduler_workflow_condition PRIMARY KEY (id),
     CONSTRAINT fk_workflow_parent FOREIGN KEY (parent_job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE,
-    CONSTRAINT fk_workflow_child FOREIGN KEY (child_job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
+    CONSTRAINT fk_workflow_child FOREIGN KEY (child_job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE,
+    CONSTRAINT chk_condition_type CHECK (condition_type IN
+                                         ('SUCCESS', 'FAILURE', 'CUSTOM', 'RESULT_VALUE',
+                                          'BATCH_SUCCESS', 'BATCH_FAILURE', 'BATCH_SUCCESS_RATE',
+                                          'BATCH_FAILURE_COUNT', 'BATCH_CUSTOM'))
 );
 
 CREATE INDEX idx_workflow_parent ON scheduler_workflow_condition (parent_job_id);
@@ -261,7 +270,8 @@ CREATE TABLE scheduler_dlq_alerts
     alert_sent_at TIMESTAMPTZ(6),
     alert_channel VARCHAR(100),
     CONSTRAINT pk_scheduler_dlq_alerts PRIMARY KEY (id),
-    CONSTRAINT uk_job_error_hash UNIQUE (job_id, error_hash)
+    CONSTRAINT uk_job_error_hash UNIQUE (job_id, error_hash),
+    CONSTRAINT fk_dlq_alert_job FOREIGN KEY (job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_dlq_sent_at ON scheduler_dlq_alerts (alert_sent_at);
@@ -274,7 +284,8 @@ CREATE TABLE scheduler_resource_permit
     job_id        BIGINT       NOT NULL,
     node_id       VARCHAR(64)  NOT NULL,
     acquired_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT pk_scheduler_resource_permit PRIMARY KEY (id)
+    CONSTRAINT pk_scheduler_resource_permit PRIMARY KEY (id),
+    CONSTRAINT fk_resource_permit_job FOREIGN KEY (job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_resource_permit_resource ON scheduler_resource_permit (resource_name);
