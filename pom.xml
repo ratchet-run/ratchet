@@ -52,6 +52,7 @@
     <spotless-maven-plugin.version>2.44.4</spotless-maven-plugin.version>
     <google-java-format.version>1.25.2</google-java-format.version>
     <testcontainers.version>2.0.3</testcontainers.version>
+    <mockito.version>5.14.2</mockito.version>
     <awaitility.version>4.2.2</awaitility.version>
     <shrinkwrap-resolver.version>3.3.1</shrinkwrap-resolver.version>
     <wildfly.version>39.0.1.Final</wildfly.version>
@@ -60,6 +61,7 @@
     <postgresql-driver.version>42.7.4</postgresql-driver.version>
     <maven-dependency-plugin.version>3.8.1</maven-dependency-plugin.version>
     <jacoco-maven-plugin.version>0.8.12</jacoco-maven-plugin.version>
+    <argLine></argLine>
   </properties>
 
   <dependencyManagement>
@@ -137,6 +139,19 @@
         <version>${arquillian.version}</version>
         <type>pom</type>
         <scope>import</scope>
+      </dependency>
+
+      <dependency>
+        <groupId>org.mockito</groupId>
+        <artifactId>mockito-core</artifactId>
+        <version>${mockito.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.mockito</groupId>
+        <artifactId>mockito-junit-jupiter</artifactId>
+        <version>${mockito.version}</version>
+        <scope>test</scope>
       </dependency>
 
       <!-- Inter-module dependencies -->
@@ -276,7 +291,11 @@
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-surefire-plugin</artifactId>
             <configuration>
-              <argLine>-Djacoco-agent.destfile=${project.build.directory}/jacoco.exec -Djacoco-agent.append=true</argLine>
+              <argLine>
+                -XX:+EnableDynamicAgentLoading ${argLine}
+                -Djacoco-agent.destfile=${project.build.directory}/jacoco.exec
+                -Djacoco-agent.append=true
+              </argLine>
             </configuration>
           </plugin>
         </plugins>
@@ -348,6 +367,13 @@
       </plugins>
     </pluginManagement>
     <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <argLine>-XX:+EnableDynamicAgentLoading ${argLine}</argLine>
+        </configuration>
+      </plugin>
       <plugin>
         <groupId>org.jacoco</groupId>
         <artifactId>jacoco-maven-plugin</artifactId>

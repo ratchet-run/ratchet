@@ -146,6 +146,7 @@
         <artifactId>maven-failsafe-plugin</artifactId>
         <configuration>
           <skipITs>${skipITs}</skipITs>
+          <excludedGroups>performance</excludedGroups>
           <environmentVariables>
             <DOCKER_HOST>${env.DOCKER_HOST}</DOCKER_HOST>
             <TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE>${env.TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE}</TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE>
@@ -283,6 +284,7 @@
   &lt;dependencies&gt;
     &lt;module name="java.sql"/&gt;
     &lt;module name="java.logging"/&gt;
+    &lt;module name="java.management"/&gt;
     &lt;module name="jakarta.transaction.api"/&gt;
   &lt;/dependencies&gt;
 &lt;/module&gt;</echo>
@@ -346,6 +348,38 @@
           <scope>test</scope>
         </dependency>
       </dependencies>
+    </profile>
+
+    <!-- Performance testing profile -->
+    <profile>
+      <id>performance</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-failsafe-plugin</artifactId>
+            <configuration>
+              <groups>performance</groups>
+              <excludedGroups combine.self="override"/>
+              <forkedProcessTimeoutInSeconds>900</forkedProcessTimeoutInSeconds>
+              <systemPropertyVariables>
+                <perf.warmup.count>${perf.warmup.count}</perf.warmup.count>
+                <perf.measured.count>${perf.measured.count}</perf.measured.count>
+                <perf.batch.sizes>${perf.batch.sizes}</perf.batch.sizes>
+                <perf.baseline.dir>${perf.baseline.dir}</perf.baseline.dir>
+                <perf.tolerance>${perf.tolerance}</perf.tolerance>
+              </systemPropertyVariables>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+      <properties>
+        <perf.warmup.count>50</perf.warmup.count>
+        <perf.measured.count>500</perf.measured.count>
+        <perf.batch.sizes>50,200,500</perf.batch.sizes>
+        <perf.baseline.dir>${project.basedir}/src/test/resources/perf-baselines</perf.baseline.dir>
+        <perf.tolerance>0.20</perf.tolerance>
+      </properties>
     </profile>
 
     <!-- Offline JaCoCo instrumentation for reliable IT coverage -->

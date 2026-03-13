@@ -20,6 +20,10 @@
             <artifactId>ratchet-api</artifactId>
         </dependency>
         <dependency>
+            <groupId>run.ratchet</groupId>
+            <artifactId>ratchet-store-core</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <scope>compile</scope>
