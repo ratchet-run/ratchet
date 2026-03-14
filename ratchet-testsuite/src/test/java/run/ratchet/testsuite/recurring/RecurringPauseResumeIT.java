@@ -39,10 +39,8 @@ class RecurringPauseResumeIT extends BaseRatchetIT {
     return RatchetArchiveBuilder.create()
         .addRatchetDependencies(profile, dbType)
         .addClasses(CronTestJobs.class, TestJobService.class)
-        .addTestInfrastructure()
+        .addStoreInfrastructure()
         .addBeansXml()
-        .addPersistenceXml(dbType)
-        .addDataSource()
         .build();
   }
 

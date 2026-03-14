@@ -1,2 +1,3 @@
-run.ratchet.testsuite.infra.DatabaseContainerExtension
+run.ratchet.testsuite.infra.JdbcContainerExtension
+run.ratchet.testsuite.infra.MongoContainerExtension
 run.ratchet.testsuite.infra.PerformanceSummaryExtension

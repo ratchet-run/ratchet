@@ -48,6 +48,9 @@ public class PostgresqlJobStore implements JobStore {
 
   private static final Logger log = Logger.getLogger(PostgresqlJobStore.class.getName());
   private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+  private static final String EXECUTABLE_JOB_TYPE_FILTER =
+      "job_type IN ('SINGLE','BATCH_CHILD','CHAIN_STEP','WORKFLOW_BRANCH')";
+  private static final String RECURRING_JOB_TYPE_FILTER = "job_type = 'RECURRING'";
 
   @PersistenceContext private EntityManager em;
 
@@ -299,23 +302,25 @@ public class PostgresqlJobStore implements JobStore {
 
   @Override
   public List<JobEntity> claimNextBatch(int limit, String nodeId) {
-    @SuppressWarnings("unchecked")
-    List<Long> ids =
+    int boostInterval = getPriorityBoostIntervalMinutes();
+    var query =
         em.createNativeQuery(
-                "SELECT job_id FROM scheduler_job "
-                    + "WHERE status = 'PENDING' "
-                    + "AND job_type NOT IN ('RECURRING','BATCH_PARENT') "
-                    + "AND scheduled_time <= statement_timestamp() "
-                    + "ORDER BY priority ASC, scheduled_time ASC "
-                    + "FOR UPDATE SKIP LOCKED "
-                    + "LIMIT ?")
-            .setParameter(1, limit)
-            .getResultList();
+                buildClaimSql("*", EXECUTABLE_JOB_TYPE_FILTER, "scheduled_time", boostInterval),
+                JobEntity.class)
+            .setParameter(1, limit);
+    if (boostInterval > 0) {
+      query.setParameter(2, boostInterval);
+    }
 
-    if (ids.isEmpty()) {
+    @SuppressWarnings("unchecked")
+    List<JobEntity> jobs = query.getResultList();
+
+    if (jobs.isEmpty()) {
       return List.of();
     }
 
+    Instant now = Instant.now();
+    List<Long> ids = jobs.stream().map(JobEntity::getId).toList();
     em.createNativeQuery(
             "UPDATE scheduler_job SET status = 'RUNNING', picked_by = :nodeId, "
                 + "picked_at = statement_timestamp(), updated_at = statement_timestamp() "
@@ -325,34 +330,41 @@ public class PostgresqlJobStore implements JobStore {
         .executeUpdate();
 
     em.clear();
-
-    @SuppressWarnings("unchecked")
-    List<JobEntity> jobs =
-        em.createNativeQuery("SELECT * FROM scheduler_job WHERE job_id IN (:ids)", JobEntity.class)
-            .setParameter("ids", ids)
-            .getResultList();
+    jobs.forEach(
+        job -> {
+          job.setStatus(JobStatus.RUNNING);
+          job.setPickedBy(nodeId);
+          job.setPickedAt(now);
+        });
     return jobs;
   }
 
   @Override
   public List<JobClaimDto> claimNextBatchOptimized(int limit, String nodeId) {
-    @SuppressWarnings("unchecked")
-    List<Long> ids =
+    int boostInterval = getPriorityBoostIntervalMinutes();
+    var query =
         em.createNativeQuery(
-                "SELECT job_id FROM scheduler_job "
-                    + "WHERE status = 'PENDING' "
-                    + "AND job_type NOT IN ('RECURRING','BATCH_PARENT') "
-                    + "AND scheduled_time <= statement_timestamp() "
-                    + "ORDER BY priority ASC, scheduled_time ASC "
-                    + "FOR UPDATE SKIP LOCKED "
-                    + "LIMIT ?")
-            .setParameter(1, limit)
-            .getResultList();
+                buildClaimSql(
+                    """
+                    job_id, status, job_type, priority, scheduled_time, version,
+                    timeout_sec, picked_by, picked_at, business_key, attempts, max_retries
+                    """,
+                    EXECUTABLE_JOB_TYPE_FILTER,
+                    "scheduled_time",
+                    boostInterval))
+            .setParameter(1, limit);
+    if (boostInterval > 0) {
+      query.setParameter(2, boostInterval);
+    }
 
-    if (ids.isEmpty()) {
+    @SuppressWarnings("unchecked")
+    List<Object[]> rows = query.getResultList();
+
+    if (rows.isEmpty()) {
       return List.of();
     }
 
+    List<Long> ids = rows.stream().map(row -> ((Number) row[0]).longValue()).toList();
     em.createNativeQuery(
             "UPDATE scheduler_job SET status = 'RUNNING', picked_by = :nodeId, "
                 + "picked_at = statement_timestamp(), updated_at = statement_timestamp() "
@@ -361,30 +373,20 @@ public class PostgresqlJobStore implements JobStore {
         .setParameter("ids", ids)
         .executeUpdate();
 
-    em.clear();
-
-    @SuppressWarnings("unchecked")
-    List<Object[]> rows =
-        em.createNativeQuery(
-                "SELECT job_id, status, job_type, priority, scheduled_time, version, "
-                    + "timeout_sec, picked_by, picked_at, business_key, attempts, max_retries "
-                    + "FROM scheduler_job WHERE job_id IN (:ids)")
-            .setParameter("ids", ids)
-            .getResultList();
-
+    Instant now = Instant.now();
     List<JobClaimDto> claims = new ArrayList<>(rows.size());
     for (Object[] row : rows) {
       claims.add(
           new JobClaimDto(
               ((Number) row[0]).longValue(),
-              JobStatus.valueOf((String) row[1]),
+              JobStatus.RUNNING,
               JobExecutionType.valueOf((String) row[2]),
-              JobPriority.values()[((Number) row[3]).intValue()],
+              safeJobPriority(((Number) row[3]).intValue()),
               toInstant(row[4]),
               row[5] == null ? null : ((Number) row[5]).intValue(),
               ((Number) row[6]).intValue(),
-              (String) row[7],
-              row[8] == null ? null : toInstant(row[8]),
+              nodeId,
+              now,
               (String) row[9],
               ((Number) row[10]).intValue(),
               ((Number) row[11]).intValue()));
@@ -394,23 +396,25 @@ public class PostgresqlJobStore implements JobStore {
 
   @Override
   public List<JobEntity> claimDueRecurring(int limit, String nodeId) {
-    @SuppressWarnings("unchecked")
-    List<Long> ids =
+    int boostInterval = getPriorityBoostIntervalMinutes();
+    var query =
         em.createNativeQuery(
-                "SELECT job_id FROM scheduler_job "
-                    + "WHERE job_type = 'RECURRING' "
-                    + "AND status = 'PENDING' "
-                    + "AND next_fire <= statement_timestamp() "
-                    + "ORDER BY priority ASC, next_fire ASC "
-                    + "FOR UPDATE SKIP LOCKED "
-                    + "LIMIT ?")
-            .setParameter(1, limit)
-            .getResultList();
+                buildClaimSql("*", RECURRING_JOB_TYPE_FILTER, "next_fire", boostInterval),
+                JobEntity.class)
+            .setParameter(1, limit);
+    if (boostInterval > 0) {
+      query.setParameter(2, boostInterval);
+    }
 
-    if (ids.isEmpty()) {
+    @SuppressWarnings("unchecked")
+    List<JobEntity> jobs = query.getResultList();
+
+    if (jobs.isEmpty()) {
       return List.of();
     }
 
+    Instant now = Instant.now();
+    List<Long> ids = jobs.stream().map(JobEntity::getId).toList();
     em.createNativeQuery(
             "UPDATE scheduler_job SET status = 'RUNNING', picked_by = :nodeId, "
                 + "picked_at = statement_timestamp(), updated_at = statement_timestamp() "
@@ -420,12 +424,12 @@ public class PostgresqlJobStore implements JobStore {
         .executeUpdate();
 
     em.clear();
-
-    @SuppressWarnings("unchecked")
-    List<JobEntity> jobs =
-        em.createNativeQuery("SELECT * FROM scheduler_job WHERE job_id IN (:ids)", JobEntity.class)
-            .setParameter("ids", ids)
-            .getResultList();
+    jobs.forEach(
+        job -> {
+          job.setStatus(JobStatus.RUNNING);
+          job.setPickedBy(nodeId);
+          job.setPickedAt(now);
+        });
     return jobs;
   }
 
@@ -1471,5 +1475,46 @@ public class PostgresqlJobStore implements JobStore {
       return ((java.time.OffsetDateTime) value).toInstant();
     }
     throw new IllegalArgumentException("Cannot convert " + value.getClass() + " to Instant");
+  }
+
+  private static JobPriority safeJobPriority(int ordinal) {
+    JobPriority[] values = JobPriority.values();
+    if (ordinal < 0 || ordinal >= values.length) {
+      return JobPriority.NORMAL;
+    }
+    return values[ordinal];
+  }
+
+  private static int getPriorityBoostIntervalMinutes() {
+    String raw = System.getenv("SCHEDULER_PRIORITY_BOOST_INTERVAL_MINUTES");
+    if (raw == null || raw.isBlank()) {
+      return 15;
+    }
+    try {
+      return Math.max(0, Integer.parseInt(raw.trim()));
+    } catch (NumberFormatException e) {
+      return 15;
+    }
+  }
+
+  private static String buildClaimSql(
+      String selectClause, String typeFilter, String timeColumn, int boostInterval) {
+    String orderBy =
+        boostInterval > 0
+            ? "(priority + FLOOR(GREATEST(0, EXTRACT(EPOCH FROM (statement_timestamp() - "
+                + timeColumn
+                + "))) / (60.0 * ?2))) DESC, "
+                + timeColumn
+                + " ASC"
+            : "priority DESC, " + timeColumn + " ASC";
+    return """
+        SELECT %s FROM scheduler_job
+        WHERE status = 'PENDING'
+          AND %s <= statement_timestamp()
+          AND %s
+        ORDER BY %s
+        FOR UPDATE SKIP LOCKED
+        LIMIT ?1"""
+        .formatted(selectClause, timeColumn, typeFilter, orderBy);
   }
 }

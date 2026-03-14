@@ -1,13 +1,13 @@
 package run.ratchet.store.entity;
 
 import run.ratchet.store.converter.JsonObjectMapConverter;
+import run.ratchet.store.id.TsidEntityListener;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EntityListeners;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
@@ -30,10 +30,10 @@ import org.hibernate.type.SqlTypes;
       @Index(name = "idx_joblog_job_ts", columnList = "job_id, ts"),
       @Index(name = "idx_joblog_ts", columnList = "ts")
     })
-public class JobLogEntity {
+@EntityListeners(TsidEntityListener.class)
+public class JobLogEntity implements TsidEntityListener.TsidAssignable {
 
   @Id
-  @GeneratedValue(strategy = GenerationType.IDENTITY)
   @Column(name = "log_id")
   private Long id;
 

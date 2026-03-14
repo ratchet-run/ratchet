@@ -10,27 +10,25 @@ import run.ratchet.testsuite.util.BaseRatchetIT;
 import run.ratchet.testsuite.util.JobAssertions;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 import jakarta.inject.Inject;
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
-import jakarta.transaction.UserTransaction;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
 /**
  * Validates that job enqueue participates in the caller's JTA transaction — the job row and any
  * business data commit atomically.
+ *
+ * <p>JPA-only: these tests exercise JTA transaction semantics which are not applicable to document
+ * stores.
  */
+@EnabledIfSystemProperty(named = "ratchet.test.db.type", matches = "mysql|postgresql")
 class TransactionalEnqueueIT extends BaseRatchetIT {
 
   @Inject private TestJobService jobService;
 
   @Inject private JobCrudStore jobCrudStore;
-
-  @PersistenceContext private EntityManager em;
-
-  @Inject private UserTransaction utx;
 
   @Deployment
   public static WebArchive createDeployment() {
@@ -40,10 +38,8 @@ class TransactionalEnqueueIT extends BaseRatchetIT {
     return RatchetArchiveBuilder.create()
         .addRatchetDependencies(profile, dbType)
         .addClasses(SimpleJob.class, TestJobService.class)
-        .addTestInfrastructure()
+        .addStoreInfrastructure()
         .addBeansXml()
-        .addPersistenceXml(dbType)
-        .addDataSource()
         .build();
   }
 

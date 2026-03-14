@@ -29,10 +29,8 @@ class CustomSerializationStrategyIT extends BaseRatchetIT {
     return RatchetArchiveBuilder.create()
         .addRatchetDependencies(profile, dbType)
         .addClasses(CountingSerializationStrategy.class, TestJobService.class)
-        .addTestInfrastructure()
+        .addStoreInfrastructure()
         .addBeansXml()
-        .addPersistenceXml(dbType)
-        .addDataSource()
         .build();
   }
 

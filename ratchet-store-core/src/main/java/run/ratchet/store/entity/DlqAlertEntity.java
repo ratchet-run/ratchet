@@ -1,9 +1,9 @@
 package run.ratchet.store.entity;
 
+import run.ratchet.store.id.TsidEntityListener;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
+import jakarta.persistence.EntityListeners;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
@@ -25,11 +25,10 @@ import java.util.Objects;
             name = "uk_job_error_hash",
             columnNames = {"job_id", "error_hash"}),
     indexes = @Index(name = "idx_dlq_sent_at", columnList = "alert_sent_at"))
-public class DlqAlertEntity {
+@EntityListeners(TsidEntityListener.class)
+public class DlqAlertEntity implements TsidEntityListener.TsidAssignable {
 
-  @Id
-  @GeneratedValue(strategy = GenerationType.IDENTITY)
-  private Long id;
+  @Id private Long id;
 
   @Column(name = "job_id", nullable = false)
   private Long jobId;

@@ -37,6 +37,10 @@
       <groupId>run.ratchet</groupId>
       <artifactId>ratchet-store-postgresql</artifactId>
     </dependency>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-store-mongodb</artifactId>
+    </dependency>
     <!-- Test module (for execution data) -->
     <dependency>
       <groupId>run.ratchet</groupId>

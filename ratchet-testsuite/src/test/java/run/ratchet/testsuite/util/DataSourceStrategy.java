@@ -1,6 +1,6 @@
 package run.ratchet.testsuite.util;
 
-import run.ratchet.testsuite.infra.DatabaseConfig;
+import run.ratchet.testsuite.infra.JdbcDatabaseConfig;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 
 /**
@@ -17,5 +17,5 @@ public interface DataSourceStrategy {
    * @param archive the web archive to configure
    * @param config the database connection details
    */
-  void configureArchive(WebArchive archive, DatabaseConfig config);
+  void configureArchive(WebArchive archive, JdbcDatabaseConfig config);
 }

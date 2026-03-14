@@ -41,7 +41,7 @@ CREATE TABLE scheduler_resource_limit
 -- 4. scheduler_job
 CREATE TABLE scheduler_job
 (
-    job_id                BIGINT GENERATED ALWAYS AS IDENTITY,
+    job_id                BIGINT NOT NULL,
     status                TEXT        NOT NULL DEFAULT 'PENDING',
     paused_from_status    TEXT,
     scheduled_time TIMESTAMPTZ(6) NOT NULL,
@@ -150,7 +150,7 @@ CREATE TABLE scheduler_batch_metrics
 -- 8. scheduler_job_execution
 CREATE TABLE scheduler_job_execution
 (
-    id            BIGINT GENERATED ALWAYS AS IDENTITY,
+    id            BIGINT NOT NULL,
     job_id        BIGINT      NOT NULL,
     attempt       INT         NOT NULL,
     node_id       VARCHAR(64) NOT NULL,
@@ -172,7 +172,7 @@ CREATE INDEX idx_job_execution_status ON scheduler_job_execution (status, starte
 -- 9. scheduler_job_log
 CREATE TABLE scheduler_job_log
 (
-    log_id  BIGINT GENERATED ALWAYS AS IDENTITY,
+    log_id  BIGINT NOT NULL,
     job_id  BIGINT     NOT NULL,
     ts TIMESTAMPTZ(6) NOT NULL,
     level   VARCHAR(8) NOT NULL,
@@ -189,7 +189,7 @@ CREATE INDEX idx_joblog_ts ON scheduler_job_log (ts);
 -- 10. scheduler_job_archive
 CREATE TABLE scheduler_job_archive
 (
-    archive_id              BIGINT GENERATED ALWAYS AS IDENTITY,
+    archive_id              BIGINT NOT NULL,
     original_job_id         BIGINT NOT NULL,
     final_status            TEXT   NOT NULL,
     job_type                TEXT   NOT NULL,
@@ -241,7 +241,7 @@ CREATE INDEX idx_archive_priority ON scheduler_job_archive (priority);
 -- 11. scheduler_workflow_condition
 CREATE TABLE scheduler_workflow_condition
 (
-    id                   BIGINT GENERATED ALWAYS AS IDENTITY,
+    id                   BIGINT NOT NULL,
     parent_job_id        BIGINT NOT NULL,
     child_job_id         BIGINT NOT NULL,
     condition_type       TEXT   NOT NULL,
@@ -264,7 +264,7 @@ CREATE INDEX idx_workflow_priority ON scheduler_workflow_condition (parent_job_i
 -- 12. scheduler_dlq_alerts
 CREATE TABLE scheduler_dlq_alerts
 (
-    id            BIGINT GENERATED ALWAYS AS IDENTITY,
+    id            BIGINT NOT NULL,
     job_id        BIGINT      NOT NULL,
     error_hash    VARCHAR(64) NOT NULL,
     alert_sent_at TIMESTAMPTZ(6),
@@ -279,7 +279,7 @@ CREATE INDEX idx_dlq_sent_at ON scheduler_dlq_alerts (alert_sent_at);
 -- 13. scheduler_resource_permit
 CREATE TABLE scheduler_resource_permit
 (
-    id            BIGINT GENERATED ALWAYS AS IDENTITY,
+    id            BIGINT NOT NULL,
     resource_name VARCHAR(100) NOT NULL,
     job_id        BIGINT       NOT NULL,
     node_id       VARCHAR(64)  NOT NULL,

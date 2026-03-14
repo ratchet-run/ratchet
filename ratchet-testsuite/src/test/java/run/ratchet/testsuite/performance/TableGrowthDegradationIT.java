@@ -48,10 +48,8 @@ class TableGrowthDegradationIT extends BasePerformanceIT {
             PerformanceBaseline.class,
             PerformanceReport.class,
             PerformanceReportWriter.class)
-        .addTestInfrastructure()
+        .addStoreInfrastructure()
         .addBeansXml()
-        .addPersistenceXml(dbType)
-        .addDataSource()
         .build();
   }
 
@@ -62,7 +60,7 @@ class TableGrowthDegradationIT extends BasePerformanceIT {
   }
 
   @Test
-  void throughputDegradationCurve() throws Exception {
+  void throughputDegradationCurve() {
     int measureCount = 100;
     int[] tableSizes = {0, 1000, 5000, 10_000, 100_000, 1_000_000};
     double baselineThroughput = 0;
@@ -77,7 +75,7 @@ class TableGrowthDegradationIT extends BasePerformanceIT {
       // Insert background rows to reach the target table size
       int toInsert = tableSize - previousSize;
       if (toInsert > 0) {
-        insertBackgroundRowsNative(toInsert, "bg-growth");
+        perfHelper.insertBackgroundRows(toInsert, "bg-growth");
         log.info("Inserted " + toInsert + " background rows (total target: " + tableSize + ")");
       }
       previousSize = tableSize;
@@ -130,25 +128,23 @@ class TableGrowthDegradationIT extends BasePerformanceIT {
 
     // Verify actual store methods use index scans at maximum table size
     Instant now = Instant.now();
-    assertNoFullTableScan(
+    perfHelper.assertNoFullScan(
         "countReadyJobs @ " + lastSizeKey, () -> jobCrudStore.countReadyJobs(now));
 
-    assertNoFullTableScan(
+    perfHelper.assertNoFullScan(
         "claimNextBatch @ " + lastSizeKey,
         () -> jobClaimStore.claimNextBatchOptimized(10, "perf-test-node"));
   }
 
-  private long measureClaimQueryLatency(int iterations) throws Exception {
+  private long measureClaimQueryLatency(int iterations) {
     long[] times = new long[iterations];
     Instant now = Instant.now();
 
     for (int i = 0; i < iterations; i++) {
-      utx.begin();
       long start = System.nanoTime();
       jobCrudStore.countReadyJobs(now);
       long elapsed = System.nanoTime() - start;
       times[i] = elapsed / 1_000_000;
-      utx.commit();
     }
 
     long[] percentiles = computePercentiles(times, 0.99);

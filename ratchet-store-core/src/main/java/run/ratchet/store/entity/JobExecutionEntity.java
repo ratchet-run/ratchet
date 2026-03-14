@@ -1,11 +1,11 @@
 package run.ratchet.store.entity;
 
+import run.ratchet.store.id.TsidEntityListener;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EntityListeners;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
@@ -28,11 +28,10 @@ import java.time.Instant;
       @Index(name = "idx_job_execution_node", columnList = "node_id, started_at"),
       @Index(name = "idx_job_execution_status", columnList = "status, started_at")
     })
-public class JobExecutionEntity {
+@EntityListeners(TsidEntityListener.class)
+public class JobExecutionEntity implements TsidEntityListener.TsidAssignable {
 
-  @Id
-  @GeneratedValue(strategy = GenerationType.IDENTITY)
-  private Long id;
+  @Id private Long id;
 
   @Column(name = "job_id", nullable = false)
   private Long jobId;

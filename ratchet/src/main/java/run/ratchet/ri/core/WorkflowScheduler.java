@@ -1,6 +1,5 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobStatus;
@@ -65,10 +64,9 @@ public class WorkflowScheduler extends ChainScheduler {
   @Inject
   public WorkflowScheduler(
       JobCrudStore jobCrudStore,
-      MetricsCollector metricsCollector,
       WorkflowConditionStore conditionStore,
       WorkflowConditionEvaluator conditionEvaluator) {
-    super(jobCrudStore, metricsCollector);
+    super(jobCrudStore);
     this.jobCrudStore = jobCrudStore;
     this.conditionStore = conditionStore;
     this.conditionEvaluator = conditionEvaluator;

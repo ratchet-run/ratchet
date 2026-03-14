@@ -41,10 +41,8 @@ class DeadLetterQueueIT extends BaseRatchetIT {
     return RatchetArchiveBuilder.create()
         .addRatchetDependencies(profile, dbType)
         .addClasses(FailingJob.class, FailOnceJob.class, TestJobService.class, EventCapture.class)
-        .addTestInfrastructure()
+        .addStoreInfrastructure()
         .addBeansXml()
-        .addPersistenceXml(dbType)
-        .addDataSource()
         .build();
   }
 
@@ -115,5 +113,18 @@ class DeadLetterQueueIT extends BaseRatchetIT {
         succeededJob.get().getLastError(), "lastError should be cleared after successful retry");
     assertEquals(
         0, succeededJob.get().getAttempts(), "Attempts should be reset before re-execution");
+  }
+
+  @Test
+  void failedJob_pauseAndResume_shouldRestoreFailedStatus() {
+    JobHandle handle = jobService.enqueue(FailOnceJob::execute).withMaxRetries(0).submit();
+
+    JobAssertions.assertJobFailed(jobCrudStore, handle);
+    assertTrue(jobService.pauseJob(handle.id()), "pauseJob should succeed for FAILED jobs");
+    JobAssertions.assertJobStatus(jobCrudStore, handle, JobStatus.PAUSED);
+
+    assertTrue(
+        jobService.resumeJob(handle.id()), "resumeJob should succeed for paused FAILED jobs");
+    JobAssertions.assertJobStatus(jobCrudStore, handle, JobStatus.FAILED);
   }
 }

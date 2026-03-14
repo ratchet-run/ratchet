@@ -1,9 +1,9 @@
 package run.ratchet.store.entity;
 
+import run.ratchet.store.id.TsidEntityListener;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
+import jakarta.persistence.EntityListeners;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
@@ -25,11 +25,10 @@ import java.time.Instant;
       @Index(name = "idx_resource_permit_resource", columnList = "resource_name"),
       @Index(name = "idx_resource_permit_job", columnList = "job_id")
     })
-public class ResourcePermitEntity {
+@EntityListeners(TsidEntityListener.class)
+public class ResourcePermitEntity implements TsidEntityListener.TsidAssignable {
 
-  @Id
-  @GeneratedValue(strategy = GenerationType.IDENTITY)
-  private Long id;
+  @Id private Long id;
 
   @Column(name = "resource_name", nullable = false, length = 100)
   private String resourceName;

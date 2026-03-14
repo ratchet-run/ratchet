@@ -3,13 +3,13 @@ package run.ratchet.store.entity;
 import run.ratchet.api.SerializableFunction;
 import run.ratchet.api.SerializablePredicate;
 import run.ratchet.api.WorkflowCondition;
+import run.ratchet.store.id.TsidEntityListener;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EntityListeners;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
@@ -41,13 +41,12 @@ import java.util.Objects;
       @Index(name = "idx_workflow_child", columnList = "child_job_id"),
       @Index(name = "idx_workflow_priority", columnList = "parent_job_id, condition_priority")
     })
-public class WorkflowConditionEntity implements Serializable {
+@EntityListeners(TsidEntityListener.class)
+public class WorkflowConditionEntity implements Serializable, TsidEntityListener.TsidAssignable {
 
   @Serial private static final long serialVersionUID = -7889663048175841844L;
 
-  @Id
-  @GeneratedValue(strategy = GenerationType.IDENTITY)
-  private Long id;
+  @Id private Long id;
 
   @Column(name = "parent_job_id", nullable = false)
   private Long parentJobId;

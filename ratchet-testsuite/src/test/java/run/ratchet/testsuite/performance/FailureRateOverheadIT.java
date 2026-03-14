@@ -48,10 +48,8 @@ class FailureRateOverheadIT extends BasePerformanceIT {
             PerformanceBaseline.class,
             PerformanceReport.class,
             PerformanceReportWriter.class)
-        .addTestInfrastructure()
+        .addStoreInfrastructure()
         .addBeansXml()
-        .addPersistenceXml(dbType)
-        .addDataSource()
         .build();
   }
 

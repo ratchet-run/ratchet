@@ -3,12 +3,12 @@ package run.ratchet.store.entity;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
+import run.ratchet.store.id.TsidEntityListener;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EntityListeners;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.PrePersist;
@@ -42,10 +42,10 @@ import org.hibernate.type.SqlTypes;
       @Index(name = "idx_archive_job_type", columnList = "job_type"),
       @Index(name = "idx_archive_priority", columnList = "priority")
     })
-public class ArchivedJobEntity {
+@EntityListeners(TsidEntityListener.class)
+public class ArchivedJobEntity implements TsidEntityListener.TsidAssignable {
 
   @Id
-  @GeneratedValue(strategy = GenerationType.IDENTITY)
   @Column(name = "archive_id")
   private Long id;
 

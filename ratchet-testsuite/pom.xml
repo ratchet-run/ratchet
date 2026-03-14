@@ -35,6 +35,12 @@
       <artifactId>ratchet-store-core</artifactId>
     </dependency>
 
+    <!-- MongoDB driver (always-on for TestMongoProducer compilation) -->
+    <dependency>
+      <groupId>org.mongodb</groupId>
+      <artifactId>mongodb-driver-sync</artifactId>
+    </dependency>
+
     <!-- Jakarta EE APIs (provided by app server at runtime) -->
     <dependency>
       <groupId>jakarta.enterprise</groupId>
@@ -85,6 +91,11 @@
       <scope>test</scope>
     </dependency>
     <dependency>
+      <groupId>com.cronutils</groupId>
+      <artifactId>cron-utils</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
       <groupId>org.testcontainers</groupId>
       <artifactId>testcontainers-mysql</artifactId>
       <scope>test</scope>
@@ -92,6 +103,11 @@
     <dependency>
       <groupId>org.testcontainers</groupId>
       <artifactId>testcontainers-postgresql</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>testcontainers-mongodb</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>
@@ -345,6 +361,34 @@
         <dependency>
           <groupId>org.testcontainers</groupId>
           <artifactId>testcontainers-postgresql</artifactId>
+          <scope>test</scope>
+        </dependency>
+      </dependencies>
+    </profile>
+
+    <!-- MongoDB store + Testcontainers -->
+    <profile>
+      <id>mongodb</id>
+      <properties>
+        <ratchet.test.db.type>mongodb</ratchet.test.db.type>
+        <!-- Harmless defaults so arquillian.xml resource filtering doesn't leave
+             unresolved ${...} literals that poison WildFly system properties.
+             Uses the built-in H2 driver so the datasource resolves cleanly even
+             though nothing uses it for MongoDB. -->
+        <ratchet.test.db.url>jdbc:h2:mem:unused</ratchet.test.db.url>
+        <ratchet.test.db.username>sa</ratchet.test.db.username>
+        <ratchet.test.db.password>sa</ratchet.test.db.password>
+        <ratchet.test.db.driver>org.h2.Driver</ratchet.test.db.driver>
+        <ratchet.test.db.driver.name>h2</ratchet.test.db.driver.name>
+      </properties>
+      <dependencies>
+        <dependency>
+          <groupId>run.ratchet</groupId>
+          <artifactId>ratchet-store-mongodb</artifactId>
+        </dependency>
+        <dependency>
+          <groupId>org.testcontainers</groupId>
+          <artifactId>testcontainers-mongodb</artifactId>
           <scope>test</scope>
         </dependency>
       </dependencies>

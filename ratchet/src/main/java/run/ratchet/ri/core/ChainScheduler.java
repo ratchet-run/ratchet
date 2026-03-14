@@ -1,6 +1,5 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.spi.JobCrudStore;
@@ -48,19 +47,14 @@ public class ChainScheduler {
   /** Store for job entity operations. */
   private final JobCrudStore jobCrudStore;
 
-  /** Metrics collector for tracking job queue state changes. */
-  private final MetricsCollector metricsCollector;
-
   // Required by CDI proxy
   protected ChainScheduler() {
     this.jobCrudStore = null;
-    this.metricsCollector = null;
   }
 
   @Inject
-  public ChainScheduler(JobCrudStore jobCrudStore, MetricsCollector metricsCollector) {
+  public ChainScheduler(JobCrudStore jobCrudStore) {
     this.jobCrudStore = jobCrudStore;
-    this.metricsCollector = metricsCollector;
   }
 
   /**
@@ -119,8 +113,6 @@ public class ChainScheduler {
       if (c.getStatus() == JobStatus.PENDING && CHAIN_LOCK_TIME.equals(c.getScheduledTime())) {
         c.setScheduledTime(Instant.now());
         jobCrudStore.save(c);
-        // Update metrics - job is now visible in the queue
-        metricsCollector.jobStarted(c.getId(), c.getPublicJobType(), c.getPriority());
         log.info("Chain step " + c.getId() + " unlocked (prev=" + finished.getId() + ")");
       }
     }

@@ -35,10 +35,8 @@ class BatchProgressIT extends BaseRatchetIT {
     return RatchetArchiveBuilder.create()
         .addRatchetDependencies(profile, dbType)
         .addClasses(BatchItemProcessor.class, BatchCompletionTracker.class, TestJobService.class)
-        .addTestInfrastructure()
+        .addStoreInfrastructure()
         .addBeansXml()
-        .addPersistenceXml(dbType)
-        .addDataSource()
         .build();
   }
 
@@ -64,13 +62,15 @@ class BatchProgressIT extends BaseRatchetIT {
     List<BatchContext> snapshots = BatchCompletionTracker.progressSnapshots();
     assertFalse(snapshots.isEmpty(), "Should have received at least one progress callback");
 
-    // Verify completedItems increases monotonically
+    // Verify completedItems increases monotonically. Progress callbacks from concurrent
+    // batch items may arrive out of thread-scheduling order, so sort by completedItems
+    // before checking monotonicity.
+    List<Integer> completedCounts =
+        snapshots.stream().map(BatchContext::completedItems).sorted().toList();
     int previousCompleted = 0;
-    for (BatchContext snapshot : snapshots) {
-      assertTrue(
-          snapshot.completedItems() >= previousCompleted,
-          "completedItems should increase monotonically");
-      previousCompleted = snapshot.completedItems();
+    for (int completed : completedCounts) {
+      assertTrue(completed >= previousCompleted, "completedItems should increase monotonically");
+      previousCompleted = completed;
     }
   }
 }

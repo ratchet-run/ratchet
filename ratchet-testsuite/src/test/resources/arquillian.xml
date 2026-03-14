@@ -24,6 +24,8 @@
         -Dratchet.test.db.driver=${ratchet.test.db.driver}
         -Dratchet.test.db.driver.name=${ratchet.test.db.driver.name}
         -Dratchet.test.db.type=${ratchet.test.db.type}
+        -Dratchet.test.mongo.uri=${ratchet.test.mongo.uri}
+        -Dratchet.test.mongo.database=${ratchet.test.mongo.database}
         -DPOLLER_DEEP_IDLE_THRESHOLD_MS=5000
         -DPOLLER_DEEP_IDLE_DELAY_MS=1000
         -DPOLLER_MAX_DELAY_MS=2000

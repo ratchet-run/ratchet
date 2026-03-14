@@ -437,17 +437,18 @@ public class JobTask implements Callable<Void> {
         "Job " + job.getId() + " failed with " + ex.getClass().getName() + ": " + ex.getMessage(),
         ex);
 
-    observabilityFacade.recordJobFailure(job, ex);
-    logIfTimeout(ex);
-
-    if (validationFacade.shouldNotRetry(ex)) {
-      handleNonRetryableFailure(ex);
-      return;
-    }
-
     int attempt = jobStore.incrementRetryAttempt(job.getId());
     if (attempt == -1) {
       log.info("Job " + job.getId() + " already in terminal state, skipping retry logic");
+      return;
+    }
+
+    job.setAttempts(attempt);
+    observabilityFacade.recordJobFailure(job, ex, attempt);
+    logIfTimeout(ex);
+
+    if (validationFacade.shouldNotRetry(ex)) {
+      handleNonRetryableFailure(ex, attempt);
       return;
     }
 
@@ -458,7 +459,7 @@ public class JobTask implements Callable<Void> {
     }
   }
 
-  private void handleNonRetryableFailure(Throwable ex) {
+  private void handleNonRetryableFailure(Throwable ex, int attempt) {
     log.warning(
         "Job "
             + job.getId()
@@ -473,20 +474,21 @@ public class JobTask implements Callable<Void> {
 
     if (jobStore.compareAndSwapStatus(
         job.getId(), JobStatus.RUNNING, JobStatus.FAILED, ex.toString())) {
+      job.setAttempts(attempt);
       job.setStatus(JobStatus.FAILED);
-      publishDlqEvent(ex, job.getAttempts());
+      publishDlqEvent(ex, attempt);
       lifecycleFacade.moveToDlq(job, ex);
       handleBatchOrWorkflowPermanentFailure();
     }
   }
 
   private void handleSuccess(Instant start, Object jobResult) {
-    observabilityFacade.recordJobSuccess(job);
-
     Instant endTime = Instant.now();
     long executionMs = Duration.between(start, endTime).toMillis();
     long queueMs =
         job.getPickedAt() != null ? Duration.between(job.getPickedAt(), start).toMillis() : 0;
+
+    observabilityFacade.recordJobSuccess(job, executionMs);
 
     String resultJson = null;
     String resultType = null;
@@ -730,8 +732,6 @@ public class JobTask implements Callable<Void> {
   }
 
   private void scheduleRetry(Throwable ex, int attempt) {
-    observabilityFacade.recordJobRetry(job);
-
     if (currentExecution != null) {
       currentExecution.markFailed(ex);
       observabilityFacade.saveExecution(currentExecution);

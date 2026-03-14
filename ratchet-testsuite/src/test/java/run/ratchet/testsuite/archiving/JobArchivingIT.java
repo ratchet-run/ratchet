@@ -11,6 +11,7 @@ import run.ratchet.ri.core.JobArchivingService;
 import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.testsuite.app.SimpleJob;
+import run.ratchet.testsuite.app.TestDataManipulator;
 import run.ratchet.testsuite.app.TestJobService;
 import run.ratchet.testsuite.util.BaseRatchetIT;
 import run.ratchet.testsuite.util.JobAssertions;
@@ -37,6 +38,8 @@ class JobArchivingIT extends BaseRatchetIT {
 
   @Inject private JobArchivingService archivingService;
 
+  @Inject private TestDataManipulator dataManipulator;
+
   private static final CronParser CRON_PARSER =
       new CronParser(CronDefinitionBuilder.instanceDefinitionFor(CronType.QUARTZ));
 
@@ -48,10 +51,8 @@ class JobArchivingIT extends BaseRatchetIT {
     return RatchetArchiveBuilder.create()
         .addRatchetDependencies(profile, dbType)
         .addClasses(SimpleJob.class, TestJobService.class)
-        .addTestInfrastructure()
+        .addStoreInfrastructure()
         .addBeansXml()
-        .addPersistenceXml(dbType)
-        .addDataSource()
         .build();
   }
 
@@ -61,7 +62,7 @@ class JobArchivingIT extends BaseRatchetIT {
   }
 
   @Test
-  void completedJobs_olderThanRetention_shouldBeArchived() throws Exception {
+  void completedJobs_olderThanRetention_shouldBeArchived() {
     // Submit and wait for 3 jobs to complete
     List<JobHandle> handles = new ArrayList<>();
     for (int i = 0; i < 3; i++) {
@@ -74,15 +75,10 @@ class JobArchivingIT extends BaseRatchetIT {
     List<Long> jobIds = handles.stream().map(JobHandle::id).toList();
 
     // Backdate the jobs to appear older than retention period
-    utx.begin();
     Instant past = Instant.now().minus(3, ChronoUnit.DAYS);
     for (Long id : jobIds) {
-      em.createNativeQuery("UPDATE scheduler_job SET updated_at = ?1 WHERE job_id = ?2")
-          .setParameter(1, java.sql.Timestamp.from(past))
-          .setParameter(2, id)
-          .executeUpdate();
+      dataManipulator.setJobUpdatedAt(id, past);
     }
-    utx.commit();
 
     // Configure and trigger archiving with 1-day retention
     archivingService.init(true, 1, 100, CRON_PARSER.parse("0 0 2 * * ?"));
@@ -116,7 +112,7 @@ class JobArchivingIT extends BaseRatchetIT {
   }
 
   @Test
-  void activeAndRecentJobs_shouldNotBeArchived() throws Exception {
+  void activeAndRecentJobs_shouldNotBeArchived() {
     // Submit and wait for 2 jobs — don't backdate, they're within retention
     JobHandle handle1 = jobService.enqueueNow(SimpleJob::execute);
     JobHandle handle2 = jobService.enqueueNow(SimpleJob::execute);
@@ -127,8 +123,7 @@ class JobArchivingIT extends BaseRatchetIT {
     archivingService.init(true, 1, 100, CRON_PARSER.parse("0 0 2 * * ?"));
     archivingService.triggerArchiving();
 
-    // Wait sufficient time to confirm no archiving occurs — use Awaitility's "during" to assert
-    // the condition holds continuously (not just at the end)
+    // Wait sufficient time to confirm no archiving occurs
     await()
         .during(Duration.ofSeconds(2))
         .atMost(Duration.ofSeconds(5))
@@ -139,7 +134,7 @@ class JobArchivingIT extends BaseRatchetIT {
               assertTrue(archived2.isEmpty(), "Recent jobs should not be archived");
             });
 
-    // Verify original jobs still in active table (also verified by Awaitility above)
+    // Verify original jobs still in active table
     assertTrue(
         jobCrudStore.findById(handle1.id()).isPresent(), "Job 1 should still be in active table");
     assertTrue(

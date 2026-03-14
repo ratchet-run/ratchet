@@ -247,10 +247,29 @@ public class DefaultJobSchedulerService
 
   @Override
   public boolean resumeJob(long jobId) {
-    if (jobStatusStore.compareAndSwapStatus(jobId, JobStatus.PAUSED, JobStatus.PENDING, null)) {
-      log.fine("Resumed job " + jobId);
-      // Kick the recurring scheduler in case this is a recurring/cron job
-      recurringScheduler.kick();
+    JobEntity job = jobCrudStore.findById(jobId).orElse(null);
+    if (job == null) {
+      log.fine("Cannot resume job " + jobId + " — not found");
+      return false;
+    }
+
+    if (job.getStatus() != JobStatus.PAUSED) {
+      JobStatus current = job.getStatus();
+      log.fine("Cannot resume job " + jobId + " — not in PAUSED state (current: " + current + ")");
+      return false;
+    }
+
+    JobStatus target =
+        job.getPausedFromStatus() != null ? job.getPausedFromStatus() : JobStatus.PENDING;
+    if (jobStatusStore.compareAndSwapStatus(jobId, JobStatus.PAUSED, target, null)) {
+      job.setStatus(target);
+      job.setPausedFromStatus(null);
+      jobCrudStore.save(job);
+      log.fine("Resumed job " + jobId + " to " + target);
+      if (target == JobStatus.PENDING) {
+        // Kick the recurring scheduler in case this is a recurring/cron job
+        recurringScheduler.kick();
+      }
       return true;
     }
 

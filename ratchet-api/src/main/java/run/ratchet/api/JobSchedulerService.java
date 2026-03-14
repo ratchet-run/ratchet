@@ -65,15 +65,16 @@ public interface JobSchedulerService {
    *
    * @param jobId the ID of the job to pause
    * @return true if the job was paused or was already paused, false if the job was not found or in
-   *     an incompatible state (RUNNING, SUCCEEDED, FAILED, CANCELED)
+   *     an incompatible state (RUNNING, SUCCEEDED, CANCELED)
    */
   boolean pauseJob(long jobId);
 
   /**
    * Resumes a paused job, making it eligible for execution again.
    *
-   * <p>The job returns to PENDING status. If the original scheduled time has passed, the job
-   * becomes immediately eligible for polling.
+   * <p>The job returns to the status it had before being paused. Resuming a previously PENDING job
+   * makes it eligible for polling again. Resuming a previously FAILED job restores it to FAILED
+   * without retrying it.
    *
    * <p>Idempotent: resuming a non-paused job returns {@code false} without error.
    *

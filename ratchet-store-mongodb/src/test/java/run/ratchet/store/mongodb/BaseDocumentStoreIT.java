@@ -1,0 +1,128 @@
+package run.ratchet.store.mongodb;
+
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
+import com.mongodb.client.MongoDatabase;
+import run.ratchet.api.BackoffPolicy;
+import run.ratchet.api.JobPriority;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.entity.JobPayload;
+import run.ratchet.store.entity.JobStatus;
+import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.testcontainers.containers.MongoDBContainer;
+
+/**
+ * Base class for document store integration tests.
+ *
+ * <p>Manages the lifecycle of a MongoDB Testcontainer shared across all test classes. Each test
+ * gets a fresh database and store instance to ensure isolation. Subclasses access the store via
+ * {@link #store()} and can create pre-configured entities via the factory methods.
+ *
+ * <p>This class is designed to be reusable for future document store implementations — the factory
+ * methods work with the store-core entity model, not MongoDB-specific types.
+ */
+public abstract class BaseDocumentStoreIT {
+
+  private static final MongoDBContainer MONGO = new MongoDBContainer("mongo:7.0").withReuse(true);
+
+  private MongoClient client;
+  private MongoDatabase database;
+  private MongoJobStore store;
+
+  @BeforeAll
+  static void startContainer() {
+    if (!MONGO.isRunning()) {
+      MONGO.start();
+    }
+  }
+
+  @BeforeEach
+  void setUp() {
+    client = MongoClients.create(MONGO.getConnectionString());
+    database = client.getDatabase("ratchet_it_" + UUID.randomUUID().toString().substring(0, 8));
+    store = new MongoJobStore(database);
+  }
+
+  @AfterEach
+  void tearDown() {
+    if (database != null) {
+      database.drop();
+    }
+    if (client != null) {
+      client.close();
+    }
+  }
+
+  /** Returns the store instance for the current test. */
+  protected MongoJobStore store() {
+    return store;
+  }
+
+  /** Returns the raw MongoDB database for direct verification queries. */
+  protected MongoDatabase database() {
+    return database;
+  }
+
+  /** Creates a PENDING job with sensible defaults and a unique idempotency key. */
+  protected JobEntity newPendingJob() {
+    return newPendingJob(JobPriority.NORMAL);
+  }
+
+  /** Creates a PENDING job with the specified priority. */
+  protected JobEntity newPendingJob(JobPriority priority) {
+    JobEntity job = new JobEntity();
+    job.setStatus(JobStatus.PENDING);
+    job.setScheduledTime(Instant.now());
+    job.setJobType(JobExecutionType.SINGLE);
+    job.setPriority(priority);
+    job.setBackoffPolicy(BackoffPolicy.NONE);
+    job.setIdempotencyKey(UUID.randomUUID().toString());
+    job.setPayload(new JobPayload("com.example.TestJob", "execute", "()V", false, List.of()));
+    return job;
+  }
+
+  /** Creates a PENDING batch parent job. */
+  protected JobEntity newBatchParentJob() {
+    JobEntity job = new JobEntity();
+    job.setStatus(JobStatus.PENDING);
+    job.setScheduledTime(Instant.now());
+    job.setJobType(JobExecutionType.BATCH_PARENT);
+    job.setPriority(JobPriority.NORMAL);
+    job.setBackoffPolicy(BackoffPolicy.NONE);
+    job.setIdempotencyKey(UUID.randomUUID().toString());
+    job.setPayload(new JobPayload("com.example.BatchJob", "execute", "()V", false, List.of()));
+    return job;
+  }
+
+  /** Creates a PENDING batch child job. */
+  protected JobEntity newBatchChildJob() {
+    JobEntity job = new JobEntity();
+    job.setStatus(JobStatus.PENDING);
+    job.setScheduledTime(Instant.now());
+    job.setJobType(JobExecutionType.BATCH_CHILD);
+    job.setPriority(JobPriority.NORMAL);
+    job.setBackoffPolicy(BackoffPolicy.NONE);
+    job.setIdempotencyKey(UUID.randomUUID().toString());
+    job.setPayload(new JobPayload("com.example.BatchChildJob", "execute", "()V", false, List.of()));
+    return job;
+  }
+
+  /** Creates a PENDING chain step job. */
+  protected JobEntity newChainStepJob() {
+    JobEntity job = new JobEntity();
+    job.setStatus(JobStatus.PENDING);
+    job.setScheduledTime(Instant.now());
+    job.setJobType(JobExecutionType.CHAIN_STEP);
+    job.setPriority(JobPriority.NORMAL);
+    job.setBackoffPolicy(BackoffPolicy.NONE);
+    job.setIdempotencyKey(UUID.randomUUID().toString());
+    job.setPayload(new JobPayload("com.example.ChainStepJob", "execute", "()V", false, List.of()));
+    return job;
+  }
+}

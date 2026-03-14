@@ -1,10 +1,10 @@
 package run.ratchet.ri.core;
 
 import run.ratchet.api.JobPriority;
+import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.entity.JobStatus;
-import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobStatusStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -84,8 +84,11 @@ public class RetryBufferManager {
    */
   private final DeadLetterService deadLetterService;
 
-  /** Store for loading full job entities when draining and for resetting status on shutdown. */
-  private final JobCrudStore jobCrudStore;
+  /** Store for conditional state transitions during shutdown recovery. */
+  private final JobStatusStore jobStatusStore;
+
+  /** Node identity used to avoid resetting jobs no longer owned by this node. */
+  private final NodeIdentityProvider nodeIdentityProvider;
 
   /**
    * Thread-safe priority queues for each job type.
@@ -109,13 +112,18 @@ public class RetryBufferManager {
   // Required by CDI proxy
   protected RetryBufferManager() {
     this.deadLetterService = null;
-    this.jobCrudStore = null;
+    this.jobStatusStore = null;
+    this.nodeIdentityProvider = null;
   }
 
   @Inject
-  public RetryBufferManager(DeadLetterService deadLetterService, JobCrudStore jobCrudStore) {
+  public RetryBufferManager(
+      DeadLetterService deadLetterService,
+      JobStatusStore jobStatusStore,
+      NodeIdentityProvider nodeIdentityProvider) {
     this.deadLetterService = deadLetterService;
-    this.jobCrudStore = jobCrudStore;
+    this.jobStatusStore = jobStatusStore;
+    this.nodeIdentityProvider = nodeIdentityProvider;
 
     Comparator<BufferedJob> jobComparator =
         Comparator.comparing(
@@ -311,6 +319,7 @@ public class RetryBufferManager {
    */
   public void flushOnShutdown() {
     int flushed = 0;
+    String nodeId = nodeIdentityProvider.getNodeId();
     for (Map.Entry<JobExecutionType, Queue<BufferedJob>> entry : retryBuffers.entrySet()) {
       Queue<BufferedJob> buffer = entry.getValue();
       ReentrantLock lock = bufferLocks.get(entry.getKey());
@@ -319,16 +328,9 @@ public class RetryBufferManager {
         BufferedJob buffered;
         while ((buffered = buffer.poll()) != null) {
           try {
-            jobCrudStore
-                .findById(buffered.jobId())
-                .ifPresent(
-                    job -> {
-                      job.setStatus(JobStatus.PENDING);
-                      job.setPickedBy(null);
-                      job.setPickedAt(null);
-                      jobCrudStore.save(job);
-                    });
-            flushed++;
+            if (jobStatusStore.resetRunningJob(buffered.jobId(), nodeId)) {
+              flushed++;
+            }
           } catch (Exception e) {
             log.log(
                 Level.SEVERE,

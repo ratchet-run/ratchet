@@ -51,6 +51,9 @@ import java.util.stream.Collectors;
 public class MysqlJobStore implements JobStore {
 
   private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+  private static final String EXECUTABLE_JOB_TYPE_FILTER =
+      "job_type IN ('SINGLE','BATCH_CHILD','CHAIN_STEP','WORKFLOW_BRANCH')";
+  private static final String RECURRING_JOB_TYPE_FILTER = "job_type = 'RECURRING'";
 
   @PersistenceContext private EntityManager em;
 
@@ -347,24 +350,24 @@ public class MysqlJobStore implements JobStore {
     // schedules child jobs only after the parent completes), so the claim query only needs
     // to find PENDING jobs that are due. No self-joins needed — matching the original
     // nets4 JobClaimStrategy pattern.
-    List<JobEntity> candidates =
+    int boostInterval = getPriorityBoostIntervalMinutes();
+    var query =
         em.createNativeQuery(
-                // language=MySQL
-                """
-                SELECT * FROM scheduler_job
-                WHERE status = 'PENDING' AND scheduled_time <= NOW(3)
-                  AND job_type NOT IN ('BATCH_PARENT', 'RECURRING')
-                ORDER BY priority ASC, scheduled_time ASC
-                LIMIT :lim
-                FOR UPDATE SKIP LOCKED""",
+                buildClaimSql("*", EXECUTABLE_JOB_TYPE_FILTER, "scheduled_time", boostInterval),
                 JobEntity.class)
-            .setParameter("lim", limit)
-            .getResultList();
+            .setParameter("lim", limit);
+    if (boostInterval > 0) {
+      query.setParameter("boost", boostInterval);
+    }
+
+    @SuppressWarnings("unchecked")
+    List<JobEntity> candidates = query.getResultList();
 
     if (candidates.isEmpty()) {
       return List.of();
     }
 
+    Instant now = Instant.now();
     List<Long> ids = candidates.stream().map(JobEntity::getId).collect(Collectors.toList());
     em.createNativeQuery(
             "UPDATE scheduler_job SET status = 'RUNNING', picked_by = :node, "
@@ -373,35 +376,38 @@ public class MysqlJobStore implements JobStore {
         .setParameter("ids", ids)
         .executeUpdate();
 
-    // Clear persistence context and batch-load updated entities
     em.clear();
-
-    @SuppressWarnings("unchecked")
-    List<JobEntity> refreshed =
-        em.createNativeQuery("SELECT * FROM scheduler_job WHERE job_id IN (:ids)", JobEntity.class)
-            .setParameter("ids", ids)
-            .getResultList();
-    return refreshed;
+    candidates.forEach(
+        job -> {
+          job.setStatus(JobStatus.RUNNING);
+          job.setPickedBy(nodeId);
+          job.setPickedAt(now);
+        });
+    return candidates;
   }
 
   @Override
   @SuppressWarnings("unchecked")
   public List<JobClaimDto> claimNextBatchOptimized(int limit, String nodeId) {
-    List<Object[]> rows =
+    int boostInterval = getPriorityBoostIntervalMinutes();
+    var query =
         em.createNativeQuery(
-                """
-                SELECT job_id, status, job_type, priority, scheduled_time,
-                       version, timeout_sec, picked_by, picked_at, business_key,
-                       attempts, max_retries
-                FROM scheduler_job
-                WHERE status = 'PENDING'
-                  AND scheduled_time <= NOW(3)
-                  AND job_type NOT IN ('BATCH_PARENT', 'RECURRING')
-                ORDER BY priority ASC, scheduled_time ASC
-                LIMIT :lim
-                FOR UPDATE SKIP LOCKED""")
-            .setParameter("lim", limit)
-            .getResultList();
+                buildClaimSql(
+                    """
+                    job_id, status, job_type, priority, scheduled_time,
+                    version, timeout_sec, picked_by, picked_at, business_key,
+                    attempts, max_retries
+                    """,
+                    EXECUTABLE_JOB_TYPE_FILTER,
+                    "scheduled_time",
+                    boostInterval))
+            .setParameter("lim", limit);
+    if (boostInterval > 0) {
+      query.setParameter("boost", boostInterval);
+    }
+
+    @SuppressWarnings("unchecked")
+    List<Object[]> rows = query.getResultList();
 
     if (rows.isEmpty()) {
       return List.of();
@@ -425,7 +431,7 @@ public class MysqlJobStore implements JobStore {
                     ((Number) r[0]).longValue(),
                     JobStatus.RUNNING,
                     JobExecutionType.valueOf((String) r[2]),
-                    JobPriority.values()[((Number) r[3]).intValue()],
+                    safeJobPriority(((Number) r[3]).intValue()),
                     toInstant(r[4]),
                     ((Number) r[5]).intValue(),
                     ((Number) r[6]).intValue(),
@@ -440,21 +446,24 @@ public class MysqlJobStore implements JobStore {
   @Override
   @SuppressWarnings("unchecked")
   public List<JobEntity> claimDueRecurring(int limit, String nodeId) {
-    List<JobEntity> candidates =
+    int boostInterval = getPriorityBoostIntervalMinutes();
+    var query =
         em.createNativeQuery(
-                "SELECT * FROM scheduler_job "
-                    + "WHERE job_type = 'RECURRING' "
-                    + "AND status = 'PENDING' AND next_fire <= NOW(3) "
-                    + "LIMIT :lim "
-                    + "FOR UPDATE SKIP LOCKED",
+                buildClaimSql("*", RECURRING_JOB_TYPE_FILTER, "next_fire", boostInterval),
                 JobEntity.class)
-            .setParameter("lim", limit)
-            .getResultList();
+            .setParameter("lim", limit);
+    if (boostInterval > 0) {
+      query.setParameter("boost", boostInterval);
+    }
+
+    @SuppressWarnings("unchecked")
+    List<JobEntity> candidates = query.getResultList();
 
     if (candidates.isEmpty()) {
       return List.of();
     }
 
+    Instant now = Instant.now();
     List<Long> ids = candidates.stream().map(JobEntity::getId).collect(Collectors.toList());
     em.createNativeQuery(
             "UPDATE scheduler_job SET status = 'RUNNING', picked_by = :node, "
@@ -464,13 +473,13 @@ public class MysqlJobStore implements JobStore {
         .executeUpdate();
 
     em.clear();
-
-    @SuppressWarnings("unchecked")
-    List<JobEntity> refreshed =
-        em.createNativeQuery("SELECT * FROM scheduler_job WHERE job_id IN (:ids)", JobEntity.class)
-            .setParameter("ids", ids)
-            .getResultList();
-    return refreshed;
+    candidates.forEach(
+        job -> {
+          job.setStatus(JobStatus.RUNNING);
+          job.setPickedBy(nodeId);
+          job.setPickedAt(now);
+        });
+    return candidates;
   }
 
   // ── JobStatusStore ────────────────────────────────────────────────────
@@ -776,7 +785,7 @@ public class MysqlJobStore implements JobStore {
   @Override
   public int deleteDlqOlderThan(Instant cutoff) {
     return em.createNativeQuery(
-            "DELETE FROM scheduler_job WHERE status = 'FAILED' AND job_type = 'DLQ_ALERT' "
+            "DELETE FROM scheduler_job WHERE status = 'FAILED' AND attempts >= max_retries "
                 + "AND updated_at < :cutoff")
         .setParameter("cutoff", Timestamp.from(cutoff))
         .executeUpdate();
@@ -1443,6 +1452,47 @@ public class MysqlJobStore implements JobStore {
       return inst;
     }
     return null;
+  }
+
+  private static JobPriority safeJobPriority(int ordinal) {
+    JobPriority[] values = JobPriority.values();
+    if (ordinal < 0 || ordinal >= values.length) {
+      return JobPriority.NORMAL;
+    }
+    return values[ordinal];
+  }
+
+  private static int getPriorityBoostIntervalMinutes() {
+    String raw = System.getenv("SCHEDULER_PRIORITY_BOOST_INTERVAL_MINUTES");
+    if (raw == null || raw.isBlank()) {
+      return 15;
+    }
+    try {
+      return Math.max(0, Integer.parseInt(raw.trim()));
+    } catch (NumberFormatException e) {
+      return 15;
+    }
+  }
+
+  private static String buildClaimSql(
+      String selectClause, String typeFilter, String timeColumn, int boostInterval) {
+    String orderBy =
+        boostInterval > 0
+            ? "(priority + FLOOR(GREATEST(0, TIMESTAMPDIFF(MINUTE, "
+                + timeColumn
+                + ", NOW(3))) / :boost)) DESC, "
+                + timeColumn
+                + " ASC"
+            : "priority DESC, " + timeColumn + " ASC";
+    return """
+        SELECT %s FROM scheduler_job
+        WHERE status = 'PENDING'
+          AND %s <= NOW(3)
+          AND %s
+        ORDER BY %s
+        LIMIT :lim
+        FOR UPDATE SKIP LOCKED"""
+        .formatted(selectClause, timeColumn, typeFilter, orderBy);
   }
 
   private String payloadToJson(JobEntity job) {

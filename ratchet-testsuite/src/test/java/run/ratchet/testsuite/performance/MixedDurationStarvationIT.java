@@ -46,10 +46,8 @@ class MixedDurationStarvationIT extends BasePerformanceIT {
             PerformanceBaseline.class,
             PerformanceReport.class,
             PerformanceReportWriter.class)
-        .addTestInfrastructure()
+        .addStoreInfrastructure()
         .addBeansXml()
-        .addPersistenceXml(dbType)
-        .addDataSource()
         .build();
   }
 
@@ -85,8 +83,8 @@ class MixedDurationStarvationIT extends BasePerformanceIT {
     awaitAllCompleted(handles, PERF_TIMEOUT);
     long totalMs = System.currentTimeMillis() - startMs;
 
-    // Query queue_wait_ms for fast jobs via native SQL
-    long fastP99 = queryQueueWaitForClass(TimingJob.class.getName(), 0.99);
+    // Query queue_wait_ms for fast jobs via store-specific API
+    long fastP99 = perfHelper.queryQueueWaitPercentileForClass(TimingJob.class.getName(), 0.99);
 
     log.info(
         String.format(
@@ -129,7 +127,7 @@ class MixedDurationStarvationIT extends BasePerformanceIT {
     awaitAllCompleted(allHandles, PERF_TIMEOUT);
     long totalMs = System.currentTimeMillis() - startMs;
 
-    long fastP99 = queryQueueWaitForClass(TimingJob.class.getName(), 0.99);
+    long fastP99 = perfHelper.queryQueueWaitPercentileForClass(TimingJob.class.getName(), 0.99);
 
     log.info(
         String.format(
@@ -140,35 +138,5 @@ class MixedDurationStarvationIT extends BasePerformanceIT {
         new PerformanceReport(
             "starvation.mixed", fastCount + slowCount, totalMs, 0, 0, 0, fastP99));
     baseline.assertLatencyWithinTolerance("starvation.mixed.fastP99Ms", fastP99);
-  }
-
-  @SuppressWarnings("unchecked")
-  private long queryQueueWaitForClass(String targetClass, double percentile) {
-    try {
-      utx.begin();
-      List<Number> results =
-          em.createNativeQuery(
-                  "SELECT queue_wait_ms FROM scheduler_job"
-                      + " WHERE target_class = :cls AND status = 'SUCCEEDED'"
-                      + " AND queue_wait_ms IS NOT NULL"
-                      + " ORDER BY queue_wait_ms")
-              .setParameter("cls", targetClass)
-              .getResultList();
-      utx.commit();
-
-      if (results.isEmpty()) {
-        return 0;
-      }
-      int index = (int) Math.ceil(percentile * results.size()) - 1;
-      return results.get(Math.max(0, index)).longValue();
-    } catch (Exception e) {
-      try {
-        utx.rollback();
-      } catch (Exception rollbackEx) {
-        log.warning("Rollback failed: " + rollbackEx.getMessage());
-      }
-      log.warning("Failed to query queue_wait_ms: " + e.getMessage());
-      return -1;
-    }
   }
 }

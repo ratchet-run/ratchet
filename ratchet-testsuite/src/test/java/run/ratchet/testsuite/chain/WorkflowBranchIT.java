@@ -36,10 +36,8 @@ class WorkflowBranchIT extends BaseRatchetIT {
         .addRatchetDependencies(profile, dbType)
         .addClasses(
             SimpleJob.class, FailingJob.class, WorkflowBranchTracker.class, TestJobService.class)
-        .addTestInfrastructure()
+        .addStoreInfrastructure()
         .addBeansXml()
-        .addPersistenceXml(dbType)
-        .addDataSource()
         .build();
   }
 

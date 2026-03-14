@@ -46,10 +46,8 @@ class ClaimQueryDegradationIT extends BasePerformanceIT {
             PerformanceBaseline.class,
             PerformanceReport.class,
             PerformanceReportWriter.class)
-        .addTestInfrastructure()
+        .addStoreInfrastructure()
         .addBeansXml()
-        .addPersistenceXml(dbType)
-        .addDataSource()
         .build();
   }
 
@@ -60,7 +58,7 @@ class ClaimQueryDegradationIT extends BasePerformanceIT {
   }
 
   @Test
-  void claimQueryLatencyVsTableSize() throws Exception {
+  void claimQueryLatencyVsTableSize() {
     int[] tableSizes = {0, 5000, 10_000, 100_000, 1_000_000};
     int iterations = 100;
     long baselineP99 = 0;
@@ -70,7 +68,7 @@ class ClaimQueryDegradationIT extends BasePerformanceIT {
       // Insert background rows to reach target
       int toInsert = tableSize - previousSize;
       if (toInsert > 0) {
-        insertBackgroundRowsNative(toInsert, "bg-claim");
+        perfHelper.insertBackgroundRows(toInsert, "bg-claim");
         log.info("Inserted " + toInsert + " background rows (total target: " + tableSize + ")");
       }
       previousSize = tableSize;
@@ -78,20 +76,16 @@ class ClaimQueryDegradationIT extends BasePerformanceIT {
       // Warmup queries
       Instant now = Instant.now();
       for (int w = 0; w < 20; w++) {
-        utx.begin();
         jobCrudStore.countReadyJobs(now);
-        utx.commit();
       }
 
       // Measured queries
       long[] times = new long[iterations];
       for (int i = 0; i < iterations; i++) {
-        utx.begin();
         long start = System.nanoTime();
         jobCrudStore.countReadyJobs(Instant.now());
         long elapsed = System.nanoTime() - start;
         times[i] = elapsed / 1_000_000;
-        utx.commit();
       }
 
       long[] percentiles = computePercentiles(times, 0.50, 0.95, 0.99);
@@ -132,23 +126,21 @@ class ClaimQueryDegradationIT extends BasePerformanceIT {
 
     // Verify actual store methods use index scans at maximum table size
     Instant finalNow = Instant.now();
-    assertNoFullTableScan(
+    perfHelper.assertNoFullScan(
         "countReadyJobs @ " + lastSizeKey, () -> jobCrudStore.countReadyJobs(finalNow));
 
-    assertNoFullTableScan(
+    perfHelper.assertNoFullScan(
         "claimNextBatch @ " + lastSizeKey,
         () -> jobClaimStore.claimNextBatchOptimized(10, "perf-test-node"));
   }
 
-  private long[] measureQueryTimes(int iterations) throws Exception {
+  private long[] measureQueryTimes(int iterations) {
     long[] times = new long[iterations];
     for (int i = 0; i < iterations; i++) {
-      utx.begin();
       long start = System.nanoTime();
       jobCrudStore.countReadyJobs(Instant.now());
       long elapsed = System.nanoTime() - start;
       times[i] = elapsed / 1_000_000;
-      utx.commit();
     }
     return times;
   }

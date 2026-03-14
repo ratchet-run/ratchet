@@ -112,11 +112,11 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
 
   /** Shuts down the heartbeat scheduler. */
   public void shutdown() {
+    initialized.set(false);
     if (heartbeatHandle != null) {
       heartbeatHandle.cancel(true);
       heartbeatHandle = null;
     }
-    initialized.set(false);
   }
 
   private String resolveNodeId() {
@@ -163,10 +163,18 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
             .getScheduledExecutor()
             .schedule(
                 () -> {
+                  if (!initialized.get()) {
+                    return;
+                  }
                   try {
                     nodeStore.upsertHeartbeat(nodeId, Instant.now());
-                    scheduleNextHeartbeat();
+                    if (initialized.get()) {
+                      scheduleNextHeartbeat();
+                    }
                   } catch (Exception e) {
+                    if (!initialized.get()) {
+                      return;
+                    }
                     log.log(Level.SEVERE, "Heartbeat retry failed", e);
                     long cappedDelay = Math.min(delaySeconds * 2, orphanGraceSeconds);
                     scheduleHeartbeatWithDelay(cappedDelay);
@@ -197,11 +205,19 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
             .getScheduledExecutor()
             .schedule(
                 () -> {
+                  if (!initialized.get()) {
+                    return;
+                  }
                   try {
                     nodeStore.upsertHeartbeat(nodeId, Instant.now());
                     log.fine("Heartbeat sent for node " + nodeId);
-                    scheduleNextHeartbeat();
+                    if (initialized.get()) {
+                      scheduleNextHeartbeat();
+                    }
                   } catch (Exception e) {
+                    if (!initialized.get()) {
+                      return;
+                    }
                     log.log(Level.SEVERE, "Heartbeat failed", e);
                     scheduleHeartbeatWithDelay(heartbeatIntervalSeconds);
                   }

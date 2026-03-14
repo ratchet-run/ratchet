@@ -31,9 +31,9 @@ import java.util.logging.Logger;
  *       (default: unlimited)
  *   <li>{@code SCHEDULER_RATE_LIMIT_CHAIN_STEP}: Max jobs per minute for CHAIN_STEP type (default:
  *       unlimited)
- *   <li>{@code SCHEDULER_RATE_LIMIT_DLQ_ALERT}: Max jobs per minute for DLQ_ALERT type (default:
- *       unlimited)
  *   <li>{@code SCHEDULER_RATE_LIMIT_BATCH_PARENT}: Max jobs per minute for BATCH_PARENT type
+ *       (default: unlimited)
+ *   <li>{@code SCHEDULER_RATE_LIMIT_WORKFLOW_BRANCH}: Max jobs per minute for WORKFLOW_BRANCH type
  *       (default: unlimited)
  * </ul>
  *
@@ -127,9 +127,10 @@ public class JobTypeRateLimiter {
     rateLimits.put(
         JobExecutionType.CHAIN_STEP, getRateLimitFromEnv("SCHEDULER_RATE_LIMIT_CHAIN_STEP", 0));
     rateLimits.put(
-        JobExecutionType.DLQ_ALERT, getRateLimitFromEnv("SCHEDULER_RATE_LIMIT_DLQ_ALERT", 0));
-    rateLimits.put(
         JobExecutionType.BATCH_PARENT, getRateLimitFromEnv("SCHEDULER_RATE_LIMIT_BATCH_PARENT", 0));
+    rateLimits.put(
+        JobExecutionType.WORKFLOW_BRANCH,
+        getRateLimitFromEnv("SCHEDULER_RATE_LIMIT_WORKFLOW_BRANCH", 0));
 
     boolean anyConfigured = false;
     for (Map.Entry<JobExecutionType, Integer> entry : rateLimits.entrySet()) {

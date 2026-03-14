@@ -68,9 +68,10 @@ public class ExecutionObserver {
    * Records a successful job completion in the metrics collector.
    *
    * @param job the job entity that succeeded
+   * @param executionTimeMs execution time for the completed attempt
    */
-  public void recordJobSuccess(JobEntity job) {
-    metricsCollector.jobCompleted(job.getId(), job.getPublicJobType(), 0);
+  public void recordJobSuccess(JobEntity job, long executionTimeMs) {
+    metricsCollector.jobCompleted(job.getId(), job.getPublicJobType(), executionTimeMs);
   }
 
   /**
@@ -78,28 +79,19 @@ public class ExecutionObserver {
    *
    * @param job the job entity that failed
    * @param ex the exception that caused the failure
+   * @param attempt the 1-based attempt number that failed
    */
-  public void recordJobFailure(JobEntity job, Throwable ex) {
-    metricsCollector.jobFailed(job.getId(), job.getPublicJobType(), ex, job.getAttempts());
+  public void recordJobFailure(JobEntity job, Throwable ex, int attempt) {
+    metricsCollector.jobFailed(job.getId(), job.getPublicJobType(), ex, attempt);
   }
 
   /**
-   * Records a job cancellation. Delegates to metrics collector for cancellation tracking.
+   * Records a job cancellation.
    *
    * @param job the job entity that was cancelled
    */
   public void recordJobCancellation(JobEntity job) {
-    // Cancellation is treated as a completion with zero execution time
-    metricsCollector.jobCompleted(job.getId(), job.getPublicJobType(), 0);
-  }
-
-  /**
-   * Records a job retry in the metrics collector.
-   *
-   * @param job the job entity being retried
-   */
-  public void recordJobRetry(JobEntity job) {
-    metricsCollector.jobFailed(job.getId(), job.getPublicJobType(), null, job.getAttempts());
+    // The public MetricsCollector SPI has no cancellation callback.
   }
 
   /**

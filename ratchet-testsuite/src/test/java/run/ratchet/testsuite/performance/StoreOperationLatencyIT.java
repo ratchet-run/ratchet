@@ -47,10 +47,8 @@ class StoreOperationLatencyIT extends BasePerformanceIT {
             PerformanceBaseline.class,
             PerformanceReport.class,
             PerformanceReportWriter.class)
-        .addTestInfrastructure()
+        .addStoreInfrastructure()
         .addBeansXml()
-        .addPersistenceXml(dbType)
-        .addDataSource()
         .build();
   }
 
@@ -61,17 +59,15 @@ class StoreOperationLatencyIT extends BasePerformanceIT {
   }
 
   @Test
-  void saveThenFindById() throws Exception {
+  void saveThenFindById() {
     int warmup = getWarmupCount();
     int measured = getMeasuredCount();
 
     // Warmup
     for (int i = 0; i < warmup; i++) {
-      utx.begin();
       JobEntity job = createJobEntity("warmup-save-" + i);
       JobEntity saved = jobCrudStore.save(job);
       jobCrudStore.findById(saved.getId());
-      utx.commit();
     }
 
     // Measured save operations
@@ -79,8 +75,6 @@ class StoreOperationLatencyIT extends BasePerformanceIT {
     long[] findTimes = new long[measured];
 
     for (int i = 0; i < measured; i++) {
-      utx.begin();
-
       JobEntity job = createJobEntity("measured-save-" + i);
       long start = System.nanoTime();
       JobEntity saved = jobCrudStore.save(job);
@@ -90,7 +84,6 @@ class StoreOperationLatencyIT extends BasePerformanceIT {
 
       saveTimes[i] = (afterSave - start) / 1_000_000;
       findTimes[i] = (afterFind - afterSave) / 1_000_000;
-      utx.commit();
     }
 
     long[] savePercentiles = computePercentiles(saveTimes, 0.50, 0.95, 0.99);
@@ -129,23 +122,19 @@ class StoreOperationLatencyIT extends BasePerformanceIT {
   }
 
   @Test
-  void statusTransitionCAS() throws Exception {
+  void statusTransitionCAS() {
     int measured = getMeasuredCount();
     long[] casTimes = new long[measured];
 
     for (int i = 0; i < measured; i++) {
-      utx.begin();
       JobEntity job = createJobEntity("cas-" + i);
       JobEntity saved = jobCrudStore.save(job);
-      utx.commit();
 
-      utx.begin();
       long start = System.nanoTime();
       jobStatusStore.compareAndSwapStatus(
           saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
       long elapsed = System.nanoTime() - start;
       casTimes[i] = elapsed / 1_000_000;
-      utx.commit();
     }
 
     long[] percentiles = computePercentiles(casTimes, 0.50, 0.95, 0.99);
@@ -161,9 +150,8 @@ class StoreOperationLatencyIT extends BasePerformanceIT {
   }
 
   @Test
-  void pollingQueryLatency() throws Exception {
+  void pollingQueryLatency() {
     // Insert 1000 jobs in mixed states
-    utx.begin();
     for (int i = 0; i < 1000; i++) {
       JobEntity job = createJobEntity("poll-" + i);
       if (i % 3 == 0) {
@@ -174,19 +162,16 @@ class StoreOperationLatencyIT extends BasePerformanceIT {
       // else stays PENDING
       jobCrudStore.save(job);
     }
-    utx.commit();
 
     int measured = getMeasuredCount();
     long[] pollTimes = new long[measured];
     Instant now = Instant.now();
 
     for (int i = 0; i < measured; i++) {
-      utx.begin();
       long start = System.nanoTime();
       jobCrudStore.countReadyJobs(now);
       long elapsed = System.nanoTime() - start;
       pollTimes[i] = elapsed / 1_000_000;
-      utx.commit();
     }
 
     long[] percentiles = computePercentiles(pollTimes, 0.50, 0.95, 0.99);

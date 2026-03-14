@@ -3,20 +3,19 @@ package run.ratchet.ri.core;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import run.ratchet.api.JobPriority;
+import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.entity.JobStatus;
-import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobStatusStore;
 import java.time.Instant;
-import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -27,13 +26,14 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class RetryBufferManagerTest {
 
   @Mock private DeadLetterService deadLetterService;
-  @Mock private JobCrudStore jobCrudStore;
+  @Mock private JobStatusStore jobStatusStore;
+  @Mock private NodeIdentityProvider nodeIdentityProvider;
 
   private RetryBufferManager manager;
 
   @BeforeEach
   void setUp() {
-    manager = new RetryBufferManager(deadLetterService, jobCrudStore);
+    manager = new RetryBufferManager(deadLetterService, jobStatusStore, nodeIdentityProvider);
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────
@@ -158,22 +158,27 @@ class RetryBufferManagerTest {
     manager.offer(standardJob(1L));
     manager.offer(standardJob(2L));
 
-    JobEntity job1 = standardJob(1L);
-    job1.setStatus(JobStatus.RUNNING);
-    JobEntity job2 = standardJob(2L);
-    job2.setStatus(JobStatus.RUNNING);
-
-    when(jobCrudStore.findById(1L)).thenReturn(Optional.of(job1));
-    when(jobCrudStore.findById(2L)).thenReturn(Optional.of(job2));
+    when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
+    when(jobStatusStore.resetRunningJob(1L, "node-1")).thenReturn(true);
+    when(jobStatusStore.resetRunningJob(2L, "node-1")).thenReturn(true);
 
     manager.flushOnShutdown();
 
-    verify(jobCrudStore).save(job1);
-    verify(jobCrudStore).save(job2);
-    assertEquals(JobStatus.PENDING, job1.getStatus());
-    assertEquals(JobStatus.PENDING, job2.getStatus());
-    assertNull(job1.getPickedBy());
-    assertNull(job1.getPickedAt());
+    verify(jobStatusStore).resetRunningJob(1L, "node-1");
+    verify(jobStatusStore).resetRunningJob(2L, "node-1");
+    assertTrue(manager.isBufferEmpty(JobExecutionType.SINGLE));
+  }
+
+  @Test
+  void flushOnShutdown_doesNotOverwriteTerminalJobs() {
+    manager.offer(standardJob(1L));
+    when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
+    when(jobStatusStore.resetRunningJob(1L, "node-1")).thenReturn(false);
+
+    manager.flushOnShutdown();
+
+    verify(jobStatusStore).resetRunningJob(1L, "node-1");
+    verify(jobStatusStore, never()).resetRunningJob(1L, "other-node");
     assertTrue(manager.isBufferEmpty(JobExecutionType.SINGLE));
   }
 }

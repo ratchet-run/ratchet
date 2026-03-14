@@ -44,7 +44,7 @@ CREATE TABLE scheduler_resource_limit
 -- 4. Main job table
 CREATE TABLE scheduler_job
 (
-    job_id                BIGINT UNSIGNED AUTO_INCREMENT,
+    job_id                BIGINT UNSIGNED NOT NULL,
     status                ENUM ('PENDING','RUNNING','SUCCEEDED','FAILED','CANCELED','PAUSED')                                                 NOT NULL DEFAULT 'PENDING',
     paused_from_status    VARCHAR(20)                                                                                                         NULL,
     scheduled_time        DATETIME(6)                                                                                                         NOT NULL,
@@ -154,7 +154,7 @@ CREATE TABLE scheduler_batch_metrics
 -- 8. Execution history
 CREATE TABLE scheduler_job_execution
 (
-    id            BIGINT UNSIGNED AUTO_INCREMENT,
+    id            BIGINT UNSIGNED NOT NULL,
     job_id        BIGINT UNSIGNED                                  NOT NULL,
     attempt       INT                                              NOT NULL,
     node_id       VARCHAR(64)                                      NOT NULL,
@@ -176,7 +176,7 @@ CREATE TABLE scheduler_job_execution
 -- 9. Per-job logs
 CREATE TABLE scheduler_job_log
 (
-    log_id  BIGINT UNSIGNED AUTO_INCREMENT,
+    log_id  BIGINT UNSIGNED NOT NULL,
     job_id  BIGINT UNSIGNED                              NOT NULL,
     ts      DATETIME(6)                                  NOT NULL,
     level   ENUM ('TRACE','DEBUG','INFO','WARN','ERROR') NOT NULL,
@@ -193,7 +193,7 @@ CREATE TABLE scheduler_job_log
 -- 10. Archived jobs
 CREATE TABLE scheduler_job_archive
 (
-    archive_id              BIGINT UNSIGNED AUTO_INCREMENT,
+    archive_id              BIGINT UNSIGNED NOT NULL,
     original_job_id         BIGINT UNSIGNED                                                                                                     NOT NULL,
     final_status            ENUM ('SUCCEEDED','FAILED','CANCELED')                                                                                 NOT NULL,
     job_type                ENUM ('SINGLE','RECURRING','BATCH_PARENT','BATCH_CHILD','CHAIN_STEP','DLQ_ALERT','WORKFLOW_BRANCH','WORKFLOW_JOIN') NOT NULL,
@@ -242,7 +242,7 @@ CREATE TABLE scheduler_job_archive
 -- 11. Workflow conditions
 CREATE TABLE scheduler_workflow_condition
 (
-    id                   BIGINT UNSIGNED AUTO_INCREMENT,
+    id                   BIGINT UNSIGNED NOT NULL,
     parent_job_id        BIGINT UNSIGNED NOT NULL,
     child_job_id         BIGINT UNSIGNED NOT NULL,
     condition_type       VARCHAR(32)     NOT NULL,
@@ -266,7 +266,7 @@ CREATE TABLE scheduler_workflow_condition
 -- 12. DLQ alert records
 CREATE TABLE scheduler_dlq_alerts
 (
-    id            BIGINT UNSIGNED AUTO_INCREMENT,
+    id            BIGINT UNSIGNED NOT NULL,
     job_id        BIGINT UNSIGNED NOT NULL,
     error_hash    VARCHAR(64)     NOT NULL,
     alert_sent_at DATETIME(6)     NULL,
@@ -282,7 +282,7 @@ CREATE TABLE scheduler_dlq_alerts
 -- 13. Active resource permits
 CREATE TABLE scheduler_resource_permit
 (
-    id            BIGINT UNSIGNED AUTO_INCREMENT,
+    id            BIGINT UNSIGNED NOT NULL,
     resource_name VARCHAR(100)    NOT NULL,
     job_id        BIGINT UNSIGNED NOT NULL,
     node_id       VARCHAR(64)     NOT NULL,

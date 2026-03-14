@@ -19,23 +19,23 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * System properties are set for JDBC configuration that downstream components (WildFly datasource
  * configuration, persistence units) can read.
  */
-public class DatabaseContainerExtension
+public class JdbcContainerExtension
     implements BeforeAllCallback, ExtensionContext.Store.CloseableResource {
 
-  private static final Logger log = Logger.getLogger(DatabaseContainerExtension.class.getName());
+  private static final Logger log = Logger.getLogger(JdbcContainerExtension.class.getName());
 
   private static final String STORE_KEY = "ratchet-db-container";
 
   private static volatile JdbcDatabaseContainer<?> container;
-  private static volatile DatabaseConfig config;
+  private static volatile JdbcDatabaseConfig config;
   private static volatile boolean started = false;
 
   /** Returns the current database configuration (available after extension initialization). */
-  public static DatabaseConfig getConfig() {
+  public static JdbcDatabaseConfig getConfig() {
     if (config == null) {
       throw new IllegalStateException(
-          "DatabaseContainerExtension has not been initialized. "
-              + "Ensure @ExtendWith(DatabaseContainerExtension.class) is present.");
+          "JdbcContainerExtension has not been initialized. "
+              + "Ensure @ExtendWith(JdbcContainerExtension.class) is present.");
     }
     return config;
   }
@@ -61,11 +61,16 @@ public class DatabaseContainerExtension
 
   @Override
   public void beforeAll(ExtensionContext context) {
+    String dbType = System.getProperty("ratchet.test.db.type", "mysql");
+    if (!"mysql".equals(dbType) && !"postgresql".equals(dbType)) {
+      return;
+    }
+
     if (started) {
       return;
     }
 
-    synchronized (DatabaseContainerExtension.class) {
+    synchronized (JdbcContainerExtension.class) {
       if (started) {
         return;
       }
@@ -73,14 +78,13 @@ public class DatabaseContainerExtension
       // Register for cleanup when the root context closes
       context.getRoot().getStore(ExtensionContext.Namespace.GLOBAL).put(STORE_KEY, this);
 
-      String dbType = System.getProperty("ratchet.test.db.type", "mysql");
       log.info("Starting Testcontainers database: " + dbType);
 
       container = createContainer(dbType);
       container.start();
 
       config =
-          new DatabaseConfig(
+          new JdbcDatabaseConfig(
               container.getJdbcUrl(),
               container.getUsername(),
               container.getPassword(),

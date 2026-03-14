@@ -1,7 +1,17 @@
 package run.ratchet.testsuite.util;
 
-import run.ratchet.testsuite.infra.DatabaseConfig;
-import run.ratchet.testsuite.infra.DatabaseContainerExtension;
+import run.ratchet.testsuite.app.DocumentStorePerformanceTestHelper;
+import run.ratchet.testsuite.app.DocumentStoreTestCleanupStrategy;
+import run.ratchet.testsuite.app.DocumentStoreTestDataManipulator;
+import run.ratchet.testsuite.app.JpaPerformanceTestHelper;
+import run.ratchet.testsuite.app.JpaTestCleanupStrategy;
+import run.ratchet.testsuite.app.JpaTestDataManipulator;
+import run.ratchet.testsuite.app.PerformanceTestHelper;
+import run.ratchet.testsuite.app.TestCleanupStrategy;
+import run.ratchet.testsuite.app.TestDataManipulator;
+import run.ratchet.testsuite.app.TestMongoProducer;
+import run.ratchet.testsuite.infra.JdbcContainerExtension;
+import run.ratchet.testsuite.infra.JdbcDatabaseConfig;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.asset.EmptyAsset;
 import org.jboss.shrinkwrap.api.asset.StringAsset;
@@ -13,7 +23,7 @@ import org.jboss.shrinkwrap.resolver.api.maven.Maven;
  *
  * <p>Uses Maven resolver to import compile and runtime dependencies from the testsuite POM,
  * following the Krazo WebArchiveBuilder pattern. The active Maven profile determines which store
- * module and JDBC driver are included.
+ * module and drivers are included.
  */
 public class RatchetArchiveBuilder {
 
@@ -136,7 +146,7 @@ public class RatchetArchiveBuilder {
    * @return this builder
    */
   public RatchetArchiveBuilder addDataSource() {
-    DatabaseConfig config = DatabaseContainerExtension.getConfig();
+    JdbcDatabaseConfig config = JdbcContainerExtension.getConfig();
     DataSourceStrategy strategy = DataSourceStrategyFactory.create();
     strategy.configureArchive(archive, config);
     return this;
@@ -155,15 +165,58 @@ public class RatchetArchiveBuilder {
   }
 
   /**
-   * Adds test infrastructure classes needed inside the container. Includes the base test class and
-   * assertion utilities from the {@code util} package. The {@code infra} package (Testcontainers
-   * extensions) is deliberately excluded — those classes only run on the client side via JUnit 5
-   * automatic extension detection.
+   * Adds store-agnostic test infrastructure to the archive. Inspects {@code ratchet.test.db.type}
+   * to determine which store-specific classes to include:
+   *
+   * <ul>
+   *   <li>JPA stores (mysql, postgresql): adds {@link JpaTestCleanupStrategy}, {@link
+   *       JpaTestDataManipulator}, persistence.xml, and datasource configuration
+   *   <li>Document stores (mongodb): adds {@link DocumentStoreTestCleanupStrategy}, {@link
+   *       DocumentStoreTestDataManipulator}, and {@link TestMongoProducer}
+   * </ul>
+   *
+   * <p>Common classes ({@link BaseRatchetIT}, {@link JobAssertions}, {@link TestClassPolicy},
+   * strategy interfaces) are always included.
    *
    * @return this builder
    */
-  public RatchetArchiveBuilder addTestInfrastructure() {
-    archive.addClasses(BaseRatchetIT.class, JobAssertions.class, TestClassPolicy.class);
+  public RatchetArchiveBuilder addStoreInfrastructure() {
+    String dbType = System.getProperty("ratchet.test.db.type", "mysql");
+
+    // Common classes always included
+    archive.addClasses(
+        BaseRatchetIT.class,
+        JobAssertions.class,
+        TestClassPolicy.class,
+        TestCleanupStrategy.class,
+        TestDataManipulator.class,
+        PerformanceTestHelper.class);
+
+    // Store-specific classes
+    switch (dbType) {
+      case "mysql", "postgresql" -> {
+        archive.addClasses(
+            JpaTestCleanupStrategy.class,
+            JpaTestDataManipulator.class,
+            JpaPerformanceTestHelper.class);
+        addPersistenceXml(dbType);
+        addDataSource();
+      }
+      case "mongodb" -> {
+        archive.addClasses(
+            DocumentStoreTestCleanupStrategy.class,
+            DocumentStoreTestDataManipulator.class,
+            DocumentStorePerformanceTestHelper.class,
+            TestMongoProducer.class);
+      }
+      default -> throw new IllegalArgumentException("Unsupported db type: " + dbType);
+    }
+
+    addAwaitility();
+    return this;
+  }
+
+  private void addAwaitility() {
     // Awaitility is needed in-container by JobAssertions but is test-scoped
     // (not pulled in by importCompileAndRuntimeDependencies)
     archive.addAsLibraries(
@@ -172,7 +225,6 @@ public class RatchetArchiveBuilder {
             .resolve("org.awaitility:awaitility")
             .withTransitivity()
             .asFile());
-    return this;
   }
 
   /**

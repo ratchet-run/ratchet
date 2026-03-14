@@ -92,7 +92,6 @@ public class RatchetProducer {
     maxConcurrencyMap.put(
         JobExecutionType.BATCH_PARENT, SchedulerConfig.getThreadPoolSizeBatchParent());
     maxConcurrencyMap.put(JobExecutionType.CHAIN_STEP, SchedulerConfig.getThreadPoolSizeChain());
-    maxConcurrencyMap.put(JobExecutionType.DLQ_ALERT, SchedulerConfig.getThreadPoolSizeDlq());
     maxConcurrencyMap.put(
         JobExecutionType.WORKFLOW_BRANCH, SchedulerConfig.getThreadPoolSizeDefault());
 

@@ -9,5 +9,5 @@ package run.ratchet.testsuite.infra;
  * @param driverClass the JDBC driver class name
  * @param dbType the database type ("mysql" or "postgresql")
  */
-public record DatabaseConfig(
+public record JdbcDatabaseConfig(
     String url, String username, String password, String driverClass, String dbType) {}
