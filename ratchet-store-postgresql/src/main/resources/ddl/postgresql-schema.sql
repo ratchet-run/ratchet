@@ -104,6 +104,8 @@ CREATE INDEX idx_job_business_key ON scheduler_job (business_key);
 CREATE INDEX idx_job_created_at ON scheduler_job (created_at);
 CREATE INDEX idx_job_updated_at ON scheduler_job (updated_at);
 
+CREATE INDEX idx_job_claim_cover ON scheduler_job (status, job_type, scheduled_time, priority);
+
 -- Partial unique index for active business key (replaces MySQL generated column approach)
 CREATE UNIQUE INDEX idx_job_active_business_key ON scheduler_job (business_key) WHERE status IN ('PENDING', 'RUNNING', 'PAUSED') AND business_key IS NOT NULL;
 

@@ -132,6 +132,7 @@ public class RatchetArchiveBuilder {
             + "\"/>\n"
             + "      <property name=\"hibernate.hbm2ddl.auto\" value=\"none\"/>\n"
             + "      <property name=\"hibernate.show_sql\" value=\"true\"/>\n"
+            + "      <property name=\"hibernate.connection.isolation\" value=\"2\"/>\n"
             + "    </properties>\n"
             + "  </persistence-unit>\n"
             + "</persistence>\n";

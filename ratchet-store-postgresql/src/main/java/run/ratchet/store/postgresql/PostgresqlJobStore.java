@@ -303,77 +303,68 @@ public class PostgresqlJobStore implements JobStore {
   @Override
   public List<JobEntity> claimNextBatch(int limit, String nodeId) {
     int boostInterval = getPriorityBoostIntervalMinutes();
-    var query =
+    var updateQuery =
         em.createNativeQuery(
-                buildClaimSql("*", EXECUTABLE_JOB_TYPE_FILTER, "scheduled_time", boostInterval),
-                JobEntity.class)
-            .setParameter(1, limit);
+                buildClaimUpdateSql(EXECUTABLE_JOB_TYPE_FILTER, "scheduled_time", boostInterval))
+            .setParameter(1, limit)
+            .setParameter(3, nodeId);
     if (boostInterval > 0) {
-      query.setParameter(2, boostInterval);
+      updateQuery.setParameter(2, boostInterval);
     }
 
-    @SuppressWarnings("unchecked")
-    List<JobEntity> jobs = query.getResultList();
+    int claimed = updateQuery.executeUpdate();
 
-    if (jobs.isEmpty()) {
+    if (claimed == 0) {
       return List.of();
     }
 
-    Instant now = Instant.now();
-    List<Long> ids = jobs.stream().map(JobEntity::getId).toList();
-    em.createNativeQuery(
-            "UPDATE scheduler_job SET status = 'RUNNING', picked_by = :nodeId, "
-                + "picked_at = statement_timestamp(), updated_at = statement_timestamp() "
-                + "WHERE job_id IN (:ids)")
-        .setParameter("nodeId", nodeId)
-        .setParameter("ids", ids)
-        .executeUpdate();
-
     em.clear();
-    jobs.forEach(
-        job -> {
-          job.setStatus(JobStatus.RUNNING);
-          job.setPickedBy(nodeId);
-          job.setPickedAt(now);
-        });
+    var readQuery =
+        em.createNativeQuery(
+                buildClaimReadBackSql("*", "scheduled_time", boostInterval), JobEntity.class)
+            .setParameter(1, nodeId);
+    if (boostInterval > 0) {
+      readQuery.setParameter(2, boostInterval).setParameter(3, limit);
+    } else {
+      readQuery.setParameter(2, limit);
+    }
+    @SuppressWarnings("unchecked")
+    List<JobEntity> jobs = readQuery.getResultList();
     return jobs;
   }
 
   @Override
   public List<JobClaimDto> claimNextBatchOptimized(int limit, String nodeId) {
     int boostInterval = getPriorityBoostIntervalMinutes();
-    var query =
+    var updateQuery =
         em.createNativeQuery(
-                buildClaimSql(
-                    """
-                    job_id, status, job_type, priority, scheduled_time, version,
-                    timeout_sec, picked_by, picked_at, business_key, attempts, max_retries
-                    """,
-                    EXECUTABLE_JOB_TYPE_FILTER,
-                    "scheduled_time",
-                    boostInterval))
-            .setParameter(1, limit);
+                buildClaimUpdateSql(EXECUTABLE_JOB_TYPE_FILTER, "scheduled_time", boostInterval))
+            .setParameter(1, limit)
+            .setParameter(3, nodeId);
     if (boostInterval > 0) {
-      query.setParameter(2, boostInterval);
+      updateQuery.setParameter(2, boostInterval);
     }
 
-    @SuppressWarnings("unchecked")
-    List<Object[]> rows = query.getResultList();
+    int claimed = updateQuery.executeUpdate();
 
-    if (rows.isEmpty()) {
+    if (claimed == 0) {
       return List.of();
     }
 
-    List<Long> ids = rows.stream().map(row -> ((Number) row[0]).longValue()).toList();
-    em.createNativeQuery(
-            "UPDATE scheduler_job SET status = 'RUNNING', picked_by = :nodeId, "
-                + "picked_at = statement_timestamp(), updated_at = statement_timestamp() "
-                + "WHERE job_id IN (:ids)")
-        .setParameter("nodeId", nodeId)
-        .setParameter("ids", ids)
-        .executeUpdate();
+    String selectColumns =
+        "job_id, status, job_type, priority, scheduled_time, version, "
+            + "timeout_sec, picked_by, picked_at, business_key, attempts, max_retries";
+    var readQuery =
+        em.createNativeQuery(buildClaimReadBackSql(selectColumns, "scheduled_time", boostInterval));
+    readQuery.setParameter(1, nodeId);
+    if (boostInterval > 0) {
+      readQuery.setParameter(2, boostInterval).setParameter(3, limit);
+    } else {
+      readQuery.setParameter(2, limit);
+    }
+    @SuppressWarnings("unchecked")
+    List<Object[]> rows = readQuery.getResultList();
 
-    Instant now = Instant.now();
     List<JobClaimDto> claims = new ArrayList<>(rows.size());
     for (Object[] row : rows) {
       claims.add(
@@ -386,7 +377,7 @@ public class PostgresqlJobStore implements JobStore {
               row[5] == null ? null : ((Number) row[5]).intValue(),
               ((Number) row[6]).intValue(),
               nodeId,
-              now,
+              toInstant(row[8]),
               (String) row[9],
               ((Number) row[10]).intValue(),
               ((Number) row[11]).intValue()));
@@ -397,39 +388,33 @@ public class PostgresqlJobStore implements JobStore {
   @Override
   public List<JobEntity> claimDueRecurring(int limit, String nodeId) {
     int boostInterval = getPriorityBoostIntervalMinutes();
-    var query =
+    var updateQuery =
         em.createNativeQuery(
-                buildClaimSql("*", RECURRING_JOB_TYPE_FILTER, "next_fire", boostInterval),
-                JobEntity.class)
-            .setParameter(1, limit);
+                buildClaimUpdateSql(RECURRING_JOB_TYPE_FILTER, "next_fire", boostInterval))
+            .setParameter(1, limit)
+            .setParameter(3, nodeId);
     if (boostInterval > 0) {
-      query.setParameter(2, boostInterval);
+      updateQuery.setParameter(2, boostInterval);
     }
 
-    @SuppressWarnings("unchecked")
-    List<JobEntity> jobs = query.getResultList();
+    int claimed = updateQuery.executeUpdate();
 
-    if (jobs.isEmpty()) {
+    if (claimed == 0) {
       return List.of();
     }
 
-    Instant now = Instant.now();
-    List<Long> ids = jobs.stream().map(JobEntity::getId).toList();
-    em.createNativeQuery(
-            "UPDATE scheduler_job SET status = 'RUNNING', picked_by = :nodeId, "
-                + "picked_at = statement_timestamp(), updated_at = statement_timestamp() "
-                + "WHERE job_id IN (:ids)")
-        .setParameter("nodeId", nodeId)
-        .setParameter("ids", ids)
-        .executeUpdate();
-
     em.clear();
-    jobs.forEach(
-        job -> {
-          job.setStatus(JobStatus.RUNNING);
-          job.setPickedBy(nodeId);
-          job.setPickedAt(now);
-        });
+    var readQuery =
+        em.createNativeQuery(
+                buildClaimReadBackSql("*", "next_fire", boostInterval), JobEntity.class)
+            .setParameter(1, nodeId);
+    if (boostInterval > 0) {
+      readQuery.setParameter(2, boostInterval).setParameter(3, limit);
+    } else {
+      readQuery.setParameter(2, limit);
+    }
+    @SuppressWarnings("unchecked")
+    List<JobEntity> jobs = readQuery.getResultList();
     return jobs;
   }
 
@@ -1497,24 +1482,48 @@ public class PostgresqlJobStore implements JobStore {
     }
   }
 
-  private static String buildClaimSql(
-      String selectClause, String typeFilter, String timeColumn, int boostInterval) {
-    String orderBy =
-        boostInterval > 0
-            ? "(priority + FLOOR(GREATEST(0, EXTRACT(EPOCH FROM (statement_timestamp() - "
-                + timeColumn
-                + "))) / (60.0 * ?2))) DESC, "
-                + timeColumn
-                + " ASC"
-            : "priority DESC, " + timeColumn + " ASC";
-    return """
-        SELECT %s FROM scheduler_job
-        WHERE status = 'PENDING'
-          AND %s <= statement_timestamp()
-          AND %s
-        ORDER BY %s
-        FOR UPDATE SKIP LOCKED
-        LIMIT ?1"""
-        .formatted(selectClause, timeColumn, typeFilter, orderBy);
+  private static String buildBoostOrderBy(String timeColumn, int boostInterval) {
+    return boostInterval > 0
+        ? "(priority + FLOOR(GREATEST(0, EXTRACT(EPOCH FROM (statement_timestamp() - "
+            + timeColumn
+            + "))) / (60.0 * ?2))) DESC, "
+            + timeColumn
+            + " ASC"
+        : "priority DESC, " + timeColumn + " ASC";
+  }
+
+  private static String buildClaimUpdateSql(
+      String typeFilter, String timeColumn, int boostInterval) {
+    return "UPDATE scheduler_job SET status = 'RUNNING', picked_by = ?3, "
+        + "picked_at = statement_timestamp(), updated_at = statement_timestamp(), "
+        + "version = version + 1 "
+        + "WHERE job_id IN ("
+        + "  SELECT job_id FROM scheduler_job"
+        + "  WHERE status = 'PENDING'"
+        + "    AND "
+        + timeColumn
+        + " <= statement_timestamp()"
+        + "    AND "
+        + typeFilter
+        + "  ORDER BY "
+        + buildBoostOrderBy(timeColumn, boostInterval)
+        + "  FOR UPDATE SKIP LOCKED"
+        + "  LIMIT ?1"
+        + ")";
+  }
+
+  private static String buildClaimReadBackSql(
+      String selectClause, String timeColumn, int boostInterval) {
+    // Parameters: ?1 = nodeId. If boost > 0: ?2 = boostInterval, ?3 = limit. Else: ?2 = limit.
+    String limitParam = boostInterval > 0 ? "?3" : "?2";
+    return "SELECT "
+        + selectClause
+        + " FROM scheduler_job "
+        + "WHERE picked_by = ?1 AND status = 'RUNNING' "
+        + "AND picked_at >= statement_timestamp() - INTERVAL '5 seconds' "
+        + "ORDER BY "
+        + buildBoostOrderBy(timeColumn, boostInterval)
+        + " LIMIT "
+        + limitParam;
   }
 }

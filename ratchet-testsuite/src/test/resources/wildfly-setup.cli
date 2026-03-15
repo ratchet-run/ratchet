@@ -32,7 +32,8 @@ if (outcome != success) of /subsystem=datasources/data-source=RatchetDS:read-res
     --user-name=${ratchet.test.db.username:sa} \
     --password=${ratchet.test.db.password:sa} \
     --enabled=true \
-    --use-java-context=true
+    --use-java-context=true \
+    --transaction-isolation=TRANSACTION_READ_COMMITTED
 end-if
 
 stop-embedded-server

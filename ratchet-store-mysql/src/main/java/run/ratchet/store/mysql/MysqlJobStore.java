@@ -37,6 +37,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 
 /**
@@ -50,12 +51,34 @@ import java.util.stream.Collectors;
 @Transactional
 public class MysqlJobStore implements JobStore {
 
+  private static final Logger log = Logger.getLogger(MysqlJobStore.class.getName());
   private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
   private static final String EXECUTABLE_JOB_TYPE_FILTER =
       "job_type IN ('SINGLE','BATCH_CHILD','CHAIN_STEP','WORKFLOW_BRANCH')";
   private static final String RECURRING_JOB_TYPE_FILTER = "job_type = 'RECURRING'";
 
   @PersistenceContext private EntityManager em;
+
+  /** Checks the connection isolation level on first use and warns if not READ COMMITTED. */
+  @jakarta.annotation.PostConstruct
+  void checkIsolationLevel() {
+    try {
+      Object result =
+          em.createNativeQuery("SELECT @@SESSION.transaction_isolation").getSingleResult();
+      String isolation = result != null ? result.toString() : "unknown";
+      if (!"READ-COMMITTED".equals(isolation)) {
+        log.warning(
+            "MySQL session isolation is '"
+                + isolation
+                + "' — Ratchet requires READ COMMITTED. "
+                + "REPEATABLE READ causes InnoDB gap locks that block concurrent job enqueue "
+                + "during claim queries. Set hibernate.connection.isolation=2 in persistence.xml "
+                + "or transaction-isolation=TRANSACTION_READ_COMMITTED on the datasource.");
+      }
+    } catch (Exception e) {
+      log.fine("Could not check isolation level: " + e.getMessage());
+    }
+  }
 
   // ── JobCrudStore ──────────────────────────────────────────────────────
 
@@ -512,27 +535,20 @@ public class MysqlJobStore implements JobStore {
 
   @Override
   public int incrementRetryAttempt(long id) {
-    // Lock row, read current attempts, then update atomically
-    Object result =
-        em
-            .createNativeQuery(
-                "SELECT attempts FROM scheduler_job WHERE job_id = :id AND status = 'RUNNING' FOR UPDATE")
+    int updated =
+        em.createNativeQuery(
+                "UPDATE scheduler_job SET attempts = attempts + 1, updated_at = NOW(3) "
+                    + "WHERE job_id = :id AND status = 'RUNNING'")
             .setParameter("id", id)
-            .getResultList()
-            .stream()
-            .findFirst()
-            .orElse(null);
-    if (result == null) {
+            .executeUpdate();
+    if (updated == 0) {
       return -1;
     }
-    int newAttempts = ((Number) result).intValue() + 1;
-    em.createNativeQuery(
-            "UPDATE scheduler_job SET attempts = :a, updated_at = NOW(3) "
-                + "WHERE job_id = :id AND status = 'RUNNING'")
-        .setParameter("a", newAttempts)
-        .setParameter("id", id)
-        .executeUpdate();
-    return newAttempts;
+    Object result =
+        em.createNativeQuery("SELECT attempts FROM scheduler_job WHERE job_id = :id")
+            .setParameter("id", id)
+            .getSingleResult();
+    return ((Number) result).intValue();
   }
 
   @Override
