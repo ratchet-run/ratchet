@@ -10,8 +10,6 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
 
 /**
  * Entity representing an active scheduler node in the distributed cluster.
@@ -37,7 +35,6 @@ public class NodeEntity {
 
   @Convert(converter = JsonObjectMapConverter.class)
   @Column(name = "node_info")
-  @JdbcTypeCode(SqlTypes.JSON)
   private Map<String, Object> nodeInfo;
 
   // ── Getters ──────────────────────────────────────────────────────────────

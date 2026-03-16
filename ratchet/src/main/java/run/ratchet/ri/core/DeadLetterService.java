@@ -1,19 +1,29 @@
 package run.ratchet.ri.core;
 
+import com.cronutils.model.Cron;
+import com.cronutils.model.time.ExecutionTime;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.store.entity.DlqAlertEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobStatus;
+import run.ratchet.store.spi.DlqAlertStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.LockStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.HexFormat;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
@@ -41,6 +51,9 @@ public class DeadLetterService {
   /** Distributed lock name used to coordinate DLQ purge operations across cluster nodes. */
   private static final String LOCK_NAME = "dlqPurger";
 
+  /** Rate-limit window for duplicate DLQ alert suppression. */
+  private static final Duration ALERT_DEDUP_WINDOW = Duration.ofHours(1);
+
   /** Provider for scheduled executor services. */
   private final ExecutorProvider executorProvider;
 
@@ -53,6 +66,9 @@ public class DeadLetterService {
   /** Store for distributed lock operations. */
   private final LockStore lockStore;
 
+  /** Store for DLQ alert audit trail and rate-limiting. */
+  private final DlqAlertStore dlqAlertStore;
+
   /** Provider for the unique identifier of this cluster node. */
   private final NodeIdentityProvider nodeIdentityProvider;
 
@@ -62,12 +78,16 @@ public class DeadLetterService {
   /** Retention period for DLQ entries before automatic purging. */
   private Duration purgeAfter;
 
+  private Cron cron;
+  private ZoneId zone;
+
   // Required by CDI proxy
   protected DeadLetterService() {
     this.executorProvider = null;
     this.jobCrudStore = null;
     this.jobBulkStore = null;
     this.lockStore = null;
+    this.dlqAlertStore = null;
     this.nodeIdentityProvider = null;
     this.eventPublisher = null;
   }
@@ -78,12 +98,14 @@ public class DeadLetterService {
       JobCrudStore jobCrudStore,
       JobBulkStore jobBulkStore,
       LockStore lockStore,
+      DlqAlertStore dlqAlertStore,
       NodeIdentityProvider nodeIdentityProvider,
       InternalEventPublisher eventPublisher) {
     this.executorProvider = executorProvider;
     this.jobCrudStore = jobCrudStore;
     this.jobBulkStore = jobBulkStore;
     this.lockStore = lockStore;
+    this.dlqAlertStore = dlqAlertStore;
     this.nodeIdentityProvider = nodeIdentityProvider;
     this.eventPublisher = eventPublisher;
   }
@@ -99,50 +121,102 @@ public class DeadLetterService {
     job.setLastError(cause.toString());
     jobCrudStore.save(job);
 
+    recordDlqAlert(job, cause);
+
     log.warning("Job " + job.getId() + " moved to DLQ");
   }
 
   /**
-   * Initializes the DeadLetterService by calculating the retention period and scheduling the purge
-   * operation to run daily at 2 AM.
+   * Records a DLQ alert for audit trail and duplicate suppression.
    *
-   * @param purgeDays number of days to retain DLQ entries
+   * <p>Uses an error hash to deduplicate alerts — if the same job+error combination has already
+   * been recorded within the dedup window, the alert is suppressed. This prevents notification
+   * storms when the same error occurs repeatedly.
    */
-  public void init(long purgeDays) {
-    purgeAfter = Duration.ofDays(purgeDays);
+  private void recordDlqAlert(JobEntity job, Throwable cause) {
+    try {
+      String errorHash = hashError(cause);
+      Instant cutoff = Instant.now().minus(ALERT_DEDUP_WINDOW);
 
-    long first = computeDelayTo2am();
-    executorProvider
-        .getScheduledExecutor()
-        .scheduleAtFixedRate(this::purge, first, TimeUnit.DAYS.toMillis(1), TimeUnit.MILLISECONDS);
-    log.info("DeadLetterService scheduled purge every 24h (retention=" + purgeDays + " days)");
+      if (dlqAlertStore.existsRecentDlqAlert(job.getId(), errorHash, cutoff)) {
+        log.fine("DLQ alert suppressed for job " + job.getId() + " (duplicate within window)");
+        return;
+      }
+
+      DlqAlertEntity alert = new DlqAlertEntity();
+      alert.setJobId(job.getId());
+      alert.setErrorHash(errorHash);
+      alert.setAlertSentAt(Instant.now());
+      alert.setAlertChannel("system");
+      dlqAlertStore.saveDlqAlert(alert);
+    } catch (Exception e) {
+      log.log(Level.WARNING, "Failed to record DLQ alert for job " + job.getId(), e);
+    }
   }
 
-  /** Removes old entries from the Dead Letter Queue. */
-  void purge() {
-    if (!lockStore.tryLock(LOCK_NAME, Duration.ofMinutes(10), nodeIdentityProvider.getNodeId())) {
-      log.fine("DLQ purge skipped - lock held by another node");
-      return;
-    }
-
-    Instant cutoff = Instant.now().minus(purgeAfter);
-    int deleted = jobBulkStore.deleteDlqOlderThan(cutoff);
-    if (deleted > 0) {
-      log.info("Purged " + deleted + " DLQ rows older than " + cutoff);
+  private String hashError(Throwable cause) {
+    try {
+      MessageDigest md = MessageDigest.getInstance("SHA-256");
+      byte[] hash = md.digest(cause.toString().getBytes(StandardCharsets.UTF_8));
+      return HexFormat.of().formatHex(hash, 0, 8);
+    } catch (Exception e) {
+      return cause.getClass().getSimpleName();
     }
   }
 
   /**
-   * Computes the delay in milliseconds from the current time until the next occurrence of 2:00 AM.
+   * Initializes the DeadLetterService with cron-based purge scheduling.
    *
-   * @return the delay in milliseconds until the next 2:00 AM
+   * @param purgeDays number of days to retain DLQ entries
+   * @param cronExpression cron expression for scheduling (Quartz format)
    */
-  private long computeDelayTo2am() {
-    var now = ZonedDateTime.now();
-    var next = now.withHour(2).withMinute(0).withSecond(0).withNano(0);
-    if (!next.isAfter(now)) {
-      next = next.plusDays(1);
+  public void init(long purgeDays, Cron cronExpression) {
+    this.purgeAfter = Duration.ofDays(purgeDays);
+    this.cron = cronExpression;
+    this.zone = ZoneId.systemDefault();
+
+    scheduleNext();
+
+    log.info("DeadLetterService scheduled DLQ purge (retention=" + purgeDays + " days)");
+  }
+
+  /** Purges old DLQ entries and schedules the next run. */
+  void run() {
+    try {
+      purge();
+    } finally {
+      scheduleNext();
     }
-    return Duration.between(now, next).toMillis();
+  }
+
+  /** Removes old entries from the Dead Letter Queue. */
+  void purge() {
+    try {
+      if (!lockStore.tryLock(LOCK_NAME, Duration.ofMinutes(10), nodeIdentityProvider.getNodeId())) {
+        log.fine("DLQ purge skipped - lock held by another node");
+        return;
+      }
+
+      Instant cutoff = Instant.now().minus(purgeAfter);
+      int deleted = jobBulkStore.deleteDlqOlderThan(cutoff);
+      if (deleted > 0) {
+        log.info("Purged " + deleted + " DLQ rows older than " + cutoff);
+      }
+    } catch (Exception e) {
+      log.log(Level.SEVERE, "DLQ purge failed", e);
+    }
+  }
+
+  private void scheduleNext() {
+    Instant now = Instant.now();
+    Optional<Instant> next =
+        ExecutionTime.forCron(cron).nextExecution(now.atZone(zone)).map(ZonedDateTime::toInstant);
+
+    next.ifPresent(
+        instant ->
+            executorProvider
+                .getScheduledExecutor()
+                .schedule(
+                    this::run, Duration.between(now, instant).toMillis(), TimeUnit.MILLISECONDS));
   }
 }

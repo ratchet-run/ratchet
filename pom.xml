@@ -21,6 +21,7 @@
     <module>ratchet-store-mongodb</module>
     <module>ratchet-tck</module>
     <module>ratchet-testsuite</module>
+    <module>ratchet-micrometer</module>
     <module>ratchet-bom</module>
     <module>ratchet-coverage</module>
   </modules>
@@ -34,10 +35,6 @@
 
     <!-- Dependency versions -->
     <jakarta.ee.version>10.0.0</jakarta.ee.version>
-    <jakarta.cdi.version>4.0.1</jakarta.cdi.version>
-    <jakarta.annotation.version>2.1.1</jakarta.annotation.version>
-    <jakarta.transaction.version>2.0.1</jakarta.transaction.version>
-    <jakarta.concurrent.version>3.0.3</jakarta.concurrent.version>
     <junit.version>5.11.4</junit.version>
     <asm.version>9.7.1</asm.version>
     <jackson.version>2.18.2</jackson.version>
@@ -53,6 +50,7 @@
     <spotless-maven-plugin.version>2.44.4</spotless-maven-plugin.version>
     <google-java-format.version>1.25.2</google-java-format.version>
     <testcontainers.version>2.0.3</testcontainers.version>
+    <micrometer.version>1.14.4</micrometer.version>
     <mockito.version>5.14.2</mockito.version>
     <awaitility.version>4.2.2</awaitility.version>
     <shrinkwrap-resolver.version>3.3.1</shrinkwrap-resolver.version>
@@ -68,37 +66,11 @@
 
   <dependencyManagement>
     <dependencies>
-      <!-- Jakarta EE APIs -->
+      <!-- Jakarta EE 10 Web Profile API — all Web Profile specs in one dependency -->
       <dependency>
-        <groupId>jakarta.enterprise</groupId>
-        <artifactId>jakarta.enterprise.cdi-api</artifactId>
-        <version>${jakarta.cdi.version}</version>
-        <scope>provided</scope>
-      </dependency>
-      <dependency>
-        <groupId>jakarta.annotation</groupId>
-        <artifactId>jakarta.annotation-api</artifactId>
-        <version>${jakarta.annotation.version}</version>
-        <scope>provided</scope>
-      </dependency>
-      <dependency>
-        <groupId>jakarta.transaction</groupId>
-        <artifactId>jakarta.transaction-api</artifactId>
-        <version>${jakarta.transaction.version}</version>
-        <scope>provided</scope>
-      </dependency>
-      <dependency>
-        <groupId>jakarta.enterprise.concurrent</groupId>
-        <artifactId>jakarta.enterprise.concurrent-api</artifactId>
-        <version>${jakarta.concurrent.version}</version>
-        <scope>provided</scope>
-      </dependency>
-
-      <!-- Jakarta Persistence API -->
-      <dependency>
-        <groupId>jakarta.persistence</groupId>
-        <artifactId>jakarta.persistence-api</artifactId>
-        <version>3.1.0</version>
+        <groupId>jakarta.platform</groupId>
+        <artifactId>jakarta.jakartaee-web-api</artifactId>
+        <version>${jakarta.ee.version}</version>
         <scope>provided</scope>
       </dependency>
 

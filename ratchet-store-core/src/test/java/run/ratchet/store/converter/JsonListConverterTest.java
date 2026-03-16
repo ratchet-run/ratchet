@@ -19,7 +19,10 @@ class JsonListConverterTest {
 
     assertEquals(3, restored.size());
     assertEquals("alpha", restored.get(0));
-    assertEquals(42, restored.get(1));
+    assertEquals(
+        0,
+        new java.math.BigDecimal("42")
+            .compareTo(new java.math.BigDecimal(restored.get(1).toString())));
     assertEquals(true, restored.get(2));
   }
 

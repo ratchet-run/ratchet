@@ -1,0 +1,123 @@
+package run.ratchet.ri.core;
+
+import com.cronutils.model.Cron;
+import com.cronutils.model.time.ExecutionTime;
+import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.store.spi.JobLogStore;
+import run.ratchet.store.spi.LockStore;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.util.Optional;
+import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+/**
+ * Periodically purges old job execution logs to prevent unbounded table growth.
+ *
+ * <p>Schedule is configurable via the {@code LOG_PURGER_CRON} environment variable (Quartz format,
+ * default: {@code 0 30 2 * * ?}). Uses a distributed lock to ensure only one node in the cluster
+ * executes the purge.
+ *
+ * @see JobLogStore#purgeLogsOlderThan(Instant)
+ */
+@ApplicationScoped
+public class LogPurgeTimer {
+
+  private static final Logger log = Logger.getLogger(LogPurgeTimer.class.getName());
+  private static final String LOCK_NAME = "logPurger";
+
+  private final JobLogStore jobLogStore;
+  private final LockStore lockStore;
+  private final NodeIdentityProvider nodeIdentityProvider;
+  private final ExecutorProvider executorProvider;
+
+  private Duration retentionPeriod;
+  private Cron cron;
+  private ZoneId zone;
+
+  // Required by CDI proxy
+  protected LogPurgeTimer() {
+    this.jobLogStore = null;
+    this.lockStore = null;
+    this.nodeIdentityProvider = null;
+    this.executorProvider = null;
+  }
+
+  @Inject
+  public LogPurgeTimer(
+      JobLogStore jobLogStore,
+      LockStore lockStore,
+      NodeIdentityProvider nodeIdentityProvider,
+      ExecutorProvider executorProvider) {
+    this.jobLogStore = jobLogStore;
+    this.lockStore = lockStore;
+    this.nodeIdentityProvider = nodeIdentityProvider;
+    this.executorProvider = executorProvider;
+  }
+
+  /**
+   * Initializes the log purge timer with cron-based scheduling.
+   *
+   * @param retentionDays number of days to retain logs before purging
+   * @param cronExpression cron expression for scheduling (Quartz format)
+   */
+  public void init(long retentionDays, Cron cronExpression) {
+    this.retentionPeriod = Duration.ofDays(retentionDays);
+    this.cron = cronExpression;
+    this.zone = ZoneId.systemDefault();
+
+    scheduleNext();
+
+    log.info("Log purge timer scheduled (retention=" + retentionDays + " days)");
+  }
+
+  /** Stops the log purge timer. */
+  public void stop() {
+    // Cron-based scheduling uses one-shot delays; nothing to cancel between runs
+  }
+
+  /** Purges old log entries and schedules the next run. */
+  void run() {
+    try {
+      purge();
+    } finally {
+      scheduleNext();
+    }
+  }
+
+  private void purge() {
+    try {
+      if (!lockStore.tryLock(LOCK_NAME, Duration.ofMinutes(10), nodeIdentityProvider.getNodeId())) {
+        log.fine("Log purge skipped - lock held by another node");
+        return;
+      }
+
+      Instant cutoff = Instant.now().minus(retentionPeriod);
+      int deleted = jobLogStore.purgeLogsOlderThan(cutoff);
+      if (deleted > 0) {
+        log.info("Purged " + deleted + " log rows older than " + cutoff);
+      }
+    } catch (Exception e) {
+      log.log(Level.SEVERE, "Log purge failed", e);
+    }
+  }
+
+  private void scheduleNext() {
+    Instant now = Instant.now();
+    Optional<Instant> next =
+        ExecutionTime.forCron(cron).nextExecution(now.atZone(zone)).map(ZonedDateTime::toInstant);
+
+    next.ifPresent(
+        instant ->
+            executorProvider
+                .getScheduledExecutor()
+                .schedule(
+                    this::run, Duration.between(now, instant).toMillis(), TimeUnit.MILLISECONDS));
+  }
+}

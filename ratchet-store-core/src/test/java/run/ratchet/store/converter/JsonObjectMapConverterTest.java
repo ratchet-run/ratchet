@@ -18,7 +18,10 @@ class JsonObjectMapConverterTest {
     Map<String, Object> restored = converter.convertToEntityAttribute(json);
 
     assertEquals("Alice", restored.get("name"));
-    assertEquals(30, restored.get("age"));
+    assertEquals(
+        0,
+        new java.math.BigDecimal("30")
+            .compareTo(new java.math.BigDecimal(restored.get("age").toString())));
     assertEquals(true, restored.get("active"));
   }
 

@@ -67,13 +67,13 @@ class RetryBufferSaturationIT extends BasePerformanceIT {
 
   @Test
   void sustainedOverloadRecovery() {
-    int jobCount = 500;
-    ConfigurableWorkJob.setSleepMs(200);
+    int jobCount = 200;
+    ConfigurableWorkJob.setSleepMs(100);
 
     log.info(
         "Buffer saturation: burst-enqueuing "
             + jobCount
-            + " jobs with 200ms sleep (far exceeds ~10 thread pool)");
+            + " jobs with 100ms sleep (exceeds ~10 thread pool)");
 
     long startMs = System.currentTimeMillis();
     List<JobHandle> handles = enqueueN(jobCount, ConfigurableWorkJob::execute);

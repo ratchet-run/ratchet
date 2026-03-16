@@ -8,7 +8,7 @@ CREATE TABLE scheduler_node
     node_id VARCHAR(64) NOT NULL,
     heartbeat_ts TIMESTAMPTZ(6) NOT NULL,
     started_at TIMESTAMPTZ(6) NOT NULL,
-    node_info JSONB,
+    node_info TEXT,
     CONSTRAINT pk_scheduler_node PRIMARY KEY (node_id)
 );
 
@@ -55,10 +55,10 @@ CREATE TABLE scheduler_job
     cron_expr             VARCHAR(64) NOT NULL DEFAULT '',
     zone_id               VARCHAR(32) NOT NULL DEFAULT 'UTC',
     next_fire TIMESTAMPTZ(6),
-    payload JSONB NOT NULL,
-    params JSONB,
-    target_class          TEXT GENERATED ALWAYS AS (payload ->> 'target') STORED,
-    method_name           TEXT GENERATED ALWAYS AS (payload ->> 'method') STORED,
+    payload TEXT NOT NULL,
+    params TEXT,
+    target_class          TEXT GENERATED ALWAYS AS (payload::jsonb ->> 'target') STORED,
+    method_name           TEXT GENERATED ALWAYS AS (payload::jsonb ->> 'method') STORED,
     idempotency_key       VARCHAR(36) NOT NULL,
     business_key          TEXT,
     resource_name         VARCHAR(100),
@@ -74,7 +74,7 @@ CREATE TABLE scheduler_job
     execution_end_time TIMESTAMPTZ(6),
     execution_duration_ms BIGINT,
     queue_wait_ms         BIGINT,
-    job_result JSONB,
+    job_result TEXT,
     result_type           VARCHAR(100),
     version               INT         NOT NULL DEFAULT 0,
     CONSTRAINT pk_scheduler_job PRIMARY KEY (job_id),
@@ -127,7 +127,7 @@ CREATE TABLE scheduler_batch
     failed_items         INT     NOT NULL DEFAULT 0,
     completion_processed BOOLEAN NOT NULL DEFAULT FALSE,
     version              INT     NOT NULL DEFAULT 0,
-    progress_hook JSONB,
+    progress_hook TEXT,
     CONSTRAINT pk_scheduler_batch PRIMARY KEY (batch_id),
     CONSTRAINT fk_batch_job FOREIGN KEY (batch_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
 );
@@ -179,7 +179,7 @@ CREATE TABLE scheduler_job_log
     ts TIMESTAMPTZ(6) NOT NULL,
     level   VARCHAR(8) NOT NULL,
     message TEXT       NOT NULL,
-    mdc JSONB,
+    mdc TEXT,
     CONSTRAINT pk_scheduler_job_log PRIMARY KEY (log_id),
     CONSTRAINT fk_log_job FOREIGN KEY (job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE,
     CONSTRAINT chk_log_level CHECK (level IN ('TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR'))
@@ -215,7 +215,7 @@ CREATE TABLE scheduler_job_archive
     archived_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     archived_by             VARCHAR(64),
     archive_reason          VARCHAR(128),
-    job_result JSONB,
+    job_result TEXT,
     result_type             VARCHAR(100),
     final_error             TEXT,
     payload_summary         TEXT,

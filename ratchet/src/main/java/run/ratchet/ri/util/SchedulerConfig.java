@@ -50,13 +50,19 @@ public final class SchedulerConfig {
   // Data Retention and Archiving Configuration
   // ============================================================================
 
+  public static final String DLQ_PURGE_CRON =
+      getEnvOrDefault("SCHEDULER_DLQ_PURGE_CRON", "0 0 2 * * ?");
+
   public static final String DLQ_PURGE_DAYS = getEnvOrDefault("DLQ_PURGE_DAYS", "90");
+
+  public static final String DLQ_PURGE_ENABLED =
+      getEnvOrDefault("SCHEDULER_DLQ_PURGE_ENABLED", "true");
 
   public static final String DYNAMIC_HEARTBEAT_ENABLED =
       getEnvOrDefault("SCHEDULER_DYNAMIC_HEARTBEAT_ENABLED", "true");
 
   public static final String JOB_ARCHIVER_CRON =
-      getEnvOrDefault("SCHEDULER_JOB_ARCHIVER_CRON", "0 1 * * *");
+      getEnvOrDefault("SCHEDULER_JOB_ARCHIVER_CRON", "0 0 1 * * ?");
 
   public static final String JOB_ARCHIVE_BATCH_SIZE =
       getEnvOrDefault("SCHEDULER_JOB_ARCHIVE_BATCH_SIZE", "1000");
@@ -67,7 +73,10 @@ public final class SchedulerConfig {
   public static final String JOB_RETENTION_DAYS =
       getEnvOrDefault("SCHEDULER_JOB_RETENTION_DAYS", "90");
 
-  public static final String LOG_PURGER_CRON = getEnvOrDefault("LOG_PURGER_CRON", "30 2 * * *");
+  public static final String LOG_PURGE_ENABLED =
+      getEnvOrDefault("SCHEDULER_LOG_PURGE_ENABLED", "true");
+
+  public static final String LOG_PURGER_CRON = getEnvOrDefault("LOG_PURGER_CRON", "0 30 2 * * ?");
 
   public static final String LOG_RETENTION_DAYS = getEnvOrDefault("LOG_RETENTION_DAYS", "30");
 
@@ -85,6 +94,9 @@ public final class SchedulerConfig {
 
   public static final String NODE_ORPHAN_GRACE_SECONDS =
       getEnvOrDefault("NODE_ORPHAN_GRACE_SECONDS", "60");
+
+  public static final String ORPHAN_SCAN_INTERVAL_MINUTES =
+      getEnvOrDefault("SCHEDULER_ORPHAN_SCAN_INTERVAL_MINUTES", "5");
 
   // ============================================================================
   // Priority Boosting Configuration
@@ -209,8 +221,16 @@ public final class SchedulerConfig {
 
   /* ─────────────────────── accessor methods ─────────────────────── */
 
+  public static String getDlqPurgeCron() {
+    return DLQ_PURGE_CRON != null && !DLQ_PURGE_CRON.isEmpty() ? DLQ_PURGE_CRON : "0 0 2 * * ?";
+  }
+
   public static Long getDlqPurgeDays() {
     return getEnvOrDefaultLong(DLQ_PURGE_DAYS, 90L);
+  }
+
+  public static boolean isDlqPurgeEnabled() {
+    return Boolean.parseBoolean(DLQ_PURGE_ENABLED);
   }
 
   public static Integer getIdempotencyRetryInitialDelayMs() {
@@ -232,11 +252,19 @@ public final class SchedulerConfig {
   public static String getJobArchiverCron() {
     return JOB_ARCHIVER_CRON != null && !JOB_ARCHIVER_CRON.isEmpty()
         ? JOB_ARCHIVER_CRON
-        : "0 1 * * *";
+        : "0 0 1 * * ?";
   }
 
   public static Long getJobRetentionDays() {
     return getEnvOrDefaultLong(JOB_RETENTION_DAYS, 90L);
+  }
+
+  public static boolean isLogPurgeEnabled() {
+    return Boolean.parseBoolean(LOG_PURGE_ENABLED);
+  }
+
+  public static String getLogPurgeCron() {
+    return LOG_PURGER_CRON != null && !LOG_PURGER_CRON.isEmpty() ? LOG_PURGER_CRON : "0 30 2 * * ?";
   }
 
   public static Long getLogRetentionDays() {
@@ -257,6 +285,10 @@ public final class SchedulerConfig {
 
   public static Long getNodeOrphanGraceSeconds() {
     return getEnvOrDefaultLong(NODE_ORPHAN_GRACE_SECONDS, 60L);
+  }
+
+  public static Long getOrphanScanIntervalMinutes() {
+    return getEnvOrDefaultLong(ORPHAN_SCAN_INTERVAL_MINUTES, 5L);
   }
 
   public static Integer getPriorityBoostIntervalMinutes() {

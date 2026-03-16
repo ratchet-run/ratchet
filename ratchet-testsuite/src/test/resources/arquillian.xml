@@ -15,7 +15,7 @@
       <property name="jbossHome">${project.build.directory}/wildfly-${wildfly.version}</property>
       <property name="serverConfig">standalone.xml</property>
       <property name="javaVmArguments">
-        -Xms256m -Xmx512m
+        -Xms512m -Xmx1024m
         -Djboss.socket.binding.port-offset=20000
         ${jacoco.it.argLine}
         -Dratchet.test.db.url=${ratchet.test.db.url}

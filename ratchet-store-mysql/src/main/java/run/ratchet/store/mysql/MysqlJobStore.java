@@ -993,6 +993,12 @@ public class MysqlJobStore implements JobStore {
         .executeUpdate();
   }
 
+  @Override
+  public Instant getDatabaseTime() {
+    Timestamp ts = (Timestamp) em.createNativeQuery("SELECT NOW(3)").getSingleResult();
+    return ts.toInstant();
+  }
+
   // ── ArchiveStore ──────────────────────────────────────────────────────
 
   @Override

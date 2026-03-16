@@ -233,7 +233,23 @@ public class JobTask implements Callable<Void> {
         handleSuccess(start, jobResult);
       }
     } catch (Throwable t) {
-      handleFailure(t);
+      try {
+        handleFailure(t);
+      } catch (Throwable failureHandlingError) {
+        log.log(
+            Level.SEVERE,
+            "Job " + job.getId() + " failure handling itself failed, forcing FAILED status",
+            failureHandlingError);
+        try {
+          jobStore.compareAndSwapStatus(
+              job.getId(), JobStatus.RUNNING, JobStatus.FAILED, t.toString());
+        } catch (Throwable lastResort) {
+          log.log(
+              Level.SEVERE,
+              "Job " + job.getId() + " could not be transitioned to FAILED — will require orphan recovery",
+              lastResort);
+        }
+      }
     } finally {
       if (permitAcquired) {
         releaseResourcePermit();

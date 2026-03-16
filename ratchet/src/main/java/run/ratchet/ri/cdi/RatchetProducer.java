@@ -7,10 +7,12 @@ import run.ratchet.ri.core.ExecutionObserver;
 import run.ratchet.ri.core.InternalEventPublisher;
 import run.ratchet.ri.core.JobExecutionCoordinator;
 import run.ratchet.ri.core.JobTimeoutHandler;
+import run.ratchet.ri.core.OrphanRecoveryTimer;
 import run.ratchet.ri.core.Poller;
 import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.ri.core.PostExecutionHandler;
 import run.ratchet.ri.core.PreExecutionValidator;
+import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.ri.core.ThreadPoolManager;
 import run.ratchet.ri.resilience.CircuitBreakerRegistry;
 import run.ratchet.ri.resilience.DefaultResilienceStrategy;
@@ -24,6 +26,7 @@ import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.ResilienceStrategy;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.ExecutionStore;
+import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobClaimStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobStatusStore;
@@ -126,7 +129,8 @@ public class RatchetProducer {
 
   @Produces
   @ApplicationScoped
-  public NodeIdentityProvider nodeIdentityProvider(DynamicHeartbeatCalculator heartbeatCalculator) {
+  public NodeIdentityProvider nodeIdentityProvider(
+      DynamicHeartbeatCalculator heartbeatCalculator, JobBulkStore jobBulkStore) {
     long heartbeatIntervalSeconds = SchedulerConfig.getNodeHeartbeatIntervalSeconds();
     long orphanGraceSeconds = SchedulerConfig.getNodeOrphanGraceSeconds();
     boolean dynamicHeartbeatEnabled = SchedulerConfig.isDynamicHeartbeatEnabled();
@@ -134,6 +138,7 @@ public class RatchetProducer {
     DefaultNodeIdentityProvider provider =
         new DefaultNodeIdentityProvider(
             nodeStore,
+            jobBulkStore,
             heartbeatCalculator,
             executorProvider,
             heartbeatIntervalSeconds,
@@ -184,6 +189,15 @@ public class RatchetProducer {
         drainController,
         pollerScheduler,
         batchSize);
+  }
+
+  @Produces
+  @ApplicationScoped
+  public OrphanRecoveryTimer orphanRecoveryTimer(
+      JobBulkStore jobBulkStore, ResourcePermitService resourcePermitService) {
+    long orphanGraceSeconds = SchedulerConfig.getNodeOrphanGraceSeconds();
+    return new OrphanRecoveryTimer(
+        jobBulkStore, nodeStore, resourcePermitService, orphanGraceSeconds);
   }
 
   /**

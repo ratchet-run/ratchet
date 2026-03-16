@@ -19,4 +19,7 @@ public interface NodeStore {
 
   /** Deletes node registrations whose heartbeat is older than the supplied cutoff. */
   int deleteInactiveNodesSince(Instant cutoff);
+
+  /** Returns the current database server time for clock skew detection. */
+  Instant getDatabaseTime();
 }

@@ -14,8 +14,6 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
 
 /**
  * Entity representing an immutable log entry for job execution events and diagnostics.
@@ -51,7 +49,6 @@ public class JobLogEntity implements TsidEntityListener.TsidAssignable {
   private String message;
 
   @Convert(converter = JsonObjectMapConverter.class)
-  @JdbcTypeCode(SqlTypes.JSON)
   private Map<String, Object> mdc;
 
   // ── Getters ──────────────────────────────────────────────────────────────

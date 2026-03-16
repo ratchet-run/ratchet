@@ -15,8 +15,6 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.Objects;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
 
 /**
  * Represents an archived job entity for completed, failed, or canceled jobs.
@@ -123,7 +121,6 @@ public class ArchivedJobEntity implements TsidEntityListener.TsidAssignable {
   private String archiveReason;
 
   @Column(name = "job_result")
-  @JdbcTypeCode(SqlTypes.JSON)
   private String jobResult;
 
   @Column(name = "result_type", length = 100)

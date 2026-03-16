@@ -1,8 +1,8 @@
 package run.ratchet.store.converter;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.json.bind.Jsonb;
+import jakarta.json.bind.JsonbBuilder;
+import jakarta.json.bind.JsonbException;
 import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Converter;
 import java.util.List;
@@ -14,8 +14,7 @@ import java.util.List;
 @Converter
 public class JsonListConverter implements AttributeConverter<List<Object>, String> {
 
-  private static final ObjectMapper MAPPER = new ObjectMapper();
-  private static final TypeReference<List<Object>> TYPE_REF = new TypeReference<>() {};
+  private static final Jsonb JSONB = JsonbBuilder.create();
 
   @Override
   public String convertToDatabaseColumn(List<Object> attribute) {
@@ -23,20 +22,21 @@ public class JsonListConverter implements AttributeConverter<List<Object>, Strin
       return null;
     }
     try {
-      return MAPPER.writeValueAsString(attribute);
-    } catch (JsonProcessingException e) {
+      return JSONB.toJson(attribute);
+    } catch (JsonbException e) {
       throw new IllegalArgumentException("Failed to serialize List<Object> to JSON", e);
     }
   }
 
+  @SuppressWarnings("unchecked")
   @Override
   public List<Object> convertToEntityAttribute(String dbData) {
     if (dbData == null || dbData.isEmpty()) {
       return null;
     }
     try {
-      return MAPPER.readValue(dbData, TYPE_REF);
-    } catch (JsonProcessingException e) {
+      return (List<Object>) JSONB.fromJson(dbData, List.class);
+    } catch (JsonbException e) {
       throw new IllegalArgumentException("Failed to deserialize List<Object> from JSON", e);
     }
   }

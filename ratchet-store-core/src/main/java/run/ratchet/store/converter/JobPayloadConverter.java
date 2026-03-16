@@ -1,8 +1,9 @@
 package run.ratchet.store.converter;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import run.ratchet.store.entity.JobPayload;
+import jakarta.json.bind.Jsonb;
+import jakarta.json.bind.JsonbBuilder;
+import jakarta.json.bind.JsonbException;
 import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Converter;
 
@@ -13,7 +14,7 @@ import jakarta.persistence.Converter;
 @Converter
 public class JobPayloadConverter implements AttributeConverter<JobPayload, String> {
 
-  private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final Jsonb JSONB = JsonbBuilder.create();
 
   @Override
   public String convertToDatabaseColumn(JobPayload attribute) {
@@ -21,8 +22,8 @@ public class JobPayloadConverter implements AttributeConverter<JobPayload, Strin
       return null;
     }
     try {
-      return MAPPER.writeValueAsString(attribute);
-    } catch (JsonProcessingException e) {
+      return JSONB.toJson(attribute);
+    } catch (JsonbException e) {
       throw new IllegalArgumentException("Failed to serialize JobPayload to JSON", e);
     }
   }
@@ -33,8 +34,8 @@ public class JobPayloadConverter implements AttributeConverter<JobPayload, Strin
       return null;
     }
     try {
-      return MAPPER.readValue(dbData, JobPayload.class);
-    } catch (JsonProcessingException e) {
+      return JSONB.fromJson(dbData, JobPayload.class);
+    } catch (JsonbException e) {
       throw new IllegalArgumentException("Failed to deserialize JobPayload from JSON", e);
     }
   }

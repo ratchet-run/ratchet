@@ -491,7 +491,7 @@ public class PostgresqlJobStore implements JobStore {
     int updated =
         em.createNativeQuery(
                 "UPDATE scheduler_job SET status = 'SUCCEEDED', "
-                    + "job_result = ?::jsonb, result_type = ?, "
+                    + "job_result = ?, result_type = ?, "
                     + "execution_start_time = ?, execution_end_time = ?, "
                     + "execution_duration_ms = ?, queue_wait_ms = ?, "
                     + "last_error = NULL, updated_at = statement_timestamp() "
@@ -638,7 +638,7 @@ public class PostgresqlJobStore implements JobStore {
               + "updated_at, execution_start_time, execution_end_time, execution_duration_ms, "
               + "queue_wait_ms, job_result, result_type, version) "
               + "OVERRIDING SYSTEM VALUE "
-              + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?::jsonb,?::jsonb,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?::jsonb,?,0)";
+              + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)";
       try (PreparedStatement ps = conn.prepareStatement(sql)) {
         for (JobEntity job : jobs) {
           Instant now = Instant.now();
@@ -928,6 +928,13 @@ public class PostgresqlJobStore implements JobStore {
     return em.createNativeQuery("DELETE FROM scheduler_node WHERE heartbeat_ts < ?")
         .setParameter(1, Timestamp.from(cutoff))
         .executeUpdate();
+  }
+
+  @Override
+  public Instant getDatabaseTime() {
+    Timestamp ts =
+        (Timestamp) em.createNativeQuery("SELECT statement_timestamp()").getSingleResult();
+    return ts.toInstant();
   }
 
   // ──────────────────────────────────────────────

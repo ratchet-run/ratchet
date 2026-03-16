@@ -26,8 +26,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
 
 /**
  * Core entity representing a unit of work in the distributed job scheduler.
@@ -120,11 +118,9 @@ public class JobEntity implements TsidEntityListener.TsidAssignable {
 
   @Convert(converter = JobPayloadConverter.class)
   @Column(nullable = false)
-  @JdbcTypeCode(SqlTypes.JSON)
   private JobPayload payload;
 
   @Convert(converter = JsonMapConverter.class)
-  @JdbcTypeCode(SqlTypes.JSON)
   private Map<String, String> params;
 
   @Column(name = "target_class", insertable = false, updatable = false)
@@ -184,7 +180,6 @@ public class JobEntity implements TsidEntityListener.TsidAssignable {
   private Long queueWaitMs;
 
   @Column(name = "job_result")
-  @JdbcTypeCode(SqlTypes.JSON)
   private String jobResult;
 
   @Column(name = "result_type", length = 100)

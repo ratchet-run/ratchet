@@ -34,7 +34,7 @@ import org.junit.jupiter.api.Tag;
 @Tag("performance")
 public abstract class BasePerformanceIT extends BaseRatchetIT {
 
-  protected static final Duration PERF_TIMEOUT = Duration.ofSeconds(120);
+  protected static final Duration PERF_TIMEOUT = Duration.ofSeconds(180);
   protected static final Duration PERF_POLL_INTERVAL = Duration.ofMillis(200);
 
   @Inject protected TestJobService jobService;

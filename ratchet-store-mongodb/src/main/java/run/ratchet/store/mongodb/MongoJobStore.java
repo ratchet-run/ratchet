@@ -1034,6 +1034,13 @@ public class MongoJobStore implements JobStore {
     return (int) result.getDeletedCount();
   }
 
+  @Override
+  public Instant getDatabaseTime() {
+    Document result = database.runCommand(new Document("serverStatus", 1).append("localTime", 1));
+    Date localTime = result.getDate("localTime");
+    return localTime != null ? localTime.toInstant() : Instant.now();
+  }
+
   // ──────────────────────────────────────────────
   // ArchiveStore
   // ──────────────────────────────────────────────

@@ -2,9 +2,11 @@ package run.ratchet.ri.core;
 
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.NodeStore;
 import java.lang.management.ManagementFactory;
 import java.net.InetAddress;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -41,6 +43,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
 
   private final AtomicBoolean initialized = new AtomicBoolean();
   private final NodeStore nodeStore;
+  private final JobBulkStore jobBulkStore;
   private final DynamicHeartbeatCalculator heartbeatCalculator;
   private final ExecutorProvider executorProvider;
   private final long heartbeatIntervalSeconds;
@@ -53,6 +56,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
   // Required by CDI proxy
   protected DefaultNodeIdentityProvider() {
     this.nodeStore = null;
+    this.jobBulkStore = null;
     this.heartbeatCalculator = null;
     this.executorProvider = null;
     this.heartbeatIntervalSeconds = 0;
@@ -64,6 +68,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
    * Creates a new DefaultNodeIdentityProvider.
    *
    * @param nodeStore store for node heartbeat operations
+   * @param jobBulkStore store for bulk job operations including orphan recovery
    * @param heartbeatCalculator calculator for dynamic heartbeat intervals
    * @param executorProvider provides scheduled executor for heartbeat tasks
    * @param heartbeatIntervalSeconds base heartbeat frequency in seconds
@@ -72,12 +77,14 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
    */
   public DefaultNodeIdentityProvider(
       NodeStore nodeStore,
+      JobBulkStore jobBulkStore,
       DynamicHeartbeatCalculator heartbeatCalculator,
       ExecutorProvider executorProvider,
       long heartbeatIntervalSeconds,
       long orphanGraceSeconds,
       boolean dynamicHeartbeatEnabled) {
     this.nodeStore = nodeStore;
+    this.jobBulkStore = jobBulkStore;
     this.heartbeatCalculator = heartbeatCalculator;
     this.executorProvider = executorProvider;
     this.heartbeatIntervalSeconds = heartbeatIntervalSeconds;
@@ -105,9 +112,46 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
     nodeId = resolveNodeId();
     log.info("Scheduler nodeId=" + nodeId);
 
+    checkClockSkew();
+
     nodeStore.upsertHeartbeat(nodeId, Instant.now());
 
+    int reset = jobBulkStore.resetOrphanJobs(Duration.ofSeconds(orphanGraceSeconds));
+    if (reset > 0) {
+      log.info("Reset " + reset + " orphan RUNNING job(s) at startup");
+    }
+
     scheduleNextHeartbeat();
+  }
+
+  /**
+   * Checks for clock skew between the application server and database server.
+   *
+   * <p>Clock skew can cause premature orphan recovery (if app clock is behind) or stale heartbeats
+   * (if app clock is ahead). A warning is logged if skew exceeds 5 seconds.
+   */
+  private void checkClockSkew() {
+    try {
+      Instant dbTime = nodeStore.getDatabaseTime();
+      Instant appTime = Instant.now();
+      long skewSeconds = Math.abs(Duration.between(dbTime, appTime).toSeconds());
+
+      if (skewSeconds > 5) {
+        log.warning(
+            "CLOCK SKEW DETECTED: App server time differs from database by "
+                + skewSeconds
+                + " seconds. App="
+                + appTime
+                + ", DB="
+                + dbTime
+                + ". This may cause job double-execution or orphan recovery issues. "
+                + "Consider synchronizing clocks via NTP.");
+      } else {
+        log.fine("Clock skew check passed: " + skewSeconds + "s difference");
+      }
+    } catch (Exception e) {
+      log.warning("Unable to check clock skew: " + e.getMessage());
+    }
   }
 
   /** Shuts down the heartbeat scheduler. */

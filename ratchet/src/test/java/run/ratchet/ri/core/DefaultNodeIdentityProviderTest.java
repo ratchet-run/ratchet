@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.NodeStore;
 import java.time.Instant;
 import java.util.concurrent.ScheduledExecutorService;
@@ -28,6 +29,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class DefaultNodeIdentityProviderTest {
 
   @Mock private NodeStore nodeStore;
+  @Mock private JobBulkStore jobBulkStore;
   @Mock private DynamicHeartbeatCalculator heartbeatCalculator;
   @Mock private ExecutorProvider executorProvider;
   @Mock private ScheduledExecutorService scheduledExecutor;
@@ -48,9 +50,11 @@ class DefaultNodeIdentityProviderTest {
         .when(scheduledExecutor)
         .schedule(runnableCaptor.capture(), anyLong(), eq(TimeUnit.SECONDS));
 
+    when(nodeStore.getDatabaseTime()).thenReturn(Instant.now());
+
     provider =
         new DefaultNodeIdentityProvider(
-            nodeStore, heartbeatCalculator, executorProvider, 5, 30, false);
+            nodeStore, jobBulkStore, heartbeatCalculator, executorProvider, 5, 30, false);
   }
 
   @AfterEach
