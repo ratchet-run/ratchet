@@ -11,7 +11,7 @@
 --   JDBC URL:          ?sessionVariables=transaction_isolation='READ-COMMITTED'
 
 -- 1. Cluster nodes
-CREATE TABLE scheduler_node
+CREATE TABLE IF NOT EXISTS scheduler_node
 (
     node_id      VARCHAR(64) NOT NULL,
     heartbeat_ts DATETIME(6) NOT NULL,
@@ -24,7 +24,7 @@ CREATE TABLE scheduler_node
   COLLATE = utf8mb4_unicode_ci;
 
 -- 2. Distributed locks
-CREATE TABLE scheduler_lock
+CREATE TABLE IF NOT EXISTS scheduler_lock
 (
     lock_name  VARCHAR(128) NOT NULL,
     owner_node VARCHAR(64)  NOT NULL,
@@ -37,21 +37,21 @@ CREATE TABLE scheduler_lock
   COLLATE = utf8mb4_unicode_ci;
 
 -- 3. Resource concurrency config
-CREATE TABLE scheduler_resource_limit
+CREATE TABLE IF NOT EXISTS scheduler_resource_limit
 (
     resource_name  VARCHAR(100) NOT NULL,
     max_concurrent INT          NOT NULL,
     retry_delay_ms INT          NOT NULL DEFAULT 5000,
     description    VARCHAR(255) NULL,
-    created_at     DATETIME(6)  NOT NULL,
-    updated_at     DATETIME(6)  NOT NULL,
+    created_at     DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at     DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     PRIMARY KEY (resource_name)
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci;
 
 -- 4. Main job table
-CREATE TABLE scheduler_job
+CREATE TABLE IF NOT EXISTS scheduler_job
 (
     job_id                BIGINT UNSIGNED NOT NULL,
     status                ENUM ('PENDING','RUNNING','SUCCEEDED','FAILED','CANCELED','PAUSED')                                                 NOT NULL DEFAULT 'PENDING',
@@ -116,7 +116,7 @@ CREATE TABLE scheduler_job
   COLLATE = utf8mb4_unicode_ci;
 
 -- 5. Job tags (composite PK)
-CREATE TABLE scheduler_job_tag
+CREATE TABLE IF NOT EXISTS scheduler_job_tag
 (
     job_id BIGINT UNSIGNED NOT NULL,
     tag    VARCHAR(64)     NOT NULL,
@@ -127,7 +127,7 @@ CREATE TABLE scheduler_job_tag
   COLLATE = utf8mb4_unicode_ci;
 
 -- 6. Batch progress
-CREATE TABLE scheduler_batch
+CREATE TABLE IF NOT EXISTS scheduler_batch
 (
     batch_id             BIGINT UNSIGNED NOT NULL,
     total_items          INT             NOT NULL DEFAULT 0,
@@ -143,7 +143,7 @@ CREATE TABLE scheduler_batch
   COLLATE = utf8mb4_unicode_ci;
 
 -- 7. Batch performance metrics
-CREATE TABLE scheduler_batch_metrics
+CREATE TABLE IF NOT EXISTS scheduler_batch_metrics
 (
     batch_id           BIGINT UNSIGNED NOT NULL,
     total_duration_ms  BIGINT          NULL,
@@ -162,7 +162,7 @@ CREATE TABLE scheduler_batch_metrics
   COLLATE = utf8mb4_unicode_ci;
 
 -- 8. Execution history
-CREATE TABLE scheduler_job_execution
+CREATE TABLE IF NOT EXISTS scheduler_job_execution
 (
     id            BIGINT UNSIGNED NOT NULL,
     job_id        BIGINT UNSIGNED                                  NOT NULL,
@@ -184,7 +184,7 @@ CREATE TABLE scheduler_job_execution
   COLLATE = utf8mb4_unicode_ci;
 
 -- 9. Per-job logs
-CREATE TABLE scheduler_job_log
+CREATE TABLE IF NOT EXISTS scheduler_job_log
 (
     log_id  BIGINT UNSIGNED NOT NULL,
     job_id  BIGINT UNSIGNED                              NOT NULL,
@@ -201,7 +201,7 @@ CREATE TABLE scheduler_job_log
   COLLATE = utf8mb4_unicode_ci;
 
 -- 10. Archived jobs
-CREATE TABLE scheduler_job_archive
+CREATE TABLE IF NOT EXISTS scheduler_job_archive
 (
     archive_id              BIGINT UNSIGNED NOT NULL,
     original_job_id         BIGINT UNSIGNED                                                                                                     NOT NULL,
@@ -250,7 +250,7 @@ CREATE TABLE scheduler_job_archive
   COLLATE = utf8mb4_unicode_ci;
 
 -- 11. Workflow conditions
-CREATE TABLE scheduler_workflow_condition
+CREATE TABLE IF NOT EXISTS scheduler_workflow_condition
 (
     id                   BIGINT UNSIGNED NOT NULL,
     parent_job_id        BIGINT UNSIGNED NOT NULL,
@@ -274,7 +274,7 @@ CREATE TABLE scheduler_workflow_condition
   COLLATE = utf8mb4_unicode_ci;
 
 -- 12. DLQ alert records
-CREATE TABLE scheduler_dlq_alerts
+CREATE TABLE IF NOT EXISTS scheduler_dlq_alerts
 (
     id            BIGINT UNSIGNED NOT NULL,
     job_id        BIGINT UNSIGNED NOT NULL,
@@ -290,7 +290,7 @@ CREATE TABLE scheduler_dlq_alerts
   COLLATE = utf8mb4_unicode_ci;
 
 -- 13. Active resource permits
-CREATE TABLE scheduler_resource_permit
+CREATE TABLE IF NOT EXISTS scheduler_resource_permit
 (
     id            BIGINT UNSIGNED NOT NULL,
     resource_name VARCHAR(100)    NOT NULL,

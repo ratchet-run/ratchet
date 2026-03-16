@@ -1,8 +1,15 @@
 package run.ratchet.spi;
 
+import run.ratchet.api.Incubating;
 import run.ratchet.api.JobPriority;
 
-/** Coordinates job scheduling across cluster nodes. */
+/**
+ * Coordinates job scheduling across cluster nodes.
+ *
+ * <p>This interface is marked {@link Incubating} — the cluster coordination contract may evolve as
+ * high-availability support matures.
+ */
+@Incubating
 public interface ClusterCoordinator {
 
   /**

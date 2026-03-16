@@ -61,6 +61,9 @@ public class JobArchivingService {
   private ZoneId zone;
   private boolean enabled;
 
+  /** Set to true during shutdown to prevent re-scheduling after the current run completes. */
+  private volatile boolean stopped = false;
+
   // Required by CDI proxy
   protected JobArchivingService() {
     this.jobBulkStore = null;
@@ -82,6 +85,14 @@ public class JobArchivingService {
     this.lockStore = lockStore;
     this.nodeIdentityProvider = nodeIdentityProvider;
     this.executorProvider = executorProvider;
+  }
+
+  /**
+   * Stops the archiving scheduler. Cron-based scheduling uses one-shot delays; this flag prevents
+   * re-scheduling after the current run completes.
+   */
+  public void stop() {
+    stopped = true;
   }
 
   /**
@@ -228,7 +239,7 @@ public class JobArchivingService {
   }
 
   private void scheduleNext() {
-    if (!enabled) {
+    if (!enabled || stopped) {
       return;
     }
 

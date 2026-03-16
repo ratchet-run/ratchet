@@ -1,5 +1,6 @@
 package run.ratchet.spi;
 
+import run.ratchet.api.Incubating;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 
@@ -7,6 +8,9 @@ import run.ratchet.api.JobType;
  * An interface for collecting job execution metrics. This interface is intended to be implemented
  * by custom monitoring tools or integrations, enabling the capture of lifecycle events for
  * scheduled jobs.
+ *
+ * <p>This interface is marked {@link Incubating} — additional lifecycle callbacks (e.g. retry,
+ * timeout, DLQ) may be added in future releases without following the normal deprecation cycle.
  *
  * <p>The collector is notified for three lifecycle transitions:
  *
@@ -20,6 +24,7 @@ import run.ratchet.api.JobType;
  * purposes. Examples may include tracking the number of jobs started, completion times, failure
  * rates, and failure causes.
  */
+@Incubating
 public interface MetricsCollector {
 
   /**

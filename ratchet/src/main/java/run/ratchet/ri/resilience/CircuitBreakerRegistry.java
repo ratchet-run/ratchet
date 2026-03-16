@@ -25,9 +25,15 @@ public class CircuitBreakerRegistry {
     registerDefaultConfigs();
   }
 
-  /** Gets or creates a circuit breaker with default configuration. */
+  /**
+   * Gets or creates a circuit breaker with the default profile.
+   *
+   * <p>Delegates to {@link #getBreaker(String, CircuitBreakerProfile)} with {@link
+   * CircuitBreakerProfile#DEFAULT} so that callers using the no-profile overload share the same
+   * breaker instance as CDI interceptors that explicitly specify the default profile.
+   */
   public CircuitBreaker getBreaker(String serviceName) {
-    return breakers.computeIfAbsent(serviceName, this::createBreaker);
+    return getBreaker(serviceName, CircuitBreakerProfile.DEFAULT);
   }
 
   /** Gets or creates a circuit breaker for a specific profile. */
@@ -39,22 +45,37 @@ public class CircuitBreakerRegistry {
 
   /** Gets the current state of a circuit breaker, or null if not created. */
   public CircuitBreaker.State getBreakerState(String serviceName) {
-    CircuitBreaker breaker = breakers.get(serviceName);
+    return getBreakerState(serviceName, CircuitBreakerProfile.DEFAULT);
+  }
+
+  /** Gets the current state of a circuit breaker for a specific profile, or null if not created. */
+  public CircuitBreaker.State getBreakerState(String serviceName, CircuitBreakerProfile profile) {
+    CircuitBreaker breaker = breakers.get(serviceName + ":" + profile.name());
     return breaker != null ? breaker.getState() : null;
   }
 
-  /** Manually opens a circuit breaker. */
+  /** Manually opens a circuit breaker (default profile). */
   public void openBreaker(String serviceName) {
-    CircuitBreaker breaker = breakers.get(serviceName);
+    openBreaker(serviceName, CircuitBreakerProfile.DEFAULT);
+  }
+
+  /** Manually opens a circuit breaker for a specific profile. */
+  public void openBreaker(String serviceName, CircuitBreakerProfile profile) {
+    CircuitBreaker breaker = breakers.get(serviceName + ":" + profile.name());
     if (breaker != null) {
       breaker.transitionToOpen();
       log.warning("Manually opened circuit breaker for service: " + serviceName);
     }
   }
 
-  /** Resets a circuit breaker to CLOSED. */
+  /** Resets a circuit breaker to CLOSED (default profile). */
   public void resetBreaker(String serviceName) {
-    CircuitBreaker breaker = breakers.get(serviceName);
+    resetBreaker(serviceName, CircuitBreakerProfile.DEFAULT);
+  }
+
+  /** Resets a circuit breaker to CLOSED for a specific profile. */
+  public void resetBreaker(String serviceName, CircuitBreakerProfile profile) {
+    CircuitBreaker breaker = breakers.get(serviceName + ":" + profile.name());
     if (breaker != null) {
       breaker.reset();
       log.info("Reset circuit breaker for service: " + serviceName);
@@ -65,12 +86,6 @@ public class CircuitBreakerRegistry {
   public void registerConfig(String name, CircuitBreakerConfiguration config) {
     configs.put(name, config);
     log.fine("Registered circuit breaker config: " + name);
-  }
-
-  private CircuitBreaker createBreaker(String serviceName) {
-    CircuitBreakerConfiguration config =
-        configs.getOrDefault(serviceName, CircuitBreakerConfiguration.DEFAULT);
-    return createBreaker(serviceName, config);
   }
 
   private CircuitBreaker createBreaker(String serviceName, CircuitBreakerConfiguration config) {

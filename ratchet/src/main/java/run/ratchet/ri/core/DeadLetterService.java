@@ -81,6 +81,9 @@ public class DeadLetterService {
   private Cron cron;
   private ZoneId zone;
 
+  /** Set to true during shutdown to prevent re-scheduling after the current run completes. */
+  private volatile boolean stopped = false;
+
   // Required by CDI proxy
   protected DeadLetterService() {
     this.executorProvider = null;
@@ -165,6 +168,14 @@ public class DeadLetterService {
   }
 
   /**
+   * Stops the DLQ purge scheduler. Cron-based scheduling uses one-shot delays; this flag prevents
+   * re-scheduling after the current run completes.
+   */
+  public void stop() {
+    stopped = true;
+  }
+
+  /**
    * Initializes the DeadLetterService with cron-based purge scheduling.
    *
    * @param purgeDays number of days to retain DLQ entries
@@ -208,6 +219,9 @@ public class DeadLetterService {
   }
 
   private void scheduleNext() {
+    if (stopped) {
+      return;
+    }
     Instant now = Instant.now();
     Optional<Instant> next =
         ExecutionTime.forCron(cron).nextExecution(now.atZone(zone)).map(ZonedDateTime::toInstant);

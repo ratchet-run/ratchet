@@ -139,6 +139,8 @@ public class RatchetLifecycle {
     recurringScheduler.stop();
     orphanRecoveryTimer.stop();
     batchRecoveryTimer.stop();
+    deadLetterService.stop();
+    jobArchivingService.stop();
     logPurgeTimer.stop();
   }
 }

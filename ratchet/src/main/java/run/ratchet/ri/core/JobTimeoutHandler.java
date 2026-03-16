@@ -164,26 +164,46 @@ public class JobTimeoutHandler {
       future.cancel(true);
 
       try {
-        boolean marked =
-            jobStatusStore.compareAndSwapStatus(
-                jobId,
-                JobStatus.RUNNING,
-                JobStatus.FAILED,
+        // Only proceed if we can atomically claim the RUNNING→FAILED transition.
+        // If the worker thread already handled the InterruptedException and moved the job
+        // to PENDING (retry) or FAILED, the CAS will fail and we do nothing here.
+        java.util.concurrent.TimeoutException timeoutEx =
+            new java.util.concurrent.TimeoutException(
                 "Hard timeout exceeded (" + timeoutSec + "s)");
-        if (marked) {
-          log.info("Job " + jobId + " marked as FAILED due to hard timeout");
 
-          jobCrudStore
-              .findById(jobId)
-              .ifPresent(
-                  job ->
-                      lifecycleFacade.handlePermanentFailure(
-                          job,
-                          new java.util.concurrent.TimeoutException(
-                              "Hard timeout exceeded (" + timeoutSec + "s)")));
-        } else {
-          log.info("Job " + jobId + " already in terminal state when timeout handler ran");
-        }
+        jobCrudStore
+            .findById(jobId)
+            .ifPresent(
+                job -> {
+                  boolean marked =
+                      jobStatusStore.compareAndSwapStatus(
+                          jobId, JobStatus.RUNNING, JobStatus.FAILED, timeoutEx.getMessage());
+                  if (!marked) {
+                    log.info(
+                        "Job " + jobId + " already in terminal state when timeout handler ran");
+                    return;
+                  }
+
+                  log.info("Job " + jobId + " marked as FAILED due to hard timeout");
+                  int newAttempts = jobStatusStore.incrementRetryAttempt(jobId);
+                  if (newAttempts > 0 && newAttempts <= job.getMaxRetries()) {
+                    // Retries remain — reschedule rather than sending straight to DLQ.
+                    Instant retryTime = Instant.now().plusSeconds(timeoutSec);
+                    jobStatusStore.scheduleJobRetry(
+                        jobId, timeoutEx.getMessage(), retryTime, newAttempts);
+                    log.warning(
+                        "Job "
+                            + jobId
+                            + " timed out but has retries remaining ("
+                            + newAttempts
+                            + "/"
+                            + job.getMaxRetries()
+                            + ") — rescheduled for "
+                            + retryTime);
+                  } else {
+                    lifecycleFacade.handlePermanentFailure(job, timeoutEx);
+                  }
+                });
       } catch (Exception e) {
         log.log(Level.SEVERE, "Failed to mark timed-out job as FAILED: " + jobId, e);
       }

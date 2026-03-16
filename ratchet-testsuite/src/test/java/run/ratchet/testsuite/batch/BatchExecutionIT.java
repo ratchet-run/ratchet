@@ -4,8 +4,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import run.ratchet.api.JobHandle;
+import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.testsuite.app.BatchItemProcessor;
+import run.ratchet.testsuite.app.FailingJob;
 import run.ratchet.testsuite.app.TestJobService;
 import run.ratchet.testsuite.util.BaseRatchetIT;
 import run.ratchet.testsuite.util.JobAssertions;
@@ -33,7 +35,7 @@ class BatchExecutionIT extends BaseRatchetIT {
 
     return RatchetArchiveBuilder.create()
         .addRatchetDependencies(profile, dbType)
-        .addClasses(BatchItemProcessor.class, TestJobService.class)
+        .addClasses(BatchItemProcessor.class, FailingJob.class, TestJobService.class)
         .addStoreInfrastructure()
         .addBeansXml()
         .build();
@@ -42,6 +44,7 @@ class BatchExecutionIT extends BaseRatchetIT {
   @BeforeEach
   void resetTrackers() {
     BatchItemProcessor.reset();
+    FailingJob.resetCount();
   }
 
   @Test
@@ -55,5 +58,35 @@ class BatchExecutionIT extends BaseRatchetIT {
     Set<String> processed = BatchItemProcessor.processedItems();
     assertEquals(3, processed.size());
     assertTrue(processed.containsAll(items));
+  }
+
+  @Test
+  void batchWithEmptyItemList_shouldCompleteImmediately() {
+    JobHandle handle =
+        jobService
+            .enqueueBatch("empty-batch")
+            .forEach(List.of(), BatchItemProcessor::process)
+            .submit();
+
+    JobAssertions.assertBatchSucceeded(jobCrudStore, handle, Duration.ofSeconds(15));
+    assertEquals(0, BatchItemProcessor.processedCount());
+  }
+
+  @Test
+  void batchWithAllFailingItems_shouldFailParent() {
+    List<String> items = List.of("x", "y", "z");
+
+    JobHandle handle =
+        jobService
+            .enqueueBatch("failing-batch")
+            .forEach(
+                items,
+                item -> {
+                  FailingJob.execute();
+                })
+            .submit();
+
+    JobAssertions.assertBatchTerminated(jobCrudStore, handle, Duration.ofSeconds(30));
+    assertEquals(JobStatus.FAILED, jobCrudStore.getJobStatus(handle.id()));
   }
 }

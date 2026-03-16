@@ -184,7 +184,8 @@ public final class DocumentMapper {
         batchId,
         doc.getInteger("total_items", 0),
         doc.getInteger("completed_items", 0),
-        doc.getInteger("failed_items", 0));
+        doc.getInteger("failed_items", 0),
+        documentToPayload(doc.get("progress_hook", Document.class)));
   }
 
   // ── NodeEntity ─────────────────────────────────────────────────────────────

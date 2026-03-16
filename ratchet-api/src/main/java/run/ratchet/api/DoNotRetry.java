@@ -13,8 +13,6 @@ import java.lang.annotation.Target;
  * further retry attempts and moves the job directly to the dead letter flow. Apply this to
  * exceptions that represent permanent business or validation failures rather than transient
  * infrastructure errors.
- *
- * @see run.ratchet.ri.core.DoNotRetryPolicy
  */
 @Documented
 @Retention(RetentionPolicy.RUNTIME)

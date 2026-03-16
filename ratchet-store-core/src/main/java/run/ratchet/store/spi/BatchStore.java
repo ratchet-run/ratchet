@@ -26,6 +26,9 @@ public interface BatchStore {
   /** Finds batches that are complete but whose completion flow has not yet been processed. */
   List<Long> findRecoverableBatchIds(int limit);
 
+  /** Loads multiple batch entities by ID in a single query. Returns only those that exist. */
+  List<BatchEntity> findBatchesByIds(List<Long> batchIds);
+
   /** Updates the total expected child count for a batch parent. */
   boolean updateBatchTotalItems(long batchId, int totalItems);
 }

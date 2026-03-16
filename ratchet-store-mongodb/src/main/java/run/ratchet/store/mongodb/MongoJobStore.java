@@ -876,6 +876,18 @@ public class MongoJobStore implements JobStore {
   }
 
   @Override
+  public List<BatchEntity> findBatchesByIds(List<Long> batchIds) {
+    if (batchIds == null || batchIds.isEmpty()) {
+      return List.of();
+    }
+    List<BatchEntity> result = new ArrayList<>();
+    for (Document doc : batches().find(in("_id", batchIds))) {
+      result.add(DocumentMapper.toBatchEntity(doc));
+    }
+    return result;
+  }
+
+  @Override
   public BatchProgress incrementCompletedAtomic(long batchId) {
     Document doc =
         batches()

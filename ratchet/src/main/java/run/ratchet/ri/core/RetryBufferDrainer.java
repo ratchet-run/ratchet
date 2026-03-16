@@ -75,7 +75,8 @@ public class RetryBufferDrainer {
   private final JobCrudStore jobCrudStore;
 
   /** Handle to the scheduled drainer task for cancellation during shutdown. */
-  private ScheduledFuture<?> drainerTask;
+  @SuppressWarnings("java:S3077")
+  private volatile ScheduledFuture<?> drainerTask;
 
   // Required by CDI proxy
   protected RetryBufferDrainer() {
@@ -170,7 +171,7 @@ public class RetryBufferDrainer {
     }
 
     for (JobExecutionType jobType : JobExecutionType.values()) {
-      while (!retryBufferManager.isBufferEmpty(jobType) && !drainController.isDraining()) {
+      while (!drainController.isDraining()) {
         int capacity = threadPoolManager.getAvailableCapacity(jobType);
         if (capacity <= 0) {
           break;

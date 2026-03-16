@@ -13,6 +13,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobLogEntity;
+import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.ResourcePermitEntity;
@@ -775,20 +776,31 @@ public class PostgresqlJobStore implements JobStore {
   }
 
   @Override
+  public List<BatchEntity> findBatchesByIds(List<Long> batchIds) {
+    if (batchIds == null || batchIds.isEmpty()) {
+      return List.of();
+    }
+    return em.createQuery("SELECT b FROM BatchEntity b WHERE b.id IN :ids", BatchEntity.class)
+        .setParameter("ids", batchIds)
+        .getResultList();
+  }
+
+  @Override
   public BatchProgress incrementCompletedAtomic(long batchId) {
     Object[] row =
         (Object[])
             em.createNativeQuery(
                     "UPDATE scheduler_batch SET completed_items = completed_items + 1 "
                         + "WHERE batch_id = ? "
-                        + "RETURNING completed_items, failed_items, total_items")
+                        + "RETURNING completed_items, failed_items, total_items, progress_hook")
                 .setParameter(1, batchId)
                 .getSingleResult();
     return new BatchProgress(
         batchId,
         ((Number) row[2]).intValue(),
         ((Number) row[0]).intValue(),
-        ((Number) row[1]).intValue());
+        ((Number) row[1]).intValue(),
+        parseProgressHook(row[3]));
   }
 
   @Override
@@ -798,14 +810,27 @@ public class PostgresqlJobStore implements JobStore {
             em.createNativeQuery(
                     "UPDATE scheduler_batch SET failed_items = failed_items + 1 "
                         + "WHERE batch_id = ? "
-                        + "RETURNING completed_items, failed_items, total_items")
+                        + "RETURNING completed_items, failed_items, total_items, progress_hook")
                 .setParameter(1, batchId)
                 .getSingleResult();
     return new BatchProgress(
         batchId,
         ((Number) row[2]).intValue(),
         ((Number) row[0]).intValue(),
-        ((Number) row[1]).intValue());
+        ((Number) row[1]).intValue(),
+        parseProgressHook(row[3]));
+  }
+
+  private JobPayload parseProgressHook(Object jsonValue) {
+    if (jsonValue == null) {
+      return null;
+    }
+    try {
+      return OBJECT_MAPPER.readValue(jsonValue.toString(), JobPayload.class);
+    } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+      log.warning("Failed to parse progress_hook JSON: " + e.getMessage());
+      return null;
+    }
   }
 
   @Override

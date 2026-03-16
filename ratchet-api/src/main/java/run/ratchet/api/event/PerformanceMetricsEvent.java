@@ -33,9 +33,9 @@ import java.util.Map;
  * <p>Note: This event intentionally does NOT extend {@link AbstractJobSchedulerEvent} because it
  * represents system-level aggregate metrics, not a per-job lifecycle event. {@code
  * AbstractJobSchedulerEvent} carries per-job metadata (jobId, businessKey, jobType, priority,
- * nodeId) that does not apply to system-wide performance snapshots. The {@link
- * run.ratchet.ri.core.InternalEventPublisher} uses {@code Event<Object>} and accepts any
- * event type.
+ * nodeId) that does not apply to system-wide performance snapshots. The scheduler event bus accepts
+ * any event type, so this record is published directly without inheriting from the job-lifecycle
+ * base class.
  *
  * @param performanceData Map containing performance metrics for the job scheduler.
  */

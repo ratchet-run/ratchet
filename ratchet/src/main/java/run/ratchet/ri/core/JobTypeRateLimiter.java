@@ -180,9 +180,11 @@ public class JobTypeRateLimiter {
 
       if (windowAge >= 60000) {
         synchronized (this) {
+          now = System.currentTimeMillis();
           if (now - windowStart >= 60000) {
-            count.set(0);
+            count.set(1);
             windowStart = now;
+            return 1 <= maxPerMinute;
           }
         }
       }

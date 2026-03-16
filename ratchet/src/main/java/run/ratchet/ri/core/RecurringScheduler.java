@@ -81,16 +81,16 @@ public class RecurringScheduler {
   private final PollerScheduler pollerScheduler;
 
   /** Maximum number of recurring jobs to process per scan cycle. */
-  private int batchLimit = 20;
+  private volatile int batchLimit = 20;
 
   /** Minimum delay between recurring job scans in milliseconds. */
-  private long minPollMs = 1000;
+  private volatile long minPollMs = 1000;
 
   /** Maximum delay between recurring job scans in milliseconds. */
-  private long maxPollMs = 60000;
+  private volatile long maxPollMs = 60000;
 
   /** Current delay between scans, adjusted dynamically based on next-fire times. */
-  private long currentDelayMs;
+  private volatile long currentDelayMs;
 
   /** Handle to the currently scheduled scan task for cancellation during shutdown. */
   @SuppressWarnings("java:S3077")

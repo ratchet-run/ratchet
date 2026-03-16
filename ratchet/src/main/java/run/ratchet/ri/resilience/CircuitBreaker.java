@@ -92,19 +92,25 @@ public class CircuitBreaker {
 
   /** Manually transitions to OPEN state. */
   public void transitionToOpen() {
-    openedAtMs = System.currentTimeMillis();
-    state.set(State.OPEN);
+    State current = state.get();
+    if (current == State.OPEN) {
+      return;
+    }
+    if (state.compareAndSet(current, State.OPEN)) {
+      openedAtMs = System.currentTimeMillis();
+    }
   }
 
   /** Resets to CLOSED state, clearing all counters. */
   public void reset() {
-    state.set(State.CLOSED);
+    // Zero counters before transitioning to CLOSED so no thread observes CLOSED with stale counts.
     openedAtMs = 0L;
     totalCalls.set(0);
     failureCount.set(0);
     windowIndex.set(0);
     halfOpenSuccesses.set(0);
     halfOpenAttempts.set(0);
+    state.set(State.CLOSED);
   }
 
   private <T> T executeInClosed(Callable<T> task) throws Exception {

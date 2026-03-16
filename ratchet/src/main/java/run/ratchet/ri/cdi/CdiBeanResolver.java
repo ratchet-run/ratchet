@@ -2,6 +2,7 @@ package run.ratchet.ri.cdi;
 
 import run.ratchet.spi.BeanResolver;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.context.Dependent;
 import jakarta.enterprise.inject.Any;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
@@ -54,6 +55,16 @@ public class CdiBeanResolver implements BeanResolver {
           "Multiple CDI beans found for type: "
               + type.getName()
               + ". Use a qualifier to disambiguate.");
+    }
+    // Guard against @Dependent-scoped beans: Instance.get() creates a new instance whose
+    // lifecycle is owned by the caller. Since BeanResolver returns a bare T with no way to
+    // call Instance.destroy(), resolving a @Dependent bean would leak it.
+    if (type.isAnnotationPresent(Dependent.class)) {
+      throw new IllegalStateException(
+          "Cannot resolve @Dependent-scoped bean for type: "
+              + type.getName()
+              + ". BeanResolver does not manage the lifecycle of @Dependent beans."
+              + " Inject the bean directly or use a wider scope.");
     }
     return instance.get();
   }

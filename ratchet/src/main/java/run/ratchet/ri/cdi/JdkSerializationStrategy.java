@@ -49,7 +49,19 @@ public class JdkSerializationStrategy implements SerializationStrategy {
         ObjectInputStream ois = new ObjectInputStream(bais)) {
       ois.setObjectInputFilter(
           ObjectInputFilter.Config.createFilter(
-              "run.ratchet.**;java.lang.*;java.util.*;java.time.*;java.math.*;!*"));
+              "run.ratchet.**;"
+                  + "[*;"
+                  + "java.lang.*;"
+                  + "java.util.ArrayList;java.util.HashMap;java.util.HashSet;"
+                  + "java.util.LinkedList;java.util.LinkedHashMap;java.util.LinkedHashSet;"
+                  + "java.util.TreeMap;java.util.TreeSet;"
+                  + "java.util.CollSer;"
+                  + "java.util.Collections;java.util.Collections$*;"
+                  + "java.util.Arrays;java.util.Arrays$*;"
+                  + "java.util.ImmutableCollections;java.util.ImmutableCollections$*;"
+                  + "java.util.Optional;java.util.UUID;"
+                  + "java.util.Date;java.util.EnumMap;java.util.EnumSet;"
+                  + "java.time.*;java.math.*;!*"));
       return (T) ois.readObject();
     } catch (Exception e) {
       throw new RuntimeException("Failed to deserialize to " + type.getName(), e);

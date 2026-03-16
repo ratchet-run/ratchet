@@ -65,6 +65,7 @@ public class JobTask implements Callable<Void> {
   private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
   private static final ConcurrentHashMap<String, Method> METHOD_CACHE = new ConcurrentHashMap<>();
+  private static final ConcurrentHashMap<String, Class<?>> CLASS_CACHE = new ConcurrentHashMap<>();
   private static final ConcurrentHashMap<String, String> SERVICE_NAME_CACHE =
       new ConcurrentHashMap<>();
 
@@ -182,22 +183,20 @@ public class JobTask implements Callable<Void> {
             jobEntity.getPriority(),
             jobEntity.getPickedBy()));
 
-    log.info(
-        "Job "
-            + jobId
-            + " starting execution [type="
-            + jobEntity.getJobType()
-            + ", priority="
-            + jobEntity.getPriority()
-            + ", attempt="
-            + (jobEntity.getAttempts() + 1)
-            + "/"
-            + (jobEntity.getMaxRetries() + 1)
-            + ", payload="
-            + jobEntity.getPayload().target()
-            + "."
-            + jobEntity.getPayload().method()
-            + "]");
+    if (log.isLoggable(Level.INFO)) {
+      log.log(
+          Level.INFO,
+          "Job {0} starting execution [type={1}, priority={2}, attempt={3}/{4}, payload={5}.{6}]",
+          new Object[] {
+            jobId,
+            jobEntity.getJobType(),
+            jobEntity.getPriority(),
+            jobEntity.getAttempts() + 1,
+            jobEntity.getMaxRetries() + 1,
+            jobEntity.getPayload().target(),
+            jobEntity.getPayload().method()
+          });
+    }
 
     Instant start = Instant.now();
     Object jobResult;
@@ -246,7 +245,9 @@ public class JobTask implements Callable<Void> {
         } catch (Throwable lastResort) {
           log.log(
               Level.SEVERE,
-              "Job " + job.getId() + " could not be transitioned to FAILED — will require orphan recovery",
+              "Job "
+                  + job.getId()
+                  + " could not be transitioned to FAILED — will require orphan recovery",
               lastResort);
         }
       }
@@ -649,7 +650,16 @@ public class JobTask implements Callable<Void> {
 
     String fallbackServiceName = simpleClassName(payload.target()) + "." + payload.method();
     try {
-      Class<?> clazz = Class.forName(payload.target());
+      Class<?> clazz =
+          CLASS_CACHE.computeIfAbsent(
+              payload.target(),
+              name -> {
+                try {
+                  return Class.forName(name);
+                } catch (ClassNotFoundException e) {
+                  throw new IllegalStateException(e);
+                }
+              });
       Method method = resolveMethod(clazz, payload);
       CircuitBreakerProtected annotation = method.getAnnotation(CircuitBreakerProtected.class);
       if (annotation == null) {
@@ -690,11 +700,26 @@ public class JobTask implements Callable<Void> {
 
     Class<?> cls;
     try {
-      cls = Class.forName(payload.target());
-    } catch (ClassNotFoundException e) {
+      cls =
+          CLASS_CACHE.computeIfAbsent(
+              payload.target(),
+              name -> {
+                try {
+                  return Class.forName(name);
+                } catch (ClassNotFoundException e) {
+                  throw new IllegalStateException(e);
+                }
+              });
+    } catch (IllegalStateException e) {
+      ClassNotFoundException cnfe =
+          e.getCause() instanceof ClassNotFoundException
+              ? (ClassNotFoundException) e.getCause()
+              : new ClassNotFoundException(payload.target(), e);
       log.log(
-          Level.SEVERE, "Job " + job.getId() + " target class not found: " + payload.target(), e);
-      throw e;
+          Level.SEVERE,
+          "Job " + job.getId() + " target class not found: " + payload.target(),
+          cnfe);
+      throw cnfe;
     }
 
     Method m;

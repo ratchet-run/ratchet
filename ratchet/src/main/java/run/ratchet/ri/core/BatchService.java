@@ -17,8 +17,12 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import java.lang.reflect.Method;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 import java.util.logging.Logger;
+import java.util.stream.Collectors;
 import org.objectweb.asm.Type;
 
 /**
@@ -64,6 +68,12 @@ public class BatchService {
    */
   private static final ConcurrentHashMap<String, Method> HOOK_METHOD_CACHE =
       new ConcurrentHashMap<>();
+
+  /**
+   * Cache of resolved classes keyed by fully-qualified class name to avoid repeated {@link
+   * Class#forName} calls on every progress hook execution.
+   */
+  private static final ConcurrentHashMap<String, Class<?>> CLASS_CACHE = new ConcurrentHashMap<>();
 
   /** Store for batch entity CRUD operations and atomic progress updates. */
   private final BatchStore batchStore;
@@ -163,15 +173,24 @@ public class BatchService {
    * @return the number of batches that were recovered
    */
   public int recoverStuckBatches() {
+    List<Long> recoverableIds = batchStore.findRecoverableBatchIds(100);
+    if (recoverableIds.isEmpty()) {
+      return 0;
+    }
+
+    Map<Long, BatchEntity> batchMap =
+        batchStore.findBatchesByIds(recoverableIds).stream()
+            .collect(Collectors.toMap(BatchEntity::getId, Function.identity()));
+
     int recovered = 0;
-    for (Long batchId : batchStore.findRecoverableBatchIds(100)) {
-      var batchOpt = batchStore.findBatchById(batchId);
-      if (batchOpt.isEmpty()) {
+    for (Long batchId : recoverableIds) {
+      BatchEntity batch = batchMap.get(batchId);
+      if (batch == null) {
         continue;
       }
 
       if (batchStore.markBatchCompleteIfReady(batchId)) {
-        processBatchCompletion(batchId, batchOpt.get());
+        processBatchCompletion(batchId, batch);
         recovered++;
       }
     }
@@ -229,7 +248,16 @@ public class BatchService {
    */
   @SuppressWarnings("java:S112") // Generic exception from reflective method invocation
   private void executeProgressHook(JobPayload payload, BatchContext ctx) throws Exception {
-    Class<?> cls = Class.forName(payload.target());
+    Class<?> cls =
+        CLASS_CACHE.computeIfAbsent(
+            payload.target(),
+            name -> {
+              try {
+                return Class.forName(name);
+              } catch (ClassNotFoundException e) {
+                throw new IllegalStateException("Progress hook target class not found: " + name, e);
+              }
+            });
     Method method = resolveHookMethod(cls, payload);
 
     if (payload.isStatic()) {
@@ -403,20 +431,14 @@ public class BatchService {
       return;
     }
 
-    // Trigger progress hooks using the atomic snapshot values
-    var batchOpt = batchStore.findBatchById(parentId);
-    if (batchOpt.isEmpty()) {
-      log.warning("Batch " + parentId + " was deleted after progress update - skipping hooks");
-      return;
-    }
-
-    BatchEntity be = batchOpt.get();
-    JobPayload hookPayload = be.getProgressHook();
-    triggerWithProgress(hookPayload, progress);
+    // Trigger progress hooks using the atomic snapshot values (progressHook included in snapshot)
+    triggerWithProgress(progress.progressHook(), progress);
 
     // Atomically check if batch is complete and mark as processed
     if (batchStore.markBatchCompleteIfReady(parentId)) {
-      processBatchCompletion(parentId, be);
+      batchStore
+          .findBatchById(parentId)
+          .ifPresent(batch -> processBatchCompletion(parentId, batch));
     }
   }
 }

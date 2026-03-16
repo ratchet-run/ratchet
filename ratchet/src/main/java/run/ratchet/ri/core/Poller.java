@@ -176,7 +176,7 @@ public class Poller {
 
   private void handleJobsFound(List<JobClaimDto> claims, int jobCount) {
     claims.forEach(jobExecutionCoordinator::submit);
-    log.info("Claimed " + jobCount + " job(s) for execution");
+    log.log(Level.INFO, "Claimed {0} job(s) for execution", jobCount);
   }
 
   private long pollOnce() {

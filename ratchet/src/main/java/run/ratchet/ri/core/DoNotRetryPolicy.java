@@ -56,7 +56,10 @@ public class DoNotRetryPolicy {
       Set.of(
           // Validation errors - won't succeed on retry
           "java.lang.IllegalArgumentException",
-          "java.lang.IllegalStateException",
+          // IllegalStateException intentionally excluded: CDI and JPA throw it for transient
+          // container lifecycle conditions (e.g. EntityManager already closed, transaction
+          // already active) that may resolve on retry. Jobs that fail with bad business state
+          // should annotate their custom exception with @DoNotRetry instead.
           "java.lang.NullPointerException",
 
           // Security errors - authentication/authorization failures

@@ -1,7 +1,9 @@
 package run.ratchet.ri.resilience;
 
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.time.Duration;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -78,21 +80,21 @@ class CircuitBreakerTest {
   }
 
   @Test
-  void openTransitionsToHalfOpenAfterWaitDuration() throws Exception {
+  void openTransitionsToHalfOpenAfterWaitDuration() {
     breaker.transitionToOpen();
     assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
 
-    // Wait for the configured wait duration (100ms)
-    Thread.sleep(150);
-
-    assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
+    await()
+        .atMost(Duration.ofSeconds(1))
+        .untilAsserted(() -> assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState()));
   }
 
   @Test
   void halfOpenSuccessTransitionsToClosed() throws Exception {
     breaker.transitionToOpen();
-    Thread.sleep(150);
-    assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
+    await()
+        .atMost(Duration.ofSeconds(1))
+        .untilAsserted(() -> assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState()));
 
     // permittedCallsInHalfOpen = 2, all succeed → CLOSED
     breaker.execute(() -> "ok1");
@@ -102,10 +104,11 @@ class CircuitBreakerTest {
   }
 
   @Test
-  void halfOpenFailureTransitionsBackToOpen() throws Exception {
+  void halfOpenFailureTransitionsBackToOpen() {
     breaker.transitionToOpen();
-    Thread.sleep(150);
-    assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
+    await()
+        .atMost(Duration.ofSeconds(1))
+        .untilAsserted(() -> assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState()));
 
     // First trial call fails → back to OPEN
     assertThrows(

@@ -37,10 +37,12 @@ public class SchedulerLifecycleManager {
   private final AtomicBoolean started = new AtomicBoolean(false);
 
   /** Callback for startup initialization. */
-  private Runnable startCallback;
+  @SuppressWarnings("java:S3077")
+  private volatile Runnable startCallback;
 
   /** Callback for shutdown cleanup. */
-  private Runnable shutdownCallback;
+  @SuppressWarnings("java:S3077")
+  private volatile Runnable shutdownCallback;
 
   /**
    * Configures the lifecycle manager with startup and shutdown callbacks.

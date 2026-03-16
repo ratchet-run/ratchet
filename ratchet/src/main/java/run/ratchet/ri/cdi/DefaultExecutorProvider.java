@@ -29,11 +29,21 @@ public class DefaultExecutorProvider implements ExecutorProvider {
 
   @Override
   public ExecutorService getJobExecutor() {
+    if (executorService == null) {
+      throw new IllegalStateException(
+          "DefaultExecutorProvider requires a Jakarta EE 10 container with JNDI. "
+              + "Provide an @Alternative ExecutorProvider bean for plain CDI or test environments.");
+    }
     return executorService;
   }
 
   @Override
   public ScheduledExecutorService getScheduledExecutor() {
+    if (scheduledExecutorService == null) {
+      throw new IllegalStateException(
+          "DefaultExecutorProvider requires a Jakarta EE 10 container with JNDI. "
+              + "Provide an @Alternative ExecutorProvider bean for plain CDI or test environments.");
+    }
     return scheduledExecutorService;
   }
 }

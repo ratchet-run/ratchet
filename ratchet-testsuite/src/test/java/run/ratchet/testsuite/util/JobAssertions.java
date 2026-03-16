@@ -78,10 +78,11 @@ public final class JobAssertions {
   }
 
   /**
-   * Asserts that a batch parent job (and thus all children) reaches SUCCEEDED status within the
-   * specified timeout.
+   * Asserts that a batch parent job reaches a terminal status (SUCCEEDED or FAILED) within the
+   * specified timeout. Does NOT assert success — use {@link #assertBatchSucceeded} if success is
+   * required.
    */
-  public static void assertBatchCompleted(
+  public static void assertBatchTerminated(
       JobCrudStore store, JobHandle batchHandle, Duration timeout) {
     await()
         .atMost(timeout)

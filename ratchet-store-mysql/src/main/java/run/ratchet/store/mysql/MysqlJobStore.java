@@ -14,6 +14,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobLogEntity;
+import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.ResourcePermitEntity;
@@ -815,7 +816,7 @@ public class MysqlJobStore implements JobStore {
                 + "WHERE status = 'RUNNING' AND picked_by NOT IN ("
                 + "  SELECT node_id FROM scheduler_node "
                 + "  WHERE TIMESTAMPDIFF(MINUTE, heartbeat_ts, NOW(3)) <= :graceMin"
-                + ")")
+                + ") AND TIMESTAMPDIFF(MINUTE, picked_at, NOW(3)) >= :graceMin")
         .setParameter("graceMin", grace.toMinutes())
         .executeUpdate();
   }
@@ -837,12 +838,22 @@ public class MysqlJobStore implements JobStore {
   }
 
   @Override
+  public List<BatchEntity> findBatchesByIds(List<Long> batchIds) {
+    if (batchIds == null || batchIds.isEmpty()) {
+      return List.of();
+    }
+    return em.createQuery("SELECT b FROM BatchEntity b WHERE b.id IN :ids", BatchEntity.class)
+        .setParameter("ids", batchIds)
+        .getResultList();
+  }
+
+  @Override
   public BatchProgress incrementCompletedAtomic(long batchId) {
     // Lock the row first to ensure atomicity of read + update
     Object[] locked =
         (Object[])
             em.createNativeQuery(
-                    "SELECT completed_items, failed_items, total_items "
+                    "SELECT completed_items, failed_items, total_items, progress_hook "
                         + "FROM scheduler_batch WHERE batch_id = :bid FOR UPDATE")
                 .setParameter("bid", batchId)
                 .getSingleResult();
@@ -854,7 +865,11 @@ public class MysqlJobStore implements JobStore {
         .executeUpdate();
 
     return new BatchProgress(
-        batchId, ((Number) locked[2]).intValue(), newCompleted, ((Number) locked[1]).intValue());
+        batchId,
+        ((Number) locked[2]).intValue(),
+        newCompleted,
+        ((Number) locked[1]).intValue(),
+        parseProgressHook(locked[3]));
   }
 
   @Override
@@ -863,7 +878,7 @@ public class MysqlJobStore implements JobStore {
     Object[] locked =
         (Object[])
             em.createNativeQuery(
-                    "SELECT completed_items, failed_items, total_items "
+                    "SELECT completed_items, failed_items, total_items, progress_hook "
                         + "FROM scheduler_batch WHERE batch_id = :bid FOR UPDATE")
                 .setParameter("bid", batchId)
                 .getSingleResult();
@@ -875,7 +890,23 @@ public class MysqlJobStore implements JobStore {
         .executeUpdate();
 
     return new BatchProgress(
-        batchId, ((Number) locked[2]).intValue(), ((Number) locked[0]).intValue(), newFailed);
+        batchId,
+        ((Number) locked[2]).intValue(),
+        ((Number) locked[0]).intValue(),
+        newFailed,
+        parseProgressHook(locked[3]));
+  }
+
+  private JobPayload parseProgressHook(Object jsonValue) {
+    if (jsonValue == null) {
+      return null;
+    }
+    try {
+      return OBJECT_MAPPER.readValue(jsonValue.toString(), JobPayload.class);
+    } catch (JsonProcessingException e) {
+      log.warning("Failed to parse progress_hook JSON: " + e.getMessage());
+      return null;
+    }
   }
 
   @Override

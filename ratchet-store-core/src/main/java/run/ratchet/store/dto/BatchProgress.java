@@ -1,5 +1,7 @@
 package run.ratchet.store.dto;
 
+import run.ratchet.store.entity.JobPayload;
+
 /**
  * Immutable snapshot of batch progress returned by atomic increment operations.
  *
@@ -11,8 +13,10 @@ package run.ratchet.store.dto;
  * @param totalItems the total number of items in the batch
  * @param completedItems the number of successfully completed items (as of this increment)
  * @param failedItems the number of failed items (as of this increment)
+ * @param progressHook the progress hook payload, or null if no hook configured
  */
-public record BatchProgress(Long batchId, int totalItems, int completedItems, int failedItems) {
+public record BatchProgress(
+    Long batchId, int totalItems, int completedItems, int failedItems, JobPayload progressHook) {
 
   /**
    * Returns true if the batch has finished processing all items (success or failure).

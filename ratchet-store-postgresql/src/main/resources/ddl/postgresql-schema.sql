@@ -3,7 +3,7 @@
 -- ============================================================
 
 -- 1. scheduler_node
-CREATE TABLE scheduler_node
+CREATE TABLE IF NOT EXISTS scheduler_node
 (
     node_id VARCHAR(64) NOT NULL,
     heartbeat_ts TIMESTAMPTZ(6) NOT NULL,
@@ -12,10 +12,10 @@ CREATE TABLE scheduler_node
     CONSTRAINT pk_scheduler_node PRIMARY KEY (node_id)
 );
 
-CREATE INDEX idx_node_heartbeat ON scheduler_node (heartbeat_ts);
+CREATE INDEX IF NOT EXISTS idx_node_heartbeat ON scheduler_node (heartbeat_ts);
 
 -- 2. scheduler_lock
-CREATE TABLE scheduler_lock
+CREATE TABLE IF NOT EXISTS scheduler_lock
 (
     lock_name  VARCHAR(128) NOT NULL,
     owner_node VARCHAR(64)  NOT NULL,
@@ -24,10 +24,10 @@ CREATE TABLE scheduler_lock
     CONSTRAINT pk_scheduler_lock PRIMARY KEY (lock_name)
 );
 
-CREATE INDEX idx_lock_expires ON scheduler_lock (expires_at);
+CREATE INDEX IF NOT EXISTS idx_lock_expires ON scheduler_lock (expires_at);
 
 -- 3. scheduler_resource_limit
-CREATE TABLE scheduler_resource_limit
+CREATE TABLE IF NOT EXISTS scheduler_resource_limit
 (
     resource_name  VARCHAR(100) NOT NULL,
     max_concurrent INT          NOT NULL,
@@ -39,7 +39,7 @@ CREATE TABLE scheduler_resource_limit
 );
 
 -- 4. scheduler_job
-CREATE TABLE scheduler_job
+CREATE TABLE IF NOT EXISTS scheduler_job
 (
     job_id                BIGINT NOT NULL,
     status                TEXT        NOT NULL DEFAULT 'PENDING',
@@ -55,8 +55,8 @@ CREATE TABLE scheduler_job
     cron_expr             VARCHAR(64) NOT NULL DEFAULT '',
     zone_id               VARCHAR(32) NOT NULL DEFAULT 'UTC',
     next_fire TIMESTAMPTZ(6),
-    payload TEXT NOT NULL,
-    params TEXT,
+    payload               TEXT NOT NULL,
+    params                TEXT,
     target_class          TEXT GENERATED ALWAYS AS (payload::jsonb ->> 'target') STORED,
     method_name           TEXT GENERATED ALWAYS AS (payload::jsonb ->> 'method') STORED,
     idempotency_key       VARCHAR(36) NOT NULL,
@@ -89,28 +89,28 @@ CREATE TABLE scheduler_job
     CONSTRAINT chk_backoff_policy CHECK (backoff_policy IN ('NONE', 'FIXED', 'EXPONENTIAL'))
 );
 
-CREATE INDEX idx_job_due ON scheduler_job (status, scheduled_time);
-CREATE INDEX idx_job_priority_due ON scheduler_job (priority, scheduled_time);
-CREATE INDEX idx_job_picked_by ON scheduler_job (picked_by);
-CREATE INDEX idx_target_class ON scheduler_job (target_class);
-CREATE INDEX idx_method_name ON scheduler_job (method_name);
-CREATE INDEX idx_recurring_due ON scheduler_job (status, next_fire);
-CREATE INDEX idx_job_poll_composite ON scheduler_job (status, priority, scheduled_time);
-CREATE INDEX idx_job_type ON scheduler_job (job_type);
-CREATE INDEX idx_job_recurring_composite ON scheduler_job (job_type, status, next_fire);
-CREATE INDEX idx_job_depends_on ON scheduler_job (depends_on);
-CREATE INDEX idx_job_superseded_by ON scheduler_job (superseded_by);
-CREATE INDEX idx_job_business_key ON scheduler_job (business_key);
-CREATE INDEX idx_job_created_at ON scheduler_job (created_at);
-CREATE INDEX idx_job_updated_at ON scheduler_job (updated_at);
+CREATE INDEX IF NOT EXISTS idx_job_due ON scheduler_job (status, scheduled_time);
+CREATE INDEX IF NOT EXISTS idx_job_priority_due ON scheduler_job (priority, scheduled_time);
+CREATE INDEX IF NOT EXISTS idx_job_picked_by ON scheduler_job (picked_by);
+CREATE INDEX IF NOT EXISTS idx_target_class ON scheduler_job (target_class);
+CREATE INDEX IF NOT EXISTS idx_method_name ON scheduler_job (method_name);
+CREATE INDEX IF NOT EXISTS idx_recurring_due ON scheduler_job (status, next_fire);
+CREATE INDEX IF NOT EXISTS idx_job_poll_composite ON scheduler_job (status, priority, scheduled_time);
+CREATE INDEX IF NOT EXISTS idx_job_type ON scheduler_job (job_type);
+CREATE INDEX IF NOT EXISTS idx_job_recurring_composite ON scheduler_job (job_type, status, next_fire);
+CREATE INDEX IF NOT EXISTS idx_job_depends_on ON scheduler_job (depends_on);
+CREATE INDEX IF NOT EXISTS idx_job_superseded_by ON scheduler_job (superseded_by);
+CREATE INDEX IF NOT EXISTS idx_job_business_key ON scheduler_job (business_key);
+CREATE INDEX IF NOT EXISTS idx_job_created_at ON scheduler_job (created_at);
+CREATE INDEX IF NOT EXISTS idx_job_updated_at ON scheduler_job (updated_at);
 
-CREATE INDEX idx_job_claim_cover ON scheduler_job (status, job_type, scheduled_time, priority);
+CREATE INDEX IF NOT EXISTS idx_job_claim_cover ON scheduler_job (status, job_type, scheduled_time, priority);
 
 -- Partial unique index for active business key (replaces MySQL generated column approach)
-CREATE UNIQUE INDEX idx_job_active_business_key ON scheduler_job (business_key) WHERE status IN ('PENDING', 'RUNNING', 'PAUSED') AND business_key IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_job_active_business_key ON scheduler_job (business_key) WHERE status IN ('PENDING', 'RUNNING', 'PAUSED') AND business_key IS NOT NULL;
 
 -- 5. scheduler_job_tag
-CREATE TABLE scheduler_job_tag
+CREATE TABLE IF NOT EXISTS scheduler_job_tag
 (
     job_id BIGINT      NOT NULL,
     tag    VARCHAR(64) NOT NULL,
@@ -119,7 +119,7 @@ CREATE TABLE scheduler_job_tag
 );
 
 -- 6. scheduler_batch
-CREATE TABLE scheduler_batch
+CREATE TABLE IF NOT EXISTS scheduler_batch
 (
     batch_id             BIGINT  NOT NULL,
     total_items          INT     NOT NULL DEFAULT 0,
@@ -133,7 +133,7 @@ CREATE TABLE scheduler_batch
 );
 
 -- 7. scheduler_batch_metrics
-CREATE TABLE scheduler_batch_metrics
+CREATE TABLE IF NOT EXISTS scheduler_batch_metrics
 (
     batch_id           BIGINT NOT NULL,
     total_duration_ms  BIGINT,
@@ -150,7 +150,7 @@ CREATE TABLE scheduler_batch_metrics
 );
 
 -- 8. scheduler_job_execution
-CREATE TABLE scheduler_job_execution
+CREATE TABLE IF NOT EXISTS scheduler_job_execution
 (
     id            BIGINT NOT NULL,
     job_id        BIGINT      NOT NULL,
@@ -167,12 +167,12 @@ CREATE TABLE scheduler_job_execution
     CONSTRAINT fk_execution_job FOREIGN KEY (job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_job_execution_job ON scheduler_job_execution (job_id);
-CREATE INDEX idx_job_execution_node ON scheduler_job_execution (node_id, started_at);
-CREATE INDEX idx_job_execution_status ON scheduler_job_execution (status, started_at);
+CREATE INDEX IF NOT EXISTS idx_job_execution_job ON scheduler_job_execution (job_id);
+CREATE INDEX IF NOT EXISTS idx_job_execution_node ON scheduler_job_execution (node_id, started_at);
+CREATE INDEX IF NOT EXISTS idx_job_execution_status ON scheduler_job_execution (status, started_at);
 
 -- 9. scheduler_job_log
-CREATE TABLE scheduler_job_log
+CREATE TABLE IF NOT EXISTS scheduler_job_log
 (
     log_id  BIGINT NOT NULL,
     job_id  BIGINT     NOT NULL,
@@ -185,11 +185,11 @@ CREATE TABLE scheduler_job_log
     CONSTRAINT chk_log_level CHECK (level IN ('TRACE', 'DEBUG', 'INFO', 'WARN', 'ERROR'))
 );
 
-CREATE INDEX idx_joblog_job_ts ON scheduler_job_log (job_id, ts);
-CREATE INDEX idx_joblog_ts ON scheduler_job_log (ts);
+CREATE INDEX IF NOT EXISTS idx_joblog_job_ts ON scheduler_job_log (job_id, ts);
+CREATE INDEX IF NOT EXISTS idx_joblog_ts ON scheduler_job_log (ts);
 
 -- 10. scheduler_job_archive
-CREATE TABLE scheduler_job_archive
+CREATE TABLE IF NOT EXISTS scheduler_job_archive
 (
     archive_id              BIGINT NOT NULL,
     original_job_id         BIGINT NOT NULL,
@@ -227,21 +227,22 @@ CREATE TABLE scheduler_job_archive
     CONSTRAINT chk_archive_job_type CHECK (job_type IN
                                            ('SINGLE', 'RECURRING', 'BATCH_PARENT', 'BATCH_CHILD',
                                             'CHAIN_STEP', 'DLQ_ALERT', 'WORKFLOW_BRANCH', 'WORKFLOW_JOIN')),
-    CONSTRAINT chk_archive_priority CHECK (priority BETWEEN 0 AND 4)
+    CONSTRAINT chk_archive_priority CHECK (priority BETWEEN 0 AND 4),
+    CONSTRAINT chk_archive_backoff_policy CHECK (backoff_policy IN ('NONE', 'FIXED', 'EXPONENTIAL'))
 );
 
-CREATE INDEX idx_archive_original_id ON scheduler_job_archive (original_job_id);
-CREATE INDEX idx_archive_status ON scheduler_job_archive (final_status);
-CREATE INDEX idx_archive_created_range ON scheduler_job_archive (original_created_at);
-CREATE INDEX idx_archive_completed_range ON scheduler_job_archive (completion_time);
-CREATE INDEX idx_archive_archived_at ON scheduler_job_archive (archived_at);
-CREATE INDEX idx_archive_target_class ON scheduler_job_archive (target_class);
-CREATE INDEX idx_archive_business_key ON scheduler_job_archive (business_key);
-CREATE INDEX idx_archive_job_type ON scheduler_job_archive (job_type);
-CREATE INDEX idx_archive_priority ON scheduler_job_archive (priority);
+CREATE INDEX IF NOT EXISTS idx_archive_original_id ON scheduler_job_archive (original_job_id);
+CREATE INDEX IF NOT EXISTS idx_archive_status ON scheduler_job_archive (final_status);
+CREATE INDEX IF NOT EXISTS idx_archive_created_range ON scheduler_job_archive (original_created_at);
+CREATE INDEX IF NOT EXISTS idx_archive_completed_range ON scheduler_job_archive (completion_time);
+CREATE INDEX IF NOT EXISTS idx_archive_archived_at ON scheduler_job_archive (archived_at);
+CREATE INDEX IF NOT EXISTS idx_archive_target_class ON scheduler_job_archive (target_class);
+CREATE INDEX IF NOT EXISTS idx_archive_business_key ON scheduler_job_archive (business_key);
+CREATE INDEX IF NOT EXISTS idx_archive_job_type ON scheduler_job_archive (job_type);
+CREATE INDEX IF NOT EXISTS idx_archive_priority ON scheduler_job_archive (priority);
 
 -- 11. scheduler_workflow_condition
-CREATE TABLE scheduler_workflow_condition
+CREATE TABLE IF NOT EXISTS scheduler_workflow_condition
 (
     id                   BIGINT NOT NULL,
     parent_job_id        BIGINT NOT NULL,
@@ -259,12 +260,12 @@ CREATE TABLE scheduler_workflow_condition
                                           'BATCH_FAILURE_COUNT', 'BATCH_CUSTOM'))
 );
 
-CREATE INDEX idx_workflow_parent ON scheduler_workflow_condition (parent_job_id);
-CREATE INDEX idx_workflow_child ON scheduler_workflow_condition (child_job_id);
-CREATE INDEX idx_workflow_priority ON scheduler_workflow_condition (parent_job_id, condition_priority);
+CREATE INDEX IF NOT EXISTS idx_workflow_parent ON scheduler_workflow_condition (parent_job_id);
+CREATE INDEX IF NOT EXISTS idx_workflow_child ON scheduler_workflow_condition (child_job_id);
+CREATE INDEX IF NOT EXISTS idx_workflow_priority ON scheduler_workflow_condition (parent_job_id, condition_priority);
 
 -- 12. scheduler_dlq_alerts
-CREATE TABLE scheduler_dlq_alerts
+CREATE TABLE IF NOT EXISTS scheduler_dlq_alerts
 (
     id            BIGINT NOT NULL,
     job_id        BIGINT      NOT NULL,
@@ -276,10 +277,10 @@ CREATE TABLE scheduler_dlq_alerts
     CONSTRAINT fk_dlq_alert_job FOREIGN KEY (job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_dlq_sent_at ON scheduler_dlq_alerts (alert_sent_at);
+CREATE INDEX IF NOT EXISTS idx_dlq_sent_at ON scheduler_dlq_alerts (alert_sent_at);
 
 -- 13. scheduler_resource_permit
-CREATE TABLE scheduler_resource_permit
+CREATE TABLE IF NOT EXISTS scheduler_resource_permit
 (
     id            BIGINT NOT NULL,
     resource_name VARCHAR(100) NOT NULL,
@@ -290,5 +291,5 @@ CREATE TABLE scheduler_resource_permit
     CONSTRAINT fk_resource_permit_job FOREIGN KEY (job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_resource_permit_resource ON scheduler_resource_permit (resource_name);
-CREATE INDEX idx_resource_permit_job ON scheduler_resource_permit (job_id);
+CREATE INDEX IF NOT EXISTS idx_resource_permit_resource ON scheduler_resource_permit (resource_name);
+CREATE INDEX IF NOT EXISTS idx_resource_permit_job ON scheduler_resource_permit (job_id);

@@ -1,5 +1,6 @@
 package run.ratchet.testsuite.core;
 
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -14,6 +15,7 @@ import run.ratchet.testsuite.util.JobAssertions;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 import jakarta.inject.Inject;
 import java.time.Duration;
+import java.util.concurrent.TimeUnit;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
@@ -65,5 +67,24 @@ class JobCancelIT extends BaseRatchetIT {
 
     boolean canceled = jobService.cancelJob(handle.id());
     assertFalse(canceled, "Should not be able to cancel a completed job");
+  }
+
+  @Test
+  void cancelRunningJob_shouldTransitionToCanceled() {
+    // SlowJob sleeps for 60 seconds by default — long enough to be running when we cancel
+    JobHandle handle = jobService.enqueueNow(SlowJob::execute);
+
+    assertNotNull(handle);
+
+    // Wait until the job has actually started executing
+    await()
+        .atMost(Duration.ofSeconds(15))
+        .pollInterval(100, TimeUnit.MILLISECONDS)
+        .until(SlowJob::hasStarted);
+
+    boolean canceled = jobService.cancelJob(handle.id());
+    assertTrue(canceled, "Should be able to cancel a running job");
+
+    JobAssertions.assertJobCanceled(jobCrudStore, handle);
   }
 }
