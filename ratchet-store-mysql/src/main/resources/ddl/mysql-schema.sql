@@ -96,6 +96,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     UNIQUE KEY uk_idempotency_key (idempotency_key),
     UNIQUE KEY uk_active_business_key (active_business_key),
     CONSTRAINT chk_job_priority CHECK (priority BETWEEN 0 AND 4),
+    CONSTRAINT chk_paused_from_status CHECK (paused_from_status IS NULL OR paused_from_status IN ('PENDING','RUNNING','SUCCEEDED','FAILED','CANCELED','PAUSED')),
     INDEX idx_job_due (status, scheduled_time),
     INDEX idx_job_priority_due (priority, scheduled_time),
     INDEX idx_job_picked_by (picked_by),

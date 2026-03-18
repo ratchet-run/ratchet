@@ -1,15 +1,15 @@
 package run.ratchet.ri.resilience;
 
+import java.util.Arrays;
 import java.util.concurrent.Callable;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicIntegerArray;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Lightweight circuit breaker state machine.
  *
- * <p>States: CLOSED → OPEN → HALF_OPEN → CLOSED. Thread-safe via {@link AtomicReference} for state
- * and a simple ring buffer for failure tracking.
+ * <p>States: CLOSED → OPEN → HALF_OPEN → CLOSED. Thread-safe via {@link ReentrantLock} for
+ * sliding-window operations and {@link AtomicReference} for state transitions.
  *
  * <pre>
  * CLOSED (default)
@@ -28,24 +28,28 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public class CircuitBreaker {
 
+  private static final int UNINITIALIZED = -1;
+
   private final String name;
   private final CircuitBreakerConfiguration config;
   private final AtomicReference<State> state = new AtomicReference<>(State.CLOSED);
-  // Sliding window: ring buffer of outcomes (1 = success, 0 = failure)
-  private final AtomicIntegerArray window;
-  private final AtomicInteger windowIndex = new AtomicInteger(0);
-  private final AtomicInteger totalCalls = new AtomicInteger(0);
-  private final AtomicInteger failureCount = new AtomicInteger(0);
+  private final ReentrantLock lock = new ReentrantLock();
+  // Sliding window: ring buffer of outcomes (1 = success, 0 = failure, -1 = uninitialized)
+  private final int[] window;
+  private int windowIndex;
+  private int totalCalls;
+  private int failureCount;
   // HALF_OPEN state tracking
-  private final AtomicInteger halfOpenSuccesses = new AtomicInteger(0);
-  private final AtomicInteger halfOpenAttempts = new AtomicInteger(0);
+  private int halfOpenSuccesses;
+  private int halfOpenAttempts;
   // OPEN state timing
   private volatile long openedAtMs;
 
   public CircuitBreaker(String name, CircuitBreakerConfiguration config) {
     this.name = name;
     this.config = config;
-    this.window = new AtomicIntegerArray(config.slidingWindowSize());
+    this.window = new int[config.slidingWindowSize()];
+    Arrays.fill(this.window, UNINITIALIZED);
   }
 
   /** Returns the circuit breaker name. */
@@ -59,9 +63,14 @@ public class CircuitBreaker {
     // Auto-transition from OPEN to HALF_OPEN if wait duration has elapsed
     if (current == State.OPEN
         && System.currentTimeMillis() - openedAtMs >= config.waitDurationMs()) {
-      if (state.compareAndSet(State.OPEN, State.HALF_OPEN)) {
-        halfOpenSuccesses.set(0);
-        halfOpenAttempts.set(0);
+      lock.lock();
+      try {
+        if (state.compareAndSet(State.OPEN, State.HALF_OPEN)) {
+          halfOpenSuccesses = 0;
+          halfOpenAttempts = 0;
+        }
+      } finally {
+        lock.unlock();
       }
       return state.get();
     }
@@ -103,14 +112,19 @@ public class CircuitBreaker {
 
   /** Resets to CLOSED state, clearing all counters. */
   public void reset() {
-    // Zero counters before transitioning to CLOSED so no thread observes CLOSED with stale counts.
-    openedAtMs = 0L;
-    totalCalls.set(0);
-    failureCount.set(0);
-    windowIndex.set(0);
-    halfOpenSuccesses.set(0);
-    halfOpenAttempts.set(0);
-    state.set(State.CLOSED);
+    lock.lock();
+    try {
+      openedAtMs = 0L;
+      totalCalls = 0;
+      failureCount = 0;
+      windowIndex = 0;
+      halfOpenSuccesses = 0;
+      halfOpenAttempts = 0;
+      Arrays.fill(window, UNINITIALIZED);
+      state.set(State.CLOSED);
+    } finally {
+      lock.unlock();
+    }
   }
 
   private <T> T executeInClosed(Callable<T> task) throws Exception {
@@ -130,22 +144,33 @@ public class CircuitBreaker {
   }
 
   private <T> T executeInHalfOpen(Callable<T> task) throws Exception {
-    int attempt = halfOpenAttempts.incrementAndGet();
-    if (attempt > config.permittedCallsInHalfOpen()) {
-      throw new ServiceUnavailableException(
-          "Circuit breaker '" + name + "' is HALF_OPEN — trial calls exhausted");
+    lock.lock();
+    try {
+      int attempt = ++halfOpenAttempts;
+      if (attempt > config.permittedCallsInHalfOpen()) {
+        throw new ServiceUnavailableException(
+            "Circuit breaker '" + name + "' is HALF_OPEN — trial calls exhausted");
+      }
+    } finally {
+      lock.unlock();
     }
 
     try {
       T result = task.call();
-      int successes = halfOpenSuccesses.incrementAndGet();
-      if (successes >= config.permittedCallsInHalfOpen()) {
-        // All trial calls succeeded — transition to CLOSED
-        if (state.compareAndSet(State.HALF_OPEN, State.CLOSED)) {
-          totalCalls.set(0);
-          failureCount.set(0);
-          windowIndex.set(0);
+      lock.lock();
+      try {
+        int successes = ++halfOpenSuccesses;
+        if (successes >= config.permittedCallsInHalfOpen()) {
+          // All trial calls succeeded — transition to CLOSED
+          if (state.compareAndSet(State.HALF_OPEN, State.CLOSED)) {
+            totalCalls = 0;
+            failureCount = 0;
+            windowIndex = 0;
+            Arrays.fill(window, UNINITIALIZED);
+          }
         }
+      } finally {
+        lock.unlock();
       }
       return result;
     } catch (Exception e) {
@@ -156,36 +181,59 @@ public class CircuitBreaker {
   }
 
   private void recordSuccess() {
-    int len = window.length();
-    int idx = windowIndex.getAndUpdate(i -> (i + 1) % len);
-    int previous = window.getAndSet(idx, 1);
+    lock.lock();
+    try {
+      int len = window.length;
+      int idx = windowIndex;
+      windowIndex = (idx + 1) % len;
+      int previous = window[idx];
+      window[idx] = 1;
+      totalCalls++;
 
-    int total = totalCalls.incrementAndGet();
-    if (total > len && previous == 0) {
-      failureCount.decrementAndGet();
+      if (totalCalls > len && previous == 0) {
+        failureCount--;
+      }
+    } finally {
+      lock.unlock();
     }
   }
 
   private void recordFailure() {
-    int len = window.length();
-    int idx = windowIndex.getAndUpdate(i -> (i + 1) % len);
-    int previous = window.getAndSet(idx, 0);
+    int snapshotTotal;
+    int snapshotFailures;
+    lock.lock();
+    try {
+      int len = window.length;
+      int idx = windowIndex;
+      windowIndex = (idx + 1) % len;
+      int previous = window[idx];
+      window[idx] = 0;
+      totalCalls++;
 
-    int total = totalCalls.incrementAndGet();
-    if (total <= len || previous == 1) {
-      failureCount.incrementAndGet();
+      if (totalCalls <= len && previous == UNINITIALIZED) {
+        // Filling a new slot with a failure
+        failureCount++;
+      } else if (totalCalls > len && previous == 1) {
+        // Evicting a success, replacing with failure
+        failureCount++;
+      }
+      // Evicting a failure (previous == 0) and replacing with failure: no change
+
+      snapshotTotal = Math.min(totalCalls, len);
+      snapshotFailures = failureCount;
+    } finally {
+      lock.unlock();
     }
 
-    evaluateThreshold();
+    evaluateThreshold(snapshotTotal, snapshotFailures);
   }
 
-  private void evaluateThreshold() {
-    int total = Math.min(totalCalls.get(), window.length());
+  private void evaluateThreshold(int total, int failures) {
     if (total < config.minimumCalls()) {
       return;
     }
 
-    float failureRate = (failureCount.get() * 100.0f) / total;
+    float failureRate = (failures * 100.0f) / total;
     if (failureRate >= config.failureRateThreshold()) {
       transitionToOpen();
     }

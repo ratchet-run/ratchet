@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import run.ratchet.api.CircuitBreakerProfile;
 import run.ratchet.ri.resilience.CircuitBreaker;
 import run.ratchet.ri.resilience.CircuitBreakerConfiguration;
 import run.ratchet.ri.resilience.CircuitBreakerRegistry;
@@ -50,8 +51,8 @@ class CircuitBreakerIT extends BaseRatchetIT {
   @BeforeEach
   void resetState() {
     CircuitBreakerTestService.reset();
-    // Reset the circuit breaker for our test service
-    registry.resetBreaker("test-service:FAST");
+    // Reset the circuit breaker for our test service (must match interceptor key)
+    registry.resetBreaker("test-service", CircuitBreakerProfile.FAST);
   }
 
   @Test
@@ -68,7 +69,7 @@ class CircuitBreakerIT extends BaseRatchetIT {
     assertThrows(ServiceUnavailableException.class, () -> service.callService());
 
     // Verify the breaker state
-    CircuitBreaker breaker = registry.getBreaker("test-service:FAST");
+    CircuitBreaker breaker = registry.getBreaker("test-service", CircuitBreakerProfile.FAST);
     // After ServiceUnavailableException, state is either OPEN or transitioning
     assertEquals(
         CircuitBreaker.State.OPEN,
@@ -85,7 +86,7 @@ class CircuitBreakerIT extends BaseRatchetIT {
     }
 
     // Verify it's OPEN
-    CircuitBreaker breaker = registry.getBreaker("test-service:FAST");
+    CircuitBreaker breaker = registry.getBreaker("test-service", CircuitBreakerProfile.FAST);
     assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
 
     // Manually reset to simulate timeout (FAST profile wait is 10s — too long for unit test)

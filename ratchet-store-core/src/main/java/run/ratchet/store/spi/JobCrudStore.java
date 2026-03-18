@@ -89,6 +89,11 @@ public interface JobCrudStore {
   /** Returns the scheduled time of the oldest pending job. */
   Optional<Instant> getOldestPendingJobTime();
 
-  /** Returns the queue wait time percentile using the store's native percentile semantics. */
+  /**
+   * Returns the queue wait time at the given percentile for succeeded jobs.
+   *
+   * @param percentile a fraction in the range [0.0, 1.0], e.g. 0.95 for p95
+   * @return queue wait time in milliseconds at the requested percentile, or 0 if no data
+   */
   long getQueueWaitTimePercentile(double percentile);
 }

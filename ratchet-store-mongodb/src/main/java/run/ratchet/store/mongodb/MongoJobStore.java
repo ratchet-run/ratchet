@@ -401,7 +401,7 @@ public class MongoJobStore implements JobStore {
   @Override
   public long getQueueWaitTimePercentile(double percentile) {
     // Use $setWindowFields with $percentile (MongoDB 7.0+), fallback to sort+skip approximation
-    double fraction = percentile / 100.0;
+    double fraction = percentile;
     List<Document> pipeline =
         List.of(
             new Document(

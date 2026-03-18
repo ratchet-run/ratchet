@@ -3,6 +3,7 @@ package run.ratchet.ri.cdi;
 import com.cronutils.model.Cron;
 import run.ratchet.ri.core.BatchRecoveryTimer;
 import run.ratchet.ri.core.DeadLetterService;
+import run.ratchet.ri.core.DefaultNodeIdentityProvider;
 import run.ratchet.ri.core.JobArchivingService;
 import run.ratchet.ri.core.LogPurgeTimer;
 import run.ratchet.ri.core.OrphanRecoveryTimer;
@@ -11,6 +12,7 @@ import run.ratchet.ri.core.PollerWakeupListener;
 import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.ri.util.SchedulerConfig;
 import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.spi.NodeIdentityProvider;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.Initialized;
@@ -51,6 +53,7 @@ public class RatchetLifecycle {
   private final LogPurgeTimer logPurgeTimer;
   private final PollerWakeupListener pollerWakeupListener;
   private final ExecutorProvider executorProvider;
+  private final NodeIdentityProvider nodeIdentityProvider;
 
   protected RatchetLifecycle() {
     this.poller = null;
@@ -62,6 +65,7 @@ public class RatchetLifecycle {
     this.logPurgeTimer = null;
     this.pollerWakeupListener = null;
     this.executorProvider = null;
+    this.nodeIdentityProvider = null;
   }
 
   @Inject
@@ -74,7 +78,8 @@ public class RatchetLifecycle {
       JobArchivingService jobArchivingService,
       LogPurgeTimer logPurgeTimer,
       PollerWakeupListener pollerWakeupListener,
-      ExecutorProvider executorProvider) {
+      ExecutorProvider executorProvider,
+      NodeIdentityProvider nodeIdentityProvider) {
     this.poller = poller;
     this.recurringScheduler = recurringScheduler;
     this.orphanRecoveryTimer = orphanRecoveryTimer;
@@ -84,6 +89,7 @@ public class RatchetLifecycle {
     this.logPurgeTimer = logPurgeTimer;
     this.pollerWakeupListener = pollerWakeupListener;
     this.executorProvider = executorProvider;
+    this.nodeIdentityProvider = nodeIdentityProvider;
   }
 
   /**
@@ -142,5 +148,8 @@ public class RatchetLifecycle {
     deadLetterService.stop();
     jobArchivingService.stop();
     logPurgeTimer.stop();
+    if (nodeIdentityProvider instanceof DefaultNodeIdentityProvider defaultProvider) {
+      defaultProvider.shutdown();
+    }
   }
 }

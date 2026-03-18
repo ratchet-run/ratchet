@@ -86,7 +86,8 @@ CREATE TABLE IF NOT EXISTS scheduler_job
                                    ('SINGLE', 'RECURRING', 'BATCH_PARENT', 'BATCH_CHILD',
                                     'CHAIN_STEP', 'DLQ_ALERT', 'WORKFLOW_BRANCH', 'WORKFLOW_JOIN')),
     CONSTRAINT chk_job_priority CHECK (priority BETWEEN 0 AND 4),
-    CONSTRAINT chk_backoff_policy CHECK (backoff_policy IN ('NONE', 'FIXED', 'EXPONENTIAL'))
+    CONSTRAINT chk_backoff_policy CHECK (backoff_policy IN ('NONE', 'FIXED', 'EXPONENTIAL')),
+    CONSTRAINT chk_paused_from_status CHECK (paused_from_status IS NULL OR paused_from_status IN ('PENDING', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELED', 'PAUSED'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_job_due ON scheduler_job (status, scheduled_time);

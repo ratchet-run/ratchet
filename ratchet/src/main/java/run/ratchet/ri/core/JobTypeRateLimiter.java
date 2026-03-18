@@ -174,19 +174,13 @@ public class JobTypeRateLimiter {
       return count.get();
     }
 
-    boolean tryAcquire(int maxPerMinute) {
+    synchronized boolean tryAcquire(int maxPerMinute) {
       long now = System.currentTimeMillis();
-      long windowAge = now - windowStart;
 
-      if (windowAge >= 60000) {
-        synchronized (this) {
-          now = System.currentTimeMillis();
-          if (now - windowStart >= 60000) {
-            count.set(1);
-            windowStart = now;
-            return 1 <= maxPerMinute;
-          }
-        }
+      if (now - windowStart >= 60000) {
+        count.set(1);
+        windowStart = now;
+        return 1 <= maxPerMinute;
       }
 
       int current = count.incrementAndGet();

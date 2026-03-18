@@ -30,7 +30,6 @@ import jakarta.transaction.Transactional;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.Duration;
@@ -340,7 +339,7 @@ public class MysqlJobStore implements JobStore {
         (Number)
             em.createNativeQuery(
                     // language=MySQL
-                    "SELECT COUNT(*) FROM scheduler_job WHERE queue_wait_ms IS NOT NULL")
+                    "SELECT COUNT(*) FROM scheduler_job WHERE queue_wait_ms IS NOT NULL AND status = 'SUCCEEDED'")
                 .getSingleResult();
     long total = countResult.longValue();
     if (total == 0) {
@@ -354,7 +353,7 @@ public class MysqlJobStore implements JobStore {
                 """
                 SELECT COALESCE(queue_wait_ms, 0)
                 FROM scheduler_job
-                WHERE queue_wait_ms IS NOT NULL
+                WHERE queue_wait_ms IS NOT NULL AND status = 'SUCCEEDED'
                 ORDER BY queue_wait_ms ASC
                 LIMIT 1 OFFSET ?1""")
             .setParameter(1, offset)
@@ -700,21 +699,22 @@ public class MysqlJobStore implements JobStore {
     Connection conn = em.unwrap(Connection.class);
     try {
       String sql =
-          "INSERT INTO scheduler_job (status, paused_from_status, scheduled_time, "
+          "INSERT INTO scheduler_job (job_id, status, paused_from_status, scheduled_time, "
               + "job_type, priority, attempts, max_retries, backoff_policy, backoff_param_ms, "
               + "timeout_sec, cron_expr, zone_id, next_fire, payload, params, idempotency_key, "
               + "business_key, resource_name, depends_on, superseded_by, picked_by, picked_at, "
               + "last_error, created_at, created_by, updated_at, execution_start_time, "
               + "execution_end_time, execution_duration_ms, queue_wait_ms, job_result, "
               + "result_type, version) "
-              + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), "
+              + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), "
               + "CAST(? AS JSON), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
               + "CAST(? AS JSON), ?, 0)";
 
-      try (PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+      try (PreparedStatement ps = conn.prepareStatement(sql)) {
         Instant now = Instant.now();
         for (JobEntity job : jobs) {
           int i = 1;
+          ps.setLong(i++, job.getId());
           ps.setString(i++, (job.getStatus() != null ? job.getStatus() : JobStatus.PENDING).name());
           ps.setString(
               i++, job.getPausedFromStatus() != null ? job.getPausedFromStatus().name() : null);

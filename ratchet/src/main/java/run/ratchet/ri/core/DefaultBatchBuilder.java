@@ -106,6 +106,20 @@ public class DefaultBatchBuilder implements BatchBuilder {
     }
     batchStore.saveBatch(batch);
 
+    // Empty batch: complete immediately since no children will ever trigger completion
+    if (children.isEmpty()) {
+      savedParent.setStatus(JobStatus.SUCCEEDED);
+      jobCrudStore.save(savedParent);
+      batchStore.markBatchCompleteIfReady(parentId);
+      log.info(
+          "Batch '"
+              + name
+              + "' submitted with 0 children — completed immediately (id="
+              + parentId
+              + ")");
+      return () -> parentId;
+    }
+
     // Create child jobs
     for (ChildSpec child : children) {
       JobEntity childJob = new JobEntity();

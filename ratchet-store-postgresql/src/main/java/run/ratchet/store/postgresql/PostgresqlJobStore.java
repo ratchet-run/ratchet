@@ -292,7 +292,7 @@ public class PostgresqlJobStore implements JobStore {
         em.createNativeQuery(
                 "SELECT COALESCE(PERCENTILE_CONT(?) WITHIN GROUP (ORDER BY queue_wait_ms), 0) "
                     + "FROM scheduler_job WHERE queue_wait_ms IS NOT NULL AND status = 'SUCCEEDED'")
-            .setParameter(1, percentile / 100.0)
+            .setParameter(1, percentile)
             .getSingleResult();
     return result == null ? 0L : ((Number) result).longValue();
   }
@@ -631,84 +631,84 @@ public class PostgresqlJobStore implements JobStore {
       Connection conn = em.unwrap(Connection.class);
       String sql =
           "INSERT INTO scheduler_job "
-              + "(status, paused_from_status, scheduled_time, job_type, priority, "
+              + "(job_id, status, paused_from_status, scheduled_time, job_type, priority, "
               + "attempts, max_retries, backoff_policy, backoff_param_ms, timeout_sec, "
               + "cron_expr, zone_id, next_fire, payload, params, "
               + "idempotency_key, business_key, resource_name, depends_on, superseded_by, "
               + "picked_by, picked_at, last_error, created_at, created_by, "
               + "updated_at, execution_start_time, execution_end_time, execution_duration_ms, "
               + "queue_wait_ms, job_result, result_type, version) "
-              + "OVERRIDING SYSTEM VALUE "
-              + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)";
+              + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)";
       try (PreparedStatement ps = conn.prepareStatement(sql)) {
         for (JobEntity job : jobs) {
           Instant now = Instant.now();
-          ps.setString(1, job.getStatus() == null ? "PENDING" : job.getStatus().name());
+          ps.setLong(1, job.getId());
+          ps.setString(2, job.getStatus() == null ? "PENDING" : job.getStatus().name());
           ps.setString(
-              2, job.getPausedFromStatus() == null ? null : job.getPausedFromStatus().name());
-          ps.setTimestamp(3, Timestamp.from(job.getScheduledTime()));
-          ps.setString(4, job.getJobType().name());
-          ps.setInt(5, job.getPriority().ordinal());
-          ps.setInt(6, job.getAttempts());
-          ps.setInt(7, job.getMaxRetries());
-          ps.setString(8, job.getBackoffPolicy().name());
-          ps.setInt(9, job.getBackoffParamMs());
-          ps.setInt(10, job.getTimeoutSec());
-          ps.setString(11, job.getCronExpr() == null ? "" : job.getCronExpr());
-          ps.setString(12, job.getZoneId() == null ? "UTC" : job.getZoneId());
+              3, job.getPausedFromStatus() == null ? null : job.getPausedFromStatus().name());
+          ps.setTimestamp(4, Timestamp.from(job.getScheduledTime()));
+          ps.setString(5, job.getJobType().name());
+          ps.setInt(6, job.getPriority().ordinal());
+          ps.setInt(7, job.getAttempts());
+          ps.setInt(8, job.getMaxRetries());
+          ps.setString(9, job.getBackoffPolicy().name());
+          ps.setInt(10, job.getBackoffParamMs());
+          ps.setInt(11, job.getTimeoutSec());
+          ps.setString(12, job.getCronExpr() == null ? "" : job.getCronExpr());
+          ps.setString(13, job.getZoneId() == null ? "UTC" : job.getZoneId());
           if (job.getNextFire() != null) {
-            ps.setTimestamp(13, Timestamp.from(job.getNextFire()));
+            ps.setTimestamp(14, Timestamp.from(job.getNextFire()));
           } else {
-            ps.setNull(13, Types.TIMESTAMP);
+            ps.setNull(14, Types.TIMESTAMP);
           }
-          ps.setString(14, payloadToJson(job));
-          ps.setString(15, paramsToJson(job));
-          ps.setString(16, job.getIdempotencyKey());
-          ps.setString(17, job.getBusinessKey());
-          ps.setString(18, job.getResourceName());
+          ps.setString(15, payloadToJson(job));
+          ps.setString(16, paramsToJson(job));
+          ps.setString(17, job.getIdempotencyKey());
+          ps.setString(18, job.getBusinessKey());
+          ps.setString(19, job.getResourceName());
           if (job.getDependsOn() != null) {
-            ps.setLong(19, job.getDependsOn());
-          } else {
-            ps.setNull(19, Types.BIGINT);
-          }
-          if (job.getSupersededBy() != null) {
-            ps.setLong(20, job.getSupersededBy());
+            ps.setLong(20, job.getDependsOn());
           } else {
             ps.setNull(20, Types.BIGINT);
           }
-          ps.setString(21, job.getPickedBy());
+          if (job.getSupersededBy() != null) {
+            ps.setLong(21, job.getSupersededBy());
+          } else {
+            ps.setNull(21, Types.BIGINT);
+          }
+          ps.setString(22, job.getPickedBy());
           if (job.getPickedAt() != null) {
-            ps.setTimestamp(22, Timestamp.from(job.getPickedAt()));
+            ps.setTimestamp(23, Timestamp.from(job.getPickedAt()));
           } else {
-            ps.setNull(22, Types.TIMESTAMP);
+            ps.setNull(23, Types.TIMESTAMP);
           }
-          ps.setString(23, job.getLastError());
+          ps.setString(24, job.getLastError());
           ps.setTimestamp(
-              24, Timestamp.from(job.getCreatedAt() != null ? job.getCreatedAt() : now));
-          ps.setString(25, job.getCreatedBy());
-          ps.setTimestamp(26, Timestamp.from(now));
+              25, Timestamp.from(job.getCreatedAt() != null ? job.getCreatedAt() : now));
+          ps.setString(26, job.getCreatedBy());
+          ps.setTimestamp(27, Timestamp.from(now));
           if (job.getExecutionStartTime() != null) {
-            ps.setTimestamp(27, Timestamp.from(job.getExecutionStartTime()));
-          } else {
-            ps.setNull(27, Types.TIMESTAMP);
-          }
-          if (job.getExecutionEndTime() != null) {
-            ps.setTimestamp(28, Timestamp.from(job.getExecutionEndTime()));
+            ps.setTimestamp(28, Timestamp.from(job.getExecutionStartTime()));
           } else {
             ps.setNull(28, Types.TIMESTAMP);
           }
-          if (job.getExecutionDurationMs() != null) {
-            ps.setLong(29, job.getExecutionDurationMs());
+          if (job.getExecutionEndTime() != null) {
+            ps.setTimestamp(29, Timestamp.from(job.getExecutionEndTime()));
           } else {
-            ps.setNull(29, Types.BIGINT);
+            ps.setNull(29, Types.TIMESTAMP);
           }
-          if (job.getQueueWaitMs() != null) {
-            ps.setLong(30, job.getQueueWaitMs());
+          if (job.getExecutionDurationMs() != null) {
+            ps.setLong(30, job.getExecutionDurationMs());
           } else {
             ps.setNull(30, Types.BIGINT);
           }
-          ps.setString(31, job.getJobResult());
-          ps.setString(32, job.getResultType());
+          if (job.getQueueWaitMs() != null) {
+            ps.setLong(31, job.getQueueWaitMs());
+          } else {
+            ps.setNull(31, Types.BIGINT);
+          }
+          ps.setString(32, job.getJobResult());
+          ps.setString(33, job.getResultType());
           ps.addBatch();
         }
         ps.executeBatch();
