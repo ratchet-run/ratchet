@@ -184,7 +184,7 @@ public class MongoJobStore implements JobStore {
   public JobStatus getJobStatus(long id) {
     Document doc = jobs().find(eq("_id", id)).projection(new Document("status", 1)).first();
     if (doc == null) {
-      throw new IllegalArgumentException("Job not found: " + id);
+      return null;
     }
     return JobStatus.valueOf(doc.getString("status"));
   }
