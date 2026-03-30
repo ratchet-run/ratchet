@@ -290,9 +290,19 @@ public class ThreadPoolManager {
     return health;
   }
 
-  /** Performs cleanup during application shutdown. */
+  /**
+   * Performs cleanup during application shutdown.
+   *
+   * <p>Note: The underlying {@link ExecutorService} instances are owned by the {@link
+   * ExecutorProvider} SPI and are shut down through its lifecycle, not here. This method clears
+   * internal concurrency tracking state to allow garbage collection.
+   */
   public void shutdown() {
-    log.info("Shutting down managed thread pools...");
+    log.info("Shutting down thread pool manager...");
+    concurrencyLimits.clear();
+    virtualThreadCounts.clear();
+    virtualThreadLimits.clear();
+    activeCounts.clear();
     log.info("Thread pool manager shutdown complete");
   }
 
