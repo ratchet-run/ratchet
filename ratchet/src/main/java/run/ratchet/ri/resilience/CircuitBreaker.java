@@ -105,9 +105,11 @@ public class CircuitBreaker {
     if (current == State.OPEN) {
       return;
     }
-    if (state.compareAndSet(current, State.OPEN)) {
-      openedAtMs = System.currentTimeMillis();
-    }
+    // Write openedAtMs BEFORE the CAS so any thread that sees state==OPEN via getState()
+    // also sees a valid timestamp. Without this ordering, a concurrent getState() could read
+    // openedAtMs=0, compute elapsed > waitDurationMs, and immediately transition to HALF_OPEN.
+    openedAtMs = System.currentTimeMillis();
+    state.compareAndSet(current, State.OPEN);
   }
 
   /** Resets to CLOSED state, clearing all counters. */

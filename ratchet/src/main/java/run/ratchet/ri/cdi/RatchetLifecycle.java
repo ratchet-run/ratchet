@@ -2,9 +2,11 @@ package run.ratchet.ri.cdi;
 
 import com.cronutils.model.Cron;
 import run.ratchet.ri.core.BatchRecoveryTimer;
+import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.DeadLetterService;
 import run.ratchet.ri.core.DefaultNodeIdentityProvider;
 import run.ratchet.ri.core.JobArchivingService;
+import run.ratchet.ri.core.JobTask;
 import run.ratchet.ri.core.LogPurgeTimer;
 import run.ratchet.ri.core.OrphanRecoveryTimer;
 import run.ratchet.ri.core.Poller;
@@ -151,5 +153,9 @@ public class RatchetLifecycle {
     if (nodeIdentityProvider instanceof DefaultNodeIdentityProvider defaultProvider) {
       defaultProvider.shutdown();
     }
+
+    // Release classloader references held by static reflection caches
+    JobTask.clearCaches();
+    BatchService.clearCaches();
   }
 }

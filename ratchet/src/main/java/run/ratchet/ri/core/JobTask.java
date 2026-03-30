@@ -69,6 +69,17 @@ public class JobTask implements Callable<Void> {
   private static final ConcurrentHashMap<String, String> SERVICE_NAME_CACHE =
       new ConcurrentHashMap<>();
 
+  /**
+   * Clears all static reflection caches. Must be called on application shutdown to release
+   * classloader references and prevent memory leaks in redeployable containers (e.g., WildFly,
+   * Payara).
+   */
+  public static void clearCaches() {
+    METHOD_CACHE.clear();
+    CLASS_CACHE.clear();
+    SERVICE_NAME_CACHE.clear();
+  }
+
   private final JobStore jobStore;
   private final ResourcePermitService resourcePermitService;
   private final PostExecutionHandler lifecycleFacade;
@@ -163,10 +174,10 @@ public class JobTask implements Callable<Void> {
     JobMdcContext.bindJobContext(jobId, jobEntity.getParams());
 
     if (jobEntity.getCreatedBy() != null) {
-      log.info("Job " + jobId + " created by user: " + jobEntity.getCreatedBy());
+      log.fine("Job " + jobId + " created by user: " + jobEntity.getCreatedBy());
       JobMdcContext.setJobCreator(jobEntity.getCreatedBy());
     } else {
-      log.info("Job " + jobId + " created by system (no user context)");
+      log.fine("Job " + jobId + " created by system (no user context)");
     }
 
     observabilityFacade.recordJobStart(jobEntity);

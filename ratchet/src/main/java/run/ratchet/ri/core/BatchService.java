@@ -75,6 +75,15 @@ public class BatchService {
    */
   private static final ConcurrentHashMap<String, Class<?>> CLASS_CACHE = new ConcurrentHashMap<>();
 
+  /**
+   * Clears all static reflection caches. Must be called on application shutdown to release
+   * classloader references and prevent memory leaks in redeployable containers.
+   */
+  public static void clearCaches() {
+    HOOK_METHOD_CACHE.clear();
+    CLASS_CACHE.clear();
+  }
+
   /** Store for batch entity CRUD operations and atomic progress updates. */
   private final BatchStore batchStore;
 

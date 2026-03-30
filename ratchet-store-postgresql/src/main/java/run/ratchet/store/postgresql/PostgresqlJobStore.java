@@ -93,12 +93,15 @@ public class PostgresqlJobStore implements JobStore {
 
   @Override
   public JobStatus getJobStatus(long id) {
-    String status =
-        (String)
-            em.createNativeQuery("SELECT status FROM scheduler_job WHERE job_id = ?")
-                .setParameter(1, id)
-                .getSingleResult();
-    return JobStatus.valueOf(status);
+    @SuppressWarnings("unchecked")
+    List<Object> results =
+        em.createNativeQuery("SELECT status FROM scheduler_job WHERE job_id = ?")
+            .setParameter(1, id)
+            .getResultList();
+    if (results.isEmpty()) {
+      return null;
+    }
+    return JobStatus.valueOf((String) results.get(0));
   }
 
   @Override

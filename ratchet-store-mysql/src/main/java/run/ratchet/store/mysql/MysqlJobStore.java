@@ -113,9 +113,11 @@ public class MysqlJobStore implements JobStore {
 
   @Override
   public JobStatus getJobStatus(long id) {
-    return em.createQuery("SELECT j.status FROM JobEntity j WHERE j.id = :id", JobStatus.class)
-        .setParameter("id", id)
-        .getSingleResult();
+    List<JobStatus> results =
+        em.createQuery("SELECT j.status FROM JobEntity j WHERE j.id = :id", JobStatus.class)
+            .setParameter("id", id)
+            .getResultList();
+    return results.isEmpty() ? null : results.get(0);
   }
 
   @Override
