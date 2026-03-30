@@ -1,12 +1,8 @@
 package run.ratchet.api;
 
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 /**
  * Fluent API builder for creating and configuring individual jobs.
@@ -71,184 +67,9 @@ import java.util.UUID;
  * @see JobHandle
  * @see WorkflowCondition
  */
-public final class JobBuilder {
+public interface JobBuilder {
 
-  /**
-   * Reference to the job submitter that will persist and execute the job.
-   *
-   * <p>This submitter handles the actual persistence of the job configuration to the database and
-   * manages the job lifecycle.
-   */
-  private final JobSubmitter submitter;
-
-  /**
-   * The primary task to be executed when the job runs.
-   *
-   * <p>This is the main work unit of the job. It must be serializable to allow persistence and
-   * execution on any cluster node.
-   */
-  private final SerializableCheckedRunnable task;
-
-  /**
-   * The duration to wait before the job becomes eligible for execution.
-   *
-   * <p>A delay of {@link Duration#ZERO} means the job is immediately eligible. Non-zero delays are
-   * used for scheduled/deferred job execution.
-   */
-  private final Duration delay;
-
-  /**
-   * Tags for categorizing and filtering jobs.
-   *
-   * <p>Tags are normalized to lowercase during addition. They enable querying jobs by category
-   * (e.g., "order-processing", "email-notifications") for monitoring and management purposes.
-   */
-  private final List<String> tags = new ArrayList<>();
-
-  /**
-   * Sequential chain of tasks to execute after the primary task completes.
-   *
-   * <p>Tasks in the chain execute in order as linked internal jobs within the public {@link
-   * JobType#CHAIN} category. This enables building multi-step workflows where each step must
-   * complete successfully before the next begins.
-   */
-  private final List<SerializableCheckedRunnable> chain = new ArrayList<>();
-
-  /**
-   * Conditional workflow branches that may execute based on job results.
-   *
-   * <p>Unlike the sequential chain, workflow branches are evaluated against conditions (success,
-   * failure, custom predicates) and may or may not execute depending on the job's outcome. Multiple
-   * branches can execute if their conditions are met.
-   */
-  private final List<WorkflowBranch> workflowBranches = new ArrayList<>();
-
-  /**
-   * Key-value parameters that can be accessed during job execution.
-   *
-   * <p>Parameters provide a lightweight way to pass configuration data to jobs without the overhead
-   * of serializing complex objects. Accessed via {@link JobContext#param(String)} and {@link
-   * JobContext#param(String, String)}.
-   */
-  private final Map<String, String> params = new HashMap<>();
-
-  /**
-   * Configuration options for job execution behavior.
-   *
-   * <p>Includes priority, retry settings, backoff policy, and timeout configuration. Defaults to
-   * {@link JobOptions#defaults()} and can be customized through the various {@code with*} methods.
-   */
-  private JobOptions options = JobOptions.defaults();
-
-  /**
-   * Callback invoked when the job completes successfully.
-   *
-   * <p>Receives the {@link JobContext} allowing access to job metadata and parameters. The callback
-   * is serialized with the job payload and executed on the same thread immediately after successful
-   * task completion.
-   */
-  private SerializableConsumer<JobContext> onSuccess;
-
-  /**
-   * Callback invoked when the job fails after exhausting all retries.
-   *
-   * <p>Receives both the {@link JobContext} and the exception that caused the failure. The callback
-   * is serialized with the job payload and executed on the same thread after final failure
-   * determination.
-   */
-  private SerializableBiConsumer<JobContext, Throwable> onFailure;
-
-  /**
-   * Flag indicating whether this job should trigger immediate wakeup notification.
-   *
-   * <p>When true, the scheduler publishes a wakeup notification to all cluster nodes upon job
-   * submission, causing pollers to immediately check for work. This reduces latency for
-   * user-triggered actions where responsiveness is important.
-   */
-  private boolean immediate = false;
-
-  /**
-   * Idempotency key for preventing duplicate job creation from retries.
-   *
-   * <p>Auto-generated as a UUID when the JobBuilder is created. This ensures that if the same
-   * JobBuilder instance is retried (e.g., due to transaction retry or network issues), the UNIQUE
-   * constraint on idempotencyKey catches the duplicate and returns the existing job.
-   *
-   * <p>Callers can override with a custom key via {@link #withIdempotencyKey(String)} for external
-   * deduplication (e.g., webhook delivery IDs, payment request IDs).
-   */
-  private String idempotencyKey;
-
-  /**
-   * Business key for preventing concurrent execution against the same entity.
-   *
-   * <p>Unlike {@link #idempotencyKey} which is globally unique, businessKey allows multiple
-   * completed jobs with the same key over time. It only blocks creating a new job when an active
-   * (PENDING/RUNNING) job with the same key already exists.
-   *
-   * <p>Use cases:
-   *
-   * <ul>
-   *   <li>Prevent double-processing from UI double-clicks
-   *   <li>"Only one sync per user at a time, but re-runs allowed after completion"
-   *   <li>Prevent concurrent operations on the same business entity
-   * </ul>
-   */
-  private String businessKey;
-
-  /**
-   * Name of the resource this job requires for execution.
-   *
-   * <p>When set, the job must acquire a permit from the resource pool before execution. If no
-   * permits are available (resource at capacity), the job is rescheduled with a delay.
-   *
-   * <p>Use cases:
-   *
-   * <ul>
-   *   <li>Limit concurrent calls to an external API (e.g., max 5 payment calls)
-   *   <li>Prevent overload of rate-limited services
-   *   <li>Share capacity across different job types accessing the same resource
-   * </ul>
-   */
-  private String resourceName;
-
-  /**
-   * Creates a new JobBuilder with the specified submitter, task, and execution delay.
-   *
-   * <p>This factory method is the public entry point for creating JobBuilder instances from outside
-   * the API package (e.g., from the reference implementation module). The submitter handles actual
-   * persistence when {@link #submit()} is called.
-   *
-   * <p><b>Important:</b> A UUID is auto-generated for the idempotency key at creation time. This
-   * ensures that if the same JobBuilder instance is retried (e.g., transaction retry), it uses the
-   * same UUID = deduplicated. New JobBuilder = new UUID = new job.
-   *
-   * @param submitter the job submitter managing this job's lifecycle
-   * @param task the primary task to be executed
-   * @param delay the duration to wait before initial job execution
-   * @return a new JobBuilder instance
-   * @see JobSubmitter
-   */
-  public static JobBuilder create(
-      JobSubmitter submitter, SerializableCheckedRunnable task, Duration delay) {
-    return new JobBuilder(submitter, task, delay);
-  }
-
-  /**
-   * Package-private constructor used internally.
-   *
-   * @param submitter the job submitter managing this job's lifecycle
-   * @param task the primary task to be executed
-   * @param delay the duration to wait before initial job execution
-   */
-  JobBuilder(JobSubmitter submitter, SerializableCheckedRunnable task, Duration delay) {
-    this.submitter = submitter;
-    this.task = task;
-    this.delay = delay;
-    // Auto-generate idempotency key at builder creation time (NOT at persist time!)
-    // This ensures same builder retried = same UUID = deduplicated
-    this.idempotencyKey = UUID.randomUUID().toString();
-  }
+  // ========== Fluent Builder Methods ==========
 
   /**
    * Adds a workflow branch with a custom description for monitoring/debugging.
@@ -258,11 +79,8 @@ public final class JobBuilder {
    * @param description human-readable description of this branch
    * @return the current JobBuilder instance for method chaining
    */
-  public JobBuilder branch(
-      WorkflowCondition condition, SerializableCheckedRunnable next, String description) {
-    workflowBranches.add(WorkflowBranch.of(condition, next, description));
-    return this;
-  }
+  JobBuilder branch(
+      WorkflowCondition condition, SerializableCheckedRunnable next, String description);
 
   /**
    * Marks this job for immediate execution notification.
@@ -277,10 +95,7 @@ public final class JobBuilder {
    *
    * @return the current {@code JobBuilder} instance, allowing method chaining
    */
-  public JobBuilder immediate() {
-    this.immediate = true;
-    return this;
-  }
+  JobBuilder immediate();
 
   /**
    * Sets a callback to be invoked if the job fails during execution.
@@ -290,10 +105,7 @@ public final class JobBuilder {
    *     Throwable} that describes the error.
    * @return the current {@code JobBuilder} instance, allowing method chaining.
    */
-  public JobBuilder onFailure(SerializableBiConsumer<JobContext, Throwable> f) {
-    onFailure = f;
-    return this;
-  }
+  JobBuilder onFailure(SerializableBiConsumer<JobContext, Throwable> f);
 
   /**
    * Sets a callback to be invoked upon successful completion of the job.
@@ -302,10 +114,7 @@ public final class JobBuilder {
    *     {@link JobContext} that represents the execution context of the job.
    * @return the current {@code JobBuilder} instance, allowing method chaining.
    */
-  public JobBuilder onSuccess(SerializableConsumer<JobContext> s) {
-    onSuccess = s;
-    return this;
-  }
+  JobBuilder onSuccess(SerializableConsumer<JobContext> s);
 
   /**
    * Submits the current job configuration, including the main task and any chained tasks, to the
@@ -314,9 +123,7 @@ public final class JobBuilder {
    * @return a {@link JobHandle} representing the submitted job, providing access to its unique
    *     identifier.
    */
-  public JobHandle submit() {
-    return submitter.submit(this);
-  }
+  JobHandle submit();
 
   /**
    * Adds a new task to the chain of tasks to be executed as part of the job. This allows for
@@ -325,10 +132,7 @@ public final class JobBuilder {
    * @param next the task to be added to the chain. Must not be null.
    * @return the current {@code JobBuilder} instance, allowing further configuration.
    */
-  public JobBuilder then(SerializableCheckedRunnable next) {
-    chain.add(next);
-    return this;
-  }
+  JobBuilder then(SerializableCheckedRunnable next);
 
   /**
    * Schedules a separate job to execute if the current job fails. This creates a workflow branch
@@ -337,10 +141,7 @@ public final class JobBuilder {
    * @param next the task to execute on failure as a separate job
    * @return the current JobBuilder instance for method chaining
    */
-  public JobBuilder thenOnFailure(SerializableCheckedRunnable next) {
-    workflowBranches.add(new WorkflowBranch(WorkflowCondition.failure(), next));
-    return this;
-  }
+  JobBuilder thenOnFailure(SerializableCheckedRunnable next);
 
   /**
    * Schedules a separate job to execute if the current job succeeds. This creates a workflow branch
@@ -349,10 +150,7 @@ public final class JobBuilder {
    * @param next the task to execute on success as a separate job
    * @return the current JobBuilder instance for method chaining
    */
-  public JobBuilder thenOnSuccess(SerializableCheckedRunnable next) {
-    workflowBranches.add(new WorkflowBranch(WorkflowCondition.success(), next));
-    return this;
-  }
+  JobBuilder thenOnSuccess(SerializableCheckedRunnable next);
 
   /**
    * Schedules a job to execute when a custom condition is met. The condition is evaluated based on
@@ -360,13 +158,11 @@ public final class JobBuilder {
    *
    * @param condition predicate that determines if the branch should execute
    * @param next the task to execute when condition is met
+   * @param <T> the type of the job result
    * @return the current JobBuilder instance for method chaining
    */
-  public <T> JobBuilder when(
-      SerializablePredicate<JobResult<T>> condition, SerializableCheckedRunnable next) {
-    workflowBranches.add(new WorkflowBranch(WorkflowCondition.custom(condition), next));
-    return this;
-  }
+  <T> JobBuilder when(
+      SerializablePredicate<JobResult<T>> condition, SerializableCheckedRunnable next);
 
   /**
    * Schedules a job to execute when a custom condition with priority is met. Lower priority numbers
@@ -375,17 +171,13 @@ public final class JobBuilder {
    * @param condition predicate that determines if the branch should execute
    * @param next the task to execute when condition is met
    * @param priority evaluation priority (lower = higher priority)
+   * @param <T> the type of the job result
    * @return the current JobBuilder instance for method chaining
    */
-  public <T> JobBuilder when(
+  <T> JobBuilder when(
       SerializablePredicate<JobResult<T>> condition,
       SerializableCheckedRunnable next,
-      int priority) {
-    workflowBranches.add(new WorkflowBranch(WorkflowCondition.custom(condition, priority), next));
-    return this;
-  }
-
-  // ========== Workflow Branching Methods ==========
+      int priority);
 
   /**
    * Schedules a job to execute based on the return value of the current job. The condition function
@@ -393,13 +185,11 @@ public final class JobBuilder {
    *
    * @param condition function that evaluates the job's return value
    * @param next the task to execute when condition returns true
+   * @param <T> the type of the job result
    * @return the current JobBuilder instance for method chaining
    */
-  public <T> JobBuilder whenResult(
-      SerializableFunction<T, Boolean> condition, SerializableCheckedRunnable next) {
-    workflowBranches.add(new WorkflowBranch(WorkflowCondition.result(condition), next));
-    return this;
-  }
+  <T> JobBuilder whenResult(
+      SerializableFunction<T, Boolean> condition, SerializableCheckedRunnable next);
 
   /**
    * Overrides the auto-generated idempotency key with a custom key.
@@ -432,13 +222,7 @@ public final class JobBuilder {
    * @param key the idempotency key. If null or blank, keeps the auto-generated UUID.
    * @return the current {@code JobBuilder} instance, allowing method chaining.
    */
-  public JobBuilder withIdempotencyKey(String key) {
-    if (key != null && !key.isBlank()) {
-      this.idempotencyKey = key.trim();
-    }
-    // If null/blank, keep the auto-generated UUID
-    return this;
-  }
+  JobBuilder withIdempotencyKey(String key);
 
   /**
    * Sets a business key for preventing concurrent execution against the same entity.
@@ -467,10 +251,7 @@ public final class JobBuilder {
    * @param key the business key. If null or blank, no concurrent execution blocking is performed.
    * @return the current {@code JobBuilder} instance, allowing method chaining.
    */
-  public JobBuilder withBusinessKey(String key) {
-    this.businessKey = (key != null && !key.isBlank()) ? key.trim() : null;
-    return this;
-  }
+  JobBuilder withBusinessKey(String key);
 
   /**
    * Specifies a resource that this job requires for execution.
@@ -496,11 +277,7 @@ public final class JobBuilder {
    *     limiting.
    * @return the current {@code JobBuilder} instance, allowing method chaining.
    */
-  public JobBuilder withResource(String resourceName) {
-    this.resourceName =
-        (resourceName != null && !resourceName.isBlank()) ? resourceName.trim() : null;
-    return this;
-  }
+  JobBuilder withResource(String resourceName);
 
   /**
    * Configures the job to use the specified backoff policy and parameter. The backoff policy
@@ -513,10 +290,7 @@ public final class JobBuilder {
    *     strategy, this defines the fixed delay between retries. Must not be null.
    * @return the current {@code JobBuilder} instance, allowing further configuration.
    */
-  public JobBuilder withBackoff(BackoffPolicy policy, Duration param) {
-    options = options.withBackoff(policy, param);
-    return this;
-  }
+  JobBuilder withBackoff(BackoffPolicy policy, Duration param);
 
   /**
    * Configures the maximum number of retry attempts for the job in case of failure. This method
@@ -525,10 +299,7 @@ public final class JobBuilder {
    * @param retries the maximum number of retries to attempt. Must be a non-negative integer.
    * @return the current {@code JobBuilder} instance, allowing further configuration.
    */
-  public JobBuilder withMaxRetries(int retries) {
-    options = options.withMaxRetries(retries);
-    return this;
-  }
+  JobBuilder withMaxRetries(int retries);
 
   /**
    * Adds a parameter to the job that can be accessed during execution. Parameters are simple
@@ -539,12 +310,7 @@ public final class JobBuilder {
    * @param value the parameter value. Must not be null.
    * @return the current {@code JobBuilder} instance, allowing method chaining.
    */
-  public JobBuilder withParam(String key, String value) {
-    if (key != null && !key.isBlank() && value != null) {
-      params.put(key.trim(), value);
-    }
-    return this;
-  }
+  JobBuilder withParam(String key, String value);
 
   /**
    * Sets the priority of the job. Priority determines the execution order of jobs, with higher
@@ -554,10 +320,7 @@ public final class JobBuilder {
    * @param priority the priority level for the job.
    * @return the current {@code JobBuilder} instance, allowing further configuration.
    */
-  public JobBuilder withPriority(JobPriority priority) {
-    options = options.withPriority(priority);
-    return this;
-  }
+  JobBuilder withPriority(JobPriority priority);
 
   /**
    * Adds one or more tags to the job configuration. Tags are trimmed, converted to lowercase, and
@@ -566,14 +329,7 @@ public final class JobBuilder {
    * @param tags the tags to add to the job. Each tag should be a non-null, non-blank string.
    * @return the current {@code JobBuilder} instance, allowing method chaining.
    */
-  public JobBuilder withTags(String... tags) {
-    for (String tag : tags) {
-      if (tag != null && !tag.isBlank()) {
-        this.tags.add(tag.trim().toLowerCase());
-      }
-    }
-    return this;
-  }
+  JobBuilder withTags(String... tags);
 
   /**
    * Sets a timeout for the job, specifying the maximum duration the job is allowed to run before
@@ -583,10 +339,9 @@ public final class JobBuilder {
    * @param timeout the timeout duration for the job. Must not be null.
    * @return the current {@code JobBuilder} instance, allowing method chaining.
    */
-  public JobBuilder withTimeout(Duration timeout) {
-    options = options.withTimeout(timeout);
-    return this;
-  }
+  JobBuilder withTimeout(Duration timeout);
+
+  // ========== Accessor Methods ==========
 
   /**
    * Retrieves the list of tasks that have been added to the job's execution chain.
@@ -597,148 +352,102 @@ public final class JobBuilder {
    * @return an unmodifiable list of {@code SerializableCheckedRunnable} objects representing the
    *     task chain
    */
-  public List<SerializableCheckedRunnable> chainTasks() {
-    return Collections.unmodifiableList(chain);
-  }
+  List<SerializableCheckedRunnable> chainTasks();
 
   /**
    * Returns the configured delay before job execution.
    *
-   * <p>Package-private accessor used by {@link JobSubmitter} during job persistence to calculate
-   * the scheduled execution time.
-   *
    * @return the delay duration, never null (may be {@link Duration#ZERO})
+   * @see JobSubmitter
    */
-  public Duration delay() {
-    return delay;
-  }
+  Duration delay();
 
   /**
    * Returns the idempotency key for duplicate job creation prevention.
    *
-   * <p>Package-private accessor used by {@link JobSubmitter} during job persistence. This value is
-   * NEVER null - it's auto-generated at builder creation time.
+   * <p>This value is NEVER null - it's auto-generated at builder creation time.
    *
    * @return the idempotency key (auto-generated UUID or custom-provided)
+   * @see JobSubmitter
    */
-  public String idempotencyKey() {
-    return idempotencyKey;
-  }
+  String idempotencyKey();
 
   /**
    * Returns the business key for concurrent execution prevention, if set.
    *
-   * <p>Package-private accessor used by {@link JobSubmitter} to check for active jobs with the same
-   * business key before creating a new job.
-   *
    * @return the business key, or null if not configured
+   * @see JobSubmitter
    */
-  public String businessKey() {
-    return businessKey;
-  }
+  String businessKey();
 
   /**
    * Returns whether this job should trigger immediate wakeup notification.
    *
-   * <p>Package-private accessor used by {@link JobSubmitter} to determine whether to publish a
-   * wakeup notification to cluster nodes after job submission.
-   *
    * @return true if immediate wakeup is requested, false otherwise
+   * @see JobSubmitter
    */
-  public boolean isImmediate() {
-    return immediate;
-  }
+  boolean isImmediate();
 
   /**
    * Returns the configured failure callback.
    *
-   * <p>Package-private accessor used by {@link JobSubmitter} during job persistence to serialize
-   * the callback as part of the job payload.
-   *
    * @return the failure callback, or null if not configured
+   * @see JobSubmitter
    */
-  public SerializableBiConsumer<JobContext, Throwable> onFailure() {
-    return onFailure;
-  }
+  SerializableBiConsumer<JobContext, Throwable> onFailure();
 
   /**
    * Returns the configured success callback.
    *
-   * <p>Package-private accessor used by {@link JobSubmitter} during job persistence to serialize
-   * the callback as part of the job payload.
-   *
    * @return the success callback, or null if not configured
+   * @see JobSubmitter
    */
-  public SerializableConsumer<JobContext> onSuccess() {
-    return onSuccess;
-  }
+  SerializableConsumer<JobContext> onSuccess();
 
   /**
    * Returns the configured job options.
    *
-   * <p>Package-private accessor used by {@link JobSubmitter} during job persistence to apply
-   * priority, retry, timeout, and backoff settings to the job entity.
-   *
    * @return the job options, never null (defaults to {@link JobOptions#defaults()})
+   * @see JobSubmitter
    */
-  public JobOptions opts() {
-    return options;
-  }
+  JobOptions opts();
 
   /**
    * Returns the configured job parameters.
    *
-   * <p>Package-private accessor used by {@link JobSubmitter} during job persistence to store
-   * parameters with the job entity.
-   *
-   * @return the mutable parameters map, never null
+   * @return an unmodifiable view of the parameters map, never null
+   * @see JobSubmitter
    */
-  public Map<String, String> params() {
-    return params;
-  }
+  Map<String, String> params();
 
   /**
    * Returns the configured job tags.
    *
-   * <p>Package-private accessor used by {@link JobSubmitter} during job persistence to associate
-   * tags with the job entity.
-   *
-   * @return the mutable list of tags, never null
+   * @return an unmodifiable view of the tags list, never null
+   * @see JobSubmitter
    */
-  public List<String> tags() {
-    return tags;
-  }
+  List<String> tags();
 
   /**
    * Returns the primary task to be executed.
    *
-   * <p>Package-private accessor used by {@link JobSubmitter} during job persistence to serialize
-   * the task as the job payload.
-   *
    * @return the primary task, never null
+   * @see JobSubmitter
    */
-  public SerializableCheckedRunnable task() {
-    return task;
-  }
+  SerializableCheckedRunnable task();
 
   /**
    * Retrieves the list of workflow branches for this job.
    *
    * @return an unmodifiable list of workflow branches
    */
-  public List<WorkflowBranch> workflowBranches() {
-    return Collections.unmodifiableList(workflowBranches);
-  }
+  List<WorkflowBranch> workflowBranches();
 
   /**
    * Returns the resource name this job requires for execution, if any.
    *
-   * <p>Package-private accessor used by {@link JobSubmitter} during job persistence to store the
-   * resource requirement with the job entity.
-   *
    * @return the resource name, or null if no resource limiting is needed
+   * @see JobSubmitter
    */
-  public String resourceName() {
-    return resourceName;
-  }
+  String resourceName();
 }

@@ -8,7 +8,9 @@ import run.ratchet.api.event.JobDlqEvent;
 import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobStartedEvent;
 import run.ratchet.ri.resilience.ServiceUnavailableException;
+import run.ratchet.ri.util.ObjectMapperFactory;
 import run.ratchet.spi.BeanResolver;
+import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.ResilienceStrategy;
 import run.ratchet.spi.RetryPolicy;
@@ -59,10 +61,10 @@ public class JobTask implements Callable<Void> {
   private static final Logger log = Logger.getLogger(JobTask.class.getName());
 
   /**
-   * Thread-safe ObjectMapper singleton for JSON serialization of job results. ObjectMapper is
-   * thread-safe and expensive to create (~1ms), so we use a static singleton.
+   * Thread-safe ObjectMapper singleton for JSON serialization of job results. Configured with
+   * JavaTimeModule for correct java.time serialization as ISO-8601 strings.
    */
-  private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+  private static final ObjectMapper OBJECT_MAPPER = ObjectMapperFactory.get();
 
   private static final ConcurrentHashMap<String, Method> METHOD_CACHE = new ConcurrentHashMap<>();
   private static final ConcurrentHashMap<String, Class<?>> CLASS_CACHE = new ConcurrentHashMap<>();
@@ -88,8 +90,8 @@ public class JobTask implements Callable<Void> {
   private final PreExecutionValidator validationFacade;
   private final BeanResolver beanResolver;
   private final RetryPolicy retryPolicy;
-
   private final ResilienceStrategy resilienceStrategy;
+  private final ErrorSanitizer errorSanitizer;
 
   private JobEntity job;
   private JobClaimDto claim;
@@ -107,6 +109,7 @@ public class JobTask implements Callable<Void> {
     this.beanResolver = null;
     this.retryPolicy = null;
     this.resilienceStrategy = null;
+    this.errorSanitizer = null;
   }
 
   /**
@@ -121,6 +124,7 @@ public class JobTask implements Callable<Void> {
    * @param beanResolver resolver for bean instances by type
    * @param retryPolicy policy for retry decisions and delay calculation
    * @param resilienceStrategy strategy for resilience protection (e.g. circuit breakers)
+   * @param errorSanitizer sanitizer for exception messages before persistence
    */
   @Inject
   public JobTask(
@@ -132,7 +136,8 @@ public class JobTask implements Callable<Void> {
       PreExecutionValidator validationFacade,
       BeanResolver beanResolver,
       RetryPolicy retryPolicy,
-      ResilienceStrategy resilienceStrategy) {
+      ResilienceStrategy resilienceStrategy,
+      ErrorSanitizer errorSanitizer) {
     this.jobStore = jobStore;
     this.resourcePermitService = resourcePermitService;
     this.lifecycleFacade = lifecycleFacade;
@@ -142,6 +147,7 @@ public class JobTask implements Callable<Void> {
     this.beanResolver = beanResolver;
     this.retryPolicy = retryPolicy;
     this.resilienceStrategy = resilienceStrategy;
+    this.errorSanitizer = errorSanitizer;
   }
 
   /**
@@ -501,7 +507,7 @@ public class JobTask implements Callable<Void> {
     }
 
     if (jobStore.compareAndSwapStatus(
-        job.getId(), JobStatus.RUNNING, JobStatus.FAILED, ex.toString())) {
+        job.getId(), JobStatus.RUNNING, JobStatus.FAILED, errorSanitizer.sanitize(ex))) {
       job.setAttempts(attempt);
       job.setStatus(JobStatus.FAILED);
       publishDlqEvent(ex, attempt);
@@ -592,7 +598,7 @@ public class JobTask implements Callable<Void> {
     }
 
     if (jobStore.compareAndSwapStatus(
-        job.getId(), JobStatus.RUNNING, JobStatus.FAILED, ex.toString())) {
+        job.getId(), JobStatus.RUNNING, JobStatus.FAILED, errorSanitizer.sanitize(ex))) {
       job.setAttempts(attempt);
       job.setStatus(JobStatus.FAILED);
       publishDlqEvent(ex, attempt);
@@ -611,7 +617,7 @@ public class JobTask implements Callable<Void> {
             job.getPublicJobType(),
             job.getPriority(),
             job.getPickedBy(),
-            ex.toString(),
+            errorSanitizer.sanitize(ex),
             attempt));
   }
 
@@ -798,10 +804,11 @@ public class JobTask implements Callable<Void> {
             : policyDelay.toMillis();
     Instant newScheduledTime = Instant.now().plusMillis(backoff);
 
-    if (jobStore.scheduleJobRetry(job.getId(), ex.toString(), newScheduledTime, attempt)) {
+    if (jobStore.scheduleJobRetry(
+        job.getId(), errorSanitizer.sanitize(ex), newScheduledTime, attempt)) {
       job.setAttempts(attempt);
       job.setScheduledTime(newScheduledTime);
-      job.setLastError(ex.toString());
+      job.setLastError(errorSanitizer.sanitize(ex));
       job.setStatus(JobStatus.PENDING);
 
       observabilityFacade.publishEvent(
@@ -811,7 +818,7 @@ public class JobTask implements Callable<Void> {
               job.getPublicJobType(),
               job.getPriority(),
               job.getPickedBy(),
-              ex.toString(),
+              errorSanitizer.sanitize(ex),
               attempt,
               newScheduledTime));
       scheduleReadyJobsUpdate(backoff);

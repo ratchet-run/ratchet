@@ -1,6 +1,6 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.ri.util.SchedulerConfig;
+import run.ratchet.ri.util.RatchetConfiguration;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.spi.JobClaimStore;
@@ -42,6 +42,7 @@ public class Poller {
   private final ThreadPoolManager threadPoolManager;
   private final DrainController drainController;
   private final PollerScheduler pollerScheduler;
+  private final RatchetConfiguration config;
   private final int batchSize;
 
   @SuppressWarnings("java:S3077")
@@ -55,6 +56,7 @@ public class Poller {
     this.threadPoolManager = null;
     this.drainController = null;
     this.pollerScheduler = null;
+    this.config = null;
     this.batchSize = 0;
   }
 
@@ -67,6 +69,7 @@ public class Poller {
    * @param threadPoolManager manages thread pools and utilization metrics
    * @param drainController controls drain mode during graceful shutdown
    * @param pollerScheduler handles scheduling of poll cycles
+   * @param config Ratchet configuration for poller tuning parameters
    * @param batchSize maximum number of jobs to claim per poll cycle
    */
   public Poller(
@@ -76,6 +79,7 @@ public class Poller {
       ThreadPoolManager threadPoolManager,
       DrainController drainController,
       PollerScheduler pollerScheduler,
+      RatchetConfiguration config,
       int batchSize) {
     this.jobClaimStore = jobClaimStore;
     this.jobExecutionCoordinator = jobExecutionCoordinator;
@@ -83,6 +87,7 @@ public class Poller {
     this.threadPoolManager = threadPoolManager;
     this.drainController = drainController;
     this.pollerScheduler = pollerScheduler;
+    this.config = config;
     this.batchSize = batchSize;
   }
 
@@ -108,12 +113,12 @@ public class Poller {
 
     this.strategy =
         new PollingStrategy(
-            SchedulerConfig.getPollerBurstDelayMs(),
-            SchedulerConfig.getPollerMinDelayMs(),
-            SchedulerConfig.getPollerMaxDelayMs(),
-            SchedulerConfig.getPollerDeepIdleDelayMs(),
-            SchedulerConfig.getPollerDeepIdleThresholdMs(),
-            SchedulerConfig.getPollerIdleThreshold(),
+            config.getPollerBurstDelayMs(),
+            config.getPollerMinDelayMs(),
+            config.getPollerMaxDelayMs(),
+            config.getPollerDeepIdleDelayMs(),
+            config.getPollerDeepIdleThresholdMs(),
+            config.getPollerIdleThreshold(),
             batchSize);
 
     pollerScheduler.start();

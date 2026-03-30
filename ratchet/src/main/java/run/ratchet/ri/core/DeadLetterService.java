@@ -2,6 +2,7 @@ package run.ratchet.ri.core;
 
 import com.cronutils.model.Cron;
 import com.cronutils.model.time.ExecutionTime;
+import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.entity.DlqAlertEntity;
@@ -75,6 +76,9 @@ public class DeadLetterService {
   /** Publisher for DLQ-related events. */
   private final InternalEventPublisher eventPublisher;
 
+  /** Sanitizer for exception messages before persistence. */
+  private final ErrorSanitizer errorSanitizer;
+
   /** Retention period for DLQ entries before automatic purging. */
   private Duration purgeAfter;
 
@@ -93,6 +97,7 @@ public class DeadLetterService {
     this.dlqAlertStore = null;
     this.nodeIdentityProvider = null;
     this.eventPublisher = null;
+    this.errorSanitizer = null;
   }
 
   @Inject
@@ -103,7 +108,8 @@ public class DeadLetterService {
       LockStore lockStore,
       DlqAlertStore dlqAlertStore,
       NodeIdentityProvider nodeIdentityProvider,
-      InternalEventPublisher eventPublisher) {
+      InternalEventPublisher eventPublisher,
+      ErrorSanitizer errorSanitizer) {
     this.executorProvider = executorProvider;
     this.jobCrudStore = jobCrudStore;
     this.jobBulkStore = jobBulkStore;
@@ -111,6 +117,7 @@ public class DeadLetterService {
     this.dlqAlertStore = dlqAlertStore;
     this.nodeIdentityProvider = nodeIdentityProvider;
     this.eventPublisher = eventPublisher;
+    this.errorSanitizer = errorSanitizer;
   }
 
   /**
@@ -121,7 +128,7 @@ public class DeadLetterService {
    */
   public void moveToDlq(JobEntity job, Throwable cause) {
     job.setStatus(JobStatus.FAILED);
-    job.setLastError(cause.toString());
+    job.setLastError(errorSanitizer.sanitize(cause));
     jobCrudStore.save(job);
 
     recordDlqAlert(job, cause);

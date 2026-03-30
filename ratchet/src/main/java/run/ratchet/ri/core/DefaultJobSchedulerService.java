@@ -134,17 +134,17 @@ public class DefaultJobSchedulerService
 
   @Override
   public JobBuilder enqueue(SerializableCheckedRunnable task) {
-    return JobBuilder.create(this, task, Duration.ZERO);
+    return DefaultJobBuilder.create(this, task, Duration.ZERO);
   }
 
   @Override
   public JobHandle enqueueNow(SerializableCheckedRunnable task) {
-    return JobBuilder.create(this, task, Duration.ZERO).immediate().submit();
+    return DefaultJobBuilder.create(this, task, Duration.ZERO).immediate().submit();
   }
 
   @Override
   public JobBuilder schedule(Duration delay, SerializableCheckedRunnable task) {
-    return JobBuilder.create(this, task, delay);
+    return DefaultJobBuilder.create(this, task, delay);
   }
 
   @Override
@@ -177,7 +177,7 @@ public class DefaultJobSchedulerService
                 () -> new IllegalArgumentException("Job not found for replacement: " + jobId));
 
     // Create the replacement job
-    JobBuilder builder = JobBuilder.create(this, newTask, delay);
+    JobBuilder builder = DefaultJobBuilder.create(this, newTask, delay);
     if (opts != null) {
       builder
           .withPriority(opts.priority())

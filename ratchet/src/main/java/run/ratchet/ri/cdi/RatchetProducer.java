@@ -16,10 +16,12 @@ import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.ri.core.ThreadPoolManager;
 import run.ratchet.ri.resilience.CircuitBreakerRegistry;
 import run.ratchet.ri.resilience.DefaultResilienceStrategy;
+import run.ratchet.ri.security.DefaultErrorSanitizer;
 import run.ratchet.ri.security.JobSecurityValidator;
 import run.ratchet.ri.security.PackagePrefixClassPolicy;
-import run.ratchet.ri.util.SchedulerConfig;
+import run.ratchet.ri.util.RatchetConfiguration;
 import run.ratchet.spi.ClassPolicy;
+import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
@@ -37,11 +39,11 @@ import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Inject;
 import java.util.EnumMap;
 import java.util.Map;
+import java.util.logging.Logger;
 
 /**
  * CDI producer for Ratchet beans that require configuration values mixed with injectable
- * dependencies. Configuration is read from {@link SchedulerConfig} (environment-variable-driven
- * static utility).
+ * dependencies. Configuration is read from the injected {@link RatchetConfiguration} bean.
  *
  * <p>Beans with purely injectable constructors are annotated directly with
  * {@code @ApplicationScoped} and {@code @Inject}. This producer handles the remaining beans whose
@@ -50,12 +52,15 @@ import java.util.Map;
 @ApplicationScoped
 public class RatchetProducer {
 
+  private static final Logger log = Logger.getLogger(RatchetProducer.class.getName());
+
   private final ExecutorProvider executorProvider;
   private final MetricsCollector metricsCollector;
   private final JobCrudStore jobCrudStore;
   private final JobStatusStore jobStatusStore;
   private final PostExecutionHandler postExecutionHandler;
   private final NodeStore nodeStore;
+  private final RatchetConfiguration config;
 
   protected RatchetProducer() {
     this.executorProvider = null;
@@ -64,6 +69,7 @@ public class RatchetProducer {
     this.jobStatusStore = null;
     this.postExecutionHandler = null;
     this.nodeStore = null;
+    this.config = null;
   }
 
   @Inject
@@ -73,30 +79,29 @@ public class RatchetProducer {
       JobCrudStore jobCrudStore,
       JobStatusStore jobStatusStore,
       PostExecutionHandler postExecutionHandler,
-      NodeStore nodeStore) {
+      NodeStore nodeStore,
+      RatchetConfiguration config) {
     this.executorProvider = executorProvider;
     this.metricsCollector = metricsCollector;
     this.jobCrudStore = jobCrudStore;
     this.jobStatusStore = jobStatusStore;
     this.postExecutionHandler = postExecutionHandler;
     this.nodeStore = nodeStore;
+    this.config = config;
   }
 
   @Produces
   @ApplicationScoped
   public ThreadPoolManager threadPoolManager() {
-    boolean useVirtualThreads = SchedulerConfig.isWorkerUseVirtualThreads();
+    boolean useVirtualThreads = config.isWorkerUseVirtualThreads();
 
     Map<JobExecutionType, Integer> maxConcurrencyMap = new EnumMap<>(JobExecutionType.class);
-    maxConcurrencyMap.put(JobExecutionType.SINGLE, SchedulerConfig.getThreadPoolSizeSingle());
-    maxConcurrencyMap.put(JobExecutionType.RECURRING, SchedulerConfig.getThreadPoolSizeRecurring());
-    maxConcurrencyMap.put(
-        JobExecutionType.BATCH_CHILD, SchedulerConfig.getThreadPoolSizeBatchChild());
-    maxConcurrencyMap.put(
-        JobExecutionType.BATCH_PARENT, SchedulerConfig.getThreadPoolSizeBatchParent());
-    maxConcurrencyMap.put(JobExecutionType.CHAIN_STEP, SchedulerConfig.getThreadPoolSizeChain());
-    maxConcurrencyMap.put(
-        JobExecutionType.WORKFLOW_BRANCH, SchedulerConfig.getThreadPoolSizeDefault());
+    maxConcurrencyMap.put(JobExecutionType.SINGLE, config.getThreadPoolSizeSingle());
+    maxConcurrencyMap.put(JobExecutionType.RECURRING, config.getThreadPoolSizeRecurring());
+    maxConcurrencyMap.put(JobExecutionType.BATCH_CHILD, config.getThreadPoolSizeBatchChild());
+    maxConcurrencyMap.put(JobExecutionType.BATCH_PARENT, config.getThreadPoolSizeBatchParent());
+    maxConcurrencyMap.put(JobExecutionType.CHAIN_STEP, config.getThreadPoolSizeChain());
+    maxConcurrencyMap.put(JobExecutionType.WORKFLOW_BRANCH, config.getThreadPoolSizeDefault());
 
     return new ThreadPoolManager(
         executorProvider, metricsCollector, useVirtualThreads, maxConcurrencyMap);
@@ -105,8 +110,8 @@ public class RatchetProducer {
   @Produces
   @ApplicationScoped
   public JobTimeoutHandler jobTimeoutHandler() {
-    int softTimeoutPercent = SchedulerConfig.getSoftTimeoutPercent();
-    long defaultTimeoutSeconds = SchedulerConfig.getWorkerDefaultSLA();
+    int softTimeoutPercent = config.getSoftTimeoutPercent();
+    long defaultTimeoutSeconds = config.getWorkerDefaultSLA();
 
     return new JobTimeoutHandler(
         jobCrudStore,
@@ -119,9 +124,9 @@ public class RatchetProducer {
   @Produces
   @ApplicationScoped
   public DynamicHeartbeatCalculator dynamicHeartbeatCalculator() {
-    long baseHeartbeatIntervalSeconds = SchedulerConfig.getNodeHeartbeatIntervalSeconds();
-    long pollerMinDelayMs = SchedulerConfig.getPollerMinDelayMs();
-    long pollerMaxDelayMs = SchedulerConfig.getPollerMaxDelayMs();
+    long baseHeartbeatIntervalSeconds = config.getNodeHeartbeatIntervalSeconds();
+    long pollerMinDelayMs = config.getPollerMinDelayMs();
+    long pollerMaxDelayMs = config.getPollerMaxDelayMs();
 
     return new DynamicHeartbeatCalculator(
         jobCrudStore, baseHeartbeatIntervalSeconds, pollerMinDelayMs, pollerMaxDelayMs);
@@ -131,9 +136,9 @@ public class RatchetProducer {
   @ApplicationScoped
   public NodeIdentityProvider nodeIdentityProvider(
       DynamicHeartbeatCalculator heartbeatCalculator, JobBulkStore jobBulkStore) {
-    long heartbeatIntervalSeconds = SchedulerConfig.getNodeHeartbeatIntervalSeconds();
-    long orphanGraceSeconds = SchedulerConfig.getNodeOrphanGraceSeconds();
-    boolean dynamicHeartbeatEnabled = SchedulerConfig.isDynamicHeartbeatEnabled();
+    long heartbeatIntervalSeconds = config.getNodeHeartbeatIntervalSeconds();
+    long orphanGraceSeconds = config.getNodeOrphanGraceSeconds();
+    boolean dynamicHeartbeatEnabled = config.isDynamicHeartbeatEnabled();
 
     DefaultNodeIdentityProvider provider =
         new DefaultNodeIdentityProvider(
@@ -180,7 +185,7 @@ public class RatchetProducer {
       ThreadPoolManager threadPoolManager,
       DrainController drainController,
       PollerScheduler pollerScheduler) {
-    int batchSize = SchedulerConfig.getPollerBatchSize();
+    int batchSize = config.getPollerBatchSize();
     return new Poller(
         jobClaimStore,
         jobExecutionCoordinator,
@@ -188,6 +193,7 @@ public class RatchetProducer {
         threadPoolManager,
         drainController,
         pollerScheduler,
+        config,
         batchSize);
   }
 
@@ -195,7 +201,7 @@ public class RatchetProducer {
   @ApplicationScoped
   public OrphanRecoveryTimer orphanRecoveryTimer(
       JobBulkStore jobBulkStore, ResourcePermitService resourcePermitService) {
-    long orphanGraceSeconds = SchedulerConfig.getNodeOrphanGraceSeconds();
+    long orphanGraceSeconds = config.getNodeOrphanGraceSeconds();
     return new OrphanRecoveryTimer(
         jobBulkStore, nodeStore, resourcePermitService, orphanGraceSeconds);
   }
@@ -208,7 +214,13 @@ public class RatchetProducer {
   @Default
   @ApplicationScoped
   public ClassPolicy classPolicy() {
-    return new PackagePrefixClassPolicy();
+    PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy();
+    if (policy.getAllowedPackages().isEmpty()) {
+      log.warning(
+          "ClassPolicy allowedPackages is empty — all job targets will be rejected. "
+              + "Provide an @Alternative ClassPolicy bean with your application's package prefixes.");
+    }
+    return policy;
   }
 
   /**
@@ -221,5 +233,17 @@ public class RatchetProducer {
   @ApplicationScoped
   public ResilienceStrategy resilienceStrategy(CircuitBreakerRegistry circuitBreakerRegistry) {
     return new DefaultResilienceStrategy(circuitBreakerRegistry);
+  }
+
+  /**
+   * Produces the default {@link ErrorSanitizer} bean that strips PII and credentials from exception
+   * messages before persistence. Users can override by providing their own
+   * {@code @Alternative @Priority(APPLICATION) ErrorSanitizer} bean.
+   */
+  @Produces
+  @Default
+  @ApplicationScoped
+  public ErrorSanitizer errorSanitizer() {
+    return new DefaultErrorSanitizer();
   }
 }

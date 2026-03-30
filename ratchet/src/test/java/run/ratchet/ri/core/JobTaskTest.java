@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 import run.ratchet.api.CircuitBreakerProtected;
 import run.ratchet.api.JobPriority;
 import run.ratchet.spi.BeanResolver;
+import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.ResilienceStrategy;
 import run.ratchet.spi.RetryPolicy;
@@ -43,6 +44,7 @@ class JobTaskTest {
   @Mock private BeanResolver beanResolver;
   @Mock private RetryPolicy retryPolicy;
   @Mock private ResilienceStrategy resilienceStrategy;
+  @Mock private ErrorSanitizer errorSanitizer;
 
   private JobTask jobTask;
 
@@ -74,7 +76,8 @@ class JobTaskTest {
             validationFacade,
             beanResolver,
             retryPolicy,
-            resilienceStrategy);
+            resilienceStrategy,
+            errorSanitizer);
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────

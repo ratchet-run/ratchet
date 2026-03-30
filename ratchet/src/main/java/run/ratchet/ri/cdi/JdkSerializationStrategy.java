@@ -50,7 +50,9 @@ public class JdkSerializationStrategy implements SerializationStrategy {
       ois.setObjectInputFilter(
           ObjectInputFilter.Config.createFilter(
               "run.ratchet.**;"
-                  + "[*;"
+                  + "[B;[C;[S;[I;[J;[F;[D;[Z;"
+                  + "[Ljava.lang.*;[Ljava.util.*;[Ljava.time.*;[Ljava.math.*;"
+                  + "[Lrun.ratchet.**;"
                   + "java.lang.*;"
                   + "java.util.ArrayList;java.util.HashMap;java.util.HashSet;"
                   + "java.util.LinkedList;java.util.LinkedHashMap;java.util.LinkedHashSet;"

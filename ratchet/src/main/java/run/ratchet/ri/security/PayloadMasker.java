@@ -3,6 +3,7 @@ package run.ratchet.ri.security;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import run.ratchet.ri.util.ObjectMapperFactory;
 import java.util.Set;
 import java.util.logging.Logger;
 
@@ -33,11 +34,10 @@ public class PayloadMasker {
   private static final Logger log = Logger.getLogger(PayloadMasker.class.getName());
 
   /**
-   * Shared Jackson ObjectMapper instance for JSON parsing and serialization.
-   *
-   * <p>ObjectMapper is thread-safe and expensive to create, so we use a single shared instance.
+   * Shared Jackson ObjectMapper instance for JSON parsing and serialization. Configured with
+   * JavaTimeModule for correct java.time handling.
    */
-  private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final ObjectMapper MAPPER = ObjectMapperFactory.get();
 
   /** The placeholder string used to replace sensitive values. */
   private static final String MASKED_VALUE = "***REDACTED***";

@@ -12,7 +12,7 @@ import run.ratchet.ri.core.OrphanRecoveryTimer;
 import run.ratchet.ri.core.Poller;
 import run.ratchet.ri.core.PollerWakeupListener;
 import run.ratchet.ri.core.RecurringScheduler;
-import run.ratchet.ri.util.SchedulerConfig;
+import run.ratchet.ri.util.RatchetConfiguration;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
 import jakarta.annotation.PreDestroy;
@@ -56,6 +56,7 @@ public class RatchetLifecycle {
   private final PollerWakeupListener pollerWakeupListener;
   private final ExecutorProvider executorProvider;
   private final NodeIdentityProvider nodeIdentityProvider;
+  private final RatchetConfiguration config;
 
   protected RatchetLifecycle() {
     this.poller = null;
@@ -68,6 +69,7 @@ public class RatchetLifecycle {
     this.pollerWakeupListener = null;
     this.executorProvider = null;
     this.nodeIdentityProvider = null;
+    this.config = null;
   }
 
   @Inject
@@ -81,7 +83,8 @@ public class RatchetLifecycle {
       LogPurgeTimer logPurgeTimer,
       PollerWakeupListener pollerWakeupListener,
       ExecutorProvider executorProvider,
-      NodeIdentityProvider nodeIdentityProvider) {
+      NodeIdentityProvider nodeIdentityProvider,
+      RatchetConfiguration config) {
     this.poller = poller;
     this.recurringScheduler = recurringScheduler;
     this.orphanRecoveryTimer = orphanRecoveryTimer;
@@ -92,6 +95,7 @@ public class RatchetLifecycle {
     this.pollerWakeupListener = pollerWakeupListener;
     this.executorProvider = executorProvider;
     this.nodeIdentityProvider = nodeIdentityProvider;
+    this.config = config;
   }
 
   /**
@@ -108,29 +112,26 @@ public class RatchetLifecycle {
 
     // Periodic maintenance timers
     orphanRecoveryTimer.start(
-        executorProvider.getScheduledExecutor(), SchedulerConfig.getOrphanScanIntervalMinutes());
+        executorProvider.getScheduledExecutor(), config.getOrphanScanIntervalMinutes());
     batchRecoveryTimer.start(executorProvider.getScheduledExecutor());
 
     // DLQ purge (opt-out via SCHEDULER_DLQ_PURGE_ENABLED=false)
-    if (SchedulerConfig.isDlqPurgeEnabled()) {
-      Cron dlqCron = RecurringScheduler.PARSER.parse(SchedulerConfig.getDlqPurgeCron());
-      deadLetterService.init(SchedulerConfig.getDlqPurgeDays(), dlqCron);
+    if (config.isDlqPurgeEnabled()) {
+      Cron dlqCron = RecurringScheduler.PARSER.parse(config.getDlqPurgeCron());
+      deadLetterService.init(config.getDlqPurgeDays(), dlqCron);
     }
 
     // Job archiving (opt-out via SCHEDULER_JOB_ARCHIVE_ENABLED=false)
-    if (SchedulerConfig.isJobArchiveEnabled()) {
-      Cron archiveCron = RecurringScheduler.PARSER.parse(SchedulerConfig.getJobArchiverCron());
+    if (config.isJobArchiveEnabled()) {
+      Cron archiveCron = RecurringScheduler.PARSER.parse(config.getJobArchiverCron());
       jobArchivingService.init(
-          true,
-          SchedulerConfig.getJobRetentionDays(),
-          SchedulerConfig.getJobArchiveBatchSize(),
-          archiveCron);
+          true, config.getJobRetentionDays(), config.getJobArchiveBatchSize(), archiveCron);
     }
 
     // Log purge (opt-out via SCHEDULER_LOG_PURGE_ENABLED=false)
-    if (SchedulerConfig.isLogPurgeEnabled()) {
-      Cron logCron = RecurringScheduler.PARSER.parse(SchedulerConfig.getLogPurgeCron());
-      logPurgeTimer.init(SchedulerConfig.getLogRetentionDays(), logCron);
+    if (config.isLogPurgeEnabled()) {
+      Cron logCron = RecurringScheduler.PARSER.parse(config.getLogPurgeCron());
+      logPurgeTimer.init(config.getLogRetentionDays(), logCron);
     }
 
     // Cluster wakeup optimization

@@ -6,6 +6,7 @@ import run.ratchet.api.JobResult;
 import run.ratchet.api.SerializableFunction;
 import run.ratchet.api.SerializablePredicate;
 import run.ratchet.ri.util.LambdaSerializer;
+import run.ratchet.ri.util.ObjectMapperFactory;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -42,8 +43,11 @@ public class WorkflowConditionEvaluator {
 
   private static final Logger log = Logger.getLogger(WorkflowConditionEvaluator.class.getName());
 
-  /** Jackson ObjectMapper for deserializing job result JSON. Thread-safe singleton. */
-  private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+  /**
+   * Jackson ObjectMapper for deserializing job result JSON. Configured with JavaTimeModule for
+   * correct java.time deserialization.
+   */
+  private static final ObjectMapper OBJECT_MAPPER = ObjectMapperFactory.get();
 
   /** Store for accessing batch job information. */
   private final BatchStore batchStore;

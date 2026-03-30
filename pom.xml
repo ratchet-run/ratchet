@@ -74,6 +74,20 @@
         <scope>provided</scope>
       </dependency>
 
+      <!-- Surgical Jakarta API dependencies for spec-pure modules -->
+      <dependency>
+        <groupId>jakarta.enterprise</groupId>
+        <artifactId>jakarta.enterprise.cdi-api</artifactId>
+        <version>4.0.1</version>
+        <scope>provided</scope>
+      </dependency>
+      <dependency>
+        <groupId>jakarta.interceptor</groupId>
+        <artifactId>jakarta.interceptor-api</artifactId>
+        <version>2.1.0</version>
+        <scope>provided</scope>
+      </dependency>
+
       <!-- ASM (for lambda analysis) -->
       <dependency>
         <groupId>org.ow2.asm</groupId>
@@ -90,6 +104,11 @@
       <dependency>
         <groupId>com.fasterxml.jackson.core</groupId>
         <artifactId>jackson-databind</artifactId>
+        <version>${jackson.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.fasterxml.jackson.datatype</groupId>
+        <artifactId>jackson-datatype-jsr310</artifactId>
         <version>${jackson.version}</version>
       </dependency>
 
