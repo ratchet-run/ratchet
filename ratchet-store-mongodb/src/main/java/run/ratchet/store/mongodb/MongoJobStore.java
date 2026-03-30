@@ -776,6 +776,52 @@ public class MongoJobStore implements JobStore {
     return (int) result.getModifiedCount();
   }
 
+  @Override
+  public boolean resetFailedToPending(long id) {
+    UpdateResult result =
+        jobs()
+            .updateOne(
+                and(eq("_id", id), eq("status", "FAILED")),
+                combine(
+                    set("status", "PENDING"),
+                    set("attempts", 0),
+                    set("last_error", null),
+                    set("scheduled_time", DocumentMapper.toDate(Instant.now())),
+                    set("picked_by", null),
+                    set("picked_at", null),
+                    set("updated_at", DocumentMapper.toDate(Instant.now())),
+                    inc("version", 1)));
+    return result.getModifiedCount() > 0;
+  }
+
+  @Override
+  public boolean transitionToPaused(long id, JobStatus expected) {
+    UpdateResult result =
+        jobs()
+            .updateOne(
+                and(eq("_id", id), eq("status", expected.name())),
+                combine(
+                    set("status", "PAUSED"),
+                    set("paused_from_status", expected.name()),
+                    set("updated_at", DocumentMapper.toDate(Instant.now())),
+                    inc("version", 1)));
+    return result.getModifiedCount() > 0;
+  }
+
+  @Override
+  public boolean transitionFromPaused(long id, JobStatus target) {
+    UpdateResult result =
+        jobs()
+            .updateOne(
+                and(eq("_id", id), eq("status", "PAUSED")),
+                combine(
+                    set("status", target.name()),
+                    set("paused_from_status", null),
+                    set("updated_at", DocumentMapper.toDate(Instant.now())),
+                    inc("version", 1)));
+    return result.getModifiedCount() > 0;
+  }
+
   // ──────────────────────────────────────────────
   // JobBulkStore
   // ──────────────────────────────────────────────

@@ -616,6 +616,49 @@ public class PostgresqlJobStore implements JobStore {
         .executeUpdate();
   }
 
+  @Override
+  public boolean resetFailedToPending(long id) {
+    int updated =
+        em.createNativeQuery(
+                "UPDATE scheduler_job SET status = 'PENDING', attempts = 0, "
+                    + "last_error = NULL, scheduled_time = statement_timestamp(), "
+                    + "picked_by = NULL, picked_at = NULL, "
+                    + "updated_at = statement_timestamp() "
+                    + "WHERE job_id = ? AND status = 'FAILED'")
+            .setParameter(1, id)
+            .executeUpdate();
+    return updated > 0;
+  }
+
+  @Override
+  public boolean transitionToPaused(long id, JobStatus expected) {
+    int updated =
+        em.createNativeQuery(
+                "UPDATE scheduler_job SET status = 'PAUSED', "
+                    + "paused_from_status = ?, "
+                    + "updated_at = statement_timestamp() "
+                    + "WHERE job_id = ? AND status = ?")
+            .setParameter(1, expected.name())
+            .setParameter(2, id)
+            .setParameter(3, expected.name())
+            .executeUpdate();
+    return updated > 0;
+  }
+
+  @Override
+  public boolean transitionFromPaused(long id, JobStatus target) {
+    int updated =
+        em.createNativeQuery(
+                "UPDATE scheduler_job SET status = ?, "
+                    + "paused_from_status = NULL, "
+                    + "updated_at = statement_timestamp() "
+                    + "WHERE job_id = ? AND status = 'PAUSED'")
+            .setParameter(1, target.name())
+            .setParameter(2, id)
+            .executeUpdate();
+    return updated > 0;
+  }
+
   // ──────────────────────────────────────────────
   // JobBulkStore
   // ──────────────────────────────────────────────

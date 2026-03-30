@@ -62,4 +62,36 @@ public interface JobStatusStore {
 
   /** Cancels recurring annotation jobs that were not re-registered during startup. */
   int cancelOrphanedRecurringAnnotationJobs(Set<String> registeredIds, Instant nodeStartTime);
+
+  /**
+   * Atomically transitions a FAILED job to PENDING, resetting retry metadata (attempts, error,
+   * scheduled time) in a single operation. This avoids the TOCTOU gap where a job could be claimed
+   * between a CAS and a subsequent metadata save.
+   *
+   * @param id the job ID
+   * @return true if the transition succeeded (job was in FAILED state)
+   */
+  boolean resetFailedToPending(long id);
+
+  /**
+   * Atomically transitions a job from the expected status to PAUSED, recording the original status
+   * in {@code paused_from_status}. This avoids a TOCTOU gap between the status CAS and storing the
+   * previous status for resume.
+   *
+   * @param id the job ID
+   * @param expected the expected current status (typically PENDING or FAILED)
+   * @return true if the transition succeeded
+   */
+  boolean transitionToPaused(long id, JobStatus expected);
+
+  /**
+   * Atomically transitions a job from PAUSED to the target status, clearing {@code
+   * paused_from_status}. The target status should be determined from a prior read of the job's
+   * {@code paused_from_status} field.
+   *
+   * @param id the job ID
+   * @param target the status to resume to (typically PENDING or FAILED)
+   * @return true if the transition succeeded (job was in PAUSED state)
+   */
+  boolean transitionFromPaused(long id, JobStatus target);
 }

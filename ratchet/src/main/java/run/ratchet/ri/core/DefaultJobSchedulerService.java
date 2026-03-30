@@ -187,12 +187,29 @@ public class DefaultJobSchedulerService
     }
     JobHandle newHandle = builder.submit();
 
-    // Link old job to new via supersededBy
+    // Cancel the old job using CAS to avoid conflicting with concurrent executors.
+    // Try each cancellable state in order; if all fail, the job is already terminal.
+    boolean canceled =
+        jobStatusStore.compareAndSwapStatus(jobId, JobStatus.PENDING, JobStatus.CANCELED, null)
+            || jobStatusStore.compareAndSwapStatus(
+                jobId, JobStatus.RUNNING, JobStatus.CANCELED, null)
+            || jobStatusStore.compareAndSwapStatus(
+                jobId, JobStatus.PAUSED, JobStatus.CANCELED, null);
+
+    // Link old job to new via supersededBy regardless of cancel outcome
     existing.setSupersededBy(newHandle.id());
-    existing.setStatus(JobStatus.CANCELED);
     jobCrudStore.save(existing);
 
-    log.info("Replaced job " + jobId + " with new job " + newHandle.id());
+    if (canceled) {
+      log.info("Replaced job " + jobId + " with new job " + newHandle.id());
+    } else {
+      log.info(
+          "Replaced job "
+              + jobId
+              + " with new job "
+              + newHandle.id()
+              + " (old job already in terminal state)");
+    }
     return newHandle;
   }
 
@@ -209,29 +226,14 @@ public class DefaultJobSchedulerService
       return true;
     }
 
-    // Try PENDING → PAUSED
-    if (jobStatusStore.compareAndSwapStatus(jobId, JobStatus.PENDING, JobStatus.PAUSED, null)) {
-      // Record the previous status for resume
-      jobCrudStore
-          .findById(jobId)
-          .ifPresent(
-              job -> {
-                job.setPausedFromStatus(JobStatus.PENDING);
-                jobCrudStore.save(job);
-              });
+    // Try PENDING → PAUSED (atomically sets paused_from_status)
+    if (jobStatusStore.transitionToPaused(jobId, JobStatus.PENDING)) {
       log.fine("Paused pending job " + jobId);
       return true;
     }
 
-    // Try FAILED → PAUSED
-    if (jobStatusStore.compareAndSwapStatus(jobId, JobStatus.FAILED, JobStatus.PAUSED, null)) {
-      jobCrudStore
-          .findById(jobId)
-          .ifPresent(
-              job -> {
-                job.setPausedFromStatus(JobStatus.FAILED);
-                jobCrudStore.save(job);
-              });
+    // Try FAILED → PAUSED (atomically sets paused_from_status)
+    if (jobStatusStore.transitionToPaused(jobId, JobStatus.FAILED)) {
       log.fine("Paused failed job " + jobId);
       return true;
     }
@@ -261,10 +263,7 @@ public class DefaultJobSchedulerService
 
     JobStatus target =
         job.getPausedFromStatus() != null ? job.getPausedFromStatus() : JobStatus.PENDING;
-    if (jobStatusStore.compareAndSwapStatus(jobId, JobStatus.PAUSED, target, null)) {
-      job.setStatus(target);
-      job.setPausedFromStatus(null);
-      jobCrudStore.save(job);
+    if (jobStatusStore.transitionFromPaused(jobId, target)) {
       log.fine("Resumed job " + jobId + " to " + target);
       if (target == JobStatus.PENDING) {
         // Kick the recurring scheduler in case this is a recurring/cron job
@@ -284,16 +283,7 @@ public class DefaultJobSchedulerService
 
   @Override
   public boolean retryJob(long jobId) {
-    if (jobStatusStore.compareAndSwapStatus(jobId, JobStatus.FAILED, JobStatus.PENDING, null)) {
-      jobCrudStore
-          .findById(jobId)
-          .ifPresent(
-              job -> {
-                job.setAttempts(0);
-                job.setLastError(null);
-                job.setScheduledTime(Instant.now());
-                jobCrudStore.save(job);
-              });
+    if (jobStatusStore.resetFailedToPending(jobId)) {
       log.fine("Retried failed job " + jobId + " — reset to PENDING");
       return true;
     }

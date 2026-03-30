@@ -687,6 +687,45 @@ public class MysqlJobStore implements JobStore {
         .executeUpdate();
   }
 
+  @Override
+  public boolean resetFailedToPending(long id) {
+    int updated =
+        em.createNativeQuery(
+                "UPDATE scheduler_job SET status = 'PENDING', attempts = 0, "
+                    + "last_error = NULL, scheduled_time = NOW(3), "
+                    + "picked_by = NULL, picked_at = NULL, updated_at = NOW(3) "
+                    + "WHERE job_id = :id AND status = 'FAILED'")
+            .setParameter("id", id)
+            .executeUpdate();
+    return updated > 0;
+  }
+
+  @Override
+  public boolean transitionToPaused(long id, JobStatus expected) {
+    int updated =
+        em.createNativeQuery(
+                "UPDATE scheduler_job SET status = 'PAUSED', "
+                    + "paused_from_status = :exp, updated_at = NOW(3) "
+                    + "WHERE job_id = :id AND status = :exp")
+            .setParameter("exp", expected.name())
+            .setParameter("id", id)
+            .executeUpdate();
+    return updated > 0;
+  }
+
+  @Override
+  public boolean transitionFromPaused(long id, JobStatus target) {
+    int updated =
+        em.createNativeQuery(
+                "UPDATE scheduler_job SET status = :target, "
+                    + "paused_from_status = NULL, updated_at = NOW(3) "
+                    + "WHERE job_id = :id AND status = 'PAUSED'")
+            .setParameter("target", target.name())
+            .setParameter("id", id)
+            .executeUpdate();
+    return updated > 0;
+  }
+
   // ── JobBulkStore ──────────────────────────────────────────────────────
 
   @Override
