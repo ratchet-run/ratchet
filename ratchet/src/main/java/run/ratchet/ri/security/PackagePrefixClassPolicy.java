@@ -3,8 +3,6 @@ package run.ratchet.ri.security;
 import run.ratchet.spi.ClassPolicy;
 import java.util.Set;
 import java.util.logging.Logger;
-import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 /**
  * Security policy for allowed job target classes based on package prefixes.
@@ -50,14 +48,6 @@ public class PackagePrefixClassPolicy implements ClassPolicy {
    */
   private final Set<String> allowedPackages;
 
-  /**
-   * Compiled regex patterns for each allowed package.
-   *
-   * <p>These patterns are pre-compiled at construction time for performance when checking class
-   * names.
-   */
-  private final Set<Pattern> allowedPatterns;
-
   /** Creates a new PackagePrefixClassPolicy with default (empty) allowed packages. */
   public PackagePrefixClassPolicy() {
     this(DEFAULT_ALLOWED_PACKAGES);
@@ -70,10 +60,6 @@ public class PackagePrefixClassPolicy implements ClassPolicy {
    */
   public PackagePrefixClassPolicy(Set<String> allowedPackages) {
     this.allowedPackages = Set.copyOf(allowedPackages);
-    this.allowedPatterns =
-        allowedPackages.stream()
-            .map(pkg -> Pattern.compile("^" + Pattern.quote(pkg) + ".*"))
-            .collect(Collectors.toSet());
   }
 
   /**
@@ -100,13 +86,6 @@ public class PackagePrefixClassPolicy implements ClassPolicy {
     // Check against package prefixes
     for (String allowedPackage : allowedPackages) {
       if (className.startsWith(allowedPackage)) {
-        return true;
-      }
-    }
-
-    // Check against patterns (for future extensibility)
-    for (Pattern pattern : allowedPatterns) {
-      if (pattern.matcher(className).matches()) {
         return true;
       }
     }
