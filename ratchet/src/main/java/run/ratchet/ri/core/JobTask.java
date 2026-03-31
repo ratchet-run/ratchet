@@ -631,6 +631,7 @@ public class JobTask implements Callable<Void> {
       return;
     }
     try {
+      validationFacade.validateSecurity(callbackPayload);
       Class<?> cls =
           CLASS_CACHE.computeIfAbsent(
               callbackPayload.target(),

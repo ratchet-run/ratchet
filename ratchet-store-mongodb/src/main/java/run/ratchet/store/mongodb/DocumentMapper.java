@@ -381,9 +381,10 @@ public final class DocumentMapper {
   public static Document toDocument(BatchMetricsEntity bm) {
     Document doc = new Document();
     doc.append("_id", bm.getBatchId());
-    doc.append("total_duration_ms", bm.getTotalDurationMs());
-    doc.append("child_execution_ms", bm.getChildExecutionMs());
-    doc.append("overhead_ms", bm.getOverheadMs());
+    doc.append("total_duration_ms", bm.getTotalDurationMs() == null ? 0L : bm.getTotalDurationMs());
+    doc.append(
+        "child_execution_ms", bm.getChildExecutionMs() == null ? 0L : bm.getChildExecutionMs());
+    doc.append("overhead_ms", bm.getOverheadMs() == null ? 0L : bm.getOverheadMs());
     doc.append("child_count", bm.getChildCount());
     doc.append("success_count", bm.getSuccessCount());
     doc.append("failure_count", bm.getFailureCount());

@@ -1125,7 +1125,8 @@ public class MysqlJobStore implements JobStore {
                 + "run.ratchet.store.entity.JobStatus.SUCCEEDED, "
                 + "run.ratchet.store.entity.JobStatus.FAILED, "
                 + "run.ratchet.store.entity.JobStatus.CANCELED) "
-                + "AND j.updatedAt < :cutoff",
+                + "AND j.updatedAt < :cutoff "
+                + "ORDER BY j.updatedAt ASC",
             JobEntity.class)
         .setParameter("cutoff", olderThan)
         .setMaxResults(limit)

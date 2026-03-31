@@ -549,26 +549,40 @@ public class MongoJobStore implements JobStore {
     return ids;
   }
 
-  /** Claims jobs by their IDs, updating status to RUNNING atomically per job. */
+  /** Claims jobs by their IDs, updating status to RUNNING atomically per job in parallel. */
   private <T> List<T> claimByIds(
       List<Long> ids, String nodeId, java.util.function.Function<Document, T> mapper) {
     Date nowDate = DocumentMapper.toDate(Instant.now());
-    List<T> claimed = new ArrayList<>();
+    FindOneAndUpdateOptions opts =
+        new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER);
 
-    for (Long id : ids) {
-      Document doc =
-          jobs()
-              .findOneAndUpdate(
-                  and(eq("_id", id), eq("status", "PENDING")),
-                  combine(
-                      set("status", "RUNNING"),
-                      set("picked_by", nodeId),
-                      set("picked_at", nowDate),
-                      set("updated_at", nowDate),
-                      inc("version", 1)),
-                  new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
-      if (doc != null) {
-        claimed.add(mapper.apply(doc));
+    List<java.util.concurrent.CompletableFuture<Document>> futures =
+        ids.stream()
+            .map(
+                id ->
+                    java.util.concurrent.CompletableFuture.supplyAsync(
+                        () ->
+                            jobs()
+                                .findOneAndUpdate(
+                                    and(eq("_id", id), eq("status", "PENDING")),
+                                    combine(
+                                        set("status", "RUNNING"),
+                                        set("picked_by", nodeId),
+                                        set("picked_at", nowDate),
+                                        set("updated_at", nowDate),
+                                        inc("version", 1)),
+                                    opts)))
+            .toList();
+
+    List<T> claimed = new ArrayList<>();
+    for (var future : futures) {
+      try {
+        Document doc = future.join();
+        if (doc != null) {
+          claimed.add(mapper.apply(doc));
+        }
+      } catch (java.util.concurrent.CompletionException e) {
+        log.warning("Failed to claim job: " + e.getCause().getMessage());
       }
     }
     return claimed;

@@ -188,16 +188,18 @@ public class RetryBufferManager {
   }
 
   /**
-   * Returns the retry buffer for a specific job type.
+   * Returns an unmodifiable view of the retry buffer for a specific job type.
    *
-   * <p>The returned queue is the actual buffer, not a copy. Callers can poll from it directly but
-   * should not modify it except through the provided methods.
+   * <p>The returned collection is a read-only snapshot view. To poll or modify the buffer, use
+   * {@link #pollFromBuffer(JobExecutionType)} or {@link #pollBatchFromBuffer(JobExecutionType,
+   * int)} which enforce the required locking protocol.
    *
    * @param jobType the job type to get the buffer for
-   * @return the priority queue for the specified job type
+   * @return an unmodifiable view of the priority queue for the specified job type
    */
-  public Queue<BufferedJob> getBuffer(JobExecutionType jobType) {
-    return retryBuffers.get(jobType);
+  public java.util.Collection<BufferedJob> getBuffer(JobExecutionType jobType) {
+    Queue<BufferedJob> queue = retryBuffers.get(jobType);
+    return queue != null ? java.util.Collections.unmodifiableCollection(queue) : List.of();
   }
 
   /**

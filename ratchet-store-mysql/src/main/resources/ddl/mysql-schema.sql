@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS scheduler_node
     node_id      VARCHAR(64) NOT NULL,
     heartbeat_ts DATETIME(6) NOT NULL,
     started_at   DATETIME(6) NOT NULL,
-    node_info    JSON        NULL,
+    node_info    TEXT        NULL,
     PRIMARY KEY (node_id),
     INDEX idx_node_heartbeat (heartbeat_ts)
 ) ENGINE = InnoDB
@@ -214,8 +214,8 @@ CREATE TABLE IF NOT EXISTS scheduler_job_archive
     total_attempts          INT                                                                                                                 NOT NULL DEFAULT 0,
     max_retries             INT                                                                                                                 NOT NULL,
     backoff_policy          ENUM ('NONE','FIXED','EXPONENTIAL')                                                                                 NOT NULL,
-    backoff_param_ms        INT                                                                                                                 NOT NULL,
-    timeout_sec             INT                                                                                                                 NOT NULL,
+    backoff_param_ms        INT                                                                                                                 NOT NULL DEFAULT 0,
+    timeout_sec             INT                                                                                                                 NOT NULL DEFAULT 0,
     target_class            VARCHAR(255)                                                                                                        NULL,
     method_name             VARCHAR(128)                                                                                                        NULL,
     business_key            VARCHAR(255)                                                                                                        NULL,

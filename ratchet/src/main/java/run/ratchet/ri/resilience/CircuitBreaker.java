@@ -101,15 +101,20 @@ public class CircuitBreaker {
 
   /** Manually transitions to OPEN state. */
   public void transitionToOpen() {
-    State current = state.get();
-    if (current == State.OPEN) {
-      return;
+    lock.lock();
+    try {
+      State current = state.get();
+      if (current == State.OPEN) {
+        return;
+      }
+      // Write openedAtMs BEFORE the CAS so any thread that sees state==OPEN via getState()
+      // also sees a valid timestamp. The lock prevents a concurrent reset() from clearing
+      // openedAtMs between the write and the CAS.
+      openedAtMs = System.currentTimeMillis();
+      state.compareAndSet(current, State.OPEN);
+    } finally {
+      lock.unlock();
     }
-    // Write openedAtMs BEFORE the CAS so any thread that sees state==OPEN via getState()
-    // also sees a valid timestamp. Without this ordering, a concurrent getState() could read
-    // openedAtMs=0, compute elapsed > waitDurationMs, and immediately transition to HALF_OPEN.
-    openedAtMs = System.currentTimeMillis();
-    state.compareAndSet(current, State.OPEN);
   }
 
   /** Resets to CLOSED state, clearing all counters. */

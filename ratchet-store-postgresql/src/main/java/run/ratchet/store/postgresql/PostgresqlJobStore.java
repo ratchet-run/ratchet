@@ -952,11 +952,13 @@ public class PostgresqlJobStore implements JobStore {
                     + "  owner_node = EXCLUDED.owner_node, "
                     + "  locked_at = statement_timestamp(), "
                     + "  expires_at = statement_timestamp() + ? * interval '1 second' "
-                    + "WHERE scheduler_lock.expires_at < statement_timestamp()")
+                    + "WHERE scheduler_lock.expires_at < statement_timestamp() "
+                    + "   OR scheduler_lock.owner_node = ?")
             .setParameter(1, name)
             .setParameter(2, nodeId)
             .setParameter(3, ttlSeconds)
             .setParameter(4, ttlSeconds)
+            .setParameter(5, nodeId)
             .executeUpdate();
     return updated > 0;
   }
