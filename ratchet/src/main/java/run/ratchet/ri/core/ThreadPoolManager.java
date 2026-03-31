@@ -1,5 +1,6 @@
 package run.ratchet.ri.core;
 
+import run.ratchet.ri.util.RatchetConfiguration;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobExecutionType;
@@ -45,6 +46,7 @@ public class ThreadPoolManager {
   private final MetricsCollector metricsCollector;
   private final boolean useVirtualThreads;
   private final Map<JobExecutionType, Integer> maxConcurrencyMap;
+  private final RatchetConfiguration config;
 
   // Required by CDI proxy
   protected ThreadPoolManager() {
@@ -52,6 +54,7 @@ public class ThreadPoolManager {
     this.metricsCollector = null;
     this.useVirtualThreads = false;
     this.maxConcurrencyMap = null;
+    this.config = null;
   }
 
   /**
@@ -61,16 +64,19 @@ public class ThreadPoolManager {
    * @param metricsCollector collects metrics about pool utilization
    * @param useVirtualThreads whether to use virtual threads instead of platform threads
    * @param maxConcurrencyMap configured max concurrency per job type
+   * @param config the ratchet configuration for reading virtual thread limits
    */
   public ThreadPoolManager(
       ExecutorProvider executorProvider,
       MetricsCollector metricsCollector,
       boolean useVirtualThreads,
-      Map<JobExecutionType, Integer> maxConcurrencyMap) {
+      Map<JobExecutionType, Integer> maxConcurrencyMap,
+      RatchetConfiguration config) {
     this.executorProvider = executorProvider;
     this.metricsCollector = metricsCollector;
     this.useVirtualThreads = useVirtualThreads;
     this.maxConcurrencyMap = maxConcurrencyMap;
+    this.config = config;
 
     init();
   }
@@ -327,20 +333,8 @@ public class ThreadPoolManager {
   }
 
   private int getVirtualThreadLimit(JobExecutionType jobType) {
-    String envKey = "VIRTUAL_THREAD_LIMIT_" + jobType.name();
-    String value = System.getenv(envKey);
-    if (value != null && !value.isBlank()) {
-      try {
-        return Integer.parseInt(value.trim());
-      } catch (NumberFormatException e) {
-        log.warning(
-            "Invalid "
-                + envKey
-                + " value: "
-                + value
-                + ", using default: "
-                + DEFAULT_VIRTUAL_THREAD_LIMIT);
-      }
+    if (config != null) {
+      return config.getVirtualThreadLimit(jobType.name(), DEFAULT_VIRTUAL_THREAD_LIMIT);
     }
     return DEFAULT_VIRTUAL_THREAD_LIMIT;
   }

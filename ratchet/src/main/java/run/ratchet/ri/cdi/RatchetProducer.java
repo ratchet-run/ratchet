@@ -104,7 +104,7 @@ public class RatchetProducer {
     maxConcurrencyMap.put(JobExecutionType.WORKFLOW_BRANCH, config.getThreadPoolSizeDefault());
 
     return new ThreadPoolManager(
-        executorProvider, metricsCollector, useVirtualThreads, maxConcurrencyMap);
+        executorProvider, metricsCollector, useVirtualThreads, maxConcurrencyMap, config);
   }
 
   @Produces
@@ -216,7 +216,7 @@ public class RatchetProducer {
   public ClassPolicy classPolicy() {
     PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy();
     if (policy.getAllowedPackages().isEmpty()) {
-      log.warning(
+      log.severe(
           "ClassPolicy allowedPackages is empty — all job targets will be rejected. "
               + "Provide an @Alternative ClassPolicy bean with your application's package prefixes.");
     }

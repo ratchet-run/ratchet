@@ -332,7 +332,8 @@ public class WorkflowConditionEvaluator {
 
     try {
       if (resultType != null) {
-        Class<?> clazz = Class.forName(resultType);
+        Class<?> clazz =
+            Class.forName(resultType, true, Thread.currentThread().getContextClassLoader());
         return OBJECT_MAPPER.readValue(jobResultJson, clazz);
       } else {
         return OBJECT_MAPPER.readValue(jobResultJson, Object.class);

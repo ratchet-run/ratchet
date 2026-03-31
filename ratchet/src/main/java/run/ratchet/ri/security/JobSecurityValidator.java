@@ -103,7 +103,7 @@ public class JobSecurityValidator {
     // Load and validate class
     Class<?> clazz;
     try {
-      clazz = Class.forName(targetClass);
+      clazz = Class.forName(targetClass, true, Thread.currentThread().getContextClassLoader());
     } catch (ClassNotFoundException e) {
       log.log(Level.SEVERE, "Cannot load class " + targetClass + " for job execution", e);
       throw new SecurityException(

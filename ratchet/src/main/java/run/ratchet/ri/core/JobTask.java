@@ -709,7 +709,7 @@ public class JobTask implements Callable<Void> {
               payload.target(),
               name -> {
                 try {
-                  return Class.forName(name);
+                  return Class.forName(name, true, Thread.currentThread().getContextClassLoader());
                 } catch (ClassNotFoundException e) {
                   throw new IllegalStateException(e);
                 }
@@ -759,7 +759,7 @@ public class JobTask implements Callable<Void> {
               payload.target(),
               name -> {
                 try {
-                  return Class.forName(name);
+                  return Class.forName(name, true, Thread.currentThread().getContextClassLoader());
                 } catch (ClassNotFoundException e) {
                   throw new IllegalStateException(e);
                 }

@@ -1,5 +1,6 @@
 package run.ratchet.api;
 
+import java.io.ObjectStreamException;
 import java.io.Serial;
 import java.io.Serializable;
 import java.time.Instant;
@@ -392,6 +393,39 @@ public class JobResult<T> implements Serializable {
    */
   public boolean isSuccess() {
     return success;
+  }
+
+  /**
+   * Ensures serialization safety by converting any non-serializable Throwable in the exception
+   * field to a safe RuntimeException that preserves the original class name, message, and stack
+   * trace.
+   *
+   * <p>This is transparent to callers — in-memory access via {@link #getException()} returns the
+   * original Throwable. Only the serialized form is sanitized.
+   */
+  @Serial
+  private Object writeReplace() throws ObjectStreamException {
+    if (exception == null) {
+      return this;
+    }
+    return new JobResult<>(
+        success,
+        value,
+        error,
+        sanitizeThrowable(exception),
+        executionTimeMs,
+        startTime,
+        endTime,
+        metadata);
+  }
+
+  private static RuntimeException sanitizeThrowable(Throwable t) {
+    RuntimeException safe = new RuntimeException(t.getClass().getName() + ": " + t.getMessage());
+    safe.setStackTrace(t.getStackTrace());
+    if (t.getCause() != null && t.getCause() != t) {
+      safe.initCause(sanitizeThrowable(t.getCause()));
+    }
+    return safe;
   }
 
   @Override

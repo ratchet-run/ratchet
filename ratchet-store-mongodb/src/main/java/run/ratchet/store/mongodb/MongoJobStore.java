@@ -2,6 +2,7 @@ package run.ratchet.store.mongodb;
 
 import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
+import static com.mongodb.client.model.Filters.expr;
 import static com.mongodb.client.model.Filters.gte;
 import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Filters.lt;
@@ -42,6 +43,7 @@ import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.TsidFactory;
 import run.ratchet.store.spi.JobStore;
+import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.time.Duration;
@@ -78,6 +80,10 @@ public class MongoJobStore implements JobStore {
   @Inject
   public MongoJobStore(MongoDatabase database) {
     this.database = database;
+  }
+
+  @PostConstruct
+  void initializeCollections() {
     new MongoCollectionInitializer(database).initialize();
   }
 
@@ -1475,39 +1481,56 @@ public class MongoJobStore implements JobStore {
 
   @Override
   public boolean tryAcquirePermit(String resource, long jobId, String nodeId) {
-    // Read the resource limit configuration
-    Document limitDoc = resourceLimits().find(eq("_id", resource)).first();
-    if (limitDoc == null) {
-      return false;
-    }
-    int maxConcurrent = limitDoc.getInteger("max_concurrent", 0);
+    // Atomically increment active_count only if it is below max_concurrent.
+    // Uses $expr to compare two fields in the same document, ensuring no TOCTOU race.
+    Document result =
+        resourceLimits()
+            .findOneAndUpdate(
+                and(
+                    eq("_id", resource),
+                    expr(
+                        new Document(
+                            "$lt",
+                            List.of(
+                                new Document("$ifNull", List.of("$active_count", 0)),
+                                "$max_concurrent")))),
+                inc("active_count", 1),
+                new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
 
-    // Atomically insert a permit only if the current count is below the limit.
-    // Uses a two-phase approach with a unique index on (resource_name, job_id) to prevent
-    // duplicates, and a post-insert count check to enforce the limit without TOCTOU races.
+    if (result == null) {
+      return false; // resource not found or at capacity
+    }
+
+    // Record which job holds the permit (for tracking and cleanup)
     ResourcePermitEntity permit = ResourcePermitEntity.create(resource, jobId, nodeId);
     permit.setId(TsidFactory.next());
-    Document doc = DocumentMapper.toDocument(permit);
-    resourcePermits().insertOne(doc);
-
-    // Post-insert check: if the count exceeds the limit, another concurrent caller raced us.
-    // Remove our permit and report failure.
-    long activeCount = resourcePermits().countDocuments(eq("resource_name", resource));
-    if (activeCount > maxConcurrent) {
-      resourcePermits().deleteOne(eq("_id", permit.getId()));
-      return false;
-    }
+    resourcePermits().insertOne(DocumentMapper.toDocument(permit));
     return true;
   }
 
   @Override
   public void releasePermit(String resource, long jobId) {
-    resourcePermits().deleteOne(and(eq("resource_name", resource), eq("job_id", jobId)));
+    DeleteResult dr =
+        resourcePermits().deleteOne(and(eq("resource_name", resource), eq("job_id", jobId)));
+    if (dr.getDeletedCount() > 0) {
+      resourceLimits().updateOne(eq("_id", resource), inc("active_count", -1));
+    }
   }
 
   @Override
   public void releaseAllPermits(long jobId) {
-    resourcePermits().deleteMany(eq("job_id", jobId));
+    // Find which resources this job holds permits for before deleting
+    List<String> resources = new ArrayList<>();
+    resourcePermits()
+        .find(eq("job_id", jobId))
+        .forEach(doc -> resources.add(doc.getString("resource_name")));
+    DeleteResult dr = resourcePermits().deleteMany(eq("job_id", jobId));
+    if (dr.getDeletedCount() > 0) {
+      // Decrement active_count for each affected resource
+      for (String resource : resources) {
+        resourceLimits().updateOne(eq("_id", resource), inc("active_count", -1));
+      }
+    }
   }
 
   @Override
@@ -1531,7 +1554,8 @@ public class MongoJobStore implements JobStore {
                 set("retry_delay_ms", retryDelayMs),
                 set("description", description),
                 set("updated_at", DocumentMapper.toDate(now)),
-                setOnInsert("created_at", DocumentMapper.toDate(now))),
+                setOnInsert("created_at", DocumentMapper.toDate(now)),
+                setOnInsert("active_count", 0)),
             new UpdateOptions().upsert(true));
   }
 
@@ -1540,7 +1564,22 @@ public class MongoJobStore implements JobStore {
     if (staleNodeIds.isEmpty()) {
       return 0;
     }
+    // Count permits per resource before deletion to adjust counters
+    List<Document> orphanedPermits = new ArrayList<>();
+    resourcePermits().find(in("node_id", staleNodeIds)).forEach(orphanedPermits::add);
     DeleteResult result = resourcePermits().deleteMany(in("node_id", staleNodeIds));
+    // Decrement active_count for each affected resource
+    orphanedPermits.stream()
+        .map(doc -> doc.getString("resource_name"))
+        .distinct()
+        .forEach(
+            resource -> {
+              long count =
+                  orphanedPermits.stream()
+                      .filter(doc -> resource.equals(doc.getString("resource_name")))
+                      .count();
+              resourceLimits().updateOne(eq("_id", resource), inc("active_count", (int) -count));
+            });
     return (int) result.getDeletedCount();
   }
 

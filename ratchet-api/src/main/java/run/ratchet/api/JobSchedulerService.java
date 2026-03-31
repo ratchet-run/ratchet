@@ -49,10 +49,34 @@ public interface JobSchedulerService {
    */
   boolean cancelJob(long jobId);
 
-  /** Registers an event listener that will receive all scheduler events. */
+  /**
+   * Registers a programmatic event listener that receives all scheduler events.
+   *
+   * <p>For type-safe event observation, use CDI {@code @Observes} with specific event types
+   * instead. This method is intended for non-CDI contexts or when receiving all events is desired.
+   *
+   * <p>Event types delivered (all extend {@link
+   * run.ratchet.api.event.AbstractJobSchedulerEvent}):
+   *
+   * <ul>
+   *   <li><b>Job lifecycle:</b> {@code JobStartedEvent}, {@code JobCompletedEvent}, {@code
+   *       JobFailedEvent}, {@code JobCancellingEvent}, {@code JobCancelledEvent}, {@code
+   *       JobPausedEvent}, {@code JobResumedEvent}, {@code JobRetryingEvent}
+   *   <li><b>Batch:</b> {@code BatchCompletingEvent}, {@code BatchCompletedEvent}
+   *   <li><b>Chain/Workflow:</b> {@code ChainStartedEvent}, {@code ChainCompletedEvent}, {@code
+   *       ChainFailedEvent}, {@code WorkflowBranchTriggeredEvent}
+   *   <li><b>Observability:</b> {@code JobDlqEvent}, {@code PerformanceMetricsEvent}
+   * </ul>
+   *
+   * @param listener a consumer that receives all scheduler events
+   */
   void addEventListener(Consumer<Object> listener);
 
-  /** Removes a previously registered event listener. */
+  /**
+   * Removes a previously registered event listener.
+   *
+   * @param listener the listener to remove
+   */
   void removeEventListener(Consumer<Object> listener);
 
   /**

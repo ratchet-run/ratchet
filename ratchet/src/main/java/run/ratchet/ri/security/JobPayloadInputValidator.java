@@ -274,7 +274,8 @@ public class JobPayloadInputValidator {
       return;
     }
     try {
-      Class<?> clazz = Class.forName(payload.target());
+      Class<?> clazz =
+          Class.forName(payload.target(), true, Thread.currentThread().getContextClassLoader());
       validateMethodSignature(clazz, payload, errors);
     } catch (ClassNotFoundException e) {
       // Already reported by validateTargetClass
@@ -295,7 +296,7 @@ public class JobPayloadInputValidator {
       return;
     }
     try {
-      Class.forName(payload.target());
+      Class.forName(payload.target(), true, Thread.currentThread().getContextClassLoader());
     } catch (ClassNotFoundException e) {
       errors.add("Target class not found: " + payload.target() + " - " + e.getMessage());
     } catch (Exception e) {

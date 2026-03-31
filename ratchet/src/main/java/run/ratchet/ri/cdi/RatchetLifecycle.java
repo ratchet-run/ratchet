@@ -2,7 +2,6 @@ package run.ratchet.ri.cdi;
 
 import com.cronutils.model.Cron;
 import run.ratchet.ri.core.BatchRecoveryTimer;
-import run.ratchet.ri.core.BatchService;
 import run.ratchet.ri.core.DeadLetterService;
 import run.ratchet.ri.core.DefaultNodeIdentityProvider;
 import run.ratchet.ri.core.JobArchivingService;
@@ -156,7 +155,7 @@ public class RatchetLifecycle {
     }
 
     // Release classloader references held by static reflection caches
+    // BatchService caches are cleared via @PreDestroy on the @ApplicationScoped bean
     JobTask.clearCaches();
-    BatchService.clearCaches();
   }
 }

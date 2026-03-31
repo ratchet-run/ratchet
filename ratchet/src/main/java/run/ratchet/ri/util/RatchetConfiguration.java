@@ -123,81 +123,162 @@ public class RatchetConfiguration {
    * initialized in a proxy's super-constructor are never accessed.
    */
   public RatchetConfiguration() {
-    // Circuit Breaker
-    this.cbDefaultFailureRate = getEnvOrDefault("SCHEDULER_CB_DEFAULT_FAILURE_RATE", "50");
-    this.cbDefaultWaitSeconds = getEnvOrDefault("SCHEDULER_CB_DEFAULT_WAIT_SECONDS", "30");
-    this.cbDefaultWindowSize = getEnvOrDefault("SCHEDULER_CB_DEFAULT_WINDOW_SIZE", "100");
-    this.cbExternalFailureRate = getEnvOrDefault("SCHEDULER_CB_EXTERNAL_FAILURE_RATE", "60");
-    this.cbExternalWaitSeconds = getEnvOrDefault("SCHEDULER_CB_EXTERNAL_WAIT_SECONDS", "60");
-    this.circuitBreakerEnabled = getEnvOrDefault("SCHEDULER_CIRCUIT_BREAKER_ENABLED", "true");
+    // Circuit Breaker (legacy: SCHEDULER_*, new: RATCHET_*)
+    this.cbDefaultFailureRate =
+        getEnvWithFallback(
+            "RATCHET_CB_DEFAULT_FAILURE_RATE", "SCHEDULER_CB_DEFAULT_FAILURE_RATE", "50");
+    this.cbDefaultWaitSeconds =
+        getEnvWithFallback(
+            "RATCHET_CB_DEFAULT_WAIT_SECONDS", "SCHEDULER_CB_DEFAULT_WAIT_SECONDS", "30");
+    this.cbDefaultWindowSize =
+        getEnvWithFallback(
+            "RATCHET_CB_DEFAULT_WINDOW_SIZE", "SCHEDULER_CB_DEFAULT_WINDOW_SIZE", "100");
+    this.cbExternalFailureRate =
+        getEnvWithFallback(
+            "RATCHET_CB_EXTERNAL_FAILURE_RATE", "SCHEDULER_CB_EXTERNAL_FAILURE_RATE", "60");
+    this.cbExternalWaitSeconds =
+        getEnvWithFallback(
+            "RATCHET_CB_EXTERNAL_WAIT_SECONDS", "SCHEDULER_CB_EXTERNAL_WAIT_SECONDS", "60");
+    this.circuitBreakerEnabled =
+        getEnvWithFallback(
+            "RATCHET_CIRCUIT_BREAKER_ENABLED", "SCHEDULER_CIRCUIT_BREAKER_ENABLED", "true");
 
     // Idempotency Retry
     this.idempotencyRetryMaxAttempts =
-        getEnvOrDefault("SCHEDULER_IDEMPOTENCY_RETRY_MAX_ATTEMPTS", "3");
+        getEnvWithFallback(
+            "RATCHET_IDEMPOTENCY_RETRY_MAX_ATTEMPTS",
+            "SCHEDULER_IDEMPOTENCY_RETRY_MAX_ATTEMPTS",
+            "3");
     this.idempotencyRetryInitialDelayMs =
-        getEnvOrDefault("SCHEDULER_IDEMPOTENCY_RETRY_INITIAL_DELAY_MS", "50");
+        getEnvWithFallback(
+            "RATCHET_IDEMPOTENCY_RETRY_INITIAL_DELAY_MS",
+            "SCHEDULER_IDEMPOTENCY_RETRY_INITIAL_DELAY_MS",
+            "50");
     this.idempotencyRetryMaxDelayMs =
-        getEnvOrDefault("SCHEDULER_IDEMPOTENCY_RETRY_MAX_DELAY_MS", "500");
+        getEnvWithFallback(
+            "RATCHET_IDEMPOTENCY_RETRY_MAX_DELAY_MS",
+            "SCHEDULER_IDEMPOTENCY_RETRY_MAX_DELAY_MS",
+            "500");
 
     // Data Retention and Archiving
-    this.dlqPurgeCron = getEnvOrDefault("SCHEDULER_DLQ_PURGE_CRON", "0 0 2 * * ?");
-    this.dlqPurgeDays = getEnvOrDefault("DLQ_PURGE_DAYS", "90");
-    this.dlqPurgeEnabled = getEnvOrDefault("SCHEDULER_DLQ_PURGE_ENABLED", "true");
-    this.dynamicHeartbeatEnabled = getEnvOrDefault("SCHEDULER_DYNAMIC_HEARTBEAT_ENABLED", "true");
-    this.jobArchiverCron = getEnvOrDefault("SCHEDULER_JOB_ARCHIVER_CRON", "0 0 1 * * ?");
-    this.jobArchiveBatchSize = getEnvOrDefault("SCHEDULER_JOB_ARCHIVE_BATCH_SIZE", "1000");
-    this.jobArchiveEnabled = getEnvOrDefault("SCHEDULER_JOB_ARCHIVE_ENABLED", "true");
-    this.jobRetentionDays = getEnvOrDefault("SCHEDULER_JOB_RETENTION_DAYS", "90");
-    this.logPurgeEnabled = getEnvOrDefault("SCHEDULER_LOG_PURGE_ENABLED", "true");
-    this.logPurgerCron = getEnvOrDefault("LOG_PURGER_CRON", "0 30 2 * * ?");
-    this.logRetentionDays = getEnvOrDefault("LOG_RETENTION_DAYS", "30");
-    this.maxPayloadKb = getEnvOrDefault("SCHEDULER_MAX_PAYLOAD_KB", "100");
-    this.metricsClustering = getEnvOrDefault("SCHEDULER_METRICS_CLUSTERING", "none");
+    this.dlqPurgeCron =
+        getEnvWithFallback("RATCHET_DLQ_PURGE_CRON", "SCHEDULER_DLQ_PURGE_CRON", "0 0 2 * * ?");
+    this.dlqPurgeDays = getEnvWithFallback("RATCHET_DLQ_PURGE_DAYS", "DLQ_PURGE_DAYS", "90");
+    this.dlqPurgeEnabled =
+        getEnvWithFallback("RATCHET_DLQ_PURGE_ENABLED", "SCHEDULER_DLQ_PURGE_ENABLED", "true");
+    this.dynamicHeartbeatEnabled =
+        getEnvWithFallback(
+            "RATCHET_DYNAMIC_HEARTBEAT_ENABLED", "SCHEDULER_DYNAMIC_HEARTBEAT_ENABLED", "true");
+    this.jobArchiverCron =
+        getEnvWithFallback(
+            "RATCHET_JOB_ARCHIVER_CRON", "SCHEDULER_JOB_ARCHIVER_CRON", "0 0 1 * * ?");
+    this.jobArchiveBatchSize =
+        getEnvWithFallback(
+            "RATCHET_JOB_ARCHIVE_BATCH_SIZE", "SCHEDULER_JOB_ARCHIVE_BATCH_SIZE", "1000");
+    this.jobArchiveEnabled =
+        getEnvWithFallback("RATCHET_JOB_ARCHIVE_ENABLED", "SCHEDULER_JOB_ARCHIVE_ENABLED", "true");
+    this.jobRetentionDays =
+        getEnvWithFallback("RATCHET_JOB_RETENTION_DAYS", "SCHEDULER_JOB_RETENTION_DAYS", "90");
+    this.logPurgeEnabled =
+        getEnvWithFallback("RATCHET_LOG_PURGE_ENABLED", "SCHEDULER_LOG_PURGE_ENABLED", "true");
+    this.logPurgerCron =
+        getEnvWithFallback("RATCHET_LOG_PURGER_CRON", "LOG_PURGER_CRON", "0 30 2 * * ?");
+    this.logRetentionDays =
+        getEnvWithFallback("RATCHET_LOG_RETENTION_DAYS", "LOG_RETENTION_DAYS", "30");
+    this.maxPayloadKb =
+        getEnvWithFallback("RATCHET_MAX_PAYLOAD_KB", "SCHEDULER_MAX_PAYLOAD_KB", "100");
+    this.metricsClustering =
+        getEnvWithFallback("RATCHET_METRICS_CLUSTERING", "SCHEDULER_METRICS_CLUSTERING", "none");
 
     // Node Health and Heartbeat
-    this.nodeHeartbeatIntervalSeconds = getEnvOrDefault("NODE_HEARTBEAT_INTERVAL_SECONDS", "10");
-    this.nodeOrphanGraceSeconds = getEnvOrDefault("NODE_ORPHAN_GRACE_SECONDS", "60");
-    this.orphanScanIntervalMinutes = getEnvOrDefault("SCHEDULER_ORPHAN_SCAN_INTERVAL_MINUTES", "5");
+    this.nodeHeartbeatIntervalSeconds =
+        getEnvWithFallback(
+            "RATCHET_NODE_HEARTBEAT_INTERVAL_SECONDS", "NODE_HEARTBEAT_INTERVAL_SECONDS", "10");
+    this.nodeOrphanGraceSeconds =
+        getEnvWithFallback("RATCHET_NODE_ORPHAN_GRACE_SECONDS", "NODE_ORPHAN_GRACE_SECONDS", "60");
+    this.orphanScanIntervalMinutes =
+        getEnvWithFallback(
+            "RATCHET_ORPHAN_SCAN_INTERVAL_MINUTES", "SCHEDULER_ORPHAN_SCAN_INTERVAL_MINUTES", "5");
 
     // Priority Boosting
     this.priorityBoostIntervalMinutes =
-        getEnvOrDefault("SCHEDULER_PRIORITY_BOOST_INTERVAL_MINUTES", "15");
+        getEnvWithFallback(
+            "RATCHET_PRIORITY_BOOST_INTERVAL_MINUTES",
+            "SCHEDULER_PRIORITY_BOOST_INTERVAL_MINUTES",
+            "15");
 
     // Poller
-    this.pollerBatchSize = getEnvOrDefault("POLLER_BATCH_SIZE", "50");
-    this.pollerBurstDelayMs = getEnvOrDefault("POLLER_BURST_DELAY_MS", "500");
-    this.pollerDeepIdleDelayMs = getEnvOrDefault("POLLER_DEEP_IDLE_DELAY_MS", "30000");
-    this.pollerDeepIdleThresholdMs = getEnvOrDefault("POLLER_DEEP_IDLE_THRESHOLD_MS", "60000");
-    this.pollerIdleThreshold = getEnvOrDefault("POLLER_IDLE_THRESHOLD", "3");
-    this.pollerMaxDelayMs = getEnvOrDefault("POLLER_MAX_DELAY_MS", "10000");
-    this.pollerMinDelayMs = getEnvOrDefault("POLLER_MIN_DELAY_MS", "2000");
+    this.pollerBatchSize =
+        getEnvWithFallback("RATCHET_POLLER_BATCH_SIZE", "POLLER_BATCH_SIZE", "50");
+    this.pollerBurstDelayMs =
+        getEnvWithFallback("RATCHET_POLLER_BURST_DELAY_MS", "POLLER_BURST_DELAY_MS", "500");
+    this.pollerDeepIdleDelayMs =
+        getEnvWithFallback(
+            "RATCHET_POLLER_DEEP_IDLE_DELAY_MS", "POLLER_DEEP_IDLE_DELAY_MS", "30000");
+    this.pollerDeepIdleThresholdMs =
+        getEnvWithFallback(
+            "RATCHET_POLLER_DEEP_IDLE_THRESHOLD_MS", "POLLER_DEEP_IDLE_THRESHOLD_MS", "60000");
+    this.pollerIdleThreshold =
+        getEnvWithFallback("RATCHET_POLLER_IDLE_THRESHOLD", "POLLER_IDLE_THRESHOLD", "3");
+    this.pollerMaxDelayMs =
+        getEnvWithFallback("RATCHET_POLLER_MAX_DELAY_MS", "POLLER_MAX_DELAY_MS", "10000");
+    this.pollerMinDelayMs =
+        getEnvWithFallback("RATCHET_POLLER_MIN_DELAY_MS", "POLLER_MIN_DELAY_MS", "2000");
 
     // Recurring Job
-    this.recurringBatchLimit = getEnvOrDefault("RECURRING_BATCH_LIMIT", "20");
-    this.recurringMaxPollMs = getEnvOrDefault("RECURRING_MAX_POLL_MS", "60000");
-    this.recurringPollMs = getEnvOrDefault("RECURRING_POLL_MS", "1000");
+    this.recurringBatchLimit =
+        getEnvWithFallback("RATCHET_RECURRING_BATCH_LIMIT", "RECURRING_BATCH_LIMIT", "20");
+    this.recurringMaxPollMs =
+        getEnvWithFallback("RATCHET_RECURRING_MAX_POLL_MS", "RECURRING_MAX_POLL_MS", "60000");
+    this.recurringPollMs =
+        getEnvWithFallback("RATCHET_RECURRING_POLL_MS", "RECURRING_POLL_MS", "1000");
 
     // Slack Notification
-    this.slackDlqChannel = getEnvOrDefault("SCHEDULER_SLACK_DLQ_CHANNEL", "#job-scheduler-dlq");
+    this.slackDlqChannel =
+        getEnvWithFallback(
+            "RATCHET_SLACK_DLQ_CHANNEL", "SCHEDULER_SLACK_DLQ_CHANNEL", "#job-scheduler-dlq");
     this.slackNotificationsEnabled =
-        getEnvOrDefault("SCHEDULER_SLACK_NOTIFICATIONS_ENABLED", "true");
-    this.slackTimeoutChannel = getEnvOrDefault("SCHEDULER_SLACK_TIMEOUT_CHANNEL", "#ops-alerts");
-    this.softTimeoutPercent = getEnvOrDefault("SCHEDULER_SOFT_TIMEOUT_PERCENT", "80");
+        getEnvWithFallback(
+            "RATCHET_SLACK_NOTIFICATIONS_ENABLED", "SCHEDULER_SLACK_NOTIFICATIONS_ENABLED", "true");
+    this.slackTimeoutChannel =
+        getEnvWithFallback(
+            "RATCHET_SLACK_TIMEOUT_CHANNEL", "SCHEDULER_SLACK_TIMEOUT_CHANNEL", "#ops-alerts");
+    this.softTimeoutPercent =
+        getEnvWithFallback("RATCHET_SOFT_TIMEOUT_PERCENT", "SCHEDULER_SOFT_TIMEOUT_PERCENT", "80");
 
     // Thread Pool
-    this.threadPoolQueueSize = getEnvOrDefault("SCHEDULER_THREAD_POOL_QUEUE_SIZE", "100");
-    this.threadPoolSizeBatchChild = getEnvOrDefault("SCHEDULER_THREAD_POOL_SIZE_BATCH_CHILD", "30");
+    this.threadPoolQueueSize =
+        getEnvWithFallback(
+            "RATCHET_THREAD_POOL_QUEUE_SIZE", "SCHEDULER_THREAD_POOL_QUEUE_SIZE", "100");
+    this.threadPoolSizeBatchChild =
+        getEnvWithFallback(
+            "RATCHET_THREAD_POOL_SIZE_BATCH_CHILD", "SCHEDULER_THREAD_POOL_SIZE_BATCH_CHILD", "30");
     this.threadPoolSizeBatchParent =
-        getEnvOrDefault("SCHEDULER_THREAD_POOL_SIZE_BATCH_PARENT", "2");
-    this.threadPoolSizeChain = getEnvOrDefault("SCHEDULER_THREAD_POOL_SIZE_CHAIN", "10");
-    this.threadPoolSizeDefault = getEnvOrDefault("SCHEDULER_THREAD_POOL_SIZE_DEFAULT", "10");
-    this.threadPoolSizeDlq = getEnvOrDefault("SCHEDULER_THREAD_POOL_SIZE_DLQ", "2");
-    this.threadPoolSizeRecurring = getEnvOrDefault("SCHEDULER_THREAD_POOL_SIZE_RECURRING", "5");
-    this.threadPoolSizeSingle = getEnvOrDefault("SCHEDULER_THREAD_POOL_SIZE_SINGLE", "20");
+        getEnvWithFallback(
+            "RATCHET_THREAD_POOL_SIZE_BATCH_PARENT",
+            "SCHEDULER_THREAD_POOL_SIZE_BATCH_PARENT",
+            "2");
+    this.threadPoolSizeChain =
+        getEnvWithFallback(
+            "RATCHET_THREAD_POOL_SIZE_CHAIN", "SCHEDULER_THREAD_POOL_SIZE_CHAIN", "10");
+    this.threadPoolSizeDefault =
+        getEnvWithFallback(
+            "RATCHET_THREAD_POOL_SIZE_DEFAULT", "SCHEDULER_THREAD_POOL_SIZE_DEFAULT", "10");
+    this.threadPoolSizeDlq =
+        getEnvWithFallback("RATCHET_THREAD_POOL_SIZE_DLQ", "SCHEDULER_THREAD_POOL_SIZE_DLQ", "2");
+    this.threadPoolSizeRecurring =
+        getEnvWithFallback(
+            "RATCHET_THREAD_POOL_SIZE_RECURRING", "SCHEDULER_THREAD_POOL_SIZE_RECURRING", "5");
+    this.threadPoolSizeSingle =
+        getEnvWithFallback(
+            "RATCHET_THREAD_POOL_SIZE_SINGLE", "SCHEDULER_THREAD_POOL_SIZE_SINGLE", "20");
 
     // Worker
-    this.workerDefaultSla = getEnvOrDefault("WORKER_DEFAULT_SLA", "1800");
-    this.workerUseVirtualThreads = getEnvOrDefault("WORKER_USE_VIRTUAL_THREADS", "false");
+    this.workerDefaultSla =
+        getEnvWithFallback("RATCHET_WORKER_DEFAULT_SLA", "WORKER_DEFAULT_SLA", "1800");
+    this.workerUseVirtualThreads =
+        getEnvWithFallback(
+            "RATCHET_WORKER_USE_VIRTUAL_THREADS", "WORKER_USE_VIRTUAL_THREADS", "false");
   }
 
   /* ─────────────────────── env helpers ─────────────────────── */
@@ -209,6 +290,18 @@ public class RatchetConfiguration {
     }
     value = System.getProperty(key);
     return (value != null && !value.isEmpty()) ? value : defaultValue;
+  }
+
+  /**
+   * Reads a configuration value, preferring the new RATCHET-prefixed name but falling back to the
+   * legacy name for backward compatibility.
+   */
+  private static String getEnvWithFallback(String preferred, String legacy, String defaultValue) {
+    String value = getEnvOrDefault(preferred, null);
+    if (value != null) {
+      return value;
+    }
+    return getEnvOrDefault(legacy, defaultValue);
   }
 
   private static int parseIntOrDefault(String envValue, int defaultValue) {
@@ -410,6 +503,26 @@ public class RatchetConfiguration {
 
   public boolean isWorkerUseVirtualThreads() {
     return workersUseVirtualThreads();
+  }
+
+  /**
+   * Returns the virtual thread limit for the given job execution type. Reads from
+   * RATCHET_VIRTUAL_THREAD_LIMIT_{type} with fallback to VIRTUAL_THREAD_LIMIT_{type}.
+   */
+  public int getVirtualThreadLimit(String jobTypeName, int defaultLimit) {
+    String value =
+        getEnvWithFallback(
+            "RATCHET_VIRTUAL_THREAD_LIMIT_" + jobTypeName,
+            "VIRTUAL_THREAD_LIMIT_" + jobTypeName,
+            null);
+    if (value != null && !value.isBlank()) {
+      try {
+        return Integer.parseInt(value.trim());
+      } catch (NumberFormatException e) {
+        // fall through to default
+      }
+    }
+    return defaultLimit;
   }
 
   public boolean workersUseVirtualThreads() {

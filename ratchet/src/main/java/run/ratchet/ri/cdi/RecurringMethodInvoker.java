@@ -59,7 +59,8 @@ public class RecurringMethodInvoker {
   public void invoke(String beanClassName, String methodName, boolean hasJobContextParam)
       throws Exception {
     ensureClassAllowed(beanClassName);
-    Class<?> beanClass = Class.forName(beanClassName);
+    Class<?> beanClass =
+        Class.forName(beanClassName, true, Thread.currentThread().getContextClassLoader());
     Instance<?> instance = allBeans.select(beanClass);
 
     if (instance.isUnsatisfied()) {

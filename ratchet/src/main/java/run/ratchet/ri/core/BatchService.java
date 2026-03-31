@@ -13,6 +13,7 @@ import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.spi.BatchMetricsStore;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobCrudStore;
+import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -76,10 +77,11 @@ public class BatchService {
   private static final ConcurrentHashMap<String, Class<?>> CLASS_CACHE = new ConcurrentHashMap<>();
 
   /**
-   * Clears all static reflection caches. Must be called on application shutdown to release
-   * classloader references and prevent memory leaks in redeployable containers.
+   * Clears all static reflection caches. Called on application shutdown to release classloader
+   * references and prevent memory leaks in redeployable containers.
    */
-  public static void clearCaches() {
+  @PreDestroy
+  public void clearCaches() {
     HOOK_METHOD_CACHE.clear();
     CLASS_CACHE.clear();
   }
@@ -262,7 +264,7 @@ public class BatchService {
             payload.target(),
             name -> {
               try {
-                return Class.forName(name);
+                return Class.forName(name, true, Thread.currentThread().getContextClassLoader());
               } catch (ClassNotFoundException e) {
                 throw new IllegalStateException("Progress hook target class not found: " + name, e);
               }
