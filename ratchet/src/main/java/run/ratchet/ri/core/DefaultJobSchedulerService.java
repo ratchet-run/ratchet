@@ -51,7 +51,6 @@ import java.util.logging.Logger;
  * @see InternalEventPublisher
  */
 @ApplicationScoped
-@Transactional
 public class DefaultJobSchedulerService
     implements JobSchedulerService, JobSubmitter, RecurringAnnotationMaintenanceService {
 
@@ -99,6 +98,7 @@ public class DefaultJobSchedulerService
   }
 
   @Override
+  @Transactional
   public boolean cancelJob(long jobId) {
     // Try PENDING → CANCELED first (most common case)
     if (jobStatusStore.compareAndSwapStatus(jobId, JobStatus.PENDING, JobStatus.CANCELED, null)) {
@@ -167,6 +167,7 @@ public class DefaultJobSchedulerService
   }
 
   @Override
+  @Transactional
   public JobHandle replace(
       long jobId, Duration delay, SerializableCheckedRunnable newTask, JobOptions opts) {
     // Load the existing job
@@ -214,6 +215,7 @@ public class DefaultJobSchedulerService
   }
 
   @Override
+  @Transactional
   public boolean pauseJob(long jobId) {
     // Idempotent: already paused is a no-op success
     JobStatus current = jobCrudStore.getJobStatus(jobId);
@@ -248,40 +250,28 @@ public class DefaultJobSchedulerService
   }
 
   @Override
+  @Transactional
   public boolean resumeJob(long jobId) {
-    JobEntity job = jobCrudStore.findById(jobId).orElse(null);
-    if (job == null) {
-      log.fine("Cannot resume job " + jobId + " — not found");
-      return false;
-    }
-
-    if (job.getStatus() != JobStatus.PAUSED) {
-      JobStatus current = job.getStatus();
-      log.fine("Cannot resume job " + jobId + " — not in PAUSED state (current: " + current + ")");
-      return false;
-    }
-
-    JobStatus target =
-        job.getPausedFromStatus() != null ? job.getPausedFromStatus() : JobStatus.PENDING;
-    if (jobStatusStore.transitionFromPaused(jobId, target)) {
-      log.fine("Resumed job " + jobId + " to " + target);
-      if (target == JobStatus.PENDING) {
-        // Kick the recurring scheduler in case this is a recurring/cron job
-        recurringScheduler.kick();
+    JobStatus target = jobStatusStore.transitionFromPausedAtomic(jobId);
+    if (target == null) {
+      JobStatus current = jobCrudStore.getJobStatus(jobId);
+      if (current == null) {
+        log.fine("Cannot resume job " + jobId + " — not found");
+      } else {
+        log.fine(
+            "Cannot resume job " + jobId + " — not in PAUSED state (current: " + current + ")");
       }
-      return true;
+      return false;
     }
-
-    JobStatus current = jobCrudStore.getJobStatus(jobId);
-    if (current == null) {
-      log.fine("Cannot resume job " + jobId + " — not found");
-    } else {
-      log.fine("Cannot resume job " + jobId + " — not in PAUSED state (current: " + current + ")");
+    log.fine("Resumed job " + jobId + " to " + target);
+    if (target == JobStatus.PENDING) {
+      recurringScheduler.kick();
     }
-    return false;
+    return true;
   }
 
   @Override
+  @Transactional
   public boolean retryJob(long jobId) {
     if (jobStatusStore.resetFailedToPending(jobId)) {
       log.fine("Retried failed job " + jobId + " — reset to PENDING");
@@ -298,15 +288,18 @@ public class DefaultJobSchedulerService
   }
 
   @Override
+  @Transactional
   public int cancelRecurringJobsByTag(String tag) {
     return jobStatusStore.cancelRecurringJobsByTag(tag);
   }
 
   @Override
+  @Transactional
   public int cancelRecurringJobByBusinessKey(String businessKey) {
     return jobStatusStore.cancelRecurringJobByBusinessKey(businessKey);
   }
 
+  @Transactional
   public int cancelOrphanedRecurringAnnotationJobs(
       Set<String> registeredIds, Instant nodeStartTime) {
     return jobStatusStore.cancelOrphanedRecurringAnnotationJobs(registeredIds, nodeStartTime);
@@ -323,6 +316,7 @@ public class DefaultJobSchedulerService
    * @return a handle to the persisted job
    */
   @Override
+  @Transactional
   public JobHandle submit(JobBuilder builder) {
     // Check idempotency key — return existing job if duplicate
     String idempotencyKey = builder.idempotencyKey();
@@ -365,6 +359,12 @@ public class DefaultJobSchedulerService
     job.setIdempotencyKey(idempotencyKey);
     job.setBusinessKey(businessKey);
     job.setResourceName(builder.resourceName());
+    if (builder.onSuccess() != null) {
+      job.setOnSuccessPayload(JobPayloadFactory.fromLambda(builder.onSuccess()));
+    }
+    if (builder.onFailure() != null) {
+      job.setOnFailurePayload(JobPayloadFactory.fromLambda(builder.onFailure()));
+    }
     job.setMaxRetries(opts.maxRetries());
     job.setBackoffPolicy(opts.backoffPolicy());
     job.setBackoffParamMs((int) opts.backoffParam().toMillis());

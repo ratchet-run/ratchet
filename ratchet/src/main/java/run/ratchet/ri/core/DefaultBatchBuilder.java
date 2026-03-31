@@ -20,7 +20,6 @@ import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
-import jakarta.transaction.Transactional;
 import java.io.Serializable;
 import java.time.Duration;
 import java.time.Instant;
@@ -36,7 +35,6 @@ import java.util.logging.Logger;
  * <p>Creates a BATCH_PARENT job with BATCH_CHILD jobs for each item in the collection. The parent
  * job tracks overall progress via a {@link BatchEntity}.
  */
-@Transactional
 public class DefaultBatchBuilder implements BatchBuilder {
 
   private static final Logger log = Logger.getLogger(DefaultBatchBuilder.class.getName());

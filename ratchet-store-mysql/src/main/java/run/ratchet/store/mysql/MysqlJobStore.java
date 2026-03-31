@@ -726,6 +726,30 @@ public class MysqlJobStore implements JobStore {
     return updated > 0;
   }
 
+  @Override
+  public JobStatus transitionFromPausedAtomic(long id) {
+    List<?> results =
+        em.createNativeQuery(
+                "SELECT paused_from_status FROM scheduler_job "
+                    + "WHERE job_id = :id AND status = 'PAUSED' FOR UPDATE")
+            .setParameter("id", id)
+            .getResultList();
+    if (results.isEmpty()) {
+      return null;
+    }
+    String pausedFrom = (String) results.get(0);
+    JobStatus target = pausedFrom != null ? JobStatus.valueOf(pausedFrom) : JobStatus.PENDING;
+    int updated =
+        em.createNativeQuery(
+                "UPDATE scheduler_job SET status = :target, "
+                    + "paused_from_status = NULL, updated_at = NOW(3) "
+                    + "WHERE job_id = :id AND status = 'PAUSED'")
+            .setParameter("target", target.name())
+            .setParameter("id", id)
+            .executeUpdate();
+    return updated > 0 ? target : null;
+  }
+
   // ── JobBulkStore ──────────────────────────────────────────────────────
 
   @Override
@@ -743,12 +767,14 @@ public class MysqlJobStore implements JobStore {
           "INSERT INTO scheduler_job (job_id, status, paused_from_status, scheduled_time, "
               + "job_type, priority, attempts, max_retries, backoff_policy, backoff_param_ms, "
               + "timeout_sec, cron_expr, zone_id, next_fire, payload, params, idempotency_key, "
-              + "business_key, resource_name, depends_on, superseded_by, picked_by, picked_at, "
+              + "business_key, resource_name, on_success_payload, on_failure_payload, "
+              + "depends_on, superseded_by, picked_by, picked_at, "
               + "last_error, created_at, created_by, updated_at, execution_start_time, "
               + "execution_end_time, execution_duration_ms, queue_wait_ms, job_result, "
               + "result_type, version) "
               + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), "
-              + "CAST(? AS JSON), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+              + "CAST(? AS JSON), ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), "
+              + "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
               + "CAST(? AS JSON), ?, 0)";
 
       try (PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -776,6 +802,8 @@ public class MysqlJobStore implements JobStore {
           ps.setString(i++, job.getIdempotencyKey());
           ps.setString(i++, job.getBusinessKey());
           ps.setString(i++, job.getResourceName());
+          ps.setString(i++, callbackPayloadToJson(job.getOnSuccessPayload()));
+          ps.setString(i++, callbackPayloadToJson(job.getOnFailurePayload()));
           if (job.getDependsOn() != null) {
             ps.setLong(i++, job.getDependsOn());
           } else {
@@ -1608,6 +1636,17 @@ public class MysqlJobStore implements JobStore {
       return OBJECT_MAPPER.writeValueAsString(job.getParams());
     } catch (JsonProcessingException e) {
       throw new RuntimeException("Failed to serialize params", e);
+    }
+  }
+
+  private String callbackPayloadToJson(JobPayload payload) {
+    if (payload == null) {
+      return null;
+    }
+    try {
+      return OBJECT_MAPPER.writeValueAsString(payload);
+    } catch (JsonProcessingException e) {
+      throw new RuntimeException("Failed to serialize callback payload", e);
     }
   }
 }

@@ -74,6 +74,8 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     idempotency_key       VARCHAR(36)                                                                                                         NOT NULL,
     business_key          VARCHAR(255)                                                                                                        NULL,
     resource_name         VARCHAR(100)                                                                                                        NULL,
+    on_success_payload    JSON                                                                                                                NULL,
+    on_failure_payload    JSON                                                                                                                NULL,
     depends_on            BIGINT UNSIGNED                                                                                                     NULL,
     superseded_by         BIGINT UNSIGNED                                                                                                     NULL,
     picked_by             VARCHAR(64)                                                                                                         NULL,

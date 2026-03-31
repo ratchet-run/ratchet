@@ -94,4 +94,15 @@ public interface JobStatusStore {
    * @return true if the transition succeeded (job was in PAUSED state)
    */
   boolean transitionFromPaused(long id, JobStatus target);
+
+  /**
+   * Atomically transitions a job from PAUSED to its stored {@code paused_from_status} (defaulting
+   * to PENDING if null), reading the target status from the database row in the same atomic
+   * operation. This avoids the TOCTOU race of reading {@code paused_from_status} from an in-memory
+   * entity snapshot and then passing it as a parameter.
+   *
+   * @param id the job ID
+   * @return the status the job was resumed to, or {@code null} if the job was not in PAUSED state
+   */
+  JobStatus transitionFromPausedAtomic(long id);
 }

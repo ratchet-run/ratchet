@@ -27,6 +27,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
@@ -513,6 +514,7 @@ public class JobTask implements Callable<Void> {
       publishDlqEvent(ex, attempt);
       lifecycleFacade.moveToDlq(job, ex);
       handleBatchOrWorkflowPermanentFailure();
+      invokeCallback(job.getOnFailurePayload(), "onFailure");
     }
   }
 
@@ -580,6 +582,8 @@ public class JobTask implements Callable<Void> {
               + e.getMessage());
     }
 
+    invokeCallback(job.getOnSuccessPayload(), "onSuccess");
+
     log.info("Job " + job.getId() + " succeeded in " + executionMs + " ms");
   }
 
@@ -604,6 +608,7 @@ public class JobTask implements Callable<Void> {
       publishDlqEvent(ex, attempt);
       lifecycleFacade.moveToDlq(job, ex);
       handleBatchOrWorkflowPermanentFailure();
+      invokeCallback(job.getOnFailurePayload(), "onFailure");
       log.log(
           Level.SEVERE, "Job " + job.getId() + " moved to DLQ after " + attempt + " attempts", ex);
     }
@@ -619,6 +624,38 @@ public class JobTask implements Callable<Void> {
             job.getPickedBy(),
             errorSanitizer.sanitize(ex),
             attempt));
+  }
+
+  private void invokeCallback(JobPayload callbackPayload, String callbackName) {
+    if (callbackPayload == null) {
+      return;
+    }
+    try {
+      Class<?> cls =
+          CLASS_CACHE.computeIfAbsent(
+              callbackPayload.target(),
+              name -> {
+                try {
+                  return Class.forName(name, true, Thread.currentThread().getContextClassLoader());
+                } catch (ClassNotFoundException e) {
+                  throw new IllegalStateException("Callback class not found: " + name, e);
+                }
+              });
+      Method method = resolveMethod(cls, callbackPayload);
+      Object target = callbackPayload.isStatic() ? null : beanResolver.resolve(cls);
+      List<Object> args = callbackPayload.args() != null ? callbackPayload.args() : List.of();
+      method.invoke(target, args.toArray());
+    } catch (Exception e) {
+      log.warning(
+          "Job "
+              + job.getId()
+              + " "
+              + callbackName
+              + " callback failed: "
+              + e.getClass().getName()
+              + ": "
+              + e.getMessage());
+    }
   }
 
   private Method resolveMethod(Class<?> clazz, JobPayload payload) throws NoSuchMethodException {

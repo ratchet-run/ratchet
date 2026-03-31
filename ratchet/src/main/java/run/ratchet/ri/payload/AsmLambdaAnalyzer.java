@@ -292,7 +292,7 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
             Value topValue = operandStack.pop();
             if (topValue instanceof NewInstanceMarker marker
                 && marker.desc().equals(methodInsn.owner)) {
-              operandStack.push(new ConstantValue(instantiateNoArg(marker.desc())));
+              operandStack.push(UnknownValue.INSTANCE);
             } else {
               operandStack.push(UnknownValue.INSTANCE);
             }
@@ -348,48 +348,6 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
         isStatic,
         Collections.unmodifiableList(new ArrayList<>(invocationArguments)),
         receiver);
-  }
-
-  /**
-   * Dynamically instantiates a class using its no-argument constructor.
-   *
-   * <p>Only classes outside the JDK and well-known framework packages are eligible for
-   * instantiation. This prevents side effects from constructors or static initializers in
-   * system-level or security-sensitive classes when analyzing lambda bytecode from untrusted
-   * payloads.
-   *
-   * @param internalClassName the internal JVM name of the class to instantiate
-   * @return a new instance of the specified class, or null if instantiation fails or is blocked
-   */
-  @SuppressWarnings("java:S1181") // Must catch Throwable since reflection can throw various errors
-  private static Object instantiateNoArg(String internalClassName) {
-    String canonicalClassName = internalClassName.replace('/', '.');
-    if (isBlockedClassName(canonicalClassName)) {
-      return null;
-    }
-    try {
-      Class<?> classToInstantiate =
-          Class.forName(canonicalClassName, false, Thread.currentThread().getContextClassLoader());
-      return classToInstantiate.getDeclaredConstructor().newInstance();
-    } catch (Throwable instantiationError) {
-      return null; // if instantiation fails, treat as unknown
-    }
-  }
-
-  /**
-   * Returns true if the class name should not be instantiated during lambda analysis.
-   *
-   * <p>Blocks JDK core classes, security-sensitive packages, and known runtime internals to prevent
-   * side effects when analyzing lambda bytecode from untrusted payloads.
-   */
-  private static boolean isBlockedClassName(String canonicalClassName) {
-    return canonicalClassName.startsWith("java.")
-        || canonicalClassName.startsWith("javax.")
-        || canonicalClassName.startsWith("jakarta.")
-        || canonicalClassName.startsWith("sun.")
-        || canonicalClassName.startsWith("com.sun.")
-        || canonicalClassName.startsWith("jdk.")
-        || canonicalClassName.startsWith("org.objectweb.asm.");
   }
 
   /**

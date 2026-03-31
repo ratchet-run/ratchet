@@ -21,7 +21,6 @@ import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
-import jakarta.transaction.Transactional;
 import java.io.Serializable;
 import java.time.Duration;
 import java.time.Instant;
@@ -41,7 +40,6 @@ import java.util.stream.Stream;
  * @param <T> the type of items in the stream
  */
 @SuppressWarnings("unchecked")
-@Transactional
 public class DefaultStreamingBatchBuilder<T extends Serializable>
     implements StreamingBatchBuilder<T> {
 

@@ -659,6 +659,24 @@ public class PostgresqlJobStore implements JobStore {
     return updated > 0;
   }
 
+  @Override
+  public JobStatus transitionFromPausedAtomic(long id) {
+    List<?> results =
+        em.createNativeQuery(
+                "UPDATE scheduler_job "
+                    + "SET status = COALESCE(paused_from_status, 'PENDING'), "
+                    + "paused_from_status = NULL, "
+                    + "updated_at = statement_timestamp() "
+                    + "WHERE job_id = ? AND status = 'PAUSED' "
+                    + "RETURNING status")
+            .setParameter(1, id)
+            .getResultList();
+    if (results.isEmpty()) {
+      return null;
+    }
+    return JobStatus.valueOf((String) results.get(0));
+  }
+
   // ──────────────────────────────────────────────
   // JobBulkStore
   // ──────────────────────────────────────────────
@@ -680,11 +698,13 @@ public class PostgresqlJobStore implements JobStore {
               + "(job_id, status, paused_from_status, scheduled_time, job_type, priority, "
               + "attempts, max_retries, backoff_policy, backoff_param_ms, timeout_sec, "
               + "cron_expr, zone_id, next_fire, payload, params, "
-              + "idempotency_key, business_key, resource_name, depends_on, superseded_by, "
+              + "idempotency_key, business_key, resource_name, "
+              + "on_success_payload, on_failure_payload, "
+              + "depends_on, superseded_by, "
               + "picked_by, picked_at, last_error, created_at, created_by, "
               + "updated_at, execution_start_time, execution_end_time, execution_duration_ms, "
               + "queue_wait_ms, job_result, result_type, version) "
-              + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)";
+              + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)";
       try (PreparedStatement ps = conn.prepareStatement(sql)) {
         for (JobEntity job : jobs) {
           Instant now = Instant.now();
@@ -712,49 +732,51 @@ public class PostgresqlJobStore implements JobStore {
           ps.setString(17, job.getIdempotencyKey());
           ps.setString(18, job.getBusinessKey());
           ps.setString(19, job.getResourceName());
+          ps.setString(20, callbackPayloadToJson(job.getOnSuccessPayload()));
+          ps.setString(21, callbackPayloadToJson(job.getOnFailurePayload()));
           if (job.getDependsOn() != null) {
-            ps.setLong(20, job.getDependsOn());
+            ps.setLong(22, job.getDependsOn());
           } else {
-            ps.setNull(20, Types.BIGINT);
+            ps.setNull(22, Types.BIGINT);
           }
           if (job.getSupersededBy() != null) {
-            ps.setLong(21, job.getSupersededBy());
+            ps.setLong(23, job.getSupersededBy());
           } else {
-            ps.setNull(21, Types.BIGINT);
+            ps.setNull(23, Types.BIGINT);
           }
-          ps.setString(22, job.getPickedBy());
+          ps.setString(24, job.getPickedBy());
           if (job.getPickedAt() != null) {
-            ps.setTimestamp(23, Timestamp.from(job.getPickedAt()));
+            ps.setTimestamp(25, Timestamp.from(job.getPickedAt()));
           } else {
-            ps.setNull(23, Types.TIMESTAMP);
+            ps.setNull(25, Types.TIMESTAMP);
           }
-          ps.setString(24, job.getLastError());
+          ps.setString(26, job.getLastError());
           ps.setTimestamp(
-              25, Timestamp.from(job.getCreatedAt() != null ? job.getCreatedAt() : now));
-          ps.setString(26, job.getCreatedBy());
-          ps.setTimestamp(27, Timestamp.from(now));
+              27, Timestamp.from(job.getCreatedAt() != null ? job.getCreatedAt() : now));
+          ps.setString(28, job.getCreatedBy());
+          ps.setTimestamp(29, Timestamp.from(now));
           if (job.getExecutionStartTime() != null) {
-            ps.setTimestamp(28, Timestamp.from(job.getExecutionStartTime()));
+            ps.setTimestamp(30, Timestamp.from(job.getExecutionStartTime()));
           } else {
-            ps.setNull(28, Types.TIMESTAMP);
+            ps.setNull(30, Types.TIMESTAMP);
           }
           if (job.getExecutionEndTime() != null) {
-            ps.setTimestamp(29, Timestamp.from(job.getExecutionEndTime()));
+            ps.setTimestamp(31, Timestamp.from(job.getExecutionEndTime()));
           } else {
-            ps.setNull(29, Types.TIMESTAMP);
+            ps.setNull(31, Types.TIMESTAMP);
           }
           if (job.getExecutionDurationMs() != null) {
-            ps.setLong(30, job.getExecutionDurationMs());
+            ps.setLong(32, job.getExecutionDurationMs());
           } else {
-            ps.setNull(30, Types.BIGINT);
+            ps.setNull(32, Types.BIGINT);
           }
           if (job.getQueueWaitMs() != null) {
-            ps.setLong(31, job.getQueueWaitMs());
+            ps.setLong(33, job.getQueueWaitMs());
           } else {
-            ps.setNull(31, Types.BIGINT);
+            ps.setNull(33, Types.BIGINT);
           }
-          ps.setString(32, job.getJobResult());
-          ps.setString(33, job.getResultType());
+          ps.setString(34, job.getJobResult());
+          ps.setString(35, job.getResultType());
           ps.addBatch();
         }
         ps.executeBatch();
@@ -1523,6 +1545,18 @@ public class PostgresqlJobStore implements JobStore {
       return OBJECT_MAPPER.writeValueAsString(job.getParams());
     } catch (Exception e) {
       log.log(Level.WARNING, "Failed to serialize params", e);
+      return null;
+    }
+  }
+
+  private String callbackPayloadToJson(JobPayload payload) {
+    if (payload == null) {
+      return null;
+    }
+    try {
+      return OBJECT_MAPPER.writeValueAsString(payload);
+    } catch (Exception e) {
+      log.log(Level.WARNING, "Failed to serialize callback payload", e);
       return null;
     }
   }

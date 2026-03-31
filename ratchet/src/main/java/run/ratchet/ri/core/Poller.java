@@ -166,7 +166,8 @@ public class Poller {
 
     if (!running.compareAndSet(false, true)) {
       log.warning("tick() already running, skipping overlapping call");
-      return strategy.getCurrentDelay();
+      PollingStrategy local = strategy;
+      return local != null ? local.getCurrentDelay() : 1000;
     }
 
     try {

@@ -143,6 +143,14 @@ public class JobEntity implements TsidEntityListener.TsidAssignable {
   @Column(name = "resource_name", length = 100)
   private String resourceName;
 
+  @Convert(converter = JobPayloadConverter.class)
+  @Column(name = "on_success_payload")
+  private JobPayload onSuccessPayload;
+
+  @Convert(converter = JobPayloadConverter.class)
+  @Column(name = "on_failure_payload")
+  private JobPayload onFailurePayload;
+
   @Column(name = "depends_on")
   private Long dependsOn;
 
@@ -371,6 +379,22 @@ public class JobEntity implements TsidEntityListener.TsidAssignable {
 
   public void setResourceName(String resourceName) {
     this.resourceName = resourceName;
+  }
+
+  public JobPayload getOnSuccessPayload() {
+    return onSuccessPayload;
+  }
+
+  public void setOnSuccessPayload(JobPayload onSuccessPayload) {
+    this.onSuccessPayload = onSuccessPayload;
+  }
+
+  public JobPayload getOnFailurePayload() {
+    return onFailurePayload;
+  }
+
+  public void setOnFailurePayload(JobPayload onFailurePayload) {
+    this.onFailurePayload = onFailurePayload;
   }
 
   public Long getDependsOn() {

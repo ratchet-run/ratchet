@@ -110,6 +110,21 @@ public final class TsidFactory {
   }
 
   private static int computeNodeId() {
+    // Allow explicit node ID via environment variable or system property (0–1023)
+    String explicit = System.getenv("RATCHET_NODE_ID");
+    if (explicit == null || explicit.isEmpty()) {
+      explicit = System.getProperty("RATCHET_NODE_ID");
+    }
+    if (explicit != null && !explicit.isEmpty()) {
+      try {
+        int nodeId = Integer.parseInt(explicit.trim());
+        if (nodeId >= 0 && nodeId < (1 << NODE_BITS)) {
+          return nodeId;
+        }
+      } catch (NumberFormatException ignored) {
+        // fall through to auto-detection
+      }
+    }
     try {
       String host = InetAddress.getLocalHost().getHostName();
       long pid = ProcessHandle.current().pid();

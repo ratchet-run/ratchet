@@ -75,6 +75,8 @@ public final class DocumentMapper {
     doc.append("business_key", job.getBusinessKey());
     doc.append("tags", job.getTags() != null ? job.getTags() : List.of());
     doc.append("resource_name", job.getResourceName());
+    doc.append("on_success_payload", payloadToDocument(job.getOnSuccessPayload()));
+    doc.append("on_failure_payload", payloadToDocument(job.getOnFailurePayload()));
     doc.append("depends_on", job.getDependsOn());
     doc.append("superseded_by", job.getSupersededBy());
     doc.append("picked_by", job.getPickedBy());
@@ -119,6 +121,8 @@ public final class DocumentMapper {
     job.setBusinessKey(doc.getString("business_key"));
     job.setTags(doc.getList("tags", String.class));
     job.setResourceName(doc.getString("resource_name"));
+    job.setOnSuccessPayload(documentToPayload(doc.get("on_success_payload", Document.class)));
+    job.setOnFailurePayload(documentToPayload(doc.get("on_failure_payload", Document.class)));
     job.setDependsOn(doc.getLong("depends_on"));
     job.setSupersededBy(doc.getLong("superseded_by"));
     job.setPickedBy(doc.getString("picked_by"));

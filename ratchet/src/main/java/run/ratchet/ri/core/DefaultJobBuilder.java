@@ -291,7 +291,12 @@ public final class DefaultJobBuilder implements JobBuilder {
   @Override
   public JobBuilder withIdempotencyKey(String key) {
     if (key != null && !key.isBlank()) {
-      this.idempotencyKey = key.trim();
+      String trimmed = key.trim();
+      if (trimmed.length() > 36) {
+        throw new IllegalArgumentException(
+            "Idempotency key must be at most 36 characters, got " + trimmed.length());
+      }
+      this.idempotencyKey = trimmed;
     }
     // If null/blank, keep the auto-generated UUID
     return this;

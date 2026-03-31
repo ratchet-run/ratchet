@@ -822,6 +822,30 @@ public class MongoJobStore implements JobStore {
     return result.getModifiedCount() > 0;
   }
 
+  @Override
+  public JobStatus transitionFromPausedAtomic(long id) {
+    Document before =
+        jobs()
+            .findOneAndUpdate(
+                and(eq("_id", id), eq("status", "PAUSED")),
+                List.of(
+                    new Document(
+                        "$set",
+                        new Document()
+                            .append(
+                                "status",
+                                new Document("$ifNull", List.of("$paused_from_status", "PENDING")))
+                            .append("paused_from_status", (String) null)
+                            .append("updated_at", new Date())
+                            .append("version", new Document("$add", List.of("$version", 1))))),
+                new FindOneAndUpdateOptions().returnDocument(ReturnDocument.BEFORE));
+    if (before == null) {
+      return null;
+    }
+    String pausedFrom = before.getString("paused_from_status");
+    return pausedFrom != null ? JobStatus.valueOf(pausedFrom) : JobStatus.PENDING;
+  }
+
   // ──────────────────────────────────────────────
   // JobBulkStore
   // ──────────────────────────────────────────────
