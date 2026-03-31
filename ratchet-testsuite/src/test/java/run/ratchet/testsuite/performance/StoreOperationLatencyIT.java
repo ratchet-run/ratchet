@@ -14,6 +14,8 @@ import run.ratchet.testsuite.util.PerformanceReportWriter;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 import jakarta.inject.Inject;
 import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
 import java.util.logging.Logger;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
@@ -195,9 +197,8 @@ class StoreOperationLatencyIT extends BasePerformanceIT {
     job.setMethodName("execute");
     job.setScheduledTime(Instant.now());
     job.setBusinessKey("perf-store-" + suffix);
-    job.setIdempotencyKey(java.util.UUID.randomUUID().toString());
-    job.setPayload(
-        new JobPayload(TimingJob.class.getName(), "execute", "()V", true, java.util.List.of()));
+    job.setIdempotencyKey(UUID.randomUUID().toString());
+    job.setPayload(new JobPayload(TimingJob.class.getName(), "execute", "()V", true, List.of()));
     return job;
   }
 }

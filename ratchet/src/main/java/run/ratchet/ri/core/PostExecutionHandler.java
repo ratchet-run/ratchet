@@ -141,9 +141,7 @@ public class PostExecutionHandler {
         moveToDlq(job, ex);
         scheduleNext(job);
       }
-      default -> {
-        moveToDlq(job, ex);
-      }
+      default -> moveToDlq(job, ex);
     }
     // Wake the poller so it picks up any newly created jobs (workflow branches, chain steps)
     pollerScheduler.wakeup();

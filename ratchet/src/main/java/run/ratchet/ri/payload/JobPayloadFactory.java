@@ -9,7 +9,6 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import org.objectweb.asm.Type;
@@ -301,7 +300,7 @@ public final class JobPayloadFactory {
 
     List<Object> nestedArgs = nestedStep.arguments();
     if (nestedArgs.isEmpty()) {
-      return Collections.unmodifiableList(new ArrayList<>(wrapperArgs));
+      return List.copyOf(wrapperArgs);
     }
 
     List<Object> merged = new ArrayList<>(nestedArgs);
@@ -313,15 +312,15 @@ public final class JobPayloadFactory {
     }
 
     if (wrapperIndex == wrapperArgs.size()) {
-      return Collections.unmodifiableList(merged);
+      return List.copyOf(merged);
     }
 
     int nestedParamCount = Type.getArgumentTypes(nestedStep.methodDescriptor()).length;
     if (wrapperArgs.size() == nestedParamCount) {
-      return Collections.unmodifiableList(new ArrayList<>(wrapperArgs));
+      return List.copyOf(wrapperArgs);
     }
 
-    return Collections.unmodifiableList(merged);
+    return List.copyOf(merged);
   }
 
   /**

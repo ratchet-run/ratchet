@@ -9,8 +9,6 @@ import java.lang.invoke.SerializedLambda;
 import java.lang.reflect.Method;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.Deque;
 import java.util.List;
 import java.util.Objects;
@@ -193,7 +191,7 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
             methodNode.name,
             methodNode.desc,
             opcodeValue == Opcodes.INVOKESTATIC,
-            Collections.unmodifiableList(Arrays.asList(resolvedArguments)),
+            List.of(resolvedArguments),
             resolvedReceiver));
 
     if (Type.getReturnType(methodNode.desc) != Type.VOID_TYPE) {
@@ -346,7 +344,7 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
         serializedLambda.getImplMethodName(),
         serializedLambda.getImplMethodSignature(),
         isStatic,
-        Collections.unmodifiableList(new ArrayList<>(invocationArguments)),
+        List.copyOf(invocationArguments),
         receiver);
   }
 

@@ -132,6 +132,6 @@ public class DefaultRecurringJobBuilder implements RecurringJobBuilder {
     // Notify the recurring scheduler to check for new jobs immediately
     recurringScheduler.kick();
 
-    return () -> saved.getId();
+    return saved::getId;
   }
 }

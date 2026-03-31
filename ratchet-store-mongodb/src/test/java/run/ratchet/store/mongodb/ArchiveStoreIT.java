@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobStatus;
+import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -90,7 +91,7 @@ class ArchiveStoreIT extends BaseDocumentStoreIT {
 
     // Purge archives older than 1 second from now (should catch the one we just created
     // since archivedAt is in the past by the time we get here)
-    int purged = store().purgeArchivedJobs(java.time.Instant.now().plusSeconds(1));
+    int purged = store().purgeArchivedJobs(Instant.now().plusSeconds(1));
     assertEquals(1, purged);
   }
 }

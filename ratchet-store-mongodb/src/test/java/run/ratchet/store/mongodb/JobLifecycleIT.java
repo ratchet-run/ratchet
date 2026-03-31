@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobStatus;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -111,7 +112,7 @@ class JobLifecycleIT extends BaseDocumentStoreIT {
   void claimRespectsScheduledTime() {
     // Create a job scheduled in the future
     JobEntity futureJob = newPendingJob();
-    futureJob.setScheduledTime(java.time.Instant.now().plusSeconds(3600));
+    futureJob.setScheduledTime(Instant.now().plusSeconds(3600));
     store().save(futureJob);
 
     // Create a job scheduled now

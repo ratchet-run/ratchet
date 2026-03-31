@@ -71,18 +71,6 @@ public class JobTask implements Callable<Void> {
   private static final ConcurrentHashMap<String, Class<?>> CLASS_CACHE = new ConcurrentHashMap<>();
   private static final ConcurrentHashMap<String, String> SERVICE_NAME_CACHE =
       new ConcurrentHashMap<>();
-
-  /**
-   * Clears all static reflection caches. Must be called on application shutdown to release
-   * classloader references and prevent memory leaks in redeployable containers (e.g., WildFly,
-   * Payara).
-   */
-  public static void clearCaches() {
-    METHOD_CACHE.clear();
-    CLASS_CACHE.clear();
-    SERVICE_NAME_CACHE.clear();
-  }
-
   private final JobStore jobStore;
   private final ResourcePermitService resourcePermitService;
   private final PostExecutionHandler lifecycleFacade;
@@ -93,7 +81,6 @@ public class JobTask implements Callable<Void> {
   private final RetryPolicy retryPolicy;
   private final ResilienceStrategy resilienceStrategy;
   private final ErrorSanitizer errorSanitizer;
-
   private JobEntity job;
   private JobClaimDto claim;
   private JobExecutionEntity currentExecution;
@@ -149,6 +136,22 @@ public class JobTask implements Callable<Void> {
     this.retryPolicy = retryPolicy;
     this.resilienceStrategy = resilienceStrategy;
     this.errorSanitizer = errorSanitizer;
+  }
+
+  /**
+   * Clears all static reflection caches. Must be called on application shutdown to release
+   * classloader references and prevent memory leaks in redeployable containers (e.g., WildFly,
+   * Payara).
+   */
+  public static void clearCaches() {
+    METHOD_CACHE.clear();
+    CLASS_CACHE.clear();
+    SERVICE_NAME_CACHE.clear();
+  }
+
+  private static String simpleClassName(String fqcn) {
+    int lastDot = fqcn.lastIndexOf('.');
+    return lastDot >= 0 ? fqcn.substring(lastDot + 1) : fqcn;
   }
 
   /**
@@ -733,11 +736,6 @@ public class JobTask implements Callable<Void> {
     }
   }
 
-  private static String simpleClassName(String fqcn) {
-    int lastDot = fqcn.lastIndexOf('.');
-    return lastDot >= 0 ? fqcn.substring(lastDot + 1) : fqcn;
-  }
-
   @SuppressWarnings("java:S112")
   private Object runPayload(JobPayload payload) throws Exception {
     validationFacade.validateSecurity(payload);
@@ -834,7 +832,7 @@ public class JobTask implements Callable<Void> {
     }
 
     // Consult RetryPolicy for delay; fall back to job-level backoff configuration
-    java.time.Duration policyDelay = retryPolicy.getDelay(attempt);
+    Duration policyDelay = retryPolicy.getDelay(attempt);
     long backoff =
         policyDelay.isZero()
             ? BackoffPolicyHandler.computeDelay(

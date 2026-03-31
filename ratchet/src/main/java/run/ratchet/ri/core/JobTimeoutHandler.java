@@ -9,6 +9,7 @@ import java.time.Instant;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -167,9 +168,8 @@ public class JobTimeoutHandler {
         // Only proceed if we can atomically claim the RUNNING→FAILED transition.
         // If the worker thread already handled the InterruptedException and moved the job
         // to PENDING (retry) or FAILED, the CAS will fail and we do nothing here.
-        java.util.concurrent.TimeoutException timeoutEx =
-            new java.util.concurrent.TimeoutException(
-                "Hard timeout exceeded (" + timeoutSec + "s)");
+        TimeoutException timeoutEx =
+            new TimeoutException("Hard timeout exceeded (" + timeoutSec + "s)");
 
         jobCrudStore
             .findById(jobId)

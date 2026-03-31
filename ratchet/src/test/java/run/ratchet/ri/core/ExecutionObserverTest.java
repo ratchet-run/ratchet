@@ -12,6 +12,7 @@ import run.ratchet.store.spi.ExecutionStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -24,6 +25,14 @@ class ExecutionObserverTest {
   @Mock private ExecutorProvider executorProvider;
 
   private ExecutionObserver observer;
+
+  private static JobEntity job(long id) {
+    JobEntity job = new JobEntity();
+    job.setId(id);
+    job.setJobType(JobExecutionType.SINGLE);
+    job.setPriority(JobPriority.NORMAL);
+    return job;
+  }
 
   @BeforeEach
   void setUp() {
@@ -57,16 +66,6 @@ class ExecutionObserverTest {
 
     verify(metricsCollector, never())
         .jobCompleted(
-            org.mockito.ArgumentMatchers.anyLong(),
-            org.mockito.ArgumentMatchers.any(),
-            org.mockito.ArgumentMatchers.anyLong());
-  }
-
-  private static JobEntity job(long id) {
-    JobEntity job = new JobEntity();
-    job.setId(id);
-    job.setJobType(JobExecutionType.SINGLE);
-    job.setPriority(JobPriority.NORMAL);
-    return job;
+            ArgumentMatchers.anyLong(), ArgumentMatchers.any(), ArgumentMatchers.anyLong());
   }
 }

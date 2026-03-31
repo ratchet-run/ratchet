@@ -65,14 +65,14 @@ public class BatchService {
 
   /**
    * Cache of resolved hook methods keyed by "className#methodName:descriptor" to avoid repeated
-   * {@link Class#forName} and {@link Class#getMethods()} calls on every child completion.
+   * {@link Class#forName(String)} and {@link Class#getMethods()} calls on every child completion.
    */
   private static final ConcurrentHashMap<String, Method> HOOK_METHOD_CACHE =
       new ConcurrentHashMap<>();
 
   /**
    * Cache of resolved classes keyed by fully-qualified class name to avoid repeated {@link
-   * Class#forName} calls on every progress hook execution.
+   * Class#forName(String)} calls on every progress hook execution.
    */
   private static final ConcurrentHashMap<String, Class<?>> CLASS_CACHE = new ConcurrentHashMap<>();
 

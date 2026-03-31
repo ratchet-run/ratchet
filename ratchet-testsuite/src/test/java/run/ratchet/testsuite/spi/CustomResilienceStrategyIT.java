@@ -16,6 +16,7 @@ import run.ratchet.testsuite.util.BaseRatchetIT;
 import run.ratchet.testsuite.util.JobAssertions;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 import jakarta.inject.Inject;
+import java.time.Duration;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
@@ -80,7 +81,7 @@ class CustomResilienceStrategyIT extends BaseRatchetIT {
         jobService
             .enqueue(FailingJob::execute)
             .withMaxRetries(maxRetries)
-            .withBackoff(BackoffPolicy.FIXED, java.time.Duration.ofMillis(100))
+            .withBackoff(BackoffPolicy.FIXED, Duration.ofMillis(100))
             .submit();
 
     assertNotNull(handle);

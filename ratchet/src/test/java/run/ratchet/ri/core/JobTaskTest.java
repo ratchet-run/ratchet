@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 
 import run.ratchet.api.CircuitBreakerProtected;
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.NodeIdentityProvider;
@@ -25,6 +26,7 @@ import run.ratchet.store.spi.JobStore;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.Callable;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -56,14 +58,6 @@ class JobTaskTest {
     return "done";
   }
 
-  public static class AnnotatedJobTarget {
-
-    @CircuitBreakerProtected(service = "external-api")
-    public static String annotatedJobMethod() {
-      return "done";
-    }
-  }
-
   @BeforeEach
   void setUp() {
     jobTask =
@@ -79,29 +73,6 @@ class JobTaskTest {
             resilienceStrategy,
             errorSanitizer);
   }
-
-  // ── Helpers ────────────────────────────────────────────────────────────
-
-  private JobEntity createTestJob() {
-    JobEntity job = new JobEntity();
-    job.setId(42L);
-    job.setJobType(JobExecutionType.SINGLE);
-    job.setPriority(JobPriority.NORMAL);
-    job.setMaxRetries(3);
-    job.setPayload(
-        new JobPayload(
-            JobTaskTest.class.getName(), "testJobMethod", "()Ljava/lang/String;", true, List.of()));
-    return job;
-  }
-
-  private void initJobTaskWithDefaultStubs(JobEntity job) {
-    jobTask.init(job);
-    when(nodeIdProvider.getNodeId()).thenReturn("node-1");
-    when(observabilityFacade.startExecution(anyLong(), anyInt(), anyString()))
-        .thenReturn(JobExecutionEntity.start(job.getId(), 1, "node-1"));
-  }
-
-  // ── ResilienceStrategy.execute() is called ─────────────────────────────
 
   @Test
   @SuppressWarnings("unchecked")
@@ -121,7 +92,7 @@ class JobTaskTest {
         .execute(eq(JobTaskTest.class.getSimpleName() + ".testJobMethod"), any(Callable.class));
   }
 
-  // ── Service name passed to resilience strategy ─────────────────────────
+  // ── Helpers ────────────────────────────────────────────────────────────
 
   @Test
   @SuppressWarnings("unchecked")
@@ -139,7 +110,7 @@ class JobTaskTest {
 
     ArgumentCaptor<String> serviceNameCaptor = ArgumentCaptor.forClass(String.class);
     verify(resilienceStrategy).execute(serviceNameCaptor.capture(), any(Callable.class));
-    org.junit.jupiter.api.Assertions.assertEquals(
+    Assertions.assertEquals(
         JobTaskTest.class.getSimpleName() + ".testJobMethod", serviceNameCaptor.getValue());
   }
 
@@ -167,7 +138,7 @@ class JobTaskTest {
     verify(resilienceStrategy).execute(eq("external-api"), any(Callable.class));
   }
 
-  // ── isServiceAvailable checked before execution ────────────────────────
+  // ── ResilienceStrategy.execute() is called ─────────────────────────────
 
   @Test
   void call_checksServiceAvailableBeforeExecution() throws Exception {
@@ -188,7 +159,7 @@ class JobTaskTest {
         .isServiceAvailable(JobTaskTest.class.getSimpleName() + ".testJobMethod");
   }
 
-  // ── Service unavailable → skip execution ───────────────────────────────
+  // ── Service name passed to resilience strategy ─────────────────────────
 
   @Test
   @SuppressWarnings("unchecked")
@@ -206,8 +177,6 @@ class JobTaskTest {
     // Job should be rescheduled via scheduleJobRetry
     verify(jobStore).scheduleJobRetry(eq(42L), anyString(), any(), anyInt());
   }
-
-  // ── handleFailure consults RetryPolicy ─────────────────────────────────
 
   @Test
   @SuppressWarnings("unchecked")
@@ -231,7 +200,7 @@ class JobTaskTest {
     verify(retryPolicy).shouldRetry(1, error);
   }
 
-  // ── RetryPolicy denies → FAILED ────────────────────────────────────────
+  // ── isServiceAvailable checked before execution ────────────────────────
 
   @Test
   @SuppressWarnings("unchecked")
@@ -255,7 +224,7 @@ class JobTaskTest {
     verify(lifecycleFacade).moveToDlq(eq(job), eq(error));
   }
 
-  // ── handleSuccess publishes completed event ────────────────────────────
+  // ── Service unavailable → skip execution ───────────────────────────────
 
   @Test
   @SuppressWarnings("unchecked")
@@ -271,11 +240,10 @@ class JobTaskTest {
 
     jobTask.call();
 
-    verify(observabilityFacade)
-        .publishEvent(any(run.ratchet.api.event.JobCompletedEvent.class));
+    verify(observabilityFacade).publishEvent(any(JobCompletedEvent.class));
   }
 
-  // ── Resource permit released on success ────────────────────────────────
+  // ── handleFailure consults RetryPolicy ─────────────────────────────────
 
   @Test
   @SuppressWarnings("unchecked")
@@ -294,5 +262,38 @@ class JobTaskTest {
     jobTask.call();
 
     verify(resourcePermitService).release("api-gateway", 42L);
+  }
+
+  // ── RetryPolicy denies → FAILED ────────────────────────────────────────
+
+  private JobEntity createTestJob() {
+    JobEntity job = new JobEntity();
+    job.setId(42L);
+    job.setJobType(JobExecutionType.SINGLE);
+    job.setPriority(JobPriority.NORMAL);
+    job.setMaxRetries(3);
+    job.setPayload(
+        new JobPayload(
+            JobTaskTest.class.getName(), "testJobMethod", "()Ljava/lang/String;", true, List.of()));
+    return job;
+  }
+
+  // ── handleSuccess publishes completed event ────────────────────────────
+
+  private void initJobTaskWithDefaultStubs(JobEntity job) {
+    jobTask.init(job);
+    when(nodeIdProvider.getNodeId()).thenReturn("node-1");
+    when(observabilityFacade.startExecution(anyLong(), anyInt(), anyString()))
+        .thenReturn(JobExecutionEntity.start(job.getId(), 1, "node-1"));
+  }
+
+  // ── Resource permit released on success ────────────────────────────────
+
+  public static class AnnotatedJobTarget {
+
+    @CircuitBreakerProtected(service = "external-api")
+    public static String annotatedJobMethod() {
+      return "done";
+    }
   }
 }

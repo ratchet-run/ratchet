@@ -154,7 +154,7 @@ public class JobTypeRateLimiter {
     }
     try {
       int limit = Integer.parseInt(value.trim());
-      return limit > 0 ? limit : 0;
+      return Math.max(limit, 0);
     } catch (NumberFormatException e) {
       log.warning("Invalid rate limit value for " + envVar + ": " + value + ", using unlimited");
       return defaultValue;

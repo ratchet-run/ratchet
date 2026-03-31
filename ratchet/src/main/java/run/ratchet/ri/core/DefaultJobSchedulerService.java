@@ -150,13 +150,13 @@ public class DefaultJobSchedulerService
   @Override
   public BatchBuilder enqueueBatch(String name) {
     return new DefaultBatchBuilder(
-        name, jobCrudStore, batchStore, tagStore, workflowConditionStore, wakeupService);
+        name, jobCrudStore, batchStore, workflowConditionStore, wakeupService);
   }
 
   @Override
   public <T extends Serializable> StreamingBatchBuilder<T> streamingBatch(String name) {
     return new DefaultStreamingBatchBuilder<>(
-        name, jobCrudStore, batchStore, tagStore, workflowConditionStore, wakeupService);
+        name, jobCrudStore, batchStore, workflowConditionStore, wakeupService);
   }
 
   @Override
@@ -438,8 +438,7 @@ public class DefaultJobSchedulerService
       branchJob.setStatus(JobStatus.PENDING);
       branchJob.setPriority(JobPriority.NORMAL);
       branchJob.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
-      branchJob.setPayload(
-          JobPayloadFactory.fromLambda((SerializableCheckedRunnable) branch.task()));
+      branchJob.setPayload(JobPayloadFactory.fromLambda(branch.task()));
       branchJob.setIdempotencyKey(UUID.randomUUID().toString());
       branchJob.setDependsOn(parentId);
       JobEntity savedBranch = jobCrudStore.save(branchJob);

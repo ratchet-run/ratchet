@@ -8,6 +8,7 @@ import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import java.util.Optional;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -17,6 +18,10 @@ import org.junit.jupiter.api.Test;
  * and children, and correct batch completion detection.
  */
 class BatchProgressIT extends BaseDocumentStoreIT {
+
+  private static void assertFalse(boolean condition) {
+    Assertions.assertFalse(condition);
+  }
 
   @Test
   void batchProgressTracking_incrementsAtomically() {
@@ -87,9 +92,5 @@ class BatchProgressIT extends BaseDocumentStoreIT {
     // Second call should be false (already marked)
     boolean ready3 = store().markBatchCompleteIfReady(3L);
     assertFalse(ready3);
-  }
-
-  private static void assertFalse(boolean condition) {
-    org.junit.jupiter.api.Assertions.assertFalse(condition);
   }
 }

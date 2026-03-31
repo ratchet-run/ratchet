@@ -53,12 +53,7 @@ public class JobSecurityValidator {
    */
   private final ClassPolicy classPolicy;
 
-  /**
-   * Creates a new JobSecurityValidator with the given class policy.
-   *
-   * @param classPolicy the policy to use for class validation
-   */
-  // Required by CDI proxy
+  /** Required by CDI proxy. */
   protected JobSecurityValidator() {
     this.classPolicy = null;
   }
@@ -82,10 +77,9 @@ public class JobSecurityValidator {
    *
    * @param payload the job payload to validate
    * @throws SecurityException if any validation check fails
-   * @throws ClassNotFoundException if the target class cannot be loaded
    * @throws NoSuchMethodException if the method does not exist
    */
-  public void validate(JobPayload payload) throws ClassNotFoundException, NoSuchMethodException {
+  public void validate(JobPayload payload) throws NoSuchMethodException {
     if (payload == null) {
       throw new SecurityException("Job payload cannot be null");
     }

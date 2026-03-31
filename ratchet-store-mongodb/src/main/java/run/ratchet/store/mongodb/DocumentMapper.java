@@ -21,6 +21,7 @@ import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import java.time.Instant;
+import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -451,7 +452,7 @@ public final class DocumentMapper {
 
   static Document payloadToDocument(JobPayload payload) {
     if (payload == null) {
-      return null;
+      return new Document();
     }
     Document doc = new Document();
     doc.append("target", payload.target());
@@ -478,50 +479,47 @@ public final class DocumentMapper {
 
   static Document paramsToDocument(Map<String, String> params) {
     if (params == null) {
-      return null;
+      return new Document();
     }
     Document doc = new Document();
     params.forEach(doc::append);
     return doc;
   }
 
-  @SuppressWarnings("unchecked")
   static Map<String, String> documentToParams(Document doc) {
     if (doc == null) {
-      return null;
+      return Collections.emptyMap();
     }
     try {
       String json = doc.toJson();
-      return OBJECT_MAPPER.readValue(json, new TypeReference<Map<String, String>>() {});
+      return OBJECT_MAPPER.readValue(json, new TypeReference<>() {});
     } catch (Exception e) {
       log.log(Level.WARNING, "Failed to deserialize params document", e);
-      return null;
+      return Collections.emptyMap();
     }
   }
 
   // ── Node info helpers ──────────────────────────────────────────────────────
 
-  @SuppressWarnings("unchecked")
   private static Document nodeInfoToDocument(Map<String, Object> nodeInfo) {
     if (nodeInfo == null) {
-      return null;
+      return new Document();
     }
     Document doc = new Document();
     nodeInfo.forEach(doc::append);
     return doc;
   }
 
-  @SuppressWarnings("unchecked")
   private static Map<String, Object> documentToNodeInfo(Document doc) {
     if (doc == null) {
-      return null;
+      return Collections.emptyMap();
     }
     try {
       String json = doc.toJson();
-      return OBJECT_MAPPER.readValue(json, new TypeReference<Map<String, Object>>() {});
+      return OBJECT_MAPPER.readValue(json, new TypeReference<>() {});
     } catch (Exception e) {
       log.log(Level.WARNING, "Failed to deserialize node info document", e);
-      return null;
+      return Collections.emptyMap();
     }
   }
 

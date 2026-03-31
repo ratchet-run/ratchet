@@ -1,8 +1,10 @@
 package run.ratchet.store.mongodb;
 
+import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.Indexes;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -23,6 +25,24 @@ public class MongoCollectionInitializer {
 
   public MongoCollectionInitializer(MongoDatabase database) {
     this.database = database;
+  }
+
+  private static void createIndex(MongoCollection<Document> coll, Bson keys, String name) {
+    createIndex(coll, keys, new IndexOptions().name(name));
+  }
+
+  private static void createIndex(MongoCollection<Document> coll, Bson keys, IndexOptions options) {
+    try {
+      coll.createIndex(keys, options);
+    } catch (Exception e) {
+      log.log(
+          Level.WARNING,
+          "Failed to create index "
+              + options.getName()
+              + " on "
+              + coll.getNamespace().getCollectionName(),
+          e);
+    }
   }
 
   public void initialize() {
@@ -73,9 +93,7 @@ public class MongoCollectionInitializer {
             .name("idx_job_active_business_key")
             .unique(true)
             .partialFilterExpression(
-                new Document(
-                        "status",
-                        new Document("$in", java.util.List.of("PENDING", "RUNNING", "PAUSED")))
+                new Document("status", new Document("$in", List.of("PENDING", "RUNNING", "PAUSED")))
                     .append("business_key", new Document("$type", "string"))));
     // Tags — multikey index for embedded array
     createIndex(coll, Indexes.ascending("tags"), "idx_job_tags");
@@ -176,25 +194,5 @@ public class MongoCollectionInitializer {
     createIndex(coll, Indexes.ascending("resource_name"), "idx_permit_resource");
     createIndex(coll, Indexes.ascending("job_id"), "idx_permit_job_id");
     createIndex(coll, Indexes.ascending("node_id"), "idx_permit_node_id");
-  }
-
-  private static void createIndex(
-      com.mongodb.client.MongoCollection<Document> coll, Bson keys, String name) {
-    createIndex(coll, keys, new IndexOptions().name(name));
-  }
-
-  private static void createIndex(
-      com.mongodb.client.MongoCollection<Document> coll, Bson keys, IndexOptions options) {
-    try {
-      coll.createIndex(keys, options);
-    } catch (Exception e) {
-      log.log(
-          Level.WARNING,
-          "Failed to create index "
-              + options.getName()
-              + " on "
-              + coll.getNamespace().getCollectionName(),
-          e);
-    }
   }
 }

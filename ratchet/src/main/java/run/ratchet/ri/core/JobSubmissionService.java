@@ -5,7 +5,6 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import java.util.logging.Logger;
 
 /**
  * Orchestrates job submission by coordinating gate checks, execution, and failure handling.
@@ -28,8 +27,6 @@ import java.util.logging.Logger;
  */
 @ApplicationScoped
 public class JobSubmissionService {
-
-  private static final Logger log = Logger.getLogger(JobSubmissionService.class.getName());
 
   /** Gate checker for validating pre-flight conditions before job submission. */
   private final SubmissionGateChecker gateChecker;
@@ -99,7 +96,7 @@ public class JobSubmissionService {
 
     GateCheckResult gateResult = gateChecker.check(job, isFirstAttempt);
 
-    if (!gateResult.isClear()) {
+    if (gateResult.isBlocked()) {
       failureHandler.handleGateFailure(job, gateResult, isFirstAttempt);
       return;
     }
@@ -125,7 +122,7 @@ public class JobSubmissionService {
 
     GateCheckResult gateResult = gateChecker.check(claim, true);
 
-    if (!gateResult.isClear()) {
+    if (gateResult.isBlocked()) {
       failureHandler.handleGateFailure(claim, gateResult);
       return;
     }

@@ -42,11 +42,9 @@ public class PreExecutionValidator {
    *
    * @param payload the job payload to validate
    * @throws SecurityException if the payload fails security validation
-   * @throws ClassNotFoundException if the target class cannot be found
    * @throws NoSuchMethodException if the target method cannot be found
    */
-  public void validateSecurity(JobPayload payload)
-      throws ClassNotFoundException, NoSuchMethodException {
+  public void validateSecurity(JobPayload payload) throws NoSuchMethodException {
     securityValidator.validate(payload);
   }
 
@@ -69,7 +67,7 @@ public class PreExecutionValidator {
    */
   @FunctionalInterface
   public interface SecurityValidator {
-    void validate(JobPayload payload) throws ClassNotFoundException, NoSuchMethodException;
+    void validate(JobPayload payload) throws NoSuchMethodException;
   }
 
   /**

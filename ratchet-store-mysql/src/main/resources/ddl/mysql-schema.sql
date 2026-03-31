@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     result_type           VARCHAR(100)                                                                                                        NULL,
     version               INT                                                                                                                 NOT NULL DEFAULT 0,
     active_business_key   VARCHAR(255) GENERATED ALWAYS AS (
-        CASE WHEN status IN ('PENDING', 'RUNNING', 'PAUSED') THEN business_key ELSE NULL END
+        CASE WHEN status IN ('PENDING', 'RUNNING', 'PAUSED') THEN business_key END
         ) STORED,
     PRIMARY KEY (job_id),
     UNIQUE KEY uk_idempotency_key (idempotency_key),

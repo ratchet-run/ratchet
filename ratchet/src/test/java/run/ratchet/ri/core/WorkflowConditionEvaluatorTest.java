@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.when;
 
+import run.ratchet.api.BatchContext;
+import run.ratchet.api.JobResult;
 import run.ratchet.api.SerializableFunction;
 import run.ratchet.api.SerializablePredicate;
 import run.ratchet.api.WorkflowCondition;
@@ -30,13 +32,6 @@ class WorkflowConditionEvaluatorTest {
 
   private WorkflowConditionEvaluator evaluator;
 
-  @BeforeEach
-  void setUp() {
-    evaluator = new WorkflowConditionEvaluator(batchStore, lambdaSerializer);
-  }
-
-  // ── Helpers ────────────────────────────────────────────────────────────
-
   private static JobEntity parentJob(JobStatus status) {
     JobEntity job = new JobEntity();
     job.setId(1L);
@@ -44,6 +39,8 @@ class WorkflowConditionEvaluatorTest {
     job.setJobType(JobExecutionType.SINGLE);
     return job;
   }
+
+  // ── Helpers ────────────────────────────────────────────────────────────
 
   private static JobEntity batchParent(JobStatus status) {
     JobEntity job = new JobEntity();
@@ -74,6 +71,11 @@ class WorkflowConditionEvaluatorTest {
     b.setCompletedItems(completed);
     b.setFailedItems(failed);
     return b;
+  }
+
+  @BeforeEach
+  void setUp() {
+    evaluator = new WorkflowConditionEvaluator(batchStore, lambdaSerializer);
   }
 
   // ── SUCCESS condition ──────────────────────────────────────────────────
@@ -212,8 +214,7 @@ class WorkflowConditionEvaluatorTest {
   @Test
   void customCondition_deserializedPredicate_returnsPredicateResult() {
     JobEntity parent = parentJob(JobStatus.SUCCEEDED);
-    SerializablePredicate<run.ratchet.api.JobResult<?>> predicate =
-        result -> result.isSuccess();
+    SerializablePredicate<JobResult<?>> predicate = JobResult::isSuccess;
     when(lambdaSerializer.deserializeJobResultPredicate("serialized-predicate"))
         .thenReturn(predicate);
 
@@ -241,8 +242,7 @@ class WorkflowConditionEvaluatorTest {
   void batchCustom_deserializedPredicate_returnsPredicateResult() {
     JobEntity parent = batchParent(JobStatus.SUCCEEDED);
     when(batchStore.findBatchById(parent.getId())).thenReturn(Optional.of(batch(10, 9, 1)));
-    SerializablePredicate<run.ratchet.api.BatchContext> predicate =
-        context -> context.failedItems() == 1;
+    SerializablePredicate<BatchContext> predicate = context -> context.failedItems() == 1;
     when(lambdaSerializer.deserializeBatchContextPredicate("serialized-batch-predicate"))
         .thenReturn(predicate);
 

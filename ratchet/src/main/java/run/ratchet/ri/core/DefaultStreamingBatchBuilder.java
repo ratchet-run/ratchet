@@ -19,7 +19,6 @@ import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 import java.io.Serializable;
 import java.time.Duration;
@@ -50,7 +49,6 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
   private final String name;
   private final JobCrudStore jobCrudStore;
   private final BatchStore batchStore;
-  private final TagStore tagStore;
   private final WorkflowConditionStore workflowConditionStore;
   private final JobWakeupService wakeupService;
 
@@ -65,13 +63,11 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
       String name,
       JobCrudStore jobCrudStore,
       BatchStore batchStore,
-      TagStore tagStore,
       WorkflowConditionStore workflowConditionStore,
       JobWakeupService wakeupService) {
     this.name = name;
     this.jobCrudStore = jobCrudStore;
     this.batchStore = batchStore;
-    this.tagStore = tagStore;
     this.workflowConditionStore = workflowConditionStore;
     this.wakeupService = wakeupService;
   }

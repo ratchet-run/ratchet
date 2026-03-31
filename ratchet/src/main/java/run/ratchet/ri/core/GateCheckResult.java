@@ -147,6 +147,15 @@ public record GateCheckResult(GateStatus status, String reason) {
   }
 
   /**
+   * Returns {@code true} if any gate blocked execution.
+   *
+   * @return {@code true} if the job cannot execute, {@code false} if all gates passed
+   */
+  public boolean isBlocked() {
+    return status != GateStatus.CLEAR;
+  }
+
+  /**
    * Enumeration of possible gate check outcomes.
    *
    * <p>Each status represents either successful passage through all gates (CLEAR) or the specific

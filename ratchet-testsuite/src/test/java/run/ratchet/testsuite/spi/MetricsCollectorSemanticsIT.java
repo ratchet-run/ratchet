@@ -2,11 +2,13 @@ package run.ratchet.testsuite.spi;
 
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobHandle;
 import run.ratchet.spi.MetricsCollector;
+import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.testsuite.app.ConfigurableWorkJob;
 import run.ratchet.testsuite.app.FailingJob;
 import run.ratchet.testsuite.app.RecordingMetricsCollector;
@@ -27,7 +29,7 @@ class MetricsCollectorSemanticsIT extends BaseRatchetIT {
 
   @Inject private TestJobService jobService;
 
-  @Inject private run.ratchet.store.spi.JobCrudStore jobCrudStore;
+  @Inject private JobCrudStore jobCrudStore;
 
   @Inject private MetricsCollector metricsCollector;
 
@@ -66,7 +68,7 @@ class MetricsCollectorSemanticsIT extends BaseRatchetIT {
         .atMost(Duration.ofSeconds(5))
         .untilAsserted(
             () -> {
-              assertTrue(metricsCollector instanceof RecordingMetricsCollector);
+              assertInstanceOf(RecordingMetricsCollector.class, metricsCollector);
               assertEquals(1, RecordingMetricsCollector.completedEvents().size());
               var completed = RecordingMetricsCollector.completedEvents().get(0);
               assertEquals(handle.id(), completed.jobId());

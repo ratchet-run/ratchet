@@ -20,6 +20,7 @@ import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.JobStore;
+import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
@@ -59,28 +60,48 @@ public class MysqlJobStore implements JobStore {
 
   @PersistenceContext private EntityManager em;
 
-  /** Checks the connection isolation level on first use and warns if not READ COMMITTED. */
-  @jakarta.annotation.PostConstruct
-  void checkIsolationLevel() {
-    try {
-      Object result =
-          em.createNativeQuery("SELECT @@SESSION.transaction_isolation").getSingleResult();
-      String isolation = result != null ? result.toString() : "unknown";
-      if (!"READ-COMMITTED".equals(isolation)) {
-        log.warning(
-            "MySQL session isolation is '"
-                + isolation
-                + "' — Ratchet requires READ COMMITTED. "
-                + "REPEATABLE READ causes InnoDB gap locks that block concurrent job enqueue "
-                + "during claim queries. Set hibernate.connection.isolation=2 in persistence.xml "
-                + "or transaction-isolation=TRANSACTION_READ_COMMITTED on the datasource.");
-      }
-    } catch (Exception e) {
-      log.fine("Could not check isolation level: " + e.getMessage());
+  private static JobPriority safeJobPriority(int ordinal) {
+    JobPriority[] values = JobPriority.values();
+    if (ordinal < 0 || ordinal >= values.length) {
+      return JobPriority.NORMAL;
     }
+    return values[ordinal];
   }
 
   // ── JobCrudStore ──────────────────────────────────────────────────────
+
+  private static int getPriorityBoostIntervalMinutes() {
+    String raw = System.getenv("SCHEDULER_PRIORITY_BOOST_INTERVAL_MINUTES");
+    if (raw == null || raw.isBlank()) {
+      return 15;
+    }
+    try {
+      return Math.max(0, Integer.parseInt(raw.trim()));
+    } catch (NumberFormatException e) {
+      return 15;
+    }
+  }
+
+  private static String buildClaimSql(
+      String selectClause, String typeFilter, String timeColumn, int boostInterval) {
+    String orderBy =
+        boostInterval > 0
+            ? "(priority + FLOOR(GREATEST(0, TIMESTAMPDIFF(MINUTE, "
+                + timeColumn
+                + ", NOW(3))) / :boost)) DESC, "
+                + timeColumn
+                + " ASC"
+            : "priority DESC, " + timeColumn + " ASC";
+    return """
+        SELECT %s FROM scheduler_job
+        WHERE status = 'PENDING'
+          AND %s <= NOW(3)
+          AND %s
+        ORDER BY %s
+        LIMIT :lim
+        FOR UPDATE SKIP LOCKED"""
+        .formatted(selectClause, timeColumn, typeFilter, orderBy);
+  }
 
   @Override
   public JobEntity save(JobEntity job) {
@@ -96,6 +117,7 @@ public class MysqlJobStore implements JobStore {
     return Optional.ofNullable(em.find(JobEntity.class, id));
   }
 
+  @SuppressWarnings("unchecked")
   @Override
   public Optional<JobEntity> findByIdForUpdate(long id) {
     List<JobEntity> results =
@@ -120,6 +142,7 @@ public class MysqlJobStore implements JobStore {
     return results.isEmpty() ? null : results.get(0);
   }
 
+  @SuppressWarnings("unchecked")
   @Override
   public List<JobEntity> findByIds(List<Long> ids) {
     if (ids.isEmpty()) {
@@ -318,6 +341,8 @@ public class MysqlJobStore implements JobStore {
     return ((Number) result).doubleValue();
   }
 
+  // ── JobClaimStore ─────────────────────────────────────────────────────
+
   @Override
   public Optional<Instant> getOldestPendingJobTime() {
     List<?> results =
@@ -348,9 +373,9 @@ public class MysqlJobStore implements JobStore {
       return 0L;
     }
     int offset = (int) Math.floor(percentile * total);
-    Object result =
-        em
-            .createNativeQuery(
+    @SuppressWarnings("unchecked")
+    List<Object> percentileResults =
+        em.createNativeQuery(
                 // language=MySQL
                 """
                 SELECT COALESCE(queue_wait_ms, 0)
@@ -359,14 +384,10 @@ public class MysqlJobStore implements JobStore {
                 ORDER BY queue_wait_ms ASC
                 LIMIT 1 OFFSET ?1""")
             .setParameter(1, offset)
-            .getResultList()
-            .stream()
-            .findFirst()
-            .orElse(0L);
+            .getResultList();
+    Object result = percentileResults.stream().findFirst().orElse(0L);
     return ((Number) result).longValue();
   }
-
-  // ── JobClaimStore ─────────────────────────────────────────────────────
 
   @Override
   @SuppressWarnings("unchecked")
@@ -410,6 +431,8 @@ public class MysqlJobStore implements JobStore {
         });
     return candidates;
   }
+
+  // ── JobStatusStore ────────────────────────────────────────────────────
 
   @Override
   @SuppressWarnings("unchecked")
@@ -506,8 +529,6 @@ public class MysqlJobStore implements JobStore {
         });
     return candidates;
   }
-
-  // ── JobStatusStore ────────────────────────────────────────────────────
 
   @Override
   public void updateJobStatus(long id, JobStatus status, String errorMessage) {
@@ -713,6 +734,8 @@ public class MysqlJobStore implements JobStore {
     return updated > 0;
   }
 
+  // ── JobBulkStore ──────────────────────────────────────────────────────
+
   @Override
   public boolean transitionFromPaused(long id, JobStatus target) {
     int updated =
@@ -749,8 +772,6 @@ public class MysqlJobStore implements JobStore {
             .executeUpdate();
     return updated > 0 ? target : null;
   }
-
-  // ── JobBulkStore ──────────────────────────────────────────────────────
 
   @Override
   public void bulkInsert(List<JobEntity> jobs) {
@@ -840,7 +861,7 @@ public class MysqlJobStore implements JobStore {
             ps.setNull(i++, Types.BIGINT);
           }
           ps.setString(i++, job.getJobResult());
-          ps.setString(i++, job.getResultType());
+          ps.setString(i, job.getResultType());
           ps.addBatch();
         }
         ps.executeBatch();
@@ -868,6 +889,8 @@ public class MysqlJobStore implements JobStore {
         .executeUpdate();
   }
 
+  // ── BatchStore ────────────────────────────────────────────────────────
+
   @Override
   public int deleteDlqOlderThan(Instant cutoff) {
     return em.createNativeQuery(
@@ -889,8 +912,6 @@ public class MysqlJobStore implements JobStore {
         .setParameter("graceMin", grace.toMinutes())
         .executeUpdate();
   }
-
-  // ── BatchStore ────────────────────────────────────────────────────────
 
   @Override
   public BatchEntity saveBatch(BatchEntity batch) {
@@ -966,18 +987,6 @@ public class MysqlJobStore implements JobStore {
         parseProgressHook(locked[3]));
   }
 
-  private JobPayload parseProgressHook(Object jsonValue) {
-    if (jsonValue == null) {
-      return null;
-    }
-    try {
-      return OBJECT_MAPPER.readValue(jsonValue.toString(), JobPayload.class);
-    } catch (JsonProcessingException e) {
-      log.warning("Failed to parse progress_hook JSON: " + e.getMessage());
-      return null;
-    }
-  }
-
   @Override
   public boolean markBatchCompleteIfReady(long batchId) {
     int updated =
@@ -1004,6 +1013,8 @@ public class MysqlJobStore implements JobStore {
     return results.stream().map(Number::longValue).toList();
   }
 
+  // ── LockStore ─────────────────────────────────────────────────────────
+
   @Override
   public boolean updateBatchTotalItems(long batchId, int totalItems) {
     int updated =
@@ -1014,8 +1025,6 @@ public class MysqlJobStore implements JobStore {
             .executeUpdate();
     return updated > 0;
   }
-
-  // ── LockStore ─────────────────────────────────────────────────────────
 
   @Override
   public boolean tryLock(String name, Duration ttl, String nodeId) {
@@ -1047,6 +1056,8 @@ public class MysqlJobStore implements JobStore {
         .executeUpdate();
   }
 
+  // ── NodeStore ─────────────────────────────────────────────────────────
+
   @Override
   public boolean renewLock(String name, Duration extension, String nodeId) {
     int updated =
@@ -1059,8 +1070,6 @@ public class MysqlJobStore implements JobStore {
             .executeUpdate();
     return updated > 0;
   }
-
-  // ── NodeStore ─────────────────────────────────────────────────────────
 
   @Override
   public void upsertHeartbeat(String nodeId, Instant ts) {
@@ -1093,13 +1102,13 @@ public class MysqlJobStore implements JobStore {
         .executeUpdate();
   }
 
+  // ── ArchiveStore ──────────────────────────────────────────────────────
+
   @Override
   public Instant getDatabaseTime() {
     Timestamp ts = (Timestamp) em.createNativeQuery("SELECT NOW(3)").getSingleResult();
     return ts.toInstant();
   }
-
-  // ── ArchiveStore ──────────────────────────────────────────────────────
 
   @Override
   public ArchivedJobEntity archiveJob(JobEntity job, String reason, String archivedBy) {
@@ -1180,14 +1189,14 @@ public class MysqlJobStore implements JobStore {
     return query.setMaxResults(limit).getResultList();
   }
 
+  // ── ExecutionStore ────────────────────────────────────────────────────
+
   @Override
   public int purgeArchivedJobs(Instant olderThan) {
     return em.createQuery("DELETE FROM ArchivedJobEntity a WHERE a.archivedAt < :cutoff")
         .setParameter("cutoff", olderThan)
         .executeUpdate();
   }
-
-  // ── ExecutionStore ────────────────────────────────────────────────────
 
   @Override
   public JobExecutionEntity saveExecution(JobExecutionEntity execution) {
@@ -1219,6 +1228,8 @@ public class MysqlJobStore implements JobStore {
     return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
   }
 
+  // ── JobLogStore ───────────────────────────────────────────────────────
+
   @Override
   public int countExecutionAttempts(long jobId) {
     return em.createQuery(
@@ -1228,12 +1239,12 @@ public class MysqlJobStore implements JobStore {
         .intValue();
   }
 
-  // ── JobLogStore ───────────────────────────────────────────────────────
-
   @Override
   public void appendLog(JobLogEntity log) {
     em.persist(log);
   }
+
+  // ── TagStore ──────────────────────────────────────────────────────────
 
   @Override
   public int purgeLogsOlderThan(Instant cutoff) {
@@ -1241,8 +1252,6 @@ public class MysqlJobStore implements JobStore {
         .setParameter("cutoff", cutoff)
         .executeUpdate();
   }
-
-  // ── TagStore ──────────────────────────────────────────────────────────
 
   @Override
   public void insertTags(long jobId, List<String> tags) {
@@ -1264,8 +1273,9 @@ public class MysqlJobStore implements JobStore {
         .executeUpdate();
   }
 
+  // ── WorkflowConditionStore ────────────────────────────────────────────
+
   @Override
-  @SuppressWarnings("unchecked")
   public List<Long> findJobIdsByTag(String tag, int limit, int offset) {
     List<?> rows =
         em.createNativeQuery(
@@ -1276,8 +1286,6 @@ public class MysqlJobStore implements JobStore {
             .getResultList();
     return rows.stream().map(r -> ((Number) r).longValue()).collect(Collectors.toList());
   }
-
-  // ── WorkflowConditionStore ────────────────────────────────────────────
 
   @Override
   public WorkflowConditionEntity saveCondition(WorkflowConditionEntity condition) {
@@ -1346,6 +1354,8 @@ public class MysqlJobStore implements JobStore {
         .executeUpdate();
   }
 
+  // ── BatchMetricsStore ─────────────────────────────────────────────────
+
   @Override
   public long countConditionsByParentJobId(long parentJobId) {
     return em.createQuery(
@@ -1353,8 +1363,6 @@ public class MysqlJobStore implements JobStore {
         .setParameter("pid", parentJobId)
         .getSingleResult();
   }
-
-  // ── BatchMetricsStore ─────────────────────────────────────────────────
 
   @Override
   public BatchMetricsEntity saveBatchMetrics(BatchMetricsEntity metrics) {
@@ -1394,6 +1402,8 @@ public class MysqlJobStore implements JobStore {
         .executeUpdate();
   }
 
+  // ── DlqAlertStore ─────────────────────────────────────────────────────
+
   @Override
   public void updateBatchMetricsChildCount(long batchId, int childCount) {
     em.createNativeQuery(
@@ -1403,8 +1413,6 @@ public class MysqlJobStore implements JobStore {
         .executeUpdate();
   }
 
-  // ── DlqAlertStore ─────────────────────────────────────────────────────
-
   @Override
   public DlqAlertEntity saveDlqAlert(DlqAlertEntity alert) {
     if (alert.getId() == null) {
@@ -1413,6 +1421,8 @@ public class MysqlJobStore implements JobStore {
     }
     return em.merge(alert);
   }
+
+  // ── ResourcePermitStore ───────────────────────────────────────────────
 
   @Override
   public boolean existsRecentDlqAlert(long jobId, String errorHash, Instant cutoff) {
@@ -1428,24 +1438,19 @@ public class MysqlJobStore implements JobStore {
     return count > 0;
   }
 
-  // ── ResourcePermitStore ───────────────────────────────────────────────
-
   @Override
   public boolean tryAcquirePermit(String resource, long jobId, String nodeId) {
     // Lock the resource limit row to serialize concurrent permit acquisitions
-    Object[] limits =
-        (Object[])
-            em
-                .createNativeQuery(
-                    "SELECT max_concurrent, "
-                        + "(SELECT COUNT(*) FROM scheduler_resource_permit WHERE resource_name = :res) "
-                        + "FROM scheduler_resource_limit WHERE resource_name = :res "
-                        + "FOR UPDATE")
-                .setParameter("res", resource)
-                .getResultList()
-                .stream()
-                .findFirst()
-                .orElse(null);
+    @SuppressWarnings("unchecked")
+    List<Object[]> permitResults =
+        em.createNativeQuery(
+                "SELECT max_concurrent, "
+                    + "(SELECT COUNT(*) FROM scheduler_resource_permit WHERE resource_name = :res) "
+                    + "FROM scheduler_resource_limit WHERE resource_name = :res "
+                    + "FOR UPDATE")
+            .setParameter("res", resource)
+            .getResultList();
+    Object[] limits = permitResults.stream().findFirst().orElse(null);
 
     if (limits == null) {
       return false;
@@ -1513,6 +1518,8 @@ public class MysqlJobStore implements JobStore {
         .executeUpdate();
   }
 
+  // ── Private helpers ───────────────────────────────────────────────────
+
   @Override
   public int cleanupOrphanedPermits(List<String> staleNodeIds) {
     if (staleNodeIds.isEmpty()) {
@@ -1523,7 +1530,38 @@ public class MysqlJobStore implements JobStore {
         .executeUpdate();
   }
 
-  // ── Private helpers ───────────────────────────────────────────────────
+  /** Checks the connection isolation level on first use and warns if not READ COMMITTED. */
+  @PostConstruct
+  void checkIsolationLevel() {
+    try {
+      Object result =
+          em.createNativeQuery("SELECT @@SESSION.transaction_isolation").getSingleResult();
+      String isolation = result != null ? result.toString() : "unknown";
+      if (!"READ-COMMITTED".equals(isolation)) {
+        log.warning(
+            "MySQL session isolation is '"
+                + isolation
+                + "' — Ratchet requires READ COMMITTED. "
+                + "REPEATABLE READ causes InnoDB gap locks that block concurrent job enqueue "
+                + "during claim queries. Set hibernate.connection.isolation=2 in persistence.xml "
+                + "or transaction-isolation=TRANSACTION_READ_COMMITTED on the datasource.");
+      }
+    } catch (Exception e) {
+      log.fine("Could not check isolation level: " + e.getMessage());
+    }
+  }
+
+  private JobPayload parseProgressHook(Object jsonValue) {
+    if (jsonValue == null) {
+      return null;
+    }
+    try {
+      return OBJECT_MAPPER.readValue(jsonValue.toString(), JobPayload.class);
+    } catch (JsonProcessingException e) {
+      log.warning("Failed to parse progress_hook JSON: " + e.getMessage());
+      return null;
+    }
+  }
 
   private ArchivedJobEntity buildArchive(JobEntity job, String reason, String archivedBy) {
     ArchivedJobEntity a = new ArchivedJobEntity();
@@ -1575,47 +1613,6 @@ public class MysqlJobStore implements JobStore {
       return inst;
     }
     return null;
-  }
-
-  private static JobPriority safeJobPriority(int ordinal) {
-    JobPriority[] values = JobPriority.values();
-    if (ordinal < 0 || ordinal >= values.length) {
-      return JobPriority.NORMAL;
-    }
-    return values[ordinal];
-  }
-
-  private static int getPriorityBoostIntervalMinutes() {
-    String raw = System.getenv("SCHEDULER_PRIORITY_BOOST_INTERVAL_MINUTES");
-    if (raw == null || raw.isBlank()) {
-      return 15;
-    }
-    try {
-      return Math.max(0, Integer.parseInt(raw.trim()));
-    } catch (NumberFormatException e) {
-      return 15;
-    }
-  }
-
-  private static String buildClaimSql(
-      String selectClause, String typeFilter, String timeColumn, int boostInterval) {
-    String orderBy =
-        boostInterval > 0
-            ? "(priority + FLOOR(GREATEST(0, TIMESTAMPDIFF(MINUTE, "
-                + timeColumn
-                + ", NOW(3))) / :boost)) DESC, "
-                + timeColumn
-                + " ASC"
-            : "priority DESC, " + timeColumn + " ASC";
-    return """
-        SELECT %s FROM scheduler_job
-        WHERE status = 'PENDING'
-          AND %s <= NOW(3)
-          AND %s
-        ORDER BY %s
-        LIMIT :lim
-        FOR UPDATE SKIP LOCKED"""
-        .formatted(selectClause, timeColumn, typeFilter, orderBy);
   }
 
   private String payloadToJson(JobEntity job) {

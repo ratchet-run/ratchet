@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.math.BigDecimal;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -19,10 +20,7 @@ class JsonListConverterTest {
 
     assertEquals(3, restored.size());
     assertEquals("alpha", restored.get(0));
-    assertEquals(
-        0,
-        new java.math.BigDecimal("42")
-            .compareTo(new java.math.BigDecimal(restored.get(1).toString())));
+    assertEquals(0, new BigDecimal("42").compareTo(new BigDecimal(restored.get(1).toString())));
     assertEquals(true, restored.get(2));
   }
 

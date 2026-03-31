@@ -117,23 +117,23 @@ public class JobPayloadInputValidator {
    *
    * @param expected the expected type (from method signature)
    * @param provided the provided type (from payload)
-   * @return true if the types are compatible for method invocation
+   * @return true if the types are incompatible for method invocation
    */
-  private boolean isTypeCompatible(Class<?> expected, Class<?> provided) {
+  private boolean isTypeIncompatible(Class<?> expected, Class<?> provided) {
     if (expected.isAssignableFrom(provided)) {
-      return true;
+      return false;
     }
 
     if (expected.isPrimitive()) {
       Class<?> wrapper = PRIMITIVE_TO_WRAPPER.get(expected);
-      return wrapper != null && wrapper.isAssignableFrom(provided);
+      return wrapper == null || !wrapper.isAssignableFrom(provided);
     }
     if (provided.isPrimitive()) {
       Class<?> wrapper = PRIMITIVE_TO_WRAPPER.get(provided);
-      return wrapper != null && expected.isAssignableFrom(wrapper);
+      return wrapper == null || !expected.isAssignableFrom(wrapper);
     }
 
-    return false;
+    return true;
   }
 
   /**
@@ -233,7 +233,7 @@ public class JobPayloadInputValidator {
         Class<?> expectedType = methodParamTypes[i];
         Class<?> providedType = paramTypes[i];
 
-        if (!isTypeCompatible(expectedType, providedType)) {
+        if (isTypeIncompatible(expectedType, providedType)) {
           errors.add(
               "Argument type mismatch at position "
                   + i
@@ -245,7 +245,7 @@ public class JobPayloadInputValidator {
 
         if (i < args.size()) {
           Object arg = args.get(i);
-          if (arg != null && !isTypeCompatible(expectedType, arg.getClass())) {
+          if (arg != null && isTypeIncompatible(expectedType, arg.getClass())) {
             errors.add(
                 "Argument value at position "
                     + i

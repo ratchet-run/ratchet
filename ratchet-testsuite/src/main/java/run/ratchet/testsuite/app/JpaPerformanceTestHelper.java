@@ -95,7 +95,6 @@ public class JpaPerformanceTestHelper implements PerformanceTestHelper {
   }
 
   @Override
-  @SuppressWarnings("unchecked")
   public void assertNoFullScan(String label, Runnable storeOperation) {
     String dbType = System.getProperty("ratchet.test.db.type", "mysql");
 

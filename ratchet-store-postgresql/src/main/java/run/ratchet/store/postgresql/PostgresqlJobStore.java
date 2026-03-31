@@ -1,5 +1,6 @@
 package run.ratchet.store.postgresql;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.WorkflowCondition;
@@ -30,6 +31,7 @@ import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -58,6 +60,84 @@ public class PostgresqlJobStore implements JobStore {
   // ──────────────────────────────────────────────
   // JobCrudStore
   // ──────────────────────────────────────────────
+
+  private static Instant toInstant(Object value) {
+    if (value instanceof Instant) {
+      return (Instant) value;
+    }
+    if (value instanceof Timestamp) {
+      return ((Timestamp) value).toInstant();
+    }
+    if (value instanceof OffsetDateTime) {
+      return ((OffsetDateTime) value).toInstant();
+    }
+    throw new IllegalArgumentException("Cannot convert " + value.getClass() + " to Instant");
+  }
+
+  private static JobPriority safeJobPriority(int ordinal) {
+    JobPriority[] values = JobPriority.values();
+    if (ordinal < 0 || ordinal >= values.length) {
+      return JobPriority.NORMAL;
+    }
+    return values[ordinal];
+  }
+
+  private static int getPriorityBoostIntervalMinutes() {
+    String raw = System.getenv("SCHEDULER_PRIORITY_BOOST_INTERVAL_MINUTES");
+    if (raw == null || raw.isBlank()) {
+      return 15;
+    }
+    try {
+      return Math.max(0, Integer.parseInt(raw.trim()));
+    } catch (NumberFormatException e) {
+      return 15;
+    }
+  }
+
+  private static String buildBoostOrderBy(String timeColumn, int boostInterval) {
+    return boostInterval > 0
+        ? "(priority + FLOOR(GREATEST(0, EXTRACT(EPOCH FROM (statement_timestamp() - "
+            + timeColumn
+            + "))) / (60.0 * ?2))) DESC, "
+            + timeColumn
+            + " ASC"
+        : "priority DESC, " + timeColumn + " ASC";
+  }
+
+  private static String buildClaimUpdateSql(
+      String typeFilter, String timeColumn, int boostInterval) {
+    return "UPDATE scheduler_job SET status = 'RUNNING', picked_by = ?3, "
+        + "picked_at = statement_timestamp(), updated_at = statement_timestamp(), "
+        + "version = version + 1 "
+        + "WHERE job_id IN ("
+        + "  SELECT job_id FROM scheduler_job"
+        + "  WHERE status = 'PENDING'"
+        + "    AND "
+        + timeColumn
+        + " <= statement_timestamp()"
+        + "    AND "
+        + typeFilter
+        + "  ORDER BY "
+        + buildBoostOrderBy(timeColumn, boostInterval)
+        + "  FOR UPDATE SKIP LOCKED"
+        + "  LIMIT ?1"
+        + ")";
+  }
+
+  private static String buildClaimReadBackSql(
+      String selectClause, String timeColumn, int boostInterval) {
+    // Parameters: ?1 = nodeId. If boost > 0: ?2 = boostInterval, ?3 = limit. Else: ?2 = limit.
+    String limitParam = boostInterval > 0 ? "?3" : "?2";
+    return "SELECT "
+        + selectClause
+        + " FROM scheduler_job "
+        + "WHERE picked_by = ?1 AND status = 'RUNNING' "
+        + "AND picked_at >= statement_timestamp() - INTERVAL '5 seconds' "
+        + "ORDER BY "
+        + buildBoostOrderBy(timeColumn, boostInterval)
+        + " LIMIT "
+        + limitParam;
+  }
 
   @Override
   public JobEntity save(JobEntity job) {
@@ -235,6 +315,10 @@ public class PostgresqlJobStore implements JobStore {
         Timestamp.from(since));
   }
 
+  // ──────────────────────────────────────────────
+  // JobClaimStore
+  // ──────────────────────────────────────────────
+
   @Override
   public long countJobsWithRetries() {
     return countByNative("SELECT COUNT(*) FROM scheduler_job WHERE attempts > 0");
@@ -262,6 +346,10 @@ public class PostgresqlJobStore implements JobStore {
             .getSingleResult();
     return result == null ? 0.0 : ((Number) result).doubleValue();
   }
+
+  // ──────────────────────────────────────────────
+  // JobStatusStore
+  // ──────────────────────────────────────────────
 
   @Override
   public double getAverageBatchSize(Instant since) {
@@ -299,10 +387,6 @@ public class PostgresqlJobStore implements JobStore {
             .getSingleResult();
     return result == null ? 0L : ((Number) result).longValue();
   }
-
-  // ──────────────────────────────────────────────
-  // JobClaimStore
-  // ──────────────────────────────────────────────
 
   @Override
   public List<JobEntity> claimNextBatch(int limit, String nodeId) {
@@ -421,10 +505,6 @@ public class PostgresqlJobStore implements JobStore {
     List<JobEntity> jobs = readQuery.getResultList();
     return jobs;
   }
-
-  // ──────────────────────────────────────────────
-  // JobStatusStore
-  // ──────────────────────────────────────────────
 
   @Override
   public void updateJobStatus(long id, JobStatus status, String errorMessage) {
@@ -586,6 +666,10 @@ public class PostgresqlJobStore implements JobStore {
         .executeUpdate();
   }
 
+  // ──────────────────────────────────────────────
+  // JobBulkStore
+  // ──────────────────────────────────────────────
+
   @Override
   public int cancelRecurringJobByBusinessKey(String businessKey) {
     return em.createNativeQuery(
@@ -645,6 +729,10 @@ public class PostgresqlJobStore implements JobStore {
     return updated > 0;
   }
 
+  // ──────────────────────────────────────────────
+  // BatchStore
+  // ──────────────────────────────────────────────
+
   @Override
   public boolean transitionFromPaused(long id, JobStatus target) {
     int updated =
@@ -676,10 +764,6 @@ public class PostgresqlJobStore implements JobStore {
     }
     return JobStatus.valueOf((String) results.get(0));
   }
-
-  // ──────────────────────────────────────────────
-  // JobBulkStore
-  // ──────────────────────────────────────────────
 
   @Override
   public void bulkInsert(List<JobEntity> jobs) {
@@ -825,10 +909,6 @@ public class PostgresqlJobStore implements JobStore {
         .executeUpdate();
   }
 
-  // ──────────────────────────────────────────────
-  // BatchStore
-  // ──────────────────────────────────────────────
-
   @Override
   public BatchEntity saveBatch(BatchEntity batch) {
     if (em.find(BatchEntity.class, batch.getId()) == null) {
@@ -852,6 +932,10 @@ public class PostgresqlJobStore implements JobStore {
         .setParameter("ids", batchIds)
         .getResultList();
   }
+
+  // ──────────────────────────────────────────────
+  // LockStore
+  // ──────────────────────────────────────────────
 
   @Override
   public BatchProgress incrementCompletedAtomic(long batchId) {
@@ -889,18 +973,6 @@ public class PostgresqlJobStore implements JobStore {
         parseProgressHook(row[3]));
   }
 
-  private JobPayload parseProgressHook(Object jsonValue) {
-    if (jsonValue == null) {
-      return null;
-    }
-    try {
-      return OBJECT_MAPPER.readValue(jsonValue.toString(), JobPayload.class);
-    } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
-      log.warning("Failed to parse progress_hook JSON: " + e.getMessage());
-      return null;
-    }
-  }
-
   @Override
   public boolean markBatchCompleteIfReady(long batchId) {
     int updated =
@@ -912,6 +984,10 @@ public class PostgresqlJobStore implements JobStore {
             .executeUpdate();
     return updated > 0;
   }
+
+  // ──────────────────────────────────────────────
+  // NodeStore
+  // ──────────────────────────────────────────────
 
   @Override
   public List<Long> findRecoverableBatchIds(int limit) {
@@ -936,10 +1012,6 @@ public class PostgresqlJobStore implements JobStore {
             .executeUpdate();
     return updated > 0;
   }
-
-  // ──────────────────────────────────────────────
-  // LockStore
-  // ──────────────────────────────────────────────
 
   @Override
   public boolean tryLock(String name, Duration ttl, String nodeId) {
@@ -987,7 +1059,7 @@ public class PostgresqlJobStore implements JobStore {
   }
 
   // ──────────────────────────────────────────────
-  // NodeStore
+  // ArchiveStore
   // ──────────────────────────────────────────────
 
   @Override
@@ -1032,16 +1104,16 @@ public class PostgresqlJobStore implements JobStore {
     return ts.toInstant();
   }
 
-  // ──────────────────────────────────────────────
-  // ArchiveStore
-  // ──────────────────────────────────────────────
-
   @Override
   public ArchivedJobEntity archiveJob(JobEntity job, String reason, String archivedBy) {
     ArchivedJobEntity archive = buildArchive(job, reason, archivedBy);
     em.persist(archive);
     return archive;
   }
+
+  // ──────────────────────────────────────────────
+  // ExecutionStore
+  // ──────────────────────────────────────────────
 
   @Override
   public int archiveJobsBatch(List<JobEntity> jobs, String reason, String archivedBy) {
@@ -1110,16 +1182,16 @@ public class PostgresqlJobStore implements JobStore {
     return results;
   }
 
+  // ──────────────────────────────────────────────
+  // JobLogStore
+  // ──────────────────────────────────────────────
+
   @Override
   public int purgeArchivedJobs(Instant olderThan) {
     return em.createNativeQuery("DELETE FROM scheduler_job_archive WHERE archived_at < ?")
         .setParameter(1, Timestamp.from(olderThan))
         .executeUpdate();
   }
-
-  // ──────────────────────────────────────────────
-  // ExecutionStore
-  // ──────────────────────────────────────────────
 
   @Override
   public JobExecutionEntity saveExecution(JobExecutionEntity execution) {
@@ -1129,6 +1201,10 @@ public class PostgresqlJobStore implements JobStore {
     }
     return em.merge(execution);
   }
+
+  // ──────────────────────────────────────────────
+  // TagStore
+  // ──────────────────────────────────────────────
 
   @Override
   public List<JobExecutionEntity> findExecutionsByJobId(long jobId) {
@@ -1164,7 +1240,7 @@ public class PostgresqlJobStore implements JobStore {
   }
 
   // ──────────────────────────────────────────────
-  // JobLogStore
+  // WorkflowConditionStore
   // ──────────────────────────────────────────────
 
   @Override
@@ -1178,10 +1254,6 @@ public class PostgresqlJobStore implements JobStore {
         .setParameter(1, Timestamp.from(cutoff))
         .executeUpdate();
   }
-
-  // ──────────────────────────────────────────────
-  // TagStore
-  // ──────────────────────────────────────────────
 
   @Override
   public void insertTags(long jobId, List<String> tags) {
@@ -1218,10 +1290,6 @@ public class PostgresqlJobStore implements JobStore {
             .getResultList();
     return results.stream().map(Number::longValue).toList();
   }
-
-  // ──────────────────────────────────────────────
-  // WorkflowConditionStore
-  // ──────────────────────────────────────────────
 
   @Override
   public WorkflowConditionEntity saveCondition(WorkflowConditionEntity condition) {
@@ -1261,6 +1329,10 @@ public class PostgresqlJobStore implements JobStore {
             .getResultList();
     return results;
   }
+
+  // ──────────────────────────────────────────────
+  // BatchMetricsStore
+  // ──────────────────────────────────────────────
 
   @Override
   public List<WorkflowConditionEntity> findConditionsByType(
@@ -1305,7 +1377,7 @@ public class PostgresqlJobStore implements JobStore {
   }
 
   // ──────────────────────────────────────────────
-  // BatchMetricsStore
+  // DlqAlertStore
   // ──────────────────────────────────────────────
 
   @Override
@@ -1321,6 +1393,10 @@ public class PostgresqlJobStore implements JobStore {
   public Optional<BatchMetricsEntity> findBatchMetrics(long batchId) {
     return Optional.ofNullable(em.find(BatchMetricsEntity.class, batchId));
   }
+
+  // ──────────────────────────────────────────────
+  // ResourcePermitStore
+  // ──────────────────────────────────────────────
 
   @Override
   public void addChildExecutionTime(long batchId, long durationMs) {
@@ -1358,10 +1434,6 @@ public class PostgresqlJobStore implements JobStore {
         .executeUpdate();
   }
 
-  // ──────────────────────────────────────────────
-  // DlqAlertStore
-  // ──────────────────────────────────────────────
-
   @Override
   public DlqAlertEntity saveDlqAlert(DlqAlertEntity alert) {
     if (alert.getId() == null) {
@@ -1382,10 +1454,6 @@ public class PostgresqlJobStore implements JobStore {
             Timestamp.from(cutoff));
     return count > 0;
   }
-
-  // ──────────────────────────────────────────────
-  // ResourcePermitStore
-  // ──────────────────────────────────────────────
 
   @Override
   public boolean tryAcquirePermit(String resource, long jobId, String nodeId) {
@@ -1416,6 +1484,10 @@ public class PostgresqlJobStore implements JobStore {
     em.persist(permit);
     return true;
   }
+
+  // ──────────────────────────────────────────────
+  // Private helpers
+  // ──────────────────────────────────────────────
 
   @Override
   public void releasePermit(String resource, long jobId) {
@@ -1476,9 +1548,17 @@ public class PostgresqlJobStore implements JobStore {
         .executeUpdate();
   }
 
-  // ──────────────────────────────────────────────
-  // Private helpers
-  // ──────────────────────────────────────────────
+  private JobPayload parseProgressHook(Object jsonValue) {
+    if (jsonValue == null) {
+      return null;
+    }
+    try {
+      return OBJECT_MAPPER.readValue(jsonValue.toString(), JobPayload.class);
+    } catch (JsonProcessingException e) {
+      log.warning("Failed to parse progress_hook JSON: " + e.getMessage());
+      return null;
+    }
+  }
 
   private long countByNative(String sql, Object... params) {
     var query = em.createNativeQuery(sql);
@@ -1561,83 +1641,5 @@ public class PostgresqlJobStore implements JobStore {
       log.log(Level.WARNING, "Failed to serialize callback payload", e);
       return null;
     }
-  }
-
-  private static Instant toInstant(Object value) {
-    if (value instanceof Instant) {
-      return (Instant) value;
-    }
-    if (value instanceof Timestamp) {
-      return ((Timestamp) value).toInstant();
-    }
-    if (value instanceof java.time.OffsetDateTime) {
-      return ((java.time.OffsetDateTime) value).toInstant();
-    }
-    throw new IllegalArgumentException("Cannot convert " + value.getClass() + " to Instant");
-  }
-
-  private static JobPriority safeJobPriority(int ordinal) {
-    JobPriority[] values = JobPriority.values();
-    if (ordinal < 0 || ordinal >= values.length) {
-      return JobPriority.NORMAL;
-    }
-    return values[ordinal];
-  }
-
-  private static int getPriorityBoostIntervalMinutes() {
-    String raw = System.getenv("SCHEDULER_PRIORITY_BOOST_INTERVAL_MINUTES");
-    if (raw == null || raw.isBlank()) {
-      return 15;
-    }
-    try {
-      return Math.max(0, Integer.parseInt(raw.trim()));
-    } catch (NumberFormatException e) {
-      return 15;
-    }
-  }
-
-  private static String buildBoostOrderBy(String timeColumn, int boostInterval) {
-    return boostInterval > 0
-        ? "(priority + FLOOR(GREATEST(0, EXTRACT(EPOCH FROM (statement_timestamp() - "
-            + timeColumn
-            + "))) / (60.0 * ?2))) DESC, "
-            + timeColumn
-            + " ASC"
-        : "priority DESC, " + timeColumn + " ASC";
-  }
-
-  private static String buildClaimUpdateSql(
-      String typeFilter, String timeColumn, int boostInterval) {
-    return "UPDATE scheduler_job SET status = 'RUNNING', picked_by = ?3, "
-        + "picked_at = statement_timestamp(), updated_at = statement_timestamp(), "
-        + "version = version + 1 "
-        + "WHERE job_id IN ("
-        + "  SELECT job_id FROM scheduler_job"
-        + "  WHERE status = 'PENDING'"
-        + "    AND "
-        + timeColumn
-        + " <= statement_timestamp()"
-        + "    AND "
-        + typeFilter
-        + "  ORDER BY "
-        + buildBoostOrderBy(timeColumn, boostInterval)
-        + "  FOR UPDATE SKIP LOCKED"
-        + "  LIMIT ?1"
-        + ")";
-  }
-
-  private static String buildClaimReadBackSql(
-      String selectClause, String timeColumn, int boostInterval) {
-    // Parameters: ?1 = nodeId. If boost > 0: ?2 = boostInterval, ?3 = limit. Else: ?2 = limit.
-    String limitParam = boostInterval > 0 ? "?3" : "?2";
-    return "SELECT "
-        + selectClause
-        + " FROM scheduler_job "
-        + "WHERE picked_by = ?1 AND status = 'RUNNING' "
-        + "AND picked_at >= statement_timestamp() - INTERVAL '5 seconds' "
-        + "ORDER BY "
-        + buildBoostOrderBy(timeColumn, boostInterval)
-        + " LIMIT "
-        + limitParam;
   }
 }

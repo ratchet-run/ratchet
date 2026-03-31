@@ -70,7 +70,7 @@ public class DocumentStorePerformanceTestHelper implements PerformanceTestHelper
   @Override
   public long queryQueueWaitPercentileForClass(String targetClass, double percentile) {
     // Query queue_wait_ms from completed jobs with the given target class
-    var results = new java.util.ArrayList<Long>();
+    var results = new ArrayList<Long>();
     try (var cursor =
         mongoDb
             .getCollection("scheduler_job")

@@ -13,7 +13,6 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Queue;
 import java.util.Set;
-import java.util.logging.Logger;
 
 /**
  * Service responsible for cascading pause/resume operations across job dependency trees.
@@ -32,8 +31,6 @@ import java.util.logging.Logger;
 @ApplicationScoped
 @Transactional
 public class JobCascadeService {
-
-  private static final Logger log = Logger.getLogger(JobCascadeService.class.getName());
 
   private final JobCrudStore jobCrudStore;
 

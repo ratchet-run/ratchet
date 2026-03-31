@@ -10,6 +10,8 @@ import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.List;
@@ -197,9 +199,9 @@ public class RetryBufferManager {
    * @param jobType the job type to get the buffer for
    * @return an unmodifiable view of the priority queue for the specified job type
    */
-  public java.util.Collection<BufferedJob> getBuffer(JobExecutionType jobType) {
+  public Collection<BufferedJob> getBuffer(JobExecutionType jobType) {
     Queue<BufferedJob> queue = retryBuffers.get(jobType);
-    return queue != null ? java.util.Collections.unmodifiableCollection(queue) : List.of();
+    return queue != null ? Collections.unmodifiableCollection(queue) : List.of();
   }
 
   /**

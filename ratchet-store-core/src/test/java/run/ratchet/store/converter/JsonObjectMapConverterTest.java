@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.math.BigDecimal;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -18,10 +19,7 @@ class JsonObjectMapConverterTest {
     Map<String, Object> restored = converter.convertToEntityAttribute(json);
 
     assertEquals("Alice", restored.get("name"));
-    assertEquals(
-        0,
-        new java.math.BigDecimal("30")
-            .compareTo(new java.math.BigDecimal(restored.get("age").toString())));
+    assertEquals(0, new BigDecimal("30").compareTo(new BigDecimal(restored.get("age").toString())));
     assertEquals(true, restored.get("active"));
   }
 

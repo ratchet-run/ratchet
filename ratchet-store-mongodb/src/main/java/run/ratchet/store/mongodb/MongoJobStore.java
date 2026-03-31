@@ -16,6 +16,7 @@ import static com.mongodb.client.model.Updates.inc;
 import static com.mongodb.client.model.Updates.set;
 import static com.mongodb.client.model.Updates.setOnInsert;
 
+import com.mongodb.MongoCommandException;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
@@ -53,6 +54,9 @@ import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.function.Function;
 import java.util.logging.Logger;
 import org.bson.Document;
 import org.bson.conversions.Bson;
@@ -82,9 +86,16 @@ public class MongoJobStore implements JobStore {
     this.database = database;
   }
 
-  @PostConstruct
-  void initializeCollections() {
-    new MongoCollectionInitializer(database).initialize();
+  private static int getPriorityBoostIntervalMinutes() {
+    String raw = System.getenv("SCHEDULER_PRIORITY_BOOST_INTERVAL_MINUTES");
+    if (raw == null || raw.isBlank()) {
+      return 15;
+    }
+    try {
+      return Math.max(0, Integer.parseInt(raw.trim()));
+    } catch (NumberFormatException e) {
+      return 15;
+    }
   }
 
   // ──────────────────────────────────────────────
@@ -93,58 +104,6 @@ public class MongoJobStore implements JobStore {
 
   // ──────────────────────────────────────────────
   // Collection accessors
-  // ──────────────────────────────────────────────
-
-  private MongoCollection<Document> jobs() {
-    return database.getCollection("scheduler_job");
-  }
-
-  private MongoCollection<Document> batches() {
-    return database.getCollection("scheduler_batch");
-  }
-
-  private MongoCollection<Document> batchMetrics() {
-    return database.getCollection("scheduler_batch_metrics");
-  }
-
-  private MongoCollection<Document> executions() {
-    return database.getCollection("scheduler_job_execution");
-  }
-
-  private MongoCollection<Document> jobLogs() {
-    return database.getCollection("scheduler_job_log");
-  }
-
-  private MongoCollection<Document> archives() {
-    return database.getCollection("scheduler_job_archive");
-  }
-
-  private MongoCollection<Document> locks() {
-    return database.getCollection("scheduler_lock");
-  }
-
-  private MongoCollection<Document> nodes() {
-    return database.getCollection("scheduler_node");
-  }
-
-  private MongoCollection<Document> workflowConditions() {
-    return database.getCollection("scheduler_workflow_condition");
-  }
-
-  private MongoCollection<Document> dlqAlerts() {
-    return database.getCollection("scheduler_dlq_alerts");
-  }
-
-  private MongoCollection<Document> resourceLimits() {
-    return database.getCollection("scheduler_resource_limit");
-  }
-
-  private MongoCollection<Document> resourcePermits() {
-    return database.getCollection("scheduler_resource_permit");
-  }
-
-  // ──────────────────────────────────────────────
-  // JobCrudStore
   // ──────────────────────────────────────────────
 
   @Override
@@ -256,6 +215,10 @@ public class MongoJobStore implements JobStore {
   public long countJobsByStatus(JobStatus status) {
     return jobs().countDocuments(eq("status", status.name()));
   }
+
+  // ──────────────────────────────────────────────
+  // JobCrudStore
+  // ──────────────────────────────────────────────
 
   @Override
   public long countActiveJobs(JobExecutionType jobType) {
@@ -407,7 +370,6 @@ public class MongoJobStore implements JobStore {
   @Override
   public long getQueueWaitTimePercentile(double percentile) {
     // Use $setWindowFields with $percentile (MongoDB 7.0+), fallback to sort+skip approximation
-    double fraction = percentile;
     List<Document> pipeline =
         List.of(
             new Document(
@@ -422,7 +384,7 @@ public class MongoJobStore implements JobStore {
                         new Document(
                             "$percentile",
                             new Document("input", "$queue_wait_ms")
-                                .append("p", List.of(fraction))
+                                .append("p", List.of(percentile))
                                 .append("method", "approximate")))));
     try {
       Document result = jobs().aggregate(pipeline).first();
@@ -442,7 +404,7 @@ public class MongoJobStore implements JobStore {
     if (total == 0) {
       return 0;
     }
-    long skipCount = (long) (total * fraction);
+    long skipCount = (long) (total * percentile);
     Document doc =
         jobs()
             .find(and(ne("queue_wait_ms", null), eq("status", "SUCCEEDED")))
@@ -453,10 +415,6 @@ public class MongoJobStore implements JobStore {
             .first();
     return doc == null || doc.getLong("queue_wait_ms") == null ? 0 : doc.getLong("queue_wait_ms");
   }
-
-  // ──────────────────────────────────────────────
-  // JobClaimStore
-  // ──────────────────────────────────────────────
 
   @Override
   public List<JobEntity> claimNextBatch(int limit, String nodeId) {
@@ -478,119 +436,6 @@ public class MongoJobStore implements JobStore {
         findCandidatesByBoostedPriority(List.of("RECURRING"), "next_fire", limit);
     return claimByIds(candidateIds, nodeId, DocumentMapper::toJobEntity);
   }
-
-  /**
-   * Finds candidate job IDs sorted by effective priority (raw priority + age-based boost). Uses a
-   * MongoDB aggregation pipeline to compute:
-   *
-   * <pre>effective_priority = priority + FLOOR(MAX(0, age_minutes) / boost_interval)</pre>
-   *
-   * <p>This matches the MySQL/PostgreSQL claim query's priority boost formula, ensuring consistent
-   * ordering semantics across all store implementations.
-   */
-  private List<Long> findCandidatesByBoostedPriority(
-      List<String> jobTypes, String timeColumn, int limit) {
-    Date now = DocumentMapper.toDate(Instant.now());
-
-    // Aggregation pipeline: match → addFields (effective_priority) → sort → limit → project _id
-    List<Document> pipeline = new ArrayList<>();
-
-    // $match: PENDING, matching job types, due
-    pipeline.add(
-        new Document(
-            "$match",
-            new Document("status", "PENDING")
-                .append("job_type", new Document("$in", jobTypes))
-                .append(timeColumn, new Document("$lte", now))));
-
-    if (PRIORITY_BOOST_INTERVAL > 0) {
-      // $addFields: compute effective_priority with age boost
-      // effective_priority = priority + floor(max(0, age_minutes) / boost_interval)
-      pipeline.add(
-          new Document(
-              "$addFields",
-              new Document(
-                  "_effective_priority",
-                  new Document(
-                      "$add",
-                      List.of(
-                          "$priority",
-                          new Document(
-                              "$floor",
-                              new Document(
-                                  "$divide",
-                                  List.of(
-                                      new Document(
-                                          "$max",
-                                          List.of(
-                                              0,
-                                              new Document(
-                                                  "$divide",
-                                                  List.of(
-                                                      new Document(
-                                                          "$subtract",
-                                                          List.of(now, "$" + timeColumn)),
-                                                      60_000)))),
-                                      PRIORITY_BOOST_INTERVAL))))))));
-
-      pipeline.add(
-          new Document("$sort", new Document("_effective_priority", -1).append(timeColumn, 1)));
-    } else {
-      pipeline.add(new Document("$sort", new Document("priority", -1).append(timeColumn, 1)));
-    }
-
-    pipeline.add(new Document("$limit", limit));
-    pipeline.add(new Document("$project", new Document("_id", 1)));
-
-    List<Long> ids = new ArrayList<>();
-    for (Document doc : jobs().aggregate(pipeline)) {
-      ids.add(doc.getLong("_id"));
-    }
-    return ids;
-  }
-
-  /** Claims jobs by their IDs, updating status to RUNNING atomically per job in parallel. */
-  private <T> List<T> claimByIds(
-      List<Long> ids, String nodeId, java.util.function.Function<Document, T> mapper) {
-    Date nowDate = DocumentMapper.toDate(Instant.now());
-    FindOneAndUpdateOptions opts =
-        new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER);
-
-    List<java.util.concurrent.CompletableFuture<Document>> futures =
-        ids.stream()
-            .map(
-                id ->
-                    java.util.concurrent.CompletableFuture.supplyAsync(
-                        () ->
-                            jobs()
-                                .findOneAndUpdate(
-                                    and(eq("_id", id), eq("status", "PENDING")),
-                                    combine(
-                                        set("status", "RUNNING"),
-                                        set("picked_by", nodeId),
-                                        set("picked_at", nowDate),
-                                        set("updated_at", nowDate),
-                                        inc("version", 1)),
-                                    opts)))
-            .toList();
-
-    List<T> claimed = new ArrayList<>();
-    for (var future : futures) {
-      try {
-        Document doc = future.join();
-        if (doc != null) {
-          claimed.add(mapper.apply(doc));
-        }
-      } catch (java.util.concurrent.CompletionException e) {
-        log.warning("Failed to claim job: " + e.getCause().getMessage());
-      }
-    }
-    return claimed;
-  }
-
-  // ──────────────────────────────────────────────
-  // JobStatusStore
-  // ──────────────────────────────────────────────
 
   @Override
   public void updateJobStatus(long id, JobStatus status, String errorMessage) {
@@ -745,6 +590,10 @@ public class MongoJobStore implements JobStore {
     return (int) result.getModifiedCount();
   }
 
+  // ──────────────────────────────────────────────
+  // JobClaimStore
+  // ──────────────────────────────────────────────
+
   @Override
   public int cancelRecurringJobsByTag(String tag) {
     UpdateResult result =
@@ -828,6 +677,10 @@ public class MongoJobStore implements JobStore {
     return result.getModifiedCount() > 0;
   }
 
+  // ──────────────────────────────────────────────
+  // JobStatusStore
+  // ──────────────────────────────────────────────
+
   @Override
   public boolean transitionFromPaused(long id, JobStatus target) {
     UpdateResult result =
@@ -855,7 +708,7 @@ public class MongoJobStore implements JobStore {
                             .append(
                                 "status",
                                 new Document("$ifNull", List.of("$paused_from_status", "PENDING")))
-                            .append("paused_from_status", (String) null)
+                            .append("paused_from_status", null)
                             .append("updated_at", new Date())
                             .append("version", new Document("$add", List.of("$version", 1))))),
                 new FindOneAndUpdateOptions().returnDocument(ReturnDocument.BEFORE));
@@ -865,10 +718,6 @@ public class MongoJobStore implements JobStore {
     String pausedFrom = before.getString("paused_from_status");
     return pausedFrom != null ? JobStatus.valueOf(pausedFrom) : JobStatus.PENDING;
   }
-
-  // ──────────────────────────────────────────────
-  // JobBulkStore
-  // ──────────────────────────────────────────────
 
   @Override
   public void bulkInsert(List<JobEntity> jobList) {
@@ -947,10 +796,6 @@ public class MongoJobStore implements JobStore {
                     inc("version", 1)));
     return (int) result.getModifiedCount();
   }
-
-  // ──────────────────────────────────────────────
-  // BatchStore
-  // ──────────────────────────────────────────────
 
   @Override
   public BatchEntity saveBatch(BatchEntity batch) {
@@ -1053,10 +898,6 @@ public class MongoJobStore implements JobStore {
     return result.getModifiedCount() > 0;
   }
 
-  // ──────────────────────────────────────────────
-  // LockStore
-  // ──────────────────────────────────────────────
-
   @Override
   public boolean tryLock(String name, Duration ttl, String nodeId) {
     Date now = DocumentMapper.toDate(Instant.now());
@@ -1077,7 +918,7 @@ public class MongoJobStore implements JobStore {
 
       // If we got a result with our nodeId, the lock was acquired (insert or expired-update)
       return result != null && nodeId.equals(result.getString("owner_node"));
-    } catch (com.mongodb.MongoCommandException e) {
+    } catch (MongoCommandException e) {
       // DuplicateKey (11000) means the lock exists and is NOT expired — acquisition failed
       if (e.getErrorCode() == 11000) {
         return false;
@@ -1091,6 +932,10 @@ public class MongoJobStore implements JobStore {
     locks().deleteOne(and(eq("_id", name), eq("owner_node", nodeId)));
   }
 
+  // ──────────────────────────────────────────────
+  // JobBulkStore
+  // ──────────────────────────────────────────────
+
   @Override
   public boolean renewLock(String name, Duration extension, String nodeId) {
     Date newExpiry = DocumentMapper.toDate(Instant.now().plus(extension));
@@ -1100,10 +945,6 @@ public class MongoJobStore implements JobStore {
                 and(eq("_id", name), eq("owner_node", nodeId)), set("expires_at", newExpiry));
     return result.getModifiedCount() > 0;
   }
-
-  // ──────────────────────────────────────────────
-  // NodeStore
-  // ──────────────────────────────────────────────
 
   @Override
   public void upsertHeartbeat(String nodeId, Instant ts) {
@@ -1130,6 +971,10 @@ public class MongoJobStore implements JobStore {
     return results;
   }
 
+  // ──────────────────────────────────────────────
+  // BatchStore
+  // ──────────────────────────────────────────────
+
   @Override
   public int deleteInactiveNodesSince(Instant cutoff) {
     DeleteResult result = nodes().deleteMany(lt("heartbeat_ts", DocumentMapper.toDate(cutoff)));
@@ -1142,10 +987,6 @@ public class MongoJobStore implements JobStore {
     Date localTime = result.getDate("localTime");
     return localTime != null ? localTime.toInstant() : Instant.now();
   }
-
-  // ──────────────────────────────────────────────
-  // ArchiveStore
-  // ──────────────────────────────────────────────
 
   @Override
   public ArchivedJobEntity archiveJob(JobEntity job, String reason, String archivedBy) {
@@ -1229,7 +1070,7 @@ public class MongoJobStore implements JobStore {
   }
 
   // ──────────────────────────────────────────────
-  // ExecutionStore
+  // LockStore
   // ──────────────────────────────────────────────
 
   @Override
@@ -1258,14 +1099,14 @@ public class MongoJobStore implements JobStore {
     return doc == null ? Optional.empty() : Optional.of(DocumentMapper.toJobExecutionEntity(doc));
   }
 
+  // ──────────────────────────────────────────────
+  // NodeStore
+  // ──────────────────────────────────────────────
+
   @Override
   public int countExecutionAttempts(long jobId) {
     return (int) executions().countDocuments(eq("job_id", jobId));
   }
-
-  // ──────────────────────────────────────────────
-  // JobLogStore
-  // ──────────────────────────────────────────────
 
   @Override
   public void appendLog(JobLogEntity logEntry) {
@@ -1281,10 +1122,6 @@ public class MongoJobStore implements JobStore {
     DeleteResult result = jobLogs().deleteMany(lt("ts", DocumentMapper.toDate(cutoff)));
     return (int) result.getDeletedCount();
   }
-
-  // ──────────────────────────────────────────────
-  // TagStore
-  // ──────────────────────────────────────────────
 
   @Override
   public void insertTags(long jobId, List<String> tags) {
@@ -1313,6 +1150,10 @@ public class MongoJobStore implements JobStore {
     return oldTags == null ? 0 : oldTags.size();
   }
 
+  // ──────────────────────────────────────────────
+  // ArchiveStore
+  // ──────────────────────────────────────────────
+
   @Override
   public List<Long> findJobIdsByTag(String tag, int limit, int offset) {
     List<Long> ids = new ArrayList<>();
@@ -1327,10 +1168,6 @@ public class MongoJobStore implements JobStore {
     }
     return ids;
   }
-
-  // ──────────────────────────────────────────────
-  // WorkflowConditionStore
-  // ──────────────────────────────────────────────
 
   @Override
   public WorkflowConditionEntity saveCondition(WorkflowConditionEntity condition) {
@@ -1385,6 +1222,10 @@ public class MongoJobStore implements JobStore {
     return results;
   }
 
+  // ──────────────────────────────────────────────
+  // ExecutionStore
+  // ──────────────────────────────────────────────
+
   @Override
   public void deleteConditionById(long id) {
     workflowConditions().deleteOne(eq("_id", id));
@@ -1406,7 +1247,7 @@ public class MongoJobStore implements JobStore {
   }
 
   // ──────────────────────────────────────────────
-  // BatchMetricsStore
+  // JobLogStore
   // ──────────────────────────────────────────────
 
   @Override
@@ -1422,6 +1263,10 @@ public class MongoJobStore implements JobStore {
     Document doc = batchMetrics().find(eq("_id", batchId)).first();
     return doc == null ? Optional.empty() : Optional.of(DocumentMapper.toBatchMetricsEntity(doc));
   }
+
+  // ──────────────────────────────────────────────
+  // TagStore
+  // ──────────────────────────────────────────────
 
   @Override
   public void addChildExecutionTime(long batchId, long durationMs) {
@@ -1465,7 +1310,7 @@ public class MongoJobStore implements JobStore {
   }
 
   // ──────────────────────────────────────────────
-  // DlqAlertStore
+  // WorkflowConditionStore
   // ──────────────────────────────────────────────
 
   @Override
@@ -1488,10 +1333,6 @@ public class MongoJobStore implements JobStore {
                     gte("alert_sent_at", DocumentMapper.toDate(cutoff))))
         > 0;
   }
-
-  // ──────────────────────────────────────────────
-  // ResourcePermitStore
-  // ──────────────────────────────────────────────
 
   @Override
   public boolean tryAcquirePermit(String resource, long jobId, String nodeId) {
@@ -1597,9 +1438,182 @@ public class MongoJobStore implements JobStore {
     return (int) result.getDeletedCount();
   }
 
+  @PostConstruct
+  void initializeCollections() {
+    new MongoCollectionInitializer(database).initialize();
+  }
+
+  // ──────────────────────────────────────────────
+  // BatchMetricsStore
+  // ──────────────────────────────────────────────
+
+  private MongoCollection<Document> jobs() {
+    return database.getCollection("scheduler_job");
+  }
+
+  private MongoCollection<Document> batches() {
+    return database.getCollection("scheduler_batch");
+  }
+
+  private MongoCollection<Document> batchMetrics() {
+    return database.getCollection("scheduler_batch_metrics");
+  }
+
+  private MongoCollection<Document> executions() {
+    return database.getCollection("scheduler_job_execution");
+  }
+
+  private MongoCollection<Document> jobLogs() {
+    return database.getCollection("scheduler_job_log");
+  }
+
+  // ──────────────────────────────────────────────
+  // DlqAlertStore
+  // ──────────────────────────────────────────────
+
+  private MongoCollection<Document> archives() {
+    return database.getCollection("scheduler_job_archive");
+  }
+
+  private MongoCollection<Document> locks() {
+    return database.getCollection("scheduler_lock");
+  }
+
+  // ──────────────────────────────────────────────
+  // ResourcePermitStore
+  // ──────────────────────────────────────────────
+
+  private MongoCollection<Document> nodes() {
+    return database.getCollection("scheduler_node");
+  }
+
+  private MongoCollection<Document> workflowConditions() {
+    return database.getCollection("scheduler_workflow_condition");
+  }
+
+  private MongoCollection<Document> dlqAlerts() {
+    return database.getCollection("scheduler_dlq_alerts");
+  }
+
+  private MongoCollection<Document> resourceLimits() {
+    return database.getCollection("scheduler_resource_limit");
+  }
+
+  private MongoCollection<Document> resourcePermits() {
+    return database.getCollection("scheduler_resource_permit");
+  }
+
+  /**
+   * Finds candidate job IDs sorted by effective priority (raw priority + age-based boost). Uses a
+   * MongoDB aggregation pipeline to compute:
+   *
+   * <pre>effective_priority = priority + FLOOR(MAX(0, age_minutes) / boost_interval)</pre>
+   *
+   * <p>This matches the MySQL/PostgreSQL claim query's priority boost formula, ensuring consistent
+   * ordering semantics across all store implementations.
+   */
+  private List<Long> findCandidatesByBoostedPriority(
+      List<String> jobTypes, String timeColumn, int limit) {
+    Date now = DocumentMapper.toDate(Instant.now());
+
+    // Aggregation pipeline: match → addFields (effective_priority) → sort → limit → project _id
+    List<Document> pipeline = new ArrayList<>();
+
+    // $match: PENDING, matching job types, due
+    pipeline.add(
+        new Document(
+            "$match",
+            new Document("status", "PENDING")
+                .append("job_type", new Document("$in", jobTypes))
+                .append(timeColumn, new Document("$lte", now))));
+
+    if (PRIORITY_BOOST_INTERVAL > 0) {
+      // $addFields: compute effective_priority with age boost
+      // effective_priority = priority + floor(max(0, age_minutes) / boost_interval)
+      pipeline.add(
+          new Document(
+              "$addFields",
+              new Document(
+                  "_effective_priority",
+                  new Document(
+                      "$add",
+                      List.of(
+                          "$priority",
+                          new Document(
+                              "$floor",
+                              new Document(
+                                  "$divide",
+                                  List.of(
+                                      new Document(
+                                          "$max",
+                                          List.of(
+                                              0,
+                                              new Document(
+                                                  "$divide",
+                                                  List.of(
+                                                      new Document(
+                                                          "$subtract",
+                                                          List.of(now, "$" + timeColumn)),
+                                                      60_000)))),
+                                      PRIORITY_BOOST_INTERVAL))))))));
+
+      pipeline.add(
+          new Document("$sort", new Document("_effective_priority", -1).append(timeColumn, 1)));
+    } else {
+      pipeline.add(new Document("$sort", new Document("priority", -1).append(timeColumn, 1)));
+    }
+
+    pipeline.add(new Document("$limit", limit));
+    pipeline.add(new Document("$project", new Document("_id", 1)));
+
+    List<Long> ids = new ArrayList<>();
+    for (Document doc : jobs().aggregate(pipeline)) {
+      ids.add(doc.getLong("_id"));
+    }
+    return ids;
+  }
+
   // ──────────────────────────────────────────────
   // Private helpers
   // ──────────────────────────────────────────────
+
+  /** Claims jobs by their IDs, updating status to RUNNING atomically per job in parallel. */
+  private <T> List<T> claimByIds(List<Long> ids, String nodeId, Function<Document, T> mapper) {
+    Date nowDate = DocumentMapper.toDate(Instant.now());
+    FindOneAndUpdateOptions opts =
+        new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER);
+
+    List<CompletableFuture<Document>> futures =
+        ids.stream()
+            .map(
+                id ->
+                    CompletableFuture.supplyAsync(
+                        () ->
+                            jobs()
+                                .findOneAndUpdate(
+                                    and(eq("_id", id), eq("status", "PENDING")),
+                                    combine(
+                                        set("status", "RUNNING"),
+                                        set("picked_by", nodeId),
+                                        set("picked_at", nowDate),
+                                        set("updated_at", nowDate),
+                                        inc("version", 1)),
+                                    opts)))
+            .toList();
+
+    List<T> claimed = new ArrayList<>();
+    for (var future : futures) {
+      try {
+        Document doc = future.join();
+        if (doc != null) {
+          claimed.add(mapper.apply(doc));
+        }
+      } catch (CompletionException e) {
+        log.warning("Failed to claim job: " + e.getCause().getMessage());
+      }
+    }
+    return claimed;
+  }
 
   private ArchivedJobEntity buildArchive(JobEntity job, String reason, String archivedBy) {
     ArchivedJobEntity a = new ArchivedJobEntity();
@@ -1638,17 +1652,5 @@ public class MongoJobStore implements JobStore {
       a.setTags(String.join(",", job.getTags()));
     }
     return a;
-  }
-
-  private static int getPriorityBoostIntervalMinutes() {
-    String raw = System.getenv("SCHEDULER_PRIORITY_BOOST_INTERVAL_MINUTES");
-    if (raw == null || raw.isBlank()) {
-      return 15;
-    }
-    try {
-      return Math.max(0, Integer.parseInt(raw.trim()));
-    } catch (NumberFormatException e) {
-      return 15;
-    }
   }
 }

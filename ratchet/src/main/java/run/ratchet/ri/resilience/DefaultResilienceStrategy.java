@@ -41,7 +41,7 @@ public class DefaultResilienceStrategy implements ResilienceStrategy {
   @Override
   public boolean isServiceAvailable(String serviceName) {
     CircuitBreaker.State state = registry.getBreakerState(serviceName);
-    return state == null || state != CircuitBreaker.State.OPEN;
+    return state != CircuitBreaker.State.OPEN;
   }
 
   @Override

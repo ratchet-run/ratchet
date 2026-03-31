@@ -3,6 +3,7 @@ package run.ratchet.ri.cdi;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.util.List;
+import javax.management.ObjectName;
 import org.junit.jupiter.api.Test;
 
 class JdkSerializationStrategyTest {
@@ -35,17 +36,15 @@ class JdkSerializationStrategyTest {
   @Test
   void blockedClassThrowsOnDeserialize() {
     // Serialize a javax.management object which is NOT in the allowed filter
-    javax.management.ObjectName blocked;
+    ObjectName blocked;
     try {
-      blocked = new javax.management.ObjectName("test:type=Test");
+      blocked = new ObjectName("test:type=Test");
     } catch (Exception e) {
       fail("Failed to create test ObjectName: " + e.getMessage());
       return;
     }
     byte[] data = strategy.serialize(blocked);
-    assertThrows(
-        RuntimeException.class,
-        () -> strategy.deserialize(data, javax.management.ObjectName.class));
+    assertThrows(RuntimeException.class, () -> strategy.deserialize(data, ObjectName.class));
   }
 
   @Test

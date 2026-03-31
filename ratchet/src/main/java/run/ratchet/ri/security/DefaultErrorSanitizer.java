@@ -25,7 +25,7 @@ public class DefaultErrorSanitizer implements ErrorSanitizer {
   private static final Pattern JDBC_URL =
       Pattern.compile("jdbc:[a-z]+://[^\\s,;)]+", Pattern.CASE_INSENSITIVE);
 
-  /** Matches URLs with userinfo: https://user:pass@host */
+  /** Matches URLs with userinfo: {@code https://user:pass@host} */
   private static final Pattern URL_WITH_CREDENTIALS =
       Pattern.compile("https?://[^@/\\s]+:[^@/\\s]+@[^\\s,;)]+", Pattern.CASE_INSENSITIVE);
 

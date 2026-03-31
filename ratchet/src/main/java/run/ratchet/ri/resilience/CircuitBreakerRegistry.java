@@ -40,7 +40,13 @@ public class CircuitBreakerRegistry {
   public CircuitBreaker getBreaker(String serviceName, CircuitBreakerProfile profile) {
     String key = serviceName + ":" + profile.name();
     return breakers.computeIfAbsent(
-        key, k -> createBreaker(serviceName, CircuitBreakerConfiguration.forProfile(profile)));
+        key,
+        k -> {
+          String configKey = profile.name().toLowerCase().replace('_', '-');
+          CircuitBreakerConfiguration config =
+              configs.getOrDefault(configKey, CircuitBreakerConfiguration.forProfile(profile));
+          return createBreaker(serviceName, config);
+        });
   }
 
   /** Gets the current state of a circuit breaker, or null if not created. */

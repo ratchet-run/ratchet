@@ -5,6 +5,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.List;
 import java.util.logging.Logger;
+import org.bson.Document;
 
 /**
  * Document store implementation of {@link TestCleanupStrategy}.
@@ -44,7 +45,7 @@ public class DocumentStoreTestCleanupStrategy implements TestCleanupStrategy {
   public void truncateAll() {
     for (String collection : COLLECTIONS) {
       try {
-        mongoDb.getCollection(collection).deleteMany(new org.bson.Document());
+        mongoDb.getCollection(collection).deleteMany(new Document());
       } catch (Exception e) {
         log.fine("Truncate skipped for " + collection + ": " + e.getMessage());
       }
