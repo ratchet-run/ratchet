@@ -249,6 +249,46 @@
   </dependencyManagement>
 
   <profiles>
+    <!-- Aggregate Javadoc across all modules for documentation generation -->
+    <profile>
+      <id>javadoc-aggregate</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            <inherited>false</inherited>
+            <executions>
+              <execution>
+                <id>aggregate-javadoc</id>
+                <phase>package</phase>
+                <goals>
+                  <goal>aggregate</goal>
+                </goals>
+                <configuration>
+                  <windowtitle>Ratchet ${project.version} API</windowtitle>
+                  <doctitle>Ratchet ${project.version} - Portable CDI-based Job Scheduler</doctitle>
+                  <header>Ratchet ${project.version}</header>
+                  <footer>Ratchet ${project.version}</footer>
+                  <overview>${basedir}/src/main/javadoc/overview.html</overview>
+                  <sourcepath>
+                    ${basedir}/ratchet-api/src/main/java:${basedir}/ratchet/src/main/java:${basedir}/ratchet-store-core/src/main/java:${basedir}/ratchet-bom/src/main/java
+                  </sourcepath>
+                  <excludePackageNames>*.internal:*.impl:*.util</excludePackageNames>
+                  <links>
+                    <link>https://docs.oracle.com/en/java/javase/17/docs/api</link>
+                    <link>https://jakarta.ee/specifications/platform/10/apidocs</link>
+                  </links>
+                  <bottom>Copyright &#169; {inceptionYear}-{currentYear} Ratchet Contributors. All rights reserved.</bottom>
+                  <doclint>none</doclint>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
     <!-- Offline JaCoCo instrumentation for reliable IT coverage in WildFly -->
     <profile>
       <id>jacoco-offline</id>

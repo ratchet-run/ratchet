@@ -1,0 +1,53 @@
+name: Documentation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ratchet-*/**/*.java'
+      - 'pom.xml'
+      - '.github/workflows/docs.yml'
+  workflow_run:
+    workflows: ["CI"]
+    branches: [main]
+    types: [completed]
+
+jobs:
+  javadoc:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event.workflow_run.conclusion == 'success'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: m2-
+
+      - name: Generate Javadoc
+        run: mvn clean package -P javadoc-aggregate -DskipTests -B
+
+      - name: Upload Javadoc artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: javadoc-site
+          path: target/reports/apidocs/
+
+      - name: Deploy Javadoc to GitHub Pages
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./target/reports/apidocs
+          destination_dir: ./api/latest
+          commit_message: "docs: update API documentation"
+          user_name: 'github-actions[bot]'
+          user_email: 'github-actions[bot]@users.noreply.github.com'

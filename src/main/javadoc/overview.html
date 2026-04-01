@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Ratchet - Portable CDI-based Job Scheduler</title>
+</head>
+<body>
+
+<h1>Ratchet - Portable CDI-based Job Scheduler</h1>
+
+<p>
+Ratchet is a lightweight, portable job scheduling library for Jakarta EE applications. It provides a clean API
+for background job scheduling with pluggable store implementations (MySQL, PostgreSQL, MongoDB).
+</p>
+
+<h2>Core Modules</h2>
+
+<ul>
+  <li><strong>ratchet-api</strong> - Public API, events, enums, and SPI interfaces. Zero runtime dependencies.</li>
+  <li><strong>ratchet</strong> - Reference Implementation with CDI integration, lambda analysis, and the execution engine.</li>
+  <li><strong>ratchet-store-core</strong> - Shared persistence abstractions (entities, repositories, base interfaces).</li>
+  <li><strong>ratchet-store-mysql</strong> - MySQL store implementation with DDL schema.</li>
+  <li><strong>ratchet-store-postgresql</strong> - PostgreSQL store implementation with DDL schema.</li>
+  <li><strong>ratchet-store-mongodb</strong> - MongoDB store implementation.</li>
+</ul>
+
+<h2>Quick Start</h2>
+
+<p>
+Schedule a job with a simple lambda expression:
+</p>
+
+<pre>
+&#64;Inject JobSchedulerService scheduler;
+
+// Schedule a job to run immediately
+scheduler.enqueueNow(() -> myService.processData())
+  .withMaxRetries(3)
+  .submit();
+
+// Schedule with a delay
+scheduler.schedule(Duration.ofMinutes(5), () -> myService.sendReport())
+  .submit();
+
+// Schedule recurring (cron)
+scheduler.scheduleRecurring("0 9 * * MON-FRI", ZoneId.of("US/Eastern"),
+    () -> myService.dailyCheckup())
+  .submit();
+
+// Chain jobs
+scheduler.enqueue(() -> myService.step1())
+  .then(() -> myService.step2())
+  .then(() -> myService.step3())
+  .submit();
+</pre>
+
+<h2>Key Features</h2>
+
+<ul>
+  <li><strong>Portable CDI Integration</strong> - Works with any Jakarta EE container (WildFly, Payara, Open Liberty)</li>
+  <li><strong>Lambda-Based API</strong> - Simple, type-safe job definitions via lambdas and method references</li>
+  <li><strong>Durable Execution</strong> - Jobs persisted in the database, recoverable after crashes</li>
+  <li><strong>Multi-Node Support</strong> - Horizontal scaling with distributed coordination</li>
+  <li><strong>Flexible Retry Logic</strong> - Customizable retry policies with exponential backoff</li>
+  <li><strong>Recurring Jobs</strong> - Cron-based scheduling with timezone support</li>
+  <li><strong>Job Chains &amp; Workflows</strong> - Sequential execution, branching, and batch processing</li>
+  <li><strong>Circuit Breaker</strong> - Built-in resilience protection (no external dependencies)</li>
+  <li><strong>Resource Permits</strong> - Rate limiting and capacity management</li>
+  <li><strong>Comprehensive Observability</strong> - Event publishing, execution tracking, and detailed logging</li>
+</ul>
+
+<h2>Job Lifecycle</h2>
+
+<p>
+Each job follows this execution path:
+</p>
+
+<ol>
+  <li><strong>Submit</strong> - Schedule job via API (persisted to database)</li>
+  <li><strong>Poll</strong> - Poller claims jobs from database in batches</li>
+  <li><strong>Execute</strong> - JobTask runs the job payload with validation, permits, timeouts</li>
+  <li><strong>Success/Failure</strong> - Complete successfully, retry with backoff, or move to DLQ</li>
+  <li><strong>Post-Processing</strong> - Handle chains, workflows, callbacks, and event publication</li>
+</ol>
+
+<h2>Resilience &amp; Reliability</h2>
+
+<ul>
+  <li><strong>Crash Recovery</strong> - Orphaned jobs automatically recovered via health checks</li>
+  <li><strong>Retry Logic</strong> - Configurable retry policies with exponential backoff (NONE/FIXED/EXPONENTIAL)</li>
+  <li><strong>Circuit Breaker</strong> - Lightweight state machine protecting against cascading failures</li>
+  <li><strong>Timeouts</strong> - Per-job execution timeouts with watchdog interruption</li>
+  <li><strong>Graceful Shutdown</strong> - Drain mode prevents new claims, allows running jobs to complete</li>
+</ul>
+
+<h2>SPI (Service Provider Interface)</h2>
+
+<p>
+Ratchet defines several extension points for customization:
+</p>
+
+<ul>
+  <li><strong>RetryPolicy</strong> - Customize retry decisions and delay calculations</li>
+  <li><strong>ResilienceStrategy</strong> - Pluggable circuit breaker and resilience implementations</li>
+  <li><strong>BeanResolver</strong> - Resolve job target beans (CDI, reflection, custom factories)</li>
+  <li><strong>ExecutorProvider</strong> - Supply custom executor services (virtual threads, custom pools)</li>
+  <li><strong>ErrorSanitizer</strong> - Customize exception message filtering before persistence</li>
+  <li><strong>ClassPolicy</strong> - Security policy for class loading and payload validation</li>
+  <li><strong>NodeIdentityProvider</strong> - Provide unique node identifiers for distributed coordination</li>
+</ul>
+
+<h2>Architecture</h2>
+
+<p>
+Ratchet implements a pull-based architecture where workers pull jobs when ready, enabling natural backpressure
+and horizontal scalability. All job state is stored durably in the database, allowing crash recovery and
+multi-node deployments.
+</p>
+
+<ul>
+  <li><strong>Pull-Based Model</strong> - Workers pull when ready, not push</li>
+  <li><strong>Database-Centric</strong> - All state in DB, no in-memory queues</li>
+  <li><strong>Adaptive Polling</strong> - Poller adjusts frequency based on job availability</li>
+  <li><strong>Distributed Coordination</strong> - DB locks for leader election and global operations</li>
+</ul>
+
+<h2>Documentation</h2>
+
+<p>
+For more information, see:
+</p>
+
+<ul>
+  <li><code>run.ratchet.api</code> - Public scheduling API and event model</li>
+  <li><code>run.ratchet.spi</code> - Extension points for customization</li>
+  <li><code>run.ratchet.ri</code> - Reference implementation details</li>
+</ul>
+
+</body>
+</html>
