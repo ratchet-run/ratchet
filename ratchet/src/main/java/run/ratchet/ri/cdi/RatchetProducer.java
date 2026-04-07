@@ -207,8 +207,21 @@ public class RatchetProducer {
   }
 
   /**
-   * Produces the default {@link ClassPolicy} bean. Users can override by providing their own
+   * System property that opts out of the fail-fast empty-allowlist check. Set to {@code true} only
+   * for demos, TCK fixtures, or tests that deliberately want a deny-all policy. Production
+   * deployments should provide a real {@code @Alternative} {@link ClassPolicy} bean instead.
+   */
+  static final String ALLOW_EMPTY_CLASS_POLICY_PROPERTY = "ratchet.allow-empty-class-policy";
+
+  /**
+   * Produces the default {@link ClassPolicy} bean. Users override by providing their own
    * {@code @Alternative @Priority(APPLICATION) ClassPolicy} bean.
+   *
+   * <p><b>Fail-fast:</b> if no allowlist is configured, this producer throws {@link
+   * jakarta.enterprise.inject.spi.DeploymentException} at container startup. The default {@link
+   * PackagePrefixClassPolicy} with an empty allowlist is a deny-all configuration that would
+   * prevent any job from running — silently failing in production is worse than refusing to start.
+   * Set system property {@code -Dratchet.allow-empty-class-policy=true} to opt out.
    */
   @Produces
   @Default
@@ -216,9 +229,24 @@ public class RatchetProducer {
   public ClassPolicy classPolicy() {
     PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy();
     if (policy.getAllowedPackages().isEmpty()) {
+      // Read fresh each call; do NOT cache in a static initializer so operators can tune via -D.
+      boolean allowEmpty =
+          Boolean.parseBoolean(System.getProperty(ALLOW_EMPTY_CLASS_POLICY_PROPERTY, "false"));
+      if (!allowEmpty) {
+        String message =
+            "ClassPolicy allowedPackages is empty — refusing to start. "
+                + "Provide an @Alternative @Priority(APPLICATION) ClassPolicy bean with your "
+                + "application's package prefixes, or opt out (ONLY for demos/tests) with "
+                + "-D"
+                + ALLOW_EMPTY_CLASS_POLICY_PROPERTY
+                + "=true";
+        log.severe(message);
+        throw new jakarta.enterprise.inject.spi.DeploymentException(message);
+      }
       log.severe(
-          "ClassPolicy allowedPackages is empty — all job targets will be rejected. "
-              + "Provide an @Alternative ClassPolicy bean with your application's package prefixes.");
+          "ClassPolicy allowedPackages is empty — "
+              + ALLOW_EMPTY_CLASS_POLICY_PROPERTY
+              + "=true overrides the fail-fast guard. ALL job targets will be rejected.");
     }
     return policy;
   }

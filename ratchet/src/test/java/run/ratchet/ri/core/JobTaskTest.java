@@ -13,6 +13,7 @@ import run.ratchet.api.CircuitBreakerProtected;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.spi.BeanResolver;
+import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.ResilienceStrategy;
@@ -47,6 +48,7 @@ class JobTaskTest {
   @Mock private RetryPolicy retryPolicy;
   @Mock private ResilienceStrategy resilienceStrategy;
   @Mock private ErrorSanitizer errorSanitizer;
+  private final ClassPolicy classPolicy = className -> true;
 
   private JobTask jobTask;
 
@@ -71,7 +73,8 @@ class JobTaskTest {
             beanResolver,
             retryPolicy,
             resilienceStrategy,
-            errorSanitizer);
+            errorSanitizer,
+            classPolicy);
   }
 
   @Test

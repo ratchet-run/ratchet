@@ -1,5 +1,6 @@
 package run.ratchet.store.spi;
 
+import run.ratchet.api.Incubating;
 import run.ratchet.api.JobPriority;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -9,6 +10,7 @@ import java.util.List;
 import java.util.Optional;
 
 /** Core CRUD operations and query methods for jobs. */
+@Incubating
 public interface JobCrudStore {
 
   /** Creates or updates a job row and returns the persisted entity view. */
@@ -17,8 +19,13 @@ public interface JobCrudStore {
   /** Loads a job by primary key. */
   Optional<JobEntity> findById(long id);
 
-  /** Loads and locks a job row for in-transaction mutation. */
-  Optional<JobEntity> findByIdForUpdate(long id);
+  /**
+   * Loads the latest job row by primary key. Despite the legacy name, no row-level lock is acquired
+   * — backends rely on optimistic version checks at the actual mutation site ({@code
+   * findOneAndUpdate} on Mongo, {@code WHERE version = ?} on SQL). Callers MUST use a
+   * version-checked update path; this method is read-only.
+   */
+  Optional<JobEntity> findByIdLatest(long id);
 
   /** Deletes a job by primary key. */
   void delete(long id);

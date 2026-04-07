@@ -23,7 +23,6 @@ import run.ratchet.store.spi.JobStore;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
-import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.TypedQuery;
@@ -119,7 +118,10 @@ public class MysqlJobStore implements JobStore {
 
   @SuppressWarnings("unchecked")
   @Override
-  public Optional<JobEntity> findByIdForUpdate(long id) {
+  public Optional<JobEntity> findByIdLatest(long id) {
+    // Despite the legacy name, the SELECT ... FOR UPDATE is kept here as MySQL semantics:
+    // it acquires a row-level lock for the duration of the surrounding transaction. Callers
+    // should still use a version-checked update path; this is belt-and-suspenders.
     List<JobEntity> results =
         em.createNativeQuery(
                 "SELECT * FROM scheduler_job WHERE job_id = :id FOR UPDATE", JobEntity.class)
@@ -778,10 +780,7 @@ public class MysqlJobStore implements JobStore {
     if (jobs.isEmpty()) {
       return;
     }
-    em.unwrap(Connection.class);
     // Use JDBC batch insert for performance
-    em.unwrap(EntityManagerFactory.class);
-
     Connection conn = em.unwrap(Connection.class);
     try {
       String sql =
@@ -865,13 +864,9 @@ public class MysqlJobStore implements JobStore {
           ps.addBatch();
         }
         ps.executeBatch();
-
-        // Assign generated IDs back
-        var keys = ps.getGeneratedKeys();
-        int idx = 0;
-        while (keys.next() && idx < jobs.size()) {
-          jobs.get(idx++).setId(keys.getLong(1));
-        }
+        // IDs are pre-set from TsidEntityListener at the setLong(job.getId()) call above.
+        // The scheduler_job.job_id column has NO AUTO_INCREMENT — there are no
+        // generated keys to read back. Any prior getGeneratedKeys loop was dead code.
       }
     } catch (SQLException e) {
       throw new RuntimeException("Bulk insert failed", e);
@@ -902,14 +897,17 @@ public class MysqlJobStore implements JobStore {
 
   @Override
   public int resetOrphanJobs(Duration grace) {
+    // Use SECOND granularity: Duration.toMinutes() truncates sub-minute values to 0,
+    // which would either reset every running job (grace < 60s) or race with node heartbeats
+    // at non-multiples of 60s.
     return em.createNativeQuery(
             "UPDATE scheduler_job SET status = 'PENDING', picked_by = NULL, picked_at = NULL, "
                 + "updated_at = NOW(3) "
                 + "WHERE status = 'RUNNING' AND picked_by NOT IN ("
                 + "  SELECT node_id FROM scheduler_node "
-                + "  WHERE TIMESTAMPDIFF(MINUTE, heartbeat_ts, NOW(3)) <= :graceMin"
-                + ") AND TIMESTAMPDIFF(MINUTE, picked_at, NOW(3)) >= :graceMin")
-        .setParameter("graceMin", grace.toMinutes())
+                + "  WHERE TIMESTAMPDIFF(SECOND, heartbeat_ts, NOW(3)) <= :graceSec"
+                + ") AND TIMESTAMPDIFF(SECOND, picked_at, NOW(3)) >= :graceSec")
+        .setParameter("graceSec", grace.toSeconds())
         .executeUpdate();
   }
 

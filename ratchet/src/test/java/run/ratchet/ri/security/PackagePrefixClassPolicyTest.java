@@ -59,4 +59,91 @@ class PackagePrefixClassPolicyTest {
     assertThrows(UnsupportedOperationException.class, () -> returned.add("com.evil."));
     assertEquals(Set.of("com.example."), policy.getAllowedPackages());
   }
+
+  // ── Denylist: exact-match RCE gadgets ─────────────────────────────────
+
+  @Test
+  void denylist_rejectsRuntimeEvenWithBroadJavaAllowlist() {
+    // Regression for the "Set.of('java')" misconfiguration attack scenario.
+    PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy(Set.of("java."));
+    assertFalse(
+        policy.isAllowed("java.lang.Runtime"),
+        "java.lang.Runtime must be blocked by hardcoded denylist even with 'java.' in allowlist");
+  }
+
+  @Test
+  void denylist_rejectsProcessBuilder() {
+    PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy(Set.of("java."));
+    assertFalse(policy.isAllowed("java.lang.ProcessBuilder"));
+  }
+
+  @Test
+  void denylist_rejectsObjectInputStream() {
+    PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy(Set.of("java."));
+    assertFalse(policy.isAllowed("java.io.ObjectInputStream"));
+  }
+
+  // ── Denylist: prefix-match gadget chains ──────────────────────────────
+
+  @Test
+  void denylist_rejectsReflectionEntries() {
+    PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy(Set.of("java."));
+    assertFalse(policy.isAllowed("java.lang.reflect.Method"));
+    assertFalse(policy.isAllowed("java.lang.invoke.MethodHandles"));
+  }
+
+  @Test
+  void denylist_rejectsScriptEngine() {
+    PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy(Set.of("javax."));
+    assertFalse(policy.isAllowed("javax.script.ScriptEngineManager"));
+  }
+
+  @Test
+  void denylist_rejectsJdkInternals() {
+    PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy(Set.of("jdk."));
+    assertFalse(policy.isAllowed("jdk.internal.misc.Unsafe"));
+    assertFalse(policy.isAllowed("sun.misc.Unsafe"));
+  }
+
+  @Test
+  void denylist_rejectsDeserializationGadgets() {
+    PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy(Set.of("org."));
+    assertFalse(policy.isAllowed("org.apache.commons.collections.functors.InvokerTransformer"));
+    assertFalse(policy.isAllowed("org.codehaus.groovy.runtime.MethodClosure"));
+    assertFalse(
+        policy.isAllowed("org.springframework.context.support.FileSystemXmlApplicationContext"));
+  }
+
+  // ── Prefix validation ─────────────────────────────────────────────────
+
+  @Test
+  void constructor_rejectsEmptyStringPrefix() {
+    // Empty string would match every class via startsWith("").
+    assertThrows(IllegalArgumentException.class, () -> new PackagePrefixClassPolicy(Set.of("")));
+  }
+
+  @Test
+  void constructor_rejectsShortPrefix() {
+    // 2-char prefixes are almost certainly misconfiguration (e.g. "j" or "co").
+    assertThrows(IllegalArgumentException.class, () -> new PackagePrefixClassPolicy(Set.of("ab")));
+  }
+
+  @Test
+  void constructor_acceptsThreeCharMinimumPrefix() {
+    // 3 chars is the minimum, though this should still feel wrong in practice.
+    PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy(Set.of("foo"));
+    assertTrue(policy.isAllowed("foo.bar.Baz"));
+  }
+
+  @Test
+  void constructor_rejectsWhitespacePrefix() {
+    assertThrows(IllegalArgumentException.class, () -> new PackagePrefixClassPolicy(Set.of("   ")));
+  }
+
+  @Test
+  void constructor_rejectsLeadingTrailingWhitespace() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new PackagePrefixClassPolicy(Set.of(" com.example.")));
+  }
 }

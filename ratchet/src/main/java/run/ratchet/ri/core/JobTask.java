@@ -2,6 +2,7 @@ package run.ratchet.ri.core;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import run.ratchet.api.CircuitBreakerProtected;
+import run.ratchet.api.event.JobCallbackFailedEvent;
 import run.ratchet.api.event.JobCancelledEvent;
 import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.api.event.JobDlqEvent;
@@ -10,6 +11,7 @@ import run.ratchet.api.event.JobStartedEvent;
 import run.ratchet.ri.resilience.ServiceUnavailableException;
 import run.ratchet.ri.util.ObjectMapperFactory;
 import run.ratchet.spi.BeanResolver;
+import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.ResilienceStrategy;
@@ -71,6 +73,32 @@ public class JobTask implements Callable<Void> {
   private static final ConcurrentHashMap<String, Class<?>> CLASS_CACHE = new ConcurrentHashMap<>();
   private static final ConcurrentHashMap<String, String> SERVICE_NAME_CACHE =
       new ConcurrentHashMap<>();
+
+  /**
+   * System property controlling the maximum size in bytes of a serialized job result. Results
+   * exceeding this size are truncated to a marker JSON noting the original size. Default 65536
+   * (64KB). Set to 0 to disable the cap.
+   */
+  static final String RESULT_MAX_BYTES_PROPERTY = "ratchet.jobs.max-result-bytes";
+
+  private static final long DEFAULT_RESULT_MAX_BYTES = 65536L;
+
+  /**
+   * Reads the maximum result-size cap from system properties on every call (not cached) so
+   * operators can tune it via {@code -D} flags without rebuilding.
+   */
+  static long maxResultBytes() {
+    String raw = System.getProperty(RESULT_MAX_BYTES_PROPERTY);
+    if (raw == null || raw.isBlank()) {
+      return DEFAULT_RESULT_MAX_BYTES;
+    }
+    try {
+      return Math.max(0L, Long.parseLong(raw.trim()));
+    } catch (NumberFormatException e) {
+      return DEFAULT_RESULT_MAX_BYTES;
+    }
+  }
+
   private final JobStore jobStore;
   private final ResourcePermitService resourcePermitService;
   private final PostExecutionHandler lifecycleFacade;
@@ -81,6 +109,7 @@ public class JobTask implements Callable<Void> {
   private final RetryPolicy retryPolicy;
   private final ResilienceStrategy resilienceStrategy;
   private final ErrorSanitizer errorSanitizer;
+  private final ClassPolicy classPolicy;
   private JobEntity job;
   private JobClaimDto claim;
   private JobExecutionEntity currentExecution;
@@ -98,6 +127,7 @@ public class JobTask implements Callable<Void> {
     this.retryPolicy = null;
     this.resilienceStrategy = null;
     this.errorSanitizer = null;
+    this.classPolicy = null;
   }
 
   /**
@@ -113,6 +143,7 @@ public class JobTask implements Callable<Void> {
    * @param retryPolicy policy for retry decisions and delay calculation
    * @param resilienceStrategy strategy for resilience protection (e.g. circuit breakers)
    * @param errorSanitizer sanitizer for exception messages before persistence
+   * @param classPolicy policy for class loading denylist — gates CLASS_CACHE population
    */
   @Inject
   public JobTask(
@@ -125,7 +156,8 @@ public class JobTask implements Callable<Void> {
       BeanResolver beanResolver,
       RetryPolicy retryPolicy,
       ResilienceStrategy resilienceStrategy,
-      ErrorSanitizer errorSanitizer) {
+      ErrorSanitizer errorSanitizer,
+      ClassPolicy classPolicy) {
     this.jobStore = jobStore;
     this.resourcePermitService = resourcePermitService;
     this.lifecycleFacade = lifecycleFacade;
@@ -136,6 +168,38 @@ public class JobTask implements Callable<Void> {
     this.retryPolicy = retryPolicy;
     this.resilienceStrategy = resilienceStrategy;
     this.errorSanitizer = errorSanitizer;
+    this.classPolicy = classPolicy;
+  }
+
+  /**
+   * Loads a class by name ONLY if {@link ClassPolicy#isAllowed(String)} approves it, then caches
+   * the result in {@link #CLASS_CACHE}. Never populates the cache with a denied class; re-checks
+   * the policy on every lookup (even cache hits) to defend against post-load policy changes and to
+   * block cache-poisoning attempts from code paths that bypass {@code validationFacade}.
+   *
+   * <p>This is the ONLY path that should populate {@code CLASS_CACHE}. All previous {@code
+   * computeIfAbsent} sites have been routed through here.
+   *
+   * @param className fully-qualified class name to load
+   * @return the loaded class, never null
+   * @throws SecurityException if the class is not allowed by the policy
+   * @throws ClassNotFoundException if the class cannot be loaded
+   */
+  private Class<?> loadAllowedClass(String className) throws ClassNotFoundException {
+    if (className == null || className.isEmpty()) {
+      throw new SecurityException("Class name cannot be null or empty");
+    }
+    if (classPolicy != null && !classPolicy.isAllowed(className)) {
+      throw new SecurityException("Class " + className + " is not allowed for job execution.");
+    }
+    Class<?> cached = CLASS_CACHE.get(className);
+    if (cached != null) {
+      return cached;
+    }
+    Class<?> loaded =
+        Class.forName(className, true, Thread.currentThread().getContextClassLoader());
+    CLASS_CACHE.putIfAbsent(className, loaded);
+    return loaded;
   }
 
   /**
@@ -167,7 +231,6 @@ public class JobTask implements Callable<Void> {
   @SuppressWarnings("java:S1181")
   public Void call() {
     Long jobId = getJobId();
-    JobMdcContext.setup(jobId, nodeIdProvider.getNodeId());
 
     JobEntity jobEntity;
     try {
@@ -185,7 +248,6 @@ public class JobTask implements Callable<Void> {
 
     if (jobEntity.getCreatedBy() != null) {
       log.fine("Job " + jobId + " created by user: " + jobEntity.getCreatedBy());
-      JobMdcContext.setJobCreator(jobEntity.getCreatedBy());
     } else {
       log.fine("Job " + jobId + " created by system (no user context)");
     }
@@ -242,6 +304,13 @@ public class JobTask implements Callable<Void> {
       if (!tryAcquireResourcePermit()) {
         return null;
       }
+
+      // Validate security BEFORE entering the resilience strategy scope. Otherwise a
+      // misconfigured ClassPolicy or unknown class would surface as a SecurityException
+      // INSIDE the circuit breaker, which would record it as a service failure and trip
+      // the breaker for the target service. Configuration errors must not poison the
+      // breaker; the breaker should only see real downstream failures.
+      validationFacade.validateSecurity(jobEntity.getPayload());
 
       jobResult =
           resilienceStrategy.execute(
@@ -475,6 +544,16 @@ public class JobTask implements Callable<Void> {
         "Job " + job.getId() + " failed with " + ex.getClass().getName() + ": " + ex.getMessage(),
         ex);
 
+    // B7: Check shouldNotRetry FIRST, before burning an attempt slot. Non-retryable failures
+    // go straight to the failure handler with the existing attempt count, so the audit trail
+    // doesn't show a phantom retry attempt that never happened.
+    if (validationFacade.shouldNotRetry(ex)) {
+      observabilityFacade.recordJobFailure(job, ex, job.getAttempts());
+      logIfTimeout(ex);
+      handleNonRetryableFailure(ex, job.getAttempts());
+      return;
+    }
+
     int attempt = jobStore.incrementRetryAttempt(job.getId());
     if (attempt == -1) {
       log.info("Job " + job.getId() + " already in terminal state, skipping retry logic");
@@ -484,11 +563,6 @@ public class JobTask implements Callable<Void> {
     job.setAttempts(attempt);
     observabilityFacade.recordJobFailure(job, ex, attempt);
     logIfTimeout(ex);
-
-    if (validationFacade.shouldNotRetry(ex)) {
-      handleNonRetryableFailure(ex, attempt);
-      return;
-    }
 
     if (attempt <= job.getMaxRetries() && retryPolicy.shouldRetry(attempt, ex)) {
       scheduleRetry(ex, attempt);
@@ -535,6 +609,30 @@ public class JobTask implements Callable<Void> {
       try {
         resultJson = OBJECT_MAPPER.writeValueAsString(jobResult);
         resultType = jobResult.getClass().getName();
+        long maxBytes = maxResultBytes();
+        if (maxBytes > 0 && resultJson.length() > maxBytes) {
+          // Truncate to a marker JSON that captures the original size and the cap. The job
+          // still succeeds — operators can see the truncation in the row and adjust either
+          // the cap or the job's return shape.
+          log.warning(
+              "Job "
+                  + job.getId()
+                  + " result exceeds "
+                  + RESULT_MAX_BYTES_PROPERTY
+                  + "="
+                  + maxBytes
+                  + " bytes (actual="
+                  + resultJson.length()
+                  + "); truncating to marker");
+          resultJson =
+              "{\"_truncated\":true,\"_originalSize\":"
+                  + resultJson.length()
+                  + ",\"_maxAllowed\":"
+                  + maxBytes
+                  + ",\"_resultType\":\""
+                  + resultType.replace("\"", "\\\"")
+                  + "\"}";
+        }
       } catch (Exception e) {
         log.warning(
             "Failed to serialize job result for job " + job.getId() + ": " + e.getMessage());
@@ -590,9 +688,26 @@ public class JobTask implements Callable<Void> {
     log.info("Job " + job.getId() + " succeeded in " + executionMs + " ms");
   }
 
+  /**
+   * Detects timeout-shaped failures from any of the timeout signal types we can encounter:
+   *
+   * <ul>
+   *   <li>{@link run.ratchet.api.exception.JobTimeoutException} — explicit, preferred
+   *   <li>{@link java.util.concurrent.TimeoutException} — thrown by {@code JobTimeoutHandler}
+   *   <li>{@link InterruptedException} — happens when {@code JobTimeoutHandler.cancel(true)}
+   *       interrupts the job thread mid-execution
+   * </ul>
+   *
+   * <p>Each is checked at the top level and one level deep into {@code getCause()}.
+   */
   private void logIfTimeout(Throwable ex) {
     boolean wasTimeout =
-        ex instanceof InterruptedException || ex.getCause() instanceof InterruptedException;
+        ex instanceof run.ratchet.api.exception.JobTimeoutException
+            || ex instanceof java.util.concurrent.TimeoutException
+            || ex instanceof InterruptedException
+            || ex.getCause() instanceof run.ratchet.api.exception.JobTimeoutException
+            || ex.getCause() instanceof java.util.concurrent.TimeoutException
+            || ex.getCause() instanceof InterruptedException;
     if (wasTimeout) {
       log.log(Level.SEVERE, "Job " + job.getId() + " was cancelled due to timeout", ex);
     }
@@ -635,22 +750,23 @@ public class JobTask implements Callable<Void> {
     }
     try {
       validationFacade.validateSecurity(callbackPayload);
-      Class<?> cls =
-          CLASS_CACHE.computeIfAbsent(
-              callbackPayload.target(),
-              name -> {
-                try {
-                  return Class.forName(name, true, Thread.currentThread().getContextClassLoader());
-                } catch (ClassNotFoundException e) {
-                  throw new IllegalStateException("Callback class not found: " + name, e);
-                }
-              });
+      Class<?> cls;
+      try {
+        cls = loadAllowedClass(callbackPayload.target());
+      } catch (ClassNotFoundException e) {
+        throw new IllegalStateException("Callback class not found: " + callbackPayload.target(), e);
+      }
       Method method = resolveMethod(cls, callbackPayload);
       Object target = callbackPayload.isStatic() ? null : beanResolver.resolve(cls);
       List<Object> args = callbackPayload.args() != null ? callbackPayload.args() : List.of();
       method.invoke(target, args.toArray());
     } catch (Exception e) {
-      log.warning(
+      // B12: Callback failures are no longer silent. Operators see (a) a SEVERE log entry
+      // with the full stack, (b) a metrics counter increment, and (c) a CDI/programmatic
+      // event they can observe. The parent job still succeeds — callbacks are by design
+      // fire-and-log, not failure-propagating.
+      log.log(
+          Level.SEVERE,
           "Job "
               + job.getId()
               + " "
@@ -658,7 +774,40 @@ public class JobTask implements Callable<Void> {
               + " callback failed: "
               + e.getClass().getName()
               + ": "
-              + e.getMessage());
+              + e.getMessage(),
+          e);
+      try {
+        observabilityFacade.recordCallbackFailure(job, e, 1);
+      } catch (Exception metricEx) {
+        log.warning(
+            "Failed to record callback failure metric for job "
+                + job.getId()
+                + ": "
+                + metricEx.getMessage());
+      }
+      try {
+        JobCallbackFailedEvent.CallbackType type =
+            "onSuccess".equals(callbackName)
+                ? JobCallbackFailedEvent.CallbackType.ON_SUCCESS
+                : JobCallbackFailedEvent.CallbackType.ON_FAILURE;
+        observabilityFacade.publishEvent(
+            new JobCallbackFailedEvent(
+                job.getId(),
+                job.getBusinessKey(),
+                job.getPublicJobType(),
+                job.getPriority(),
+                job.getPickedBy(),
+                type,
+                e.getMessage(),
+                e.getClass().getName(),
+                1));
+      } catch (Exception eventEx) {
+        log.warning(
+            "Failed to publish JobCallbackFailedEvent for job "
+                + job.getId()
+                + ": "
+                + eventEx.getMessage());
+      }
     }
   }
 
@@ -708,16 +857,10 @@ public class JobTask implements Callable<Void> {
 
     String fallbackServiceName = simpleClassName(payload.target()) + "." + payload.method();
     try {
-      Class<?> clazz =
-          CLASS_CACHE.computeIfAbsent(
-              payload.target(),
-              name -> {
-                try {
-                  return Class.forName(name, true, Thread.currentThread().getContextClassLoader());
-                } catch (ClassNotFoundException e) {
-                  throw new IllegalStateException(e);
-                }
-              });
+      // Route through the policy-guarded loader so CLASS_CACHE is never primed with a denied
+      // class. This path runs BEFORE runPayload's security validation, so without this guard
+      // an attacker-controlled class name would land in the cache unchecked.
+      Class<?> clazz = loadAllowedClass(payload.target());
       Method method = resolveMethod(clazz, payload);
       CircuitBreakerProtected annotation = method.getAnnotation(CircuitBreakerProtected.class);
       if (annotation == null) {
@@ -738,7 +881,9 @@ public class JobTask implements Callable<Void> {
 
   @SuppressWarnings("java:S112")
   private Object runPayload(JobPayload payload) throws Exception {
-    validationFacade.validateSecurity(payload);
+    // NOTE: validateSecurity() is now called by call() BEFORE entering the resilience scope
+    // (see B6 fix). Do not re-validate here — security exceptions inside the breaker would
+    // poison it for the target service.
 
     log.info(
         "Job "
@@ -753,21 +898,8 @@ public class JobTask implements Callable<Void> {
 
     Class<?> cls;
     try {
-      cls =
-          CLASS_CACHE.computeIfAbsent(
-              payload.target(),
-              name -> {
-                try {
-                  return Class.forName(name, true, Thread.currentThread().getContextClassLoader());
-                } catch (ClassNotFoundException e) {
-                  throw new IllegalStateException(e);
-                }
-              });
-    } catch (IllegalStateException e) {
-      ClassNotFoundException cnfe =
-          e.getCause() instanceof ClassNotFoundException
-              ? (ClassNotFoundException) e.getCause()
-              : new ClassNotFoundException(payload.target(), e);
+      cls = loadAllowedClass(payload.target());
+    } catch (ClassNotFoundException cnfe) {
       log.log(
           Level.SEVERE,
           "Job " + job.getId() + " target class not found: " + payload.target(),

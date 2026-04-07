@@ -1,11 +1,13 @@
 package run.ratchet.store.spi;
 
+import run.ratchet.api.Incubating;
 import run.ratchet.store.entity.NodeEntity;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
 /** Cluster node registration and health monitoring operations. */
+@Incubating
 public interface NodeStore {
 
   /** Creates or updates the heartbeat row for a scheduler node. */

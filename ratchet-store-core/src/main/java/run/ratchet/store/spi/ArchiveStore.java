@@ -1,11 +1,13 @@
 package run.ratchet.store.spi;
 
+import run.ratchet.api.Incubating;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.JobEntity;
 import java.time.Instant;
 import java.util.List;
 
 /** Job archiving operations for completed/failed job history. */
+@Incubating
 public interface ArchiveStore {
 
   /** Persists an archive record for a single terminal job and returns the stored snapshot. */

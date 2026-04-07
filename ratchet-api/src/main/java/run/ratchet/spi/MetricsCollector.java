@@ -54,4 +54,21 @@ public interface MetricsCollector {
    * @param attempt the 1-based attempt number, including the failure being reported
    */
   void jobFailed(long jobId, JobType type, Throwable cause, int attempt);
+
+  /**
+   * Notifies that a job lifecycle callback (for example {@code onSuccess} or {@code onFailure})
+   * threw an exception.
+   *
+   * <p>Callback failures do not fail the parent job by design — the job's primary work has already
+   * completed. This hook exists so operators can observe otherwise-silent callback breakage via
+   * their metrics backend. Default implementation is a no-op; collectors that care should override.
+   *
+   * @param jobId the unique identifier of the parent job whose callback failed
+   * @param type the type of the parent job
+   * @param cause the exception thrown from the callback
+   * @param attempt the 1-based invocation count for the callback
+   */
+  default void callbackFailed(long jobId, JobType type, Throwable cause, int attempt) {
+    // default no-op
+  }
 }

@@ -1,5 +1,6 @@
 package run.ratchet.store.spi;
 
+import run.ratchet.api.Incubating;
 import run.ratchet.store.entity.JobStatus;
 import java.time.Instant;
 import java.util.Set;
@@ -10,6 +11,7 @@ import java.util.Set;
  * <p>These are raw persistence operations without business-level validation. State machine
  * validation belongs in the RI module.
  */
+@Incubating
 public interface JobStatusStore {
 
   /** Updates a job's status and optional error message without additional business validation. */

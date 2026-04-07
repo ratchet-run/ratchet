@@ -154,7 +154,10 @@ public class PostgresqlJobStore implements JobStore {
   }
 
   @Override
-  public Optional<JobEntity> findByIdForUpdate(long id) {
+  public Optional<JobEntity> findByIdLatest(long id) {
+    // Despite the legacy name, SELECT ... FOR UPDATE acquires a row-level lock for the
+    // surrounding transaction. Callers should still use a version-checked update path;
+    // this is belt-and-suspenders.
     @SuppressWarnings("unchecked")
     List<JobEntity> results =
         em.createNativeQuery(
@@ -575,7 +578,7 @@ public class PostgresqlJobStore implements JobStore {
     int updated =
         em.createNativeQuery(
                 "UPDATE scheduler_job SET status = 'SUCCEEDED', "
-                    + "job_result = ?, result_type = ?, "
+                    + "job_result = ?::jsonb, result_type = ?, "
                     + "execution_start_time = ?, execution_end_time = ?, "
                     + "execution_duration_ms = ?, queue_wait_ms = ?, "
                     + "last_error = NULL, updated_at = statement_timestamp() "
@@ -777,6 +780,10 @@ public class PostgresqlJobStore implements JobStore {
     try {
       @SuppressWarnings("java:S3011")
       Connection conn = em.unwrap(Connection.class);
+      // JSONB columns require explicit ?::jsonb casts when bound via setString — pgjdbc does
+      // not auto-infer the cast and the server-side implicit text→jsonb cast is not guaranteed
+      // by the JDBC spec. The casts at positions 15 (payload), 16 (params), 20 (on_success),
+      // 21 (on_failure), and 34 (job_result) match the JSONB column types in postgresql-schema.sql.
       String sql =
           "INSERT INTO scheduler_job "
               + "(job_id, status, paused_from_status, scheduled_time, job_type, priority, "
@@ -788,7 +795,7 @@ public class PostgresqlJobStore implements JobStore {
               + "picked_by, picked_at, last_error, created_at, created_by, "
               + "updated_at, execution_start_time, execution_end_time, execution_duration_ms, "
               + "queue_wait_ms, job_result, result_type, version) "
-              + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)";
+              + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?::jsonb,?::jsonb,?,?,?,?::jsonb,?::jsonb,?,?,?,?,?,?,?,?,?,?,?,?,?::jsonb,?,0)";
       try (PreparedStatement ps = conn.prepareStatement(sql)) {
         for (JobEntity job : jobs) {
           Instant now = Instant.now();
@@ -893,7 +900,10 @@ public class PostgresqlJobStore implements JobStore {
 
   @Override
   public int resetOrphanJobs(Duration grace) {
-    long graceMinutes = grace.toMinutes();
+    // Use SECOND granularity: Duration.toMinutes() truncates sub-minute values to 0,
+    // which would either reset every running job (grace < 60s) or race with node heartbeats
+    // at non-multiples of 60s.
+    long graceSeconds = grace.toSeconds();
     return em.createNativeQuery(
             "UPDATE scheduler_job SET status = 'PENDING', "
                 + "picked_by = NULL, picked_at = NULL, "
@@ -901,11 +911,11 @@ public class PostgresqlJobStore implements JobStore {
                 + "WHERE status = 'RUNNING' "
                 + "AND picked_by NOT IN ("
                 + "  SELECT node_id FROM scheduler_node "
-                + "  WHERE heartbeat_ts > statement_timestamp() - ? * interval '1 minute'"
+                + "  WHERE heartbeat_ts > statement_timestamp() - ? * interval '1 second'"
                 + ") "
-                + "AND floor(extract(epoch from (statement_timestamp() - picked_at))/60)::bigint >= ?")
-        .setParameter(1, graceMinutes)
-        .setParameter(2, graceMinutes)
+                + "AND extract(epoch from (statement_timestamp() - picked_at))::bigint >= ?")
+        .setParameter(1, graceSeconds)
+        .setParameter(2, graceSeconds)
         .executeUpdate();
   }
 

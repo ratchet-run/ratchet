@@ -2,52 +2,26 @@ package run.ratchet.ri.core;
 
 import run.ratchet.api.JobContext;
 import run.ratchet.spi.JobLogger;
-import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Manages MDC (Mapped Diagnostic Context) and JobContext for job execution threads.
+ * Binds the per-thread {@link JobContext} for job execution.
  *
- * <p>This utility centralizes all logging context operations. It provides setup and teardown of MDC
- * keys used for distributed tracing and log correlation, as well as the thread-local {@link
- * JobContext} binding.
+ * <p>Previously this class also maintained a private {@code ThreadLocal<Map<String,String>>} named
+ * "MDC", but the codebase logs via {@code java.util.logging} which has no MDC concept and nothing
+ * in the runtime ever consumed those values. The map was deleted in 0.1.0-alpha along with its
+ * {@code setup()}, {@code getMdc()}, and {@code setJobCreator()} helpers. The {@code JobContext}
+ * binding (used by user code via {@code JobContext.current()}) remains.
  *
- * <p>MDC keys managed:
- *
- * <ul>
- *   <li>{@code jobId} -- the job being executed
- *   <li>{@code node} -- the cluster node running the job
- *   <li>{@code jobCreator} -- the user who created the job (if available)
- * </ul>
+ * <p>When the project migrates to SLF4J (planned for 0.2), this class should be replaced with
+ * direct calls to {@link org.slf4j.MDC} alongside the {@code JobContext} binding.
  *
  * @see JobContext
  */
 final class JobMdcContext {
 
-  private static final ThreadLocal<Map<String, String>> MDC = ThreadLocal.withInitial(HashMap::new);
-
   private JobMdcContext() {
     // Utility class
-  }
-
-  /**
-   * Returns the current MDC map for the calling thread.
-   *
-   * @return the current MDC map (never null)
-   */
-  static Map<String, String> getMdc() {
-    return MDC.get();
-  }
-
-  /**
-   * Sets up MDC context for a job execution thread.
-   *
-   * @param jobId the job identifier
-   * @param nodeId the cluster node identifier
-   */
-  static void setup(Long jobId, String nodeId) {
-    MDC.get().put("jobId", String.valueOf(jobId));
-    MDC.get().put("node", nodeId);
   }
 
   /**
@@ -71,23 +45,8 @@ final class JobMdcContext {
     JobContext.bind(jobId, logger, params);
   }
 
-  /**
-   * Adds the job creator to the MDC context for audit trail logging.
-   *
-   * @param createdBy the username of the job creator, may be null
-   */
-  static void setJobCreator(String createdBy) {
-    if (createdBy != null) {
-      MDC.get().put("jobCreator", createdBy);
-    }
-  }
-
-  /**
-   * Clears all MDC keys and unbinds the thread-local JobContext. Safe to call even if setup was not
-   * called or was only partially completed.
-   */
+  /** Unbinds the thread-local JobContext. Safe to call multiple times. */
   static void clear() {
-    MDC.remove();
     JobContext.clear();
   }
 

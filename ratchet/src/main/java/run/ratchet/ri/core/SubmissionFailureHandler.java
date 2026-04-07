@@ -293,7 +293,7 @@ public class SubmissionFailureHandler {
    */
   private JobEntity loadJobForBuffer(Long jobId) {
     return jobCrudStore
-        .findByIdForUpdate(jobId)
+        .findByIdLatest(jobId)
         .filter(
             job -> {
               // Verify job is still RUNNING - if status changed, another node handled it

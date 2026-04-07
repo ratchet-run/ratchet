@@ -1,8 +1,10 @@
 package run.ratchet.store.spi;
 
+import run.ratchet.api.Incubating;
 import java.time.Duration;
 
 /** Distributed lock operations for cluster-wide synchronization. */
+@Incubating
 public interface LockStore {
 
   /** Attempts to acquire a cluster-wide lock with the supplied TTL. */

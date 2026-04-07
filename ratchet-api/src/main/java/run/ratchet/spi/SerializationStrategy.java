@@ -1,5 +1,7 @@
 package run.ratchet.spi;
 
+import run.ratchet.api.Incubating;
+
 /**
  * Defines a strategy for serializing and deserializing objects. This interface allows for the
  * implementation of different serialization mechanisms, enabling flexibility in how objects are
@@ -9,7 +11,10 @@ package run.ratchet.spi;
  *
  * <p>The interface defines two key operations: 1. {@code serialize}: Converts an object into a byte
  * array. 2. {@code deserialize}: Reconstructs an object from a byte array, with the type specified.
+ *
+ * <p>Marked {@link Incubating} — the serialization contract may evolve.
  */
+@Incubating
 public interface SerializationStrategy {
 
   /**

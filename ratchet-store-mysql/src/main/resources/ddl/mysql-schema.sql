@@ -99,21 +99,25 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     UNIQUE KEY uk_active_business_key (active_business_key),
     CONSTRAINT chk_job_priority CHECK (priority BETWEEN 0 AND 4),
     CONSTRAINT chk_paused_from_status CHECK (paused_from_status IS NULL OR paused_from_status IN ('PENDING','RUNNING','SUCCEEDED','FAILED','CANCELED','PAUSED')),
+    -- Hot-path poller indexes — required, do NOT remove without re-running the perf suite.
+    INDEX idx_job_poll_composite (status, priority, scheduled_time),
+    INDEX idx_job_claim_cover (status, job_type, scheduled_time, priority),
+    INDEX idx_recurring_due (status, next_fire),
+    INDEX idx_job_recurring_composite (job_type, status, next_fire),
     INDEX idx_job_due (status, scheduled_time),
     INDEX idx_job_priority_due (priority, scheduled_time),
+    -- Lookup/relationship indexes — used by application code paths.
     INDEX idx_job_picked_by (picked_by),
-    INDEX idx_target_class (target_class),
-    INDEX idx_method_name (method_name),
-    INDEX idx_recurring_due (status, next_fire),
-    INDEX idx_job_poll_composite (status, priority, scheduled_time),
     INDEX idx_job_type (job_type),
-    INDEX idx_job_recurring_composite (job_type, status, next_fire),
     INDEX idx_job_depends_on (depends_on),
     INDEX idx_job_superseded_by (superseded_by),
     INDEX idx_job_business_key (business_key),
+    -- Audit/archival indexes.
     INDEX idx_job_created_at (created_at),
-    INDEX idx_job_updated_at (updated_at),
-    INDEX idx_job_claim_cover (status, job_type, scheduled_time, priority)
+    INDEX idx_job_updated_at (updated_at)
+    -- DROPPED: idx_target_class and idx_method_name were debug-only and added measurable
+    -- write amplification on the hot insert path. Operators who need them can apply
+    -- ddl/mysql-debug-indexes.sql (optional companion file).
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci;

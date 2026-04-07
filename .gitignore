@@ -35,3 +35,9 @@ Thumbs.db
 *.log
 hs_err_pid*
 replay_pid*
+
+# Docusaurus website
+website/node_modules/
+website/build/
+website/.docusaurus/
+website/static/javadoc/

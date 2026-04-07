@@ -1,12 +1,16 @@
 package run.ratchet.spi;
 
+import run.ratchet.api.Incubating;
 import java.time.Duration;
 
 /**
  * Represents a policy for determining retry behavior in the context of failure recovery. This
  * interface provides methods for evaluating whether a retry attempt should be made and for
  * calculating the delay before the next retry attempt.
+ *
+ * <p>Marked {@link Incubating} — the retry contract may evolve.
  */
+@Incubating
 public interface RetryPolicy {
 
   /**

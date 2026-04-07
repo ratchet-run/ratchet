@@ -1,10 +1,12 @@
 package run.ratchet.store.spi;
 
+import run.ratchet.api.Incubating;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import java.util.List;
 
 /** Workflow condition persistence operations. */
+@Incubating
 public interface WorkflowConditionStore {
 
   /** Creates or updates one workflow condition row. */

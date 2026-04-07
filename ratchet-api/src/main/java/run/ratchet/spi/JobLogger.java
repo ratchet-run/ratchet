@@ -68,4 +68,55 @@ public interface JobLogger {
    * @param message the trace message to be logged; must not be null.
    */
   void trace(String message);
+
+  /**
+   * Logs an informational message with SLF4J-style {@code {}} placeholder substitution.
+   *
+   * @param format the format string; {@code {}} placeholders are replaced with the corresponding
+   *     argument's {@code toString()} representation
+   * @param args the arguments to substitute; may be empty
+   */
+  default void info(String format, Object... args) {
+    info(JobLoggerFormat.format(format, args));
+  }
+
+  /**
+   * Logs a debug message with SLF4J-style {@code {}} placeholder substitution.
+   *
+   * @param format the format string; {@code {}} placeholders are replaced
+   * @param args the arguments to substitute; may be empty
+   */
+  default void debug(String format, Object... args) {
+    debug(JobLoggerFormat.format(format, args));
+  }
+
+  /**
+   * Logs a warning message with SLF4J-style {@code {}} placeholder substitution.
+   *
+   * @param format the format string; {@code {}} placeholders are replaced
+   * @param args the arguments to substitute; may be empty
+   */
+  default void warn(String format, Object... args) {
+    warn(JobLoggerFormat.format(format, args));
+  }
+
+  /**
+   * Logs an error message with SLF4J-style {@code {}} placeholder substitution.
+   *
+   * @param format the format string; {@code {}} placeholders are replaced
+   * @param args the arguments to substitute; may be empty
+   */
+  default void error(String format, Object... args) {
+    error(JobLoggerFormat.format(format, args));
+  }
+
+  /**
+   * Logs a trace message with SLF4J-style {@code {}} placeholder substitution.
+   *
+   * @param format the format string; {@code {}} placeholders are replaced
+   * @param args the arguments to substitute; may be empty
+   */
+  default void trace(String format, Object... args) {
+    trace(JobLoggerFormat.format(format, args));
+  }
 }

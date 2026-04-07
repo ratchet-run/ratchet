@@ -1,11 +1,13 @@
 package run.ratchet.store.spi;
 
+import run.ratchet.api.Incubating;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.entity.BatchEntity;
 import java.util.List;
 import java.util.Optional;
 
 /** Batch lifecycle and progress tracking operations. */
+@Incubating
 public interface BatchStore {
 
   /** Creates or updates the batch progress row for a batch parent job. */

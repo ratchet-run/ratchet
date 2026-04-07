@@ -24,8 +24,9 @@ import java.time.Duration;
  * <ul>
  *   <li>{@code ratchet.jobs.started} — counter, tagged by type and priority
  *   <li>{@code ratchet.jobs.completed} — counter, tagged by type
- *   <li>{@code ratchet.jobs.failed} — counter, tagged by type
+ *   <li>{@code ratchet.jobs.failed} — counter, tagged by type and exception class
  *   <li>{@code ratchet.jobs.duration} — timer, tagged by type
+ *   <li>{@code ratchet.callbacks.failed} — counter, tagged by type and exception class
  * </ul>
  */
 @Alternative
@@ -35,7 +36,9 @@ public class MicrometerMetricsCollector implements MetricsCollector {
 
   private final MeterRegistry registry;
 
-  // Required by CDI proxy
+  // Required by CDI proxy. The CDI proxy never invokes business methods on this instance —
+  // every real call goes to the @Inject constructor below. We still guard the field below
+  // so a misconfigured deployment doesn't NPE on first use; instead it logs and no-ops.
   protected MicrometerMetricsCollector() {
     this.registry = null;
   }
@@ -47,6 +50,9 @@ public class MicrometerMetricsCollector implements MetricsCollector {
 
   @Override
   public void jobStarted(long jobId, JobType type, JobPriority priority) {
+    if (registry == null) {
+      return;
+    }
     Counter.builder("ratchet.jobs.started")
         .tag("type", type.name())
         .tag("priority", priority.name())
@@ -56,6 +62,9 @@ public class MicrometerMetricsCollector implements MetricsCollector {
 
   @Override
   public void jobCompleted(long jobId, JobType type, long executionTimeMs) {
+    if (registry == null) {
+      return;
+    }
     Counter.builder("ratchet.jobs.completed")
         .tag("type", type.name())
         .register(registry)
@@ -69,7 +78,22 @@ public class MicrometerMetricsCollector implements MetricsCollector {
 
   @Override
   public void jobFailed(long jobId, JobType type, Throwable cause, int attempt) {
+    if (registry == null) {
+      return;
+    }
     Counter.builder("ratchet.jobs.failed")
+        .tag("type", type.name())
+        .tag("exception", cause.getClass().getSimpleName())
+        .register(registry)
+        .increment();
+  }
+
+  @Override
+  public void callbackFailed(long jobId, JobType type, Throwable cause, int attempt) {
+    if (registry == null) {
+      return;
+    }
+    Counter.builder("ratchet.callbacks.failed")
         .tag("type", type.name())
         .tag("exception", cause.getClass().getSimpleName())
         .register(registry)

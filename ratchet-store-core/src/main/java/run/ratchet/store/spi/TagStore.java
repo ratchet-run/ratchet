@@ -1,8 +1,10 @@
 package run.ratchet.store.spi;
 
+import run.ratchet.api.Incubating;
 import java.util.List;
 
 /** Job tag management operations. */
+@Incubating
 public interface TagStore {
 
   /** Inserts all supplied tags for a job. */

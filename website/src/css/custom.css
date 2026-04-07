@@ -1,0 +1,171 @@
+/**
+ * Any CSS included here will be available to all pages.
+ */
+
+/* Docusaurus variables */
+:root {
+  --ifm-color-primary: #2563eb;
+  --ifm-color-primary-dark: #1d4ed8;
+  --ifm-color-primary-darker: #1e40af;
+  --ifm-color-primary-darkest: #1e3a8a;
+  --ifm-color-primary-light: #3b82f6;
+  --ifm-color-primary-lighter: #60a5fa;
+  --ifm-color-primary-lightest: #93c5fd;
+  --ifm-code-font-size: 95%;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+}
+
+/* For readability concerns, you should choose a lighter palette in the
+   dark colorscheme. Setting to `auto` will respect the prefers-color-scheme preference,
+   using light colors light mode and dark colors for dark mode. */
+[data-theme='dark'] {
+  --ifm-color-primary: #60a5fa;
+  --ifm-color-primary-dark: #3b82f6;
+  --ifm-color-primary-darker: #2563eb;
+  --ifm-color-primary-darkest: #1d4ed8;
+  --ifm-color-primary-light: #93c5fd;
+  --ifm-color-primary-lighter: #bfdbfe;
+  --ifm-color-primary-lightest: #dbeafe;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+}
+
+/* Code highlighting */
+.docusaurus-highlight-code-line {
+  background-color: var(--docusaurus-highlighted-code-line-bg);
+  display: block;
+  margin: 0 calc(var(--ifm-pre-padding) * -1);
+  padding: 0 var(--ifm-pre-padding);
+}
+
+/* Ratchet-specific styling */
+.ratchet-hero {
+  text-align: center;
+  padding: 3rem 0;
+}
+
+.ratchet-features {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 2rem;
+  margin: 2rem 0;
+}
+
+.ratchet-feature {
+  padding: 1.5rem;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: 8px;
+  text-align: center;
+}
+
+.ratchet-feature h3 {
+  margin-top: 0;
+  color: var(--ifm-color-primary);
+}
+
+/* Table styling */
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+table th {
+  background-color: var(--ifm-color-primary);
+  color: white;
+  padding: 0.75rem;
+  text-align: left;
+}
+
+table td {
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+}
+
+table tr:hover {
+  background-color: var(--ifm-color-emphasis-100);
+}
+
+/* Code blocks */
+pre {
+  background-color: var(--ifm-pre-background);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+
+code {
+  font-family: 'Courier New', monospace;
+  background-color: var(--ifm-code-background);
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+}
+
+/* Links */
+a {
+  color: var(--ifm-color-primary);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+/* Callout styling */
+.admonition {
+  border-left: 4px solid var(--ifm-color-primary);
+  padding: 1rem;
+  margin: 1rem 0;
+  background-color: var(--ifm-color-emphasis-100);
+  border-radius: 4px;
+}
+
+.admonition.note {
+  border-left-color: #3b82f6;
+}
+
+.admonition.warning {
+  border-left-color: #f59e0b;
+}
+
+.admonition.danger {
+  border-left-color: #ef4444;
+}
+
+/* API reference styling */
+.api-section {
+  margin: 2rem 0;
+  padding: 1.5rem;
+  background-color: var(--ifm-color-emphasis-50);
+  border-radius: 8px;
+}
+
+.api-section h3 {
+  margin-top: 0;
+}
+
+.method-signature {
+  background-color: var(--ifm-code-background);
+  padding: 1rem;
+  border-radius: 4px;
+  font-family: monospace;
+  overflow-x: auto;
+}
+
+/* Navbar improvements */
+.navbar {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Mobile improvements */
+@media (max-width: 768px) {
+  .ratchet-features {
+    grid-template-columns: 1fr;
+  }
+
+  table {
+    font-size: 0.875rem;
+  }
+
+  table th,
+  table td {
+    padding: 0.5rem;
+  }
+}

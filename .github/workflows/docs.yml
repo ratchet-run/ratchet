@@ -4,23 +4,29 @@ on:
   push:
     branches: [main]
     paths:
-      - 'ratchet-*/**/*.java'
+      - 'website/**'
+      - 'ratchet-*/src/main/java/**'
+      - 'src/main/javadoc/**'
       - 'pom.xml'
       - '.github/workflows/docs.yml'
-  workflow_run:
-    workflows: ["CI"]
-    branches: [main]
-    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
 
 jobs:
-  javadoc:
+  build:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || github.event.workflow_run.conclusion == 'success'
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
+      # --- Javadoc generation ---
       - uses: actions/setup-java@v4
         with:
           java-version: '17'
@@ -32,22 +38,42 @@ jobs:
           key: m2-${{ hashFiles('**/pom.xml') }}
           restore-keys: m2-
 
-      - name: Generate Javadoc
+      - name: Generate aggregate Javadoc
         run: mvn clean package -P javadoc-aggregate -DskipTests -B
 
-      - name: Upload Javadoc artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: javadoc-site
-          path: target/reports/apidocs/
+      - name: Copy Javadoc into Docusaurus static assets
+        run: |
+          mkdir -p website/static/javadoc
+          cp -r target/reports/apidocs/* website/static/javadoc/
 
-      - name: Deploy Javadoc to GitHub Pages
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: peaceiris/actions-gh-pages@v3
+      # --- Docusaurus build ---
+      - uses: actions/setup-node@v4
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./target/reports/apidocs
-          destination_dir: ./api/latest
-          commit_message: "docs: update API documentation"
-          user_name: 'github-actions[bot]'
-          user_email: 'github-actions[bot]@users.noreply.github.com'
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Install dependencies
+        working-directory: website
+        run: npm ci
+
+      - name: Build Docusaurus site
+        working-directory: website
+        run: npm run build
+
+      # --- Deploy ---
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: website/build
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

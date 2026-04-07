@@ -1,9 +1,11 @@
 package run.ratchet.store.spi;
 
+import run.ratchet.api.Incubating;
 import run.ratchet.store.entity.DlqAlertEntity;
 import java.time.Instant;
 
 /** Dead Letter Queue alert persistence operations. */
+@Incubating
 public interface DlqAlertStore {
 
   /** Persists or updates a dead-letter alert record. */

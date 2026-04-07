@@ -18,7 +18,15 @@ import java.util.regex.Pattern;
  */
 public class DefaultErrorSanitizer implements ErrorSanitizer {
 
-  private static final int MAX_LENGTH = 500;
+  /**
+   * System property controlling whether email-like patterns are redacted from exception messages.
+   * Disabled by default — most ratchet failure messages do not contain user emails, but
+   * business-record IDs that match the email pattern (e.g. {@code order-2026@dev}) are common false
+   * positives that lose debug information. Set to {@code true} to opt in.
+   */
+  static final String REDACT_EMAILS_PROPERTY = "ratchet.error-sanitizer.redact-emails";
+
+  private static final int MAX_LENGTH = 2000;
   private static final String REDACTED = "***REDACTED***";
 
   /** Matches JDBC URLs: jdbc:mysql://user:pass@host/db or jdbc:postgresql://... */
@@ -55,13 +63,35 @@ public class DefaultErrorSanitizer implements ErrorSanitizer {
     String sanitized = message;
     sanitized = JDBC_URL.matcher(sanitized).replaceAll(REDACTED);
     sanitized = URL_WITH_CREDENTIALS.matcher(sanitized).replaceAll(REDACTED);
-    sanitized = EMAIL.matcher(sanitized).replaceAll(REDACTED);
+    if (Boolean.parseBoolean(System.getProperty(REDACT_EMAILS_PROPERTY, "false"))) {
+      sanitized = EMAIL.matcher(sanitized).replaceAll(REDACTED);
+    }
     sanitized = CREDENTIAL_KV.matcher(sanitized).replaceAll("$1=" + REDACTED);
 
-    String result = className + ": " + sanitized;
-    if (result.length() > MAX_LENGTH) {
-      result = result.substring(0, MAX_LENGTH - 3) + "...";
+    StringBuilder result = new StringBuilder(className).append(": ").append(sanitized);
+    // Append the (sanitized) cause chain so operators don't lose root-cause context.
+    Throwable cause = ex.getCause();
+    if (cause != null && cause != ex) {
+      String causeMessage = cause.getMessage();
+      if (causeMessage != null) {
+        String sanitizedCause = causeMessage;
+        sanitizedCause = JDBC_URL.matcher(sanitizedCause).replaceAll(REDACTED);
+        sanitizedCause = URL_WITH_CREDENTIALS.matcher(sanitizedCause).replaceAll(REDACTED);
+        if (Boolean.parseBoolean(System.getProperty(REDACT_EMAILS_PROPERTY, "false"))) {
+          sanitizedCause = EMAIL.matcher(sanitizedCause).replaceAll(REDACTED);
+        }
+        sanitizedCause = CREDENTIAL_KV.matcher(sanitizedCause).replaceAll("$1=" + REDACTED);
+        result
+            .append(" -> caused by ")
+            .append(cause.getClass().getName())
+            .append(": ")
+            .append(sanitizedCause);
+      }
     }
-    return result;
+
+    if (result.length() > MAX_LENGTH) {
+      return result.substring(0, MAX_LENGTH - 3) + "...";
+    }
+    return result.toString();
   }
 }

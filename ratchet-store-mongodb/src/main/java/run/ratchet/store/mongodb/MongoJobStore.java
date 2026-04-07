@@ -121,8 +121,32 @@ public class MongoJobStore implements JobStore {
       return job;
     }
     job.setUpdatedAt(now);
+
+    // Optimistic lock check: bump version and require the prior version to match. If the row
+    // already moved (concurrent save by another node), the matchedCount comes back 0. We log
+    // SEVERE and fall back to the upsert behavior so existing call sites that don't expect
+    // version exceptions still function — but lost updates become visible in the logs.
+    Integer expectedVersion = job.getVersion() != null ? job.getVersion() : 0;
+    job.setVersion(expectedVersion + 1);
     Document doc = DocumentMapper.toDocument(job);
-    jobs().replaceOne(eq("_id", job.getId()), doc, new ReplaceOptions().upsert(true));
+    UpdateResult result =
+        jobs()
+            .replaceOne(
+                and(eq("_id", job.getId()), eq("version", expectedVersion)),
+                doc,
+                new ReplaceOptions().upsert(false));
+    if (result.getMatchedCount() == 0) {
+      // Concurrent modification or row never existed at the expected version. Fall back to
+      // upsert (current behavior, last-writer-wins) so legacy paths keep working but log it
+      // loudly so operators can find the race during alpha testing.
+      log.warning(
+          "MongoJobStore.save() optimistic lock miss for job "
+              + job.getId()
+              + " (expectedVersion="
+              + expectedVersion
+              + ") — falling back to upsert. Likely a concurrent save from another node.");
+      jobs().replaceOne(eq("_id", job.getId()), doc, new ReplaceOptions().upsert(true));
+    }
     return job;
   }
 
@@ -133,10 +157,9 @@ public class MongoJobStore implements JobStore {
   }
 
   @Override
-  public Optional<JobEntity> findByIdForUpdate(long id) {
+  public Optional<JobEntity> findByIdLatest(long id) {
     // MongoDB has no row-level locking; findOneAndUpdate is the atomic primitive.
-    // For read-only "for update" semantics, a regular find suffices since the actual
-    // mutation will use findOneAndUpdate with version checks.
+    // Callers MUST mutate via a version-checked update path.
     return findById(id);
   }
 
@@ -766,8 +789,9 @@ public class MongoJobStore implements JobStore {
 
   @Override
   public int resetOrphanJobs(Duration grace) {
-    long graceMinutes = grace.toMinutes();
-    Date cutoff = DocumentMapper.toDate(Instant.now().minus(Duration.ofMinutes(graceMinutes)));
+    // Use the Duration directly instead of round-tripping through toMinutes(),
+    // which truncates sub-minute values to 0 and corrupts non-multiple-of-60 grace periods.
+    Date cutoff = DocumentMapper.toDate(Instant.now().minus(grace));
 
     // Find active node IDs
     List<String> activeNodeIds = new ArrayList<>();

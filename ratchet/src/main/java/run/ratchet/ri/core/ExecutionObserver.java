@@ -86,6 +86,19 @@ public class ExecutionObserver {
   }
 
   /**
+   * Records a lifecycle callback failure (for example, an exception thrown from {@code onSuccess}
+   * or {@code onFailure}). Callback failures do not fail the parent job — this hook gives operators
+   * visibility into otherwise-silent breakage.
+   *
+   * @param job the parent job whose callback failed
+   * @param ex the exception thrown from the callback
+   * @param attempt the 1-based callback invocation count
+   */
+  public void recordCallbackFailure(JobEntity job, Throwable ex, int attempt) {
+    metricsCollector.callbackFailed(job.getId(), job.getPublicJobType(), ex, attempt);
+  }
+
+  /**
    * Records a job cancellation.
    *
    * @param job the job entity that was cancelled

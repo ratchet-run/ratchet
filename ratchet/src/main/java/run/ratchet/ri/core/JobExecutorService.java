@@ -1,6 +1,7 @@
 package run.ratchet.ri.core;
 
 import run.ratchet.spi.BeanResolver;
+import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
@@ -56,6 +57,7 @@ public class JobExecutorService {
   private final RetryPolicy retryPolicy;
   private final ResilienceStrategy resilienceStrategy;
   private final ErrorSanitizer errorSanitizer;
+  private final ClassPolicy classPolicy;
 
   // Required by CDI proxy
   protected JobExecutorService() {
@@ -72,6 +74,7 @@ public class JobExecutorService {
     this.retryPolicy = null;
     this.resilienceStrategy = null;
     this.errorSanitizer = null;
+    this.classPolicy = null;
   }
 
   @Inject
@@ -88,7 +91,8 @@ public class JobExecutorService {
       BeanResolver beanResolver,
       RetryPolicy retryPolicy,
       ResilienceStrategy resilienceStrategy,
-      ErrorSanitizer errorSanitizer) {
+      ErrorSanitizer errorSanitizer,
+      ClassPolicy classPolicy) {
     this.threadPoolManager = threadPoolManager;
     this.timeoutHandler = timeoutHandler;
     this.executorProvider = executorProvider;
@@ -102,6 +106,7 @@ public class JobExecutorService {
     this.retryPolicy = retryPolicy;
     this.resilienceStrategy = resilienceStrategy;
     this.errorSanitizer = errorSanitizer;
+    this.classPolicy = classPolicy;
   }
 
   /**
@@ -184,7 +189,8 @@ public class JobExecutorService {
         beanResolver,
         retryPolicy,
         resilienceStrategy,
-        errorSanitizer);
+        errorSanitizer,
+        classPolicy);
   }
 
   private void scheduleWatchdog(

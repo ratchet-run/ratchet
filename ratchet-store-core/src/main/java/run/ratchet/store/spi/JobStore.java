@@ -1,5 +1,7 @@
 package run.ratchet.store.spi;
 
+import run.ratchet.api.Incubating;
+
 /**
  * Composed store abstraction for all job persistence operations.
  *
@@ -24,6 +26,7 @@ package run.ratchet.store.spi;
  * @see DlqAlertStore
  * @see ResourcePermitStore
  */
+@Incubating
 public interface JobStore
     extends JobCrudStore,
         JobClaimStore,

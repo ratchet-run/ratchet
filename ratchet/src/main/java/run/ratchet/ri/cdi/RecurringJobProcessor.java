@@ -9,6 +9,7 @@ import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.Recurring;
 import run.ratchet.api.RecurringJobBuilder;
 import run.ratchet.ri.core.RecurringAnnotationMaintenanceService;
+import run.ratchet.spi.ClusterCoordinator;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.Initialized;
 import jakarta.enterprise.event.Observes;
@@ -52,6 +53,16 @@ public class RecurringJobProcessor {
 
   private static final Logger log = Logger.getLogger(RecurringJobProcessor.class.getName());
 
+  /**
+   * System property controlling how far back the orphaned-recurring-job cleanup cutoff is shifted
+   * from this node's startup instant. Jobs created within the convergence window are exempt from
+   * cleanup regardless of leader state — they may belong to a peer node that has not yet completed
+   * its own registration pass. Default 120 seconds; set to 0 to disable the window.
+   */
+  static final String CONVERGENCE_WINDOW_PROPERTY = "ratchet.recurring.convergence-window-seconds";
+
+  private static final long DEFAULT_CONVERGENCE_WINDOW_SECONDS = 120L;
+
   private static final CronParser CRON_PARSER =
       new CronParser(CronDefinitionBuilder.instanceDefinitionFor(CronType.QUARTZ));
 
@@ -61,12 +72,14 @@ public class RecurringJobProcessor {
   private final RecurringAnnotationMaintenanceService recurringAnnotationMaintenanceService;
   private final BeanManager beanManager;
   private final RecurringMethodInvoker methodInvoker;
+  private final ClusterCoordinator clusterCoordinator;
 
   protected RecurringJobProcessor() {
     this.schedulerService = null;
     this.recurringAnnotationMaintenanceService = null;
     this.beanManager = null;
     this.methodInvoker = null;
+    this.clusterCoordinator = null;
   }
 
   @Inject
@@ -74,11 +87,13 @@ public class RecurringJobProcessor {
       JobSchedulerService schedulerService,
       RecurringAnnotationMaintenanceService recurringAnnotationMaintenanceService,
       BeanManager beanManager,
-      RecurringMethodInvoker methodInvoker) {
+      RecurringMethodInvoker methodInvoker,
+      ClusterCoordinator clusterCoordinator) {
     this.schedulerService = schedulerService;
     this.recurringAnnotationMaintenanceService = recurringAnnotationMaintenanceService;
     this.beanManager = beanManager;
     this.methodInvoker = methodInvoker;
+    this.clusterCoordinator = clusterCoordinator;
   }
 
   /**
@@ -104,11 +119,25 @@ public class RecurringJobProcessor {
   }
 
   private void cleanupOrphanedRecurringJobs(Instant startTime) {
+    // Cleanup is DESTRUCTIVE — cancel jobs whose business_key is not in this node's local
+    // annotation set. Two guards are required for multi-node safety:
+    //
+    //  1. Leader gate: only one node in the cluster should run cleanup, otherwise a node that
+    //     booted with a stale JAR would silently cancel jobs peers just registered.
+    //  2. Convergence window: shift the cutoff back by N seconds so jobs that a peer node
+    //     registered in the last N seconds (but after this node's startTime) are exempt.
+    //     Closes a race window on rolling deploys where Node A's newer registration commits
+    //     after Node B's startTime but before Node B's cleanup runs.
+    if (clusterCoordinator != null && !clusterCoordinator.isLeader()) {
+      log.info("Skipping orphaned recurring job cleanup — this node is not the cluster leader");
+      return;
+    }
+    Instant cutoff = startTime.minusSeconds(convergenceWindowSeconds());
     try {
       Set<String> registeredIds = registeredJobIds.keySet();
       int canceled =
           recurringAnnotationMaintenanceService.cancelOrphanedRecurringAnnotationJobs(
-              registeredIds, startTime);
+              registeredIds, cutoff);
       if (canceled > 0) {
         log.info(
             "Canceled "
@@ -117,6 +146,31 @@ public class RecurringJobProcessor {
       }
     } catch (Exception e) {
       log.log(Level.SEVERE, "Failed to cleanup orphaned recurring jobs", e);
+    }
+  }
+
+  /**
+   * Returns the convergence window in seconds, read fresh from system properties on each call (not
+   * cached) so operators can tune behavior via {@code -D} flags without rebuilding.
+   */
+  static long convergenceWindowSeconds() {
+    String raw = System.getProperty(CONVERGENCE_WINDOW_PROPERTY);
+    if (raw == null || raw.isBlank()) {
+      return DEFAULT_CONVERGENCE_WINDOW_SECONDS;
+    }
+    try {
+      long parsed = Long.parseLong(raw.trim());
+      return Math.max(0L, parsed);
+    } catch (NumberFormatException e) {
+      log.warning(
+          "Invalid value for "
+              + CONVERGENCE_WINDOW_PROPERTY
+              + ": '"
+              + raw
+              + "' — falling back to default "
+              + DEFAULT_CONVERGENCE_WINDOW_SECONDS
+              + "s");
+      return DEFAULT_CONVERGENCE_WINDOW_SECONDS;
     }
   }
 
@@ -129,13 +183,27 @@ public class RecurringJobProcessor {
 
   private void processBean(Bean<?> bean) {
     Class<?> beanClass = bean.getBeanClass();
-
-    for (var method : beanClass.getDeclaredMethods()) {
-      Recurring annotation = method.getAnnotation(Recurring.class);
-      if (annotation != null) {
+    // Walk the class hierarchy so @Recurring methods declared on a superclass are picked up.
+    // getDeclaredMethods() alone misses inherited methods. Filter synthetic/bridge methods
+    // (which Weld and other CDI implementations sometimes generate) and dedupe by signature
+    // so a bridge + real method pair only registers once.
+    java.util.Set<String> seen = new java.util.HashSet<>();
+    Class<?> current = beanClass;
+    while (current != null && current != Object.class) {
+      for (var method : current.getDeclaredMethods()) {
+        if (method.isSynthetic() || method.isBridge()) {
+          continue;
+        }
+        Recurring annotation = method.getAnnotation(Recurring.class);
+        if (annotation == null) {
+          continue;
+        }
+        String signature = method.getName() + java.util.Arrays.toString(method.getParameterTypes());
+        if (!seen.add(signature)) {
+          continue;
+        }
         String methodName = method.getName();
         boolean hasJobContextParam = method.getParameterCount() == 1;
-
         try {
           RecurringMethodValidator.validate(method);
         } catch (IllegalArgumentException e) {
@@ -145,9 +213,9 @@ public class RecurringJobProcessor {
               e);
           continue;
         }
-
         processRecurringMethod(beanClass, methodName, hasJobContextParam, annotation);
       }
+      current = current.getSuperclass();
     }
   }
 

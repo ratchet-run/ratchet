@@ -1,0 +1,234 @@
+---
+sidebar_position: 3
+title: Quick Start
+description: Schedule your first background job with Ratchet in under 5 minutes
+---
+
+# Quick Start
+
+This guide gets you from zero to a running background job in the shortest path possible. We'll inject `JobSchedulerService`, enqueue a job, and verify it runs. No retries, no callbacks, no configuration -- just the fire-and-forget pattern.
+
+## Prerequisites
+
+Before starting, make sure you have:
+
+1. A Jakarta EE 10 project with a running application server (WildFly, Open Liberty, Payara, etc.)
+2. A database (PostgreSQL, MySQL, or MongoDB) accessible from your application
+3. Ratchet dependencies added to your `pom.xml` (see [Installation](./installation.md))
+4. The Ratchet schema applied to your database
+
+If you haven't done steps 3 and 4 yet, here's the minimum `pom.xml` setup:
+
+```xml
+<dependencyManagement>
+  <dependencies>
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-bom</artifactId>
+      <version>0.1.0-SNAPSHOT</version>
+      <type>pom</type>
+      <scope>import</scope>
+    </dependency>
+  </dependencies>
+</dependencyManagement>
+
+<dependencies>
+  <dependency>
+    <groupId>run.ratchet</groupId>
+    <artifactId>ratchet-api</artifactId>
+  </dependency>
+  <dependency>
+    <groupId>run.ratchet</groupId>
+    <artifactId>ratchet</artifactId>
+  </dependency>
+  <dependency>
+    <groupId>run.ratchet</groupId>
+    <artifactId>ratchet-store-postgresql</artifactId>
+  </dependency>
+</dependencies>
+```
+
+And apply the schema:
+
+```bash
+psql -d mydb -f ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql
+```
+
+## Step 1: Create a CDI Bean
+
+Create a simple `@ApplicationScoped` bean that injects `JobSchedulerService`:
+
+```java
+package com.example.app;
+
+import run.ratchet.api.JobSchedulerService;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
+import java.util.logging.Logger;
+
+@ApplicationScoped
+public class OrderService {
+
+    private static final Logger log = Logger.getLogger(OrderService.class.getName());
+
+    @Inject
+    JobSchedulerService scheduler;
+
+    public void placeOrder(long orderId) {
+        // Schedule the job for immediate execution
+        scheduler.enqueueNow(() -> processOrder(orderId));
+
+        log.info("Order " + orderId + " enqueued for background processing");
+    }
+
+    public void processOrder(long orderId) {
+        log.info("Processing order " + orderId + " in background...");
+
+        // Your business logic here
+        // This runs asynchronously on a worker thread
+    }
+}
+```
+
+That's the entire integration. Let's break down what happens when `placeOrder` is called.
+
+## Step 2: Understand the Flow
+
+When you call `scheduler.enqueueNow(() -> processOrder(orderId))`, Ratchet:
+
+1. **Serializes the lambda** -- The method reference `processOrder(orderId)` is analyzed via ASM bytecode analysis, capturing the target class, method name, and argument values.
+2. **Persists the job** -- A new row is inserted into the `scheduler_job` table with status `PENDING`, the serialized payload, and an auto-generated idempotency key.
+3. **Returns immediately** -- `enqueueNow` returns a `JobHandle` with the job's database ID. Your calling code doesn't block.
+4. **Poller picks it up** -- The Ratchet poller (started automatically at application startup by `RatchetLifecycle`) claims the job and submits it to a worker thread.
+5. **Worker executes** -- The worker thread deserializes the payload, resolves `OrderService` via CDI, and calls `processOrder(orderId)`.
+
+The key insight: **the job survives server restarts**. Because the payload is persisted to your database, if the server crashes between step 2 and step 5, the job will be picked up after the server comes back.
+
+## Step 3: Verify It Runs
+
+### Check the Logs
+
+When the application starts, you should see:
+
+```
+INFO [run.ratchet.ri.cdi.RatchetLifecycle] Initializing Ratchet job scheduler...
+INFO [run.ratchet.ri.cdi.RatchetLifecycle] Ratchet job scheduler initialized
+```
+
+When a job is enqueued and processed:
+
+```
+INFO [com.example.app.OrderService] Order 42 enqueued for background processing
+INFO [com.example.app.OrderService] Processing order 42 in background...
+```
+
+### Check the Database
+
+You can also verify by querying the `scheduler_job` table directly:
+
+```sql
+SELECT id, status, created_time, started_time, completed_time
+FROM scheduler_job
+ORDER BY id DESC
+LIMIT 5;
+```
+
+A completed job will show status `SUCCEEDED` with populated timing columns.
+
+## The Fire-and-Forget Pattern
+
+The `enqueueNow` method is the simplest entry point. It takes a `SerializableCheckedRunnable` -- a lambda or method reference that can throw checked exceptions -- and returns a `JobHandle`:
+
+```java
+JobHandle handle = scheduler.enqueueNow(() -> doSomething());
+long jobId = handle.id();
+```
+
+The `JobHandle` is a lightweight receipt containing just the job's database ID. You can use it to:
+
+- Log the job ID for correlation
+- Cancel the job later with `scheduler.cancelJob(jobId)`
+- Retry a failed job with `scheduler.retryJob(jobId)`
+
+### What about method arguments?
+
+The lambda captures values at submission time. These values are serialized and stored in the database as part of the job payload. When the job executes, the values are deserialized and passed to your method:
+
+```java
+// The orderId value (42) is captured and serialized at enqueue time
+scheduler.enqueueNow(() -> processOrder(42L));
+
+// You can also capture local variables
+long orderId = order.getId();
+String customerName = order.getCustomerName();
+scheduler.enqueueNow(() -> processOrder(orderId));
+```
+
+:::caution Keep payloads small
+Ratchet serializes lambda arguments as JSON. Pass IDs and simple values, not large object graphs. A job that needs a complex object should accept an ID and look up the object from the database during execution.
+:::
+
+## Delayed Execution
+
+If you want to schedule a job for later instead of immediately, use `schedule`:
+
+```java
+import java.time.Duration;
+
+// Execute 30 minutes from now
+scheduler.schedule(Duration.ofMinutes(30), () -> sendReminder(orderId))
+    .submit();
+```
+
+Note the difference: `schedule` returns a `JobBuilder` (not a `JobHandle`) so you can configure the job further before calling `.submit()`. The `enqueueNow` shorthand skips the builder and submits immediately.
+
+## Adding an Event Observer
+
+Even in this minimal setup, you can observe job events using CDI's `@Observes`:
+
+```java
+package com.example.app;
+
+import run.ratchet.api.event.JobCompletedEvent;
+import run.ratchet.api.event.JobFailedEvent;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Observes;
+import java.util.logging.Logger;
+
+@ApplicationScoped
+public class JobMonitor {
+
+    private static final Logger log = Logger.getLogger(JobMonitor.class.getName());
+
+    public void onJobCompleted(@Observes JobCompletedEvent event) {
+        log.info("Job " + event.getJobId() + " completed successfully");
+    }
+
+    public void onJobFailed(@Observes JobFailedEvent event) {
+        log.warning("Job " + event.getJobId() + " failed: " + event.getErrorMessage());
+    }
+}
+```
+
+These observers fire for **all** jobs, not just the ones you enqueued from `OrderService`. This is intentional -- it gives you a single place to add logging, alerting, or metrics for your entire job pipeline.
+
+## Common Issues
+
+### "No bean found for JobSchedulerService"
+
+This usually means `ratchet` is not on the classpath, or your `beans.xml` is configured to prevent bean discovery. Ratchet's CDI beans use `@ApplicationScoped` and are discovered through annotated bean discovery. Make sure your `beans.xml` uses `bean-discovery-mode="annotated"` (the default in Jakarta CDI 4.0) or `bean-discovery-mode="all"`.
+
+### "No JobStore implementation found"
+
+You need a store module (`ratchet-store-postgresql`, `ratchet-store-mysql`, or `ratchet-store-mongodb`) on the classpath, and it needs a configured `DataSource` or connection. Check that your application server's data source JNDI name matches what the store expects.
+
+### Jobs are enqueued but never execute
+
+Check that `RatchetLifecycle` logged its startup message. If you don't see "Initializing Ratchet job scheduler...", the lifecycle bean isn't being activated. This can happen if CDI bean discovery is misconfigured or if the `ratchet` module isn't deployed.
+
+## What's Next
+
+This quick start covered the simplest possible pattern: fire-and-forget. In practice, you'll want retries, backoff, callbacks, parameters, and monitoring. The next guide walks through all of these:
+
+- [Your First Job](./first-job.md) -- Complete walkthrough with retry, backoff, parameters, callbacks, and event monitoring
+- [Configuration](./configuration.md) -- CDI producer setup, SPI defaults, and runtime tuning
