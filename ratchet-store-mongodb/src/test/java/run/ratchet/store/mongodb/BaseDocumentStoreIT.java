@@ -47,6 +47,11 @@ public abstract class BaseDocumentStoreIT {
     client = MongoClients.create(MONGO.getConnectionString());
     database = client.getDatabase("ratchet_it_" + UUID.randomUUID().toString().substring(0, 8));
     store = new MongoJobStore(database);
+    // MongoJobStore.initializeCollections() is @PostConstruct, which only fires inside a CDI
+    // container. Plain-new instantiation in test fixtures bypasses it, so the unique indexes on
+    // idempotency_key / business_key that IdempotencyIT relies on never get created. Call the
+    // initializer explicitly here. createIndex is idempotent per MongoDB semantics.
+    new MongoCollectionInitializer(database).initialize();
   }
 
   @AfterEach

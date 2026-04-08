@@ -216,7 +216,9 @@ public class DefaultJobSchedulerService
         jobCrudStore
             .findById(jobId)
             .orElseThrow(
-                () -> new IllegalArgumentException("Job vanished during replace(): " + jobId));
+                () ->
+                    new IllegalStateException(
+                        "Job " + jobId + " vanished mid-replace (deleted between load and save)"));
     fresh.setSupersededBy(newHandle.id());
     jobCrudStore.save(fresh);
 

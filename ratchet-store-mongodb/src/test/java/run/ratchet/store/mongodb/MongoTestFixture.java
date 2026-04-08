@@ -40,6 +40,10 @@ public class MongoTestFixture implements JobStoreContractFixture {
     this.database =
         client.getDatabase("ratchet_test_" + UUID.randomUUID().toString().substring(0, 8));
     this.store = new MongoJobStore(database);
+    // @PostConstruct is CDI-only; instantiation here bypasses it, leaving collections without
+    // their unique indexes. Initialize explicitly so contract tests see the same schema as a
+    // production deployment.
+    new MongoCollectionInitializer(database).initialize();
   }
 
   @Override
