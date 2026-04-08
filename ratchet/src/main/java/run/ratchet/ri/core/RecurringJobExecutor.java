@@ -50,16 +50,24 @@ public class RecurringJobExecutor {
   /** Store for job claiming operations on recurring masters. */
   private final JobClaimStore jobClaimStore;
 
+  /** Tracks the local set of registered annotation keys for the startup grace gate. */
+  private final RecurringRegistrationState registrationState;
+
   // Required by CDI proxy
   protected RecurringJobExecutor() {
     this.jobCrudStore = null;
     this.jobClaimStore = null;
+    this.registrationState = null;
   }
 
   @Inject
-  public RecurringJobExecutor(JobCrudStore jobCrudStore, JobClaimStore jobClaimStore) {
+  public RecurringJobExecutor(
+      JobCrudStore jobCrudStore,
+      JobClaimStore jobClaimStore,
+      RecurringRegistrationState registrationState) {
     this.jobCrudStore = jobCrudStore;
     this.jobClaimStore = jobClaimStore;
+    this.registrationState = registrationState;
   }
 
   /**
@@ -85,7 +93,28 @@ public class RecurringJobExecutor {
   int process(int batchLimit, String nodeId) {
     List<JobEntity> masters = jobClaimStore.claimDueRecurring(batchLimit, nodeId);
     Instant now = Instant.now();
+    int firedCount = 0;
     for (JobEntity master : masters) {
+      // Startup grace gate: during the first ratchet.recurring.startup-grace-seconds after this
+      // node finished its @Recurring registration pass, refuse to fire any master whose business
+      // key is not in the local known-keys set. This closes the rolling-deploy race where Node
+      // B's newer JAR removes an annotation but Node A (or even Node B itself, before cleanup
+      // runs) might claim and fire the orphaned master between scan cycles. We release the
+      // claim by clearing pickedBy/pickedAt and saving without advancing nextFire — the master
+      // stays PENDING and is eligible for another claim attempt next cycle, by which point the
+      // cleanup pass will have removed it (if it really is orphaned) or it will pass the gate
+      // (if registration completed and it's known).
+      if (registrationState != null && !registrationState.shouldFire(master.getBusinessKey())) {
+        log.debugf(
+            "Recurring master %s (businessKey=%s) skipped — within startup grace and key not"
+                + " in local known set",
+            master.getId(), master.getBusinessKey());
+        master.setPickedBy(null);
+        master.setPickedAt(null);
+        jobCrudStore.save(master);
+        continue;
+      }
+      firedCount++;
       Cron cron = RecurringScheduler.PARSER.parse(master.getCronExpr());
       ZoneId zone = ZoneId.of(master.getZoneId());
       ExecutionTime execTime = ExecutionTime.forCron(cron);
@@ -129,7 +158,7 @@ public class RecurringJobExecutor {
       jobCrudStore.save(master);
       log.infof("Recurring job %s fired; next=%s", master.getId(), master.getNextFire());
     }
-    return masters.size();
+    return firedCount;
   }
 
   /**

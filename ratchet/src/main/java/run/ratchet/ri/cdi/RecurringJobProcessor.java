@@ -9,6 +9,7 @@ import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.Recurring;
 import run.ratchet.api.RecurringJobBuilder;
 import run.ratchet.ri.core.RecurringAnnotationMaintenanceService;
+import run.ratchet.ri.core.RecurringRegistrationState;
 import run.ratchet.spi.ClusterCoordinator;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.Initialized;
@@ -55,12 +56,18 @@ public class RecurringJobProcessor {
   /**
    * System property controlling how far back the orphaned-recurring-job cleanup cutoff is shifted
    * from this node's startup instant. Jobs created within the convergence window are exempt from
-   * cleanup regardless of leader state — they may belong to a peer node that has not yet completed
-   * its own registration pass. Default 120 seconds; set to 0 to disable the window.
+   * cleanup regardless of leader state.
+   *
+   * @deprecated As of 0.2.0 the convergence window default is 0; the role it played is now covered
+   *     more rigorously by {@link RecurringRegistrationState#shouldFire(String)}, which gates
+   *     firing of orphaned masters during the post-registration startup grace window ({@link
+   *     RecurringRegistrationState#STARTUP_GRACE_PROPERTY}). The convergence window property is
+   *     still honored for one release for backward compatibility but will be removed in 0.3.0.
    */
+  @Deprecated(since = "0.2.0", forRemoval = true)
   static final String CONVERGENCE_WINDOW_PROPERTY = "ratchet.recurring.convergence-window-seconds";
 
-  private static final long DEFAULT_CONVERGENCE_WINDOW_SECONDS = 120L;
+  private static final long DEFAULT_CONVERGENCE_WINDOW_SECONDS = 0L;
 
   private static final CronParser CRON_PARSER =
       new CronParser(CronDefinitionBuilder.instanceDefinitionFor(CronType.QUARTZ));
@@ -72,6 +79,7 @@ public class RecurringJobProcessor {
   private final BeanManager beanManager;
   private final RecurringMethodInvoker methodInvoker;
   private final ClusterCoordinator clusterCoordinator;
+  private final RecurringRegistrationState registrationState;
 
   protected RecurringJobProcessor() {
     this.schedulerService = null;
@@ -79,6 +87,7 @@ public class RecurringJobProcessor {
     this.beanManager = null;
     this.methodInvoker = null;
     this.clusterCoordinator = null;
+    this.registrationState = null;
   }
 
   @Inject
@@ -87,12 +96,14 @@ public class RecurringJobProcessor {
       RecurringAnnotationMaintenanceService recurringAnnotationMaintenanceService,
       BeanManager beanManager,
       RecurringMethodInvoker methodInvoker,
-      ClusterCoordinator clusterCoordinator) {
+      ClusterCoordinator clusterCoordinator,
+      RecurringRegistrationState registrationState) {
     this.schedulerService = schedulerService;
     this.recurringAnnotationMaintenanceService = recurringAnnotationMaintenanceService;
     this.beanManager = beanManager;
     this.methodInvoker = methodInvoker;
     this.clusterCoordinator = clusterCoordinator;
+    this.registrationState = registrationState;
   }
 
   /**
@@ -113,6 +124,13 @@ public class RecurringJobProcessor {
     }
 
     log.infof("Completed registration of %s recurring jobs", registeredJobIds.size());
+
+    // Publish the discovered key set to the shared registration state BEFORE running cleanup,
+    // so the executor's shouldFire gate is armed even if cleanup is delayed (e.g. leader gate
+    // skips cleanup on this node, or cleanup throws and is retried).
+    if (registrationState != null) {
+      registrationState.markRegistrationComplete(registeredJobIds.keySet());
+    }
 
     cleanupOrphanedRecurringJobs(startTime);
   }

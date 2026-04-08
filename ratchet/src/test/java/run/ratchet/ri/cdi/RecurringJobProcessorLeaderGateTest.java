@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.ri.core.RecurringAnnotationMaintenanceService;
+import run.ratchet.ri.core.RecurringRegistrationState;
 import run.ratchet.spi.ClusterCoordinator;
 import jakarta.enterprise.inject.spi.BeanManager;
 import java.time.Instant;
@@ -43,7 +44,8 @@ class RecurringJobProcessorLeaderGateTest {
             maintenance,
             beanManager,
             mock(RecurringMethodInvoker.class),
-            coordinator);
+            coordinator,
+            new RecurringRegistrationState());
 
     processor.registerRecurringJobs();
 
@@ -66,7 +68,8 @@ class RecurringJobProcessorLeaderGateTest {
             maintenance,
             beanManager,
             mock(RecurringMethodInvoker.class),
-            coordinator);
+            coordinator,
+            new RecurringRegistrationState());
 
     Instant beforeRun = Instant.now();
     processor.registerRecurringJobs();
@@ -87,9 +90,11 @@ class RecurringJobProcessorLeaderGateTest {
   }
 
   @Test
-  void convergenceWindowSeconds_defaultsTo120_whenPropertyUnset() {
+  void convergenceWindowSeconds_defaultsToZero_whenPropertyUnset() {
     System.clearProperty(RecurringJobProcessor.CONVERGENCE_WINDOW_PROPERTY);
-    assertEquals(120L, RecurringJobProcessor.convergenceWindowSeconds());
+    // 0.2.0: default is 0 (deprecated). The role is now covered by
+    // RecurringRegistrationState.shouldFire().
+    assertEquals(0L, RecurringJobProcessor.convergenceWindowSeconds());
   }
 
   @Test
@@ -105,8 +110,8 @@ class RecurringJobProcessorLeaderGateTest {
   }
 
   @Test
-  void convergenceWindowSeconds_fallsBackOnInvalidProperty() {
+  void convergenceWindowSeconds_fallsBackToDefaultZeroOnInvalidProperty() {
     System.setProperty(RecurringJobProcessor.CONVERGENCE_WINDOW_PROPERTY, "not-a-number");
-    assertEquals(120L, RecurringJobProcessor.convergenceWindowSeconds());
+    assertEquals(0L, RecurringJobProcessor.convergenceWindowSeconds());
   }
 }
