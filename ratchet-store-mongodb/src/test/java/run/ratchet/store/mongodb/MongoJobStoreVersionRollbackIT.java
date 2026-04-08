@@ -1,11 +1,14 @@
 package run.ratchet.store.mongodb;
 
+import static com.mongodb.client.model.Filters.eq;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobStatus;
+import org.bson.Document;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -39,5 +42,21 @@ class MongoJobStoreVersionRollbackIT extends BaseDocumentStoreIT {
         initialVersion,
         initial.getVersion(),
         "stale-write must not leave a phantom version bump on the caller's entity");
+
+    // Cross-check: the database row should carry the CONCURRENT writer's version
+    // (initialVersion + 1), NOT the would-be phantom version (initialVersion + 2). This guards
+    // against a regression where the rollback is in place but some other path still leaves the
+    // document at an inconsistent version — the retry-on-same-instance use case would read an
+    // entity whose in-memory version disagrees with the database.
+    Document persisted = database().getCollection("scheduler_job").find(eq("_id", id)).first();
+    assertNotNull(persisted, "job row should still exist after stale-write failure");
+    assertEquals(
+        initialVersion + 1,
+        persisted.getInteger("version"),
+        "database version must reflect only the concurrent writer's bump, not the failed save");
+    assertEquals(
+        JobStatus.RUNNING.name(),
+        persisted.getString("status"),
+        "database status must reflect only the concurrent writer's mutation");
   }
 }

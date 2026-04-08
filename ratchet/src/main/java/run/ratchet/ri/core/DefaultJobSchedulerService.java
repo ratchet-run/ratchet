@@ -170,12 +170,13 @@ public class DefaultJobSchedulerService
   @Transactional
   public JobHandle replace(
       long jobId, Duration delay, SerializableCheckedRunnable newTask, JobOptions opts) {
-    // Load the existing job
-    JobEntity existing =
-        jobCrudStore
-            .findById(jobId)
-            .orElseThrow(
-                () -> new IllegalArgumentException("Job not found for replacement: " + jobId));
+    // Fail fast if the job doesn't exist — don't create an orphaned replacement below.
+    // We intentionally discard the loaded entity: the final save() after the CAS block reloads a
+    // fresh snapshot whose version is post-CAS. See the block comment on that reload for the
+    // stale-version rationale.
+    jobCrudStore
+        .findById(jobId)
+        .orElseThrow(() -> new IllegalArgumentException("Job not found for replacement: " + jobId));
 
     // Create the replacement job
     JobBuilder builder = DefaultJobBuilder.create(this, newTask, delay);
@@ -197,9 +198,27 @@ public class DefaultJobSchedulerService
             || jobStatusStore.compareAndSwapStatus(
                 jobId, JobStatus.PAUSED, JobStatus.CANCELED, null);
 
-    // Link old job to new via supersededBy regardless of cancel outcome
-    existing.setSupersededBy(newHandle.id());
-    jobCrudStore.save(existing);
+    // Link old job to new via supersededBy regardless of cancel outcome.
+    //
+    // Must reload here: `existing` was loaded BEFORE the CAS calls above, and
+    // compareAndSwapStatus bumps the row's optimistic-lock version atomically. Under 0.2.0's
+    // strict save(), writing the stale `existing` would throw RatchetOptimisticLockException.
+    // The fresh reload picks up the post-CAS version so save() succeeds.
+    //
+    // We deliberately do NOT route this through OptimisticLockRetry. After a successful CAS,
+    // the reloaded row is in terminal state CANCELED — OptimisticLockRetry's terminal-state
+    // guard would reject the mutation, but the intent on this path is precisely to annotate a
+    // terminal row with supersededBy as an audit trail. A plain reload-then-save bypasses the
+    // guard and matches the original behavior. If the save races with another mutation
+    // (e.g. archival) the exception propagates to the caller's transaction boundary, which is
+    // the same outcome as any other concurrent-modification failure.
+    JobEntity fresh =
+        jobCrudStore
+            .findById(jobId)
+            .orElseThrow(
+                () -> new IllegalArgumentException("Job vanished during replace(): " + jobId));
+    fresh.setSupersededBy(newHandle.id());
+    jobCrudStore.save(fresh);
 
     if (canceled) {
       log.infof("Replaced job %s with new job %s", jobId, newHandle.id());

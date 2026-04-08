@@ -112,12 +112,16 @@ public final class OptimisticLockRetry {
       if (reloaded.getStatus() != null && reloaded.getStatus().isTerminal()) {
         // Don't retry against a terminal-state job. A cascade or batch-progression update that
         // races with a CANCEL must not silently overwrite the cancellation.
+        // NOTE: This guard also rejects legitimate FAILED→PENDING retry paths. Callers
+        // implementing that transition must call store.save() directly rather than routing
+        // through this helper — see OptimisticLockRetry class Javadoc for details.
         throw new RatchetOptimisticLockException(
             "Job "
                 + jobId
                 + " is in terminal state "
                 + reloaded.getStatus()
-                + " — cannot retry mutation");
+                + " — cannot retry mutation (NOTE: FAILED→PENDING retry paths must call"
+                + " store.save() directly, see OptimisticLockRetry Javadoc)");
       }
       try {
         mutate.accept(reloaded);
