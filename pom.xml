@@ -21,6 +21,7 @@
     <module>ratchet-store-mongodb</module>
     <module>ratchet-tck</module>
     <module>ratchet-testsuite</module>
+    <module>ratchet-testsuite-jpms</module>
     <module>ratchet-micrometer</module>
     <module>ratchet-bom</module>
     <module>ratchet-coverage</module>

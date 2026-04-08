@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xmlns="http://maven.apache.org/POM/4.0.0"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>run.ratchet</groupId>
+    <artifactId>ratchet-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>ratchet-testsuite-jpms</artifactId>
+  <name>Ratchet :: JPMS Consumer Test</name>
+  <description>
+    Validates that ratchet-api's JPMS module-info correctly exports public API/SPI packages and
+    keeps internal ratchet implementation packages inaccessible from module-path consumers.
+    The compile success/failure of this module IS the verification — there are no runtime tests.
+  </description>
+
+  <dependencies>
+    <!-- The whole point: consume ratchet-api as a JPMS module. -->
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-api</artifactId>
+    </dependency>
+
+    <!-- ratchet is included so the negative-test source file can attempt to import an
+         internal class. JPMS encapsulation should prevent the import from compiling even
+         though the class is on the module path. -->
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet</artifactId>
+    </dependency>
+
+    <!-- Required transitively by ratchet (provided in deployment, needed at compile time). -->
+    <dependency>
+      <groupId>jakarta.platform</groupId>
+      <artifactId>jakarta.jakartaee-web-api</artifactId>
+      <scope>provided</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+      </plugin>
+      <!-- Skip jacoco offline-instrumentation for this no-runtime-test module. -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>prepare-agent</id>
+            <phase>none</phase>
+          </execution>
+          <execution>
+            <id>report</id>
+            <phase>none</phase>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>
