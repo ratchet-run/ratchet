@@ -34,7 +34,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Default implementation of {@link JobSchedulerService} for the ratchet reference implementation.
@@ -54,7 +54,7 @@ import java.util.logging.Logger;
 public class DefaultJobSchedulerService
     implements JobSchedulerService, JobSubmitter, RecurringAnnotationMaintenanceService {
 
-  private static final Logger log = Logger.getLogger(DefaultJobSchedulerService.class.getName());
+  private static final Logger log = Logger.getLogger(DefaultJobSchedulerService.class);
 
   private final InternalEventPublisher eventPublisher;
   private final JobStatusStore jobStatusStore;
@@ -102,23 +102,23 @@ public class DefaultJobSchedulerService
   public boolean cancelJob(long jobId) {
     // Try PENDING → CANCELED first (most common case)
     if (jobStatusStore.compareAndSwapStatus(jobId, JobStatus.PENDING, JobStatus.CANCELED, null)) {
-      log.fine("Canceled pending job " + jobId);
+      log.debugf("Canceled pending job %s", jobId);
       return true;
     }
 
     // Try RUNNING → CANCELED (executor should check status before committing)
     if (jobStatusStore.compareAndSwapStatus(jobId, JobStatus.RUNNING, JobStatus.CANCELED, null)) {
-      log.fine("Canceled running job " + jobId);
+      log.debugf("Canceled running job %s", jobId);
       return true;
     }
 
     // Try PAUSED → CANCELED
     if (jobStatusStore.compareAndSwapStatus(jobId, JobStatus.PAUSED, JobStatus.CANCELED, null)) {
-      log.fine("Canceled paused job " + jobId);
+      log.debugf("Canceled paused job %s", jobId);
       return true;
     }
 
-    log.fine("Cannot cancel job " + jobId + " — already in terminal state or not found");
+    log.debugf("Cannot cancel job %s — already in terminal state or not found", jobId);
     return false;
   }
 
@@ -202,14 +202,11 @@ public class DefaultJobSchedulerService
     jobCrudStore.save(existing);
 
     if (canceled) {
-      log.info("Replaced job " + jobId + " with new job " + newHandle.id());
+      log.infof("Replaced job %s with new job %s", jobId, newHandle.id());
     } else {
-      log.info(
-          "Replaced job "
-              + jobId
-              + " with new job "
-              + newHandle.id()
-              + " (old job already in terminal state)");
+      log.infof(
+          "Replaced job %s with new job %s (old job already in terminal state)",
+          jobId, newHandle.id());
     }
     return newHandle;
   }
@@ -220,32 +217,29 @@ public class DefaultJobSchedulerService
     // Idempotent: already paused is a no-op success
     JobStatus current = jobCrudStore.getJobStatus(jobId);
     if (current == null) {
-      log.fine("Cannot pause job " + jobId + " — not found");
+      log.debugf("Cannot pause job %s — not found", jobId);
       return false;
     }
     if (current == JobStatus.PAUSED) {
-      log.fine("Job " + jobId + " is already paused");
+      log.debugf("Job %s is already paused", jobId);
       return true;
     }
 
     // Try PENDING → PAUSED (atomically sets paused_from_status)
     if (jobStatusStore.transitionToPaused(jobId, JobStatus.PENDING)) {
-      log.fine("Paused pending job " + jobId);
+      log.debugf("Paused pending job %s", jobId);
       return true;
     }
 
     // Try FAILED → PAUSED (atomically sets paused_from_status)
     if (jobStatusStore.transitionToPaused(jobId, JobStatus.FAILED)) {
-      log.fine("Paused failed job " + jobId);
+      log.debugf("Paused failed job %s", jobId);
       return true;
     }
 
-    log.fine(
-        "Cannot pause job "
-            + jobId
-            + " — current status "
-            + current
-            + " is not pausable (only PENDING or FAILED)");
+    log.debugf(
+        "Cannot pause job %s — current status %s is not pausable (only PENDING or FAILED)",
+        jobId, current);
     return false;
   }
 
@@ -256,14 +250,13 @@ public class DefaultJobSchedulerService
     if (target == null) {
       JobStatus current = jobCrudStore.getJobStatus(jobId);
       if (current == null) {
-        log.fine("Cannot resume job " + jobId + " — not found");
+        log.debugf("Cannot resume job %s — not found", jobId);
       } else {
-        log.fine(
-            "Cannot resume job " + jobId + " — not in PAUSED state (current: " + current + ")");
+        log.debugf("Cannot resume job %s — not in PAUSED state (current: %s)", jobId, current);
       }
       return false;
     }
-    log.fine("Resumed job " + jobId + " to " + target);
+    log.debugf("Resumed job %s to %s", jobId, target);
     if (target == JobStatus.PENDING) {
       recurringScheduler.kick();
     }
@@ -274,15 +267,15 @@ public class DefaultJobSchedulerService
   @Transactional
   public boolean retryJob(long jobId) {
     if (jobStatusStore.resetFailedToPending(jobId)) {
-      log.fine("Retried failed job " + jobId + " — reset to PENDING");
+      log.debugf("Retried failed job %s — reset to PENDING", jobId);
       return true;
     }
 
     JobStatus current = jobCrudStore.getJobStatus(jobId);
     if (current == null) {
-      log.fine("Cannot retry job " + jobId + " — not found");
+      log.debugf("Cannot retry job %s — not found", jobId);
     } else {
-      log.fine("Cannot retry job " + jobId + " — not in FAILED state (current: " + current + ")");
+      log.debugf("Cannot retry job %s — not in FAILED state (current: %s)", jobId, current);
     }
     return false;
   }
@@ -323,11 +316,8 @@ public class DefaultJobSchedulerService
     Optional<JobEntity> existingByKey = jobCrudStore.findByIdempotencyKey(idempotencyKey);
     if (existingByKey.isPresent()) {
       Long existingId = existingByKey.get().getId();
-      log.fine(
-          "Duplicate idempotency key '"
-              + idempotencyKey
-              + "', returning existing job "
-              + existingId);
+      log.debugf(
+          "Duplicate idempotency key '%s', returning existing job %s", idempotencyKey, existingId);
       return () -> existingId;
     }
 
@@ -404,7 +394,7 @@ public class DefaultJobSchedulerService
       wakeupService.notify(opts.priority(), true);
     }
 
-    log.fine("Job submitted (id=" + jobId + ", type=SINGLE, delay=" + builder.delay() + ")");
+    log.debugf("Job submitted (id=%s, type=SINGLE, delay=%s)", jobId, builder.delay());
     return () -> jobId;
   }
 

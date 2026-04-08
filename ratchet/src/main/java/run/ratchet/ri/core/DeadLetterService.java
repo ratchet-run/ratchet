@@ -24,8 +24,7 @@ import java.time.ZonedDateTime;
 import java.util.HexFormat;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Service responsible for managing the Dead Letter Queue (DLQ) for permanently failed jobs. The DLQ
@@ -47,7 +46,7 @@ import java.util.logging.Logger;
 @Transactional
 public class DeadLetterService {
 
-  private static final Logger log = Logger.getLogger(DeadLetterService.class.getName());
+  private static final Logger log = Logger.getLogger(DeadLetterService.class);
 
   /** Distributed lock name used to coordinate DLQ purge operations across cluster nodes. */
   private static final String LOCK_NAME = "dlqPurger";
@@ -133,7 +132,7 @@ public class DeadLetterService {
 
     recordDlqAlert(job, cause);
 
-    log.warning("Job " + job.getId() + " moved to DLQ");
+    log.warnf("Job %s moved to DLQ", job.getId());
   }
 
   /**
@@ -149,7 +148,7 @@ public class DeadLetterService {
       Instant cutoff = Instant.now().minus(ALERT_DEDUP_WINDOW);
 
       if (dlqAlertStore.existsRecentDlqAlert(job.getId(), errorHash, cutoff)) {
-        log.fine("DLQ alert suppressed for job " + job.getId() + " (duplicate within window)");
+        log.debugf("DLQ alert suppressed for job %s (duplicate within window)", job.getId());
         return;
       }
 
@@ -160,7 +159,7 @@ public class DeadLetterService {
       alert.setAlertChannel("system");
       dlqAlertStore.saveDlqAlert(alert);
     } catch (Exception e) {
-      log.log(Level.WARNING, "Failed to record DLQ alert for job " + job.getId(), e);
+      log.warnf(e, "Failed to record DLQ alert for job %s", job.getId());
     }
   }
 
@@ -195,7 +194,7 @@ public class DeadLetterService {
 
     scheduleNext();
 
-    log.info("DeadLetterService scheduled DLQ purge (retention=" + purgeDays + " days)");
+    log.infof("DeadLetterService scheduled DLQ purge (retention=%s days)", purgeDays);
   }
 
   /** Purges old DLQ entries and schedules the next run. */
@@ -211,17 +210,17 @@ public class DeadLetterService {
   void purge() {
     try {
       if (!lockStore.tryLock(LOCK_NAME, Duration.ofMinutes(10), nodeIdentityProvider.getNodeId())) {
-        log.fine("DLQ purge skipped - lock held by another node");
+        log.debug("DLQ purge skipped - lock held by another node");
         return;
       }
 
       Instant cutoff = Instant.now().minus(purgeAfter);
       int deleted = jobBulkStore.deleteDlqOlderThan(cutoff);
       if (deleted > 0) {
-        log.info("Purged " + deleted + " DLQ rows older than " + cutoff);
+        log.infof("Purged %s DLQ rows older than %s", deleted, cutoff);
       }
     } catch (Exception e) {
-      log.log(Level.SEVERE, "DLQ purge failed", e);
+      log.error("DLQ purge failed", e);
     }
   }
 

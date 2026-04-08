@@ -3,7 +3,7 @@ package run.ratchet.ri.core;
 import run.ratchet.spi.ClusterCoordinator;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Bridge that registers with the {@link ClusterCoordinator} to receive wakeup notifications and
@@ -28,7 +28,7 @@ import java.util.logging.Logger;
 @ApplicationScoped
 public class PollerWakeupListener {
 
-  private static final Logger log = Logger.getLogger(PollerWakeupListener.class.getName());
+  private static final Logger log = Logger.getLogger(PollerWakeupListener.class);
 
   private final ClusterCoordinator clusterCoordinator;
   private final PollerScheduler pollerScheduler;
@@ -56,16 +56,16 @@ public class PollerWakeupListener {
       clusterCoordinator.registerWakeupListener(this::onWakeup);
       log.info("PollerWakeupListener registered with ClusterCoordinator");
     } catch (Exception e) {
-      log.severe("Failed to register PollerWakeupListener - notifications disabled: " + e);
+      log.errorf("Failed to register PollerWakeupListener - notifications disabled: %s", e);
     }
   }
 
   private void onWakeup() {
     try {
-      log.fine("Received wakeup notification, waking poller");
+      log.debug("Received wakeup notification, waking poller");
       pollerScheduler.wakeup();
     } catch (Exception e) {
-      log.warning("Error processing wakeup notification: " + e.getMessage());
+      log.warnf("Error processing wakeup notification: %s", e.getMessage());
     }
   }
 }

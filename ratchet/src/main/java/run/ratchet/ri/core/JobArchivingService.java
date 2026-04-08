@@ -18,8 +18,7 @@ import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Manages the lifecycle and retention of job execution history through automated archiving. This
@@ -43,7 +42,7 @@ import java.util.logging.Logger;
 @Transactional
 public class JobArchivingService {
 
-  private static final Logger log = Logger.getLogger(JobArchivingService.class.getName());
+  private static final Logger log = Logger.getLogger(JobArchivingService.class);
 
   private static final String ARCHIVED_BY_SYSTEM = "system";
   private static final String ARCHIVE_REASON_RETENTION = "retention_policy";
@@ -127,7 +126,7 @@ public class JobArchivingService {
   /** Manually triggers an archiving run outside the normal schedule. */
   public void triggerArchiving() {
     if (!enabled) {
-      log.warning("Cannot trigger archiving: service is disabled");
+      log.warn("Cannot trigger archiving: service is disabled");
       return;
     }
 
@@ -138,20 +137,20 @@ public class JobArchivingService {
   /** Main archiving operation that processes eligible jobs in batches. */
   void run() {
     if (!enabled) {
-      log.fine("Job archiving is disabled, skipping run");
+      log.debug("Job archiving is disabled, skipping run");
       return;
     }
 
     // Try to acquire leader lock with 2-hour TTL
     if (!lockStore.tryLock(LOCK_NAME, Duration.ofHours(2), nodeIdentityProvider.getNodeId())) {
-      log.fine("Another node is running job archiving, skipping");
+      log.debug("Another node is running job archiving, skipping");
       return;
     }
 
     try {
       performArchiving();
     } catch (Exception e) {
-      log.log(Level.SEVERE, "Job archiving failed", e);
+      log.error("Job archiving failed", e);
     } finally {
       scheduleNext();
     }
@@ -164,17 +163,17 @@ public class JobArchivingService {
     try {
       int purged = archiveStore.purgeArchivedJobs(archiveCutoff);
       if (purged > 0) {
-        log.info("Purged " + purged + " archived jobs older than " + archiveCutoff);
+        log.infof("Purged %s archived jobs older than %s", purged, archiveCutoff);
       }
     } catch (Exception e) {
-      log.log(Level.SEVERE, "Failed to purge old archived jobs", e);
+      log.error("Failed to purge old archived jobs", e);
     }
   }
 
   private void performArchiving() {
     Instant cutoffTime = Instant.now().minus(retentionPeriod);
 
-    log.info("Starting job archiving for jobs older than " + cutoffTime);
+    log.infof("Starting job archiving for jobs older than %s", cutoffTime);
 
     long totalEligible = archiveStore.countJobsForArchiving(cutoffTime);
     if (totalEligible == 0) {
@@ -182,7 +181,7 @@ public class JobArchivingService {
       return;
     }
 
-    log.info("Found " + totalEligible + " jobs eligible for archiving");
+    log.infof("Found %s jobs eligible for archiving", totalEligible);
 
     int totalArchived = 0;
     int batchCount = 0;
@@ -207,14 +206,9 @@ public class JobArchivingService {
 
           totalArchived += archivedCount;
 
-          log.info(
-              "Batch "
-                  + batchCount
-                  + ": Archived "
-                  + archivedCount
-                  + " jobs, deleted "
-                  + deletedCount
-                  + " from active table");
+          log.infof(
+              "Batch %s: Archived %s jobs, deleted %s from active table",
+              batchCount, archivedCount, deletedCount);
         }
 
         if (batch.size() < batchSize) {
@@ -222,17 +216,13 @@ public class JobArchivingService {
         }
 
       } catch (Exception e) {
-        log.log(Level.SEVERE, "Failed to process archiving batch " + batchCount, e);
+        log.errorf(e, "Failed to process archiving batch %s", batchCount);
       }
     }
 
     if (totalArchived > 0) {
-      log.info(
-          "Job archiving completed: "
-              + totalArchived
-              + " jobs archived in "
-              + batchCount
-              + " batches");
+      log.infof(
+          "Job archiving completed: %s jobs archived in %s batches", totalArchived, batchCount);
     }
 
     performArchiveCleanup();

@@ -4,7 +4,7 @@ import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Responsible for coordinating the submission, initialization, and shutdown of job processing
@@ -22,7 +22,7 @@ import java.util.logging.Logger;
 @ApplicationScoped
 public class JobExecutionCoordinator {
 
-  private static final Logger log = Logger.getLogger(JobExecutionCoordinator.class.getName());
+  private static final Logger log = Logger.getLogger(JobExecutionCoordinator.class);
 
   private final JobSubmissionService jobSubmissionService;
   private final JobStateManager jobStateManager;
@@ -91,6 +91,6 @@ public class JobExecutionCoordinator {
    */
   public void shutdown() {
     int reset = jobStateManager.resetRunningJobsForNode();
-    log.info("JobExecutionCoordinator shutdown - reset " + reset + " RUNNING jobs to PENDING");
+    log.infof("JobExecutionCoordinator shutdown - reset %s RUNNING jobs to PENDING", reset);
   }
 }

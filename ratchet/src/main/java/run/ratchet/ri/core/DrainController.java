@@ -2,7 +2,7 @@ package run.ratchet.ri.core;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Controls the drain mode state for the job scheduler node, enabling graceful shutdown and
@@ -26,7 +26,7 @@ import java.util.logging.Logger;
 @ApplicationScoped
 public class DrainController {
 
-  private static final Logger log = Logger.getLogger(DrainController.class.getName());
+  private static final Logger log = Logger.getLogger(DrainController.class);
 
   private final AtomicBoolean draining = new AtomicBoolean(false);
 

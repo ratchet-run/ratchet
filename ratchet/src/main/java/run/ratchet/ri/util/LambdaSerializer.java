@@ -14,8 +14,7 @@ import java.io.ObjectOutputStream;
 import java.io.ObjectStreamClass;
 import java.util.Base64;
 import java.util.Set;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Service for serializing and deserializing lambda expressions used in workflow conditions.
@@ -44,7 +43,7 @@ import java.util.logging.Logger;
 @ApplicationScoped
 public class LambdaSerializer {
 
-  private static final Logger log = Logger.getLogger(LambdaSerializer.class.getName());
+  private static final Logger log = Logger.getLogger(LambdaSerializer.class);
 
   /** Allowlist of exact class names permitted during deserialization. */
   private static final Set<String> ALLOWED_CLASSES =
@@ -130,17 +129,15 @@ public class LambdaSerializer {
           return (SerializablePredicate<BatchContext>) obj;
         }
 
-        log.warning("Deserialized object is not a SerializablePredicate: " + obj.getClass());
+        log.warnf("Deserialized object is not a SerializablePredicate: %s", obj.getClass());
         return null;
       }
     } catch (InvalidClassException e) {
-      log.log(
-          Level.SEVERE,
-          "Security: Blocked deserialization of unauthorized class in BatchContext predicate",
-          e);
+      log.error(
+          "Security: Blocked deserialization of unauthorized class in BatchContext predicate", e);
       return null;
     } catch (Exception e) {
-      log.log(Level.SEVERE, "Failed to deserialize BatchContext predicate", e);
+      log.error("Failed to deserialize BatchContext predicate", e);
       return null;
     }
   }
@@ -170,17 +167,15 @@ public class LambdaSerializer {
           return (SerializablePredicate<JobResult<?>>) obj;
         }
 
-        log.warning("Deserialized object is not a SerializablePredicate: " + obj.getClass());
+        log.warnf("Deserialized object is not a SerializablePredicate: %s", obj.getClass());
         return null;
       }
     } catch (InvalidClassException e) {
-      log.log(
-          Level.SEVERE,
-          "Security: Blocked deserialization of unauthorized class in JobResult predicate",
-          e);
+      log.error(
+          "Security: Blocked deserialization of unauthorized class in JobResult predicate", e);
       return null;
     } catch (Exception e) {
-      log.log(Level.SEVERE, "Failed to deserialize JobResult predicate", e);
+      log.error("Failed to deserialize JobResult predicate", e);
       return null;
     }
   }
@@ -209,17 +204,14 @@ public class LambdaSerializer {
           return (SerializableFunction<Object, Boolean>) obj;
         }
 
-        log.warning("Deserialized object is not a SerializableFunction: " + obj.getClass());
+        log.warnf("Deserialized object is not a SerializableFunction: %s", obj.getClass());
         return null;
       }
     } catch (InvalidClassException e) {
-      log.log(
-          Level.SEVERE,
-          "Security: Blocked deserialization of unauthorized class in result function",
-          e);
+      log.error("Security: Blocked deserialization of unauthorized class in result function", e);
       return null;
     } catch (Exception e) {
-      log.log(Level.SEVERE, "Failed to deserialize result function", e);
+      log.error("Failed to deserialize result function", e);
       return null;
     }
   }
@@ -245,7 +237,7 @@ public class LambdaSerializer {
         return obj instanceof SerializablePredicate;
       }
     } catch (InvalidClassException e) {
-      log.warning("Validation blocked unauthorized class in predicate: " + e.getMessage());
+      log.warnf("Validation blocked unauthorized class in predicate: %s", e.getMessage());
       return false;
     } catch (Exception e) {
       return false;
@@ -273,7 +265,7 @@ public class LambdaSerializer {
       byte[] bytes = baos.toByteArray();
       return Base64.getEncoder().encodeToString(bytes);
     } catch (IOException e) {
-      log.log(Level.SEVERE, "Failed to serialize predicate", e);
+      log.error("Failed to serialize predicate", e);
       return null;
     }
   }
@@ -313,7 +305,7 @@ public class LambdaSerializer {
         }
 
         // Deny everything else - log security event
-        log.severe("Blocked unauthorized deserialization attempt for class: " + className);
+        log.errorf("Blocked unauthorized deserialization attempt for class: %s", className);
 
         throw new InvalidClassException(
             "Unauthorized deserialization attempt for class: "

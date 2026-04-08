@@ -32,8 +32,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 import org.objectweb.asm.Type;
 
 /**
@@ -61,7 +60,7 @@ import org.objectweb.asm.Type;
  */
 public class JobTask implements Callable<Void> {
 
-  private static final Logger log = Logger.getLogger(JobTask.class.getName());
+  private static final Logger log = Logger.getLogger(JobTask.class);
 
   /**
    * Thread-safe ObjectMapper singleton for JSON serialization of job results. Configured with
@@ -236,20 +235,19 @@ public class JobTask implements Callable<Void> {
     try {
       jobEntity = getJob();
     } catch (Exception e) {
-      log.log(
-          Level.SEVERE,
-          "Job " + jobId + " failed to load entity from database - aborting execution",
-          e);
+      log.errorf(e, "Job %s failed to load entity from database - aborting execution", jobId);
+      // Defensive: bind() hasn't run yet, but MDC.remove() of unset keys is a safe no-op.
       JobMdcContext.clear();
       return null;
     }
 
-    JobMdcContext.bindJobContext(jobId, jobEntity.getParams());
+    JobMdcContext.bindJobContext(
+        jobId, jobEntity.getParams(), nodeIdProvider.getNodeId(), jobEntity.getCreatedBy());
 
     if (jobEntity.getCreatedBy() != null) {
-      log.fine("Job " + jobId + " created by user: " + jobEntity.getCreatedBy());
+      log.debugf("Job %s created by user: %s", jobId, jobEntity.getCreatedBy());
     } else {
-      log.fine("Job " + jobId + " created by system (no user context)");
+      log.debugf("Job %s created by system (no user context)", jobId);
     }
 
     observabilityFacade.recordJobStart(jobEntity);
@@ -266,19 +264,16 @@ public class JobTask implements Callable<Void> {
             jobEntity.getPriority(),
             jobEntity.getPickedBy()));
 
-    if (log.isLoggable(Level.INFO)) {
-      log.log(
-          Level.INFO,
+    if (log.isInfoEnabled()) {
+      log.infov(
           "Job {0} starting execution [type={1}, priority={2}, attempt={3}/{4}, payload={5}.{6}]",
-          new Object[] {
-            jobId,
-            jobEntity.getJobType(),
-            jobEntity.getPriority(),
-            jobEntity.getAttempts() + 1,
-            jobEntity.getMaxRetries() + 1,
-            jobEntity.getPayload().target(),
-            jobEntity.getPayload().method()
-          });
+          jobId,
+          jobEntity.getJobType(),
+          jobEntity.getPriority(),
+          jobEntity.getAttempts() + 1,
+          jobEntity.getMaxRetries() + 1,
+          jobEntity.getPayload().target(),
+          jobEntity.getPayload().method());
     }
 
     Instant start = Instant.now();
@@ -292,11 +287,8 @@ public class JobTask implements Callable<Void> {
       }
 
       if (!resilienceStrategy.isServiceAvailable(resilienceServiceName)) {
-        log.info(
-            "Job "
-                + jobId
-                + " skipped - circuit breaker OPEN for service: "
-                + resilienceServiceName);
+        log.infof(
+            "Job %s skipped - circuit breaker OPEN for service: %s", jobId, resilienceServiceName);
         rescheduleForCircuitBreaker(jobEntity, resilienceServiceName);
         return null;
       }
@@ -325,27 +317,33 @@ public class JobTask implements Callable<Void> {
       try {
         handleFailure(t);
       } catch (Throwable failureHandlingError) {
-        log.log(
-            Level.SEVERE,
-            "Job " + job.getId() + " failure handling itself failed, forcing FAILED status",
-            failureHandlingError);
+        log.errorf(
+            failureHandlingError,
+            "Job %s failure handling itself failed, forcing FAILED status",
+            job.getId());
         try {
           jobStore.compareAndSwapStatus(
               job.getId(), JobStatus.RUNNING, JobStatus.FAILED, t.toString());
         } catch (Throwable lastResort) {
-          log.log(
-              Level.SEVERE,
-              "Job "
-                  + job.getId()
-                  + " could not be transitioned to FAILED — will require orphan recovery",
-              lastResort);
+          log.errorf(
+              lastResort,
+              "Job %s could not be transitioned to FAILED — will require orphan recovery",
+              job.getId());
         }
       }
     } finally {
       if (permitAcquired) {
         releaseResourcePermit();
       }
-      log.info("Job " + jobId + " execution complete - cleaning up context");
+      log.infof("Job %s execution complete - cleaning up context", jobId);
+      // CRITICAL: the surrounding catch above MUST be `catch (Throwable t)`, not
+      // `catch (Exception)`. Worker threads in pooled executors get returned to the pool after
+      // call() completes. If a job throws an Error (AssertionError, OutOfMemoryError,
+      // StackOverflowError) and the catch is narrowed to Exception, this finally block STILL
+      // runs (Java's `finally` is unconditional), but if a future refactor moves cleanup out
+      // of `finally` and into `catch`, MDC will leak across pooled threads and the next job
+      // will inherit stale jobId/node/jobCreator keys. JobMdcContextThrowableTest enforces
+      // this invariant.
       JobMdcContext.clear();
     }
     return null;
@@ -415,27 +413,19 @@ public class JobTask implements Callable<Void> {
             newScheduledTime,
             job.getAttempts());
 
-        log.info(
-            "Job "
-                + job.getId()
-                + " waiting for resource '"
-                + resourceName
-                + "' - rescheduled for "
-                + retryDelay
-                + "ms");
+        log.infof(
+            "Job %s waiting for resource '%s' - rescheduled for %sms",
+            job.getId(), resourceName, retryDelay);
 
         return false;
       }
 
       permitAcquired = true;
-      log.info("Job " + job.getId() + " acquired permit for resource '" + resourceName + "'");
+      log.infof("Job %s acquired permit for resource '%s'", job.getId(), resourceName);
       return true;
 
     } catch (IllegalArgumentException e) {
-      log.log(
-          Level.SEVERE,
-          "Job " + job.getId() + " references unconfigured resource: " + resourceName,
-          e);
+      log.errorf(e, "Job %s references unconfigured resource: %s", job.getId(), resourceName);
       handleFailure(e);
       return false;
     }
@@ -446,9 +436,9 @@ public class JobTask implements Callable<Void> {
     if (resourceName != null) {
       try {
         resourcePermitService.release(resourceName, job.getId());
-        log.info("Job " + job.getId() + " released permit for resource '" + resourceName + "'");
+        log.infof("Job %s released permit for resource '%s'", job.getId(), resourceName);
       } catch (Exception e) {
-        log.warning("Failed to release permit for job " + job.getId() + ": " + e.getMessage());
+        log.warnf("Failed to release permit for job %s: %s", job.getId(), e.getMessage());
       }
     }
   }
@@ -478,14 +468,14 @@ public class JobTask implements Callable<Void> {
   private boolean wasJobCanceledDuringExecution() {
     JobStatus freshStatus = jobStore.getJobStatus(job.getId());
     if (freshStatus == null) {
-      log.warning("Job " + job.getId() + " was deleted during execution - treating as canceled");
+      log.warnf("Job %s was deleted during execution - treating as canceled", job.getId());
       return true;
     }
     return freshStatus == JobStatus.CANCELED;
   }
 
   private void handleCanceledDuringExecution(Instant start) {
-    log.info("Job " + job.getId() + " was canceled during execution - result discarded");
+    log.infof("Job %s was canceled during execution - result discarded", job.getId());
 
     Instant endTime = Instant.now();
     long executionMs = Duration.between(start, endTime).toMillis();
@@ -539,10 +529,8 @@ public class JobTask implements Callable<Void> {
   }
 
   private void handleFailure(Throwable ex) {
-    log.log(
-        Level.SEVERE,
-        "Job " + job.getId() + " failed with " + ex.getClass().getName() + ": " + ex.getMessage(),
-        ex);
+    log.errorf(
+        ex, "Job %s failed with %s: %s", job.getId(), ex.getClass().getName(), ex.getMessage());
 
     // B7: Check shouldNotRetry FIRST, before burning an attempt slot. Non-retryable failures
     // go straight to the failure handler with the existing attempt count, so the audit trail
@@ -556,7 +544,7 @@ public class JobTask implements Callable<Void> {
 
     int attempt = jobStore.incrementRetryAttempt(job.getId());
     if (attempt == -1) {
-      log.info("Job " + job.getId() + " already in terminal state, skipping retry logic");
+      log.infof("Job %s already in terminal state, skipping retry logic", job.getId());
       return;
     }
 
@@ -572,12 +560,9 @@ public class JobTask implements Callable<Void> {
   }
 
   private void handleNonRetryableFailure(Throwable ex, int attempt) {
-    log.warning(
-        "Job "
-            + job.getId()
-            + " failed with non-retryable exception: "
-            + ex.getClass().getName()
-            + " - moving directly to DLQ");
+    log.warnf(
+        "Job %s failed with non-retryable exception: %s - moving directly to DLQ",
+        job.getId(), ex.getClass().getName());
 
     if (currentExecution != null) {
       currentExecution.markFailed(ex);
@@ -614,16 +599,9 @@ public class JobTask implements Callable<Void> {
           // Truncate to a marker JSON that captures the original size and the cap. The job
           // still succeeds — operators can see the truncation in the row and adjust either
           // the cap or the job's return shape.
-          log.warning(
-              "Job "
-                  + job.getId()
-                  + " result exceeds "
-                  + RESULT_MAX_BYTES_PROPERTY
-                  + "="
-                  + maxBytes
-                  + " bytes (actual="
-                  + resultJson.length()
-                  + "); truncating to marker");
+          log.warnf(
+              "Job %s result exceeds %s=%s bytes (actual=%s); truncating to marker",
+              job.getId(), RESULT_MAX_BYTES_PROPERTY, maxBytes, resultJson.length());
           resultJson =
               "{\"_truncated\":true,\"_originalSize\":"
                   + resultJson.length()
@@ -634,14 +612,13 @@ public class JobTask implements Callable<Void> {
                   + "\"}";
         }
       } catch (Exception e) {
-        log.warning(
-            "Failed to serialize job result for job " + job.getId() + ": " + e.getMessage());
+        log.warnf("Failed to serialize job result for job %s: %s", job.getId(), e.getMessage());
       }
     }
 
     if (!jobStore.markJobSucceeded(
         job.getId(), resultJson, resultType, start, endTime, executionMs, queueMs)) {
-      log.info("Job " + job.getId() + " already in terminal state, skipping success handling");
+      log.infof("Job %s already in terminal state, skipping success handling", job.getId());
       return;
     }
 
@@ -670,22 +647,18 @@ public class JobTask implements Callable<Void> {
     try {
       lifecycleFacade.handleJobSuccess(job);
     } catch (Exception e) {
-      log.warning(
-          "Job "
-              + job.getId()
-              + " [type="
-              + job.getJobType()
-              + ", key="
-              + job.getBusinessKey()
-              + "] succeeded but post-success lifecycle processing failed: "
-              + e.getClass().getName()
-              + ": "
-              + e.getMessage());
+      log.warnf(
+          "Job %s [type=%s, key=%s] succeeded but post-success lifecycle processing failed: %s: %s",
+          job.getId(),
+          job.getJobType(),
+          job.getBusinessKey(),
+          e.getClass().getName(),
+          e.getMessage());
     }
 
     invokeCallback(job.getOnSuccessPayload(), "onSuccess");
 
-    log.info("Job " + job.getId() + " succeeded in " + executionMs + " ms");
+    log.infof("Job %s succeeded in %s ms", job.getId(), executionMs);
   }
 
   /**
@@ -709,7 +682,7 @@ public class JobTask implements Callable<Void> {
             || ex.getCause() instanceof java.util.concurrent.TimeoutException
             || ex.getCause() instanceof InterruptedException;
     if (wasTimeout) {
-      log.log(Level.SEVERE, "Job " + job.getId() + " was cancelled due to timeout", ex);
+      log.errorf(ex, "Job %s was cancelled due to timeout", job.getId());
     }
   }
 
@@ -727,8 +700,7 @@ public class JobTask implements Callable<Void> {
       lifecycleFacade.moveToDlq(job, ex);
       handleBatchOrWorkflowPermanentFailure();
       invokeCallback(job.getOnFailurePayload(), "onFailure");
-      log.log(
-          Level.SEVERE, "Job " + job.getId() + " moved to DLQ after " + attempt + " attempts", ex);
+      log.errorf(ex, "Job %s moved to DLQ after %s attempts", job.getId(), attempt);
     }
   }
 
@@ -765,25 +737,19 @@ public class JobTask implements Callable<Void> {
       // with the full stack, (b) a metrics counter increment, and (c) a CDI/programmatic
       // event they can observe. The parent job still succeeds — callbacks are by design
       // fire-and-log, not failure-propagating.
-      log.log(
-          Level.SEVERE,
-          "Job "
-              + job.getId()
-              + " "
-              + callbackName
-              + " callback failed: "
-              + e.getClass().getName()
-              + ": "
-              + e.getMessage(),
-          e);
+      log.errorf(
+          e,
+          "Job %s %s callback failed: %s: %s",
+          job.getId(),
+          callbackName,
+          e.getClass().getName(),
+          e.getMessage());
       try {
         observabilityFacade.recordCallbackFailure(job, e, 1);
       } catch (Exception metricEx) {
-        log.warning(
-            "Failed to record callback failure metric for job "
-                + job.getId()
-                + ": "
-                + metricEx.getMessage());
+        log.warnf(
+            "Failed to record callback failure metric for job %s: %s",
+            job.getId(), metricEx.getMessage());
       }
       try {
         JobCallbackFailedEvent.CallbackType type =
@@ -802,11 +768,9 @@ public class JobTask implements Callable<Void> {
                 e.getClass().getName(),
                 1));
       } catch (Exception eventEx) {
-        log.warning(
-            "Failed to publish JobCallbackFailedEvent for job "
-                + job.getId()
-                + ": "
-                + eventEx.getMessage());
+        log.warnf(
+            "Failed to publish JobCallbackFailedEvent for job %s: %s",
+            job.getId(), eventEx.getMessage());
       }
     }
   }
@@ -885,25 +849,15 @@ public class JobTask implements Callable<Void> {
     // (see B6 fix). Do not re-validate here — security exceptions inside the breaker would
     // poison it for the target service.
 
-    log.info(
-        "Job "
-            + job.getId()
-            + " resolving target: "
-            + payload.target()
-            + "."
-            + payload.method()
-            + " (static="
-            + payload.isStatic()
-            + ")");
+    log.infof(
+        "Job %s resolving target: %s.%s (static=%s)",
+        job.getId(), payload.target(), payload.method(), payload.isStatic());
 
     Class<?> cls;
     try {
       cls = loadAllowedClass(payload.target());
     } catch (ClassNotFoundException cnfe) {
-      log.log(
-          Level.SEVERE,
-          "Job " + job.getId() + " target class not found: " + payload.target(),
-          cnfe);
+      log.errorf(cnfe, "Job %s target class not found: %s", job.getId(), payload.target());
       throw cnfe;
     }
 
@@ -911,17 +865,13 @@ public class JobTask implements Callable<Void> {
     try {
       m = resolveMethod(cls, payload);
     } catch (NoSuchMethodException e) {
-      log.log(
-          Level.SEVERE,
-          "Job "
-              + job.getId()
-              + " target method not found: "
-              + payload.method()
-              + " with descriptor "
-              + payload.methodDescriptor()
-              + " in class "
-              + payload.target(),
-          e);
+      log.errorf(
+          e,
+          "Job %s target method not found: %s with descriptor %s in class %s",
+          job.getId(),
+          payload.method(),
+          payload.methodDescriptor(),
+          payload.target());
       throw e;
     }
 
@@ -933,8 +883,7 @@ public class JobTask implements Callable<Void> {
     try {
       bean = beanResolver.resolve(cls);
     } catch (Exception e) {
-      log.log(
-          Level.SEVERE,
+      log.error(
           String.format(
               "Failed to resolve bean for instance method %s in class %s",
               payload.method(), payload.target()),
@@ -991,19 +940,14 @@ public class JobTask implements Callable<Void> {
               newScheduledTime));
       scheduleReadyJobsUpdate(backoff);
 
-      log.warning(
-          "Job "
-              + job.getId()
-              + " retrying in "
-              + backoff
-              + " ms (attempt "
-              + attempt
-              + "/"
-              + job.getMaxRetries()
-              + ") due to: "
-              + ex.getClass().getName()
-              + ": "
-              + ex.getMessage());
+      log.warnf(
+          "Job %s retrying in %s ms (attempt %s/%s) due to: %s: %s",
+          job.getId(),
+          backoff,
+          attempt,
+          job.getMaxRetries(),
+          ex.getClass().getName(),
+          ex.getMessage());
     }
   }
 

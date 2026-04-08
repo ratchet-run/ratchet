@@ -36,8 +36,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * PostgreSQL implementation of the {@link JobStore} SPI.
@@ -49,7 +48,7 @@ import java.util.logging.Logger;
 @Transactional
 public class PostgresqlJobStore implements JobStore {
 
-  private static final Logger log = Logger.getLogger(PostgresqlJobStore.class.getName());
+  private static final Logger log = Logger.getLogger(PostgresqlJobStore.class);
   private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
   private static final String EXECUTABLE_JOB_TYPE_FILTER =
       "job_type IN ('SINGLE','BATCH_CHILD','CHAIN_STEP','WORKFLOW_BRANCH')";
@@ -1565,7 +1564,7 @@ public class PostgresqlJobStore implements JobStore {
     try {
       return OBJECT_MAPPER.readValue(jsonValue.toString(), JobPayload.class);
     } catch (JsonProcessingException e) {
-      log.warning("Failed to parse progress_hook JSON: " + e.getMessage());
+      log.warnf("Failed to parse progress_hook JSON: %s", e.getMessage());
       return null;
     }
   }
@@ -1624,7 +1623,7 @@ public class PostgresqlJobStore implements JobStore {
     try {
       return OBJECT_MAPPER.writeValueAsString(job.getPayload());
     } catch (Exception e) {
-      log.log(Level.WARNING, "Failed to serialize payload", e);
+      log.warn("Failed to serialize payload", e);
       return "{}";
     }
   }
@@ -1636,7 +1635,7 @@ public class PostgresqlJobStore implements JobStore {
     try {
       return OBJECT_MAPPER.writeValueAsString(job.getParams());
     } catch (Exception e) {
-      log.log(Level.WARNING, "Failed to serialize params", e);
+      log.warn("Failed to serialize params", e);
       return null;
     }
   }
@@ -1648,7 +1647,7 @@ public class PostgresqlJobStore implements JobStore {
     try {
       return OBJECT_MAPPER.writeValueAsString(payload);
     } catch (Exception e) {
-      log.log(Level.WARNING, "Failed to serialize callback payload", e);
+      log.warn("Failed to serialize callback payload", e);
       return null;
     }
   }

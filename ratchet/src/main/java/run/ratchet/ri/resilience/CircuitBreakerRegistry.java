@@ -4,7 +4,7 @@ import run.ratchet.api.CircuitBreakerProfile;
 import jakarta.enterprise.context.ApplicationScoped;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Registry for managing circuit breaker instances by service name.
@@ -16,7 +16,7 @@ import java.util.logging.Logger;
 @ApplicationScoped
 public class CircuitBreakerRegistry {
 
-  private static final Logger log = Logger.getLogger(CircuitBreakerRegistry.class.getName());
+  private static final Logger log = Logger.getLogger(CircuitBreakerRegistry.class);
 
   private final Map<String, CircuitBreaker> breakers = new ConcurrentHashMap<>();
   private final Map<String, CircuitBreakerConfiguration> configs = new ConcurrentHashMap<>();
@@ -70,7 +70,7 @@ public class CircuitBreakerRegistry {
     CircuitBreaker breaker = breakers.get(serviceName + ":" + profile.name());
     if (breaker != null) {
       breaker.transitionToOpen();
-      log.warning("Manually opened circuit breaker for service: " + serviceName);
+      log.warnf("Manually opened circuit breaker for service: %s", serviceName);
     }
   }
 
@@ -84,19 +84,19 @@ public class CircuitBreakerRegistry {
     CircuitBreaker breaker = breakers.get(serviceName + ":" + profile.name());
     if (breaker != null) {
       breaker.reset();
-      log.info("Reset circuit breaker for service: " + serviceName);
+      log.infof("Reset circuit breaker for service: %s", serviceName);
     }
   }
 
   /** Registers a named configuration for future breaker creation. */
   public void registerConfig(String name, CircuitBreakerConfiguration config) {
     configs.put(name, config);
-    log.fine("Registered circuit breaker config: " + name);
+    log.debugf("Registered circuit breaker config: %s", name);
   }
 
   private CircuitBreaker createBreaker(String serviceName, CircuitBreakerConfiguration config) {
     CircuitBreaker breaker = new CircuitBreaker(serviceName, config);
-    log.fine("Created circuit breaker for service: " + serviceName);
+    log.debugf("Created circuit breaker for service: %s", serviceName);
     // Metrics for circuit breaker creation tracked via JUL logging
     // MetricsCollector SPI is job-oriented; circuit breaker metrics are internal
     return breaker;

@@ -7,8 +7,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Owns the scheduling infrastructure for the job poller.
@@ -27,7 +26,7 @@ import java.util.logging.Logger;
 @ApplicationScoped
 public class PollerScheduler {
 
-  private static final Logger log = Logger.getLogger(PollerScheduler.class.getName());
+  private static final Logger log = Logger.getLogger(PollerScheduler.class);
 
   private final AtomicBoolean started = new AtomicBoolean();
   private final ExecutorProvider executorProvider;
@@ -57,7 +56,7 @@ public class PollerScheduler {
   /** Starts the polling scheduler. Schedules the first poll cycle immediately. */
   public void start() {
     if (!started.compareAndSet(false, true)) {
-      log.warning("PollerScheduler already started; skipping re-start");
+      log.warn("PollerScheduler already started; skipping re-start");
       return;
     }
 
@@ -94,7 +93,7 @@ public class PollerScheduler {
     cancelCurrentSchedule();
     scheduleNext(0);
 
-    log.fine("PollerScheduler wakeup triggered - immediate poll scheduled");
+    log.debug("PollerScheduler wakeup triggered - immediate poll scheduled");
   }
 
   void scheduleNext(long delayMs) {
@@ -129,15 +128,14 @@ public class PollerScheduler {
       // CDI context gone (e.g. Arquillian undeploy) — stop permanently, next deploy starts fresh
       if (isCdiContextGone(t)) {
         started.set(false);
-        log.log(Level.INFO, "Poll cycle detected inactive CDI context — stopping permanently");
+        log.info("Poll cycle detected inactive CDI context — stopping permanently");
         return;
       }
-      log.log(Level.SEVERE, "Poll cycle failed", t);
+      log.error("Poll cycle failed", t);
       try {
         scheduleNext(5000);
       } catch (Exception e) {
-        log.log(
-            Level.FINE, "Cannot reschedule poll cycle — scheduler will restart on next deploy", e);
+        log.debug("Cannot reschedule poll cycle — scheduler will restart on next deploy", e);
       }
     }
   }

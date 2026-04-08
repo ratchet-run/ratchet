@@ -37,8 +37,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.logging.Logger;
 import java.util.stream.Collectors;
+import org.jboss.logging.Logger;
 
 /**
  * MySQL implementation of the {@link JobStore} SPI.
@@ -51,7 +51,7 @@ import java.util.stream.Collectors;
 @Transactional
 public class MysqlJobStore implements JobStore {
 
-  private static final Logger log = Logger.getLogger(MysqlJobStore.class.getName());
+  private static final Logger log = Logger.getLogger(MysqlJobStore.class);
   private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
   private static final String EXECUTABLE_JOB_TYPE_FILTER =
       "job_type IN ('SINGLE','BATCH_CHILD','CHAIN_STEP','WORKFLOW_BRANCH')";
@@ -1536,16 +1536,15 @@ public class MysqlJobStore implements JobStore {
           em.createNativeQuery("SELECT @@SESSION.transaction_isolation").getSingleResult();
       String isolation = result != null ? result.toString() : "unknown";
       if (!"READ-COMMITTED".equals(isolation)) {
-        log.warning(
-            "MySQL session isolation is '"
-                + isolation
-                + "' — Ratchet requires READ COMMITTED. "
+        log.warnf(
+            "MySQL session isolation is '%s' — Ratchet requires READ COMMITTED. "
                 + "REPEATABLE READ causes InnoDB gap locks that block concurrent job enqueue "
                 + "during claim queries. Set hibernate.connection.isolation=2 in persistence.xml "
-                + "or transaction-isolation=TRANSACTION_READ_COMMITTED on the datasource.");
+                + "or transaction-isolation=TRANSACTION_READ_COMMITTED on the datasource.",
+            isolation);
       }
     } catch (Exception e) {
-      log.fine("Could not check isolation level: " + e.getMessage());
+      log.debugf("Could not check isolation level: %s", e.getMessage());
     }
   }
 
@@ -1556,7 +1555,7 @@ public class MysqlJobStore implements JobStore {
     try {
       return OBJECT_MAPPER.readValue(jsonValue.toString(), JobPayload.class);
     } catch (JsonProcessingException e) {
-      log.warning("Failed to parse progress_hook JSON: " + e.getMessage());
+      log.warnf("Failed to parse progress_hook JSON: %s", e.getMessage());
       return null;
     }
   }

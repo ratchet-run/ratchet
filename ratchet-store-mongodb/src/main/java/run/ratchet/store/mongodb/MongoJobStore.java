@@ -57,9 +57,9 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.function.Function;
-import java.util.logging.Logger;
 import org.bson.Document;
 import org.bson.conversions.Bson;
+import org.jboss.logging.Logger;
 
 /**
  * MongoDB implementation of the {@link JobStore} SPI.
@@ -71,7 +71,7 @@ import org.bson.conversions.Bson;
 @ApplicationScoped
 public class MongoJobStore implements JobStore {
 
-  private static final Logger log = Logger.getLogger(MongoJobStore.class.getName());
+  private static final Logger log = Logger.getLogger(MongoJobStore.class);
 
   private static final List<String> EXECUTABLE_JOB_TYPES =
       List.of("SINGLE", "BATCH_CHILD", "CHAIN_STEP", "WORKFLOW_BRANCH");
@@ -139,12 +139,10 @@ public class MongoJobStore implements JobStore {
       // Concurrent modification or row never existed at the expected version. Fall back to
       // upsert (current behavior, last-writer-wins) so legacy paths keep working but log it
       // loudly so operators can find the race during alpha testing.
-      log.warning(
-          "MongoJobStore.save() optimistic lock miss for job "
-              + job.getId()
-              + " (expectedVersion="
-              + expectedVersion
-              + ") — falling back to upsert. Likely a concurrent save from another node.");
+      log.warnf(
+          "MongoJobStore.save() optimistic lock miss for job %s (expectedVersion=%s) —"
+              + " falling back to upsert. Likely a concurrent save from another node.",
+          job.getId(), expectedVersion);
       jobs().replaceOne(eq("_id", job.getId()), doc, new ReplaceOptions().upsert(true));
     }
     return job;
@@ -420,7 +418,7 @@ public class MongoJobStore implements JobStore {
       }
     } catch (Exception e) {
       // $percentile not supported — fall back to sort+skip
-      log.fine("$percentile aggregation not available, using sort+skip approximation");
+      log.debug("$percentile aggregation not available, using sort+skip approximation");
     }
     // Fallback: sort by queue_wait_ms, skip to percentile position
     long total = jobs().countDocuments(and(ne("queue_wait_ms", null), eq("status", "SUCCEEDED")));
@@ -1633,7 +1631,7 @@ public class MongoJobStore implements JobStore {
           claimed.add(mapper.apply(doc));
         }
       } catch (CompletionException e) {
-        log.warning("Failed to claim job: " + e.getCause().getMessage());
+        log.warnf("Failed to claim job: %s", e.getCause().getMessage());
       }
     }
     return claimed;

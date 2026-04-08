@@ -5,7 +5,7 @@ import jakarta.inject.Inject;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Timer that delegates periodic batch recovery to {@link BatchService}.
@@ -18,7 +18,7 @@ import java.util.logging.Logger;
 @ApplicationScoped
 public class BatchRecoveryTimer {
 
-  private static final Logger log = Logger.getLogger(BatchRecoveryTimer.class.getName());
+  private static final Logger log = Logger.getLogger(BatchRecoveryTimer.class);
 
   /** The batch service that contains the actual recovery logic. */
   private final BatchService batchService;
@@ -60,7 +60,7 @@ public class BatchRecoveryTimer {
   void recoverBatches() {
     int recovered = batchService.recoverStuckBatches();
     if (recovered > 0) {
-      log.info("Batch recovery timer recovered " + recovered + " stuck batch(es)");
+      log.infof("Batch recovery timer recovered %s stuck batch(es)", recovered);
     }
   }
 }

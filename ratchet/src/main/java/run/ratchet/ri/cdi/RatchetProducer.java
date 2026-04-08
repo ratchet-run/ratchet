@@ -39,7 +39,7 @@ import jakarta.enterprise.inject.Produces;
 import jakarta.inject.Inject;
 import java.util.EnumMap;
 import java.util.Map;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * CDI producer for Ratchet beans that require configuration values mixed with injectable
@@ -52,7 +52,7 @@ import java.util.logging.Logger;
 @ApplicationScoped
 public class RatchetProducer {
 
-  private static final Logger log = Logger.getLogger(RatchetProducer.class.getName());
+  private static final Logger log = Logger.getLogger(RatchetProducer.class);
 
   private final ExecutorProvider executorProvider;
   private final MetricsCollector metricsCollector;
@@ -240,13 +240,12 @@ public class RatchetProducer {
                 + "-D"
                 + ALLOW_EMPTY_CLASS_POLICY_PROPERTY
                 + "=true";
-        log.severe(message);
+        log.error(message);
         throw new jakarta.enterprise.inject.spi.DeploymentException(message);
       }
-      log.severe(
-          "ClassPolicy allowedPackages is empty — "
-              + ALLOW_EMPTY_CLASS_POLICY_PROPERTY
-              + "=true overrides the fail-fast guard. ALL job targets will be rejected.");
+      log.errorf(
+          "ClassPolicy allowedPackages is empty — %s=true overrides the fail-fast guard. ALL job targets will be rejected.",
+          ALLOW_EMPTY_CLASS_POLICY_PROPERTY);
     }
     return policy;
   }

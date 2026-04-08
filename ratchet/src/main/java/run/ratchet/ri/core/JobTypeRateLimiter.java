@@ -6,7 +6,7 @@ import java.util.EnumMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Rate limiter for job execution per job type to prevent resource exhaustion.
@@ -47,7 +47,7 @@ import java.util.logging.Logger;
 @ApplicationScoped
 public class JobTypeRateLimiter {
 
-  private static final Logger log = Logger.getLogger(JobTypeRateLimiter.class.getName());
+  private static final Logger log = Logger.getLogger(JobTypeRateLimiter.class);
 
   private final Map<JobExecutionType, Integer> rateLimits = new EnumMap<>(JobExecutionType.class);
   private final Map<JobExecutionType, RateWindow> rateWindows = new ConcurrentHashMap<>();
@@ -135,13 +135,13 @@ public class JobTypeRateLimiter {
     boolean anyConfigured = false;
     for (Map.Entry<JobExecutionType, Integer> entry : rateLimits.entrySet()) {
       if (entry.getValue() > 0) {
-        log.info("Rate limit for " + entry.getKey() + ": " + entry.getValue() + " jobs/minute");
+        log.infof("Rate limit for %s: %s jobs/minute", entry.getKey(), entry.getValue());
         anyConfigured = true;
       }
     }
 
     if (!anyConfigured) {
-      log.warning(
+      log.warn(
           "No rate limits configured for job scheduler"
               + " - all job types will execute without rate limiting");
     }
@@ -156,7 +156,7 @@ public class JobTypeRateLimiter {
       int limit = Integer.parseInt(value.trim());
       return Math.max(limit, 0);
     } catch (NumberFormatException e) {
-      log.warning("Invalid rate limit value for " + envVar + ": " + value + ", using unlimited");
+      log.warnf("Invalid rate limit value for %s: %s, using unlimited", envVar, value);
       return defaultValue;
     }
   }

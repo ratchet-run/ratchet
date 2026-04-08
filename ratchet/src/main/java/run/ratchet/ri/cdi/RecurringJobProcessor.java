@@ -27,8 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Processes methods annotated with {@link Recurring} and registers them as recurring jobs.
@@ -51,7 +50,7 @@ import java.util.logging.Logger;
 @ApplicationScoped
 public class RecurringJobProcessor {
 
-  private static final Logger log = Logger.getLogger(RecurringJobProcessor.class.getName());
+  private static final Logger log = Logger.getLogger(RecurringJobProcessor.class);
 
   /**
    * System property controlling how far back the orphaned-recurring-job cleanup cutoff is shifted
@@ -113,7 +112,7 @@ public class RecurringJobProcessor {
       processBean(bean);
     }
 
-    log.info("Completed registration of " + registeredJobIds.size() + " recurring jobs");
+    log.infof("Completed registration of %s recurring jobs", registeredJobIds.size());
 
     cleanupOrphanedRecurringJobs(startTime);
   }
@@ -139,13 +138,11 @@ public class RecurringJobProcessor {
           recurringAnnotationMaintenanceService.cancelOrphanedRecurringAnnotationJobs(
               registeredIds, cutoff);
       if (canceled > 0) {
-        log.info(
-            "Canceled "
-                + canceled
-                + " orphaned recurring jobs (annotations removed from codebase)");
+        log.infof(
+            "Canceled %s orphaned recurring jobs (annotations removed from codebase)", canceled);
       }
     } catch (Exception e) {
-      log.log(Level.SEVERE, "Failed to cleanup orphaned recurring jobs", e);
+      log.error("Failed to cleanup orphaned recurring jobs", e);
     }
   }
 
@@ -162,14 +159,9 @@ public class RecurringJobProcessor {
       long parsed = Long.parseLong(raw.trim());
       return Math.max(0L, parsed);
     } catch (NumberFormatException e) {
-      log.warning(
-          "Invalid value for "
-              + CONVERGENCE_WINDOW_PROPERTY
-              + ": '"
-              + raw
-              + "' — falling back to default "
-              + DEFAULT_CONVERGENCE_WINDOW_SECONDS
-              + "s");
+      log.warnf(
+          "Invalid value for %s: '%s' — falling back to default %ss",
+          CONVERGENCE_WINDOW_PROPERTY, raw, DEFAULT_CONVERGENCE_WINDOW_SECONDS);
       return DEFAULT_CONVERGENCE_WINDOW_SECONDS;
     }
   }
@@ -177,7 +169,7 @@ public class RecurringJobProcessor {
   private void cancelExistingJobs(String jobId) {
     int canceled = schedulerService.cancelRecurringJobByBusinessKey(jobId);
     if (canceled > 0) {
-      log.info("Canceled " + canceled + " existing recurring job(s) with ID: " + jobId);
+      log.infof("Canceled %s existing recurring job(s) with ID: %s", canceled, jobId);
     }
   }
 
@@ -207,10 +199,7 @@ public class RecurringJobProcessor {
         try {
           RecurringMethodValidator.validate(method);
         } catch (IllegalArgumentException e) {
-          log.log(
-              Level.SEVERE,
-              "Invalid @Recurring method: " + beanClass.getName() + "." + methodName,
-              e);
+          log.errorf(e, "Invalid @Recurring method: %s.%s", beanClass.getName(), methodName);
           continue;
         }
         processRecurringMethod(beanClass, methodName, hasJobContextParam, annotation);
@@ -223,7 +212,7 @@ public class RecurringJobProcessor {
       Class<?> beanClass, String methodName, boolean hasJobContextParam, Recurring annotation) {
     try {
       if (!RecurringAnnotationParser.isEnabled(annotation)) {
-        log.info("Skipping disabled recurring job: " + beanClass.getName() + "." + methodName);
+        log.infof("Skipping disabled recurring job: %s.%s", beanClass.getName(), methodName);
         return;
       }
 
@@ -231,10 +220,7 @@ public class RecurringJobProcessor {
 
       registerJob(beanClass, methodName, hasJobContextParam, annotation);
     } catch (Exception e) {
-      log.log(
-          Level.SEVERE,
-          "Failed to register recurring job: " + beanClass.getName() + "." + methodName,
-          e);
+      log.errorf(e, "Failed to register recurring job: %s.%s", beanClass.getName(), methodName);
     }
   }
 
@@ -247,15 +233,9 @@ public class RecurringJobProcessor {
     try {
       CRON_PARSER.parse(annotation.cron()).validate();
     } catch (IllegalArgumentException e) {
-      log.severe(
-          "Invalid cron expression '"
-              + annotation.cron()
-              + "' for @Recurring method "
-              + beanClass.getName()
-              + "."
-              + methodName
-              + ": "
-              + e.getMessage());
+      log.errorf(
+          "Invalid cron expression '%s' for @Recurring method %s.%s: %s",
+          annotation.cron(), beanClass.getName(), methodName, e.getMessage());
       return;
     }
 
@@ -264,15 +244,9 @@ public class RecurringJobProcessor {
     try {
       zone = ZoneId.of(annotation.zone());
     } catch (ZoneRulesException | IllegalArgumentException e) {
-      log.severe(
-          "Invalid timezone '"
-              + annotation.zone()
-              + "' for @Recurring method "
-              + beanClass.getName()
-              + "."
-              + methodName
-              + ": "
-              + e.getMessage());
+      log.errorf(
+          "Invalid timezone '%s' for @Recurring method %s.%s: %s",
+          annotation.zone(), beanClass.getName(), methodName, e.getMessage());
       return;
     }
 
@@ -306,6 +280,6 @@ public class RecurringJobProcessor {
     JobHandle handle = builder.submit();
     registeredJobIds.put(jobId, String.valueOf(handle.id()));
 
-    log.info("Registered recurring job: " + jobId + " with cron: " + annotation.cron());
+    log.infof("Registered recurring job: %s with cron: %s", jobId, annotation.cron());
   }
 }

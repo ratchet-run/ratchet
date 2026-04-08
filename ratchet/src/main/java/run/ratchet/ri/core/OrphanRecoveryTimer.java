@@ -9,8 +9,7 @@ import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Timer that periodically recovers orphaned jobs from crashed nodes.
@@ -30,7 +29,7 @@ import java.util.logging.Logger;
  */
 public class OrphanRecoveryTimer {
 
-  private static final Logger log = Logger.getLogger(OrphanRecoveryTimer.class.getName());
+  private static final Logger log = Logger.getLogger(OrphanRecoveryTimer.class);
 
   private final JobBulkStore jobBulkStore;
   private final NodeStore nodeStore;
@@ -81,12 +80,9 @@ public class OrphanRecoveryTimer {
     handle =
         executor.scheduleAtFixedRate(
             this::recoverOrphans, intervalMinutes, intervalMinutes, TimeUnit.MINUTES);
-    log.info(
-        "Initialized orphan recovery timer — scanning every "
-            + intervalMinutes
-            + "min (grace="
-            + orphanGraceSeconds
-            + "s)");
+    log.infof(
+        "Initialized orphan recovery timer — scanning every %smin (grace=%ss)",
+        intervalMinutes, orphanGraceSeconds);
   }
 
   /** Stops the orphan recovery timer. */
@@ -115,17 +111,12 @@ public class OrphanRecoveryTimer {
       }
 
       if (resetJobs > 0 || cleanedPermits > 0 || deletedNodes > 0) {
-        log.info(
-            "Orphan recovery: reset "
-                + resetJobs
-                + " job(s), cleaned "
-                + cleanedPermits
-                + " permit(s), removed "
-                + deletedNodes
-                + " stale node(s)");
+        log.infof(
+            "Orphan recovery: reset %s job(s), cleaned %s permit(s), removed %s stale node(s)",
+            resetJobs, cleanedPermits, deletedNodes);
       }
     } catch (Exception e) {
-      log.log(Level.SEVERE, "Orphan recovery scan failed", e);
+      log.error("Orphan recovery scan failed", e);
     }
   }
 }

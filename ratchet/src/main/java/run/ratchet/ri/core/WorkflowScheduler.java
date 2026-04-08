@@ -12,8 +12,7 @@ import jakarta.transaction.Transactional;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Orchestrates complex workflow execution by evaluating conditions and scheduling dependent jobs
@@ -42,7 +41,7 @@ import java.util.logging.Logger;
 @Transactional
 public class WorkflowScheduler extends ChainScheduler {
 
-  private static final Logger log = Logger.getLogger(WorkflowScheduler.class.getName());
+  private static final Logger log = Logger.getLogger(WorkflowScheduler.class);
 
   /** Store for accessing workflow condition entities. */
   private final WorkflowConditionStore conditionStore;
@@ -100,21 +99,16 @@ public class WorkflowScheduler extends ChainScheduler {
                 jobCrudStore.save(childJob);
                 canceledCount.incrementAndGet();
 
-                log.info(
-                    "Canceled workflow branch job "
-                        + childJob.getId()
-                        + " due to parent job "
-                        + parentJob.getId()
-                        + " failure");
+                log.infof(
+                    "Canceled workflow branch job %s due to parent job %s failure",
+                    childJob.getId(), parentJob.getId());
               });
     }
 
     if (canceledCount.get() > 0) {
-      log.info(
-          "Canceled "
-              + canceledCount
-              + " workflow branch jobs for failed parent job "
-              + parentJob.getId());
+      log.infof(
+          "Canceled %s workflow branch jobs for failed parent job %s",
+          canceledCount, parentJob.getId());
     }
   }
 
@@ -141,8 +135,7 @@ public class WorkflowScheduler extends ChainScheduler {
       return;
     }
 
-    log.info(
-        "Evaluating " + conditions.size() + " workflow conditions for job " + parentJob.getId());
+    log.infof("Evaluating %s workflow conditions for job %s", conditions.size(), parentJob.getId());
 
     int scheduledCount = 0;
     for (WorkflowConditionEntity condition : conditions) {
@@ -151,26 +144,20 @@ public class WorkflowScheduler extends ChainScheduler {
           boolean scheduled = scheduleChildJob(condition, parentJob);
           if (scheduled) {
             scheduledCount++;
-            log.info(
-                "Scheduled workflow branch job "
-                    + condition.getChildJobId()
-                    + " after condition evaluation (type: "
-                    + condition.getConditionType()
-                    + ", priority: "
-                    + condition.getConditionPriority()
-                    + ")");
+            log.infof(
+                "Scheduled workflow branch job %s after condition evaluation (type: %s, priority: %s)",
+                condition.getChildJobId(),
+                condition.getConditionType(),
+                condition.getConditionPriority());
           }
         }
       } catch (Exception e) {
-        log.log(
-            Level.SEVERE,
-            "Unexpected exception evaluating workflow condition "
-                + condition.getId()
-                + " for job "
-                + parentJob.getId()
-                + ": "
-                + e.getMessage(),
-            e);
+        log.errorf(
+            e,
+            "Unexpected exception evaluating workflow condition %s for job %s: %s",
+            condition.getId(),
+            parentJob.getId(),
+            e.getMessage());
         // An unexpected exception during condition evaluation indicates a system error.
         // Fail the workflow to prevent inconsistent state.
         parentJob.setStatus(JobStatus.FAILED);
@@ -182,16 +169,11 @@ public class WorkflowScheduler extends ChainScheduler {
     }
 
     if (scheduledCount > 0) {
-      log.info(
-          "Scheduled "
-              + scheduledCount
-              + " workflow branch jobs for parent job "
-              + parentJob.getId());
+      log.infof(
+          "Scheduled %s workflow branch jobs for parent job %s", scheduledCount, parentJob.getId());
     } else {
-      log.info(
-          "No workflow conditions met for job "
-              + parentJob.getId()
-              + ", checking for linear chain");
+      log.infof(
+          "No workflow conditions met for job %s, checking for linear chain", parentJob.getId());
       // Fall back to linear chain behavior, respecting failure status
       if (parentJob.getStatus() == JobStatus.FAILED) {
         super.cancelChain(parentJob);
@@ -215,11 +197,9 @@ public class WorkflowScheduler extends ChainScheduler {
         .map(childJob -> scheduleIfPending(condition, childJob))
         .orElseGet(
             () -> {
-              log.warning(
-                  "Child job "
-                      + condition.getChildJobId()
-                      + " not found for workflow condition "
-                      + condition.getId());
+              log.warnf(
+                  "Child job %s not found for workflow condition %s",
+                  condition.getChildJobId(), condition.getId());
               return false;
             });
   }
@@ -234,12 +214,9 @@ public class WorkflowScheduler extends ChainScheduler {
   @SuppressWarnings("java:S1172") // condition reserved for future context logging
   private boolean scheduleIfPending(WorkflowConditionEntity condition, JobEntity childJob) {
     if (childJob.getStatus() != JobStatus.PENDING) {
-      log.warning(
-          "Child job "
-              + childJob.getId()
-              + " is not in PENDING status (current: "
-              + childJob.getStatus()
-              + "), cannot schedule");
+      log.warnf(
+          "Child job %s is not in PENDING status (current: %s), cannot schedule",
+          childJob.getId(), childJob.getStatus());
       return false;
     }
 

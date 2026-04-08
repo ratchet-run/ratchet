@@ -7,8 +7,7 @@ import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.spi.JobCrudStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Handles job submission failures by either buffering for retry or resetting to pending.
@@ -35,7 +34,7 @@ import java.util.logging.Logger;
 @ApplicationScoped
 public class SubmissionFailureHandler {
 
-  private static final Logger log = Logger.getLogger(SubmissionFailureHandler.class.getName());
+  private static final Logger log = Logger.getLogger(SubmissionFailureHandler.class);
 
   /**
    * Store for loading full job entities when failure handling requires them.
@@ -106,7 +105,7 @@ public class SubmissionFailureHandler {
       if (!retryBufferManager.offer(job)) {
         resetToPendingOrBuffer(job);
         if (result.status() == GateCheckResult.GateStatus.NO_PERMITS) {
-          log.warning(
+          log.warn(
               String.format(
                   "Buffer for %s is full - returning job %d to PENDING",
                   job.getJobType(), job.getId()));
@@ -153,17 +152,17 @@ public class SubmissionFailureHandler {
 
     if (isFirstAttempt) {
       resetToPendingOrBuffer(job);
-      log.warning(
+      log.warn(
           String.format(
               "Executor for %s rejected job %d - returned to PENDING", jobType, job.getId()));
     } else {
       if (retryBufferManager.offer(job)) {
-        log.warning(
+        log.warn(
             String.format(
                 "Executor for %s rejected buffered job %d - re-buffering", jobType, job.getId()));
       } else {
         resetToPendingOrBuffer(job);
-        log.warning(
+        log.warn(
             String.format(
                 "Buffer for %s is full - returning rejected job %d to PENDING",
                 jobType, job.getId()));
@@ -185,7 +184,7 @@ public class SubmissionFailureHandler {
 
     // Try reset first (DTO path is always first attempt from Poller)
     if (jobStateManager.resetJobToPending(claim.id())) {
-      log.warning(
+      log.warn(
           String.format(
               "Executor for %s rejected job %d - returned to PENDING", jobType, claim.id()));
       return;
@@ -196,7 +195,7 @@ public class SubmissionFailureHandler {
     if (job != null) {
       retryBufferManager.forceOffer(job);
     }
-    log.warning(
+    log.warn(
         String.format("Executor for %s rejected job %d - buffered for retry", jobType, claim.id()));
   }
 
@@ -213,10 +212,7 @@ public class SubmissionFailureHandler {
   public void handleUnexpectedException(
       JobEntity job, JobExecutionType jobType, boolean isFirstAttempt, Exception exception) {
     threadPoolManager.releasePermit(jobType);
-    log.log(
-        Level.SEVERE,
-        "Unexpected exception submitting job " + job.getId() + " - permit released",
-        exception);
+    log.errorf(exception, "Unexpected exception submitting job %s - permit released", job.getId());
 
     if (isFirstAttempt || !retryBufferManager.offer(job)) {
       resetToPendingOrBuffer(job);
@@ -236,10 +232,7 @@ public class SubmissionFailureHandler {
   public void handleUnexpectedException(
       JobClaimDto claim, JobExecutionType jobType, Exception exception) {
     threadPoolManager.releasePermit(jobType);
-    log.log(
-        Level.SEVERE,
-        "Unexpected exception submitting job " + claim.id() + " - permit released",
-        exception);
+    log.errorf(exception, "Unexpected exception submitting job %s - permit released", claim.id());
 
     // Try reset first (DTO path is always first attempt from Poller)
     if (jobStateManager.resetJobToPending(claim.id())) {
@@ -298,20 +291,16 @@ public class SubmissionFailureHandler {
             job -> {
               // Verify job is still RUNNING - if status changed, another node handled it
               if (job.getStatus() != JobStatus.RUNNING) {
-                log.info(
-                    "Job "
-                        + jobId
-                        + " status changed to "
-                        + job.getStatus()
-                        + " - skipping buffer, another node may have handled it");
+                log.infof(
+                    "Job %s status changed to %s - skipping buffer, another node may have handled it",
+                    jobId, job.getStatus());
                 return false;
               }
               return true;
             })
         .orElseGet(
             () -> {
-              log.warning(
-                  "Job " + jobId + " not found when loading for buffer - may have been deleted");
+              log.warnf("Job %s not found when loading for buffer - may have been deleted", jobId);
               return null;
             });
   }

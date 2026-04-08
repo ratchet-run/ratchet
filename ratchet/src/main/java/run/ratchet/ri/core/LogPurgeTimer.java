@@ -14,8 +14,7 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Periodically purges old job execution logs to prevent unbounded table growth.
@@ -34,7 +33,7 @@ import java.util.logging.Logger;
 @ApplicationScoped
 public class LogPurgeTimer {
 
-  private static final Logger log = Logger.getLogger(LogPurgeTimer.class.getName());
+  private static final Logger log = Logger.getLogger(LogPurgeTimer.class);
   private static final String LOCK_NAME = "logPurger";
 
   private final JobLogStore jobLogStore;
@@ -79,7 +78,7 @@ public class LogPurgeTimer {
 
     scheduleNext();
 
-    log.info("Log purge timer scheduled (retention=" + retentionDays + " days)");
+    log.infof("Log purge timer scheduled (retention=%s days)", retentionDays);
   }
 
   /** Stops the log purge timer. */
@@ -99,17 +98,17 @@ public class LogPurgeTimer {
   private void purge() {
     try {
       if (!lockStore.tryLock(LOCK_NAME, Duration.ofMinutes(10), nodeIdentityProvider.getNodeId())) {
-        log.fine("Log purge skipped - lock held by another node");
+        log.debug("Log purge skipped - lock held by another node");
         return;
       }
 
       Instant cutoff = Instant.now().minus(retentionPeriod);
       int deleted = jobLogStore.purgeLogsOlderThan(cutoff);
       if (deleted > 0) {
-        log.info("Purged " + deleted + " log rows older than " + cutoff);
+        log.infof("Purged %s log rows older than %s", deleted, cutoff);
       }
     } catch (Exception e) {
-      log.log(Level.SEVERE, "Log purge failed", e);
+      log.error("Log purge failed", e);
     }
   }
 

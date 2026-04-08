@@ -11,7 +11,7 @@ import jakarta.transaction.Status;
 import jakarta.transaction.Synchronization;
 import jakarta.transaction.TransactionSynchronizationRegistry;
 import java.time.Duration;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Service responsible for publishing job wakeup notifications across the cluster.
@@ -35,7 +35,7 @@ import java.util.logging.Logger;
 @ApplicationScoped
 public class JobWakeupService {
 
-  private static final Logger log = Logger.getLogger(JobWakeupService.class.getName());
+  private static final Logger log = Logger.getLogger(JobWakeupService.class);
 
   private final ClusterCoordinator clusterCoordinator;
   private final NodeIdentityProvider nodeIdProvider;
@@ -137,9 +137,9 @@ public class JobWakeupService {
           });
       return true;
     } catch (Exception e) {
-      log.warning(
-          "Failed to register after-commit wakeup publication; publishing immediately: "
-              + e.getMessage());
+      log.warnf(
+          "Failed to register after-commit wakeup publication; publishing immediately: %s",
+          e.getMessage());
       return false;
     }
   }
@@ -147,9 +147,9 @@ public class JobWakeupService {
   private void publishNotificationNow(JobPriority priority) {
     try {
       clusterCoordinator.notifyNewWork(priority);
-      log.fine("Published wakeup notification: priority=" + priority);
+      log.debugf("Published wakeup notification: priority=%s", priority);
     } catch (Exception e) {
-      log.warning("Failed to publish wakeup notification: " + e.getMessage());
+      log.warnf("Failed to publish wakeup notification: %s", e.getMessage());
     }
   }
 }

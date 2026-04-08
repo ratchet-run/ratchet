@@ -6,8 +6,7 @@ import jakarta.inject.Inject;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Synchronous event publisher for internal RI use. Fires events to both programmatic listeners
@@ -15,7 +14,7 @@ import java.util.logging.Logger;
  */
 @ApplicationScoped
 public class InternalEventPublisher {
-  private static final Logger log = Logger.getLogger(InternalEventPublisher.class.getName());
+  private static final Logger log = Logger.getLogger(InternalEventPublisher.class);
   private final List<Consumer<Object>> listeners = new CopyOnWriteArrayList<>();
   private final Event<Object> cdiEvent;
 
@@ -42,10 +41,8 @@ public class InternalEventPublisher {
       try {
         listener.accept(event);
       } catch (Exception e) {
-        log.log(
-            Level.WARNING,
-            "Event listener threw exception for event: " + event.getClass().getSimpleName(),
-            e);
+        log.warnf(
+            e, "Event listener threw exception for event: %s", event.getClass().getSimpleName());
       }
     }
 
@@ -54,10 +51,8 @@ public class InternalEventPublisher {
       try {
         cdiEvent.fire(event);
       } catch (Exception e) {
-        log.log(
-            Level.WARNING,
-            "CDI event fire threw exception for event: " + event.getClass().getSimpleName(),
-            e);
+        log.warnf(
+            e, "CDI event fire threw exception for event: %s", event.getClass().getSimpleName());
       }
     }
   }

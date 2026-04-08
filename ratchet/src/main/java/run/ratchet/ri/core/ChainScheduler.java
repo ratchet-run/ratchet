@@ -10,7 +10,7 @@ import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Manages the execution flow and lifecycle of chained jobs within the scheduler framework. This
@@ -42,7 +42,7 @@ public class ChainScheduler {
    */
   static final Instant CHAIN_LOCK_TIME = Instant.parse("9999-12-31T23:59:59Z");
 
-  private static final Logger log = Logger.getLogger(ChainScheduler.class.getName());
+  private static final Logger log = Logger.getLogger(ChainScheduler.class);
 
   /** Store for job entity operations. */
   private final JobCrudStore jobCrudStore;
@@ -81,8 +81,7 @@ public class ChainScheduler {
         if (child.getStatus() == JobStatus.PENDING) {
           child.setStatus(JobStatus.CANCELED);
           jobCrudStore.save(child);
-          log.warning(
-              "Chain step " + child.getId() + " canceled (ancestor failed " + failed.getId() + ")");
+          log.warnf("Chain step %s canceled (ancestor failed %s)", child.getId(), failed.getId());
         }
         stack.push(child.getId());
       }
@@ -113,7 +112,7 @@ public class ChainScheduler {
       if (c.getStatus() == JobStatus.PENDING && CHAIN_LOCK_TIME.equals(c.getScheduledTime())) {
         c.setScheduledTime(Instant.now());
         jobCrudStore.save(c);
-        log.info("Chain step " + c.getId() + " unlocked (prev=" + finished.getId() + ")");
+        log.infof("Chain step %s unlocked (prev=%s)", c.getId(), finished.getId());
       }
     }
   }

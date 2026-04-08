@@ -25,9 +25,8 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import org.bson.Document;
+import org.jboss.logging.Logger;
 
 /**
  * Bidirectional mapping between Ratchet store-core entities and MongoDB BSON documents.
@@ -37,7 +36,7 @@ import org.bson.Document;
  */
 public final class DocumentMapper {
 
-  private static final Logger log = Logger.getLogger(DocumentMapper.class.getName());
+  private static final Logger log = Logger.getLogger(DocumentMapper.class);
   private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
   private DocumentMapper() {}
@@ -494,7 +493,7 @@ public final class DocumentMapper {
       String json = doc.toJson();
       return OBJECT_MAPPER.readValue(json, new TypeReference<>() {});
     } catch (Exception e) {
-      log.log(Level.WARNING, "Failed to deserialize params document", e);
+      log.warn("Failed to deserialize params document", e);
       return Collections.emptyMap();
     }
   }
@@ -518,7 +517,7 @@ public final class DocumentMapper {
       String json = doc.toJson();
       return OBJECT_MAPPER.readValue(json, new TypeReference<>() {});
     } catch (Exception e) {
-      log.log(Level.WARNING, "Failed to deserialize node info document", e);
+      log.warn("Failed to deserialize node info document", e);
       return Collections.emptyMap();
     }
   }

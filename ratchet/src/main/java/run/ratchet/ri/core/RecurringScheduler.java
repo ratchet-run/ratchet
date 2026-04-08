@@ -17,8 +17,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Manages the lifecycle of recurring jobs by monitoring cron-based schedules and spawning
@@ -55,7 +54,7 @@ public class RecurringScheduler {
   public static final CronParser PARSER =
       new CronParser(CronDefinitionBuilder.instanceDefinitionFor(CronType.QUARTZ));
 
-  private static final Logger log = Logger.getLogger(RecurringScheduler.class.getName());
+  private static final Logger log = Logger.getLogger(RecurringScheduler.class);
 
   /** Distributed lock name used for leader election. */
   private static final String LOCK_NAME = "recurringScheduler";
@@ -146,15 +145,14 @@ public class RecurringScheduler {
   /** Initializes the recurring scheduler with adaptive polling. */
   public void init() {
     if (!started.compareAndSet(false, true)) {
-      log.warning("RecurringScheduler already initialized; skipping re-run");
+      log.warn("RecurringScheduler already initialized; skipping re-run");
       return;
     }
 
     executor = executorProvider.getScheduledExecutor();
     currentDelayMs = minPollMs;
     scheduleNext(minPollMs);
-    log.info(
-        "RecurringScheduler started (minPoll=" + minPollMs + " ms, maxPoll=" + maxPollMs + " ms)");
+    log.infof("RecurringScheduler started (minPoll=%s ms, maxPoll=%s ms)", minPollMs, maxPollMs);
   }
 
   /**
@@ -171,7 +169,7 @@ public class RecurringScheduler {
       current.cancel(false);
     }
     scheduleNext(minPollMs);
-    log.fine("RecurringScheduler kicked — immediate scan scheduled");
+    log.debug("RecurringScheduler kicked — immediate scan scheduled");
   }
 
   /** Stops the recurring scheduler. */
@@ -225,18 +223,14 @@ public class RecurringScheduler {
       // CDI context gone (e.g. Arquillian undeploy) — stop permanently, next deploy starts fresh
       if (isCdiContextGone(ex)) {
         started.set(false);
-        log.log(
-            Level.INFO, "RecurringScheduler detected inactive CDI context — stopping permanently");
+        log.info("RecurringScheduler detected inactive CDI context — stopping permanently");
         return;
       }
-      log.log(Level.SEVERE, "RecurringScheduler failed", ex);
+      log.error("RecurringScheduler failed", ex);
       try {
         scheduleNext(minPollMs);
       } catch (Exception e) {
-        log.log(
-            Level.FINE,
-            "Cannot reschedule recurring scan — scheduler will restart on next deploy",
-            e);
+        log.debug("Cannot reschedule recurring scan — scheduler will restart on next deploy", e);
       }
     } finally {
       if (renewalTask != null && !renewalTask.isCancelled()) {
@@ -245,7 +239,7 @@ public class RecurringScheduler {
       try {
         lockStore.unlock(LOCK_NAME, nodeIdentityProvider.getNodeId());
       } catch (Exception e) {
-        log.log(Level.FINE, "Failed to release recurring scheduler lock", e);
+        log.debug("Failed to release recurring scheduler lock", e);
       }
     }
   }

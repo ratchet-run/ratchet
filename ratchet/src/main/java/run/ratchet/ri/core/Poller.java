@@ -6,8 +6,7 @@ import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.spi.JobClaimStore;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * High-performance job polling engine that claims pending jobs from the database for execution by
@@ -31,7 +30,7 @@ import java.util.logging.Logger;
  */
 public class Poller {
 
-  private static final Logger log = Logger.getLogger(Poller.class.getName());
+  private static final Logger log = Logger.getLogger(Poller.class);
 
   private final AtomicBoolean started = new AtomicBoolean();
   private final AtomicBoolean running = new AtomicBoolean();
@@ -107,7 +106,7 @@ public class Poller {
    */
   public void init() {
     if (!started.compareAndSet(false, true)) {
-      log.warning("Poller already initialized; skipping re-init");
+      log.warn("Poller already initialized; skipping re-init");
       return;
     }
 
@@ -123,7 +122,7 @@ public class Poller {
 
     pollerScheduler.start();
 
-    log.info("Poller initialized (batch=" + batchSize + ")");
+    log.infof("Poller initialized (batch=%s)", batchSize);
   }
 
   /**
@@ -137,7 +136,7 @@ public class Poller {
       if (wasInDeepIdle) {
         log.info("Wakeup received - exited deep idle mode");
       } else {
-        log.fine("Wakeup received - reset to minimum delay");
+        log.debug("Wakeup received - reset to minimum delay");
       }
     }
   }
@@ -165,7 +164,7 @@ public class Poller {
     }
 
     if (!running.compareAndSet(false, true)) {
-      log.warning("tick() already running, skipping overlapping call");
+      log.warn("tick() already running, skipping overlapping call");
       PollingStrategy local = strategy;
       return local != null ? local.getCurrentDelay() : 1000;
     }
@@ -173,7 +172,7 @@ public class Poller {
     try {
       return pollOnce();
     } catch (Throwable t) {
-      log.log(Level.SEVERE, "Poller tick failed", t);
+      log.error("Poller tick failed", t);
       return 5000;
     } finally {
       running.set(false);
@@ -182,12 +181,12 @@ public class Poller {
 
   private void handleJobsFound(List<JobClaimDto> claims, int jobCount) {
     claims.forEach(jobExecutionCoordinator::submit);
-    log.log(Level.INFO, "Claimed {0} job(s) for execution", jobCount);
+    log.infov("Claimed {0} job(s) for execution", jobCount);
   }
 
   private long pollOnce() {
     if (drainController.isDraining()) {
-      log.fine("Poller skipping due to drain mode");
+      log.debug("Poller skipping due to drain mode");
       return strategy.getCurrentDelay();
     }
 
@@ -204,7 +203,7 @@ public class Poller {
 
     long nextDelay = strategy.recordPollResult(jobCount, pollStartTime);
 
-    log.fine("Poll completed: claimed " + jobCount + " job(s), next delay " + nextDelay + " ms");
+    log.debugf("Poll completed: claimed %s job(s), next delay %s ms", jobCount, nextDelay);
 
     return nextDelay;
   }

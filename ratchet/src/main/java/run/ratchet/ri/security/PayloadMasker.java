@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import run.ratchet.ri.util.ObjectMapperFactory;
 import java.util.Set;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Utility class for masking sensitive data in job payloads before exposing them via API responses.
@@ -31,7 +31,7 @@ import java.util.logging.Logger;
  */
 public class PayloadMasker {
 
-  private static final Logger log = Logger.getLogger(PayloadMasker.class.getName());
+  private static final Logger log = Logger.getLogger(PayloadMasker.class);
 
   /**
    * Shared Jackson ObjectMapper instance for JSON parsing and serialization. Configured with
@@ -104,7 +104,7 @@ public class PayloadMasker {
       }
       return MAPPER.writeValueAsString(root);
     } catch (Exception e) {
-      log.warning("Failed to mask payload JSON, returning masked value: " + e.getMessage());
+      log.warnf("Failed to mask payload JSON, returning masked value: %s", e.getMessage());
       return "{\"error\":\"Unable to parse payload\",\"masked\":true}";
     }
   }
@@ -124,7 +124,7 @@ public class PayloadMasker {
       String json = MAPPER.writeValueAsString(payload);
       return maskPayload(json);
     } catch (Exception e) {
-      log.warning("Failed to serialize payload for masking: " + e.getMessage());
+      log.warnf("Failed to serialize payload for masking: %s", e.getMessage());
       return "{\"error\":\"Unable to serialize payload\",\"masked\":true}";
     }
   }
@@ -157,7 +157,7 @@ public class PayloadMasker {
 
               if (isSensitiveField(fieldName)) {
                 node.put(fieldName, MASKED_VALUE);
-                log.fine("Masked sensitive field: " + fieldName);
+                log.debugf("Masked sensitive field: %s", fieldName);
               } else if (fieldValue.isObject()) {
                 maskObject((ObjectNode) fieldValue);
               } else if (fieldValue.isArray()) {

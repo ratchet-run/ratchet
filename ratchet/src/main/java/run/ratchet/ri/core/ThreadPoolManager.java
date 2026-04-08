@@ -9,7 +9,7 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Centralized manager for job-type-specific thread pools, providing resource isolation and
@@ -29,7 +29,7 @@ import java.util.logging.Logger;
  */
 public class ThreadPoolManager {
 
-  private static final Logger log = Logger.getLogger(ThreadPoolManager.class.getName());
+  private static final Logger log = Logger.getLogger(ThreadPoolManager.class);
 
   private static final int DEFAULT_VIRTUAL_THREAD_LIMIT = 1000;
 
@@ -148,7 +148,7 @@ public class ThreadPoolManager {
           "getExecutor() should not be called when virtual threads are enabled. "
               + "Create virtual threads directly using Thread.ofVirtual() instead.");
     }
-    log.info("Providing managed executor for job type: " + jobType);
+    log.infof("Providing managed executor for job type: %s", jobType);
     return executorProvider.getJobExecutor();
   }
 
@@ -325,11 +325,11 @@ public class ThreadPoolManager {
       }
     }
 
-    log.info(
-        "Thread pool manager initialized with "
-            + (useVirtualThreads
-                ? "virtual threads (with backpressure limits)"
-                : "managed executors with semaphore-based limiting"));
+    log.infof(
+        "Thread pool manager initialized with %s",
+        (useVirtualThreads
+            ? "virtual threads (with backpressure limits)"
+            : "managed executors with semaphore-based limiting"));
   }
 
   private int getVirtualThreadLimit(JobExecutionType jobType) {

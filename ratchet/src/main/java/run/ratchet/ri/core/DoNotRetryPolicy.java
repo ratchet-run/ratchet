@@ -2,7 +2,7 @@ package run.ratchet.ri.core;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import java.util.Set;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Policy that determines whether a job should be retried based on the exception type.
@@ -39,7 +39,7 @@ import java.util.logging.Logger;
 @ApplicationScoped
 public class DoNotRetryPolicy {
 
-  private static final Logger log = Logger.getLogger(DoNotRetryPolicy.class.getName());
+  private static final Logger log = Logger.getLogger(DoNotRetryPolicy.class);
 
   /**
    * Set of fully qualified exception class names that should never be retried.
@@ -88,7 +88,7 @@ public class DoNotRetryPolicy {
 
     // Check the exception itself
     if (isDoNotRetryException(exception)) {
-      log.info("Exception " + exception.getClass().getName() + " marked as do-not-retry");
+      log.infof("Exception %s marked as do-not-retry", exception.getClass().getName());
       return true;
     }
 
@@ -96,7 +96,7 @@ public class DoNotRetryPolicy {
     Throwable cause = exception.getCause();
     while (cause != null && cause != exception) {
       if (isDoNotRetryException(cause)) {
-        log.info("Exception cause " + cause.getClass().getName() + " marked as do-not-retry");
+        log.infof("Exception cause %s marked as do-not-retry", cause.getClass().getName());
         return true;
       }
       cause = cause.getCause();

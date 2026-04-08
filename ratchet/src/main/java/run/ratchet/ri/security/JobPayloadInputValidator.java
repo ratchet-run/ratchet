@@ -6,7 +6,7 @@ import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 import org.objectweb.asm.Type;
 
 /**
@@ -35,7 +35,7 @@ import org.objectweb.asm.Type;
  */
 public class JobPayloadInputValidator {
 
-  private static final Logger log = Logger.getLogger(JobPayloadInputValidator.class.getName());
+  private static final Logger log = Logger.getLogger(JobPayloadInputValidator.class);
 
   /** Map of primitive types to their corresponding wrapper types. */
   private static final Map<Class<?>, Class<?>> PRIMITIVE_TO_WRAPPER =
@@ -146,10 +146,10 @@ public class JobPayloadInputValidator {
   private void throwIfErrors(List<String> errors, JobPayload payload) {
     if (!errors.isEmpty()) {
       String errorMessage = "Job payload validation failed:\n" + String.join("\n", errors);
-      log.severe(errorMessage);
+      log.error(errorMessage);
       throw new IllegalArgumentException(errorMessage);
     }
-    log.fine("Job payload validated successfully: " + payload.target() + "." + payload.method());
+    log.debugf("Job payload validated successfully: %s.%s", payload.target(), payload.method());
   }
 
   /**

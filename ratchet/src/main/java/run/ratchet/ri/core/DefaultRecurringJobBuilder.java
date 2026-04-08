@@ -19,7 +19,7 @@ import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Default implementation of {@link RecurringJobBuilder} for the ratchet reference implementation.
@@ -30,7 +30,7 @@ import java.util.logging.Logger;
 @Transactional
 public class DefaultRecurringJobBuilder implements RecurringJobBuilder {
 
-  private static final Logger log = Logger.getLogger(DefaultRecurringJobBuilder.class.getName());
+  private static final Logger log = Logger.getLogger(DefaultRecurringJobBuilder.class);
 
   private final String cronExpr;
   private final ZoneId zone;
@@ -118,16 +118,9 @@ public class DefaultRecurringJobBuilder implements RecurringJobBuilder {
       tagStore.insertTags(saved.getId(), tags);
     }
 
-    log.info(
-        "Recurring job submitted (id="
-            + saved.getId()
-            + ", cron="
-            + cronExpr
-            + ", zone="
-            + zone
-            + ", nextFire="
-            + nextFire
-            + ")");
+    log.infof(
+        "Recurring job submitted (id=%s, cron=%s, zone=%s, nextFire=%s)",
+        saved.getId(), cronExpr, zone, nextFire);
 
     // Notify the recurring scheduler to check for new jobs immediately
     recurringScheduler.kick();

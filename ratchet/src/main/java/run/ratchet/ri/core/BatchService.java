@@ -22,8 +22,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
-import java.util.logging.Logger;
 import java.util.stream.Collectors;
+import org.jboss.logging.Logger;
 import org.objectweb.asm.Type;
 
 /**
@@ -61,7 +61,7 @@ import org.objectweb.asm.Type;
 @Transactional
 public class BatchService {
 
-  private static final Logger log = Logger.getLogger(BatchService.class.getName());
+  private static final Logger log = Logger.getLogger(BatchService.class);
 
   /**
    * Cache of resolved hook methods keyed by "className#methodName:descriptor" to avoid repeated
@@ -378,8 +378,7 @@ public class BatchService {
     try {
       executeProgressHook(hookPayload, ctx);
     } catch (Exception ex) {
-      log.warning(
-          "Progress hook for batch " + batch.getId() + " threw exception: " + ex.getMessage());
+      log.warnf("Progress hook for batch %s threw exception: %s", batch.getId(), ex.getMessage());
     }
   }
 
@@ -404,8 +403,8 @@ public class BatchService {
     try {
       executeProgressHook(hookPayload, ctx);
     } catch (Exception ex) {
-      log.warning(
-          "Progress hook for batch " + progress.batchId() + " threw exception: " + ex.getMessage());
+      log.warnf(
+          "Progress hook for batch %s threw exception: %s", progress.batchId(), ex.getMessage());
     }
   }
 
@@ -438,7 +437,7 @@ public class BatchService {
     }
 
     if (progress == null) {
-      log.warning("Batch " + parentId + " not found during update");
+      log.warnf("Batch %s not found during update", parentId);
       return;
     }
 

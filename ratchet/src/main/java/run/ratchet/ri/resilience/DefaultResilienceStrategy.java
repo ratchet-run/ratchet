@@ -3,8 +3,7 @@ package run.ratchet.ri.resilience;
 import run.ratchet.spi.ResilienceStrategy;
 import java.time.Duration;
 import java.util.concurrent.Callable;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Default {@link ResilienceStrategy} implementation using the built-in {@link CircuitBreaker}.
@@ -19,7 +18,7 @@ import java.util.logging.Logger;
  */
 public class DefaultResilienceStrategy implements ResilienceStrategy {
 
-  private static final Logger log = Logger.getLogger(DefaultResilienceStrategy.class.getName());
+  private static final Logger log = Logger.getLogger(DefaultResilienceStrategy.class);
 
   private final CircuitBreakerRegistry registry;
 
@@ -33,7 +32,7 @@ public class DefaultResilienceStrategy implements ResilienceStrategy {
     try {
       return breaker.execute(task);
     } catch (ServiceUnavailableException e) {
-      log.log(Level.WARNING, "Circuit breaker OPEN for service: {0}", serviceName);
+      log.warnv("Circuit breaker OPEN for service: {0}", serviceName);
       throw e;
     }
   }

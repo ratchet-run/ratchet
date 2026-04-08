@@ -1,7 +1,7 @@
 package run.ratchet.ri.core;
 
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Coordinates the startup and shutdown lifecycle of the job scheduler subsystem.
@@ -28,7 +28,7 @@ import java.util.logging.Logger;
  */
 public class SchedulerLifecycleManager {
 
-  private static final Logger log = Logger.getLogger(SchedulerLifecycleManager.class.getName());
+  private static final Logger log = Logger.getLogger(SchedulerLifecycleManager.class);
 
   /**
    * Flag tracking whether the scheduler has been started. Uses AtomicBoolean to prevent double
@@ -87,7 +87,7 @@ public class SchedulerLifecycleManager {
    */
   public void start() {
     if (!started.compareAndSet(false, true)) {
-      log.warning("Scheduler already started; skipping re-start");
+      log.warn("Scheduler already started; skipping re-start");
       return;
     }
 

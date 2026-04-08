@@ -22,7 +22,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Handles the actual execution of jobs, supporting both virtual and platform threads.
@@ -42,7 +42,7 @@ import java.util.logging.Logger;
 @ApplicationScoped
 public class JobExecutorService {
 
-  private static final Logger log = Logger.getLogger(JobExecutorService.class.getName());
+  private static final Logger log = Logger.getLogger(JobExecutorService.class);
 
   private final ThreadPoolManager threadPoolManager;
   private final JobTimeoutHandler timeoutHandler;
@@ -199,11 +199,9 @@ public class JobExecutorService {
       timeoutHandler.scheduleTimeoutMonitoring(
           jobId, timeoutSec, fut, executorProvider.getScheduledExecutor(), executionStartTime);
     } catch (Exception e) {
-      log.warning(
-          "Failed to schedule watchdog for job "
-              + jobId
-              + " - running without timeout monitoring: "
-              + e.getMessage());
+      log.warnf(
+          "Failed to schedule watchdog for job %s - running without timeout monitoring: %s",
+          jobId, e.getMessage());
     }
   }
 

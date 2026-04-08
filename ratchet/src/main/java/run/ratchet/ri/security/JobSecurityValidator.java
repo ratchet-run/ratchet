@@ -6,8 +6,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 import org.objectweb.asm.Type;
 
 /**
@@ -43,7 +42,7 @@ import org.objectweb.asm.Type;
 @ApplicationScoped
 public class JobSecurityValidator {
 
-  private static final Logger log = Logger.getLogger(JobSecurityValidator.class.getName());
+  private static final Logger log = Logger.getLogger(JobSecurityValidator.class);
 
   /**
    * The class policy used to validate target classes.
@@ -99,7 +98,7 @@ public class JobSecurityValidator {
     try {
       clazz = Class.forName(targetClass, true, Thread.currentThread().getContextClassLoader());
     } catch (ClassNotFoundException e) {
-      log.log(Level.SEVERE, "Cannot load class " + targetClass + " for job execution", e);
+      log.errorf(e, "Cannot load class %s for job execution", targetClass);
       throw new SecurityException(
           "Class " + targetClass + " cannot be loaded: " + e.getMessage(), e);
     }
@@ -144,7 +143,7 @@ public class JobSecurityValidator {
               + " is not public. Only public methods can be scheduled.");
     }
 
-    log.fine("Job payload validated successfully: " + targetClass + "." + payload.method());
+    log.debugf("Job payload validated successfully: %s.%s", targetClass, payload.method());
   }
 
   /**

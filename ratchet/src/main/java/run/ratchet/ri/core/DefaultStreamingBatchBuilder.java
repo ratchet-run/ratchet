@@ -27,8 +27,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.function.Consumer;
-import java.util.logging.Logger;
 import java.util.stream.Stream;
+import org.jboss.logging.Logger;
 
 /**
  * Default implementation of {@link StreamingBatchBuilder} for memory-efficient batch processing.
@@ -42,7 +42,7 @@ import java.util.stream.Stream;
 public class DefaultStreamingBatchBuilder<T extends Serializable>
     implements StreamingBatchBuilder<T> {
 
-  private static final Logger log = Logger.getLogger(DefaultStreamingBatchBuilder.class.getName());
+  private static final Logger log = Logger.getLogger(DefaultStreamingBatchBuilder.class);
   private static final int MIN_CHUNK_SIZE = 1;
   private static final int DEFAULT_CHUNK_SIZE = 100;
 
@@ -172,14 +172,7 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
     // Notify wakeup service
     wakeupService.notifyIfNeeded(JobExecutionType.BATCH_PARENT, JobPriority.NORMAL, Duration.ZERO);
 
-    log.info(
-        "Streaming batch '"
-            + name
-            + "' submitted with "
-            + totalItems
-            + " items (id="
-            + parentId
-            + ")");
+    log.infof("Streaming batch '%s' submitted with %s items (id=%s)", name, totalItems, parentId);
     return () -> parentId;
   }
 
@@ -263,7 +256,7 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
     try {
       localProgressHook.accept(new StreamingBatchContext(batchId, processedItems, chunksInserted));
     } catch (Exception e) {
-      log.warning("Streaming progress hook threw exception: " + e.getMessage());
+      log.warnf("Streaming progress hook threw exception: %s", e.getMessage());
     }
   }
 }

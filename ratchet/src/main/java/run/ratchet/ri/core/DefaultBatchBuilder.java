@@ -26,7 +26,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Default implementation of {@link BatchBuilder} for the ratchet reference implementation.
@@ -36,7 +36,7 @@ import java.util.logging.Logger;
  */
 public class DefaultBatchBuilder implements BatchBuilder {
 
-  private static final Logger log = Logger.getLogger(DefaultBatchBuilder.class.getName());
+  private static final Logger log = Logger.getLogger(DefaultBatchBuilder.class);
 
   private final String name;
   private final JobCrudStore jobCrudStore;
@@ -105,12 +105,8 @@ public class DefaultBatchBuilder implements BatchBuilder {
       savedParent.setStatus(JobStatus.SUCCEEDED);
       jobCrudStore.save(savedParent);
       batchStore.markBatchCompleteIfReady(parentId);
-      log.info(
-          "Batch '"
-              + name
-              + "' submitted with 0 children — completed immediately (id="
-              + parentId
-              + ")");
+      log.infof(
+          "Batch '%s' submitted with 0 children — completed immediately (id=%s)", name, parentId);
       return () -> parentId;
     }
 
@@ -135,14 +131,7 @@ public class DefaultBatchBuilder implements BatchBuilder {
     // Notify wakeup service
     wakeupService.notifyIfNeeded(JobExecutionType.BATCH_PARENT, JobPriority.NORMAL, Duration.ZERO);
 
-    log.info(
-        "Batch '"
-            + name
-            + "' submitted with "
-            + children.size()
-            + " children (id="
-            + parentId
-            + ")");
+    log.infof("Batch '%s' submitted with %s children (id=%s)", name, children.size(), parentId);
     return () -> parentId;
   }
 

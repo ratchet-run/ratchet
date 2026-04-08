@@ -6,10 +6,9 @@ import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.Indexes;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import org.bson.Document;
 import org.bson.conversions.Bson;
+import org.jboss.logging.Logger;
 
 /**
  * Creates MongoDB collections and indexes required by the Ratchet scheduler.
@@ -19,7 +18,7 @@ import org.bson.conversions.Bson;
  */
 public class MongoCollectionInitializer {
 
-  private static final Logger log = Logger.getLogger(MongoCollectionInitializer.class.getName());
+  private static final Logger log = Logger.getLogger(MongoCollectionInitializer.class);
 
   private final MongoDatabase database;
 
@@ -35,13 +34,11 @@ public class MongoCollectionInitializer {
     try {
       coll.createIndex(keys, options);
     } catch (Exception e) {
-      log.log(
-          Level.WARNING,
-          "Failed to create index "
-              + options.getName()
-              + " on "
-              + coll.getNamespace().getCollectionName(),
-          e);
+      log.warnf(
+          e,
+          "Failed to create index %s on %s",
+          options.getName(),
+          coll.getNamespace().getCollectionName());
     }
   }
 

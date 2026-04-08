@@ -7,8 +7,7 @@ import run.ratchet.store.spi.JobStatusStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Manages job state transitions within the scheduler framework, particularly for resetting jobs
@@ -34,7 +33,7 @@ import java.util.logging.Logger;
 @Transactional
 public class JobStateManager {
 
-  private static final Logger log = Logger.getLogger(JobStateManager.class.getName());
+  private static final Logger log = Logger.getLogger(JobStateManager.class);
 
   /**
    * Store for job status transition operations.
@@ -113,9 +112,9 @@ public class JobStateManager {
         return true;
       }
 
-      log.warning("Failed to reset job " + jobId + " - scheduling for retry buffer");
+      log.warnf("Failed to reset job %s - scheduling for retry buffer", jobId);
     } catch (Exception e) {
-      log.log(Level.SEVERE, "Failed to reset job " + jobId + " to PENDING status", e);
+      log.errorf(e, "Failed to reset job %s to PENDING status", jobId);
     }
 
     return false;

@@ -1,8 +1,7 @@
 package run.ratchet.ri.core;
 
 import run.ratchet.store.spi.JobCrudStore;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Provides adaptive heartbeat and polling interval calculations for the job scheduler cluster. This
@@ -32,7 +31,7 @@ import java.util.logging.Logger;
  */
 public class DynamicHeartbeatCalculator {
 
-  private static final Logger log = Logger.getLogger(DynamicHeartbeatCalculator.class.getName());
+  private static final Logger log = Logger.getLogger(DynamicHeartbeatCalculator.class);
 
   private static final long CACHE_TTL_MS = 5000;
 
@@ -93,7 +92,7 @@ public class DynamicHeartbeatCalculator {
 
       long finalInterval = Math.max(minInterval, Math.min(adjustedInterval, maxInterval));
 
-      log.fine(
+      log.debug(
           String.format(
               "Calculated heartbeat interval: nodes=%d, pendingJobs=%d, "
                   + "baseInterval=%ds, finalInterval=%ds",
@@ -102,7 +101,7 @@ public class DynamicHeartbeatCalculator {
       return finalInterval;
 
     } catch (Exception e) {
-      log.log(Level.SEVERE, "Error calculating heartbeat interval, using default", e);
+      log.error("Error calculating heartbeat interval, using default", e);
       return baseHeartbeatIntervalSeconds;
     }
   }
@@ -125,7 +124,7 @@ public class DynamicHeartbeatCalculator {
         return pollerMinDelayMs;
       }
     } catch (Exception e) {
-      log.log(Level.SEVERE, "Error calculating poller delay, using minimum", e);
+      log.error("Error calculating poller delay, using minimum", e);
       return pollerMinDelayMs;
     }
   }

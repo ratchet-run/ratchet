@@ -16,7 +16,7 @@ import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Handles the processing of recurring job instances.
@@ -36,7 +36,7 @@ import java.util.logging.Logger;
 @Transactional
 public class RecurringJobExecutor {
 
-  private static final Logger log = Logger.getLogger(RecurringJobExecutor.class.getName());
+  private static final Logger log = Logger.getLogger(RecurringJobExecutor.class);
 
   /**
    * Maximum number of missed executions to catch up on per recurring job. Prevents thundering herd
@@ -109,12 +109,8 @@ public class RecurringJobExecutor {
       }
 
       if (catchupCount > 0) {
-        log.info(
-            "Recurring job "
-                + master.getId()
-                + " caught up on "
-                + catchupCount
-                + " missed executions");
+        log.infof(
+            "Recurring job %s caught up on %s missed executions", master.getId(), catchupCount);
       }
 
       // Skip ahead to the next valid future time if still in the past
@@ -131,7 +127,7 @@ public class RecurringJobExecutor {
       master.setPickedBy(null);
       master.setPickedAt(null);
       jobCrudStore.save(master);
-      log.info("Recurring job " + master.getId() + " fired; next=" + master.getNextFire());
+      log.infof("Recurring job %s fired; next=%s", master.getId(), master.getNextFire());
     }
     return masters.size();
   }

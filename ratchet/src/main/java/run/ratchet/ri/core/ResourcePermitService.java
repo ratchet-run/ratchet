@@ -4,7 +4,7 @@ import run.ratchet.store.spi.ResourcePermitStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.List;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Service for managing resource permits in a distributed environment.
@@ -41,7 +41,7 @@ import java.util.logging.Logger;
 @ApplicationScoped
 public class ResourcePermitService {
 
-  private static final Logger log = Logger.getLogger(ResourcePermitService.class.getName());
+  private static final Logger log = Logger.getLogger(ResourcePermitService.class);
 
   private final ResourcePermitStore resourcePermitStore;
 
@@ -70,9 +70,9 @@ public class ResourcePermitService {
   public boolean tryAcquire(String resourceName, long jobId, String nodeId) {
     boolean acquired = resourcePermitStore.tryAcquirePermit(resourceName, jobId, nodeId);
     if (acquired) {
-      log.info("Job " + jobId + " acquired permit for resource " + resourceName);
+      log.infof("Job %s acquired permit for resource %s", jobId, resourceName);
     } else {
-      log.info("Resource " + resourceName + " at capacity - job " + jobId + " must wait");
+      log.infof("Resource %s at capacity - job %s must wait", resourceName, jobId);
     }
     return acquired;
   }
@@ -88,7 +88,7 @@ public class ResourcePermitService {
    */
   public void release(String resourceName, long jobId) {
     resourcePermitStore.releasePermit(resourceName, jobId);
-    log.info("Job " + jobId + " released permit for resource " + resourceName);
+    log.infof("Job %s released permit for resource %s", jobId, resourceName);
   }
 
   /**
@@ -124,14 +124,9 @@ public class ResourcePermitService {
   public void configureResource(
       String resourceName, int maxConcurrent, int retryDelayMs, String description) {
     resourcePermitStore.configureResource(resourceName, maxConcurrent, retryDelayMs, description);
-    log.info(
-        "Configured resource "
-            + resourceName
-            + " with max="
-            + maxConcurrent
-            + ", retryDelay="
-            + retryDelayMs
-            + "ms");
+    log.infof(
+        "Configured resource %s with max=%s, retryDelay=%sms",
+        resourceName, maxConcurrent, retryDelayMs);
   }
 
   /**
@@ -151,7 +146,7 @@ public class ResourcePermitService {
     int deleted = resourcePermitStore.cleanupOrphanedPermits(staleNodeIds);
 
     if (deleted > 0) {
-      log.info("Cleaned up " + deleted + " orphaned permit(s) from stale nodes");
+      log.infof("Cleaned up %s orphaned permit(s) from stale nodes", deleted);
     }
 
     return deleted;

@@ -11,8 +11,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Service responsible for monitoring and enforcing job execution timeouts to prevent runaway jobs
@@ -30,7 +29,7 @@ import java.util.logging.Logger;
  */
 public class JobTimeoutHandler {
 
-  private static final Logger log = Logger.getLogger(JobTimeoutHandler.class.getName());
+  private static final Logger log = Logger.getLogger(JobTimeoutHandler.class);
 
   private final JobCrudStore jobCrudStore;
   private final JobStatusStore jobStatusStore;
@@ -146,7 +145,7 @@ public class JobTimeoutHandler {
       long timeoutSec) {
     if (!future.isDone() && softTimeoutSent.compareAndSet(false, true)) {
       Duration elapsed = Duration.between(executionStartTime, Instant.now());
-      log.warning(
+      log.warn(
           String.format(
               "Job %s approaching timeout - %d%% threshold reached. Elapsed: %s, Timeout: %ds",
               jobId, softTimeoutPercent, formatDuration(elapsed), timeoutSec));
@@ -157,7 +156,7 @@ public class JobTimeoutHandler {
       Long jobId, Future<?> future, Instant executionStartTime, long timeoutSec) {
     if (!future.isDone()) {
       Duration elapsed = Duration.between(executionStartTime, Instant.now());
-      log.severe(
+      log.error(
           String.format(
               "Job %s exceeded timeout of %ds. Cancelling execution. Elapsed: %s",
               jobId, timeoutSec, formatDuration(elapsed)));
@@ -179,33 +178,26 @@ public class JobTimeoutHandler {
                       jobStatusStore.compareAndSwapStatus(
                           jobId, JobStatus.RUNNING, JobStatus.FAILED, timeoutEx.getMessage());
                   if (!marked) {
-                    log.info(
-                        "Job " + jobId + " already in terminal state when timeout handler ran");
+                    log.infof("Job %s already in terminal state when timeout handler ran", jobId);
                     return;
                   }
 
-                  log.info("Job " + jobId + " marked as FAILED due to hard timeout");
+                  log.infof("Job %s marked as FAILED due to hard timeout", jobId);
                   int newAttempts = jobStatusStore.incrementRetryAttempt(jobId);
                   if (newAttempts > 0 && newAttempts <= job.getMaxRetries()) {
                     // Retries remain — reschedule rather than sending straight to DLQ.
                     Instant retryTime = Instant.now().plusSeconds(timeoutSec);
                     jobStatusStore.scheduleJobRetry(
                         jobId, timeoutEx.getMessage(), retryTime, newAttempts);
-                    log.warning(
-                        "Job "
-                            + jobId
-                            + " timed out but has retries remaining ("
-                            + newAttempts
-                            + "/"
-                            + job.getMaxRetries()
-                            + ") — rescheduled for "
-                            + retryTime);
+                    log.warnf(
+                        "Job %s timed out but has retries remaining (%s/%s) — rescheduled for %s",
+                        jobId, newAttempts, job.getMaxRetries(), retryTime);
                   } else {
                     lifecycleFacade.handlePermanentFailure(job, timeoutEx);
                   }
                 });
       } catch (Exception e) {
-        log.log(Level.SEVERE, "Failed to mark timed-out job as FAILED: " + jobId, e);
+        log.errorf(e, "Failed to mark timed-out job as FAILED: %s", jobId);
       }
     }
   }

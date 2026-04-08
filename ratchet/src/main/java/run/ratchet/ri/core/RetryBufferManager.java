@@ -19,8 +19,7 @@ import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Manages priority-ordered retry buffers for jobs awaiting executor capacity.
@@ -76,7 +75,7 @@ public class RetryBufferManager {
    */
   static final int HARD_CAP_PER_TYPE = 2000;
 
-  private static final Logger log = Logger.getLogger(RetryBufferManager.class.getName());
+  private static final Logger log = Logger.getLogger(RetryBufferManager.class);
 
   /**
    * Dead letter service for handling jobs that cannot be buffered due to capacity limits.
@@ -160,7 +159,7 @@ public class RetryBufferManager {
     try {
       // Enforce hard cap even for forced offers to prevent memory exhaustion
       if (buffer.size() >= HARD_CAP_PER_TYPE) {
-        log.severe(
+        log.error(
             String.format(
                 "CRITICAL: Retry buffer hard cap (%d) reached for job type %s. "
                     + "Job %s moving to DLQ to prevent loss. "
@@ -176,7 +175,7 @@ public class RetryBufferManager {
 
       // Log warning when exceeding normal limit (but under hard cap)
       if (buffer.size() >= MAX_BUFFER_SIZE_PER_TYPE) {
-        log.warning(
+        log.warn(
             String.format(
                 "Retry buffer exceeding normal limit (%d) for job type %s. "
                     + "Current size: %d. Force-buffering job %s.",
@@ -336,10 +335,8 @@ public class RetryBufferManager {
               flushed++;
             }
           } catch (Exception e) {
-            log.log(
-                Level.SEVERE,
-                "Failed to reset buffered job " + buffered.jobId() + " to PENDING on shutdown",
-                e);
+            log.errorf(
+                e, "Failed to reset buffered job %s to PENDING on shutdown", buffered.jobId());
           }
         }
       } finally {
@@ -347,8 +344,7 @@ public class RetryBufferManager {
       }
     }
     if (flushed > 0) {
-      log.info(
-          "RetryBufferManager shutdown: flushed " + flushed + " buffered job(s) back to PENDING");
+      log.infof("RetryBufferManager shutdown: flushed %s buffered job(s) back to PENDING", flushed);
     }
   }
 

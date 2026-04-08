@@ -14,7 +14,7 @@ import java.util.Map;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Periodically drains retry buffers by resubmitting jobs when executor capacity becomes available.
@@ -51,7 +51,7 @@ import java.util.logging.Logger;
 @ApplicationScoped
 public class RetryBufferDrainer {
 
-  private static final Logger log = Logger.getLogger(RetryBufferDrainer.class.getName());
+  private static final Logger log = Logger.getLogger(RetryBufferDrainer.class);
 
   /** Thread-safe flag ensuring the drainer is started exactly once. */
   private final AtomicBoolean started = new AtomicBoolean();
@@ -198,8 +198,7 @@ public class RetryBufferDrainer {
           }
 
           if (job == null) {
-            log.warning(
-                "Buffered job " + buffered.jobId() + " no longer exists in database, skipping");
+            log.warnf("Buffered job %s no longer exists in database, skipping", buffered.jobId());
             continue;
           }
           jobSubmissionService.submitBuffered(job);

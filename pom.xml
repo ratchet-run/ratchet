@@ -59,6 +59,7 @@
     <mysql-connector.version>8.3.0</mysql-connector.version>
     <postgresql-driver.version>42.7.7</postgresql-driver.version>
     <mongodb-driver.version>5.3.0</mongodb-driver.version>
+    <jboss-logging.version>3.6.1.Final</jboss-logging.version>
     <maven-dependency-plugin.version>3.8.1</maven-dependency-plugin.version>
     <jacoco-maven-plugin.version>0.8.12</jacoco-maven-plugin.version>
     <argLine></argLine>
@@ -244,6 +245,15 @@
         <groupId>org.mongodb</groupId>
         <artifactId>mongodb-driver-sync</artifactId>
         <version>${mongodb-driver.version}</version>
+      </dependency>
+
+      <!-- JBoss Logging — Jakarta EE-aligned logging facade. Auto-detects backend
+           (JBoss LogManager, SLF4J, Log4j2) at runtime, falls back to JDK JUL.
+           Used by Hibernate, Weld, RESTEasy, and Quarkus. -->
+      <dependency>
+        <groupId>org.jboss.logging</groupId>
+        <artifactId>jboss-logging</artifactId>
+        <version>${jboss-logging.version}</version>
       </dependency>
     </dependencies>
   </dependencyManagement>

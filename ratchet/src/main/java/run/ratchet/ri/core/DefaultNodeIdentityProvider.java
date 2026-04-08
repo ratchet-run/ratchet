@@ -16,8 +16,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Default implementation of {@link NodeIdentityProvider} that manages node identity and health
@@ -39,7 +38,7 @@ import java.util.logging.Logger;
  */
 public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
 
-  private static final Logger log = Logger.getLogger(DefaultNodeIdentityProvider.class.getName());
+  private static final Logger log = Logger.getLogger(DefaultNodeIdentityProvider.class);
 
   private final AtomicBoolean initialized = new AtomicBoolean();
   private final NodeStore nodeStore;
@@ -105,12 +104,12 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
    */
   public void init() {
     if (!initialized.compareAndSet(false, true)) {
-      log.warning("DefaultNodeIdentityProvider already initialized; skipping re-run");
+      log.warn("DefaultNodeIdentityProvider already initialized; skipping re-run");
       return;
     }
 
     nodeId = resolveNodeId();
-    log.info("Scheduler nodeId=" + nodeId);
+    log.infof("Scheduler nodeId=%s", nodeId);
 
     checkClockSkew();
 
@@ -118,7 +117,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
 
     int reset = jobBulkStore.resetOrphanJobs(Duration.ofSeconds(orphanGraceSeconds));
     if (reset > 0) {
-      log.info("Reset " + reset + " orphan RUNNING job(s) at startup");
+      log.infof("Reset %s orphan RUNNING job(s) at startup", reset);
     }
 
     scheduleNextHeartbeat();
@@ -137,20 +136,14 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
       long skewSeconds = Math.abs(Duration.between(dbTime, appTime).toSeconds());
 
       if (skewSeconds > 5) {
-        log.warning(
-            "CLOCK SKEW DETECTED: App server time differs from database by "
-                + skewSeconds
-                + " seconds. App="
-                + appTime
-                + ", DB="
-                + dbTime
-                + ". This may cause job double-execution or orphan recovery issues. "
-                + "Consider synchronizing clocks via NTP.");
+        log.warnf(
+            "CLOCK SKEW DETECTED: App server time differs from database by %s seconds. App=%s, DB=%s. This may cause job double-execution or orphan recovery issues. Consider synchronizing clocks via NTP.",
+            skewSeconds, appTime, dbTime);
       } else {
-        log.fine("Clock skew check passed: " + skewSeconds + "s difference");
+        log.debugf("Clock skew check passed: %ss difference", skewSeconds);
       }
     } catch (Exception e) {
-      log.warning("Unable to check clock skew: " + e.getMessage());
+      log.warnf("Unable to check clock skew: %s", e.getMessage());
     }
   }
 
@@ -173,8 +166,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
       String pid = ManagementFactory.getRuntimeMXBean().getName().split("@")[0];
       return host + "-" + pid + "-" + UUID.randomUUID().toString().substring(0, 8);
     } catch (Exception e) {
-      log.warning(
-          "Failed to resolve hostname for node ID, falling back to UUID: " + e.getMessage());
+      log.warnf("Failed to resolve hostname for node ID, falling back to UUID: %s", e.getMessage());
       return UUID.randomUUID().toString();
     }
   }
@@ -219,7 +211,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
                     if (!initialized.get()) {
                       return;
                     }
-                    log.log(Level.SEVERE, "Heartbeat retry failed", e);
+                    log.error("Heartbeat retry failed", e);
                     long cappedDelay = Math.min(delaySeconds * 2, orphanGraceSeconds);
                     scheduleHeartbeatWithDelay(cappedDelay);
                   }
@@ -254,7 +246,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
                   }
                   try {
                     nodeStore.upsertHeartbeat(nodeId, Instant.now());
-                    log.fine("Heartbeat sent for node " + nodeId);
+                    log.debugf("Heartbeat sent for node %s", nodeId);
                     if (initialized.get()) {
                       scheduleNextHeartbeat();
                     }
@@ -262,7 +254,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
                     if (!initialized.get()) {
                       return;
                     }
-                    log.log(Level.SEVERE, "Heartbeat failed", e);
+                    log.error("Heartbeat failed", e);
                     scheduleHeartbeatWithDelay(heartbeatIntervalSeconds);
                   }
                 },

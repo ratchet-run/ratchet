@@ -18,8 +18,7 @@ import jakarta.inject.Inject;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.logging.Level;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Service responsible for evaluating workflow conditions to determine whether child jobs should be
@@ -41,7 +40,7 @@ import java.util.logging.Logger;
 @ApplicationScoped
 public class WorkflowConditionEvaluator {
 
-  private static final Logger log = Logger.getLogger(WorkflowConditionEvaluator.class.getName());
+  private static final Logger log = Logger.getLogger(WorkflowConditionEvaluator.class);
 
   /**
    * Jackson ObjectMapper for deserializing job result JSON. Configured with JavaTimeModule for
@@ -88,15 +87,12 @@ public class WorkflowConditionEvaluator {
         case BATCH_CUSTOM -> evaluateBatchCustom(condition, parentJob);
       };
     } catch (Exception e) {
-      log.log(
-          Level.SEVERE,
-          "Failed to evaluate workflow condition "
-              + condition.getId()
-              + " for job "
-              + parentJob.getId()
-              + ": "
-              + e.getMessage(),
-          e);
+      log.errorf(
+          e,
+          "Failed to evaluate workflow condition %s for job %s: %s",
+          condition.getId(),
+          parentJob.getId(),
+          e.getMessage());
       return false;
     }
   }
@@ -154,11 +150,11 @@ public class WorkflowConditionEvaluator {
         return predicate.test(context);
       }
 
-      log.warning("Failed to deserialize batch predicate, falling back to simple evaluation");
+      log.warn("Failed to deserialize batch predicate, falling back to simple evaluation");
       return evaluateSimpleBatchCondition(expression, context);
 
     } catch (Exception e) {
-      log.log(Level.SEVERE, "Failed to evaluate custom batch condition", e);
+      log.error("Failed to evaluate custom batch condition", e);
       return false;
     }
   }
@@ -176,8 +172,8 @@ public class WorkflowConditionEvaluator {
                 int maxFailures = Integer.parseInt(condition.getConditionExpression());
                 return batch.getFailedItems() <= maxFailures;
               } catch (NumberFormatException e) {
-                log.severe(
-                    "Invalid failure count threshold: " + condition.getConditionExpression());
+                log.errorf(
+                    "Invalid failure count threshold: %s", condition.getConditionExpression());
                 return false;
               }
             })
@@ -201,7 +197,8 @@ public class WorkflowConditionEvaluator {
                 double requiredRate = Double.parseDouble(condition.getConditionExpression());
                 return actualSuccessRate >= requiredRate;
               } catch (NumberFormatException e) {
-                log.severe("Invalid success rate threshold: " + condition.getConditionExpression());
+                log.errorf(
+                    "Invalid success rate threshold: %s", condition.getConditionExpression());
                 return false;
               }
             })
@@ -226,7 +223,7 @@ public class WorkflowConditionEvaluator {
       }
 
       // Fallback to simple expression evaluation for backward compatibility
-      log.warning("Failed to deserialize job result predicate, falling back to simple evaluation");
+      log.warn("Failed to deserialize job result predicate, falling back to simple evaluation");
 
       if (expression.contains("executionTime")) {
         return result.getExecutionTimeMsOrZero() > extractThreshold(expression);
@@ -235,7 +232,7 @@ public class WorkflowConditionEvaluator {
       return result.isSuccess();
 
     } catch (Exception e) {
-      log.log(Level.SEVERE, "Failed to evaluate custom condition", e);
+      log.error("Failed to evaluate custom condition", e);
       return false;
     }
   }
@@ -266,7 +263,7 @@ public class WorkflowConditionEvaluator {
 
       return false;
     } catch (Exception e) {
-      log.log(Level.SEVERE, "Failed to evaluate result condition", e);
+      log.error("Failed to evaluate result condition", e);
       return false;
     }
   }
@@ -339,7 +336,7 @@ public class WorkflowConditionEvaluator {
         return OBJECT_MAPPER.readValue(jobResultJson, Object.class);
       }
     } catch (Exception e) {
-      log.warning("Failed to parse job result: " + e.getMessage());
+      log.warnf("Failed to parse job result: %s", e.getMessage());
       return jobResultJson; // Return as string if parsing fails
     }
   }

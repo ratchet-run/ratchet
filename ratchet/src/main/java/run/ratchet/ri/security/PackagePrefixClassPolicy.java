@@ -3,7 +3,7 @@ package run.ratchet.ri.security;
 import run.ratchet.spi.ClassPolicy;
 import java.util.List;
 import java.util.Set;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * Security policy for allowed job target classes based on package prefixes.
@@ -38,7 +38,7 @@ import java.util.logging.Logger;
  */
 public class PackagePrefixClassPolicy implements ClassPolicy {
 
-  private static final Logger log = Logger.getLogger(PackagePrefixClassPolicy.class.getName());
+  private static final Logger log = Logger.getLogger(PackagePrefixClassPolicy.class);
 
   /**
    * Fully-qualified class names that are NEVER allowed, regardless of the configured allowlist.
@@ -169,13 +169,12 @@ public class PackagePrefixClassPolicy implements ClassPolicy {
 
     // Layer 1: hardcoded denylist — blocks well-known RCE gadgets regardless of allowlist config.
     if (DENIED_EXACT.contains(className)) {
-      log.warning("Class " + className + " is on the hardcoded denylist (exact match)");
+      log.warnf("Class %s is on the hardcoded denylist (exact match)", className);
       return false;
     }
     for (String deniedPrefix : DENIED_PREFIXES) {
       if (className.startsWith(deniedPrefix)) {
-        log.warning(
-            "Class " + className + " is on the hardcoded denylist (prefix: " + deniedPrefix + ")");
+        log.warnf("Class %s is on the hardcoded denylist (prefix: %s)", className, deniedPrefix);
         return false;
       }
     }
@@ -187,7 +186,7 @@ public class PackagePrefixClassPolicy implements ClassPolicy {
       }
     }
 
-    log.warning("Class " + className + " is not in allowed packages: " + allowedPackages);
+    log.warnf("Class %s is not in allowed packages: %s", className, allowedPackages);
     return false;
   }
 }

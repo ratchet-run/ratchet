@@ -19,7 +19,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.Initialized;
 import jakarta.enterprise.event.Observes;
 import jakarta.inject.Inject;
-import java.util.logging.Logger;
+import org.jboss.logging.Logger;
 
 /**
  * CDI lifecycle observer that initializes and shuts down the Ratchet job scheduler subsystem.
@@ -43,7 +43,7 @@ import java.util.logging.Logger;
 @ApplicationScoped
 public class RatchetLifecycle {
 
-  private static final Logger log = Logger.getLogger(RatchetLifecycle.class.getName());
+  private static final Logger log = Logger.getLogger(RatchetLifecycle.class);
 
   private final Poller poller;
   private final RecurringScheduler recurringScheduler;
