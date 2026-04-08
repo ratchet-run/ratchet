@@ -265,7 +265,7 @@ See [Metrics Collection](./metrics-collection.md) for detailed guidance.
 
 **Module:** `ratchet-api`
 **Package:** `run.ratchet.spi`
-**Default:** `JulJobLogger` (bridges to `java.util.logging` + internal event publisher)
+**Default:** No-op (`NoOpJobLogger.INSTANCE` in `JobMdcContext`); `JBossLoggingJobLogger` is provided as a reference implementation that bridges to JBoss Logging + internal event publisher but is not currently auto-wired.
 **Annotation:** `@Incubating`
 
 Per-job isolated logging.
@@ -885,7 +885,7 @@ public class MySpi implements SomeRatchetSpi {
 | `RetryPolicy` | `DefaultRetryPolicy` | `@ApplicationScoped` | ratchet |
 | `ResilienceStrategy` | `DefaultResilienceStrategy` | Produced by `RatchetProducer` | ratchet |
 | `MetricsCollector` | `NoOpMetricsCollector` | `@ApplicationScoped` | ratchet |
-| `JobLogger` | `JulJobLogger` | Per-job instance | ratchet |
+| `JobLogger` | `JBossLoggingJobLogger` | Per-job instance | ratchet |
 | `ClassPolicy` | `PackagePrefixClassPolicy` | Produced by `RatchetProducer` | ratchet |
 | `BeanResolver` | `CdiBeanResolver` | `@ApplicationScoped` | ratchet |
 | `ExecutorProvider` | `DefaultExecutorProvider` | `@ApplicationScoped` | ratchet |

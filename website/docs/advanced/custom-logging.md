@@ -37,54 +37,60 @@ public interface JobLogger {
 
 Each job execution receives its own `JobLogger` instance, bound to that job's ID. This ensures log isolation -- messages from concurrent jobs do not interleave or lose context.
 
-## Default JUL Implementation
+## Default JBoss Logging Implementation
 
-The reference implementation provides `JulJobLogger`, which bridges job logs to `java.util.logging` (JUL) and simultaneously publishes them as internal events for persistence:
+The reference implementation provides `JBossLoggingJobLogger`, which bridges job logs to JBoss Logging (which auto-detects the runtime backend — JBoss LogManager, SLF4J, Log4j 2, or JDK JUL) and simultaneously publishes them as internal events for persistence.
+
+> **Note:** As of 0.2.0, `JBossLoggingJobLogger` is reserved for future per-job logger wiring and is not currently instantiated by `JobTask`. The `JobLogger` SPI is wired via a no-op implementation by default, and applications that need custom job logging can plug in their own implementation following the pattern below.
 
 ```java
-public class JulJobLogger implements JobLogger {
+public class JBossLoggingJobLogger implements JobLogger {
 
     private final long jobId;
     private final InternalEventPublisher eventPublisher;
 
-    public JulJobLogger(long jobId, InternalEventPublisher eventPublisher) {
+    public JBossLoggingJobLogger(long jobId, InternalEventPublisher eventPublisher) {
         this.jobId = jobId;
         this.eventPublisher = eventPublisher;
     }
 
     @Override
     public void info(String message) {
-        log.info("[Job " + jobId + "] " + message);
-        publishLogLine("INFO", message);
+        log.infof("[Job %d] %s", jobId, message);
+        publishLogLine(LogLevel.INFO, message);
     }
 
     @Override
     public void debug(String message) {
-        log.fine("[Job " + jobId + "] " + message);
-        publishLogLine("DEBUG", message);
+        log.debugf("[Job %d] %s", jobId, message);
+        publishLogLine(LogLevel.DEBUG, message);
     }
 
     @Override
     public void warn(String message) {
-        log.warning("[Job " + jobId + "] " + message);
-        publishLogLine("WARN", message);
+        log.warnf("[Job %d] %s", jobId, message);
+        publishLogLine(LogLevel.WARN, message);
     }
 
     @Override
     public void error(String message) {
-        log.severe("[Job " + jobId + "] " + message);
-        publishLogLine("ERROR", message);
+        log.errorf("[Job %d] %s", jobId, message);
+        publishLogLine(LogLevel.ERROR, message);
     }
 
     @Override
     public void trace(String message) {
-        log.finest("[Job " + jobId + "] " + message);
-        publishLogLine("TRACE", message);
+        log.tracef("[Job %d] %s", jobId, message);
+        publishLogLine(LogLevel.TRACE, message);
     }
 
-    private void publishLogLine(String level, String message) {
+    private void publishLogLine(LogLevel level, String message) {
         if (eventPublisher != null) {
-            eventPublisher.publish(new JobLogLine(jobId, level, message));
+            Map<String, Object> mdcSnapshot = MDC.getMap() == null
+                ? new HashMap<>()
+                : new HashMap<>(MDC.getMap());
+            eventPublisher.publish(
+                new JobLogLine(jobId, Instant.now(), level, message, mdcSnapshot));
         }
     }
 }
@@ -92,18 +98,18 @@ public class JulJobLogger implements JobLogger {
 
 The dual routing means:
 
-1. **JUL output** -- Log messages appear in the container's standard log output (console, log files), prefixed with `[Job <id>]`.
+1. **Backend log output** -- Log messages appear in the container's standard log output (console, log files), prefixed with `[Job <id>]`. The actual backend depends on what JBoss Logging detects at startup: JBoss LogManager on WildFly, the JUL fallback otherwise.
 2. **Event publishing** -- Log lines are published as `JobLogLine` events through the `InternalEventPublisher`, which routes them to the `JobLogStore` for database persistence and to any registered event listeners for real-time streaming.
 
-### JUL Level Mapping
+### Level Mapping
 
-| JobLogger Method | JUL Level |
-|------------------|-----------|
-| `info()` | `INFO` |
-| `debug()` | `FINE` |
-| `warn()` | `WARNING` |
-| `error()` | `SEVERE` |
-| `trace()` | `FINEST` |
+| JobLogger Method | JBoss Logging Level | Backend Mapping |
+|------------------|---------------------|-----------------|
+| `info()` | `INFO` | INFO across all backends |
+| `debug()` | `DEBUG` | DEBUG / FINE under JUL |
+| `warn()` | `WARN` | WARN / WARNING under JUL |
+| `error()` | `ERROR` | ERROR / SEVERE under JUL |
+| `trace()` | `TRACE` | TRACE / FINEST under JUL |
 
 ## Using JobLogger in Job Tasks
 
@@ -275,7 +281,11 @@ If you only need log persistence without console output:
 ```java
 import run.ratchet.spi.JobLogger;
 import run.ratchet.ri.core.InternalEventPublisher;
-import run.ratchet.ri.core.JulJobLogger.JobLogLine;
+import run.ratchet.ri.core.JobLogLine;
+import run.ratchet.store.entity.JobLogEntity.LogLevel;
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
 
 public class SilentJobLogger implements JobLogger {
 
@@ -289,32 +299,33 @@ public class SilentJobLogger implements JobLogger {
 
     @Override
     public void info(String message) {
-        publish("INFO", message);
+        publish(LogLevel.INFO, message);
     }
 
     @Override
     public void debug(String message) {
-        publish("DEBUG", message);
+        publish(LogLevel.DEBUG, message);
     }
 
     @Override
     public void warn(String message) {
-        publish("WARN", message);
+        publish(LogLevel.WARN, message);
     }
 
     @Override
     public void error(String message) {
-        publish("ERROR", message);
+        publish(LogLevel.ERROR, message);
     }
 
     @Override
     public void trace(String message) {
-        publish("TRACE", message);
+        publish(LogLevel.TRACE, message);
     }
 
-    private void publish(String level, String message) {
+    private void publish(LogLevel level, String message) {
         if (eventPublisher != null) {
-            eventPublisher.publish(new JobLogLine(jobId, level, message));
+            eventPublisher.publish(
+                new JobLogLine(jobId, Instant.now(), level, message, new HashMap<>()));
         }
     }
 }
@@ -322,39 +333,20 @@ public class SilentJobLogger implements JobLogger {
 
 ## Wiring a Custom JobLogger
 
-The `JobLogger` is not a global CDI bean -- each job execution gets its own instance. To provide a custom logger, you need to implement a factory that the engine calls when creating a new job execution context. The engine creates `JulJobLogger` instances internally. To customize this, provide a custom `ResilienceStrategy` or job execution customization that wraps or replaces the logger.
+The `JobLogger` is not a global CDI bean -- each job execution gets its own instance. As of 0.2.0, the default wiring is a no-op `JobLogger`; the engine does not currently instantiate `JBossLoggingJobLogger` automatically. To plug in a custom logger, replace the no-op binding via your own producer or extension point in `JobMdcContext.bindJobContext`.
 
-The simplest approach is to configure the JUL bridge to route to your preferred backend. Most logging frameworks provide a JUL adapter:
+### Routing Backend Output
 
-### SLF4J Bridge
+Ratchet's framework code logs through JBoss Logging, which auto-detects the runtime backend:
 
-Add the SLF4J JUL bridge to route all JUL output through SLF4J:
+| Runtime | Backend |
+|---|---|
+| WildFly 30+ | JBoss LogManager (native) |
+| Quarkus | JBoss LogManager (via `quarkus-logging-jboss-logmanager`) |
+| Spring Boot / Logback | Logback (via SLF4J detection) |
+| Standalone JDK | JDK `java.util.logging` (fallback) |
 
-```xml
-<dependency>
-    <groupId>org.slf4j</groupId>
-    <artifactId>jul-to-slf4j</artifactId>
-    <version>${slf4j.version}</version>
-</dependency>
-```
-
-Install the bridge at application startup:
-
-```java
-import org.slf4j.bridge.SLF4JBridgeHandler;
-
-@ApplicationScoped
-public class LoggingInitializer {
-
-    @PostConstruct
-    void init() {
-        SLF4JBridgeHandler.removeHandlersForRootLogger();
-        SLF4JBridgeHandler.install();
-    }
-}
-```
-
-This routes all Ratchet JUL output (`[Job <id>]` messages) through SLF4J, where your Logback or Log4j2 configuration controls formatting, filtering, and output destinations.
+No bridge or extra dependency is required for the framework's own logs. To render the MDC keys (`jobId`, `node`, `jobCreator`) in your output, add `%X{jobId} %X{node} %X{jobCreator}` to your formatter pattern (e.g. in `standalone.xml`, `quarkus.log.console.format`, or `logback.xml`).
 
 ## Log Persistence
 
@@ -381,8 +373,21 @@ The `LogPurgeTimer` in the RI automatically cleans up old log entries based on a
 
 **Leverage the event system.** The `InternalEventPublisher` dispatches log lines synchronously. If your custom logger does expensive work (network calls, file I/O), consider queuing log entries and flushing asynchronously to avoid blocking job execution.
 
-**Configure JUL levels per logger.** The default `JulJobLogger` uses the `run.ratchet.ri.core.JulJobLogger` logger name. Configure its level in `logging.properties` to control which messages reach the console:
+**Configure logger levels per category.** Ratchet's framework loggers use the fully-qualified class name as the logger category (e.g. `run.ratchet.ri.core.JobTask`). Configure levels through your backend of choice. Examples:
 
+WildFly (`standalone.xml`):
+```xml
+<logger category="run.ratchet">
+    <level name="INFO"/>
+</logger>
+```
+
+Logback (`logback.xml`):
+```xml
+<logger name="run.ratchet" level="INFO"/>
+```
+
+Quarkus (`application.properties`):
 ```properties
-run.ratchet.ri.core.JulJobLogger.level = INFO
+quarkus.log.category."run.ratchet".level=INFO
 ```

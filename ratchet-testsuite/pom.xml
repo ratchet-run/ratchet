@@ -49,6 +49,14 @@
       <scope>provided</scope>
     </dependency>
 
+    <!-- JBoss Logging (provided by WildFly at runtime; needed at compile time
+         for MdcCapturingJob and the LoggingMdcIT). -->
+    <dependency>
+      <groupId>org.jboss.logging</groupId>
+      <artifactId>jboss-logging</artifactId>
+      <scope>provided</scope>
+    </dependency>
+
     <!-- Always-on test dependencies -->
     <dependency>
       <groupId>org.junit.jupiter</groupId>
