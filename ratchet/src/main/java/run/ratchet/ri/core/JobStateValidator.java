@@ -142,9 +142,7 @@ public class JobStateValidator {
    * @return true if the status is terminal, false if non-terminal or null
    */
   public boolean isTerminalState(JobStatus status) {
-    return status == JobStatus.SUCCEEDED
-        || status == JobStatus.FAILED
-        || status == JobStatus.CANCELED;
+    return status != null && status.isTerminal();
   }
 
   /**

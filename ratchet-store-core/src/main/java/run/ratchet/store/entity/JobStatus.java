@@ -53,5 +53,20 @@ public enum JobStatus {
    * Job is temporarily paused and will not execute until resumed. NOT visible to polling queries.
    * Preserves all job state including retry attempts. Transitions back to PENDING when resumed.
    */
-  PAUSED
+  PAUSED;
+
+  /**
+   * Whether this status is a terminal state — a state from which the job will not transition back
+   * to an executing status on its own. Used by retry and cascade code that must not silently
+   * overwrite a terminal transition (e.g. a CANCEL racing with a cascade update).
+   *
+   * <p>Terminal states are {@link #SUCCEEDED}, {@link #FAILED}, and {@link #CANCELED}. Note that
+   * {@code FAILED} is treated as terminal even though a failed job may later transition back to
+   * {@code PENDING} via the retry path — the retry is driven by external logic that inspects {@code
+   * attempts} and {@code maxRetries} before scheduling, not by the enum value itself. From the
+   * enum's perspective, each snapshot of {@code FAILED} is terminal.
+   */
+  public boolean isTerminal() {
+    return this == SUCCEEDED || this == FAILED || this == CANCELED;
+  }
 }
