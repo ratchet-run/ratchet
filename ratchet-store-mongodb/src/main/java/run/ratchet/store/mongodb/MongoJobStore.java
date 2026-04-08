@@ -28,6 +28,7 @@ import com.mongodb.client.result.DeleteResult;
 import com.mongodb.client.result.UpdateResult;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.WorkflowCondition;
+import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.ArchivedJobEntity;
@@ -123,9 +124,13 @@ public class MongoJobStore implements JobStore {
     job.setUpdatedAt(now);
 
     // Optimistic lock check: bump version and require the prior version to match. If the row
-    // already moved (concurrent save by another node), the matchedCount comes back 0. We log
-    // SEVERE and fall back to the upsert behavior so existing call sites that don't expect
-    // version exceptions still function — but lost updates become visible in the logs.
+    // already moved (concurrent save by another node), matchedCount comes back 0 and we throw
+    // RatchetOptimisticLockException. The caller is expected to retry-with-reload via
+    // OptimisticLockRetry, or propagate the exception if the save sits on a public API boundary.
+    //
+    // Prior to 0.2.0 this path logged a WARN and silently fell back to an upsert, which made
+    // lost updates invisible except to operators tailing the logs. That fallback is gone — see
+    // RatchetOptimisticLockException Javadoc for the rollback-semantics caveat.
     Integer expectedVersion = job.getVersion() != null ? job.getVersion() : 0;
     job.setVersion(expectedVersion + 1);
     Document doc = DocumentMapper.toDocument(job);
@@ -136,14 +141,12 @@ public class MongoJobStore implements JobStore {
                 doc,
                 new ReplaceOptions().upsert(false));
     if (result.getMatchedCount() == 0) {
-      // Concurrent modification or row never existed at the expected version. Fall back to
-      // upsert (current behavior, last-writer-wins) so legacy paths keep working but log it
-      // loudly so operators can find the race during alpha testing.
-      log.warnf(
-          "MongoJobStore.save() optimistic lock miss for job %s (expectedVersion=%s) —"
-              + " falling back to upsert. Likely a concurrent save from another node.",
-          job.getId(), expectedVersion);
-      jobs().replaceOne(eq("_id", job.getId()), doc, new ReplaceOptions().upsert(true));
+      throw new RatchetOptimisticLockException(
+          "Concurrent modification on job "
+              + job.getId()
+              + " (expectedVersion="
+              + expectedVersion
+              + ")");
     }
     return job;
   }

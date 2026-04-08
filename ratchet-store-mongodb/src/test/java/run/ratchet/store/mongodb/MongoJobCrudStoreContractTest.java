@@ -28,4 +28,14 @@ class MongoJobCrudStoreContractTest extends AbstractJobCrudStoreContract {
   public void cleanupStore() {
     fixture.cleanupStore();
   }
+
+  @Override
+  public boolean supportsTransactionalRollback() {
+    return fixture.supportsTransactionalRollback();
+  }
+
+  @Override
+  public boolean isStaleWriteException(Throwable t) {
+    return fixture.isStaleWriteException(t);
+  }
 }
