@@ -131,6 +131,13 @@ public class MongoJobStore implements JobStore {
     // Prior to 0.2.0 this path logged a WARN and silently fell back to an upsert, which made
     // lost updates invisible except to operators tailing the logs. That fallback is gone — see
     // RatchetOptimisticLockException Javadoc for the rollback-semantics caveat.
+    //
+    // IMPORTANT: we bump job.setVersion BEFORE the replaceOne so the document we write carries
+    // the incremented value, but if the match fails we MUST restore the entity's original
+    // version before throwing. Otherwise a caller that reuses the same entity instance after
+    // catching the exception (rather than reloading) would carry a phantom version that was
+    // never persisted — the next save would match whatever concurrent writer landed that version
+    // and silently overwrite it, defeating the whole optimistic-lock guarantee.
     Integer expectedVersion = job.getVersion() != null ? job.getVersion() : 0;
     job.setVersion(expectedVersion + 1);
     Document doc = DocumentMapper.toDocument(job);
@@ -141,6 +148,8 @@ public class MongoJobStore implements JobStore {
                 doc,
                 new ReplaceOptions().upsert(false));
     if (result.getMatchedCount() == 0) {
+      // Roll back the in-memory version bump so the caller's entity reflects reality.
+      job.setVersion(expectedVersion);
       throw new RatchetOptimisticLockException(
           "Concurrent modification on job "
               + job.getId()

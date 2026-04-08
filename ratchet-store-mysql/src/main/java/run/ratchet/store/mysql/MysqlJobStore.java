@@ -107,20 +107,24 @@ public class MysqlJobStore implements JobStore {
 
   @Override
   public JobEntity save(JobEntity job) {
-    // Flush is required on the update path so Hibernate detects the @Version conflict inside this
-    // method rather than at end-of-transaction commit, where it would be too late to translate
-    // jakarta.persistence.OptimisticLockException into RatchetOptimisticLockException. Insert
-    // path has no prior version to conflict with, but we still flush() for symmetry with the
-    // MongoJobStore insert path, which writes synchronously.
+    // Flush is required on the update path so Hibernate detects the @Version conflict inside
+    // this method rather than at end-of-transaction commit, where it would be too late to
+    // translate jakarta.persistence.OptimisticLockException into RatchetOptimisticLockException.
+    // The insert path cannot throw OptimisticLockException (no prior version to conflict with),
+    // so the insert branch does not flush — other JPA exceptions (ConstraintViolationException,
+    // etc.) continue to propagate unwrapped since we only catch OptimisticLockException.
     //
     // Caveat: under JTA, Hibernate's JTA integration calls Transaction.setRollbackOnly() BEFORE
     // this catch block executes. The translated exception type is consistent across stores, but
     // the enclosing JTA transaction is already marked rollback-only. See
-    // RatchetOptimisticLockException Javadoc for the full rollback-semantics caveat.
+    // RatchetOptimisticLockException Javadoc for the full rollback-semantics caveat. Callers
+    // that need the retry behavior of OptimisticLockRetry on this store must NOT invoke it
+    // from inside a @Transactional(REQUIRED) boundary — the retry loop becomes a no-op because
+    // the second em.flush() also fails on the rollback-only transaction. See OptimisticLockRetry
+    // Javadoc for the full explanation and permitted usage patterns.
     try {
       if (job.getId() == null) {
         em.persist(job);
-        em.flush();
         return job;
       }
       JobEntity merged = em.merge(job);

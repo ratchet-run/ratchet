@@ -1,7 +1,6 @@
 package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -166,8 +165,9 @@ class OptimisticLockRetryTest {
                     alwaysConflict));
 
     assertTrue(ex.getMessage().contains("Retry interrupted"));
+    // Thread.interrupted() both reads AND clears the flag, so this assertion doubles as a
+    // cleanup for the remaining assertions in the test harness.
     assertTrue(Thread.interrupted(), "interrupt flag must be restored on the calling thread");
-    assertFalse(Thread.currentThread().isInterrupted(), "flag was consumed by the assertion");
   }
 
   @Test
