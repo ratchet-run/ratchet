@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.WorkflowCondition;
+import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.ArchivedJobEntity;
@@ -25,6 +26,7 @@ import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
+import jakarta.persistence.OptimisticLockException;
 import jakarta.persistence.PersistenceContext;
 import jakarta.transaction.Transactional;
 import java.sql.Connection;
@@ -165,11 +167,28 @@ public class PostgresqlJobStore implements JobStore {
 
   @Override
   public JobEntity save(JobEntity job) {
-    if (job.getId() == null) {
-      em.persist(job);
-      return job;
+    // Flush is required on the update path so Hibernate detects the @Version conflict inside this
+    // method rather than at end-of-transaction commit, where it would be too late to translate
+    // jakarta.persistence.OptimisticLockException into RatchetOptimisticLockException. Insert
+    // path has no prior version to conflict with, but we still flush() for symmetry with the
+    // MongoJobStore insert path, which writes synchronously.
+    //
+    // Caveat: under JTA, Hibernate's JTA integration calls Transaction.setRollbackOnly() BEFORE
+    // this catch block executes. The translated exception type is consistent across stores, but
+    // the enclosing JTA transaction is already marked rollback-only. See
+    // RatchetOptimisticLockException Javadoc for the full rollback-semantics caveat.
+    try {
+      if (job.getId() == null) {
+        em.persist(job);
+        em.flush();
+        return job;
+      }
+      JobEntity merged = em.merge(job);
+      em.flush();
+      return merged;
+    } catch (OptimisticLockException e) {
+      throw new RatchetOptimisticLockException("Concurrent modification on job " + job.getId(), e);
     }
-    return em.merge(job);
   }
 
   @Override
