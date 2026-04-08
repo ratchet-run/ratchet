@@ -20,6 +20,7 @@ import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.JobStore;
+import run.ratchet.store.util.IsolationCheck;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
@@ -1528,24 +1529,25 @@ public class MysqlJobStore implements JobStore {
         .executeUpdate();
   }
 
-  /** Checks the connection isolation level on first use and warns if not READ COMMITTED. */
+  /**
+   * Checks the connection isolation level on first use and warns (or fails, depending on the {@code
+   * ratchet.isolation-check} system property) if not READ COMMITTED.
+   *
+   * <p>Tries the MySQL 8.0+ system variable first, falling back to the MySQL 5.7 name if the
+   * primary variable is unknown. The {@code @@tx_isolation} variable was deprecated in MySQL 5.7.20
+   * and removed in MySQL 8.0; querying it on MySQL 8+ throws "Unknown system variable", which a
+   * naive single-query check would treat as a detection failure.
+   */
   @PostConstruct
   void checkIsolationLevel() {
-    try {
-      Object result =
-          em.createNativeQuery("SELECT @@SESSION.transaction_isolation").getSingleResult();
-      String isolation = result != null ? result.toString() : "unknown";
-      if (!"READ-COMMITTED".equals(isolation)) {
-        log.warnf(
-            "MySQL session isolation is '%s' — Ratchet requires READ COMMITTED. "
-                + "REPEATABLE READ causes InnoDB gap locks that block concurrent job enqueue "
-                + "during claim queries. Set hibernate.connection.isolation=2 in persistence.xml "
-                + "or transaction-isolation=TRANSACTION_READ_COMMITTED on the datasource.",
-            isolation);
-      }
-    } catch (Exception e) {
-      log.debugf("Could not check isolation level: %s", e.getMessage());
-    }
+    IsolationCheck.verifyReadCommitted(
+        em,
+        "MySQL",
+        List.of("SELECT @@SESSION.transaction_isolation", "SELECT @@SESSION.tx_isolation"),
+        "READ-COMMITTED",
+        "REPEATABLE READ causes InnoDB gap locks that block concurrent job enqueue during claim"
+            + " queries. Set hibernate.connection.isolation=2 in persistence.xml or"
+            + " transaction-isolation=TRANSACTION_READ_COMMITTED on the datasource.");
   }
 
   private JobPayload parseProgressHook(Object jsonValue) {

@@ -20,6 +20,8 @@ import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.JobStore;
+import run.ratchet.store.util.IsolationCheck;
+import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
@@ -55,6 +57,29 @@ public class PostgresqlJobStore implements JobStore {
   private static final String RECURRING_JOB_TYPE_FILTER = "job_type = 'RECURRING'";
 
   @PersistenceContext private EntityManager em;
+
+  /**
+   * Checks the connection isolation level on first use and warns (or fails, depending on the {@code
+   * ratchet.isolation-check} system property) if not READ COMMITTED.
+   *
+   * <p>PostgreSQL's default is already READ COMMITTED, but operators sometimes raise it globally
+   * via {@code default_transaction_isolation = serializable} or per-connection. Ratchet's poll and
+   * claim queries assume READ COMMITTED semantics; running under SERIALIZABLE produces {@code
+   * SQLState 40001} serialization failures on concurrent claims that the claim loop is not designed
+   * to retry.
+   */
+  @PostConstruct
+  void checkIsolationLevel() {
+    IsolationCheck.verifyReadCommitted(
+        em,
+        "PostgreSQL",
+        List.of("SHOW transaction_isolation"),
+        "read committed",
+        "SERIALIZABLE and REPEATABLE READ both surface SQLState 40001 serialization failures on"
+            + " concurrent job claims, which Ratchet's claim loop does not retry. Set"
+            + " default_transaction_isolation = 'read committed' in postgresql.conf or unset any"
+            + " connection pool override (e.g. hibernate.connection.isolation=2).");
+  }
 
   // ──────────────────────────────────────────────
   // JobCrudStore
