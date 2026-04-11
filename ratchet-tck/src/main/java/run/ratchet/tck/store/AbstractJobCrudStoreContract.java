@@ -1,6 +1,7 @@
 package run.ratchet.tck.store;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import run.ratchet.store.entity.JobEntity;
@@ -99,5 +100,85 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
         1L,
         staleWriteCount,
         "exactly one thread must observe a stale-write failure; got " + failures);
+  }
+
+  @Test
+  void findById_unknownId_returnsEmpty() {
+    var result = store().findById(Long.MAX_VALUE);
+
+    assertTrue(result.isEmpty(), "findById with unknown ID should return empty");
+  }
+
+  @Test
+  void delete_removesJob() {
+    var saved = persist(newPendingJob());
+    long id = saved.getId();
+
+    store().delete(id);
+
+    assertTrue(store().findById(id).isEmpty(), "Deleted job should not be found");
+  }
+
+  @Test
+  void findActiveByBusinessKey_returnsMatchingJob() {
+    var job = newPendingJob();
+    job.setBusinessKey("bk-test-" + job.getIdempotencyKey());
+    var saved = persist(job);
+
+    var result = store().findActiveByBusinessKey(saved.getBusinessKey());
+
+    assertTrue(result.isPresent(), "findActiveByBusinessKey should return the matching job");
+    assertEquals(saved.getId(), result.get().getId());
+  }
+
+  @Test
+  void findActiveByBusinessKey_ignoresTerminalJobs() {
+    var job = newPendingJob();
+    job.setBusinessKey("bk-terminal-" + job.getIdempotencyKey());
+    var saved = persist(job);
+    store().compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+    store()
+        .markJobSucceeded(
+            saved.getId(), null, null, java.time.Instant.now(), java.time.Instant.now(), 0L, 0L);
+
+    // Guard: verify the CAS actually landed before testing the query filter
+    var reloaded = store().findById(saved.getId()).orElseThrow();
+    assertEquals(JobStatus.SUCCEEDED, reloaded.getStatus(), "Job should be SUCCEEDED");
+
+    var result = store().findActiveByBusinessKey(saved.getBusinessKey());
+
+    assertFalse(
+        result.isPresent(), "findActiveByBusinessKey should not return terminal (SUCCEEDED) jobs");
+  }
+
+  @Test
+  void findDependants_returnsDependentJobs() {
+    var parent = persist(newPendingJob());
+
+    var child1 = newPendingJob();
+    child1.setDependsOn(parent.getId());
+    persist(child1);
+
+    var child2 = newPendingJob();
+    child2.setDependsOn(parent.getId());
+    persist(child2);
+
+    var dependants = store().findDependants(parent.getId());
+
+    assertEquals(2, dependants.size(), "findDependants should return both dependent jobs");
+  }
+
+  @Test
+  void countPendingJobs_returnsAccurateCount() {
+    persist(newPendingJob());
+    persist(newPendingJob());
+    persist(newPendingJob());
+
+    var running = persist(newPendingJob());
+    store().compareAndSwapStatus(running.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+
+    long count = store().countPendingJobs();
+
+    assertEquals(3L, count, "countPendingJobs should count only PENDING jobs");
   }
 }

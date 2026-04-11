@@ -56,4 +56,42 @@ public abstract class AbstractExecutionStoreContract implements JobStoreContract
 
     assertEquals(3, count, "countExecutionAttempts should return 3 after saving 3 executions");
   }
+
+  @Test
+  void findExecutionsByJobId_unknownJob_returnsEmpty() {
+    var executions = store().findExecutionsByJobId(Long.MAX_VALUE);
+
+    assertTrue(executions.isEmpty(), "findExecutionsByJobId for unknown job should return empty");
+  }
+
+  @Test
+  void findLatestExecution_unknownJob_returnsEmpty() {
+    var latest = store().findLatestExecution(Long.MAX_VALUE);
+
+    assertTrue(latest.isEmpty(), "findLatestExecution for unknown job should return empty");
+  }
+
+  @Test
+  void countExecutionAttempts_noExecutions_returnsZero() {
+    var job = persist(newPendingJob());
+
+    int count = store().countExecutionAttempts(job.getId());
+
+    assertEquals(0, count, "countExecutionAttempts with no executions should return 0");
+  }
+
+  @Test
+  void saveExecution_multipleJobs_isolatedByJobId() {
+    var jobA = persist(newPendingJob());
+    var jobB = persist(newPendingJob());
+
+    store().saveExecution(JobExecutionEntity.start(jobA.getId(), 1, "node-1"));
+    store().saveExecution(JobExecutionEntity.start(jobA.getId(), 2, "node-1"));
+    store().saveExecution(JobExecutionEntity.start(jobB.getId(), 1, "node-1"));
+
+    assertEquals(
+        2, store().findExecutionsByJobId(jobA.getId()).size(), "Job A should have 2 executions");
+    assertEquals(
+        1, store().findExecutionsByJobId(jobB.getId()).size(), "Job B should have 1 execution");
+  }
 }

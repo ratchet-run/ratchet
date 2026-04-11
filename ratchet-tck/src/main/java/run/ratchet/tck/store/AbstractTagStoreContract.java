@@ -1,5 +1,6 @@
 package run.ratchet.tck.store;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -56,5 +57,52 @@ public abstract class AbstractTagStoreContract implements JobStoreContractFixtur
 
     assertEquals(2, page1.size(), "First page should contain 2 results");
     assertEquals(1, page2.size(), "Second page should contain 1 result");
+  }
+
+  @Test
+  void insertTags_duplicateTag_isIdempotent() {
+    var saved = persist(newPendingJob());
+
+    assertDoesNotThrow(
+        () -> {
+          store().insertTags(saved.getId(), List.of("dup-tag"));
+          store().insertTags(saved.getId(), List.of("dup-tag"));
+        },
+        "Inserting the same tag twice should not throw");
+  }
+
+  @Test
+  void findJobIdsByTag_unknownTag_returnsEmpty() {
+    List<Long> ids = store().findJobIdsByTag("nonexistent-tag", 10, 0);
+
+    assertTrue(ids.isEmpty(), "findJobIdsByTag with unknown tag should return empty");
+  }
+
+  @Test
+  void findJobIdsByTag_paginationOffset_skipsRows() {
+    for (int i = 0; i < 5; i++) {
+      var job = persist(newPendingJob());
+      store().insertTags(job.getId(), List.of("offset-tag"));
+    }
+
+    List<Long> page = store().findJobIdsByTag("offset-tag", 10, 3);
+
+    assertEquals(2, page.size(), "Offset 3 with 5 total should return 2 results");
+  }
+
+  @Test
+  void insertTags_emptyList_isNoOp() {
+    var saved = persist(newPendingJob());
+
+    assertDoesNotThrow(
+        () -> store().insertTags(saved.getId(), List.of()),
+        "Inserting empty tag list should not throw");
+  }
+
+  @Test
+  void deleteTagsByJobId_unknownJob_returnsZero() {
+    int deleted = store().deleteTagsByJobId(Long.MAX_VALUE);
+
+    assertEquals(0, deleted, "deleteTagsByJobId for unknown job should return 0");
   }
 }

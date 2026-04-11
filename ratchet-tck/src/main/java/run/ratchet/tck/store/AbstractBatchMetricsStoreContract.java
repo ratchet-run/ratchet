@@ -1,9 +1,12 @@
 package run.ratchet.tck.store;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import run.ratchet.store.entity.BatchMetricsEntity;
+import run.ratchet.tck.util.ConcurrentTestRunner;
+import java.time.Duration;
 import java.time.Instant;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -58,5 +61,102 @@ public abstract class AbstractBatchMetricsStoreContract implements JobStoreContr
         350L,
         found.get().getChildExecutionMs(),
         "childExecutionMs should accumulate both additions");
+  }
+
+  @Test
+  void findBatchMetrics_unknownBatch_returnsEmpty() {
+    var result = store().findBatchMetrics(Long.MAX_VALUE);
+
+    assertTrue(result.isEmpty(), "findBatchMetrics for unknown batch should return empty");
+  }
+
+  @Test
+  void finalizeBatchMetrics_setsCompletionFields() {
+    var parent = persist(newBatchParentJob());
+    persistBatch(parent.getId(), 2);
+
+    BatchMetricsEntity metrics = newMetrics(parent.getId());
+    store().saveBatchMetrics(metrics);
+
+    store().finalizeBatchMetrics(parent.getId());
+
+    var found = store().findBatchMetrics(parent.getId()).orElseThrow();
+    assertTrue(found.getCompletedAt() != null, "finalizeBatchMetrics should set completedAt");
+  }
+
+  @Test
+  void updateBatchMetricsChildCount_updatesCount() {
+    var parent = persist(newBatchParentJob());
+    persistBatch(parent.getId(), 5);
+
+    BatchMetricsEntity metrics = newMetrics(parent.getId());
+    store().saveBatchMetrics(metrics);
+
+    store().updateBatchMetricsChildCount(parent.getId(), 5);
+
+    var found = store().findBatchMetrics(parent.getId()).orElseThrow();
+    assertEquals(5, found.getChildCount(), "childCount should be updated");
+  }
+
+  /**
+   * N threads concurrently add execution times. The final total must equal the sum of all
+   * additions, proving server-side atomicity.
+   */
+  @Test
+  void addChildExecutionTime_concurrent_allTimesAccumulated() {
+    int threadCount = 10;
+    long timePerThread = 100L;
+    var parent = persist(newBatchParentJob());
+    persistBatch(parent.getId(), threadCount);
+
+    BatchMetricsEntity metrics = newMetrics(parent.getId());
+    store().saveBatchMetrics(metrics);
+
+    Runnable[] tasks = new Runnable[threadCount];
+    for (int i = 0; i < threadCount; i++) {
+      tasks[i] = () -> store().addChildExecutionTime(parent.getId(), timePerThread);
+    }
+    ConcurrentTestRunner.runAll(Duration.ofSeconds(10), tasks);
+
+    var found = store().findBatchMetrics(parent.getId()).orElseThrow();
+    assertEquals(
+        threadCount * timePerThread,
+        found.getChildExecutionMs(),
+        "All concurrent time additions must be captured — server-side atomicity required");
+  }
+
+  @Test
+  void saveBatchMetrics_idempotentOnDuplicate() {
+    var parent = persist(newBatchParentJob());
+    persistBatch(parent.getId(), 3);
+
+    BatchMetricsEntity metrics = newMetrics(parent.getId());
+    store().saveBatchMetrics(metrics);
+    store().addChildExecutionTime(parent.getId(), 500L);
+
+    // Second save should not lose accumulated data
+    var existing = store().findBatchMetrics(parent.getId()).orElseThrow();
+    store().saveBatchMetrics(existing);
+
+    var found = store().findBatchMetrics(parent.getId()).orElseThrow();
+    assertEquals(
+        500L, found.getChildExecutionMs(), "Second save should not reset accumulated data");
+  }
+
+  @Test
+  void addChildExecutionTime_unknownBatch_isNoOp() {
+    assertDoesNotThrow(
+        () -> store().addChildExecutionTime(Long.MAX_VALUE, 100L),
+        "addChildExecutionTime for unknown batch should not throw");
+  }
+
+  private BatchMetricsEntity newMetrics(long batchId) {
+    BatchMetricsEntity metrics = new BatchMetricsEntity();
+    metrics.setBatchId(batchId);
+    metrics.setChildCount(0);
+    metrics.setSuccessCount(0);
+    metrics.setFailureCount(0);
+    metrics.setStartedAt(Instant.now());
+    return metrics;
   }
 }

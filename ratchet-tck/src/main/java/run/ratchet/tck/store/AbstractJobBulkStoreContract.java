@@ -91,4 +91,50 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
     assertTrue(store().findById(second.getId()).isEmpty(), "Deleted job should not be found");
     assertTrue(store().findById(third.getId()).isPresent(), "Non-deleted job should remain");
   }
+
+  @Test
+  void bulkInsert_emptyList_isNoOp() {
+    store().bulkInsert(List.of());
+
+    assertEquals(0, store().countPendingJobs(), "Empty bulk insert should not create any jobs");
+  }
+
+  @Test
+  void deleteJobsByIds_emptyList_returnsZero() {
+    persist(newPendingJob());
+
+    int deleted = store().deleteJobsByIds(List.of());
+
+    assertEquals(0, deleted, "deleteJobsByIds with empty list should return 0");
+    assertEquals(1, store().countPendingJobs(), "Existing job should not be affected");
+  }
+
+  @Test
+  void deleteJobsByIds_unknownIds_returnsZero() {
+    int deleted = store().deleteJobsByIds(List.of(Long.MAX_VALUE, Long.MAX_VALUE - 1));
+
+    assertEquals(0, deleted, "deleteJobsByIds with unknown IDs should return 0");
+  }
+
+  @Test
+  void resetOrphanJobs_ignoresNonRunningJobs() {
+    // PENDING job — should not be touched by orphan reset
+    var pending = persist(newPendingJob());
+
+    // CANCELED job — also not touched
+    var canceled = persist(newPendingJob());
+    store().compareAndSwapStatus(canceled.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+    store().compareAndSwapStatus(canceled.getId(), JobStatus.RUNNING, JobStatus.CANCELED, null);
+
+    store().resetOrphanJobs(Duration.ofSeconds(1));
+
+    assertEquals(
+        JobStatus.PENDING,
+        store().findById(pending.getId()).orElseThrow().getStatus(),
+        "PENDING job should remain PENDING");
+    assertEquals(
+        JobStatus.CANCELED,
+        store().findById(canceled.getId()).orElseThrow().getStatus(),
+        "CANCELED job should remain CANCELED");
+  }
 }
