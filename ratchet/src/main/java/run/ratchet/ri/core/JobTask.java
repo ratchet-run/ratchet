@@ -189,7 +189,7 @@ public class JobTask implements Callable<Void> {
         jobId, jobEntity.getParams(), nodeIdProvider.getNodeId(), jobEntity.getCreatedBy());
 
     if (jobEntity.getCreatedBy() != null) {
-      log.debugf("Job %s created by user: %s", jobId, jobEntity.getCreatedBy());
+      log.debugf("Job %s created by user (present)", jobId);
     } else {
       log.debugf("Job %s created by system (no user context)", jobId);
     }

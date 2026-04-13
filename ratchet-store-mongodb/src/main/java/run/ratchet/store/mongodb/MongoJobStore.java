@@ -58,6 +58,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.function.Function;
 import org.bson.Document;
 import org.bson.conversions.Bson;
@@ -83,6 +85,14 @@ public class MongoJobStore implements JobStore {
       PriorityBoostConfig.getPriorityBoostIntervalMinutes();
 
   private final MongoDatabase database;
+  private final ExecutorService claimExecutor =
+      Executors.newFixedThreadPool(
+          Math.max(2, Runtime.getRuntime().availableProcessors()),
+          r -> {
+            Thread t = new Thread(r, "ratchet-mongo-claim");
+            t.setDaemon(true);
+            return t;
+          });
 
   @Inject
   public MongoJobStore(MongoDatabase database) {
@@ -1519,7 +1529,8 @@ public class MongoJobStore implements JobStore {
                                         set("picked_at", nowDate),
                                         set("updated_at", nowDate),
                                         inc("version", 1)),
-                                    opts)))
+                                    opts),
+                        claimExecutor))
             .toList();
 
     List<T> claimed = new ArrayList<>();

@@ -8,6 +8,7 @@ import run.ratchet.ri.core.BatchRecoveryTimer;
 import run.ratchet.ri.core.DeadLetterService;
 import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.JobArchivingService;
+import run.ratchet.ri.core.JobExecutionCoordinator;
 import run.ratchet.ri.core.LogPurgeTimer;
 import run.ratchet.ri.core.OrphanRecoveryTimer;
 import run.ratchet.ri.core.Poller;
@@ -36,6 +37,7 @@ class RatchetLifecycleShutdownTest {
     ExecutorProvider executorProvider = mock(ExecutorProvider.class);
     NodeIdentityProvider nodeIdentityProvider = mock(NodeIdentityProvider.class);
     RatchetConfiguration config = mock(RatchetConfiguration.class);
+    JobExecutionCoordinator jobExecutionCoordinator = mock(JobExecutionCoordinator.class);
 
     RatchetLifecycle lifecycle =
         new RatchetLifecycle(
@@ -50,7 +52,8 @@ class RatchetLifecycleShutdownTest {
             executorProvider,
             nodeIdentityProvider,
             drainController,
-            config);
+            config,
+            jobExecutionCoordinator);
 
     lifecycle.onShutdown();
 
@@ -64,5 +67,6 @@ class RatchetLifecycleShutdownTest {
     verify(deadLetterService).stop();
     verify(jobArchivingService).stop();
     verify(logPurgeTimer).stop();
+    verify(jobExecutionCoordinator).shutdown();
   }
 }

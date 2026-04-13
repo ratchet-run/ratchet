@@ -4,6 +4,8 @@ import run.ratchet.api.BatchContext;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import run.ratchet.api.event.BatchCompletingEvent;
+import run.ratchet.spi.BeanResolver;
+import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.entity.BatchEntity;
@@ -52,6 +54,8 @@ public class BatchService {
   private final MetricsCollector metricsCollector;
   private final InternalEventPublisher eventPublisher;
   private final WorkflowScheduler workflowScheduler;
+  private final ClassPolicy classPolicy;
+  private final BeanResolver beanResolver;
 
   protected BatchService() {
     this.batchStore = null;
@@ -60,6 +64,8 @@ public class BatchService {
     this.metricsCollector = null;
     this.eventPublisher = null;
     this.workflowScheduler = null;
+    this.classPolicy = null;
+    this.beanResolver = null;
   }
 
   @Inject
@@ -69,13 +75,17 @@ public class BatchService {
       BatchMetricsStore metricsStore,
       MetricsCollector metricsCollector,
       InternalEventPublisher eventPublisher,
-      WorkflowScheduler workflowScheduler) {
+      WorkflowScheduler workflowScheduler,
+      ClassPolicy classPolicy,
+      BeanResolver beanResolver) {
     this.batchStore = batchStore;
     this.jobCrudStore = jobCrudStore;
     this.metricsStore = metricsStore;
     this.metricsCollector = metricsCollector;
     this.eventPublisher = eventPublisher;
     this.workflowScheduler = workflowScheduler;
+    this.classPolicy = classPolicy;
+    this.beanResolver = beanResolver;
   }
 
   public void markChildFailed(JobEntity child) {
@@ -143,9 +153,15 @@ public class BatchService {
 
   @SuppressWarnings("java:S112") // Generic exception from reflective method invocation
   private void executeProgressHook(JobPayload payload, BatchContext ctx) throws Exception {
+    String targetName = payload.target();
+    if (!classPolicy.isAllowed(targetName)) {
+      throw new SecurityException(
+          "Progress hook target class not allowed by ClassPolicy: " + targetName);
+    }
+
     Class<?> cls =
         CLASS_CACHE.computeIfAbsent(
-            payload.target(),
+            targetName,
             name -> {
               try {
                 return Class.forName(name, true, Thread.currentThread().getContextClassLoader());
@@ -160,7 +176,7 @@ public class BatchService {
       return;
     }
 
-    Object instance = cls.getDeclaredConstructor().newInstance();
+    Object instance = beanResolver.resolve(cls);
     method.invoke(instance, ctx);
   }
 

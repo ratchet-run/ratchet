@@ -66,7 +66,6 @@ public class LambdaSerializer {
           "java.lang.Character",
           "java.lang.Number",
           "java.lang.Enum",
-          "java.lang.Class",
           "java.lang.StackTraceElement",
           "java.lang.Throwable",
           "java.lang.Exception",

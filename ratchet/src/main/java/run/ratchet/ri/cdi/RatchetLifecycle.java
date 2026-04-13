@@ -6,6 +6,7 @@ import run.ratchet.ri.core.DeadLetterService;
 import run.ratchet.ri.core.DefaultNodeIdentityProvider;
 import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.JobArchivingService;
+import run.ratchet.ri.core.JobExecutionCoordinator;
 import run.ratchet.ri.core.JobTask;
 import run.ratchet.ri.core.LogPurgeTimer;
 import run.ratchet.ri.core.OrphanRecoveryTimer;
@@ -40,6 +41,7 @@ public class RatchetLifecycle {
   private final NodeIdentityProvider nodeIdentityProvider;
   private final DrainController drainController;
   private final RatchetConfiguration config;
+  private final JobExecutionCoordinator jobExecutionCoordinator;
 
   protected RatchetLifecycle() {
     this.poller = null;
@@ -54,6 +56,7 @@ public class RatchetLifecycle {
     this.nodeIdentityProvider = null;
     this.drainController = null;
     this.config = null;
+    this.jobExecutionCoordinator = null;
   }
 
   @Inject
@@ -69,7 +72,8 @@ public class RatchetLifecycle {
       ExecutorProvider executorProvider,
       NodeIdentityProvider nodeIdentityProvider,
       DrainController drainController,
-      RatchetConfiguration config) {
+      RatchetConfiguration config,
+      JobExecutionCoordinator jobExecutionCoordinator) {
     this.poller = poller;
     this.recurringScheduler = recurringScheduler;
     this.orphanRecoveryTimer = orphanRecoveryTimer;
@@ -82,6 +86,7 @@ public class RatchetLifecycle {
     this.nodeIdentityProvider = nodeIdentityProvider;
     this.drainController = drainController;
     this.config = config;
+    this.jobExecutionCoordinator = jobExecutionCoordinator;
   }
 
   void onStartup(@Observes @Initialized(ApplicationScoped.class) Object init) {
@@ -127,6 +132,9 @@ public class RatchetLifecycle {
     deadLetterService.stop();
     jobArchivingService.stop();
     logPurgeTimer.stop();
+    // Reset RUNNING jobs to PENDING so other nodes can pick them up
+    jobExecutionCoordinator.shutdown();
+
     if (nodeIdentityProvider instanceof DefaultNodeIdentityProvider defaultProvider) {
       defaultProvider.shutdown();
     }

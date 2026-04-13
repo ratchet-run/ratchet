@@ -190,17 +190,15 @@ public class CircuitBreaker {
   }
 
   private void recordFailure() {
-    int snapshotTotal;
-    int snapshotFailures;
     lock.lock();
     try {
       recordOutcome(0);
-      snapshotTotal = Math.min(totalCalls, window.length);
-      snapshotFailures = failureCount;
+      int snapshotTotal = Math.min(totalCalls, window.length);
+      int snapshotFailures = failureCount;
+      evaluateThreshold(snapshotTotal, snapshotFailures);
     } finally {
       lock.unlock();
     }
-    evaluateThreshold(snapshotTotal, snapshotFailures);
   }
 
   // Must be called with lock held.

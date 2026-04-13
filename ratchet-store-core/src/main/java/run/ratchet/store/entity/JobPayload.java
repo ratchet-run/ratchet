@@ -54,10 +54,10 @@ public record JobPayload(
       case Type.ARRAY ->
           Class.forName(
               type.getDescriptor().replace('/', '.'),
-              true,
+              false,
               Thread.currentThread().getContextClassLoader());
       case Type.OBJECT ->
-          Class.forName(type.getClassName(), true, Thread.currentThread().getContextClassLoader());
+          Class.forName(type.getClassName(), false, Thread.currentThread().getContextClassLoader());
       default -> throw new IllegalArgumentException("Unsupported ASM type sort: " + type.getSort());
     };
   }

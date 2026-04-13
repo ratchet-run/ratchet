@@ -178,36 +178,60 @@ public class JobExecutorService {
     }
   }
 
+  private static final boolean VIRTUAL_THREADS_AVAILABLE = Runtime.version().feature() >= 21;
+
   private Future<Void> submitToExecutor(
       Long jobId, JobExecutionType jobType, Callable<Void> callable) {
     if (threadPoolManager.isUseVirtualThreads()) {
-      return submitVirtualThread(jobId, jobType, callable);
+      return submitDedicatedThread(jobId, jobType, callable);
     }
     ExecutorService executor = executorProvider.getJobExecutor();
     return executor.submit(callable);
   }
 
-  private Future<Void> submitVirtualThread(
+  private Future<Void> submitDedicatedThread(
       Long jobId, JobExecutionType jobType, Callable<Void> callable) {
     CompletableFuture<Void> future = new CompletableFuture<>();
-    Thread thread =
-        new Thread(
-            () -> {
-              try {
-                callable.call();
-                future.complete(null);
-              } catch (Exception e) {
-                future.completeExceptionally(e);
-              }
-            },
-            "scheduler-vt-" + jobType + "-" + jobId);
-    thread.setDaemon(true);
+    String threadName = "scheduler-" + jobType + "-" + jobId;
+    Runnable task =
+        () -> {
+          try {
+            callable.call();
+            future.complete(null);
+          } catch (Exception e) {
+            future.completeExceptionally(e);
+          }
+        };
+
+    Thread thread;
+    if (VIRTUAL_THREADS_AVAILABLE) {
+      thread = createVirtualThread(task, threadName);
+    } else {
+      thread = new Thread(task, threadName);
+      thread.setDaemon(true);
+    }
     thread.start();
-    return new InterruptibleVirtualThreadFuture(future, thread);
+    return new InterruptibleThreadFuture(future, thread);
+  }
+
+  private static Thread createVirtualThread(Runnable task, String name) {
+    try {
+      // Thread.ofVirtual().name(name).unstarted(task) — via reflection for Java 17 compilation
+      Object builder = Thread.class.getMethod("ofVirtual").invoke(null);
+      builder = builder.getClass().getMethod("name", String.class).invoke(builder, name);
+      return (Thread)
+          builder.getClass().getMethod("unstarted", Runnable.class).invoke(builder, task);
+    } catch (Exception e) {
+      log.warnf(
+          "Virtual thread creation failed, falling back to platform thread: %s", e.getMessage());
+      Thread fallback = new Thread(task, name);
+      fallback.setDaemon(true);
+      return fallback;
+    }
   }
 
   // Wraps CompletableFuture with a thread reference so cancel(true) can interrupt the thread.
-  private record InterruptibleVirtualThreadFuture(CompletableFuture<Void> delegate, Thread thread)
+  private record InterruptibleThreadFuture(CompletableFuture<Void> delegate, Thread thread)
       implements Future<Void> {
 
     @Override

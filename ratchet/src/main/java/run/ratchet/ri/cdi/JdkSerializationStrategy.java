@@ -47,7 +47,6 @@ public class JdkSerializationStrategy implements SerializationStrategy {
           "java.lang.Character",
           "java.lang.Number",
           "java.lang.Enum",
-          "java.lang.Class",
           // Exception types (specific — no broad Throwable/Exception base classes)
           "java.lang.StackTraceElement",
           "java.lang.RuntimeException",
