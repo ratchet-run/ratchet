@@ -4,6 +4,7 @@ import com.cronutils.model.Cron;
 import run.ratchet.ri.core.BatchRecoveryTimer;
 import run.ratchet.ri.core.DeadLetterService;
 import run.ratchet.ri.core.DefaultNodeIdentityProvider;
+import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.JobArchivingService;
 import run.ratchet.ri.core.JobTask;
 import run.ratchet.ri.core.LogPurgeTimer;
@@ -55,6 +56,7 @@ public class RatchetLifecycle {
   private final PollerWakeupListener pollerWakeupListener;
   private final ExecutorProvider executorProvider;
   private final NodeIdentityProvider nodeIdentityProvider;
+  private final DrainController drainController;
   private final RatchetConfiguration config;
 
   protected RatchetLifecycle() {
@@ -68,6 +70,7 @@ public class RatchetLifecycle {
     this.pollerWakeupListener = null;
     this.executorProvider = null;
     this.nodeIdentityProvider = null;
+    this.drainController = null;
     this.config = null;
   }
 
@@ -83,6 +86,7 @@ public class RatchetLifecycle {
       PollerWakeupListener pollerWakeupListener,
       ExecutorProvider executorProvider,
       NodeIdentityProvider nodeIdentityProvider,
+      DrainController drainController,
       RatchetConfiguration config) {
     this.poller = poller;
     this.recurringScheduler = recurringScheduler;
@@ -94,6 +98,7 @@ public class RatchetLifecycle {
     this.pollerWakeupListener = pollerWakeupListener;
     this.executorProvider = executorProvider;
     this.nodeIdentityProvider = nodeIdentityProvider;
+    this.drainController = drainController;
     this.config = config;
   }
 
@@ -143,6 +148,10 @@ public class RatchetLifecycle {
   @PreDestroy
   void onShutdown() {
     log.info("Shutting down Ratchet job scheduler...");
+    // Engage drain mode BEFORE stopping the poller. Any in-flight Poller.tick() past the
+    // started.get() guard but before pollOnce() will short-circuit on isDraining() (Poller:188)
+    // instead of claiming jobs that would then be submitted to a torn-down executor.
+    drainController.setDraining(true);
     poller.stop();
     recurringScheduler.stop();
     orphanRecoveryTimer.stop();

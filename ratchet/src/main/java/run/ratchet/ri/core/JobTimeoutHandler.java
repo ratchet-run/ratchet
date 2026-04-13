@@ -154,51 +154,92 @@ public class JobTimeoutHandler {
 
   private void handleHardTimeoutById(
       Long jobId, Future<?> future, Instant executionStartTime, long timeoutSec) {
-    if (!future.isDone()) {
-      Duration elapsed = Duration.between(executionStartTime, Instant.now());
-      log.error(
-          String.format(
-              "Job %s exceeded timeout of %ds. Cancelling execution. Elapsed: %s",
-              jobId, timeoutSec, formatDuration(elapsed)));
-
-      future.cancel(true);
-
-      try {
-        // Only proceed if we can atomically claim the RUNNING→FAILED transition.
-        // If the worker thread already handled the InterruptedException and moved the job
-        // to PENDING (retry) or FAILED, the CAS will fail and we do nothing here.
-        TimeoutException timeoutEx =
-            new TimeoutException("Hard timeout exceeded (" + timeoutSec + "s)");
-
-        jobCrudStore
-            .findById(jobId)
-            .ifPresent(
-                job -> {
-                  boolean marked =
-                      jobStatusStore.compareAndSwapStatus(
-                          jobId, JobStatus.RUNNING, JobStatus.FAILED, timeoutEx.getMessage());
-                  if (!marked) {
-                    log.infof("Job %s already in terminal state when timeout handler ran", jobId);
-                    return;
-                  }
-
-                  log.infof("Job %s marked as FAILED due to hard timeout", jobId);
-                  int newAttempts = jobStatusStore.incrementRetryAttempt(jobId);
-                  if (newAttempts > 0 && newAttempts <= job.getMaxRetries()) {
-                    // Retries remain — reschedule rather than sending straight to DLQ.
-                    Instant retryTime = Instant.now().plusSeconds(timeoutSec);
-                    jobStatusStore.scheduleJobRetry(
-                        jobId, timeoutEx.getMessage(), retryTime, newAttempts);
-                    log.warnf(
-                        "Job %s timed out but has retries remaining (%s/%s) — rescheduled for %s",
-                        jobId, newAttempts, job.getMaxRetries(), retryTime);
-                  } else {
-                    lifecycleFacade.handlePermanentFailure(job, timeoutEx);
-                  }
-                });
-      } catch (Exception e) {
-        log.errorf(e, "Failed to mark timed-out job as FAILED: %s", jobId);
-      }
+    if (future.isDone()) {
+      return;
     }
+    Duration elapsed = Duration.between(executionStartTime, Instant.now());
+    log.error(
+        String.format(
+            "Job %s exceeded timeout of %ds. Cancelling execution. Elapsed: %s",
+            jobId, timeoutSec, formatDuration(elapsed)));
+
+    future.cancel(true);
+
+    try {
+      processHardTimeout(jobId, timeoutSec);
+    } catch (Exception e) {
+      log.errorf(e, "Failed to mark timed-out job as FAILED: %s", jobId);
+    }
+  }
+
+  /**
+   * Applies the hard-timeout routing decision: retry-or-fail. Package-private for testability.
+   *
+   * <p>Operation order is intentional:
+   *
+   * <ol>
+   *   <li>Load the job to see {@code maxRetries} and confirm it still exists.
+   *   <li>Increment {@code attempts} while status is still {@code RUNNING}. {@code
+   *       incrementRetryAttempt} has {@code WHERE status = 'RUNNING'} — calling it AFTER a CAS to
+   *       FAILED would silently no-op (the bug this fix addresses).
+   *   <li>If retries remain, call {@code scheduleJobRetry} (which accepts both {@code RUNNING} and
+   *       {@code FAILED}). If that returns {@code false}, the job was already finalized by a
+   *       competing completion between steps 2 and 3 — exit cleanly instead of double-escalating to
+   *       DLQ.
+   *   <li>Otherwise CAS {@code RUNNING → FAILED} and route through {@code handlePermanentFailure}.
+   * </ol>
+   *
+   * <p><b>Known tradeoff:</b> If a normal completion wins the race between steps 2 and 3, the
+   * successfully-completed job will end up with {@code attempts} one higher than it should. This is
+   * an observability inaccuracy, not a correctness failure — the job is still COMPLETED. Do not
+   * "fix" it by moving the increment after the CAS; that reintroduces the dead-code bug.
+   */
+  void processHardTimeout(Long jobId, long timeoutSec) {
+    TimeoutException timeoutEx =
+        new TimeoutException("Hard timeout exceeded (" + timeoutSec + "s)");
+    JobEntity job = jobCrudStore.findById(jobId).orElse(null);
+    if (job == null) {
+      log.infof("Job %s no longer exists when timeout handler ran", jobId);
+      return;
+    }
+
+    // Step 1: Increment attempts while status is still RUNNING.
+    int newAttempts = jobStatusStore.incrementRetryAttempt(jobId);
+    if (newAttempts < 0) {
+      // Not in RUNNING anymore — worker already transitioned it. Nothing to do.
+      log.infof("Job %s already left RUNNING when timeout handler ran", jobId);
+      return;
+    }
+
+    // Step 2: Retries remain? Try to reschedule.
+    if (newAttempts <= job.getMaxRetries()) {
+      Instant retryTime = Instant.now().plusSeconds(timeoutSec);
+      boolean rescheduled =
+          jobStatusStore.scheduleJobRetry(jobId, timeoutEx.getMessage(), retryTime, newAttempts);
+      if (rescheduled) {
+        log.warnf(
+            "Job %s timed out but has retries remaining (%s/%s) — rescheduled for %s",
+            jobId, newAttempts, job.getMaxRetries(), retryTime);
+        return;
+      }
+      // scheduleJobRetry returned false — a competing path finalized the job between the
+      // increment and the reschedule. Do NOT escalate to DLQ; the job already has a terminal
+      // state set by the competing path.
+      log.infof(
+          "Job %s timed out but was already finalized by a competing path — no DLQ escalation",
+          jobId);
+      return;
+    }
+
+    // Step 3: Retries exhausted — CAS to FAILED and route to DLQ.
+    boolean marked =
+        jobStatusStore.compareAndSwapStatus(
+            jobId, JobStatus.RUNNING, JobStatus.FAILED, timeoutEx.getMessage());
+    if (!marked) {
+      log.infof("Job %s already in terminal state when timeout handler ran", jobId);
+      return;
+    }
+    log.infof("Job %s marked as FAILED due to hard timeout (retries exhausted)", jobId);
+    lifecycleFacade.handlePermanentFailure(job, timeoutEx);
   }
 }
