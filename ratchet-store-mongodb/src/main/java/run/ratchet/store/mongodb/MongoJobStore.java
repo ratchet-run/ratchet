@@ -45,6 +45,7 @@ import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.TsidFactory;
 import run.ratchet.store.spi.JobStore;
+import run.ratchet.store.util.PriorityBoostConfig;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -78,25 +79,14 @@ public class MongoJobStore implements JobStore {
       List.of("SINGLE", "BATCH_CHILD", "CHAIN_STEP", "WORKFLOW_BRANCH");
   private static final List<String> ACTIVE_STATUSES = List.of("PENDING", "RUNNING", "PAUSED");
   private static final List<String> TERMINAL_STATUSES = List.of("SUCCEEDED", "FAILED", "CANCELED");
-  private static final int PRIORITY_BOOST_INTERVAL = getPriorityBoostIntervalMinutes();
+  private static final int PRIORITY_BOOST_INTERVAL =
+      PriorityBoostConfig.getPriorityBoostIntervalMinutes();
 
   private final MongoDatabase database;
 
   @Inject
   public MongoJobStore(MongoDatabase database) {
     this.database = database;
-  }
-
-  private static int getPriorityBoostIntervalMinutes() {
-    String raw = System.getenv("SCHEDULER_PRIORITY_BOOST_INTERVAL_MINUTES");
-    if (raw == null || raw.isBlank()) {
-      return 15;
-    }
-    try {
-      return Math.max(0, Integer.parseInt(raw.trim()));
-    } catch (NumberFormatException e) {
-      return 15;
-    }
   }
 
   // ──────────────────────────────────────────────

@@ -22,6 +22,8 @@ import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.util.IsolationCheck;
+import run.ratchet.store.util.ObjectMapperFactory;
+import run.ratchet.store.util.PriorityBoostConfig;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
@@ -53,7 +55,7 @@ import org.jboss.logging.Logger;
 public class PostgresqlJobStore implements JobStore {
 
   private static final Logger log = Logger.getLogger(PostgresqlJobStore.class);
-  private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+  private static final ObjectMapper OBJECT_MAPPER = ObjectMapperFactory.get();
   private static final String EXECUTABLE_JOB_TYPE_FILTER =
       "job_type IN ('SINGLE','BATCH_CHILD','CHAIN_STEP','WORKFLOW_BRANCH')";
   private static final String RECURRING_JOB_TYPE_FILTER = "job_type = 'RECURRING'";
@@ -106,18 +108,6 @@ public class PostgresqlJobStore implements JobStore {
       return JobPriority.NORMAL;
     }
     return values[ordinal];
-  }
-
-  private static int getPriorityBoostIntervalMinutes() {
-    String raw = System.getenv("SCHEDULER_PRIORITY_BOOST_INTERVAL_MINUTES");
-    if (raw == null || raw.isBlank()) {
-      return 15;
-    }
-    try {
-      return Math.max(0, Integer.parseInt(raw.trim()));
-    } catch (NumberFormatException e) {
-      return 15;
-    }
   }
 
   private static String buildBoostOrderBy(String timeColumn, int boostInterval) {
@@ -440,7 +430,7 @@ public class PostgresqlJobStore implements JobStore {
 
   @Override
   public List<JobEntity> claimNextBatch(int limit, String nodeId) {
-    int boostInterval = getPriorityBoostIntervalMinutes();
+    int boostInterval = PriorityBoostConfig.getPriorityBoostIntervalMinutes();
     var updateQuery =
         em.createNativeQuery(
                 buildClaimUpdateSql(EXECUTABLE_JOB_TYPE_FILTER, "scheduled_time", boostInterval))
@@ -473,7 +463,7 @@ public class PostgresqlJobStore implements JobStore {
 
   @Override
   public List<JobClaimDto> claimNextBatchOptimized(int limit, String nodeId) {
-    int boostInterval = getPriorityBoostIntervalMinutes();
+    int boostInterval = PriorityBoostConfig.getPriorityBoostIntervalMinutes();
     var updateQuery =
         em.createNativeQuery(
                 buildClaimUpdateSql(EXECUTABLE_JOB_TYPE_FILTER, "scheduled_time", boostInterval))
@@ -525,7 +515,7 @@ public class PostgresqlJobStore implements JobStore {
 
   @Override
   public List<JobEntity> claimDueRecurring(int limit, String nodeId) {
-    int boostInterval = getPriorityBoostIntervalMinutes();
+    int boostInterval = PriorityBoostConfig.getPriorityBoostIntervalMinutes();
     var updateQuery =
         em.createNativeQuery(
                 buildClaimUpdateSql(RECURRING_JOB_TYPE_FILTER, "next_fire", boostInterval))

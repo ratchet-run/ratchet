@@ -3,7 +3,7 @@ package run.ratchet.ri.security;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import run.ratchet.ri.util.ObjectMapperFactory;
+import run.ratchet.store.util.ObjectMapperFactory;
 import java.util.Set;
 import org.jboss.logging.Logger;
 

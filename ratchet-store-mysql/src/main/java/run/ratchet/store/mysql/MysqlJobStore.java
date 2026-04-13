@@ -22,6 +22,8 @@ import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.util.IsolationCheck;
+import run.ratchet.store.util.ObjectMapperFactory;
+import run.ratchet.store.util.PriorityBoostConfig;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
@@ -55,7 +57,7 @@ import org.jboss.logging.Logger;
 public class MysqlJobStore implements JobStore {
 
   private static final Logger log = Logger.getLogger(MysqlJobStore.class);
-  private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+  private static final ObjectMapper OBJECT_MAPPER = ObjectMapperFactory.get();
   private static final String EXECUTABLE_JOB_TYPE_FILTER =
       "job_type IN ('SINGLE','BATCH_CHILD','CHAIN_STEP','WORKFLOW_BRANCH')";
   private static final String RECURRING_JOB_TYPE_FILTER = "job_type = 'RECURRING'";
@@ -71,18 +73,6 @@ public class MysqlJobStore implements JobStore {
   }
 
   // ── JobCrudStore ──────────────────────────────────────────────────────
-
-  private static int getPriorityBoostIntervalMinutes() {
-    String raw = System.getenv("SCHEDULER_PRIORITY_BOOST_INTERVAL_MINUTES");
-    if (raw == null || raw.isBlank()) {
-      return 15;
-    }
-    try {
-      return Math.max(0, Integer.parseInt(raw.trim()));
-    } catch (NumberFormatException e) {
-      return 15;
-    }
-  }
 
   private static String buildClaimSql(
       String selectClause, String typeFilter, String timeColumn, int boostInterval) {
@@ -422,7 +412,7 @@ public class MysqlJobStore implements JobStore {
     // schedules child jobs only after the parent completes), so the claim query only needs
     // to find PENDING jobs that are due. No self-joins needed — matching the original
     // nets4 JobClaimStrategy pattern.
-    int boostInterval = getPriorityBoostIntervalMinutes();
+    int boostInterval = PriorityBoostConfig.getPriorityBoostIntervalMinutes();
     var query =
         em.createNativeQuery(
                 buildClaimSql("*", EXECUTABLE_JOB_TYPE_FILTER, "scheduled_time", boostInterval),
@@ -443,7 +433,8 @@ public class MysqlJobStore implements JobStore {
     List<Long> ids = candidates.stream().map(JobEntity::getId).collect(Collectors.toList());
     em.createNativeQuery(
             "UPDATE scheduler_job SET status = 'RUNNING', picked_by = :node, "
-                + "picked_at = NOW(3), updated_at = NOW(3) WHERE job_id IN (:ids)")
+                + "picked_at = NOW(3), updated_at = NOW(3), version = version + 1 "
+                + "WHERE job_id IN (:ids)")
         .setParameter("node", nodeId)
         .setParameter("ids", ids)
         .executeUpdate();
@@ -463,7 +454,7 @@ public class MysqlJobStore implements JobStore {
   @Override
   @SuppressWarnings("unchecked")
   public List<JobClaimDto> claimNextBatchOptimized(int limit, String nodeId) {
-    int boostInterval = getPriorityBoostIntervalMinutes();
+    int boostInterval = PriorityBoostConfig.getPriorityBoostIntervalMinutes();
     var query =
         em.createNativeQuery(
                 buildClaimSql(
@@ -492,7 +483,8 @@ public class MysqlJobStore implements JobStore {
 
     em.createNativeQuery(
             "UPDATE scheduler_job SET status = 'RUNNING', picked_by = :node, "
-                + "picked_at = NOW(3), updated_at = NOW(3) WHERE job_id IN (:ids)")
+                + "picked_at = NOW(3), updated_at = NOW(3), version = version + 1 "
+                + "WHERE job_id IN (:ids)")
         .setParameter("node", nodeId)
         .setParameter("ids", ids)
         .executeUpdate();
@@ -520,7 +512,7 @@ public class MysqlJobStore implements JobStore {
   @Override
   @SuppressWarnings("unchecked")
   public List<JobEntity> claimDueRecurring(int limit, String nodeId) {
-    int boostInterval = getPriorityBoostIntervalMinutes();
+    int boostInterval = PriorityBoostConfig.getPriorityBoostIntervalMinutes();
     var query =
         em.createNativeQuery(
                 buildClaimSql("*", RECURRING_JOB_TYPE_FILTER, "next_fire", boostInterval),
@@ -541,7 +533,8 @@ public class MysqlJobStore implements JobStore {
     List<Long> ids = candidates.stream().map(JobEntity::getId).collect(Collectors.toList());
     em.createNativeQuery(
             "UPDATE scheduler_job SET status = 'RUNNING', picked_by = :node, "
-                + "picked_at = NOW(3), updated_at = NOW(3) WHERE job_id IN (:ids)")
+                + "picked_at = NOW(3), updated_at = NOW(3), version = version + 1 "
+                + "WHERE job_id IN (:ids)")
         .setParameter("node", nodeId)
         .setParameter("ids", ids)
         .executeUpdate();
