@@ -169,7 +169,7 @@ scheduler.scheduleRecurring(
     "0 */5 * * * ?",
     ZoneId.of("UTC"),
     () -> syncExternalData()
-).withTag("sync").submit();
+).withTags(List.of("sync")).submit();
 ```
 
 ### Batch Processing
@@ -179,18 +179,15 @@ Process collections in parallel with progress tracking:
 ```java
 // In-memory batch
 scheduler.enqueueBatch("process-invoices")
-    .add(() -> processInvoice(invoice1))
-    .add(() -> processInvoice(invoice2))
-    .add(() -> processInvoice(invoice3))
-    .withMaxRetries(2)
+    .forEach(List.of(invoice1, invoice2, invoice3), inv -> processInvoice(inv))
     .submit();
 
 // Streaming batch for large datasets
 scheduler.<Invoice>streamingBatch("import-invoices")
-    .source(invoiceStream)
-    .processor(invoice -> importInvoice(invoice))
+    .fromStream(invoiceStream)
+    .process(invoice -> importInvoice(invoice))
     .withChunkSize(100)
-    .submit();
+    .start();
 ```
 
 ### Circuit Breaker Protection
@@ -214,7 +211,7 @@ Monitor job lifecycle via CDI observers or programmatic listeners:
 ```java
 // CDI observer
 public void onJobFailed(@Observes JobFailedEvent event) {
-    log.error("Job {} failed: {}", event.getJobId(), event.getError());
+    log.error("Job {} failed: {}", event.getJobId(), event.getErrorMessage());
     alerting.notify(event);
 }
 
@@ -238,7 +235,7 @@ JobHandle handle = scheduler.enqueue(() -> longRunningTask())
     .withTags("import", "finance")
     .submit();
 
-long jobId = handle.jobId();
+long jobId = handle.id();
 
 scheduler.pauseJob(jobId);    // Pause a running job
 scheduler.resumeJob(jobId);   // Resume a paused job
@@ -331,11 +328,20 @@ Implement the `JobStore` interface (a composition of 15 focused sub-interfaces) 
 
 ```java
 // In your test module
-public class MyCustomStoreTest extends AbstractJobCrudStoreTest {
+public class MyCustomStoreTest extends AbstractJobCrudStoreContract {
     @Override
-    protected JobCrudStore createStore() {
+    public JobStore store() {
         return new MyCustomStore(dataSource);
     }
+
+    @Override
+    public JobEntity newPendingJob() { /* create a PENDING JobEntity */ }
+
+    @Override
+    public JobEntity newBatchParentJob() { /* create a batch parent JobEntity */ }
+
+    @Override
+    public void cleanupStore() { /* truncate tables / clear state */ }
 }
 ```
 

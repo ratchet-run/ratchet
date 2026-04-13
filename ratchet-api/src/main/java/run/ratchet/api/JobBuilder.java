@@ -14,7 +14,7 @@ import java.util.Map;
  *     .withTimeout(Duration.ofMinutes(5))
  *     .withMaxRetries(3)
  *     .withBackoff(BackoffPolicy.EXPONENTIAL, Duration.ofSeconds(10))
- *     .tag("order-processing", "customer-123")
+ *     .withTags("order-processing", "customer-123")
  *     .onSuccess(ctx -> log.info("Order {} processed", orderId))
  *     .onFailure((ctx, error) -> alertService.sendAlert(error))
  *     .submit();
