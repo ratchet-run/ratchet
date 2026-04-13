@@ -52,12 +52,10 @@ public class CircuitBreaker {
     Arrays.fill(this.window, UNINITIALIZED);
   }
 
-  /** Returns the circuit breaker name. */
   public String getName() {
     return name;
   }
 
-  /** Returns the current state. */
   public State getState() {
     State current = state.get();
     // Auto-transition from OPEN to HALF_OPEN if wait duration has elapsed
@@ -99,7 +97,6 @@ public class CircuitBreaker {
     return executeInClosed(task);
   }
 
-  /** Manually transitions to OPEN state. */
   public void transitionToOpen() {
     lock.lock();
     try {
@@ -117,7 +114,6 @@ public class CircuitBreaker {
     }
   }
 
-  /** Resets to CLOSED state, clearing all counters. */
   public void reset() {
     lock.lock();
     try {
@@ -145,7 +141,6 @@ public class CircuitBreaker {
     }
   }
 
-  /** Returns the configured OPEN-state wait duration in milliseconds. */
   public long getWaitDurationMs() {
     return config.waitDurationMs();
   }
@@ -190,16 +185,7 @@ public class CircuitBreaker {
   private void recordSuccess() {
     lock.lock();
     try {
-      int len = window.length;
-      int idx = windowIndex;
-      windowIndex = (idx + 1) % len;
-      int previous = window[idx];
-      window[idx] = 1;
-      totalCalls++;
-
-      if (totalCalls > len && previous == 0) {
-        failureCount--;
-      }
+      recordOutcome(1);
     } finally {
       lock.unlock();
     }
@@ -210,29 +196,37 @@ public class CircuitBreaker {
     int snapshotFailures;
     lock.lock();
     try {
-      int len = window.length;
-      int idx = windowIndex;
-      windowIndex = (idx + 1) % len;
-      int previous = window[idx];
-      window[idx] = 0;
-      totalCalls++;
-
-      if (totalCalls <= len && previous == UNINITIALIZED) {
-        // Filling a new slot with a failure
-        failureCount++;
-      } else if (totalCalls > len && previous == 1) {
-        // Evicting a success, replacing with failure
-        failureCount++;
-      }
-      // Evicting a failure (previous == 0) and replacing with failure: no change
-
-      snapshotTotal = Math.min(totalCalls, len);
+      recordOutcome(0);
+      snapshotTotal = Math.min(totalCalls, window.length);
       snapshotFailures = failureCount;
     } finally {
       lock.unlock();
     }
-
     evaluateThreshold(snapshotTotal, snapshotFailures);
+  }
+
+  // Must be called with lock held.
+  private void recordOutcome(int outcome) {
+    int len = window.length;
+    int idx = windowIndex;
+    windowIndex = (idx + 1) % len;
+    int previous = window[idx];
+    window[idx] = outcome;
+    totalCalls++;
+
+    if (outcome == 1) {
+      // success: evicting a failure shrinks failure count
+      if (totalCalls > len && previous == 0) {
+        failureCount--;
+      }
+    } else {
+      // failure: filling new slot or evicting a success grows failure count
+      if (totalCalls <= len && previous == UNINITIALIZED) {
+        failureCount++;
+      } else if (totalCalls > len && previous == 1) {
+        failureCount++;
+      }
+    }
   }
 
   private void evaluateThreshold(int total, int failures) {
@@ -246,7 +240,6 @@ public class CircuitBreaker {
     }
   }
 
-  /** Circuit breaker states. */
   public enum State {
     CLOSED,
     OPEN,

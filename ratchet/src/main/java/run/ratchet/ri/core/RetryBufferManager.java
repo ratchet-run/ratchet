@@ -88,12 +88,11 @@ public class RetryBufferManager {
     try {
       // Enforce hard cap even for forced offers to prevent memory exhaustion
       if (buffer.size() >= HARD_CAP_PER_TYPE) {
-        log.error(
-            String.format(
-                "CRITICAL: Retry buffer hard cap (%d) reached for job type %s. "
-                    + "Job %s moving to DLQ to prevent loss. "
-                    + "This indicates sustained system failure - investigate immediately.",
-                HARD_CAP_PER_TYPE, job.getJobType(), job.getId()));
+        log.errorf(
+            "CRITICAL: Retry buffer hard cap (%d) reached for job type %s. "
+                + "Job %s moving to DLQ to prevent loss. "
+                + "This indicates sustained system failure - investigate immediately.",
+            HARD_CAP_PER_TYPE, job.getJobType(), job.getId());
         // Move job to DLQ instead of dropping it silently
         deadLetterService.moveToDlq(
             job,
@@ -104,11 +103,10 @@ public class RetryBufferManager {
 
       // Log warning when exceeding normal limit (but under hard cap)
       if (buffer.size() >= MAX_BUFFER_SIZE_PER_TYPE) {
-        log.warn(
-            String.format(
-                "Retry buffer exceeding normal limit (%d) for job type %s. "
-                    + "Current size: %d. Force-buffering job %s.",
-                MAX_BUFFER_SIZE_PER_TYPE, job.getJobType(), buffer.size(), job.getId()));
+        log.warnf(
+            "Retry buffer exceeding normal limit (%d) for job type %s. "
+                + "Current size: %d. Force-buffering job %s.",
+            MAX_BUFFER_SIZE_PER_TYPE, job.getJobType(), buffer.size(), job.getId());
       }
 
       return buffer.offer(BufferedJob.from(job));

@@ -96,10 +96,9 @@ public class JobArchivingService {
 
     scheduleNext();
 
-    log.info(
-        String.format(
-            "Job archiving service initialized: enabled=%s, retention=%s days, batch=%d",
-            enabled, retentionDays, batchSize));
+    log.infof(
+        "Job archiving service initialized: enabled=%s, retention=%s days, batch=%d",
+        enabled, retentionDays, batchSize);
   }
 
   /** Manually triggers an archiving run outside the normal schedule. */

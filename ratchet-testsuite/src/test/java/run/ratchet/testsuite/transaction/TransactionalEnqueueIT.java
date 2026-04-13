@@ -50,8 +50,6 @@ class TransactionalEnqueueIT extends BaseRatchetIT {
 
   @Test
   void enqueue_withinTransaction_shouldCommitWithTransaction() {
-    // Job is enqueued within implicit container-managed transaction,
-    // so it commits atomically with any other work in the same tx.
     JobHandle handle = jobService.enqueue(SimpleJob::execute).submit();
 
     assertNotNull(handle);

@@ -76,7 +76,6 @@ class JobCancelIT extends BaseRatchetIT {
 
     assertNotNull(handle);
 
-    // Wait until the job has actually started executing
     await()
         .atMost(Duration.ofSeconds(15))
         .pollInterval(100, TimeUnit.MILLISECONDS)

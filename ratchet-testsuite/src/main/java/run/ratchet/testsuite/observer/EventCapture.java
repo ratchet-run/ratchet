@@ -24,7 +24,6 @@ public class EventCapture {
   private CountDownLatch latch = new CountDownLatch(1);
   private Class<? extends AbstractJobSchedulerEvent> expectedType;
 
-  /** Lock object for synchronizing the check-and-setup sequence in awaitEvent. */
   private final Object awaitLock = new Object();
 
   public void onEvent(@Observes AbstractJobSchedulerEvent event) {
@@ -59,13 +58,11 @@ public class EventCapture {
       throws InterruptedException {
     CountDownLatch awaitLatch;
     synchronized (awaitLock) {
-      // Check if already received while holding the lock
+      // atomically check + arm to avoid missed events
       if (events.stream().anyMatch(type::isInstance)) {
         return true;
       }
 
-      // Set up latch for future events — atomically with the check above,
-      // so no event can slip between the check and the setup
       this.expectedType = type;
       this.latch = new CountDownLatch(1);
       awaitLatch = this.latch;

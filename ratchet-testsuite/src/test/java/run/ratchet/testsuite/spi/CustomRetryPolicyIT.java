@@ -22,13 +22,7 @@ import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-/**
- * Validates that a custom {@link RetryPolicy} alternative overrides the default retry behavior.
- *
- * <p>Deploys a {@link VetoRetryPolicy} that vetoes all retries. Even though the job is configured
- * with maxRetries=3, the custom policy prevents any retries, so the job should fail after a single
- * attempt.
- */
+/** Validates that a custom {@link RetryPolicy} alternative overrides the default retry behavior. */
 class CustomRetryPolicyIT extends BaseRatchetIT {
 
   @Inject private RetryPolicy retryPolicy;
@@ -58,10 +52,8 @@ class CustomRetryPolicyIT extends BaseRatchetIT {
 
   @Test
   void customRetryPolicy_shouldOverrideDefaultBackoff() {
-    // Verify CDI selected the custom alternative
     assertInstanceOf(VetoRetryPolicy.class, retryPolicy);
 
-    // Submit a job with 3 retries — but VetoRetryPolicy should prevent all retries
     JobHandle handle =
         jobService
             .enqueue(FailingJob::execute)

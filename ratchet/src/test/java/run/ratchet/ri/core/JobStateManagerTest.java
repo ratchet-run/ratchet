@@ -35,7 +35,7 @@ class JobStateManagerTest {
   }
 
   @Test
-  void resetJobToPending_entity_casSucceeds_returnsTrue() {
+  void resetJobToPending_entity_casSucceeds_updatesAllFields() {
     JobEntity job = runningJob(JOB_ID);
     when(nodeIdentityProvider.getNodeId()).thenReturn(NODE_ID);
     when(jobStatusStore.resetRunningJob(JOB_ID, NODE_ID)).thenReturn(true);
@@ -43,84 +43,24 @@ class JobStateManagerTest {
     boolean result = manager.resetJobToPending(job);
 
     assertTrue(result);
-  }
-
-  @Test
-  void resetJobToPending_entity_casSucceeds_updatesStatusToPending() {
-    JobEntity job = runningJob(JOB_ID);
-    when(nodeIdentityProvider.getNodeId()).thenReturn(NODE_ID);
-    when(jobStatusStore.resetRunningJob(JOB_ID, NODE_ID)).thenReturn(true);
-
-    manager.resetJobToPending(job);
-
     assertEquals(JobStatus.PENDING, job.getStatus());
-  }
-
-  @Test
-  void resetJobToPending_entity_casSucceeds_clearsPickedBy() {
-    JobEntity job = runningJob(JOB_ID);
-    when(nodeIdentityProvider.getNodeId()).thenReturn(NODE_ID);
-    when(jobStatusStore.resetRunningJob(JOB_ID, NODE_ID)).thenReturn(true);
-
-    manager.resetJobToPending(job);
-
     assertNull(job.getPickedBy());
-  }
-
-  @Test
-  void resetJobToPending_entity_casSucceeds_clearsPickedAt() {
-    JobEntity job = runningJob(JOB_ID);
-    when(nodeIdentityProvider.getNodeId()).thenReturn(NODE_ID);
-    when(jobStatusStore.resetRunningJob(JOB_ID, NODE_ID)).thenReturn(true);
-
-    manager.resetJobToPending(job);
-
     assertNull(job.getPickedAt());
   }
 
   @Test
-  void resetJobToPending_entity_casFails_returnsFalse() {
-    JobEntity job = runningJob(JOB_ID);
-    when(nodeIdentityProvider.getNodeId()).thenReturn(NODE_ID);
-    when(jobStatusStore.resetRunningJob(JOB_ID, NODE_ID)).thenReturn(false);
-
-    boolean result = manager.resetJobToPending(job);
-
-    assertFalse(result);
-  }
-
-  @Test
-  void resetJobToPending_entity_casFails_statusUnchanged() {
-    JobEntity job = runningJob(JOB_ID);
-    when(nodeIdentityProvider.getNodeId()).thenReturn(NODE_ID);
-    when(jobStatusStore.resetRunningJob(JOB_ID, NODE_ID)).thenReturn(false);
-
-    manager.resetJobToPending(job);
-
-    assertEquals(JobStatus.RUNNING, job.getStatus());
-  }
-
-  @Test
-  void resetJobToPending_entity_casFails_pickedByUnchanged() {
-    JobEntity job = runningJob(JOB_ID);
-    when(nodeIdentityProvider.getNodeId()).thenReturn(NODE_ID);
-    when(jobStatusStore.resetRunningJob(JOB_ID, NODE_ID)).thenReturn(false);
-
-    manager.resetJobToPending(job);
-
-    assertEquals(NODE_ID, job.getPickedBy());
-  }
-
-  @Test
-  void resetJobToPending_entity_casFails_pickedAtUnchanged() {
+  void resetJobToPending_entity_casFails_leavesFieldsUnchanged() {
     Instant pickedAt = Instant.parse("2025-06-01T10:00:00Z");
     JobEntity job = runningJob(JOB_ID);
     job.setPickedAt(pickedAt);
     when(nodeIdentityProvider.getNodeId()).thenReturn(NODE_ID);
     when(jobStatusStore.resetRunningJob(JOB_ID, NODE_ID)).thenReturn(false);
 
-    manager.resetJobToPending(job);
+    boolean result = manager.resetJobToPending(job);
 
+    assertFalse(result);
+    assertEquals(JobStatus.RUNNING, job.getStatus());
+    assertEquals(NODE_ID, job.getPickedBy());
     assertEquals(pickedAt, job.getPickedAt());
   }
 
@@ -199,7 +139,6 @@ class JobStateManagerTest {
 
     manager.resetJobToPending(job);
 
-    // dependsOn is not touched by the reset — only status, pickedBy, pickedAt are cleared
     assertEquals(99L, job.getDependsOn());
   }
 
@@ -212,7 +151,6 @@ class JobStateManagerTest {
     boolean result = manager.resetJobToPending(JOB_ID);
 
     assertTrue(result);
-    // Verify the store was called with the node ID the provider returned, not a hard-coded value
     verify(jobStatusStore).resetRunningJob(JOB_ID, differentNodeId);
   }
 

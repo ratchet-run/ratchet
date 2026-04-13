@@ -17,11 +17,11 @@ public class JobStateValidator {
           JobStatus.RUNNING,
           Set.of(JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.PENDING, JobStatus.CANCELED),
           JobStatus.SUCCEEDED,
-          Set.of(), // Terminal state - no transitions allowed
+          Set.of(),
           JobStatus.FAILED,
-          Set.of(), // Terminal state - no transitions allowed
+          Set.of(),
           JobStatus.CANCELED,
-          Set.of() // Terminal state - no transitions allowed
+          Set.of()
           );
 
   public boolean canCancel(JobStatus status) {
@@ -29,7 +29,6 @@ public class JobStateValidator {
   }
 
   public boolean canRetry(JobStatus status) {
-    // Only RUNNING jobs can be retried (after they fail)
     return status == JobStatus.RUNNING;
   }
 
@@ -39,7 +38,6 @@ public class JobStateValidator {
 
   public boolean isValidTransition(JobStatus from, JobStatus to) {
     if (from == to) {
-      // Idempotent - same state transitions are always allowed
       return true;
     }
 

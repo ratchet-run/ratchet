@@ -33,27 +33,16 @@ final class JobMdcContext {
     // Utility class
   }
 
-  /**
-   * Binds the thread-local JobContext with a no-op logger and no MDC extras. Useful for early-load
-   * failure paths where node/creator metadata is not yet available.
-   */
+  // Entry point for early-load failure paths where node/creator metadata is not yet available.
   static void bindJobContext(Long jobId, Map<String, String> params) {
     bindJobContext(jobId, NoOpJobLogger.INSTANCE, params, null, null);
   }
 
-  /**
-   * Binds the thread-local JobContext with the no-op logger. The most common entry point from
-   * {@code JobTask}.
-   */
   static void bindJobContext(
       Long jobId, Map<String, String> params, String nodeId, String jobCreator) {
     bindJobContext(jobId, NoOpJobLogger.INSTANCE, params, nodeId, jobCreator);
   }
 
-  /**
-   * Binds the thread-local JobContext and populates MDC keys {@link #MDC_JOB_ID}, {@link
-   * #MDC_NODE}, and {@link #MDC_JOB_CREATOR}.
-   */
   static void bindJobContext(
       Long jobId, JobLogger logger, Map<String, String> params, String nodeId, String jobCreator) {
     JobContext.bind(jobId, logger, params);
@@ -68,11 +57,6 @@ final class JobMdcContext {
     }
   }
 
-  /**
-   * Unbinds the thread-local JobContext and removes the Ratchet-owned MDC keys. Safe to call
-   * multiple times. Removes only Ratchet's own keys ({@link #MDC_JOB_ID}, {@link #MDC_NODE}, {@link
-   * #MDC_JOB_CREATOR}) so enclosing-application MDC keys (request IDs, tenant IDs) are preserved.
-   */
   static void clear() {
     JobContext.clear();
     MDC.remove(MDC_JOB_ID);
@@ -80,7 +64,6 @@ final class JobMdcContext {
     MDC.remove(MDC_JOB_CREATOR);
   }
 
-  /** Minimal no-op logger used when no explicit logger is provided. */
   private enum NoOpJobLogger implements JobLogger {
     INSTANCE;
 

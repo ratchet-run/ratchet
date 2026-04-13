@@ -5,12 +5,7 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * Tracks batch progress callbacks and completion status for integration tests.
- *
- * <p>Captures {@link BatchContext} snapshots from progress hooks to verify that batch progress
- * reporting works correctly.
- */
+/** Tracks batch progress callbacks and completion status for integration tests. */
 public class BatchCompletionTracker {
 
   private static final CopyOnWriteArrayList<BatchContext> PROGRESS_SNAPSHOTS =

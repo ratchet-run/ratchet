@@ -16,23 +16,19 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>Deliberately avoids {@link java.util.concurrent.Future}: {@code submit(Runnable)} wraps
  * exceptions inside the Future and requires explicit {@code get()} to surface them, which is
- * error-prone for multi-task assertions. Each task writes directly to its own index in a pre-sized
- * array, visible to the main thread via the happens-before edge from the done latch.
+ * error-prone for multi-task assertions.
  */
 public final class ConcurrentTestRunner {
 
   private ConcurrentTestRunner() {}
 
   /**
-   * Runs the supplied tasks in parallel. Each task is executed on its own thread, released
-   * simultaneously when the shared start latch opens. Returns one slot per task, in the same order
-   * the tasks were supplied: {@code null} if the task completed without throwing, otherwise the
-   * {@link Throwable} it threw.
+   * Runs the supplied tasks in parallel and returns one result slot per task ({@code null} on
+   * success, otherwise the thrown {@link Throwable}).
    *
    * <p>If any task does not complete within {@code timeout}, this method calls JUnit {@link
-   * org.junit.jupiter.api.Assertions#fail(String)} — a timeout is treated as test infrastructure
-   * failure, not as a regular task outcome, so callers asserting on the returned list never need to
-   * distinguish a timeout slot from a stale-write slot.
+   * org.junit.jupiter.api.Assertions#fail(String)} — a timeout is a test infrastructure failure,
+   * not a task outcome.
    *
    * @param timeout maximum time to wait for all tasks to complete
    * @param tasks tasks to execute concurrently; must be non-null and non-empty

@@ -13,20 +13,12 @@ public class SchedulerLifecycleManager {
 
   private final AtomicBoolean started = new AtomicBoolean(false);
 
-  /** Callback for startup initialization. */
   @SuppressWarnings("java:S3077")
   private volatile Runnable startCallback;
 
-  /** Callback for shutdown cleanup. */
   @SuppressWarnings("java:S3077")
   private volatile Runnable shutdownCallback;
 
-  /**
-   * Configures the lifecycle manager with startup and shutdown callbacks.
-   *
-   * @param startCallback callback to run during startup
-   * @param shutdownCallback callback to run during shutdown
-   */
   public void configure(Runnable startCallback, Runnable shutdownCallback) {
     this.startCallback = startCallback;
     this.shutdownCallback = shutdownCallback;
@@ -51,12 +43,7 @@ public class SchedulerLifecycleManager {
     log.info("Job scheduler subsystem shut down");
   }
 
-  /**
-   * Starts the job scheduler subsystem.
-   *
-   * <p>This method must be called after database migrations have completed. Calling this method
-   * multiple times is safe - subsequent calls are ignored.
-   */
+  /** Must be called after database migrations. Idempotent. */
   public void start() {
     if (!started.compareAndSet(false, true)) {
       log.warn("Scheduler already started; skipping re-start");

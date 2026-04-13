@@ -116,7 +116,7 @@ public class PollerScheduler {
         return;
       }
       // CDI context gone (e.g. Arquillian undeploy) — stop permanently, next deploy starts fresh
-      if (isCdiContextGone(t)) {
+      if (SchedulerUtils.isCdiContextGone(t)) {
         started.set(false);
         log.info("Poll cycle detected inactive CDI context — stopping permanently");
         return;
@@ -128,18 +128,5 @@ public class PollerScheduler {
         log.debug("Cannot reschedule poll cycle — scheduler will restart on next deploy", e);
       }
     }
-  }
-
-  /** Checks whether the throwable indicates the CDI application context has been torn down. */
-  private static boolean isCdiContextGone(Throwable t) {
-    Throwable current = t;
-    while (current != null) {
-      String name = current.getClass().getName();
-      if (name.contains("ContextNotActiveException") || name.contains("ContextNotAliveException")) {
-        return true;
-      }
-      current = current.getCause();
-    }
-    return false;
   }
 }

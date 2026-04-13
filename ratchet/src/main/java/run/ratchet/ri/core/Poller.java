@@ -67,11 +67,7 @@ public class Poller {
     return strategy != null ? strategy.getStats() : null;
   }
 
-  /**
-   * Initializes the poller and starts the scheduling loop.
-   *
-   * <p>This method must be called explicitly after database migrations have completed.
-   */
+  /** Must be called after database migrations complete. Idempotent. */
   public void init() {
     if (!started.compareAndSet(false, true)) {
       log.warn("Poller already initialized; skipping re-init");
@@ -93,10 +89,6 @@ public class Poller {
     log.infof("Poller initialized (batch=%s)", batchSize);
   }
 
-  /**
-   * Called when a wakeup signal is received (e.g., from cluster notification). Resets the strategy
-   * to minimum delay and exits deep idle mode.
-   */
   public void onWakeup() {
     if (strategy != null) {
       boolean wasInDeepIdle = strategy.isInDeepIdle();
@@ -109,19 +101,12 @@ public class Poller {
     }
   }
 
-  /**
-   * Marks the poller as stopped and stops the underlying scheduler. Called during graceful
-   * shutdown.
-   */
   public void stop() {
     started.set(false);
     pollerScheduler.stop();
     log.info("Poller marked as stopped");
   }
 
-  /**
-   * @return recommended delay in milliseconds before the next poll
-   */
   @SuppressWarnings("java:S1181")
   public long tick() {
     if (!started.get()) {

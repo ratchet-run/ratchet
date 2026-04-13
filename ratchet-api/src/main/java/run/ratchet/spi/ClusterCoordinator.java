@@ -42,8 +42,6 @@ public interface ClusterCoordinator {
    * <p>Convenience wrapper around {@link #isLeader()}. Implementations may override to provide
    * richer semantics (e.g., hold a lease for the duration of the task, or fail-fast if the lease is
    * lost mid-execution).
-   *
-   * @param task the action to run when this node is leader
    */
   default void runAsLeader(Runnable task) {
     if (isLeader()) {

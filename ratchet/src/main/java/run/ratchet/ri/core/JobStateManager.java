@@ -34,12 +34,9 @@ public class JobStateManager {
   /**
    * Resets a RUNNING job owned by this node back to PENDING. On success, the in-memory entity is
    * updated to match.
-   *
-   * @return {@code true} if the reset succeeded
    */
   public boolean resetJobToPending(JobEntity job) {
     if (resetJobToPending(job.getId())) {
-      // Update in-memory entity to match database state
       job.setStatus(JobStatus.PENDING);
       job.setPickedBy(null);
       job.setPickedAt(null);
@@ -48,15 +45,7 @@ public class JobStateManager {
     return false;
   }
 
-  /**
-   * Attempts to reset a single job's state to PENDING by job ID.
-   *
-   * <p>This overload is used when only the job ID is available (e.g., from a DTO), avoiding the
-   * need to load the full entity.
-   *
-   * @param jobId the ID of the job to reset
-   * @return {@code true} if the job was successfully reset to PENDING
-   */
+  /** Overload for when only the job ID is available (e.g., from a DTO). */
   public boolean resetJobToPending(Long jobId) {
     try {
       boolean reset = jobStatusStore.resetRunningJob(jobId, nodeIdentityProvider.getNodeId());

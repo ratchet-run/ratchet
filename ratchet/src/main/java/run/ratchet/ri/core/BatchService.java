@@ -80,25 +80,19 @@ public class BatchService {
     this.workflowScheduler = workflowScheduler;
   }
 
-  /**
-   * Atomically increments the batch failed counter and triggers completion if this was the last
-   * child.
-   */
+  /** Increments the failed counter; triggers completion if this was the last child. */
   public void markChildFailed(JobEntity child) {
     update(child, false);
   }
 
-  /**
-   * Atomically increments the batch completed counter and triggers completion if this was the last
-   * child.
-   */
+  /** Increments the completed counter; triggers completion if this was the last child. */
   public void markChildSucceeded(JobEntity child) {
     update(child, true);
   }
 
   /**
-   * Recovers batches left in an inconsistent state due to node failures, network partitions, or
-   * transaction rollbacks. Called periodically by {@link BatchRecoveryTimer}.
+   * Recovers batches left in an inconsistent state. Called periodically by {@link
+   * BatchRecoveryTimer}.
    *
    * @return the number of batches recovered
    */
@@ -151,9 +145,6 @@ public class BatchService {
             + clazz.getName());
   }
 
-  /**
-   * @throws Exception if class lookup or method invocation fails
-   */
   @SuppressWarnings("java:S112") // Generic exception from reflective method invocation
   private void executeProgressHook(JobPayload payload, BatchContext ctx) throws Exception {
     Class<?> cls =
@@ -177,10 +168,6 @@ public class BatchService {
     method.invoke(instance, ctx);
   }
 
-  /**
-   * Processes batch completion after the {@code markBatchCompleteIfReady} CAS succeeds, ensuring
-   * exactly-once execution even in a distributed environment.
-   */
   private void processBatchCompletion(Long parentId, BatchEntity batch) {
     jobCrudStore
         .findById(parentId)
@@ -191,10 +178,8 @@ public class BatchService {
                     batch.getFailedItems() == 0 ? JobStatus.SUCCEEDED : JobStatus.FAILED);
                 jobCrudStore.save(parent);
 
-                // Finalize batch metrics
                 metricsStore.finalizeBatchMetrics(parentId);
 
-                // Record batch metrics to metrics collector
                 metricsStore
                     .findBatchMetrics(parentId)
                     .filter(metrics -> metrics.getTotalDurationMs() != null)
@@ -203,7 +188,6 @@ public class BatchService {
                             metricsCollector.jobCompleted(
                                 parentId, parent.getPublicJobType(), metrics.getTotalDurationMs()));
 
-                // Publish batch completion event
                 publishBatchEvent(batch);
 
                 log.info(
@@ -214,7 +198,6 @@ public class BatchService {
                         batch.getCompletedItems(),
                         batch.getFailedItems()));
 
-                // Trigger workflow branches (e.g. success/failure callbacks)
                 workflowScheduler.scheduleNext(parent);
               }
             });
@@ -279,12 +262,10 @@ public class BatchService {
       return;
     }
 
-    // Track child execution time for metrics (before atomic update)
     if (jobSuccessful && child.getExecutionDurationMs() != null) {
       metricsStore.addChildExecutionTime(parentId, child.getExecutionDurationMs());
     }
 
-    // Atomically update batch progress and get snapshot of current state
     BatchProgress progress;
     if (jobSuccessful) {
       progress = batchStore.incrementCompletedAtomic(parentId);
@@ -297,10 +278,8 @@ public class BatchService {
       return;
     }
 
-    // Trigger progress hooks using the atomic snapshot values (progressHook included in snapshot)
     triggerWithProgress(progress.progressHook(), progress);
 
-    // Atomically check if batch is complete and mark as processed
     if (batchStore.markBatchCompleteIfReady(parentId)) {
       batchStore
           .findBatchById(parentId)

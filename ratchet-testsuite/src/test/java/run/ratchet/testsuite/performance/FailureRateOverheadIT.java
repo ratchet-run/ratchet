@@ -71,7 +71,6 @@ class FailureRateOverheadIT extends BasePerformanceIT {
     int count = 100;
     int warmup = getWarmupCount();
 
-    // Warmup
     List<JobHandle> warmupHandles = enqueueN(warmup, TimingJob::execute);
     awaitAllCompleted(warmupHandles, PERF_TIMEOUT);
 

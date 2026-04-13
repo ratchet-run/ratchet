@@ -52,10 +52,6 @@ class JobTaskTest {
 
   private JobTask jobTask;
 
-  /**
-   * Public static method used as the job payload target in tests. Must be public for
-   * reflection-based invocation.
-   */
   public static String testJobMethod() {
     return "done";
   }
@@ -171,7 +167,6 @@ class JobTaskTest {
     jobTask.call();
 
     verify(resilienceStrategy, never()).execute(anyString(), any(Callable.class));
-    // Job should be rescheduled via scheduleJobRetry
     verify(jobStore).scheduleJobRetry(eq(42L), anyString(), any(), anyInt());
   }
 

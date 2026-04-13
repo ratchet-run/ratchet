@@ -78,11 +78,9 @@ public class DefaultRecurringJobBuilder implements RecurringJobBuilder {
 
   @Override
   public JobHandle submit() {
-    // Validate and parse cron expression
     Cron cron = RecurringScheduler.PARSER.parse(cronExpr);
     cron.validate();
 
-    // Calculate next fire time
     ExecutionTime executionTime = ExecutionTime.forCron(cron);
     ZonedDateTime now = ZonedDateTime.now(zone);
     Instant nextFire =
@@ -94,7 +92,6 @@ public class DefaultRecurringJobBuilder implements RecurringJobBuilder {
                     new IllegalArgumentException(
                         "Cron expression '" + cronExpr + "' has no future execution time"));
 
-    // Create the recurring job entity
     JobEntity job = new JobEntity();
     job.setJobType(JobExecutionType.RECURRING);
     job.setStatus(JobStatus.PENDING);
@@ -113,7 +110,6 @@ public class DefaultRecurringJobBuilder implements RecurringJobBuilder {
 
     JobEntity saved = jobCrudStore.save(job);
 
-    // Insert tags if present
     if (!tags.isEmpty()) {
       tagStore.insertTags(saved.getId(), tags);
     }
@@ -122,7 +118,6 @@ public class DefaultRecurringJobBuilder implements RecurringJobBuilder {
         "Recurring job submitted (id=%s, cron=%s, zone=%s, nextFire=%s)",
         saved.getId(), cronExpr, zone, nextFire);
 
-    // Notify the recurring scheduler to check for new jobs immediately
     recurringScheduler.kick();
 
     return saved::getId;

@@ -1,6 +1,7 @@
 package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -12,23 +13,11 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-/**
- * Regression test for the {@code CLASS_CACHE} security bypass found during peer review.
- *
- * <p>Before the fix, {@code JobTask.resolveResilienceServiceName} called {@code
- * CLASS_CACHE.computeIfAbsent(name, Class::forName)} BEFORE any call to {@code
- * validationFacade.validateSecurity}. An attacker controlling {@code payload.target()} could prime
- * the static cache with a denied class, which would then be returned unchecked on subsequent cache
- * hits.
- *
- * <p>Fix: every {@code CLASS_CACHE} load now routes through {@code JobTask.loadAllowedClass}, which
- * consults {@link ClassPolicy#isAllowed(String)} BEFORE populating or returning from the cache.
- */
+// Regression: denied class must not be cached even if loadable.
 class JobTaskClassCacheBypassTest {
 
   @BeforeEach
   void resetCache() throws Exception {
-    // Clear all JobTask static caches to isolate the test.
     Method clearCaches = JobTask.class.getDeclaredMethod("clearCaches");
     clearCaches.setAccessible(true);
     clearCaches.invoke(null);
@@ -40,7 +29,6 @@ class JobTaskClassCacheBypassTest {
     ClassPolicy denyAll = className -> false;
     JobTask task = newMinimalJobTask(denyAll);
 
-    // String is a real, loadable class — but the policy denies it.
     Method helper = JobTask.class.getDeclaredMethod("loadAllowedClass", String.class);
     helper.setAccessible(true);
 
@@ -61,10 +49,7 @@ class JobTaskClassCacheBypassTest {
     Field cacheField = JobTask.class.getDeclaredField("CLASS_CACHE");
     cacheField.setAccessible(true);
     Map<String, Class<?>> cache = (ConcurrentHashMap<String, Class<?>>) cacheField.get(null);
-    assertEquals(
-        false,
-        cache.containsKey("java.lang.String"),
-        "Denied class must NOT be populated in CLASS_CACHE — that's the whole point of the fix");
+    assertFalse(cache.containsKey("java.lang.String"));
   }
 
   @Test
@@ -87,17 +72,12 @@ class JobTaskClassCacheBypassTest {
 
   @Test
   void loadAllowedClass_rejectsPreviouslyCachedClassOnPolicyChange() throws Exception {
-    // Scenario: class was cached under a permissive policy, then policy changes to deny it.
-    // Because loadAllowedClass re-checks isAllowed on every invocation, the denied class must
-    // not leak out even if still present in CLASS_CACHE from a prior allow.
     Method helper = JobTask.class.getDeclaredMethod("loadAllowedClass", String.class);
     helper.setAccessible(true);
 
-    // First load: permissive policy
     JobTask allowTask = newMinimalJobTask(className -> true);
-    helper.invoke(allowTask, "java.lang.String"); // populates cache
+    helper.invoke(allowTask, "java.lang.String");
 
-    // Second load: restrictive policy on the same cached class
     JobTask denyTask = newMinimalJobTask(className -> false);
     Throwable thrown =
         assertThrows(
@@ -115,7 +95,6 @@ class JobTaskClassCacheBypassTest {
   }
 
   private JobTask newMinimalJobTask(ClassPolicy classPolicy) {
-    // All other collaborators are null — loadAllowedClass only needs classPolicy.
     return new JobTask(null, null, null, null, null, null, null, null, null, null, classPolicy);
   }
 }

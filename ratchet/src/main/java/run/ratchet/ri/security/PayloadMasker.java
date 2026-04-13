@@ -17,7 +17,6 @@ public class PayloadMasker {
 
   private static final ObjectMapper MAPPER = ObjectMapperFactory.get();
 
-  /** The placeholder string used to replace sensitive values. */
   private static final String MASKED_VALUE = "***REDACTED***";
 
   private static final Set<String> SENSITIVE_FIELDS =
@@ -54,16 +53,9 @@ public class PayloadMasker {
           "cvc",
           "pin");
 
-  private PayloadMasker() {
-    /* utility class */
-  }
+  private PayloadMasker() {}
 
-  /**
-   * Masks sensitive fields in a job payload JSON string.
-   *
-   * @param payloadJson the JSON string representation of the job payload
-   * @return a JSON string with sensitive fields masked, or null if input is null
-   */
+  /** Masks sensitive fields in a job payload JSON string; returns null if input is null. */
   public static String maskPayload(String payloadJson) {
     if (payloadJson == null || payloadJson.isEmpty()) {
       return null;
@@ -81,12 +73,7 @@ public class PayloadMasker {
     }
   }
 
-  /**
-   * Masks a job payload object directly.
-   *
-   * @param payload the job payload object (can be any serializable object)
-   * @return a JSON string with sensitive fields masked, or null if input is null
-   */
+  /** Serializes {@code payload} to JSON then masks sensitive fields; returns null if input is null. */
   public static String maskPayload(Object payload) {
     if (payload == null) {
       return null;

@@ -60,12 +60,10 @@ public class ThreadPoolManager {
     init();
   }
 
-  /** Returns true if the pool for the given job type can accept more work. */
   public boolean canAcceptWork(JobExecutionType jobType) {
     return getAvailableCapacity(jobType) > 0;
   }
 
-  /** Returns the number of additional jobs that can be accepted immediately. */
   public int getAvailableCapacity(JobExecutionType jobType) {
     if (useVirtualThreads) {
       AtomicInteger counter = virtualThreadCounts.get(jobType);
@@ -83,7 +81,6 @@ public class ThreadPoolManager {
     return semaphore.availablePermits();
   }
 
-  /** Total active threads across all pools. */
   public int getActiveThreadCount() {
     if (useVirtualThreads) {
       int totalActive = 0;
@@ -100,9 +97,6 @@ public class ThreadPoolManager {
     return totalActive;
   }
 
-  /**
-   * @throws IllegalStateException if called when virtual threads are enabled
-   */
   public ExecutorService getExecutor(JobExecutionType jobType) {
     if (useVirtualThreads) {
       throw new IllegalStateException(
@@ -157,7 +151,6 @@ public class ThreadPoolManager {
     return 0;
   }
 
-  /** Releases a permit after work completion. */
   public void releasePermit(JobExecutionType jobType) {
     if (useVirtualThreads) {
       AtomicInteger counter = virtualThreadCounts.get(jobType);
@@ -174,7 +167,6 @@ public class ThreadPoolManager {
     }
   }
 
-  /** Tries to acquire a permit; returns false if none available. */
   public boolean tryAcquirePermit(JobExecutionType jobType) {
     if (useVirtualThreads) {
       AtomicInteger counter = virtualThreadCounts.get(jobType);
@@ -201,12 +193,10 @@ public class ThreadPoolManager {
     return false;
   }
 
-  /** Returns whether virtual threads are enabled. */
   public boolean isUseVirtualThreads() {
     return useVirtualThreads;
   }
 
-  /** Detailed health snapshot for all pools. */
   public Map<JobExecutionType, ThreadPoolHealth> getThreadPoolHealth() {
     Map<JobExecutionType, ThreadPoolHealth> health = new EnumMap<>(JobExecutionType.class);
 
@@ -231,11 +221,8 @@ public class ThreadPoolManager {
   }
 
   /**
-   * Performs cleanup during application shutdown.
-   *
-   * <p>Note: The underlying {@link ExecutorService} instances are owned by the {@link
-   * ExecutorProvider} SPI and are shut down through its lifecycle, not here. This method clears
-   * internal concurrency tracking state to allow garbage collection.
+   * Clears concurrency tracking state. The underlying {@link ExecutorService} instances are owned
+   * by {@link ExecutorProvider} and shut down through its lifecycle, not here.
    */
   public void shutdown() {
     concurrencyLimits.clear();

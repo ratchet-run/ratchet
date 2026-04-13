@@ -59,8 +59,7 @@ public abstract class AbstractBatchStoreContract implements JobStoreContractFixt
 
   /**
    * N threads concurrently increment the completed counter. The final total must equal N, proving
-   * the increment is a server-side atomic operation (e.g., MongoDB {@code $inc} or SQL {@code SET
-   * completed = completed + 1}), not a load-then-save at the application level.
+   * the increment is a server-side atomic operation, not a load-then-save at the application level.
    */
   @Test
   void incrementCompletedAtomic_concurrent_allCountsCaptured() {

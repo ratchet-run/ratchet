@@ -37,19 +37,11 @@ public class PreExecutionValidator {
     return doNotRetryPolicy.shouldNotRetry(ex);
   }
 
-  /**
-   * Strategy interface for validating job payloads before execution. Implementations may enforce
-   * class whitelists, method visibility checks, or other security constraints.
-   */
   @FunctionalInterface
   public interface SecurityValidator {
     void validate(JobPayload payload) throws NoSuchMethodException;
   }
 
-  /**
-   * Strategy interface for determining which exceptions should not trigger retries. Implementations
-   * classify exceptions as permanent failures vs. transient failures.
-   */
   @FunctionalInterface
   public interface DoNotRetryPolicy {
     boolean shouldNotRetry(Throwable ex);

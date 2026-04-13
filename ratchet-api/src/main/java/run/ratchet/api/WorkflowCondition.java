@@ -35,8 +35,6 @@ public record WorkflowCondition(ConditionType type, Serializable expression, int
     return new WorkflowCondition(ConditionType.BATCH_CUSTOM, predicate);
   }
 
-  // Static factory methods for common conditions
-
   /** Creates a BATCH_CUSTOM condition with explicit evaluation priority (lower = first). */
   public static WorkflowCondition batchCustom(
       SerializablePredicate<BatchContext> predicate, int priority) {

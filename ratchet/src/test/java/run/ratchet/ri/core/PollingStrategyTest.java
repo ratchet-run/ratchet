@@ -9,7 +9,6 @@ import org.junit.jupiter.api.Test;
 
 class PollingStrategyTest {
 
-  // Short config values for fast, deterministic tests
   private static final long BURST_DELAY = 100;
   private static final long MIN_DELAY = 500;
   private static final long MAX_DELAY = 5000;
@@ -115,13 +114,11 @@ class PollingStrategyTest {
   @Test
   void consecutiveFullBatches_reducesDelay() {
     long now = System.currentTimeMillis();
-    // Send several full batches (jobCount == batchSize)
     for (int i = 0; i < 4; i++) {
       strategy.recordPollResult(BATCH_SIZE, now);
     }
 
     long delay = strategy.getCurrentDelay();
-    // After 4 consecutive full batches (>= threshold of 3), delay should be aggressive
     assertTrue(
         delay < MIN_DELAY,
         "Delay should be less than minDelay after consecutive full batches, got " + delay);

@@ -16,12 +16,6 @@ public class DrainController {
     return draining.get();
   }
 
-  /**
-   * Sets the node's drain mode state.
-   *
-   * @param value {@code true} to enable drain mode (stop accepting new jobs), {@code false} to
-   *     disable drain mode (resume normal operation)
-   */
   public void setDraining(boolean value) {
     if (draining.compareAndSet(!value, value)) {
       log.info(value ? "Node set to DRAIN mode" : "Node resumed");

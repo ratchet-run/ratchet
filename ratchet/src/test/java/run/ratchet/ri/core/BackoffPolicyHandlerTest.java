@@ -33,33 +33,27 @@ class BackoffPolicyHandlerTest {
 
   @Test
   void exponential_attempt1_returnsBaseMs() {
-    // 2^(1-1) = 1 → baseMs * 1
     assertEquals(1000L, BackoffPolicyHandler.computeDelay(BackoffPolicy.EXPONENTIAL, 1000, 1));
   }
 
   @Test
   void exponential_attempt2_doublesBaseMs() {
-    // 2^(2-1) = 2 → 1000 * 2
     assertEquals(2000L, BackoffPolicyHandler.computeDelay(BackoffPolicy.EXPONENTIAL, 1000, 2));
   }
 
   @Test
   void exponential_attempt5_returns16xBaseMs() {
-    // 2^(5-1) = 16 → 1000 * 16
     assertEquals(16_000L, BackoffPolicyHandler.computeDelay(BackoffPolicy.EXPONENTIAL, 1000, 5));
   }
 
   @Test
   void exponential_cappedAt24Hours() {
-    // Even with high attempt count, should not exceed 24h
     long delay = BackoffPolicyHandler.computeDelay(BackoffPolicy.EXPONENTIAL, 10_000, 30);
     assertEquals(MAX_EXPONENTIAL_DELAY_MS, delay);
   }
 
   @Test
   void exponential_maxExponentCappedAt20() {
-    // attempt 22 → exponent capped at 20 → 2^20 = 1_048_576
-    // 1 * 1_048_576 = 1_048_576 (under 24h cap)
     long delay = BackoffPolicyHandler.computeDelay(BackoffPolicy.EXPONENTIAL, 1, 22);
     long delayAtMaxExponent = BackoffPolicyHandler.computeDelay(BackoffPolicy.EXPONENTIAL, 1, 21);
     assertEquals(
@@ -76,7 +70,6 @@ class BackoffPolicyHandlerTest {
 
   @Test
   void exponential_overflowGuard_largeBaseMsAndHighAttempt() {
-    // baseMs * 2^20 would overflow for large baseMs → should return cap
     long delay =
         BackoffPolicyHandler.computeDelay(BackoffPolicy.EXPONENTIAL, Integer.MAX_VALUE, 21);
     assertEquals(MAX_EXPONENTIAL_DELAY_MS, delay);
@@ -84,21 +77,17 @@ class BackoffPolicyHandlerTest {
 
   @Test
   void exponential_zeroBaseMs_returnsZero() {
-    // 0 * anything = 0, which is under the cap
     assertEquals(0L, BackoffPolicyHandler.computeDelay(BackoffPolicy.EXPONENTIAL, 0, 5));
   }
 
   @Test
   void exponential_negativeAttempt_handledGracefully() {
-    // attempts - 1 = negative → Math.min(-2, 20) = -2 → 1L << -2 is implementation-defined
-    // but should not throw and should be capped
     long delay = BackoffPolicyHandler.computeDelay(BackoffPolicy.EXPONENTIAL, 1000, -1);
     assertTrue(delay <= MAX_EXPONENTIAL_DELAY_MS, "Delay must not exceed the 24-hour cap");
   }
 
   @Test
   void exponential_attempt1_withLargeBase_capsAtMax() {
-    // 2^0 = 1, so delay = baseMs; but if baseMs > 24h cap, cap applies
     long delay = BackoffPolicyHandler.computeDelay(BackoffPolicy.EXPONENTIAL, 100_000_000, 1);
     assertEquals(MAX_EXPONENTIAL_DELAY_MS, delay);
   }

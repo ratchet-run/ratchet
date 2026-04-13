@@ -49,7 +49,6 @@ class JobTimeoutHandlerTest {
 
   @Test
   void retriesRemainingReschedulesInsteadOfDlq() {
-    // Case A: maxRetries > 0, no race — attempts=1 <= maxRetries=3
     JobEntity job = jobWithMaxRetries(3);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
     when(jobStatusStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
@@ -66,7 +65,6 @@ class JobTimeoutHandlerTest {
 
   @Test
   void retriesExhaustedCasesToFailedAndEscalatesDlq() {
-    // Case B: maxRetries=0, attempts becomes 1 > maxRetries=0
     JobEntity job = jobWithMaxRetries(0);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
     when(jobStatusStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
@@ -84,9 +82,6 @@ class JobTimeoutHandlerTest {
 
   @Test
   void racePathDoesNotEscalateToDlqWhenScheduleRetryLoses() {
-    // Case C: attempts=1 <= maxRetries=3, but a competing completion finalized the job
-    // between incrementRetryAttempt and scheduleJobRetry → scheduleJobRetry returns false.
-    // Must NOT call handlePermanentFailure and must NOT CAS to FAILED.
     JobEntity job = jobWithMaxRetries(3);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
     when(jobStatusStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
@@ -101,8 +96,6 @@ class JobTimeoutHandlerTest {
 
   @Test
   void incrementRetryReturnsMinusOneExitsCleanly() {
-    // Worker thread already transitioned the job out of RUNNING before the timeout handler ran.
-    // incrementRetryAttempt returns -1 → exit without any further action.
     JobEntity job = jobWithMaxRetries(3);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
     when(jobStatusStore.incrementRetryAttempt(JOB_ID)).thenReturn(-1);

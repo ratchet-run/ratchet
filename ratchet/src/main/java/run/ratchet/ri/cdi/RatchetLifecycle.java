@@ -87,41 +87,34 @@ public class RatchetLifecycle {
   void onStartup(@Observes @Initialized(ApplicationScoped.class) Object init) {
     log.info("Initializing Ratchet job scheduler...");
 
-    // Core job processing
     poller.init();
     recurringScheduler.init();
 
-    // Periodic maintenance timers
     orphanRecoveryTimer.start(
         executorProvider.getScheduledExecutor(), config.getOrphanScanIntervalMinutes());
     batchRecoveryTimer.start(executorProvider.getScheduledExecutor());
 
-    // DLQ purge (opt-out via SCHEDULER_DLQ_PURGE_ENABLED=false)
     if (config.isDlqPurgeEnabled()) {
       Cron dlqCron = RecurringScheduler.PARSER.parse(config.getDlqPurgeCron());
       deadLetterService.init(config.getDlqPurgeDays(), dlqCron);
     }
 
-    // Job archiving (opt-out via SCHEDULER_JOB_ARCHIVE_ENABLED=false)
     if (config.isJobArchiveEnabled()) {
       Cron archiveCron = RecurringScheduler.PARSER.parse(config.getJobArchiverCron());
       jobArchivingService.init(
           true, config.getJobRetentionDays(), config.getJobArchiveBatchSize(), archiveCron);
     }
 
-    // Log purge (opt-out via SCHEDULER_LOG_PURGE_ENABLED=false)
     if (config.isLogPurgeEnabled()) {
       Cron logCron = RecurringScheduler.PARSER.parse(config.getLogPurgeCron());
       logPurgeTimer.init(config.getLogRetentionDays(), logCron);
     }
 
-    // Cluster wakeup optimization
     pollerWakeupListener.init();
 
     log.info("Ratchet job scheduler initialized");
   }
 
-  /** Stops all scheduler components during application shutdown. */
   @PreDestroy
   void onShutdown() {
     log.info("Shutting down Ratchet job scheduler...");

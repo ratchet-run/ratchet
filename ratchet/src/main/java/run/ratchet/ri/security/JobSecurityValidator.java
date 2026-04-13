@@ -7,7 +7,6 @@ import jakarta.inject.Inject;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import org.jboss.logging.Logger;
-import org.objectweb.asm.Type;
 
 /**
  * Primary security gate for job execution. Enforces class-policy allowlisting, method visibility
@@ -63,10 +62,9 @@ public class JobSecurityValidator {
     }
 
     // Find and validate method (public only)
-    Method method = findMethod(clazz, payload);
+    Method method = MethodLookup.findMethod(clazz, payload);
     if (method == null) {
-      // Check if the method exists but is non-public -- give a targeted error
-      Method nonPublic = findDeclaredMethod(clazz, payload);
+      Method nonPublic = MethodLookup.findDeclaredMethod(clazz, payload);
       if (nonPublic != null) {
         String visibility =
             Modifier.isPrivate(nonPublic.getModifiers())
@@ -91,7 +89,6 @@ public class JobSecurityValidator {
               + targetClass);
     }
 
-    // Validate method visibility - must be public (belt-and-suspenders; findMethod uses getMethods)
     int modifiers = method.getModifiers();
     if (!Modifier.isPublic(modifiers)) {
       throw new SecurityException(
@@ -105,23 +102,4 @@ public class JobSecurityValidator {
     log.debugf("Validated: %s.%s", targetClass, payload.method());
   }
 
-  private Method findMethod(Class<?> clazz, JobPayload payload) {
-    for (Method m : clazz.getMethods()) {
-      if (m.getName().equals(payload.method())
-          && Type.getMethodDescriptor(m).equals(payload.methodDescriptor())) {
-        return m;
-      }
-    }
-    return null;
-  }
-
-  private Method findDeclaredMethod(Class<?> clazz, JobPayload payload) {
-    for (Method m : clazz.getDeclaredMethods()) {
-      if (m.getName().equals(payload.method())
-          && Type.getMethodDescriptor(m).equals(payload.methodDescriptor())) {
-        return m;
-      }
-    }
-    return null;
-  }
 }

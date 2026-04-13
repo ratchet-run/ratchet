@@ -1,6 +1,8 @@
 package run.ratchet.ri.cdi;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.Mockito.mock;
@@ -19,10 +21,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
-/**
- * Unit tests for the multi-node safety guards in {@link RecurringJobProcessor}: leader-gated
- * cleanup and the convergence window applied to the cleanup cutoff.
- */
+// Verifies leader-gated cleanup and convergence window in RecurringJobProcessor.
 class RecurringJobProcessorLeaderGateTest {
 
   @AfterEach
@@ -79,14 +78,10 @@ class RecurringJobProcessorLeaderGateTest {
     verify(maintenance).cancelOrphanedRecurringAnnotationJobs(anySet(), cutoffCaptor.capture());
 
     Instant cutoff = cutoffCaptor.getValue();
-    // Cutoff = startTime - 120s. startTime was captured inside registerRecurringJobs between
-    // beforeRun and afterRun, so the cutoff must lie in [beforeRun - 120s, afterRun - 120s].
     Instant lowerBound = beforeRun.minusSeconds(120);
     Instant upperBound = afterRun.minusSeconds(120);
-    assertEquals(
-        true,
-        !cutoff.isBefore(lowerBound) && !cutoff.isAfter(upperBound),
-        "Cleanup cutoff must be shifted back by the 120s convergence window; got " + cutoff);
+    assertFalse(cutoff.isBefore(lowerBound), "Cutoff must not be before lowerBound; got " + cutoff);
+    assertFalse(cutoff.isAfter(upperBound), "Cutoff must not be after upperBound; got " + cutoff);
   }
 
   @Test

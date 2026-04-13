@@ -64,16 +64,13 @@ class ThroughputIT extends BasePerformanceIT {
     int warmup = getWarmupCount();
     int measured = getMeasuredCount();
 
-    // Warmup phase
     log.info("Warmup: enqueuing " + warmup + " no-op jobs");
     List<JobHandle> warmupHandles = enqueueN(warmup, TimingJob::execute);
     awaitAllCompleted(warmupHandles, PERF_TIMEOUT);
 
-    // Reset metrics for measurement
     PerformanceMetricsCollector.reset();
     TimingJob.resetCount();
 
-    // Measured phase
     log.info("Measured: enqueuing " + measured + " no-op jobs");
     long startMs = System.currentTimeMillis();
     List<JobHandle> handles = enqueueN(measured, TimingJob::execute);
@@ -107,16 +104,13 @@ class ThroughputIT extends BasePerformanceIT {
 
     ConfigurableWorkJob.setSleepMs(5);
 
-    // Warmup phase
     List<JobHandle> warmupHandles = enqueueN(warmup, ConfigurableWorkJob::execute);
     awaitAllCompleted(warmupHandles, PERF_TIMEOUT);
 
-    // Reset metrics for measurement
     PerformanceMetricsCollector.reset();
     ConfigurableWorkJob.reset();
     ConfigurableWorkJob.setSleepMs(5);
 
-    // Measured phase
     log.info("Measured: enqueuing " + measured + " 5ms-work jobs");
     long startMs = System.currentTimeMillis();
     List<JobHandle> handles = enqueueN(measured, ConfigurableWorkJob::execute);

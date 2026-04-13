@@ -132,20 +132,8 @@ public class JobTask implements Callable<Void> {
     this.classPolicy = classPolicy;
   }
 
-  /**
-   * Loads a class by name ONLY if {@link ClassPolicy#isAllowed(String)} approves it, then caches
-   * the result in {@link #CLASS_CACHE}. Never populates the cache with a denied class; re-checks
-   * the policy on every lookup (even cache hits) to defend against post-load policy changes and to
-   * block cache-poisoning attempts from code paths that bypass {@code validationFacade}.
-   *
-   * <p>This is the ONLY path that should populate {@code CLASS_CACHE}. All previous {@code
-   * computeIfAbsent} sites have been routed through here.
-   *
-   * @param className fully-qualified class name to load
-   * @return the loaded class, never null
-   * @throws SecurityException if the class is not allowed by the policy
-   * @throws ClassNotFoundException if the class cannot be loaded
-   */
+  // ONLY path that populates CLASS_CACHE. Re-checks ClassPolicy on every call (even cache hits)
+  // to block post-load policy changes and cache-poisoning from code that bypasses validationFacade.
   private Class<?> loadAllowedClass(String className) throws ClassNotFoundException {
     if (className == null || className.isEmpty()) {
       throw new SecurityException("Class name cannot be null or empty");
@@ -299,14 +287,7 @@ public class JobTask implements Callable<Void> {
         releaseResourcePermit();
       }
       log.infof("Job %s execution complete - cleaning up context", jobId);
-      // CRITICAL: the surrounding catch above MUST be `catch (Throwable t)`, not
-      // `catch (Exception)`. Worker threads in pooled executors get returned to the pool after
-      // call() completes. If a job throws an Error (AssertionError, OutOfMemoryError,
-      // StackOverflowError) and the catch is narrowed to Exception, this finally block STILL
-      // runs (Java's `finally` is unconditional), but if a future refactor moves cleanup out
-      // of `finally` and into `catch`, MDC will leak across pooled threads and the next job
-      // will inherit stale jobId/node/jobCreator keys. JobMdcContextThrowableTest enforces
-      // this invariant.
+      // Must be Throwable, not Exception — Error must still clear MDC. See JobMdcContextThrowableTest
       JobMdcContext.clear();
     }
     return null;
@@ -485,7 +466,7 @@ public class JobTask implements Callable<Void> {
     log.errorf(
         ex, "Job %s failed with %s: %s", job.getId(), ex.getClass().getName(), ex.getMessage());
 
-    // B7: Check shouldNotRetry FIRST, before burning an attempt slot. Non-retryable failures
+    // Check shouldNotRetry FIRST, before burning an attempt slot. Non-retryable failures
     // go straight to the failure handler with the existing attempt count, so the audit trail
     // doesn't show a phantom retry attempt that never happened.
     if (validationFacade.shouldNotRetry(ex)) {
@@ -614,18 +595,8 @@ public class JobTask implements Callable<Void> {
     log.infof("Job %s succeeded in %s ms", job.getId(), executionMs);
   }
 
-  /**
-   * Detects timeout-shaped failures from any of the timeout signal types we can encounter:
-   *
-   * <ul>
-   *   <li>{@link run.ratchet.api.exception.JobTimeoutException} — explicit, preferred
-   *   <li>{@link java.util.concurrent.TimeoutException} — thrown by {@code JobTimeoutHandler}
-   *   <li>{@link InterruptedException} — happens when {@code JobTimeoutHandler.cancel(true)}
-   *       interrupts the job thread mid-execution
-   * </ul>
-   *
-   * <p>Each is checked at the top level and one level deep into {@code getCause()}.
-   */
+  // Matches JobTimeoutException, TimeoutException, and InterruptedException at top level and
+  // one cause deep — all three are produced by JobTimeoutHandler cancel paths.
   private void logIfTimeout(Throwable ex) {
     boolean wasTimeout =
         ex instanceof run.ratchet.api.exception.JobTimeoutException
@@ -686,7 +657,7 @@ public class JobTask implements Callable<Void> {
       List<Object> args = callbackPayload.args() != null ? callbackPayload.args() : List.of();
       method.invoke(target, args.toArray());
     } catch (Exception e) {
-      // B12: Callback failures are no longer silent. Operators see (a) a SEVERE log entry
+      // Callback failures are no longer silent. Operators see (a) a SEVERE log entry
       // with the full stack, (b) a metrics counter increment, and (c) a CDI/programmatic
       // event they can observe. The parent job still succeeds — callbacks are by design
       // fire-and-log, not failure-propagating.
@@ -798,9 +769,8 @@ public class JobTask implements Callable<Void> {
 
   @SuppressWarnings("java:S112")
   private Object runPayload(JobPayload payload) throws Exception {
-    // NOTE: validateSecurity() is now called by call() BEFORE entering the resilience scope
-    // (see B6 fix). Do not re-validate here — security exceptions inside the breaker would
-    // poison it for the target service.
+    // validateSecurity() is called by call() BEFORE entering the resilience scope.
+    // Do not re-validate here — security exceptions inside the breaker would poison it.
 
     log.infof(
         "Job %s resolving target: %s.%s (static=%s)",
@@ -836,11 +806,8 @@ public class JobTask implements Callable<Void> {
     try {
       bean = beanResolver.resolve(cls);
     } catch (Exception e) {
-      log.error(
-          String.format(
-              "Failed to resolve bean for instance method %s in class %s",
-              payload.method(), payload.target()),
-          e);
+      log.errorf(e, "Failed to resolve bean for instance method %s in class %s",
+          payload.method(), payload.target());
       throw new IllegalStateException(
           "Cannot resolve bean for instance method "
               + payload.method()

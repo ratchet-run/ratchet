@@ -33,11 +33,6 @@ public class JobExecutionCoordinator {
     this.retryBufferDrainer = retryBufferDrainer;
   }
 
-  /** Must be called after database migrations have completed. */
-  public void initDatabaseDependentComponents() {
-    // Extension point for components that require database access at startup
-  }
-
   public void submit(JobEntity job) {
     jobSubmissionService.submit(job);
   }

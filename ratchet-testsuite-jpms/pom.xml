@@ -12,28 +12,21 @@
 
   <artifactId>ratchet-testsuite-jpms</artifactId>
   <name>Ratchet :: JPMS Consumer Test</name>
-  <description>
-    Validates that ratchet-api's JPMS module-info correctly exports public API/SPI packages and
-    keeps internal ratchet implementation packages inaccessible from module-path consumers.
-    The compile success/failure of this module IS the verification — there are no runtime tests.
-  </description>
+  <description>JPMS consumer tests for ratchet-api encapsulation</description>
 
   <dependencies>
-    <!-- The whole point: consume ratchet-api as a JPMS module. -->
     <dependency>
       <groupId>run.ratchet</groupId>
       <artifactId>ratchet-api</artifactId>
     </dependency>
 
-    <!-- ratchet is included so the negative-test source file can attempt to import an
-         internal class. JPMS encapsulation should prevent the import from compiling even
-         though the class is on the module path. -->
+    <!-- needed for negative-compilation test against ri internals -->
     <dependency>
       <groupId>run.ratchet</groupId>
       <artifactId>ratchet</artifactId>
     </dependency>
 
-    <!-- Required transitively by ratchet (provided in deployment, needed at compile time). -->
+    <!-- provided at runtime; needed for compilation -->
     <dependency>
       <groupId>jakarta.platform</groupId>
       <artifactId>jakarta.jakartaee-web-api</artifactId>
@@ -47,7 +40,7 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
       </plugin>
-      <!-- Skip jacoco offline-instrumentation for this no-runtime-test module. -->
+      <!-- no tests to instrument -->
       <plugin>
         <groupId>org.jacoco</groupId>
         <artifactId>jacoco-maven-plugin</artifactId>

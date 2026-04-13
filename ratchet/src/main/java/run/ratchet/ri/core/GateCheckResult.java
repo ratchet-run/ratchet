@@ -8,18 +8,15 @@ import run.ratchet.store.entity.JobExecutionType;
  */
 public record GateCheckResult(GateStatus status, String reason) {
 
-  /** All gates passed; a permit has been acquired. */
   public static GateCheckResult clear() {
     return new GateCheckResult(GateStatus.CLEAR, null);
   }
 
-  /** Node is draining (graceful shutdown). */
   public static GateCheckResult draining(Long jobId) {
     return new GateCheckResult(
         GateStatus.DRAINING, "Node draining - returning job " + jobId + " to PENDING");
   }
 
-  /** Thread pool for the given job type is at capacity. */
   public static GateCheckResult noPermits(JobExecutionType jobType, Long jobId) {
     return new GateCheckResult(
         GateStatus.NO_PERMITS,
@@ -28,7 +25,6 @@ public record GateCheckResult(GateStatus status, String reason) {
             jobType, jobId));
   }
 
-  /** Per-minute rate limit exceeded for this job type. */
   public static GateCheckResult rateLimited(
       JobExecutionType jobType, Long jobId, int currentCount, int limit) {
     return new GateCheckResult(
@@ -39,7 +35,6 @@ public record GateCheckResult(GateStatus status, String reason) {
             jobType, currentCount, limit, jobId));
   }
 
-  /** True if all gates passed. */
   public boolean isClear() {
     return status == GateStatus.CLEAR;
   }
@@ -48,15 +43,10 @@ public record GateCheckResult(GateStatus status, String reason) {
     return status != GateStatus.CLEAR;
   }
 
-  /** Possible gate check outcomes. */
   public enum GateStatus {
-    /** All gates passed; permit acquired. */
     CLEAR,
-    /** Node is draining (graceful shutdown). */
     DRAINING,
-    /** Per-minute rate limit exceeded. */
     RATE_LIMITED,
-    /** Thread pool at capacity. */
     NO_PERMITS
   }
 }

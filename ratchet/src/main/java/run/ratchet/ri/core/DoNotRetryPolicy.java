@@ -15,18 +15,13 @@ public class DoNotRetryPolicy {
 
   private static final Logger log = Logger.getLogger(DoNotRetryPolicy.class);
 
-  /** Well-known exception class names that indicate permanent, non-retryable failures. */
+  // IllegalStateException is intentionally excluded: CDI and JPA throw it for transient conditions
+  // (e.g. EntityManager already closed) that may resolve on retry. Use @DoNotRetry for business
+  // state errors.
   private static final Set<String> DO_NOT_RETRY_EXCEPTIONS =
       Set.of(
-          // Validation errors - won't succeed on retry
           "java.lang.IllegalArgumentException",
-          // IllegalStateException intentionally excluded: CDI and JPA throw it for transient
-          // container lifecycle conditions (e.g. EntityManager already closed, transaction
-          // already active) that may resolve on retry. Jobs that fail with bad business state
-          // should annotate their custom exception with @DoNotRetry instead.
           "java.lang.NullPointerException",
-
-          // Security errors - authentication/authorization failures
           "java.lang.SecurityException",
           "jakarta.security.enterprise.AuthenticationException",
           "jakarta.security.enterprise.AuthenticationStatus");
@@ -36,13 +31,11 @@ public class DoNotRetryPolicy {
       return false;
     }
 
-    // Check the exception itself
     if (isDoNotRetryException(exception)) {
       log.infof("Exception %s marked as do-not-retry", exception.getClass().getName());
       return true;
     }
 
-    // Check all causes recursively
     Throwable cause = exception.getCause();
     while (cause != null && cause != exception) {
       if (isDoNotRetryException(cause)) {
@@ -57,7 +50,6 @@ public class DoNotRetryPolicy {
 
   @SuppressWarnings("removal")
   private boolean isDoNotRetryException(Throwable exception) {
-    // Check if exception class is in the do-not-retry list
     String className = exception.getClass().getName();
     if (DO_NOT_RETRY_EXCEPTIONS.contains(className)) {
       return true;

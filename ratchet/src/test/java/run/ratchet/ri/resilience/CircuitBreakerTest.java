@@ -13,7 +13,6 @@ class CircuitBreakerTest {
 
   @BeforeEach
   void setUp() {
-    // Low thresholds for easy testing: 50% failure rate, window of 4, min 2 calls, 100ms wait
     breaker =
         new CircuitBreaker(
             "test-service", new CircuitBreakerConfiguration(50.0f, 4, 100L, 5000L, 2, 2));
@@ -35,8 +34,6 @@ class CircuitBreakerTest {
 
   @Test
   void failuresBelowThresholdKeepClosed() {
-    // 1 failure out of 3 calls = 33% < 50% threshold, and min calls = 2
-    // Sequence: success, success, failure → 1/3 = 33%
     assertDoesNotThrow(() -> breaker.execute(() -> "ok"));
     assertDoesNotThrow(() -> breaker.execute(() -> "ok"));
     assertThrows(
@@ -51,7 +48,6 @@ class CircuitBreakerTest {
 
   @Test
   void failuresAboveThresholdOpenCircuit() {
-    // 2 failures out of 2 calls = 100% >= 50% threshold
     assertThrows(
         RuntimeException.class,
         () ->
@@ -72,7 +68,6 @@ class CircuitBreakerTest {
 
   @Test
   void openCircuitRejectsCalls() {
-    // Force open
     breaker.transitionToOpen();
     assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
 
@@ -96,7 +91,6 @@ class CircuitBreakerTest {
         .atMost(Duration.ofSeconds(1))
         .untilAsserted(() -> assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState()));
 
-    // permittedCallsInHalfOpen = 2, all succeed → CLOSED
     breaker.execute(() -> "ok1");
     breaker.execute(() -> "ok2");
 
@@ -110,7 +104,6 @@ class CircuitBreakerTest {
         .atMost(Duration.ofSeconds(1))
         .untilAsserted(() -> assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState()));
 
-    // First trial call fails → back to OPEN
     assertThrows(
         RuntimeException.class,
         () ->

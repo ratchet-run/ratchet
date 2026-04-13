@@ -60,11 +60,10 @@ public class DynamicHeartbeatCalculator {
 
       long finalInterval = Math.max(minInterval, Math.min(adjustedInterval, maxInterval));
 
-      log.debug(
-          String.format(
-              "Calculated heartbeat interval: nodes=%d, pendingJobs=%d, "
-                  + "baseInterval=%ds, finalInterval=%ds",
-              activeNodes, pendingJobs, baseHeartbeatIntervalSeconds, finalInterval));
+      log.debugf(
+          "Calculated heartbeat interval: nodes=%d, pendingJobs=%d, "
+              + "baseInterval=%ds, finalInterval=%ds",
+          activeNodes, pendingJobs, baseHeartbeatIntervalSeconds, finalInterval);
 
       return finalInterval;
 

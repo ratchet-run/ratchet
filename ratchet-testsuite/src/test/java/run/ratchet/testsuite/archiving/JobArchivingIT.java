@@ -63,7 +63,6 @@ class JobArchivingIT extends BaseRatchetIT {
 
   @Test
   void completedJobs_olderThanRetention_shouldBeArchived() {
-    // Submit and wait for 3 jobs to complete
     List<JobHandle> handles = new ArrayList<>();
     for (int i = 0; i < 3; i++) {
       handles.add(jobService.enqueueNow(SimpleJob::execute));
@@ -74,7 +73,6 @@ class JobArchivingIT extends BaseRatchetIT {
 
     List<Long> jobIds = handles.stream().map(JobHandle::id).toList();
 
-    // Backdate the jobs to appear older than retention period
     Instant past = Instant.now().minus(3, ChronoUnit.DAYS);
     for (Long id : jobIds) {
       dataManipulator.setJobUpdatedAt(id, past);
@@ -84,7 +82,6 @@ class JobArchivingIT extends BaseRatchetIT {
     archivingService.init(true, 1, 100, CRON_PARSER.parse("0 0 2 * * ?"));
     archivingService.triggerArchiving();
 
-    // Wait for archived jobs to appear
     await()
         .atMost(Duration.ofSeconds(30))
         .pollInterval(Duration.ofMillis(500))

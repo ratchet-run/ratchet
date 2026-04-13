@@ -20,24 +20,18 @@ public final class BackoffPolicyHandler {
     /* util */
   }
 
-  /**
-   * @param attempts next attempt number (1-based); e.g. 2 means one prior failure
-   */
   public static long computeDelay(BackoffPolicy policy, int baseMs, int attempts) {
     return switch (policy) {
       case NONE -> 0L;
       case FIXED -> baseMs;
       case EXPONENTIAL -> {
-        // Cap the exponent to prevent overflow with large attempt numbers
         int cappedExponent = Math.min(attempts - 1, MAX_EXPONENT);
         long multiplier =
             1L << cappedExponent; // 2^cappedExponent using bit shift (no floating point)
-        // Guard against long overflow: if baseMs * multiplier would overflow, use the cap directly
         long exponentialDelay =
             (multiplier > 0 && baseMs <= MAX_EXPONENTIAL_DELAY_MS / multiplier)
                 ? baseMs * multiplier
                 : MAX_EXPONENTIAL_DELAY_MS;
-        // Cap the total delay at MAX_EXPONENTIAL_DELAY_MS (24 hours)
         yield Math.min(exponentialDelay, MAX_EXPONENTIAL_DELAY_MS);
       }
     };

@@ -18,7 +18,6 @@
     <dependency>
       <groupId>run.ratchet</groupId>
       <artifactId>ratchet-api</artifactId>
-      <version>${project.version}</version>
     </dependency>
 
     <dependency>

@@ -46,7 +46,6 @@ public class InternalEventPublisher {
 
   /** Publishes an event synchronously. See class Javadoc for latency implications. */
   public void publish(Object event) {
-    // Fire to programmatic listeners
     for (Consumer<Object> listener : listeners) {
       try {
         listener.accept(event);
@@ -56,7 +55,6 @@ public class InternalEventPublisher {
       }
     }
 
-    // Fire to CDI observers
     if (cdiEvent != null) {
       try {
         cdiEvent.fire(event);

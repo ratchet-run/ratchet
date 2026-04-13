@@ -168,7 +168,6 @@ public class DefaultJobSchedulerService
         .findById(jobId)
         .orElseThrow(() -> new IllegalArgumentException("Job not found for replacement: " + jobId));
 
-    // Create the replacement job
     JobBuilder builder = DefaultJobBuilder.create(this, newTask, delay);
     if (opts != null) {
       builder
@@ -188,20 +187,9 @@ public class DefaultJobSchedulerService
             || jobStatusStore.compareAndSwapStatus(
                 jobId, JobStatus.PAUSED, JobStatus.CANCELED, null);
 
-    // Link old job to new via supersededBy regardless of cancel outcome.
-    //
-    // Must reload here: `existing` was loaded BEFORE the CAS calls above, and
-    // compareAndSwapStatus bumps the row's optimistic-lock version atomically. Under 0.2.0's
-    // strict save(), writing the stale `existing` would throw RatchetOptimisticLockException.
-    // The fresh reload picks up the post-CAS version so save() succeeds.
-    //
-    // We deliberately do NOT route this through OptimisticLockRetry. After a successful CAS,
-    // the reloaded row is in terminal state CANCELED — OptimisticLockRetry's terminal-state
-    // guard would reject the mutation, but the intent on this path is precisely to annotate a
-    // terminal row with supersededBy as an audit trail. A plain reload-then-save bypasses the
-    // guard and matches the original behavior. If the save races with another mutation
-    // (e.g. archival) the exception propagates to the caller's transaction boundary, which is
-    // the same outcome as any other concurrent-modification failure.
+    // Reload after CAS: compareAndSwapStatus bumps the optimistic-lock version; writing the
+    // pre-CAS entity would throw. Not routed through OptimisticLockRetry because the intent is
+    // to annotate a terminal CANCELED row with supersededBy as an audit trail.
     JobEntity fresh =
         jobCrudStore
             .findById(jobId)
@@ -316,7 +304,6 @@ public class DefaultJobSchedulerService
   @Override
   @Transactional
   public JobHandle submit(JobBuilder builder) {
-    // Check idempotency key — return existing job if duplicate
     String idempotencyKey = builder.idempotencyKey();
     Optional<JobEntity> existingByKey = jobCrudStore.findByIdempotencyKey(idempotencyKey);
     if (existingByKey.isPresent()) {
@@ -326,7 +313,6 @@ public class DefaultJobSchedulerService
       return () -> existingId;
     }
 
-    // Check business key — reject if active job exists with same key
     String businessKey = builder.businessKey();
     if (businessKey != null) {
       Optional<JobEntity> activeByBk = jobCrudStore.findActiveByBusinessKey(businessKey);
@@ -340,10 +326,8 @@ public class DefaultJobSchedulerService
       }
     }
 
-    // Create payload from lambda
     JobPayload payload = JobPayloadFactory.fromLambda(builder.task());
 
-    // Build the job entity
     JobOptions opts = builder.opts();
     JobEntity job = new JobEntity();
     job.setJobType(JobExecutionType.SINGLE);
@@ -368,29 +352,24 @@ public class DefaultJobSchedulerService
       job.setParams(builder.params());
     }
 
-    // Persist the primary job
     JobEntity saved = jobCrudStore.save(job);
     Long jobId = saved.getId();
 
-    // Insert tags
     List<String> tags = builder.tags();
     if (!tags.isEmpty()) {
       tagStore.insertTags(jobId, tags);
     }
 
-    // Create chain step jobs (locked until predecessor completes)
     List<SerializableCheckedRunnable> chainTasks = builder.chainTasks();
     if (!chainTasks.isEmpty()) {
       createChainSteps(jobId, chainTasks, opts);
     }
 
-    // Create workflow branches
     List<WorkflowBranch> branches = builder.workflowBranches();
     if (!branches.isEmpty()) {
       createWorkflowBranches(jobId, branches);
     }
 
-    // Notify cluster for immediate wakeup if needed
     boolean shouldWakeup =
         builder.isImmediate()
             || opts.priority() == JobPriority.CRITICAL
@@ -427,7 +406,6 @@ public class DefaultJobSchedulerService
 
   private void createWorkflowBranches(Long parentId, List<WorkflowBranch> branches) {
     for (WorkflowBranch branch : branches) {
-      // Create a child job for the branch (locked until condition is evaluated)
       JobEntity branchJob = new JobEntity();
       branchJob.setJobType(JobExecutionType.WORKFLOW_BRANCH);
       branchJob.setStatus(JobStatus.PENDING);
@@ -438,7 +416,6 @@ public class DefaultJobSchedulerService
       branchJob.setDependsOn(parentId);
       JobEntity savedBranch = jobCrudStore.save(branchJob);
 
-      // Create the workflow condition record
       WorkflowConditionEntity condition = new WorkflowConditionEntity();
       condition.setParentJobId(parentId);
       condition.setChildJobId(savedBranch.getId());

@@ -42,14 +42,7 @@ public class ResourcePermitEntity implements TsidEntityListener.TsidAssignable {
   @Column(name = "acquired_at", nullable = false)
   private Instant acquiredAt;
 
-  /**
-   * Creates a new permit for a job to access a resource.
-   *
-   * @param resourceName the resource being accessed
-   * @param jobId the job requesting access
-   * @param nodeId the node executing the job
-   * @return a new permit entity ready to be persisted
-   */
+  /** Creates a new permit for a job to access a resource. */
   public static ResourcePermitEntity create(String resourceName, Long jobId, String nodeId) {
     ResourcePermitEntity entity = new ResourcePermitEntity();
     entity.setResourceName(resourceName);

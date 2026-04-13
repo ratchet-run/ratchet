@@ -108,9 +108,6 @@ public class JobResult<T> implements Serializable {
     return metadata;
   }
 
-  /**
-   * @return execution time in milliseconds, or 0 if not recorded
-   */
   public long getExecutionTimeMsOrZero() {
     return executionTimeMs != null ? executionTimeMs : 0L;
   }
@@ -154,16 +151,10 @@ public class JobResult<T> implements Serializable {
     return value != null;
   }
 
-  /**
-   * @return true if the job failed
-   */
   public boolean isFailure() {
     return !success;
   }
 
-  /**
-   * @return true if the job succeeded
-   */
   public boolean isSuccess() {
     return success;
   }

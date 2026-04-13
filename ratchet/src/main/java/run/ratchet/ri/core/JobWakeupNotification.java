@@ -12,12 +12,10 @@ public record JobWakeupNotification(
     String originNodeId, Instant timestamp, JobPriority priority, boolean immediate)
     implements Serializable {
 
-  /** Creates a notification for immediate execution. */
   public static JobWakeupNotification immediate(String nodeId, JobPriority priority) {
     return new JobWakeupNotification(nodeId, Instant.now(), priority, true);
   }
 
-  /** Creates a notification for normal processing. */
   public static JobWakeupNotification normal(String nodeId, JobPriority priority) {
     return new JobWakeupNotification(nodeId, Instant.now(), priority, false);
   }

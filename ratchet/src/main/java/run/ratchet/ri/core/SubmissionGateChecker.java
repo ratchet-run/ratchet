@@ -7,19 +7,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
 /**
- * Validates pre-flight conditions before job submission.
- *
- * <p>Checks are performed in order:
- *
- * <ol>
- *   <li>Node draining status (first attempts only)
- *   <li>Executor permit availability
- *   <li>Rate limit for job type (permit released immediately if rate-limited)
- * </ol>
- *
- * <p>When {@link GateCheckResult#isClear()} returns true, a permit has been acquired from the
- * {@link ThreadPoolManager}. The caller is responsible for ensuring the permit is released, either
- * through job execution or explicit release on failure.
+ * Pre-flight gate checker: drain → permit → rate-limit. A CLEAR result holds an acquired permit.
  */
 @ApplicationScoped
 public class SubmissionGateChecker {

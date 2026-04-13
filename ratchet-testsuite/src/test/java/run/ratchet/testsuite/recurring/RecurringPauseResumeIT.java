@@ -51,13 +51,11 @@ class RecurringPauseResumeIT extends BaseRatchetIT {
 
   @Test
   void pauseRecurringJob_shouldStopFiring() {
-    // Schedule a recurring job that fires every second
     JobHandle handle =
         jobService
             .scheduleRecurring("*/1 * * * * ?", ZoneOffset.UTC, CronTestJobs::tick)
             .submit();
 
-    // Wait for at least 1 tick to confirm it's running
     await()
         .atMost(Duration.ofSeconds(5))
         .pollInterval(Duration.ofMillis(500))
@@ -67,11 +65,9 @@ class RecurringPauseResumeIT extends BaseRatchetIT {
                     CronTestJobs.tickCount() >= 1,
                     "Expected at least 1 tick but got " + CronTestJobs.tickCount()));
 
-    // Pause the recurring job
     boolean paused = jobService.pauseJob(handle.id());
     assertTrue(paused, "Expected pauseJob to return true");
 
-    // Verify the job is in PAUSED status
     JobAssertions.assertJobStatus(jobCrudStore, handle, JobStatus.PAUSED);
 
     // Record tick count at pause time and verify it remains stable while paused.
@@ -91,13 +87,11 @@ class RecurringPauseResumeIT extends BaseRatchetIT {
 
   @Test
   void resumePausedRecurringJob_shouldRestartFiring() {
-    // Schedule and immediately pause
     JobHandle handle =
         jobService
             .scheduleRecurring("*/1 * * * * ?", ZoneOffset.UTC, CronTestJobs::tick)
             .submit();
 
-    // Wait for the recurring job to be registered
     await()
         .atMost(Duration.ofSeconds(5))
         .pollInterval(Duration.ofMillis(500))
@@ -107,17 +101,13 @@ class RecurringPauseResumeIT extends BaseRatchetIT {
                     CronTestJobs.tickCount() >= 1,
                     "Expected at least 1 tick but got " + CronTestJobs.tickCount()));
 
-    // Pause
     assertTrue(jobService.pauseJob(handle.id()));
     JobAssertions.assertJobStatus(jobCrudStore, handle, JobStatus.PAUSED);
 
-    // Record tick count while paused
     int ticksBeforeResume = CronTestJobs.tickCount();
 
-    // Resume
     assertTrue(jobService.resumeJob(handle.id()), "Expected resumeJob to return true");
 
-    // Verify it starts firing again
     await()
         .atMost(Duration.ofSeconds(5))
         .pollInterval(Duration.ofMillis(500))

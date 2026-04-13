@@ -35,7 +35,6 @@ class JdkSerializationStrategyTest {
 
   @Test
   void blockedClassThrowsOnDeserialize() {
-    // Serialize a javax.management object which is NOT in the allowed filter
     ObjectName blocked;
     try {
       blocked = new ObjectName("test:type=Test");

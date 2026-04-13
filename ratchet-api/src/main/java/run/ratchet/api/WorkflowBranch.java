@@ -24,17 +24,6 @@ public record WorkflowBranch(WorkflowCondition condition, Serializable task, Str
     this(condition, task, null);
   }
 
-  /** Factory method with a descriptive label. */
-  public static WorkflowBranch of(
-      WorkflowCondition condition, Serializable task, String description) {
-    return new WorkflowBranch(condition, task, description);
-  }
-
-  /** Factory method without a description. */
-  public static WorkflowBranch of(WorkflowCondition condition, Serializable task) {
-    return new WorkflowBranch(condition, task);
-  }
-
   /**
    * @return the priority from the underlying condition (lower = first)
    */

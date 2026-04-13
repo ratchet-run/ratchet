@@ -64,10 +64,9 @@ class JobLifecycleIT extends BaseRatchetIT {
   void enqueue_shouldStartInPendingStatus() {
     JobHandle handle = jobService.enqueue(SimpleJob::execute).submit();
 
-    // The job should exist in the store with PENDING status immediately after enqueue
     assertNotNull(handle);
     var job = jobCrudStore.findById(handle.id());
-    assertTrue(job.isPresent(), "Job should exist in store immediately after enqueue");
-    assertEquals(JobStatus.PENDING, job.get().getStatus(), "Job should start in PENDING status");
+    assertTrue(job.isPresent());
+    assertEquals(JobStatus.PENDING, job.get().getStatus());
   }
 }

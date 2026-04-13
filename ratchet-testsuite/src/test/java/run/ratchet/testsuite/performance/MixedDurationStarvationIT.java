@@ -68,7 +68,6 @@ class MixedDurationStarvationIT extends BasePerformanceIT {
   void fastJobBaselineLatency() {
     int warmup = getWarmupCount();
 
-    // Warmup
     List<JobHandle> warmupHandles = enqueueN(warmup, TimingJob::execute);
     awaitAllCompleted(warmupHandles, PERF_TIMEOUT);
 
@@ -100,7 +99,6 @@ class MixedDurationStarvationIT extends BasePerformanceIT {
   void mixedWorkloadStarvation() {
     int warmup = getWarmupCount();
 
-    // Warmup
     List<JobHandle> warmupHandles = enqueueN(warmup, TimingJob::execute);
     awaitAllCompleted(warmupHandles, PERF_TIMEOUT);
 

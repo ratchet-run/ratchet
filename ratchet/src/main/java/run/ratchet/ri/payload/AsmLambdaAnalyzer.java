@@ -44,7 +44,6 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
    * Analyzes a {@link SerializedLambda} and returns the method invocations it contains. Simple
    * method references are read directly from metadata; inline lambdas are walked via ASM.
    *
-   * @throws NullPointerException if {@code serializedLambda} is null
    * @throws IllegalStateException if no method invocations are found or the synthetic method is
    *     missing from bytecode
    */
@@ -187,13 +186,8 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
         case Opcodes.INVOKESPECIAL -> {
           MethodInsnNode methodInsn = (MethodInsnNode) node;
           if ("<init>".equals(methodInsn.name)) {
-            Value topValue = operandStack.pop();
-            if (topValue instanceof NewInstanceMarker marker
-                && marker.desc().equals(methodInsn.owner)) {
-              operandStack.push(UnknownValue.INSTANCE);
-            } else {
-              operandStack.push(UnknownValue.INSTANCE);
-            }
+            operandStack.pop();
+            operandStack.push(UnknownValue.INSTANCE);
           } else {
             handleGenericInvoke(
                 operandStack, invocationList, methodInsn, opcodeValue, capturedValues);
@@ -284,10 +278,6 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
     }
   }
 
-  /**
-   * @throws NullPointerException if lambda is null
-   * @throws IllegalStateException if the lambda cannot be serialized or analyzed
-   */
   @Override
   public LambdaDescriptor analyze(Serializable lambda) {
     Objects.requireNonNull(lambda, "Lambda must not be null");
@@ -319,9 +309,6 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
 
   public record JobInvocation(List<InvocationStep> steps) {
 
-    /**
-     * @throws IllegalStateException if the steps list is empty
-     */
     public InvocationStep last() {
       if (steps.isEmpty()) {
         throw new IllegalStateException("No invocation found in lambda");

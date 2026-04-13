@@ -21,6 +21,7 @@ import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.JobStore;
+import run.ratchet.store.util.ArchiveHelper;
 import run.ratchet.store.util.IsolationCheck;
 import run.ratchet.store.util.ObjectMapperFactory;
 import run.ratchet.store.util.PriorityBoostConfig;
@@ -95,7 +96,6 @@ public class MysqlJobStore implements JobStore {
 
   @Override
   public JobEntity save(JobEntity job) {
-    // Same JTA/flush semantics as PostgresqlJobStore.save()
     try {
       if (job.getId() == null) {
         em.persist(job);
@@ -117,9 +117,6 @@ public class MysqlJobStore implements JobStore {
   @SuppressWarnings("unchecked")
   @Override
   public Optional<JobEntity> findByIdLatest(long id) {
-    // Despite the legacy name, the SELECT ... FOR UPDATE is kept here as MySQL semantics:
-    // it acquires a row-level lock for the duration of the surrounding transaction. Callers
-    // should still use a version-checked update path; this is belt-and-suspenders.
     List<JobEntity> results =
         em.createNativeQuery(
                 "SELECT * FROM scheduler_job WHERE job_id = :id FOR UPDATE", JobEntity.class)
@@ -775,7 +772,6 @@ public class MysqlJobStore implements JobStore {
     if (jobs.isEmpty()) {
       return;
     }
-    // Use JDBC batch insert for performance
     Connection conn = em.unwrap(Connection.class);
     try {
       String sql =
@@ -859,9 +855,7 @@ public class MysqlJobStore implements JobStore {
           ps.addBatch();
         }
         ps.executeBatch();
-        // IDs are pre-set from TsidEntityListener at the setLong(job.getId()) call above.
-        // The scheduler_job.job_id column has NO AUTO_INCREMENT — there are no
-        // generated keys to read back. Any prior getGeneratedKeys loop was dead code.
+        // job_id is pre-assigned; no generated key read-back needed
       }
     } catch (SQLException e) {
       throw new RuntimeException("Bulk insert failed", e);
@@ -930,7 +924,6 @@ public class MysqlJobStore implements JobStore {
 
   @Override
   public BatchProgress incrementCompletedAtomic(long batchId) {
-    // Lock the row first to ensure atomicity of read + update
     Object[] locked =
         (Object[])
             em.createNativeQuery(
@@ -955,7 +948,6 @@ public class MysqlJobStore implements JobStore {
 
   @Override
   public BatchProgress incrementFailedAtomic(long batchId) {
-    // Lock the row first to ensure atomicity of read + update
     Object[] locked =
         (Object[])
             em.createNativeQuery(
@@ -1114,14 +1106,7 @@ public class MysqlJobStore implements JobStore {
 
   @Override
   public List<JobEntity> findJobsForArchiving(Instant olderThan, int limit) {
-    return em.createQuery(
-            "SELECT DISTINCT j FROM JobEntity j LEFT JOIN FETCH j.tags WHERE j.status IN ("
-                + "run.ratchet.store.entity.JobStatus.SUCCEEDED, "
-                + "run.ratchet.store.entity.JobStatus.FAILED, "
-                + "run.ratchet.store.entity.JobStatus.CANCELED) "
-                + "AND j.updatedAt < :cutoff "
-                + "ORDER BY j.updatedAt ASC",
-            JobEntity.class)
+    return em.createQuery(ArchiveHelper.FIND_JOBS_FOR_ARCHIVING_JPQL, JobEntity.class)
         .setParameter("cutoff", olderThan)
         .setMaxResults(limit)
         .getResultList();
@@ -1533,42 +1518,7 @@ public class MysqlJobStore implements JobStore {
   }
 
   private ArchivedJobEntity buildArchive(JobEntity job, String reason, String archivedBy) {
-    ArchivedJobEntity a = new ArchivedJobEntity();
-    a.setOriginalJobId(job.getId());
-    a.setFinalStatus(job.getStatus());
-    a.setJobType(job.getJobType());
-    a.setPriority(job.getPriority());
-    a.setTotalAttempts(job.getAttempts());
-    a.setMaxRetries(job.getMaxRetries());
-    a.setBackoffPolicy(job.getBackoffPolicy());
-    a.setBackoffParamMs(job.getBackoffParamMs());
-    a.setTimeoutSec(job.getTimeoutSec());
-    a.setTargetClass(job.getTargetClass());
-    a.setMethodName(job.getMethodName());
-    a.setBusinessKey(job.getBusinessKey());
-    a.setCronExpr(job.getCronExpr());
-    a.setZoneId(job.getZoneId());
-    a.setOriginalScheduledTime(job.getScheduledTime());
-    a.setOriginalCreatedAt(job.getCreatedAt());
-    a.setFirstExecutionTime(job.getExecutionStartTime());
-    a.setCompletionTime(job.getExecutionEndTime());
-    a.setTotalExecutionTimeMs(job.getExecutionDurationMs());
-    a.setQueueWaitMs(job.getQueueWaitMs());
-    a.setArchivedAt(Instant.now());
-    a.setArchivedBy(archivedBy);
-    a.setArchiveReason(reason);
-    a.setJobResult(job.getJobResult());
-    a.setResultType(job.getResultType());
-    a.setFinalError(job.getLastError());
-    if (job.getPayload() != null) {
-      a.setPayloadSummary(job.getPayload().target() + "#" + job.getPayload().method());
-    }
-    a.setDependedOn(job.getDependsOn());
-    a.setSupersededBy(job.getSupersededBy());
-    if (job.getTags() != null && !job.getTags().isEmpty()) {
-      a.setTags(String.join(",", job.getTags()));
-    }
-    return a;
+    return ArchiveHelper.buildArchive(job, reason, archivedBy);
   }
 
   private Instant toInstant(Object val) {
@@ -1585,35 +1535,14 @@ public class MysqlJobStore implements JobStore {
   }
 
   private String payloadToJson(JobEntity job) {
-    if (job.getPayload() == null) {
-      return "{}";
-    }
-    try {
-      return OBJECT_MAPPER.writeValueAsString(job.getPayload());
-    } catch (JsonProcessingException e) {
-      throw new RuntimeException("Failed to serialize payload", e);
-    }
+    return ArchiveHelper.payloadToJson(job, OBJECT_MAPPER);
   }
 
   private String paramsToJson(JobEntity job) {
-    if (job.getParams() == null) {
-      return null;
-    }
-    try {
-      return OBJECT_MAPPER.writeValueAsString(job.getParams());
-    } catch (JsonProcessingException e) {
-      throw new RuntimeException("Failed to serialize params", e);
-    }
+    return ArchiveHelper.paramsToJson(job, OBJECT_MAPPER);
   }
 
   private String callbackPayloadToJson(JobPayload payload) {
-    if (payload == null) {
-      return null;
-    }
-    try {
-      return OBJECT_MAPPER.writeValueAsString(payload);
-    } catch (JsonProcessingException e) {
-      throw new RuntimeException("Failed to serialize callback payload", e);
-    }
+    return ArchiveHelper.callbackPayloadToJson(payload, OBJECT_MAPPER);
   }
 }

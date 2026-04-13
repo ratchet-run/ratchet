@@ -47,7 +47,6 @@ public class JobCascadeService {
   /**
    * Iteratively pauses all PENDING/FAILED children of the given root job using BFS.
    *
-   * @param rootId the ID of the root job whose children should be paused
    * @return an array of two ints: [pausedCount, skippedCount]
    */
   public int[] pauseChildrenIterative(Long rootId) {
@@ -93,7 +92,6 @@ public class JobCascadeService {
   /**
    * Iteratively resumes all PAUSED children of the given root job using BFS.
    *
-   * @param rootId the ID of the root job whose children should be resumed
    * @param executeImmediately if true, set scheduledTime to NOW for each resumed child
    * @return an array of two ints: [resumedCount, skippedCount]
    */

@@ -67,8 +67,8 @@ import org.jboss.logging.Logger;
  * MongoDB implementation of the {@link JobStore} SPI.
  *
  * <p>Uses the MongoDB sync driver directly (no ODM). All state transitions use atomic {@code
- * findOneAndUpdate} operations. Tags are embedded in the job document as an array. Sequential IDs
- * are generated via a {@code counters} collection with atomic {@code $inc}.
+ * findOneAndUpdate} operations. Tags are embedded in the job document as an array. IDs are
+ * generated via {@link run.ratchet.store.id.TsidFactory}.
  */
 @ApplicationScoped
 public class MongoJobStore implements JobStore {
@@ -105,21 +105,9 @@ public class MongoJobStore implements JobStore {
     }
     job.setUpdatedAt(now);
 
-    // Optimistic lock check: bump version and require the prior version to match. If the row
-    // already moved (concurrent save by another node), matchedCount comes back 0 and we throw
-    // RatchetOptimisticLockException. The caller is expected to retry-with-reload via
-    // OptimisticLockRetry, or propagate the exception if the save sits on a public API boundary.
-    //
-    // Prior to 0.2.0 this path logged a WARN and silently fell back to an upsert, which made
-    // lost updates invisible except to operators tailing the logs. That fallback is gone — see
-    // RatchetOptimisticLockException Javadoc for the rollback-semantics caveat.
-    //
-    // IMPORTANT: we bump job.setVersion BEFORE the replaceOne so the document we write carries
-    // the incremented value, but if the match fails we MUST restore the entity's original
-    // version before throwing. Otherwise a caller that reuses the same entity instance after
-    // catching the exception (rather than reloading) would carry a phantom version that was
-    // never persisted — the next save would match whatever concurrent writer landed that version
-    // and silently overwrite it, defeating the whole optimistic-lock guarantee.
+    // optimistic lock via version match — mismatch throws RatchetOptimisticLockException.
+    // Version is bumped before replaceOne; rolled back on match failure so the caller's entity
+    // reflects reality (prevents phantom version on reuse after catch).
     Integer expectedVersion = job.getVersion() != null ? job.getVersion() : 0;
     job.setVersion(expectedVersion + 1);
     Document doc = DocumentMapper.toDocument(job);
@@ -295,7 +283,6 @@ public class MongoJobStore implements JobStore {
 
   @Override
   public double getRetryRateStats(Instant since) {
-    // Use aggregation pipeline: count jobs with attempts > 0 vs total jobs since cutoff
     List<Document> pipeline =
         List.of(
             new Document(
@@ -923,7 +910,7 @@ public class MongoJobStore implements JobStore {
       // If we got a result with our nodeId, the lock was acquired (insert or expired-update)
       return result != null && nodeId.equals(result.getString("owner_node"));
     } catch (MongoCommandException e) {
-      // DuplicateKey (11000) means the lock exists and is NOT expired — acquisition failed
+      // 11000 = lock held
       if (e.getErrorCode() == 11000) {
         return false;
       }
@@ -1321,10 +1308,9 @@ public class MongoJobStore implements JobStore {
                 new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
 
     if (result == null) {
-      return false; // resource not found or at capacity
+      return false;
     }
 
-    // Record which job holds the permit (for tracking and cleanup)
     ResourcePermitEntity permit = ResourcePermitEntity.create(resource, jobId, nodeId);
     permit.setId(TsidFactory.next());
     resourcePermits().insertOne(DocumentMapper.toDocument(permit));
@@ -1342,14 +1328,12 @@ public class MongoJobStore implements JobStore {
 
   @Override
   public void releaseAllPermits(long jobId) {
-    // Find which resources this job holds permits for before deleting
     List<String> resources = new ArrayList<>();
     resourcePermits()
         .find(eq("job_id", jobId))
         .forEach(doc -> resources.add(doc.getString("resource_name")));
     DeleteResult dr = resourcePermits().deleteMany(eq("job_id", jobId));
     if (dr.getDeletedCount() > 0) {
-      // Decrement active_count for each affected resource
       for (String resource : resources) {
         resourceLimits().updateOne(eq("_id", resource), inc("active_count", -1));
       }
@@ -1387,11 +1371,9 @@ public class MongoJobStore implements JobStore {
     if (staleNodeIds.isEmpty()) {
       return 0;
     }
-    // Count permits per resource before deletion to adjust counters
     List<Document> orphanedPermits = new ArrayList<>();
     resourcePermits().find(in("node_id", staleNodeIds)).forEach(orphanedPermits::add);
     DeleteResult result = resourcePermits().deleteMany(in("node_id", staleNodeIds));
-    // Decrement active_count for each affected resource
     orphanedPermits.stream()
         .map(doc -> doc.getString("resource_name"))
         .distinct()
@@ -1472,10 +1454,8 @@ public class MongoJobStore implements JobStore {
       List<String> jobTypes, String timeColumn, int limit) {
     Date now = DocumentMapper.toDate(Instant.now());
 
-    // Aggregation pipeline: match → addFields (effective_priority) → sort → limit → project _id
     List<Document> pipeline = new ArrayList<>();
 
-    // $match: PENDING, matching job types, due
     pipeline.add(
         new Document(
             "$match",
@@ -1484,7 +1464,6 @@ public class MongoJobStore implements JobStore {
                 .append(timeColumn, new Document("$lte", now))));
 
     if (PRIORITY_BOOST_INTERVAL > 0) {
-      // $addFields: compute effective_priority with age boost
       // effective_priority = priority + floor(max(0, age_minutes) / boost_interval)
       pipeline.add(
           new Document(
@@ -1529,7 +1508,6 @@ public class MongoJobStore implements JobStore {
     return ids;
   }
 
-  /** Claims jobs by their IDs, updating status to RUNNING atomically per job in parallel. */
   private <T> List<T> claimByIds(List<Long> ids, String nodeId, Function<Document, T> mapper) {
     Date nowDate = DocumentMapper.toDate(Instant.now());
     FindOneAndUpdateOptions opts =

@@ -22,7 +22,6 @@
   </properties>
 
   <dependencies>
-    <!-- Always-on compile dependencies -->
     <dependency>
       <groupId>run.ratchet</groupId>
       <artifactId>ratchet-api</artifactId>
@@ -36,28 +35,25 @@
       <artifactId>ratchet-store-core</artifactId>
     </dependency>
 
-    <!-- MongoDB driver (always-on for TestMongoProducer compilation) -->
+    <!-- mongodb: needed for TestMongoProducer -->
     <dependency>
       <groupId>org.mongodb</groupId>
       <artifactId>mongodb-driver-sync</artifactId>
     </dependency>
 
-    <!-- Jakarta EE APIs (provided by app server at runtime) -->
     <dependency>
       <groupId>jakarta.platform</groupId>
       <artifactId>jakarta.jakartaee-web-api</artifactId>
       <scope>provided</scope>
     </dependency>
 
-    <!-- JBoss Logging (provided by WildFly at runtime; needed at compile time
-         for MdcCapturingJob and the LoggingMdcIT). -->
+    <!-- needed at compile time for MdcCapturingJob -->
     <dependency>
       <groupId>org.jboss.logging</groupId>
       <artifactId>jboss-logging</artifactId>
       <scope>provided</scope>
     </dependency>
 
-    <!-- Always-on test dependencies -->
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter</artifactId>
@@ -185,7 +181,6 @@
   </build>
 
   <profiles>
-    <!-- WildFly Managed container for Arquillian -->
     <profile>
       <id>wildfly-managed</id>
       <properties>
@@ -274,7 +269,6 @@
                 </goals>
                 <configuration>
                   <target>
-                    <!-- MySQL module.xml -->
                     <echo file="${wildfly.home}/modules/com/mysql/main/module.xml">&lt;?xml version="1.0" encoding="UTF-8"?&gt;
 &lt;module xmlns="urn:jboss:module:1.9" name="com.mysql"&gt;
   &lt;resources&gt;
@@ -290,7 +284,6 @@
     &lt;module name="jakarta.transaction.api"/&gt;
   &lt;/dependencies&gt;
 &lt;/module&gt;</echo>
-                    <!-- PostgreSQL module.xml -->
                     <echo file="${wildfly.home}/modules/org/postgresql/main/module.xml">&lt;?xml version="1.0" encoding="UTF-8"?&gt;
 &lt;module xmlns="urn:jboss:module:1.9" name="org.postgresql"&gt;
   &lt;resources&gt;
@@ -303,7 +296,6 @@
     &lt;module name="jakarta.transaction.api"/&gt;
   &lt;/dependencies&gt;
 &lt;/module&gt;</echo>
-                    <!-- Make CLI script executable and run it -->
                     <chmod file="${wildfly.home}/bin/jboss-cli.sh" perm="755"/>
                     <exec executable="${wildfly.home}/bin/jboss-cli.sh" failonerror="true">
                       <arg value="--file=${project.basedir}/src/test/resources/wildfly-setup.cli"/>
@@ -317,7 +309,6 @@
       </build>
     </profile>
 
-    <!-- MySQL store + Testcontainers -->
     <profile>
       <id>mysql</id>
       <properties>
@@ -341,7 +332,6 @@
       </dependencies>
     </profile>
 
-    <!-- PostgreSQL store + Testcontainers -->
     <profile>
       <id>postgresql</id>
       <properties>
@@ -370,10 +360,7 @@
       <id>mongodb</id>
       <properties>
         <ratchet.test.db.type>mongodb</ratchet.test.db.type>
-        <!-- Harmless defaults so arquillian.xml resource filtering doesn't leave
-             unresolved ${...} literals that poison WildFly system properties.
-             Uses the built-in H2 driver so the datasource resolves cleanly even
-             though nothing uses it for MongoDB. -->
+        <!-- dummy JDBC props: arquillian.xml needs them even for MongoDB -->
         <ratchet.test.db.url>jdbc:h2:mem:unused</ratchet.test.db.url>
         <ratchet.test.db.username>sa</ratchet.test.db.username>
         <ratchet.test.db.password>sa</ratchet.test.db.password>
@@ -393,7 +380,6 @@
       </dependencies>
     </profile>
 
-    <!-- Performance testing profile -->
     <profile>
       <id>performance</id>
       <build>
@@ -425,12 +411,10 @@
       </properties>
     </profile>
 
-    <!-- Offline JaCoCo instrumentation for reliable IT coverage -->
     <profile>
       <id>jacoco-offline</id>
       <properties>
-        <!-- Offline mode: no -javaagent, just system props for exec data output.
-             The JaCoCo runtime is loaded as a WildFly module (not from WAR). -->
+        <!-- offline: runtime loaded as WildFly module -->
         <jacoco.it.argLine>-Djacoco-agent.destfile=${project.build.directory}/jacoco-it.exec -Djacoco-agent.append=true -Djacoco-agent.output=file</jacoco.it.argLine>
       </properties>
       <build>
@@ -439,7 +423,6 @@
             <groupId>org.jacoco</groupId>
             <artifactId>jacoco-maven-plugin</artifactId>
             <executions>
-              <!-- Disable online IT agent — offline instrumentation replaces it -->
               <execution>
                 <id>prepare-agent-integration</id>
                 <phase>none</phase>
@@ -459,7 +442,6 @@
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-dependency-plugin</artifactId>
             <executions>
-              <!-- Copy JaCoCo runtime JAR to WildFly modules directory -->
               <execution>
                 <id>copy-jacoco-runtime</id>
                 <phase>pre-integration-test</phase>
@@ -493,14 +475,12 @@
                 </goals>
                 <configuration>
                   <target>
-                    <!-- JaCoCo WildFly module descriptor -->
                     <echo file="${wildfly.home}/modules/org/jacoco/main/module.xml">&lt;?xml version="1.0" encoding="UTF-8"?&gt;
 &lt;module xmlns="urn:jboss:module:1.9" name="org.jacoco"&gt;
   &lt;resources&gt;
     &lt;resource-root path="org.jacoco.agent-${jacoco-maven-plugin.version}-runtime.jar"/&gt;
   &lt;/resources&gt;
 &lt;/module&gt;</echo>
-                    <!-- Register org.jacoco as a global module so ALL deployments can see it -->
                     <chmod file="${wildfly.home}/bin/jboss-cli.sh" perm="755"/>
                     <exec executable="${wildfly.home}/bin/jboss-cli.sh" failonerror="true">
                       <arg value="--commands=embed-server,/subsystem=ee:list-add(name=global-modules, value={name=org.jacoco}),stop-embedded-server"/>

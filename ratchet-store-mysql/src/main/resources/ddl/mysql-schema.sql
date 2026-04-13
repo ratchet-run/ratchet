@@ -1,14 +1,5 @@
 -- Ratchet scheduler schema for MySQL
--- V1: Initial consolidated DDL
---
--- IMPORTANT: The datasource or persistence unit MUST use READ COMMITTED isolation.
--- MySQL defaults to REPEATABLE READ, which acquires gap locks on SELECT ... FOR UPDATE
--- that block concurrent INSERTs into the same table. This causes lock wait timeouts
--- under production job scheduling load. Configure via:
---
---   persistence.xml:  <property name="hibernate.connection.isolation" value="2"/>
---   WildFly -ds.xml:  <transaction-isolation>TRANSACTION_READ_COMMITTED</transaction-isolation>
---   JDBC URL:          ?sessionVariables=transaction_isolation='READ-COMMITTED'
+-- IMPORTANT: configure READ COMMITTED isolation — see IsolationCheck.java
 
 -- 1. Cluster nodes
 CREATE TABLE IF NOT EXISTS scheduler_node
@@ -106,7 +97,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     INDEX idx_job_recurring_composite (job_type, status, next_fire),
     INDEX idx_job_due (status, scheduled_time),
     INDEX idx_job_priority_due (priority, scheduled_time),
-    -- Lookup/relationship indexes — used by application code paths.
+    -- Lookup/relationship indexes.
     INDEX idx_job_picked_by (picked_by),
     INDEX idx_job_type (job_type),
     INDEX idx_job_depends_on (depends_on),

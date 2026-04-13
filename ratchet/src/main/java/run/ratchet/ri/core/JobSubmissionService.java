@@ -6,25 +6,7 @@ import run.ratchet.store.entity.JobExecutionType;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
-/**
- * Orchestrates job submission by coordinating gate checks, execution, and failure handling.
- *
- * <p>This service delegates to specialized components:
- *
- * <ul>
- *   <li>{@link SubmissionGateChecker}: Validates pre-flight conditions
- *   <li>{@link JobExecutorService}: Handles actual job execution
- *   <li>{@link SubmissionFailureHandler}: Manages recovery when submission fails
- * </ul>
- *
- * <p>The submission flow:
- *
- * <ol>
- *   <li>Check all gates - if any fail, handle the failure and return
- *   <li>Execute the job - if rejected, handle the rejection
- *   <li>Any unexpected exception is handled by the failure handler
- * </ol>
- */
+/** Orchestrates job submission: checks gates, executes, handles failures. */
 @ApplicationScoped
 public class JobSubmissionService {
 

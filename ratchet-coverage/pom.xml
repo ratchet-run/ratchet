@@ -16,7 +16,6 @@
   <description>Aggregate JaCoCo coverage report across all Ratchet modules</description>
 
   <dependencies>
-    <!-- Source modules (for class files) -->
     <dependency>
       <groupId>run.ratchet</groupId>
       <artifactId>ratchet-api</artifactId>
@@ -41,7 +40,6 @@
       <groupId>run.ratchet</groupId>
       <artifactId>ratchet-store-mongodb</artifactId>
     </dependency>
-    <!-- Test module (for execution data) -->
     <dependency>
       <groupId>run.ratchet</groupId>
       <artifactId>ratchet-testsuite</artifactId>

@@ -26,16 +26,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-/**
- * Verifies the startup-grace gating behavior in {@link RecurringJobExecutor#process}.
- *
- * <p>The integration-level race scenario this guards: a rolling deploy where Node B comes up with a
- * JAR that has removed an annotation. The cleanup pass is leader-gated, so Node B may not be the
- * one running it. The {@link RecurringScheduler} polls the database independently and could claim
- * the now-orphaned master before cleanup completes. Without the grace gate, Node B would fire the
- * orphaned master one final time. With the gate, it skips and releases the claim, leaving cleanup
- * time to remove the master.
- */
+// Verifies startup-grace gating in RecurringJobExecutor: orphaned masters are skipped until grace expires.
 @ExtendWith(MockitoExtension.class)
 class RecurringJobExecutorGraceTest {
 

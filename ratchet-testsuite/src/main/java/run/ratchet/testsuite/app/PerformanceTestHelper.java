@@ -12,11 +12,7 @@ package run.ratchet.testsuite.app;
 public interface PerformanceTestHelper {
 
   /**
-   * Inserts background SUCCEEDED job rows using backend-specific bulk operations. Uses optimized
-   * server-side generation (e.g., {@code generate_series()} on PostgreSQL, recursive CTEs on MySQL,
-   * bulk insert APIs on MongoDB) for maximum throughput.
-   *
-   * <p>After insertion, refreshes backend statistics so the query planner has accurate estimates.
+   * Inserts background SUCCEEDED job rows using backend-specific bulk operations.
    *
    * @param count the number of background rows to insert
    * @param keyPrefix prefix for business_key values (e.g., "bg-growth", "bg-claim")
@@ -24,8 +20,7 @@ public interface PerformanceTestHelper {
   void insertBackgroundRows(int count, String keyPrefix);
 
   /**
-   * Queries the queue wait time percentile for jobs of a given target class that have completed
-   * successfully. Uses backend-specific query APIs.
+   * Queries the queue wait time percentile for completed jobs of a given target class.
    *
    * @param targetClass the fully-qualified class name of the job target
    * @param percentile the percentile fraction (e.g., 0.99)
@@ -34,12 +29,7 @@ public interface PerformanceTestHelper {
   long queryQueueWaitPercentileForClass(String targetClass, double percentile);
 
   /**
-   * Executes a store operation and asserts that no full collection/table scan occurred. Uses
-   * backend-specific scan diagnostics to verify index usage.
-   *
-   * <p>Implementations may log scan statistics or assert on per-table metrics where available. On
-   * backends where per-table scan metrics are not available (e.g., MySQL session-wide counters),
-   * the operation is still executed but the assertion may be informational only.
+   * Executes a store operation and asserts that no full collection/table scan occurred.
    *
    * @param label descriptive label for log output and assertion messages
    * @param storeOperation the actual store method call to verify

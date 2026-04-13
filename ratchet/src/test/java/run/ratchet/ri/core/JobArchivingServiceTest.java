@@ -63,8 +63,6 @@ class JobArchivingServiceTest {
         new JobArchivingService(
             jobBulkStore, archiveStore, lockStore, nodeIdentityProvider, executorProvider);
 
-    // These stubs are used only by tests that call init(enabled=true).
-    // Declared lenient to avoid UnnecessaryStubbingException in tests that call init(false).
     lenient().when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
     lenient()
         .when(scheduledExecutor.schedule(any(Runnable.class), any(Long.class), any(TimeUnit.class)))
@@ -154,7 +152,6 @@ class JobArchivingServiceTest {
 
     List<JobEntity> batch = List.of(jobEntity(1L), jobEntity(2L));
 
-    // batch.size() < batchSize so the loop terminates after one iteration
     when(archiveStore.countJobsForArchiving(any())).thenReturn(2L);
     when(archiveStore.findJobsForArchiving(any(), eq(batchSize))).thenReturn(batch);
     when(archiveStore.archiveJobsBatch(eq(batch), eq("retention_policy"), eq("system")))
@@ -167,7 +164,6 @@ class JobArchivingServiceTest {
     verify(archiveStore).findJobsForArchiving(any(), eq(batchSize));
     verify(archiveStore).archiveJobsBatch(eq(batch), eq("retention_policy"), eq("system"));
     verify(jobBulkStore).deleteJobsByIds(List.of(1L, 2L));
-    // cleanup always runs after archiving
     verify(archiveStore).purgeArchivedJobs(any());
   }
 
@@ -178,7 +174,6 @@ class JobArchivingServiceTest {
 
     when(lockStore.tryLock(anyString(), any(Duration.class), anyString())).thenReturn(true);
 
-    // 3 jobs — less than batchSize, so the while-loop should stop after the first batch
     List<JobEntity> smallBatch = List.of(jobEntity(10L), jobEntity(11L), jobEntity(12L));
 
     when(archiveStore.countJobsForArchiving(any())).thenReturn(3L);
@@ -189,7 +184,6 @@ class JobArchivingServiceTest {
 
     service.run();
 
-    // Exactly one findJobsForArchiving call because the first batch was smaller than batchSize
     verify(archiveStore).findJobsForArchiving(any(), eq(batchSize));
   }
 
@@ -200,7 +194,6 @@ class JobArchivingServiceTest {
 
     when(lockStore.tryLock(anyString(), any(Duration.class), anyString())).thenReturn(true);
 
-    // Supply one incomplete batch so performArchiving() reaches performArchiveCleanup()
     List<JobEntity> batch = List.of(jobEntity(1L));
     when(archiveStore.countJobsForArchiving(any())).thenReturn(1L);
     when(archiveStore.findJobsForArchiving(any(), eq(batchSize))).thenReturn(batch);
@@ -221,7 +214,6 @@ class JobArchivingServiceTest {
 
     when(lockStore.tryLock(anyString(), any(Duration.class), anyString())).thenReturn(true);
 
-    // Drive at least one batch so cleanup is reached
     List<JobEntity> batch = List.of(jobEntity(99L));
     when(archiveStore.countJobsForArchiving(any())).thenReturn(1L);
     when(archiveStore.findJobsForArchiving(any(), eq(batchSize))).thenReturn(batch);
@@ -235,13 +227,10 @@ class JobArchivingServiceTest {
     verify(archiveStore).purgeArchivedJobs(cutoffCaptor.capture());
 
     Instant cutoff = cutoffCaptor.getValue();
-    // Expect cutoff to be very close to (now - retentionDays * 3 days)
     Instant expectedMin = Instant.now().minus(Duration.ofDays((long) retentionDays * 3 + 1));
     Instant expectedMax = Instant.now().minus(Duration.ofDays((long) retentionDays * 3 - 1));
 
-    Assertions.assertTrue(
-        cutoff.isAfter(expectedMin) && cutoff.isBefore(expectedMax),
-        "Archive purge cutoff should be ~" + retentionDays * 3 + " days ago, but was: " + cutoff);
+    Assertions.assertTrue(cutoff.isAfter(expectedMin) && cutoff.isBefore(expectedMax));
   }
 
   private static Cron parsedCron() {

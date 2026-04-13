@@ -49,14 +49,11 @@ class CustomMetricsCollectorIT extends BaseRatchetIT {
 
   @Test
   void customMetricsCollector_shouldReceiveJobMetrics() {
-    // Verify CDI selected the custom alternative
     assertInstanceOf(CountingMetricsCollector.class, metricsCollector);
 
-    // Run a job and wait for completion
     var handle = jobService.enqueueNow(SimpleJob::execute);
     JobAssertions.assertJobCompleted(jobCrudStore, handle);
 
-    // Verify the custom collector received start and completion callbacks
     await()
         .atMost(Duration.ofSeconds(5))
         .untilAsserted(

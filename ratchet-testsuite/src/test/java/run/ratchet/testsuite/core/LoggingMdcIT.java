@@ -19,16 +19,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * Verifies that {@code JobMdcContext} populates the JBoss Logging MDC with {@code jobId}, {@code
- * node}, and {@code jobCreator} keys during job execution, and that those keys are visible to the
- * job's own thread when the executor calls into user code.
- *
- * <p>The test uses {@link MdcCapturingJob}, which snapshots {@code MDC.getMap()} into a static
- * field at execution time. The IT then asserts the captured snapshot contains the expected keys.
- *
- * <p>WildFly's JBoss LogManager backend renders MDC values via {@code %X{...}} formatter patterns;
- * the same MDC put/remove APIs work whether the runtime backend is JBoss LogManager, SLF4J, or bare
- * JDK JUL.
+ * Verifies that JobMdcContext populates jobId and node MDC keys during job execution.
  */
 class LoggingMdcIT extends BaseRatchetIT {
 

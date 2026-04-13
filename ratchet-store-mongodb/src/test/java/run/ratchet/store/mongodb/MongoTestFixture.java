@@ -85,7 +85,6 @@ public class MongoTestFixture implements JobStoreContractFixture {
   /**
    * Mongo Testcontainers use a standalone {@code mongod}, which does not expose client sessions, so
    * multi-document transactions (and therefore rollback-based test patterns) are unavailable.
-   * Upgrading to a replica-set fixture is tracked as part of Item 6 commit 10 in the 0.2.0 plan.
    */
   @Override
   public boolean supportsTransactionalRollback() {
@@ -94,8 +93,8 @@ public class MongoTestFixture implements JobStoreContractFixture {
 
   /**
    * MongoJobStore signals stale writes by throwing {@link RatchetOptimisticLockException} directly
-   * from {@code save()} — see 0.2.0 Item 2. This override lets the TCK stale-write contract
-   * recognise the Mongo store's version-mismatch signal without the test itself naming the type.
+   * from {@code save()}. This override lets the TCK stale-write contract recognise the Mongo
+   * store's version-mismatch signal without the test itself naming the type.
    */
   @Override
   public boolean isStaleWriteException(Throwable t) {

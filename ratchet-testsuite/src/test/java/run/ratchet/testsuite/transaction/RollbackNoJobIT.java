@@ -58,7 +58,6 @@ class RollbackNoJobIT extends BaseRatchetIT {
     assertNotNull(handle);
     utx.rollback();
 
-    // After rollback, the job should not exist in the store
     var job = jobCrudStore.findById(handle.id());
     assertTrue(job.isEmpty(), "Job should not exist after transaction rollback");
   }

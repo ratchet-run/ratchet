@@ -7,7 +7,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.jboss.logging.Logger;
-import org.objectweb.asm.Type;
 
 /**
  * Validates job payload structure and type safety at creation time (fail-fast). Checks class
@@ -44,26 +43,6 @@ public class JobPayloadInputValidator {
     validateMethodDescriptor(payload, errors);
     validateSignatureIfPossible(payload, errors);
     throwIfErrors(errors, payload);
-  }
-
-  private Method findMethod(Class<?> clazz, JobPayload payload) {
-    for (Method m : clazz.getMethods()) {
-      if (m.getName().equals(payload.method())
-          && Type.getMethodDescriptor(m).equals(payload.methodDescriptor())) {
-        return m;
-      }
-    }
-    return null;
-  }
-
-  private Method findDeclaredMethod(Class<?> clazz, JobPayload payload) {
-    for (Method m : clazz.getDeclaredMethods()) {
-      if (m.getName().equals(payload.method())
-          && Type.getMethodDescriptor(m).equals(payload.methodDescriptor())) {
-        return m;
-      }
-    }
-    return null;
   }
 
   private boolean isNullOrEmpty(String value) {
@@ -110,9 +89,9 @@ public class JobPayloadInputValidator {
 
   private void validateMethodSignature(Class<?> clazz, JobPayload payload, List<String> errors) {
     try {
-      Method method = findMethod(clazz, payload);
+      Method method = MethodLookup.findMethod(clazz, payload);
       if (method == null) {
-        Method nonPublic = findDeclaredMethod(clazz, payload);
+        Method nonPublic = MethodLookup.findDeclaredMethod(clazz, payload);
         if (nonPublic != null) {
           String visibility =
               Modifier.isPrivate(nonPublic.getModifiers())

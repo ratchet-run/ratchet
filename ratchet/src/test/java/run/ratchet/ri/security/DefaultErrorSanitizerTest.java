@@ -22,7 +22,7 @@ class DefaultErrorSanitizerTest {
 
   @Test
   void redactsJdbcUrlBuriedFourLevelsDeep() {
-    // Simulates EJBException -> PersistenceException -> SQLException -> driver exception
+    // 4-level cause chain
     Throwable deep = new RuntimeException("driver: jdbc:postgresql://root:s3cret@10.0.0.1/app");
     Throwable l3 = new RuntimeException("SQL error", deep);
     Throwable l2 = new RuntimeException("persistence error", l3);
@@ -33,7 +33,6 @@ class DefaultErrorSanitizerTest {
     assertFalse(out.contains("s3cret"), "password must not leak from depth 4");
     assertFalse(out.contains("root"), "username must not leak from depth 4");
     assertTrue(out.contains("***REDACTED***"));
-    // All four class names should be present in the walked chain
     assertTrue(out.contains("EJB invocation failed"));
     assertTrue(out.contains("persistence error"));
   }

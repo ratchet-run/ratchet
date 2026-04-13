@@ -11,7 +11,6 @@ class JobSecurityValidatorTest {
 
   private static final String THIS_PACKAGE = "run.ratchet.ri.security.";
 
-  /** Public target class for reflection-based validation tests. */
   public static class SampleTarget {
     public void doWork() {}
 

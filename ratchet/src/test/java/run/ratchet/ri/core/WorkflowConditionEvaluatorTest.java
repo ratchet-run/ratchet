@@ -156,7 +156,6 @@ class WorkflowConditionEvaluatorTest {
     JobEntity parent = batchParent(JobStatus.SUCCEEDED);
     when(batchStore.findBatchById(parent.getId())).thenReturn(Optional.of(batch(100, 96, 4)));
 
-    // 96/100 = 0.96, threshold 0.90
     assertTrue(
         evaluator.evaluate(
             conditionWithExpression(WorkflowCondition.ConditionType.BATCH_SUCCESS_RATE, "0.90"),
@@ -168,7 +167,6 @@ class WorkflowConditionEvaluatorTest {
     JobEntity parent = batchParent(JobStatus.SUCCEEDED);
     when(batchStore.findBatchById(parent.getId())).thenReturn(Optional.of(batch(100, 80, 20)));
 
-    // 80/100 = 0.80, threshold 0.95
     assertFalse(
         evaluator.evaluate(
             conditionWithExpression(WorkflowCondition.ConditionType.BATCH_SUCCESS_RATE, "0.95"),
@@ -180,7 +178,6 @@ class WorkflowConditionEvaluatorTest {
     JobEntity parent = batchParent(JobStatus.SUCCEEDED);
     when(batchStore.findBatchById(parent.getId())).thenReturn(Optional.of(batch(100, 97, 3)));
 
-    // 3 failures <= maxFailures 5
     assertTrue(
         evaluator.evaluate(
             conditionWithExpression(WorkflowCondition.ConditionType.BATCH_FAILURE_COUNT, "5"),
@@ -192,7 +189,6 @@ class WorkflowConditionEvaluatorTest {
     JobEntity parent = batchParent(JobStatus.SUCCEEDED);
     when(batchStore.findBatchById(parent.getId())).thenReturn(Optional.of(batch(100, 90, 10)));
 
-    // 10 failures > maxFailures 5
     assertFalse(
         evaluator.evaluate(
             conditionWithExpression(WorkflowCondition.ConditionType.BATCH_FAILURE_COUNT, "5"),

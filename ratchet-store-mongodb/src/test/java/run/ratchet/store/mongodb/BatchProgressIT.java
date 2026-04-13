@@ -1,6 +1,7 @@
 package run.ratchet.store.mongodb;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -8,7 +9,6 @@ import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import java.util.Optional;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -18,10 +18,6 @@ import org.junit.jupiter.api.Test;
  * and children, and correct batch completion detection.
  */
 class BatchProgressIT extends BaseDocumentStoreIT {
-
-  private static void assertFalse(boolean condition) {
-    Assertions.assertFalse(condition);
-  }
 
   @Test
   void batchProgressTracking_incrementsAtomically() {

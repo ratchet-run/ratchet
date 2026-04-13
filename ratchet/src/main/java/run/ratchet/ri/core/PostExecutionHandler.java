@@ -6,16 +6,8 @@ import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 
 /**
- * Provides a simplified API for common job lifecycle operations, encapsulating the coordination
- * between multiple scheduler services.
- *
- * <p><b>Why this facade exists:</b> {@link JobTask} is the core execution engine that needs to
- * coordinate batch progress tracking, workflow scheduling, and dead letter queue management after
- * each job completes. Without this facade, JobTask would need to inject and coordinate three
- * separate services directly, duplicating routing logic (e.g., "if batch child, do X; if chain
- * step, do Y") across multiple methods. This facade centralizes that routing into {@link
- * #handleJobSuccess} and {@link #handlePermanentFailure}, keeping JobTask focused on execution
- * mechanics.
+ * Routes post-execution lifecycle events (batch progress, workflow scheduling, DLQ) on behalf of
+ * {@link JobTask}.
  *
  * @see JobTask
  * @see ExecutionObserver

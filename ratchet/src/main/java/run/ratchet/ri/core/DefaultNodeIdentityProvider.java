@@ -107,7 +107,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
 
       if (skewSeconds > 5) {
         log.warnf(
-            "CLOCK SKEW DETECTED: App server time differs from database by %s seconds. App=%s, DB=%s. This may cause job double-execution or orphan recovery issues. Consider synchronizing clocks via NTP.",
+            "Clock skew: app/db differ by %ss (app=%s, db=%s) — sync clocks via NTP to avoid double-execution",
             skewSeconds, appTime, dbTime);
       } else {
         log.debugf("Clock skew check passed: %ss difference", skewSeconds);

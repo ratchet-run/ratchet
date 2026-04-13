@@ -75,12 +75,10 @@ public class LogPurgeTimer {
     log.infof("Log purge timer scheduled (retention=%s days)", retentionDays);
   }
 
-  /** Stops the log purge timer. */
   public void stop() {
     // Cron-based scheduling uses one-shot delays; nothing to cancel between runs
   }
 
-  /** Purges old log entries and schedules the next run. */
   void run() {
     try {
       purge();

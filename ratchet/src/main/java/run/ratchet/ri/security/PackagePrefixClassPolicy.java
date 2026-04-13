@@ -60,7 +60,6 @@ public class PackagePrefixClassPolicy implements ClassPolicy {
 
   private final Set<String> allowedPackages;
 
-  /** Creates a new PackagePrefixClassPolicy with default (empty) allowed packages. */
   public PackagePrefixClassPolicy() {
     this(DEFAULT_ALLOWED_PACKAGES);
   }
@@ -122,7 +121,6 @@ public class PackagePrefixClassPolicy implements ClassPolicy {
       return false;
     }
 
-    // Layer 1: hardcoded denylist — blocks well-known RCE gadgets regardless of allowlist config.
     if (DENIED_EXACT.contains(className)) {
       log.warnf("Class %s is on the hardcoded denylist (exact match)", className);
       return false;
@@ -134,7 +132,6 @@ public class PackagePrefixClassPolicy implements ClassPolicy {
       }
     }
 
-    // Layer 2: user allowlist.
     for (String allowedPackage : allowedPackages) {
       if (className.startsWith(allowedPackage)) {
         return true;

@@ -21,6 +21,7 @@ import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.JobStore;
+import run.ratchet.store.util.ArchiveHelper;
 import run.ratchet.store.util.IsolationCheck;
 import run.ratchet.store.util.ObjectMapperFactory;
 import run.ratchet.store.util.PriorityBoostConfig;
@@ -153,21 +154,9 @@ public class PostgresqlJobStore implements JobStore {
 
   @Override
   public JobEntity save(JobEntity job) {
-    // Flush is required on the update path so Hibernate detects the @Version conflict inside
-    // this method rather than at end-of-transaction commit, where it would be too late to
-    // translate jakarta.persistence.OptimisticLockException into RatchetOptimisticLockException.
-    // The insert path cannot throw OptimisticLockException (no prior version to conflict with),
-    // so the insert branch does not flush — other JPA exceptions (ConstraintViolationException,
-    // etc.) continue to propagate unwrapped since we only catch OptimisticLockException.
-    //
-    // Caveat: under JTA, Hibernate's JTA integration calls Transaction.setRollbackOnly() BEFORE
-    // this catch block executes. The translated exception type is consistent across stores, but
-    // the enclosing JTA transaction is already marked rollback-only. See
-    // RatchetOptimisticLockException Javadoc for the full rollback-semantics caveat. Callers
-    // that need the retry behavior of OptimisticLockRetry on this store must NOT invoke it
-    // from inside a @Transactional(REQUIRED) boundary — the retry loop becomes a no-op because
-    // the second em.flush() also fails on the rollback-only transaction. See OptimisticLockRetry
-    // Javadoc for the full explanation and permitted usage patterns.
+    // Flush on update so Hibernate surfaces @Version conflicts here rather than at TX commit,
+    // allowing translation to RatchetOptimisticLockException. Under JTA the TX is already
+    // rollback-only before the catch — see RatchetOptimisticLockException Javadoc.
     try {
       if (job.getId() == null) {
         em.persist(job);
@@ -188,9 +177,6 @@ public class PostgresqlJobStore implements JobStore {
 
   @Override
   public Optional<JobEntity> findByIdLatest(long id) {
-    // Despite the legacy name, SELECT ... FOR UPDATE acquires a row-level lock for the
-    // surrounding transaction. Callers should still use a version-checked update path;
-    // this is belt-and-suspenders.
     @SuppressWarnings("unchecked")
     List<JobEntity> results =
         em.createNativeQuery(
@@ -1134,14 +1120,7 @@ public class PostgresqlJobStore implements JobStore {
 
   @Override
   public List<JobEntity> findJobsForArchiving(Instant olderThan, int limit) {
-    return em.createQuery(
-            "SELECT DISTINCT j FROM JobEntity j LEFT JOIN FETCH j.tags WHERE j.status IN ("
-                + "run.ratchet.store.entity.JobStatus.SUCCEEDED, "
-                + "run.ratchet.store.entity.JobStatus.FAILED, "
-                + "run.ratchet.store.entity.JobStatus.CANCELED) "
-                + "AND j.updatedAt < :cutoff "
-                + "ORDER BY j.updatedAt ASC",
-            JobEntity.class)
+    return em.createQuery(ArchiveHelper.FIND_JOBS_FOR_ARCHIVING_JPQL, JobEntity.class)
         .setParameter("cutoff", olderThan)
         .setMaxResults(limit)
         .getResultList();
@@ -1547,77 +1526,18 @@ public class PostgresqlJobStore implements JobStore {
   }
 
   private ArchivedJobEntity buildArchive(JobEntity job, String reason, String archivedBy) {
-    ArchivedJobEntity a = new ArchivedJobEntity();
-    a.setOriginalJobId(job.getId());
-    a.setFinalStatus(job.getStatus());
-    a.setJobType(job.getJobType());
-    a.setPriority(job.getPriority());
-    a.setTotalAttempts(job.getAttempts());
-    a.setMaxRetries(job.getMaxRetries());
-    a.setBackoffPolicy(job.getBackoffPolicy());
-    a.setBackoffParamMs(job.getBackoffParamMs());
-    a.setTimeoutSec(job.getTimeoutSec());
-    a.setTargetClass(job.getTargetClass());
-    a.setMethodName(job.getMethodName());
-    a.setBusinessKey(job.getBusinessKey());
-    a.setCronExpr(job.getCronExpr());
-    a.setZoneId(job.getZoneId());
-    a.setOriginalScheduledTime(job.getScheduledTime());
-    a.setOriginalCreatedAt(job.getCreatedAt());
-    a.setFirstExecutionTime(job.getExecutionStartTime());
-    a.setCompletionTime(job.getExecutionEndTime());
-    a.setTotalExecutionTimeMs(job.getExecutionDurationMs());
-    a.setQueueWaitMs(job.getQueueWaitMs());
-    a.setArchivedAt(Instant.now());
-    a.setArchivedBy(archivedBy);
-    a.setArchiveReason(reason);
-    a.setJobResult(job.getJobResult());
-    a.setResultType(job.getResultType());
-    a.setFinalError(job.getLastError());
-    if (job.getPayload() != null) {
-      a.setPayloadSummary(job.getPayload().target() + "#" + job.getPayload().method());
-    }
-    a.setDependedOn(job.getDependsOn());
-    a.setSupersededBy(job.getSupersededBy());
-    if (job.getTags() != null && !job.getTags().isEmpty()) {
-      a.setTags(String.join(",", job.getTags()));
-    }
-    return a;
+    return ArchiveHelper.buildArchive(job, reason, archivedBy);
   }
 
   private String payloadToJson(JobEntity job) {
-    if (job.getPayload() == null) {
-      return "{}";
-    }
-    try {
-      return OBJECT_MAPPER.writeValueAsString(job.getPayload());
-    } catch (Exception e) {
-      log.warn("Failed to serialize payload", e);
-      return "{}";
-    }
+    return ArchiveHelper.payloadToJson(job, OBJECT_MAPPER);
   }
 
   private String paramsToJson(JobEntity job) {
-    if (job.getParams() == null) {
-      return null;
-    }
-    try {
-      return OBJECT_MAPPER.writeValueAsString(job.getParams());
-    } catch (Exception e) {
-      log.warn("Failed to serialize params", e);
-      return null;
-    }
+    return ArchiveHelper.paramsToJson(job, OBJECT_MAPPER);
   }
 
   private String callbackPayloadToJson(JobPayload payload) {
-    if (payload == null) {
-      return null;
-    }
-    try {
-      return OBJECT_MAPPER.writeValueAsString(payload);
-    } catch (Exception e) {
-      log.warn("Failed to serialize callback payload", e);
-      return null;
-    }
+    return ArchiveHelper.callbackPayloadToJson(payload, OBJECT_MAPPER);
   }
 }

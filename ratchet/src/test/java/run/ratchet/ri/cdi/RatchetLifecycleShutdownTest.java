@@ -19,17 +19,7 @@ import run.ratchet.spi.NodeIdentityProvider;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 
-/**
- * Verifies that {@link RatchetLifecycle#onShutdown()} engages drain mode BEFORE stopping the
- * poller. This ordering is critical: a Poller.tick() already past its {@code started.get()} check
- * must see {@code drainController.isDraining() == true} and short-circuit instead of claiming jobs
- * that would be orphaned when the executor tears down.
- *
- * <p>This is a unit test (not an Arquillian IT) because verifying method call ordering requires
- * Mockito InOrder, and reflective invocation of package-private {@code @PreDestroy} methods on CDI
- * proxies is unreliable (the proxy's superclass fields are null, bypassing the contextual
- * instance).
- */
+// Verifies drain is engaged before poller.stop() during shutdown.
 class RatchetLifecycleShutdownTest {
 
   @Test
@@ -64,12 +54,10 @@ class RatchetLifecycleShutdownTest {
 
     lifecycle.onShutdown();
 
-    // The critical ordering: drain MUST be engaged before the poller is stopped.
     InOrder inOrder = inOrder(drainController, poller);
     inOrder.verify(drainController).setDraining(true);
     inOrder.verify(poller).stop();
 
-    // All other components must also be stopped.
     verify(recurringScheduler).stop();
     verify(orphanRecoveryTimer).stop();
     verify(batchRecoveryTimer).stop();

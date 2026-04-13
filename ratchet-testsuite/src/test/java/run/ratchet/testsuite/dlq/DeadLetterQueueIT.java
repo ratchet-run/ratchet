@@ -86,19 +86,16 @@ class DeadLetterQueueIT extends BaseRatchetIT {
 
   @Test
   void dlqJob_afterManualRetry_shouldReExecuteAndSucceed() {
-    // Submit a job that fails the first time but succeeds on retry (no retries configured)
     JobHandle handle = jobService.enqueue(FailOnceJob::execute).withMaxRetries(0).submit();
 
     assertNotNull(handle);
     JobAssertions.assertJobFailed(jobCrudStore, handle);
 
-    // Verify the job is in FAILED state (DLQ)
     var failedJob = jobCrudStore.findById(handle.id());
     assertTrue(failedJob.isPresent(), "Failed job should exist");
     assertEquals(JobStatus.FAILED, failedJob.get().getStatus(), "Job should be FAILED");
     assertNotNull(failedJob.get().getLastError(), "Job should have lastError");
 
-    // Manually retry the DLQ'd job
     boolean retried = jobService.retryJob(handle.id());
     assertTrue(retried, "retryJob should return true for a FAILED job");
 

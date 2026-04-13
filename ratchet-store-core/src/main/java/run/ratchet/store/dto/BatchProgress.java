@@ -12,20 +12,12 @@ import run.ratchet.store.entity.JobPayload;
 public record BatchProgress(
     Long batchId, int totalItems, int completedItems, int failedItems, JobPayload progressHook) {
 
-  /**
-   * Returns true if the batch has finished processing all items (success or failure).
-   *
-   * @return true if completed + failed equals total
-   */
+  /** Returns true if the batch has finished processing all items (success or failure). */
   public boolean isComplete() {
     return completedItems + failedItems == totalItems;
   }
 
-  /**
-   * Returns the completion percentage (0-100).
-   *
-   * @return the percentage of items processed
-   */
+  /** Returns the completion percentage (0-100). */
   public int percentComplete() {
     if (totalItems == 0) {
       return 100;

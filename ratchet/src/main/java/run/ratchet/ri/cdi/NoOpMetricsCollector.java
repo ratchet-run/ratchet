@@ -20,17 +20,11 @@ import jakarta.enterprise.context.ApplicationScoped;
 public class NoOpMetricsCollector implements MetricsCollector {
 
   @Override
-  public void jobStarted(long jobId, JobType type, JobPriority priority) {
-    // No-op: no metrics to collect
-  }
+  public void jobStarted(long jobId, JobType type, JobPriority priority) {}
 
   @Override
-  public void jobCompleted(long jobId, JobType type, long executionTimeMs) {
-    // No-op: no metrics to collect
-  }
+  public void jobCompleted(long jobId, JobType type, long executionTimeMs) {}
 
   @Override
-  public void jobFailed(long jobId, JobType type, Throwable cause, int attempt) {
-    // No-op: no metrics to collect
-  }
+  public void jobFailed(long jobId, JobType type, Throwable cause, int attempt) {}
 }

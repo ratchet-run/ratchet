@@ -85,10 +85,6 @@ public class BatchMetricsEntity {
     this.version = version;
   }
 
-  public static BatchMetricsEntityBuilder builder() {
-    return new BatchMetricsEntityBuilder();
-  }
-
   public Long getBatchId() {
     return batchId;
   }
@@ -205,143 +201,11 @@ public class BatchMetricsEntity {
       return false;
     }
     BatchMetricsEntity that = (BatchMetricsEntity) o;
-    return childCount == that.childCount
-        && successCount == that.successCount
-        && failureCount == that.failureCount
-        && Objects.equals(batchId, that.batchId)
-        && Objects.equals(totalDurationMs, that.totalDurationMs)
-        && Objects.equals(childExecutionMs, that.childExecutionMs)
-        && Objects.equals(overheadMs, that.overheadMs)
-        && Objects.equals(startedAt, that.startedAt)
-        && Objects.equals(completedAt, that.completedAt)
-        && Objects.equals(version, that.version);
+    return Objects.equals(batchId, that.batchId);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(
-        batchId,
-        totalDurationMs,
-        childExecutionMs,
-        overheadMs,
-        childCount,
-        successCount,
-        failureCount,
-        startedAt,
-        completedAt,
-        version);
-  }
-
-  @Override
-  public String toString() {
-    return "BatchMetricsEntity("
-        + "batchId="
-        + batchId
-        + ", totalDurationMs="
-        + totalDurationMs
-        + ", childExecutionMs="
-        + childExecutionMs
-        + ", overheadMs="
-        + overheadMs
-        + ", childCount="
-        + childCount
-        + ", successCount="
-        + successCount
-        + ", failureCount="
-        + failureCount
-        + ", startedAt="
-        + startedAt
-        + ", completedAt="
-        + completedAt
-        + ", version="
-        + version
-        + ')';
-  }
-
-  public static class BatchMetricsEntityBuilder {
-
-    private Long batchId;
-    private JobEntity batchJob;
-    private Long totalDurationMs;
-    private Long childExecutionMs;
-    private Long overheadMs;
-    private int childCount;
-    private int successCount;
-    private int failureCount;
-    private Instant startedAt;
-    private Instant completedAt;
-    private Integer version;
-
-    BatchMetricsEntityBuilder() {}
-
-    public BatchMetricsEntityBuilder batchId(Long batchId) {
-      this.batchId = batchId;
-      return this;
-    }
-
-    public BatchMetricsEntityBuilder batchJob(JobEntity batchJob) {
-      this.batchJob = batchJob;
-      return this;
-    }
-
-    public BatchMetricsEntityBuilder totalDurationMs(Long totalDurationMs) {
-      this.totalDurationMs = totalDurationMs;
-      return this;
-    }
-
-    public BatchMetricsEntityBuilder childExecutionMs(Long childExecutionMs) {
-      this.childExecutionMs = childExecutionMs;
-      return this;
-    }
-
-    public BatchMetricsEntityBuilder overheadMs(Long overheadMs) {
-      this.overheadMs = overheadMs;
-      return this;
-    }
-
-    public BatchMetricsEntityBuilder childCount(int childCount) {
-      this.childCount = childCount;
-      return this;
-    }
-
-    public BatchMetricsEntityBuilder successCount(int successCount) {
-      this.successCount = successCount;
-      return this;
-    }
-
-    public BatchMetricsEntityBuilder failureCount(int failureCount) {
-      this.failureCount = failureCount;
-      return this;
-    }
-
-    public BatchMetricsEntityBuilder startedAt(Instant startedAt) {
-      this.startedAt = startedAt;
-      return this;
-    }
-
-    public BatchMetricsEntityBuilder completedAt(Instant completedAt) {
-      this.completedAt = completedAt;
-      return this;
-    }
-
-    public BatchMetricsEntityBuilder version(Integer version) {
-      this.version = version;
-      return this;
-    }
-
-    public BatchMetricsEntity build() {
-      return new BatchMetricsEntity(
-          batchId,
-          batchJob,
-          totalDurationMs,
-          childExecutionMs,
-          overheadMs,
-          childCount,
-          successCount,
-          failureCount,
-          startedAt,
-          completedAt,
-          version);
-    }
+    return Objects.hashCode(batchId);
   }
 }

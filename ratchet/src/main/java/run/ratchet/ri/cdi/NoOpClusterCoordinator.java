@@ -19,12 +19,8 @@ import jakarta.enterprise.context.ApplicationScoped;
 public class NoOpClusterCoordinator implements ClusterCoordinator {
 
   @Override
-  public void notifyNewWork(JobPriority priority) {
-    // No-op: single node, no cluster to notify
-  }
+  public void notifyNewWork(JobPriority priority) {}
 
   @Override
-  public void registerWakeupListener(Runnable listener) {
-    // No-op: single node, no remote notifications to receive
-  }
+  public void registerWakeupListener(Runnable listener) {}
 }

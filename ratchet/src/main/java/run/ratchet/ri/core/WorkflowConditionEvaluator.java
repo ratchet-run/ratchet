@@ -50,13 +50,7 @@ public class WorkflowConditionEvaluator {
     this.classPolicy = classPolicy;
   }
 
-  /**
-   * Evaluates whether a workflow condition is met based on the parent job's execution result.
-   *
-   * @param condition the workflow condition to evaluate
-   * @param parentJob the parent job that completed
-   * @return true if the condition is met and the child job should be scheduled
-   */
+  /** Returns true if the condition is met and the child job should be scheduled. */
   public boolean evaluate(WorkflowConditionEntity condition, JobEntity parentJob) {
     try {
       return switch (condition.getConditionType()) {
@@ -134,8 +128,11 @@ public class WorkflowConditionEvaluator {
         return predicate.test(context);
       }
 
-      log.warn("Failed to deserialize batch predicate, falling back to simple evaluation");
-      return evaluateSimpleBatchCondition(expression, context);
+      log.warnf(
+          "Simple string-based batch condition expressions are not supported. "
+              + "Expression: '%s'. Use SerializablePredicate<BatchContext> instead.",
+          expression);
+      return false;
 
     } catch (Exception e) {
       log.error("Failed to evaluate custom batch condition", e);
@@ -201,7 +198,6 @@ public class WorkflowConditionEvaluator {
         return false;
       }
 
-      // Try to deserialize lambda expression
       SerializablePredicate<JobResult<?>> predicate =
           lambdaSerializer.deserializeJobResultPredicate(expression);
 
@@ -209,7 +205,6 @@ public class WorkflowConditionEvaluator {
         return predicate.test(result);
       }
 
-      // Fallback to simple expression evaluation for backward compatibility
       log.warn("Failed to deserialize job result predicate, falling back to simple evaluation");
 
       if (expression.contains("executionTime")) {
@@ -244,10 +239,6 @@ public class WorkflowConditionEvaluator {
         return Boolean.TRUE.equals(function.apply(jobResult));
       }
 
-      if (expression != null && jobResult != null) {
-        return evaluateSimpleResultCondition(expression, jobResult);
-      }
-
       return false;
     } catch (Exception e) {
       log.error("Failed to evaluate result condition", e);
@@ -255,44 +246,8 @@ public class WorkflowConditionEvaluator {
     }
   }
 
-  @SuppressWarnings("java:S1172")
-  private boolean evaluateSimpleBatchCondition(String expression, BatchContext context) {
-    log.warnf(
-        "Simple string-based batch condition expressions are not supported. "
-            + "Expression: '%s'. Use SerializablePredicate<BatchContext> instead.",
-        expression);
-    return false;
-  }
-
-  private boolean evaluateSimpleResultCondition(String expression, Object result) {
-    if (result instanceof Number num) {
-      if (expression.contains("> 100")) {
-        return num.doubleValue() > 100;
-      }
-      if (expression.contains("< 10")) {
-        return num.doubleValue() < 10;
-      }
-    }
-
-    if (result instanceof String str && expression.contains("contains")) {
-      String searchTerm = extractStringFromExpression(expression);
-      return str.contains(searchTerm);
-    }
-
-    return false;
-  }
-
   private boolean evaluateSuccess(JobEntity parentJob) {
     return parentJob.getStatus() == JobStatus.SUCCEEDED;
-  }
-
-  private String extractStringFromExpression(String expression) {
-    int start = expression.indexOf('"');
-    int end = expression.lastIndexOf('"');
-    if (start >= 0 && end > start) {
-      return expression.substring(start + 1, end);
-    }
-    return "";
   }
 
   private long extractThreshold(String expression) {

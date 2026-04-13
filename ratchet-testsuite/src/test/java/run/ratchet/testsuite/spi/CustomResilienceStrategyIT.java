@@ -25,10 +25,6 @@ import org.junit.jupiter.api.Test;
 /**
  * Validates that a custom {@link ResilienceStrategy} alternative overrides the default circuit
  * breaker behavior.
- *
- * <p>Deploys a {@link NoOpResilienceStrategy} that passes through all executions without any
- * circuit breaker protection. A job configured with multiple retries should fail after exhausting
- * all attempts — the circuit breaker should never trip because the no-op strategy has no breaker.
  */
 class CustomResilienceStrategyIT extends BaseRatchetIT {
 
@@ -59,7 +55,6 @@ class CustomResilienceStrategyIT extends BaseRatchetIT {
 
   @Test
   void customResilienceStrategy_shouldOverrideDefaultCircuitBreaker() {
-    // Verify CDI selected the custom alternative
     assertInstanceOf(NoOpResilienceStrategy.class, resilienceStrategy);
   }
 

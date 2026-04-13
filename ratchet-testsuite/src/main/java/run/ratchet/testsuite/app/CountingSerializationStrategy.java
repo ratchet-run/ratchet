@@ -10,12 +10,7 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * Custom {@link SerializationStrategy} for testing SPI overridability.
- *
- * <p>Wraps standard Java serialization but tracks invocation counts so tests can verify the custom
- * strategy was selected over the default {@code JdkSerializationStrategy}.
- */
+/** Custom {@link SerializationStrategy} for testing SPI overridability. */
 @Alternative
 @Priority(1)
 @ApplicationScoped

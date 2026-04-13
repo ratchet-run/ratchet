@@ -88,7 +88,6 @@ public class WorkflowScheduler extends ChainScheduler {
    */
   @Override
   public void scheduleNext(JobEntity parentJob) {
-    // Get all workflow conditions for this parent job
     List<WorkflowConditionEntity> conditions =
         conditionStore.findConditionsByParentJobId(parentJob.getId());
 

@@ -146,26 +146,12 @@ public class WorkflowConditionEntity implements Serializable, TsidEntityListener
     this.childJob = childJob;
   }
 
-  /**
-   * Retrieves the condition expression as a deserialized object.
-   *
-   * <p>Returns the raw condition expression string. Actual deserialization into executable
-   * predicates is handled by the workflow condition evaluator in the RI module.
-   *
-   * @return the condition expression string, or null if not set
-   */
+  /** Returns the raw condition expression string; deserialization is handled by the RI module. */
   public Serializable getConditionExpressionDeserialized() {
     return conditionExpression;
   }
 
-  /**
-   * Sets the condition expression from a serializable object.
-   *
-   * <p>Stores the string representation of the expression. Complex serialization (e.g., lambda
-   * serialization) is handled by the RI module before calling this method.
-   *
-   * @param expression the condition expression to store
-   */
+  /** Stores the serialized form of the expression; lambda serialization is handled by the RI. */
   public void setConditionExpressionSerialized(Serializable expression) {
     if (expression == null) {
       this.conditionExpression = null;

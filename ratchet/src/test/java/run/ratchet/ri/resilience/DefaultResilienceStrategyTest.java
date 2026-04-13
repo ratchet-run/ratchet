@@ -28,8 +28,6 @@ class DefaultResilienceStrategyTest {
 
   @Test
   void executeThrowsWhenCircuitOpen() throws Exception {
-    // Force the circuit open by exceeding default thresholds
-    // Default config: 50% failure rate, 100-call window, 5 minimum calls
     for (int i = 0; i < 10; i++) {
       try {
         strategy.execute(

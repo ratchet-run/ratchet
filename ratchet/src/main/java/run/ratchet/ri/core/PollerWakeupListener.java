@@ -33,11 +33,6 @@ public class PollerWakeupListener {
     this.pollerScheduler = pollerScheduler;
   }
 
-  /**
-   * Registers this listener with the ClusterCoordinator to receive wakeup notifications.
-   *
-   * <p>If registration fails, the scheduler continues using its normal adaptive polling.
-   */
   public void init() {
     try {
       clusterCoordinator.registerWakeupListener(this::onWakeup);
@@ -49,7 +44,7 @@ public class PollerWakeupListener {
 
   private void onWakeup() {
     try {
-      log.debug("Received wakeup notification, waking poller");
+      log.debug("Wakeup notification received");
       pollerScheduler.wakeup();
     } catch (Exception e) {
       log.warnf("Error processing wakeup notification: %s", e.getMessage());

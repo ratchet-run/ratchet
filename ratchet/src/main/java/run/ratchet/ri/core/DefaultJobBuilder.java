@@ -59,7 +59,7 @@ public final class DefaultJobBuilder implements JobBuilder {
   @Override
   public JobBuilder branch(
       WorkflowCondition condition, SerializableCheckedRunnable next, String description) {
-    workflowBranches.add(WorkflowBranch.of(condition, next, description));
+    workflowBranches.add(new WorkflowBranch(condition, next, description));
     return this;
   }
 

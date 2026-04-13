@@ -116,7 +116,6 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
           "Processing action must be set via process() before calling start()");
     }
 
-    // Create parent job
     JobEntity parent = new JobEntity();
     parent.setJobType(JobExecutionType.BATCH_PARENT);
     parent.setStatus(JobStatus.PENDING);
@@ -127,7 +126,6 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
     JobEntity savedParent = jobCrudStore.save(parent);
     Long parentId = savedParent.getId();
 
-    // Process stream in chunks, creating child jobs
     int totalItems = 0;
     int chunksInserted = 0;
     List<T> chunk = new ArrayList<>(chunkSize);
@@ -153,7 +151,6 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
       stream.close();
     }
 
-    // Create batch entity
     BatchEntity batch = new BatchEntity();
     batch.setId(parentId);
     batch.setTotalItems(totalItems);
@@ -164,12 +161,10 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
     }
     batchStore.saveBatch(batch);
 
-    // Create workflow branches
     for (WorkflowBranch branch : workflowBranches) {
       createWorkflowBranch(parentId, branch);
     }
 
-    // Notify wakeup service
     wakeupService.notifyIfNeeded(JobExecutionType.BATCH_PARENT, JobPriority.NORMAL, Duration.ZERO);
 
     log.infof("Streaming batch '%s' submitted with %s items (id=%s)", name, totalItems, parentId);

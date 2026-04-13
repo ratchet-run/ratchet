@@ -37,7 +37,6 @@
             <artifactId>jboss-logging</artifactId>
         </dependency>
 
-        <!-- Test dependencies -->
         <dependency>
             <groupId>run.ratchet</groupId>
             <artifactId>ratchet-tck</artifactId>

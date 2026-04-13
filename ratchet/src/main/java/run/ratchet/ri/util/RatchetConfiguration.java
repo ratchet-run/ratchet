@@ -143,15 +143,6 @@ public class RatchetConfiguration {
   private final String workerDefaultSla;
   private final String workerUseVirtualThreads;
 
-  /**
-   * Creates a new configuration instance, reading values from environment variables and system
-   * properties. Environment variables are checked first; if not set, system properties are checked;
-   * if neither is set, the default value is used.
-   *
-   * <p>This public no-arg constructor also serves as the CDI-required constructor. CDI proxies
-   * subclass the bean and delegate all method calls to the contextual instance, so the values
-   * initialized in a proxy's super-constructor are never accessed.
-   */
   public RatchetConfiguration() {
     // Circuit Breaker (legacy: SCHEDULER_*, new: RATCHET_*)
     this.cbDefaultFailureRate =
@@ -353,10 +344,6 @@ public class RatchetConfiguration {
     return (value != null && !value.isEmpty()) ? value : defaultValue;
   }
 
-  /**
-   * Reads a configuration value, preferring the new RATCHET-prefixed name but falling back to the
-   * legacy name for backward compatibility.
-   */
   private static String getEnvWithFallback(String preferred, String legacy, String defaultValue) {
     String value = getEnvOrDefault(preferred, null);
     if (value != null) {
@@ -380,7 +367,7 @@ public class RatchetConfiguration {
   }
 
   public String getDlqPurgeCron() {
-    return dlqPurgeCron != null && !dlqPurgeCron.isEmpty() ? dlqPurgeCron : "0 0 2 * * ?";
+    return dlqPurgeCron;
   }
 
   public Long getDlqPurgeDays() {
@@ -408,7 +395,7 @@ public class RatchetConfiguration {
   }
 
   public String getJobArchiverCron() {
-    return jobArchiverCron != null && !jobArchiverCron.isEmpty() ? jobArchiverCron : "0 0 1 * * ?";
+    return jobArchiverCron;
   }
 
   public Long getJobRetentionDays() {
@@ -420,7 +407,7 @@ public class RatchetConfiguration {
   }
 
   public String getLogPurgeCron() {
-    return logPurgerCron != null && !logPurgerCron.isEmpty() ? logPurgerCron : "0 30 2 * * ?";
+    return logPurgerCron;
   }
 
   public Long getLogRetentionDays() {

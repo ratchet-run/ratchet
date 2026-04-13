@@ -57,9 +57,7 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
    * must succeed.
    *
    * <p>Both snapshots are loaded <i>before</i> the {@link ConcurrentTestRunner} starts the racing
-   * tasks — if either thread reloaded after the race started, fast hardware would let the winner
-   * complete its entire save cycle before the loser even read the row, and both saves would succeed
-   * against a broken store. Pre-loading the snapshots is what forces the conflict.
+   * tasks — pre-loading both snapshots ensures they hold the same version before the race.
    *
    * <p>This contract is deliberately type-agnostic: it does not know whether a store throws {@code
    * RatchetOptimisticLockException}, {@code jakarta.persistence.OptimisticLockException}, or a

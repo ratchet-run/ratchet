@@ -73,12 +73,10 @@ public class PollingStrategy {
     this.lastJobFoundTime = System.currentTimeMillis();
   }
 
-  /** Current delay in milliseconds. */
   public synchronized long getCurrentDelay() {
     return currentDelayMs;
   }
 
-  /** Snapshot of current polling statistics. */
   public synchronized PollingStats getStats() {
     double avgRecentJobs = 0;
     for (long count : recentJobCounts) {
@@ -97,7 +95,6 @@ public class PollingStrategy {
         inBurstMode);
   }
 
-  /** Called when the poller receives a wakeup signal. Enters burst mode with aggressive polling. */
   public synchronized void onWakeup() {
     lastJobFoundTime = System.currentTimeMillis();
     inDeepIdle = false;
@@ -122,12 +119,10 @@ public class PollingStrategy {
     this.systemLoadFactor = 0.5 + (avgUtilization / 100.0) * 1.5;
   }
 
-  /** True if in deep idle mode. */
   public synchronized boolean isInDeepIdle() {
     return inDeepIdle;
   }
 
-  /** True if in burst mode. */
   public synchronized boolean isInBurstMode() {
     return inBurstMode;
   }

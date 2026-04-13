@@ -8,12 +8,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Alternative;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * Custom {@link MetricsCollector} for testing SPI overridability.
- *
- * <p>Counts invocations of each callback so tests can verify the custom collector was selected over
- * the default {@code NoOpMetricsCollector} and receives metrics during job execution.
- */
+/** Custom {@link MetricsCollector} for testing SPI overridability. */
 @Alternative
 @Priority(1)
 @ApplicationScoped

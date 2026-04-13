@@ -5,10 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
-/**
- * Unit tests for {@link JobTask#maxResultBytes()} — the system-property-driven cap on serialized
- * job result size used by {@code handleSuccess} truncation logic.
- */
 class JobTaskMaxResultBytesTest {
 
   @AfterEach

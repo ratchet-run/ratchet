@@ -62,7 +62,6 @@ public class RetryBufferDrainer {
     this.jobCrudStore = jobCrudStore;
   }
 
-  /** Starts the periodic drain loop. */
   void start() {
     if (!started.compareAndSet(false, true)) {
       return;
@@ -74,7 +73,6 @@ public class RetryBufferDrainer {
             .scheduleAtFixedRate(this::drainRetryBuffers, 1, 1, TimeUnit.SECONDS);
   }
 
-  /** Cancels the scheduled drainer task. */
   void shutdown() {
     started.set(false);
     if (drainerTask != null && !drainerTask.isCancelled()) {

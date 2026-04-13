@@ -25,10 +25,7 @@ public class RecurringJobExecutor {
 
   private static final Logger log = Logger.getLogger(RecurringJobExecutor.class);
 
-  /**
-   * Maximum number of missed executions to catch up on per recurring job. Prevents thundering herd
-   * when a system has been down for a long period.
-   */
+  // Caps catch-up executions per recurring job to prevent thundering herd after downtime.
   private static final int MAX_CATCHUP_COUNT = 10;
 
   private final JobCrudStore jobCrudStore;

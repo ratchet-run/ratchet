@@ -53,8 +53,6 @@ class RecurringRegistrationStateTest {
 
   @Test
   void shouldFireReturnsTrueForNullBusinessKeyDuringGrace() {
-    // Programmatically-submitted recurring jobs may not have a business key. They were not
-    // declared via @Recurring so the orphan cleanup never targets them — fire freely.
     state.markRegistrationComplete(Set.of("alpha"));
     assertTrue(state.shouldFire(null));
   }

@@ -144,14 +144,11 @@ class OptimisticLockRetryTest {
   void interruptDuringBackoff_restoresInterruptFlagAndWraps() {
     JobEntity reloaded = newEntity(5L, JobStatus.PENDING, 1);
 
-    // Force a conflict on every save attempt so the helper always takes the backoff path.
     Function<JobEntity, JobEntity> alwaysConflict =
         e -> {
           throw new RatchetOptimisticLockException("always miss");
         };
 
-    // Self-interrupt from inside the mutate callback on the first attempt, so the sleep on the
-    // first backoff iteration observes the interrupt.
     Thread.interrupted(); // clear any stale flag
     RatchetOptimisticLockException ex =
         assertThrows(
@@ -165,8 +162,6 @@ class OptimisticLockRetryTest {
                     alwaysConflict));
 
     assertTrue(ex.getMessage().contains("Retry interrupted"));
-    // Thread.interrupted() both reads AND clears the flag, so this assertion doubles as a
-    // cleanup for the remaining assertions in the test harness.
     assertTrue(Thread.interrupted(), "interrupt flag must be restored on the calling thread");
   }
 

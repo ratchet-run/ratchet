@@ -56,33 +56,16 @@ public class RatchetArchiveBuilder {
     return this;
   }
 
-  /**
-   * Adds classes to the archive.
-   *
-   * @param classes the classes to add
-   * @return this builder
-   */
   public RatchetArchiveBuilder addClasses(Class<?>... classes) {
     archive.addClasses(classes);
     return this;
   }
 
-  /**
-   * Adds a package and all its classes to the archive.
-   *
-   * @param pkg the package to add
-   * @return this builder
-   */
   public RatchetArchiveBuilder addPackage(Package pkg) {
     archive.addPackage(pkg);
     return this;
   }
 
-  /**
-   * Adds a CDI beans.xml descriptor enabling bean discovery.
-   *
-   * @return this builder
-   */
   public RatchetArchiveBuilder addBeansXml() {
     archive.addAsWebInfResource(EmptyAsset.INSTANCE, "beans.xml");
     return this;
@@ -228,11 +211,6 @@ public class RatchetArchiveBuilder {
             .asFile());
   }
 
-  /**
-   * Returns the built WebArchive.
-   *
-   * @return the configured WebArchive
-   */
   public WebArchive build() {
     return archive;
   }

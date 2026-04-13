@@ -10,12 +10,7 @@ import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.jboss.logging.Logger;
 
-/**
- * Creates MongoDB collections and indexes required by the Ratchet scheduler.
- *
- * <p>This class is designed to be called once at application startup. Index creation is idempotent
- * — MongoDB silently ignores index creation requests for indexes that already exist.
- */
+/** Creates MongoDB collections and indexes required by the Ratchet scheduler at startup. */
 public class MongoCollectionInitializer {
 
   private static final Logger log = Logger.getLogger(MongoCollectionInitializer.class);
@@ -109,13 +104,9 @@ public class MongoCollectionInitializer {
     createIndex(coll, Indexes.ascending("superseded_by"), "idx_job_superseded_by");
   }
 
-  private void createBatchIndexes() {
-    // batch_id is _id, no additional indexes needed beyond the default
-  }
+  private void createBatchIndexes() {}
 
-  private void createBatchMetricsIndexes() {
-    // batch_id is _id, no additional indexes needed beyond the default
-  }
+  private void createBatchMetricsIndexes() {}
 
   private void createExecutionIndexes() {
     var coll = database.getCollection("scheduler_job_execution");
@@ -150,7 +141,6 @@ public class MongoCollectionInitializer {
 
   private void createLockIndexes() {
     var coll = database.getCollection("scheduler_lock");
-    // TTL index: MongoDB automatically removes documents when expires_at is in the past
     createIndex(
         coll,
         Indexes.ascending("expires_at"),
@@ -181,9 +171,7 @@ public class MongoCollectionInitializer {
     createIndex(coll, Indexes.ascending("alert_sent_at"), "idx_dlq_sent_at");
   }
 
-  private void createResourceLimitIndexes() {
-    // resource_name is _id, no additional indexes needed
-  }
+  private void createResourceLimitIndexes() {}
 
   private void createResourcePermitIndexes() {
     var coll = database.getCollection("scheduler_resource_permit");

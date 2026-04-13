@@ -5,7 +5,12 @@ import run.ratchet.api.JobType;
 import java.io.Serial;
 import java.time.Instant;
 
-/** Fired when a job cancellation is initiated. */
+/**
+ * Fired when a job cancellation is initiated.
+ *
+ * <p>Fired on the requesting thread before the job record is updated; the executor thread may still
+ * be running.
+ */
 public class JobCancellingEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = -1807471708143349083L;

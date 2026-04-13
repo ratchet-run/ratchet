@@ -114,22 +114,17 @@ class RetryBufferManagerTest {
 
   @Test
   void forceOffer_bypassesNormalLimit() {
-    // Fill to normal capacity
     for (int i = 0; i < RetryBufferManager.MAX_BUFFER_SIZE_PER_TYPE; i++) {
       manager.offer(standardJob(i));
     }
 
-    // Normal offer fails
     assertFalse(manager.offer(standardJob(9998L)));
-
-    // Force offer succeeds
     assertTrue(manager.forceOffer(standardJob(9999L)));
     assertEquals(RetryBufferManager.MAX_BUFFER_SIZE_PER_TYPE + 1, manager.totalSize());
   }
 
   @Test
   void forceOffer_atHardCap_movesToDlq() {
-    // Fill to hard cap
     for (int i = 0; i < RetryBufferManager.HARD_CAP_PER_TYPE; i++) {
       manager.forceOffer(standardJob(i));
     }

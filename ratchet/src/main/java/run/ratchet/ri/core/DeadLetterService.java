@@ -87,12 +87,6 @@ public class DeadLetterService {
     this.errorSanitizer = errorSanitizer;
   }
 
-  /**
-   * Moves a permanently failed job to the Dead Letter Queue (DLQ).
-   *
-   * @param job the {@link JobEntity} representing the job to be moved to the DLQ
-   * @param cause the {@link Throwable} representing the reason for the failure
-   */
   public void moveToDlq(JobEntity job, Throwable cause) {
     job.setStatus(JobStatus.FAILED);
     job.setLastError(errorSanitizer.sanitize(cause));
@@ -103,13 +97,7 @@ public class DeadLetterService {
     log.warnf("Job %s moved to DLQ", job.getId());
   }
 
-  /**
-   * Records a DLQ alert for audit trail and duplicate suppression.
-   *
-   * <p>Uses an error hash to deduplicate alerts — if the same job+error combination has already
-   * been recorded within the dedup window, the alert is suppressed. This prevents notification
-   * storms when the same error occurs repeatedly.
-   */
+  // Deduplicates alerts within ALERT_DEDUP_WINDOW to prevent notification storms.
   private void recordDlqAlert(JobEntity job, Throwable cause) {
     try {
       String errorHash = hashError(cause);
@@ -141,20 +129,10 @@ public class DeadLetterService {
     }
   }
 
-  /**
-   * Stops the DLQ purge scheduler. Cron-based scheduling uses one-shot delays; this flag prevents
-   * re-scheduling after the current run completes.
-   */
   public void stop() {
     stopped = true;
   }
 
-  /**
-   * Initializes the DeadLetterService with cron-based purge scheduling.
-   *
-   * @param purgeDays number of days to retain DLQ entries
-   * @param cronExpression cron expression for scheduling (Quartz format)
-   */
   public void init(long purgeDays, Cron cronExpression) {
     this.purgeAfter = Duration.ofDays(purgeDays);
     this.cron = cronExpression;
@@ -165,7 +143,6 @@ public class DeadLetterService {
     log.infof("DeadLetterService scheduled DLQ purge (retention=%s days)", purgeDays);
   }
 
-  /** Purges old DLQ entries and schedules the next run. */
   void run() {
     try {
       purge();
@@ -174,7 +151,6 @@ public class DeadLetterService {
     }
   }
 
-  /** Removes old entries from the Dead Letter Queue. */
   void purge() {
     try {
       if (!lockStore.tryLock(LOCK_NAME, Duration.ofMinutes(10), nodeIdentityProvider.getNodeId())) {

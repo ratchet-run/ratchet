@@ -5,7 +5,11 @@ import run.ratchet.api.JobType;
 import java.io.Serial;
 import java.time.Instant;
 
-/** Fired when a job has been cancelled. */
+/**
+ * Fired when a job has been cancelled.
+ *
+ * <p>Fired after the job record reaches CANCELED state.
+ */
 public class JobCancelledEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = -3714116971496582534L;

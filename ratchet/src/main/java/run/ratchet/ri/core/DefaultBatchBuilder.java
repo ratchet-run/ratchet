@@ -78,7 +78,6 @@ public class DefaultBatchBuilder implements BatchBuilder {
 
   @Override
   public JobHandle submit() {
-    // Create parent job
     JobEntity parent = new JobEntity();
     parent.setJobType(JobExecutionType.BATCH_PARENT);
     parent.setStatus(JobStatus.PENDING);
@@ -89,7 +88,6 @@ public class DefaultBatchBuilder implements BatchBuilder {
     JobEntity savedParent = jobCrudStore.save(parent);
     Long parentId = savedParent.getId();
 
-    // Create batch entity for progress tracking
     BatchEntity batch = new BatchEntity();
     batch.setId(parentId);
     batch.setTotalItems(children.size());
@@ -110,7 +108,6 @@ public class DefaultBatchBuilder implements BatchBuilder {
       return () -> parentId;
     }
 
-    // Create child jobs
     for (ChildSpec child : children) {
       JobEntity childJob = new JobEntity();
       childJob.setJobType(JobExecutionType.BATCH_CHILD);
@@ -123,12 +120,10 @@ public class DefaultBatchBuilder implements BatchBuilder {
       jobCrudStore.save(childJob);
     }
 
-    // Create workflow branches
     for (WorkflowBranch branch : workflowBranches) {
       createWorkflowBranch(parentId, branch);
     }
 
-    // Notify wakeup service
     wakeupService.notifyIfNeeded(JobExecutionType.BATCH_PARENT, JobPriority.NORMAL, Duration.ZERO);
 
     log.infof("Batch '%s' submitted with %s children (id=%s)", name, children.size(), parentId);
@@ -138,7 +133,7 @@ public class DefaultBatchBuilder implements BatchBuilder {
   @Override
   public BatchBuilder thenBranch(
       WorkflowCondition condition, SerializableCheckedRunnable next, String description) {
-    workflowBranches.add(WorkflowBranch.of(condition, next, description));
+    workflowBranches.add(new WorkflowBranch(condition, next, description));
     return this;
   }
 
@@ -174,7 +169,6 @@ public class DefaultBatchBuilder implements BatchBuilder {
   }
 
   private void createWorkflowBranch(Long parentId, WorkflowBranch branch) {
-    // Create the child job for this branch (locked until parent completes)
     JobEntity branchJob = new JobEntity();
     branchJob.setJobType(JobExecutionType.WORKFLOW_BRANCH);
     branchJob.setStatus(JobStatus.PENDING);
@@ -185,7 +179,6 @@ public class DefaultBatchBuilder implements BatchBuilder {
     branchJob.setDependsOn(parentId);
     JobEntity savedBranch = jobCrudStore.save(branchJob);
 
-    // Create workflow condition linking parent to branch
     WorkflowConditionEntity condition = new WorkflowConditionEntity();
     condition.setParentJobId(parentId);
     condition.setChildJobId(savedBranch.getId());

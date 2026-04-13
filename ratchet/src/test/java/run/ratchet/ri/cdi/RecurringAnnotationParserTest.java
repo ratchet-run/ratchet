@@ -94,7 +94,6 @@ class RecurringAnnotationParserTest {
     assertEquals(JobPriority.CRITICAL, RecurringAnnotationParser.mapPriority(10));
   }
 
-  /** Creates a minimal @Recurring annotation proxy with the given id and cron. */
   private static Recurring recurring(String id, String cron) {
     return new Recurring() {
       @Override
@@ -159,7 +158,6 @@ class RecurringAnnotationParserTest {
     };
   }
 
-  /** Creates a @Recurring annotation proxy with the given enabled value. */
   private static Recurring recurringWithEnabled(String enabled) {
     return new Recurring() {
       @Override

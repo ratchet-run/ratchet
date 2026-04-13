@@ -10,7 +10,6 @@ class JobPayloadInputValidatorTest {
 
   private final JobPayloadInputValidator validator = new JobPayloadInputValidator();
 
-  /** Public target class used by validation tests. */
   public static class Target {
     public void run() {}
 

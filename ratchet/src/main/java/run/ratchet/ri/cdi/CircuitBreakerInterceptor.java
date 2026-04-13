@@ -41,10 +41,6 @@ public class CircuitBreakerInterceptor {
   /** Wraps the intercepted method in circuit breaker protection. */
   @AroundInvoke
   public Object intercept(InvocationContext ctx) throws Exception {
-    if (registry == null) {
-      throw new IllegalStateException("Circuit breaker registry not initialized");
-    }
-
     Method method = ctx.getMethod();
     CircuitBreakerProtected annotation = resolveAnnotation(method);
 

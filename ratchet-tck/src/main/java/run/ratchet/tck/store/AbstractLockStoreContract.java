@@ -76,7 +76,6 @@ public abstract class AbstractLockStoreContract implements JobStoreContractFixtu
 
   @Test
   void unlock_nonHeldLock_isNoOp() {
-    // Should not throw — unlock on a non-existent lock is a no-op
     store().unlock("never-acquired", "node-A");
   }
 

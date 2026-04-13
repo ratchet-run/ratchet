@@ -6,15 +6,8 @@ import java.util.concurrent.Callable;
 import org.jboss.logging.Logger;
 
 /**
- * Default {@link ResilienceStrategy} implementation using the built-in {@link CircuitBreaker}.
- *
- * <p>Delegates to the {@link CircuitBreakerRegistry} for circuit breaker management. If the circuit
- * is OPEN, throws {@link ServiceUnavailableException} without executing the task.
- *
- * <p>This class is intentionally not annotated with CDI annotations. The default instance is
- * produced by {@code RatchetProducer}. Users may override by providing their own
- * {@code @ApplicationScoped ResilienceStrategy} bean (e.g., backed by Resilience4j or MicroProfile
- * Fault Tolerance).
+ * Default {@link ResilienceStrategy} using the built-in {@link CircuitBreaker}; produced by
+ * {@code RatchetProducer} (no CDI annotations here so it can be overridden).
  */
 public class DefaultResilienceStrategy implements ResilienceStrategy {
 

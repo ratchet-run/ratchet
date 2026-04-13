@@ -38,9 +38,6 @@ class DynamicHeartbeatCalculatorTest {
 
     long interval = calculator.calculateHeartbeatInterval();
 
-    // singleNode: base * 1.5 = 45, zeroPending: * 1.2 = 54
-    // max = base * 2 = 60, min = max(base/4, 5) = max(7, 5) = 7
-    // bounded: min(54, 60) = 54, max(7, 54) = 54
     assertEquals(54, interval);
   }
 
@@ -51,8 +48,6 @@ class DynamicHeartbeatCalculatorTest {
 
     long interval = calculator.calculateHeartbeatInterval();
 
-    // singleNode: base * 1.5 = 45, highPending (>200): * 0.5 = 22
-    // bounded: max(7, min(22, 60)) = 22
     assertEquals(22, interval);
   }
 
@@ -63,8 +58,6 @@ class DynamicHeartbeatCalculatorTest {
 
     long interval = calculator.calculateHeartbeatInterval();
 
-    // 8 nodes (>6): base * 0.6 = 18, pending 10 (<=10): * 1.0 = 18
-    // bounded: max(7, min(18, 60)) = 18
     assertEquals(18, interval);
   }
 
@@ -75,8 +68,6 @@ class DynamicHeartbeatCalculatorTest {
 
     long interval = calculator.calculateHeartbeatInterval();
 
-    // 5 nodes (4-6): base * 0.8 = 24, 100 pending (51-200): * 0.7 = 16
-    // bounded: max(7, min(16, 60)) = 16
     assertEquals(16, interval);
   }
 

@@ -124,63 +124,33 @@ public interface JobBuilder {
   /** Returns the chain tasks in addition order. The list is unmodifiable. */
   List<SerializableCheckedRunnable> chainTasks();
 
-  /**
-   * @return the delay duration, never null (may be {@link Duration#ZERO})
-   */
+  /** Returns the delay duration; never null (may be {@link Duration#ZERO}). */
   Duration delay();
 
   /**
-   * @return the idempotency key, never null (auto-generated UUID if not overridden)
+   * Returns the idempotency key; never null (auto-generated UUID if not overridden via {@link
+   * #withIdempotencyKey(String)}).
    */
   String idempotencyKey();
 
-  /**
-   * @return the business key, or null if not configured
-   */
+  /** Returns the business key, or null if not configured. */
   String businessKey();
 
-  /**
-   * @return true if immediate wakeup is requested
-   */
-  boolean isImmediate();
-
-  /**
-   * @return the failure callback, or null if not configured
-   */
   SerializableBiConsumer<JobContext, Throwable> onFailure();
 
-  /**
-   * @return the success callback, or null if not configured
-   */
   SerializableConsumer<JobContext> onSuccess();
 
-  /**
-   * @return the job options, never null (defaults to {@link JobOptions#defaults()})
-   */
   JobOptions opts();
 
-  /**
-   * @return an unmodifiable view of the parameters map, never null
-   */
   Map<String, String> params();
 
-  /**
-   * @return an unmodifiable view of the tags list, never null
-   */
   List<String> tags();
 
-  /**
-   * @return the primary task, never null
-   */
   SerializableCheckedRunnable task();
 
-  /**
-   * @return an unmodifiable list of workflow branches
-   */
   List<WorkflowBranch> workflowBranches();
 
-  /**
-   * @return the resource name, or null if no resource limiting is configured
-   */
   String resourceName();
+
+  boolean isImmediate();
 }

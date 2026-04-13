@@ -7,12 +7,7 @@ import jakarta.enterprise.inject.Alternative;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * Custom {@link RetryPolicy} for testing SPI overridability.
- *
- * <p>Vetoes all retry attempts after the first failure, regardless of the job's configured
- * maxRetries. This verifies that the custom policy takes precedence over the default retry logic.
- */
+/** Custom {@link RetryPolicy} for testing SPI overridability. */
 @Alternative
 @Priority(1)
 @ApplicationScoped
@@ -23,7 +18,6 @@ public class VetoRetryPolicy implements RetryPolicy {
   @Override
   public boolean shouldRetry(int attempt, Throwable cause) {
     SHOULD_RETRY_COUNT.incrementAndGet();
-    // Veto all retries — job should fail immediately after first attempt
     return false;
   }
 

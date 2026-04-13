@@ -34,7 +34,6 @@ public class LambdaSerializer {
 
   private static final Logger log = Logger.getLogger(LambdaSerializer.class);
 
-  /** Allowlist of exact class names permitted during deserialization. */
   private static final Set<String> ALLOWED_CLASSES =
       Set.of(
           "java.io.Serializable",
@@ -51,11 +50,9 @@ public class LambdaSerializer {
           "java.lang.invoke.SerializedLambda" // Required for lambda serialization
           );
 
-  /** Allowlist of class prefixes permitted during deserialization. */
   private static final Set<String> ALLOWED_CLASS_PREFIXES =
       Set.of("run.ratchet.", "java.time.", "java.math.");
 
-  /** Explicit allowlist of safe {@code java.lang} classes permitted during deserialization. */
   private static final Set<String> ALLOWED_JAVA_LANG_CLASSES =
       Set.of(
           "java.lang.String",
@@ -75,7 +72,6 @@ public class LambdaSerializer {
           "java.lang.Exception",
           "java.lang.RuntimeException");
 
-  /** Explicit allowlist of safe {@code java.util} classes permitted during deserialization. */
   private static final Set<String> ALLOWED_JAVA_UTIL_CLASSES =
       Set.of(
           "java.util.ArrayList",
@@ -96,69 +92,25 @@ public class LambdaSerializer {
 
   @SuppressWarnings("unchecked")
   public SerializablePredicate<BatchContext> deserializeBatchContextPredicate(String serialized) {
-    if (serialized == null || serialized.trim().isEmpty()) {
-      return null;
-    }
-
-    try {
-      byte[] bytes = Base64.getDecoder().decode(serialized);
-
-      try (ByteArrayInputStream bais = new ByteArrayInputStream(bytes);
-          ObjectInputStream ois = createSecureObjectInputStream(bais)) {
-
-        Object obj = ois.readObject();
-
-        if (obj instanceof SerializablePredicate) {
-          return (SerializablePredicate<BatchContext>) obj;
-        }
-
-        log.warnf("Deserialized object is not a SerializablePredicate: %s", obj.getClass());
-        return null;
-      }
-    } catch (InvalidClassException e) {
-      log.error(
-          "Security: Blocked deserialization of unauthorized class in BatchContext predicate", e);
-      return null;
-    } catch (Exception e) {
-      log.error("Failed to deserialize BatchContext predicate", e);
-      return null;
-    }
+    return (SerializablePredicate<BatchContext>)
+        deserialize(serialized, SerializablePredicate.class, "BatchContext predicate");
   }
 
   @SuppressWarnings({"unchecked", "java:S1452"})
   // Wildcard in return type is required - JobResult type is unknown at deserialization time
   public SerializablePredicate<JobResult<?>> deserializeJobResultPredicate(String serialized) {
-    if (serialized == null || serialized.trim().isEmpty()) {
-      return null;
-    }
-
-    try {
-      byte[] bytes = Base64.getDecoder().decode(serialized);
-
-      try (ByteArrayInputStream bais = new ByteArrayInputStream(bytes);
-          ObjectInputStream ois = createSecureObjectInputStream(bais)) {
-
-        Object obj = ois.readObject();
-
-        if (obj instanceof SerializablePredicate) {
-          return (SerializablePredicate<JobResult<?>>) obj;
-        }
-
-        log.warnf("Deserialized object is not a SerializablePredicate: %s", obj.getClass());
-        return null;
-      }
-    } catch (InvalidClassException e) {
-      log.error(
-          "Security: Blocked deserialization of unauthorized class in JobResult predicate", e);
-      return null;
-    } catch (Exception e) {
-      log.error("Failed to deserialize JobResult predicate", e);
-      return null;
-    }
+    return (SerializablePredicate<JobResult<?>>)
+        deserialize(serialized, SerializablePredicate.class, "JobResult predicate");
   }
 
   @SuppressWarnings("unchecked")
   public SerializableFunction<Object, Boolean> deserializeResultFunction(String serialized) {
+    return (SerializableFunction<Object, Boolean>)
+        deserialize(serialized, SerializableFunction.class, "result function");
+  }
+
+  @SuppressWarnings("java:S3740")
+  private <T> T deserialize(String serialized, Class<T> expectedType, String label) {
     if (serialized == null || serialized.trim().isEmpty()) {
       return null;
     }
@@ -171,18 +123,18 @@ public class LambdaSerializer {
 
         Object obj = ois.readObject();
 
-        if (obj instanceof SerializableFunction<?, ?>) {
-          return (SerializableFunction<Object, Boolean>) obj;
+        if (expectedType.isInstance(obj)) {
+          return expectedType.cast(obj);
         }
 
-        log.warnf("Deserialized object is not a SerializableFunction: %s", obj.getClass());
+        log.warnf("Deserialized object is not a %s: %s", expectedType.getSimpleName(), obj.getClass());
         return null;
       }
     } catch (InvalidClassException e) {
-      log.error("Security: Blocked deserialization of unauthorized class in result function", e);
+      log.errorf(e, "Security: Blocked deserialization of unauthorized class in %s", label);
       return null;
     } catch (Exception e) {
-      log.error("Failed to deserialize result function", e);
+      log.errorf(e, "Failed to deserialize %s", label);
       return null;
     }
   }
@@ -255,7 +207,6 @@ public class LambdaSerializer {
           }
         }
 
-        // Deny everything else - log security event
         log.errorf("Blocked unauthorized deserialization attempt for class: %s", className);
 
         throw new InvalidClassException(

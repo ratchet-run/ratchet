@@ -2,20 +2,7 @@ package run.ratchet.spi;
 
 /**
  * Minimal SLF4J-style {@code {}} placeholder substitution for {@link JobLogger} default methods.
- *
- * <p>Kept package-private in spirit: exposed only so {@code JobLogger} default methods can call it.
- * Deliberately does not depend on SLF4J so {@code ratchet-api} stays free of logging-facade
- * dependencies.
- *
- * <p>Rules:
- *
- * <ul>
- *   <li>Each {@code {}} in the format string is replaced with the next argument's {@link
- *       String#valueOf(Object)} form.
- *   <li>Extra placeholders without matching arguments are left as literal {@code {}}.
- *   <li>Extra arguments past the placeholder count are appended as {@code " arg1, arg2"}.
- *   <li>{@code null} format returns {@code "null"}.
- * </ul>
+ * Does not depend on SLF4J so {@code ratchet-api} stays free of logging-facade dependencies.
  */
 final class JobLoggerFormat {
 

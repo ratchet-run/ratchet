@@ -41,10 +41,8 @@ class CustomSerializationStrategyIT extends BaseRatchetIT {
 
   @Test
   void customSerializationStrategy_shouldBeUsedForPayloads() {
-    // Verify CDI selected the custom alternative
     assertInstanceOf(CountingSerializationStrategy.class, strategy);
 
-    // Round-trip a payload through the custom strategy
     String payload = "test-payload-data";
     byte[] serialized = strategy.serialize(payload);
     String deserialized = strategy.deserialize(serialized, String.class);

@@ -29,7 +29,6 @@ public class NoOpResilienceStrategy implements ResilienceStrategy {
 
   @Override
   public boolean isServiceAvailable(String serviceName) {
-    // Always available — no circuit breaker
     return true;
   }
 

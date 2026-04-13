@@ -13,9 +13,6 @@ public final class BatchScope {
 
   private BatchScope() {}
 
-  /**
-   * @return true if the current thread has an active batch scope
-   */
   public static boolean active() {
     return PARENT_ID.get() != null;
   }

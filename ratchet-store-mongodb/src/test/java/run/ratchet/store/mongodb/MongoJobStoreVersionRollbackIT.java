@@ -43,15 +43,7 @@ class MongoJobStoreVersionRollbackIT extends BaseDocumentStoreIT {
         initial.getVersion(),
         "stale-write must not leave a phantom version bump on the caller's entity");
 
-    // Cross-check: the database row should carry the CONCURRENT writer's version
-    // (initialVersion + 1), NOT the would-be phantom version (initialVersion + 2). This guards
-    // against a regression where the rollback is in place but some other path still leaves the
-    // document at an inconsistent version — the retry-on-same-instance use case would read an
-    // entity whose in-memory version disagrees with the database.
-    //
-    // Collection name is the single source of truth at MongoJobStore.jobs() (line ~1485). Kept
-    // as a string literal here rather than extracting a constant because the coupling is narrow
-    // and changing the collection name would require a coordinated update to both sides anyway.
+    // Cross-check: database row must carry the concurrent writer's version, not a phantom bump.
     Document persisted = database().getCollection("scheduler_job").find(eq("_id", id)).first();
     assertNotNull(persisted, "job row should still exist after stale-write failure");
     assertEquals(

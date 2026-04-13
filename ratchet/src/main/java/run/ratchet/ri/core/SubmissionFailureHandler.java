@@ -164,7 +164,6 @@ public class SubmissionFailureHandler {
         .findByIdLatest(jobId)
         .filter(
             job -> {
-              // Verify job is still RUNNING - if status changed, another node handled it
               if (job.getStatus() != JobStatus.RUNNING) {
                 log.infof(
                     "Job %s status changed to %s - skipping buffer, another node may have handled it",

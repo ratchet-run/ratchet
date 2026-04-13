@@ -28,12 +28,7 @@ import java.util.Map;
 import org.bson.Document;
 import org.jboss.logging.Logger;
 
-/**
- * Bidirectional mapping between Ratchet store-core entities and MongoDB BSON documents.
- *
- * <p>All methods are static. Timestamps are stored as {@link Date} for native BSON date support.
- * Enums are stored as strings. Payload and params are stored as embedded BSON documents.
- */
+/** Bidirectional mapping between Ratchet store-core entities and MongoDB BSON documents. */
 public final class DocumentMapper {
 
   private static final Logger log = Logger.getLogger(DocumentMapper.class);

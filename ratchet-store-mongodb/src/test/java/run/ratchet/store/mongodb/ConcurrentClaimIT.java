@@ -1,6 +1,7 @@
 package run.ratchet.store.mongodb;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import run.ratchet.store.entity.JobEntity;
 import java.util.ArrayList;
@@ -83,9 +84,4 @@ class ConcurrentClaimIT extends BaseDocumentStoreIT {
     assertEquals(15, remaining.size());
   }
 
-  private static void assertTrue(boolean condition, String message) {
-    if (!condition) {
-      throw new AssertionError(message);
-    }
-  }
 }

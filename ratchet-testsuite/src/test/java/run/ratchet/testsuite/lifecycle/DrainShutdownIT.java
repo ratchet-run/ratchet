@@ -58,12 +58,8 @@ class DrainShutdownIT extends BaseRatchetIT {
       JobHandle handle = jobService.enqueue(SimpleJob::execute).immediate().submit();
       assertNotNull(handle);
 
-      // Give the poller several cycles to run. With drain engaged, the job must stay PENDING.
-      // arquillian.xml caps POLLER_MAX_DELAY_MS=2000 and POLLER_DEEP_IDLE_DELAY_MS=1000, so a
-      // 6-second wait covers at least 3 full worst-case poll cycles — well past the point where
-      // a functioning drain check should have either blocked every cycle or let one through.
-      // If this test ever starts flaking, raise this wait rather than lowering it; the goal is
-      // high-confidence evidence that the poller was actively running and refused to claim.
+      // Drain engaged before enqueue — poller must not claim while draining.
+      // 6s wait covers >= 3 poll cycles (POLLER_MAX_DELAY_MS=2000).
       try {
         Thread.sleep(6000);
       } catch (InterruptedException e) {

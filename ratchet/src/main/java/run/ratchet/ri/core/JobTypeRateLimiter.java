@@ -50,12 +50,10 @@ public class JobTypeRateLimiter {
   public boolean tryAcquire(JobExecutionType jobType) {
     Integer maxPerMinute = rateLimits.get(jobType);
 
-    // No rate limit configured (0 or null = unlimited)
     if (maxPerMinute == null || maxPerMinute <= 0) {
       return true;
     }
 
-    // Get or create rate window for this job type
     RateWindow window = rateWindows.computeIfAbsent(jobType, k -> new RateWindow());
 
     return window.tryAcquire(maxPerMinute);

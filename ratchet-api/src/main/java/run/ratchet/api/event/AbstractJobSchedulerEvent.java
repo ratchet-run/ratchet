@@ -6,14 +6,7 @@ import java.io.Serial;
 import java.io.Serializable;
 import java.time.Instant;
 
-/**
- * Base class for all job scheduler events.
- *
- * <p>Provides common job metadata fields shared by all scheduler event types.
- *
- * <p>Subclasses should declare constructors that delegate to {@code super(...)} and their own
- * {@code serialVersionUID}.
- */
+/** Base class for all job scheduler events. */
 public abstract class AbstractJobSchedulerEvent implements Serializable {
 
   @Serial private static final long serialVersionUID = 6853988277084004625L;

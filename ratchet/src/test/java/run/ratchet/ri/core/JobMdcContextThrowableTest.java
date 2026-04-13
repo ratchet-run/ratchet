@@ -11,17 +11,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-/**
- * Regression guard for the {@code catch (Throwable)} + {@code finally} invariant in {@link
- * JobTask#call()}.
- *
- * <p>Worker threads in pooled executors are reused across job submissions. If a job throws an
- * {@link Error} subclass (e.g. {@link AssertionError}, {@link OutOfMemoryError}) and MDC cleanup is
- * gated on a narrower {@code catch (Exception)}, the next job dispatched to the same thread
- * inherits stale {@code jobId}/{@code node}/{@code jobCreator} keys, producing wildly incorrect log
- * correlation. This test asserts that {@link JobMdcContext#clear()} successfully removes the
- * Ratchet-owned MDC keys even when an {@link AssertionError} propagates through the cleanup path.
- */
+// Regression: MDC keys must be cleared in finally even when a job throws Error.
 class JobMdcContextThrowableTest {
 
   @BeforeEach

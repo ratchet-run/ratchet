@@ -77,7 +77,6 @@ class ConcurrentScalingIT extends BasePerformanceIT {
   void noOpScalingBaseline() {
     int measured = getMeasuredCount();
 
-    // Warmup
     List<JobHandle> warmup = enqueueN(getWarmupCount(), TimingJob::execute);
     awaitAllCompleted(warmup, PERF_TIMEOUT);
 
@@ -117,7 +116,6 @@ class ConcurrentScalingIT extends BasePerformanceIT {
     int measured = getMeasuredCount();
     ConfigurableWorkJob.setSleepMs(10);
 
-    // Warmup
     List<JobHandle> warmup = enqueueN(getWarmupCount(), ConfigurableWorkJob::execute);
     awaitAllCompleted(warmup, PERF_TIMEOUT);
 
@@ -157,7 +155,6 @@ class ConcurrentScalingIT extends BasePerformanceIT {
   void incrementalLoadScaling() {
     int[] loadLevels = {50, 100, 200, 500};
 
-    // Warmup
     List<JobHandle> warmup = enqueueN(getWarmupCount(), TimingJob::execute);
     awaitAllCompleted(warmup, PERF_TIMEOUT);
 

@@ -9,11 +9,6 @@ package run.ratchet.api;
 @FunctionalInterface
 public interface JobSubmitter {
 
-  /**
-   * Submits the fully-configured job builder for persistence and scheduling.
-   *
-   * @param builder the job builder containing all configuration
-   * @return a handle to the submitted job
-   */
+  /** Submits the fully-configured job builder for persistence and scheduling. */
   JobHandle submit(JobBuilder builder);
 }

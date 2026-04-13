@@ -99,13 +99,8 @@ public class JobExecutorService {
   }
 
   /**
-   * Executes the given job.
-   *
-   * <p>A permit must have been acquired before calling this method. The permit will be released
-   * automatically when the job completes.
-   *
-   * @param job the job to execute
-   * @return the execution result indicating success or rejection
+   * Executes the given job. A permit must have been acquired before calling this method; it is
+   * released automatically on completion.
    */
   public ExecutionResult execute(JobEntity job) {
     JobExecutionType jobType = job.getJobType();
@@ -121,12 +116,6 @@ public class JobExecutorService {
     }
   }
 
-  /**
-   * Executes a job using only the lightweight claim DTO.
-   *
-   * @param claim the job claim DTO to execute
-   * @return the execution result indicating success or rejection
-   */
   public ExecutionResult execute(JobClaimDto claim) {
     JobExecutionType jobType = claim.jobType();
     Callable<Void> callable = createPermitAwareRunner(claim, jobType);
@@ -222,16 +211,7 @@ public class JobExecutorService {
     return new InterruptibleVirtualThreadFuture(future, thread);
   }
 
-  /**
-   * A Future implementation for dedicated threads that supports interruption on cancel.
-   *
-   * <p>Standard {@link CompletableFuture} does not interrupt the thread on cancel. This wrapper
-   * holds a reference to the thread and interrupts it when cancel is called with {@code
-   * mayInterruptIfRunning=true}.
-   *
-   * <p>When virtual threads become available (Java 21+), the thread creation in {@link
-   * #submitVirtualThread} can be switched to {@code Thread.ofVirtual()}.
-   */
+  // Wraps CompletableFuture with a thread reference so cancel(true) can interrupt the thread.
   private record InterruptibleVirtualThreadFuture(CompletableFuture<Void> delegate, Thread thread)
       implements Future<Void> {
 

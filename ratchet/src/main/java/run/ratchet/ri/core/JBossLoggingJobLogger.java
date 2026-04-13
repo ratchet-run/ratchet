@@ -21,12 +21,6 @@ public class JBossLoggingJobLogger implements JobLogger {
   private final long jobId;
   private final InternalEventPublisher eventPublisher;
 
-  /**
-   * Creates a new JBossLoggingJobLogger bound to a specific job ID.
-   *
-   * @param jobId the unique identifier of the job to bind this logger to
-   * @param eventPublisher the event publisher for log line dispatch
-   */
   public JBossLoggingJobLogger(long jobId, InternalEventPublisher eventPublisher) {
     this.jobId = jobId;
     this.eventPublisher = eventPublisher;

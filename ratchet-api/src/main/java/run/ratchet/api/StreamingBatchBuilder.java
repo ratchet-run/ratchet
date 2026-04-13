@@ -43,28 +43,16 @@ public interface StreamingBatchBuilder<T extends Serializable> {
    */
   JobHandle start();
 
-  /**
-   * Executes the given task when a batch completes successfully.
-   *
-   * @param next the task to run on batch success
-   * @return this builder
-   */
+  /** Executes the given task when a batch completes successfully. */
   StreamingBatchBuilder<T> thenOnBatchSuccess(SerializableCheckedRunnable next);
 
-  /**
-   * Executes the given task when a batch fails.
-   *
-   * @param next the task to run on batch failure
-   * @return this builder
-   */
+  /** Executes the given task when a batch fails. */
   StreamingBatchBuilder<T> thenOnBatchFailure(SerializableCheckedRunnable next);
 
   /**
    * Executes the given task when a custom batch condition is met.
    *
    * @param condition predicate evaluated against the {@link BatchContext}
-   * @param next the task to run when the condition is satisfied
-   * @return this builder
    */
   StreamingBatchBuilder<T> thenWhenBatch(
       SerializablePredicate<BatchContext> condition, SerializableCheckedRunnable next);
@@ -73,8 +61,6 @@ public interface StreamingBatchBuilder<T extends Serializable> {
    * Executes the given task when the failure count reaches the specified threshold.
    *
    * @param maxFailures failure count threshold
-   * @param next the task to run when the threshold is reached
-   * @return this builder
    */
   StreamingBatchBuilder<T> thenWhenFailureCount(int maxFailures, SerializableCheckedRunnable next);
 
@@ -82,8 +68,6 @@ public interface StreamingBatchBuilder<T extends Serializable> {
    * Executes the given task when the success rate meets or exceeds the threshold.
    *
    * @param minRate minimum success rate (0.0 to 1.0)
-   * @param next the task to run when the rate is met
-   * @return this builder
    */
   StreamingBatchBuilder<T> thenWhenSuccessRate(double minRate, SerializableCheckedRunnable next);
 }

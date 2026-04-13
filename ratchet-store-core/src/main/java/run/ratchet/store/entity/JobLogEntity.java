@@ -96,11 +96,7 @@ public class JobLogEntity implements TsidEntityListener.TsidAssignable {
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(id)
-        + Objects.hashCode(jobId)
-        + Objects.hashCode(ts)
-        + Objects.hashCode(level)
-        + Objects.hashCode(message);
+    return Objects.hashCode(id);
   }
 
   @Override

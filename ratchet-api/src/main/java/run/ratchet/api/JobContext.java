@@ -86,9 +86,6 @@ public final class JobContext {
     return params.getOrDefault(key, defaultValue);
   }
 
-  /**
-   * @return an unmodifiable map of job parameters, never null
-   */
   public Map<String, String> params() {
     return params;
   }

@@ -109,10 +109,9 @@ public class JobTimeoutHandler {
       long timeoutSec) {
     if (!future.isDone() && softTimeoutSent.compareAndSet(false, true)) {
       Duration elapsed = Duration.between(executionStartTime, Instant.now());
-      log.warn(
-          String.format(
-              "Job %s approaching timeout - %d%% threshold reached. Elapsed: %s, Timeout: %ds",
-              jobId, softTimeoutPercent, formatDuration(elapsed), timeoutSec));
+      log.warnf(
+          "Job %s approaching timeout - %d%% threshold reached. Elapsed: %s, Timeout: %ds",
+          jobId, softTimeoutPercent, formatDuration(elapsed), timeoutSec);
     }
   }
 
@@ -122,10 +121,9 @@ public class JobTimeoutHandler {
       return;
     }
     Duration elapsed = Duration.between(executionStartTime, Instant.now());
-    log.error(
-        String.format(
-            "Job %s exceeded timeout of %ds. Cancelling execution. Elapsed: %s",
-            jobId, timeoutSec, formatDuration(elapsed)));
+    log.errorf(
+        "Job %s exceeded timeout of %ds. Cancelling execution. Elapsed: %s",
+        jobId, timeoutSec, formatDuration(elapsed));
 
     future.cancel(true);
 

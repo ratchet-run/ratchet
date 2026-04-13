@@ -7,33 +7,13 @@ import java.util.List;
 import org.jboss.logging.Logger;
 
 /**
- * Service for managing resource permits in a distributed environment.
- *
- * <p>This service implements a distributed semaphore pattern, allowing a configurable number of
- * jobs to access a shared resource concurrently. Unlike exclusive locks, permits allow N concurrent
- * holders where N is the configured maximum.
- *
- * <h2>Use Cases:</h2>
- *
- * <ul>
- *   <li>Limiting concurrent calls to an external API (e.g., max 5 concurrent payment calls)
- *   <li>Preventing overload of rate-limited services
- *   <li>Resource pooling across different job types
- * </ul>
- *
- * <h2>Pattern:</h2>
+ * Distributed semaphore allowing N concurrent job holders per named resource.
  *
  * <pre>{@code
- * // Before job execution
  * if (resourcePermitService.tryAcquire(resourceName, jobId, nodeId)) {
- *     try {
- *         // Execute job
- *     } finally {
- *         resourcePermitService.release(resourceName, jobId);
- *     }
- * } else {
- *     // Reschedule job with delay
- * }
+ *     try { // execute job
+ *     } finally { resourcePermitService.release(resourceName, jobId); }
+ * } else { // reschedule }
  * }</pre>
  *
  * @see ResourcePermitStore

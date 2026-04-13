@@ -54,8 +54,7 @@ public interface JobStoreContractFixture {
    * Returns whether the given throwable represents this store's stale-write / optimistic-lock
    * failure. Lets concurrency contracts assert "exactly one thread observed a stale-write" without
    * coupling the TCK to a specific exception class, and without confusing genuine infrastructure
-   * failures (connection drops, Testcontainer restarts, thread interrupts) with stale-write
-   * evidence.
+   * failures with stale-write evidence.
    *
    * <p>Default implementation returns {@code false} — a store MUST override to signal that its
    * {@code save()} throws on version mismatch. Until a store overrides, stale-write contracts will

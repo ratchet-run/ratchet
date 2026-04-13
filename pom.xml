@@ -68,7 +68,6 @@
 
   <dependencyManagement>
     <dependencies>
-      <!-- Jakarta EE 10 Web Profile API — all Web Profile specs in one dependency -->
       <dependency>
         <groupId>jakarta.platform</groupId>
         <artifactId>jakarta.jakartaee-web-api</artifactId>
@@ -76,7 +75,6 @@
         <scope>provided</scope>
       </dependency>
 
-      <!-- Surgical Jakarta API dependencies for spec-pure modules -->
       <dependency>
         <groupId>jakarta.enterprise</groupId>
         <artifactId>jakarta.enterprise.cdi-api</artifactId>
@@ -90,7 +88,6 @@
         <scope>provided</scope>
       </dependency>
 
-      <!-- ASM (for lambda analysis) -->
       <dependency>
         <groupId>org.ow2.asm</groupId>
         <artifactId>asm</artifactId>
@@ -248,9 +245,7 @@
         <version>${mongodb-driver.version}</version>
       </dependency>
 
-      <!-- JBoss Logging — Jakarta EE-aligned logging facade. Auto-detects backend
-           (JBoss LogManager, SLF4J, Log4j2) at runtime, falls back to JDK JUL.
-           Used by Hibernate, Weld, RESTEasy, and Quarkus. -->
+      <!-- jboss-logging -->
       <dependency>
         <groupId>org.jboss.logging</groupId>
         <artifactId>jboss-logging</artifactId>
@@ -260,7 +255,6 @@
   </dependencyManagement>
 
   <profiles>
-    <!-- Aggregate Javadoc across all modules for documentation generation -->
     <profile>
       <id>javadoc-aggregate</id>
       <build>
@@ -300,11 +294,9 @@
       </build>
     </profile>
 
-    <!-- Offline JaCoCo instrumentation for reliable IT coverage in WildFly -->
     <profile>
       <id>jacoco-offline</id>
       <dependencies>
-        <!-- Offline-instrumented classes need the JaCoCo runtime on the classpath -->
         <dependency>
           <groupId>org.jacoco</groupId>
           <artifactId>org.jacoco.agent</artifactId>
@@ -319,12 +311,10 @@
             <groupId>org.jacoco</groupId>
             <artifactId>jacoco-maven-plugin</artifactId>
             <executions>
-              <!-- Disable online agent — offline instrumentation replaces it -->
               <execution>
                 <id>prepare-agent</id>
                 <phase>none</phase>
               </execution>
-              <!-- Instrument compiled classes in-place -->
               <execution>
                 <id>offline-instrument</id>
                 <phase>process-classes</phase>
@@ -332,7 +322,7 @@
                   <goal>instrument</goal>
                 </goals>
               </execution>
-              <!-- Restore originals after ITs but before report generation at verify -->
+              <!-- restore before jacoco report at verify -->
               <execution>
                 <id>offline-restore</id>
                 <phase>post-integration-test</phase>
@@ -342,7 +332,6 @@
               </execution>
             </executions>
           </plugin>
-          <!-- Tell surefire where to write offline exec data -->
           <plugin>
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-surefire-plugin</artifactId>

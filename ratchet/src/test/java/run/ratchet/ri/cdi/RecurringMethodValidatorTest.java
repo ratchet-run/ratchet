@@ -50,7 +50,6 @@ class RecurringMethodValidatorTest {
     assertTrue(ex.getMessage().contains("must be of type JobContext"));
   }
 
-  /** Test fixture: valid @Recurring method signatures. */
   @SuppressWarnings("unused")
   public static class ValidBean {
     public void publicNoParams() {}
@@ -58,7 +57,6 @@ class RecurringMethodValidatorTest {
     public void publicWithContext(JobContext ctx) {}
   }
 
-  /** Test fixture: invalid @Recurring method signatures. */
   @SuppressWarnings("unused")
   public static class InvalidBean {
     private void privateMethod() {}

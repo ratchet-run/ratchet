@@ -29,28 +29,12 @@ public final class JobPayloadFactory {
 
   private JobPayloadFactory() {}
 
-  /**
-   * Creates a JobPayload from a lambda expression.
-   *
-   * <p>This is a convenience method that delegates to {@link #fromLambda(Serializable, boolean)}
-   * with versioning disabled.
-   *
-   * @param lambda the lambda expression to convert (must be serializable)
-   * @return a JobPayload representing the lambda's method invocation
-   * @throws NullPointerException if lambda is null
-   * @throws IllegalArgumentException if lambda doesn't contain exactly one method call
-   */
+  /** Creates a {@link JobPayload} from a lambda; delegates to {@link #fromLambda(Serializable, boolean)} with versioning disabled. */
   public static JobPayload fromLambda(Serializable lambda) {
     return fromLambda(lambda, false);
   }
 
-  /**
-   * Creates a JobPayload from a lambda expression while binding runtime arguments.
-   *
-   * @param lambda the lambda expression to convert (must be serializable)
-   * @param runtimeArgs arguments to bind to unresolved invocation parameter slots
-   * @return a JobPayload representing the bound invocation
-   */
+  /** Creates a {@link JobPayload} from a lambda, binding {@code runtimeArgs} to unresolved parameter slots. */
   public static JobPayload fromLambda(Serializable lambda, List<Object> runtimeArgs) {
     Objects.requireNonNull(lambda, "Lambda must not be null");
     Objects.requireNonNull(runtimeArgs, "Runtime args must not be null");
@@ -84,16 +68,6 @@ public final class JobPayloadFactory {
         args);
   }
 
-  /**
-   * Creates a JobPayload from a lambda expression with optional versioning.
-   *
-   * @param lambda the lambda expression to convert (must be serializable)
-   * @param versioned whether to create a versioned payload (currently unused)
-   * @return a JobPayload representing the lambda's method invocation
-   * @throws NullPointerException if lambda is null
-   * @throws IllegalArgumentException if lambda doesn't contain exactly one method call
-   * @throws IllegalStateException if lambda cannot be serialized
-   */
   @SuppressWarnings("java:S1172")
   // versioned parameter reserved for future payload versioning support
   public static JobPayload fromLambda(Serializable lambda, boolean versioned) {
@@ -128,32 +102,15 @@ public final class JobPayloadFactory {
         step.arguments());
   }
 
-  /**
-   * Returns a no-operation job payload.
-   *
-   * @return a pre-constructed no-op JobPayload
-   */
   public static JobPayload noop() {
     return NOOP;
   }
 
-  /**
-   * Converts JVM internal class name format to fully qualified class name.
-   *
-   * @param internal the internal class name with '/' separators
-   * @return the fully qualified class name with '.' separators
-   */
   private static String internalNameToFqcn(String internal) {
     return internal.replace('/', '.');
   }
 
-  /**
-   * Rejects a lambda that targets a non-public method, failing immediately at payload creation
-   * rather than deferring to runtime execution where the error message is less actionable.
-   *
-   * @param step the resolved invocation step extracted from the lambda
-   * @throws IllegalArgumentException if the target method is not public
-   */
+  // Fail fast at payload creation rather than deferring to runtime execution.
   private static void rejectNonPublicMethod(InvocationStep step) {
     String className = internalNameToFqcn(step.ownerInternalName());
     try {
@@ -190,13 +147,6 @@ public final class JobPayloadFactory {
     }
   }
 
-  /**
-   * Resolves wrapper invocations that target serializable functional interfaces to the underlying
-   * concrete invocation.
-   *
-   * @param initialStep the invocation extracted from the submitted lambda
-   * @return the unwrapped invocation if resolvable, otherwise the original step
-   */
   private static InvocationStep resolveNestedFunctionalInvocation(InvocationStep initialStep) {
     InvocationStep resolved = initialStep;
 
@@ -211,12 +161,6 @@ public final class JobPayloadFactory {
     return resolved;
   }
 
-  /**
-   * Attempts to unwrap a single functional-interface adapter invocation.
-   *
-   * @param step the invocation step to inspect
-   * @return unwrapped invocation step, or {@code null} if unwrapping is not applicable
-   */
   private static InvocationStep unwrapFunctionalAdapterInvocation(InvocationStep step) {
     if (step.isStatic() || !isSerializableFunctionalInterfaceMethod(step)) {
       return null;
@@ -247,13 +191,6 @@ public final class JobPayloadFactory {
         nestedStep.receiver());
   }
 
-  /**
-   * Merges wrapper-call arguments with the nested invocation arguments.
-   *
-   * @param nestedStep invocation extracted from the captured lambda receiver
-   * @param wrapperArgs arguments observed at the wrapper invocation site
-   * @return merged argument list for final payload creation
-   */
   private static List<Object> mergeInvocationArguments(
       InvocationStep nestedStep, List<Object> wrapperArgs) {
     if (wrapperArgs.isEmpty()) {
@@ -285,13 +222,6 @@ public final class JobPayloadFactory {
     return List.copyOf(merged);
   }
 
-  /**
-   * Checks whether the invocation targets the single abstract method of a serializable functional
-   * interface.
-   *
-   * @param step invocation step to inspect
-   * @return {@code true} when this is a serializable functional-interface adapter invocation
-   */
   private static boolean isSerializableFunctionalInterfaceMethod(InvocationStep step) {
     String ownerClassName = internalNameToFqcn(step.ownerInternalName());
 
@@ -321,12 +251,6 @@ public final class JobPayloadFactory {
     }
   }
 
-  /**
-   * Attempts to extract a SerializedLambda from a serializable object.
-   *
-   * @param value a potentially lambda-backed serializable object
-   * @return serialized lambda metadata, or {@code null} if not a serializable lambda
-   */
   private static SerializedLambda tryToSerializedLambda(Serializable value) {
     try {
       return toSerializedLambda(value);
@@ -335,13 +259,6 @@ public final class JobPayloadFactory {
     }
   }
 
-  /**
-   * Extracts the SerializedLambda representation from a lambda expression.
-   *
-   * @param lambda the serializable lambda expression
-   * @return the SerializedLambda containing lambda metadata
-   * @throws IllegalStateException if the lambda cannot be serialized
-   */
   @SuppressWarnings("java:S3011")
   // setAccessible is required for lambda serialization - accessing compiler-generated writeReplace
   private static SerializedLambda toSerializedLambda(Serializable lambda) {

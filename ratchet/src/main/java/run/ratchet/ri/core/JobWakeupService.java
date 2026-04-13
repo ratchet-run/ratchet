@@ -14,20 +14,7 @@ import java.time.Duration;
 import org.jboss.logging.Logger;
 
 /**
- * Service responsible for publishing job wakeup notifications across the cluster.
- *
- * <p>When jobs are created that require immediate processing (user-triggered actions, CRITICAL
- * priority jobs), this service publishes a notification via the {@link ClusterCoordinator}. All
- * cluster nodes receive the notification and wake their pollers to check for available work.
- *
- * <p>Notification Strategy:
- *
- * <ul>
- *   <li>User-triggered SINGLE jobs with no delay: Always notify
- *   <li>BATCH_PARENT jobs: Always notify (user initiated batch)
- *   <li>CRITICAL priority jobs: Always notify regardless of type
- *   <li>RECURRING, BATCH_CHILD, CHAIN_STEP, WORKFLOW_*: Do not notify
- * </ul>
+ * Publishes cluster-wide wakeup notifications when jobs requiring immediate processing are created.
  *
  * @see JobWakeupNotification
  * @see PollerWakeupListener
@@ -39,7 +26,6 @@ public class JobWakeupService {
 
   private final ClusterCoordinator clusterCoordinator;
   private final NodeIdentityProvider nodeIdProvider;
-  private final boolean enabled = true;
 
   @Resource private TransactionSynchronizationRegistry txRegistry;
 
@@ -56,34 +42,13 @@ public class JobWakeupService {
     this.nodeIdProvider = nodeIdProvider;
   }
 
-  /**
-   * Publishes a wakeup notification with explicit immediate flag.
-   *
-   * @param priority the job priority
-   * @param immediate true to mark as requiring immediate pickup
-   */
   public void notify(JobPriority priority, boolean immediate) {
-    if (!enabled) {
-      return;
-    }
-
     if (immediate) {
       publishNotification(priority);
     }
   }
 
-  /**
-   * Publishes a wakeup notification if the job requires immediate processing.
-   *
-   * @param jobType the type of job being created
-   * @param priority the job priority
-   * @param delay the scheduled delay (zero means immediate execution)
-   */
   public void notifyIfNeeded(JobExecutionType jobType, JobPriority priority, Duration delay) {
-    if (!enabled) {
-      return;
-    }
-
     if (shouldNotify(jobType, priority, delay)) {
       publishNotification(priority);
     }

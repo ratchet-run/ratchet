@@ -25,13 +25,6 @@ public class CircuitBreakerRegistry {
     registerDefaultConfigs();
   }
 
-  /**
-   * Gets or creates a circuit breaker with the default profile.
-   *
-   * <p>Delegates to {@link #getBreaker(String, CircuitBreakerProfile)} with {@link
-   * CircuitBreakerProfile#DEFAULT} so that callers using the no-profile overload share the same
-   * breaker instance as CDI interceptors that explicitly specify the default profile.
-   */
   public CircuitBreaker getBreaker(String serviceName) {
     return getBreaker(serviceName, CircuitBreakerProfile.DEFAULT);
   }
@@ -97,8 +90,6 @@ public class CircuitBreakerRegistry {
   private CircuitBreaker createBreaker(String serviceName, CircuitBreakerConfiguration config) {
     CircuitBreaker breaker = new CircuitBreaker(serviceName, config);
     log.debugf("Created circuit breaker for service: %s", serviceName);
-    // Metrics for circuit breaker creation tracked via JUL logging
-    // MetricsCollector SPI is job-oriented; circuit breaker metrics are internal
     return breaker;
   }
 

@@ -47,9 +47,6 @@ public class RecurringMethodInvoker {
     this.classPolicy = classPolicy;
   }
 
-  /**
-   * @throws Exception if the bean/method cannot be found or invocation fails
-   */
   @SuppressWarnings("java:S112")
   public void invoke(String beanClassName, String methodName, boolean hasJobContextParam)
       throws Exception {
@@ -73,9 +70,6 @@ public class RecurringMethodInvoker {
     }
   }
 
-  /**
-   * @throws IllegalStateException if the bean cannot be resolved from CDI
-   */
   public void validateBeanResolvable(Class<?> beanClass) {
     ensureClassAllowed(beanClass.getName());
     Instance<?> instance = allBeans.select(beanClass);

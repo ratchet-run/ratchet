@@ -28,9 +28,6 @@ public class CdiBeanResolver implements BeanResolver {
 
   @Override
   public <T> T resolve(Class<T> type) {
-    if (allBeans == null) {
-      throw new IllegalStateException("CDI bean resolver not initialized");
-    }
     Instance<T> instance = allBeans.select(type);
     if (instance.isUnsatisfied()) {
       throw new IllegalStateException("No CDI bean found for type: " + type.getName());

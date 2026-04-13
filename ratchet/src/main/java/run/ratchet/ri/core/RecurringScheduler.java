@@ -173,7 +173,7 @@ public class RecurringScheduler {
         return;
       }
       // CDI context gone (e.g. Arquillian undeploy) — stop permanently, next deploy starts fresh
-      if (isCdiContextGone(ex)) {
+      if (SchedulerUtils.isCdiContextGone(ex)) {
         started.set(false);
         log.info("RecurringScheduler detected inactive CDI context — stopping permanently");
         return;
@@ -211,19 +211,6 @@ public class RecurringScheduler {
 
     long targetDelay = Math.max(msUntilNextFire - 500, minPollMs);
     return Math.min(targetDelay, maxPollMs);
-  }
-
-  /** Checks whether the throwable indicates the CDI application context has been torn down. */
-  private static boolean isCdiContextGone(Throwable t) {
-    Throwable current = t;
-    while (current != null) {
-      String name = current.getClass().getName();
-      if (name.contains("ContextNotActiveException") || name.contains("ContextNotAliveException")) {
-        return true;
-      }
-      current = current.getCause();
-    }
-    return false;
   }
 
   private void scheduleNext(long delayMs) {

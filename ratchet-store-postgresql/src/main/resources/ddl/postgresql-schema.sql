@@ -1,7 +1,3 @@
--- ============================================================
--- Ratchet Scheduler – PostgreSQL schema
--- ============================================================
-
 -- 1. scheduler_node
 CREATE TABLE IF NOT EXISTS scheduler_node
 (
@@ -99,7 +95,7 @@ CREATE INDEX IF NOT EXISTS idx_recurring_due ON scheduler_job (status, next_fire
 CREATE INDEX IF NOT EXISTS idx_job_recurring_composite ON scheduler_job (job_type, status, next_fire);
 CREATE INDEX IF NOT EXISTS idx_job_due ON scheduler_job (status, scheduled_time);
 CREATE INDEX IF NOT EXISTS idx_job_priority_due ON scheduler_job (priority, scheduled_time);
--- Lookup/relationship indexes — used by application code paths.
+-- Lookup/relationship indexes.
 CREATE INDEX IF NOT EXISTS idx_job_picked_by ON scheduler_job (picked_by);
 CREATE INDEX IF NOT EXISTS idx_job_type ON scheduler_job (job_type);
 CREATE INDEX IF NOT EXISTS idx_job_depends_on ON scheduler_job (depends_on);

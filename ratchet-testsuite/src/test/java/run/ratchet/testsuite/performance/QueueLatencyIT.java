@@ -60,11 +60,9 @@ class QueueLatencyIT extends BasePerformanceIT {
   void queueWaitUnderLightLoad() {
     int count = 100;
 
-    // Warmup
     List<JobHandle> warmup = enqueueN(getWarmupCount(), TimingJob::execute);
     awaitAllCompleted(warmup, PERF_TIMEOUT);
 
-    // Measured
     PerformanceMetricsCollector.reset();
     TimingJob.resetCount();
 
@@ -100,11 +98,9 @@ class QueueLatencyIT extends BasePerformanceIT {
   void queueWaitUnderHeavyLoad() {
     int count = getMeasuredCount();
 
-    // Warmup
     List<JobHandle> warmup = enqueueN(getWarmupCount(), TimingJob::execute);
     awaitAllCompleted(warmup, PERF_TIMEOUT);
 
-    // Measured
     PerformanceMetricsCollector.reset();
     TimingJob.resetCount();
 
@@ -139,11 +135,9 @@ class QueueLatencyIT extends BasePerformanceIT {
   void executionLatencyDistribution() {
     int count = getMeasuredCount();
 
-    // Warmup
     List<JobHandle> warmup = enqueueN(getWarmupCount(), TimingJob::execute);
     awaitAllCompleted(warmup, PERF_TIMEOUT);
 
-    // Measured
     PerformanceMetricsCollector.reset();
     TimingJob.resetCount();
 
