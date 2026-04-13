@@ -55,6 +55,15 @@ public interface JobSchedulerService {
    * <p>For type-safe event observation, use CDI {@code @Observes} with specific event types
    * instead. This method is intended for non-CDI contexts or when receiving all events is desired.
    *
+   * <p><b>Synchronous dispatch — latency warning.</b> Listeners are invoked synchronously on the
+   * publishing thread, which is typically the job execution thread. A slow listener creates
+   * unbounded latency on the job hot path and can stall the scheduler. This is intentional — event
+   * publication participates in the same transaction as the state change it announces — but it
+   * means any listener that does heavyweight work (I/O, network calls, cross-system notifications)
+   * MUST offload to its own thread pool. For CDI observers of the same events, prefer
+   * {@code @ObservesAsync} when the observer does not need to participate in the source
+   * transaction.
+   *
    * <p>Event types delivered (all extend {@link
    * run.ratchet.api.event.AbstractJobSchedulerEvent}):
    *

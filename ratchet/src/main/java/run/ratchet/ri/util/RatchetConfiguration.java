@@ -1,6 +1,9 @@
 package run.ratchet.ri.util;
 
+import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
+import java.util.List;
+import org.jboss.logging.Logger;
 
 /**
  * CDI-injectable configuration bean for the Ratchet job scheduler. Reads configuration values from
@@ -12,6 +15,73 @@ import jakarta.enterprise.context.ApplicationScoped;
  */
 @ApplicationScoped
 public class RatchetConfiguration {
+
+  private static final Logger log = Logger.getLogger(RatchetConfiguration.class);
+
+  /**
+   * Env var pairs (preferred, legacy) for every numeric configuration value. Used by {@link
+   * #validateNumericEnvVars()} to emit a startup WARN for any env var that is present but does not
+   * parse as a non-negative integer. Keep in sync with every {@code parseIntOrDefault} / {@code
+   * parseLongOrDefault} getter.
+   */
+  private static final List<String[]> NUMERIC_ENV_VARS =
+      List.of(
+          new String[] {"RATCHET_CB_DEFAULT_FAILURE_RATE", "SCHEDULER_CB_DEFAULT_FAILURE_RATE"},
+          new String[] {"RATCHET_CB_DEFAULT_WAIT_SECONDS", "SCHEDULER_CB_DEFAULT_WAIT_SECONDS"},
+          new String[] {"RATCHET_CB_DEFAULT_WINDOW_SIZE", "SCHEDULER_CB_DEFAULT_WINDOW_SIZE"},
+          new String[] {"RATCHET_CB_EXTERNAL_FAILURE_RATE", "SCHEDULER_CB_EXTERNAL_FAILURE_RATE"},
+          new String[] {"RATCHET_CB_EXTERNAL_WAIT_SECONDS", "SCHEDULER_CB_EXTERNAL_WAIT_SECONDS"},
+          new String[] {
+            "RATCHET_IDEMPOTENCY_RETRY_MAX_ATTEMPTS", "SCHEDULER_IDEMPOTENCY_RETRY_MAX_ATTEMPTS"
+          },
+          new String[] {
+            "RATCHET_IDEMPOTENCY_RETRY_INITIAL_DELAY_MS",
+            "SCHEDULER_IDEMPOTENCY_RETRY_INITIAL_DELAY_MS"
+          },
+          new String[] {
+            "RATCHET_IDEMPOTENCY_RETRY_MAX_DELAY_MS", "SCHEDULER_IDEMPOTENCY_RETRY_MAX_DELAY_MS"
+          },
+          new String[] {"RATCHET_DLQ_PURGE_DAYS", "DLQ_PURGE_DAYS"},
+          new String[] {"RATCHET_JOB_ARCHIVE_BATCH_SIZE", "SCHEDULER_JOB_ARCHIVE_BATCH_SIZE"},
+          new String[] {"RATCHET_JOB_RETENTION_DAYS", "SCHEDULER_JOB_RETENTION_DAYS"},
+          new String[] {"RATCHET_LOG_RETENTION_DAYS", "LOG_RETENTION_DAYS"},
+          new String[] {"RATCHET_MAX_PAYLOAD_KB", "SCHEDULER_MAX_PAYLOAD_KB"},
+          new String[] {
+            "RATCHET_NODE_HEARTBEAT_INTERVAL_SECONDS", "NODE_HEARTBEAT_INTERVAL_SECONDS"
+          },
+          new String[] {"RATCHET_NODE_ORPHAN_GRACE_SECONDS", "NODE_ORPHAN_GRACE_SECONDS"},
+          new String[] {
+            "RATCHET_ORPHAN_SCAN_INTERVAL_MINUTES", "SCHEDULER_ORPHAN_SCAN_INTERVAL_MINUTES"
+          },
+          new String[] {
+            "RATCHET_PRIORITY_BOOST_INTERVAL_MINUTES", "SCHEDULER_PRIORITY_BOOST_INTERVAL_MINUTES"
+          },
+          new String[] {"RATCHET_POLLER_BATCH_SIZE", "POLLER_BATCH_SIZE"},
+          new String[] {"RATCHET_POLLER_BURST_DELAY_MS", "POLLER_BURST_DELAY_MS"},
+          new String[] {"RATCHET_POLLER_DEEP_IDLE_DELAY_MS", "POLLER_DEEP_IDLE_DELAY_MS"},
+          new String[] {"RATCHET_POLLER_DEEP_IDLE_THRESHOLD_MS", "POLLER_DEEP_IDLE_THRESHOLD_MS"},
+          new String[] {"RATCHET_POLLER_IDLE_THRESHOLD", "POLLER_IDLE_THRESHOLD"},
+          new String[] {"RATCHET_POLLER_MAX_DELAY_MS", "POLLER_MAX_DELAY_MS"},
+          new String[] {"RATCHET_POLLER_MIN_DELAY_MS", "POLLER_MIN_DELAY_MS"},
+          new String[] {"RATCHET_RECURRING_BATCH_LIMIT", "RECURRING_BATCH_LIMIT"},
+          new String[] {"RATCHET_RECURRING_MAX_POLL_MS", "RECURRING_MAX_POLL_MS"},
+          new String[] {"RATCHET_RECURRING_POLL_MS", "RECURRING_POLL_MS"},
+          new String[] {"RATCHET_SOFT_TIMEOUT_PERCENT", "SCHEDULER_SOFT_TIMEOUT_PERCENT"},
+          new String[] {"RATCHET_THREAD_POOL_QUEUE_SIZE", "SCHEDULER_THREAD_POOL_QUEUE_SIZE"},
+          new String[] {
+            "RATCHET_THREAD_POOL_SIZE_BATCH_CHILD", "SCHEDULER_THREAD_POOL_SIZE_BATCH_CHILD"
+          },
+          new String[] {
+            "RATCHET_THREAD_POOL_SIZE_BATCH_PARENT", "SCHEDULER_THREAD_POOL_SIZE_BATCH_PARENT"
+          },
+          new String[] {"RATCHET_THREAD_POOL_SIZE_CHAIN", "SCHEDULER_THREAD_POOL_SIZE_CHAIN"},
+          new String[] {"RATCHET_THREAD_POOL_SIZE_DEFAULT", "SCHEDULER_THREAD_POOL_SIZE_DEFAULT"},
+          new String[] {"RATCHET_THREAD_POOL_SIZE_DLQ", "SCHEDULER_THREAD_POOL_SIZE_DLQ"},
+          new String[] {
+            "RATCHET_THREAD_POOL_SIZE_RECURRING", "SCHEDULER_THREAD_POOL_SIZE_RECURRING"
+          },
+          new String[] {"RATCHET_THREAD_POOL_SIZE_SINGLE", "SCHEDULER_THREAD_POOL_SIZE_SINGLE"},
+          new String[] {"RATCHET_WORKER_DEFAULT_SLA", "WORKER_DEFAULT_SLA"});
 
   // ============================================================================
   // Circuit Breaker Configuration
@@ -279,6 +349,39 @@ public class RatchetConfiguration {
     this.workerUseVirtualThreads =
         getEnvWithFallback(
             "RATCHET_WORKER_USE_VIRTUAL_THREADS", "WORKER_USE_VIRTUAL_THREADS", "false");
+  }
+
+  /**
+   * Emits a startup WARN for any numeric env var that is present but unparseable as a non-negative
+   * integer. Does not change fallback behavior — silent default on invalid input is intentional.
+   * The WARN gives operators a visible signal that their configuration is not taking effect.
+   */
+  @PostConstruct
+  void validateNumericEnvVars() {
+    for (String[] pair : NUMERIC_ENV_VARS) {
+      String preferred = pair[0];
+      String legacy = pair[1];
+      String raw = System.getenv(preferred);
+      String source = preferred;
+      if (raw == null || raw.isEmpty()) {
+        raw = System.getenv(legacy);
+        source = legacy;
+      }
+      if (raw == null || raw.isEmpty()) {
+        raw = System.getProperty(preferred);
+        source = preferred;
+        if (raw == null || raw.isEmpty()) {
+          raw = System.getProperty(legacy);
+          source = legacy;
+        }
+      }
+      if (raw != null && !raw.isEmpty() && !raw.matches("\\d+")) {
+        log.warnf(
+            "Ratchet configuration: env var %s=%s is not a valid non-negative integer; using"
+                + " built-in default.",
+            source, raw);
+      }
+    }
   }
 
   /* ─────────────────────── env helpers ─────────────────────── */
