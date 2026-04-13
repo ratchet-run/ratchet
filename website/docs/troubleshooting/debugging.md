@@ -165,7 +165,7 @@ public class SchedulerMonitor {
      */
     public void onDlq(@Observes JobDlqEvent event) {
         log.severe("DLQ ALERT: Job " + event.getJobId()
-            + " failed permanently after " + event.getAttempt() + " attempts"
+            + " failed permanently after " + event.getRetryAttempt() + " attempts"
             + " - " + event.getErrorMessage());
         // Send alert to monitoring system, Slack, etc.
     }
@@ -175,8 +175,8 @@ public class SchedulerMonitor {
      */
     public void onRetry(@Observes JobRetryingEvent event) {
         log.info("Retry: Job " + event.getJobId()
-            + " attempt " + event.getAttempt()
-            + " scheduled for " + event.getNextScheduledTime());
+            + " attempt " + event.getRetryAttempt()
+            + " scheduled for " + event.getScheduledTime());
     }
 }
 ```

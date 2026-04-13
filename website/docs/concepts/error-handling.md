@@ -144,7 +144,7 @@ When a job permanently fails (exhausts retries, `@DoNotRetry`, or `RetryPolicy` 
 public void onDlq(@Observes JobDlqEvent event) {
     slackService.alert(String.format(
         "Job %d moved to DLQ after %d attempts: %s",
-        event.jobId(), event.attemptCount(), event.errorMessage()));
+        event.getJobId(), event.getRetryAttempt(), event.getErrorMessage()));
 }
 ```
 

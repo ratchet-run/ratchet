@@ -203,7 +203,7 @@ Or register a programmatic listener:
 ```java
 scheduler.addEventListener(event -> {
     if (event instanceof JobFailedEvent failed) {
-        alertOps(failed.getJobId(), failed.getError());
+        alertOps(failed.getJobId(), failed.getErrorMessage());
     }
 });
 ```

@@ -139,7 +139,7 @@ Ratchet publishes lifecycle events that your application can observe. Events liv
 
 ```java
 public void onJobFailed(@Observes JobFailedEvent event) {
-    alertService.notify(event.jobId(), event.errorMessage());
+    alertService.notify(event.getJobId(), event.getErrorMessage());
 }
 ```
 
@@ -148,7 +148,7 @@ In non-CDI environments, register a programmatic listener:
 ```java
 scheduler.addEventListener(event -> {
     if (event instanceof JobDlqEvent dlq) {
-        log.severe("Job " + dlq.jobId() + " moved to DLQ");
+        log.severe("Job " + dlq.getJobId() + " moved to DLQ");
     }
 });
 ```

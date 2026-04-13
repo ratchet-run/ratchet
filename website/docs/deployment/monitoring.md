@@ -103,17 +103,17 @@ public class JobMonitor {
 
     public void onFailed(@Observes JobFailedEvent event) {
         log.error("Job {} failed (attempt {}): {}",
-            event.getJobId(), event.getAttempt(), event.getError());
+            event.getJobId(), event.getRetryAttempt(), event.getErrorMessage());
     }
 
     public void onRetrying(@Observes JobRetryingEvent event) {
-        log.warn("Job {} retrying (attempt {} of {})",
-            event.getJobId(), event.getAttempt(), event.getMaxRetries());
+        log.warn("Job {} retrying (attempt {}): {}",
+            event.getJobId(), event.getRetryAttempt(), event.getErrorMessage());
     }
 
     public void onDlq(@Observes JobDlqEvent event) {
         // Alert: job exhausted all retries
-        alertOps("Job " + event.getJobId() + " moved to DLQ: " + event.getError());
+        alertOps("Job " + event.getJobId() + " moved to DLQ: " + event.getErrorMessage());
     }
 }
 ```
