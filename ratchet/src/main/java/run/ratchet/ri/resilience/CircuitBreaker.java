@@ -163,7 +163,6 @@ public class CircuitBreaker {
       try {
         int successes = ++halfOpenSuccesses;
         if (successes >= config.permittedCallsInHalfOpen()) {
-          // All trial calls succeeded — transition to CLOSED
           if (state.compareAndSet(State.HALF_OPEN, State.CLOSED)) {
             totalCalls = 0;
             failureCount = 0;
@@ -176,7 +175,6 @@ public class CircuitBreaker {
       }
       return result;
     } catch (Exception e) {
-      // Any failure in HALF_OPEN → back to OPEN
       transitionToOpen();
       throw e;
     }

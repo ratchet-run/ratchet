@@ -85,7 +85,7 @@ public class RatchetLifecycle {
   }
 
   void onStartup(@Observes @Initialized(ApplicationScoped.class) Object init) {
-    log.info("Initializing Ratchet job scheduler...");
+    log.info("Ratchet starting");
 
     poller.init();
     recurringScheduler.init();
@@ -112,15 +112,13 @@ public class RatchetLifecycle {
 
     pollerWakeupListener.init();
 
-    log.info("Ratchet job scheduler initialized");
+    log.info("Ratchet started");
   }
 
   @PreDestroy
   void onShutdown() {
-    log.info("Shutting down Ratchet job scheduler...");
-    // Engage drain mode BEFORE stopping the poller. Any in-flight Poller.tick() past the
-    // started.get() guard but before pollOnce() will short-circuit on isDraining() (Poller:188)
-    // instead of claiming jobs that would then be submitted to a torn-down executor.
+    log.info("Ratchet stopping");
+    // Drain before stop to prevent new claims
     drainController.setDraining(true);
     poller.stop();
     recurringScheduler.stop();
@@ -133,8 +131,6 @@ public class RatchetLifecycle {
       defaultProvider.shutdown();
     }
 
-    // Release classloader references held by static reflection caches
-    // BatchService caches are cleared via @PreDestroy on the @ApplicationScoped bean
     JobTask.clearCaches();
   }
 }

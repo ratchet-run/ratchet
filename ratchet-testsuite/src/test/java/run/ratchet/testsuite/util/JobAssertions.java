@@ -82,11 +82,6 @@ public final class JobAssertions {
             });
   }
 
-  /**
-   * Asserts that all steps in a chain completed successfully. Walks the dependsOn chain from the
-   * submitted handle (first step) by following dependants until the chain of the expected length is
-   * verified.
-   */
   public static void assertChainCompleted(
       JobCrudStore store, JobHandle firstHandle, int chainLength, Duration timeout) {
     // Wait for the first step to complete
@@ -126,16 +121,11 @@ public final class JobAssertions {
     }
   }
 
-  /**
-   * Asserts that a batch parent job reaches SUCCEEDED status within the specified timeout, meaning
-   * all child items completed successfully.
-   */
   public static void assertBatchSucceeded(
       JobCrudStore store, JobHandle batchHandle, Duration timeout) {
     assertJobCompleted(store, batchHandle, timeout);
   }
 
-  /** Asserts that a job reaches a specific status within the default timeout. */
   public static void assertJobStatus(JobCrudStore store, JobHandle handle, JobStatus expected) {
     await()
         .atMost(DEFAULT_TIMEOUT)

@@ -79,7 +79,6 @@ public final class JobPayloadFactory {
     InvocationStep step = resolveNestedFunctionalInvocation(joi.last());
     rejectNonPublicMethod(step);
 
-    // Always return basic payload (versioned payloads are no longer used)
     return new JobPayload(
         internalNameToFqcn(step.ownerInternalName()),
         step.methodName(),
@@ -109,7 +108,6 @@ public final class JobPayloadFactory {
     return internal.replace('/', '.');
   }
 
-  // Fail fast at payload creation rather than deferring to runtime execution.
   private static void rejectNonPublicMethod(InvocationStep step) {
     String className = internalNameToFqcn(step.ownerInternalName());
     try {
@@ -142,7 +140,6 @@ public final class JobPayloadFactory {
                 + "supported. Change the method visibility to public.");
       }
     } catch (ClassNotFoundException e) {
-      // Class not loadable here -- downstream validators will catch this
     }
   }
 

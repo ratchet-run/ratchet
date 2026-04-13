@@ -53,7 +53,6 @@ public class JobWakeupService {
     }
   }
 
-  /** Initializes the service. */
   public void init() {
     // no-op, wakeup listener handles registration
   }
@@ -101,9 +100,7 @@ public class JobWakeupService {
           });
       return true;
     } catch (Exception e) {
-      log.warnf(
-          "Failed to register after-commit wakeup publication; publishing immediately: %s",
-          e.getMessage());
+      log.warnf("After-commit wakeup registration error; firing now: %s", e.getMessage());
       return false;
     }
   }
@@ -113,7 +110,7 @@ public class JobWakeupService {
       clusterCoordinator.notifyNewWork(priority);
       log.debugf("Published wakeup notification: priority=%s", priority);
     } catch (Exception e) {
-      log.warnf("Failed to publish wakeup notification: %s", e.getMessage());
+      log.warnf("Wakeup notification error: %s", e.getMessage());
     }
   }
 }

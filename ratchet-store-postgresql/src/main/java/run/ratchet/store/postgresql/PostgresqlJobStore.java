@@ -863,7 +863,7 @@ public class PostgresqlJobStore implements JobStore {
         ps.executeBatch();
       }
     } catch (Exception e) {
-      throw new RuntimeException("Bulk insert failed", e);
+      throw new RuntimeException("Bulk insert error", e);
     } finally {
       em.clear();
     }
@@ -1501,7 +1501,7 @@ public class PostgresqlJobStore implements JobStore {
     try {
       return OBJECT_MAPPER.readValue(jsonValue.toString(), JobPayload.class);
     } catch (JsonProcessingException e) {
-      log.warnf("Failed to parse progress_hook JSON: %s", e.getMessage());
+      log.warnf("Bad progress_hook JSON: %s", e.getMessage());
       return null;
     }
   }

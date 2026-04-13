@@ -34,7 +34,6 @@ public record CircuitBreakerConfiguration(
   public static final CircuitBreakerConfiguration EXTERNAL_API =
       new CircuitBreakerConfiguration(60.0f, 50, 60_000L, 5_000L, 3, 5);
 
-  /** Returns the configuration for a given profile. */
   public static CircuitBreakerConfiguration forProfile(CircuitBreakerProfile profile) {
     return switch (profile) {
       case FAST -> FAST;
@@ -44,10 +43,6 @@ public record CircuitBreakerConfiguration(
     };
   }
 
-  /**
-   * Creates a configuration from environment variables with a given prefix. Falls back to the
-   * specified defaults if variables are not set.
-   */
   public static CircuitBreakerConfiguration fromEnvironment(
       String prefix, CircuitBreakerConfiguration defaults) {
     return new CircuitBreakerConfiguration(

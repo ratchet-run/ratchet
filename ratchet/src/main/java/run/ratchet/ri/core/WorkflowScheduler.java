@@ -48,10 +48,8 @@ public class WorkflowScheduler extends ChainScheduler {
 
   @Override
   public void cancelChain(JobEntity parentJob) {
-    // Cancel linear chain jobs first
     super.cancelChain(parentJob);
 
-    // Cancel workflow branch jobs
     List<WorkflowConditionEntity> conditions =
         conditionStore.findConditionsByParentJobId(parentJob.getId());
 
@@ -132,7 +130,6 @@ public class WorkflowScheduler extends ChainScheduler {
     } else {
       log.infof(
           "No workflow conditions met for job %s, checking for linear chain", parentJob.getId());
-      // Fall back to linear chain behavior, respecting failure status
       if (parentJob.getStatus() == JobStatus.FAILED) {
         super.cancelChain(parentJob);
       } else {

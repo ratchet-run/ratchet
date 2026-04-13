@@ -7,13 +7,6 @@ import jakarta.enterprise.inject.Alternative;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * Custom {@link ResilienceStrategy} for testing SPI overridability.
- *
- * <p>Passes through all executions without any circuit breaker protection. Tracks the number of
- * {@link #execute} calls so tests can verify that the custom strategy was actually used by the
- * engine.
- */
 @Alternative
 @Priority(1000)
 @ApplicationScoped

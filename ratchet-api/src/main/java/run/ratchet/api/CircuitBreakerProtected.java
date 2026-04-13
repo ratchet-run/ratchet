@@ -30,15 +30,9 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface CircuitBreakerProtected {
 
-  /**
-   * @return the protected service name (used for logging and grouping circuit breakers)
-   */
   @Nonbinding
   String service() default "";
 
-  /**
-   * @return the circuit breaker profile; defaults to {@link CircuitBreakerProfile#DEFAULT}
-   */
   @Nonbinding
   CircuitBreakerProfile profile() default CircuitBreakerProfile.DEFAULT;
 }

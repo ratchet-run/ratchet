@@ -4,13 +4,7 @@ import run.ratchet.spi.JobLogger;
 import java.util.Collections;
 import java.util.Map;
 
-/**
- * Thread-local context providing the current job's ID, logger, and parameters during execution.
- * Bound automatically at job start via {@link #bind} and cleared on completion via {@link #clear}.
- *
- * @see JobLogger
- * @see JobSchedulerService
- */
+/** Thread-local context for the executing job. */
 public final class JobContext {
 
   private static final ThreadLocal<JobContext> TL = new ThreadLocal<>();

@@ -3,12 +3,6 @@ package run.ratchet.testsuite.app;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-/**
- * Tracks execution order for chain/sequential job tests.
- *
- * <p>Each step method appends its identifier to a shared list, allowing tests to verify that chain
- * steps execute in the correct order.
- */
 public class ChainStepTracker {
 
   private static final CopyOnWriteArrayList<String> EXECUTION_ORDER = new CopyOnWriteArrayList<>();

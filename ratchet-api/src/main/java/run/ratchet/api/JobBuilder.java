@@ -39,10 +39,8 @@ public interface JobBuilder {
    */
   JobBuilder immediate();
 
-  /** Sets a callback invoked if the job fails. */
   JobBuilder onFailure(SerializableBiConsumer<JobContext, Throwable> f);
 
-  /** Sets a callback invoked on successful completion. */
   JobBuilder onSuccess(SerializableConsumer<JobContext> s);
 
   /** Submits the job and returns a handle to it. */

@@ -40,26 +40,20 @@ public class SubmissionGateChecker {
     return checkInternal(job.getJobType(), job.getId(), isFirstAttempt);
   }
 
-  /** DTO overload of {@link #check(JobEntity, boolean)}. */
   public GateCheckResult check(JobClaimDto claim, boolean isFirstAttempt) {
     return checkInternal(claim.jobType(), claim.id(), isFirstAttempt);
   }
 
-  /** Internal gate check implementation used by both entity and DTO methods. */
   private GateCheckResult checkInternal(
       JobExecutionType jobType, Long jobId, boolean isFirstAttempt) {
     if (isFirstAttempt && drainController.isDraining()) {
       return GateCheckResult.draining(jobId);
     }
 
-    // Acquire permit FIRST (scarce resource), then check rate limit
-    // This prevents rate limiter counter drift when permits are unavailable
     if (!threadPoolManager.tryAcquirePermit(jobType)) {
       return GateCheckResult.noPermits(jobType, jobId);
     }
 
-    // Rate limit check AFTER permit acquisition
-    // If rate limited, release the permit immediately to prevent resource leak
     if (!rateLimiter.tryAcquire(jobType)) {
       threadPoolManager.releasePermit(jobType);
       return GateCheckResult.rateLimited(

@@ -5,12 +5,7 @@ import run.ratchet.api.CircuitBreakerProtected;
 import jakarta.enterprise.context.ApplicationScoped;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * CDI bean with circuit breaker-protected methods for integration testing.
- *
- * <p>Uses the FAST profile for quicker test feedback (3 minimum calls, 10s wait, 2 half-open
- * calls).
- */
+/** FAST profile: 3 min calls, 10s wait, 2 half-open. */
 @ApplicationScoped
 public class CircuitBreakerTestService {
 

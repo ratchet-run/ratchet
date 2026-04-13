@@ -7,12 +7,9 @@ import java.util.List;
 @Incubating
 public interface TagStore {
 
-  /** Inserts all supplied tags for a job. */
   void insertTags(long jobId, List<String> tags);
 
-  /** Deletes all tags associated with a job and returns the number removed. */
   int deleteTagsByJobId(long jobId);
 
-  /** Returns job IDs matching a tag using store-defined pagination semantics. */
   List<Long> findJobIdsByTag(String tag, int limit, int offset);
 }

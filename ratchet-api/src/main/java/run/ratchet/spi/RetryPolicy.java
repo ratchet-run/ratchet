@@ -8,16 +8,9 @@ import java.time.Duration;
 public interface RetryPolicy {
 
   /**
-   * Returns whether another attempt should be made.
-   *
    * @param attempt 1-based attempt number
    */
   boolean shouldRetry(int attempt, Throwable cause);
 
-  /**
-   * Returns the delay before the next retry.
-   *
-   * @param attempt 1-based attempt number
-   */
   Duration getDelay(int attempt);
 }

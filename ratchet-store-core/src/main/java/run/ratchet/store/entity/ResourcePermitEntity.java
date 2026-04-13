@@ -9,15 +9,7 @@ import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import java.time.Instant;
 
-/**
- * Entity representing an active permit held by a job for a resource.
- *
- * <p>Permits are acquired before job execution and released when the job completes. The total
- * number of active permits for a resource is limited by {@link
- * ResourceLimitEntity#getMaxConcurrent()}.
- *
- * @see ResourceLimitEntity
- */
+/** Active resource permit (JPA entity). */
 @Entity
 @Table(
     name = "scheduler_resource_permit",
@@ -42,7 +34,6 @@ public class ResourcePermitEntity implements TsidEntityListener.TsidAssignable {
   @Column(name = "acquired_at", nullable = false)
   private Instant acquiredAt;
 
-  /** Creates a new permit for a job to access a resource. */
   public static ResourcePermitEntity create(String resourceName, Long jobId, String nodeId) {
     ResourcePermitEntity entity = new ResourcePermitEntity();
     entity.setResourceName(resourceName);

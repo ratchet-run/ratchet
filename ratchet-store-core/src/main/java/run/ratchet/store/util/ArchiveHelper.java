@@ -74,7 +74,7 @@ public final class ArchiveHelper {
     try {
       return mapper.writeValueAsString(job.getPayload());
     } catch (Exception e) {
-      log.warn("Failed to serialize payload", e);
+      log.warn("Payload serialization error", e);
       return "{}";
     }
   }
@@ -90,7 +90,7 @@ public final class ArchiveHelper {
     try {
       return mapper.writeValueAsString(job.getParams());
     } catch (Exception e) {
-      log.warn("Failed to serialize params", e);
+      log.warn("Params serialization error", e);
       return null;
     }
   }
@@ -106,7 +106,7 @@ public final class ArchiveHelper {
     try {
       return mapper.writeValueAsString(payload);
     } catch (Exception e) {
-      log.warn("Failed to serialize callback payload", e);
+      log.warn("Callback payload serialization error", e);
       return null;
     }
   }

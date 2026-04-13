@@ -35,7 +35,6 @@ public class ChainScheduler {
     this.jobCrudStore = jobCrudStore;
   }
 
-  /** Cancels all downstream dependents of a failed job using depth-first traversal. */
   public void cancelChain(JobEntity failed) {
     Deque<Long> stack = new ArrayDeque<>();
     stack.push(failed.getId());
@@ -54,7 +53,6 @@ public class ChainScheduler {
     }
   }
 
-  /** Unlocks immediate dependents of a completed job by resetting their scheduled time. */
   public void scheduleNext(JobEntity finished) {
     List<JobEntity> children = jobCrudStore.findDependants(finished.getId());
     if (children.isEmpty()) {

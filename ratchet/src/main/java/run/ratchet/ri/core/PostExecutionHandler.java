@@ -68,7 +68,6 @@ public class PostExecutionHandler {
         // No additional post-success work for recurring or system jobs.
       }
     }
-    // Wake the poller so it picks up any newly created jobs (workflow branches, chain steps)
     pollerScheduler.wakeup();
   }
 
@@ -81,7 +80,6 @@ public class PostExecutionHandler {
       }
       default -> moveToDlq(job, ex);
     }
-    // Wake the poller so it picks up any newly created jobs (workflow branches, chain steps)
     pollerScheduler.wakeup();
   }
 }

@@ -84,10 +84,8 @@ public class RecurringJobExecutor {
 
       Instant baseTime = master.getNextFire() != null ? master.getNextFire() : now;
 
-      // Enqueue child for the current scheduled fire time
       enqueueChild(master, baseTime.isBefore(now) ? baseTime : now);
 
-      // Catch up on missed executions
       Optional<Instant> nextOpt =
           execTime.nextExecution(baseTime.atZone(zone)).map(ZonedDateTime::toInstant);
 
@@ -105,7 +103,6 @@ public class RecurringJobExecutor {
             "Recurring job %s caught up on %s missed executions", master.getId(), catchupCount);
       }
 
-      // Skip ahead to the next valid future time if still in the past
       while (nextOpt.isPresent() && nextOpt.get().isBefore(now)) {
         nextOpt = execTime.nextExecution(nextOpt.get().atZone(zone)).map(ZonedDateTime::toInstant);
       }

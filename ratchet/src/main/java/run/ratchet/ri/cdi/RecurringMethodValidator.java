@@ -24,45 +24,30 @@ final class RecurringMethodValidator {
   /**
    * Validates that a method has a compatible signature for @Recurring.
    *
-   * @param method the method to validate
    * @throws IllegalArgumentException if the method signature is invalid
    */
   static void validate(Method method) {
-    validateIsPublic(method);
-    validateNotStatic(method);
-    validateParameters(method);
-  }
-
-  private static String formatMethodName(Method method) {
-    return method.getDeclaringClass().getName() + "." + method.getName();
-  }
-
-  private static void validateNotStatic(Method method) {
-    if (Modifier.isStatic(method.getModifiers())) {
-      throw new IllegalArgumentException(
-          "@Recurring method must not be static: " + formatMethodName(method));
-    }
-  }
-
-  private static void validateIsPublic(Method method) {
     if (!Modifier.isPublic(method.getModifiers())) {
       throw new IllegalArgumentException(
           "@Recurring method must be public: " + formatMethodName(method));
     }
-  }
-
-  private static void validateParameters(Method method) {
+    if (Modifier.isStatic(method.getModifiers())) {
+      throw new IllegalArgumentException(
+          "@Recurring method must not be static: " + formatMethodName(method));
+    }
     Class<?>[] paramTypes = method.getParameterTypes();
-
     if (paramTypes.length > 1) {
       throw new IllegalArgumentException(
           "@Recurring method must have no parameters or a single JobContext parameter: "
               + formatMethodName(method));
     }
-
     if (paramTypes.length == 1 && !JobContext.class.isAssignableFrom(paramTypes[0])) {
       throw new IllegalArgumentException(
           "@Recurring method parameter must be of type JobContext: " + formatMethodName(method));
     }
+  }
+
+  private static String formatMethodName(Method method) {
+    return method.getDeclaringClass().getName() + "." + method.getName();
   }
 }

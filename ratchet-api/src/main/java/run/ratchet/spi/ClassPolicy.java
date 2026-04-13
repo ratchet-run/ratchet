@@ -11,11 +11,5 @@ import run.ratchet.api.Incubating;
 @Incubating
 public interface ClassPolicy {
 
-  /**
-   * Determines whether a class is allowed based on its name.
-   *
-   * @param className the fully qualified name of the class to check
-   * @return {@code true} if the specified class is allowed; otherwise, {@code false}
-   */
   boolean isAllowed(String className);
 }

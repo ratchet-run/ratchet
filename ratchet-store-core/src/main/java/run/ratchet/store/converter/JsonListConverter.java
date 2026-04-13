@@ -24,7 +24,7 @@ public class JsonListConverter implements AttributeConverter<List<Object>, Strin
     try {
       return JSONB.toJson(attribute);
     } catch (JsonbException e) {
-      throw new IllegalArgumentException("Failed to serialize List<Object> to JSON", e);
+      throw new IllegalArgumentException("JSON list serialization error", e);
     }
   }
 
@@ -37,7 +37,7 @@ public class JsonListConverter implements AttributeConverter<List<Object>, Strin
     try {
       return (List<Object>) JSONB.fromJson(dbData, List.class);
     } catch (JsonbException e) {
-      throw new IllegalArgumentException("Failed to deserialize List<Object> from JSON", e);
+      throw new IllegalArgumentException("JSON list deserialization error", e);
     }
   }
 }

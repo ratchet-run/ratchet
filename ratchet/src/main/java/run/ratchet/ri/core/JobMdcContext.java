@@ -29,9 +29,7 @@ final class JobMdcContext {
   static final String MDC_NODE = "node";
   static final String MDC_JOB_CREATOR = "jobCreator";
 
-  private JobMdcContext() {
-    // Utility class
-  }
+  private JobMdcContext() {}
 
   // Entry point for early-load failure paths where node/creator metadata is not yet available.
   static void bindJobContext(Long jobId, Map<String, String> params) {

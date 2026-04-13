@@ -50,7 +50,6 @@ public class PerformanceMetricsCollector implements MetricsCollector {
     FAILED_COUNT.incrementAndGet();
   }
 
-  /** Returns a snapshot of current performance metrics. */
   public static PerformanceSnapshot snapshot() {
     long[] times = EXECUTION_TIMES.stream().mapToLong(Long::longValue).toArray();
     Arrays.sort(times);
@@ -75,7 +74,6 @@ public class PerformanceMetricsCollector implements MetricsCollector {
         FAILED_COUNT.get());
   }
 
-  /** Resets all counters and timing data. Call between warmup and measured phases. */
   public static void reset() {
     EXECUTION_TIMES.clear();
     STARTED_COUNT.set(0);
@@ -93,7 +91,6 @@ public class PerformanceMetricsCollector implements MetricsCollector {
     return sorted[Math.max(0, index)];
   }
 
-  /** Immutable snapshot of performance metrics at a point in time. */
   public record PerformanceSnapshot(
       long completedCount,
       double throughputJobsPerSec,

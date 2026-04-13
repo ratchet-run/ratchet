@@ -17,12 +17,7 @@ import java.util.List;
 import java.util.UUID;
 import org.testcontainers.containers.MongoDBContainer;
 
-/**
- * Shared Testcontainers-based fixture for MongoDB TCK tests.
- *
- * <p>Manages the lifecycle of a MongoDB container and provides factory methods for creating valid
- * test entities.
- */
+/** Shared Testcontainers-based fixture for MongoDB TCK tests. */
 public class MongoTestFixture implements JobStoreContractFixture {
 
   private static final MongoDBContainer MONGO = new MongoDBContainer("mongo:7.0").withReuse(true);

@@ -1510,7 +1510,7 @@ public class MysqlJobStore implements JobStore {
     try {
       return OBJECT_MAPPER.readValue(jsonValue.toString(), JobPayload.class);
     } catch (JsonProcessingException e) {
-      log.warnf("Failed to parse progress_hook JSON: %s", e.getMessage());
+      log.warnf("Bad progress_hook JSON: %s", e.getMessage());
       return null;
     }
   }

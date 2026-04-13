@@ -50,12 +50,12 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
   public static JobInvocation inspect(SerializedLambda serializedLambda) {
     Objects.requireNonNull(serializedLambda, "SerializedLambda must not be null");
 
-    // ── 1. Method reference (static or instance) ──
+    // Method reference
     if (!serializedLambda.getImplMethodName().startsWith("lambda$")) {
       return new JobInvocation(List.of(handleMethodReference(serializedLambda)));
     }
 
-    // ── 2. Inline lambda (i.e. lambda$... method) ──
+    // Inline lambda
     return handleInlineLambda(serializedLambda);
   }
 
@@ -112,7 +112,6 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
   }
 
   @SuppressWarnings({"java:S3776", "java:S6541"})
-  // Cognitive complexity is inherent to bytecode switch - each case is simple
   private static JobInvocation handleInlineLambda(SerializedLambda serializedLambda) {
     ClassNode lambdaClass = readClassNode(serializedLambda.getImplClass());
 
@@ -252,7 +251,7 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
 
       return classStructure;
     } catch (IOException ioException) {
-      throw new IllegalStateException("Unable to read class " + classInternalName, ioException);
+      throw new IllegalStateException("Cannot read class " + classInternalName, ioException);
     }
   }
 
@@ -273,8 +272,7 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
       m.setAccessible(true);
       return (SerializedLambda) m.invoke(lambda);
     } catch (ReflectiveOperationException e) {
-      throw new IllegalStateException(
-          "Unable to serialise lambda -- did you forget to make it Serializable?", e);
+      throw new IllegalStateException("Lambda is not Serializable", e);
     }
   }
 

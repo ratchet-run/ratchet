@@ -4,7 +4,7 @@ package run.ratchet.ri.util;
 public final class JobPlaceholders {
 
   private JobPlaceholders() {
-    throw new UnsupportedOperationException("Utility class - do not instantiate");
+    throw new UnsupportedOperationException();
   }
 
   public static void noop() {}

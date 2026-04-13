@@ -9,12 +9,9 @@ import java.util.List;
 @Incubating
 public interface JobClaimStore {
 
-  /** Claims due non-recurring jobs for execution and returns hydrated entities. */
   List<JobEntity> claimNextBatch(int limit, String nodeId);
 
-  /** Claims due non-recurring jobs and returns lightweight claim DTOs for hot polling paths. */
   List<JobClaimDto> claimNextBatchOptimized(int limit, String nodeId);
 
-  /** Claims due recurring master jobs whose next fire time has arrived. */
   List<JobEntity> claimDueRecurring(int limit, String nodeId);
 }

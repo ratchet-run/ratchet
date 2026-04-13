@@ -97,7 +97,7 @@ public class JdkSerializationStrategy implements SerializationStrategy {
       oos.flush();
       return baos.toByteArray();
     } catch (Exception e) {
-      throw new RuntimeException("Failed to serialize object: " + obj, e);
+      throw new RuntimeException("Serialization error: " + obj, e);
     }
   }
 
@@ -109,7 +109,7 @@ public class JdkSerializationStrategy implements SerializationStrategy {
       ois.setObjectInputFilter(FILTER);
       return (T) ois.readObject();
     } catch (Exception e) {
-      throw new RuntimeException("Failed to deserialize to " + type.getName(), e);
+      throw new RuntimeException("Deserialization error for " + type.getName(), e);
     }
   }
 }

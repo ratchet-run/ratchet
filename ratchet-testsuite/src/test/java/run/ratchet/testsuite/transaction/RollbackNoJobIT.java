@@ -17,13 +17,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
-/**
- * Validates that rolling back the enclosing transaction also removes the enqueued job — no orphan
- * job rows should exist after a rollback.
- *
- * <p>JPA-only: these tests exercise JTA transaction semantics which are not applicable to document
- * stores.
- */
+/** JPA-only: exercises JTA transaction semantics not applicable to document stores. */
 @EnabledIfSystemProperty(named = "ratchet.test.db.type", matches = "mysql|postgresql")
 class RollbackNoJobIT extends BaseRatchetIT {
 

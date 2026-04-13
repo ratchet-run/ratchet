@@ -11,15 +11,6 @@ import org.jboss.logging.Logger;
 /**
  * Synchronous event publisher for internal RI use. Fires events to both programmatic listeners
  * (registered via {@link #addListener}) and CDI observers (via {@link Event#fire}).
- *
- * <p><b>Synchronous dispatch — latency warning.</b> Both programmatic listeners and CDI observers
- * are invoked on the publishing thread, which is often the job execution thread. A slow listener or
- * observer creates unbounded latency on the job hot path and can stall the scheduler. This is by
- * design for transactional consistency — events fire inside the same {@code @Transactional}
- * boundary as the state change they announce, so observers can participate in the same transaction.
- * Listeners that do heavyweight work (I/O, network calls, cross-system notifications) MUST offload
- * to their own thread pool. CDI observers that need async semantics should use
- * {@code @ObservesAsync} instead of {@code @Observes}.
  */
 @ApplicationScoped
 public class InternalEventPublisher {

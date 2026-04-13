@@ -76,11 +76,6 @@ public class PackagePrefixClassPolicy implements ClassPolicy {
     this.allowedPackages = Set.copyOf(allowedPackages);
   }
 
-  /**
-   * Validates user-supplied prefixes. Rejects the kinds of values that would either trivially
-   * bypass the policy (empty string matches every class via {@code startsWith("")}) or indicate
-   * likely misconfiguration ({@code "a"} or {@code "j"} as a prefix is almost certainly wrong).
-   */
   private static void validatePrefixes(Set<String> prefixes) {
     if (prefixes == null) {
       throw new IllegalArgumentException("Allowed package prefixes set must not be null");

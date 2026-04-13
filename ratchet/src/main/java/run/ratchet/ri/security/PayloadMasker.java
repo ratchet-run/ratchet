@@ -68,7 +68,7 @@ public class PayloadMasker {
       }
       return MAPPER.writeValueAsString(root);
     } catch (Exception e) {
-      log.warnf("Failed to mask payload JSON, returning masked value: %s", e.getMessage());
+      log.warnf("Payload masking error, redacting: %s", e.getMessage());
       return MASKED_VALUE;
     }
   }
@@ -85,7 +85,7 @@ public class PayloadMasker {
       String json = MAPPER.writeValueAsString(payload);
       return maskPayload(json);
     } catch (Exception e) {
-      log.warnf("Failed to serialize payload for masking: %s", e.getMessage());
+      log.warnf("Payload serialization error, redacting: %s", e.getMessage());
       return MASKED_VALUE;
     }
   }

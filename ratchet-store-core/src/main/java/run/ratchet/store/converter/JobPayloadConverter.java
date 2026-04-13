@@ -24,7 +24,7 @@ public class JobPayloadConverter implements AttributeConverter<JobPayload, Strin
     try {
       return JSONB.toJson(attribute);
     } catch (JsonbException e) {
-      throw new IllegalArgumentException("Failed to serialize JobPayload to JSON", e);
+      throw new IllegalArgumentException("JobPayload serialization error", e);
     }
   }
 
@@ -36,7 +36,7 @@ public class JobPayloadConverter implements AttributeConverter<JobPayload, Strin
     try {
       return JSONB.fromJson(dbData, JobPayload.class);
     } catch (JsonbException e) {
-      throw new IllegalArgumentException("Failed to deserialize JobPayload from JSON", e);
+      throw new IllegalArgumentException("JobPayload deserialization error", e);
     }
   }
 }

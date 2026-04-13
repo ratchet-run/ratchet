@@ -9,7 +9,7 @@ import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import org.jboss.logging.Logger;
 
-/** Resets jobs back to PENDING status for reprocessing (shutdown, failure recovery, timeouts). */
+/** Resets jobs to PENDING for reprocessing. */
 @ApplicationScoped
 @Transactional
 public class JobStateManager {
@@ -44,7 +44,6 @@ public class JobStateManager {
     return false;
   }
 
-  /** Overload for when only the job ID is available (e.g., from a DTO). */
   public boolean resetJobToPending(Long jobId) {
     try {
       boolean reset = jobStatusStore.resetRunningJob(jobId, nodeIdentityProvider.getNodeId());
@@ -54,7 +53,7 @@ public class JobStateManager {
 
       log.warnf("Failed to reset job %s - scheduling for retry buffer", jobId);
     } catch (Exception e) {
-      log.errorf(e, "Failed to reset job %s to PENDING status", jobId);
+      log.errorf(e, "Reset to PENDING error for job %s", jobId);
     }
 
     return false;

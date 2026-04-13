@@ -2,11 +2,7 @@ package run.ratchet.testsuite.app;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * Job that always throws an exception. Used for retry and failure-handling tests.
- *
- * <p>Tracks attempt count so tests can verify retry behavior.
- */
+/** Always throws; tracks attempts for retry tests. */
 public class FailingJob {
 
   private static final AtomicInteger ATTEMPT_COUNT = new AtomicInteger(0);

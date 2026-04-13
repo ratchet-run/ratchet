@@ -27,7 +27,6 @@ public class MongoContainerExtension
   private static volatile MongoStoreConfig config;
   private static volatile boolean started = false;
 
-  /** Returns the current MongoDB configuration (available after extension initialization). */
   public static MongoStoreConfig getConfig() {
     if (config == null) {
       throw new IllegalStateException(

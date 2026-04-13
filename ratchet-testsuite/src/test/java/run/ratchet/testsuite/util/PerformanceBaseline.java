@@ -46,7 +46,7 @@ public class PerformanceBaseline {
         log.info("[BASELINE] No baseline file found at " + resourcePath + " — recording mode");
       }
     } catch (IOException e) {
-      log.warning("Failed to load baselines: " + e.getMessage());
+      log.warning("Baseline file unreadable: " + e.getMessage());
     }
   }
 
@@ -127,7 +127,7 @@ public class PerformanceBaseline {
       }
       log.info("[BASELINE] Recorded baselines written to " + outputFile);
     } catch (IOException e) {
-      log.warning("Failed to write baseline file: " + e.getMessage());
+      log.warning("Baseline file not written: " + e.getMessage());
     }
   }
 }

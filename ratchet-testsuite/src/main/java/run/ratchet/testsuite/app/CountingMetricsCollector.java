@@ -8,7 +8,6 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Alternative;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/** Custom {@link MetricsCollector} for testing SPI overridability. */
 @Alternative
 @Priority(1)
 @ApplicationScoped

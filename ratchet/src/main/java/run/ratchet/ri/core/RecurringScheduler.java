@@ -80,7 +80,6 @@ public class RecurringScheduler {
     return currentDelayMs;
   }
 
-  /** Must be called before {@link #init()}. */
   public void configure(long minPollMs, long maxPollMs, int batchLimit) {
     this.minPollMs = minPollMs;
     this.maxPollMs = maxPollMs;
@@ -99,11 +98,7 @@ public class RecurringScheduler {
     log.infof("RecurringScheduler started (minPoll=%s ms, maxPoll=%s ms)", minPollMs, maxPollMs);
   }
 
-  /**
-   * Triggers an immediate scan cycle when a new recurring job is submitted. This cancels any
-   * pending long-delay scan and replaces it with an immediate one, ensuring newly submitted
-   * recurring jobs are picked up promptly rather than waiting for the next scheduled poll.
-   */
+  /** Forces an immediate poll cycle. */
   public void kick() {
     if (!started.get()) {
       return;
@@ -132,7 +127,6 @@ public class RecurringScheduler {
 
     ScheduledFuture<?> renewalTask = null;
     try {
-      // leader election via DB lock (5-minute TTL)
       if (!lockStore.tryLock(LOCK_NAME, Duration.ofMinutes(5), nodeIdentityProvider.getNodeId())) {
         scheduleNext(minPollMs);
         return;
@@ -151,7 +145,6 @@ public class RecurringScheduler {
       int processedCount =
           recurringJobExecutor.process(batchLimit, nodeIdentityProvider.getNodeId());
 
-      // Wake the poller so it picks up spawned children immediately
       if (processedCount > 0) {
         pollerScheduler.wakeup();
       }

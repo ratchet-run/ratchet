@@ -135,7 +135,7 @@ public class LambdaSerializer {
       log.errorf(e, "Security: Blocked deserialization of unauthorized class in %s", label);
       return null;
     } catch (Exception e) {
-      log.errorf(e, "Failed to deserialize %s", label);
+      log.errorf(e, "Deserialization error for %s", label);
       return null;
     }
   }
@@ -176,7 +176,7 @@ public class LambdaSerializer {
       byte[] bytes = baos.toByteArray();
       return Base64.getEncoder().encodeToString(bytes);
     } catch (IOException e) {
-      log.error("Failed to serialize predicate", e);
+      log.error("Predicate serialization error", e);
       return null;
     }
   }

@@ -58,7 +58,6 @@ public class JobExecutionEntity implements TsidEntityListener.TsidAssignable {
   @Column(name = "duration_ms")
   private Long durationMs;
 
-  /** Creates a new execution entry for the given attempt. */
   public static JobExecutionEntity start(Long jobId, int attempt, String nodeId) {
     JobExecutionEntity entity = new JobExecutionEntity();
     entity.setJobId(jobId);
@@ -149,14 +148,12 @@ public class JobExecutionEntity implements TsidEntityListener.TsidAssignable {
     this.durationMs = durationMs;
   }
 
-  /** Marks this execution as succeeded. */
   public void markSucceeded() {
     this.endedAt = Instant.now();
     this.status = ExecutionStatus.SUCCEEDED;
     this.durationMs = endedAt.toEpochMilli() - startedAt.toEpochMilli();
   }
 
-  /** Marks this execution as failed, recording error class and message from the exception. */
   public void markFailed(Throwable exception) {
     this.endedAt = Instant.now();
     this.status = ExecutionStatus.FAILED;
@@ -171,7 +168,6 @@ public class JobExecutionEntity implements TsidEntityListener.TsidAssignable {
     }
   }
 
-  /** Marks this execution as canceled. */
   public void markCanceled() {
     this.endedAt = Instant.now();
     this.status = ExecutionStatus.CANCELED;
@@ -179,7 +175,6 @@ public class JobExecutionEntity implements TsidEntityListener.TsidAssignable {
     this.errorMessage = "Job was canceled during execution - result discarded";
   }
 
-  /** Execution status for a job attempt. */
   public enum ExecutionStatus {
     RUNNING,
     SUCCEEDED,

@@ -1,12 +1,6 @@
 package run.ratchet.api;
 
-/**
- * Thread-local scope tracking the current batch parent ID during batch job creation. Internal use
- * only; client code should use {@link BatchBuilder} and {@link BatchContext}.
- *
- * @see BatchBuilder
- * @see JobSchedulerService
- */
+/** Internal thread-local for batch parent ID. */
 public final class BatchScope {
 
   private static final ThreadLocal<Long> PARENT_ID = new ThreadLocal<>();

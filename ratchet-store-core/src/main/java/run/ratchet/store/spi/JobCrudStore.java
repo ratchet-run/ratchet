@@ -16,7 +16,6 @@ public interface JobCrudStore {
   /** Creates or updates a job row and returns the persisted entity view. */
   JobEntity save(JobEntity job);
 
-  /** Loads a job by primary key. */
   Optional<JobEntity> findById(long id);
 
   /**
@@ -27,7 +26,6 @@ public interface JobCrudStore {
    */
   Optional<JobEntity> findByIdLatest(long id);
 
-  /** Deletes a job by primary key. */
   void delete(long id);
 
   /** Returns the current persisted status for a job, or store-specific null handling if absent. */
@@ -39,7 +37,6 @@ public interface JobCrudStore {
   /** Finds the active job currently associated with a business key, if any. */
   Optional<JobEntity> findActiveByBusinessKey(String businessKey);
 
-  /** Finds a job by its idempotency key. */
   Optional<JobEntity> findByIdempotencyKey(String idempotencyKey);
 
   /** Returns direct dependant jobs whose {@code dependsOn} points at the supplied parent. */
@@ -48,10 +45,8 @@ public interface JobCrudStore {
   /** Returns the next fire time of the earliest pending recurring master job. */
   Optional<Instant> findEarliestRecurringNextFire();
 
-  /** Counts jobs currently in {@code PENDING}. */
   long countPendingJobs();
 
-  /** Counts jobs in the supplied status. */
   long countJobsByStatus(JobStatus status);
 
   /** Counts active jobs of the supplied type. */
@@ -69,7 +64,6 @@ public interface JobCrudStore {
   /** Counts running jobs whose execution start time is older than the supplied threshold. */
   long countLongRunningJobs(Instant threshold);
 
-  /** Counts pending batch-child jobs. */
   long countPendingBatchChildren();
 
   /** Counts pending jobs at the supplied priority. */

@@ -30,12 +30,7 @@ import java.util.function.Consumer;
 import java.util.stream.Stream;
 import org.jboss.logging.Logger;
 
-/**
- * Default implementation of {@link StreamingBatchBuilder} for memory-efficient batch processing.
- *
- * <p>Processes items from a stream in chunks, creating BATCH_CHILD jobs for each item. This avoids
- * loading the entire dataset into memory at once.
- */
+/** {@inheritDoc} */
 @SuppressWarnings("unchecked")
 public class DefaultStreamingBatchBuilder<T extends Serializable>
     implements StreamingBatchBuilder<T> {

@@ -14,20 +14,7 @@ import java.util.List;
 import java.util.Queue;
 import java.util.Set;
 
-/**
- * Service responsible for cascading pause/resume operations across job dependency trees.
- *
- * <p>Uses iterative BFS (breadth-first search) traversal to find and update child jobs linked
- * through the {@code dependsOn} relationship. A visited set prevents infinite loops from circular
- * dependencies.
- *
- * <p>Cascade logic:
- *
- * <ul>
- *   <li><b>Pause cascade:</b> Finds all PENDING/FAILED children and transitions them to PAUSED
- *   <li><b>Resume cascade:</b> Finds all PAUSED children and transitions them to PENDING
- * </ul>
- */
+/** Cascades pause/resume through job dependency trees via BFS. */
 @ApplicationScoped
 @Transactional
 public class JobCascadeService {

@@ -1530,7 +1530,7 @@ public class MongoJobStore implements JobStore {
           claimed.add(mapper.apply(doc));
         }
       } catch (CompletionException e) {
-        log.warnf("Failed to claim job: %s", e.getCause().getMessage());
+        log.warnf("Claim error: %s", e.getCause().getMessage());
       }
     }
     return claimed;

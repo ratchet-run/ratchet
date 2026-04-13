@@ -65,7 +65,7 @@ public class WorkflowConditionEvaluator {
     } catch (Exception e) {
       log.errorf(
           e,
-          "Failed to evaluate workflow condition %s for job %s: %s",
+          "Condition evaluation error for %s on job %s: %s",
           condition.getId(),
           parentJob.getId(),
           e.getMessage());
@@ -133,7 +133,7 @@ public class WorkflowConditionEvaluator {
       return false;
 
     } catch (Exception e) {
-      log.error("Failed to evaluate custom batch condition", e);
+      log.error("Custom batch condition error", e);
       return false;
     }
   }
@@ -203,7 +203,7 @@ public class WorkflowConditionEvaluator {
         return predicate.test(result);
       }
 
-      log.warn("Failed to deserialize job result predicate, falling back to simple evaluation");
+      log.warn("Predicate deserialization error; using heuristic fallback");
 
       if (expression.contains("executionTime")) {
         return result.getExecutionTimeMsOrZero() > extractThreshold(expression);
@@ -212,7 +212,7 @@ public class WorkflowConditionEvaluator {
       return result.isSuccess();
 
     } catch (Exception e) {
-      log.error("Failed to evaluate custom condition", e);
+      log.error("Custom condition error", e);
       return false;
     }
   }
@@ -239,7 +239,7 @@ public class WorkflowConditionEvaluator {
 
       return false;
     } catch (Exception e) {
-      log.error("Failed to evaluate result condition", e);
+      log.error("Result condition error", e);
       return false;
     }
   }
@@ -280,7 +280,7 @@ public class WorkflowConditionEvaluator {
     } catch (SecurityException e) {
       throw e; // propagate ClassPolicy rejections
     } catch (Exception e) {
-      log.warnf("Failed to parse job result: %s", e.getMessage());
+      log.warnf("Job result JSON parse error: %s", e.getMessage());
       return jobResultJson; // Return as string if parsing fails
     }
   }

@@ -3,12 +3,6 @@ package run.ratchet.testsuite.app;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * Tracks batch item processing for integration tests.
- *
- * <p>Each call to {@link #process(String)} records the item in a thread-safe set that tests can
- * query after batch completion.
- */
 public class BatchItemProcessor {
 
   private static final Set<String> PROCESSED_ITEMS = ConcurrentHashMap.newKeySet();

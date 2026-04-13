@@ -31,7 +31,7 @@ public class MongoCollectionInitializer {
     } catch (Exception e) {
       log.warnf(
           e,
-          "Failed to create index %s on %s",
+          "Index creation error: %s on %s",
           options.getName(),
           coll.getNamespace().getCollectionName());
     }

@@ -21,16 +21,7 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 
-/**
- * Base class for performance integration tests. Provides longer Awaitility defaults, job enqueue
- * helpers, percentile computation, and access to baseline/reporting utilities.
- *
- * <p>Store-specific bulk operations (background row insertion, scan diagnostics) are delegated to
- * {@link PerformanceTestHelper}, which is resolved by CDI based on the active store backend.
- *
- * <p>All performance test classes should extend this and use the {@code @Tag("performance")}
- * annotation (inherited from this class).
- */
+/** Shared setup for performance ITs. */
 @Tag("performance")
 public abstract class BasePerformanceIT extends BaseRatchetIT {
 
@@ -43,12 +34,7 @@ public abstract class BasePerformanceIT extends BaseRatchetIT {
   @Inject protected PollerScheduler pollerScheduler;
   @Inject protected PerformanceTestHelper perfHelper;
 
-  /**
-   * Stops the poller before truncation to prevent lock conflicts. Both PostgreSQL (ACCESS EXCLUSIVE
-   * for TRUNCATE) and MySQL (metadata lock for TRUNCATE) deadlock with the poller's concurrent
-   * SELECT FOR UPDATE SKIP LOCKED queries. Stopping the poller ensures no active transactions block
-   * the cleanup.
-   */
+  /** Stop poller to avoid TRUNCATE deadlock. */
   @Override
   protected void truncateAll() throws Exception {
     pollerScheduler.stop();
@@ -57,7 +43,6 @@ public abstract class BasePerformanceIT extends BaseRatchetIT {
     super.truncateAll();
   }
 
-  /** Restarts the poller after truncation to ensure it is active for the test. */
   @BeforeEach
   void restartPoller() {
     pollerScheduler.start();

@@ -7,7 +7,6 @@ import jakarta.enterprise.inject.Alternative;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/** Custom {@link RetryPolicy} for testing SPI overridability. */
 @Alternative
 @Priority(1)
 @ApplicationScoped

@@ -10,10 +10,8 @@ import java.util.Optional;
 @Incubating
 public interface BatchStore {
 
-  /** Creates or updates the batch progress row for a batch parent job. */
   BatchEntity saveBatch(BatchEntity batch);
 
-  /** Returns the batch progress row for the given parent job ID when it exists. */
   Optional<BatchEntity> findBatchById(long batchId);
 
   /** Atomically increments the completed-child counter and returns the post-update snapshot. */
@@ -28,7 +26,6 @@ public interface BatchStore {
   /** Finds batches that are complete but whose completion flow has not yet been processed. */
   List<Long> findRecoverableBatchIds(int limit);
 
-  /** Loads multiple batch entities by ID in a single query. Returns only those that exist. */
   List<BatchEntity> findBatchesByIds(List<Long> batchIds);
 
   /** Updates the total expected child count for a batch parent. */

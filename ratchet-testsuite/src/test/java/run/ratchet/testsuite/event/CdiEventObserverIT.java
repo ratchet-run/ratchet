@@ -20,7 +20,6 @@ import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-/** Validates that CDI event observers receive scheduler events when jobs complete. */
 class CdiEventObserverIT extends BaseRatchetIT {
 
   @Inject private TestJobService jobService;

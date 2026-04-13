@@ -24,7 +24,7 @@ public class JsonObjectMapConverter implements AttributeConverter<Map<String, Ob
     try {
       return JSONB.toJson(attribute);
     } catch (JsonbException e) {
-      throw new IllegalArgumentException("Failed to serialize Map<String, Object> to JSON", e);
+      throw new IllegalArgumentException("JSON object-map serialization error", e);
     }
   }
 
@@ -37,7 +37,7 @@ public class JsonObjectMapConverter implements AttributeConverter<Map<String, Ob
     try {
       return (Map<String, Object>) JSONB.fromJson(dbData, Map.class);
     } catch (JsonbException e) {
-      throw new IllegalArgumentException("Failed to deserialize Map<String, Object> from JSON", e);
+      throw new IllegalArgumentException("JSON object-map deserialization error", e);
     }
   }
 }

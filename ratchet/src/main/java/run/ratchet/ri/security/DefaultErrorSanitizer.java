@@ -4,19 +4,7 @@ import run.ratchet.spi.ErrorSanitizer;
 import java.util.IdentityHashMap;
 import java.util.regex.Pattern;
 
-/**
- * Default {@link ErrorSanitizer} implementation that strips common PII patterns from exception
- * messages and truncates to a maximum length.
- *
- * <p>Patterns redacted include:
- *
- * <ul>
- *   <li>JDBC connection URLs with embedded credentials
- *   <li>URLs containing userinfo (user:password@host)
- *   <li>Email-like patterns
- *   <li>Common credential key-value patterns (password=..., token=..., etc.)
- * </ul>
- */
+/** Strips PII (JDBC URLs, credentials, optionally emails) from exception messages. */
 public class DefaultErrorSanitizer implements ErrorSanitizer {
 
   /**

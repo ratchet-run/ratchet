@@ -3,7 +3,6 @@ package run.ratchet.api;
 import java.io.Serializable;
 import java.util.function.Function;
 
-/** Serializable {@link Function} for persistence of result transformations. */
 @FunctionalInterface
 public interface SerializableFunction<T, R> extends Function<T, R>, Serializable {
 

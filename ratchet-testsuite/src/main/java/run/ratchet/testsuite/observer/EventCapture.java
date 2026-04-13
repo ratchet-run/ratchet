@@ -35,25 +35,15 @@ public class EventCapture {
     }
   }
 
-  /** Returns all captured events. */
   public List<AbstractJobSchedulerEvent> getEvents() {
     return List.copyOf(events);
   }
 
-  /** Returns captured events of a specific type. */
   @SuppressWarnings("unchecked")
   public <T extends AbstractJobSchedulerEvent> List<T> getEvents(Class<T> type) {
     return events.stream().filter(type::isInstance).map(e -> (T) e).toList();
   }
 
-  /**
-   * Waits for an event of the specified type to be captured.
-   *
-   * @param type the event type to wait for
-   * @param timeout maximum wait duration
-   * @return true if the event was captured within the timeout
-   * @throws InterruptedException if the wait is interrupted
-   */
   public boolean awaitEvent(Class<? extends AbstractJobSchedulerEvent> type, Duration timeout)
       throws InterruptedException {
     CountDownLatch awaitLatch;
@@ -71,7 +61,6 @@ public class EventCapture {
     return awaitLatch.await(timeout.toMillis(), TimeUnit.MILLISECONDS);
   }
 
-  /** Clears all captured events. Call in test setup for isolation. */
   public void clear() {
     events.clear();
     synchronized (awaitLock) {

@@ -7,16 +7,7 @@ import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Produces;
 
-/**
- * CDI producer that provides a {@link MongoDatabase} bean inside WildFly for integration tests.
- *
- * <p>Reads the connection string and database name from system properties set by {@code
- * MongoContainerExtension} on the client side. These properties are forwarded to the WildFly JVM
- * via {@code arquillian.xml} JVM arguments.
- *
- * <p>This class is only deployed in the WAR when the {@code mongodb} profile is active. For JPA
- * store profiles, it is not included in the archive.
- */
+/** Produces MongoDatabase for integration tests from MongoContainerExtension system properties. */
 @ApplicationScoped
 public class TestMongoProducer {
 

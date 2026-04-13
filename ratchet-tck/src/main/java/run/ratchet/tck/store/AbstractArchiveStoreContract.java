@@ -121,7 +121,6 @@ public abstract class AbstractArchiveStoreContract implements JobStoreContractFi
     assertTrue(results.isEmpty(), "findArchivedJobs on empty store should return empty list");
   }
 
-  /** Transitions a persisted job through RUNNING → SUCCEEDED and returns the refreshed entity. */
   private run.ratchet.store.entity.JobEntity completeJob(
       run.ratchet.store.entity.JobEntity job) {
     store().compareAndSwapStatus(job.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);

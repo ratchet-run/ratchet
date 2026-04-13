@@ -13,12 +13,6 @@ import java.io.Serializable;
 import java.time.Duration;
 import java.time.ZoneId;
 
-/**
- * CDI bean wrapping {@link JobSchedulerService} for test convenience.
- *
- * <p>Provides simplified methods for common test operations and verifies CDI injection is working
- * correctly.
- */
 @ApplicationScoped
 public class TestJobService {
 

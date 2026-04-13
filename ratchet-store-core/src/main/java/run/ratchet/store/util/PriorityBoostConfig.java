@@ -17,11 +17,6 @@ public final class PriorityBoostConfig {
 
   private PriorityBoostConfig() {}
 
-  /**
-   * Returns the configured priority-boost interval in minutes.
-   *
-   * @return a non-negative integer; {@code 0} disables boosting
-   */
   public static int getPriorityBoostIntervalMinutes() {
     String raw = System.getenv("RATCHET_PRIORITY_BOOST_INTERVAL_MINUTES");
     if (raw == null || raw.isBlank()) {

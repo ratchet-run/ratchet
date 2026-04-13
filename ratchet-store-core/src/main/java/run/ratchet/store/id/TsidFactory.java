@@ -46,7 +46,6 @@ public final class TsidFactory {
   /**
    * Generates the next TSID.
    *
-   * @return a 64-bit time-sorted ID
    * @throws IllegalStateException if sequence overflows (> 4,096 IDs in one millisecond on one
    *     node)
    */
@@ -86,22 +85,11 @@ public final class TsidFactory {
     }
   }
 
-  /**
-   * Extracts the creation timestamp from a TSID.
-   *
-   * @return the creation instant
-   */
   public static Instant toInstant(long tsid) {
     long ms = (tsid >>> (NODE_BITS + SEQUENCE_BITS)) + CUSTOM_EPOCH_MS;
     return Instant.ofEpochMilli(ms);
   }
 
-  /**
-   * Creates a TSID representing the given instant (with zero node/sequence). Useful for building
-   * range-scan boundaries (e.g., "all jobs created before this timestamp").
-   *
-   * @return a TSID lower-bound for the given instant
-   */
   public static long fromInstant(Instant instant) {
     long ms = instant.toEpochMilli() - CUSTOM_EPOCH_MS;
     return ms << (NODE_BITS + SEQUENCE_BITS);

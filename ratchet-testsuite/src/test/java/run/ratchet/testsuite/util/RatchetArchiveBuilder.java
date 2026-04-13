@@ -32,7 +32,6 @@ public class RatchetArchiveBuilder {
     archive = ShrinkWrap.create(WebArchive.class, "ratchet-test.war");
   }
 
-  /** Creates a new builder with an empty WAR archive. */
   public static RatchetArchiveBuilder create() {
     return new RatchetArchiveBuilder();
   }

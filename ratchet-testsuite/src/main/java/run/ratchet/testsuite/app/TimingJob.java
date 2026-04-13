@@ -14,7 +14,6 @@ public class TimingJob {
     INVOCATION_COUNT.incrementAndGet();
   }
 
-  /** Batch-compatible variant that accepts and ignores a string item. */
   public static void processBatchItem(String item) {
     INVOCATION_COUNT.incrementAndGet();
   }

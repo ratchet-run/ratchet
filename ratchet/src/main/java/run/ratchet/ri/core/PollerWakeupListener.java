@@ -37,7 +37,9 @@ public class PollerWakeupListener {
       clusterCoordinator.registerWakeupListener(this::onWakeup);
       log.info("PollerWakeupListener registered with ClusterCoordinator");
     } catch (Exception e) {
-      log.errorf("Failed to register PollerWakeupListener - notifications disabled: %s", e);
+      log.errorf(
+          "Wakeup listener registration error — polling continues without push notifications: %s",
+          e);
     }
   }
 

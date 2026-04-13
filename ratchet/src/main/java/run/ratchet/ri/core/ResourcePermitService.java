@@ -67,7 +67,6 @@ public class ResourcePermitService {
     return resourcePermitStore.getPermitRetryDelay(resourceName);
   }
 
-  /** Configures or updates a resource permit limit. */
   public void configureResource(
       String resourceName, int maxConcurrent, int retryDelayMs, String description) {
     resourcePermitStore.configureResource(resourceName, maxConcurrent, retryDelayMs, description);
@@ -76,7 +75,7 @@ public class ResourcePermitService {
         resourceName, maxConcurrent, retryDelayMs);
   }
 
-  /** Releases permits held by dead nodes. Call periodically, e.g. during node heartbeat. */
+  /** Call periodically, e.g. during node heartbeat. */
   public int cleanupOrphanedPermits(List<String> staleNodeIds) {
     if (staleNodeIds == null || staleNodeIds.isEmpty()) {
       return 0;

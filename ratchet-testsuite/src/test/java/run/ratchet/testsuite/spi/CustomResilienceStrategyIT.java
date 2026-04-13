@@ -70,8 +70,6 @@ class CustomResilienceStrategyIT extends BaseRatchetIT {
   void failingJob_shouldExhaustRetriesWithoutCircuitBreakerTripping() {
     int maxRetries = 3;
 
-    // Submit a failing job with retries — NoOpResilienceStrategy has no breaker,
-    // so all attempts should proceed without ServiceUnavailableException
     JobHandle handle =
         jobService
             .enqueue(FailingJob::execute)
@@ -82,24 +80,9 @@ class CustomResilienceStrategyIT extends BaseRatchetIT {
     assertNotNull(handle);
     JobAssertions.assertJobFailed(jobCrudStore, handle);
 
-    // The job should have been attempted 1 (initial) + maxRetries times
     int expectedAttempts = 1 + maxRetries;
-    assertEquals(
-        expectedAttempts,
-        FailingJob.getAttemptCount(),
-        "Expected "
-            + expectedAttempts
-            + " attempts (initial + "
-            + maxRetries
-            + " retries) but got "
-            + FailingJob.getAttemptCount());
+    assertEquals(expectedAttempts, FailingJob.getAttemptCount());
 
-    // The NoOpResilienceStrategy.execute() should have been called for each attempt
-    assertTrue(
-        NoOpResilienceStrategy.getExecuteCount() >= expectedAttempts,
-        "Expected NoOpResilienceStrategy.execute() to be called at least "
-            + expectedAttempts
-            + " times but was called "
-            + NoOpResilienceStrategy.getExecuteCount());
+    assertTrue(NoOpResilienceStrategy.getExecuteCount() >= expectedAttempts);
   }
 }

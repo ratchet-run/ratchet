@@ -129,7 +129,7 @@ public class JobTimeoutHandler {
     try {
       processHardTimeout(jobId, timeoutSec);
     } catch (Exception e) {
-      log.errorf(e, "Failed to mark timed-out job as FAILED: %s", jobId);
+      log.errorf(e, "Timeout post-processing error for job %s", jobId);
     }
   }
 

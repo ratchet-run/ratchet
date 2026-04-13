@@ -173,7 +173,7 @@ public class JobExecutorService {
           jobId, timeoutSec, fut, executorProvider.getScheduledExecutor(), executionStartTime);
     } catch (Exception e) {
       log.warnf(
-          "Failed to schedule watchdog for job %s - running without timeout monitoring: %s",
+          "Watchdog scheduling error for job %s — no timeout monitoring: %s",
           jobId, e.getMessage());
     }
   }

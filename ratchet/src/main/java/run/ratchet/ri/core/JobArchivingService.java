@@ -71,7 +71,6 @@ public class JobArchivingService {
     this.executorProvider = executorProvider;
   }
 
-  /** Stops the archiving scheduler. */
   public void stop() {
     stopped = true;
   }
@@ -137,7 +136,7 @@ public class JobArchivingService {
         log.infof("Purged %s archived jobs older than %s", purged, archiveCutoff);
       }
     } catch (Exception e) {
-      log.error("Failed to purge old archived jobs", e);
+      log.error("Archive purge error", e);
     }
   }
 

@@ -41,7 +41,7 @@ public final class DefaultJobBuilder implements JobBuilder {
   private String businessKey;
   private String resourceName;
 
-  /** Factory entry point. A UUID idempotency key is auto-generated at creation time. */
+  /** A UUID idempotency key is auto-generated at creation time. */
   public static JobBuilder create(
       JobSubmitter submitter, SerializableCheckedRunnable task, Duration delay) {
     return new DefaultJobBuilder(submitter, task, delay);

@@ -10,7 +10,6 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/** Custom {@link SerializationStrategy} for testing SPI overridability. */
 @Alternative
 @Priority(1)
 @ApplicationScoped
@@ -28,7 +27,7 @@ public class CountingSerializationStrategy implements SerializationStrategy {
       oos.flush();
       return baos.toByteArray();
     } catch (Exception e) {
-      throw new RuntimeException("Failed to serialize: " + obj, e);
+      throw new RuntimeException("Serialization error: " + obj, e);
     }
   }
 
@@ -40,7 +39,7 @@ public class CountingSerializationStrategy implements SerializationStrategy {
         ObjectInputStream ois = new ObjectInputStream(bais)) {
       return (T) ois.readObject();
     } catch (Exception e) {
-      throw new RuntimeException("Failed to deserialize to " + type.getName(), e);
+      throw new RuntimeException("Deserialization error for " + type.getName(), e);
     }
   }
 

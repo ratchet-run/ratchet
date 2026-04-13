@@ -21,12 +21,7 @@ import java.util.List;
 import java.util.UUID;
 import org.jboss.logging.Logger;
 
-/**
- * Default implementation of {@link RecurringJobBuilder} for the ratchet reference implementation.
- *
- * <p>Creates a RECURRING type job with a cron expression and timezone. The {@link
- * RecurringScheduler} will spawn SINGLE child jobs at each scheduled execution time.
- */
+/** {@inheritDoc} */
 @Transactional
 public class DefaultRecurringJobBuilder implements RecurringJobBuilder {
 

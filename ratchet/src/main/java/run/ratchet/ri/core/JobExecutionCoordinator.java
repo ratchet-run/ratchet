@@ -36,7 +36,6 @@ public class JobExecutionCoordinator {
     jobSubmissionService.submit(job);
   }
 
-  /** Accepts a lightweight {@link JobClaimDto}; full entity loading is deferred until execution. */
   public void submit(JobClaimDto claim) {
     jobSubmissionService.submit(claim);
   }
@@ -45,7 +44,6 @@ public class JobExecutionCoordinator {
     retryBufferDrainer.start();
   }
 
-  /** Resets RUNNING jobs for this node back to PENDING so other nodes can pick them up. */
   public void shutdown() {
     int reset = jobStateManager.resetRunningJobsForNode();
     log.infof("JobExecutionCoordinator shutdown - reset %s RUNNING jobs to PENDING", reset);

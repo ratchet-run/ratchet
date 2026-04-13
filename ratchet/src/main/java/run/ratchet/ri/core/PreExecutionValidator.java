@@ -4,12 +4,6 @@ import run.ratchet.store.entity.JobPayload;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
-/**
- * Bundles security validation and retry-policy decisions to reduce {@link JobTask}'s dependency
- * count.
- *
- * @see JobTask
- */
 @ApplicationScoped
 public class PreExecutionValidator {
 

@@ -111,7 +111,6 @@ public class JobResult<T> implements Serializable {
     return executionTimeMs != null ? executionTimeMs : 0L;
   }
 
-  /** Returns the metadata value for the given key, or null if not found. */
   public Object getMetadata(String key) {
     return metadata != null ? metadata.get(key) : null;
   }

@@ -20,12 +20,10 @@ public interface JobStoreContractFixture {
 
   void cleanupStore();
 
-  /** Persists a job using the store under test. */
   default JobEntity persist(JobEntity job) {
     return store().save(job);
   }
 
-  /** Creates and persists a new batch progress row for the supplied parent job ID. */
   default BatchEntity persistBatch(long batchId, int totalItems) {
     BatchEntity batch = new BatchEntity();
     batch.setId(batchId);
@@ -36,7 +34,7 @@ public interface JobStoreContractFixture {
     return store().saveBatch(batch);
   }
 
-  /** Whether this fixture supports transactional rollback (false for MongoDB standalone). */
+  // false for MongoDB standalone
   default boolean supportsTransactionalRollback() {
     return true;
   }

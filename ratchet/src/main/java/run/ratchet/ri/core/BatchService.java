@@ -40,7 +40,6 @@ public class BatchService {
       new ConcurrentHashMap<>();
   private static final ConcurrentHashMap<String, Class<?>> CLASS_CACHE = new ConcurrentHashMap<>();
 
-  /** Clears reflection caches on shutdown to prevent classloader leaks. */
   @PreDestroy
   public void clearCaches() {
     HOOK_METHOD_CACHE.clear();

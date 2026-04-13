@@ -15,15 +15,11 @@ import java.util.List;
 @Incubating
 public interface JobBulkStore {
 
-  /** Inserts a collection of jobs efficiently as a bulk operation. */
   void bulkInsert(List<JobEntity> jobs);
 
-  /** Deletes the specified jobs and returns the number removed. */
   int deleteJobsByIds(List<Long> ids);
 
-  /** Deletes dead-letter-eligible jobs older than the cutoff and returns the number removed. */
   int deleteDlqOlderThan(Instant cutoff);
 
-  /** Resets jobs abandoned by dead nodes after the supplied grace period. */
   int resetOrphanJobs(Duration grace);
 }

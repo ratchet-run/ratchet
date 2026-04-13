@@ -9,10 +9,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
 
-/**
- * Handles job submission failures by either buffering for retry or resetting to PENDING. Covers
- * gate failures, executor rejections, and unexpected exceptions.
- */
+/** Handles submission failures by buffering for retry or resetting to PENDING. */
 @ApplicationScoped
 public class SubmissionFailureHandler {
 
@@ -60,13 +57,11 @@ public class SubmissionFailureHandler {
   }
 
   public void handleGateFailure(JobClaimDto claim, GateCheckResult result) {
-    // For first attempts (DTO path is always first attempt from Poller), try reset first
     if (jobStateManager.resetJobToPending(claim.id())) {
       log.info(result.reason());
       return;
     }
 
-    // Reset failed - load full entity for buffer operations
     JobEntity job = loadJobForBuffer(claim.id());
     if (job != null) {
       retryBufferManager.forceOffer(job);
@@ -100,7 +95,6 @@ public class SubmissionFailureHandler {
   public void handleRejection(JobClaimDto claim, JobExecutionType jobType) {
     threadPoolManager.releasePermit(jobType);
 
-    // Try reset first (DTO path is always first attempt from Poller)
     if (jobStateManager.resetJobToPending(claim.id())) {
       log.warn(
           String.format(
@@ -108,7 +102,6 @@ public class SubmissionFailureHandler {
       return;
     }
 
-    // Reset failed - load full entity for buffer operations
     JobEntity job = loadJobForBuffer(claim.id());
     if (job != null) {
       retryBufferManager.forceOffer(job);
@@ -132,12 +125,10 @@ public class SubmissionFailureHandler {
     threadPoolManager.releasePermit(jobType);
     log.errorf(exception, "Unexpected exception submitting job %s - permit released", claim.id());
 
-    // Try reset first (DTO path is always first attempt from Poller)
     if (jobStateManager.resetJobToPending(claim.id())) {
       return;
     }
 
-    // Reset failed - load full entity for buffer operations
     JobEntity job = loadJobForBuffer(claim.id());
     if (job != null) {
       retryBufferManager.forceOffer(job);
@@ -146,7 +137,6 @@ public class SubmissionFailureHandler {
 
   private void resetToPendingOrBuffer(JobEntity job) {
     if (!jobStateManager.resetJobToPending(job)) {
-      // forceOffer() returns false and logs error if hard cap is reached
       retryBufferManager.forceOffer(job);
     }
   }

@@ -17,18 +17,8 @@ import java.util.concurrent.TimeUnit;
 import org.jboss.logging.Logger;
 
 /**
- * Periodically purges old job execution logs to prevent unbounded table growth.
- *
- * <p>Schedule is configurable via the {@code LOG_PURGER_CRON} environment variable (Quartz format,
- * default: {@code 0 30 2 * * ?}). Uses a distributed lock to ensure only one node in the cluster
- * executes the purge.
- *
- * <p><b>For high-volume deployments</b> (above ~10M log rows), combine purging with time-range
- * partitioning of {@code scheduler_job_log}. Dropping a partition is O(1) and reclaims space
- * immediately, whereas {@code DELETE} compounds index bloat and vacuum cost. See {@code
- * docs/ops/partitioning.md} for MySQL and PostgreSQL recipes.
- *
- * @see JobLogStore#purgeLogsOlderThan(Instant)
+ * Periodically purges old job execution logs to prevent unbounded table growth. Uses a distributed
+ * lock to ensure only one node in the cluster executes the purge.
  */
 @ApplicationScoped
 public class LogPurgeTimer {

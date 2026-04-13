@@ -241,11 +241,7 @@ public class JobTask implements Callable<Void> {
         return null;
       }
 
-      // Validate security BEFORE entering the resilience strategy scope. Otherwise a
-      // misconfigured ClassPolicy or unknown class would surface as a SecurityException
-      // INSIDE the circuit breaker, which would record it as a service failure and trip
-      // the breaker for the target service. Configuration errors must not poison the
-      // breaker; the breaker should only see real downstream failures.
+      // Validate before breaker scope — config errors must not trip the circuit breaker
       validationFacade.validateSecurity(jobEntity.getPayload());
 
       jobResult =
@@ -372,7 +368,7 @@ public class JobTask implements Callable<Void> {
         resourcePermitService.release(resourceName, job.getId());
         log.infof("Job %s released permit for resource '%s'", job.getId(), resourceName);
       } catch (Exception e) {
-        log.warnf("Failed to release permit for job %s: %s", job.getId(), e.getMessage());
+        log.warnf("Permit release error for job %s: %s", job.getId(), e.getMessage());
       }
     }
   }
@@ -458,9 +454,7 @@ public class JobTask implements Callable<Void> {
     log.errorf(
         ex, "Job %s failed with %s: %s", job.getId(), ex.getClass().getName(), ex.getMessage());
 
-    // Check shouldNotRetry FIRST, before burning an attempt slot. Non-retryable failures
-    // go straight to the failure handler with the existing attempt count, so the audit trail
-    // doesn't show a phantom retry attempt that never happened.
+    // Non-retryable: skip retry count increment
     if (validationFacade.shouldNotRetry(ex)) {
       observabilityFacade.recordJobFailure(job, ex, job.getAttempts());
       logIfTimeout(ex);
@@ -538,7 +532,7 @@ public class JobTask implements Callable<Void> {
                   + "\"}";
         }
       } catch (Exception e) {
-        log.warnf("Failed to serialize job result for job %s: %s", job.getId(), e.getMessage());
+        log.warnf("Result serialization error for job %s: %s", job.getId(), e.getMessage());
       }
     }
 
@@ -649,10 +643,7 @@ public class JobTask implements Callable<Void> {
       List<Object> args = callbackPayload.args() != null ? callbackPayload.args() : List.of();
       method.invoke(target, args.toArray());
     } catch (Exception e) {
-      // Callback failures are no longer silent. Operators see (a) a SEVERE log entry
-      // with the full stack, (b) a metrics counter increment, and (c) a CDI/programmatic
-      // event they can observe. The parent job still succeeds — callbacks are by design
-      // fire-and-log, not failure-propagating.
+      // Log + metric + event; parent job still succeeds
       log.errorf(
           e,
           "Job %s %s callback failed: %s: %s",
@@ -663,9 +654,7 @@ public class JobTask implements Callable<Void> {
       try {
         observabilityFacade.recordCallbackFailure(job, e, 1);
       } catch (Exception metricEx) {
-        log.warnf(
-            "Failed to record callback failure metric for job %s: %s",
-            job.getId(), metricEx.getMessage());
+        log.warnf("Callback metric error for job %s: %s", job.getId(), metricEx.getMessage());
       }
       try {
         JobCallbackFailedEvent.CallbackType type =
@@ -684,9 +673,7 @@ public class JobTask implements Callable<Void> {
                 e.getClass().getName(),
                 1));
       } catch (Exception eventEx) {
-        log.warnf(
-            "Failed to publish JobCallbackFailedEvent for job %s: %s",
-            job.getId(), eventEx.getMessage());
+        log.warnf("Callback event publish error for job %s: %s", job.getId(), eventEx.getMessage());
       }
     }
   }

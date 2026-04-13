@@ -25,7 +25,6 @@ public class JdbcContainerExtension
   private static volatile JdbcDatabaseConfig config;
   private static volatile boolean started = false;
 
-  /** Returns the current database configuration (available after extension initialization). */
   public static JdbcDatabaseConfig getConfig() {
     if (config == null) {
       throw new IllegalStateException(

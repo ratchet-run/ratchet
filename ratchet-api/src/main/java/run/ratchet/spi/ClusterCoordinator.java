@@ -15,11 +15,7 @@ public interface ClusterCoordinator {
   /** Signals that new work at the given priority is available. */
   void notifyNewWork(JobPriority priority);
 
-  /**
-   * Registers a listener to receive wakeup notifications from the cluster coordinator.
-   *
-   * @param listener the {@code Runnable} to be executed when a wakeup notification is triggered
-   */
+  /** Registers a listener to receive wakeup notifications from the cluster coordinator. */
   void registerWakeupListener(Runnable listener);
 
   /**

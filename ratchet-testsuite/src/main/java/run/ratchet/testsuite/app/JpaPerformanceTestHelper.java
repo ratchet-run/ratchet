@@ -9,15 +9,7 @@ import jakarta.transaction.UserTransaction;
 import java.util.List;
 import java.util.logging.Logger;
 
-/**
- * JPA/SQL implementation of {@link PerformanceTestHelper}.
- *
- * <p>Uses native SQL with server-side row generation ({@code generate_series()} on PostgreSQL,
- * recursive CTEs on MySQL) for maximum bulk insert throughput. Scan diagnostics use
- * backend-specific system tables ({@code pg_stat_user_tables} on PostgreSQL).
- *
- * <p>Only packaged in the WAR when a JPA store profile is active.
- */
+/** JPA implementation using native bulk inserts. */
 @ApplicationScoped
 public class JpaPerformanceTestHelper implements PerformanceTestHelper {
 
@@ -63,7 +55,7 @@ public class JpaPerformanceTestHelper implements PerformanceTestHelper {
       throw e;
     } catch (Exception e) {
       rollbackQuietly();
-      throw new RuntimeException("Failed to insert background rows", e);
+      throw new RuntimeException("Bulk insert error", e);
     }
   }
 
@@ -89,7 +81,7 @@ public class JpaPerformanceTestHelper implements PerformanceTestHelper {
       return results.get(Math.max(0, index)).longValue();
     } catch (Exception e) {
       rollbackQuietly();
-      log.warning("Failed to query queue_wait_ms: " + e.getMessage());
+      log.warning("queue_wait_ms query error: " + e.getMessage());
       return -1;
     }
   }
@@ -107,7 +99,7 @@ public class JpaPerformanceTestHelper implements PerformanceTestHelper {
     } catch (RuntimeException e) {
       throw e;
     } catch (Exception e) {
-      throw new RuntimeException("Failed to assert no full scan", e);
+      throw new RuntimeException("Scan check error", e);
     }
   }
 

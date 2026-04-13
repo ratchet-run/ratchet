@@ -22,7 +22,7 @@ public class JobSecurityValidator {
 
   private final ClassPolicy classPolicy;
 
-  /** Required by CDI proxy. */
+  // CDI proxy
   protected JobSecurityValidator() {
     this.classPolicy = null;
   }
@@ -46,12 +46,10 @@ public class JobSecurityValidator {
       throw new SecurityException("Job payload target class cannot be null or empty");
     }
 
-    // Check class policy
     if (!classPolicy.isAllowed(targetClass)) {
       throw new SecurityException("Class " + targetClass + " is not allowed for job execution.");
     }
 
-    // Load and validate class
     Class<?> clazz;
     try {
       clazz = Class.forName(targetClass, true, Thread.currentThread().getContextClassLoader());
@@ -61,7 +59,6 @@ public class JobSecurityValidator {
           "Class " + targetClass + " cannot be loaded: " + e.getMessage(), e);
     }
 
-    // Find and validate method (public only)
     Method method = MethodLookup.findMethod(clazz, payload);
     if (method == null) {
       Method nonPublic = MethodLookup.findDeclaredMethod(clazz, payload);

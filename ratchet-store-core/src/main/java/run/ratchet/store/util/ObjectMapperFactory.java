@@ -20,7 +20,6 @@ public final class ObjectMapperFactory {
 
   private ObjectMapperFactory() {}
 
-  /** Returns the shared, thread-safe ObjectMapper singleton. */
   public static ObjectMapper get() {
     return INSTANCE;
   }

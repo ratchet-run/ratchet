@@ -132,7 +132,7 @@ public class RecurringJobProcessor {
     //     Closes a race window on rolling deploys where Node A's newer registration commits
     //     after Node B's startTime but before Node B's cleanup runs.
     if (clusterCoordinator != null && !clusterCoordinator.isLeader()) {
-      log.info("Skipping orphaned recurring job cleanup — this node is not the cluster leader");
+      log.info("Not leader, skipping orphan cleanup");
       return;
     }
     Instant cutoff = startTime.minusSeconds(convergenceWindowSeconds());
@@ -146,7 +146,7 @@ public class RecurringJobProcessor {
             "Canceled %s orphaned recurring jobs (annotations removed from codebase)", canceled);
       }
     } catch (Exception e) {
-      log.error("Failed to cleanup orphaned recurring jobs", e);
+      log.error("Orphan cleanup error", e);
     }
   }
 
@@ -224,7 +224,7 @@ public class RecurringJobProcessor {
 
       registerJob(beanClass, methodName, hasJobContextParam, annotation);
     } catch (Exception e) {
-      log.errorf(e, "Failed to register recurring job: %s.%s", beanClass.getName(), methodName);
+      log.errorf(e, "@Recurring registration error: %s.%s", beanClass.getName(), methodName);
     }
   }
 

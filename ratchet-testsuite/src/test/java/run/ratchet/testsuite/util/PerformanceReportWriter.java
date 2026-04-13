@@ -31,7 +31,6 @@ public class PerformanceReportWriter {
     this.dbType = dbType;
   }
 
-  /** Adds a report for later output. */
   public void addReport(PerformanceReport report) {
     reports.add(report);
   }
@@ -57,7 +56,7 @@ public class PerformanceReportWriter {
           "Performance fragment written to " + fragmentFile + " (" + reports.size() + " results)");
       reports.clear();
     } catch (IOException e) {
-      log.warning("Failed to write performance fragment: " + e.getMessage());
+      log.warning("Performance fragment write error: " + e.getMessage());
     }
   }
 
@@ -85,7 +84,7 @@ public class PerformanceReportWriter {
         allJsonEntries.addAll(lines.stream().filter(l -> !l.isBlank()).toList());
       }
     } catch (IOException e) {
-      log.warning("Failed to read performance fragments: " + e.getMessage());
+      log.warning("Performance fragment read error: " + e.getMessage());
       return;
     }
 
@@ -136,7 +135,7 @@ public class PerformanceReportWriter {
               + allJsonEntries.size()
               + " results)");
     } catch (IOException e) {
-      log.warning("Failed to write combined JSON report: " + e.getMessage());
+      log.warning("Combined report write error: " + e.getMessage());
     }
   }
 

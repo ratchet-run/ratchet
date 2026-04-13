@@ -6,7 +6,6 @@ import java.io.Serial;
 import java.io.Serializable;
 import java.time.Instant;
 
-/** Base class for all job scheduler events. */
 public abstract class AbstractJobSchedulerEvent implements Serializable {
 
   @Serial private static final long serialVersionUID = 6853988277084004625L;
@@ -18,7 +17,6 @@ public abstract class AbstractJobSchedulerEvent implements Serializable {
   private final String nodeId;
   private final Instant timestamp;
 
-  /** Creates a new event with all fields including an explicit timestamp. */
   protected AbstractJobSchedulerEvent(
       Long jobId,
       String businessKey,
@@ -34,7 +32,6 @@ public abstract class AbstractJobSchedulerEvent implements Serializable {
     this.timestamp = timestamp;
   }
 
-  /** Creates a new event with timestamp defaulting to {@link Instant#now()}. */
   protected AbstractJobSchedulerEvent(
       Long jobId, String businessKey, JobType jobType, JobPriority priority, String nodeId) {
     this(jobId, businessKey, jobType, priority, nodeId, Instant.now());

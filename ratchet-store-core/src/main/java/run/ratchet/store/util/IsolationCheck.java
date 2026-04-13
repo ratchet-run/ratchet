@@ -57,9 +57,7 @@ public final class IsolationCheck {
     DISABLE
   }
 
-  private IsolationCheck() {
-    // Utility class
-  }
+  private IsolationCheck() {}
 
   /**
    * Resolves the active mode from the {@link #SYSTEM_PROPERTY} system property. Defaults to {@link

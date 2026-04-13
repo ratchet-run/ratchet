@@ -10,10 +10,8 @@ import java.util.List;
  */
 public interface RecurringJobBuilder {
 
-  /** Configures execution options (retry policy, timeout, priority, etc.) for the recurring job. */
   RecurringJobBuilder withOptions(JobOptions options);
 
-  /** Associates tags with the recurring job for filtering and categorization. */
   RecurringJobBuilder withTags(List<String> tags);
 
   /**
@@ -25,6 +23,5 @@ public interface RecurringJobBuilder {
    */
   RecurringJobBuilder withBusinessKey(String key);
 
-  /** Submits the configured recurring job to the scheduler. */
   JobHandle submit();
 }

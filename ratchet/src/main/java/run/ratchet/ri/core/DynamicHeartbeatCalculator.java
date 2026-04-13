@@ -67,7 +67,7 @@ public class DynamicHeartbeatCalculator {
       return finalInterval;
 
     } catch (Exception e) {
-      log.error("Failed to calculate heartbeat interval, using default", e);
+      log.error("Heartbeat interval calculation error, using default", e);
       return baseHeartbeatIntervalSeconds;
     }
   }
@@ -85,7 +85,7 @@ public class DynamicHeartbeatCalculator {
         return pollerMinDelayMs;
       }
     } catch (Exception e) {
-      log.error("Failed to calculate poller delay, using minimum", e);
+      log.error("Poller delay calculation error, using minimum", e);
       return pollerMinDelayMs;
     }
   }

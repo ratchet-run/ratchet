@@ -3,10 +3,7 @@ package run.ratchet.testsuite.util;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * Immutable result record for one performance test scenario. Captures throughput and latency
- * percentile data for reporting and baseline comparison.
- */
+/** Result record for one performance scenario. */
 public record PerformanceReport(
     String scenarioName,
     int jobCount,
@@ -26,14 +23,12 @@ public record PerformanceReport(
               + ",\"p95Ms\":(\\d+)"
               + ",\"p99Ms\":(\\d+)");
 
-  /** Returns a single-line summary suitable for stdout table output. */
   public String toSummaryLine() {
     return String.format(
         "%-40s  %6d jobs  %8.1f jobs/s  p50=%4dms  p95=%4dms  p99=%4dms  total=%6dms",
         scenarioName, jobCount, throughputJobsPerSec, p50Ms, p95Ms, p99Ms, totalTimeMs);
   }
 
-  /** Returns a JSON representation for machine-readable output. */
   public String toJson() {
     return "{"
         + "\"scenario\":\""
@@ -59,12 +54,6 @@ public record PerformanceReport(
         + "}";
   }
 
-  /**
-   * Parses a {@link PerformanceReport} from its JSON representation produced by {@link #toJson()}.
-   *
-   * @param json the JSON string to parse
-   * @return the parsed report, or {@code null} if the string does not match the expected format
-   */
   public static PerformanceReport fromJson(String json) {
     if (json == null || json.isBlank()) {
       return null;

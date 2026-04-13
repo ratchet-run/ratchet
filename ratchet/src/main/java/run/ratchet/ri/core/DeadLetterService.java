@@ -95,7 +95,6 @@ public class DeadLetterService {
     log.warnf("Job %s moved to DLQ", job.getId());
   }
 
-  // Deduplicates alerts within ALERT_DEDUP_WINDOW to prevent notification storms.
   private void recordDlqAlert(JobEntity job, Throwable cause) {
     try {
       String errorHash = hashError(cause);
@@ -113,7 +112,7 @@ public class DeadLetterService {
       alert.setAlertChannel("system");
       dlqAlertStore.saveDlqAlert(alert);
     } catch (Exception e) {
-      log.warnf(e, "Failed to record DLQ alert for job %s", job.getId());
+      log.warnf(e, "DLQ alert error for job %s", job.getId());
     }
   }
 

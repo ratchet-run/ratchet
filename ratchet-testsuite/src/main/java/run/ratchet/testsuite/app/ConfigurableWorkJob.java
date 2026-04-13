@@ -2,10 +2,7 @@ package run.ratchet.testsuite.app;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * Job with configurable sleep duration for performance testing. Simulates real workloads with
- * controllable execution time.
- */
+/** Test job with adjustable sleep. */
 public class ConfigurableWorkJob {
 
   private static volatile long sleepMs = 5;

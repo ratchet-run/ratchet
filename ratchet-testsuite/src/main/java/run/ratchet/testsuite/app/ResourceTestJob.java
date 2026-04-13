@@ -2,12 +2,6 @@ package run.ratchet.testsuite.app;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
-/**
- * Job that tracks concurrent execution for resource permit tests.
- *
- * <p>Holds a resource permit for 500ms to create overlap windows, tracking the maximum concurrent
- * executions seen across all invocations.
- */
 public class ResourceTestJob {
 
   private static final AtomicInteger CONCURRENT = new AtomicInteger();

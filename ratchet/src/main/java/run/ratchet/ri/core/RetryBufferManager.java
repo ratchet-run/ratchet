@@ -207,8 +207,7 @@ public class RetryBufferManager {
               flushed++;
             }
           } catch (Exception e) {
-            log.errorf(
-                e, "Failed to reset buffered job %s to PENDING on shutdown", buffered.jobId());
+            log.errorf(e, "Buffer reset error for job %s on shutdown", buffered.jobId());
           }
         }
       } finally {

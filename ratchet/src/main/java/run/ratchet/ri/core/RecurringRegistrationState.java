@@ -9,25 +9,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.jboss.logging.Logger;
 
 /**
- * Tracks the set of {@code @Recurring} annotation keys this node knows about, plus the instant the
- * registration pass completed. Used by {@link RecurringJobExecutor} during a configurable startup
- * grace window to refuse firing recurring masters whose business key is not in the local
- * registration set.
- *
- * <p><b>Why this exists:</b> on a rolling deploy where Node B comes up with a JAR that has removed
- * an annotation, Node B's {@link run.ratchet.ri.cdi.RecurringJobProcessor} runs the
- * orphan-cleanup pass at startup. But the cleanup is leader-gated, so Node B may not be the one
- * running it — and even when it is, the {@link RecurringScheduler} polls the database independently
- * and may claim+fire the orphaned master BEFORE the cleanup pass completes. This grace check closes
- * that race: during the first {@code N} seconds after registration, the executor refuses to fire
- * any master whose business key is not in the local known set, regardless of leader state.
- *
- * <p>Configuration: {@code ratchet.recurring.startup-grace-seconds} system property, default 60.
- *
- * <p>The {@code RecurringRegistrationState} bean is application-scoped CDI, populated once when
- * {@link run.ratchet.ri.cdi.RecurringJobProcessor} finishes its startup pass and consulted
- * on every recurring scan thereafter. The known-keys set is concurrent so reads from the executor
- * thread don't need locking.
+ * Tracks {@code @Recurring} annotation keys this node discovered at startup. During a configurable
+ * grace window, the executor refuses to fire masters whose key is not in the local set, closing a
+ * race between orphan cleanup and the recurring poller on rolling deploys.
  */
 @ApplicationScoped
 public class RecurringRegistrationState {
@@ -106,10 +90,6 @@ public class RecurringRegistrationState {
     return known;
   }
 
-  /**
-   * Returns true if the registration pass completed and we are still within the configured startup
-   * grace window. Exposed for tests and diagnostics.
-   */
   public boolean inStartupGrace() {
     Instant completedAt = registrationCompletedAt;
     if (completedAt == null) {
@@ -122,10 +102,6 @@ public class RecurringRegistrationState {
     return Instant.now().isBefore(completedAt.plus(Duration.ofSeconds(graceSeconds)));
   }
 
-  /**
-   * Returns the registration completion instant, or {@code null} if registration has not completed.
-   * Exposed for tests.
-   */
   public Instant registrationCompletedAt() {
     return registrationCompletedAt;
   }
@@ -151,12 +127,10 @@ public class RecurringRegistrationState {
     }
   }
 
-  /** Returns an unmodifiable snapshot of known annotation keys. Exposed for tests. */
   Set<String> snapshotKnownKeys() {
     return Collections.unmodifiableSet(knownAnnotationKeys);
   }
 
-  /** Resets state. Intended for tests; production code should never need this. */
   void resetForTesting() {
     knownAnnotationKeys.clear();
     registrationCompletedAt = null;

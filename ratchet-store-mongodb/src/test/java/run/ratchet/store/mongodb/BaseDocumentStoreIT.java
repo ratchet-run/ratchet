@@ -61,12 +61,10 @@ public abstract class BaseDocumentStoreIT {
     }
   }
 
-  /** Returns the store instance for the current test. */
   protected MongoJobStore store() {
     return store;
   }
 
-  /** Returns the raw MongoDB database for direct verification queries. */
   protected MongoDatabase database() {
     return database;
   }

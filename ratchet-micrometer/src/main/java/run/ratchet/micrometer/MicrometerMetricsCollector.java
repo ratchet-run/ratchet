@@ -13,13 +13,7 @@ import jakarta.inject.Inject;
 import java.time.Duration;
 
 /**
- * Micrometer-based {@link MetricsCollector} that publishes job execution metrics to any Micrometer
- * registry (Prometheus, Datadog, CloudWatch, etc.).
- *
- * <p>To use, add this module to your classpath. The CDI {@code @Alternative @Priority} ensures it
- * overrides the default {@code NoOpMetricsCollector} from ratchet.
- *
- * <p>Metrics published:
+ * Metrics published:
  *
  * <ul>
  *   <li>{@code ratchet.jobs.started} — counter, tagged by type and priority

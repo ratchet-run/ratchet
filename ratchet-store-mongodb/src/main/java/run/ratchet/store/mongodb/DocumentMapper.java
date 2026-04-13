@@ -58,7 +58,6 @@ public final class DocumentMapper {
     doc.append("next_fire", toDate(job.getNextFire()));
     doc.append("payload", payloadToDocument(job.getPayload()));
     doc.append("params", paramsToDocument(job.getParams()));
-    // Computed fields stored for indexing
     doc.append(
         "target_class",
         job.getPayload() != null ? job.getPayload().target() : job.getTargetClass());
@@ -466,7 +465,7 @@ public final class DocumentMapper {
       String json = doc.toJson();
       return OBJECT_MAPPER.readValue(json, new TypeReference<>() {});
     } catch (Exception e) {
-      log.warn("Failed to deserialize params document", e);
+      log.warn("Params document deserialization error", e);
       return Collections.emptyMap();
     }
   }
@@ -488,7 +487,7 @@ public final class DocumentMapper {
       String json = doc.toJson();
       return OBJECT_MAPPER.readValue(json, new TypeReference<>() {});
     } catch (Exception e) {
-      log.warn("Failed to deserialize node info document", e);
+      log.warn("Node info deserialization error", e);
       return Collections.emptyMap();
     }
   }

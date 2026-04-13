@@ -112,7 +112,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
         log.debugf("Clock skew check passed: %ss difference", skewSeconds);
       }
     } catch (Exception e) {
-      log.warnf("Unable to check clock skew: %s", e.getMessage());
+      log.warnf("Clock skew check skipped: %s", e.getMessage());
     }
   }
 
@@ -135,7 +135,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
       String pid = ManagementFactory.getRuntimeMXBean().getName().split("@")[0];
       return host + "-" + pid + "-" + UUID.randomUUID().toString().substring(0, 8);
     } catch (Exception e) {
-      log.warnf("Failed to resolve hostname for node ID, falling back to UUID: %s", e.getMessage());
+      log.warnf("Hostname resolution error, using UUID fallback: %s", e.getMessage());
       return UUID.randomUUID().toString();
     }
   }

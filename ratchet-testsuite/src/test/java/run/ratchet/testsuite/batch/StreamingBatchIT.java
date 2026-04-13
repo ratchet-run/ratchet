@@ -17,7 +17,6 @@ import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-/** Validates streaming batch processing with chunked item insertion. */
 class StreamingBatchIT extends BaseRatchetIT {
 
   @Inject private TestJobService jobService;

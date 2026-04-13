@@ -170,7 +170,7 @@ public class WorkflowConditionEntity implements Serializable, TsidEntityListener
       oos.flush();
       return Base64.getEncoder().encodeToString(baos.toByteArray());
     } catch (IOException e) {
-      throw new IllegalArgumentException("Failed to serialize workflow condition expression", e);
+      throw new IllegalArgumentException("Condition expression serialization error", e);
     }
   }
 

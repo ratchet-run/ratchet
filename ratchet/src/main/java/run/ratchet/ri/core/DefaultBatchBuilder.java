@@ -28,12 +28,7 @@ import java.util.List;
 import java.util.UUID;
 import org.jboss.logging.Logger;
 
-/**
- * Default implementation of {@link BatchBuilder} for the ratchet reference implementation.
- *
- * <p>Creates a BATCH_PARENT job with BATCH_CHILD jobs for each item in the collection. The parent
- * job tracks overall progress via a {@link BatchEntity}.
- */
+/** {@inheritDoc} */
 public class DefaultBatchBuilder implements BatchBuilder {
 
   private static final Logger log = Logger.getLogger(DefaultBatchBuilder.class);
@@ -98,7 +93,6 @@ public class DefaultBatchBuilder implements BatchBuilder {
     }
     batchStore.saveBatch(batch);
 
-    // Empty batch: complete immediately since no children will ever trigger completion
     if (children.isEmpty()) {
       savedParent.setStatus(JobStatus.SUCCEEDED);
       jobCrudStore.save(savedParent);

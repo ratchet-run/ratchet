@@ -16,14 +16,5 @@ import run.ratchet.api.Incubating;
 @Incubating
 public interface ErrorSanitizer {
 
-  /**
-   * Sanitizes the given exception for safe persistence and logging.
-   *
-   * <p>Implementations should preserve the exception class name, truncate long messages, and redact
-   * patterns that commonly contain credentials or PII.
-   *
-   * @param ex the exception to sanitize, never null
-   * @return a sanitized, non-null string suitable for storage
-   */
   String sanitize(Throwable ex);
 }

@@ -16,10 +16,6 @@ import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-/**
- * Validates idempotency key behavior: duplicate submissions with the same idempotency key should
- * result in a single execution, not duplicates.
- */
 class IdempotencyKeyIT extends BaseRatchetIT {
 
   @Inject private TestJobService jobService;

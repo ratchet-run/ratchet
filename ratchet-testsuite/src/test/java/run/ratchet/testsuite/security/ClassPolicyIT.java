@@ -54,7 +54,6 @@ class ClassPolicyIT extends BaseRatchetIT {
 
   @Test
   void testClassPolicy_shouldAllowRatchetClasses() {
-    // TestClassPolicy allows run.ratchet.* packages
     assertTrue(classPolicy.isAllowed(SimpleJob.class.getName()));
     assertFalse(classPolicy.isAllowed("java.lang.Runtime"));
     assertFalse(classPolicy.isAllowed("com.example.SomeClass"));
@@ -62,7 +61,6 @@ class ClassPolicyIT extends BaseRatchetIT {
 
   @Test
   void emptyClassPolicy_shouldBlockAllClasses() {
-    // A default PackagePrefixClassPolicy (empty allowlist) blocks everything
     ClassPolicy empty = new PackagePrefixClassPolicy();
     assertFalse(empty.isAllowed("java.lang.Runtime"));
     assertFalse(empty.isAllowed("com.example.SomeClass"));
@@ -76,7 +74,6 @@ class ClassPolicyIT extends BaseRatchetIT {
 
   @Test
   void securityValidator_shouldAcceptAllowedClass() {
-    // SimpleJob is in the TestClassPolicy allowlist (run.ratchet.*)
     JobPayload payload =
         new JobPayload(SimpleJob.class.getName(), "execute", "()V", true, List.of());
 
@@ -98,7 +95,6 @@ class ClassPolicyIT extends BaseRatchetIT {
 
   @Test
   void customClassPolicy_shouldAllowConfiguredPackages() {
-    // Verify that a PackagePrefixClassPolicy with explicit packages works correctly
     ClassPolicy custom = new PackagePrefixClassPolicy(Set.of("run.ratchet.testsuite."));
 
     assertTrue(custom.isAllowed(SimpleJob.class.getName()));
@@ -107,7 +103,6 @@ class ClassPolicyIT extends BaseRatchetIT {
 
   @Test
   void securityValidator_withCustomPolicy_shouldAcceptAllowedClass() {
-    // Create a validator with a policy that allows the test package
     ClassPolicy custom = new PackagePrefixClassPolicy(Set.of("run.ratchet.testsuite."));
     JobSecurityValidator customValidator = new JobSecurityValidator(custom);
 

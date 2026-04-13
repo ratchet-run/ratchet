@@ -13,22 +13,16 @@ import java.util.function.Consumer;
  */
 public interface JobSchedulerService {
 
-  /** Enqueues a task for immediate execution, returning a builder for further configuration. */
   JobBuilder enqueue(SerializableCheckedRunnable task);
 
-  /** Enqueues a task for immediate execution with no further configuration. */
   JobHandle enqueueNow(SerializableCheckedRunnable task);
 
-  /** Schedules a task to execute after the specified delay. */
   JobBuilder schedule(Duration delay, SerializableCheckedRunnable task);
 
-  /** Creates a batch builder for parallel execution of multiple tasks. */
   BatchBuilder enqueueBatch(String name);
 
-  /** Creates a streaming batch builder for memory-efficient processing of large datasets. */
   <T extends Serializable> StreamingBatchBuilder<T> streamingBatch(String name);
 
-  /** Schedules a recurring job based on a cron expression. */
   RecurringJobBuilder scheduleRecurring(
       String cron, ZoneId zone, SerializableCheckedRunnable task);
 

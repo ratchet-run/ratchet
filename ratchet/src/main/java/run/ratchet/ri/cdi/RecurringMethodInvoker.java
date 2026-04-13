@@ -11,22 +11,7 @@ import java.lang.reflect.Method;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-/**
- * Invokes recurring job methods on their CDI bean instances.
- *
- * <p>This service handles CDI bean instance lookup, early validation of bean resolvability at
- * registration time, and runtime invocation with optional {@link JobContext} parameter. Method
- * objects are cached to avoid repeated reflection lookups.
- *
- * <p>The invoker supports two method signatures:
- *
- * <ul>
- *   <li>No parameters: {@code void myJob()}
- *   <li>JobContext parameter: {@code void myJob(JobContext ctx)}
- * </ul>
- *
- * @see RecurringJobProcessor
- */
+/** Invokes @Recurring methods on their CDI beans. */
 @ApplicationScoped
 public class RecurringMethodInvoker {
 
@@ -50,7 +35,10 @@ public class RecurringMethodInvoker {
   @SuppressWarnings("java:S112")
   public void invoke(String beanClassName, String methodName, boolean hasJobContextParam)
       throws Exception {
-    ensureClassAllowed(beanClassName);
+    if (!classPolicy.isAllowed(beanClassName)) {
+      throw new SecurityException(
+          "Class " + beanClassName + " is not allowed for recurring job execution.");
+    }
     Class<?> beanClass =
         Class.forName(beanClassName, true, Thread.currentThread().getContextClassLoader());
     Instance<?> instance = allBeans.select(beanClass);
@@ -71,7 +59,10 @@ public class RecurringMethodInvoker {
   }
 
   public void validateBeanResolvable(Class<?> beanClass) {
-    ensureClassAllowed(beanClass.getName());
+    if (!classPolicy.isAllowed(beanClass.getName())) {
+      throw new SecurityException(
+          "Class " + beanClass.getName() + " is not allowed for recurring job execution.");
+    }
     Instance<?> instance = allBeans.select(beanClass);
     if (instance.isUnsatisfied()) {
       throw new IllegalStateException(
@@ -132,12 +123,5 @@ public class RecurringMethodInvoker {
 
     methodCache.put(key, resolved);
     return resolved;
-  }
-
-  private void ensureClassAllowed(String className) {
-    if (!classPolicy.isAllowed(className)) {
-      throw new SecurityException(
-          "Class " + className + " is not allowed for recurring job execution.");
-    }
   }
 }
