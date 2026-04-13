@@ -11,12 +11,6 @@ import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
-/**
- * Integration tests for job archiving operations.
- *
- * <p>Validates the archive flow: complete a job, archive it, verify the archive record contains the
- * original job data, and verify querying archived jobs by status filter.
- */
 class ArchiveStoreIT extends BaseDocumentStoreIT {
 
   @Test
@@ -25,7 +19,6 @@ class ArchiveStoreIT extends BaseDocumentStoreIT {
     store().claimNextBatch(1, "node-1");
     store().compareAndSwapStatus(job.getId(), JobStatus.RUNNING, JobStatus.SUCCEEDED, null);
 
-    // Re-read after status change
     job = store().findById(job.getId()).orElseThrow();
 
     ArchivedJobEntity archived = store().archiveJob(job, "completed", "system");
@@ -43,7 +36,6 @@ class ArchiveStoreIT extends BaseDocumentStoreIT {
     JobEntity j1 = store().save(newPendingJob());
     JobEntity j2 = store().save(newPendingJob());
 
-    // Complete both
     store().claimNextBatch(2, "node-1");
     store().compareAndSwapStatus(j1.getId(), JobStatus.RUNNING, JobStatus.SUCCEEDED, null);
     store().compareAndSwapStatus(j2.getId(), JobStatus.RUNNING, JobStatus.SUCCEEDED, null);
@@ -54,14 +46,12 @@ class ArchiveStoreIT extends BaseDocumentStoreIT {
     int count = store().archiveJobsBatch(List.of(j1, j2), "batch-archive", "admin");
     assertEquals(2, count);
 
-    // Verify both archives exist via the general query
     List<ArchivedJobEntity> all = store().findArchivedJobs(null, null, null, null, 100);
     assertEquals(2, all.size());
   }
 
   @Test
   void findArchivedJobs_filtersByTargetClass() {
-    // Archive two succeeded jobs
     for (int i = 0; i < 2; i++) {
       JobEntity job = store().save(newPendingJob());
       store().claimNextBatch(1, "node-1");
@@ -70,12 +60,10 @@ class ArchiveStoreIT extends BaseDocumentStoreIT {
       store().archiveJob(job, "done", "system");
     }
 
-    // Query by target class (from JobPayload)
     List<ArchivedJobEntity> found =
         store().findArchivedJobs("com.example.TestJob", null, null, null, 100);
     assertEquals(2, found.size());
 
-    // Non-matching class returns empty
     List<ArchivedJobEntity> notFound =
         store().findArchivedJobs("com.example.Other", null, null, null, 100);
     assertTrue(notFound.isEmpty());

@@ -73,7 +73,9 @@ public class PayloadMasker {
     }
   }
 
-  /** Serializes {@code payload} to JSON then masks sensitive fields; returns null if input is null. */
+  /**
+   * Serializes {@code payload} to JSON then masks sensitive fields; returns null if input is null.
+   */
   public static String maskPayload(Object payload) {
     if (payload == null) {
       return null;

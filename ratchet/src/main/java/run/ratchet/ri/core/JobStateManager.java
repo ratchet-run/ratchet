@@ -19,7 +19,6 @@ public class JobStateManager {
   private final JobStatusStore jobStatusStore;
   private final NodeIdentityProvider nodeIdentityProvider;
 
-  // Required by CDI proxy
   protected JobStateManager() {
     this.jobStatusStore = null;
     this.nodeIdentityProvider = null;

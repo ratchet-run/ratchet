@@ -9,12 +9,6 @@ import run.ratchet.store.entity.WorkflowConditionEntity;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
-/**
- * Integration tests for workflow condition (parent-child dependency) operations.
- *
- * <p>Validates creating conditions, querying by parent/child, and the priority ordering used by the
- * workflow engine.
- */
 class WorkflowConditionIT extends BaseDocumentStoreIT {
 
   @Test
@@ -39,7 +33,6 @@ class WorkflowConditionIT extends BaseDocumentStoreIT {
 
     List<WorkflowConditionEntity> conditions = store().findConditionsByParentJobId(parent.getId());
     assertEquals(2, conditions.size());
-    // Should be ordered by priority
     assertEquals(1, conditions.get(0).getConditionPriority());
     assertEquals(2, conditions.get(1).getConditionPriority());
   }

@@ -884,9 +884,7 @@ public class MysqlJobStore implements JobStore {
 
   @Override
   public int resetOrphanJobs(Duration grace) {
-    // Use SECOND granularity: Duration.toMinutes() truncates sub-minute values to 0,
-    // which would either reset every running job (grace < 60s) or race with node heartbeats
-    // at non-multiples of 60s.
+    // Use SECOND granularity — toMinutes() truncates sub-minute values
     return em.createNativeQuery(
             "UPDATE scheduler_job SET status = 'PENDING', picked_by = NULL, picked_at = NULL, "
                 + "updated_at = NOW(3) "

@@ -8,8 +8,6 @@ import java.io.Serializable;
  * job completes, the associated task is enqueued. Multiple matching branches execute in priority
  * order (lower first).
  *
- * @param condition the condition that triggers this branch
- * @param task the serializable task to execute
  * @param description optional label for monitoring and debugging
  * @see WorkflowCondition
  * @see JobBuilder#branch(WorkflowCondition, SerializableCheckedRunnable, String)

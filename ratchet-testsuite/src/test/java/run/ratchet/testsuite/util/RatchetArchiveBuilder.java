@@ -21,9 +21,8 @@ import org.jboss.shrinkwrap.resolver.api.maven.Maven;
 /**
  * Fluent ShrinkWrap builder for Ratchet integration test deployments.
  *
- * <p>Uses Maven resolver to import compile and runtime dependencies from the testsuite POM,
- * following the Krazo WebArchiveBuilder pattern. The active Maven profile determines which store
- * module and drivers are included.
+ * <p>Uses Maven resolver to import compile and runtime dependencies from the testsuite POM. The
+ * active Maven profile determines which store module and drivers are included.
  */
 public class RatchetArchiveBuilder {
 
@@ -38,13 +37,6 @@ public class RatchetArchiveBuilder {
     return new RatchetArchiveBuilder();
   }
 
-  /**
-   * Imports all compile and runtime dependencies from the testsuite POM, using the specified Maven
-   * profiles for profile-specific store modules and JDBC drivers.
-   *
-   * @param profiles the Maven profiles to activate (e.g., "wildfly-managed", "mysql")
-   * @return this builder
-   */
   public RatchetArchiveBuilder addRatchetDependencies(String... profiles) {
     archive.addAsLibraries(
         Maven.configureResolver()
@@ -71,14 +63,6 @@ public class RatchetArchiveBuilder {
     return this;
   }
 
-  /**
-   * Adds a persistence.xml for the given database type.
-   *
-   * <p>Selects the appropriate dialect and references the {@code RatchetDS} datasource JNDI name.
-   *
-   * @param dbType "mysql" or "postgresql"
-   * @return this builder
-   */
   public RatchetArchiveBuilder addPersistenceXml(String dbType) {
     String dialect =
         switch (dbType) {
@@ -124,11 +108,6 @@ public class RatchetArchiveBuilder {
     return this;
   }
 
-  /**
-   * Configures a datasource for the active application server using the test database container.
-   *
-   * @return this builder
-   */
   public RatchetArchiveBuilder addDataSource() {
     JdbcDatabaseConfig config = JdbcContainerExtension.getConfig();
     DataSourceStrategy strategy = DataSourceStrategyFactory.create();
@@ -136,34 +115,11 @@ public class RatchetArchiveBuilder {
     return this;
   }
 
-  /**
-   * Adds a custom resource to the archive.
-   *
-   * @param resource the resource content
-   * @param target the target path within the archive
-   * @return this builder
-   */
   public RatchetArchiveBuilder addResource(String resource, String target) {
     archive.addAsResource(new StringAsset(resource), target);
     return this;
   }
 
-  /**
-   * Adds store-agnostic test infrastructure to the archive. Inspects {@code ratchet.test.db.type}
-   * to determine which store-specific classes to include:
-   *
-   * <ul>
-   *   <li>JPA stores (mysql, postgresql): adds {@link JpaTestCleanupStrategy}, {@link
-   *       JpaTestDataManipulator}, persistence.xml, and datasource configuration
-   *   <li>Document stores (mongodb): adds {@link DocumentStoreTestCleanupStrategy}, {@link
-   *       DocumentStoreTestDataManipulator}, and {@link TestMongoProducer}
-   * </ul>
-   *
-   * <p>Common classes ({@link BaseRatchetIT}, {@link JobAssertions}, {@link TestClassPolicy},
-   * strategy interfaces) are always included.
-   *
-   * @return this builder
-   */
   public RatchetArchiveBuilder addStoreInfrastructure() {
     String dbType = System.getProperty("ratchet.test.db.type", "mysql");
 

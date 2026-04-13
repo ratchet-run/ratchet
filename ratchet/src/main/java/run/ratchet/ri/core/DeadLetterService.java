@@ -52,10 +52,8 @@ public class DeadLetterService {
   private Cron cron;
   private ZoneId zone;
 
-  /** Prevents re-scheduling after shutdown. */
   private volatile boolean stopped = false;
 
-  // Required by CDI proxy
   protected DeadLetterService() {
     this.executorProvider = null;
     this.jobCrudStore = null;

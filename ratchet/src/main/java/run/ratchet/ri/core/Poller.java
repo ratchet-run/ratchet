@@ -32,7 +32,6 @@ public class Poller {
   @SuppressWarnings("java:S3077")
   private volatile PollingStrategy strategy;
 
-  // Required by CDI proxy
   protected Poller() {
     this.jobClaimStore = null;
     this.jobExecutionCoordinator = null;
@@ -67,7 +66,7 @@ public class Poller {
     return strategy != null ? strategy.getStats() : null;
   }
 
-  /** Must be called after database migrations complete. Idempotent. */
+  /** Must be called after database migrations complete. */
   public void init() {
     if (!started.compareAndSet(false, true)) {
       log.warn("Poller already initialized; skipping re-init");

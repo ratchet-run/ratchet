@@ -50,20 +50,6 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
     assertEquals(saved.getId(), reloaded.get().getId());
   }
 
-  /**
-   * Two threads load the same job, mutate their respective in-memory copies, and race to save.
-   * Exactly one save must surface a stale-write / optimistic-lock failure recognised by the
-   * fixture's {@link JobStoreContractFixture#isStaleWriteException(Throwable)} predicate; the other
-   * must succeed.
-   *
-   * <p>Both snapshots are loaded <i>before</i> the {@link ConcurrentTestRunner} starts the racing
-   * tasks — pre-loading both snapshots ensures they hold the same version before the race.
-   *
-   * <p>This contract is deliberately type-agnostic: it does not know whether a store throws {@code
-   * RatchetOptimisticLockException}, {@code jakarta.persistence.OptimisticLockException}, or a
-   * driver-specific type. Stores declare what counts as a stale-write observation via the fixture
-   * predicate, so the TCK stays stable across API evolutions.
-   */
   @Test
   void save_concurrentMutation_oneThreadObservesStaleWrite() {
     JobEntity initial = persist(newPendingJob());

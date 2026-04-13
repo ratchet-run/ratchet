@@ -15,12 +15,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
-/**
- * Integration tests for concurrent job claiming.
- *
- * <p>Verifies that MongoDB's atomic {@code findOneAndUpdate} prevents double-claiming when multiple
- * nodes compete for the same jobs simultaneously.
- */
 class ConcurrentClaimIT extends BaseDocumentStoreIT {
 
   @Test
@@ -28,12 +22,10 @@ class ConcurrentClaimIT extends BaseDocumentStoreIT {
     int jobCount = 50;
     int nodeCount = 5;
 
-    // Create jobs
     for (int i = 0; i < jobCount; i++) {
       store().save(newPendingJob());
     }
 
-    // Concurrent claiming from multiple "nodes"
     Set<Long> allClaimedIds = ConcurrentHashMap.newKeySet();
     List<Long> duplicates = Collections.synchronizedList(new ArrayList<>());
     CountDownLatch startLatch = new CountDownLatch(1);
@@ -60,12 +52,10 @@ class ConcurrentClaimIT extends BaseDocumentStoreIT {
           });
     }
 
-    // Release all threads simultaneously
     startLatch.countDown();
     assertTrue(doneLatch.await(30, TimeUnit.SECONDS), "Claiming should complete within 30s");
     executor.shutdown();
 
-    // Every job should be claimed exactly once — no duplicates
     assertEquals(0, duplicates.size(), "No job should be claimed by multiple nodes");
     assertEquals(jobCount, allClaimedIds.size(), "All jobs should be claimed");
   }
@@ -79,9 +69,7 @@ class ConcurrentClaimIT extends BaseDocumentStoreIT {
     List<JobEntity> batch = store().claimNextBatch(5, "node-1");
     assertEquals(5, batch.size());
 
-    // Remaining 15 should still be claimable
     List<JobEntity> remaining = store().claimNextBatch(100, "node-2");
     assertEquals(15, remaining.size());
   }
-
 }

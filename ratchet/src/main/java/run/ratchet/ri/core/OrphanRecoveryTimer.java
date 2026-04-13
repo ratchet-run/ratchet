@@ -33,7 +33,6 @@ public class OrphanRecoveryTimer {
 
   private volatile ScheduledFuture<?> handle;
 
-  // Required by CDI proxy
   protected OrphanRecoveryTimer() {
     this.jobBulkStore = null;
     this.nodeStore = null;

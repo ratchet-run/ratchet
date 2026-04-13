@@ -5,11 +5,7 @@ import java.sql.SQLException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * MySQL-specific constraint violation detector.
- *
- * <p>Parses MySQL error messages and codes to identify duplicate key violations and deadlocks.
- */
+/** MySQL-specific constraint violation detector. */
 public class MysqlConstraintDetector implements ConstraintDetector {
 
   private static final Pattern CONSTRAINT_NAME_PATTERN = Pattern.compile("for key '([^']+)'");

@@ -51,7 +51,6 @@ public class RecurringScheduler {
   @SuppressWarnings("java:S3077")
   private volatile ScheduledExecutorService executor;
 
-  // Required by CDI proxy
   protected RecurringScheduler() {
     this.executorProvider = null;
     this.jobCrudStore = null;
@@ -81,20 +80,13 @@ public class RecurringScheduler {
     return currentDelayMs;
   }
 
-  /**
-   * Configures polling parameters. Must be called before {@link #init()}.
-   *
-   * @param minPollMs minimum scan frequency
-   * @param maxPollMs maximum delay between scans
-   * @param batchLimit max jobs processed per scan
-   */
+  /** Must be called before {@link #init()}. */
   public void configure(long minPollMs, long maxPollMs, int batchLimit) {
     this.minPollMs = minPollMs;
     this.maxPollMs = maxPollMs;
     this.batchLimit = batchLimit;
   }
 
-  /** Initializes the recurring scheduler with adaptive polling. */
   public void init() {
     if (!started.compareAndSet(false, true)) {
       log.warn("RecurringScheduler already initialized; skipping re-run");
@@ -124,7 +116,6 @@ public class RecurringScheduler {
     log.debug("RecurringScheduler kicked — immediate scan scheduled");
   }
 
-  /** Stops the recurring scheduler. */
   public void stop() {
     started.set(false);
     if (handle != null) {
@@ -133,7 +124,6 @@ public class RecurringScheduler {
     }
   }
 
-  /** Executes a single recurring job scan cycle. */
   @SuppressWarnings("java:S1181")
   void run() {
     if (!started.get()) {

@@ -89,7 +89,6 @@ public final class TsidFactory {
   /**
    * Extracts the creation timestamp from a TSID.
    *
-   * @param tsid the TSID to extract the timestamp from
    * @return the creation instant
    */
   public static Instant toInstant(long tsid) {
@@ -101,7 +100,6 @@ public final class TsidFactory {
    * Creates a TSID representing the given instant (with zero node/sequence). Useful for building
    * range-scan boundaries (e.g., "all jobs created before this timestamp").
    *
-   * @param instant the timestamp to encode
    * @return a TSID lower-bound for the given instant
    */
   public static long fromInstant(Instant instant) {

@@ -26,7 +26,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-// Verifies startup-grace gating in RecurringJobExecutor: orphaned masters are skipped until grace expires.
+// Verifies startup-grace gating in RecurringJobExecutor: orphaned masters are skipped until grace
+// expires.
 @ExtendWith(MockitoExtension.class)
 class RecurringJobExecutorGraceTest {
 

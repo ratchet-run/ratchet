@@ -33,7 +33,6 @@ public class PollerScheduler {
   @SuppressWarnings("java:S3077")
   private volatile ScheduledExecutorService executor;
 
-  // Required by CDI proxy
   protected PollerScheduler() {
     this.executorProvider = null;
     this.poller = null;

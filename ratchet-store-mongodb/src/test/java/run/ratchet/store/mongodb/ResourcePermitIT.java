@@ -6,11 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import run.ratchet.store.entity.JobEntity;
 import org.junit.jupiter.api.Test;
 
-/**
- * Integration tests for resource permit (concurrency limit) operations.
- *
- * <p>Validates permit acquisition, release, and enforcement of configured concurrency limits.
- */
 class ResourcePermitIT extends BaseDocumentStoreIT {
 
   @Test
@@ -24,10 +19,8 @@ class ResourcePermitIT extends BaseDocumentStoreIT {
     assertTrue(store().tryAcquirePermit("gpu", j1.getId(), "node-1"));
     assertTrue(store().tryAcquirePermit("gpu", j2.getId(), "node-1"));
 
-    // Third should be rejected — at limit
     assertFalse(store().tryAcquirePermit("gpu", j3.getId(), "node-1"));
 
-    // Release one and try again
     store().releasePermit("gpu", j1.getId());
     assertTrue(store().tryAcquirePermit("gpu", j3.getId(), "node-1"));
   }
@@ -41,7 +34,6 @@ class ResourcePermitIT extends BaseDocumentStoreIT {
 
     store().releaseAllPermits(j1.getId());
 
-    // Permit slot should now be available
     JobEntity j2 = store().save(newPendingJob());
     assertTrue(store().tryAcquirePermit("db-conn", j2.getId(), "node-1"));
   }

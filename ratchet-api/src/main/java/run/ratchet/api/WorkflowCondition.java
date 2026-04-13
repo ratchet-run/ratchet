@@ -13,7 +13,6 @@ import java.io.Serializable;
  * WorkflowCondition goodBatch  = WorkflowCondition.successRate(0.95);
  * }</pre>
  *
- * @param type the condition type (evaluation strategy)
  * @param expression type-specific expression data (predicate, threshold, or null)
  * @param priority evaluation order when multiple conditions match (lower = first, default 0)
  * @see JobBuilder#when(SerializablePredicate, SerializableCheckedRunnable)

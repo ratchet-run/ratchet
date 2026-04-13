@@ -34,7 +34,6 @@ public class JobCascadeService {
 
   private final JobCrudStore jobCrudStore;
 
-  // Required by CDI proxy
   protected JobCascadeService() {
     this.jobCrudStore = null;
   }

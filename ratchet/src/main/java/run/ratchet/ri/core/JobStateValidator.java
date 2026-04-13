@@ -21,8 +21,7 @@ public class JobStateValidator {
           JobStatus.FAILED,
           Set.of(),
           JobStatus.CANCELED,
-          Set.of()
-          );
+          Set.of());
 
   public boolean canCancel(JobStatus status) {
     return status == JobStatus.PENDING || status == JobStatus.RUNNING;

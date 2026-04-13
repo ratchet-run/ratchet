@@ -35,7 +35,6 @@ public class WorkflowConditionEvaluator {
   private final LambdaSerializer lambdaSerializer;
   private final ClassPolicy classPolicy;
 
-  // Required by CDI proxy
   protected WorkflowConditionEvaluator() {
     this.batchStore = null;
     this.lambdaSerializer = null;
@@ -50,7 +49,6 @@ public class WorkflowConditionEvaluator {
     this.classPolicy = classPolicy;
   }
 
-  /** Returns true if the condition is met and the child job should be scheduled. */
   public boolean evaluate(WorkflowConditionEntity condition, JobEntity parentJob) {
     try {
       return switch (condition.getConditionType()) {

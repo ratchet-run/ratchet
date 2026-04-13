@@ -15,7 +15,6 @@ public abstract class BaseRatchetIT {
 
   @Inject private TestCleanupStrategy cleanupStrategy;
 
-  /** Clears all scheduler data before each test to ensure test isolation. */
   @BeforeEach
   protected void truncateAll() throws Exception {
     cleanupStrategy.truncateAll();

@@ -27,7 +27,6 @@ public class JobTimeoutHandler {
   private final int softTimeoutPercent;
   private final long defaultTimeoutSeconds;
 
-  // Required by CDI proxy
   protected JobTimeoutHandler() {
     this.jobCrudStore = null;
     this.jobStatusStore = null;
@@ -134,28 +133,7 @@ public class JobTimeoutHandler {
     }
   }
 
-  /**
-   * Applies the hard-timeout routing decision: retry-or-fail. Package-private for testability.
-   *
-   * <p>Operation order is intentional:
-   *
-   * <ol>
-   *   <li>Load the job to see {@code maxRetries} and confirm it still exists.
-   *   <li>Increment {@code attempts} while status is still {@code RUNNING}. {@code
-   *       incrementRetryAttempt} has {@code WHERE status = 'RUNNING'} — calling it AFTER a CAS to
-   *       FAILED would silently no-op (the bug this fix addresses).
-   *   <li>If retries remain, call {@code scheduleJobRetry} (which accepts both {@code RUNNING} and
-   *       {@code FAILED}). If that returns {@code false}, the job was already finalized by a
-   *       competing completion between steps 2 and 3 — exit cleanly instead of double-escalating to
-   *       DLQ.
-   *   <li>Otherwise CAS {@code RUNNING → FAILED} and route through {@code handlePermanentFailure}.
-   * </ol>
-   *
-   * <p><b>Known tradeoff:</b> If a normal completion wins the race between steps 2 and 3, the
-   * successfully-completed job will end up with {@code attempts} one higher than it should. This is
-   * an observability inaccuracy, not a correctness failure — the job is still COMPLETED. Do not
-   * "fix" it by moving the increment after the CAS; that reintroduces the dead-code bug.
-   */
+  /** Applies timeout routing: retry if attempts remain, otherwise fail permanently. */
   void processHardTimeout(Long jobId, long timeoutSec) {
     TimeoutException timeoutEx =
         new TimeoutException("Hard timeout exceeded (" + timeoutSec + "s)");

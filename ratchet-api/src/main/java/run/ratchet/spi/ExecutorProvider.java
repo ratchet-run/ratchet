@@ -8,9 +8,7 @@ import java.util.concurrent.ScheduledExecutorService;
 @Incubating
 public interface ExecutorProvider {
 
-  /** Returns the executor used for running jobs. */
   ExecutorService getJobExecutor();
 
-  /** Returns the executor used for delayed and periodic scheduling. */
   ScheduledExecutorService getScheduledExecutor();
 }

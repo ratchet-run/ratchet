@@ -91,7 +91,6 @@ public class JobTask implements Callable<Void> {
   private JobExecutionEntity currentExecution;
   private boolean permitAcquired;
 
-  // Required by CDI proxy
   protected JobTask() {
     this.jobStore = null;
     this.resourcePermitService = null;
@@ -287,7 +286,8 @@ public class JobTask implements Callable<Void> {
         releaseResourcePermit();
       }
       log.infof("Job %s execution complete - cleaning up context", jobId);
-      // Must be Throwable, not Exception — Error must still clear MDC. See JobMdcContextThrowableTest
+      // Must be Throwable, not Exception — Error must still clear MDC. See
+      // JobMdcContextThrowableTest
       JobMdcContext.clear();
     }
     return null;
@@ -438,10 +438,6 @@ public class JobTask implements Callable<Void> {
     handleBatchOrWorkflowCancellation();
   }
 
-  /**
-   * Handles cancellation of a batch child or workflow/chain job when the job was canceled during
-   * execution. Cancels all dependents unconditionally.
-   */
   private void handleBatchOrWorkflowCancellation() {
     if (job.getJobType() == JobExecutionType.BATCH_CHILD) {
       lifecycleFacade.markBatchChildFailed(job);
@@ -450,10 +446,6 @@ public class JobTask implements Callable<Void> {
     }
   }
 
-  /**
-   * Handles permanent failure of a batch child or workflow/chain job. Unlike cancellation, this
-   * evaluates workflow conditions so that FAILURE branches can fire.
-   */
   private void handleBatchOrWorkflowPermanentFailure() {
     if (job.getJobType() == JobExecutionType.BATCH_CHILD) {
       lifecycleFacade.markBatchChildFailed(job);
@@ -806,8 +798,11 @@ public class JobTask implements Callable<Void> {
     try {
       bean = beanResolver.resolve(cls);
     } catch (Exception e) {
-      log.errorf(e, "Failed to resolve bean for instance method %s in class %s",
-          payload.method(), payload.target());
+      log.errorf(
+          e,
+          "Failed to resolve bean for instance method %s in class %s",
+          payload.method(),
+          payload.target());
       throw new IllegalStateException(
           "Cannot resolve bean for instance method "
               + payload.method()

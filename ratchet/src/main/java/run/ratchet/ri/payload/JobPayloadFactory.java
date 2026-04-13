@@ -29,12 +29,18 @@ public final class JobPayloadFactory {
 
   private JobPayloadFactory() {}
 
-  /** Creates a {@link JobPayload} from a lambda; delegates to {@link #fromLambda(Serializable, boolean)} with versioning disabled. */
+  /**
+   * Creates a {@link JobPayload} from a lambda; delegates to {@link #fromLambda(Serializable,
+   * boolean)} with versioning disabled.
+   */
   public static JobPayload fromLambda(Serializable lambda) {
     return fromLambda(lambda, false);
   }
 
-  /** Creates a {@link JobPayload} from a lambda, binding {@code runtimeArgs} to unresolved parameter slots. */
+  /**
+   * Creates a {@link JobPayload} from a lambda, binding {@code runtimeArgs} to unresolved parameter
+   * slots.
+   */
   public static JobPayload fromLambda(Serializable lambda, List<Object> runtimeArgs) {
     Objects.requireNonNull(lambda, "Lambda must not be null");
     Objects.requireNonNull(runtimeArgs, "Runtime args must not be null");
@@ -43,17 +49,7 @@ public final class JobPayloadFactory {
     JobInvocation joi = AsmLambdaAnalyzer.inspect(sl);
 
     if (joi.steps().size() != 1) {
-      throw new IllegalArgumentException(
-          "Job scheduler requires exactly one method invocation (method reference or single method"
-              + " call). Found "
-              + joi.steps().size()
-              + " invocations in lambda: "
-              + lambda
-              + ". "
-              + "\n\nFor complex multi-step logic, create a dedicated method in a CDI bean and"
-              + " reference it: "
-              + "\n  scheduler.enqueue(() -> myService.processComplexJob(args)).submit(); "
-              + "\n\nSee SerializableCheckedRunnable JavaDoc for examples and workarounds.");
+      throw new IllegalArgumentException(singleInvocationError(lambda, joi.steps().size()));
     }
 
     InvocationStep step = resolveNestedFunctionalInvocation(joi.last());
@@ -77,17 +73,7 @@ public final class JobPayloadFactory {
     JobInvocation joi = AsmLambdaAnalyzer.inspect(sl);
 
     if (joi.steps().size() != 1) {
-      throw new IllegalArgumentException(
-          "Job scheduler requires exactly one method invocation (method reference or single method"
-              + " call). Found "
-              + joi.steps().size()
-              + " invocations in lambda: "
-              + lambda
-              + ". "
-              + "\n\nFor complex multi-step logic, create a dedicated method in a CDI bean and"
-              + " reference it: "
-              + "\n  scheduler.enqueue(() -> myService.processComplexJob(args)).submit(); "
-              + "\n\nSee SerializableCheckedRunnable JavaDoc for examples and workarounds.");
+      throw new IllegalArgumentException(singleInvocationError(lambda, joi.steps().size()));
     }
 
     InvocationStep step = resolveNestedFunctionalInvocation(joi.last());
@@ -104,6 +90,19 @@ public final class JobPayloadFactory {
 
   public static JobPayload noop() {
     return NOOP;
+  }
+
+  private static String singleInvocationError(Serializable lambda, int stepCount) {
+    return "Job scheduler requires exactly one method invocation (method reference or single method"
+        + " call). Found "
+        + stepCount
+        + " invocations in lambda: "
+        + lambda
+        + ". "
+        + "\n\nFor complex multi-step logic, create a dedicated method in a CDI bean and"
+        + " reference it: "
+        + "\n  scheduler.enqueue(() -> myService.processComplexJob(args)).submit(); "
+        + "\n\nSee SerializableCheckedRunnable JavaDoc for examples and workarounds.";
   }
 
   private static String internalNameToFqcn(String internal) {

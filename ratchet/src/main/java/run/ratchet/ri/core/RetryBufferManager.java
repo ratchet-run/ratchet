@@ -29,10 +29,8 @@ import org.jboss.logging.Logger;
 @Transactional
 public class RetryBufferManager {
 
-  /** Normal capacity limit per job type; excess jobs are rejected by {@link #offer}. */
   static final int MAX_BUFFER_SIZE_PER_TYPE = 1000;
 
-  /** Hard cap (2x normal) that even {@link #forceOffer} respects; breaches go to DLQ. */
   static final int HARD_CAP_PER_TYPE = 2000;
 
   private static final Logger log = Logger.getLogger(RetryBufferManager.class);
@@ -47,7 +45,6 @@ public class RetryBufferManager {
   private final Map<JobExecutionType, ReentrantLock> bufferLocks =
       new EnumMap<>(JobExecutionType.class);
 
-  // Required by CDI proxy
   protected RetryBufferManager() {
     this.deadLetterService = null;
     this.jobStatusStore = null;
@@ -195,7 +192,6 @@ public class RetryBufferManager {
     return total;
   }
 
-  /** Resets all buffered RUNNING jobs to PENDING on shutdown to prevent job loss. */
   public void flushOnShutdown() {
     int flushed = 0;
     String nodeId = nodeIdentityProvider.getNodeId();
@@ -224,14 +220,9 @@ public class RetryBufferManager {
     }
   }
 
-  /**
-   * Lightweight DTO for buffered jobs to avoid holding full entity references in memory. The full
-   * entity is loaded from the database only when the job is drained for resubmission.
-   */
   public record BufferedJob(
       Long jobId, JobExecutionType jobType, JobPriority priority, Instant scheduledTime) {
 
-    /** Creates a BufferedJob from a full JobEntity. */
     static BufferedJob from(JobEntity job) {
       return new BufferedJob(
           job.getId(), job.getJobType(), job.getPriority(), job.getScheduledTime());

@@ -20,7 +20,6 @@ public class PollerWakeupListener {
   private final ClusterCoordinator clusterCoordinator;
   private final PollerScheduler pollerScheduler;
 
-  // Required by CDI proxy
   protected PollerWakeupListener() {
     this.clusterCoordinator = null;
     this.pollerScheduler = null;

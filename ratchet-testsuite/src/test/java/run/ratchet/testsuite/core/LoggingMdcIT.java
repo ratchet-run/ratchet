@@ -18,9 +18,7 @@ import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-/**
- * Verifies that JobMdcContext populates jobId and node MDC keys during job execution.
- */
+/** Verifies that JobMdcContext populates jobId and node MDC keys during job execution. */
 class LoggingMdcIT extends BaseRatchetIT {
 
   @Inject private TestJobService jobService;

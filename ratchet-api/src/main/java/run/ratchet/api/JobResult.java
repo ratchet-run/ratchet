@@ -16,7 +16,6 @@ import java.util.Objects;
  * JobResult<Void> failure = JobResult.failure("Connection failed", exception);
  * }</pre>
  *
- * @param <T> the type of the job's return value
  * @see WorkflowCondition
  * @see JobBuilder#whenResult(SerializableFunction, SerializableCheckedRunnable)
  */
@@ -112,10 +111,7 @@ public class JobResult<T> implements Serializable {
     return executionTimeMs != null ? executionTimeMs : 0L;
   }
 
-  /**
-   * @param key the metadata key to look up
-   * @return the metadata value, or null if not found
-   */
+  /** Returns the metadata value for the given key, or null if not found. */
   public Object getMetadata(String key) {
     return metadata != null ? metadata.get(key) : null;
   }
@@ -124,9 +120,7 @@ public class JobResult<T> implements Serializable {
    * Returns a typed metadata value, falling back to the default if absent.
    *
    * @param <V> the expected type
-   * @param key the metadata key
    * @param defaultValue fallback if key is not found
-   * @return the metadata value or the default
    */
   @SuppressWarnings("unchecked")
   public <V> V getMetadata(String key, V defaultValue) {

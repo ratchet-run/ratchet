@@ -43,7 +43,6 @@ public interface JobSchedulerService {
    * transitions to CANCELED and the executor should check status before committing results. Jobs in
    * terminal states (SUCCEEDED, FAILED, CANCELED) cannot be canceled.
    *
-   * @param jobId the ID of the job to cancel
    * @return true if the job was successfully canceled, false if the job was not found or already in
    *     a terminal state
    */
@@ -81,11 +80,7 @@ public interface JobSchedulerService {
    */
   void addEventListener(Consumer<Object> listener);
 
-  /**
-   * Removes a previously registered event listener.
-   *
-   * @param listener the listener to remove
-   */
+  /** Removes a previously registered event listener. */
   void removeEventListener(Consumer<Object> listener);
 
   /**
@@ -96,7 +91,6 @@ public interface JobSchedulerService {
    *
    * <p>Idempotent: pausing an already-PAUSED job returns {@code true} without error.
    *
-   * @param jobId the ID of the job to pause
    * @return true if the job was paused or was already paused, false if the job was not found or in
    *     an incompatible state (RUNNING, SUCCEEDED, CANCELED)
    */
@@ -111,7 +105,6 @@ public interface JobSchedulerService {
    *
    * <p>Idempotent: resuming a non-paused job returns {@code false} without error.
    *
-   * @param jobId the ID of the job to resume
    * @return true if the job was resumed, false if the job was not found or not in PAUSED state
    */
   boolean resumeJob(long jobId);
@@ -125,7 +118,6 @@ public interface JobSchedulerService {
    *
    * <p>Only FAILED jobs can be retried. Jobs in other states return {@code false}.
    *
-   * @param jobId the ID of the failed job to retry
    * @return true if the job was successfully reset to PENDING, false if not found or not FAILED
    */
   boolean retryJob(long jobId);
@@ -133,7 +125,6 @@ public interface JobSchedulerService {
   /**
    * Cancels all recurring jobs associated with the specified tag.
    *
-   * @param tag the tag identifying the recurring jobs to cancel
    * @return the number of jobs canceled
    */
   int cancelRecurringJobsByTag(String tag);
@@ -145,7 +136,6 @@ public interface JobSchedulerService {
    * Only jobs in active states (PENDING, RUNNING, PAUSED) with matching business key and recurring
    * job type are affected.
    *
-   * @param businessKey the business key identifying the recurring job to cancel
    * @return the number of jobs canceled (0 or 1, since business keys are active-unique)
    */
   int cancelRecurringJobByBusinessKey(String businessKey);

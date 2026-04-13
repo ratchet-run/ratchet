@@ -28,7 +28,6 @@ public class WorkflowScheduler extends ChainScheduler {
   private final WorkflowConditionEvaluator conditionEvaluator;
   private final JobCrudStore jobCrudStore;
 
-  // Required by CDI proxy
   protected WorkflowScheduler() {
     super();
     this.conditionStore = null;
@@ -47,7 +46,6 @@ public class WorkflowScheduler extends ChainScheduler {
     this.conditionEvaluator = conditionEvaluator;
   }
 
-  /** Cancels linear chain jobs then cancels any pending workflow branch jobs. */
   @Override
   public void cancelChain(JobEntity parentJob) {
     // Cancel linear chain jobs first
@@ -82,10 +80,6 @@ public class WorkflowScheduler extends ChainScheduler {
     }
   }
 
-  /**
-   * Evaluates workflow conditions for the completed parent and schedules matching branches, falling
-   * back to linear chaining if none are defined.
-   */
   @Override
   public void scheduleNext(JobEntity parentJob) {
     List<WorkflowConditionEntity> conditions =
@@ -124,8 +118,6 @@ public class WorkflowScheduler extends ChainScheduler {
             condition.getId(),
             parentJob.getId(),
             e.getMessage());
-        // An unexpected exception during condition evaluation indicates a system error.
-        // Fail the workflow to prevent inconsistent state.
         parentJob.setStatus(JobStatus.FAILED);
         parentJob.setLastError("Workflow condition evaluation failed: " + e.getMessage());
         jobCrudStore.save(parentJob);

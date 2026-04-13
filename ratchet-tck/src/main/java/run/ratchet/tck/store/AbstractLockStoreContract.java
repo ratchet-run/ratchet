@@ -79,10 +79,6 @@ public abstract class AbstractLockStoreContract implements JobStoreContractFixtu
     store().unlock("never-acquired", "node-A");
   }
 
-  /**
-   * Three threads race to acquire the same lock with different node IDs. At most one should succeed
-   * — the lock is exclusive.
-   */
   @Test
   void tryLock_concurrent_atMostOneSucceeds() {
     AtomicInteger successCount = new AtomicInteger();

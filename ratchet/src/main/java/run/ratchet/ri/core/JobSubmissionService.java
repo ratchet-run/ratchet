@@ -14,7 +14,6 @@ public class JobSubmissionService {
   private final JobExecutorService executorService;
   private final SubmissionFailureHandler failureHandler;
 
-  // Required by CDI proxy
   protected JobSubmissionService() {
     this.gateChecker = null;
     this.executorService = null;

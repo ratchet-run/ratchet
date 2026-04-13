@@ -34,13 +34,6 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
     assertEquals(3, found.size(), "bulkInsert should persist all 3 jobs");
   }
 
-  /**
-   * Verifies that {@code resetOrphanJobs} honors sub-minute grace periods.
-   *
-   * <p>Regression for the pre-alpha unit-confusion bug: all three store impls used {@code
-   * Duration.toMinutes()} which truncated sub-minute values to 0 (resetting every RUNNING job) or
-   * produced non-multiple-of-60 mismatches with node heartbeats (duplicate execution race).
-   */
   @Test
   void resetOrphanJobs_honorsSubMinuteGrace() {
     var job = newPendingJob();

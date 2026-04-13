@@ -35,8 +35,6 @@ import org.jboss.logging.Logger;
  *
  * <p>Processes items from a stream in chunks, creating BATCH_CHILD jobs for each item. This avoids
  * loading the entire dataset into memory at once.
- *
- * @param <T> the type of items in the stream
  */
 @SuppressWarnings("unchecked")
 public class DefaultStreamingBatchBuilder<T extends Serializable>

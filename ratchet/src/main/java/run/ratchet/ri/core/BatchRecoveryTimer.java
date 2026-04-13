@@ -24,7 +24,6 @@ public class BatchRecoveryTimer {
 
   private volatile ScheduledFuture<?> handle;
 
-  // Required by CDI proxy
   protected BatchRecoveryTimer() {
     this.batchService = null;
   }

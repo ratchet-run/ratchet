@@ -29,13 +29,6 @@ public class PerformanceBaseline {
   private final Path outputDir;
   private final TreeMap<String, Double> recorded = new TreeMap<>();
 
-  /**
-   * Creates a baseline instance, loading existing baselines from classpath if available.
-   *
-   * @param dbType the database type (e.g., "postgresql", "mysql")
-   * @param tolerance fractional regression tolerance (e.g., 0.20 for 20%)
-   * @param baselineDir the directory containing baseline properties files
-   */
   public PerformanceBaseline(String dbType, double tolerance, String baselineDir) {
     this.dbType = dbType;
     this.tolerance = tolerance;
@@ -57,13 +50,6 @@ public class PerformanceBaseline {
     }
   }
 
-  /**
-   * Asserts that the actual value is within tolerance of the baseline. If no baseline exists,
-   * records the value for later output.
-   *
-   * @param metric the metric key (e.g., "throughput.noOp.jobsPerSec")
-   * @param actual the measured value
-   */
   public void assertWithinTolerance(String metric, double actual) {
     recorded.put(metric, actual);
 
@@ -90,13 +76,6 @@ public class PerformanceBaseline {
             metric, actual, baseline, tolerance * 100));
   }
 
-  /**
-   * Asserts that a latency metric is within tolerance of the baseline. Higher latency is a
-   * regression, so the check is inverted compared to throughput.
-   *
-   * @param metric the metric key (e.g., "latency.queueWait.light.p99Ms")
-   * @param actualMs the measured latency in milliseconds
-   */
   public void assertLatencyWithinTolerance(String metric, double actualMs) {
     recorded.put(metric, actualMs);
 
@@ -124,11 +103,6 @@ public class PerformanceBaseline {
             metric, actualMs, baseline, tolerance * 100));
   }
 
-  /**
-   * Writes all recorded metrics to {@code target/perf-baselines/{dbType}-baselines.properties}.
-   * Merges with any existing file so that results from multiple test classes accumulate rather than
-   * overwriting each other.
-   */
   public void writeRecordedBaselines() {
     if (recorded.isEmpty()) {
       return;
@@ -138,7 +112,6 @@ public class PerformanceBaseline {
       Files.createDirectories(outputDir);
       Path outputFile = outputDir.resolve(dbType + "-baselines.properties");
 
-      // Load existing entries so we merge rather than overwrite
       Properties output = new Properties();
       if (Files.exists(outputFile)) {
         try (InputStream existing = Files.newInputStream(outputFile)) {

@@ -14,13 +14,11 @@ public class DefaultRetryPolicy implements RetryPolicy {
 
   @Override
   public boolean shouldRetry(int attempt, Throwable cause) {
-    // Defer to job-level maxRetries configuration
     return true;
   }
 
   @Override
   public Duration getDelay(int attempt) {
-    // Defer to job-level backoff policy configuration
     return Duration.ZERO;
   }
 }

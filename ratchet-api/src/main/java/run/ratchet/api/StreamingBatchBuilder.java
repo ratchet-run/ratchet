@@ -24,7 +24,6 @@ public interface StreamingBatchBuilder<T extends Serializable> {
    * Attaches a progress hook invoked during stream consumption with current streaming metrics.
    *
    * @param hook receives a {@link StreamingBatchContext} with streaming progress
-   * @return this builder
    */
   StreamingBatchBuilder<T> onProgress(Consumer<StreamingBatchContext> hook);
 
@@ -32,7 +31,6 @@ public interface StreamingBatchBuilder<T extends Serializable> {
    * Attaches a batch-level progress hook invoked during job execution with batch metrics.
    *
    * @param hook receives a {@link BatchContext} with batch execution progress
-   * @return this builder
    */
   StreamingBatchBuilder<T> onBatchProgress(SerializableConsumer<BatchContext> hook);
 

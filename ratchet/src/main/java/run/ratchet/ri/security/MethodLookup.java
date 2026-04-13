@@ -20,7 +20,10 @@ class MethodLookup {
     return null;
   }
 
-  /** Returns the first declared method (any visibility) matching the payload's name and descriptor, or null. */
+  /**
+   * Returns the first declared method (any visibility) matching the payload's name and descriptor,
+   * or null.
+   */
   static Method findDeclaredMethod(Class<?> clazz, JobPayload payload) {
     for (Method m : clazz.getDeclaredMethods()) {
       if (m.getName().equals(payload.method())

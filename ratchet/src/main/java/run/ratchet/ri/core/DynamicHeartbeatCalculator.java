@@ -23,7 +23,6 @@ public class DynamicHeartbeatCalculator {
   private volatile long cachedPending;
   private volatile long cacheTimestamp;
 
-  // Required by CDI proxy
   protected DynamicHeartbeatCalculator() {
     this.jobCrudStore = null;
     this.baseHeartbeatIntervalSeconds = 0;

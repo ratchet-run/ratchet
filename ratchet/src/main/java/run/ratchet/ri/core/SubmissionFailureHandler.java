@@ -23,7 +23,6 @@ public class SubmissionFailureHandler {
   private final RetryBufferManager retryBufferManager;
   private final ThreadPoolManager threadPoolManager;
 
-  // Required by CDI proxy
   protected SubmissionFailureHandler() {
     this.jobCrudStore = null;
     this.jobStateManager = null;
@@ -43,7 +42,6 @@ public class SubmissionFailureHandler {
     this.threadPoolManager = threadPoolManager;
   }
 
-  /** No permit was acquired, so no release is needed. */
   public void handleGateFailure(JobEntity job, GateCheckResult result, boolean isFirstAttempt) {
     if (isFirstAttempt) {
       resetToPendingOrBuffer(job);
@@ -61,7 +59,6 @@ public class SubmissionFailureHandler {
     }
   }
 
-  /** DTO variant — loads the full entity only if reset-to-pending fails. */
   public void handleGateFailure(JobClaimDto claim, GateCheckResult result) {
     // For first attempts (DTO path is always first attempt from Poller), try reset first
     if (jobStateManager.resetJobToPending(claim.id())) {
@@ -77,7 +74,6 @@ public class SubmissionFailureHandler {
     log.info(result.reason());
   }
 
-  /** Releases the acquired permit before attempting recovery. */
   public void handleRejection(JobEntity job, JobExecutionType jobType, boolean isFirstAttempt) {
     threadPoolManager.releasePermit(jobType);
 
@@ -101,7 +97,6 @@ public class SubmissionFailureHandler {
     }
   }
 
-  /** DTO variant — releases permit, tries reset-to-pending before loading the full entity. */
   public void handleRejection(JobClaimDto claim, JobExecutionType jobType) {
     threadPoolManager.releasePermit(jobType);
 
@@ -122,7 +117,6 @@ public class SubmissionFailureHandler {
         String.format("Executor for %s rejected job %d - buffered for retry", jobType, claim.id()));
   }
 
-  /** Releases the acquired permit before attempting recovery. */
   public void handleUnexpectedException(
       JobEntity job, JobExecutionType jobType, boolean isFirstAttempt, Exception exception) {
     threadPoolManager.releasePermit(jobType);
@@ -133,7 +127,6 @@ public class SubmissionFailureHandler {
     }
   }
 
-  /** DTO variant — releases permit, tries reset-to-pending before loading the full entity. */
   public void handleUnexpectedException(
       JobClaimDto claim, JobExecutionType jobType, Exception exception) {
     threadPoolManager.releasePermit(jobType);
@@ -151,7 +144,6 @@ public class SubmissionFailureHandler {
     }
   }
 
-  /** Resets to PENDING, falling back to force-buffer if the DB update fails. */
   private void resetToPendingOrBuffer(JobEntity job) {
     if (!jobStateManager.resetJobToPending(job)) {
       // forceOffer() returns false and logs error if hard cap is reached

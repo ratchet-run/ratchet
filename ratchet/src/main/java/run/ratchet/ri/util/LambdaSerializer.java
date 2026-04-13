@@ -127,7 +127,8 @@ public class LambdaSerializer {
           return expectedType.cast(obj);
         }
 
-        log.warnf("Deserialized object is not a %s: %s", expectedType.getSimpleName(), obj.getClass());
+        log.warnf(
+            "Deserialized object is not a %s: %s", expectedType.getSimpleName(), obj.getClass());
         return null;
       }
     } catch (InvalidClassException e) {
@@ -189,18 +190,15 @@ public class LambdaSerializer {
 
         String className = desc.getName();
 
-        // Check exact matches first (primitive arrays, SerializedLambda, etc.)
         if (ALLOWED_CLASSES.contains(className)) {
           return super.resolveClass(desc);
         }
 
-        // Check explicit java.lang and java.util class allowlists
         if (ALLOWED_JAVA_LANG_CLASSES.contains(className)
             || ALLOWED_JAVA_UTIL_CLASSES.contains(className)) {
           return super.resolveClass(desc);
         }
 
-        // Check prefix matches (run.ratchet.*, java.time.*, java.math.*)
         for (String prefix : ALLOWED_CLASS_PREFIXES) {
           if (className.startsWith(prefix)) {
             return super.resolveClass(desc);

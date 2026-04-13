@@ -16,7 +16,6 @@ public class SubmissionGateChecker {
   private final JobTypeRateLimiter rateLimiter;
   private final ThreadPoolManager threadPoolManager;
 
-  // Required by CDI proxy
   protected SubmissionGateChecker() {
     this.drainController = null;
     this.rateLimiter = null;

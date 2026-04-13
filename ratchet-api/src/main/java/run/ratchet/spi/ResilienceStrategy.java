@@ -16,9 +16,7 @@ public interface ResilienceStrategy {
    * Executes the given task with resilience protection.
    *
    * @param serviceName identifies the service being protected (must be from a bounded vocabulary)
-   * @param task the callable to execute
    * @param <T> the return type
-   * @return the result of the task
    * @throws Exception if the task fails or the service is unavailable
    */
   <T> T execute(String serviceName, Callable<T> task) throws Exception;
@@ -26,7 +24,6 @@ public interface ResilienceStrategy {
   /**
    * Checks whether a service is currently available (circuit not open).
    *
-   * @param serviceName the service to check
    * @return true if calls are permitted, false if the circuit is open
    */
   boolean isServiceAvailable(String serviceName);
@@ -38,7 +35,6 @@ public interface ResilienceStrategy {
    * <p>The default implementation preserves the existing RI behavior of 30 seconds so existing SPI
    * implementations remain source- and binary-compatible.
    *
-   * @param serviceName the protected service
    * @return the recommended retry delay
    */
   default Duration getRetryDelay(String serviceName) {

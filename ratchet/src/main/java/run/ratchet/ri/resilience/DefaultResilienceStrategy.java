@@ -6,8 +6,8 @@ import java.util.concurrent.Callable;
 import org.jboss.logging.Logger;
 
 /**
- * Default {@link ResilienceStrategy} using the built-in {@link CircuitBreaker}; produced by
- * {@code RatchetProducer} (no CDI annotations here so it can be overridden).
+ * Default {@link ResilienceStrategy} using the built-in {@link CircuitBreaker}; produced by {@code
+ * RatchetProducer} (no CDI annotations here so it can be overridden).
  */
 public class DefaultResilienceStrategy implements ResilienceStrategy {
 

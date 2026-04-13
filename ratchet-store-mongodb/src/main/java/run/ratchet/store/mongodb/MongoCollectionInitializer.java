@@ -55,7 +55,6 @@ public class MongoCollectionInitializer {
 
   private void createJobIndexes() {
     var coll = database.getCollection("scheduler_job");
-    // Poll composite — the primary claiming index
     createIndex(
         coll,
         Indexes.compoundIndex(
@@ -63,7 +62,6 @@ public class MongoCollectionInitializer {
             Indexes.descending("priority"),
             Indexes.ascending("scheduled_time")),
         "idx_job_poll_composite");
-    // Recurring jobs
     createIndex(
         coll,
         Indexes.compoundIndex(
@@ -71,12 +69,10 @@ public class MongoCollectionInitializer {
             Indexes.ascending("status"),
             Indexes.ascending("next_fire")),
         "idx_job_recurring_composite");
-    // Idempotency key — unique
     createIndex(
         coll,
         Indexes.ascending("idempotency_key"),
         new IndexOptions().name("idx_job_idempotency_key").unique(true));
-    // Business key — partial unique (active jobs only)
     createIndex(
         coll,
         Indexes.ascending("business_key"),
@@ -86,21 +82,14 @@ public class MongoCollectionInitializer {
             .partialFilterExpression(
                 new Document("status", new Document("$in", List.of("PENDING", "RUNNING", "PAUSED")))
                     .append("business_key", new Document("$type", "string"))));
-    // Tags — multikey index for embedded array
     createIndex(coll, Indexes.ascending("tags"), "idx_job_tags");
-    // Ownership
     createIndex(coll, Indexes.ascending("picked_by"), "idx_job_picked_by");
-    // Dependencies
     createIndex(coll, Indexes.ascending("depends_on"), "idx_job_depends_on");
-    // Target class and method lookups
     createIndex(coll, Indexes.ascending("target_class"), "idx_job_target_class");
     createIndex(coll, Indexes.ascending("method_name"), "idx_job_method_name");
-    // Timestamps
     createIndex(coll, Indexes.ascending("created_at"), "idx_job_created_at");
     createIndex(coll, Indexes.ascending("updated_at"), "idx_job_updated_at");
-    // Job type
     createIndex(coll, Indexes.ascending("job_type"), "idx_job_type");
-    // Superseded by
     createIndex(coll, Indexes.ascending("superseded_by"), "idx_job_superseded_by");
   }
 

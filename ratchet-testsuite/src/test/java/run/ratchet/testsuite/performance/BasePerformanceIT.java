@@ -92,13 +92,6 @@ public abstract class BasePerformanceIT extends BaseRatchetIT {
     return new PerformanceReportWriter(getDbType());
   }
 
-  /**
-   * Enqueues N jobs with the given task and returns their handles.
-   *
-   * @param count number of jobs to enqueue
-   * @param task the job logic to execute
-   * @return list of job handles
-   */
   protected List<JobHandle> enqueueN(int count, SerializableCheckedRunnable task) {
     List<JobHandle> handles = new ArrayList<>(count);
     for (int i = 0; i < count; i++) {
@@ -107,12 +100,6 @@ public abstract class BasePerformanceIT extends BaseRatchetIT {
     return handles;
   }
 
-  /**
-   * Waits for all jobs identified by the given handles to reach SUCCEEDED status.
-   *
-   * @param handles the job handles to wait for
-   * @param timeout maximum wait duration
-   */
   protected void awaitAllCompleted(List<JobHandle> handles, Duration timeout) {
     await()
         .atMost(timeout)
@@ -129,13 +116,6 @@ public abstract class BasePerformanceIT extends BaseRatchetIT {
             });
   }
 
-  /**
-   * Computes percentile values from an array of longs.
-   *
-   * @param data the raw data (will be sorted in place)
-   * @param percentiles the percentile fractions to compute (e.g., 0.50, 0.95, 0.99)
-   * @return array of percentile values in the same order as the percentiles parameter
-   */
   protected static long[] computePercentiles(long[] data, double... percentiles) {
     Arrays.sort(data);
     long[] result = new long[percentiles.length];
@@ -146,12 +126,6 @@ public abstract class BasePerformanceIT extends BaseRatchetIT {
     return result;
   }
 
-  /**
-   * Queries queue wait time percentiles from the store.
-   *
-   * @param percentiles the percentile fractions to query
-   * @return array of percentile values in milliseconds
-   */
   protected long[] queryQueueWaitPercentiles(double... percentiles) {
     long[] result = new long[percentiles.length];
     for (int i = 0; i < percentiles.length; i++) {
@@ -160,14 +134,6 @@ public abstract class BasePerformanceIT extends BaseRatchetIT {
     return result;
   }
 
-  /**
-   * Waits for all jobs identified by the given handles to reach a terminal status (SUCCEEDED,
-   * FAILED, or CANCELED). Unlike {@link #awaitAllCompleted}, this method accepts any terminal
-   * state, which is needed for tests where some jobs are expected to fail.
-   *
-   * @param handles the job handles to wait for
-   * @param timeout maximum wait duration
-   */
   protected void awaitAllTerminal(List<JobHandle> handles, Duration timeout) {
     await()
         .atMost(timeout)
@@ -186,14 +152,6 @@ public abstract class BasePerformanceIT extends BaseRatchetIT {
             });
   }
 
-  /**
-   * Enqueues N jobs with the given task and configures each with the specified max retries.
-   *
-   * @param count number of jobs to enqueue
-   * @param task the job logic to execute
-   * @param maxRetries maximum retry attempts per job
-   * @return list of job handles
-   */
   protected List<JobHandle> enqueueNWithRetries(
       int count, SerializableCheckedRunnable task, int maxRetries) {
     List<JobHandle> handles = new ArrayList<>(count);
@@ -203,12 +161,6 @@ public abstract class BasePerformanceIT extends BaseRatchetIT {
     return handles;
   }
 
-  /**
-   * Formats a table size as a human-readable key (e.g., 1000 → "1K", 1000000 → "1M").
-   *
-   * @param tableSize the row count
-   * @return formatted size key
-   */
   protected static String formatSizeKey(int tableSize) {
     if (tableSize >= 1_000_000 && tableSize % 1_000_000 == 0) {
       return (tableSize / 1_000_000) + "M";

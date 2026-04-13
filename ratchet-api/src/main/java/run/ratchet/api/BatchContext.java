@@ -3,7 +3,6 @@ package run.ratchet.api;
 /**
  * Immutable snapshot of batch execution progress, passed to progress hooks and workflow conditions.
  *
- * @param batchId the batch job identifier
  * @param totalItems total child jobs in the batch
  * @param completedItems successfully completed child jobs
  * @param failedItems failed child jobs

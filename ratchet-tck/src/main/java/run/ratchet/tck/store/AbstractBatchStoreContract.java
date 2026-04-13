@@ -57,10 +57,6 @@ public abstract class AbstractBatchStoreContract implements JobStoreContractFixt
     assertEquals(1, progress.failedItems());
   }
 
-  /**
-   * N threads concurrently increment the completed counter. The final total must equal N, proving
-   * the increment is a server-side atomic operation, not a load-then-save at the application level.
-   */
   @Test
   void incrementCompletedAtomic_concurrent_allCountsCaptured() {
     int threadCount = 10;

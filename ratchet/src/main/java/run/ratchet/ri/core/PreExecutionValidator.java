@@ -16,7 +16,6 @@ public class PreExecutionValidator {
   private final SecurityValidator securityValidator;
   private final DoNotRetryPolicy doNotRetryPolicy;
 
-  // Required by CDI proxy
   protected PreExecutionValidator() {
     this.securityValidator = null;
     this.doNotRetryPolicy = null;

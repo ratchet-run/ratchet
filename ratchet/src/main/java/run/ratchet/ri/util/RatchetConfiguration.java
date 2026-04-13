@@ -144,7 +144,6 @@ public class RatchetConfiguration {
   private final String workerUseVirtualThreads;
 
   public RatchetConfiguration() {
-    // Circuit Breaker (legacy: SCHEDULER_*, new: RATCHET_*)
     this.cbDefaultFailureRate =
         getEnvWithFallback(
             "RATCHET_CB_DEFAULT_FAILURE_RATE", "SCHEDULER_CB_DEFAULT_FAILURE_RATE", "50");
@@ -164,7 +163,6 @@ public class RatchetConfiguration {
         getEnvWithFallback(
             "RATCHET_CIRCUIT_BREAKER_ENABLED", "SCHEDULER_CIRCUIT_BREAKER_ENABLED", "true");
 
-    // Idempotency Retry
     this.idempotencyRetryMaxAttempts =
         getEnvWithFallback(
             "RATCHET_IDEMPOTENCY_RETRY_MAX_ATTEMPTS",
@@ -181,7 +179,6 @@ public class RatchetConfiguration {
             "SCHEDULER_IDEMPOTENCY_RETRY_MAX_DELAY_MS",
             "500");
 
-    // Data Retention and Archiving
     this.dlqPurgeCron =
         getEnvWithFallback("RATCHET_DLQ_PURGE_CRON", "SCHEDULER_DLQ_PURGE_CRON", "0 0 2 * * ?");
     this.dlqPurgeDays = getEnvWithFallback("RATCHET_DLQ_PURGE_DAYS", "DLQ_PURGE_DAYS", "90");
@@ -211,7 +208,6 @@ public class RatchetConfiguration {
     this.metricsClustering =
         getEnvWithFallback("RATCHET_METRICS_CLUSTERING", "SCHEDULER_METRICS_CLUSTERING", "none");
 
-    // Node Health and Heartbeat
     this.nodeHeartbeatIntervalSeconds =
         getEnvWithFallback(
             "RATCHET_NODE_HEARTBEAT_INTERVAL_SECONDS", "NODE_HEARTBEAT_INTERVAL_SECONDS", "10");
@@ -221,14 +217,12 @@ public class RatchetConfiguration {
         getEnvWithFallback(
             "RATCHET_ORPHAN_SCAN_INTERVAL_MINUTES", "SCHEDULER_ORPHAN_SCAN_INTERVAL_MINUTES", "5");
 
-    // Priority Boosting
     this.priorityBoostIntervalMinutes =
         getEnvWithFallback(
             "RATCHET_PRIORITY_BOOST_INTERVAL_MINUTES",
             "SCHEDULER_PRIORITY_BOOST_INTERVAL_MINUTES",
             "15");
 
-    // Poller
     this.pollerBatchSize =
         getEnvWithFallback("RATCHET_POLLER_BATCH_SIZE", "POLLER_BATCH_SIZE", "50");
     this.pollerBurstDelayMs =
@@ -246,7 +240,6 @@ public class RatchetConfiguration {
     this.pollerMinDelayMs =
         getEnvWithFallback("RATCHET_POLLER_MIN_DELAY_MS", "POLLER_MIN_DELAY_MS", "2000");
 
-    // Recurring Job
     this.recurringBatchLimit =
         getEnvWithFallback("RATCHET_RECURRING_BATCH_LIMIT", "RECURRING_BATCH_LIMIT", "20");
     this.recurringMaxPollMs =
@@ -254,7 +247,6 @@ public class RatchetConfiguration {
     this.recurringPollMs =
         getEnvWithFallback("RATCHET_RECURRING_POLL_MS", "RECURRING_POLL_MS", "1000");
 
-    // Slack Notification
     this.slackDlqChannel =
         getEnvWithFallback(
             "RATCHET_SLACK_DLQ_CHANNEL", "SCHEDULER_SLACK_DLQ_CHANNEL", "#job-scheduler-dlq");
@@ -267,7 +259,6 @@ public class RatchetConfiguration {
     this.softTimeoutPercent =
         getEnvWithFallback("RATCHET_SOFT_TIMEOUT_PERCENT", "SCHEDULER_SOFT_TIMEOUT_PERCENT", "80");
 
-    // Thread Pool
     this.threadPoolQueueSize =
         getEnvWithFallback(
             "RATCHET_THREAD_POOL_QUEUE_SIZE", "SCHEDULER_THREAD_POOL_QUEUE_SIZE", "100");
@@ -294,7 +285,6 @@ public class RatchetConfiguration {
         getEnvWithFallback(
             "RATCHET_THREAD_POOL_SIZE_SINGLE", "SCHEDULER_THREAD_POOL_SIZE_SINGLE", "20");
 
-    // Worker
     this.workerDefaultSla =
         getEnvWithFallback("RATCHET_WORKER_DEFAULT_SLA", "WORKER_DEFAULT_SLA", "1800");
     this.workerUseVirtualThreads =
@@ -548,7 +538,10 @@ public class RatchetConfiguration {
   }
 
   public boolean isWorkerUseVirtualThreads() {
-    return workersUseVirtualThreads();
+    if (workerUseVirtualThreads == null || workerUseVirtualThreads.isEmpty()) {
+      return false;
+    }
+    return Boolean.parseBoolean(workerUseVirtualThreads);
   }
 
   /**
@@ -569,12 +562,5 @@ public class RatchetConfiguration {
       }
     }
     return defaultLimit;
-  }
-
-  public boolean workersUseVirtualThreads() {
-    if (workerUseVirtualThreads == null || workerUseVirtualThreads.isEmpty()) {
-      return false;
-    }
-    return Boolean.parseBoolean(workerUseVirtualThreads);
   }
 }

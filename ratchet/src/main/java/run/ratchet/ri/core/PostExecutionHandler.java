@@ -21,7 +21,6 @@ public class PostExecutionHandler {
   private final DeadLetterService deadLetterService;
   private final PollerScheduler pollerScheduler;
 
-  // Required by CDI proxy
   protected PostExecutionHandler() {
     this.batchService = null;
     this.workflowScheduler = null;

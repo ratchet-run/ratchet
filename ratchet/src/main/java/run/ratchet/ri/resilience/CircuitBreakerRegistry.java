@@ -29,7 +29,6 @@ public class CircuitBreakerRegistry {
     return getBreaker(serviceName, CircuitBreakerProfile.DEFAULT);
   }
 
-  /** Gets or creates a circuit breaker for a specific profile. */
   public CircuitBreaker getBreaker(String serviceName, CircuitBreakerProfile profile) {
     String key = serviceName + ":" + profile.name();
     return breakers.computeIfAbsent(
@@ -42,23 +41,19 @@ public class CircuitBreakerRegistry {
         });
   }
 
-  /** Gets the current state of a circuit breaker, or null if not created. */
   public CircuitBreaker.State getBreakerState(String serviceName) {
     return getBreakerState(serviceName, CircuitBreakerProfile.DEFAULT);
   }
 
-  /** Gets the current state of a circuit breaker for a specific profile, or null if not created. */
   public CircuitBreaker.State getBreakerState(String serviceName, CircuitBreakerProfile profile) {
     CircuitBreaker breaker = breakers.get(serviceName + ":" + profile.name());
     return breaker != null ? breaker.getState() : null;
   }
 
-  /** Manually opens a circuit breaker (default profile). */
   public void openBreaker(String serviceName) {
     openBreaker(serviceName, CircuitBreakerProfile.DEFAULT);
   }
 
-  /** Manually opens a circuit breaker for a specific profile. */
   public void openBreaker(String serviceName, CircuitBreakerProfile profile) {
     CircuitBreaker breaker = breakers.get(serviceName + ":" + profile.name());
     if (breaker != null) {
@@ -67,12 +62,10 @@ public class CircuitBreakerRegistry {
     }
   }
 
-  /** Resets a circuit breaker to CLOSED (default profile). */
   public void resetBreaker(String serviceName) {
     resetBreaker(serviceName, CircuitBreakerProfile.DEFAULT);
   }
 
-  /** Resets a circuit breaker to CLOSED for a specific profile. */
   public void resetBreaker(String serviceName, CircuitBreakerProfile profile) {
     CircuitBreaker breaker = breakers.get(serviceName + ":" + profile.name());
     if (breaker != null) {
@@ -81,7 +74,6 @@ public class CircuitBreakerRegistry {
     }
   }
 
-  /** Registers a named configuration for future breaker creation. */
   public void registerConfig(String name, CircuitBreakerConfiguration config) {
     configs.put(name, config);
     log.debugf("Registered circuit breaker config: %s", name);

@@ -45,7 +45,6 @@ public class LogPurgeTimer {
   private Cron cron;
   private ZoneId zone;
 
-  // Required by CDI proxy
   protected LogPurgeTimer() {
     this.jobLogStore = null;
     this.lockStore = null;

@@ -756,8 +756,7 @@ public class MongoJobStore implements JobStore {
 
   @Override
   public int resetOrphanJobs(Duration grace) {
-    // Use the Duration directly instead of round-tripping through toMinutes(),
-    // which truncates sub-minute values to 0 and corrupts non-multiple-of-60 grace periods.
+    // Use Duration directly — toMinutes() truncates sub-minute values
     Date cutoff = DocumentMapper.toDate(Instant.now().minus(grace));
 
     // Find active node IDs
@@ -910,7 +909,7 @@ public class MongoJobStore implements JobStore {
       // If we got a result with our nodeId, the lock was acquired (insert or expired-update)
       return result != null && nodeId.equals(result.getString("owner_node"));
     } catch (MongoCommandException e) {
-      // 11000 = lock held
+      // 11000 = duplicate key (lock already held)
       if (e.getErrorCode() == 11000) {
         return false;
       }
@@ -1441,15 +1440,7 @@ public class MongoJobStore implements JobStore {
     return database.getCollection("scheduler_resource_permit");
   }
 
-  /**
-   * Finds candidate job IDs sorted by effective priority (raw priority + age-based boost). Uses a
-   * MongoDB aggregation pipeline to compute:
-   *
-   * <pre>effective_priority = priority + FLOOR(MAX(0, age_minutes) / boost_interval)</pre>
-   *
-   * <p>This matches the MySQL/PostgreSQL claim query's priority boost formula, ensuring consistent
-   * ordering semantics across all store implementations.
-   */
+  /** Finds candidate job IDs sorted by effective priority (raw priority + age-based boost). */
   private List<Long> findCandidatesByBoostedPriority(
       List<String> jobTypes, String timeColumn, int limit) {
     Date now = DocumentMapper.toDate(Instant.now());

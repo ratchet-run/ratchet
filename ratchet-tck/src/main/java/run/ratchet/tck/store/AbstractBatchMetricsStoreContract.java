@@ -98,10 +98,6 @@ public abstract class AbstractBatchMetricsStoreContract implements JobStoreContr
     assertEquals(5, found.getChildCount(), "childCount should be updated");
   }
 
-  /**
-   * N threads concurrently add execution times. The final total must equal the sum of all
-   * additions, proving server-side atomicity.
-   */
   @Test
   void addChildExecutionTime_concurrent_allTimesAccumulated() {
     int threadCount = 10;

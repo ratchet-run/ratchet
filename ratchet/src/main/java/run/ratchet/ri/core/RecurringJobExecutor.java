@@ -32,7 +32,6 @@ public class RecurringJobExecutor {
   private final JobClaimStore jobClaimStore;
   private final RecurringRegistrationState registrationState;
 
-  // Required by CDI proxy
   protected RecurringJobExecutor() {
     this.jobCrudStore = null;
     this.jobClaimStore = null;

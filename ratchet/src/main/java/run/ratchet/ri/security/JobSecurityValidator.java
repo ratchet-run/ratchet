@@ -101,5 +101,4 @@ public class JobSecurityValidator {
 
     log.debugf("Validated: %s.%s", targetClass, payload.method());
   }
-
 }

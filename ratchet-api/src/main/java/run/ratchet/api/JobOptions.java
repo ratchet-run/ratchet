@@ -6,10 +6,7 @@ import java.time.Duration;
  * Immutable configuration for job execution: priority, retry behavior, backoff strategy, and
  * timeout. Use {@link #defaults()} and the {@code with*} methods to build custom configurations.
  *
- * @param priority the job execution priority
  * @param maxRetries maximum number of retry attempts (0 = no retries)
- * @param backoffPolicy the retry delay strategy
- * @param backoffParam the base duration for backoff calculations
  * @param timeoutSec maximum execution time in seconds (0 = no timeout)
  * @see JobBuilder
  * @see BackoffPolicy

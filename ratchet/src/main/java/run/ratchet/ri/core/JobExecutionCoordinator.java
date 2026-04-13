@@ -16,7 +16,6 @@ public class JobExecutionCoordinator {
   private final JobStateManager jobStateManager;
   private final RetryBufferDrainer retryBufferDrainer;
 
-  // Required by CDI proxy
   protected JobExecutionCoordinator() {
     this.jobSubmissionService = null;
     this.jobStateManager = null;

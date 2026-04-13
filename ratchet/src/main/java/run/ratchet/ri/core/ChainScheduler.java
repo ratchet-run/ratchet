@@ -26,7 +26,6 @@ public class ChainScheduler {
 
   private final JobCrudStore jobCrudStore;
 
-  // Required by CDI proxy
   protected ChainScheduler() {
     this.jobCrudStore = null;
   }

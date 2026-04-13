@@ -25,7 +25,6 @@ public class ResourcePermitService {
 
   private final ResourcePermitStore resourcePermitStore;
 
-  // Required by CDI proxy
   protected ResourcePermitService() {
     this.resourcePermitStore = null;
   }

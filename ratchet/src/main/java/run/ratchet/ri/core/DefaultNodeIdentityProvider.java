@@ -40,7 +40,6 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
   private ScheduledFuture<?> heartbeatHandle;
   private String nodeId;
 
-  // Required by CDI proxy
   protected DefaultNodeIdentityProvider() {
     this.nodeStore = null;
     this.jobBulkStore = null;

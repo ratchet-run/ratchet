@@ -63,16 +63,7 @@ public class PostgresqlJobStore implements JobStore {
 
   @PersistenceContext private EntityManager em;
 
-  /**
-   * Checks the connection isolation level on first use and warns (or fails, depending on the {@code
-   * ratchet.isolation-check} system property) if not READ COMMITTED.
-   *
-   * <p>PostgreSQL's default is already READ COMMITTED, but operators sometimes raise it globally
-   * via {@code default_transaction_isolation = serializable} or per-connection. Ratchet's poll and
-   * claim queries assume READ COMMITTED semantics; running under SERIALIZABLE produces {@code
-   * SQLState 40001} serialization failures on concurrent claims that the claim loop is not designed
-   * to retry.
-   */
+  /** Warns (or fails) if the connection isolation level is not READ COMMITTED. */
   @PostConstruct
   void checkIsolationLevel() {
     IsolationCheck.verifyReadCommitted(
@@ -899,9 +890,7 @@ public class PostgresqlJobStore implements JobStore {
 
   @Override
   public int resetOrphanJobs(Duration grace) {
-    // Use SECOND granularity: Duration.toMinutes() truncates sub-minute values to 0,
-    // which would either reset every running job (grace < 60s) or race with node heartbeats
-    // at non-multiples of 60s.
+    // Use SECOND granularity — toMinutes() truncates sub-minute values
     long graceSeconds = grace.toSeconds();
     return em.createNativeQuery(
             "UPDATE scheduler_job SET status = 'PENDING', "

@@ -59,11 +59,6 @@ public abstract class AbstractJobStatusStoreContract implements JobStoreContract
         "Status should remain PENDING after failed CAS");
   }
 
-  /**
-   * Three threads race to CAS the same job from PENDING → RUNNING. At most one should succeed — the
-   * CAS is atomic. We assert "at most one" rather than "exactly one" because thread scheduling on
-   * low-core CI machines may serialize execution such that no true contention occurs.
-   */
   @Test
   void compareAndSwapStatus_concurrent_atMostOneSucceeds() {
     var saved = persist(newPendingJob());

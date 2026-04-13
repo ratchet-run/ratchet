@@ -47,10 +47,8 @@ public class JobArchivingService {
   private ZoneId zone;
   private boolean enabled;
 
-  /** Set to true during shutdown to prevent re-scheduling after the current run completes. */
   private volatile boolean stopped = false;
 
-  // Required by CDI proxy
   protected JobArchivingService() {
     this.jobBulkStore = null;
     this.archiveStore = null;
@@ -73,10 +71,7 @@ public class JobArchivingService {
     this.executorProvider = executorProvider;
   }
 
-  /**
-   * Stops the archiving scheduler. Cron-based scheduling uses one-shot delays; this flag prevents
-   * re-scheduling after the current run completes.
-   */
+  /** Stops the archiving scheduler. */
   public void stop() {
     stopped = true;
   }
@@ -101,7 +96,6 @@ public class JobArchivingService {
         enabled, retentionDays, batchSize);
   }
 
-  /** Manually triggers an archiving run outside the normal schedule. */
   public void triggerArchiving() {
     if (!enabled) {
       log.warn("Cannot trigger archiving: service is disabled");
@@ -112,7 +106,6 @@ public class JobArchivingService {
     executorProvider.getJobExecutor().submit(this::performArchiving);
   }
 
-  /** Main archiving operation that processes eligible jobs in batches. */
   void run() {
     if (!enabled) {
       log.debug("Job archiving is disabled, skipping run");

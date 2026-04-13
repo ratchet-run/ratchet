@@ -22,19 +22,15 @@ public record CircuitBreakerConfiguration(
     int permittedCallsInHalfOpen,
     int minimumCalls) {
 
-  /** Default configuration matching {@link CircuitBreakerProfile#DEFAULT}. */
   public static final CircuitBreakerConfiguration DEFAULT =
       new CircuitBreakerConfiguration(50.0f, 100, 30_000L, 10_000L, 3, 5);
 
-  /** Fast-fail configuration matching {@link CircuitBreakerProfile#FAST}. */
   public static final CircuitBreakerConfiguration FAST =
       new CircuitBreakerConfiguration(50.0f, 20, 10_000L, 2_000L, 2, 3);
 
-  /** High-availability configuration matching {@link CircuitBreakerProfile#CRITICAL}. */
   public static final CircuitBreakerConfiguration CRITICAL =
       new CircuitBreakerConfiguration(75.0f, 200, 60_000L, 30_000L, 5, 10);
 
-  /** External API configuration matching {@link CircuitBreakerProfile#EXTERNAL_API}. */
   public static final CircuitBreakerConfiguration EXTERNAL_API =
       new CircuitBreakerConfiguration(60.0f, 50, 60_000L, 5_000L, 3, 5);
 

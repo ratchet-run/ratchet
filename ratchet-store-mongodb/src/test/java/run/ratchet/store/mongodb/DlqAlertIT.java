@@ -9,12 +9,6 @@ import run.ratchet.store.entity.JobEntity;
 import java.time.Instant;
 import org.junit.jupiter.api.Test;
 
-/**
- * Integration tests for dead-letter queue alert operations.
- *
- * <p>Validates DLQ alert creation, deduplication (unique index on job_id + error_hash), and
- * recency-based suppression.
- */
 class DlqAlertIT extends BaseDocumentStoreIT {
 
   @Test
@@ -30,12 +24,10 @@ class DlqAlertIT extends BaseDocumentStoreIT {
     DlqAlertEntity saved = store().saveDlqAlert(alert);
     assertNotNull(saved.getId());
 
-    // Should find the recent alert
     boolean exists =
         store().existsRecentDlqAlert(job.getId(), "abc123", Instant.now().minusSeconds(60));
     assertTrue(exists);
 
-    // Should NOT find an alert with a different hash
     boolean notExists =
         store().existsRecentDlqAlert(job.getId(), "different-hash", Instant.now().minusSeconds(60));
     assertFalse(notExists);

@@ -10,29 +10,13 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
-/**
- * Runs a fixed set of {@link Runnable} tasks in parallel on a shared start latch and returns one
- * {@link Throwable} slot per task ({@code null} on success).
- *
- * <p>Deliberately avoids {@link java.util.concurrent.Future}: {@code submit(Runnable)} wraps
- * exceptions inside the Future and requires explicit {@code get()} to surface them, which is
- * error-prone for multi-task assertions.
- */
+/** Runs tasks in parallel on a shared start latch and returns one Throwable slot per task. */
 public final class ConcurrentTestRunner {
 
   private ConcurrentTestRunner() {}
 
   /**
-   * Runs the supplied tasks in parallel and returns one result slot per task ({@code null} on
-   * success, otherwise the thrown {@link Throwable}).
-   *
-   * <p>If any task does not complete within {@code timeout}, this method calls JUnit {@link
-   * org.junit.jupiter.api.Assertions#fail(String)} — a timeout is a test infrastructure failure,
-   * not a task outcome.
-   *
-   * @param timeout maximum time to wait for all tasks to complete
-   * @param tasks tasks to execute concurrently; must be non-null and non-empty
-   * @return list of per-task results, one element per task, aligned to input order
+   * @return list of per-task results (null on success, otherwise the thrown Throwable)
    */
   public static List<Throwable> runAll(Duration timeout, Runnable... tasks) {
     if (tasks == null || tasks.length == 0) {

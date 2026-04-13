@@ -12,12 +12,6 @@ import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
-/**
- * Integration tests for the complete job lifecycle through the MongoDB store.
- *
- * <p>Validates multi-step state transitions: create → claim → succeed/fail, including retry flow
- * and the CAS (compare-and-swap) status transition guarantees.
- */
 class JobLifecycleIT extends BaseDocumentStoreIT {
 
   @Test
@@ -26,14 +20,12 @@ class JobLifecycleIT extends BaseDocumentStoreIT {
     assertNotNull(job.getId());
     assertEquals(JobStatus.PENDING, job.getStatus());
 
-    // Claim the job
     List<JobEntity> claimed = store().claimNextBatch(1, "node-1");
     assertEquals(1, claimed.size());
     assertEquals(job.getId(), claimed.get(0).getId());
     assertEquals(JobStatus.RUNNING, claimed.get(0).getStatus());
     assertEquals("node-1", claimed.get(0).getPickedBy());
 
-    // Complete it
     boolean swapped =
         store().compareAndSwapStatus(job.getId(), JobStatus.RUNNING, JobStatus.SUCCEEDED, null);
     assertTrue(swapped);
@@ -67,23 +59,14 @@ class JobLifecycleIT extends BaseDocumentStoreIT {
     job.setMaxRetries(3);
     job = store().save(job);
 
-    // Claim — job is now RUNNING
     store().claimNextBatch(1, "node-1");
-
-    // Increment attempt counter while RUNNING (mirrors RI behavior)
     store().incrementRetryAttempt(job.getId());
-
-    // Fail the job
     store().compareAndSwapStatus(job.getId(), JobStatus.RUNNING, JobStatus.FAILED, "first attempt");
-
-    // Simulate retry: reset to PENDING for re-claim
     store().compareAndSwapStatus(job.getId(), JobStatus.FAILED, JobStatus.PENDING, null);
 
-    // Re-claim
     List<JobEntity> reclaimed = store().claimNextBatch(1, "node-1");
     assertEquals(1, reclaimed.size());
 
-    // Succeed this time
     store().compareAndSwapStatus(job.getId(), JobStatus.RUNNING, JobStatus.SUCCEEDED, null);
 
     Optional<JobEntity> result = store().findById(job.getId());
@@ -102,7 +85,6 @@ class JobLifecycleIT extends BaseDocumentStoreIT {
         store().compareAndSwapStatus(job.getId(), JobStatus.PENDING, JobStatus.SUCCEEDED, null);
     assertFalse(swapped);
 
-    // Job should still be RUNNING
     Optional<JobEntity> current = store().findById(job.getId());
     assertTrue(current.isPresent());
     assertEquals(JobStatus.RUNNING, current.get().getStatus());
@@ -110,15 +92,12 @@ class JobLifecycleIT extends BaseDocumentStoreIT {
 
   @Test
   void claimRespectsScheduledTime() {
-    // Create a job scheduled in the future
     JobEntity futureJob = newPendingJob();
     futureJob.setScheduledTime(Instant.now().plusSeconds(3600));
     store().save(futureJob);
 
-    // Create a job scheduled now
     JobEntity nowJob = store().save(newPendingJob());
 
-    // Only the now-scheduled job should be claimable
     List<JobEntity> claimed = store().claimNextBatch(10, "node-1");
     assertEquals(1, claimed.size());
     assertEquals(nowJob.getId(), claimed.get(0).getId());

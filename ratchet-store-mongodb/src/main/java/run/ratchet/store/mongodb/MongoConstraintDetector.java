@@ -4,12 +4,7 @@ import com.mongodb.MongoCommandException;
 import com.mongodb.MongoWriteException;
 import run.ratchet.store.ConstraintDetector;
 
-/**
- * MongoDB-specific constraint violation detector.
- *
- * <p>Inspects MongoDB driver exceptions to identify duplicate key violations, deadlocks (write
- * conflicts), and extract index names from error messages.
- */
+/** MongoDB-specific constraint violation detector. */
 public class MongoConstraintDetector implements ConstraintDetector {
 
   private static final int DUPLICATE_KEY_CODE = 11000;

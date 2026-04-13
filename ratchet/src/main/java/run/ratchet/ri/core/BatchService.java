@@ -54,7 +54,6 @@ public class BatchService {
   private final InternalEventPublisher eventPublisher;
   private final WorkflowScheduler workflowScheduler;
 
-  // Required by CDI proxy
   protected BatchService() {
     this.batchStore = null;
     this.jobCrudStore = null;
@@ -80,12 +79,10 @@ public class BatchService {
     this.workflowScheduler = workflowScheduler;
   }
 
-  /** Increments the failed counter; triggers completion if this was the last child. */
   public void markChildFailed(JobEntity child) {
     update(child, false);
   }
 
-  /** Increments the completed counter; triggers completion if this was the last child. */
   public void markChildSucceeded(JobEntity child) {
     update(child, true);
   }

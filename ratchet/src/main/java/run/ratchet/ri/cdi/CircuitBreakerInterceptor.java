@@ -28,7 +28,6 @@ public class CircuitBreakerInterceptor {
 
   private final CircuitBreakerRegistry registry;
 
-  // Required by CDI proxy
   protected CircuitBreakerInterceptor() {
     this.registry = null;
   }

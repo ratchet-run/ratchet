@@ -36,7 +36,6 @@ public class RetryBufferDrainer {
   @SuppressWarnings("java:S3077")
   private volatile ScheduledFuture<?> drainerTask;
 
-  // Required by CDI proxy
   protected RetryBufferDrainer() {
     this.executorProvider = null;
     this.retryBufferManager = null;

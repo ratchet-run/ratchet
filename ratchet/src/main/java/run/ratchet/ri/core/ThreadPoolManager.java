@@ -36,7 +36,6 @@ public class ThreadPoolManager {
   private final Map<JobExecutionType, Integer> maxConcurrencyMap;
   private final RatchetConfiguration config;
 
-  // Required by CDI proxy
   protected ThreadPoolManager() {
     this.executorProvider = null;
     this.metricsCollector = null;
@@ -106,7 +105,6 @@ public class ThreadPoolManager {
     return executorProvider.getJobExecutor();
   }
 
-  /** Overall utilization ratio (0.0 to 1.0) across all pools. */
   public double getOverallUtilization() {
     if (useVirtualThreads) {
       int totalActive = 0;
@@ -133,7 +131,6 @@ public class ThreadPoolManager {
     return totalMax > 0 ? (double) totalActive / totalMax : 0.0;
   }
 
-  /** Utilization percentage (0-100) for the given job type's pool. */
   public double getUtilization(JobExecutionType jobType) {
     if (useVirtualThreads) {
       return 0;
@@ -272,7 +269,6 @@ public class ThreadPoolManager {
       int queueSize,
       long rejectionCount) {
 
-    /** Utilization percentage (0-100), or 0 for virtual threads. */
     public double getUtilizationPercent() {
       if (isVirtual || maxPoolSize == 0) {
         return 0;
@@ -280,7 +276,6 @@ public class ThreadPoolManager {
       return (double) activeThreads / maxPoolSize * 100;
     }
 
-    /** True if utilization is under 90% and rejections are under 50. */
     public boolean isHealthy() {
       if (isVirtual) {
         return true;

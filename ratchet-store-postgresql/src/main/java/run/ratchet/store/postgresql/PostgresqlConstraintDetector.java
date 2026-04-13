@@ -3,12 +3,7 @@ package run.ratchet.store.postgresql;
 import run.ratchet.store.ConstraintDetector;
 import java.sql.SQLException;
 
-/**
- * PostgreSQL-specific constraint violation detector.
- *
- * <p>Parses PostgreSQL SQLSTATE codes and error messages to identify constraint violations,
- * duplicate keys, and deadlocks.
- */
+/** PostgreSQL-specific constraint violation detector. */
 public class PostgresqlConstraintDetector implements ConstraintDetector {
 
   private static final String SQLSTATE_UNIQUE_VIOLATION = "23505";

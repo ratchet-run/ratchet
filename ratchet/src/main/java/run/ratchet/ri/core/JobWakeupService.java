@@ -29,7 +29,6 @@ public class JobWakeupService {
 
   @Resource private TransactionSynchronizationRegistry txRegistry;
 
-  // Required by CDI proxy
   protected JobWakeupService() {
     this.clusterCoordinator = null;
     this.nodeIdProvider = null;

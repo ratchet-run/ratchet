@@ -48,7 +48,6 @@ public class JobExecutorService {
   private final ErrorSanitizer errorSanitizer;
   private final ClassPolicy classPolicy;
 
-  // Required by CDI proxy
   protected JobExecutorService() {
     this.threadPoolManager = null;
     this.timeoutHandler = null;
@@ -98,10 +97,6 @@ public class JobExecutorService {
     this.classPolicy = classPolicy;
   }
 
-  /**
-   * Executes the given job. A permit must have been acquired before calling this method; it is
-   * released automatically on completion.
-   */
   public ExecutionResult execute(JobEntity job) {
     JobExecutionType jobType = job.getJobType();
     Callable<Void> callable = createPermitAwareRunner(job, jobType);

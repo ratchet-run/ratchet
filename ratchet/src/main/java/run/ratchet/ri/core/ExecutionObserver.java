@@ -21,7 +21,6 @@ public class ExecutionObserver {
   private final ExecutorProvider executorProvider;
   private final Runnable delayedJobReadyCallback;
 
-  // Required by CDI proxy
   protected ExecutionObserver() {
     this.metricsCollector = null;
     this.eventPublisher = null;

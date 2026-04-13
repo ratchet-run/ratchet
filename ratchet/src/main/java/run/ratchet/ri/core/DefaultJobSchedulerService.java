@@ -55,7 +55,6 @@ public class DefaultJobSchedulerService
   private final JobWakeupService wakeupService;
   private final RecurringScheduler recurringScheduler;
 
-  // Required by CDI proxy
   protected DefaultJobSchedulerService() {
     this.eventPublisher = null;
     this.jobStatusStore = null;
