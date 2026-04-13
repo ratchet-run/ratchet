@@ -1,6 +1,7 @@
 package run.ratchet.ri.security;
 
 import run.ratchet.spi.ErrorSanitizer;
+import java.util.IdentityHashMap;
 import java.util.regex.Pattern;
 
 /**
@@ -27,6 +28,7 @@ public class DefaultErrorSanitizer implements ErrorSanitizer {
   static final String REDACT_EMAILS_PROPERTY = "ratchet.error-sanitizer.redact-emails";
 
   private static final int MAX_LENGTH = 2000;
+  private static final int MAX_CAUSE_DEPTH = 10;
   private static final String REDACTED = "***REDACTED***";
 
   /** Matches JDBC URLs: jdbc:mysql://user:pass@host/db or jdbc:postgresql://... */
@@ -60,38 +62,46 @@ public class DefaultErrorSanitizer implements ErrorSanitizer {
       return className;
     }
 
-    String sanitized = message;
-    sanitized = JDBC_URL.matcher(sanitized).replaceAll(REDACTED);
-    sanitized = URL_WITH_CREDENTIALS.matcher(sanitized).replaceAll(REDACTED);
-    if (Boolean.parseBoolean(System.getProperty(REDACT_EMAILS_PROPERTY, "false"))) {
-      sanitized = EMAIL.matcher(sanitized).replaceAll(REDACTED);
-    }
-    sanitized = CREDENTIAL_KV.matcher(sanitized).replaceAll("$1=" + REDACTED);
+    StringBuilder result = new StringBuilder(className).append(": ").append(redact(message));
 
-    StringBuilder result = new StringBuilder(className).append(": ").append(sanitized);
-    // Append the (sanitized) cause chain so operators don't lose root-cause context.
+    // Walk the full cause chain (bounded by MAX_CAUSE_DEPTH) with identity-based cycle detection.
+    // Deeply-wrapped exceptions from Jakarta EE layers (e.g. EJBException -> PersistenceException
+    // -> SQLException) commonly carry JDBC credentials in the deepest cause — a single-level walk
+    // would let them leak into last_error.
+    IdentityHashMap<Throwable, Boolean> seen = new IdentityHashMap<>();
+    seen.put(ex, Boolean.TRUE);
     Throwable cause = ex.getCause();
-    if (cause != null && cause != ex) {
+    int depth = 0;
+    while (cause != null && depth < MAX_CAUSE_DEPTH && !seen.containsKey(cause)) {
+      seen.put(cause, Boolean.TRUE);
       String causeMessage = cause.getMessage();
       if (causeMessage != null) {
-        String sanitizedCause = causeMessage;
-        sanitizedCause = JDBC_URL.matcher(sanitizedCause).replaceAll(REDACTED);
-        sanitizedCause = URL_WITH_CREDENTIALS.matcher(sanitizedCause).replaceAll(REDACTED);
-        if (Boolean.parseBoolean(System.getProperty(REDACT_EMAILS_PROPERTY, "false"))) {
-          sanitizedCause = EMAIL.matcher(sanitizedCause).replaceAll(REDACTED);
-        }
-        sanitizedCause = CREDENTIAL_KV.matcher(sanitizedCause).replaceAll("$1=" + REDACTED);
         result
             .append(" -> caused by ")
             .append(cause.getClass().getName())
             .append(": ")
-            .append(sanitizedCause);
+            .append(redact(causeMessage));
+      } else {
+        result.append(" -> caused by ").append(cause.getClass().getName());
       }
+      cause = cause.getCause();
+      depth++;
     }
 
     if (result.length() > MAX_LENGTH) {
       return result.substring(0, MAX_LENGTH - 3) + "...";
     }
     return result.toString();
+  }
+
+  private static String redact(String text) {
+    String sanitized = text;
+    sanitized = JDBC_URL.matcher(sanitized).replaceAll(REDACTED);
+    sanitized = URL_WITH_CREDENTIALS.matcher(sanitized).replaceAll(REDACTED);
+    if (Boolean.parseBoolean(System.getProperty(REDACT_EMAILS_PROPERTY, "false"))) {
+      sanitized = EMAIL.matcher(sanitized).replaceAll(REDACTED);
+    }
+    sanitized = CREDENTIAL_KV.matcher(sanitized).replaceAll("$1=" + REDACTED);
+    return sanitized;
   }
 }
