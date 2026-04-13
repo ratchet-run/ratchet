@@ -33,12 +33,6 @@ public class JobPayloadInputValidator {
           float.class, Float.class,
           double.class, Double.class);
 
-  /**
-   * Validates a job payload at creation time.
-   *
-   * @param payload the job payload to validate
-   * @throws IllegalArgumentException if validation fails with a clear error message
-   */
   public void validateAtCreation(JobPayload payload) {
     if (payload == null) {
       throw new IllegalArgumentException("Job payload cannot be null");

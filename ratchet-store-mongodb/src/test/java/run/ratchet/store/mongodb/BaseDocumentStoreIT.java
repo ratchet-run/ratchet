@@ -18,14 +18,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.testcontainers.containers.MongoDBContainer;
 
 /**
- * Base class for document store integration tests.
+ * Base class for MongoDB store integration tests.
  *
- * <p>Manages the lifecycle of a MongoDB Testcontainer shared across all test classes. Each test
- * gets a fresh database and store instance to ensure isolation. Subclasses access the store via
- * {@link #store()} and can create pre-configured entities via the factory methods.
- *
- * <p>This class is designed to be reusable for future document store implementations — the factory
- * methods work with the store-core entity model, not MongoDB-specific types.
+ * <p>Manages the lifecycle of a shared Testcontainer; each test gets a fresh database and store
+ * instance. Subclasses access the store via {@link #store()} and create entities via the factory
+ * methods.
  */
 public abstract class BaseDocumentStoreIT {
 
@@ -74,12 +71,10 @@ public abstract class BaseDocumentStoreIT {
     return database;
   }
 
-  /** Creates a PENDING job with sensible defaults and a unique idempotency key. */
   protected JobEntity newPendingJob() {
     return newPendingJob(JobPriority.NORMAL);
   }
 
-  /** Creates a PENDING job with the specified priority. */
   protected JobEntity newPendingJob(JobPriority priority) {
     JobEntity job = new JobEntity();
     job.setStatus(JobStatus.PENDING);
@@ -92,7 +87,6 @@ public abstract class BaseDocumentStoreIT {
     return job;
   }
 
-  /** Creates a PENDING batch parent job. */
   protected JobEntity newBatchParentJob() {
     JobEntity job = new JobEntity();
     job.setStatus(JobStatus.PENDING);
@@ -105,7 +99,6 @@ public abstract class BaseDocumentStoreIT {
     return job;
   }
 
-  /** Creates a PENDING batch child job. */
   protected JobEntity newBatchChildJob() {
     JobEntity job = new JobEntity();
     job.setStatus(JobStatus.PENDING);
@@ -118,7 +111,6 @@ public abstract class BaseDocumentStoreIT {
     return job;
   }
 
-  /** Creates a PENDING chain step job. */
   protected JobEntity newChainStepJob() {
     JobEntity job = new JobEntity();
     job.setStatus(JobStatus.PENDING);

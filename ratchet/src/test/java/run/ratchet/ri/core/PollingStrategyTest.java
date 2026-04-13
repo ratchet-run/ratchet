@@ -33,8 +33,6 @@ class PollingStrategyTest {
             BATCH_SIZE);
   }
 
-  // ── Initial state ─────────────────────────────────────────────────────
-
   @Test
   void initialDelay_equalsMinDelay() {
     assertEquals(MIN_DELAY, strategy.getCurrentDelay());
@@ -45,8 +43,6 @@ class PollingStrategyTest {
     assertFalse(strategy.isInDeepIdle());
     assertFalse(strategy.isInBurstMode());
   }
-
-  // ── Burst mode ────────────────────────────────────────────────────────
 
   @Test
   void onWakeup_entersBurstMode() {
@@ -82,8 +78,6 @@ class PollingStrategyTest {
     assertEquals(MIN_DELAY, strategy.getCurrentDelay());
   }
 
-  // ── Deep idle ─────────────────────────────────────────────────────────
-
   @Test
   void deepIdle_enteredAfterThresholdElapsed() {
     // pollStartTime must exceed lastJobFoundTime by deepIdleThreshold
@@ -104,8 +98,6 @@ class PollingStrategyTest {
     assertFalse(strategy.isInDeepIdle());
   }
 
-  // ── Jobs-found resets idle counter ────────────────────────────────────
-
   @Test
   void jobsFound_resetsIdleCount() {
     long now = System.currentTimeMillis();
@@ -119,8 +111,6 @@ class PollingStrategyTest {
     PollingStrategy.PollingStats stats = strategy.getStats();
     assertEquals(0, stats.currentIdleCount());
   }
-
-  // ── Consecutive full batches ──────────────────────────────────────────
 
   @Test
   void consecutiveFullBatches_reducesDelay() {
@@ -150,8 +140,6 @@ class PollingStrategyTest {
     PollingStrategy.PollingStats stats = strategy.getStats();
     assertEquals(0, stats.consecutiveFullBatches());
   }
-
-  // ── Load factor ───────────────────────────────────────────────────────
 
   @Test
   void highLoadFactor_reducesDelay() {
@@ -217,8 +205,6 @@ class PollingStrategyTest {
             + ")");
   }
 
-  // ── Delay bounds ──────────────────────────────────────────────────────
-
   @Test
   void delay_neverBelowAbsoluteMinimum() {
     strategy.onWakeup();
@@ -245,8 +231,6 @@ class PollingStrategyTest {
         "Delay must not exceed maxDelayMs, got " + strategy.getCurrentDelay());
   }
 
-  // ── Default constructor ───────────────────────────────────────────────
-
   @Test
   void defaultConstructor_usesReasonableDefaults() {
     PollingStrategy defaultStrategy = new PollingStrategy();
@@ -254,8 +238,6 @@ class PollingStrategyTest {
     assertFalse(defaultStrategy.isInDeepIdle());
     assertFalse(defaultStrategy.isInBurstMode());
   }
-
-  // ── Stats ─────────────────────────────────────────────────────────────
 
   @Test
   void getStats_returnsConsistentSnapshot() {

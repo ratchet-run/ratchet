@@ -43,7 +43,7 @@ public class MongoCollectionInitializer {
   }
 
   public void initialize() {
-    log.info("Initializing MongoDB collections and indexes for Ratchet scheduler");
+    log.debug("Initializing MongoDB collections and indexes");
     createJobIndexes();
     createBatchIndexes();
     createBatchMetricsIndexes();
@@ -56,7 +56,6 @@ public class MongoCollectionInitializer {
     createDlqAlertIndexes();
     createResourceLimitIndexes();
     createResourcePermitIndexes();
-    log.info("MongoDB collection initialization complete");
   }
 
   private void createJobIndexes() {

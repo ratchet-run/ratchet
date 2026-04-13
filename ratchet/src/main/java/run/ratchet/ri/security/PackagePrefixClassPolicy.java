@@ -6,33 +6,10 @@ import java.util.Set;
 import org.jboss.logging.Logger;
 
 /**
- * Security policy for allowed job target classes based on package prefixes.
- *
- * <p>This class enforces strict restrictions on which classes can be loaded and executed as job
- * targets. Only classes from trusted application packages are allowed. This is a critical security
- * component that prevents arbitrary code execution attacks where a malicious actor might attempt to
- * execute system commands or load untrusted classes through the job scheduler.
- *
- * <p>The policy operates on package prefixes, meaning any class whose fully qualified name starts
- * with an allowed package prefix will be permitted. This approach allows all application code while
- * blocking JDK classes, third-party libraries, and any other potentially dangerous code paths.
- *
- * <p><b>Two-layer enforcement:</b>
- *
- * <ol>
- *   <li><b>Hardcoded denylist</b> — {@link #DENIED_EXACT} and {@link #DENIED_PREFIXES} block
- *       well-known RCE gadgets (Runtime, ProcessBuilder, reflection, scripting, JDK internals)
- *       BEFORE the allowlist is consulted. This defends against misconfigured allowlists like
- *       {@code Set.of("java")} that would otherwise permit dangerous classes.
- *   <li><b>User-supplied allowlist</b> — only classes whose fully-qualified name has one of the
- *       configured prefixes as a {@code startsWith} match are permitted.
- * </ol>
- *
- * <p><b>Prefix validation</b> — constructor rejects prefixes that would trivially defeat the
- * policy: empty strings, whitespace-only, or anything shorter than 3 characters without a dot.
- *
- * <p><b>Security Note:</b> This class is intentionally restrictive. Adding new allowed packages
- * should be done with extreme caution and only after security review.
+ * Allowlist-based {@link ClassPolicy} that permits job target classes only if their fully-qualified
+ * name starts with a configured package prefix. A hardcoded denylist of RCE gadgets is checked
+ * first, regardless of the allowlist. Constructor rejects prefixes shorter than 3 characters or
+ * containing leading/trailing whitespace.
  *
  * @see JobSecurityValidator
  */
@@ -136,19 +113,8 @@ public class PackagePrefixClassPolicy implements ClassPolicy {
   }
 
   /**
-   * Checks if a class name is allowed to be loaded and executed.
-   *
-   * <p>Enforcement order:
-   *
-   * <ol>
-   *   <li>Null or empty → reject
-   *   <li>Hardcoded denylist (exact) → reject
-   *   <li>Hardcoded denylist (prefix) → reject
-   *   <li>User allowlist → accept only on prefix match
-   * </ol>
-   *
-   * @param className the fully qualified class name to check
-   * @return true if the class is allowed, false otherwise
+   * Returns true only if {@code className} passes the hardcoded denylist and matches at least one
+   * configured allowlist prefix.
    */
   @Override
   public boolean isAllowed(String className) {

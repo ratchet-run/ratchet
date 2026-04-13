@@ -56,43 +56,17 @@ public class JobResult<T> implements Serializable {
     this.metadata = metadata;
   }
 
-  /**
-   * Creates a successful result with the given value.
-   *
-   * @param value the return value from the job
-   * @param <T> the type of the return value
-   * @return a successful JobResult containing the value
-   */
+  /** Creates a successful result with the given return value. */
   public static <T> JobResult<T> success(T value) {
     return new JobResult<>(true, value, null, null, null, null, null, null);
   }
 
-  /**
-   * Creates a failure result with the given error message and exception.
-   *
-   * @param error human-readable error message
-   * @param exception the exception that caused the failure
-   * @param <T> the type of the return value
-   * @return a failed JobResult containing the error details
-   */
+  /** Creates a failure result with an error message and the causing exception. */
   public static <T> JobResult<T> failure(String error, Throwable exception) {
     return new JobResult<>(false, null, error, exception, null, null, null, null);
   }
 
-  /**
-   * Creates a JobResult with all fields specified.
-   *
-   * @param success whether the job completed successfully
-   * @param value the return value from the job
-   * @param error human-readable error message
-   * @param exception the exception that caused the failure, if any
-   * @param executionTimeMs total execution time in milliseconds
-   * @param startTime timestamp when execution began
-   * @param endTime timestamp when execution completed
-   * @param metadata extensible key-value pairs for custom data
-   * @param <T> the type of the return value
-   * @return a JobResult with all fields populated
-   */
+  /** Creates a JobResult with all fields specified. */
   public static <T> JobResult<T> of(
       boolean success,
       T value,
@@ -135,12 +109,7 @@ public class JobResult<T> implements Serializable {
   }
 
   /**
-   * Returns the execution time in milliseconds, or 0 if not recorded.
-   *
-   * <p>This convenience method ensures a non-null return value, making it safe to use in
-   * calculations without null checking.
-   *
-   * @return execution time in milliseconds, or 0 if not available
+   * @return execution time in milliseconds, or 0 if not recorded
    */
   public long getExecutionTimeMsOrZero() {
     return executionTimeMs != null ? executionTimeMs : 0L;

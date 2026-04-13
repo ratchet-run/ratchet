@@ -89,14 +89,6 @@ public class MongoJobStore implements JobStore {
     this.database = database;
   }
 
-  // ──────────────────────────────────────────────
-  // ID Generation
-  // ──────────────────────────────────────────────
-
-  // ──────────────────────────────────────────────
-  // Collection accessors
-  // ──────────────────────────────────────────────
-
   @Override
   public JobEntity save(JobEntity job) {
     Instant now = Instant.now();
@@ -238,10 +230,6 @@ public class MongoJobStore implements JobStore {
   public long countJobsByStatus(JobStatus status) {
     return jobs().countDocuments(eq("status", status.name()));
   }
-
-  // ──────────────────────────────────────────────
-  // JobCrudStore
-  // ──────────────────────────────────────────────
 
   @Override
   public long countActiveJobs(JobExecutionType jobType) {
@@ -613,10 +601,6 @@ public class MongoJobStore implements JobStore {
     return (int) result.getModifiedCount();
   }
 
-  // ──────────────────────────────────────────────
-  // JobClaimStore
-  // ──────────────────────────────────────────────
-
   @Override
   public int cancelRecurringJobsByTag(String tag) {
     UpdateResult result =
@@ -699,10 +683,6 @@ public class MongoJobStore implements JobStore {
                     inc("version", 1)));
     return result.getModifiedCount() > 0;
   }
-
-  // ──────────────────────────────────────────────
-  // JobStatusStore
-  // ──────────────────────────────────────────────
 
   @Override
   public boolean transitionFromPaused(long id, JobStatus target) {
@@ -956,10 +936,6 @@ public class MongoJobStore implements JobStore {
     locks().deleteOne(and(eq("_id", name), eq("owner_node", nodeId)));
   }
 
-  // ──────────────────────────────────────────────
-  // JobBulkStore
-  // ──────────────────────────────────────────────
-
   @Override
   public boolean renewLock(String name, Duration extension, String nodeId) {
     Date newExpiry = DocumentMapper.toDate(Instant.now().plus(extension));
@@ -994,10 +970,6 @@ public class MongoJobStore implements JobStore {
     }
     return results;
   }
-
-  // ──────────────────────────────────────────────
-  // BatchStore
-  // ──────────────────────────────────────────────
 
   @Override
   public int deleteInactiveNodesSince(Instant cutoff) {
@@ -1093,10 +1065,6 @@ public class MongoJobStore implements JobStore {
     return (int) result.getDeletedCount();
   }
 
-  // ──────────────────────────────────────────────
-  // LockStore
-  // ──────────────────────────────────────────────
-
   @Override
   public JobExecutionEntity saveExecution(JobExecutionEntity execution) {
     if (execution.getId() == null) {
@@ -1122,10 +1090,6 @@ public class MongoJobStore implements JobStore {
         executions().find(eq("job_id", jobId)).sort(descending("attempt")).limit(1).first();
     return doc == null ? Optional.empty() : Optional.of(DocumentMapper.toJobExecutionEntity(doc));
   }
-
-  // ──────────────────────────────────────────────
-  // NodeStore
-  // ──────────────────────────────────────────────
 
   @Override
   public int countExecutionAttempts(long jobId) {
@@ -1173,10 +1137,6 @@ public class MongoJobStore implements JobStore {
     List<String> oldTags = before.getList("tags", String.class);
     return oldTags == null ? 0 : oldTags.size();
   }
-
-  // ──────────────────────────────────────────────
-  // ArchiveStore
-  // ──────────────────────────────────────────────
 
   @Override
   public List<Long> findJobIdsByTag(String tag, int limit, int offset) {
@@ -1246,10 +1206,6 @@ public class MongoJobStore implements JobStore {
     return results;
   }
 
-  // ──────────────────────────────────────────────
-  // ExecutionStore
-  // ──────────────────────────────────────────────
-
   @Override
   public void deleteConditionById(long id) {
     workflowConditions().deleteOne(eq("_id", id));
@@ -1270,10 +1226,6 @@ public class MongoJobStore implements JobStore {
     return workflowConditions().countDocuments(eq("parent_job_id", parentJobId));
   }
 
-  // ──────────────────────────────────────────────
-  // JobLogStore
-  // ──────────────────────────────────────────────
-
   @Override
   public BatchMetricsEntity saveBatchMetrics(BatchMetricsEntity metrics) {
     Document doc = DocumentMapper.toDocument(metrics);
@@ -1287,10 +1239,6 @@ public class MongoJobStore implements JobStore {
     Document doc = batchMetrics().find(eq("_id", batchId)).first();
     return doc == null ? Optional.empty() : Optional.of(DocumentMapper.toBatchMetricsEntity(doc));
   }
-
-  // ──────────────────────────────────────────────
-  // TagStore
-  // ──────────────────────────────────────────────
 
   @Override
   public void addChildExecutionTime(long batchId, long durationMs) {
@@ -1332,10 +1280,6 @@ public class MongoJobStore implements JobStore {
   public void updateBatchMetricsChildCount(long batchId, int childCount) {
     batchMetrics().updateOne(eq("_id", batchId), set("child_count", childCount));
   }
-
-  // ──────────────────────────────────────────────
-  // WorkflowConditionStore
-  // ──────────────────────────────────────────────
 
   @Override
   public DlqAlertEntity saveDlqAlert(DlqAlertEntity alert) {
@@ -1467,10 +1411,6 @@ public class MongoJobStore implements JobStore {
     new MongoCollectionInitializer(database).initialize();
   }
 
-  // ──────────────────────────────────────────────
-  // BatchMetricsStore
-  // ──────────────────────────────────────────────
-
   private MongoCollection<Document> jobs() {
     return database.getCollection("scheduler_job");
   }
@@ -1491,10 +1431,6 @@ public class MongoJobStore implements JobStore {
     return database.getCollection("scheduler_job_log");
   }
 
-  // ──────────────────────────────────────────────
-  // DlqAlertStore
-  // ──────────────────────────────────────────────
-
   private MongoCollection<Document> archives() {
     return database.getCollection("scheduler_job_archive");
   }
@@ -1502,10 +1438,6 @@ public class MongoJobStore implements JobStore {
   private MongoCollection<Document> locks() {
     return database.getCollection("scheduler_lock");
   }
-
-  // ──────────────────────────────────────────────
-  // ResourcePermitStore
-  // ──────────────────────────────────────────────
 
   private MongoCollection<Document> nodes() {
     return database.getCollection("scheduler_node");
@@ -1596,10 +1528,6 @@ public class MongoJobStore implements JobStore {
     }
     return ids;
   }
-
-  // ──────────────────────────────────────────────
-  // Private helpers
-  // ──────────────────────────────────────────────
 
   /** Claims jobs by their IDs, updating status to RUNNING atomically per job in parallel. */
   private <T> List<T> claimByIds(List<Long> ids, String nodeId, Function<Document, T> mapper) {

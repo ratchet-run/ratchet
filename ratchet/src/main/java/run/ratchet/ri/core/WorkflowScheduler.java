@@ -47,13 +47,7 @@ public class WorkflowScheduler extends ChainScheduler {
     this.conditionEvaluator = conditionEvaluator;
   }
 
-  /**
-   * Cancels workflow branch jobs when a parent job fails. This extends the original chain
-   * cancellation to include all conditional branches, ensuring clean workflow termination on
-   * failures.
-   *
-   * @param parentJob the job that failed, triggering cascade cancellation
-   */
+  /** Cancels linear chain jobs then cancels any pending workflow branch jobs. */
   @Override
   public void cancelChain(JobEntity parentJob) {
     // Cancel linear chain jobs first
@@ -89,11 +83,8 @@ public class WorkflowScheduler extends ChainScheduler {
   }
 
   /**
-   * Schedules the next jobs in a workflow based on the completion of a parent job. This method
-   * evaluates workflow conditions and schedules matching child jobs, supporting complex branching
-   * logic and multi-path execution.
-   *
-   * @param parentJob the job that has completed, triggering workflow evaluation
+   * Evaluates workflow conditions for the completed parent and schedules matching branches, falling
+   * back to linear chaining if none are defined.
    */
   @Override
   public void scheduleNext(JobEntity parentJob) {
@@ -159,13 +150,6 @@ public class WorkflowScheduler extends ChainScheduler {
     }
   }
 
-  /**
-   * Schedules a child job if it's in the correct state.
-   *
-   * @param condition the workflow condition that was met
-   * @param parentJob the parent job that completed (used for logging context)
-   * @return true if the job was scheduled, false if validation failed
-   */
   @SuppressWarnings("java:S1172") // parentJob reserved for future parent context logging
   private boolean scheduleChildJob(WorkflowConditionEntity condition, JobEntity parentJob) {
     return jobCrudStore
@@ -180,13 +164,6 @@ public class WorkflowScheduler extends ChainScheduler {
             });
   }
 
-  /**
-   * Schedules a child job if it is in PENDING status.
-   *
-   * @param condition the workflow condition (for logging)
-   * @param childJob the child job to schedule
-   * @return true if scheduled, false if not in PENDING status
-   */
   @SuppressWarnings("java:S1172") // condition reserved for future context logging
   private boolean scheduleIfPending(WorkflowConditionEntity condition, JobEntity childJob) {
     if (childJob.getStatus() != JobStatus.PENDING) {

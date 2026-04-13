@@ -10,16 +10,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.jboss.logging.Logger;
 
 /**
- * Owns the scheduling infrastructure for the job poller.
- *
- * <p>This class is responsible for:
- *
- * <ul>
- *   <li>Managing the scheduled executor lifecycle
- *   <li>Scheduling poll cycles with dynamic delays
- *   <li>Handling wakeup signals for immediate polling
- *   <li>Calling {@link Poller#tick()} for each poll cycle
- * </ul>
+ * Owns the scheduling infrastructure for the job poller: executor lifecycle, dynamic poll delays,
+ * and wakeup signals. Delegates each poll cycle to {@link Poller#tick()}.
  *
  * @see Poller
  */
@@ -53,7 +45,6 @@ public class PollerScheduler {
     this.poller = poller;
   }
 
-  /** Starts the polling scheduler. Schedules the first poll cycle immediately. */
   public void start() {
     if (!started.compareAndSet(false, true)) {
       log.warn("PollerScheduler already started; skipping re-start");
@@ -66,7 +57,6 @@ public class PollerScheduler {
     log.info("PollerScheduler started");
   }
 
-  /** Stops the polling scheduler. Cancels any pending scheduled poll. */
   public void stop() {
     if (!started.compareAndSet(true, false)) {
       return;

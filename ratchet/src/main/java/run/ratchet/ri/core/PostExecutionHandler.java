@@ -49,65 +49,26 @@ public class PostExecutionHandler {
     this.pollerScheduler = pollerScheduler;
   }
 
-  /**
-   * Marks a batch child job as failed and updates batch progress.
-   *
-   * @param job the child job entity that failed
-   */
   public void markBatchChildFailed(JobEntity job) {
     batchService.markChildFailed(job);
   }
 
-  /**
-   * Marks a batch child job as succeeded and updates batch progress.
-   *
-   * @param job the child job entity that succeeded
-   */
   public void markBatchChildSucceeded(JobEntity job) {
     batchService.markChildSucceeded(job);
   }
 
-  /**
-   * Cancels all remaining jobs in a chain when one step fails.
-   *
-   * @param job the chain step that failed
-   */
   public void cancelChain(JobEntity job) {
     workflowScheduler.cancelChain(job);
   }
 
-  /**
-   * Schedules the next job in a workflow sequence.
-   *
-   * @param job the job that just completed successfully
-   */
   public void scheduleNext(JobEntity job) {
     workflowScheduler.scheduleNext(job);
   }
 
-  /**
-   * Moves a job to the dead letter queue after permanent failure.
-   *
-   * @param job the job that permanently failed
-   * @param ex the exception that caused the final failure
-   */
   public void moveToDlq(JobEntity job, Throwable ex) {
     deadLetterService.moveToDlq(job, ex);
   }
 
-  /**
-   * Handles successful completion of a job based on its type.
-   *
-   * <p>Routes to the appropriate handler based on job type:
-   *
-   * <ul>
-   *   <li>BATCH_CHILD - marks batch child as succeeded
-   *   <li>SINGLE, CHAIN_STEP, WORKFLOW_BRANCH - schedules next workflow step
-   *   <li>Other types - no additional handling required
-   * </ul>
-   *
-   * @param job the job that completed successfully
-   */
   public void handleJobSuccess(JobEntity job) {
     switch (job.getJobType()) {
       case BATCH_CHILD -> markBatchChildSucceeded(job);
@@ -120,20 +81,6 @@ public class PostExecutionHandler {
     pollerScheduler.wakeup();
   }
 
-  /**
-   * Handles permanent failure of a job based on its type.
-   *
-   * <p>Routes to the appropriate handler based on job type:
-   *
-   * <ul>
-   *   <li>BATCH_CHILD - marks batch child as failed
-   *   <li>SINGLE, CHAIN_STEP, WORKFLOW_BRANCH - moves to DLQ and schedules next
-   *   <li>Other types - moves to DLQ
-   * </ul>
-   *
-   * @param job the job that permanently failed
-   * @param ex the exception that caused the failure
-   */
   public void handlePermanentFailure(JobEntity job, Throwable ex) {
     switch (job.getJobType()) {
       case BATCH_CHILD -> markBatchChildFailed(job);

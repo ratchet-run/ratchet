@@ -8,13 +8,10 @@ import run.ratchet.store.spi.ExecutionStore;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Consolidates observability-related dependencies for job execution.
- *
- * <p>This facade bundles metrics collection, event publishing, and execution history tracking into
- * a single service to reduce dependency coupling in {@link JobTask}.
+ * Bundles metrics, event publishing, and execution history to reduce {@link JobTask}'s dependency
+ * count.
  *
  * @see JobTask
- * @see PostExecutionHandler
  */
 public class ExecutionObserver {
 

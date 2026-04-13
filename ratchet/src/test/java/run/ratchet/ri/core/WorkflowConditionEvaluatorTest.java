@@ -11,6 +11,7 @@ import run.ratchet.api.SerializableFunction;
 import run.ratchet.api.SerializablePredicate;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.ri.util.LambdaSerializer;
+import run.ratchet.spi.ClassPolicy;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -29,6 +30,7 @@ class WorkflowConditionEvaluatorTest {
 
   @Mock private BatchStore batchStore;
   @Mock private LambdaSerializer lambdaSerializer;
+  private final ClassPolicy classPolicy = className -> true;
 
   private WorkflowConditionEvaluator evaluator;
 
@@ -39,8 +41,6 @@ class WorkflowConditionEvaluatorTest {
     job.setJobType(JobExecutionType.SINGLE);
     return job;
   }
-
-  // ── Helpers ────────────────────────────────────────────────────────────
 
   private static JobEntity batchParent(JobStatus status) {
     JobEntity job = new JobEntity();
@@ -75,10 +75,8 @@ class WorkflowConditionEvaluatorTest {
 
   @BeforeEach
   void setUp() {
-    evaluator = new WorkflowConditionEvaluator(batchStore, lambdaSerializer);
+    evaluator = new WorkflowConditionEvaluator(batchStore, lambdaSerializer, classPolicy);
   }
-
-  // ── SUCCESS condition ──────────────────────────────────────────────────
 
   @Test
   void success_succeededParent_returnsTrue() {
@@ -94,8 +92,6 @@ class WorkflowConditionEvaluatorTest {
             condition(WorkflowCondition.ConditionType.SUCCESS), parentJob(JobStatus.FAILED)));
   }
 
-  // ── FAILURE condition ──────────────────────────────────────────────────
-
   @Test
   void failure_failedParent_returnsTrue() {
     assertTrue(
@@ -109,8 +105,6 @@ class WorkflowConditionEvaluatorTest {
         evaluator.evaluate(
             condition(WorkflowCondition.ConditionType.FAILURE), parentJob(JobStatus.SUCCEEDED)));
   }
-
-  // ── BATCH_SUCCESS condition ────────────────────────────────────────────
 
   @Test
   void batchSuccess_allComplete_returnsTrue() {
@@ -139,8 +133,6 @@ class WorkflowConditionEvaluatorTest {
             parentJob(JobStatus.SUCCEEDED)));
   }
 
-  // ── BATCH_FAILURE condition ────────────────────────────────────────────
-
   @Test
   void batchFailure_withFailures_returnsTrue() {
     JobEntity parent = batchParent(JobStatus.SUCCEEDED);
@@ -158,8 +150,6 @@ class WorkflowConditionEvaluatorTest {
     assertFalse(
         evaluator.evaluate(condition(WorkflowCondition.ConditionType.BATCH_FAILURE), parent));
   }
-
-  // ── BATCH_SUCCESS_RATE condition ───────────────────────────────────────
 
   @Test
   void batchSuccessRate_aboveThreshold_returnsTrue() {
@@ -184,8 +174,6 @@ class WorkflowConditionEvaluatorTest {
             conditionWithExpression(WorkflowCondition.ConditionType.BATCH_SUCCESS_RATE, "0.95"),
             parent));
   }
-
-  // ── BATCH_FAILURE_COUNT condition ──────────────────────────────────────
 
   @Test
   void batchFailureCount_withinLimit_returnsTrue() {
@@ -253,7 +241,33 @@ class WorkflowConditionEvaluatorTest {
             parent));
   }
 
-  // ── Exception handling ─────────────────────────────────────────────────
+  @Test
+  void resultValue_classPolicyDenied_returnsFalse() {
+    ClassPolicy denyAll = className -> false;
+    WorkflowConditionEvaluator restrictedEvaluator =
+        new WorkflowConditionEvaluator(batchStore, lambdaSerializer, denyAll);
+
+    JobEntity parent = parentJob(JobStatus.SUCCEEDED);
+    parent.setJobResult("150");
+    parent.setResultType("java.lang.Integer");
+
+    assertFalse(
+        restrictedEvaluator.evaluate(
+            conditionWithExpression(
+                WorkflowCondition.ConditionType.RESULT_VALUE, "serialized-function"),
+            parent));
+  }
+
+  @Test
+  void batchSuccessRate_zeroTotalItems_returnsFalse() {
+    JobEntity parent = batchParent(JobStatus.SUCCEEDED);
+    when(batchStore.findBatchById(parent.getId())).thenReturn(Optional.of(batch(0, 0, 0)));
+
+    assertFalse(
+        evaluator.evaluate(
+            conditionWithExpression(WorkflowCondition.ConditionType.BATCH_SUCCESS_RATE, "0.90"),
+            parent));
+  }
 
   @Test
   void evaluate_exceptionThrown_returnsFalse() {

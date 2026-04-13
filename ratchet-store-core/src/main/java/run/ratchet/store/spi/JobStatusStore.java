@@ -66,12 +66,10 @@ public interface JobStatusStore {
   int cancelOrphanedRecurringAnnotationJobs(Set<String> registeredIds, Instant nodeStartTime);
 
   /**
-   * Atomically transitions a FAILED job to PENDING, resetting retry metadata (attempts, error,
-   * scheduled time) in a single operation. This avoids the TOCTOU gap where a job could be claimed
-   * between a CAS and a subsequent metadata save.
+   * Atomically transitions a FAILED job to PENDING, resetting retry metadata in a single operation
+   * to avoid the TOCTOU gap where a job could be claimed between a CAS and a subsequent save.
    *
-   * @param id the job ID
-   * @return true if the transition succeeded (job was in FAILED state)
+   * @return true if the job was in FAILED state
    */
   boolean resetFailedToPending(long id);
 
@@ -80,7 +78,6 @@ public interface JobStatusStore {
    * in {@code paused_from_status}. This avoids a TOCTOU gap between the status CAS and storing the
    * previous status for resume.
    *
-   * @param id the job ID
    * @param expected the expected current status (typically PENDING or FAILED)
    * @return true if the transition succeeded
    */
@@ -91,9 +88,8 @@ public interface JobStatusStore {
    * paused_from_status}. The target status should be determined from a prior read of the job's
    * {@code paused_from_status} field.
    *
-   * @param id the job ID
    * @param target the status to resume to (typically PENDING or FAILED)
-   * @return true if the transition succeeded (job was in PAUSED state)
+   * @return true if the job was in PAUSED state
    */
   boolean transitionFromPaused(long id, JobStatus target);
 
@@ -103,7 +99,6 @@ public interface JobStatusStore {
    * operation. This avoids the TOCTOU race of reading {@code paused_from_status} from an in-memory
    * entity snapshot and then passing it as a parameter.
    *
-   * @param id the job ID
    * @return the status the job was resumed to, or {@code null} if the job was not in PAUSED state
    */
   JobStatus transitionFromPausedAtomic(long id);

@@ -20,24 +20,14 @@ public record BatchContext(long batchId, int totalItems, int completedItems, int
   }
 
   /**
-   * Calculates the completion percentage of the batch operation.
-   *
-   * <p>The percentage is calculated as (completedItems * 100) / totalItems. If totalItems is zero
-   * (empty batch), returns 100% to indicate completion.
-   *
-   * @return the percentage of completion as an integer value between 0 and 100
+   * @return completion percentage (0–100); returns 100 for an empty batch
    */
   public int percentDone() {
     return totalItems == 0 ? 100 : (completedItems * 100) / totalItems;
   }
 
   /**
-   * Calculates the success rate of completed items in the batch.
-   *
-   * <p>The success rate is calculated as the ratio of successful completions to total completed
-   * items (both successful and failed). Returns 1.0 if no items have been completed yet.
-   *
-   * @return the success rate as a double between 0.0 and 1.0
+   * @return ratio of successful to total processed items (0.0–1.0); returns 1.0 if none yet
    */
   public double successRate() {
     int processed = completedItems + failedItems;

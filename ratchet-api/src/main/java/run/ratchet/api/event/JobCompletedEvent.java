@@ -10,7 +10,6 @@ public class JobCompletedEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = 6928539910648242733L;
 
-  /** The total execution time in milliseconds for the completed job. */
   private final Long executionTimeMs;
 
   public JobCompletedEvent(

@@ -10,7 +10,6 @@ public class ChainStartedEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = -4450548507481291423L;
 
-  /** The ID of the parent job that owns this chain. */
   private final Long parentJobId;
 
   public ChainStartedEvent(

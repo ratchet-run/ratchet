@@ -34,8 +34,6 @@ class JobStateManagerTest {
     manager = new JobStateManager(jobStatusStore, nodeIdentityProvider);
   }
 
-  // ── resetJobToPending(JobEntity) — success ─────────────────────────────
-
   @Test
   void resetJobToPending_entity_casSucceeds_returnsTrue() {
     JobEntity job = runningJob(JOB_ID);
@@ -79,8 +77,6 @@ class JobStateManagerTest {
 
     assertNull(job.getPickedAt());
   }
-
-  // ── resetJobToPending(JobEntity) — failure ─────────────────────────────
 
   @Test
   void resetJobToPending_entity_casFails_returnsFalse() {
@@ -128,8 +124,6 @@ class JobStateManagerTest {
     assertEquals(pickedAt, job.getPickedAt());
   }
 
-  // ── resetJobToPending(Long) — delegates correctly ──────────────────────
-
   @Test
   void resetJobToPending_byId_delegatesToStoreWithNodeId() {
     when(nodeIdentityProvider.getNodeId()).thenReturn(NODE_ID);
@@ -162,8 +156,6 @@ class JobStateManagerTest {
     assertFalse(result);
   }
 
-  // ── resetRunningJobsForNode ─────────────────────────────────────────────
-
   @Test
   void resetRunningJobsForNode_delegatesToStoreWithNodeId() {
     when(nodeIdentityProvider.getNodeId()).thenReturn(NODE_ID);
@@ -184,8 +176,6 @@ class JobStateManagerTest {
 
     assertEquals(0, count);
   }
-
-  // ── Edge cases ─────────────────────────────────────────────────────────
 
   @Test
   void resetJobToPending_entity_nullDependsOn_succeeds() {
@@ -225,8 +215,6 @@ class JobStateManagerTest {
     // Verify the store was called with the node ID the provider returned, not a hard-coded value
     verify(jobStatusStore).resetRunningJob(JOB_ID, differentNodeId);
   }
-
-  // ── Helpers ────────────────────────────────────────────────────────────
 
   private static JobEntity runningJob(long id) {
     JobEntity job = new JobEntity();

@@ -180,13 +180,8 @@ public class JobTask implements Callable<Void> {
   }
 
   /**
-   * Executes the main operation of this callable task. The method processes the job payload and
-   * handles success or failure scenarios.
-   *
-   * <p>This method does NOT run in a transaction to avoid holding database connections for
-   * long-running jobs. All database updates are performed in separate short transactions.
-   *
-   * @return null, as the callable task does not produce a result.
+   * Does NOT run in a transaction to avoid holding database connections for long-running jobs. All
+   * database updates are performed in separate short transactions.
    */
   @Override
   @SuppressWarnings("java:S1181")
@@ -283,9 +278,15 @@ public class JobTask implements Callable<Void> {
             failureHandlingError,
             "Job %s failure handling itself failed, forcing FAILED status",
             job.getId());
+        String safeError;
+        try {
+          safeError = errorSanitizer.sanitize(t);
+        } catch (Throwable sanitizerError) {
+          safeError = t.getClass().getName();
+        }
         try {
           jobStore.compareAndSwapStatus(
-              job.getId(), JobStatus.RUNNING, JobStatus.FAILED, t.toString());
+              job.getId(), JobStatus.RUNNING, JobStatus.FAILED, safeError);
         } catch (Throwable lastResort) {
           log.errorf(
               lastResort,
@@ -311,21 +312,11 @@ public class JobTask implements Callable<Void> {
     return null;
   }
 
-  /**
-   * Initializes this runner instance with the job to be executed.
-   *
-   * @param job the job entity containing execution details and configuration
-   */
   void init(JobEntity job) {
     this.job = job;
     this.claim = null;
   }
 
-  /**
-   * Initializes this runner instance with a lightweight claim DTO for lazy entity loading.
-   *
-   * @param claim the job claim DTO containing metadata for lazy loading
-   */
   void initFromClaim(JobClaimDto claim) {
     this.claim = claim;
     this.job = null;

@@ -1,23 +1,8 @@
 package run.ratchet.ri.core;
 
 /**
- * Pure computation class implementing the adaptive polling delay algorithm.
- *
- * <p>This class encapsulates all the logic for determining optimal polling intervals based on job
- * availability patterns, system load, and idle detection. It has no CDI dependencies, making it
- * easily unit testable.
- *
- * <p>The adaptive algorithm considers multiple factors:
- *
- * <ul>
- *   <li><b>Rolling Window:</b> Tracks job counts over last 10 polls to identify trends
- *   <li><b>Full Batch Detection:</b> Aggressive polling when consecutive full batches indicate high
- *       job availability
- *   <li><b>Load Factor:</b> Adjusts polling based on thread pool utilization
- *   <li><b>Idle Detection:</b> Progressive backoff when no jobs found
- *   <li><b>Deep Idle:</b> Extended delay after prolonged inactivity
- *   <li><b>Burst Mode:</b> Aggressive polling after wakeup notifications
- * </ul>
+ * Stateful, CDI-free computation of adaptive polling delays. Tracks a rolling window of job counts,
+ * thread-pool load, idle depth, and burst mode to determine the next poll interval.
  *
  * @see Poller
  */
@@ -69,17 +54,6 @@ public class PollingStrategy {
         DEFAULT_BATCH_SIZE);
   }
 
-  /**
-   * Creates a PollingStrategy with explicit configuration (for testing).
-   *
-   * @param burstDelayMs minimum delay used during burst mode (after wakeup)
-   * @param minDelayMs minimum delay for normal steady-state polling
-   * @param maxDelayMs maximum delay when backing off
-   * @param deepIdleDelayMs delay used in deep idle mode
-   * @param deepIdleThresholdMs time since last job before entering deep idle
-   * @param idleThreshold number of empty polls before backing off
-   * @param batchSize expected batch size for full-batch detection
-   */
   public PollingStrategy(
       long burstDelayMs,
       long minDelayMs,
@@ -131,13 +105,6 @@ public class PollingStrategy {
     currentDelayMs = burstDelayMs;
   }
 
-  /**
-   * Records the result of a poll and calculates the next delay.
-   *
-   * @param jobCount number of jobs found in the poll
-   * @param pollStartTime timestamp when the poll started
-   * @return the recommended delay before the next poll in milliseconds
-   */
   public synchronized long recordPollResult(int jobCount, long pollStartTime) {
     recentJobCounts[recentJobCountIndex] = jobCount;
     recentJobCountIndex = (recentJobCountIndex + 1) % ROLLING_WINDOW_SIZE;
@@ -151,11 +118,6 @@ public class PollingStrategy {
     return currentDelayMs;
   }
 
-  /**
-   * Updates the system load factor based on thread pool utilization.
-   *
-   * @param avgUtilization average utilization percentage (0-100) across thread pools
-   */
   public synchronized void updateSystemLoadFactor(double avgUtilization) {
     this.systemLoadFactor = 0.5 + (avgUtilization / 100.0) * 1.5;
   }
@@ -251,18 +213,6 @@ public class PollingStrategy {
     }
   }
 
-  /**
-   * Immutable snapshot of current polling statistics.
-   *
-   * @param currentDelayMs current delay between polls in milliseconds
-   * @param currentIdleCount number of consecutive empty polls
-   * @param consecutiveFullBatches number of consecutive polls returning full batches
-   * @param systemLoadFactor load multiplier based on thread pool utilization (0.5-2.0)
-   * @param avgRecentJobs average job count from the rolling window
-   * @param timeSinceLastJobMs milliseconds since the last poll that found jobs
-   * @param inDeepIdle whether the strategy is in deep idle mode
-   * @param inBurstMode whether the strategy is in burst mode after a wakeup
-   */
   public record PollingStats(
       long currentDelayMs,
       int currentIdleCount,
@@ -274,9 +224,8 @@ public class PollingStrategy {
       boolean inBurstMode) {
 
     /**
-     * Returns a human-readable description of the current load state.
-     *
-     * @return one of "HIGH", "BURST", "DEEP_IDLE", "IDLE", or "NORMAL"
+     * @return one of {@code "HIGH"}, {@code "BURST"}, {@code "DEEP_IDLE"}, {@code "IDLE"}, {@code
+     *     "NORMAL"}
      */
     public String getLoadDescription() {
       if (isHighLoad()) {

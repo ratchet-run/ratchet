@@ -36,8 +36,6 @@ class RetryBufferManagerTest {
     manager = new RetryBufferManager(deadLetterService, jobStatusStore, nodeIdentityProvider);
   }
 
-  // ── Helpers ────────────────────────────────────────────────────────────
-
   private static JobEntity job(
       long id, JobExecutionType type, JobPriority priority, Instant scheduledTime) {
     JobEntity j = new JobEntity();
@@ -51,8 +49,6 @@ class RetryBufferManagerTest {
   private static JobEntity standardJob(long id) {
     return job(id, JobExecutionType.SINGLE, JobPriority.NORMAL, Instant.now());
   }
-
-  // ── offer ──────────────────────────────────────────────────────────────
 
   @Test
   void offer_underCapacity_returnsTrue() {
@@ -68,8 +64,6 @@ class RetryBufferManagerTest {
     assertFalse(manager.offer(standardJob(9999L)));
   }
 
-  // ── totalSize ──────────────────────────────────────────────────────────
-
   @Test
   void totalSize_aggregatesAllJobTypes() {
     manager.offer(job(1L, JobExecutionType.SINGLE, JobPriority.NORMAL, Instant.now()));
@@ -78,8 +72,6 @@ class RetryBufferManagerTest {
 
     assertEquals(3, manager.totalSize());
   }
-
-  // ── pollFromBuffer: priority ordering ──────────────────────────────────
 
   @Test
   void pollFromBuffer_highPriorityBeforeNormal() {
@@ -109,8 +101,6 @@ class RetryBufferManagerTest {
     assertEquals(2L, first.jobId(), "Earlier scheduled job should be polled first");
   }
 
-  // ── isEmpty ────────────────────────────────────────────────────────────
-
   @Test
   void isBufferEmpty_emptyBuffer_returnsTrue() {
     assertTrue(manager.isBufferEmpty(JobExecutionType.SINGLE));
@@ -121,8 +111,6 @@ class RetryBufferManagerTest {
     manager.offer(standardJob(1L));
     assertFalse(manager.isBufferEmpty(JobExecutionType.SINGLE));
   }
-
-  // ── forceOffer ─────────────────────────────────────────────────────────
 
   @Test
   void forceOffer_bypassesNormalLimit() {
@@ -150,8 +138,6 @@ class RetryBufferManagerTest {
     assertFalse(manager.forceOffer(overflow));
     verify(deadLetterService).moveToDlq(eq(overflow), any(IllegalStateException.class));
   }
-
-  // ── flushOnShutdown ────────────────────────────────────────────────────
 
   @Test
   void flushOnShutdown_resetsJobsToPending() {

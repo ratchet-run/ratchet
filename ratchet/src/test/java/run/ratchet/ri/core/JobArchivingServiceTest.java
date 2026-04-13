@@ -72,10 +72,6 @@ class JobArchivingServiceTest {
     lenient().when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
   }
 
-  // -------------------------------------------------------------------------
-  // run() — disabled path
-  // -------------------------------------------------------------------------
-
   @Test
   void run_skipsAllStoreInteractions_whenDisabled() {
     service.init(false, 7, 100, parsedCron());
@@ -88,10 +84,6 @@ class JobArchivingServiceTest {
     verify(archiveStore, never()).archiveJobsBatch(any(), anyString(), anyString());
     verify(jobBulkStore, never()).deleteJobsByIds(any());
   }
-
-  // -------------------------------------------------------------------------
-  // run() — lock-not-acquired path
-  // -------------------------------------------------------------------------
 
   @Test
   void run_skipsArchiving_whenLockCannotBeAcquired() {
@@ -118,10 +110,6 @@ class JobArchivingServiceTest {
     verify(lockStore).tryLock(eq("jobArchiver"), eq(Duration.ofHours(2)), eq("node-1"));
   }
 
-  // -------------------------------------------------------------------------
-  // triggerArchiving() — disabled path
-  // -------------------------------------------------------------------------
-
   @Test
   void triggerArchiving_doesNotSubmitWork_whenDisabled() {
     service.init(false, 7, 100, parsedCron());
@@ -143,10 +131,6 @@ class JobArchivingServiceTest {
     verify(jobExecutor).submit(any(Runnable.class));
   }
 
-  // -------------------------------------------------------------------------
-  // performArchiving() — no eligible jobs (early return)
-  // -------------------------------------------------------------------------
-
   @Test
   void run_doesNotCallFindOrArchive_whenNoJobsEligible() {
     service.init(true, 7, 100, parsedCron());
@@ -160,10 +144,6 @@ class JobArchivingServiceTest {
     verify(archiveStore, never()).archiveJobsBatch(any(), anyString(), anyString());
     verify(jobBulkStore, never()).deleteJobsByIds(any());
   }
-
-  // -------------------------------------------------------------------------
-  // performArchiving() — happy path: single batch smaller than batchSize
-  // -------------------------------------------------------------------------
 
   @Test
   void run_archivesAndDeletesJobs_happyPathSingleBatch() {
@@ -212,10 +192,6 @@ class JobArchivingServiceTest {
     // Exactly one findJobsForArchiving call because the first batch was smaller than batchSize
     verify(archiveStore).findJobsForArchiving(any(), eq(batchSize));
   }
-
-  // -------------------------------------------------------------------------
-  // performArchiveCleanup() path
-  // -------------------------------------------------------------------------
 
   @Test
   void run_purgesOldArchivedJobs_afterArchivingCompletes() {
@@ -267,10 +243,6 @@ class JobArchivingServiceTest {
         cutoff.isAfter(expectedMin) && cutoff.isBefore(expectedMax),
         "Archive purge cutoff should be ~" + retentionDays * 3 + " days ago, but was: " + cutoff);
   }
-
-  // -------------------------------------------------------------------------
-  // Helpers
-  // -------------------------------------------------------------------------
 
   private static Cron parsedCron() {
     return CRON_PARSER.parse(DAILY_CRON);

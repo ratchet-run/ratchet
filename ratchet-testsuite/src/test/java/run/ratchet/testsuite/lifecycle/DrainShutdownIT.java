@@ -21,22 +21,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * Validates that drain mode correctly blocks and resumes job claims in a real WildFly deployment.
- * See the Ratchet public-readiness plan, fix 2.
- *
- * <p>Two tests exercise the drain mechanism end-to-end:
- *
- * <ol>
- *   <li>Draining blocks new claims — with drain engaged, an immediately-ready job must remain
- *       PENDING instead of being claimed by the poller.
- *   <li>Disabling drain resumes claims — after {@code setDraining(false)}, a new job must be picked
- *       up and completed normally.
- * </ol>
- *
- * <p>The <i>ordering</i> guarantee (drain is engaged BEFORE poller.stop() during shutdown) is
- * verified separately by {@code RatchetLifecycleShutdownTest} in the ratchet unit test suite
- * using Mockito InOrder, which avoids CDI proxy complications that prevent reflective invocation of
- * package-private {@code @PreDestroy} methods in Arquillian deployments.
+ * Validates that drain mode blocks and resumes job claims in a real WildFly deployment. Ordering
+ * (drain engaged before poller.stop()) is verified separately by {@code
+ * RatchetLifecycleShutdownTest} using Mockito InOrder.
  */
 class DrainShutdownIT extends BaseRatchetIT {
 

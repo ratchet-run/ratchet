@@ -85,10 +85,6 @@ public class PostgresqlJobStore implements JobStore {
             + " connection pool override (e.g. hibernate.connection.isolation=2).");
   }
 
-  // ──────────────────────────────────────────────
-  // JobCrudStore
-  // ──────────────────────────────────────────────
-
   private static Instant toInstant(Object value) {
     if (value instanceof Instant) {
       return (Instant) value;
@@ -355,10 +351,6 @@ public class PostgresqlJobStore implements JobStore {
         Timestamp.from(since));
   }
 
-  // ──────────────────────────────────────────────
-  // JobClaimStore
-  // ──────────────────────────────────────────────
-
   @Override
   public long countJobsWithRetries() {
     return countByNative("SELECT COUNT(*) FROM scheduler_job WHERE attempts > 0");
@@ -386,10 +378,6 @@ public class PostgresqlJobStore implements JobStore {
             .getSingleResult();
     return result == null ? 0.0 : ((Number) result).doubleValue();
   }
-
-  // ──────────────────────────────────────────────
-  // JobStatusStore
-  // ──────────────────────────────────────────────
 
   @Override
   public double getAverageBatchSize(Instant since) {
@@ -706,10 +694,6 @@ public class PostgresqlJobStore implements JobStore {
         .executeUpdate();
   }
 
-  // ──────────────────────────────────────────────
-  // JobBulkStore
-  // ──────────────────────────────────────────────
-
   @Override
   public int cancelRecurringJobByBusinessKey(String businessKey) {
     return em.createNativeQuery(
@@ -769,10 +753,6 @@ public class PostgresqlJobStore implements JobStore {
     return updated > 0;
   }
 
-  // ──────────────────────────────────────────────
-  // BatchStore
-  // ──────────────────────────────────────────────
-
   @Override
   public boolean transitionFromPaused(long id, JobStatus target) {
     int updated =
@@ -810,10 +790,6 @@ public class PostgresqlJobStore implements JobStore {
     if (jobs.isEmpty()) {
       return;
     }
-    em.unwrap(Connection.class);
-    // Use JDBC batch insert via the EntityManager's unwrapped connection
-    em.createNativeQuery("SELECT 1").getSingleResult(); // force connection
-    var sessionImpl = em.getDelegate();
     try {
       @SuppressWarnings("java:S3011")
       Connection conn = em.unwrap(Connection.class);
@@ -980,10 +956,6 @@ public class PostgresqlJobStore implements JobStore {
         .getResultList();
   }
 
-  // ──────────────────────────────────────────────
-  // LockStore
-  // ──────────────────────────────────────────────
-
   @Override
   public BatchProgress incrementCompletedAtomic(long batchId) {
     Object[] row =
@@ -1031,10 +1003,6 @@ public class PostgresqlJobStore implements JobStore {
             .executeUpdate();
     return updated > 0;
   }
-
-  // ──────────────────────────────────────────────
-  // NodeStore
-  // ──────────────────────────────────────────────
 
   @Override
   public List<Long> findRecoverableBatchIds(int limit) {
@@ -1105,10 +1073,6 @@ public class PostgresqlJobStore implements JobStore {
     return updated > 0;
   }
 
-  // ──────────────────────────────────────────────
-  // ArchiveStore
-  // ──────────────────────────────────────────────
-
   @Override
   public void upsertHeartbeat(String nodeId, Instant ts) {
     em.createNativeQuery(
@@ -1158,10 +1122,6 @@ public class PostgresqlJobStore implements JobStore {
     return archive;
   }
 
-  // ──────────────────────────────────────────────
-  // ExecutionStore
-  // ──────────────────────────────────────────────
-
   @Override
   public int archiveJobsBatch(List<JobEntity> jobs, String reason, String archivedBy) {
     int count = 0;
@@ -1200,7 +1160,6 @@ public class PostgresqlJobStore implements JobStore {
       String targetClass, String businessKey, Instant from, Instant to, int limit) {
     StringBuilder sql = new StringBuilder("SELECT * FROM scheduler_job_archive WHERE 1=1");
     List<Object> params = new ArrayList<>();
-    int idx = 0;
     if (targetClass != null) {
       sql.append(" AND target_class = ?");
       params.add(targetClass);
@@ -1229,10 +1188,6 @@ public class PostgresqlJobStore implements JobStore {
     return results;
   }
 
-  // ──────────────────────────────────────────────
-  // JobLogStore
-  // ──────────────────────────────────────────────
-
   @Override
   public int purgeArchivedJobs(Instant olderThan) {
     return em.createNativeQuery("DELETE FROM scheduler_job_archive WHERE archived_at < ?")
@@ -1248,10 +1203,6 @@ public class PostgresqlJobStore implements JobStore {
     }
     return em.merge(execution);
   }
-
-  // ──────────────────────────────────────────────
-  // TagStore
-  // ──────────────────────────────────────────────
 
   @Override
   public List<JobExecutionEntity> findExecutionsByJobId(long jobId) {
@@ -1285,10 +1236,6 @@ public class PostgresqlJobStore implements JobStore {
                 .getSingleResult())
         .intValue();
   }
-
-  // ──────────────────────────────────────────────
-  // WorkflowConditionStore
-  // ──────────────────────────────────────────────
 
   @Override
   public void appendLog(JobLogEntity logEntry) {
@@ -1377,10 +1324,6 @@ public class PostgresqlJobStore implements JobStore {
     return results;
   }
 
-  // ──────────────────────────────────────────────
-  // BatchMetricsStore
-  // ──────────────────────────────────────────────
-
   @Override
   public List<WorkflowConditionEntity> findConditionsByType(
       long parentJobId, WorkflowCondition.ConditionType type) {
@@ -1423,10 +1366,6 @@ public class PostgresqlJobStore implements JobStore {
         "SELECT COUNT(*) FROM scheduler_workflow_condition WHERE parent_job_id = ?", parentJobId);
   }
 
-  // ──────────────────────────────────────────────
-  // DlqAlertStore
-  // ──────────────────────────────────────────────
-
   @Override
   public BatchMetricsEntity saveBatchMetrics(BatchMetricsEntity metrics) {
     if (em.find(BatchMetricsEntity.class, metrics.getBatchId()) == null) {
@@ -1440,10 +1379,6 @@ public class PostgresqlJobStore implements JobStore {
   public Optional<BatchMetricsEntity> findBatchMetrics(long batchId) {
     return Optional.ofNullable(em.find(BatchMetricsEntity.class, batchId));
   }
-
-  // ──────────────────────────────────────────────
-  // ResourcePermitStore
-  // ──────────────────────────────────────────────
 
   @Override
   public void addChildExecutionTime(long batchId, long durationMs) {
@@ -1531,10 +1466,6 @@ public class PostgresqlJobStore implements JobStore {
     em.persist(permit);
     return true;
   }
-
-  // ──────────────────────────────────────────────
-  // Private helpers
-  // ──────────────────────────────────────────────
 
   @Override
   public void releasePermit(String resource, long jobId) {

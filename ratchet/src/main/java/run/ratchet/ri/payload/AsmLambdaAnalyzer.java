@@ -40,33 +40,13 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
 
   public AsmLambdaAnalyzer() {}
 
-  /* ───────────────────────── LambdaAnalyzer SPI ───────────────────────── */
-
   /**
-   * Analyzes a serialized lambda expression to extract its method invocation details.
+   * Analyzes a {@link SerializedLambda} and returns the method invocations it contains. Simple
+   * method references are read directly from metadata; inline lambdas are walked via ASM.
    *
-   * <p>This is the primary entry point for the lambda inspection process. It accepts a {@link
-   * SerializedLambda} instance (typically obtained via serialization of a lambda expression) and
-   * performs deep analysis to determine what methods the lambda will invoke when executed.
-   *
-   * <p>The method handles two distinct types of lambda implementations:
-   *
-   * <ol>
-   *   <li><strong>Method References</strong> - Simple lambdas that directly reference an existing
-   *       method (e.g., {@code String::length} or {@code Math::max})
-   *   <li><strong>Inline Lambdas</strong> - Complex lambdas with a body containing arbitrary code
-   *       (e.g., {@code (x) -> x.process().then().validate()})
-   * </ol>
-   *
-   * @param serializedLambda the serialized representation of a lambda expression to analyze; must
-   *     not be null
-   * @return a {@link JobInvocation} object containing all method invocations found in the lambda,
-   *     in the order they would be executed
-   * @throws NullPointerException if the provided SerializedLambda is null
-   * @throws IllegalStateException if the lambda contains no invokable methods or if a synthetic
-   *     lambda method cannot be found in the bytecode
-   * @see JobInvocation
-   * @see InvocationStep
+   * @throws NullPointerException if {@code serializedLambda} is null
+   * @throws IllegalStateException if no method invocations are found or the synthetic method is
+   *     missing from bytecode
    */
   public static JobInvocation inspect(SerializedLambda serializedLambda) {
     Objects.requireNonNull(serializedLambda, "SerializedLambda must not be null");
@@ -80,14 +60,6 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
     return handleInlineLambda(serializedLambda);
   }
 
-  /* ─────────────────────────── Public API ─────────────────────────── */
-
-  /**
-   * Simulates a binary arithmetic operation on two integer operands during bytecode analysis.
-   *
-   * @param operandStack the simulated JVM operand stack
-   * @param operation the binary operation to apply
-   */
   private static void binaryOpInt(Deque<Value> operandStack, IntBinaryOperator operation) {
     Object rightOperand = resolveValue(operandStack.pop(), new Object[0]);
     Object leftOperand = resolveValue(operandStack.pop(), new Object[0]);
@@ -98,14 +70,6 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
     }
   }
 
-  /**
-   * Locates a specific method within a class's bytecode representation.
-   *
-   * @param classNode the ASM {@link ClassNode} instance
-   * @param methodName the name of the method to find
-   * @param methodDesc the JVM descriptor of the method to find
-   * @return the matching {@link MethodNode}, or null if not found
-   */
   private static MethodNode findMethodNode(
       ClassNode classNode, String methodName, String methodDesc) {
     for (MethodNode methodNode : classNode.methods) {
@@ -116,15 +80,6 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
     return null;
   }
 
-  /**
-   * Processes a method invocation bytecode instruction during lambda analysis.
-   *
-   * @param operandStack the simulated JVM operand stack
-   * @param invocationList the list to accumulate invocations
-   * @param methodNode the ASM node representing the method invocation instruction
-   * @param opcodeValue the JVM opcode of the invocation instruction
-   * @param capturedValues captured values from the lambda's enclosing scope
-   */
   private static void handleGenericInvoke(
       Deque<Value> operandStack,
       List<InvocationStep> invocationList,
@@ -157,14 +112,6 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
     }
   }
 
-  /**
-   * Analyzes the bytecode of an inline lambda expression to extract its method invocations.
-   *
-   * @param serializedLambda the serialized representation of an inline lambda expression
-   * @return a {@link JobInvocation} containing all method invocations found in the lambda body
-   * @throws IllegalStateException if the synthetic lambda method cannot be found or contains no
-   *     method invocations
-   */
   @SuppressWarnings({"java:S3776", "java:S6541"})
   // Cognitive complexity is inherent to bytecode switch - each case is simple
   private static JobInvocation handleInlineLambda(SerializedLambda serializedLambda) {
@@ -196,7 +143,6 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
       }
 
       switch (opcodeValue) {
-        // ---- Constant loading instructions ----
         case Opcodes.ACONST_NULL -> operandStack.push(new ConstantValue(null));
         case Opcodes.ICONST_M1,
             Opcodes.ICONST_0,
@@ -216,7 +162,6 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
             operandStack.push(new ConstantValue(((IntInsnNode) node).operand));
         case Opcodes.LDC -> operandStack.push(new ConstantValue(((LdcInsnNode) node).cst));
 
-        /* ───────────── captured var loads ───────────── */
         case Opcodes.ALOAD, Opcodes.ILOAD, Opcodes.LLOAD, Opcodes.FLOAD, Opcodes.DLOAD -> {
           int varIndex = ((VarInsnNode) node).var;
           if (varIndex < capturedValues.length) {
@@ -226,18 +171,15 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
           }
         }
 
-        /* ───────────── arithmetic operations ───────────── */
         case Opcodes.IADD -> binaryOpInt(operandStack, Integer::sum);
         case Opcodes.ISUB -> binaryOpInt(operandStack, (a, b) -> a - b);
         case Opcodes.IMUL -> binaryOpInt(operandStack, (a, b) -> a * b);
         case Opcodes.IDIV -> binaryOpInt(operandStack, (a, b) -> a / b);
         case Opcodes.IREM -> binaryOpInt(operandStack, (a, b) -> a % b);
 
-        /* ───────────── stack manipulation ───────────── */
         case Opcodes.POP -> operandStack.pop();
         case Opcodes.DUP -> operandStack.push(operandStack.peek());
 
-        /* ───────────── object creation (no-arg ctor only) ───────────── */
         case Opcodes.NEW -> {
           TypeInsnNode typeNode = (TypeInsnNode) node;
           operandStack.push(new NewInstanceMarker(typeNode.desc));
@@ -258,7 +200,6 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
           }
         }
 
-        /* ───────────── method invocations ───────────── */
         case Opcodes.INVOKESTATIC, Opcodes.INVOKEVIRTUAL, Opcodes.INVOKEINTERFACE -> {
           MethodInsnNode methodInsn = (MethodInsnNode) node;
           handleGenericInvoke(
@@ -277,12 +218,6 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
     return new JobInvocation(List.copyOf(invocationList));
   }
 
-  /**
-   * Processes a method reference lambda to extract its invocation details.
-   *
-   * @param serializedLambda the serialized representation of a method reference lambda
-   * @return an {@link InvocationStep} containing the referenced method details
-   */
   private static InvocationStep handleMethodReference(SerializedLambda serializedLambda) {
     List<Object> capturedArguments = new ArrayList<>(serializedLambda.getCapturedArgCount());
     for (int i = 0; i < serializedLambda.getCapturedArgCount(); i++) {
@@ -306,13 +241,6 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
         receiver);
   }
 
-  /**
-   * Loads and parses the bytecode of a class into an ASM tree representation.
-   *
-   * @param classInternalName the JVM internal name of the class to load
-   * @return a fully populated {@link ClassNode} containing the class structure and bytecode
-   * @throws IllegalStateException if the class file cannot be found or read
-   */
   private static ClassNode readClassNode(String classInternalName) {
     String classFileResource = classInternalName + ".class";
 
@@ -334,14 +262,6 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
     }
   }
 
-  /**
-   * Converts an abstract {@link Value} from the simulated operand stack into a concrete Java
-   * object.
-   *
-   * @param abstractValue the abstract {@link Value} from the simulated operand stack to resolve
-   * @param capturedValues captured values from the lambda's enclosing scope
-   * @return the concrete Java object, or null for unknown value types
-   */
   private static Object resolveValue(Value abstractValue, Object[] capturedValues) {
     if (abstractValue instanceof ConstantValue cv) {
       return cv.value();
@@ -351,13 +271,6 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
     return null;
   }
 
-  /**
-   * Extracts the SerializedLambda representation from a lambda expression.
-   *
-   * @param lambda the serializable lambda expression
-   * @return the SerializedLambda containing lambda metadata
-   * @throws IllegalStateException if the lambda cannot be serialized
-   */
   @SuppressWarnings("java:S3011")
   // setAccessible is required for lambda serialization - accessing compiler-generated writeReplace
   private static SerializedLambda toSerializedLambda(Serializable lambda) {
@@ -372,10 +285,6 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
   }
 
   /**
-   * Analyzes a serializable lambda expression to extract its target method information.
-   *
-   * @param lambda the serializable lambda expression to analyze
-   * @return a {@link LambdaDescriptor} describing the lambda's target method
    * @throws NullPointerException if lambda is null
    * @throws IllegalStateException if the lambda cannot be serialized or analyzed
    */
@@ -393,8 +302,6 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
         step.arguments().toArray());
   }
 
-  /* ───────────────────────── Inner Types ───────────────────────── */
-
   private enum UnknownValue implements Value {
     INSTANCE
   }
@@ -402,17 +309,6 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
   private sealed interface Value
       permits ConstantValue, CapturedValue, NewInstanceMarker, UnknownValue {}
 
-  /**
-   * Represents an immutable description of a single method invocation site within a lambda
-   * expression.
-   *
-   * @param ownerInternalName the internal name of the class that owns the method
-   * @param methodName the name of the method being invoked
-   * @param methodDescriptor the method descriptor in JVM format
-   * @param isStatic {@code true} if the method is static
-   * @param arguments the list of resolved argument objects
-   * @param receiver the resolved receiver object for instance invocations, or {@code null}
-   */
   public record InvocationStep(
       String ownerInternalName,
       String methodName,
@@ -421,17 +317,9 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
       List<Object> arguments,
       Object receiver) {}
 
-  /**
-   * Represents the complete result of a lambda expression inspection.
-   *
-   * @param steps an ordered, immutable list of invocation steps
-   */
   public record JobInvocation(List<InvocationStep> steps) {
 
     /**
-     * Retrieves the last invocation step in the sequence.
-     *
-     * @return the last {@link InvocationStep}
      * @throws IllegalStateException if the steps list is empty
      */
     public InvocationStep last() {

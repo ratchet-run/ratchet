@@ -5,36 +5,10 @@ import java.util.Set;
 import org.jboss.logging.Logger;
 
 /**
- * Policy that determines whether a job should be retried based on the exception type.
- *
- * <p>This policy is a critical component of the scheduler's error handling strategy. It examines
- * exceptions thrown by job execution and determines whether the job should be retried or
- * immediately moved to the Dead Letter Queue (DLQ).
- *
- * <p>Retrying jobs that are destined to fail wastes system resources and delays processing of other
- * jobs. This policy identifies "permanent" failures that will never succeed regardless of how many
- * times they are retried:
- *
- * <ul>
- *   <li><b>Validation errors:</b> IllegalArgumentException, IllegalStateException,
- *       NullPointerException - the input is bad and won't change
- *   <li><b>Security errors:</b> SecurityException, AuthenticationException - the caller lacks
- *       permission and retrying won't grant it
- *   <li><b>Business logic errors:</b> Custom exceptions that indicate invalid state
- * </ul>
- *
- * <p>The policy uses two mechanisms to identify non-retryable exceptions:
- *
- * <ol>
- *   <li><b>Built-in list:</b> Well-known JDK and Jakarta EE exception classes
- *   <li><b>Annotation:</b> Custom exceptions annotated with {@link
- *       run.ratchet.api.DoNotRetry}
- * </ol>
- *
- * <p>The entire exception cause chain is examined, so wrapping a non-retryable exception in another
- * exception will still prevent retries.
- *
- * @see run.ratchet.api.DoNotRetry for marking custom exceptions as non-retryable
+ * Determines whether a failed job should be retried based on its exception type. Checks a built-in
+ * list of well-known permanent-failure exceptions and the {@link
+ * run.ratchet.api.DoNotRetry} annotation. The full cause chain is examined, so wrapping a
+ * non-retryable exception does not hide it.
  */
 @ApplicationScoped
 public class DoNotRetryPolicy {
@@ -57,20 +31,6 @@ public class DoNotRetryPolicy {
           "jakarta.security.enterprise.AuthenticationException",
           "jakarta.security.enterprise.AuthenticationStatus");
 
-  /**
-   * Checks if the given exception should not be retried.
-   *
-   * <p>This method checks:
-   *
-   * <ol>
-   *   <li>If the exception class name is in the do-not-retry list
-   *   <li>If any cause of the exception is in the do-not-retry list
-   *   <li>If the exception or its cause is annotated with {@code @DoNotRetry}
-   * </ol>
-   *
-   * @param exception the exception to check
-   * @return true if the exception should not be retried, false otherwise
-   */
   public boolean shouldNotRetry(Throwable exception) {
     if (exception == null) {
       return false;

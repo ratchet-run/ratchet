@@ -18,25 +18,11 @@ public abstract class AbstractJobSchedulerEvent implements Serializable {
 
   @Serial private static final long serialVersionUID = 6853988277084004625L;
 
-  /** The unique database identifier of the job that triggered this event. */
   private final Long jobId;
-
-  /**
-   * The business key associated with the job, providing a human-readable identifier that correlates
-   * jobs with business operations (e.g., "user-import-12345").
-   */
   private final String businessKey;
-
-  /** The public job category (e.g., SINGLE, BATCH, CHAIN). */
   private final JobType jobType;
-
-  /** The priority level of the job. */
   private final JobPriority priority;
-
-  /** The identifier of the cluster node that processed this job. */
   private final String nodeId;
-
-  /** The instant when this event was created. */
   private final Instant timestamp;
 
   /** Creates a new event with all fields including an explicit timestamp. */

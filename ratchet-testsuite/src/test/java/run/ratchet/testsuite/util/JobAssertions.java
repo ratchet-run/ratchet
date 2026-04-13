@@ -9,12 +9,7 @@ import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.spi.JobCrudStore;
 import java.time.Duration;
 
-/**
- * Awaitility-based async assertions for job lifecycle verification in integration tests.
- *
- * <p>These methods poll the store until the expected state is reached or timeout occurs. Default
- * timeout is 30 seconds with 500ms polling interval.
- */
+/** Awaitility-based assertions that poll the store until a job reaches the expected status. */
 public final class JobAssertions {
 
   private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(30);
@@ -22,12 +17,10 @@ public final class JobAssertions {
 
   private JobAssertions() {}
 
-  /** Asserts that a job reaches SUCCEEDED status within the default timeout. */
   public static void assertJobCompleted(JobCrudStore store, JobHandle handle) {
     assertJobCompleted(store, handle, DEFAULT_TIMEOUT);
   }
 
-  /** Asserts that a job reaches SUCCEEDED status within the specified timeout. */
   public static void assertJobCompleted(JobCrudStore store, JobHandle handle, Duration timeout) {
     await()
         .atMost(timeout)
@@ -42,12 +35,10 @@ public final class JobAssertions {
             });
   }
 
-  /** Asserts that a job reaches FAILED status within the default timeout. */
   public static void assertJobFailed(JobCrudStore store, JobHandle handle) {
     assertJobFailed(store, handle, DEFAULT_TIMEOUT);
   }
 
-  /** Asserts that a job reaches FAILED status within the specified timeout. */
   public static void assertJobFailed(JobCrudStore store, JobHandle handle, Duration timeout) {
     await()
         .atMost(timeout)
@@ -62,7 +53,6 @@ public final class JobAssertions {
             });
   }
 
-  /** Asserts that a job reaches CANCELED status within the default timeout. */
   public static void assertJobCanceled(JobCrudStore store, JobHandle handle) {
     await()
         .atMost(DEFAULT_TIMEOUT)
@@ -77,11 +67,6 @@ public final class JobAssertions {
             });
   }
 
-  /**
-   * Asserts that a batch parent job reaches a terminal status (SUCCEEDED or FAILED) within the
-   * specified timeout. Does NOT assert success — use {@link #assertBatchSucceeded} if success is
-   * required.
-   */
   public static void assertBatchTerminated(
       JobCrudStore store, JobHandle batchHandle, Duration timeout) {
     await()

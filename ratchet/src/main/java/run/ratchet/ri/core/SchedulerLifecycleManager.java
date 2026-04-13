@@ -4,27 +4,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.jboss.logging.Logger;
 
 /**
- * Coordinates the startup and shutdown lifecycle of the job scheduler subsystem.
- *
- * <p>This service ensures scheduler components are initialized in the correct order.
- *
- * <p>Initialization order:
- *
- * <ol>
- *   <li>Node identity - Establishes node identity and heartbeat
- *   <li>Job execution coordinator - Initializes job execution infrastructure
- *   <li>Poller - Starts polling for pending jobs
- *   <li>Recurring job processor - Registers recurring jobs
- * </ol>
- *
- * <p>Shutdown order (reverse of initialization):
- *
- * <ol>
- *   <li>Enable drain mode - prevents new job pickup
- *   <li>Stop poller - stops the polling loop
- *   <li>Stop node heartbeat - allows orphan recovery
- *   <li>Reset running jobs - resets RUNNING jobs to PENDING
- * </ol>
+ * Manages start/stop lifecycle of the job scheduler subsystem. Idempotent: repeated {@link #start}
+ * or {@link #shutdown} calls are safe.
  */
 public class SchedulerLifecycleManager {
 
@@ -51,11 +32,6 @@ public class SchedulerLifecycleManager {
     this.shutdownCallback = shutdownCallback;
   }
 
-  /**
-   * Checks if the scheduler has been started.
-   *
-   * @return true if the scheduler has been started
-   */
   public boolean isStarted() {
     return started.get();
   }
@@ -93,6 +69,6 @@ public class SchedulerLifecycleManager {
       startCallback.run();
     }
 
-    log.info("Job scheduler subsystem started successfully");
+    log.info("Job scheduler subsystem started");
   }
 }

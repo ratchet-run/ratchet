@@ -5,12 +5,9 @@ import java.time.Duration;
 import java.util.concurrent.Callable;
 
 /**
- * Strategy for wrapping job execution with resilience patterns such as circuit breakers.
- *
- * <p>Implementations may provide circuit breaker protection, bulkhead isolation, or other
- * resilience mechanisms. The default RI implementation provides a lightweight count-based circuit
- * breaker. Users may plug in Resilience4j or MicroProfile Fault Tolerance implementations via this
- * SPI.
+ * Strategy for wrapping job execution with resilience patterns such as circuit breakers. The
+ * default RI implementation provides a lightweight count-based circuit breaker; Resilience4j or
+ * MicroProfile Fault Tolerance implementations may be plugged in via this SPI.
  */
 @Incubating
 public interface ResilienceStrategy {

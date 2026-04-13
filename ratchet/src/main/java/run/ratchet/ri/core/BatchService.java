@@ -97,19 +97,10 @@ public class BatchService {
   }
 
   /**
-   * Recovers batches that may have been left in an inconsistent state due to node failures or other
-   * issues. Called by {@link BatchRecoveryTimer} periodically to ensure batch completion processing
-   * doesn't get stuck.
+   * Recovers batches left in an inconsistent state due to node failures, network partitions, or
+   * transaction rollbacks. Called periodically by {@link BatchRecoveryTimer}.
    *
-   * <p>This handles edge cases where:
-   *
-   * <ul>
-   *   <li>A node crashed after all children completed but before marking completion
-   *   <li>Network partition caused completion flag update to fail
-   *   <li>Transaction rollback left batch in inconsistent state
-   * </ul>
-   *
-   * @return the number of batches that were recovered
+   * @return the number of batches recovered
    */
   public int recoverStuckBatches() {
     List<Long> recoverableIds = batchStore.findRecoverableBatchIds(100);
@@ -136,15 +127,6 @@ public class BatchService {
     return recovered;
   }
 
-  /**
-   * Resolves the hook method from the class using the payload's method descriptor. The method must
-   * accept a single {@link BatchContext} parameter.
-   *
-   * @param clazz the class containing the method
-   * @param payload the payload with method name and descriptor
-   * @return the resolved method
-   * @throws NoSuchMethodException if no matching method is found
-   */
   private Method resolveHookMethod(Class<?> clazz, JobPayload payload)
       throws NoSuchMethodException {
     String cacheKey = clazz.getName() + "#" + payload.method() + ":" + payload.methodDescriptor();
@@ -170,19 +152,6 @@ public class BatchService {
   }
 
   /**
-   * Executes a progress hook by resolving the target class and invoking the method with
-   * BatchContext.
-   *
-   * <p>The hook is stored as a {@link JobPayload} containing:
-   *
-   * <ul>
-   *   <li>Target class name
-   *   <li>Method name (must accept {@link BatchContext} as parameter)
-   *   <li>Method descriptor for signature matching
-   * </ul>
-   *
-   * @param payload the hook payload containing method reference info
-   * @param ctx the batch context to pass to the hook method
    * @throws Exception if class lookup or method invocation fails
    */
   @SuppressWarnings("java:S112") // Generic exception from reflective method invocation
@@ -209,24 +178,8 @@ public class BatchService {
   }
 
   /**
-   * Processes batch completion logic after all child jobs have finished.
-   *
-   * <p>This method is called only by the thread that successfully marks the batch as complete via
-   * the {@code markBatchCompleteIfReady} atomic operation, ensuring exactly-once processing of
-   * batch completion even in a distributed environment.
-   *
-   * <p>Completion processing includes:
-   *
-   * <ol>
-   *   <li>Updating the parent job status to SUCCEEDED (if no failures) or FAILED
-   *   <li>Finalizing batch metrics (duration, throughput calculations)
-   *   <li>Recording metrics to the metrics collector for monitoring
-   *   <li>Publishing a batch completion event for external listeners
-   *   <li>Logging a summary of batch execution results
-   * </ol>
-   *
-   * @param parentId the database ID of the parent batch job
-   * @param batch the batch entity containing progress counters and configuration
+   * Processes batch completion after the {@code markBatchCompleteIfReady} CAS succeeds, ensuring
+   * exactly-once execution even in a distributed environment.
    */
   private void processBatchCompletion(Long parentId, BatchEntity batch) {
     jobCrudStore
@@ -267,11 +220,6 @@ public class BatchService {
             });
   }
 
-  /**
-   * Publishes a batch completion event via the internal event publisher.
-   *
-   * @param batch the batch entity containing current progress counters
-   */
   private void publishBatchEvent(BatchEntity batch) {
     eventPublisher.publish(
         new BatchCompletingEvent(
@@ -285,11 +233,6 @@ public class BatchService {
             batch.getFailedItems()));
   }
 
-  /**
-   * Triggers the execution of a progress hook stored in the batch entity.
-   *
-   * @param batch the batch entity containing the progress hook payload
-   */
   private void trigger(BatchEntity batch) {
     JobPayload hookPayload = batch.getProgressHook();
     if (hookPayload == null) {
@@ -310,12 +253,6 @@ public class BatchService {
     }
   }
 
-  /**
-   * Triggers a progress hook using atomically-obtained progress values.
-   *
-   * @param hookPayload the progress hook payload, or null if no hook configured
-   * @param progress the atomic snapshot of batch progress from the increment operation
-   */
   private void triggerWithProgress(JobPayload hookPayload, BatchProgress progress) {
     if (hookPayload == null) {
       return;
@@ -336,15 +273,6 @@ public class BatchService {
     }
   }
 
-  /**
-   * Updates the status and progress of a parent batch and its associated job based on the
-   * completion or failure of a child job. Uses atomic operations to prevent race conditions during
-   * concurrent child job completions.
-   *
-   * @param child The child job entity whose completion/failure triggers the update.
-   * @param jobSuccessful Indicates whether the child job completed successfully (true) or failed
-   *     (false).
-   */
   private void update(JobEntity child, boolean jobSuccessful) {
     Long parentId = child.getDependsOn();
     if (parentId == null) {

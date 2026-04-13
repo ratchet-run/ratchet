@@ -34,19 +34,7 @@ public class JobSecurityValidator {
   }
 
   /**
-   * Validates a job payload before execution.
-   *
-   * <p>Performs the following checks:
-   *
-   * <ol>
-   *   <li>Class name is allowed by the configured policy
-   *   <li>Class can be loaded
-   *   <li>Method exists with correct signature
-   *   <li>Method is public
-   * </ol>
-   *
-   * @param payload the job payload to validate
-   * @throws SecurityException if any validation check fails
+   * @throws SecurityException if the class or method fails policy or visibility checks
    * @throws NoSuchMethodException if the method does not exist
    */
   public void validate(JobPayload payload) throws NoSuchMethodException {
@@ -114,16 +102,9 @@ public class JobSecurityValidator {
               + " is not public. Only public methods can be scheduled.");
     }
 
-    log.debugf("Job payload validated successfully: %s.%s", targetClass, payload.method());
+    log.debugf("Validated: %s.%s", targetClass, payload.method());
   }
 
-  /**
-   * Finds a public method in the given class matching the payload specification.
-   *
-   * @param clazz the class to search for the method
-   * @param payload the job payload containing method name and ASM method descriptor
-   * @return the matching Method object, or null if no public method with the exact signature exists
-   */
   private Method findMethod(Class<?> clazz, JobPayload payload) {
     for (Method m : clazz.getMethods()) {
       if (m.getName().equals(payload.method())
@@ -134,13 +115,6 @@ public class JobSecurityValidator {
     return null;
   }
 
-  /**
-   * Finds a method of any visibility in the given class matching the payload specification.
-   *
-   * @param clazz the class to search for the method
-   * @param payload the job payload containing method name and ASM method descriptor
-   * @return the matching Method regardless of visibility, or null if not found at all
-   */
   private Method findDeclaredMethod(Class<?> clazz, JobPayload payload) {
     for (Method m : clazz.getDeclaredMethods()) {
       if (m.getName().equals(payload.method())

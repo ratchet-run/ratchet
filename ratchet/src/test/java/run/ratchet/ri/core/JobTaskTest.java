@@ -95,8 +95,6 @@ class JobTaskTest {
         .execute(eq(JobTaskTest.class.getSimpleName() + ".testJobMethod"), any(Callable.class));
   }
 
-  // ── Helpers ────────────────────────────────────────────────────────────
-
   @Test
   @SuppressWarnings("unchecked")
   void call_passesMethodScopedServiceName() throws Exception {
@@ -141,8 +139,6 @@ class JobTaskTest {
     verify(resilienceStrategy).execute(eq("external-api"), any(Callable.class));
   }
 
-  // ── ResilienceStrategy.execute() is called ─────────────────────────────
-
   @Test
   void call_checksServiceAvailableBeforeExecution() throws Exception {
     JobEntity job = createTestJob();
@@ -161,8 +157,6 @@ class JobTaskTest {
     verify(resilienceStrategy)
         .isServiceAvailable(JobTaskTest.class.getSimpleName() + ".testJobMethod");
   }
-
-  // ── Service name passed to resilience strategy ─────────────────────────
 
   @Test
   @SuppressWarnings("unchecked")
@@ -203,8 +197,6 @@ class JobTaskTest {
     verify(retryPolicy).shouldRetry(1, error);
   }
 
-  // ── isServiceAvailable checked before execution ────────────────────────
-
   @Test
   @SuppressWarnings("unchecked")
   void handleFailure_retryPolicyDenies_movesToFailed() throws Exception {
@@ -227,8 +219,6 @@ class JobTaskTest {
     verify(lifecycleFacade).moveToDlq(eq(job), eq(error));
   }
 
-  // ── Service unavailable → skip execution ───────────────────────────────
-
   @Test
   @SuppressWarnings("unchecked")
   void handleSuccess_publishesCompletedEvent() throws Exception {
@@ -245,8 +235,6 @@ class JobTaskTest {
 
     verify(observabilityFacade).publishEvent(any(JobCompletedEvent.class));
   }
-
-  // ── handleFailure consults RetryPolicy ─────────────────────────────────
 
   @Test
   @SuppressWarnings("unchecked")
@@ -267,8 +255,6 @@ class JobTaskTest {
     verify(resourcePermitService).release("api-gateway", 42L);
   }
 
-  // ── RetryPolicy denies → FAILED ────────────────────────────────────────
-
   private JobEntity createTestJob() {
     JobEntity job = new JobEntity();
     job.setId(42L);
@@ -281,16 +267,12 @@ class JobTaskTest {
     return job;
   }
 
-  // ── handleSuccess publishes completed event ────────────────────────────
-
   private void initJobTaskWithDefaultStubs(JobEntity job) {
     jobTask.init(job);
     when(nodeIdProvider.getNodeId()).thenReturn("node-1");
     when(observabilityFacade.startExecution(anyLong(), anyInt(), anyString()))
         .thenReturn(JobExecutionEntity.start(job.getId(), 1, "node-1"));
   }
-
-  // ── Resource permit released on success ────────────────────────────────
 
   public static class AnnotatedJobTarget {
 

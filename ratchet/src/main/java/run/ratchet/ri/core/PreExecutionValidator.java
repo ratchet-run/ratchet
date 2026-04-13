@@ -5,15 +5,10 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
 /**
- * Consolidates validation-related dependencies for job execution.
- *
- * <p>This validator bundles security validation and retry policy decisions into a single service to
- * reduce dependency coupling in {@link JobTask}. It provides a unified interface for all
- * pre-execution validation and exception handling decisions.
+ * Bundles security validation and retry-policy decisions to reduce {@link JobTask}'s dependency
+ * count.
  *
  * @see JobTask
- * @see PostExecutionHandler
- * @see ExecutionObserver
  */
 @ApplicationScoped
 public class PreExecutionValidator {

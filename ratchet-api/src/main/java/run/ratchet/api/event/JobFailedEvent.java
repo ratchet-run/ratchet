@@ -10,10 +10,7 @@ public class JobFailedEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = -8745178784765705117L;
 
-  /** The error message describing the failure. */
   private final String errorMessage;
-
-  /** The final retry attempt number when the job failed. */
   private final Integer retryAttempt;
 
   public JobFailedEvent(

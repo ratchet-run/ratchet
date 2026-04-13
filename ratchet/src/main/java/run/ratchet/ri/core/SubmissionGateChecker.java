@@ -13,8 +13,8 @@ import jakarta.inject.Inject;
  *
  * <ol>
  *   <li>Node draining status (first attempts only)
- *   <li>Rate limit for job type
  *   <li>Executor permit availability
+ *   <li>Rate limit for job type (permit released immediately if rate-limited)
  * </ol>
  *
  * <p>When {@link GateCheckResult#isClear()} returns true, a permit has been acquired from the

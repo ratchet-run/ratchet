@@ -10,13 +10,8 @@ public class BatchCompletedEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = 843735174177646423L;
 
-  /** The total number of items in the batch. */
   private final Integer totalItems;
-
-  /** The number of successfully completed items. */
   private final Integer completedItems;
-
-  /** The number of failed items. */
   private final Integer failedItems;
 
   public BatchCompletedEvent(

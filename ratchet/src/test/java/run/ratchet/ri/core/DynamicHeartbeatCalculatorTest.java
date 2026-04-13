@@ -31,8 +31,6 @@ class DynamicHeartbeatCalculatorTest {
             jobCrudStore, BASE_HEARTBEAT_SECONDS, POLLER_MIN_DELAY_MS, POLLER_MAX_DELAY_MS);
   }
 
-  // ── Heartbeat interval: node-based adjustments ─────────────────────────
-
   @Test
   void singleNode_zeroPending_increasesInterval() {
     when(jobCrudStore.countActiveNodes()).thenReturn(1L);
@@ -104,8 +102,6 @@ class DynamicHeartbeatCalculatorTest {
     assertTrue(interval <= maxInterval, "Interval " + interval + " must be <= " + maxInterval);
   }
 
-  // ── Poller delay ───────────────────────────────────────────────────────
-
   @Test
   void pollerDelay_zeroPending_returnsMaxDelay() {
     when(jobCrudStore.countActiveNodes()).thenReturn(1L);
@@ -131,8 +127,6 @@ class DynamicHeartbeatCalculatorTest {
     assertEquals(POLLER_MIN_DELAY_MS, calculator.calculatePollerDelay());
   }
 
-  // ── Cache TTL ──────────────────────────────────────────────────────────
-
   @Test
   void cacheTTL_secondCallWithinWindow_doesNotQueryStoreAgain() {
     when(jobCrudStore.countActiveNodes()).thenReturn(1L);
@@ -146,8 +140,6 @@ class DynamicHeartbeatCalculatorTest {
     verify(jobCrudStore, times(1)).countActiveNodes();
     verify(jobCrudStore, times(1)).countPendingJobs();
   }
-
-  // ── Store exception → fallback ─────────────────────────────────────────
 
   @Test
   void storeException_heartbeat_returnsBaseInterval() {

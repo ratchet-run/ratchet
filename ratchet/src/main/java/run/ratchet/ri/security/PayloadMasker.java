@@ -20,11 +20,6 @@ public class PayloadMasker {
   /** The placeholder string used to replace sensitive values. */
   private static final String MASKED_VALUE = "***REDACTED***";
 
-  /**
-   * Set of field name patterns that are considered sensitive and should be masked.
-   *
-   * <p>These patterns are matched case-insensitively using substring matching.
-   */
   private static final Set<String> SENSITIVE_FIELDS =
       Set.of(
           "password",
@@ -82,7 +77,7 @@ public class PayloadMasker {
       return MAPPER.writeValueAsString(root);
     } catch (Exception e) {
       log.warnf("Failed to mask payload JSON, returning masked value: %s", e.getMessage());
-      return "{\"error\":\"Unable to parse payload\",\"masked\":true}";
+      return MASKED_VALUE;
     }
   }
 
@@ -102,16 +97,10 @@ public class PayloadMasker {
       return maskPayload(json);
     } catch (Exception e) {
       log.warnf("Failed to serialize payload for masking: %s", e.getMessage());
-      return "{\"error\":\"Unable to serialize payload\",\"masked\":true}";
+      return MASKED_VALUE;
     }
   }
 
-  /**
-   * Checks if a field name matches any sensitive field pattern.
-   *
-   * @param fieldName the field name to check
-   * @return true if the field should be masked, false otherwise
-   */
   private static boolean isSensitiveField(String fieldName) {
     if (fieldName == null) {
       return false;
@@ -121,11 +110,6 @@ public class PayloadMasker {
         .anyMatch(pattern -> lowerFieldName.contains(pattern.toLowerCase()));
   }
 
-  /**
-   * Recursively masks sensitive fields in a JSON object node.
-   *
-   * @param node the object node to mask (modified in place)
-   */
   private static void maskObject(ObjectNode node) {
     node.fieldNames()
         .forEachRemaining(
@@ -134,7 +118,6 @@ public class PayloadMasker {
 
               if (isSensitiveField(fieldName)) {
                 node.put(fieldName, MASKED_VALUE);
-                log.debugf("Masked sensitive field: %s", fieldName);
               } else if (fieldValue.isObject()) {
                 maskObject((ObjectNode) fieldValue);
               } else if (fieldValue.isArray()) {

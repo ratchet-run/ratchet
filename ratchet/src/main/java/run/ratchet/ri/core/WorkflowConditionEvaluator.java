@@ -6,6 +6,7 @@ import run.ratchet.api.JobResult;
 import run.ratchet.api.SerializableFunction;
 import run.ratchet.api.SerializablePredicate;
 import run.ratchet.ri.util.LambdaSerializer;
+import run.ratchet.spi.ClassPolicy;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -32,17 +33,21 @@ public class WorkflowConditionEvaluator {
 
   private final BatchStore batchStore;
   private final LambdaSerializer lambdaSerializer;
+  private final ClassPolicy classPolicy;
 
   // Required by CDI proxy
   protected WorkflowConditionEvaluator() {
     this.batchStore = null;
     this.lambdaSerializer = null;
+    this.classPolicy = null;
   }
 
   @Inject
-  public WorkflowConditionEvaluator(BatchStore batchStore, LambdaSerializer lambdaSerializer) {
+  public WorkflowConditionEvaluator(
+      BatchStore batchStore, LambdaSerializer lambdaSerializer, ClassPolicy classPolicy) {
     this.batchStore = batchStore;
     this.lambdaSerializer = lambdaSerializer;
+    this.classPolicy = classPolicy;
   }
 
   /**
@@ -171,6 +176,9 @@ public class WorkflowConditionEvaluator {
     return getBatchForParent(parentJob)
         .map(
             batch -> {
+              if (batch.getTotalItems() == 0) {
+                return false;
+              }
               double actualSuccessRate = batch.getCompletedItems() / (double) batch.getTotalItems();
               try {
                 double requiredRate = Double.parseDouble(condition.getConditionExpression());
@@ -249,13 +257,11 @@ public class WorkflowConditionEvaluator {
 
   @SuppressWarnings("java:S1172")
   private boolean evaluateSimpleBatchCondition(String expression, BatchContext context) {
-    throw new UnsupportedOperationException(
-        "Simple string-based batch condition expressions are not supported. Expression: '"
-            + expression
-            + "'. Use StreamingBatchBuilder.thenWhenBatch() or "
-            + "BatchBuilder.thenWhenBatch() with a SerializablePredicate<BatchContext> instead. "
-            + "Example: .thenWhenBatch(ctx -> ctx.failedItems() < 5, "
-            + "() -> handlePartialSuccess())");
+    log.warnf(
+        "Simple string-based batch condition expressions are not supported. "
+            + "Expression: '%s'. Use SerializablePredicate<BatchContext> instead.",
+        expression);
+    return false;
   }
 
   private boolean evaluateSimpleResultCondition(String expression, Object result) {
@@ -308,12 +314,18 @@ public class WorkflowConditionEvaluator {
 
     try {
       if (resultType != null) {
+        if (classPolicy != null && !classPolicy.isAllowed(resultType)) {
+          throw new SecurityException(
+              "Class " + resultType + " is not allowed by ClassPolicy for result deserialization.");
+        }
         Class<?> clazz =
-            Class.forName(resultType, true, Thread.currentThread().getContextClassLoader());
+            Class.forName(resultType, false, Thread.currentThread().getContextClassLoader());
         return OBJECT_MAPPER.readValue(jobResultJson, clazz);
       } else {
         return OBJECT_MAPPER.readValue(jobResultJson, Object.class);
       }
+    } catch (SecurityException e) {
+      throw e; // propagate ClassPolicy rejections
     } catch (Exception e) {
       log.warnf("Failed to parse job result: %s", e.getMessage());
       return jobResultJson; // Return as string if parsing fails

@@ -83,10 +83,6 @@ public class RatchetConfiguration {
           new String[] {"RATCHET_THREAD_POOL_SIZE_SINGLE", "SCHEDULER_THREAD_POOL_SIZE_SINGLE"},
           new String[] {"RATCHET_WORKER_DEFAULT_SLA", "WORKER_DEFAULT_SLA"});
 
-  // ============================================================================
-  // Circuit Breaker Configuration
-  // ============================================================================
-
   private final String cbDefaultFailureRate;
   private final String cbDefaultWaitSeconds;
   private final String cbDefaultWindowSize;
@@ -94,17 +90,9 @@ public class RatchetConfiguration {
   private final String cbExternalWaitSeconds;
   private final String circuitBreakerEnabled;
 
-  // ============================================================================
-  // Idempotency Retry Configuration
-  // ============================================================================
-
   private final String idempotencyRetryMaxAttempts;
   private final String idempotencyRetryInitialDelayMs;
   private final String idempotencyRetryMaxDelayMs;
-
-  // ============================================================================
-  // Data Retention and Archiving Configuration
-  // ============================================================================
 
   private final String dlqPurgeCron;
   private final String dlqPurgeDays;
@@ -120,23 +108,11 @@ public class RatchetConfiguration {
   private final String maxPayloadKb;
   private final String metricsClustering;
 
-  // ============================================================================
-  // Node Health and Heartbeat Configuration
-  // ============================================================================
-
   private final String nodeHeartbeatIntervalSeconds;
   private final String nodeOrphanGraceSeconds;
   private final String orphanScanIntervalMinutes;
 
-  // ============================================================================
-  // Priority Boosting Configuration
-  // ============================================================================
-
   private final String priorityBoostIntervalMinutes;
-
-  // ============================================================================
-  // Poller Configuration
-  // ============================================================================
 
   private final String pollerBatchSize;
   private final String pollerBurstDelayMs;
@@ -146,26 +122,14 @@ public class RatchetConfiguration {
   private final String pollerMaxDelayMs;
   private final String pollerMinDelayMs;
 
-  // ============================================================================
-  // Recurring Job Configuration
-  // ============================================================================
-
   private final String recurringBatchLimit;
   private final String recurringMaxPollMs;
   private final String recurringPollMs;
-
-  // ============================================================================
-  // Slack Notification Configuration
-  // ============================================================================
 
   private final String slackDlqChannel;
   private final String slackNotificationsEnabled;
   private final String slackTimeoutChannel;
   private final String softTimeoutPercent;
-
-  // ============================================================================
-  // Thread Pool Configuration
-  // ============================================================================
 
   private final String threadPoolQueueSize;
   private final String threadPoolSizeBatchChild;
@@ -175,10 +139,6 @@ public class RatchetConfiguration {
   private final String threadPoolSizeDlq;
   private final String threadPoolSizeRecurring;
   private final String threadPoolSizeSingle;
-
-  // ============================================================================
-  // Worker Configuration
-  // ============================================================================
 
   private final String workerDefaultSla;
   private final String workerUseVirtualThreads;
@@ -384,8 +344,6 @@ public class RatchetConfiguration {
     }
   }
 
-  /* ─────────────────────── env helpers ─────────────────────── */
-
   private static String getEnvOrDefault(String key, String defaultValue) {
     String value = System.getenv(key);
     if (value != null && !value.isEmpty()) {
@@ -420,8 +378,6 @@ public class RatchetConfiguration {
     }
     return Long.parseLong(envValue);
   }
-
-  /* ─────────────────────── accessor methods ─────────────────────── */
 
   public String getDlqPurgeCron() {
     return dlqPurgeCron != null && !dlqPurgeCron.isEmpty() ? dlqPurgeCron : "0 0 2 * * ?";

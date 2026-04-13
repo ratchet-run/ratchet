@@ -27,25 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-/**
- * Core entity representing a unit of work in the distributed job scheduler.
- *
- * <p>JobEntity is the central persistence model for all scheduled tasks, containing scheduling
- * metadata, execution state, retry configuration, and business logic references.
- *
- * <h2>Job Lifecycle:</h2>
- *
- * <ol>
- *   <li><b>Creation:</b> Job scheduled with target time and configuration
- *   <li><b>Polling:</b> Becomes visible when scheduled_time &lt;= now and status = PENDING
- *   <li><b>Execution:</b> Worker picks up job, sets RUNNING status with ownership
- *   <li><b>Completion:</b> Success/failure recorded with metrics and results
- *   <li><b>Archival:</b> Moved to archive table after retention period
- * </ol>
- *
- * @see JobStatus for state machine details
- * @see JobExecutionType for internal execution roles
- */
+/** Persisted record of a scheduled task. @see JobStatus @see JobExecutionType */
 @Entity
 @Table(
     name = "scheduler_job",

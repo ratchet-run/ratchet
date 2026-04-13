@@ -39,15 +39,8 @@ public class RecurringRegistrationState {
 
   private static final Logger log = Logger.getLogger(RecurringRegistrationState.class);
 
-  /**
-   * Concurrent set of business keys this node has registered. Empty until registration completes.
-   */
   private final Set<String> knownAnnotationKeys = ConcurrentHashMap.newKeySet();
 
-  /**
-   * The instant the most recent registration pass finished. {@code null} until {@link
-   * #markRegistrationComplete(Set)} is called.
-   */
   @SuppressWarnings("java:S3077")
   private volatile Instant registrationCompletedAt;
 

@@ -41,8 +41,6 @@ public final class DocumentMapper {
 
   private DocumentMapper() {}
 
-  // ── JobEntity ──────────────────────────────────────────────────────────────
-
   public static Document toDocument(JobEntity job) {
     Document doc = new Document();
     if (job.getId() != null) {
@@ -157,8 +155,6 @@ public final class DocumentMapper {
         doc.getInteger("max_retries", 0));
   }
 
-  // ── BatchEntity ────────────────────────────────────────────────────────────
-
   public static Document toDocument(BatchEntity batch) {
     Document doc = new Document();
     doc.append("_id", batch.getId());
@@ -192,8 +188,6 @@ public final class DocumentMapper {
         documentToPayload(doc.get("progress_hook", Document.class)));
   }
 
-  // ── NodeEntity ─────────────────────────────────────────────────────────────
-
   public static Document toDocument(NodeEntity node) {
     Document doc = new Document();
     doc.append("_id", node.getId());
@@ -211,8 +205,6 @@ public final class DocumentMapper {
     node.setNodeInfo(documentToNodeInfo(doc.get("node_info", Document.class)));
     return node;
   }
-
-  // ── JobExecutionEntity ─────────────────────────────────────────────────────
 
   public static Document toDocument(JobExecutionEntity exec) {
     Document doc = new Document();
@@ -248,8 +240,6 @@ public final class DocumentMapper {
     return exec;
   }
 
-  // ── JobLogEntity ───────────────────────────────────────────────────────────
-
   public static Document toDocument(JobLogEntity logEntry) {
     Document doc = new Document();
     if (logEntry.getId() != null) {
@@ -262,8 +252,6 @@ public final class DocumentMapper {
     doc.append("mdc", nodeInfoToDocument(logEntry.getMdc()));
     return doc;
   }
-
-  // ── ArchivedJobEntity ──────────────────────────────────────────────────────
 
   public static Document toDocument(ArchivedJobEntity a) {
     Document doc = new Document();
@@ -345,8 +333,6 @@ public final class DocumentMapper {
     return a;
   }
 
-  // ── WorkflowConditionEntity ────────────────────────────────────────────────
-
   public static Document toDocument(WorkflowConditionEntity wc) {
     Document doc = new Document();
     if (wc.getId() != null) {
@@ -375,8 +361,6 @@ public final class DocumentMapper {
     wc.setCreatedAt(toInstant(doc.getDate("created_at")));
     return wc;
   }
-
-  // ── BatchMetricsEntity ─────────────────────────────────────────────────────
 
   public static Document toDocument(BatchMetricsEntity bm) {
     Document doc = new Document();
@@ -409,8 +393,6 @@ public final class DocumentMapper {
     return bm;
   }
 
-  // ── DlqAlertEntity ─────────────────────────────────────────────────────────
-
   public static Document toDocument(DlqAlertEntity alert) {
     Document doc = new Document();
     if (alert.getId() != null) {
@@ -433,8 +415,6 @@ public final class DocumentMapper {
     return alert;
   }
 
-  // ── ResourcePermitEntity ───────────────────────────────────────────────────
-
   public static Document toDocument(ResourcePermitEntity permit) {
     Document doc = new Document();
     if (permit.getId() != null) {
@@ -446,8 +426,6 @@ public final class DocumentMapper {
     doc.append("acquired_at", toDate(permit.getAcquiredAt()));
     return doc;
   }
-
-  // ── Payload / Params helpers ───────────────────────────────────────────────
 
   static Document payloadToDocument(JobPayload payload) {
     if (payload == null) {
@@ -498,8 +476,6 @@ public final class DocumentMapper {
     }
   }
 
-  // ── Node info helpers ──────────────────────────────────────────────────────
-
   private static Document nodeInfoToDocument(Map<String, Object> nodeInfo) {
     if (nodeInfo == null) {
       return new Document();
@@ -521,8 +497,6 @@ public final class DocumentMapper {
       return Collections.emptyMap();
     }
   }
-
-  // ── Timestamp conversion ───────────────────────────────────────────────────
 
   static Date toDate(Instant instant) {
     return instant == null ? null : Date.from(instant);

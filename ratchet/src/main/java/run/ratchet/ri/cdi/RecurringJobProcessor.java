@@ -31,17 +31,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.jboss.logging.Logger;
 
 /**
- * Processes methods annotated with {@link Recurring} and registers them as recurring jobs.
- *
- * <p>This processor orchestrates the discovery and registration of recurring jobs by:
- *
- * <ul>
- *   <li>Scanning CDI beans for @Recurring annotated methods
- *   <li>Delegating validation to {@link RecurringMethodValidator}
- *   <li>Delegating configuration parsing to {@link RecurringAnnotationParser}
- *   <li>Delegating invocation to {@link RecurringMethodInvoker}
- *   <li>Cleaning up orphaned jobs whose annotations have been removed
- * </ul>
+ * Scans CDI beans for {@link Recurring}-annotated methods and registers them as recurring jobs at
+ * startup, then cleans up orphaned jobs whose annotations have been removed.
  *
  * @see Recurring
  * @see RecurringMethodValidator
@@ -106,11 +97,6 @@ public class RecurringJobProcessor {
     this.registrationState = registrationState;
   }
 
-  /**
-   * Triggers registration of @Recurring jobs at application startup.
-   *
-   * @param init the CDI initialization event
-   */
   void onStartup(@Observes @Initialized(ApplicationScoped.class) Object init) {
     registerRecurringJobs();
   }

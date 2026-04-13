@@ -37,14 +37,7 @@ public @interface CircuitBreakerProtected {
   String service() default "";
 
   /**
-   * Specifies the circuit breaker profile to be used for the annotated target.
-   *
-   * <p>Circuit breaker profiles define pre-configured settings for common use cases, such as
-   * thresholds, window sizes, and wait durations. This allows for easier customization and reuse of
-   * circuit breaker configurations. If not explicitly set, the default profile {@link
-   * CircuitBreakerProfile#DEFAULT} will be applied.
-   *
-   * @return the selected {@link CircuitBreakerProfile} for circuit breaker protection
+   * @return the circuit breaker profile; defaults to {@link CircuitBreakerProfile#DEFAULT}
    */
   @Nonbinding
   CircuitBreakerProfile profile() default CircuitBreakerProfile.DEFAULT;

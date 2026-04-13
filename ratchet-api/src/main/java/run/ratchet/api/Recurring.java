@@ -7,70 +7,26 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * Marks a method to be executed as a recurring job based on a cron schedule.
- *
- * <p>The {@code @Recurring} annotation provides a declarative way to schedule methods for periodic
- * execution without explicit scheduler configuration. Annotated methods are automatically
- * discovered at application startup and registered with the job scheduler.
- *
- * <h2>Method Requirements:</h2>
- *
- * <p>Methods annotated with {@code @Recurring} must meet these requirements:
- *
- * <ul>
- *   <li>Must be public methods
- *   <li>Must have either no parameters or a single {@link JobContext} parameter
- *   <li>Must be part of a CDI-managed bean (e.g., {@code @ApplicationScoped}, {@code @Stateless})
- *   <li>Return type can be anything (return values are ignored)
- * </ul>
- *
- * <h2>Cron Expression Format:</h2>
- *
- * <p>Uses Quartz cron format with 6-7 fields:
- *
- * <pre>
- * second minute hour day-of-month month day-of-week [year]
- * </pre>
- *
- * <h2>Example Usage:</h2>
+ * Marks a CDI bean method for automatic recurring execution on a cron schedule. Methods must be
+ * public and accept either no parameters or a single {@link JobContext} parameter.
  *
  * <pre>{@code
  * &#64;ApplicationScoped
  * public class MaintenanceService {
  *
- *     // Simple recurring job - runs at 2 AM daily
  *     &#64;Recurring(cron = "0 0 2 * * ?", name = "Nightly Cleanup")
- *     public void performCleanup() {
- *         // Cleanup logic
- *     }
+ *     public void performCleanup() { ... }
  *
- *     // Recurring job with context - runs every 30 minutes in New York timezone
- *     &#64;Recurring(cron = "0 *\/30 * * * ?", zone = "America/New_York")
- *     public void syncData(JobContext context) {
- *         String jobId = context.getJobId();
- *         // Sync logic with job context
- *     }
- *
- *     // High-priority job with custom retry policy
  *     &#64;Recurring(
  *         cron = "0 0 * * * ?",
- *         name = "Hourly Health Check",
  *         priority = 8,
  *         maxRetries = 5,
  *         backoffPolicy = BackoffPolicy.EXPONENTIAL,
  *         tags = {"health", "monitoring"}
  *     )
- *     public void healthCheck() {
- *         // Health check logic
- *     }
+ *     public void healthCheck() { ... }
  * }
  * }</pre>
- *
- * <h2>Lifecycle:</h2>
- *
- * <p>Recurring jobs are scanned and registered during application startup. The scheduler maintains
- * a single definition per unique job ID and spawns individual job instances at each scheduled
- * execution time.
  *
  * @see JobContext
  * @see RecurringJobBuilder
@@ -80,84 +36,48 @@ import java.lang.annotation.Target;
 @Documented
 public @interface Recurring {
 
-  /**
-   * Initial backoff delay in milliseconds for retry attempts. The actual delay depends on the
-   * backoff policy.
-   */
+  /** Initial backoff delay in milliseconds; actual delay depends on the backoff policy. */
   long backoffDelayMs() default 1000;
 
   /** The backoff policy to use between retry attempts. */
   BackoffPolicy backoffPolicy() default BackoffPolicy.EXPONENTIAL;
 
   /**
-   * The cron expression defining when this job should run. Uses Quartz cron format: second minute
-   * hour day-of-month month day-of-week [year]
-   *
-   * <p>Examples:
-   *
-   * <ul>
-   *   <li>"0 0 2 * * ?" - Every day at 2 AM
-   *   <li>"0 *\/15 * * * ?" - Every 15 minutes
-   *   <li>"0 0 9 ? * MON" - Every Monday at 9 AM
-   * </ul>
+   * Quartz cron expression: {@code second minute hour day-of-month month day-of-week [year]}.
+   * Examples: {@code "0 0 2 * * ?"} (2 AM daily), {@code "0 *\/15 * * * ?"} (every 15 min).
    */
   String cron();
 
   /**
-   * Whether this recurring job is enabled. Can be used with property placeholders to conditionally
-   * enable/disable jobs.
-   *
-   * <p>Example: enabled = "${app.maintenance.enabled:true}"
+   * Whether this recurring job is enabled. Supports property placeholders, e.g. {@code
+   * "${app.maintenance.enabled:true}"}.
    */
   String enabled() default "true";
 
   /**
-   * Unique identifier for this recurring job. If not specified, defaults to the fully qualified
-   * class name + method name.
-   *
-   * <p>This ID is used as the business key to ensure idempotency and to manage the job lifecycle
-   * (update, pause, resume, delete).
+   * Unique job identifier used as a business key. Defaults to fully-qualified class name + method
+   * name if not specified.
    */
   String id() default "";
 
-  /** Maximum number of retry attempts if the job fails. */
+  /** Maximum number of retry attempts on failure. */
   int maxRetries() default 3;
 
-  /**
-   * Human-readable name for this job. Used in monitoring and logs. If not specified, defaults to
-   * the method name.
-   */
+  /** Display name for monitoring and logs; defaults to the method name if not specified. */
   String name() default "";
 
   /**
-   * Job execution priority. Higher priority jobs are executed before lower priority ones.
-   *
-   * <p>The annotation uses a 1-10 scale which the RI maps into {@link JobPriority} buckets:
-   *
-   * <ul>
-   *   <li>{@code 1-2} = LOWEST
-   *   <li>{@code 3-4} = LOW
-   *   <li>{@code 5-6} = NORMAL
-   *   <li>{@code 7-8} = HIGH
-   *   <li>{@code 9-10} = CRITICAL
-   * </ul>
-   *
-   * <p>The default value of {@code 5} maps to {@link JobPriority#NORMAL}.
+   * Execution priority on a 1–10 scale, mapped by the RI to {@link JobPriority} buckets
+   * (1–2=LOWEST, 3–4=LOW, 5–6=NORMAL, 7–8=HIGH, 9–10=CRITICAL). Default 5 = NORMAL.
    */
   int priority() default 5;
 
-  /** Tags to associate with this job for filtering and categorization. */
+  /** Tags for filtering and categorization. */
   String[] tags() default {};
 
-  /**
-   * Maximum time in seconds this job is allowed to run before timing out. Default is 1 hour (3600
-   * seconds).
-   */
+  /** Maximum execution time in seconds before the job is timed out. Default is 1 hour. */
   long timeoutSeconds() default 3600;
 
-  /**
-   * The timezone for the cron expression. Defaults to UTC. Must be a valid {@link java.time.ZoneId}
-   * string.
-   */
+  /** Timezone for the cron expression; must be a valid {@link java.time.ZoneId}. */
   String zone() default "UTC";
 }

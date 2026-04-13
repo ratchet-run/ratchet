@@ -12,12 +12,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  *
  * <p>The database type is determined by the {@code ratchet.test.db.type} system property (defaults
  * to "mysql"). The container is started once and shared across all test classes via the JUnit
- * {@link ExtensionContext.Store} with GLOBAL namespace (singleton pattern).
- *
- * <p>The DDL schema is applied automatically via Testcontainers' {@code withInitScript()}, which
- * uses a robust SQL parser that handles comments, quoted strings, and multi-statement scripts.
- * System properties are set for JDBC configuration that downstream components (WildFly datasource
- * configuration, persistence units) can read.
+ * {@link ExtensionContext.Store} with GLOBAL namespace.
  */
 public class JdbcContainerExtension
     implements BeforeAllCallback, ExtensionContext.Store.CloseableResource {

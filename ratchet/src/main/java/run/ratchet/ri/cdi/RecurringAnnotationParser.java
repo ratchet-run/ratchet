@@ -4,15 +4,8 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.Recurring;
 
 /**
- * Parses {@code @Recurring} annotation values and resolves configuration.
- *
- * <p>Provides focused, testable parsing of recurring job configuration including:
- *
- * <ul>
- *   <li>Property placeholder resolution for the enabled field
- *   <li>Priority mapping from numeric values (1-10) to {@link JobPriority} enum
- *   <li>Job ID generation from annotation or class/method names
- * </ul>
+ * Parses {@code @Recurring} annotation values: enabled flag (with {@code ${prop}} resolution),
+ * numeric-to-{@link JobPriority} mapping, and job ID generation.
  *
  * @see RecurringJobProcessor
  */
@@ -29,18 +22,8 @@ final class RecurringAnnotationParser {
   }
 
   /**
-   * Determines if a recurring job is enabled based on its annotation configuration.
-   *
-   * <p>Supports property placeholder syntax for runtime configuration:
-   *
-   * <ul>
-   *   <li>{@code "true"} or {@code "false"} - parsed directly
-   *   <li>{@code "${property.name}"} - reads system property or environment variable
-   *   <li>{@code "${property.name:default}"} - reads property with fallback default
-   * </ul>
-   *
-   * @param annotation the @Recurring annotation to check
-   * @return true if the job should be registered, false to skip
+   * Returns true if the job should be registered. Supports {@code "${prop}"} and {@code
+   * "${prop:default}"} placeholder syntax resolved from system properties then env vars.
    */
   static boolean isEnabled(Recurring annotation) {
     String value = annotation.enabled();
@@ -53,20 +36,8 @@ final class RecurringAnnotationParser {
   }
 
   /**
-   * Maps a numeric priority value (1-10) to a {@link JobPriority} enum value.
-   *
-   * <p>The mapping quantizes the 1-10 range into 5 discrete priority levels:
-   *
-   * <ul>
-   *   <li>1-2: {@link JobPriority#LOWEST}
-   *   <li>3-4: {@link JobPriority#LOW}
-   *   <li>5-6: {@link JobPriority#NORMAL}
-   *   <li>7-8: {@link JobPriority#HIGH}
-   *   <li>9-10: {@link JobPriority#CRITICAL}
-   * </ul>
-   *
-   * @param priority the numeric priority from the annotation (1-10)
-   * @return the corresponding JobPriority enum value
+   * Maps annotation priority (1-10) to {@link JobPriority}: 1-2 LOWEST, 3-4 LOW, 5-6 NORMAL, 7-8
+   * HIGH, 9-10 CRITICAL.
    */
   static JobPriority mapPriority(int priority) {
     if (priority <= 2) {

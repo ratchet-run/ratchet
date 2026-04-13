@@ -157,8 +157,6 @@ class RecurringJobExecutorGraceTest {
     verify(jobCrudStore, never()).save(any(JobEntity.class));
   }
 
-  // ── Helpers ─────────────────────────────────────────────────────
-
   private JobEntity recurringMaster(long id, String businessKey) {
     JobEntity master = new JobEntity();
     master.setId(id);

@@ -22,25 +22,7 @@ import jakarta.enterprise.event.Observes;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
 
-/**
- * CDI lifecycle observer that initializes and shuts down the Ratchet job scheduler subsystem.
- *
- * <p>On application startup, this bean eagerly initializes all scheduler components. On shutdown,
- * it stops all to allow graceful termination.
- *
- * <p>Startup order:
- *
- * <ol>
- *   <li>Poller — starts claiming pending jobs
- *   <li>RecurringScheduler — starts spawning due recurring job children
- *   <li>OrphanRecoveryTimer — periodic scan for stuck jobs from crashed nodes
- *   <li>BatchRecoveryTimer — periodic scan for stuck batch completions
- *   <li>DeadLetterService — schedules daily DLQ purge
- *   <li>JobArchivingService — schedules cron-based job archiving
- *   <li>LogPurgeTimer — schedules cron-based log purging
- *   <li>PollerWakeupListener — registers for cluster wakeup notifications
- * </ol>
- */
+/** CDI lifecycle observer that initializes and shuts down the Ratchet job scheduler subsystem. */
 @ApplicationScoped
 public class RatchetLifecycle {
 
@@ -102,11 +84,6 @@ public class RatchetLifecycle {
     this.config = config;
   }
 
-  /**
-   * Initializes the job scheduler subsystem at application startup.
-   *
-   * @param init the CDI initialization event
-   */
   void onStartup(@Observes @Initialized(ApplicationScoped.class) Object init) {
     log.info("Initializing Ratchet job scheduler...");
 

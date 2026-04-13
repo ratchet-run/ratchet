@@ -43,15 +43,7 @@ public class SubmissionFailureHandler {
     this.threadPoolManager = threadPoolManager;
   }
 
-  /**
-   * Handles a gate check failure (draining, rate limited, no permits).
-   *
-   * <p>No permit was acquired, so no permit release is performed.
-   *
-   * @param job the job that failed the gate check
-   * @param result the gate check result with failure details
-   * @param isFirstAttempt true if initial submission, false if from retry buffer
-   */
+  /** No permit was acquired, so no release is needed. */
   public void handleGateFailure(JobEntity job, GateCheckResult result, boolean isFirstAttempt) {
     if (isFirstAttempt) {
       resetToPendingOrBuffer(job);
@@ -69,15 +61,7 @@ public class SubmissionFailureHandler {
     }
   }
 
-  /**
-   * Handles a gate check failure for a DTO-based submission.
-   *
-   * <p>Loads the full entity only when needed for retry buffer operations. This optimizes the
-   * common case where reset-to-pending succeeds without needing the full entity.
-   *
-   * @param claim the job claim DTO that failed the gate check
-   * @param result the gate check result with failure details
-   */
+  /** DTO variant — loads the full entity only if reset-to-pending fails. */
   public void handleGateFailure(JobClaimDto claim, GateCheckResult result) {
     // For first attempts (DTO path is always first attempt from Poller), try reset first
     if (jobStateManager.resetJobToPending(claim.id())) {
@@ -93,15 +77,7 @@ public class SubmissionFailureHandler {
     log.info(result.reason());
   }
 
-  /**
-   * Handles execution rejection (executor refused the task after permit was acquired).
-   *
-   * <p>Releases the acquired permit before recovery.
-   *
-   * @param job the rejected job
-   * @param jobType the job type (for permit release)
-   * @param isFirstAttempt true if initial submission, false if from retry buffer
-   */
+  /** Releases the acquired permit before attempting recovery. */
   public void handleRejection(JobEntity job, JobExecutionType jobType, boolean isFirstAttempt) {
     threadPoolManager.releasePermit(jobType);
 
@@ -125,15 +101,7 @@ public class SubmissionFailureHandler {
     }
   }
 
-  /**
-   * Handles execution rejection for a DTO-based submission.
-   *
-   * <p>Releases the acquired permit and attempts reset-to-pending first to avoid loading the full
-   * entity.
-   *
-   * @param claim the rejected job claim DTO
-   * @param jobType the job type (for permit release)
-   */
+  /** DTO variant — releases permit, tries reset-to-pending before loading the full entity. */
   public void handleRejection(JobClaimDto claim, JobExecutionType jobType) {
     threadPoolManager.releasePermit(jobType);
 
@@ -154,16 +122,7 @@ public class SubmissionFailureHandler {
         String.format("Executor for %s rejected job %d - buffered for retry", jobType, claim.id()));
   }
 
-  /**
-   * Handles unexpected exception during submission setup (after permit was acquired).
-   *
-   * <p>Releases the acquired permit before recovery.
-   *
-   * @param job the job that failed
-   * @param jobType the job type (for permit release)
-   * @param isFirstAttempt true if initial submission, false if from retry buffer
-   * @param exception the exception that occurred
-   */
+  /** Releases the acquired permit before attempting recovery. */
   public void handleUnexpectedException(
       JobEntity job, JobExecutionType jobType, boolean isFirstAttempt, Exception exception) {
     threadPoolManager.releasePermit(jobType);
@@ -174,16 +133,7 @@ public class SubmissionFailureHandler {
     }
   }
 
-  /**
-   * Handles unexpected exception for a DTO-based submission.
-   *
-   * <p>Releases the acquired permit and attempts reset-to-pending first to avoid loading the full
-   * entity.
-   *
-   * @param claim the job claim DTO that failed
-   * @param jobType the job type (for permit release)
-   * @param exception the exception that occurred
-   */
+  /** DTO variant — releases permit, tries reset-to-pending before loading the full entity. */
   public void handleUnexpectedException(
       JobClaimDto claim, JobExecutionType jobType, Exception exception) {
     threadPoolManager.releasePermit(jobType);

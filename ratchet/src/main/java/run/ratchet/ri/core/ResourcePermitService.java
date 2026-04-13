@@ -56,14 +56,8 @@ public class ResourcePermitService {
   }
 
   /**
-   * Attempts to acquire a permit for a job to access a resource.
+   * Attempts to acquire a permit atomically using pessimistic locking.
    *
-   * <p>This method is atomic and uses pessimistic locking to prevent race conditions when multiple
-   * nodes try to acquire permits simultaneously.
-   *
-   * @param resourceName the resource to access
-   * @param jobId the job requesting access
-   * @param nodeId the node executing the job
    * @return true if permit was acquired, false if resource is at capacity
    * @throws IllegalArgumentException if resource is not configured
    */
@@ -77,50 +71,24 @@ public class ResourcePermitService {
     return acquired;
   }
 
-  /**
-   * Releases a permit held by a job.
-   *
-   * <p>This method should be called when a job completes (success, failure, or cancellation). It is
-   * safe to call even if the job doesn't hold a permit.
-   *
-   * @param resourceName the resource to release
-   * @param jobId the job releasing its permit
-   */
+  /** Safe to call even if the job holds no permit. */
   public void release(String resourceName, long jobId) {
     resourcePermitStore.releasePermit(resourceName, jobId);
     log.debugf("Job %s released permit for resource %s", jobId, resourceName);
   }
 
-  /**
-   * Releases all permits held by a job (for jobs that might hold multiple resources).
-   *
-   * @param jobId the job to release all permits for
-   */
   public void releaseAll(long jobId) {
     resourcePermitStore.releaseAllPermits(jobId);
   }
 
   /**
-   * Gets the retry delay for a resource when permits are not available.
-   *
-   * @param resourceName the resource name
    * @return delay in milliseconds, or 5000 as default if resource not found
    */
   public int getRetryDelay(String resourceName) {
     return resourcePermitStore.getPermitRetryDelay(resourceName);
   }
 
-  /**
-   * Configures or updates a resource limit.
-   *
-   * <p>This is an administrative operation typically called at application startup or through an
-   * admin interface.
-   *
-   * @param resourceName the resource identifier
-   * @param maxConcurrent maximum concurrent permits
-   * @param retryDelayMs delay when permits unavailable
-   * @param description human-readable description
-   */
+  /** Configures or updates a resource permit limit. */
   public void configureResource(
       String resourceName, int maxConcurrent, int retryDelayMs, String description) {
     resourcePermitStore.configureResource(resourceName, maxConcurrent, retryDelayMs, description);
@@ -129,15 +97,7 @@ public class ResourcePermitService {
         resourceName, maxConcurrent, retryDelayMs);
   }
 
-  /**
-   * Cleans up orphaned permits from dead nodes.
-   *
-   * <p>This should be called periodically (e.g., during node heartbeat) to release permits held by
-   * nodes that have crashed or lost connectivity.
-   *
-   * @param staleNodeIds list of node IDs that are considered dead
-   * @return number of permits cleaned up
-   */
+  /** Releases permits held by dead nodes. Call periodically, e.g. during node heartbeat. */
   public int cleanupOrphanedPermits(List<String> staleNodeIds) {
     if (staleNodeIds == null || staleNodeIds.isEmpty()) {
       return 0;

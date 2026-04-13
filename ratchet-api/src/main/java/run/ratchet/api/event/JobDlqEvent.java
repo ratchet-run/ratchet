@@ -10,10 +10,7 @@ public class JobDlqEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = -2578972098474327757L;
 
-  /** The error message from the final failure. */
   private final String errorMessage;
-
-  /** The total number of retry attempts before moving to DLQ. */
   private final Integer retryAttempt;
 
   public JobDlqEvent(

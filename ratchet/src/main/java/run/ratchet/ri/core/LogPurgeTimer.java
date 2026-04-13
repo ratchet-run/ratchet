@@ -65,12 +65,6 @@ public class LogPurgeTimer {
     this.executorProvider = executorProvider;
   }
 
-  /**
-   * Initializes the log purge timer with cron-based scheduling.
-   *
-   * @param retentionDays number of days to retain logs before purging
-   * @param cronExpression cron expression for scheduling (Quartz format)
-   */
   public void init(long retentionDays, Cron cronExpression) {
     this.retentionPeriod = Duration.ofDays(retentionDays);
     this.cron = cronExpression;

@@ -310,14 +310,8 @@ public class DefaultJobSchedulerService
   }
 
   /**
-   * Persists a fully-configured job from a {@link JobBuilder}.
-   *
-   * <p>This is the {@link JobSubmitter} implementation. It creates a {@link JobEntity} from the
-   * builder configuration, handles idempotency and business key checks, persists chain steps and
-   * workflow branches, and triggers wakeup notifications as needed.
-   *
-   * @param builder the fully-configured job builder
-   * @return a handle to the persisted job
+   * {@link JobSubmitter} implementation. Handles idempotency, persists chain/workflow steps, and
+   * wakes the poller if needed.
    */
   @Override
   @Transactional

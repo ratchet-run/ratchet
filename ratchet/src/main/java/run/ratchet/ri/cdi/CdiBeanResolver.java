@@ -8,14 +8,9 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 
 /**
- * Resolves CDI beans by their type through the {@link BeanResolver} interface. It abstracts the
- * mechanism for dependency injection via CDI and provides runtime resolution of bean instances.
- * <br>
- * This class uses CDI's {@link Instance} to perform type-safe bean resolution. If no bean or
- * multiple beans of the given type are found, it throws an {@link IllegalStateException} to
- * indicate the issue. <br>
- * It supports both direct and qualified dependency resolution through the standard CDI mechanism.
- * Typically, this class is used to resolve application-scoped CDI beans dynamically at runtime.
+ * Resolves CDI beans by type via {@link Instance}. Throws {@link IllegalStateException} if no bean
+ * or multiple beans are found, and refuses {@link jakarta.enterprise.context.Dependent}-scoped
+ * beans whose lifecycle it cannot manage.
  */
 @ApplicationScoped
 public class CdiBeanResolver implements BeanResolver {

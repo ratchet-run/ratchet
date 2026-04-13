@@ -6,51 +6,20 @@ package run.ratchet.api;
  */
 public enum BackoffPolicy {
 
-  /**
-   * No delay between retry attempts.
-   *
-   * <p>Jobs are retried immediately after failure. This is suitable for failures that are unlikely
-   * to be caused by temporary conditions, such as data validation errors or business logic
-   * failures.
-   */
+  /** Retries immediately with no delay. */
   NONE,
 
   /**
-   * Fixed delay between retry attempts.
+   * Constant delay between retries equal to {@code backoffParamMs}.
    *
-   * <p>A constant delay is applied between each retry, as specified by the job's backoffParamMs
-   * value. This is suitable for rate-limited services or when a predictable retry pattern is
-   * desired.
-   *
-   * <p>Example: If backoffParamMs = 5000, retries occur at:
-   *
-   * <ul>
-   *   <li>Attempt 1: immediate
-   *   <li>Attempt 2: after 5 seconds
-   *   <li>Attempt 3: after 5 seconds
-   *   <li>Attempt 4: after 5 seconds
-   * </ul>
+   * <p>Example (backoffParamMs = 5000): immediate, +5 s, +5 s, +5 s, …
    */
   FIXED,
 
   /**
-   * Exponentially increasing delay between retry attempts.
+   * Delay doubles with each attempt, starting from {@code backoffParamMs}, capped at ~5 minutes.
    *
-   * <p>The delay doubles with each retry attempt, starting from the backoffParamMs value. This
-   * helps prevent overwhelming systems under stress and gives progressively more time for recovery.
-   *
-   * <p>Example: If backoffParamMs = 1000, retries occur at:
-   *
-   * <ul>
-   *   <li>Attempt 1: immediate
-   *   <li>Attempt 2: after 1 second
-   *   <li>Attempt 3: after 2 seconds
-   *   <li>Attempt 4: after 4 seconds
-   *   <li>Attempt 5: after 8 seconds
-   * </ul>
-   *
-   * <p>The delay is capped at a reasonable maximum (typically 5 minutes) to prevent excessive wait
-   * times.
+   * <p>Example (backoffParamMs = 1000): immediate, +1 s, +2 s, +4 s, +8 s, …
    */
   EXPONENTIAL
 }

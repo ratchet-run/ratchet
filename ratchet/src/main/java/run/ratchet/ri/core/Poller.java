@@ -9,24 +9,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.jboss.logging.Logger;
 
 /**
- * High-performance job polling engine that claims pending jobs from the database for execution by
- * the job execution coordinator.
- *
- * <p>This service implements sophisticated adaptive algorithms to optimize polling frequency based
- * on system load and job availability patterns. The algorithm logic is delegated to {@link
- * PollingStrategy} for testability.
- *
- * <p>The Poller is the heart of the job scheduler's pull-based architecture:
- *
- * <ul>
- *   <li><b>Pull Model:</b> Workers pull jobs when ready, enabling natural backpressure
- *   <li><b>Batch Processing:</b> Claims multiple jobs per poll to reduce database round trips
- *   <li><b>Adaptive Timing:</b> Dynamically adjusts polling frequency based on job availability
- *   <li><b>Self-Healing:</b> Automatically recovers from crashes
- * </ul>
- *
- * @see PollingStrategy for the adaptive algorithm implementation
- * @see PollerScheduler for scheduling infrastructure
+ * Claims pending jobs from the store in batches and submits them to {@link
+ * JobExecutionCoordinator}. Polling frequency adapts based on job availability and thread-pool
+ * utilization; see {@link PollingStrategy} for details.
  */
 public class Poller {
 
@@ -59,18 +44,6 @@ public class Poller {
     this.batchSize = 0;
   }
 
-  /**
-   * Creates a new Poller.
-   *
-   * @param jobClaimStore store for atomic batch claiming operations
-   * @param jobExecutionCoordinator coordinator for job execution dispatch
-   * @param nodeIdProvider provides the unique node identifier
-   * @param threadPoolManager manages thread pools and utilization metrics
-   * @param drainController controls drain mode during graceful shutdown
-   * @param pollerScheduler handles scheduling of poll cycles
-   * @param config Ratchet configuration for poller tuning parameters
-   * @param batchSize maximum number of jobs to claim per poll cycle
-   */
   public Poller(
       JobClaimStore jobClaimStore,
       JobExecutionCoordinator jobExecutionCoordinator,
@@ -90,11 +63,6 @@ public class Poller {
     this.batchSize = batchSize;
   }
 
-  /**
-   * Gets current polling statistics for monitoring and debugging.
-   *
-   * @return PollingStats containing current delay, idle count, load metrics
-   */
   public PollingStrategy.PollingStats getPollingStats() {
     return strategy != null ? strategy.getStats() : null;
   }
@@ -152,10 +120,7 @@ public class Poller {
   }
 
   /**
-   * Executes a single poll cycle: claims jobs from the database and submits them to the job
-   * execution coordinator.
-   *
-   * @return the recommended delay in milliseconds before the next poll
+   * @return recommended delay in milliseconds before the next poll
    */
   @SuppressWarnings("java:S1181")
   public long tick() {

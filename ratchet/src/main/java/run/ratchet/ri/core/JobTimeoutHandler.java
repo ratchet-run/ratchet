@@ -14,18 +14,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.jboss.logging.Logger;
 
 /**
- * Service responsible for monitoring and enforcing job execution timeouts to prevent runaway jobs
- * from consuming system resources indefinitely. Implements a two-tier timeout strategy with soft
- * warnings and hard cancellations.
- *
- * <p>Timeout enforcement strategy:
- *
- * <ol>
- *   <li><b>Soft Timeout:</b> At configurable percentage (default 80%) of timeout - logs warning
- *   <li><b>Hard Timeout:</b> At 100% of configured timeout - forcefully cancels job execution
- * </ol>
- *
- * @see JobTask for timeout handler integration
+ * Enforces job execution timeouts with a two-tier strategy: a soft warning at a configurable
+ * percentage of the limit (default 80%), then a hard cancel + DLQ escalation at 100%.
  */
 public class JobTimeoutHandler {
 
@@ -46,15 +36,6 @@ public class JobTimeoutHandler {
     this.defaultTimeoutSeconds = 0;
   }
 
-  /**
-   * Creates a new JobTimeoutHandler.
-   *
-   * @param jobCrudStore store for loading job entities
-   * @param jobStatusStore store for marking jobs as failed
-   * @param lifecycleFacade handler for batch/workflow failure propagation
-   * @param softTimeoutPercent percentage of timeout at which soft warning fires (e.g. 80)
-   * @param defaultTimeoutSeconds default timeout if job-specific not set
-   */
   public JobTimeoutHandler(
       JobCrudStore jobCrudStore,
       JobStatusStore jobStatusStore,
@@ -68,14 +49,6 @@ public class JobTimeoutHandler {
     this.defaultTimeoutSeconds = defaultTimeoutSeconds;
   }
 
-  /**
-   * Schedules timeout monitoring for a job execution.
-   *
-   * @param job the job entity to monitor for timeout
-   * @param future the Future representing the job's asynchronous execution
-   * @param scheduler the scheduled executor service for timeout callbacks
-   * @param executionStartTime the instant when job execution began
-   */
   public void scheduleTimeoutMonitoring(
       JobEntity job,
       Future<?> future,
@@ -85,15 +58,6 @@ public class JobTimeoutHandler {
         job.getId(), job.getTimeoutSec(), future, scheduler, executionStartTime);
   }
 
-  /**
-   * Schedules timeout monitoring for a job using only job ID and timeout value.
-   *
-   * @param jobId the job ID to monitor for timeout
-   * @param jobTimeoutSec the job's configured timeout (0 or negative uses system default)
-   * @param future the Future representing the job's asynchronous execution
-   * @param scheduler the scheduled executor service for timeout callbacks
-   * @param executionStartTime the instant when job execution began
-   */
   public void scheduleTimeoutMonitoring(
       Long jobId,
       int jobTimeoutSec,

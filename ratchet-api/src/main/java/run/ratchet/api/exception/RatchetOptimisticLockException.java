@@ -19,10 +19,6 @@ package run.ratchet.api.exception;
  * rollback behavior is not. This is a JPA+JTA limitation, not a Ratchet defect. Workarounds for
  * code that needs JTA-isolated job submission include wrapping {@code JobScheduler.submit(...)} in
  * a {@code @Transactional(REQUIRES_NEW)} boundary, or moving to the Mongo store.
- *
- * <p><b>Not stable for serialization across versions.</b> Future minor versions may add fields
- * (e.g. {@code jobId} for observability). Do not persist instances of this exception across version
- * boundaries via Java serialization.
  */
 public class RatchetOptimisticLockException extends RuntimeException {
 

@@ -10,15 +10,11 @@ class BackoffPolicyHandlerTest {
 
   private static final long MAX_EXPONENTIAL_DELAY_MS = 86_400_000L;
 
-  // ── NONE ──────────────────────────────────────────────────────────────
-
   @Test
   void none_returnsZeroRegardlessOfBaseOrAttempts() {
     assertEquals(0L, BackoffPolicyHandler.computeDelay(BackoffPolicy.NONE, 5000, 1));
     assertEquals(0L, BackoffPolicyHandler.computeDelay(BackoffPolicy.NONE, 0, 100));
   }
-
-  // ── FIXED ─────────────────────────────────────────────────────────────
 
   @Test
   void fixed_returnsBaseMsForFirstAttempt() {
@@ -34,8 +30,6 @@ class BackoffPolicyHandlerTest {
   void fixed_zeroBaseMs_returnsZero() {
     assertEquals(0L, BackoffPolicyHandler.computeDelay(BackoffPolicy.FIXED, 0, 5));
   }
-
-  // ── EXPONENTIAL ───────────────────────────────────────────────────────
 
   @Test
   void exponential_attempt1_returnsBaseMs() {

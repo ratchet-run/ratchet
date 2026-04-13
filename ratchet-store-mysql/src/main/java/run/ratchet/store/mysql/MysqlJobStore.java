@@ -72,8 +72,6 @@ public class MysqlJobStore implements JobStore {
     return values[ordinal];
   }
 
-  // ── JobCrudStore ──────────────────────────────────────────────────────
-
   private static String buildClaimSql(
       String selectClause, String typeFilter, String timeColumn, int boostInterval) {
     String orderBy =
@@ -97,21 +95,7 @@ public class MysqlJobStore implements JobStore {
 
   @Override
   public JobEntity save(JobEntity job) {
-    // Flush is required on the update path so Hibernate detects the @Version conflict inside
-    // this method rather than at end-of-transaction commit, where it would be too late to
-    // translate jakarta.persistence.OptimisticLockException into RatchetOptimisticLockException.
-    // The insert path cannot throw OptimisticLockException (no prior version to conflict with),
-    // so the insert branch does not flush — other JPA exceptions (ConstraintViolationException,
-    // etc.) continue to propagate unwrapped since we only catch OptimisticLockException.
-    //
-    // Caveat: under JTA, Hibernate's JTA integration calls Transaction.setRollbackOnly() BEFORE
-    // this catch block executes. The translated exception type is consistent across stores, but
-    // the enclosing JTA transaction is already marked rollback-only. See
-    // RatchetOptimisticLockException Javadoc for the full rollback-semantics caveat. Callers
-    // that need the retry behavior of OptimisticLockRetry on this store must NOT invoke it
-    // from inside a @Transactional(REQUIRED) boundary — the retry loop becomes a no-op because
-    // the second em.flush() also fails on the rollback-only transaction. See OptimisticLockRetry
-    // Javadoc for the full explanation and permitted usage patterns.
+    // Same JTA/flush semantics as PostgresqlJobStore.save()
     try {
       if (job.getId() == null) {
         em.persist(job);
@@ -357,8 +341,6 @@ public class MysqlJobStore implements JobStore {
     return ((Number) result).doubleValue();
   }
 
-  // ── JobClaimStore ─────────────────────────────────────────────────────
-
   @Override
   public Optional<Instant> getOldestPendingJobTime() {
     List<?> results =
@@ -448,8 +430,6 @@ public class MysqlJobStore implements JobStore {
         });
     return candidates;
   }
-
-  // ── JobStatusStore ────────────────────────────────────────────────────
 
   @Override
   @SuppressWarnings("unchecked")
@@ -753,8 +733,6 @@ public class MysqlJobStore implements JobStore {
     return updated > 0;
   }
 
-  // ── JobBulkStore ──────────────────────────────────────────────────────
-
   @Override
   public boolean transitionFromPaused(long id, JobStatus target) {
     int updated =
@@ -901,8 +879,6 @@ public class MysqlJobStore implements JobStore {
         .executeUpdate();
   }
 
-  // ── BatchStore ────────────────────────────────────────────────────────
-
   @Override
   public int deleteDlqOlderThan(Instant cutoff) {
     return em.createNativeQuery(
@@ -1028,8 +1004,6 @@ public class MysqlJobStore implements JobStore {
     return results.stream().map(Number::longValue).toList();
   }
 
-  // ── LockStore ─────────────────────────────────────────────────────────
-
   @Override
   public boolean updateBatchTotalItems(long batchId, int totalItems) {
     int updated =
@@ -1070,8 +1044,6 @@ public class MysqlJobStore implements JobStore {
         .setParameter("node", nodeId)
         .executeUpdate();
   }
-
-  // ── NodeStore ─────────────────────────────────────────────────────────
 
   @Override
   public boolean renewLock(String name, Duration extension, String nodeId) {
@@ -1116,8 +1088,6 @@ public class MysqlJobStore implements JobStore {
         .setParameter("cutoff", cutoff)
         .executeUpdate();
   }
-
-  // ── ArchiveStore ──────────────────────────────────────────────────────
 
   @Override
   public Instant getDatabaseTime() {
@@ -1204,8 +1174,6 @@ public class MysqlJobStore implements JobStore {
     return query.setMaxResults(limit).getResultList();
   }
 
-  // ── ExecutionStore ────────────────────────────────────────────────────
-
   @Override
   public int purgeArchivedJobs(Instant olderThan) {
     return em.createQuery("DELETE FROM ArchivedJobEntity a WHERE a.archivedAt < :cutoff")
@@ -1243,8 +1211,6 @@ public class MysqlJobStore implements JobStore {
     return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
   }
 
-  // ── JobLogStore ───────────────────────────────────────────────────────
-
   @Override
   public int countExecutionAttempts(long jobId) {
     return em.createQuery(
@@ -1258,8 +1224,6 @@ public class MysqlJobStore implements JobStore {
   public void appendLog(JobLogEntity log) {
     em.persist(log);
   }
-
-  // ── TagStore ──────────────────────────────────────────────────────────
 
   @Override
   public int purgeLogsOlderThan(Instant cutoff) {
@@ -1287,8 +1251,6 @@ public class MysqlJobStore implements JobStore {
         .setParameter("jid", jobId)
         .executeUpdate();
   }
-
-  // ── WorkflowConditionStore ────────────────────────────────────────────
 
   @Override
   public List<Long> findJobIdsByTag(String tag, int limit, int offset) {
@@ -1369,8 +1331,6 @@ public class MysqlJobStore implements JobStore {
         .executeUpdate();
   }
 
-  // ── BatchMetricsStore ─────────────────────────────────────────────────
-
   @Override
   public long countConditionsByParentJobId(long parentJobId) {
     return em.createQuery(
@@ -1417,8 +1377,6 @@ public class MysqlJobStore implements JobStore {
         .executeUpdate();
   }
 
-  // ── DlqAlertStore ─────────────────────────────────────────────────────
-
   @Override
   public void updateBatchMetricsChildCount(long batchId, int childCount) {
     em.createNativeQuery(
@@ -1436,8 +1394,6 @@ public class MysqlJobStore implements JobStore {
     }
     return em.merge(alert);
   }
-
-  // ── ResourcePermitStore ───────────────────────────────────────────────
 
   @Override
   public boolean existsRecentDlqAlert(long jobId, String errorHash, Instant cutoff) {
@@ -1532,8 +1488,6 @@ public class MysqlJobStore implements JobStore {
         .setParameter("desc", description)
         .executeUpdate();
   }
-
-  // ── Private helpers ───────────────────────────────────────────────────
 
   @Override
   public int cleanupOrphanedPermits(List<String> staleNodeIds) {

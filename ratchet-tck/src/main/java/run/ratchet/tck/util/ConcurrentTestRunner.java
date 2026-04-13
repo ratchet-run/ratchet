@@ -11,21 +11,13 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Runs a fixed set of {@link Runnable} tasks in parallel, synchronising their start on a shared
- * latch, and returns one slot per task containing any {@link Throwable} the task threw (or {@code
- * null} on success).
+ * Runs a fixed set of {@link Runnable} tasks in parallel on a shared start latch and returns one
+ * {@link Throwable} slot per task ({@code null} on success).
  *
- * <p>Used by TCK contracts that need to observe the outcome of concurrent operations — notably the
- * stale-write contract in {@code AbstractJobCrudStoreContract}, where exactly one of two racing
- * {@code save()} calls must fail with the store's stale-write type.
- *
- * <p>Pattern mirrors the existing {@code ConcurrentClaimIT} in the MongoDB store: start latch +
- * done latch + fixed-size executor. Deliberately does NOT use {@link java.util.concurrent.Future},
- * because {@code ExecutorService.submit(Runnable)} wraps thrown exceptions in the Future and
- * swallows them unless the caller explicitly queries {@code Future.get()} — which is error-prone
- * for multi-task assertions. Instead, each task writes its own slot in a pre-sized {@code
- * Throwable[]}, which is race-free because indices do not overlap, and visible to the main thread
- * via the happens-before edge from the done latch.
+ * <p>Deliberately avoids {@link java.util.concurrent.Future}: {@code submit(Runnable)} wraps
+ * exceptions inside the Future and requires explicit {@code get()} to surface them, which is
+ * error-prone for multi-task assertions. Each task writes directly to its own index in a pre-sized
+ * array, visible to the main thread via the happens-before edge from the done latch.
  */
 public final class ConcurrentTestRunner {
 

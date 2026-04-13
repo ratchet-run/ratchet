@@ -10,10 +10,7 @@ public class ChainFailedEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = 5542623623918947230L;
 
-  /** The ID of the parent job that owns this chain. */
   private final Long parentJobId;
-
-  /** The error message from the failed chain step. */
   private final String errorMessage;
 
   public ChainFailedEvent(

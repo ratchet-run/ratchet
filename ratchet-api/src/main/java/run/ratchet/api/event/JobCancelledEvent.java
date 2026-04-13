@@ -10,10 +10,7 @@ public class JobCancelledEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = -3714116971496582534L;
 
-  /** The job's status before cancellation. */
   private final String previousStatus;
-
-  /** The execution time in milliseconds if the job was running when cancelled. */
   private final Long executionTimeMs;
 
   public JobCancelledEvent(

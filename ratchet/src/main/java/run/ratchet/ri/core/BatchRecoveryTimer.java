@@ -20,10 +20,8 @@ public class BatchRecoveryTimer {
 
   private static final Logger log = Logger.getLogger(BatchRecoveryTimer.class);
 
-  /** The batch service that contains the actual recovery logic. */
   private final BatchService batchService;
 
-  /** Handle to the scheduled task for cancellation during shutdown. */
   private volatile ScheduledFuture<?> handle;
 
   // Required by CDI proxy
@@ -36,19 +34,11 @@ public class BatchRecoveryTimer {
     this.batchService = batchService;
   }
 
-  /**
-   * Starts the batch recovery timer on the provided executor.
-   *
-   * <p>Schedules batch recovery to run every 15 minutes.
-   *
-   * @param executor the scheduled executor to use for periodic execution
-   */
   public void start(ScheduledExecutorService executor) {
     handle = executor.scheduleAtFixedRate(this::recoverBatches, 15, 15, TimeUnit.MINUTES);
     log.info("Initialized batch recovery timer — checking for stuck batches every 15min");
   }
 
-  /** Stops the batch recovery timer. */
   public void stop() {
     if (handle != null) {
       handle.cancel(false);
@@ -56,7 +46,6 @@ public class BatchRecoveryTimer {
     }
   }
 
-  /** Recovers stuck batches. Called periodically by the scheduled executor. */
   void recoverBatches() {
     int recovered = batchService.recoverStuckBatches();
     if (recovered > 0) {

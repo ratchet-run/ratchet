@@ -21,22 +21,9 @@ import java.util.concurrent.TimeUnit;
 import org.jboss.logging.Logger;
 
 /**
- * Manages the lifecycle and retention of job execution history through automated archiving. This
- * service transitions completed jobs from the active scheduler table to long-term archive storage,
- * maintaining system performance while preserving audit trails.
- *
- * <p>Key responsibilities:
- *
- * <ul>
- *   <li><b>Active Table Management:</b> Moves completed jobs older than retention period to archive
- *       tables
- *   <li><b>Archive Lifecycle:</b> Maintains archived jobs for extended periods (3x retention)
- *       before final purging
- *   <li><b>Performance Optimization:</b> Batch processing with configurable sizes
- *   <li><b>Distributed Coordination:</b> Uses cluster-wide locking to ensure single-node execution
- * </ul>
- *
- * @see ArchiveStore for archive storage operations
+ * Moves completed jobs older than the retention period to archive storage, then purges archived
+ * jobs older than 3x the retention period. Runs on a cron schedule with cluster-wide leader-lock
+ * coordination to prevent duplicate runs across nodes.
  */
 @ApplicationScoped
 @Transactional
@@ -94,14 +81,6 @@ public class JobArchivingService {
     stopped = true;
   }
 
-  /**
-   * Initializes the archiving service with the given configuration.
-   *
-   * @param enabled whether archiving is enabled
-   * @param retentionDays retention period in days
-   * @param batchSize number of jobs per archiving batch
-   * @param cronExpression cron expression for scheduling
-   */
   public void init(boolean enabled, long retentionDays, int batchSize, Cron cronExpression) {
     this.enabled = enabled;
 

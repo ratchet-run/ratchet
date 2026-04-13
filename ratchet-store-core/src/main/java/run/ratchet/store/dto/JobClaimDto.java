@@ -28,11 +28,7 @@ public record JobClaimDto(
     int maxRetries)
     implements Serializable {
 
-  /**
-   * Checks if this claim represents a valid job ready for execution.
-   *
-   * @return true if the claim has all required fields populated
-   */
+  /** Returns true if id, status, and jobType are all non-null. */
   public boolean isValid() {
     return id != null && status != null && jobType != null;
   }
@@ -41,11 +37,7 @@ public record JobClaimDto(
     return jobType.toPublicType();
   }
 
-  /**
-   * Checks if the job has remaining retry attempts available.
-   *
-   * @return true if the job can be retried
-   */
+  /** Returns true if attempts &lt; maxRetries. */
   public boolean hasRetriesRemaining() {
     return attempts < maxRetries;
   }

@@ -21,66 +21,29 @@ public record JobOptions(
     Duration backoffParam,
     int timeoutSec) {
 
-  /**
-   * Creates a JobOptions instance with default settings.
-   *
-   * <p>Default configuration provides a basic setup suitable for most jobs: NORMAL priority, no
-   * retries, no backoff, and no timeout.
-   *
-   * @return a new JobOptions instance with default values
-   */
+  /** Returns a JobOptions with NORMAL priority, no retries, no backoff, and no timeout. */
   public static JobOptions defaults() {
     return new JobOptions(JobPriority.NORMAL, 0, BackoffPolicy.NONE, Duration.ZERO, 0);
   }
 
-  /**
-   * Returns a new JobOptions with the specified backoff configuration.
-   *
-   * <p>The backoff policy determines how delays are calculated between retry attempts. This is only
-   * relevant when maxRetries is greater than 0.
-   *
-   * @param bp the backoff policy to use for retry delays
-   * @param param the base duration for backoff calculations
-   * @return a new JobOptions instance with updated backoff settings
-   */
+  /** Returns a copy with the specified backoff policy and base delay. */
   public JobOptions withBackoff(BackoffPolicy bp, Duration param) {
     return new JobOptions(priority, maxRetries, bp, param, timeoutSec);
   }
 
-  /**
-   * Returns a new JobOptions with the specified maximum retry count.
-   *
-   * <p>Sets the maximum number of times a job will be retried after failure. Each retry follows the
-   * configured backoff policy.
-   *
-   * @param r the maximum number of retry attempts (must be >= 0)
-   * @return a new JobOptions instance with updated retry limit
-   */
+  /** Returns a copy with the specified maximum retry count (must be &gt;= 0). */
   public JobOptions withMaxRetries(int r) {
     return new JobOptions(priority, r, backoffPolicy, backoffParam, timeoutSec);
   }
 
-  /**
-   * Returns a new JobOptions with the specified execution priority.
-   *
-   * <p>Priority affects the order in which jobs are selected for execution when multiple jobs are
-   * queued.
-   *
-   * @param p the job priority level
-   * @return a new JobOptions instance with updated priority
-   */
+  /** Returns a copy with the specified execution priority. */
   public JobOptions withPriority(JobPriority p) {
     return new JobOptions(p, maxRetries, backoffPolicy, backoffParam, timeoutSec);
   }
 
   /**
-   * Returns a new JobOptions with the specified execution timeout.
-   *
-   * <p>Jobs that exceed the timeout duration will be forcibly terminated and marked as failed. Use
-   * Duration.ZERO or a timeout of 0 seconds to disable timeout enforcement.
-   *
-   * @param t the maximum execution duration
-   * @return a new JobOptions instance with updated timeout
+   * Returns a copy with the specified execution timeout. Use {@link Duration#ZERO} to disable
+   * timeout enforcement.
    */
   public JobOptions withTimeout(Duration t) {
     return new JobOptions(priority, maxRetries, backoffPolicy, backoffParam, (int) t.toSeconds());

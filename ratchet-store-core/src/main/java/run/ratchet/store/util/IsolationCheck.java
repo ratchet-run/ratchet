@@ -52,11 +52,8 @@ public final class IsolationCheck {
 
   /** Operating mode of the isolation check. */
   public enum Mode {
-    /** Log a warning and continue. */
     WARN,
-    /** Throw {@link IsolationCheckFailedException} on mismatch. */
     FAIL,
-    /** Skip the check entirely. */
     DISABLE
   }
 

@@ -31,14 +31,6 @@ public class DynamicHeartbeatCalculator {
     this.pollerMaxDelayMs = 0;
   }
 
-  /**
-   * Creates a new DynamicHeartbeatCalculator.
-   *
-   * @param jobCrudStore store for querying cluster state metrics
-   * @param baseHeartbeatIntervalSeconds the base heartbeat interval in seconds
-   * @param pollerMinDelayMs minimum polling delay in milliseconds
-   * @param pollerMaxDelayMs maximum polling delay in milliseconds
-   */
   public DynamicHeartbeatCalculator(
       JobCrudStore jobCrudStore,
       long baseHeartbeatIntervalSeconds,
@@ -51,9 +43,7 @@ public class DynamicHeartbeatCalculator {
   }
 
   /**
-   * Calculates the optimal heartbeat interval based on current cluster conditions.
-   *
-   * @return heartbeat interval in seconds, bounded between min and max thresholds
+   * @return heartbeat interval in seconds, clamped to [base/4, base*2]
    */
   public long calculateHeartbeatInterval() {
     try {
@@ -79,16 +69,11 @@ public class DynamicHeartbeatCalculator {
       return finalInterval;
 
     } catch (Exception e) {
-      log.error("Error calculating heartbeat interval, using default", e);
+      log.error("Failed to calculate heartbeat interval, using default", e);
       return baseHeartbeatIntervalSeconds;
     }
   }
 
-  /**
-   * Calculates the recommended polling delay based on current job queue depth.
-   *
-   * @return polling delay in milliseconds
-   */
   public long calculatePollerDelay() {
     try {
       refreshCacheIfStale();
@@ -102,7 +87,7 @@ public class DynamicHeartbeatCalculator {
         return pollerMinDelayMs;
       }
     } catch (Exception e) {
-      log.error("Error calculating poller delay, using minimum", e);
+      log.error("Failed to calculate poller delay, using minimum", e);
       return pollerMinDelayMs;
     }
   }

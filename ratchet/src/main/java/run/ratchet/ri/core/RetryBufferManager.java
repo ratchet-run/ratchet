@@ -75,18 +75,10 @@ public class RetryBufferManager {
   }
 
   /**
-   * Adds a job to its retry buffer, bypassing the normal size limit but respecting the hard cap.
+   * Buffers a job, bypassing {@link #MAX_BUFFER_SIZE_PER_TYPE} but still respecting {@link
+   * #HARD_CAP_PER_TYPE}. Jobs exceeding the hard cap are sent to the DLQ.
    *
-   * <p>Use this method only when the job must be buffered regardless of normal capacity limits,
-   * such as during recovery operations when resetting to PENDING status fails. In normal operation,
-   * prefer {@link #offer(JobEntity)} to respect backpressure limits.
-   *
-   * <p><b>Safety mechanism:</b> While this method bypasses {@link #MAX_BUFFER_SIZE_PER_TYPE}, it
-   * still respects {@link #HARD_CAP_PER_TYPE} to prevent unbounded memory growth during
-   * catastrophic failure scenarios. Jobs that exceed the hard cap are dropped with an error log.
-   *
-   * @param job the job to buffer for later retry
-   * @return true if the job was buffered, false if the hard cap was reached and the job was dropped
+   * @return true if buffered, false if the hard cap was reached
    */
   public boolean forceOffer(JobEntity job) {
     Queue<BufferedJob> buffer = retryBuffers.get(job.getJobType());
@@ -125,30 +117,12 @@ public class RetryBufferManager {
     }
   }
 
-  /**
-   * Returns an unmodifiable view of the retry buffer for a specific job type.
-   *
-   * <p>The returned collection is a read-only snapshot view. To poll or modify the buffer, use
-   * {@link #pollFromBuffer(JobExecutionType)} or {@link #pollBatchFromBuffer(JobExecutionType,
-   * int)} which enforce the required locking protocol.
-   *
-   * @param jobType the job type to get the buffer for
-   * @return an unmodifiable view of the priority queue for the specified job type
-   */
+  /** Unmodifiable view; use {@link #pollFromBuffer} or {@link #pollBatchFromBuffer} to drain. */
   public Collection<BufferedJob> getBuffer(JobExecutionType jobType) {
     Queue<BufferedJob> queue = retryBuffers.get(jobType);
     return queue != null ? Collections.unmodifiableCollection(queue) : List.of();
   }
 
-  /**
-   * Thread-safe poll from the retry buffer for a specific job type.
-   *
-   * <p>This method synchronizes on the buffer to ensure safe access from concurrent drain
-   * operations. Prefer this over {@code getBuffer(jobType).poll()} in production code paths.
-   *
-   * @param jobType the job type to poll from
-   * @return the highest-priority buffered job, or null if the buffer is empty
-   */
   public BufferedJob pollFromBuffer(JobExecutionType jobType) {
     Queue<BufferedJob> buffer = retryBuffers.get(jobType);
     ReentrantLock lock = bufferLocks.get(jobType);
@@ -160,13 +134,6 @@ public class RetryBufferManager {
     }
   }
 
-  /**
-   * Polls up to {@code limit} buffered jobs for a single job type while preserving priority order.
-   *
-   * @param jobType the job type to drain
-   * @param limit maximum number of entries to remove
-   * @return buffered jobs in poll order
-   */
   public List<BufferedJob> pollBatchFromBuffer(JobExecutionType jobType, int limit) {
     Queue<BufferedJob> buffer = retryBuffers.get(jobType);
     ReentrantLock lock = bufferLocks.get(jobType);
@@ -186,12 +153,6 @@ public class RetryBufferManager {
     }
   }
 
-  /**
-   * Returns whether the retry buffer for a specific job type is empty.
-   *
-   * @param jobType the job type to check
-   * @return true if the buffer is empty
-   */
   public boolean isBufferEmpty(JobExecutionType jobType) {
     Queue<BufferedJob> buffer = retryBuffers.get(jobType);
     ReentrantLock lock = bufferLocks.get(jobType);
@@ -204,14 +165,8 @@ public class RetryBufferManager {
   }
 
   /**
-   * Attempts to add a job to its retry buffer, respecting the size limit.
-   *
-   * <p>If the buffer for the job's type is at capacity, this method returns false and the job is
-   * not added. The caller must handle this case appropriately (e.g., by failing the job or
-   * returning it to PENDING in the database).
-   *
-   * @param job the job to buffer for later retry
-   * @return true if the job was added, false if the buffer is at capacity
+   * @return true if buffered, false if the buffer is at capacity ({@link
+   *     #MAX_BUFFER_SIZE_PER_TYPE})
    */
   public boolean offer(JobEntity job) {
     Queue<BufferedJob> buffer = retryBuffers.get(job.getJobType());
@@ -227,14 +182,6 @@ public class RetryBufferManager {
     }
   }
 
-  /**
-   * Returns the total number of jobs across all retry buffers.
-   *
-   * <p>This metric indicates overall backpressure in the system. A consistently high value suggests
-   * thread pools are undersized or job execution is too slow.
-   *
-   * @return total count of buffered jobs across all job types
-   */
   public int totalSize() {
     int total = 0;
     for (Map.Entry<JobExecutionType, Queue<BufferedJob>> entry : retryBuffers.entrySet()) {
@@ -250,13 +197,7 @@ public class RetryBufferManager {
     return total;
   }
 
-  /**
-   * Flushes all buffered jobs back to PENDING status in the database on shutdown.
-   *
-   * <p>This prevents job loss when the application shuts down while jobs are waiting in the retry
-   * buffer. Each buffered job is reset to PENDING so it can be picked up by another node or on
-   * restart.
-   */
+  /** Resets all buffered RUNNING jobs to PENDING on shutdown to prevent job loss. */
   public void flushOnShutdown() {
     int flushed = 0;
     String nodeId = nodeIdentityProvider.getNodeId();

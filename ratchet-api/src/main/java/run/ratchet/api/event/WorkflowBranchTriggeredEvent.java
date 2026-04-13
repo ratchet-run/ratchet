@@ -10,10 +10,7 @@ public class WorkflowBranchTriggeredEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = 1721949020293115008L;
 
-  /** The condition expression that triggered the branch. */
   private final String branchCondition;
-
-  /** The ID of the next job to execute in the workflow branch. */
   private final String nextJobId;
 
   public WorkflowBranchTriggeredEvent(

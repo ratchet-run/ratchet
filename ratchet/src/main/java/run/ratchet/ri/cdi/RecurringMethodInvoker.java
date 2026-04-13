@@ -48,11 +48,6 @@ public class RecurringMethodInvoker {
   }
 
   /**
-   * Invokes a recurring job method by class and method name.
-   *
-   * @param beanClassName the fully-qualified class name containing the method
-   * @param methodName the name of the method to invoke
-   * @param hasJobContextParam true if the method accepts a JobContext parameter
    * @throws Exception if the bean/method cannot be found or invocation fails
    */
   @SuppressWarnings("java:S112")
@@ -79,9 +74,6 @@ public class RecurringMethodInvoker {
   }
 
   /**
-   * Validates that a bean class is resolvable via CDI at registration time.
-   *
-   * @param beanClass the bean class to validate
    * @throws IllegalStateException if the bean cannot be resolved from CDI
    */
   public void validateBeanResolvable(Class<?> beanClass) {

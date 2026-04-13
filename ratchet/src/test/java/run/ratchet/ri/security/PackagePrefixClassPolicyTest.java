@@ -60,8 +60,6 @@ class PackagePrefixClassPolicyTest {
     assertEquals(Set.of("com.example."), policy.getAllowedPackages());
   }
 
-  // ── Denylist: exact-match RCE gadgets ─────────────────────────────────
-
   @Test
   void denylist_rejectsRuntimeEvenWithBroadJavaAllowlist() {
     // Regression for the "Set.of('java')" misconfiguration attack scenario.
@@ -82,8 +80,6 @@ class PackagePrefixClassPolicyTest {
     PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy(Set.of("java."));
     assertFalse(policy.isAllowed("java.io.ObjectInputStream"));
   }
-
-  // ── Denylist: prefix-match gadget chains ──────────────────────────────
 
   @Test
   void denylist_rejectsReflectionEntries() {
@@ -113,8 +109,6 @@ class PackagePrefixClassPolicyTest {
     assertFalse(
         policy.isAllowed("org.springframework.context.support.FileSystemXmlApplicationContext"));
   }
-
-  // ── Prefix validation ─────────────────────────────────────────────────
 
   @Test
   void constructor_rejectsEmptyStringPrefix() {

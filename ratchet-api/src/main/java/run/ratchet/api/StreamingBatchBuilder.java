@@ -11,40 +11,13 @@ import java.util.stream.Stream;
  */
 public interface StreamingBatchBuilder<T extends Serializable> {
 
-  /**
-   * Initializes the {@link StreamingBatchBuilder} with a given stream of items to process. This
-   * method sets the input data source for the batching operation, allowing further configuration of
-   * processing logic, chunk size, and progress tracking.
-   *
-   * @param <U> the type of items to be processed in the streaming batch, which must be {@link
-   *     Serializable}
-   * @param stream the stream of items to be used as input for the batching operation
-   * @return this builder
-   */
+  /** Sets the input stream of items to process. */
   <U extends Serializable> StreamingBatchBuilder<U> fromStream(Stream<U> stream);
 
-  /**
-   * Configures the processing logic for each item in the batch. The specified action will be
-   * applied to every individual item in the stream during batch processing. The action can throw
-   * checked exceptions, which will be handled by the streaming batch framework based on the
-   * configured error-handling behaviors.
-   *
-   * @param action the {@link SerializableCheckedConsumer} that defines the processing logic for
-   *     each item in the batch. This action can throw checked exceptions.
-   * @return this builder
-   */
+  /** Sets the processing action applied to each item; may throw checked exceptions. */
   StreamingBatchBuilder<T> process(SerializableCheckedConsumer<T> action);
 
-  /**
-   * Specifies the size of chunks in which the streaming batch will process data. Each chunk
-   * represents the number of items grouped together for a single batch operation. A proper chunk
-   * size can optimize performance based on the size of the dataset and the processing constraints.
-   *
-   * @param size the number of items to include in each chunk for batch processing. Must be a
-   *     positive integer; otherwise, the configuration may result in an error or undefined
-   *     behavior.
-   * @return this builder
-   */
+  /** Sets the number of items per chunk (must be positive). */
   StreamingBatchBuilder<T> withChunkSize(int size);
 
   /**

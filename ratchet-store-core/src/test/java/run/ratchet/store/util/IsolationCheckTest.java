@@ -38,8 +38,6 @@ class IsolationCheckTest {
     System.clearProperty(IsolationCheck.SYSTEM_PROPERTY);
   }
 
-  // ── currentMode() ───────────────────────────────────────────────
-
   @Test
   void currentModeDefaultsToWarn() {
     assertEquals(IsolationCheck.Mode.WARN, IsolationCheck.currentMode());
@@ -65,8 +63,6 @@ class IsolationCheckTest {
     assertEquals(IsolationCheck.Mode.WARN, IsolationCheck.currentMode());
   }
 
-  // ── verifyReadCommitted() — happy path ──────────────────────────
-
   @Test
   void verifyPassesOnExactMatch() {
     when(query8.getSingleResult()).thenReturn("READ-COMMITTED");
@@ -83,8 +79,6 @@ class IsolationCheckTest {
     IsolationCheck.verifyReadCommitted(
         em, "PostgreSQL", List.of("SHOW transaction_isolation"), "READ-COMMITTED", "fix");
   }
-
-  // ── Query fall-through ──────────────────────────────────────────
 
   @Test
   void verifyFallsBackToSecondQueryWhenFirstThrows() {
@@ -117,8 +111,6 @@ class IsolationCheckTest {
         "fix");
   }
 
-  // ── Mismatch handling ───────────────────────────────────────────
-
   @Test
   void verifyWarnsOnMismatchInWarnMode() {
     when(query8.getSingleResult()).thenReturn("REPEATABLE-READ");
@@ -149,8 +141,6 @@ class IsolationCheckTest {
     org.junit.jupiter.api.Assertions.assertTrue(msg.contains("use read committed"));
   }
 
-  // ── Disable mode ────────────────────────────────────────────────
-
   @Test
   void verifySkipsCompletelyWhenDisabled() {
     System.setProperty(IsolationCheck.SYSTEM_PROPERTY, "disable");
@@ -170,8 +160,6 @@ class IsolationCheckTest {
     IsolationCheck.verifyReadCommitted(
         em, "MySQL", List.of("SELECT @@SESSION.transaction_isolation"), "READ-COMMITTED", "fix");
   }
-
-  // ── Defensive paths ─────────────────────────────────────────────
 
   @Test
   void verifySkipsWhenQueryReturnsNull() {

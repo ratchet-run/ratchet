@@ -58,14 +58,7 @@ public class JobExecutionEntity implements TsidEntityListener.TsidAssignable {
   @Column(name = "duration_ms")
   private Long durationMs;
 
-  /**
-   * Creates a new execution entry for tracking a job attempt.
-   *
-   * @param jobId the job being executed
-   * @param attempt the attempt number (1-based)
-   * @param nodeId the node executing the job
-   * @return a new entity ready to be persisted
-   */
+  /** Creates a new execution entry for the given attempt. */
   public static JobExecutionEntity start(Long jobId, int attempt, String nodeId) {
     JobExecutionEntity entity = new JobExecutionEntity();
     entity.setJobId(jobId);
@@ -163,11 +156,7 @@ public class JobExecutionEntity implements TsidEntityListener.TsidAssignable {
     this.durationMs = endedAt.toEpochMilli() - startedAt.toEpochMilli();
   }
 
-  /**
-   * Marks this execution as failed with error details.
-   *
-   * @param exception the exception that caused the failure
-   */
+  /** Marks this execution as failed, recording error class and message from the exception. */
   public void markFailed(Throwable exception) {
     this.endedAt = Instant.now();
     this.status = ExecutionStatus.FAILED;

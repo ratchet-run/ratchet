@@ -128,8 +128,6 @@ public final class JobPayloadFactory {
         step.arguments());
   }
 
-  /* ─────────────────────────── helper methods ─────────────────────────── */
-
   /**
    * Returns a no-operation job payload.
    *

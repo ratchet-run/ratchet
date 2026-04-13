@@ -6,24 +6,11 @@ import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
 
 /**
- * Bridge that registers with the {@link ClusterCoordinator} to receive wakeup notifications and
- * forwards them to the {@link PollerScheduler} for immediate polling.
- *
- * <p>How It Works:
- *
- * <ol>
- *   <li>Job is created that needs immediate processing
- *   <li>{@link JobWakeupService} publishes notification via ClusterCoordinator
- *   <li>ClusterCoordinator invokes the registered wakeup listener on all cluster nodes
- *   <li>This listener calls {@link PollerScheduler#wakeup()} to trigger immediate polling
- *   <li>Poller claims and executes the job
- * </ol>
- *
- * <p>Fault Tolerance: If the notification system fails, the Poller continues with its normal
- * adaptive polling behavior. Notifications are an optimization, not a requirement.
+ * Registers with {@link ClusterCoordinator} to receive wakeup notifications and forwards them to
+ * {@link PollerScheduler#wakeup()} for immediate polling. Notifications are an optimization; the
+ * poller continues with adaptive polling if registration or delivery fails.
  *
  * @see JobWakeupService
- * @see Poller
  */
 @ApplicationScoped
 public class PollerWakeupListener {

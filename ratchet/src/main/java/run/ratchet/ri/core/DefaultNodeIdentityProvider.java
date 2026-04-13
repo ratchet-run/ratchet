@@ -19,22 +19,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.jboss.logging.Logger;
 
 /**
- * Default implementation of {@link NodeIdentityProvider} that manages node identity and health
- * monitoring for the distributed job scheduler cluster.
- *
- * <p>This service provides a unique identifier for each scheduler instance and maintains its
- * liveness through periodic heartbeat updates.
- *
- * <p>Node ID generation hierarchy:
- *
- * <ol>
- *   <li>JBoss node name system property (if available)
- *   <li>Hostname + Process ID + Random suffix (standard)
- *   <li>Random UUID (fallback for containerized environments)
- * </ol>
+ * Generates a stable node ID (JBoss node name → hostname+pid+suffix → random UUID) and maintains
+ * liveness via periodic heartbeats.
  *
  * @see NodeIdentityProvider
- * @see DynamicHeartbeatCalculator for adaptive interval calculation
  */
 public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
 

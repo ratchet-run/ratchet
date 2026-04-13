@@ -24,7 +24,6 @@ public record JobPayload(
   /**
    * Extracts the parameter types from the method descriptor.
    *
-   * @return an array of Class objects representing the parameter types
    * @throws IllegalStateException if parameter types cannot be resolved
    */
   public Class<?>[] parameterTypes() {
@@ -40,13 +39,6 @@ public record JobPayload(
     return clz;
   }
 
-  /**
-   * Resolves an ASM {@link Type} to its corresponding Java {@link Class} object.
-   *
-   * @param type the ASM Type to resolve
-   * @return the corresponding Java Class
-   * @throws ClassNotFoundException if the class cannot be found
-   */
   private static Class<?> resolveType(Type type) throws ClassNotFoundException {
     return switch (type.getSort()) {
       case Type.VOID -> void.class;

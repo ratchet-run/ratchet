@@ -1,13 +1,8 @@
 package run.ratchet.api;
 
 /**
- * Pre-configured circuit breaker profiles for common use cases.
- *
- * <p>Each profile provides default values for failure rate threshold, sliding window size, wait
- * duration, and other circuit breaker parameters. Profiles can be referenced from {@link
+ * Pre-configured circuit breaker profiles for common use cases, referenced from {@link
  * CircuitBreakerProtected} annotations.
- *
- * <h3>Profile Selection Guidelines</h3>
  *
  * <ul>
  *   <li><b>DEFAULT</b> — General internal services (50% failure threshold, 100-call window)

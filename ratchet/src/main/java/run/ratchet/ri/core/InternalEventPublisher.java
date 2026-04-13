@@ -44,15 +44,7 @@ public class InternalEventPublisher {
     listeners.remove(listener);
   }
 
-  /**
-   * Publishes an event synchronously to all registered listeners and CDI observers.
-   *
-   * <p><b>Synchronous:</b> this method runs all listeners and observers on the caller's thread
-   * before returning. A slow listener will delay the caller — typically a job worker thread.
-   * Listeners that do non-trivial work must dispatch asynchronously internally. See the class
-   * Javadoc for the rationale (transactional consistency) and the recommended
-   * {@code @ObservesAsync} pattern for heavyweight CDI observers.
-   */
+  /** Publishes an event synchronously. See class Javadoc for latency implications. */
   public void publish(Object event) {
     // Fire to programmatic listeners
     for (Consumer<Object> listener : listeners) {

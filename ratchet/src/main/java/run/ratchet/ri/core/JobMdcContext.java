@@ -34,24 +34,16 @@ final class JobMdcContext {
   }
 
   /**
-   * Binds the thread-local JobContext for the current execution using a no-op logger and no MDC
-   * extras. Useful for early-load failure paths where node/creator metadata is not yet available.
-   *
-   * @param jobId the job identifier
-   * @param params the job parameters map
+   * Binds the thread-local JobContext with a no-op logger and no MDC extras. Useful for early-load
+   * failure paths where node/creator metadata is not yet available.
    */
   static void bindJobContext(Long jobId, Map<String, String> params) {
     bindJobContext(jobId, NoOpJobLogger.INSTANCE, params, null, null);
   }
 
   /**
-   * Binds the thread-local JobContext using the no-op logger and populates the MDC with the given
-   * node and creator identifiers. The most common entry point from {@code JobTask}.
-   *
-   * @param jobId the job identifier
-   * @param params the job parameters map
-   * @param nodeId optional node identifier
-   * @param jobCreator optional creator identifier
+   * Binds the thread-local JobContext with the no-op logger. The most common entry point from
+   * {@code JobTask}.
    */
   static void bindJobContext(
       Long jobId, Map<String, String> params, String nodeId, String jobCreator) {
@@ -59,14 +51,8 @@ final class JobMdcContext {
   }
 
   /**
-   * Binds the thread-local JobContext and populates the JBoss Logging MDC for log correlation.
-   *
-   * @param jobId the job identifier (also written to MDC under {@link #MDC_JOB_ID})
-   * @param logger the job logger instance
-   * @param params the job parameters map
-   * @param nodeId optional node identifier (written to MDC under {@link #MDC_NODE} when non-null)
-   * @param jobCreator optional creator identifier (written to MDC under {@link #MDC_JOB_CREATOR}
-   *     when non-null)
+   * Binds the thread-local JobContext and populates MDC keys {@link #MDC_JOB_ID}, {@link
+   * #MDC_NODE}, and {@link #MDC_JOB_CREATOR}.
    */
   static void bindJobContext(
       Long jobId, JobLogger logger, Map<String, String> params, String nodeId, String jobCreator) {

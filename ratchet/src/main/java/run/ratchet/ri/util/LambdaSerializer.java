@@ -17,22 +17,11 @@ import java.util.Set;
 import org.jboss.logging.Logger;
 
 /**
- * Service for serializing and deserializing lambda expressions used in workflow conditions.
- *
- * <p>This class provides safe serialization and deserialization of {@link SerializablePredicate}
- * instances for persistence in the database. It handles both simple method references and complex
- * lambda expressions with captured variables.
- *
- * <p><strong>Security Considerations:</strong>
- *
- * <p>This class implements a strict allowlist-based deserialization filter to prevent
- * deserialization attacks. Only classes matching {@link #ALLOWED_CLASS_PREFIXES} or {@link
- * #ALLOWED_CLASSES} can be deserialized. All other classes are blocked and logged as security
- * failures.
+ * Serializes and deserializes {@link SerializablePredicate} and {@link SerializableFunction}
+ * instances to/from Base64. Uses an allowlist-based {@link java.io.ObjectInputStream} filter to
+ * block deserialization of unauthorized classes.
  *
  * @see SerializablePredicate
- * @see JobResult
- * @see BatchContext
  */
 @SuppressWarnings({
   "java:S3740",
@@ -105,12 +94,6 @@ public class LambdaSerializer {
           "java.util.EnumMap",
           "java.util.EnumSet");
 
-  /**
-   * Deserializes a BatchContext predicate from a Base64-encoded string.
-   *
-   * @param serialized the Base64-encoded serialized predicate
-   * @return the deserialized predicate, or null if deserialization fails
-   */
   @SuppressWarnings("unchecked")
   public SerializablePredicate<BatchContext> deserializeBatchContextPredicate(String serialized) {
     if (serialized == null || serialized.trim().isEmpty()) {
@@ -142,12 +125,6 @@ public class LambdaSerializer {
     }
   }
 
-  /**
-   * Deserializes a JobResult predicate from a Base64-encoded string.
-   *
-   * @param serialized the Base64-encoded serialized predicate
-   * @return the deserialized predicate, or null if deserialization fails
-   */
   @SuppressWarnings({"unchecked", "java:S1452"})
   // Wildcard in return type is required - JobResult type is unknown at deserialization time
   public SerializablePredicate<JobResult<?>> deserializeJobResultPredicate(String serialized) {
@@ -180,12 +157,6 @@ public class LambdaSerializer {
     }
   }
 
-  /**
-   * Deserializes a result-value function from a Base64-encoded string.
-   *
-   * @param serialized the Base64-encoded serialized function
-   * @return the deserialized function, or null if deserialization fails
-   */
   @SuppressWarnings("unchecked")
   public SerializableFunction<Object, Boolean> deserializeResultFunction(String serialized) {
     if (serialized == null || serialized.trim().isEmpty()) {
@@ -216,12 +187,6 @@ public class LambdaSerializer {
     }
   }
 
-  /**
-   * Validates that a serialized predicate can be successfully deserialized.
-   *
-   * @param serialized the Base64-encoded serialized predicate
-   * @return true if the predicate can be deserialized, false otherwise
-   */
   public boolean isValidSerializedPredicate(String serialized) {
     if (serialized == null || serialized.trim().isEmpty()) {
       return false;
@@ -244,13 +209,6 @@ public class LambdaSerializer {
     }
   }
 
-  /**
-   * Serializes a SerializablePredicate to a Base64-encoded string.
-   *
-   * @param predicate the predicate to serialize
-   * @param <T> the type parameter of the predicate
-   * @return Base64-encoded serialized predicate, or null if serialization fails
-   */
   public <T> String serialize(SerializablePredicate<T> predicate) {
     if (predicate == null) {
       return null;
@@ -270,13 +228,6 @@ public class LambdaSerializer {
     }
   }
 
-  /**
-   * Creates a secure ObjectInputStream with class filtering to prevent deserialization attacks.
-   *
-   * @param bais the byte array input stream to wrap
-   * @return a secure ObjectInputStream with filtering enabled
-   * @throws IOException if stream creation fails
-   */
   private ObjectInputStream createSecureObjectInputStream(ByteArrayInputStream bais)
       throws IOException {
     return new ObjectInputStream(bais) {

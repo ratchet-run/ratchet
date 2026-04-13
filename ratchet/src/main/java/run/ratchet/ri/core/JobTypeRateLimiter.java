@@ -26,12 +26,7 @@ public class JobTypeRateLimiter {
     init();
   }
 
-  /**
-   * Gets the current execution count for a job type in the current window.
-   *
-   * @param jobType the job type
-   * @return current count in the current minute window
-   */
+  /** Returns the current execution count in the current one-minute window. */
   public int getCurrentCount(JobExecutionType jobType) {
     RateWindow window = rateWindows.get(jobType);
     if (window == null) {
@@ -41,32 +36,17 @@ public class JobTypeRateLimiter {
   }
 
   /**
-   * Gets the configured rate limit for a job type.
-   *
-   * @param jobType the job type
-   * @return rate limit (0 = unlimited)
+   * @return configured rate limit (0 = unlimited)
    */
   public int getRateLimit(JobExecutionType jobType) {
     return rateLimits.getOrDefault(jobType, 0);
   }
 
-  /**
-   * Checks if rate limiting is enabled for a job type.
-   *
-   * @param jobType the job type
-   * @return true if rate limiting is configured, false otherwise
-   */
   public boolean isRateLimited(JobExecutionType jobType) {
     Integer limit = rateLimits.get(jobType);
     return limit != null && limit > 0;
   }
 
-  /**
-   * Checks if a job of the given type can be executed within the rate limit.
-   *
-   * @param jobType the job type to check
-   * @return true if within rate limit, false if rate limit exceeded
-   */
   public boolean tryAcquire(JobExecutionType jobType) {
     Integer maxPerMinute = rateLimits.get(jobType);
 

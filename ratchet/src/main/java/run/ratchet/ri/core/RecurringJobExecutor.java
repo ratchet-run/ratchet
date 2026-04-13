@@ -52,26 +52,11 @@ public class RecurringJobExecutor {
     this.registrationState = registrationState;
   }
 
-  /**
-   * Creates and enqueues a child job instance from a recurring master template. The child inherits
-   * all execution properties from the master but is scheduled as a one-time SINGLE job for the
-   * specific fire time.
-   *
-   * @param master the recurring job template containing payload and configuration
-   * @param fireTs the scheduled execution time for this instance
-   */
   void enqueueChild(JobEntity master, Instant fireTs) {
     JobEntity child = createChildFromMaster(master, fireTs);
     jobCrudStore.save(child);
   }
 
-  /**
-   * Core processing logic that claims due recurring jobs and spawns their instances.
-   *
-   * @param batchLimit maximum number of recurring masters to process in this cycle
-   * @param nodeId the node identifier for claiming jobs
-   * @return the number of recurring jobs processed
-   */
   int process(int batchLimit, String nodeId) {
     List<JobEntity> masters = jobClaimStore.claimDueRecurring(batchLimit, nodeId);
     Instant now = Instant.now();
@@ -143,13 +128,6 @@ public class RecurringJobExecutor {
     return firedCount;
   }
 
-  /**
-   * Creates a child job entity from a recurring master template.
-   *
-   * @param master the recurring master job
-   * @param fireTs the scheduled fire time for the child
-   * @return a new child job entity
-   */
   private JobEntity createChildFromMaster(JobEntity master, Instant fireTs) {
     JobEntity child = new JobEntity();
     child.setPayload(master.getPayload());

@@ -109,7 +109,6 @@ public class ThreadPoolManager {
           "getExecutor() should not be called when virtual threads are enabled. "
               + "Create virtual threads directly using Thread.ofVirtual() instead.");
     }
-    log.infof("Providing managed executor for job type: %s", jobType);
     return executorProvider.getJobExecutor();
   }
 
@@ -239,12 +238,10 @@ public class ThreadPoolManager {
    * internal concurrency tracking state to allow garbage collection.
    */
   public void shutdown() {
-    log.info("Shutting down thread pool manager...");
     concurrencyLimits.clear();
     virtualThreadCounts.clear();
     virtualThreadLimits.clear();
     activeCounts.clear();
-    log.info("Thread pool manager shutdown complete");
   }
 
   private void init() {

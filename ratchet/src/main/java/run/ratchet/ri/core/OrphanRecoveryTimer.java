@@ -17,15 +17,10 @@ import org.jboss.logging.Logger;
  * <p>An orphaned job is one stuck in RUNNING status on a node whose heartbeat has gone stale.
  * Without periodic recovery, these jobs would remain stuck until a node restart.
  *
- * <p>Each scan performs three cleanup operations:
+ * <p>Each scan resets orphaned RUNNING jobs to PENDING, releases permits held by dead nodes, and
+ * deletes stale node registrations.
  *
- * <ol>
- *   <li>Resets orphaned RUNNING jobs to PENDING so they can be re-claimed
- *   <li>Releases resource permits held by dead nodes
- *   <li>Deletes stale node registrations
- * </ol>
- *
- * @see BatchRecoveryTimer for the similar pattern used for batch recovery
+ * @see BatchRecoveryTimer
  */
 public class OrphanRecoveryTimer {
 
@@ -51,14 +46,6 @@ public class OrphanRecoveryTimer {
     this(jobBulkStore, nodeStore, resourcePermitService, 60);
   }
 
-  /**
-   * Creates a new OrphanRecoveryTimer with explicit configuration.
-   *
-   * @param jobBulkStore store for bulk job operations
-   * @param nodeStore store for node health operations
-   * @param resourcePermitService service for permit cleanup
-   * @param orphanGraceSeconds grace period before jobs are considered orphaned
-   */
   public OrphanRecoveryTimer(
       JobBulkStore jobBulkStore,
       NodeStore nodeStore,
@@ -70,12 +57,6 @@ public class OrphanRecoveryTimer {
     this.orphanGraceSeconds = orphanGraceSeconds;
   }
 
-  /**
-   * Starts the orphan recovery timer on the provided executor.
-   *
-   * @param executor the scheduled executor to use for periodic execution
-   * @param intervalMinutes how often to scan for orphans, in minutes
-   */
   public void start(ScheduledExecutorService executor, long intervalMinutes) {
     handle =
         executor.scheduleAtFixedRate(
@@ -85,7 +66,6 @@ public class OrphanRecoveryTimer {
         intervalMinutes, orphanGraceSeconds);
   }
 
-  /** Stops the orphan recovery timer. */
   public void stop() {
     if (handle != null) {
       handle.cancel(false);
@@ -93,7 +73,6 @@ public class OrphanRecoveryTimer {
     }
   }
 
-  /** Scans for and recovers orphaned jobs. Called periodically by the scheduled executor. */
   void recoverOrphans() {
     try {
       int resetJobs = jobBulkStore.resetOrphanJobs(Duration.ofSeconds(orphanGraceSeconds));

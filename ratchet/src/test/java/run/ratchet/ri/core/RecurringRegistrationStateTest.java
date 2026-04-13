@@ -26,8 +26,6 @@ class RecurringRegistrationStateTest {
     System.clearProperty(RecurringRegistrationState.STARTUP_GRACE_PROPERTY);
   }
 
-  // ── shouldFire() — pre-registration permissive default ──────────
-
   @Test
   void shouldFireReturnsTrueBeforeRegistrationCompletes() {
     // Programmatic-only deployments may never call markRegistrationComplete. Be permissive.
@@ -39,8 +37,6 @@ class RecurringRegistrationStateTest {
   void inStartupGraceIsFalseBeforeRegistration() {
     assertFalse(state.inStartupGrace());
   }
-
-  // ── shouldFire() — within grace window ──────────────────────────
 
   @Test
   void shouldFireReturnsTrueForKnownKeyDuringGrace() {
@@ -62,8 +58,6 @@ class RecurringRegistrationStateTest {
     state.markRegistrationComplete(Set.of("alpha"));
     assertTrue(state.shouldFire(null));
   }
-
-  // ── shouldFire() — grace expired ────────────────────────────────
 
   @Test
   void shouldFireReturnsTrueAfterGraceExpires() {
@@ -87,8 +81,6 @@ class RecurringRegistrationStateTest {
     assertTrue(state.inStartupGrace());
   }
 
-  // ── markRegistrationComplete() ──────────────────────────────────
-
   @Test
   void markRegistrationCompleteSetsTimestamp() {
     assertNull(state.registrationCompletedAt());
@@ -110,8 +102,6 @@ class RecurringRegistrationStateTest {
     // With an empty known set, no key passes the gate during grace.
     assertFalse(state.shouldFire("anything"));
   }
-
-  // ── startupGraceSeconds() property parsing ──────────────────────
 
   @Test
   void startupGraceSecondsDefaultsTo60() {

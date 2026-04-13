@@ -49,43 +49,19 @@ public class JobSubmissionService {
     this.failureHandler = failureHandler;
   }
 
-  /**
-   * Submits a job for execution.
-   *
-   * @param job the job to submit
-   */
   public void submit(JobEntity job) {
     trySubmit(job, true);
   }
 
-  /**
-   * Submits a job claim for execution.
-   *
-   * <p>This optimized method accepts a lightweight {@link JobClaimDto} instead of the full {@link
-   * JobEntity}. The gate check and executor dispatch use only DTO fields (jobType, id), deferring
-   * full entity loading until actual job execution.
-   *
-   * @param claim the job claim DTO to submit
-   */
+  /** Accepts a lightweight {@link JobClaimDto}; full entity loading is deferred until execution. */
   public void submit(JobClaimDto claim) {
     trySubmit(claim);
   }
 
-  /**
-   * Submits a buffered job for execution (from retry buffer).
-   *
-   * @param job the job to submit
-   */
   void submitBuffered(JobEntity job) {
     trySubmit(job, false);
   }
 
-  /**
-   * Attempts to submit a job for execution.
-   *
-   * @param job the job entity to submit for execution
-   * @param isFirstAttempt true if this is the initial submission attempt
-   */
   private void trySubmit(JobEntity job, boolean isFirstAttempt) {
     JobExecutionType jobType = job.getJobType();
 
@@ -107,11 +83,6 @@ public class JobSubmissionService {
     }
   }
 
-  /**
-   * Attempts to submit a job claim for execution using only DTO data.
-   *
-   * @param claim the job claim DTO to submit
-   */
   private void trySubmit(JobClaimDto claim) {
     JobExecutionType jobType = claim.jobType();
 
