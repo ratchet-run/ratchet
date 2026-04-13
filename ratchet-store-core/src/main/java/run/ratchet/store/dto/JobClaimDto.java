@@ -12,19 +12,6 @@ import java.time.Instant;
  *
  * <p>Contains only the metadata fields needed during the claim phase. Large fields (payload,
  * params, jobResult, lastError) are NOT included to reduce data transfer during polling.
- *
- * @param id the unique job identifier
- * @param status the current job status (will be RUNNING after claiming)
- * @param jobType the internal execution type for executor routing
- * @param priority the job priority for ordering
- * @param scheduledTime when the job was scheduled to run
- * @param version the optimistic locking version
- * @param timeoutSec the timeout in seconds for watchdog monitoring
- * @param pickedBy the node ID that claimed this job
- * @param pickedAt when the job was claimed
- * @param businessKey optional business key for idempotency
- * @param attempts the number of execution attempts so far
- * @param maxRetries the maximum number of retry attempts allowed
  */
 public record JobClaimDto(
     Long id,

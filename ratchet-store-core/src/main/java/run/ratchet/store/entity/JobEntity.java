@@ -197,8 +197,6 @@ public class JobEntity implements TsidEntityListener.TsidAssignable {
   @Column(name = "version")
   private Integer version;
 
-  // ── Getters ──────────────────────────────────────────────────────────────
-
   public Long getId() {
     return id;
   }
@@ -350,8 +348,6 @@ public class JobEntity implements TsidEntityListener.TsidAssignable {
   public String getIdempotencyKey() {
     return idempotencyKey;
   }
-
-  // ── Setters ──────────────────────────────────────────────────────────────
 
   public void setIdempotencyKey(String idempotencyKey) {
     this.idempotencyKey = idempotencyKey;
@@ -516,8 +512,6 @@ public class JobEntity implements TsidEntityListener.TsidAssignable {
   public void setVersion(Integer version) {
     this.version = version;
   }
-
-  // ── Object overrides & lifecycle ─────────────────────────────────────────
 
   @Override
   public int hashCode() {

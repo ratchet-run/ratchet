@@ -4,30 +4,8 @@ import run.ratchet.store.spi.JobCrudStore;
 import org.jboss.logging.Logger;
 
 /**
- * Provides adaptive heartbeat and polling interval calculations for the job scheduler cluster. This
- * component dynamically adjusts timing parameters based on real-time cluster conditions to optimize
- * performance, responsiveness, and resource utilization.
- *
- * <p>The calculator implements two key algorithms:
- *
- * <p><b>1. Heartbeat Interval Calculation:</b>
- *
- * <ul>
- *   <li>Monitors cluster size to adjust coordination frequency
- *   <li>Responds to job queue depth for load-based optimization
- *   <li>Ensures bounded intervals within configured min/max thresholds
- *   <li>Formula: Base Interval x Node Factor x Load Factor
- * </ul>
- *
- * <p><b>2. Polling Delay Calculation:</b>
- *
- * <ul>
- *   <li>Adjusts how frequently workers check for new jobs
- *   <li>Minimizes delay under high load for responsiveness
- *   <li>Maximizes delay when idle to reduce database load
- * </ul>
- *
- * @see Poller for polling delay usage
+ * Adaptive heartbeat and polling interval calculator. Heartbeat interval = Base x Node-Factor x
+ * Load-Factor, clamped to [base/4, base*2]. Polling delay scales inversely with queue depth.
  */
 public class DynamicHeartbeatCalculator {
 

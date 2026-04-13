@@ -17,9 +17,6 @@ public final class DataSourceStrategyFactory {
    */
   public static DataSourceStrategy create() {
     String launch = System.getProperty("arquillian.launch", "wildfly-managed");
-    if (launch == null || launch.isBlank()) {
-      launch = "wildfly-managed";
-    }
     return switch (launch) {
       case "wildfly-managed" -> new WildflyDataSourceStrategy();
       default -> throw new IllegalArgumentException("No DataSourceStrategy for server: " + launch);

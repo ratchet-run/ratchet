@@ -26,10 +26,7 @@ import java.util.Base64;
 import java.util.Objects;
 
 /**
- * Entity representing conditional dependencies between jobs in complex workflows.
- *
- * <p>This entity enables sophisticated workflow patterns by defining conditions that control when
- * child jobs execute based on parent job results.
+ * Conditional dependency between jobs in a workflow.
  *
  * @see WorkflowCondition
  */
@@ -75,11 +72,7 @@ public class WorkflowConditionEntity implements Serializable, TsidEntityListener
   @JoinColumn(name = "child_job_id", insertable = false, updatable = false)
   private transient JobEntity childJob;
 
-  // ── Constructors ─────────────────────────────────────────────────────────
-
   public WorkflowConditionEntity() {}
-
-  // ── Getters ──────────────────────────────────────────────────────────────
 
   public Long getId() {
     return id;
@@ -117,8 +110,6 @@ public class WorkflowConditionEntity implements Serializable, TsidEntityListener
     return conditionExpression;
   }
 
-  // ── Setters ──────────────────────────────────────────────────────────────
-
   public void setConditionExpression(String conditionExpression) {
     this.conditionExpression = conditionExpression;
   }
@@ -154,8 +145,6 @@ public class WorkflowConditionEntity implements Serializable, TsidEntityListener
   public void setChildJob(JobEntity childJob) {
     this.childJob = childJob;
   }
-
-  // ── Custom methods ──────────────────────────────────────────────────────
 
   /**
    * Retrieves the condition expression as a deserialized object.
@@ -216,8 +205,6 @@ public class WorkflowConditionEntity implements Serializable, TsidEntityListener
         && Objects.equals(conditionPriority, that.conditionPriority)
         && Objects.equals(createdAt, that.createdAt);
   }
-
-  // ── Object overrides ────────────────────────────────────────────────────
 
   @Override
   public int hashCode() {

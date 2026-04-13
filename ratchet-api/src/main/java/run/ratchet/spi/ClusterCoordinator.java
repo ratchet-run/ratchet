@@ -12,14 +12,7 @@ import run.ratchet.api.JobPriority;
 @Incubating
 public interface ClusterCoordinator {
 
-  /**
-   * Notifies the cluster coordinator of the availability of new work with the specified priority
-   * level. This method can be used to trigger scheduling or wakeup mechanisms based on the new
-   * job's priority.
-   *
-   * @param priority the priority level of the new work; higher ordinal values represent higher
-   *     priority levels
-   */
+  /** Signals that new work at the given priority is available. */
   void notifyNewWork(JobPriority priority);
 
   /**

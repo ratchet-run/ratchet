@@ -3,62 +3,8 @@ package run.ratchet.api;
 import java.time.Duration;
 
 /**
- * Immutable configuration record for job execution behavior and policies.
- *
- * <p>JobOptions encapsulates all configurable aspects of job execution, including scheduling
- * priority, retry behavior, timeout settings, and backoff strategies. The record design ensures
- * immutability and thread-safety while providing a fluent API for creating customized
- * configurations.
- *
- * <h2>Configuration Properties:</h2>
- *
- * <dl>
- *   <dt><b>priority</b>
- *   <dd>Determines execution order when multiple jobs are queued. Higher priority jobs execute
- *       before lower priority ones.
- *   <dt><b>maxRetries</b>
- *   <dd>Maximum number of retry attempts after failure. Set to 0 for no retries.
- *   <dt><b>backoffPolicy</b>
- *   <dd>Strategy for calculating delay between retry attempts:
- *       <ul>
- *         <li>NONE - No delay between retries
- *         <li>FIXED - Constant delay specified by backoffParam
- *         <li>EXPONENTIAL - Exponentially increasing delay
- *       </ul>
- *   <dt><b>backoffParam</b>
- *   <dd>Base duration for backoff calculations. For FIXED policy, this is the constant delay. For
- *       EXPONENTIAL, this is the initial delay.
- *   <dt><b>timeoutSec</b>
- *   <dd>Maximum execution time in seconds. Jobs exceeding this limit are forcibly terminated. Set
- *       to 0 for no timeout.
- * </dl>
- *
- * <h2>Usage Example:</h2>
- *
- * <pre>{@code
- * // Create custom job options
- * JobOptions options = JobOptions.defaults()
- *     .withPriority(JobPriority.HIGH)
- *     .withMaxRetries(3)
- *     .withBackoff(BackoffPolicy.EXPONENTIAL, Duration.ofSeconds(5))
- *     .withTimeout(Duration.ofMinutes(10));
- *
- * // Use in job builder
- * schedulerService.enqueue(() -> processData())
- *     .withPriority(JobPriority.HIGH)
- *     .withMaxRetries(3)
- *     .submit();
- * }</pre>
- *
- * <h2>Default Configuration:</h2>
- *
- * <ul>
- *   <li>Priority: NORMAL
- *   <li>Max Retries: 0 (no retries)
- *   <li>Backoff Policy: NONE
- *   <li>Backoff Parameter: 0 seconds
- *   <li>Timeout: 0 (no timeout)
- * </ul>
+ * Immutable configuration for job execution: priority, retry behavior, backoff strategy, and
+ * timeout. Use {@link #defaults()} and the {@code with*} methods to build custom configurations.
  *
  * @param priority the job execution priority
  * @param maxRetries maximum number of retry attempts (0 = no retries)
@@ -67,7 +13,6 @@ import java.time.Duration;
  * @param timeoutSec maximum execution time in seconds (0 = no timeout)
  * @see JobBuilder
  * @see BackoffPolicy
- * @see JobPriority
  */
 public record JobOptions(
     JobPriority priority,

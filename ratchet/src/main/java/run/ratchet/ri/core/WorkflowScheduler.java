@@ -15,27 +15,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.jboss.logging.Logger;
 
 /**
- * Orchestrates complex workflow execution by evaluating conditions and scheduling dependent jobs
- * based on parent job results. This service extends the linear chaining capabilities with
- * sophisticated conditional branching, enabling if-then-else patterns and multi-path workflows.
- *
- * <p>The WorkflowScheduler supports advanced execution patterns:
- *
- * <ul>
- *   <li><b>Conditional Branching:</b> Jobs execute only when specific conditions are met based on
- *       parent job results, status, or custom predicates
- *   <li><b>Multi-Path Execution:</b> Multiple child jobs can be scheduled from a single parent,
- *       each with different conditions
- *   <li><b>Fallback Chains:</b> If no workflow conditions match, falls back to linear chain
- *       execution for backward compatibility
- *   <li><b>Priority-Based Ordering:</b> Conditions are evaluated in priority order, allowing
- *       control over branch execution precedence
- * </ul>
- *
- * @see WorkflowConditionEntity for condition storage
- * @see WorkflowConditionEvaluator for condition logic
- * @see ChainScheduler for linear chaining support
- * @see JobExecutionType#WORKFLOW_BRANCH for branch job identification
+ * Extends {@link ChainScheduler} with conditional branching. Falls back to linear chaining when no
+ * workflow conditions are defined.
  */
 @ApplicationScoped
 @Transactional
@@ -43,13 +24,8 @@ public class WorkflowScheduler extends ChainScheduler {
 
   private static final Logger log = Logger.getLogger(WorkflowScheduler.class);
 
-  /** Store for accessing workflow condition entities. */
   private final WorkflowConditionStore conditionStore;
-
-  /** Evaluator service for workflow condition logic. */
   private final WorkflowConditionEvaluator conditionEvaluator;
-
-  /** Store for job entity persistence operations. */
   private final JobCrudStore jobCrudStore;
 
   // Required by CDI proxy

@@ -24,28 +24,8 @@ import jakarta.inject.Inject;
 @ApplicationScoped
 public class SubmissionGateChecker {
 
-  /**
-   * Controller for managing node drain state during graceful shutdown.
-   *
-   * <p>This dependency is checked first during gate validation to prevent new jobs from starting
-   * execution when the node is preparing to shut down.
-   */
   private final DrainController drainController;
-
-  /**
-   * Rate limiter for controlling job submission frequency per job type.
-   *
-   * <p>This limits how many jobs of a particular type can be submitted within a time window,
-   * preventing burst overload of the executor pools.
-   */
   private final JobTypeRateLimiter rateLimiter;
-
-  /**
-   * Thread pool manager for acquiring execution permits.
-   *
-   * <p>When the gate check passes, a permit is acquired from this manager. The caller must ensure
-   * the permit is released on completion or failure.
-   */
   private final ThreadPoolManager threadPoolManager;
 
   // Required by CDI proxy
@@ -66,39 +46,14 @@ public class SubmissionGateChecker {
   }
 
   /**
-   * Checks all gates for the given job.
-   *
-   * <p>Gate checks are performed in order of resource scarcity:
-   *
-   * <ol>
-   *   <li>Node draining status (first attempts only) - instant check
-   *   <li>Executor permit availability - scarce, bounded resource
-   *   <li>Rate limit for job type - resets every 60 seconds
-   * </ol>
-   *
-   * <p>The permit is acquired BEFORE checking rate limits to prevent counter drift: if rate
-   * limiting fails after permit acquisition, the permit is released immediately. This ensures the
-   * rate limiter only counts jobs that actually proceed to execution.
-   *
-   * @param job the job to check
-   * @param isFirstAttempt true if this is the initial submission, false if from retry buffer
-   * @return the gate check result indicating whether submission can proceed
+   * Checks all gates for the given job. On success a permit has been acquired and the caller must
+   * release it.
    */
   public GateCheckResult check(JobEntity job, boolean isFirstAttempt) {
     return checkInternal(job.getJobType(), job.getId(), isFirstAttempt);
   }
 
-  /**
-   * Checks all gates for the given job claim DTO.
-   *
-   * <p>This optimized method accepts a lightweight {@link JobClaimDto} instead of the full {@link
-   * JobEntity}. Since gate checking only requires jobType and jobId, this avoids the need to load
-   * the full entity until execution time.
-   *
-   * @param claim the job claim DTO to check
-   * @param isFirstAttempt true if this is the initial submission, false if from retry buffer
-   * @return the gate check result indicating whether submission can proceed
-   */
+  /** DTO overload of {@link #check(JobEntity, boolean)}. */
   public GateCheckResult check(JobClaimDto claim, boolean isFirstAttempt) {
     return checkInternal(claim.jobType(), claim.id(), isFirstAttempt);
   }

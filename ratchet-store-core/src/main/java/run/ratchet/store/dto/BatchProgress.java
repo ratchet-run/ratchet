@@ -8,12 +8,6 @@ import run.ratchet.store.entity.JobPayload;
  * <p>Captures the exact state of a batch at the moment of an atomic increment, enabling progress
  * hooks to be called with accurate, non-duplicated progress values even when multiple child jobs
  * complete simultaneously.
- *
- * @param batchId the unique identifier of the batch
- * @param totalItems the total number of items in the batch
- * @param completedItems the number of successfully completed items (as of this increment)
- * @param failedItems the number of failed items (as of this increment)
- * @param progressHook the progress hook payload, or null if no hook configured
  */
 public record BatchProgress(
     Long batchId, int totalItems, int completedItems, int failedItems, JobPayload progressHook) {

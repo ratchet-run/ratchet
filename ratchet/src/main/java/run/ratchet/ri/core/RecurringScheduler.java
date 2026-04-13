@@ -20,82 +20,34 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.jboss.logging.Logger;
 
 /**
- * Manages the lifecycle of recurring jobs by monitoring cron-based schedules and spawning
- * individual job instances at appropriate times. This service ensures recurring jobs execute
- * according to their schedules even across system restarts and node failures.
- *
- * <p>The RecurringScheduler implements a master-child pattern where:
- *
- * <ul>
- *   <li><b>Master Jobs:</b> RECURRING type jobs that define the schedule and template
- *   <li><b>Child Jobs:</b> SINGLE type jobs spawned for each scheduled execution
- *   <li><b>Catch-up Mode:</b> Enqueues missed executions if the system was down
- *   <li><b>Next Fire Calculation:</b> Updates master with next execution time
- * </ul>
- *
- * <p>Key features:
- *
- * <ul>
- *   <li><b>Cron Expression Support:</b> Uses Quartz-compatible cron syntax
- *   <li><b>Timezone Awareness:</b> Each job can have its own timezone
- *   <li><b>Leader Election:</b> Uses distributed locking to ensure only one node processes
- *       recurring jobs
- *   <li><b>Graceful Termination:</b> Jobs without valid future executions are automatically
- *       canceled
- * </ul>
- *
- * @see RecurringJobExecutor for transactional job processing
- * @see LockStore for distributed coordination
+ * Polls for due recurring masters and delegates to {@link RecurringJobExecutor} to spawn children.
+ * Uses distributed locking for leader election so only one node processes recurring jobs.
  */
 @ApplicationScoped
 public class RecurringScheduler {
 
-  /** Shared cron expression parser configured for Quartz-compatible syntax. */
   public static final CronParser PARSER =
       new CronParser(CronDefinitionBuilder.instanceDefinitionFor(CronType.QUARTZ));
 
   private static final Logger log = Logger.getLogger(RecurringScheduler.class);
-
-  /** Distributed lock name used for leader election. */
   private static final String LOCK_NAME = "recurringScheduler";
 
   private final AtomicBoolean started = new AtomicBoolean();
-
-  /** Provider for executor services. */
   private final ExecutorProvider executorProvider;
-
-  /** Store for querying and updating job entities. */
   private final JobCrudStore jobCrudStore;
-
-  /** Store for distributed lock acquisition and renewal. */
   private final LockStore lockStore;
-
-  /** Provides the unique node identifier for lock ownership attribution. */
   private final NodeIdentityProvider nodeIdentityProvider;
-
-  /** Handles the transactional processing of recurring jobs. */
   private final RecurringJobExecutor recurringJobExecutor;
-
-  /** The poller scheduler to wake when children are spawned. */
   private final PollerScheduler pollerScheduler;
 
-  /** Maximum number of recurring jobs to process per scan cycle. */
   private volatile int batchLimit = 20;
-
-  /** Minimum delay between recurring job scans in milliseconds. */
   private volatile long minPollMs = 1000;
-
-  /** Maximum delay between recurring job scans in milliseconds. */
   private volatile long maxPollMs = 60000;
-
-  /** Current delay between scans, adjusted dynamically based on next-fire times. */
   private volatile long currentDelayMs;
 
-  /** Handle to the currently scheduled scan task for cancellation during shutdown. */
   @SuppressWarnings("java:S3077")
   private volatile Future<?> handle;
 
-  /** Cached executor reference resolved once during {@link #init()}, avoiding CDI proxy lookups. */
   @SuppressWarnings("java:S3077")
   private volatile ScheduledExecutorService executor;
 

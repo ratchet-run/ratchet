@@ -27,35 +27,8 @@ import org.jboss.logging.Logger;
 import org.objectweb.asm.Type;
 
 /**
- * Service responsible for batch job management and processing within the job scheduler framework.
- * This class orchestrates the execution of batch operations, which consist of a parent job that
- * manages multiple child jobs executed in parallel or sequentially.
- *
- * <p>Key responsibilities include:
- *
- * <ul>
- *   <li>Creating and managing batch parent jobs that coordinate child job execution
- *   <li>Tracking batch progress through atomic counters for completed and failed items
- *   <li>Executing progress hooks stored in the database for real-time batch monitoring
- *   <li>Handling batch completion logic with proper transaction boundaries
- *   <li>Recovering stuck batches due to node failures or crashes
- *   <li>Publishing batch events and collecting metrics for monitoring
- * </ul>
- *
- * <p>Progress hooks are stored as {@link JobPayload} in the database, allowing any cluster node to
- * execute callbacks when processing child jobs. This ensures hooks survive node crashes and work
- * correctly in distributed environments.
- *
- * <p>The service uses optimistic locking and atomic operations to handle concurrent updates from
- * multiple child jobs completing simultaneously. It ensures exactly-once batch completion
- * processing through database-level constraints.
- *
- * <p>Thread Safety: This service is thread-safe and designed for concurrent access from multiple
- * worker threads processing child jobs.
- *
- * @see BatchStore for batch persistence operations
- * @see JobCrudStore for job entity management
- * @see BatchContext for batch progress information
+ * Tracks batch progress, executes progress hooks, and handles batch completion. Uses atomic
+ * operations for concurrent child-job updates and ensures exactly-once completion processing.
  */
 @ApplicationScoped
 @Transactional
@@ -63,45 +36,22 @@ public class BatchService {
 
   private static final Logger log = Logger.getLogger(BatchService.class);
 
-  /**
-   * Cache of resolved hook methods keyed by "className#methodName:descriptor" to avoid repeated
-   * {@link Class#forName(String)} and {@link Class#getMethods()} calls on every child completion.
-   */
   private static final ConcurrentHashMap<String, Method> HOOK_METHOD_CACHE =
       new ConcurrentHashMap<>();
-
-  /**
-   * Cache of resolved classes keyed by fully-qualified class name to avoid repeated {@link
-   * Class#forName(String)} calls on every progress hook execution.
-   */
   private static final ConcurrentHashMap<String, Class<?>> CLASS_CACHE = new ConcurrentHashMap<>();
 
-  /**
-   * Clears all static reflection caches. Called on application shutdown to release classloader
-   * references and prevent memory leaks in redeployable containers.
-   */
+  /** Clears reflection caches on shutdown to prevent classloader leaks. */
   @PreDestroy
   public void clearCaches() {
     HOOK_METHOD_CACHE.clear();
     CLASS_CACHE.clear();
   }
 
-  /** Store for batch entity CRUD operations and atomic progress updates. */
   private final BatchStore batchStore;
-
-  /** Store for job entity operations, used to update parent job status on batch completion. */
   private final JobCrudStore jobCrudStore;
-
-  /** Store for batch metrics tracking, including child execution time aggregation. */
   private final BatchMetricsStore metricsStore;
-
-  /** Collector for exposing batch metrics to monitoring systems. */
   private final MetricsCollector metricsCollector;
-
-  /** Publisher for batch lifecycle events. */
   private final InternalEventPublisher eventPublisher;
-
-  /** Scheduler for triggering workflow branches after batch completion. */
   private final WorkflowScheduler workflowScheduler;
 
   // Required by CDI proxy
@@ -131,38 +81,16 @@ public class BatchService {
   }
 
   /**
-   * Marks a child job as failed and updates the parent batch's progress counters.
-   *
-   * <p>This method is called when a child job in a batch fails permanently (after exhausting
-   * retries). It atomically increments the batch's failed item counter and triggers progress hooks
-   * if configured. If this was the last child to complete, batch completion processing is
-   * initiated.
-   *
-   * <p>The update operation is atomic to handle concurrent completion of multiple child jobs. Only
-   * one thread will successfully process batch completion even if multiple children complete
-   * simultaneously.
-   *
-   * @param child the child job entity that failed; must have a non-null {@code dependsOn} field
-   *     pointing to the parent batch job
+   * Atomically increments the batch failed counter and triggers completion if this was the last
+   * child.
    */
   public void markChildFailed(JobEntity child) {
     update(child, false);
   }
 
   /**
-   * Marks a child job as succeeded and updates the parent batch's progress counters.
-   *
-   * <p>This method is called when a child job in a batch completes successfully. It atomically
-   * increments the batch's completed item counter and triggers progress hooks if configured. Child
-   * execution time is recorded for batch metrics. If this was the last child to complete, batch
-   * completion processing is initiated.
-   *
-   * <p>The update operation is atomic to handle concurrent completion of multiple child jobs. Only
-   * one thread will successfully process batch completion even if multiple children complete
-   * simultaneously.
-   *
-   * @param child the child job entity that succeeded; must have a non-null {@code dependsOn} field
-   *     pointing to the parent batch job
+   * Atomically increments the batch completed counter and triggers completion if this was the last
+   * child.
    */
   public void markChildSucceeded(JobEntity child) {
     update(child, true);

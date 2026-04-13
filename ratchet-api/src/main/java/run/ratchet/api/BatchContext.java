@@ -1,59 +1,19 @@
 package run.ratchet.api;
 
 /**
- * Immutable context object representing the state and progress of a batch operation.
+ * Immutable snapshot of batch execution progress, passed to progress hooks and workflow conditions.
  *
- * <p>BatchContext provides real-time visibility into batch execution, capturing essential metrics
- * about the progress of child jobs within a batch. This context is passed to progress hooks and
- * workflow conditions, enabling monitoring and conditional logic based on batch state.
- *
- * <h2>Key Information Provided:</h2>
- *
- * <ul>
- *   <li>Unique batch identifier for tracking and correlation
- *   <li>Total number of child jobs in the batch
- *   <li>Count of successfully completed jobs
- *   <li>Count of failed jobs
- *   <li>Calculated completion percentage
- * </ul>
- *
- * <h2>Usage Example:</h2>
- *
- * <pre>{@code
- * // In a progress hook
- * .onProgress(context -> {
- *     log.info("Batch {} is {}% complete ({}/{} items)",
- *         context.batchId(),
- *         context.percentDone(),
- *         context.completedItems(),
- *         context.totalItems());
- *
- *     if (context.failedItems() > 0) {
- *         log.warn("Batch has {} failures", context.failedItems());
- *     }
- * })
- *
- * // In a workflow condition
- * .thenWhenBatch(context -> context.failedItems() == 0,
- *                () -> sendSuccessNotification())
- * }</pre>
- *
- * @param batchId the unique identifier of the batch job
- * @param totalItems the total number of child jobs in the batch
- * @param completedItems the number of child jobs that have completed successfully
- * @param failedItems the number of child jobs that have failed
+ * @param batchId the batch job identifier
+ * @param totalItems total child jobs in the batch
+ * @param completedItems successfully completed child jobs
+ * @param failedItems failed child jobs
  * @see BatchBuilder#onProgress(SerializableConsumer)
  * @see WorkflowCondition#batchCustom(SerializablePredicate)
  */
 public record BatchContext(long batchId, int totalItems, int completedItems, int failedItems) {
 
   /**
-   * Checks if the batch has completed processing all items.
-   *
-   * <p>A batch is considered complete when the sum of completed and failed items equals the total
-   * number of items in the batch.
-   *
-   * @return true if all items have been processed, false otherwise
+   * @return true if all items have been processed (completed + failed >= total)
    */
   public boolean isComplete() {
     return (completedItems + failedItems) >= totalItems;

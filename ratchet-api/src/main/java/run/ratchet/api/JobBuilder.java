@@ -5,26 +5,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Fluent API builder for creating and configuring individual jobs.
- *
- * <p>JobBuilder provides a comprehensive and flexible way to create jobs with various execution
- * options, error handling strategies, and workflow capabilities. It supports job chaining,
- * conditional branching, retry policies, and lifecycle callbacks.
- *
- * <h2>Key Features:</h2>
- *
- * <ul>
- *   <li>Fluent API for intuitive job configuration
- *   <li>Job chaining for sequential task execution
- *   <li>Configurable retry policies with backoff strategies
- *   <li>Success and failure callbacks
- *   <li>Job tagging for categorization and filtering
- *   <li>Priority-based execution scheduling
- *   <li>Timeout configuration for long-running tasks
- *   <li>Workflow branching for conditional execution paths
- * </ul>
- *
- * <h2>Basic Usage Example:</h2>
+ * Fluent builder for configuring and submitting individual jobs. Supports chaining, conditional
+ * branching, retry policies, and lifecycle callbacks.
  *
  * <pre>{@code
  * JobHandle handle = schedulerService.enqueue(() -> processOrder(orderId))
@@ -38,34 +20,11 @@ import java.util.Map;
  *     .submit();
  * }</pre>
  *
- * <h2>Job Chaining Example:</h2>
- *
- * <pre>{@code
- * schedulerService.enqueue(() -> validateData())
- *     .then(() -> processData())
- *     .then(() -> generateReport())
- *     .then(() -> sendNotification())
- *     .submit();
- * }</pre>
- *
- * <h2>Workflow Branching Example:</h2>
- *
- * <pre>{@code
- * schedulerService.enqueue(() -> analyzeData())
- *     .thenOnSuccess(() -> archiveResults())
- *     .thenOnFailure(() -> notifyAdmins())
- *     .whenResult(result -> result.getScore() > 0.8,
- *                 () -> triggerHighScoreWorkflow())
- *     .submit();
- * }</pre>
- *
- * <p>Note: JobBuilder instances are obtained through {@link JobSubmitter} methods and should not be
- * instantiated directly.
+ * <p>Instances are obtained through {@link JobSubmitter} methods.
  *
  * @see JobSubmitter
  * @see JobOptions
  * @see JobHandle
- * @see WorkflowCondition
  */
 public interface JobBuilder {
 
@@ -77,7 +36,7 @@ public interface JobBuilder {
    * @param condition the workflow condition
    * @param next the task to execute
    * @param description human-readable description of this branch
-   * @return the current JobBuilder instance for method chaining
+   * @return this builder
    */
   JobBuilder branch(
       WorkflowCondition condition, SerializableCheckedRunnable next, String description);
@@ -93,7 +52,7 @@ public interface JobBuilder {
    * <p>Note: Jobs with CRITICAL priority or zero delay are automatically treated as immediate. Use
    * this method explicitly when you need immediate behavior for other job configurations.
    *
-   * @return the current {@code JobBuilder} instance, allowing method chaining
+   * @return this builder
    */
   JobBuilder immediate();
 
@@ -103,7 +62,7 @@ public interface JobBuilder {
    * @param f the callback function to handle failure events. This function accepts a {@link
    *     JobContext} that represents the execution context of the failed job, and a {@link
    *     Throwable} that describes the error.
-   * @return the current {@code JobBuilder} instance, allowing method chaining.
+   * @return this builder
    */
   JobBuilder onFailure(SerializableBiConsumer<JobContext, Throwable> f);
 
@@ -112,7 +71,7 @@ public interface JobBuilder {
    *
    * @param s the callback function to handle successful completion events. This function accepts a
    *     {@link JobContext} that represents the execution context of the job.
-   * @return the current {@code JobBuilder} instance, allowing method chaining.
+   * @return this builder
    */
   JobBuilder onSuccess(SerializableConsumer<JobContext> s);
 
@@ -130,7 +89,7 @@ public interface JobBuilder {
    * sequential execution of multiple tasks in the order they are added. Supports method chaining.
    *
    * @param next the task to be added to the chain. Must not be null.
-   * @return the current {@code JobBuilder} instance, allowing further configuration.
+   * @return this builder
    */
   JobBuilder then(SerializableCheckedRunnable next);
 
@@ -139,7 +98,7 @@ public interface JobBuilder {
    * with a FAILURE condition.
    *
    * @param next the task to execute on failure as a separate job
-   * @return the current JobBuilder instance for method chaining
+   * @return this builder
    */
   JobBuilder thenOnFailure(SerializableCheckedRunnable next);
 
@@ -148,7 +107,7 @@ public interface JobBuilder {
    * with a SUCCESS condition.
    *
    * @param next the task to execute on success as a separate job
-   * @return the current JobBuilder instance for method chaining
+   * @return this builder
    */
   JobBuilder thenOnSuccess(SerializableCheckedRunnable next);
 
@@ -159,7 +118,7 @@ public interface JobBuilder {
    * @param condition predicate that determines if the branch should execute
    * @param next the task to execute when condition is met
    * @param <T> the type of the job result
-   * @return the current JobBuilder instance for method chaining
+   * @return this builder
    */
   <T> JobBuilder when(
       SerializablePredicate<JobResult<T>> condition, SerializableCheckedRunnable next);
@@ -172,7 +131,7 @@ public interface JobBuilder {
    * @param next the task to execute when condition is met
    * @param priority evaluation priority (lower = higher priority)
    * @param <T> the type of the job result
-   * @return the current JobBuilder instance for method chaining
+   * @return this builder
    */
   <T> JobBuilder when(
       SerializablePredicate<JobResult<T>> condition,
@@ -186,7 +145,7 @@ public interface JobBuilder {
    * @param condition function that evaluates the job's return value
    * @param next the task to execute when condition returns true
    * @param <T> the type of the job result
-   * @return the current JobBuilder instance for method chaining
+   * @return this builder
    */
   <T> JobBuilder whenResult(
       SerializableFunction<T, Boolean> condition, SerializableCheckedRunnable next);
@@ -220,7 +179,7 @@ public interface JobBuilder {
    * }</pre>
    *
    * @param key the idempotency key. If null or blank, keeps the auto-generated UUID.
-   * @return the current {@code JobBuilder} instance, allowing method chaining.
+   * @return this builder
    */
   JobBuilder withIdempotencyKey(String key);
 
@@ -249,7 +208,7 @@ public interface JobBuilder {
    * }</pre>
    *
    * @param key the business key. If null or blank, no concurrent execution blocking is performed.
-   * @return the current {@code JobBuilder} instance, allowing method chaining.
+   * @return this builder
    */
   JobBuilder withBusinessKey(String key);
 
@@ -275,7 +234,7 @@ public interface JobBuilder {
    *
    * @param resourceName the name of the resource to acquire. If null or blank, no resource
    *     limiting.
-   * @return the current {@code JobBuilder} instance, allowing method chaining.
+   * @return this builder
    */
   JobBuilder withResource(String resourceName);
 
@@ -288,7 +247,7 @@ public interface JobBuilder {
    *     NONE}, {@code FIXED}, and {@code EXPONENTIAL}.
    * @param param the parameter for the backoff strategy. For example, in the {@code FIXED}
    *     strategy, this defines the fixed delay between retries. Must not be null.
-   * @return the current {@code JobBuilder} instance, allowing further configuration.
+   * @return this builder
    */
   JobBuilder withBackoff(BackoffPolicy policy, Duration param);
 
@@ -297,7 +256,7 @@ public interface JobBuilder {
    * allows chaining for further job configuration.
    *
    * @param retries the maximum number of retries to attempt. Must be a non-negative integer.
-   * @return the current {@code JobBuilder} instance, allowing further configuration.
+   * @return this builder
    */
   JobBuilder withMaxRetries(int retries);
 
@@ -308,7 +267,7 @@ public interface JobBuilder {
    *
    * @param key the parameter key. Must not be null or blank.
    * @param value the parameter value. Must not be null.
-   * @return the current {@code JobBuilder} instance, allowing method chaining.
+   * @return this builder
    */
   JobBuilder withParam(String key, String value);
 
@@ -318,7 +277,7 @@ public interface JobBuilder {
    * further customization.
    *
    * @param priority the priority level for the job.
-   * @return the current {@code JobBuilder} instance, allowing further configuration.
+   * @return this builder
    */
   JobBuilder withPriority(JobPriority priority);
 
@@ -327,7 +286,7 @@ public interface JobBuilder {
    * stored only if they are non-null and non-blank. This method supports chaining.
    *
    * @param tags the tags to add to the job. Each tag should be a non-null, non-blank string.
-   * @return the current {@code JobBuilder} instance, allowing method chaining.
+   * @return this builder
    */
   JobBuilder withTags(String... tags);
 
@@ -337,21 +296,13 @@ public interface JobBuilder {
    * timeout value.
    *
    * @param timeout the timeout duration for the job. Must not be null.
-   * @return the current {@code JobBuilder} instance, allowing method chaining.
+   * @return this builder
    */
   JobBuilder withTimeout(Duration timeout);
 
   // ========== Accessor Methods ==========
 
-  /**
-   * Retrieves the list of tasks that have been added to the job's execution chain.
-   *
-   * <p>The returned list is immutable and provides the tasks in the order they were added via
-   * {@link #then(SerializableCheckedRunnable)}.
-   *
-   * @return an unmodifiable list of {@code SerializableCheckedRunnable} objects representing the
-   *     task chain
-   */
+  /** Returns the chain tasks in addition order. The list is unmodifiable. */
   List<SerializableCheckedRunnable> chainTasks();
 
   /**

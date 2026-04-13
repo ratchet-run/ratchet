@@ -12,11 +12,8 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 
 /**
- * Entity representing a single execution attempt of a job.
- *
- * <p>This entity provides an audit trail of each job execution attempt, enabling debugging of
- * failed jobs, performance analysis, identifying flaky jobs, and answering "what happened during
- * the 3rd retry?" questions.
+ * Single execution attempt of a job, providing an audit trail for debugging and performance
+ * analysis.
  *
  * @see JobEntity for the parent job
  */
@@ -79,8 +76,6 @@ public class JobExecutionEntity implements TsidEntityListener.TsidAssignable {
     return entity;
   }
 
-  // ── Getters ──────────────────────────────────────────────────────────────
-
   public Long getId() {
     return id;
   }
@@ -121,8 +116,6 @@ public class JobExecutionEntity implements TsidEntityListener.TsidAssignable {
     this.startedAt = startedAt;
   }
 
-  // ── Setters ──────────────────────────────────────────────────────────────
-
   public Instant getEndedAt() {
     return endedAt;
   }
@@ -162,8 +155,6 @@ public class JobExecutionEntity implements TsidEntityListener.TsidAssignable {
   public void setDurationMs(Long durationMs) {
     this.durationMs = durationMs;
   }
-
-  // ── Factory & business methods ───────────────────────────────────────────
 
   /** Marks this execution as succeeded. */
   public void markSucceeded() {

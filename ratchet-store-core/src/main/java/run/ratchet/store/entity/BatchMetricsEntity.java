@@ -12,9 +12,7 @@ import java.time.Instant;
 import java.util.Objects;
 
 /**
- * Entity for tracking detailed performance metrics of batch job executions.
- *
- * <p>This entity captures comprehensive timing and success rate metrics for batch jobs.
+ * Performance metrics for batch job executions.
  *
  * @see BatchEntity for progress tracking
  * @see JobEntity for the parent batch job
@@ -60,8 +58,6 @@ public class BatchMetricsEntity {
   @Column(name = "version")
   private Integer version;
 
-  // ── Constructors ─────────────────────────────────────────────────────────
-
   public BatchMetricsEntity() {}
 
   public BatchMetricsEntity(
@@ -88,8 +84,6 @@ public class BatchMetricsEntity {
     this.completedAt = completedAt;
     this.version = version;
   }
-
-  // ── Getters ──────────────────────────────────────────────────────────────
 
   public static BatchMetricsEntityBuilder builder() {
     return new BatchMetricsEntityBuilder();
@@ -135,8 +129,6 @@ public class BatchMetricsEntity {
     this.overheadMs = overheadMs;
   }
 
-  // ── Setters ──────────────────────────────────────────────────────────────
-
   public int getChildCount() {
     return childCount;
   }
@@ -181,17 +173,11 @@ public class BatchMetricsEntity {
     return version;
   }
 
-  // ── Business methods ────────────────────────────────────────────────────
-
   public void setVersion(Integer version) {
     this.version = version;
   }
 
-  /**
-   * Calculates overhead as a percentage of total execution time.
-   *
-   * @return overhead percentage (0-100), or 0 if metrics are not yet calculated
-   */
+  /** Overhead as a percentage of total execution time, or 0 if not yet calculated. */
   public double getOverheadPercent() {
     if (totalDurationMs == null || totalDurationMs == 0) {
       return 0;
@@ -202,13 +188,7 @@ public class BatchMetricsEntity {
     return (overheadMs / (double) totalDurationMs) * 100;
   }
 
-  // ── Object overrides ────────────────────────────────────────────────────
-
-  /**
-   * Calculates the success rate of child jobs as a percentage.
-   *
-   * @return success rate percentage (0-100), or 0 if no child jobs have been processed
-   */
+  /** Success rate of child jobs as a percentage (0-100). */
   public double getSuccessRate() {
     if (childCount == 0) {
       return 0;
@@ -251,8 +231,6 @@ public class BatchMetricsEntity {
         completedAt,
         version);
   }
-
-  // ── Builder ─────────────────────────────────────────────────────────────
 
   @Override
   public String toString() {

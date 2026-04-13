@@ -10,11 +10,7 @@ import jakarta.persistence.Version;
 import java.util.Objects;
 
 /**
- * Entity representing batch job progress tracking in the scheduler system.
- *
- * <p>A batch entity maintains real-time progress information for batch jobs that process multiple
- * items. It tracks the completion status of individual child jobs and provides atomic operations to
- * prevent race conditions when multiple child jobs complete simultaneously.
+ * Batch job progress tracking.
  *
  * @see JobEntity for the parent batch job
  */
@@ -46,8 +42,6 @@ public class BatchEntity {
   @Column(name = "progress_hook")
   private JobPayload progressHook;
 
-  // ── Getters ──────────────────────────────────────────────────────────────
-
   public Long getId() {
     return id;
   }
@@ -76,8 +70,6 @@ public class BatchEntity {
     return failedItems;
   }
 
-  // ── Setters ──────────────────────────────────────────────────────────────
-
   public void setFailedItems(int failedItems) {
     this.failedItems = failedItems;
   }
@@ -105,8 +97,6 @@ public class BatchEntity {
   public void setProgressHook(JobPayload progressHook) {
     this.progressHook = progressHook;
   }
-
-  // ── Object overrides ────────────────────────────────────────────────────
 
   @Override
   public int hashCode() {

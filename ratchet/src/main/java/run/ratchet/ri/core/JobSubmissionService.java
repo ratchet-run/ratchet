@@ -28,13 +28,8 @@ import jakarta.inject.Inject;
 @ApplicationScoped
 public class JobSubmissionService {
 
-  /** Gate checker for validating pre-flight conditions before job submission. */
   private final SubmissionGateChecker gateChecker;
-
-  /** Executor service that handles the actual job execution. */
   private final JobExecutorService executorService;
-
-  /** Handler for various submission failure scenarios. */
   private final SubmissionFailureHandler failureHandler;
 
   // Required by CDI proxy

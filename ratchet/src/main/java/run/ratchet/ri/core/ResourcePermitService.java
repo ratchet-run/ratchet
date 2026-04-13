@@ -70,9 +70,9 @@ public class ResourcePermitService {
   public boolean tryAcquire(String resourceName, long jobId, String nodeId) {
     boolean acquired = resourcePermitStore.tryAcquirePermit(resourceName, jobId, nodeId);
     if (acquired) {
-      log.infof("Job %s acquired permit for resource %s", jobId, resourceName);
+      log.debugf("Job %s acquired permit for resource %s", jobId, resourceName);
     } else {
-      log.infof("Resource %s at capacity - job %s must wait", resourceName, jobId);
+      log.debugf("Resource %s at capacity - job %s must wait", resourceName, jobId);
     }
     return acquired;
   }
@@ -88,7 +88,7 @@ public class ResourcePermitService {
    */
   public void release(String resourceName, long jobId) {
     resourcePermitStore.releasePermit(resourceName, jobId);
-    log.infof("Job %s released permit for resource %s", jobId, resourceName);
+    log.debugf("Job %s released permit for resource %s", jobId, resourceName);
   }
 
   /**

@@ -67,29 +67,9 @@ import java.io.Serializable;
  * conditions might match. Lower priority values are evaluated first. This allows for deterministic
  * workflow execution when conditions overlap.
  *
- * @param type The type of condition determining which evaluation strategy to use.
- *     <p>This field identifies how the condition should be evaluated (e.g., simple success/failure
- *     check, custom predicate evaluation, batch success rate threshold). The type determines which
- *     evaluator logic is applied during workflow branch processing.
- * @param expression The condition expression, which varies based on the condition type.
- *     <p>This field holds the type-specific expression data used during evaluation:
- *     <ul>
- *       <li>For SUCCESS/FAILURE/BATCH_SUCCESS/BATCH_FAILURE: null (no expression needed)
- *       <li>For CUSTOM: a {@link SerializablePredicate} on JobResult
- *       <li>For RESULT_VALUE: a {@link SerializableFunction} mapping result to Boolean
- *       <li>For BATCH_SUCCESS_RATE: a Double threshold (0.0 to 1.0)
- *       <li>For BATCH_FAILURE_COUNT: an Integer maximum failure count
- *       <li>For BATCH_CUSTOM: a {@link SerializablePredicate} on BatchContext
- *     </ul>
- *     <p>The expression must be Serializable because it is persisted along with the job payload and
- *     must survive serialization/deserialization cycles in the job queue.
- * @param priority The evaluation priority for ordering when multiple conditions might match.
- *     <p>When multiple workflow branches have conditions that evaluate to true, the priority
- *     determines the order in which they are processed. Lower priority values are evaluated and
- *     executed first (priority 0 executes before priority 1).
- *     <p>The default priority is 0. Use higher priority values (1, 2, etc.) to ensure certain
- *     branches are evaluated after others, or negative values (-1, -2) to ensure evaluation before
- *     default-priority branches.
+ * @param type the condition type (evaluation strategy)
+ * @param expression type-specific expression data (predicate, threshold, or null)
+ * @param priority evaluation order when multiple conditions match (lower = first, default 0)
  * @see JobBuilder#when(SerializablePredicate, SerializableCheckedRunnable)
  * @see BatchBuilder#thenWhenBatch(SerializablePredicate, SerializableCheckedRunnable)
  * @see WorkflowBranch
@@ -97,29 +77,9 @@ import java.io.Serializable;
 public record WorkflowCondition(ConditionType type, Serializable expression, int priority)
     implements Serializable {
 
-  /**
-   * Serialization version identifier for ensuring compatibility during deserialization.
-   *
-   * <p>This field is required because WorkflowCondition instances are persisted as part of workflow
-   * branches in job payloads. When jobs are retrieved for execution, their conditions must be
-   * deserialized back into objects for evaluation. The serialVersionUID ensures that stored
-   * conditions can be properly deserialized even after code changes.
-   *
-   * <p>If the class structure changes in an incompatible way, this value should be updated to
-   * prevent deserialization of old, incompatible condition data.
-   */
   @Serial private static final long serialVersionUID = -6905745576977735975L;
 
-  /**
-   * Creates a workflow condition with default priority (0).
-   *
-   * <p>This constructor is a convenience method for creating conditions without specifying a custom
-   * priority. The default priority of 0 means this condition will be evaluated alongside other
-   * default-priority conditions in definition order.
-   *
-   * @param type the condition type determining the evaluation strategy
-   * @param expression the type-specific expression data (may be null for simple conditions)
-   */
+  /** Creates a condition with default priority (0). */
   public WorkflowCondition(ConditionType type, Serializable expression) {
     this(type, expression, 0);
   }

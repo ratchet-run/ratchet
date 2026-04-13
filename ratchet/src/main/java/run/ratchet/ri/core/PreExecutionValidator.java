@@ -34,29 +34,10 @@ public class PreExecutionValidator {
     this.doNotRetryPolicy = doNotRetryPolicy;
   }
 
-  /**
-   * Validates a job payload for security constraints before execution.
-   *
-   * <p>Checks that the target class and method are allowed to be invoked through the scheduler
-   * framework (e.g., whitelist checks, method accessibility).
-   *
-   * @param payload the job payload to validate
-   * @throws SecurityException if the payload fails security validation
-   * @throws NoSuchMethodException if the target method cannot be found
-   */
   public void validateSecurity(JobPayload payload) throws NoSuchMethodException {
     securityValidator.validate(payload);
   }
 
-  /**
-   * Determines if an exception should NOT trigger a retry attempt.
-   *
-   * <p>Some exceptions indicate permanent failures that would be futile to retry, such as
-   * validation errors, authorization failures, or configuration issues.
-   *
-   * @param ex the exception to evaluate
-   * @return true if the exception should NOT be retried, false if retry is allowed
-   */
   public boolean shouldNotRetry(Throwable ex) {
     return doNotRetryPolicy.shouldNotRetry(ex);
   }

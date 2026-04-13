@@ -21,37 +21,16 @@ import java.util.Optional;
 import org.jboss.logging.Logger;
 
 /**
- * Service responsible for evaluating workflow conditions to determine whether child jobs should be
- * scheduled based on parent job results. This evaluator is central to the workflow orchestration
- * system, enabling complex job dependencies and conditional execution paths.
- *
- * <p>The evaluator supports multiple condition types:
- *
- * <ul>
- *   <li><b>Simple Status:</b> SUCCESS, FAILURE - Basic parent job outcome checks
- *   <li><b>Result-based:</b> CUSTOM, RESULT_VALUE - Complex conditions on job output
- *   <li><b>Batch-aware:</b> BATCH_SUCCESS, BATCH_FAILURE_COUNT - Aggregate batch metrics
- * </ul>
- *
- * @see WorkflowConditionEntity for condition storage
- * @see WorkflowScheduler for the scheduling component
- * @see JobResult for the result data structure
+ * Evaluates workflow conditions against parent job results to decide which child jobs to schedule.
  */
 @ApplicationScoped
 public class WorkflowConditionEvaluator {
 
   private static final Logger log = Logger.getLogger(WorkflowConditionEvaluator.class);
 
-  /**
-   * Jackson ObjectMapper for deserializing job result JSON. Configured with JavaTimeModule for
-   * correct java.time deserialization.
-   */
   private static final ObjectMapper OBJECT_MAPPER = ObjectMapperFactory.get();
 
-  /** Store for accessing batch job information. */
   private final BatchStore batchStore;
-
-  /** Strategy for serializing/deserializing lambda expressions used in custom conditions. */
   private final LambdaSerializer lambdaSerializer;
 
   // Required by CDI proxy

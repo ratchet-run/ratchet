@@ -8,35 +8,13 @@ import java.util.Set;
 import org.jboss.logging.Logger;
 
 /**
- * Utility class for masking sensitive data in job payloads before exposing them via API responses.
- *
- * <p>This class is essential for data protection and compliance. Job payloads may contain sensitive
- * information such as authentication tokens, API keys, passwords, or personal data (PII/PHI). When
- * exposing job information through dashboard APIs or logs, this sensitive data must be redacted to
- * prevent information disclosure vulnerabilities.
- *
- * <p>The masking process:
- *
- * <ol>
- *   <li>Parses the JSON payload into a tree structure
- *   <li>Recursively traverses all fields, including nested objects and arrays
- *   <li>Identifies sensitive fields by checking field names against known patterns
- *   <li>Replaces sensitive values with a fixed redaction placeholder
- *   <li>Returns the sanitized JSON for safe display
- * </ol>
- *
- * <p><b>Important:</b> This class is designed for display purposes only. The original unmasked
- * payload is always preserved in the database and used for job execution. Masking only affects API
- * responses and logging output.
+ * Masks sensitive fields (passwords, tokens, PII) in job payload JSON before API/log exposure. The
+ * original payload in the database is never modified.
  */
 public class PayloadMasker {
 
   private static final Logger log = Logger.getLogger(PayloadMasker.class);
 
-  /**
-   * Shared Jackson ObjectMapper instance for JSON parsing and serialization. Configured with
-   * JavaTimeModule for correct java.time handling.
-   */
   private static final ObjectMapper MAPPER = ObjectMapperFactory.get();
 
   /** The placeholder string used to replace sensitive values. */
@@ -81,7 +59,6 @@ public class PayloadMasker {
           "cvc",
           "pin");
 
-  /** Private constructor to prevent instantiation of this utility class. */
   private PayloadMasker() {
     /* utility class */
   }

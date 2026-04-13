@@ -25,19 +25,8 @@ import java.util.concurrent.TimeoutException;
 import org.jboss.logging.Logger;
 
 /**
- * Handles the actual execution of jobs, supporting both virtual and platform threads.
- *
- * <p>This service is responsible for:
- *
- * <ul>
- *   <li>Creating and initializing {@link JobTask} instances
- *   <li>Wrapping runners with permit-release logic
- *   <li>Submitting jobs to virtual threads or platform thread executors
- *   <li>Scheduling timeout watchdogs for running jobs
- * </ul>
- *
- * <p>The caller must have acquired a permit from {@link ThreadPoolManager} before calling {@link
- * #execute(JobEntity)}. The permit will be released automatically when the job completes.
+ * Executes jobs on virtual or platform threads. A permit must be acquired before calling {@link
+ * #execute}; it is released automatically on completion.
  */
 @ApplicationScoped
 public class JobExecutorService {

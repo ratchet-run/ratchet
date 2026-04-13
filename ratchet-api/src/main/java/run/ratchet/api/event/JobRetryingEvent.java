@@ -5,15 +5,7 @@ import run.ratchet.api.JobType;
 import java.io.Serial;
 import java.time.Instant;
 
-/**
- * Represents an event that occurs when a job is being retried within the job scheduler system.
- *
- * <p>This event provides details about the reason for the retry, the current retry attempt number,
- * and the scheduled time for the next retry based on backoff logic.
- *
- * <p>It extends {@code AbstractJobSchedulerEvent}, inheriting common job metadata fields such as
- * job ID, business key, job type, priority, node identifier, and event timestamp.
- */
+/** Fired when a failed job is about to be retried. */
 public class JobRetryingEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = -3500975641125637480L;
@@ -58,30 +50,14 @@ public class JobRetryingEvent extends AbstractJobSchedulerEvent {
     this.scheduledTime = scheduledTime;
   }
 
-  /**
-   * Retrieves the error message describing the failure that triggered the retry event.
-   *
-   * @return the error message associated with the retry.
-   */
   public String getErrorMessage() {
     return errorMessage;
   }
 
-  /**
-   * Retrieves the current retry attempt number for the job retrying event.
-   *
-   * @return the current retry attempt number.
-   */
   public Integer getRetryAttempt() {
     return retryAttempt;
   }
 
-  /**
-   * Retrieves the scheduled time for the retry attempt of a job.
-   *
-   * @return the {@code Instant} representing the scheduled time for the next retry based on backoff
-   *     logic.
-   */
   public Instant getScheduledTime() {
     return scheduledTime;
   }

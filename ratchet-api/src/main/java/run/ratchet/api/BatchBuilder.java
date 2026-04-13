@@ -4,13 +4,8 @@ import java.io.Serializable;
 import java.util.Collection;
 
 /**
- * Interface for building and customizing batch job executions with workflows, progress monitoring,
- * conditions, and event-driven execution branches. A BatchBuilder allows the user to define
- * fine-grained workflows that handle individual tasks in a batch, monitor progress, and react to
- * the state of the batch during or after execution.
- *
- * <p>Batch jobs built using this interface support branching based on conditions, failure handling,
- * and success handling, making it suitable for building dynamic, multi-step processes.
+ * Fluent builder for batch job execution with progress monitoring, conditional branching, and
+ * failure handling.
  */
 public interface BatchBuilder {
 
@@ -23,7 +18,7 @@ public interface BatchBuilder {
    *     action
    * @param action the operation to perform on each item in the collection, represented by a {@link
    *     SerializableConsumer} functional interface
-   * @return the current {@code BatchBuilder} instance for chaining additional configuration methods
+   * @return this builder
    */
   <T extends Serializable> BatchBuilder forEach(
       Collection<T> items, SerializableConsumer<T> action);
@@ -39,7 +34,7 @@ public interface BatchBuilder {
    * @param hook a {@link SerializableConsumer} that processes the current {@link BatchContext},
    *     providing details such as total items, completed items, failed items, and percentage
    *     completed
-   * @return the current {@code BatchBuilder} instance for chaining additional configuration methods
+   * @return this builder
    */
   BatchBuilder onProgress(SerializableConsumer<BatchContext> hook);
 
@@ -66,7 +61,7 @@ public interface BatchBuilder {
    *     condition is met
    * @param description a textual description of the branch, providing context for debugging or
    *     logging purposes
-   * @return the current {@code BatchBuilder} instance for chaining additional configuration methods
+   * @return this builder
    */
   BatchBuilder thenBranch(
       WorkflowCondition condition, SerializableCheckedRunnable next, String description);
@@ -77,7 +72,7 @@ public interface BatchBuilder {
    *
    * @param next the {@link SerializableCheckedRunnable} representing the action to execute when the
    *     batch operation encounters a failure
-   * @return the current {@code BatchBuilder} instance for chaining additional configuration methods
+   * @return this builder
    */
   BatchBuilder thenOnBatchFailure(SerializableCheckedRunnable next);
 
@@ -87,7 +82,7 @@ public interface BatchBuilder {
    *
    * @param next the {@link SerializableCheckedRunnable} representing the action to execute when the
    *     batch operation succeeds
-   * @return the current {@code BatchBuilder} instance for chaining additional configuration methods
+   * @return this builder
    */
   BatchBuilder thenOnBatchSuccess(SerializableCheckedRunnable next);
 
@@ -104,7 +99,7 @@ public interface BatchBuilder {
    *     determine whether the action should be performed
    * @param next the {@link SerializableCheckedRunnable} representing the action to execute if the
    *     condition is met
-   * @return the current {@code BatchBuilder} instance for chaining additional configuration methods
+   * @return this builder
    */
   BatchBuilder thenWhenBatch(
       SerializablePredicate<BatchContext> condition, SerializableCheckedRunnable next);
@@ -118,7 +113,7 @@ public interface BatchBuilder {
    *     action
    * @param next the {@link SerializableCheckedRunnable} representing the action to execute when the
    *     failure count reaches the specified threshold
-   * @return the current {@code BatchBuilder} instance for chaining additional configuration methods
+   * @return this builder
    */
   BatchBuilder thenWhenFailureCount(int maxFailures, SerializableCheckedRunnable next);
 
@@ -131,7 +126,7 @@ public interface BatchBuilder {
    *     required to trigger the execution of the specified action
    * @param next the {@link SerializableCheckedRunnable} representing the action to execute when the
    *     success rate condition is met
-   * @return the current {@code BatchBuilder} instance for chaining additional configuration methods
+   * @return this builder
    */
   BatchBuilder thenWhenSuccessRate(double minRate, SerializableCheckedRunnable next);
 }

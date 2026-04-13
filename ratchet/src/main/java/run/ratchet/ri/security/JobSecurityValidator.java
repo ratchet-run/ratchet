@@ -10,31 +10,8 @@ import org.jboss.logging.Logger;
 import org.objectweb.asm.Type;
 
 /**
- * Validates job payloads for security and safety before execution.
- *
- * <p>This is the primary security gate for the job scheduler system. Every job payload must pass
- * through this validator before execution to prevent remote code execution (RCE) attacks and ensure
- * that only authorized code paths can be invoked through the scheduler.
- *
- * <p>This validator enforces multiple security checks:
- *
- * <ul>
- *   <li><b>Class Policy:</b> Only allows classes from trusted packages as determined by the
- *       configured {@link ClassPolicy}. This prevents attackers from invoking arbitrary JDK classes
- *       like {@code Runtime.getRuntime()} or third-party library code.
- *   <li><b>Method Visibility:</b> Only allows public methods. Private, protected, and
- *       package-private methods cannot be invoked through the scheduler, even if the class is
- *       allowed.
- *   <li><b>Method Existence:</b> Validates that the method exists with the exact signature
- *       specified in the payload, preventing method confusion attacks.
- * </ul>
- *
- * <p>All validation failures result in {@link SecurityException} being thrown to prevent
- * unauthorized code execution. These failures are logged at ERROR level for security monitoring and
- * audit purposes.
- *
- * <p><b>Security Design:</b> This class follows the principle of "default deny" - if any check
- * fails or encounters an error, execution is blocked.
+ * Primary security gate for job execution. Enforces class-policy allowlisting, method visibility
+ * (public only), and signature existence checks. Default-deny: any failure blocks execution.
  *
  * @see ClassPolicy
  * @see JobPayloadInputValidator for structural validation (non-security)
@@ -44,12 +21,6 @@ public class JobSecurityValidator {
 
   private static final Logger log = Logger.getLogger(JobSecurityValidator.class);
 
-  /**
-   * The class policy used to validate target classes.
-   *
-   * <p>This is injected at construction time and cannot be modified afterward, preventing runtime
-   * manipulation of security boundaries.
-   */
   private final ClassPolicy classPolicy;
 
   /** Required by CDI proxy. */

@@ -39,16 +39,7 @@ public abstract class AbstractJobSchedulerEvent implements Serializable {
   /** The instant when this event was created. */
   private final Instant timestamp;
 
-  /**
-   * Creates a new event with all fields including an explicit timestamp.
-   *
-   * @param jobId the job database identifier
-   * @param businessKey the human-readable business key
-   * @param jobType the job type
-   * @param priority the job priority
-   * @param nodeId the processing node identifier
-   * @param timestamp the event timestamp
-   */
+  /** Creates a new event with all fields including an explicit timestamp. */
   protected AbstractJobSchedulerEvent(
       Long jobId,
       String businessKey,
@@ -64,15 +55,7 @@ public abstract class AbstractJobSchedulerEvent implements Serializable {
     this.timestamp = timestamp;
   }
 
-  /**
-   * Creates a new event with timestamp defaulting to {@link Instant#now()}.
-   *
-   * @param jobId the job database identifier
-   * @param businessKey the human-readable business key
-   * @param jobType the job type
-   * @param priority the job priority
-   * @param nodeId the processing node identifier
-   */
+  /** Creates a new event with timestamp defaulting to {@link Instant#now()}. */
   protected AbstractJobSchedulerEvent(
       Long jobId, String businessKey, JobType jobType, JobPriority priority, String nodeId) {
     this(jobId, businessKey, jobType, priority, nodeId, Instant.now());

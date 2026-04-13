@@ -21,17 +21,11 @@ public interface ErrorSanitizer {
   /**
    * Sanitizes the given exception for safe persistence and logging.
    *
-   * <p>Implementations should:
-   *
-   * <ul>
-   *   <li>Preserve the exception class name for diagnostic value
-   *   <li>Truncate overly long messages to a reasonable maximum
-   *   <li>Strip or redact patterns that commonly contain sensitive data
-   *   <li>Return a non-null string suitable for storage in database error columns
-   * </ul>
+   * <p>Implementations should preserve the exception class name, truncate long messages, and redact
+   * patterns that commonly contain credentials or PII.
    *
    * @param ex the exception to sanitize, never null
-   * @return a sanitized string representation of the error
+   * @return a sanitized, non-null string suitable for storage
    */
   String sanitize(Throwable ex);
 }

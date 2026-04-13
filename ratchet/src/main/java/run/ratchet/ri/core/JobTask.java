@@ -36,36 +36,13 @@ import org.jboss.logging.Logger;
 import org.objectweb.asm.Type;
 
 /**
- * Core job execution engine responsible for running scheduled jobs within worker threads. This
- * class orchestrates the complete job lifecycle from execution through success or failure handling,
- * including retries, metrics collection, and event publishing.
- *
- * <p>The JobTask implements the Callable interface to enable asynchronous execution within the
- * worker pool thread model. Each instance is dedicated to a single job execution and is discarded
- * after completion.
- *
- * <p>Key responsibilities:
- *
- * <ul>
- *   <li><b>Dynamic Invocation:</b> Uses reflection to invoke job methods based on payload
- *       specifications, supporting any managed bean
- *   <li><b>Observability:</b> Maintains MDC context for distributed tracing, collects detailed
- *       metrics, and publishes lifecycle events
- *   <li><b>Workflow Support:</b> Handles job type-specific post-processing for chains, batches, and
- *       workflow branches
- * </ul>
- *
- * @see JobExecutionCoordinator for the thread pool management
- * @see JobPayload for the execution specification format
+ * Runs a single job via reflection, handling retries, lifecycle events, and post-execution workflow
+ * dispatch. Each instance is single-use and discarded after completion.
  */
 public class JobTask implements Callable<Void> {
 
   private static final Logger log = Logger.getLogger(JobTask.class);
 
-  /**
-   * Thread-safe ObjectMapper singleton for JSON serialization of job results. Configured with
-   * JavaTimeModule for correct java.time serialization as ISO-8601 strings.
-   */
   private static final ObjectMapper OBJECT_MAPPER = ObjectMapperFactory.get();
 
   private static final ConcurrentHashMap<String, Method> METHOD_CACHE = new ConcurrentHashMap<>();
@@ -129,21 +106,6 @@ public class JobTask implements Callable<Void> {
     this.classPolicy = null;
   }
 
-  /**
-   * Creates a new JobTask with all required dependencies.
-   *
-   * @param jobStore the store for job persistence operations
-   * @param resourcePermitService service for acquiring and releasing resource permits
-   * @param lifecycleFacade facade for post-execution lifecycle operations
-   * @param nodeIdProvider provider for the unique node identifier
-   * @param observabilityFacade facade for metrics and event publishing
-   * @param validationFacade facade for pre-execution validation
-   * @param beanResolver resolver for bean instances by type
-   * @param retryPolicy policy for retry decisions and delay calculation
-   * @param resilienceStrategy strategy for resilience protection (e.g. circuit breakers)
-   * @param errorSanitizer sanitizer for exception messages before persistence
-   * @param classPolicy policy for class loading denylist — gates CLASS_CACHE population
-   */
   @Inject
   public JobTask(
       JobStore jobStore,

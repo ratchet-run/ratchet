@@ -3,33 +3,22 @@ package run.ratchet.spi;
 import run.ratchet.api.Incubating;
 import java.time.Duration;
 
-/**
- * Represents a policy for determining retry behavior in the context of failure recovery. This
- * interface provides methods for evaluating whether a retry attempt should be made and for
- * calculating the delay before the next retry attempt.
- *
- * <p>Marked {@link Incubating} — the retry contract may evolve.
- */
+/** Controls whether and when a failed job should be retried. */
 @Incubating
 public interface RetryPolicy {
 
   /**
-   * Evaluates whether a retry attempt should be made based on the current attempt number and the
-   * cause of the previous failure.
+   * Returns whether another attempt should be made.
    *
-   * @param attempt the current retry attempt number, starting from 1
-   * @param cause the throwable that caused the previous failure; may provide context for retry
-   *     decisions
-   * @return {@code true} if another retry attempt should be made; {@code false} otherwise
+   * @param attempt 1-based attempt number
+   * @param cause the failure from the previous attempt
    */
   boolean shouldRetry(int attempt, Throwable cause);
 
   /**
-   * Calculates the delay duration before the next retry attempt based on the current retry attempt
-   * number.
+   * Returns the delay before the next retry.
    *
-   * @param attempt the current retry attempt number, starting from 1
-   * @return the delay duration before the next retry attempt
+   * @param attempt 1-based attempt number
    */
   Duration getDelay(int attempt);
 }

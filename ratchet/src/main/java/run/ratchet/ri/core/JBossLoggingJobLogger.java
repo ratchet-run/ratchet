@@ -9,25 +9,10 @@ import org.jboss.logging.Logger;
 import org.jboss.logging.MDC;
 
 /**
- * Job-specific logging implementation that uses JBoss Logging as the backend and publishes log
- * entries through the internal event publisher for persistence and streaming.
+ * Per-job {@link JobLogger} backed by JBoss Logging, with log lines published through {@link
+ * InternalEventPublisher} for persistence. Each instance is bound to a single job ID.
  *
- * <p>Each JBossLoggingJobLogger instance is bound to a specific job ID, ensuring log isolation and
- * traceability in concurrent execution environments.
- *
- * <p>Key features:
- *
- * <ul>
- *   <li><b>Job Isolation:</b> Each logger instance is tied to a single job ID
- *   <li><b>Event Publishing:</b> Logs flow through the InternalEventPublisher for persistence
- *   <li><b>SPI Implementation:</b> Implements the {@link JobLogger} SPI interface
- * </ul>
- *
- * <p>Reserved for future per-job logger wiring; not currently instantiated by {@code JobTask}. The
- * {@link JobLogger} SPI is wired via a no-op implementation by default. See plan
- * ratchet-0.2.0-deferred.md for the broader logger-pipeline work.
- *
- * @see JobLogger
+ * <p>Reserved for future per-job logger wiring; not currently instantiated by {@code JobTask}.
  */
 public class JBossLoggingJobLogger implements JobLogger {
 

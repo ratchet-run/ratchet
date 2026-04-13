@@ -5,28 +5,11 @@ import java.util.List;
 import java.util.Map;
 import org.objectweb.asm.Type;
 
-/**
- * Represents the payload information for a job, encapsulating all details needed to invoke a method
- * via reflection.
- *
- * <p>This record provides a structured, serializable representation of a method invocation,
- * including the target class, method name, method descriptor, invocation type (static vs instance),
- * and the actual arguments.
- *
- * @param target the fully qualified name of the target class
- * @param method the name of the method to be invoked
- * @param methodDescriptor the JVM method descriptor defining parameter and return types
- * @param isStatic true if the method is static, false for instance methods
- * @param args the list of arguments to pass to the method (must match descriptor)
- */
+/** Serializable payload describing a method invocation for job execution. */
 public record JobPayload(
     String target, String method, String methodDescriptor, boolean isStatic, List<Object> args)
     implements Serializable {
 
-  /**
-   * Mapping from JVM primitive type descriptor characters to their corresponding Java Class
-   * objects.
-   */
   private static final Map<Character, Class<?>> PRIMITIVE_TYPES =
       Map.of(
           'Z', boolean.class,

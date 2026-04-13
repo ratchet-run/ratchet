@@ -14,55 +14,19 @@ import java.util.Objects;
 import org.objectweb.asm.Type;
 
 /**
- * A factory class for creating {@link JobPayload} instances from lambda expressions.
- *
- * <p>This utility transforms Java lambda expressions into structured payloads that can be
- * serialized and executed later. It leverages bytecode analysis to extract the target method,
- * arguments, and invocation context from lambda expressions, enabling elegant job scheduling
- * syntax.
- *
- * <h3>Key Features</h3>
- *
- * <ul>
- *   <li><b>Lambda Analysis</b> - Extracts method invocation details from lambda bytecode
- *   <li><b>Type Safety</b> - Preserves type information through method descriptors
- *   <li><b>Argument Capture</b> - Handles captured variables from lambda closures
- *   <li><b>Thread Safety</b> - All methods are stateless and thread-safe
- * </ul>
- *
- * <h3>Supported Lambda Types</h3>
- *
- * <ul>
- *   <li><b>Method References</b> - {@code service::processData}
- *   <li><b>Static Method Calls</b> - {@code () -> EmailService.sendBulkEmails()}
- *   <li><b>Instance Method Calls</b> - {@code () -> processor.handleBatch(items)}
- *   <li><b>Constructor Calls</b> - {@code () -> new ReportGenerator().generate()}
- * </ul>
- *
- * <h3>Limitations</h3>
- *
- * <ul>
- *   <li>Lambda must be {@link Serializable}
- *   <li>Must contain exactly one method invocation
- *   <li>Complex control flow is not supported
- *   <li>Lambda body should be a single expression
- * </ul>
+ * Creates {@link JobPayload} instances from lambda expressions by analyzing their bytecode.
+ * Supports method references, static/instance calls, and captured variables. Lambdas must be {@link
+ * Serializable} and contain exactly one method invocation.
  *
  * @see JobPayload
  * @see AsmLambdaAnalyzer
  */
 public final class JobPayloadFactory {
 
-  /**
-   * A pre-constructed no-operation payload for special cases where a placeholder job is needed.
-   *
-   * @see #noop()
-   */
   private static final JobPayload NOOP =
       new JobPayload(
           "run.ratchet.ri.util.JobPlaceholders", "noop", "()V", true, List.of());
 
-  /** Private constructor to prevent instantiation of this utility class. */
   private JobPayloadFactory() {}
 
   /**

@@ -37,18 +37,8 @@ import java.util.function.Consumer;
 import org.jboss.logging.Logger;
 
 /**
- * Default implementation of {@link JobSchedulerService} for the ratchet reference implementation.
- *
- * <p>This class provides the core scheduling API, delegating to store SPIs and internal services
- * for persistence and coordination. It implements {@link JobSubmitter} so that it can be passed as
- * a method reference ({@code this::persistJob}) to {@link JobBuilder} instances.
- *
- * <p>Thread Safety: This service is thread-safe and can be safely used from multiple concurrent
- * contexts.
- *
- * @see JobSchedulerService
- * @see JobSubmitter
- * @see InternalEventPublisher
+ * Core scheduling API implementation. Delegates to store SPIs for persistence and also implements
+ * {@link JobSubmitter} so builders can call back into {@link #submit(JobBuilder)}.
  */
 @ApplicationScoped
 public class DefaultJobSchedulerService

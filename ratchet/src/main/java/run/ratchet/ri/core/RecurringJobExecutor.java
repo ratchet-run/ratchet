@@ -18,20 +18,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.jboss.logging.Logger;
 
-/**
- * Handles the processing of recurring job instances.
- *
- * <p>Key responsibilities:
- *
- * <ul>
- *   <li>Claiming due recurring jobs from the database
- *   <li>Spawning child jobs for each scheduled execution
- *   <li>Calculating next fire times from cron expressions
- *   <li>Handling missed executions with configurable catch-up limits
- * </ul>
- *
- * @see RecurringScheduler for the scheduling lifecycle manager
- */
+/** Claims due recurring masters, spawns child jobs, and advances next-fire times. */
 @ApplicationScoped
 @Transactional
 public class RecurringJobExecutor {
@@ -44,13 +31,8 @@ public class RecurringJobExecutor {
    */
   private static final int MAX_CATCHUP_COUNT = 10;
 
-  /** Store for job entity CRUD operations. */
   private final JobCrudStore jobCrudStore;
-
-  /** Store for job claiming operations on recurring masters. */
   private final JobClaimStore jobClaimStore;
-
-  /** Tracks the local set of registered annotation keys for the startup grace gate. */
   private final RecurringRegistrationState registrationState;
 
   // Required by CDI proxy

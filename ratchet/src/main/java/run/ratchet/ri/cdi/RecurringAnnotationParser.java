@@ -20,17 +20,7 @@ final class RecurringAnnotationParser {
 
   private RecurringAnnotationParser() {}
 
-  /**
-   * Generates a unique job ID for a recurring job.
-   *
-   * <p>If the @Recurring annotation specifies an explicit ID, that value is used. Otherwise, a
-   * default ID is generated from the fully-qualified class name and method name.
-   *
-   * @param annotation the @Recurring annotation with optional explicit ID
-   * @param className the fully-qualified class name containing the annotated method
-   * @param methodName the name of the annotated method
-   * @return the job ID to use for registration
-   */
+  /** Returns the explicit annotation ID if set, otherwise {@code className.methodName}. */
   static String generateJobId(Recurring annotation, String className, String methodName) {
     if (!annotation.id().isEmpty()) {
       return annotation.id();

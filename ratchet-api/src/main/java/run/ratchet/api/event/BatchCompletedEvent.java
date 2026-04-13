@@ -5,15 +5,7 @@ import run.ratchet.api.JobType;
 import java.io.Serial;
 import java.time.Instant;
 
-/**
- * Represents an event indicating that a batch job has been completed.
- *
- * <p>This event contains information about the total items processed, as well as the count of
- * successfully completed items and items that failed during processing.
- *
- * <p>Extends {@code AbstractJobSchedulerEvent} to include metadata about the job, such as its ID,
- * type, priority, and associated business key.
- */
+/** Fired when all children of a batch complete. */
 public class BatchCompletedEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = 843735174177646423L;
@@ -58,29 +50,14 @@ public class BatchCompletedEvent extends AbstractJobSchedulerEvent {
     this.failedItems = failedItems;
   }
 
-  /**
-   * Retrieves the total number of items in the batch.
-   *
-   * @return the total number of items as an Integer
-   */
   public Integer getTotalItems() {
     return totalItems;
   }
 
-  /**
-   * Retrieves the number of successfully completed items in the batch.
-   *
-   * @return the number of completed items as an Integer
-   */
   public Integer getCompletedItems() {
     return completedItems;
   }
 
-  /**
-   * Retrieves the number of items that failed during the batch process.
-   *
-   * @return the number of failed items as an Integer
-   */
   public Integer getFailedItems() {
     return failedItems;
   }

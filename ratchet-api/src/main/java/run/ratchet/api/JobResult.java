@@ -8,50 +8,12 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Comprehensive result object capturing all aspects of a job execution.
- *
- * <p>JobResult provides a complete picture of job execution outcomes, including success/failure
- * status, return values, error details, timing information, and custom metadata. This rich
- * information enables sophisticated workflow decisions and detailed monitoring/debugging
- * capabilities.
- *
- * <h2>Key Components:</h2>
- *
- * <ul>
- *   <li><b>Status</b> - Success/failure boolean indicator
- *   <li><b>Return Value</b> - Generic typed result from successful execution
- *   <li><b>Error Information</b> - Message and exception details for failures
- *   <li><b>Timing Data</b> - Start time, end time, and duration
- *   <li><b>Metadata</b> - Extensible key-value pairs for custom data
- * </ul>
- *
- * <h2>Usage in Workflow Conditions:</h2>
+ * Captures the outcome of a job execution: success/failure status, return value, error details,
+ * timing, and custom metadata. Used by workflow conditions for branching decisions.
  *
  * <pre>{@code
- * // Success-based branching
- * .when(result -> result.isSuccess(), () -> processSuccessPath())
- *
- * // Value-based branching
- * .whenResult(result -> result.getValue() > threshold,
- *            () -> handleHighValue())
- *
- * // Performance-based branching
- * .when(result -> result.getExecutionTimeMs() > 60000,
- *       () -> alertSlowExecution())
- *
- * // Metadata-based branching
- * .when(result -> "critical".equals(result.getMetadata("severity")),
- *       () -> escalateToOpsTeam())
- * }</pre>
- *
- * <h2>Building Results:</h2>
- *
- * <pre>{@code
- * // Success result with value
  * JobResult<Integer> success = JobResult.success(42);
- *
- * // Failure result with error
- * JobResult<Void> failure = JobResult.failure("Database connection failed", dbException);
+ * JobResult<Void> failure = JobResult.failure("Connection failed", exception);
  * }</pre>
  *
  * @param <T> the type of the job's return value
@@ -64,98 +26,15 @@ import java.util.Objects;
 })
 public class JobResult<T> implements Serializable {
 
-  /**
-   * Serial version UID for ensuring serialization compatibility across versions.
-   *
-   * <p>This fixed value ensures that JobResult objects serialized with one version of the class can
-   * be deserialized with another version, which is critical for job results that may be persisted
-   * or transmitted across cluster nodes.
-   */
   @Serial private static final long serialVersionUID = 5109014978656748418L;
 
-  /**
-   * Indicates whether the job completed successfully without throwing an exception.
-   *
-   * <p>A value of {@code true} means the job executed to completion without errors. A value of
-   * {@code false} indicates the job threw an exception or was otherwise terminated abnormally. This
-   * field is the primary indicator for workflow branching decisions.
-   */
   private final boolean success;
-
-  /**
-   * The return value from the job method execution.
-   *
-   * <p>This field holds the result returned by the job's task method. For void methods or failed
-   * executions, this will be {@code null}. The generic type {@code T} allows type-safe access to
-   * the return value in workflow conditions and downstream processing.
-   *
-   * <p>Note: The value must be serializable if the result is persisted or transmitted.
-   */
   private final T value;
-
-  /**
-   * Human-readable error message describing the failure cause.
-   *
-   * <p>When a job fails, this field contains a summary of what went wrong. It is typically derived
-   * from the exception message but may be augmented with additional context. This field is intended
-   * for logging, debugging, and user-facing error displays.
-   */
   private final String error;
-
-  /**
-   * The full exception object thrown by the job, if any.
-   *
-   * <p>Unlike {@link #error} which contains just the message, this field preserves the complete
-   * exception including stack trace, cause chain, and any custom exception data. This is invaluable
-   * for debugging but may not serialize well across all contexts.
-   *
-   * <p><b>Warning:</b> Some exception types may not be serializable. When persisting job results,
-   * consider extracting relevant information before serialization.
-   */
   private final Throwable exception;
-
-  /**
-   * Total execution time of the job in milliseconds.
-   *
-   * <p>Measures the wall-clock time from when job execution began to when it completed
-   * (successfully or not). This metric is useful for performance monitoring, SLA tracking, and
-   * identifying slow jobs. May be {@code null} if timing information was not recorded.
-   */
   private final Long executionTimeMs;
-
-  /**
-   * Timestamp when job execution began.
-   *
-   * <p>Records the instant when the job worker started executing the task. Combined with {@link
-   * #endTime}, this allows calculation of duration and provides temporal context for correlation
-   * with other system events and logs.
-   */
   private final Instant startTime;
-
-  /**
-   * Timestamp when job execution completed.
-   *
-   * <p>Records the instant when the job finished, whether successfully or due to failure. This
-   * timestamp is captured after the task method returns or throws, providing an accurate end point
-   * for duration calculations.
-   */
   private final Instant endTime;
-
-  /**
-   * Extensible key-value map for custom execution metadata.
-   *
-   * <p>Allows jobs to attach arbitrary data to their results without modifying the JobResult
-   * structure. Common uses include:
-   *
-   * <ul>
-   *   <li>Record counts: {@code metadata.put("recordsProcessed", 1000)}
-   *   <li>Resource usage: {@code metadata.put("memoryUsedMB", 256)}
-   *   <li>Custom status: {@code metadata.put("severity", "critical")}
-   *   <li>Diagnostic data: {@code metadata.put("affectedEntities", list)}
-   * </ul>
-   *
-   * <p>Metadata values should be serializable if the result will be persisted.
-   */
   private final Map<String, Object> metadata;
 
   private JobResult(
@@ -227,70 +106,30 @@ public class JobResult<T> implements Serializable {
         success, value, error, exception, executionTimeMs, startTime, endTime, metadata);
   }
 
-  /**
-   * Retrieves the value returned from the job execution.
-   *
-   * @return the value of type T if available, or null if the job did not produce a value.
-   */
   public T getValue() {
     return value;
   }
 
-  /**
-   * Retrieves the error message associated with the job execution.
-   *
-   * @return the error message if available, or null if no error occurred
-   */
   public String getError() {
     return error;
   }
 
-  /**
-   * Retrieves the exception associated with the job execution, if any.
-   *
-   * @return the exception that caused the failure, or null if no exception occurred
-   */
   public Throwable getException() {
     return exception;
   }
 
-  /**
-   * Retrieves the total execution time of the job in milliseconds.
-   *
-   * @return the execution time in milliseconds, or null if not recorded
-   */
   public Long getExecutionTimeMs() {
     return executionTimeMs;
   }
 
-  /**
-   * Retrieves the timestamp indicating when the job execution began.
-   *
-   * @return the start time of the job execution as an {@code Instant}, or null if the start time is
-   *     not recorded.
-   */
   public Instant getStartTime() {
     return startTime;
   }
 
-  /**
-   * Retrieves the timestamp indicating when the job execution completed.
-   *
-   * @return the end time of the job execution as an {@code Instant}, or null if the end time is not
-   *     recorded.
-   */
   public Instant getEndTime() {
     return endTime;
   }
 
-  /**
-   * Retrieves the metadata associated with the job result.
-   *
-   * <p>Metadata provides an extensible way to store custom key-value pairs relevant to the job's
-   * execution. This map may include additional details beyond the standard job result fields.
-   *
-   * @return a map containing metadata key-value pairs, or an empty map if no metadata is present
-   */
   public Map<String, Object> getMetadata() {
     return metadata;
   }
@@ -308,11 +147,6 @@ public class JobResult<T> implements Serializable {
   }
 
   /**
-   * Retrieves a metadata value by its key.
-   *
-   * <p>Metadata provides a flexible way to attach custom information to job results without
-   * modifying the core result structure.
-   *
    * @param key the metadata key to look up
    * @return the metadata value, or null if not found
    */
@@ -321,22 +155,12 @@ public class JobResult<T> implements Serializable {
   }
 
   /**
-   * Retrieves a typed metadata value with a fallback default.
+   * Returns a typed metadata value, falling back to the default if absent.
    *
-   * <p>This method provides type-safe access to metadata with automatic casting and a default value
-   * if the key is not found or the metadata map is null.
-   *
-   * <h3>Example:</h3>
-   *
-   * <pre>{@code
-   * Integer count = result.getMetadata("processedCount", 0);
-   * String status = result.getMetadata("status", "unknown");
-   * }</pre>
-   *
-   * @param <V> the expected type of the metadata value
-   * @param key the metadata key to look up
-   * @param defaultValue the value to return if key is not found
-   * @return the metadata value if present, otherwise the default value
+   * @param <V> the expected type
+   * @param key the metadata key
+   * @param defaultValue fallback if key is not found
+   * @return the metadata value or the default
    */
   @SuppressWarnings("unchecked")
   public <V> V getMetadata(String key, V defaultValue) {
@@ -348,23 +172,13 @@ public class JobResult<T> implements Serializable {
   }
 
   /**
-   * Checks if the job failed with error information.
-   *
-   * <p>Returns true if either an error message or exception is present. This can be used to
-   * determine if error details are available for logging or debugging purposes.
-   *
-   * @return true if error information is available
+   * @return true if an error message or exception is present
    */
   public boolean hasError() {
     return error != null || exception != null;
   }
 
   /**
-   * Checks if the job produced a return value.
-   *
-   * <p>Note that a job can be successful without returning a value (e.g., void methods). This
-   * method only checks for non-null values.
-   *
    * @return true if the job returned a non-null value
    */
   public boolean hasValue() {
@@ -372,24 +186,14 @@ public class JobResult<T> implements Serializable {
   }
 
   /**
-   * Checks if the job execution failed.
-   *
-   * <p>This is a convenience method equivalent to {@code !isSuccess()}. Useful in workflow
-   * conditions and error handling logic.
-   *
-   * @return true if the job failed, false if successful
+   * @return true if the job failed
    */
   public boolean isFailure() {
     return !success;
   }
 
   /**
-   * Checks if the job execution completed successfully.
-   *
-   * <p>A job is considered successful when it completes without throwing an exception, regardless
-   * of whether it returns a value.
-   *
-   * @return true if the job succeeded, false if it failed
+   * @return true if the job succeeded
    */
   public boolean isSuccess() {
     return success;

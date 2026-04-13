@@ -41,17 +41,7 @@ public class DoNotRetryPolicy {
 
   private static final Logger log = Logger.getLogger(DoNotRetryPolicy.class);
 
-  /**
-   * Set of fully qualified exception class names that should never be retried.
-   *
-   * <p>These are well-known JDK and framework exception classes that indicate permanent failures.
-   * Using fully qualified class names (rather than Class objects) allows this set to include
-   * exceptions that may not be on the classpath in all deployments.
-   *
-   * <p>This list is intentionally conservative - only exceptions that are clearly non-recoverable
-   * are included. When in doubt, exceptions default to being retryable, which is the safer
-   * behavior.
-   */
+  /** Well-known exception class names that indicate permanent, non-retryable failures. */
   private static final Set<String> DO_NOT_RETRY_EXCEPTIONS =
       Set.of(
           // Validation errors - won't succeed on retry
@@ -105,23 +95,6 @@ public class DoNotRetryPolicy {
     return false;
   }
 
-  /**
-   * Checks if a specific exception should not be retried.
-   *
-   * <p>This method performs two checks:
-   *
-   * <ol>
-   *   <li>Whether the exception's fully qualified class name is in the {@link
-   *       #DO_NOT_RETRY_EXCEPTIONS} set
-   *   <li>Whether the exception class is annotated with {@link run.ratchet.api.DoNotRetry}
-   * </ol>
-   *
-   * <p>This method only checks the given exception instance, not its cause chain. The cause chain
-   * traversal is handled by {@link #shouldNotRetry(Throwable)}.
-   *
-   * @param exception the specific exception instance to check (not the cause chain)
-   * @return true if this specific exception type should not be retried
-   */
   @SuppressWarnings("removal")
   private boolean isDoNotRetryException(Throwable exception) {
     // Check if exception class is in the do-not-retry list

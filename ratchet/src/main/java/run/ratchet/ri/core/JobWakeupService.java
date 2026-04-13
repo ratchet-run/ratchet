@@ -89,9 +89,9 @@ public class JobWakeupService {
     }
   }
 
-  /** Initializes the service. Logs initialization state for operational visibility. */
+  /** Initializes the service. */
   public void init() {
-    log.info("JobWakeupService initialized with ClusterCoordinator");
+    // no-op, wakeup listener handles registration
   }
 
   boolean shouldNotify(JobExecutionType jobType, JobPriority priority, Duration delay) {

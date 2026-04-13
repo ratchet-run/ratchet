@@ -15,12 +15,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
 
-/**
- * Entity representing an immutable log entry for job execution events and diagnostics.
- *
- * <p>This entity provides a comprehensive audit trail of job execution activities, capturing both
- * standard log messages and structured diagnostic context.
- */
+/** Immutable log entry for job execution events. */
 @Entity
 @Table(
     name = "scheduler_job_log",
@@ -51,8 +46,6 @@ public class JobLogEntity implements TsidEntityListener.TsidAssignable {
   @Convert(converter = JsonObjectMapConverter.class)
   private Map<String, Object> mdc;
 
-  // ── Getters ──────────────────────────────────────────────────────────────
-
   public Long getId() {
     return id;
   }
@@ -77,8 +70,6 @@ public class JobLogEntity implements TsidEntityListener.TsidAssignable {
     this.ts = ts;
   }
 
-  // ── Setters ──────────────────────────────────────────────────────────────
-
   public LogLevel getLevel() {
     return level;
   }
@@ -102,8 +93,6 @@ public class JobLogEntity implements TsidEntityListener.TsidAssignable {
   public void setMdc(Map<String, Object> mdc) {
     this.mdc = mdc;
   }
-
-  // ── Object overrides ────────────────────────────────────────────────────
 
   @Override
   public int hashCode() {

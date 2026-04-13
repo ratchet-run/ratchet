@@ -7,9 +7,7 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 
 /**
- * Entity representing a configured resource concurrency limit.
- *
- * <p>Resources define shared external systems or services that have concurrent access limits.
+ * Configured resource concurrency limit.
  *
  * @see ResourcePermitEntity
  */
@@ -36,8 +34,6 @@ public class ResourceLimitEntity {
   @Column(name = "updated_at", nullable = false)
   private Instant updatedAt;
 
-  // ── Getters ──────────────────────────────────────────────────────────────
-
   public String getResourceName() {
     return resourceName;
   }
@@ -61,8 +57,6 @@ public class ResourceLimitEntity {
   public void setRetryDelayMs(int retryDelayMs) {
     this.retryDelayMs = retryDelayMs;
   }
-
-  // ── Setters ──────────────────────────────────────────────────────────────
 
   public String getDescription() {
     return description;

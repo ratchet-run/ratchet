@@ -81,12 +81,6 @@ public class PackagePrefixClassPolicy implements ClassPolicy {
    */
   private static final Set<String> DEFAULT_ALLOWED_PACKAGES = Set.of();
 
-  /**
-   * The active set of allowed package prefixes.
-   *
-   * <p>This is an immutable copy created at construction time to prevent modification after
-   * initialization, which could be a security vulnerability.
-   */
   private final Set<String> allowedPackages;
 
   /** Creates a new PackagePrefixClassPolicy with default (empty) allowed packages. */
@@ -137,11 +131,6 @@ public class PackagePrefixClassPolicy implements ClassPolicy {
     }
   }
 
-  /**
-   * Gets the set of allowed package prefixes.
-   *
-   * @return an unmodifiable set of allowed package prefixes
-   */
   public Set<String> getAllowedPackages() {
     return allowedPackages;
   }

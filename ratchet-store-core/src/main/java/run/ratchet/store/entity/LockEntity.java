@@ -7,13 +7,7 @@ import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import java.time.Instant;
 
-/**
- * Entity representing a distributed lock for cluster-wide synchronization.
- *
- * <p>This entity implements a database-backed distributed locking mechanism that ensures exclusive
- * access to shared resources across multiple scheduler nodes. Locks are time-bound with automatic
- * expiration to prevent deadlocks from node failures.
- */
+/** Distributed lock for cluster-wide synchronization, with automatic expiration. */
 @Entity
 @Table(
     name = "scheduler_lock",
@@ -33,8 +27,6 @@ public class LockEntity {
   @Column(name = "expires_at", nullable = false)
   private Instant expiresAt;
 
-  // ── Getters ──────────────────────────────────────────────────────────────
-
   public String getLockName() {
     return lockName;
   }
@@ -50,8 +42,6 @@ public class LockEntity {
   public void setOwnerNode(String ownerNode) {
     this.ownerNode = ownerNode;
   }
-
-  // ── Setters ──────────────────────────────────────────────────────────────
 
   public Instant getLockedAt() {
     return lockedAt;

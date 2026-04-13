@@ -30,10 +30,6 @@ public class SchedulerLifecycleManager {
 
   private static final Logger log = Logger.getLogger(SchedulerLifecycleManager.class);
 
-  /**
-   * Flag tracking whether the scheduler has been started. Uses AtomicBoolean to prevent double
-   * start/shutdown from concurrent callers via compareAndSet.
-   */
   private final AtomicBoolean started = new AtomicBoolean(false);
 
   /** Callback for startup initialization. */

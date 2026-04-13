@@ -42,8 +42,6 @@ public class ResourcePermitEntity implements TsidEntityListener.TsidAssignable {
   @Column(name = "acquired_at", nullable = false)
   private Instant acquiredAt;
 
-  // ── Getters ──────────────────────────────────────────────────────────────
-
   /**
    * Creates a new permit for a job to access a resource.
    *
@@ -77,8 +75,6 @@ public class ResourcePermitEntity implements TsidEntityListener.TsidAssignable {
     this.resourceName = resourceName;
   }
 
-  // ── Setters ──────────────────────────────────────────────────────────────
-
   public Long getJobId() {
     return jobId;
   }
@@ -98,8 +94,6 @@ public class ResourcePermitEntity implements TsidEntityListener.TsidAssignable {
   public Instant getAcquiredAt() {
     return acquiredAt;
   }
-
-  // ── Factory methods ─────────────────────────────────────────────────────
 
   public void setAcquiredAt(Instant acquiredAt) {
     this.acquiredAt = acquiredAt;

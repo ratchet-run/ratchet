@@ -11,12 +11,7 @@ import jakarta.persistence.UniqueConstraint;
 import java.time.Instant;
 import java.util.Objects;
 
-/**
- * Entity representing a record of a DLQ (Dead Letter Queue) alert notification.
- *
- * <p>Each record tracks an alert sent for a permanently failed job, enabling rate-limiting of
- * duplicate alerts and providing an audit trail of notifications.
- */
+/** DLQ alert notification record, tracking alerts sent for permanently failed jobs. */
 @Entity
 @Table(
     name = "scheduler_dlq_alerts",
@@ -42,8 +37,6 @@ public class DlqAlertEntity implements TsidEntityListener.TsidAssignable {
   @Column(name = "alert_channel", length = 100)
   private String alertChannel;
 
-  // ── Getters ──────────────────────────────────────────────────────────────
-
   public Long getId() {
     return id;
   }
@@ -64,8 +57,6 @@ public class DlqAlertEntity implements TsidEntityListener.TsidAssignable {
     return errorHash;
   }
 
-  // ── Setters ──────────────────────────────────────────────────────────────
-
   public void setErrorHash(String errorHash) {
     this.errorHash = errorHash;
   }
@@ -85,8 +76,6 @@ public class DlqAlertEntity implements TsidEntityListener.TsidAssignable {
   public void setAlertChannel(String alertChannel) {
     this.alertChannel = alertChannel;
   }
-
-  // ── Object overrides ────────────────────────────────────────────────────
 
   @Override
   public int hashCode() {

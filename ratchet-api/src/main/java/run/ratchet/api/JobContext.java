@@ -5,115 +5,24 @@ import java.util.Collections;
 import java.util.Map;
 
 /**
- * Thread-local context object providing job-specific information during execution.
- *
- * <p>JobContext serves as the primary interface for jobs to access runtime information and services
- * during their execution. It provides access to the job's unique identifier, logging facilities,
- * and configuration parameters. The context is automatically bound to the executing thread and
- * cleared upon completion.
- *
- * <h2>Key Features:</h2>
- *
- * <ul>
- *   <li>Thread-local storage ensuring isolated execution contexts
- *   <li>Access to job-specific logger for structured logging
- *   <li>Parameter access for runtime configuration
- *   <li>Automatic lifecycle management
- * </ul>
- *
- * <h2>Usage in Job Implementation:</h2>
- *
- * <pre>{@code
- * public class DataProcessingJob implements SerializableCheckedRunnable {
- *     public void run() throws Exception {
- *         JobContext ctx = JobContext.current();
- *         JobLogger logger = ctx.logger();
- *
- *         // Access job parameters
- *         String batchSize = ctx.param("batchSize", "100");
- *         String targetTable = ctx.param("targetTable");
- *
- *         logger.info("Processing job {} with batch size {}",
- *                     ctx.jobId(), batchSize);
- *
- *         // Perform job logic...
- *     }
- * }
- * }</pre>
- *
- * <h2>Thread Safety:</h2>
- *
- * <p>JobContext uses {@link ThreadLocal} storage to ensure each thread has its own isolated
- * context. This prevents cross-contamination in multi-threaded execution environments where
- * multiple jobs may run concurrently.
- *
- * <h2>Lifecycle:</h2>
- *
- * <ol>
- *   <li>Context is created and bound when job execution begins
- *   <li>Available throughout job execution via {@link #current()}
- *   <li>Automatically cleared when job completes (success or failure)
- * </ol>
+ * Thread-local context providing the current job's ID, logger, and parameters during execution.
+ * Bound automatically at job start via {@link #bind} and cleared on completion via {@link #clear}.
  *
  * @see JobLogger
  * @see JobSchedulerService
  */
 public final class JobContext {
 
-  /**
-   * Thread-local storage for the currently executing job's context.
-   *
-   * <p>This enables jobs to access their context without explicit parameter passing. The context is
-   * bound at the start of job execution via {@link #bind(long, JobLogger)} and must be cleared via
-   * {@link #clear()} when execution completes to prevent memory leaks in thread pool environments.
-   */
   private static final ThreadLocal<JobContext> TL = new ThreadLocal<>();
 
-  /**
-   * The unique identifier of the job associated with this context.
-   *
-   * <p>This ID is assigned during job creation and remains constant throughout the job's lifecycle.
-   * It can be used for correlation in logs, monitoring, and when referencing the job in other
-   * system components.
-   */
   private final long jobId;
-
-  /**
-   * The logger instance configured for this job's execution.
-   *
-   * <p>Provides structured logging with automatic job context inclusion (job ID, timestamps, etc.)
-   * in all log entries for better observability and debugging.
-   */
   private final JobLogger logger;
-
-  /**
-   * Immutable map of job parameters configured at submission time.
-   *
-   * <p>Parameters provide lightweight configuration data without complex object serialization.
-   * Accessed via {@link #param(String)} and {@link #param(String, String)}. The map is wrapped as
-   * unmodifiable to prevent accidental modification during execution.
-   */
   private final Map<String, String> params;
 
-  /**
-   * Creates a new instance of JobContext with the specified job identifier and logger. This
-   * constructor is private and intended for internal use within the JobContext class.
-   *
-   * @param jobId the unique identifier of the job
-   * @param logger the JobLogger instance associated with the job
-   */
   private JobContext(long jobId, JobLogger logger) {
     this(jobId, logger, Collections.emptyMap());
   }
 
-  /**
-   * Creates a new instance of JobContext with the specified job identifier, logger, and parameters.
-   * This constructor is private and intended for internal use within the JobContext class.
-   *
-   * @param jobId the unique identifier of the job
-   * @param logger the JobLogger instance associated with the job
-   * @param params the job parameters map
-   */
   private JobContext(long jobId, JobLogger logger, Map<String, String> params) {
     this.jobId = jobId;
     this.logger = logger;
@@ -121,13 +30,8 @@ public final class JobContext {
   }
 
   /**
-   * Binds a new {@code JobContext} instance to the current thread for a specific job execution. The
-   * method creates a {@code JobContext} using the provided job ID and logger, associates it with
-   * the thread using a {@code ThreadLocal}, and returns it.
-   *
-   * @param jobId the unique identifier of the job
-   * @param logger the {@code JobLogger} instance associated with the job
-   * @return the newly created and bound {@code JobContext} instance
+   * Binds a new context to the current thread. Always pair with {@link #clear()} in a finally
+   * block.
    */
   public static JobContext bind(long jobId, JobLogger logger) {
     JobContext ctx = new JobContext(jobId, logger);
@@ -135,41 +39,21 @@ public final class JobContext {
     return ctx;
   }
 
-  /**
-   * Binds a new {@code JobContext} instance to the current thread for a specific job execution. The
-   * method creates a {@code JobContext} using the provided job ID, logger, and parameters,
-   * associates it with the thread using a {@code ThreadLocal}, and returns it.
-   *
-   * @param jobId the unique identifier of the job
-   * @param logger the {@code JobLogger} instance associated with the job
-   * @param params the job parameters map
-   * @return the newly created and bound {@code JobContext} instance
-   */
+  /** Binds a new context with parameters to the current thread. */
   public static JobContext bind(long jobId, JobLogger logger, Map<String, String> params) {
     JobContext ctx = new JobContext(jobId, logger, params);
     TL.set(ctx);
     return ctx;
   }
 
-  /**
-   * Clears the {@link JobContext} bound to the current thread.
-   *
-   * <p>This method removes the {@link JobContext} instance associated with the current thread from
-   * the {@code ThreadLocal}, effectively unbinding the context. Use this method to ensure proper
-   * cleanup of thread-specific job contexts, especially when the job execution is complete or when
-   * the context is no longer needed. Failure to call this method may result in resource leaks or
-   * unintended behavior in subsequent thread reuse.
-   */
+  /** Removes the context bound to the current thread. */
   public static void clear() {
     TL.remove();
   }
 
   /**
-   * Retrieves the {@code JobContext} instance currently bound to the current thread. If no {@code
-   * JobContext} is bound, this method throws an {@code IllegalStateException}.
-   *
-   * @return the {@code JobContext} instance bound to the current thread
-   * @throws IllegalStateException if no {@code JobContext} is bound to the current thread
+   * @return the context bound to the current thread
+   * @throws IllegalStateException if no context is bound
    */
   public static JobContext current() {
     JobContext ctx = TL.get();

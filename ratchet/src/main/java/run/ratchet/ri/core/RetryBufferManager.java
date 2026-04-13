@@ -22,94 +22,31 @@ import java.util.concurrent.locks.ReentrantLock;
 import org.jboss.logging.Logger;
 
 /**
- * Manages priority-ordered retry buffers for jobs awaiting executor capacity.
- *
- * <p>When thread pools are at capacity and cannot accept new jobs, this manager provides temporary
- * storage to prevent job loss. Jobs are stored in priority-ordered queues per job type, ensuring
- * high-priority work is executed first when capacity frees up.
- *
- * <p>Buffer characteristics:
- *
- * <ul>
- *   <li><b>Priority Ordering:</b> Jobs are ordered by priority (descending) then by scheduled time
- *       (ascending), so urgent jobs execute first
- *   <li><b>Type Isolation:</b> Separate buffers per {@link JobExecutionType} prevent one execution
- *       type from starving others
- *   <li><b>Bounded Size:</b> Each buffer is limited to {@link #MAX_BUFFER_SIZE_PER_TYPE} entries to
- *       prevent memory exhaustion under sustained overload
- *   <li><b>Thread Safety:</b> Uses {@link PriorityBlockingQueue} for safe concurrent access
- * </ul>
- *
- * <p>Flow integration:
- *
- * <pre>
- * ThreadPool full -> offer(job) -> PriorityBlockingQueue
- *                                        |
- * RetryBufferDrainer -> getBuffer() -> poll() -> resubmit
- * </pre>
- *
- * @see RetryBufferDrainer for the periodic drain mechanism
- * @see JobExecutionType for the buffer partitioning dimension
+ * Priority-ordered retry buffers for jobs awaiting executor capacity. Separate bounded buffer per
+ * {@link JobExecutionType}, drained by {@link RetryBufferDrainer}.
  */
 @ApplicationScoped
 @Transactional
 public class RetryBufferManager {
 
-  /**
-   * Maximum number of jobs that can be buffered per job type under normal operation.
-   *
-   * <p>This safety limit prevents memory exhaustion if the system is under sustained overload where
-   * jobs are added faster than they can be drained. Jobs exceeding this limit will be rejected by
-   * {@link #offer(JobEntity)} and must be handled by the caller (typically by failing the job or
-   * returning to the database).
-   */
+  /** Normal capacity limit per job type; excess jobs are rejected by {@link #offer}. */
   static final int MAX_BUFFER_SIZE_PER_TYPE = 1000;
 
-  /**
-   * Absolute maximum buffer size that cannot be exceeded even by {@link #forceOffer(JobEntity)}.
-   *
-   * <p>This hard cap (2x the normal limit) provides a last-resort safety mechanism to prevent
-   * unbounded memory growth during catastrophic failure scenarios (e.g., sustained database
-   * unavailability during job reset operations). When this limit is reached, jobs are dropped with
-   * an error log rather than buffered.
-   */
+  /** Hard cap (2x normal) that even {@link #forceOffer} respects; breaches go to DLQ. */
   static final int HARD_CAP_PER_TYPE = 2000;
 
   private static final Logger log = Logger.getLogger(RetryBufferManager.class);
 
-  /**
-   * Dead letter service for handling jobs that cannot be buffered due to capacity limits.
-   *
-   * <p>When the hard cap is reached, jobs are moved to the DLQ rather than being silently dropped,
-   * ensuring no job is ever lost without a trace.
-   */
   private final DeadLetterService deadLetterService;
-
-  /** Store for conditional state transitions during shutdown recovery. */
   private final JobStatusStore jobStatusStore;
-
-  /** Node identity used to avoid resetting jobs no longer owned by this node. */
   private final NodeIdentityProvider nodeIdentityProvider;
 
-  /**
-   * Thread-safe priority queues for each job type.
-   *
-   * <p>Uses EnumMap for efficient lookup by job type and PriorityBlockingQueue for thread-safe
-   * priority ordering. Jobs are compared first by priority (higher ordinal = higher priority,
-   * reversed for descending order) then by scheduled time (earlier = first).
-   */
   private final Map<JobExecutionType, Queue<BufferedJob>> retryBuffers =
       new EnumMap<>(JobExecutionType.class);
 
   private final Map<JobExecutionType, ReentrantLock> bufferLocks =
       new EnumMap<>(JobExecutionType.class);
 
-  /**
-   * Initializes retry buffers for all job types with priority-based ordering.
-   *
-   * <p>Creates a PriorityBlockingQueue for each job type with a comparator that orders jobs by
-   * priority (descending) and then scheduled time (ascending).
-   */
   // Required by CDI proxy
   protected RetryBufferManager() {
     this.deadLetterService = null;

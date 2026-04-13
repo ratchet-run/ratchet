@@ -27,20 +27,8 @@ import java.util.concurrent.TimeUnit;
 import org.jboss.logging.Logger;
 
 /**
- * Service responsible for managing the Dead Letter Queue (DLQ) for permanently failed jobs. The DLQ
- * serves as a final destination for jobs that have exhausted all retry attempts and cannot be
- * processed successfully, providing a mechanism for audit, troubleshooting, and manual
- * intervention.
- *
- * <p>Key responsibilities:
- *
- * <ul>
- *   <li>Moving permanently failed jobs to the DLQ with detailed error information
- *   <li>Automatically purging old DLQ entries based on configurable retention period
- *   <li>Preventing DLQ growth from consuming excessive database storage
- * </ul>
- *
- * @see JobStatus#FAILED for DLQ job status
+ * Manages the Dead Letter Queue (DLQ): moves permanently failed jobs there and purges old entries
+ * on a cron schedule.
  */
 @ApplicationScoped
 @Transactional
@@ -48,43 +36,23 @@ public class DeadLetterService {
 
   private static final Logger log = Logger.getLogger(DeadLetterService.class);
 
-  /** Distributed lock name used to coordinate DLQ purge operations across cluster nodes. */
   private static final String LOCK_NAME = "dlqPurger";
-
-  /** Rate-limit window for duplicate DLQ alert suppression. */
   private static final Duration ALERT_DEDUP_WINDOW = Duration.ofHours(1);
 
-  /** Provider for scheduled executor services. */
   private final ExecutorProvider executorProvider;
-
-  /** Store for job entity operations. */
   private final JobCrudStore jobCrudStore;
-
-  /** Store for bulk job operations (DLQ purge). */
   private final JobBulkStore jobBulkStore;
-
-  /** Store for distributed lock operations. */
   private final LockStore lockStore;
-
-  /** Store for DLQ alert audit trail and rate-limiting. */
   private final DlqAlertStore dlqAlertStore;
-
-  /** Provider for the unique identifier of this cluster node. */
   private final NodeIdentityProvider nodeIdentityProvider;
-
-  /** Publisher for DLQ-related events. */
   private final InternalEventPublisher eventPublisher;
-
-  /** Sanitizer for exception messages before persistence. */
   private final ErrorSanitizer errorSanitizer;
 
-  /** Retention period for DLQ entries before automatic purging. */
   private Duration purgeAfter;
-
   private Cron cron;
   private ZoneId zone;
 
-  /** Set to true during shutdown to prevent re-scheduling after the current run completes. */
+  /** Prevents re-scheduling after shutdown. */
   private volatile boolean stopped = false;
 
   // Required by CDI proxy

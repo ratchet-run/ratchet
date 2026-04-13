@@ -44,11 +44,6 @@ public final class BackoffPolicyHandler {
    */
   private static final int MAX_EXPONENT = 20;
 
-  /**
-   * Private constructor to prevent instantiation of this utility class.
-   *
-   * <p>This class provides only static methods and should not be instantiated.
-   */
   private BackoffPolicyHandler() {
     /* util */
   }

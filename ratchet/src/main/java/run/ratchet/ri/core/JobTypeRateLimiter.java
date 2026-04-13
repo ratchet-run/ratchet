@@ -9,40 +9,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.jboss.logging.Logger;
 
 /**
- * Rate limiter for job execution per job type to prevent resource exhaustion.
- *
- * <p>This rate limiter is an essential safeguard against runaway job processing that could
- * overwhelm system resources (CPU, memory, database connections, external API rate limits). By
- * limiting how many jobs of each type can execute per minute, we ensure fair resource allocation
- * and prevent cascading failures.
- *
- * <p>The rate limiter uses a sliding window approach to track job execution rates per job type.
- * Each job type has its own independent rate limit and tracking window, allowing fine-grained
- * control over different workload categories.
- *
- * <p><b>Configuration via environment variables:</b>
- *
- * <ul>
- *   <li>{@code SCHEDULER_RATE_LIMIT_SINGLE}: Max jobs per minute for SINGLE type (default:
- *       unlimited)
- *   <li>{@code SCHEDULER_RATE_LIMIT_RECURRING}: Max jobs per minute for RECURRING type (default:
- *       unlimited)
- *   <li>{@code SCHEDULER_RATE_LIMIT_BATCH_CHILD}: Max jobs per minute for BATCH_CHILD type
- *       (default: unlimited)
- *   <li>{@code SCHEDULER_RATE_LIMIT_CHAIN_STEP}: Max jobs per minute for CHAIN_STEP type (default:
- *       unlimited)
- *   <li>{@code SCHEDULER_RATE_LIMIT_BATCH_PARENT}: Max jobs per minute for BATCH_PARENT type
- *       (default: unlimited)
- *   <li>{@code SCHEDULER_RATE_LIMIT_WORKFLOW_BRANCH}: Max jobs per minute for WORKFLOW_BRANCH type
- *       (default: unlimited)
- * </ul>
- *
- * <p>A value of 0 (or not set) means unlimited - no rate limiting is applied for that job type.
- *
- * <p><b>Thread Safety:</b> This class is thread-safe and can be called from multiple threads
- * concurrently.
- *
- * @see JobExecutionType for the scheduler execution categories
+ * Per-type rate limiter using a one-minute sliding window. Configured via environment variables
+ * named {@code SCHEDULER_RATE_LIMIT_<TYPE>} (e.g. {@code SCHEDULER_RATE_LIMIT_SINGLE}). A value of
+ * 0 or unset means unlimited.
  */
 @ApplicationScoped
 public class JobTypeRateLimiter {
@@ -112,12 +81,7 @@ public class JobTypeRateLimiter {
     return window.tryAcquire(maxPerMinute);
   }
 
-  /**
-   * Initializes rate limits from environment variable configuration.
-   *
-   * <p>Reads rate limit values from environment variables and populates the rate limits map. Rate
-   * limits are logged at INFO level when enabled for visibility into the configured limits.
-   */
+  /** Reads rate limits from environment variables. */
   void init() {
     rateLimits.put(JobExecutionType.SINGLE, getRateLimitFromEnv("SCHEDULER_RATE_LIMIT_SINGLE", 0));
     rateLimits.put(
@@ -141,9 +105,7 @@ public class JobTypeRateLimiter {
     }
 
     if (!anyConfigured) {
-      log.warn(
-          "No rate limits configured for job scheduler"
-              + " - all job types will execute without rate limiting");
+      log.debug("No rate limits configured — all job types unlimited");
     }
   }
 

@@ -11,12 +11,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
 
-/**
- * Entity representing an active scheduler node in the distributed cluster.
- *
- * <p>This entity maintains a registry of all scheduler nodes participating in job processing,
- * enabling health monitoring, failure detection, and workload distribution.
- */
+/** Active scheduler node in the distributed cluster. */
 @Entity
 @Table(
     name = "scheduler_node",
@@ -37,8 +32,6 @@ public class NodeEntity {
   @Column(name = "node_info")
   private Map<String, Object> nodeInfo;
 
-  // ── Getters ──────────────────────────────────────────────────────────────
-
   public String getId() {
     return id;
   }
@@ -55,8 +48,6 @@ public class NodeEntity {
     this.lastHeartbeat = lastHeartbeat;
   }
 
-  // ── Setters ──────────────────────────────────────────────────────────────
-
   public Instant getStartedAt() {
     return startedAt;
   }
@@ -72,8 +63,6 @@ public class NodeEntity {
   public void setNodeInfo(Map<String, Object> nodeInfo) {
     this.nodeInfo = nodeInfo;
   }
-
-  // ── Object overrides ────────────────────────────────────────────────────
 
   @Override
   public int hashCode() {

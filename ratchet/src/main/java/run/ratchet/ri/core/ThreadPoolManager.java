@@ -12,20 +12,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.jboss.logging.Logger;
 
 /**
- * Centralized manager for job-type-specific thread pools, providing resource isolation and
- * preventing job type starvation in the scheduler system.
- *
- * <p>The ThreadPoolManager implements a sophisticated resource management strategy:
- *
- * <ul>
- *   <li><b>Type Isolation:</b> Each execution type gets its own concurrency limit to prevent
- *       starvation
- *   <li><b>Capacity Management:</b> Semaphore-based permits ensure pools don't become overloaded
- *   <li><b>Virtual Thread Support:</b> Seamlessly switches between platform and virtual threads
- * </ul>
- *
- * @see JobExecutionType for the internal execution categories
- * @see JobExecutionCoordinator for job submission to these pools
+ * Manages per-{@link JobExecutionType} concurrency limits via semaphores (platform threads) or
+ * atomic counters (virtual threads).
  */
 public class ThreadPoolManager {
 
@@ -57,15 +45,6 @@ public class ThreadPoolManager {
     this.config = null;
   }
 
-  /**
-   * Creates a new ThreadPoolManager.
-   *
-   * @param executorProvider provides executor services for job execution
-   * @param metricsCollector collects metrics about pool utilization
-   * @param useVirtualThreads whether to use virtual threads instead of platform threads
-   * @param maxConcurrencyMap configured max concurrency per job type
-   * @param config the ratchet configuration for reading virtual thread limits
-   */
   public ThreadPoolManager(
       ExecutorProvider executorProvider,
       MetricsCollector metricsCollector,
@@ -81,22 +60,12 @@ public class ThreadPoolManager {
     init();
   }
 
-  /**
-   * Checks if the executor for the given job type can accept more work.
-   *
-   * @param jobType the type of job to check capacity for
-   * @return true if the pool can safely accept more work
-   */
+  /** Returns true if the pool for the given job type can accept more work. */
   public boolean canAcceptWork(JobExecutionType jobType) {
     return getAvailableCapacity(jobType) > 0;
   }
 
-  /**
-   * Returns the currently available execution capacity for the given job type.
-   *
-   * @param jobType the type of job to inspect
-   * @return the number of additional jobs that can be accepted immediately
-   */
+  /** Returns the number of additional jobs that can be accepted immediately. */
   public int getAvailableCapacity(JobExecutionType jobType) {
     if (useVirtualThreads) {
       AtomicInteger counter = virtualThreadCounts.get(jobType);
@@ -114,11 +83,7 @@ public class ThreadPoolManager {
     return semaphore.availablePermits();
   }
 
-  /**
-   * Gets the total number of active threads across all pools.
-   *
-   * @return the count of active threads
-   */
+  /** Total active threads across all pools. */
   public int getActiveThreadCount() {
     if (useVirtualThreads) {
       int totalActive = 0;
@@ -136,10 +101,6 @@ public class ThreadPoolManager {
   }
 
   /**
-   * Gets the appropriate executor for the given job type.
-   *
-   * @param jobType the type of job needing an executor
-   * @return the ExecutorService for this job type
    * @throws IllegalStateException if called when virtual threads are enabled
    */
   public ExecutorService getExecutor(JobExecutionType jobType) {
@@ -152,11 +113,7 @@ public class ThreadPoolManager {
     return executorProvider.getJobExecutor();
   }
 
-  /**
-   * Gets the overall utilization ratio across all thread pools.
-   *
-   * @return the overall utilization ratio (0.0 to 1.0)
-   */
+  /** Overall utilization ratio (0.0 to 1.0) across all pools. */
   public double getOverallUtilization() {
     if (useVirtualThreads) {
       int totalActive = 0;
@@ -183,12 +140,7 @@ public class ThreadPoolManager {
     return totalMax > 0 ? (double) totalActive / totalMax : 0.0;
   }
 
-  /**
-   * Gets current utilization percentage for the given job type's thread pool.
-   *
-   * @param jobType the type of job to get utilization for
-   * @return the utilization percentage (0-100)
-   */
+  /** Utilization percentage (0-100) for the given job type's pool. */
   public double getUtilization(JobExecutionType jobType) {
     if (useVirtualThreads) {
       return 0;
@@ -206,11 +158,7 @@ public class ThreadPoolManager {
     return 0;
   }
 
-  /**
-   * Releases a permit after work completion for the given job type.
-   *
-   * @param jobType the type of job
-   */
+  /** Releases a permit after work completion. */
   public void releasePermit(JobExecutionType jobType) {
     if (useVirtualThreads) {
       AtomicInteger counter = virtualThreadCounts.get(jobType);
@@ -227,12 +175,7 @@ public class ThreadPoolManager {
     }
   }
 
-  /**
-   * Acquires a permit to execute work for the given job type.
-   *
-   * @param jobType the type of job
-   * @return true if permit was acquired, false if no permits available
-   */
+  /** Tries to acquire a permit; returns false if none available. */
   public boolean tryAcquirePermit(JobExecutionType jobType) {
     if (useVirtualThreads) {
       AtomicInteger counter = virtualThreadCounts.get(jobType);
@@ -259,20 +202,12 @@ public class ThreadPoolManager {
     return false;
   }
 
-  /**
-   * Returns whether virtual threads are enabled.
-   *
-   * @return true if using virtual threads
-   */
+  /** Returns whether virtual threads are enabled. */
   public boolean isUseVirtualThreads() {
     return useVirtualThreads;
   }
 
-  /**
-   * Gets detailed health information for all thread pools.
-   *
-   * @return a map of job types to their thread pool health information
-   */
+  /** Detailed health snapshot for all pools. */
   public Map<JobExecutionType, ThreadPoolHealth> getThreadPoolHealth() {
     Map<JobExecutionType, ThreadPoolHealth> health = new EnumMap<>(JobExecutionType.class);
 
@@ -343,17 +278,7 @@ public class ThreadPoolManager {
     return maxConcurrencyMap.getOrDefault(jobType, 10);
   }
 
-  /**
-   * Health information for a thread pool.
-   *
-   * @param jobType the job type this health record applies to
-   * @param isVirtual true if using virtual threads
-   * @param corePoolSize the base number of threads in the pool
-   * @param maxPoolSize the maximum threads allowed
-   * @param activeThreads the number of threads currently executing jobs
-   * @param queueSize the number of jobs waiting in queue
-   * @param rejectionCount total number of jobs rejected due to capacity
-   */
+  /** Health snapshot for a single thread pool. */
   public record ThreadPoolHealth(
       JobExecutionType jobType,
       boolean isVirtual,
@@ -363,11 +288,7 @@ public class ThreadPoolManager {
       int queueSize,
       long rejectionCount) {
 
-    /**
-     * Calculates the utilization percentage for this thread pool.
-     *
-     * @return the utilization percentage (0-100), or 0 for virtual threads
-     */
+    /** Utilization percentage (0-100), or 0 for virtual threads. */
     public double getUtilizationPercent() {
       if (isVirtual || maxPoolSize == 0) {
         return 0;
@@ -375,11 +296,7 @@ public class ThreadPoolManager {
       return (double) activeThreads / maxPoolSize * 100;
     }
 
-    /**
-     * Determines if this thread pool is in a healthy state.
-     *
-     * @return true if the pool is healthy
-     */
+    /** True if utilization is under 90% and rejections are under 50. */
     public boolean isHealthy() {
       if (isVirtual) {
         return true;

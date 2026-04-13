@@ -6,19 +6,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
 
-/**
- * Responsible for coordinating the submission, initialization, and shutdown of job processing
- * tasks. It acts as a central component for managing job execution workflows, including
- * database-dependent components and retry buffer operations.
- *
- * <p>The class interacts with the following:
- *
- * <ul>
- *   <li>{@code JobSubmissionService} for submitting jobs
- *   <li>{@code JobStateManager} for managing job states on shutdown
- *   <li>{@code RetryBufferDrainer} for handling retry operations
- * </ul>
- */
+/** Coordinates job submission, retry-buffer draining, and shutdown reset. */
 @ApplicationScoped
 public class JobExecutionCoordinator {
 
@@ -51,7 +39,7 @@ public class JobExecutionCoordinator {
    * <p>This method must be called after database migrations have completed.
    */
   public void initDatabaseDependentComponents() {
-    log.info("JobExecutionCoordinator database-dependent initialization complete");
+    // Extension point for components that require database access at startup
   }
 
   /**

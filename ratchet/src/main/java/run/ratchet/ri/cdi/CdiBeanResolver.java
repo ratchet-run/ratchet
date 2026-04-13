@@ -20,16 +20,6 @@ import jakarta.inject.Inject;
 @ApplicationScoped
 public class CdiBeanResolver implements BeanResolver {
 
-  /**
-   * Represents a CDI {@link Instance} that holds all available CDI beans in the application
-   * context. Provides a means to dynamically resolve and interact with CDI-managed beans at
-   * runtime. The {@link Instance} abstraction ensures type-safe querying and retrieval of beans.
-   *
-   * <p>This variable is injected with the {@code @Any} annotation, indicating that it reflects the
-   * entire set of CDI beans without restriction, enabling runtime selection and resolution
-   * capabilities. It serves as a fundamental mechanism for supporting dynamic and contextual
-   * dependency injection.
-   */
   private final Instance<Object> allBeans;
 
   protected CdiBeanResolver() {

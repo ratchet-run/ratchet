@@ -33,15 +33,6 @@ public class ExecutionObserver {
     this.delayedJobReadyCallback = null;
   }
 
-  /**
-   * Creates a new ExecutionObserver.
-   *
-   * @param metricsCollector collects job execution metrics
-   * @param eventPublisher publishes internal scheduler events
-   * @param executionStore persists execution history entries
-   * @param executorProvider provides scheduled executor for delayed callbacks
-   * @param delayedJobReadyCallback callback invoked when a delayed job becomes ready; may be null
-   */
   public ExecutionObserver(
       MetricsCollector metricsCollector,
       InternalEventPublisher eventPublisher,
@@ -55,72 +46,30 @@ public class ExecutionObserver {
     this.delayedJobReadyCallback = delayedJobReadyCallback;
   }
 
-  /**
-   * Records the start of a job execution in the metrics collector.
-   *
-   * @param job the job entity being started
-   */
   public void recordJobStart(JobEntity job) {
     metricsCollector.jobStarted(job.getId(), job.getPublicJobType(), job.getPriority());
   }
 
-  /**
-   * Records a successful job completion in the metrics collector.
-   *
-   * @param job the job entity that succeeded
-   * @param executionTimeMs execution time for the completed attempt
-   */
   public void recordJobSuccess(JobEntity job, long executionTimeMs) {
     metricsCollector.jobCompleted(job.getId(), job.getPublicJobType(), executionTimeMs);
   }
 
-  /**
-   * Records a job failure in the metrics collector.
-   *
-   * @param job the job entity that failed
-   * @param ex the exception that caused the failure
-   * @param attempt the 1-based attempt number that failed
-   */
   public void recordJobFailure(JobEntity job, Throwable ex, int attempt) {
     metricsCollector.jobFailed(job.getId(), job.getPublicJobType(), ex, attempt);
   }
 
-  /**
-   * Records a lifecycle callback failure (for example, an exception thrown from {@code onSuccess}
-   * or {@code onFailure}). Callback failures do not fail the parent job — this hook gives operators
-   * visibility into otherwise-silent breakage.
-   *
-   * @param job the parent job whose callback failed
-   * @param ex the exception thrown from the callback
-   * @param attempt the 1-based callback invocation count
-   */
   public void recordCallbackFailure(JobEntity job, Throwable ex, int attempt) {
     metricsCollector.callbackFailed(job.getId(), job.getPublicJobType(), ex, attempt);
   }
 
-  /**
-   * Records a job cancellation.
-   *
-   * @param job the job entity that was cancelled
-   */
   public void recordJobCancellation(JobEntity job) {
     // The public MetricsCollector SPI has no cancellation callback.
   }
 
-  /**
-   * Publishes a scheduler event through the internal event publisher.
-   *
-   * @param event the event to publish
-   */
   public void publishEvent(Object event) {
     eventPublisher.publish(event);
   }
 
-  /**
-   * Schedules a callback to notify when a delayed job becomes ready for execution.
-   *
-   * @param delayMs the delay in milliseconds before the job becomes ready
-   */
   public void scheduleDelayedJobReadyCallback(long delayMs) {
     if (delayedJobReadyCallback != null) {
       executorProvider
@@ -129,26 +78,11 @@ public class ExecutionObserver {
     }
   }
 
-  /**
-   * Creates and persists a new execution history entry for a job attempt.
-   *
-   * @param jobId the job being executed
-   * @param attemptNumber the current attempt number (1-based)
-   * @param nodeId the cluster node executing the job
-   * @return the persisted execution entity
-   */
   public JobExecutionEntity startExecution(Long jobId, int attemptNumber, String nodeId) {
     JobExecutionEntity execution = JobExecutionEntity.start(jobId, attemptNumber, nodeId);
     return executionStore.saveExecution(execution);
   }
 
-  /**
-   * Persists an updated execution entity (e.g., after marking it as succeeded, failed, or
-   * canceled).
-   *
-   * @param execution the execution entity to save
-   * @return the persisted entity
-   */
   public JobExecutionEntity saveExecution(JobExecutionEntity execution) {
     return executionStore.saveExecution(execution);
   }

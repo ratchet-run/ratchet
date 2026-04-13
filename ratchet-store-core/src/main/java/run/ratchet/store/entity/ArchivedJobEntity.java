@@ -17,11 +17,7 @@ import java.time.Instant;
 import java.util.Objects;
 
 /**
- * Represents an archived job entity for completed, failed, or canceled jobs.
- *
- * <p>This entity stores historical job data for audit trails, analytics, and compliance purposes.
- * Jobs are moved to this archive table after reaching a terminal state and after a configurable
- * retention period in the active jobs table.
+ * Archived job for audit trails and analytics after reaching a terminal state.
  *
  * @see JobEntity for the active job entity
  * @see JobStatus for possible final status values
@@ -140,8 +136,6 @@ public class ArchivedJobEntity implements TsidEntityListener.TsidAssignable {
 
   @Column(name = "tags", length = 512)
   private String tags;
-
-  // ── Getters ──────────────────────────────────────────────────────────────
 
   public Long getId() {
     return id;
@@ -271,8 +265,6 @@ public class ArchivedJobEntity implements TsidEntityListener.TsidAssignable {
     return originalScheduledTime;
   }
 
-  // ── Setters ──────────────────────────────────────────────────────────────
-
   public void setOriginalScheduledTime(Instant originalScheduledTime) {
     this.originalScheduledTime = originalScheduledTime;
   }
@@ -396,8 +388,6 @@ public class ArchivedJobEntity implements TsidEntityListener.TsidAssignable {
   public void setTags(String tags) {
     this.tags = tags;
   }
-
-  // ── Object overrides & lifecycle ─────────────────────────────────────────
 
   @Override
   public int hashCode() {

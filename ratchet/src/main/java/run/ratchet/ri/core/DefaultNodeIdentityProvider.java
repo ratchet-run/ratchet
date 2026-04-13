@@ -63,17 +63,6 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
     this.dynamicHeartbeatEnabled = false;
   }
 
-  /**
-   * Creates a new DefaultNodeIdentityProvider.
-   *
-   * @param nodeStore store for node heartbeat operations
-   * @param jobBulkStore store for bulk job operations including orphan recovery
-   * @param heartbeatCalculator calculator for dynamic heartbeat intervals
-   * @param executorProvider provides scheduled executor for heartbeat tasks
-   * @param heartbeatIntervalSeconds base heartbeat frequency in seconds
-   * @param orphanGraceSeconds time before jobs are considered orphaned
-   * @param dynamicHeartbeatEnabled whether to enable adaptive heartbeat intervals
-   */
   public DefaultNodeIdentityProvider(
       NodeStore nodeStore,
       JobBulkStore jobBulkStore,
@@ -96,12 +85,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
     return nodeId;
   }
 
-  /**
-   * Initializes the node's operations and configurations during application startup.
-   *
-   * <p>This method resolves the node identifier, publishes an initial heartbeat, and schedules
-   * periodic heartbeat updates.
-   */
+  /** Resolves the node ID, sends an initial heartbeat, and schedules periodic heartbeats. */
   public void init() {
     if (!initialized.compareAndSet(false, true)) {
       log.warn("DefaultNodeIdentityProvider already initialized; skipping re-run");
@@ -124,10 +108,8 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
   }
 
   /**
-   * Checks for clock skew between the application server and database server.
-   *
-   * <p>Clock skew can cause premature orphan recovery (if app clock is behind) or stale heartbeats
-   * (if app clock is ahead). A warning is logged if skew exceeds 5 seconds.
+   * Warns if app-server and DB clocks differ by more than 5 seconds. Skew can cause premature
+   * orphan recovery or stale heartbeats.
    */
   private void checkClockSkew() {
     try {

@@ -5,14 +5,7 @@ import run.ratchet.api.JobType;
 import java.io.Serial;
 import java.time.Instant;
 
-/**
- * Event representing the initiation of a chain job in the scheduler.
- *
- * <p>This event is triggered when a chain of jobs has started, providing additional context about
- * the parent job that owns the chain.
- *
- * <p>Extends {@link AbstractJobSchedulerEvent} to leverage common job metadata fields.
- */
+/** Fired when a job chain begins execution. */
 public class ChainStartedEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = -4450548507481291423L;
@@ -43,11 +36,6 @@ public class ChainStartedEvent extends AbstractJobSchedulerEvent {
     this.parentJobId = parentJobId;
   }
 
-  /**
-   * Retrieves the ID of the parent job that owns the chain of jobs.
-   *
-   * @return the ID of the parent job, or {@code null} if no parent job exists.
-   */
   public Long getParentJobId() {
     return parentJobId;
   }

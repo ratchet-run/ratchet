@@ -31,14 +31,7 @@ import java.lang.annotation.Target;
 public @interface CircuitBreakerProtected {
 
   /**
-   * Specifies the service name associated with the circuit breaker protection.
-   *
-   * <p>This value is intended to provide metadata about the system or service being protected. It
-   * can be used for logging, monitoring, or grouping circuit breakers based on service contexts.
-   *
-   * <p>If not explicitly set, the annotation default value is an empty string.
-   *
-   * @return the service name as a {@code String}
+   * @return the protected service name (used for logging and grouping circuit breakers)
    */
   @Nonbinding
   String service() default "";

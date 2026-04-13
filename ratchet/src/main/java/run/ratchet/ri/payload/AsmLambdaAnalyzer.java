@@ -26,61 +26,19 @@ import org.objectweb.asm.tree.TypeInsnNode;
 import org.objectweb.asm.tree.VarInsnNode;
 
 /**
+ * Bytecode analyzer that inspects Java lambda expressions to extract method invocation details. For
+ * simple method references it reads the {@link SerializedLambda} metadata directly; for inline
+ * lambdas it walks the synthetic {@code lambda$...} method using ASM's tree API with a lightweight
+ * operand-stack simulation, recording every invocation (owner, method name, descriptor, and
+ * resolved arguments).
  *
- *
- * <h2>AsmLambdaAnalyzer</h2>
- *
- * <p>A sophisticated bytecode analyzer that inspects Java lambda expressions to extract method
- * invocation details. This class goes beyond simple method references to understand
- * <em>complex</em> lambda expressions by analyzing their bytecode structure. It walks through the
- * synthetic <code>lambda$...</code> implementation method using ASM's tree API, performs a
- * lightweight operand-stack simulation, and records <b>every</b> method invocation it encounters,
- * including:
- *
- * <ul>
- *   <li>The owner class (internal name)
- *   <li>Method name
- *   <li>Method descriptor (parameter and return types)
- *   <li>Concrete argument objects to be supplied at runtime
- * </ul>
- *
- * <p>
- *
- * <h3>Supported Operations</h3>
- *
- * <p>This analyzer is <strong>not</strong> a full JVM interpreter. It supports a targeted subset of
- * bytecode operations commonly produced by the Java compiler (javac) for idiomatic lambdas used in
- * background jobs:
- *
- * <ul>
- *   <li>Constant loading (null, integers, floats, doubles, strings, etc.)
- *   <li>Captured variable loading from the enclosing scope
- *   <li>Basic arithmetic operations and string concatenation
- *   <li>Object construction via {@code new ...; invokespecial <init>}
- *   <li>Method invocations (static, virtual, interface, and special)
- *   <li>Basic stack manipulation (pop, dup)
- * </ul>
- *
- * <p>Unsupported instructions are handled gracefully by pushing an {@link UnknownValue} marker onto
- * the simulated operand stack, preserving the stack's integrity without silently compromising the
- * analysis.
- *
- * <p>
- *
- * <h3>Usage</h3>
- *
- * <p>The primary client of this class is {@code JobPayloadFactory}, which uses the extracted
- * invocation information to create serializable job payloads. The factory can select which
- * invocation it wants to schedule -- typically the <em>last</em> one in the lambda body. However,
- * by preserving the complete list of invocations, this design enables more sophisticated scenarios
- * such as pre-processing calls or complex execution chains.
+ * <p>The simulated stack uses a sealed {@link Value} interface ({@link ConstantValue}, {@link
+ * CapturedValue}, {@link NewInstanceMarker}, {@link UnknownValue}) so unsupported instructions
+ * degrade gracefully without corrupting the analysis.
  */
 public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
 
-  /** Private constructor to prevent external instantiation. */
-  public AsmLambdaAnalyzer() {
-    // Default constructor for SPI usage
-  }
+  public AsmLambdaAnalyzer() {}
 
   /* ───────────────────────── LambdaAnalyzer SPI ───────────────────────── */
 
