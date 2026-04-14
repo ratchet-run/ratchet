@@ -23,7 +23,11 @@ import java.lang.reflect.Method;
  */
 @Interceptor
 @CircuitBreakerProtected
-@Priority(Interceptor.Priority.LIBRARY_BEFORE + 100)
+// Run before @Transactional (Jakarta Transactions interceptor priority =
+// PLATFORM_BEFORE + 200 = 200). PLATFORM_BEFORE + 100 = 100 fires first, so an OPEN
+// circuit short-circuits with ServiceUnavailableException before a transaction is opened
+// and a connection is borrowed.
+@Priority(Interceptor.Priority.PLATFORM_BEFORE + 100)
 public class CircuitBreakerInterceptor {
 
   private final CircuitBreakerRegistry registry;

@@ -22,6 +22,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 import org.jboss.logging.Logger;
 
 /**
@@ -99,12 +100,14 @@ public class JobExecutorService {
 
   public ExecutionResult execute(JobEntity job) {
     JobExecutionType jobType = job.getJobType();
-    Callable<Void> callable = createPermitAwareRunner(job, jobType);
+    AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef = new AtomicReference<>();
+    Callable<Void> callable = createPermitAwareRunner(job, jobType, handlesRef);
     Instant executionStartTime = Instant.now();
 
     try {
       Future<Void> future = submitToExecutor(job.getId(), jobType, callable);
-      scheduleWatchdog(job.getId(), job.getTimeoutSec(), future, executionStartTime);
+      handlesRef.set(
+          scheduleWatchdog(job.getId(), job.getTimeoutSec(), future, executionStartTime));
       return ExecutionResult.success(future);
     } catch (RejectedExecutionException e) {
       return ExecutionResult.rejected(e);
@@ -113,19 +116,23 @@ public class JobExecutorService {
 
   public ExecutionResult execute(JobClaimDto claim) {
     JobExecutionType jobType = claim.jobType();
-    Callable<Void> callable = createPermitAwareRunner(claim, jobType);
+    AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef = new AtomicReference<>();
+    Callable<Void> callable = createPermitAwareRunner(claim, jobType, handlesRef);
     Instant executionStartTime = Instant.now();
 
     try {
       Future<Void> future = submitToExecutor(claim.id(), jobType, callable);
-      scheduleWatchdog(claim.id(), claim.timeoutSec(), future, executionStartTime);
+      handlesRef.set(scheduleWatchdog(claim.id(), claim.timeoutSec(), future, executionStartTime));
       return ExecutionResult.success(future);
     } catch (RejectedExecutionException e) {
       return ExecutionResult.rejected(e);
     }
   }
 
-  private Callable<Void> createPermitAwareRunner(JobEntity job, JobExecutionType jobType) {
+  private Callable<Void> createPermitAwareRunner(
+      JobEntity job,
+      JobExecutionType jobType,
+      AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef) {
     JobTask task = createTask();
     task.init(job);
 
@@ -134,11 +141,15 @@ public class JobExecutorService {
         return task.call();
       } finally {
         threadPoolManager.releasePermit(jobType);
+        cancelTimeoutHandles(handlesRef);
       }
     };
   }
 
-  private Callable<Void> createPermitAwareRunner(JobClaimDto claim, JobExecutionType jobType) {
+  private Callable<Void> createPermitAwareRunner(
+      JobClaimDto claim,
+      JobExecutionType jobType,
+      AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef) {
     JobTask task = createTask();
     task.initFromClaim(claim);
 
@@ -147,8 +158,17 @@ public class JobExecutorService {
         return task.call();
       } finally {
         threadPoolManager.releasePermit(jobType);
+        cancelTimeoutHandles(handlesRef);
       }
     };
+  }
+
+  private static void cancelTimeoutHandles(
+      AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef) {
+    JobTimeoutHandler.TimeoutHandles handles = handlesRef.get();
+    if (handles != null) {
+      handles.cancel();
+    }
   }
 
   private JobTask createTask() {
@@ -166,15 +186,16 @@ public class JobExecutorService {
         classPolicy);
   }
 
-  private void scheduleWatchdog(
+  private JobTimeoutHandler.TimeoutHandles scheduleWatchdog(
       Long jobId, int timeoutSec, Future<?> fut, Instant executionStartTime) {
     try {
-      timeoutHandler.scheduleTimeoutMonitoring(
+      return timeoutHandler.scheduleTimeoutMonitoring(
           jobId, timeoutSec, fut, executorProvider.getScheduledExecutor(), executionStartTime);
     } catch (Exception e) {
       log.warnf(
           "Watchdog scheduling error for job %s — no timeout monitoring: %s",
           jobId, e.getMessage());
+      return null;
     }
   }
 

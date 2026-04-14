@@ -47,6 +47,7 @@ import run.ratchet.store.id.TsidFactory;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.util.PriorityBoostConfig;
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.time.Duration;
@@ -60,6 +61,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import org.bson.Document;
 import org.bson.conversions.Bson;
@@ -97,6 +99,19 @@ public class MongoJobStore implements JobStore {
   @Inject
   public MongoJobStore(MongoDatabase database) {
     this.database = database;
+  }
+
+  @PreDestroy
+  void shutdown() {
+    claimExecutor.shutdown();
+    try {
+      if (!claimExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+        claimExecutor.shutdownNow();
+      }
+    } catch (InterruptedException e) {
+      claimExecutor.shutdownNow();
+      Thread.currentThread().interrupt();
+    }
   }
 
   @Override

@@ -8,6 +8,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -48,16 +49,16 @@ public class JobTimeoutHandler {
     this.defaultTimeoutSeconds = defaultTimeoutSeconds;
   }
 
-  public void scheduleTimeoutMonitoring(
+  public TimeoutHandles scheduleTimeoutMonitoring(
       JobEntity job,
       Future<?> future,
       ScheduledExecutorService scheduler,
       Instant executionStartTime) {
-    scheduleTimeoutMonitoring(
+    return scheduleTimeoutMonitoring(
         job.getId(), job.getTimeoutSec(), future, scheduler, executionStartTime);
   }
 
-  public void scheduleTimeoutMonitoring(
+  public TimeoutHandles scheduleTimeoutMonitoring(
       Long jobId,
       int jobTimeoutSec,
       Future<?> future,
@@ -73,17 +74,37 @@ public class JobTimeoutHandler {
 
     long softTimeoutSec = (timeoutSec * softTimeoutPercent) / 100;
 
-    scheduler.schedule(
-        () ->
-            handleSoftTimeoutById(
-                jobId, future, softTimeoutSent, executionStartTime, finalTimeoutSec),
-        softTimeoutSec,
-        TimeUnit.SECONDS);
+    ScheduledFuture<?> soft =
+        scheduler.schedule(
+            () ->
+                handleSoftTimeoutById(
+                    jobId, future, softTimeoutSent, executionStartTime, finalTimeoutSec),
+            softTimeoutSec,
+            TimeUnit.SECONDS);
 
-    scheduler.schedule(
-        () -> handleHardTimeoutById(jobId, future, executionStartTime, finalTimeoutSec),
-        timeoutSec,
-        TimeUnit.SECONDS);
+    ScheduledFuture<?> hard =
+        scheduler.schedule(
+            () -> handleHardTimeoutById(jobId, future, executionStartTime, finalTimeoutSec),
+            timeoutSec,
+            TimeUnit.SECONDS);
+
+    return new TimeoutHandles(soft, hard);
+  }
+
+  /**
+   * Cancellable handle bundle for the soft and hard timeout tasks scheduled against a job
+   * execution. Callers must invoke {@link #cancel()} on job completion so the tasks do not linger
+   * in the scheduler queue until their original fire time.
+   */
+  public record TimeoutHandles(ScheduledFuture<?> soft, ScheduledFuture<?> hard) {
+    public void cancel() {
+      if (soft != null) {
+        soft.cancel(false);
+      }
+      if (hard != null) {
+        hard.cancel(false);
+      }
+    }
   }
 
   private String formatDuration(Duration duration) {

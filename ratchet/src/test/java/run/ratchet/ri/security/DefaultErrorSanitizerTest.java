@@ -87,4 +87,32 @@ class DefaultErrorSanitizerTest {
     assertTrue(out.length() <= 2000);
     assertTrue(out.endsWith("..."));
   }
+
+  @Test
+  void redactsEmailsByDefault() {
+    String prior = System.getProperty(DefaultErrorSanitizer.REDACT_EMAILS_PROPERTY);
+    System.clearProperty(DefaultErrorSanitizer.REDACT_EMAILS_PROPERTY);
+    try {
+      String out = sanitizer.sanitize(new RuntimeException("notify alice@example.com failed"));
+      assertFalse(out.contains("alice@example.com"), "email must be redacted by default");
+      assertTrue(out.contains("***REDACTED***"));
+    } finally {
+      if (prior != null) {
+        System.setProperty(DefaultErrorSanitizer.REDACT_EMAILS_PROPERTY, prior);
+      }
+    }
+  }
+
+  @Test
+  void redactsUrlParamCredentials() {
+    // Hibernate / JDBC exceptions commonly echo the connection URL query string with credentials.
+    String out =
+        sanitizer.sanitize(
+            new RuntimeException(
+                "connection refused: host=db.internal?user=admin&password=hunter2&ssl=true"));
+    assertFalse(out.contains("hunter2"));
+    assertFalse(out.contains("admin"));
+    assertTrue(out.contains("password=***REDACTED***"));
+    assertTrue(out.contains("user=***REDACTED***"));
+  }
 }

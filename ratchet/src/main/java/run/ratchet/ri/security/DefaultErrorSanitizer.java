@@ -9,9 +9,10 @@ public class DefaultErrorSanitizer implements ErrorSanitizer {
 
   /**
    * System property controlling whether email-like patterns are redacted from exception messages.
-   * Disabled by default — most ratchet failure messages do not contain user emails, but
-   * business-record IDs that match the email pattern (e.g. {@code order-2026@dev}) are common false
-   * positives that lose debug information. Set to {@code true} to opt in.
+   * Enabled by default so that user emails leaking into job error messages never reach {@code
+   * last_error} columns. Set to {@code false} to opt out when business-record IDs happen to match
+   * the email pattern (e.g. {@code order-2026@dev}) and the false positives are worse than the PII
+   * risk.
    */
   static final String REDACT_EMAILS_PROPERTY = "ratchet.error-sanitizer.redact-emails";
 
@@ -36,6 +37,17 @@ public class DefaultErrorSanitizer implements ErrorSanitizer {
       Pattern.compile(
           "(password|passwd|pwd|secret|token|apikey|api_key|access_key|private_key|credential)"
               + "\\s*[=:]\\s*\\S+",
+          Pattern.CASE_INSENSITIVE);
+
+  /**
+   * Matches URL-encoded credential parameters in connection strings / query params (e.g. {@code
+   * &password=hunter2&}). Hibernate and JDBC exception messages commonly echo back the original
+   * connection URL with query-string credentials intact.
+   */
+  private static final Pattern URL_PARAM_CREDENTIAL =
+      Pattern.compile(
+          "([?&;](?:password|passwd|pwd|user|username|secret|token|apikey|api_key|access_key|credential))"
+              + "=[^&\\s;,)]+",
           Pattern.CASE_INSENSITIVE);
 
   @Override
@@ -86,9 +98,10 @@ public class DefaultErrorSanitizer implements ErrorSanitizer {
     String sanitized = text;
     sanitized = JDBC_URL.matcher(sanitized).replaceAll(REDACTED);
     sanitized = URL_WITH_CREDENTIALS.matcher(sanitized).replaceAll(REDACTED);
-    if (Boolean.parseBoolean(System.getProperty(REDACT_EMAILS_PROPERTY, "false"))) {
+    if (Boolean.parseBoolean(System.getProperty(REDACT_EMAILS_PROPERTY, "true"))) {
       sanitized = EMAIL.matcher(sanitized).replaceAll(REDACTED);
     }
+    sanitized = URL_PARAM_CREDENTIAL.matcher(sanitized).replaceAll("$1=" + REDACTED);
     sanitized = CREDENTIAL_KV.matcher(sanitized).replaceAll("$1=" + REDACTED);
     return sanitized;
   }
