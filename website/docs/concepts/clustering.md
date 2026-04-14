@@ -198,15 +198,15 @@ The node ID must be:
 
 ## Node Registration and Heartbeat
 
-Nodes register themselves in the `scheduler_node` table on startup and update their `last_seen` timestamp periodically via heartbeats. The `DynamicHeartbeatCalculator` adjusts the heartbeat interval based on system load.
+Nodes register themselves in the `scheduler_node` table on startup and update their `heartbeat_ts` timestamp periodically via heartbeats. The `DynamicHeartbeatCalculator` adjusts the heartbeat interval based on system load.
 
 ```
 scheduler_node:
-  node_id   │ last_seen            │ status
-  ──────────┼──────────────────────┼─────────
-  node-a    │ 2024-03-15 10:00:05  │ ACTIVE
-  node-b    │ 2024-03-15 10:00:03  │ ACTIVE
-  node-c    │ 2024-03-15 09:55:00  │ STALE
+  node_id   │ heartbeat_ts         │ started_at
+  ──────────┼──────────────────────┼──────────────────────
+  node-a    │ 2024-03-15 10:00:05  │ 2024-03-15 09:58:00
+  node-b    │ 2024-03-15 10:00:03  │ 2024-03-15 09:58:30
+  node-c    │ 2024-03-15 09:55:00  │ 2024-03-15 09:40:00
 ```
 
 ## Orphan Recovery

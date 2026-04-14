@@ -45,12 +45,15 @@ LIMIT 20;
 
 If you see rows with `scheduled_time` in the past, the poller is either not running, or the thread pool is at capacity. Check thread pool utilization by looking for the `ThreadPoolManager` log messages.
 
-### Check 3: Is the ClassPolicy Blocking Execution?
+### Check 3: Did startup fail because of ClassPolicy?
 
-The most common cause of "jobs never run" in a fresh deployment is an empty `ClassPolicy`. Ratchet ships with an empty allowed-packages set by default. Look for this log message:
+The most common cause of a broken fresh deployment is an empty `ClassPolicy` allowlist. Ratchet ships with that empty by design and refuses to start until you provide an override. Look for this log message:
 
 ```
-SEVERE: ClassPolicy allowedPackages is empty — all job targets will be rejected.
+ERROR: ClassPolicy allowedPackages is empty — refusing to start. Provide an
+@Alternative @Priority(APPLICATION) ClassPolicy bean with your application's package
+prefixes, or opt out (ONLY for demos/tests) with
+-Dratchet.allow-empty-class-policy=true
 ```
 
 You must provide a `ClassPolicy` bean that allows your application packages:
@@ -70,6 +73,8 @@ public class AppClassPolicy implements ClassPolicy {
     }
 }
 ```
+
+If you explicitly set `-Dratchet.allow-empty-class-policy=true`, the application will start but the default policy still rejects every job target. In that opt-out mode, "jobs never run" is expected until you install a real `ClassPolicy`.
 
 ### Check 4: Is the Database Accessible?
 

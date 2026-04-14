@@ -83,7 +83,7 @@ Classes and interfaces you use directly when scheduling jobs, building workflows
 | [`ResilienceStrategy`](./spi-interfaces#resiliencestrategy) | Circuit breaker / bulkhead wrapping |
 | [`ClassPolicy`](./spi-interfaces#classpolicy) | Deserialization class allowlist |
 | [`ErrorSanitizer`](./spi-interfaces#errorsanitizer) | Scrub sensitive data from error messages |
-| [`SerializationStrategy`](./spi-interfaces#serializationstrategy) | Custom payload serialization (default: Jackson JSON) |
+| [`SerializationStrategy`](./spi-interfaces#serializationstrategy) | Custom payload serialization (default: `JdkSerializationStrategy`) |
 | [`ExecutorProvider`](./spi-interfaces#executorprovider) | Supply custom thread pools or virtual threads |
 | [`BeanResolver`](./spi-interfaces#beanresolver) | Custom bean instantiation (default: CDI) |
 | [`MetricsCollector`](./spi-interfaces#metricscollector) | Emit custom metrics (Micrometer, StatsD, etc.) |

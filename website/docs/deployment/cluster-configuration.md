@@ -20,11 +20,8 @@ In a clustered Ratchet deployment:
 
 ## Enabling Cluster Mode
 
-```properties
-ratchet.cluster.enabled=true
-```
+There is no separate `ratchet.cluster.enabled` switch. A deployment becomes clustered when multiple Ratchet nodes share the same store and you provide the coordination pieces you need. In practice that means:
 
-This activates:
 - Node heartbeat registration in `scheduler_node`
 - Distributed lock acquisition via `scheduler_lock`
 - Recurring job leader election
@@ -52,17 +49,7 @@ The default implementation uses the JVM hostname. Override it when:
 - Running in Docker Compose (use the `HOSTNAME` environment variable)
 - Running multiple instances on the same host (use a unique port or instance ID)
 
-Configure via property:
-
-```properties
-ratchet.cluster.node-id=ratchet-node-1
-```
-
-Or via environment variable:
-
-```bash
-export RATCHET_CLUSTER_NODE_ID=ratchet-node-1
-```
+There is no built-in `ratchet.cluster.node-id` property. Override node identity by providing your own `NodeIdentityProvider` bean when the hostname-based default is not sufficient.
 
 ## ClusterCoordinator SPI
 

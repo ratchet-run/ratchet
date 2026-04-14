@@ -92,12 +92,13 @@ MySQL defaults to `REPEATABLE READ`, which acquires gap locks on `SELECT ... FOR
 
 ### MySQL-Specific Settings
 
-```properties
-ratchet.store.mysql.batch-size=500
-ratchet.store.mysql.use-dynamic-priority=true
-```
+Ratchet does not expose MySQL-only tuning flags. Use the shared scheduler settings instead:
 
-**use-dynamic-priority**: MySQL generated columns automatically boost job priority based on age. This prevents job starvation in high-volume queues.
+- `RATCHET_POLLER_BATCH_SIZE`
+- `RATCHET_POLLER_MIN_DELAY_MS`
+- `RATCHET_POLLER_MAX_DELAY_MS`
+- `RATCHET_THREAD_POOL_SIZE_SINGLE`
+- `RATCHET_JOB_RETENTION_DAYS`
 
 ## Schema Design
 
@@ -218,7 +219,7 @@ ORDER BY started_at;
 
 ### Cleanup Old Jobs
 
-Ratchet automatically archives completed jobs based on the `ratchet.retention.completed-days` setting. To manually clean up:
+Ratchet automatically archives completed jobs based on the `RATCHET_JOB_RETENTION_DAYS` setting. To manually clean up:
 
 ```sql
 DELETE FROM scheduler_job_archive

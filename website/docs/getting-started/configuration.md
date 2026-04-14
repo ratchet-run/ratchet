@@ -118,7 +118,7 @@ CDI will select your bean over Ratchet's default. No additional configuration ne
 |---------------|----------------------|------------------|
 | `RetryPolicy` | `DefaultRetryPolicy` (defers to `maxRetries` on the job) | Custom retry/no-retry decisions based on exception type or job state |
 | `ResilienceStrategy` | `DefaultResilienceStrategy` (built-in 3-state circuit breaker) | Replace with Resilience4j or MicroProfile Fault Tolerance |
-| `ClassPolicy` | `PackagePrefixClassPolicy` (reads allowed packages from config) | Lock down which classes can be deserialized from job payloads |
+| `ClassPolicy` | `PackagePrefixClassPolicy` (empty allowlist by default; deployment fails fast until you override it) | Lock down which classes can be deserialized from job payloads |
 | `ErrorSanitizer` | `DefaultErrorSanitizer` (strips common PII patterns) | Custom redaction rules for your domain |
 | `SerializationStrategy` | `JdkSerializationStrategy` (JDK serialization for lambda payloads) | Custom payload serialization (e.g., Kryo, Protobuf) |
 | `LambdaAnalyzer` | `AsmLambdaAnalyzer` (ASM bytecode analysis) | Custom method reference extraction |
@@ -131,11 +131,13 @@ CDI will select your bean over Ratchet's default. No additional configuration ne
 
 ### ClassPolicy: Security Configuration
 
-The default `PackagePrefixClassPolicy` controls which classes can be instantiated when deserializing job payloads. By default, it reads allowed package prefixes from configuration. **If no packages are configured, all job targets will be rejected** -- you'll see a SEVERE log message at startup:
+The default `PackagePrefixClassPolicy` controls which classes can be instantiated when deserializing job payloads. Its allowlist is intentionally empty. By default, `RatchetProducer` treats that as a deployment error so you don't accidentally ship a scheduler that can never run jobs:
 
 ```
-SEVERE: ClassPolicy allowedPackages is empty — all job targets will be rejected.
-Provide an @Alternative ClassPolicy bean with your application's package prefixes.
+ERROR: ClassPolicy allowedPackages is empty — refusing to start. Provide an
+@Alternative @Priority(APPLICATION) ClassPolicy bean with your application's package
+prefixes, or opt out (ONLY for demos/tests) with
+-Dratchet.allow-empty-class-policy=true
 ```
 
 To fix this, create a `ClassPolicy` alternative that allows your application's packages:
@@ -158,6 +160,8 @@ public class AppClassPolicy implements ClassPolicy {
     }
 }
 ```
+
+If you explicitly set `-Dratchet.allow-empty-class-policy=true`, startup will continue but the default policy still rejects every target class. That switch is for demos and tests, not production.
 
 This is a security boundary. Jobs execute arbitrary code by design -- the class policy ensures only your own classes can be targeted.
 

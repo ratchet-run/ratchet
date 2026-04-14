@@ -106,22 +106,21 @@ The schema creates these primary tables:
 
 ## Configuration
 
-Ratchet uses standard Jakarta EE configuration. Properties can be set via:
+Ratchet reads environment variables first and falls back to system properties with the same names:
 
 - Environment variables (`RATCHET_*`)
-- System properties (`-Dratchet.*`)
-- `microprofile-config.properties`
-- Your runtime's configuration mechanism (e.g., WildFly CLI, Open Liberty `server.xml`)
+- System properties (`-DRATCHET_*`)
+- Your runtime's configuration mechanism, if it can inject environment variables or JVM system properties
 
 Key configuration areas:
 
-| Area | Example Property | Default |
-|------|-----------------|---------|
-| **Thread pool** | `ratchet.executor.threads` | CPU core count |
-| **Polling** | `ratchet.polling.interval` | 5000ms |
-| **Batch size** | `ratchet.polling.batch-size` | 100 |
-| **Job retention** | `ratchet.retention.completed-days` | 30 |
-| **Clustering** | `ratchet.cluster.enabled` | false |
+| Area | Example Variable | Default |
+|------|------------------|---------|
+| **Thread pool** | `RATCHET_THREAD_POOL_SIZE_SINGLE` | `20` |
+| **Polling** | `RATCHET_POLLER_MIN_DELAY_MS` | `2000` |
+| **Batch size** | `RATCHET_POLLER_BATCH_SIZE` | `50` |
+| **Job retention** | `RATCHET_JOB_RETENTION_DAYS` | `90` |
+| **Clustering / node health** | `RATCHET_NODE_HEARTBEAT_INTERVAL_SECONDS` | `10` |
 
 See [Configuration](/docs/deployment/configuration) for the full reference.
 
@@ -143,8 +142,8 @@ Before going to production:
 1. **Apply the DDL** — Run the schema SQL for your chosen database
 2. **Configure the DataSource** — JNDI-bound, JTA-managed, with connection pooling
 3. **Set isolation level** — MySQL requires `READ COMMITTED` (not the default `REPEATABLE READ`)
-4. **Tune polling** — Adjust `ratchet.polling.interval` and `ratchet.polling.batch-size` for your workload
-5. **Set up retention** — Configure `ratchet.retention.completed-days` to prevent unbounded table growth
+4. **Tune polling** — Adjust `RATCHET_POLLER_MIN_DELAY_MS`, `RATCHET_POLLER_MAX_DELAY_MS`, and `RATCHET_POLLER_BATCH_SIZE` for your workload
+5. **Set up retention** — Configure `RATCHET_JOB_RETENTION_DAYS`, `RATCHET_DLQ_PURGE_DAYS`, and `RATCHET_LOG_RETENTION_DAYS` to prevent unbounded table growth
 6. **Enable metrics** — Wire `MetricsCollector` to your monitoring stack
 7. **Configure clustering** — If running multiple nodes, implement `ClusterCoordinator`
 8. **Test failover** — Verify jobs recover when a node goes down

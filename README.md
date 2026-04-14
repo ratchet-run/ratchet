@@ -311,9 +311,9 @@ Ratchet is designed to be extended. Provide a CDI `@Alternative @Priority(APPLIC
 |---------------|---------|---------|
 | `RetryPolicy` | Custom retry/no-retry decisions | Defers to `maxRetries` |
 | `ResilienceStrategy` | Circuit breaker behavior | Built-in 3-state machine |
-| `ClassPolicy` | Security — which classes can be deserialized | Allow-all |
-| `ErrorSanitizer` | Scrub sensitive data from error messages | Pass-through |
-| `SerializationStrategy` | Custom payload serialization | Jackson JSON |
+| `ClassPolicy` | Security — which classes can be deserialized | `PackagePrefixClassPolicy` with an empty allowlist; startup fails fast until you provide an override |
+| `ErrorSanitizer` | Scrub sensitive data from error messages | `DefaultErrorSanitizer` |
+| `SerializationStrategy` | Custom payload serialization | `JdkSerializationStrategy` |
 | `LambdaAnalyzer` | Method reference extraction from lambdas | ASM bytecode analysis |
 | `ClusterCoordinator` | Distributed leader election for recurring jobs | Single-node default |
 | `MetricsCollector` | Metrics sink (counters, gauges, timers) | No-op |

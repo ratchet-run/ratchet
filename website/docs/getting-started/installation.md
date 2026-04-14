@@ -154,7 +154,7 @@ Ratchet keeps its dependency footprint small. Here's what each module brings in:
 | Module | Key Dependencies |
 |--------|-----------------|
 | `ratchet-api` | `jakarta.enterprise.cdi-api` (for `@InterceptorBinding` on `@CircuitBreakerProtected`) |
-| `ratchet` | ASM 9.7 (lambda bytecode analysis), Jackson 2.19 (JSON payload serialization), cron-utils 9.2 (cron expression parsing) |
+| `ratchet` | ASM 9.7 (lambda bytecode analysis), Jackson 2.19 (job-result/store JSON marshalling), cron-utils 9.2 (cron expression parsing) |
 | `ratchet-store-core` | `jakarta.persistence-api` |
 | `ratchet-store-*` | JDBC driver for the target database (provided scope -- your app server typically supplies this) |
 | `ratchet-micrometer` | Micrometer Core 1.14 |

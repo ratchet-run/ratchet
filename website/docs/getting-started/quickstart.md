@@ -111,8 +111,10 @@ The key insight: **the job survives server restarts**. Because the payload is pe
 When the application starts, you should see:
 
 ```
-INFO [run.ratchet.ri.cdi.RatchetLifecycle] Initializing Ratchet job scheduler...
-INFO [run.ratchet.ri.cdi.RatchetLifecycle] Ratchet job scheduler initialized
+INFO [run.ratchet.ri.cdi.RatchetLifecycle] Ratchet starting
+INFO [run.ratchet.ri.core.DefaultNodeIdentityProvider] Scheduler nodeId=...
+INFO [run.ratchet.ri.core.Poller] Poller initialized (batch=50)
+INFO [run.ratchet.ri.cdi.RatchetLifecycle] Ratchet started
 ```
 
 When a job is enqueued and processed:
@@ -127,9 +129,9 @@ INFO [com.example.app.OrderService] Processing order 42 in background...
 You can also verify by querying the `scheduler_job` table directly:
 
 ```sql
-SELECT id, status, created_time, started_time, completed_time
+SELECT job_id, status, created_at, execution_start_time, execution_end_time
 FROM scheduler_job
-ORDER BY id DESC
+ORDER BY job_id DESC
 LIMIT 5;
 ```
 
@@ -165,7 +167,7 @@ scheduler.enqueueNow(() -> processOrder(orderId));
 ```
 
 :::caution Keep payloads small
-Ratchet serializes lambda arguments as JSON. Pass IDs and simple values, not large object graphs. A job that needs a complex object should accept an ID and look up the object from the database during execution.
+Ratchet persists the lambda payload using the active `SerializationStrategy` (the default RI uses `JdkSerializationStrategy`). Pass IDs and simple serializable values, not large object graphs. A job that needs a complex object should accept an ID and look up the object from the database during execution. Job return values are stored separately as JSON metadata.
 :::
 
 ## Delayed Execution
@@ -224,7 +226,7 @@ You need a store module (`ratchet-store-postgresql`, `ratchet-store-mysql`, or `
 
 ### Jobs are enqueued but never execute
 
-Check that `RatchetLifecycle` logged its startup message. If you don't see "Initializing Ratchet job scheduler...", the lifecycle bean isn't being activated. This can happen if CDI bean discovery is misconfigured or if the `ratchet` module isn't deployed.
+Check that `RatchetLifecycle` logged `Ratchet started` and that `Poller` logged `Poller initialized (...)`. If you don't see those messages, the lifecycle bean isn't being activated. This can happen if CDI bean discovery is misconfigured or if the `ratchet` module isn't deployed.
 
 ## What's Next
 

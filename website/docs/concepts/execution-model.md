@@ -166,7 +166,7 @@ If the job specifies a `resourceName`, the `ResourcePermitService` attempts to a
 
 **7. Security Validation**
 
-The `PreExecutionValidator` invokes the `ClassPolicy` SPI to verify the target class is allowed. The default `PackagePrefixClassPolicy` matches against configured package prefixes. This prevents deserialized payloads from invoking arbitrary classes.
+The `PreExecutionValidator` invokes the `ClassPolicy` SPI to verify the target class is allowed. The default `PackagePrefixClassPolicy` is deny-all until you provide an `@Alternative` bean with your application's package prefixes, and `RatchetProducer` fails deployment by default so this misconfiguration is caught at startup.
 
 **8. Bean Resolution**
 
@@ -224,7 +224,7 @@ These caches are cleared on application shutdown via `JobTask.clearCaches()` to 
 
 ### Heartbeat
 
-The `DynamicHeartbeatCalculator` adjusts the heartbeat interval based on system load. Heartbeats update the node's `last_seen` timestamp in the `scheduler_node` table, enabling orphan recovery to detect crashed nodes.
+The `DynamicHeartbeatCalculator` adjusts the heartbeat interval based on system load. Heartbeats update the node's `heartbeat_ts` value in the `scheduler_node` table, enabling orphan recovery to detect crashed nodes.
 
 ## Related
 

@@ -107,7 +107,7 @@ Ratchet integrates via CDI. Create or update your `beans.xml`:
     xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee
                         https://jakarta.ee/xml/ns/jakartaee/beans_4_0.xsd"
     version="4.0"
-    bean-discovery-mode="all">
+    bean-discovery-mode="annotated">
 </beans>
 ```
 
@@ -126,7 +126,7 @@ public class MyService {
     scheduler.enqueueNow(() -> doWork());
   }
   
-  private void doWork() {
+  public void doWork() {
     System.out.println("Running in Ratchet!");
   }
 }
@@ -134,22 +134,26 @@ public class MyService {
 
 ## Step 5: Configuration
 
-Ratchet uses standard Jakarta configuration. Set via environment or config file:
+Ratchet reads runtime settings from environment variables first and system properties second. A few common knobs:
 
-| Property | Default | Purpose |
-|----------|---------|---------|
-| `ratchet.executor.threads` | # CPU cores | Job executor thread count |
-| `ratchet.polling.interval` | 5 seconds | How often to poll for new jobs |
-| `ratchet.retention.days` | 30 | How long to keep completed jobs |
+| Setting | Default | Purpose |
+|---------|---------|---------|
+| `RATCHET_POLLER_BATCH_SIZE` | `50` | Jobs claimed per poll cycle |
+| `RATCHET_POLLER_MIN_DELAY_MS` | `2000` | Minimum poll interval |
+| `RATCHET_THREAD_POOL_SIZE_SINGLE` | `20` | Worker threads for one-off jobs |
+| `RATCHET_JOB_RETENTION_DAYS` | `90` | Completed-job retention before archiving |
+
+SPI customizations such as `ClassPolicy`, `SerializationStrategy`, and `ErrorSanitizer` are overridden with CDI `@Alternative` beans, not string property names. See [Configuration](/docs/getting-started/configuration).
 
 ## Step 6: Verify
 
 Start your application and verify Ratchet initialized:
 
 ```
-[INFO] Ratchet JobSchedulerService initialized
-[INFO] JobStore connected: PostgreSQL
-[INFO] Polling engine started with 8 threads
+INFO [run.ratchet.ri.cdi.RatchetLifecycle] Ratchet starting
+INFO [run.ratchet.ri.core.DefaultNodeIdentityProvider] Scheduler nodeId=...
+INFO [run.ratchet.ri.core.Poller] Poller initialized (batch=50)
+INFO [run.ratchet.ri.cdi.RatchetLifecycle] Ratchet started
 ```
 
 Submit a simple job:
@@ -181,5 +185,5 @@ SELECT COUNT(*) FROM scheduler_job;
 - Verify schema was applied
 
 **Jobs not executing**
-- Check that the polling engine logged "started"
+- Check for `Ratchet started` and `Poller initialized (...)` in the logs
 - Verify executor thread count > 0

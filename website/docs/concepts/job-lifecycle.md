@@ -108,7 +108,7 @@ The job was explicitly canceled and will not execute. This is a terminal state. 
 When you call `submit()` on a builder, the engine:
 
 1. Analyzes the lambda to extract target class, method, and arguments
-2. Validates the class against the `ClassPolicy` SPI
+2. Serializes the lambda payload using the active `SerializationStrategy`
 3. Checks the idempotency key for duplicates (globally unique, forever)
 4. Checks the business key for active conflicts (unique among PENDING/RUNNING jobs)
 5. Persists the `JobEntity` with status PENDING

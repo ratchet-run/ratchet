@@ -262,7 +262,7 @@ public class PiiSanitizer implements ErrorSanitizer {
 
 ## SerializationStrategy
 
-Custom payload serialization and deserialization. The default RI uses Jackson JSON.
+Custom payload serialization and deserialization. The default RI uses `JdkSerializationStrategy` for job payloads. Job return values are stored separately as JSON metadata in the store.
 
 ```java
 public interface SerializationStrategy {

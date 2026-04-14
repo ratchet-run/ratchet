@@ -14,25 +14,26 @@ The polling engine periodically queries the database for jobs that are due for e
 
 ### Poll Interval
 
-```properties
-ratchet.polling.interval=5000   # milliseconds
+```bash
+RATCHET_POLLER_MIN_DELAY_MS=2000
+RATCHET_POLLER_MAX_DELAY_MS=10000
 ```
 
-How often the polling engine checks for new jobs. This directly trades off latency against database load.
+Ratchet uses adaptive polling, so the minimum and maximum delay matter more than a single fixed interval. Lower minimums improve latency; higher maximums reduce database load during idle periods.
 
-| Interval | Latency | DB Queries/Min | Use Case |
+| Minimum Delay | Typical Latency | DB Queries/Min | Use Case |
 |----------|---------|----------------|----------|
 | 1000ms | ~1 second | 60 | Real-time processing, low-latency requirements |
+| 2000ms (default) | ~2 seconds | 30 | General-purpose, balanced |
 | 3000ms | ~3 seconds | 20 | High-throughput production workloads |
-| 5000ms (default) | ~5 seconds | 12 | General-purpose, balanced |
 | 10000ms | ~10 seconds | 6 | Light workloads, reduce DB pressure |
 
-Lowering the interval below 1 second is not recommended — the overhead of frequent queries outweighs the latency benefit.
+Lowering the minimum below 1 second is not recommended — the overhead of frequent queries usually outweighs the latency benefit.
 
 ### Batch Size
 
-```properties
-ratchet.polling.batch-size=100
+```bash
+RATCHET_POLLER_BATCH_SIZE=100
 ```
 
 How many jobs to fetch in a single poll. Larger batches reduce the number of queries but consume more memory and increase the time between when a job is fetched and when it starts executing.
@@ -40,17 +41,14 @@ How many jobs to fetch in a single poll. Larger batches reduce the number of que
 | Batch Size | Queries | Memory | Best For |
 |-----------|---------|--------|----------|
 | 10 | More frequent | Low | Few jobs, short execution times |
-| 100 (default) | Balanced | Moderate | General-purpose |
+| 50 (default) | Balanced | Moderate | General-purpose |
+| 100 | Fewer queries | Moderate | High-throughput production workloads |
 | 500 | Fewer queries | Higher | High-throughput with many pending jobs |
 | 1000+ | Minimal | Significant | Bulk processing, batch workloads |
 
 ### Adaptive Polling
 
-```properties
-ratchet.polling.adaptive=true
-```
-
-When enabled (default), the polling engine automatically adjusts its interval based on queue depth:
+Adaptive polling is enabled by default. The polling engine automatically adjusts its interval based on queue depth:
 - **Queue has jobs**: Poll at the configured interval or faster
 - **Queue is empty**: Gradually back off to reduce unnecessary queries
 - **New work notification**: Immediately poll when a `ClusterCoordinator` signals new work
@@ -59,45 +57,46 @@ Adaptive polling is particularly effective in environments with variable load �
 
 The deep idle thresholds control how aggressively the engine backs off:
 
-```properties
+```bash
 # Time of no work before entering deep idle
-POLLER_DEEP_IDLE_THRESHOLD_MS=30000
+RATCHET_POLLER_DEEP_IDLE_THRESHOLD_MS=60000
 
 # Poll interval during deep idle
-POLLER_DEEP_IDLE_DELAY_MS=10000
+RATCHET_POLLER_DEEP_IDLE_DELAY_MS=30000
 
 # Maximum poll delay (cap for backoff)
-POLLER_MAX_DELAY_MS=30000
+RATCHET_POLLER_MAX_DELAY_MS=10000
 ```
 
 ## Thread Pool Sizing
 
 ### Executor Threads
 
-```properties
-ratchet.executor.threads=16
+```bash
+RATCHET_THREAD_POOL_SIZE_SINGLE=16
 ```
 
-The number of threads available for executing jobs. Defaults to the number of CPU cores.
+Ratchet uses per-execution-type pools. Tune the ones you actually use instead of a single global executor size.
 
 **For CPU-bound jobs** (computation, data processing):
-```properties
-# Match CPU cores
-ratchet.executor.threads=8
+```bash
+# Match CPU cores for one-off jobs
+RATCHET_THREAD_POOL_SIZE_SINGLE=8
 ```
 
 **For I/O-bound jobs** (HTTP calls, database queries, file operations):
-```properties
-# 2-4x CPU cores
-ratchet.executor.threads=32
+```bash
+# Start with 2-4x CPU cores
+RATCHET_THREAD_POOL_SIZE_SINGLE=32
+RATCHET_THREAD_POOL_SIZE_BATCH_CHILD=64
 ```
 
 **For mixed workloads**, start with 2x CPU cores and adjust based on monitoring.
 
 ### Virtual Threads (Java 21+)
 
-```properties
-ratchet.executor.use-virtual-threads=true
+```bash
+RATCHET_WORKER_USE_VIRTUAL_THREADS=true
 ```
 
 Virtual threads (Project Loom) eliminate the need to carefully size thread pools for I/O-bound workloads. With virtual threads enabled, Ratchet creates a virtual thread per job, and the JVM efficiently multiplexes them across platform threads.
@@ -297,12 +296,12 @@ ANALYZE TABLE scheduler_job;
 
 Unbounded table growth degrades polling performance. Configure retention to keep the active job table small:
 
-```properties
+```bash
 # Auto-delete completed jobs after 14 days
-ratchet.retention.completed-days=14
+RATCHET_JOB_RETENTION_DAYS=14
 
-# Archive DLQ jobs after 90 days
-ratchet.dlq.archive-after-days=90
+# Purge DLQ jobs after 90 days
+RATCHET_DLQ_PURGE_DAYS=90
 ```
 
 The `scheduler_job_archive` table stores historical data for completed and failed jobs. It has its own indexes for reporting queries, separate from the active job table's performance-critical indexes.

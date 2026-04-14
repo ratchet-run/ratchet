@@ -262,11 +262,7 @@ db.scheduler_locks.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 ### Connection Configuration
 
-```properties
-ratchet.store.mongodb.uri=mongodb://ratchet:your-secure-password@localhost:27017/ratchet
-```
-
-Or in your application server's configuration, use the MongoDB client URI:
+Ratchet does not define its own MongoDB URI property. Configure the connection through your application runtime and expose a `MongoClient` bean. For example:
 
 ```java
 @Produces
@@ -283,7 +279,7 @@ The connection pool should be sized based on the number of executor threads plus
 ### Formula
 
 ```
-pool_size = ratchet.executor.threads + polling_threads + admin_overhead
+pool_size = worker_threads + polling_threads + admin_overhead
 ```
 
 A reasonable starting point:
