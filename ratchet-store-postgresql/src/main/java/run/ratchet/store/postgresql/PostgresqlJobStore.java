@@ -913,6 +913,17 @@ public class PostgresqlJobStore implements JobStore {
   }
 
   @Override
+  public int resetOrphanJobsForNode(String nodeId) {
+    return em.createNativeQuery(
+            "UPDATE scheduler_job SET status = 'PENDING', "
+                + "picked_by = NULL, picked_at = NULL, "
+                + "updated_at = statement_timestamp() "
+                + "WHERE status = 'RUNNING' AND picked_by = ?")
+        .setParameter(1, nodeId)
+        .executeUpdate();
+  }
+
+  @Override
   public BatchEntity saveBatch(BatchEntity batch) {
     if (em.find(BatchEntity.class, batch.getId()) == null) {
       em.persist(batch);

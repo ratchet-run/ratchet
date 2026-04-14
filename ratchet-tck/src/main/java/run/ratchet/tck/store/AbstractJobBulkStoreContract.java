@@ -110,6 +110,53 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
   }
 
   @Test
+  void resetOrphanJobsForNode_reclaimsOwnRunningRowsUnconditionally() {
+    // Startup self-recovery: our node had two RUNNING rows picked a moment ago. Even though
+    // their picked_at is well inside any reasonable grace window, they must be reclaimed on
+    // restart because this node is not trustworthy about those rows anymore.
+    var a = newPendingJob();
+    a = persist(a);
+    a.setStatus(JobStatus.RUNNING);
+    a.setPickedBy("node-self");
+    a.setPickedAt(Instant.now()); // fresh — steady-state grace would preserve this
+    store().save(a);
+
+    var b = newPendingJob();
+    b = persist(b);
+    b.setStatus(JobStatus.RUNNING);
+    b.setPickedBy("node-self");
+    b.setPickedAt(Instant.now().minusSeconds(5));
+    store().save(b);
+
+    // Another node's fresh row — must NOT be touched
+    var other = newPendingJob();
+    other = persist(other);
+    other.setStatus(JobStatus.RUNNING);
+    other.setPickedBy("node-other");
+    other.setPickedAt(Instant.now());
+    store().save(other);
+
+    int reset = store().resetOrphanJobsForNode("node-self");
+    assertEquals(2, reset, "resetOrphanJobsForNode should reclaim both self-owned RUNNING rows");
+
+    assertEquals(JobStatus.PENDING, store().findById(a.getId()).orElseThrow().getStatus());
+    assertEquals(JobStatus.PENDING, store().findById(b.getId()).orElseThrow().getStatus());
+    assertEquals(
+        JobStatus.RUNNING,
+        store().findById(other.getId()).orElseThrow().getStatus(),
+        "Other node's rows must not be reclaimed");
+  }
+
+  @Test
+  void resetOrphanJobsForNode_ignoresNonRunningRows() {
+    var pending = persist(newPendingJob());
+
+    int reset = store().resetOrphanJobsForNode("node-self");
+    assertEquals(0, reset);
+    assertEquals(JobStatus.PENDING, store().findById(pending.getId()).orElseThrow().getStatus());
+  }
+
+  @Test
   void resetOrphanJobs_ignoresNonRunningJobs() {
     // PENDING job — should not be touched by orphan reset
     var pending = persist(newPendingJob());

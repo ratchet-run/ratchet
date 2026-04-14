@@ -813,6 +813,21 @@ public class MongoJobStore implements JobStore {
   }
 
   @Override
+  public int resetOrphanJobsForNode(String nodeId) {
+    UpdateResult result =
+        jobs()
+            .updateMany(
+                and(eq("status", "RUNNING"), eq("picked_by", nodeId)),
+                combine(
+                    set("status", "PENDING"),
+                    set("picked_by", null),
+                    set("picked_at", null),
+                    set("updated_at", DocumentMapper.toDate(Instant.now())),
+                    inc("version", 1)));
+    return (int) result.getModifiedCount();
+  }
+
+  @Override
   public BatchEntity saveBatch(BatchEntity batch) {
     Document doc = DocumentMapper.toDocument(batch);
     batches().replaceOne(eq("_id", batch.getId()), doc, new ReplaceOptions().upsert(true));

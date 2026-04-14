@@ -86,6 +86,15 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
 
     nodeStore.upsertHeartbeat(nodeId, Instant.now());
 
+    // Startup self-recovery: unconditionally reclaim RUNNING jobs owned by THIS nodeId. A node
+    // that crashes and restarts inside the steady-state grace window would otherwise leave its
+    // own prior RUNNING rows in place until the heartbeat aged out.
+    int ownReset = jobBulkStore.resetOrphanJobsForNode(nodeId);
+    if (ownReset > 0) {
+      log.infof("Reset %s RUNNING job(s) owned by this node (%s) at startup", ownReset, nodeId);
+    }
+
+    // Also run the normal grace-based sweep to pick up any other nodes' rows that have aged out.
     int reset = jobBulkStore.resetOrphanJobs(Duration.ofSeconds(orphanGraceSeconds));
     if (reset > 0) {
       log.infof("Reset %s orphan RUNNING job(s) at startup", reset);

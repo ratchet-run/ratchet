@@ -897,6 +897,16 @@ public class MysqlJobStore implements JobStore {
   }
 
   @Override
+  public int resetOrphanJobsForNode(String nodeId) {
+    return em.createNativeQuery(
+            "UPDATE scheduler_job SET status = 'PENDING', picked_by = NULL, picked_at = NULL, "
+                + "updated_at = NOW(3) "
+                + "WHERE status = 'RUNNING' AND picked_by = :node")
+        .setParameter("node", nodeId)
+        .executeUpdate();
+  }
+
+  @Override
   public BatchEntity saveBatch(BatchEntity batch) {
     if (em.find(BatchEntity.class, batch.getId()) == null) {
       em.persist(batch);
