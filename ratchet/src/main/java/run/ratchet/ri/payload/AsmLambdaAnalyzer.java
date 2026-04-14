@@ -178,6 +178,16 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
         case Opcodes.POP -> operandStack.pop();
         case Opcodes.DUP -> operandStack.push(operandStack.peek());
 
+        // Field access: we can't resolve the field value at analysis time, but we can maintain
+        // correct stack discipline so the enclosing INVOKE* still pops its arguments and receiver
+        // from the right slots. Typical case: a lambda captures `this` and reads an instance
+        // field to obtain the invocation receiver (e.g. `this.service.doWork(captured)`).
+        case Opcodes.GETFIELD -> {
+          operandStack.pop();
+          operandStack.push(UnknownValue.INSTANCE);
+        }
+        case Opcodes.GETSTATIC -> operandStack.push(UnknownValue.INSTANCE);
+
         case Opcodes.NEW -> {
           TypeInsnNode typeNode = (TypeInsnNode) node;
           operandStack.push(new NewInstanceMarker(typeNode.desc));

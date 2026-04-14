@@ -186,6 +186,7 @@
       <properties>
         <skipITs>false</skipITs>
         <testsuite.profile>wildfly-managed</testsuite.profile>
+        <arquillian.launch>wildfly-managed</arquillian.launch>
         <wildfly.home>${project.build.directory}/wildfly-${wildfly.version}</wildfly.home>
       </properties>
       <dependencies>
