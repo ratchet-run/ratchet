@@ -199,6 +199,22 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
               operandStack, invocationList, methodInsn, opcodeValue, capturedValues);
         }
 
+        // Method return opcodes: RETURN (void) pops nothing; *RETURN pops one value from the
+        // stack but the method terminates on the next iteration regardless, so the stack state
+        // is irrelevant from here on. Treat them as end-of-analysis no-ops.
+        case Opcodes.RETURN -> {
+          /* no stack effect visible to subsequent instructions */
+        }
+        case Opcodes.IRETURN,
+            Opcodes.LRETURN,
+            Opcodes.FRETURN,
+            Opcodes.DRETURN,
+            Opcodes.ARETURN -> {
+          if (!operandStack.isEmpty()) {
+            operandStack.pop();
+          }
+        }
+
         default ->
             // Pushing UnknownValue without popping the operands this instruction consumes would
             // misalign the stack for every subsequent instruction and produce silent wrong

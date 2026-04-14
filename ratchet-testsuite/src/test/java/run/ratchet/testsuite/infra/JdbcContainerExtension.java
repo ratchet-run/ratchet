@@ -77,9 +77,28 @@ public class JdbcContainerExtension
       container = createContainer(dbType);
       container.start();
 
+      // PostgreSQL needs `stringtype=unspecified` so the JDBC driver sends Java Strings as
+      // untyped text, letting the server cast them to JSONB on insert. Without this, any JPA
+      // mapping of a String field to a JSONB column fails with:
+      //   "column X is of type jsonb but expression is of type character varying".
+      // This is a pure JDBC-driver feature (not Hibernate, not JPA-provider-specific), which
+      // keeps ratchet-store-postgresql pluggable across Hibernate / EclipseLink.
+      //
+      // Strip any existing query-string (testcontainers may add `?loggerLevel=OFF`) before
+      // appending — the URL is interpolated into arquillian.xml, and a literal `&` inside an
+      // XML attribute value is parsed as an entity reference and breaks deployment.
+      String jdbcUrl = container.getJdbcUrl();
+      if ("postgresql".equals(dbType)) {
+        int queryStart = jdbcUrl.indexOf('?');
+        if (queryStart >= 0) {
+          jdbcUrl = jdbcUrl.substring(0, queryStart);
+        }
+        jdbcUrl += "?stringtype=unspecified";
+      }
+
       config =
           new JdbcDatabaseConfig(
-              container.getJdbcUrl(),
+              jdbcUrl,
               container.getUsername(),
               container.getPassword(),
               container.getDriverClassName(),
