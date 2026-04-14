@@ -125,6 +125,11 @@ public class RatchetLifecycle {
     log.info("Ratchet stopping");
     // Drain before stop to prevent new claims
     drainController.setDraining(true);
+
+    if (nodeIdentityProvider instanceof DefaultNodeIdentityProvider defaultProvider) {
+      defaultProvider.shutdown();
+    }
+
     poller.stop();
     recurringScheduler.stop();
     orphanRecoveryTimer.stop();
@@ -134,10 +139,6 @@ public class RatchetLifecycle {
     logPurgeTimer.stop();
     // Reset RUNNING jobs to PENDING so other nodes can pick them up
     jobExecutionCoordinator.shutdown();
-
-    if (nodeIdentityProvider instanceof DefaultNodeIdentityProvider defaultProvider) {
-      defaultProvider.shutdown();
-    }
 
     JobTask.clearCaches();
   }

@@ -8,6 +8,7 @@ import java.lang.management.ManagementFactory;
 import java.net.InetAddress;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -27,6 +28,8 @@ import org.jboss.logging.Logger;
 public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
 
   private static final Logger log = Logger.getLogger(DefaultNodeIdentityProvider.class);
+  private static final List<String> CONTAINER_SHUTDOWN_ERROR_MARKERS =
+      List.of("WELD-000229", "WELD-001303", "after container", "No active contexts for scope type");
 
   private final AtomicBoolean initialized = new AtomicBoolean();
   private final NodeStore nodeStore;
@@ -36,6 +39,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
   private final long heartbeatIntervalSeconds;
   private final long orphanGraceSeconds;
   private final boolean dynamicHeartbeatEnabled;
+  private final Object heartbeatLifecycleMonitor = new Object();
 
   private ScheduledFuture<?> heartbeatHandle;
   private String nodeId;
@@ -132,6 +136,9 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
       heartbeatHandle.cancel(true);
       heartbeatHandle = null;
     }
+    synchronized (heartbeatLifecycleMonitor) {
+      // Wait for any in-flight heartbeat callback to observe initialized=false and exit.
+    }
   }
 
   private String resolveNodeId() {
@@ -176,24 +183,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
         executorProvider
             .getScheduledExecutor()
             .schedule(
-                () -> {
-                  if (!initialized.get()) {
-                    return;
-                  }
-                  try {
-                    nodeStore.upsertHeartbeat(nodeId, Instant.now());
-                    if (initialized.get()) {
-                      scheduleNextHeartbeat();
-                    }
-                  } catch (Exception e) {
-                    if (!initialized.get()) {
-                      return;
-                    }
-                    log.error("Heartbeat retry failed", e);
-                    long cappedDelay = Math.min(delaySeconds * 2, orphanGraceSeconds);
-                    scheduleHeartbeatWithDelay(cappedDelay);
-                  }
-                },
+                () -> runHeartbeat("Heartbeat retry failed", delaySeconds, false),
                 delaySeconds,
                 TimeUnit.SECONDS);
   }
@@ -218,25 +208,59 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
         executorProvider
             .getScheduledExecutor()
             .schedule(
-                () -> {
-                  if (!initialized.get()) {
-                    return;
-                  }
-                  try {
-                    nodeStore.upsertHeartbeat(nodeId, Instant.now());
-                    log.debugf("Heartbeat sent for node %s", nodeId);
-                    if (initialized.get()) {
-                      scheduleNextHeartbeat();
-                    }
-                  } catch (Exception e) {
-                    if (!initialized.get()) {
-                      return;
-                    }
-                    log.error("Heartbeat failed", e);
-                    scheduleHeartbeatWithDelay(heartbeatIntervalSeconds);
-                  }
-                },
+                () -> runHeartbeat("Heartbeat failed", heartbeatIntervalSeconds, true),
                 intervalSeconds,
                 TimeUnit.SECONDS);
+  }
+
+  private void runHeartbeat(String failureMessage, long failureDelaySeconds, boolean logSuccess) {
+    synchronized (heartbeatLifecycleMonitor) {
+      if (!initialized.get()) {
+        return;
+      }
+
+      try {
+        nodeStore.upsertHeartbeat(nodeId, Instant.now());
+        if (logSuccess) {
+          log.debugf("Heartbeat sent for node %s", nodeId);
+        }
+        if (initialized.get()) {
+          scheduleNextHeartbeat();
+        }
+      } catch (Exception e) {
+        if (!initialized.get()) {
+          return;
+        }
+        if (isContainerShutdownException(e)) {
+          initialized.set(false);
+          log.debugf("Suppressing heartbeat failure during container shutdown: %s", e);
+          return;
+        }
+        log.error(failureMessage, e);
+        long cappedDelay = Math.min(failureDelaySeconds * 2, orphanGraceSeconds);
+        scheduleHeartbeatWithDelay(cappedDelay);
+      }
+    }
+  }
+
+  private static boolean isContainerShutdownException(Throwable throwable) {
+    Throwable current = throwable;
+    while (current != null) {
+      String className = current.getClass().getName();
+      if (className.endsWith("ContextNotActiveException")) {
+        return true;
+      }
+
+      String message = current.getMessage();
+      if (message != null) {
+        for (String marker : CONTAINER_SHUTDOWN_ERROR_MARKERS) {
+          if (message.contains(marker)) {
+            return true;
+          }
+        }
+      }
+      current = current.getCause();
+    }
+    return false;
   }
 }
