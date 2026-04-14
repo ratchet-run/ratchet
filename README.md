@@ -424,6 +424,15 @@ mvn spotless:apply
 
 Ratchet is currently in **0.1.0-SNAPSHOT** — the API is stabilizing but interfaces marked `@Incubating` may change. Feedback and contributions are welcome.
 
+## Community
+
+- [Contributing guide](./CONTRIBUTING.md)
+- [Support](./SUPPORT.md)
+- [Security policy](./SECURITY.md)
+- [Code of conduct](./CODE_OF_CONDUCT.md)
+- [Issues](https://github.com/jcputney/ratchet/issues)
+- [Discussions](https://github.com/jcputney/ratchet/discussions)
+
 ## License
 
 Ratchet is licensed under the [Apache License 2.0](./LICENSE).

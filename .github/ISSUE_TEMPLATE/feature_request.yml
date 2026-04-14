@@ -1,0 +1,49 @@
+name: Feature request
+description: Propose a focused improvement to Ratchet.
+title: "[Feature] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For open-ended design discussion, please consider starting in GitHub Discussions first:
+        https://github.com/jcputney/ratchet/discussions
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      placeholder: One-sentence description of the requested capability
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: What concrete limitation, pain point, or missing capability are you running into?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the API, behavior, or documentation change you want.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Existing workarounds, competing approaches, or why the current behavior is insufficient.
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: Explain who this helps and whether it affects API, SPI, runtime behavior, or documentation.
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and discussions first.
+          required: true
+        - label: I am willing to help test or implement this if guidance is available.
+          required: false

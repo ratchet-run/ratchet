@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and support
+    url: https://github.com/jcputney/ratchet/discussions
+    about: Ask usage questions, deployment questions, or start design discussion here.
+  - name: Security policy
+    url: https://github.com/jcputney/ratchet/security/policy
+    about: Read the security reporting process before disclosing a vulnerability.
+  - name: Documentation site
+    url: https://ratchet.jcputney.dev
+    about: Check the getting-started, deployment, and troubleshooting guides.

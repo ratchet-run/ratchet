@@ -1,0 +1,89 @@
+name: Bug report
+description: Report a reproducible defect or regression in Ratchet.
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug.
+
+        For usage questions or setup help, please use GitHub Discussions instead:
+        https://github.com/jcputney/ratchet/discussions
+  - type: input
+    id: version
+    attributes:
+      label: Ratchet version or commit SHA
+      placeholder: 0.1.0-SNAPSHOT or a commit SHA
+    validations:
+      required: true
+  - type: input
+    id: java-version
+    attributes:
+      label: Java version
+      placeholder: "17"
+    validations:
+      required: true
+  - type: dropdown
+    id: runtime
+    attributes:
+      label: Jakarta EE runtime
+      options:
+        - WildFly
+        - Open Liberty
+        - Payara
+        - TomEE
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: store
+    attributes:
+      label: Store backend
+      options:
+        - PostgreSQL
+        - MySQL
+        - MongoDB
+        - Other / custom
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and why it appears incorrect.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Provide a minimal reproduction, configuration, or sequence of steps.
+      placeholder: |
+        1. Configure ...
+        2. Submit ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or stack traces
+      description: Paste relevant output. Redact secrets before posting.
+      render: shell
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and discussions first.
+          required: true
+        - label: I removed or redacted credentials, tokens, and other secrets from the report.
+          required: true
+        - label: This is not a private security vulnerability report.
+          required: true
