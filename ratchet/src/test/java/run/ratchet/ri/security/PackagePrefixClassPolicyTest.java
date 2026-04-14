@@ -140,4 +140,23 @@ class PackagePrefixClassPolicyTest {
         IllegalArgumentException.class,
         () -> new PackagePrefixClassPolicy(Set.of(" com.example.")));
   }
+
+  @Test
+  void allowlist_prefixWithoutTrailingDot_doesNotMatchAdjacentPackage() {
+    // Regression: configuring "com.foo" without a trailing dot must not match
+    // "com.foobar.Gadget" via raw startsWith. Normalization appends the dot.
+    PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy(Set.of("com.foo"));
+    assertTrue(policy.isAllowed("com.foo.Bar"));
+    assertFalse(
+        policy.isAllowed("com.foobar.Gadget"),
+        "com.foobar.Gadget must not match the 'com.foo' allowlist prefix");
+  }
+
+  @Test
+  void allowlist_prefixNormalizationIdempotent() {
+    // Explicit trailing dot and absent trailing dot must produce the same policy.
+    PackagePrefixClassPolicy withDot = new PackagePrefixClassPolicy(Set.of("com.example."));
+    PackagePrefixClassPolicy withoutDot = new PackagePrefixClassPolicy(Set.of("com.example"));
+    assertEquals(withDot.getAllowedPackages(), withoutDot.getAllowedPackages());
+  }
 }

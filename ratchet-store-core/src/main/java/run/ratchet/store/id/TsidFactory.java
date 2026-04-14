@@ -4,6 +4,7 @@ import java.net.InetAddress;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.concurrent.atomic.AtomicLong;
+import org.jboss.logging.Logger;
 
 /**
  * Generates 64-bit Time-Sorted IDs (TSIDs) suitable for use as database primary keys.
@@ -24,8 +25,29 @@ import java.util.concurrent.atomic.AtomicLong;
  *   <li>Coordination-free — each node generates non-colliding IDs independently
  *   <li>64-bit {@code long} — drop-in replacement for auto-increment PKs
  * </ul>
+ *
+ * <h2>Node ID and multi-node deployments</h2>
+ *
+ * <p>The 10-bit node field provides 1,024 distinct slots. Without explicit assignment, the slot is
+ * derived from {@code hash(hostname + "-" + pid)}, which has birthday-paradox collision
+ * probability:
+ *
+ * <ul>
+ *   <li>~5% at 10 concurrent nodes
+ *   <li>~50% at 38 concurrent nodes
+ *   <li>&gt;99% above 100 concurrent nodes
+ * </ul>
+ *
+ * <p>A collision between two concurrent nodes means both can mint the same 64-bit ID within the
+ * same millisecond, causing duplicate-primary-key failures on insert. For deployments with more
+ * than a handful of nodes, set the environment variable {@code RATCHET_NODE_ID} (or the system
+ * property of the same name) to an explicit integer in the range {@code [0, 1023]} on each node.
+ * Both the auto-derived hash path and the {@link SecureRandom} exception-fallback path log a WARN
+ * on first initialization so the coordination gap is visible in startup logs.
  */
 public final class TsidFactory {
+
+  private static final Logger LOG = Logger.getLogger(TsidFactory.class);
 
   /** 2024-01-01T00:00:00Z — custom epoch to maximize useful timestamp range. */
   static final long CUSTOM_EPOCH_MS = Instant.parse("2024-01-01T00:00:00Z").toEpochMilli();
@@ -114,9 +136,23 @@ public final class TsidFactory {
     try {
       String host = InetAddress.getLocalHost().getHostName();
       long pid = ProcessHandle.current().pid();
-      return Math.abs((host + "-" + pid).hashCode()) & ((1 << NODE_BITS) - 1);
+      int nodeId = Math.abs((host + "-" + pid).hashCode()) & ((1 << NODE_BITS) - 1);
+      LOG.warnf(
+          "RATCHET_NODE_ID is unset; derived node slot %d from hash(%s-%d). "
+              + "Collision probability reaches ~50%% at 38 concurrent nodes. "
+              + "Set RATCHET_NODE_ID [0-1023] explicitly in multi-node deployments.",
+          nodeId, host, pid);
+      return nodeId;
     } catch (Exception e) {
-      return new SecureRandom().nextInt(1 << NODE_BITS);
+      int nodeId = new SecureRandom().nextInt(1 << NODE_BITS);
+      LOG.warnf(
+          e,
+          "RATCHET_NODE_ID is unset and hostname resolution failed (%s); "
+              + "falling back to random node slot %d. This slot is unstable across JVM restarts. "
+              + "Set RATCHET_NODE_ID [0-1023] explicitly to avoid TSID collisions.",
+          e.getClass().getSimpleName(),
+          nodeId);
+      return nodeId;
     }
   }
 }

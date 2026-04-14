@@ -131,12 +131,17 @@ public class PostgresqlJobStore implements JobStore {
   private static String buildClaimReadBackSql(
       String selectClause, String timeColumn, int boostInterval) {
     // Parameters: ?1 = nodeId. If boost > 0: ?2 = boostInterval, ?3 = limit. Else: ?2 = limit.
+    //
+    // The (picked_by, status='RUNNING') predicate alone is sufficient to read back the rows this
+    // node just claimed in the prior UPDATE — no other node can have written RUNNING rows with this
+    // nodeId. A wall-clock picked_at window is intentionally omitted: on long GC pauses or clock
+    // skew between the UPDATE and the SELECT, a time-filtered readback silently loses claims that
+    // are recovered only by the orphan sweeper minutes later.
     String limitParam = boostInterval > 0 ? "?3" : "?2";
     return "SELECT "
         + selectClause
         + " FROM scheduler_job "
         + "WHERE picked_by = ?1 AND status = 'RUNNING' "
-        + "AND picked_at >= statement_timestamp() - INTERVAL '5 seconds' "
         + "ORDER BY "
         + buildBoostOrderBy(timeColumn, boostInterval)
         + " LIMIT "

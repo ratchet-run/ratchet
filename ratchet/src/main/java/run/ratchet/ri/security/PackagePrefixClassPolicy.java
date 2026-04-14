@@ -1,6 +1,7 @@
 package run.ratchet.ri.security;
 
 import run.ratchet.spi.ClassPolicy;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import org.jboss.logging.Logger;
@@ -10,6 +11,10 @@ import org.jboss.logging.Logger;
  * name starts with a configured package prefix. A hardcoded denylist of RCE gadgets is checked
  * first, regardless of the allowlist. Constructor rejects prefixes shorter than 3 characters or
  * containing leading/trailing whitespace.
+ *
+ * <p>Configured allowlist prefixes are normalized to end with {@code .} so matches line up on
+ * package boundaries: configuring {@code "com.foo"} matches {@code com.foo.Bar} but NOT {@code
+ * com.foobar.Gadget}. This mirrors the {@link #DENIED_PREFIXES} invariant.
  *
  * @see JobSecurityValidator
  */
@@ -73,7 +78,15 @@ public class PackagePrefixClassPolicy implements ClassPolicy {
    */
   public PackagePrefixClassPolicy(Set<String> allowedPackages) {
     validatePrefixes(allowedPackages);
-    this.allowedPackages = Set.copyOf(allowedPackages);
+    this.allowedPackages = normalize(allowedPackages);
+  }
+
+  private static Set<String> normalize(Set<String> prefixes) {
+    Set<String> normalized = new LinkedHashSet<>(prefixes.size());
+    for (String prefix : prefixes) {
+      normalized.add(prefix.endsWith(".") ? prefix : prefix + ".");
+    }
+    return Set.copyOf(normalized);
   }
 
   private static void validatePrefixes(Set<String> prefixes) {
