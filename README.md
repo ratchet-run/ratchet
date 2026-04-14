@@ -426,4 +426,4 @@ Ratchet is currently in **0.1.0-SNAPSHOT** — the API is stabilizing but interf
 
 ## License
 
-TBD
+Ratchet is licensed under the [Apache License 2.0](./LICENSE).

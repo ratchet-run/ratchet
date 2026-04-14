@@ -11,6 +11,13 @@
 
   <name>Ratchet</name>
   <description>Portable, CDI-based job scheduler for Jakarta EE</description>
+  <licenses>
+    <license>
+      <name>Apache License, Version 2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
 
   <modules>
     <module>ratchet-api</module>
