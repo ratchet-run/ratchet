@@ -53,6 +53,12 @@ public class LambdaSerializer {
   private static final Set<String> ALLOWED_CLASS_PREFIXES =
       Set.of("run.ratchet.", "java.time.", "java.math.");
 
+  /**
+   * {@code java.lang} classes accepted during deserialization. Deliberately excludes {@code
+   * Throwable}, {@code Exception}, and {@code RuntimeException} — broad allowlisting of base
+   * exception types admits gadget-chain entry via any subclass with a custom {@code readObject}.
+   * Specific concrete exception types that genuinely need to round-trip should be added explicitly.
+   */
   private static final Set<String> ALLOWED_JAVA_LANG_CLASSES =
       Set.of(
           "java.lang.String",
@@ -65,11 +71,11 @@ public class LambdaSerializer {
           "java.lang.Short",
           "java.lang.Character",
           "java.lang.Number",
-          "java.lang.Enum",
           "java.lang.StackTraceElement",
-          "java.lang.Throwable",
-          "java.lang.Exception",
-          "java.lang.RuntimeException");
+          "java.lang.IllegalStateException",
+          "java.lang.IllegalArgumentException",
+          "java.lang.NullPointerException",
+          "java.lang.UnsupportedOperationException");
 
   private static final Set<String> ALLOWED_JAVA_UTIL_CLASSES =
       Set.of(

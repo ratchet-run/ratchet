@@ -199,7 +199,20 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
               operandStack, invocationList, methodInsn, opcodeValue, capturedValues);
         }
 
-        default -> operandStack.push(UnknownValue.INSTANCE);
+        default ->
+            // Pushing UnknownValue without popping the operands this instruction consumes would
+            // misalign the stack for every subsequent instruction and produce silent wrong
+            // answers. Fail fast instead so the caller can fall back to treating the lambda as
+            // opaque (serializing it with JDK serialization) rather than trusting a corrupted
+            // analysis.
+            throw new UnsupportedLambdaBytecodeException(
+                "AsmLambdaAnalyzer does not support opcode "
+                    + opcodeValue
+                    + " (0x"
+                    + Integer.toHexString(opcodeValue)
+                    + "). Lambda body uses a Java feature the analyzer has not been taught about;"
+                    + " either simplify the lambda to a method reference, or extend the analyzer's"
+                    + " opcode switch.");
       }
     }
 
@@ -320,4 +333,17 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
   private record CapturedValue(int index) implements Value {}
 
   private record NewInstanceMarker(String desc) implements Value {}
+
+  /**
+   * Thrown when the analyzer encounters a JVM opcode it does not model. Callers that need to accept
+   * arbitrary lambda bodies should catch this and fall back to opaque serialization rather than
+   * trusting a partial analysis.
+   */
+  public static final class UnsupportedLambdaBytecodeException extends IllegalStateException {
+    private static final long serialVersionUID = 1L;
+
+    public UnsupportedLambdaBytecodeException(String message) {
+      super(message);
+    }
+  }
 }

@@ -47,9 +47,10 @@ public class JdkSerializationStrategy implements SerializationStrategy {
           "java.lang.Character",
           "java.lang.Number",
           "java.lang.Enum",
-          // Exception types (specific — no broad Throwable/Exception base classes)
+          // Exception types (specific concrete classes only — broad Throwable/Exception/
+          // RuntimeException base classes are deliberately excluded to prevent gadget-chain
+          // entry via any subclass with a custom readObject).
           "java.lang.StackTraceElement",
-          "java.lang.RuntimeException",
           "java.lang.IllegalStateException",
           "java.lang.IllegalArgumentException",
           "java.lang.UnsupportedOperationException",
@@ -96,7 +97,10 @@ public class JdkSerializationStrategy implements SerializationStrategy {
       oos.flush();
       return baos.toByteArray();
     } catch (Exception e) {
-      throw new RuntimeException("Serialization error: " + obj, e);
+      // Do not embed obj.toString() — the payload may itself contain PII that would then be
+      // relayed through exception messages, logs, and error sinks. Identify by type only.
+      throw new RuntimeException(
+          "Serialization error for " + (obj == null ? "null" : obj.getClass().getName()), e);
     }
   }
 

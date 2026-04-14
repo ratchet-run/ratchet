@@ -93,6 +93,10 @@ CREATE INDEX IF NOT EXISTS idx_job_poll_composite ON scheduler_job (status, prio
 CREATE INDEX IF NOT EXISTS idx_job_claim_cover ON scheduler_job (status, job_type, scheduled_time, priority);
 CREATE INDEX IF NOT EXISTS idx_recurring_due ON scheduler_job (status, next_fire);
 CREATE INDEX IF NOT EXISTS idx_job_recurring_composite ON scheduler_job (job_type, status, next_fire);
+-- TODO(perf-audit): idx_job_due (status, scheduled_time) is a left-prefix of idx_job_poll_composite
+-- (status, priority, scheduled_time) and likely redundant for the planner. Confirm with
+-- pg_stat_user_indexes on a representative workload before dropping to avoid an accidental
+-- planner regression on narrow-index lookups.
 CREATE INDEX IF NOT EXISTS idx_job_due ON scheduler_job (status, scheduled_time);
 CREATE INDEX IF NOT EXISTS idx_job_priority_due ON scheduler_job (priority, scheduled_time);
 -- Lookup/relationship indexes.

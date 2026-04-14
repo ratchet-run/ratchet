@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import org.jboss.logging.Logger;
 import org.objectweb.asm.Type;
 
 /**
@@ -23,9 +24,19 @@ import org.objectweb.asm.Type;
  */
 public final class JobPayloadFactory {
 
+  private static final Logger log = Logger.getLogger(JobPayloadFactory.class);
+
   private static final JobPayload NOOP =
       new JobPayload(
           "run.ratchet.ri.util.JobPlaceholders", "noop", "()V", true, List.of());
+
+  /**
+   * Maximum depth for unwrapping nested functional-interface adapter lambdas (e.g. a {@code
+   * SerializableFunction} composed with another). Chosen empirically to cover all practical
+   * composition depths we have observed while bounding worst-case analysis cost; pathological
+   * deeper chains resolve to the outermost reachable invocation.
+   */
+  private static final int MAX_FUNCTIONAL_ADAPTER_UNWRAP_DEPTH = 4;
 
   private JobPayloadFactory() {}
 
@@ -140,13 +151,17 @@ public final class JobPayloadFactory {
                 + "supported. Change the method visibility to public.");
       }
     } catch (ClassNotFoundException e) {
+      // Target class cannot be loaded from this context — we cannot verify visibility, but we do
+      // not want to block scheduling on a reflective lookup miss. The invocation path will surface
+      // a clearer error at execution time if the class is genuinely missing.
+      log.debugf(e, "Cannot load %s for visibility check; skipping", className);
     }
   }
 
   private static InvocationStep resolveNestedFunctionalInvocation(InvocationStep initialStep) {
     InvocationStep resolved = initialStep;
 
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < MAX_FUNCTIONAL_ADAPTER_UNWRAP_DEPTH; i++) {
       InvocationStep next = unwrapFunctionalAdapterInvocation(resolved);
       if (next == null || next.equals(resolved)) {
         return resolved;

@@ -13,12 +13,27 @@ import java.io.Serializable;
  * WorkflowCondition goodBatch  = WorkflowCondition.successRate(0.95);
  * }</pre>
  *
+ * <h2>Serialization contract</h2>
+ *
+ * <p>{@code WorkflowCondition} is {@link Serializable} so conditions can be persisted with jobs.
+ * The {@code expression} field is declared as a raw {@code Serializable} to accept {@link
+ * SerializablePredicate} and {@link SerializableFunction} instances, but deserialization is
+ * filtered through an allowlist (see {@code LambdaSerializer} in the reference implementation).
+ * Callers MUST NOT rely on arbitrary third-party {@code Serializable} types reaching this field at
+ * runtime — values outside the allowlist are rejected on read.
+ *
+ * <p>This record is marked {@link Incubating}: its binary wire format (including the fixed {@link
+ * Serial serialVersionUID} on line 29) may change before the 1.0 release. Callers persisting these
+ * events to external systems should treat them as in-memory event payloads, not as a stable
+ * long-term storage format.
+ *
  * @param expression type-specific expression data (predicate, threshold, or null)
  * @param priority evaluation order when multiple conditions match (lower = first, default 0)
  * @see JobBuilder#when(SerializablePredicate, SerializableCheckedRunnable)
  * @see BatchBuilder#thenWhenBatch(SerializablePredicate, SerializableCheckedRunnable)
  * @see WorkflowBranch
  */
+@Incubating
 public record WorkflowCondition(ConditionType type, Serializable expression, int priority)
     implements Serializable {
 
