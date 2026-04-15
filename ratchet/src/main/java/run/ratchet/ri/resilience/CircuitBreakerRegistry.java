@@ -1,7 +1,9 @@
 package run.ratchet.ri.resilience;
 
 import run.ratchet.api.CircuitBreakerProfile;
+import run.ratchet.spi.CircuitBreakerConfigProvider;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import org.jboss.logging.Logger;
@@ -20,8 +22,18 @@ public class CircuitBreakerRegistry {
 
   private final Map<String, CircuitBreaker> breakers = new ConcurrentHashMap<>();
   private final Map<String, CircuitBreakerConfiguration> configs = new ConcurrentHashMap<>();
+  private final CircuitBreakerConfigProvider configProvider;
 
   public CircuitBreakerRegistry() {
+    this(
+        new DefaultCircuitBreakerConfigProvider(
+            new run.ratchet.ri.config.DefaultRatchetConfig(
+                new run.ratchet.ri.config.EnvironmentRatchetConfigSource())));
+  }
+
+  @Inject
+  public CircuitBreakerRegistry(CircuitBreakerConfigProvider configProvider) {
+    this.configProvider = configProvider;
     registerDefaultConfigs();
   }
 
@@ -36,7 +48,9 @@ public class CircuitBreakerRegistry {
         k -> {
           String configKey = profile.name().toLowerCase().replace('_', '-');
           CircuitBreakerConfiguration config =
-              configs.getOrDefault(configKey, CircuitBreakerConfiguration.forProfile(profile));
+              configs.getOrDefault(
+                  configKey,
+                  CircuitBreakerConfiguration.fromSpi(configProvider.configFor(profile)));
           return createBreaker(serviceName, config);
         });
   }
@@ -89,7 +103,7 @@ public class CircuitBreakerRegistry {
     for (CircuitBreakerProfile profile : CircuitBreakerProfile.values()) {
       configs.put(
           profile.name().toLowerCase().replace('_', '-'),
-          CircuitBreakerConfiguration.forProfile(profile));
+          CircuitBreakerConfiguration.fromSpi(configProvider.configFor(profile)));
     }
   }
 }

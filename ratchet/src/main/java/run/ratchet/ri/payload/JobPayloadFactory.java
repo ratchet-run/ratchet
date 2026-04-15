@@ -1,7 +1,7 @@
 package run.ratchet.ri.payload;
 
 import run.ratchet.ri.payload.AsmLambdaAnalyzer.InvocationStep;
-import run.ratchet.ri.payload.AsmLambdaAnalyzer.JobInvocation;
+import run.ratchet.spi.JobInvocation;
 import run.ratchet.store.entity.JobPayload;
 import java.io.Serializable;
 import java.lang.invoke.SerializedLambda;
@@ -53,11 +53,15 @@ public final class JobPayloadFactory {
    * slots.
    */
   public static JobPayload fromLambda(Serializable lambda, List<Object> runtimeArgs) {
+    return fromInvocation(toInvocation(lambda, runtimeArgs));
+  }
+
+  public static JobInvocation toInvocation(Serializable lambda, List<Object> runtimeArgs) {
     Objects.requireNonNull(lambda, "Lambda must not be null");
     Objects.requireNonNull(runtimeArgs, "Runtime args must not be null");
 
     SerializedLambda sl = toSerializedLambda(lambda);
-    JobInvocation joi = AsmLambdaAnalyzer.inspect(sl);
+    AsmLambdaAnalyzer.JobInvocation joi = AsmLambdaAnalyzer.inspect(sl);
 
     if (joi.steps().size() != 1) {
       throw new IllegalArgumentException(singleInvocationError(lambda, joi.steps().size()));
@@ -67,7 +71,7 @@ public final class JobPayloadFactory {
     rejectNonPublicMethod(step);
     List<Object> args = mergeInvocationArguments(step, runtimeArgs);
 
-    return new JobPayload(
+    return new JobInvocation(
         internalNameToFqcn(step.ownerInternalName()),
         step.methodName(),
         step.methodDescriptor(),
@@ -78,10 +82,14 @@ public final class JobPayloadFactory {
   @SuppressWarnings("java:S1172")
   // versioned parameter reserved for future payload versioning support
   public static JobPayload fromLambda(Serializable lambda, boolean versioned) {
+    return fromInvocation(toInvocation(lambda));
+  }
+
+  public static JobInvocation toInvocation(Serializable lambda) {
     Objects.requireNonNull(lambda, "Lambda must not be null");
 
     SerializedLambda sl = toSerializedLambda(lambda);
-    JobInvocation joi = AsmLambdaAnalyzer.inspect(sl);
+    AsmLambdaAnalyzer.JobInvocation joi = AsmLambdaAnalyzer.inspect(sl);
 
     if (joi.steps().size() != 1) {
       throw new IllegalArgumentException(singleInvocationError(lambda, joi.steps().size()));
@@ -90,12 +98,22 @@ public final class JobPayloadFactory {
     InvocationStep step = resolveNestedFunctionalInvocation(joi.last());
     rejectNonPublicMethod(step);
 
-    return new JobPayload(
+    return new JobInvocation(
         internalNameToFqcn(step.ownerInternalName()),
         step.methodName(),
         step.methodDescriptor(),
         step.isStatic(),
         step.arguments());
+  }
+
+  public static JobPayload fromInvocation(JobInvocation invocation) {
+    Objects.requireNonNull(invocation, "Invocation must not be null");
+    return new JobPayload(
+        invocation.targetClass(),
+        invocation.methodName(),
+        invocation.methodDescriptor(),
+        invocation.staticMethod(),
+        invocation.arguments());
   }
 
   public static JobPayload noop() {
@@ -185,7 +203,8 @@ public final class JobPayloadFactory {
       return null;
     }
 
-    JobInvocation nestedInvocation = AsmLambdaAnalyzer.inspect(nestedSerializedLambda);
+    AsmLambdaAnalyzer.JobInvocation nestedInvocation =
+        AsmLambdaAnalyzer.inspect(nestedSerializedLambda);
     if (nestedInvocation.steps().size() != 1) {
       return null;
     }

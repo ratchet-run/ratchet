@@ -6,7 +6,9 @@ import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobOptions;
 import run.ratchet.api.RecurringJobBuilder;
 import run.ratchet.api.SerializableCheckedRunnable;
+import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.payload.JobPayloadFactory;
+import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobStatus;
@@ -33,6 +35,7 @@ public class DefaultRecurringJobBuilder implements RecurringJobBuilder {
   private final JobCrudStore jobCrudStore;
   private final TagStore tagStore;
   private final RecurringScheduler recurringScheduler;
+  private final JobInvocationResolver jobInvocationResolver;
 
   private JobOptions options = JobOptions.defaults();
   private List<String> tags = new ArrayList<>();
@@ -45,12 +48,31 @@ public class DefaultRecurringJobBuilder implements RecurringJobBuilder {
       JobCrudStore jobCrudStore,
       TagStore tagStore,
       RecurringScheduler recurringScheduler) {
+    this(
+        cronExpr,
+        zone,
+        task,
+        jobCrudStore,
+        tagStore,
+        recurringScheduler,
+        new DefaultJobInvocationResolver());
+  }
+
+  DefaultRecurringJobBuilder(
+      String cronExpr,
+      ZoneId zone,
+      SerializableCheckedRunnable task,
+      JobCrudStore jobCrudStore,
+      TagStore tagStore,
+      RecurringScheduler recurringScheduler,
+      JobInvocationResolver jobInvocationResolver) {
     this.cronExpr = cronExpr;
     this.zone = zone;
     this.task = task;
     this.jobCrudStore = jobCrudStore;
     this.tagStore = tagStore;
     this.recurringScheduler = recurringScheduler;
+    this.jobInvocationResolver = jobInvocationResolver;
   }
 
   @Override
@@ -92,7 +114,7 @@ public class DefaultRecurringJobBuilder implements RecurringJobBuilder {
     job.setStatus(JobStatus.PENDING);
     job.setPriority(options.priority());
     job.setScheduledTime(Instant.now());
-    job.setPayload(JobPayloadFactory.fromLambda(task));
+    job.setPayload(JobPayloadFactory.fromInvocation(jobInvocationResolver.resolve(task)));
     job.setIdempotencyKey(UUID.randomUUID().toString());
     job.setBusinessKey(businessKey);
     job.setCronExpr(cronExpr);

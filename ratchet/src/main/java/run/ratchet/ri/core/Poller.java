@@ -2,6 +2,9 @@ package run.ratchet.ri.core;
 
 import run.ratchet.ri.util.RatchetConfiguration;
 import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.spi.PollingConfig;
+import run.ratchet.spi.PollingDelayStrategy;
+import run.ratchet.spi.PollingStrategyProvider;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.spi.JobClaimStore;
 import java.util.List;
@@ -27,10 +30,11 @@ public class Poller {
   private final DrainController drainController;
   private final PollerScheduler pollerScheduler;
   private final RatchetConfiguration config;
+  private final PollingStrategyProvider pollingStrategyProvider;
   private final int batchSize;
 
   @SuppressWarnings("java:S3077")
-  private volatile PollingStrategy strategy;
+  private volatile PollingDelayStrategy strategy;
 
   protected Poller() {
     this.jobClaimStore = null;
@@ -40,6 +44,7 @@ public class Poller {
     this.drainController = null;
     this.pollerScheduler = null;
     this.config = null;
+    this.pollingStrategyProvider = null;
     this.batchSize = 0;
   }
 
@@ -51,6 +56,7 @@ public class Poller {
       DrainController drainController,
       PollerScheduler pollerScheduler,
       RatchetConfiguration config,
+      PollingStrategyProvider pollingStrategyProvider,
       int batchSize) {
     this.jobClaimStore = jobClaimStore;
     this.jobExecutionCoordinator = jobExecutionCoordinator;
@@ -59,11 +65,13 @@ public class Poller {
     this.drainController = drainController;
     this.pollerScheduler = pollerScheduler;
     this.config = config;
+    this.pollingStrategyProvider = pollingStrategyProvider;
     this.batchSize = batchSize;
   }
 
   public PollingStrategy.PollingStats getPollingStats() {
-    return strategy != null ? strategy.getStats() : null;
+    PollingDelayStrategy local = strategy;
+    return local instanceof PollingStrategy pollingStrategy ? pollingStrategy.getStats() : null;
   }
 
   /** Must be called after database migrations complete. */
@@ -74,14 +82,15 @@ public class Poller {
     }
 
     this.strategy =
-        new PollingStrategy(
-            config.getPollerBurstDelayMs(),
-            config.getPollerMinDelayMs(),
-            config.getPollerMaxDelayMs(),
-            config.getPollerDeepIdleDelayMs(),
-            config.getPollerDeepIdleThresholdMs(),
-            config.getPollerIdleThreshold(),
-            batchSize);
+        pollingStrategyProvider.create(
+            new PollingConfig(
+                config.getPollerBurstDelayMs(),
+                config.getPollerMinDelayMs(),
+                config.getPollerMaxDelayMs(),
+                config.getPollerDeepIdleDelayMs(),
+                config.getPollerDeepIdleThresholdMs(),
+                config.getPollerIdleThreshold(),
+                batchSize));
 
     pollerScheduler.start();
 
@@ -114,7 +123,7 @@ public class Poller {
 
     if (!running.compareAndSet(false, true)) {
       log.warn("tick() already running, skipping overlapping call");
-      PollingStrategy local = strategy;
+      PollingDelayStrategy local = strategy;
       return local != null ? local.getCurrentDelay() : 1000;
     }
 

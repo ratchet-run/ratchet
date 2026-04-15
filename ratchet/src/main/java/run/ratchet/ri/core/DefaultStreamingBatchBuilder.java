@@ -11,10 +11,13 @@ import run.ratchet.api.StreamingBatchBuilder;
 import run.ratchet.api.StreamingBatchContext;
 import run.ratchet.api.WorkflowBranch;
 import run.ratchet.api.WorkflowCondition;
+import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.payload.JobPayloadFactory;
+import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.BatchStore;
@@ -44,6 +47,7 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
   private final BatchStore batchStore;
   private final WorkflowConditionStore workflowConditionStore;
   private final JobWakeupService wakeupService;
+  private final JobInvocationResolver jobInvocationResolver;
 
   private final List<WorkflowBranch> workflowBranches = new ArrayList<>();
   private Stream<T> stream;
@@ -58,11 +62,28 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
       BatchStore batchStore,
       WorkflowConditionStore workflowConditionStore,
       JobWakeupService wakeupService) {
+    this(
+        name,
+        jobCrudStore,
+        batchStore,
+        workflowConditionStore,
+        wakeupService,
+        new DefaultJobInvocationResolver());
+  }
+
+  DefaultStreamingBatchBuilder(
+      String name,
+      JobCrudStore jobCrudStore,
+      BatchStore batchStore,
+      WorkflowConditionStore workflowConditionStore,
+      JobWakeupService wakeupService,
+      JobInvocationResolver jobInvocationResolver) {
     this.name = name;
     this.jobCrudStore = jobCrudStore;
     this.batchStore = batchStore;
     this.workflowConditionStore = workflowConditionStore;
     this.wakeupService = wakeupService;
+    this.jobInvocationResolver = jobInvocationResolver;
   }
 
   @Override
@@ -150,7 +171,7 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
     batch.setCompletedItems(0);
     batch.setFailedItems(0);
     if (batchProgressHook != null) {
-      batch.setProgressHook(JobPayloadFactory.fromLambda(batchProgressHook));
+      batch.setProgressHook(payload(batchProgressHook));
     }
     batchStore.saveBatch(batch);
 
@@ -205,7 +226,7 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
       child.setStatus(JobStatus.PENDING);
       child.setPriority(JobPriority.NORMAL);
       child.setScheduledTime(Instant.now());
-      child.setPayload(JobPayloadFactory.fromLambda(action, List.of(item)));
+      child.setPayload(payload(action, List.of(item)));
       child.setIdempotencyKey(UUID.randomUUID().toString());
       child.setDependsOn(parentId);
       jobCrudStore.save(child);
@@ -220,7 +241,7 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
     branchJob.setStatus(JobStatus.PENDING);
     branchJob.setPriority(JobPriority.NORMAL);
     branchJob.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
-    branchJob.setPayload(JobPayloadFactory.fromLambda(branch.task()));
+    branchJob.setPayload(payload(branch.task()));
     branchJob.setIdempotencyKey(UUID.randomUUID().toString());
     branchJob.setDependsOn(parentId);
     JobEntity savedBranch = jobCrudStore.save(branchJob);
@@ -234,6 +255,15 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
       condition.setConditionExpressionSerialized(branch.condition().expression());
     }
     workflowConditionStore.saveCondition(condition);
+  }
+
+  private JobPayload payload(Serializable callback) {
+    return JobPayloadFactory.fromInvocation(jobInvocationResolver.resolve(callback));
+  }
+
+  private JobPayload payload(Serializable callback, List<Object> runtimeArguments) {
+    return JobPayloadFactory.fromInvocation(
+        jobInvocationResolver.resolve(callback, runtimeArguments));
   }
 
   private void invokeLocalProgressHook(Long batchId, int processedItems, int chunksInserted) {

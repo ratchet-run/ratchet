@@ -1,12 +1,14 @@
 package run.ratchet.ri.core;
 
+import run.ratchet.spi.PollingDelayStrategy;
+
 /**
  * Stateful, CDI-free computation of adaptive polling delays. Tracks a rolling window of job counts,
  * thread-pool load, idle depth, and burst mode to determine the next poll interval.
  *
  * @see Poller
  */
-public class PollingStrategy {
+public class PollingStrategy implements PollingDelayStrategy {
 
   private static final long ABSOLUTE_MIN_DELAY_MS = 50;
   private static final long AGGRESSIVE_BACKOFF_THRESHOLD_MS = 30_000;

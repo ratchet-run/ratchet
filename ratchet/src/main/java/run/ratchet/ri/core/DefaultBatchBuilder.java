@@ -9,7 +9,9 @@ import run.ratchet.api.SerializableConsumer;
 import run.ratchet.api.SerializablePredicate;
 import run.ratchet.api.WorkflowBranch;
 import run.ratchet.api.WorkflowCondition;
+import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.payload.JobPayloadFactory;
+import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -38,6 +40,7 @@ public class DefaultBatchBuilder implements BatchBuilder {
   private final BatchStore batchStore;
   private final WorkflowConditionStore workflowConditionStore;
   private final JobWakeupService wakeupService;
+  private final JobInvocationResolver jobInvocationResolver;
 
   private final List<ChildSpec> children = new ArrayList<>();
   private final List<WorkflowBranch> workflowBranches = new ArrayList<>();
@@ -49,18 +52,35 @@ public class DefaultBatchBuilder implements BatchBuilder {
       BatchStore batchStore,
       WorkflowConditionStore workflowConditionStore,
       JobWakeupService wakeupService) {
+    this(
+        name,
+        jobCrudStore,
+        batchStore,
+        workflowConditionStore,
+        wakeupService,
+        new DefaultJobInvocationResolver());
+  }
+
+  DefaultBatchBuilder(
+      String name,
+      JobCrudStore jobCrudStore,
+      BatchStore batchStore,
+      WorkflowConditionStore workflowConditionStore,
+      JobWakeupService wakeupService,
+      JobInvocationResolver jobInvocationResolver) {
     this.name = name;
     this.jobCrudStore = jobCrudStore;
     this.batchStore = batchStore;
     this.workflowConditionStore = workflowConditionStore;
     this.wakeupService = wakeupService;
+    this.jobInvocationResolver = jobInvocationResolver;
   }
 
   @Override
   public <T extends Serializable> BatchBuilder forEach(
       Collection<T> items, SerializableConsumer<T> action) {
     for (T item : items) {
-      children.add(new ChildSpec(JobPayloadFactory.fromLambda(action, List.of(item))));
+      children.add(new ChildSpec(payload(action, List.of(item))));
     }
     return this;
   }
@@ -89,7 +109,7 @@ public class DefaultBatchBuilder implements BatchBuilder {
     batch.setCompletedItems(0);
     batch.setFailedItems(0);
     if (progressHook != null) {
-      batch.setProgressHook(JobPayloadFactory.fromLambda(progressHook));
+      batch.setProgressHook(payload(progressHook));
     }
     batchStore.saveBatch(batch);
 
@@ -168,7 +188,7 @@ public class DefaultBatchBuilder implements BatchBuilder {
     branchJob.setStatus(JobStatus.PENDING);
     branchJob.setPriority(JobPriority.NORMAL);
     branchJob.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
-    branchJob.setPayload(JobPayloadFactory.fromLambda(branch.task()));
+    branchJob.setPayload(payload(branch.task()));
     branchJob.setIdempotencyKey(UUID.randomUUID().toString());
     branchJob.setDependsOn(parentId);
     JobEntity savedBranch = jobCrudStore.save(branchJob);
@@ -182,6 +202,15 @@ public class DefaultBatchBuilder implements BatchBuilder {
       condition.setConditionExpressionSerialized(branch.condition().expression());
     }
     workflowConditionStore.saveCondition(condition);
+  }
+
+  private JobPayload payload(Serializable callback) {
+    return JobPayloadFactory.fromInvocation(jobInvocationResolver.resolve(callback));
+  }
+
+  private JobPayload payload(Serializable callback, List<Object> runtimeArguments) {
+    return JobPayloadFactory.fromInvocation(
+        jobInvocationResolver.resolve(callback, runtimeArguments));
   }
 
   private record ChildSpec(JobPayload payload) {}

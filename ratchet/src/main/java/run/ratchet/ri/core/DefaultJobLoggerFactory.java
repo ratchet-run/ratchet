@@ -1,0 +1,28 @@
+package run.ratchet.ri.core;
+
+import run.ratchet.spi.JobLogger;
+import run.ratchet.spi.JobLoggerContext;
+import run.ratchet.spi.JobLoggerFactory;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
+
+/** Default per-job logger factory backed by JBoss Logging and Ratchet log events. */
+@ApplicationScoped
+public class DefaultJobLoggerFactory implements JobLoggerFactory {
+
+  private final InternalEventPublisher eventPublisher;
+
+  protected DefaultJobLoggerFactory() {
+    this.eventPublisher = null;
+  }
+
+  @Inject
+  public DefaultJobLoggerFactory(InternalEventPublisher eventPublisher) {
+    this.eventPublisher = eventPublisher;
+  }
+
+  @Override
+  public JobLogger create(JobLoggerContext context) {
+    return new JBossLoggingJobLogger(context.jobId(), eventPublisher);
+  }
+}

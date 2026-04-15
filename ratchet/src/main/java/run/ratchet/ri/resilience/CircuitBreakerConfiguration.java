@@ -1,6 +1,7 @@
 package run.ratchet.ri.resilience;
 
 import run.ratchet.api.CircuitBreakerProfile;
+import run.ratchet.spi.CircuitBreakerConfig;
 
 /**
  * Configuration for a circuit breaker instance. Read from system properties or environment
@@ -41,6 +42,16 @@ public record CircuitBreakerConfiguration(
       case EXTERNAL_API -> EXTERNAL_API;
       default -> DEFAULT;
     };
+  }
+
+  public static CircuitBreakerConfiguration fromSpi(CircuitBreakerConfig config) {
+    return new CircuitBreakerConfiguration(
+        config.failureRateThreshold(),
+        config.slidingWindowSize(),
+        config.waitDurationMs(),
+        config.slowCallThresholdMs(),
+        config.permittedCallsInHalfOpen(),
+        config.minimumCalls());
   }
 
   public static CircuitBreakerConfiguration fromEnvironment(

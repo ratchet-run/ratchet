@@ -20,11 +20,14 @@ import run.ratchet.ri.security.DefaultErrorSanitizer;
 import run.ratchet.ri.security.JobSecurityValidator;
 import run.ratchet.ri.security.PackagePrefixClassPolicy;
 import run.ratchet.ri.util.RatchetConfiguration;
+import run.ratchet.spi.CircuitBreakerConfigProvider;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.ErrorSanitizer;
+import run.ratchet.spi.ExecutionTuningProvider;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.spi.PollingStrategyProvider;
 import run.ratchet.spi.ResilienceStrategy;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.ExecutionStore;
@@ -61,6 +64,9 @@ public class RatchetProducer {
   private final PostExecutionHandler postExecutionHandler;
   private final NodeStore nodeStore;
   private final RatchetConfiguration config;
+  private final ExecutionTuningProvider executionTuningProvider;
+  private final PollingStrategyProvider pollingStrategyProvider;
+  private final CircuitBreakerConfigProvider circuitBreakerConfigProvider;
 
   protected RatchetProducer() {
     this.executorProvider = null;
@@ -70,6 +76,9 @@ public class RatchetProducer {
     this.postExecutionHandler = null;
     this.nodeStore = null;
     this.config = null;
+    this.executionTuningProvider = null;
+    this.pollingStrategyProvider = null;
+    this.circuitBreakerConfigProvider = null;
   }
 
   @Inject
@@ -80,7 +89,10 @@ public class RatchetProducer {
       JobStatusStore jobStatusStore,
       PostExecutionHandler postExecutionHandler,
       NodeStore nodeStore,
-      RatchetConfiguration config) {
+      RatchetConfiguration config,
+      ExecutionTuningProvider executionTuningProvider,
+      PollingStrategyProvider pollingStrategyProvider,
+      CircuitBreakerConfigProvider circuitBreakerConfigProvider) {
     this.executorProvider = executorProvider;
     this.metricsCollector = metricsCollector;
     this.jobCrudStore = jobCrudStore;
@@ -88,23 +100,40 @@ public class RatchetProducer {
     this.postExecutionHandler = postExecutionHandler;
     this.nodeStore = nodeStore;
     this.config = config;
+    this.executionTuningProvider = executionTuningProvider;
+    this.pollingStrategyProvider = pollingStrategyProvider;
+    this.circuitBreakerConfigProvider = circuitBreakerConfigProvider;
   }
 
   @Produces
   @ApplicationScoped
   public ThreadPoolManager threadPoolManager() {
-    boolean useVirtualThreads = config.isWorkerUseVirtualThreads();
+    boolean useVirtualThreads = executionTuningProvider.useVirtualThreads();
 
     Map<JobExecutionType, Integer> maxConcurrencyMap = new EnumMap<>(JobExecutionType.class);
-    maxConcurrencyMap.put(JobExecutionType.SINGLE, config.getThreadPoolSizeSingle());
-    maxConcurrencyMap.put(JobExecutionType.RECURRING, config.getThreadPoolSizeRecurring());
-    maxConcurrencyMap.put(JobExecutionType.BATCH_CHILD, config.getThreadPoolSizeBatchChild());
-    maxConcurrencyMap.put(JobExecutionType.BATCH_PARENT, config.getThreadPoolSizeBatchParent());
-    maxConcurrencyMap.put(JobExecutionType.CHAIN_STEP, config.getThreadPoolSizeChain());
-    maxConcurrencyMap.put(JobExecutionType.WORKFLOW_BRANCH, config.getThreadPoolSizeDefault());
+    for (JobExecutionType type : JobExecutionType.values()) {
+      maxConcurrencyMap.put(
+          type, executionTuningProvider.maxConcurrency(type.name(), defaultConcurrency(type)));
+    }
 
     return new ThreadPoolManager(
-        executorProvider, metricsCollector, useVirtualThreads, maxConcurrencyMap, config);
+        executorProvider,
+        metricsCollector,
+        useVirtualThreads,
+        maxConcurrencyMap,
+        executionTuningProvider);
+  }
+
+  private int defaultConcurrency(JobExecutionType type) {
+    return switch (type) {
+      case SINGLE -> config.getThreadPoolSizeSingle();
+      case RECURRING -> config.getThreadPoolSizeRecurring();
+      case BATCH_CHILD -> config.getThreadPoolSizeBatchChild();
+      case BATCH_PARENT -> config.getThreadPoolSizeBatchParent();
+      case CHAIN_STEP -> config.getThreadPoolSizeChain();
+      case DLQ_ALERT -> config.getThreadPoolSizeDlq();
+      case WORKFLOW_BRANCH, WORKFLOW_JOIN -> config.getThreadPoolSizeDefault();
+    };
   }
 
   @Produces
@@ -194,6 +223,7 @@ public class RatchetProducer {
         drainController,
         pollerScheduler,
         config,
+        pollingStrategyProvider,
         batchSize);
   }
 
@@ -259,7 +289,7 @@ public class RatchetProducer {
   @Default
   @ApplicationScoped
   public ResilienceStrategy resilienceStrategy(CircuitBreakerRegistry circuitBreakerRegistry) {
-    return new DefaultResilienceStrategy(circuitBreakerRegistry);
+    return new DefaultResilienceStrategy(circuitBreakerRegistry, circuitBreakerConfigProvider);
   }
 
   /**

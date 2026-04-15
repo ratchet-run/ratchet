@@ -4,8 +4,10 @@ import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.spi.JobLoggerFactory;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.ResilienceStrategy;
+import run.ratchet.spi.ResultPersistenceStrategy;
 import run.ratchet.spi.RetryPolicy;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
@@ -48,6 +50,8 @@ public class JobExecutorService {
   private final ResilienceStrategy resilienceStrategy;
   private final ErrorSanitizer errorSanitizer;
   private final ClassPolicy classPolicy;
+  private final JobLoggerFactory jobLoggerFactory;
+  private final ResultPersistenceStrategy resultPersistenceStrategy;
 
   protected JobExecutorService() {
     this.threadPoolManager = null;
@@ -64,6 +68,44 @@ public class JobExecutorService {
     this.resilienceStrategy = null;
     this.errorSanitizer = null;
     this.classPolicy = null;
+    this.jobLoggerFactory = null;
+    this.resultPersistenceStrategy = null;
+  }
+
+  public JobExecutorService(
+      ThreadPoolManager threadPoolManager,
+      JobTimeoutHandler timeoutHandler,
+      ExecutorProvider executorProvider,
+      JobStore jobStore,
+      ResourcePermitService resourcePermitService,
+      PostExecutionHandler postExecutionHandler,
+      NodeIdentityProvider nodeIdProvider,
+      ExecutionObserver executionObserver,
+      PreExecutionValidator preExecutionValidator,
+      BeanResolver beanResolver,
+      RetryPolicy retryPolicy,
+      ResilienceStrategy resilienceStrategy,
+      ErrorSanitizer errorSanitizer,
+      ClassPolicy classPolicy) {
+    this(
+        threadPoolManager,
+        timeoutHandler,
+        executorProvider,
+        jobStore,
+        resourcePermitService,
+        postExecutionHandler,
+        nodeIdProvider,
+        executionObserver,
+        preExecutionValidator,
+        beanResolver,
+        retryPolicy,
+        resilienceStrategy,
+        errorSanitizer,
+        classPolicy,
+        context -> new JBossLoggingJobLogger(context.jobId(), null),
+        new DefaultResultPersistenceStrategy(
+            new run.ratchet.ri.config.DefaultRatchetConfig(
+                new run.ratchet.ri.config.EnvironmentRatchetConfigSource())));
   }
 
   @Inject
@@ -81,7 +123,9 @@ public class JobExecutorService {
       RetryPolicy retryPolicy,
       ResilienceStrategy resilienceStrategy,
       ErrorSanitizer errorSanitizer,
-      ClassPolicy classPolicy) {
+      ClassPolicy classPolicy,
+      JobLoggerFactory jobLoggerFactory,
+      ResultPersistenceStrategy resultPersistenceStrategy) {
     this.threadPoolManager = threadPoolManager;
     this.timeoutHandler = timeoutHandler;
     this.executorProvider = executorProvider;
@@ -96,6 +140,8 @@ public class JobExecutorService {
     this.resilienceStrategy = resilienceStrategy;
     this.errorSanitizer = errorSanitizer;
     this.classPolicy = classPolicy;
+    this.jobLoggerFactory = jobLoggerFactory;
+    this.resultPersistenceStrategy = resultPersistenceStrategy;
   }
 
   public ExecutionResult execute(JobEntity job) {
@@ -183,7 +229,9 @@ public class JobExecutorService {
         retryPolicy,
         resilienceStrategy,
         errorSanitizer,
-        classPolicy);
+        classPolicy,
+        jobLoggerFactory,
+        resultPersistenceStrategy);
   }
 
   private JobTimeoutHandler.TimeoutHandles scheduleWatchdog(

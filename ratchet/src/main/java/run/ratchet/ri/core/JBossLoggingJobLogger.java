@@ -12,7 +12,8 @@ import org.jboss.logging.MDC;
  * Per-job {@link JobLogger} backed by JBoss Logging, with log lines published through {@link
  * InternalEventPublisher} for persistence. Each instance is bound to a single job ID.
  *
- * <p>Reserved for future per-job logger wiring; not currently instantiated by {@code JobTask}.
+ * <p>Created by {@link DefaultJobLoggerFactory} and bound into {@code JobContext} by {@link
+ * JobTask}.
  */
 public class JBossLoggingJobLogger implements JobLogger {
 

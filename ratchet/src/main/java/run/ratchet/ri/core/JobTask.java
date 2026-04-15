@@ -1,6 +1,5 @@
 package run.ratchet.ri.core;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import run.ratchet.api.CircuitBreakerProtected;
 import run.ratchet.api.event.JobCallbackFailedEvent;
 import run.ratchet.api.event.JobCancelledEvent;
@@ -8,13 +7,20 @@ import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.api.event.JobDlqEvent;
 import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobStartedEvent;
+import run.ratchet.ri.config.DefaultRatchetConfig;
+import run.ratchet.ri.config.EnvironmentRatchetConfigSource;
 import run.ratchet.ri.resilience.ServiceUnavailableException;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.ErrorSanitizer;
+import run.ratchet.spi.JobLogger;
+import run.ratchet.spi.JobLoggerContext;
+import run.ratchet.spi.JobLoggerFactory;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.ResilienceStrategy;
+import run.ratchet.spi.ResultPersistenceStrategy;
 import run.ratchet.spi.RetryPolicy;
+import run.ratchet.spi.SerializedJobResult;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
@@ -22,7 +28,6 @@ import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.spi.JobStore;
-import run.ratchet.store.util.ObjectMapperFactory;
 import jakarta.inject.Inject;
 import java.io.Serial;
 import java.lang.reflect.Method;
@@ -42,8 +47,6 @@ import org.objectweb.asm.Type;
 public class JobTask implements Callable<Void> {
 
   private static final Logger log = Logger.getLogger(JobTask.class);
-
-  private static final ObjectMapper OBJECT_MAPPER = ObjectMapperFactory.get();
 
   private static final ConcurrentHashMap<String, Method> METHOD_CACHE = new ConcurrentHashMap<>();
   private static final ConcurrentHashMap<String, Class<?>> CLASS_CACHE = new ConcurrentHashMap<>();
@@ -86,6 +89,8 @@ public class JobTask implements Callable<Void> {
   private final ResilienceStrategy resilienceStrategy;
   private final ErrorSanitizer errorSanitizer;
   private final ClassPolicy classPolicy;
+  private final JobLoggerFactory jobLoggerFactory;
+  private final ResultPersistenceStrategy resultPersistenceStrategy;
   private JobEntity job;
   private JobClaimDto claim;
   private JobExecutionEntity currentExecution;
@@ -103,6 +108,37 @@ public class JobTask implements Callable<Void> {
     this.resilienceStrategy = null;
     this.errorSanitizer = null;
     this.classPolicy = null;
+    this.jobLoggerFactory = null;
+    this.resultPersistenceStrategy = null;
+  }
+
+  public JobTask(
+      JobStore jobStore,
+      ResourcePermitService resourcePermitService,
+      PostExecutionHandler lifecycleFacade,
+      NodeIdentityProvider nodeIdProvider,
+      ExecutionObserver observabilityFacade,
+      PreExecutionValidator validationFacade,
+      BeanResolver beanResolver,
+      RetryPolicy retryPolicy,
+      ResilienceStrategy resilienceStrategy,
+      ErrorSanitizer errorSanitizer,
+      ClassPolicy classPolicy) {
+    this(
+        jobStore,
+        resourcePermitService,
+        lifecycleFacade,
+        nodeIdProvider,
+        observabilityFacade,
+        validationFacade,
+        beanResolver,
+        retryPolicy,
+        resilienceStrategy,
+        errorSanitizer,
+        classPolicy,
+        context -> new JBossLoggingJobLogger(context.jobId(), null),
+        new DefaultResultPersistenceStrategy(
+            new DefaultRatchetConfig(new EnvironmentRatchetConfigSource())));
   }
 
   @Inject
@@ -117,7 +153,9 @@ public class JobTask implements Callable<Void> {
       RetryPolicy retryPolicy,
       ResilienceStrategy resilienceStrategy,
       ErrorSanitizer errorSanitizer,
-      ClassPolicy classPolicy) {
+      ClassPolicy classPolicy,
+      JobLoggerFactory jobLoggerFactory,
+      ResultPersistenceStrategy resultPersistenceStrategy) {
     this.jobStore = jobStore;
     this.resourcePermitService = resourcePermitService;
     this.lifecycleFacade = lifecycleFacade;
@@ -129,6 +167,8 @@ public class JobTask implements Callable<Void> {
     this.resilienceStrategy = resilienceStrategy;
     this.errorSanitizer = errorSanitizer;
     this.classPolicy = classPolicy;
+    this.jobLoggerFactory = jobLoggerFactory;
+    this.resultPersistenceStrategy = resultPersistenceStrategy;
   }
 
   // ONLY path that populates CLASS_CACHE. Re-checks ClassPolicy on every call (even cache hits)
@@ -185,8 +225,18 @@ public class JobTask implements Callable<Void> {
       return null;
     }
 
+    String nodeId = nodeIdProvider.getNodeId();
+    JobLogger logger =
+        jobLoggerFactory.create(
+            new JobLoggerContext(
+                jobId,
+                jobEntity.getPublicJobType(),
+                jobEntity.getPriority(),
+                nodeId,
+                jobEntity.getCreatedBy(),
+                jobEntity.getParams()));
     JobMdcContext.bindJobContext(
-        jobId, jobEntity.getParams(), nodeIdProvider.getNodeId(), jobEntity.getCreatedBy());
+        jobId, logger, jobEntity.getParams(), nodeId, jobEntity.getCreatedBy());
 
     if (jobEntity.getCreatedBy() != null) {
       log.debugf("Job %s created by user (present)", jobId);
@@ -508,33 +558,10 @@ public class JobTask implements Callable<Void> {
 
     observabilityFacade.recordJobSuccess(job, executionMs);
 
-    String resultJson = null;
-    String resultType = null;
-    if (jobResult != null) {
-      try {
-        resultJson = OBJECT_MAPPER.writeValueAsString(jobResult);
-        resultType = jobResult.getClass().getName();
-        long maxBytes = maxResultBytes();
-        if (maxBytes > 0 && resultJson.length() > maxBytes) {
-          // Truncate to a marker JSON that captures the original size and the cap. The job
-          // still succeeds — operators can see the truncation in the row and adjust either
-          // the cap or the job's return shape.
-          log.warnf(
-              "Job %s result exceeds %s=%s bytes (actual=%s); truncating to marker",
-              job.getId(), RESULT_MAX_BYTES_PROPERTY, maxBytes, resultJson.length());
-          resultJson =
-              "{\"_truncated\":true,\"_originalSize\":"
-                  + resultJson.length()
-                  + ",\"_maxAllowed\":"
-                  + maxBytes
-                  + ",\"_resultType\":\""
-                  + resultType.replace("\"", "\\\"")
-                  + "\"}";
-        }
-      } catch (Exception e) {
-        log.warnf("Result serialization error for job %s: %s", job.getId(), e.getMessage());
-      }
-    }
+    SerializedJobResult serializedResult =
+        resultPersistenceStrategy.serialize(job.getId(), jobResult);
+    String resultJson = serializedResult.json();
+    String resultType = serializedResult.type();
 
     if (!jobStore.markJobSucceeded(
         job.getId(), resultJson, resultType, start, endTime, executionMs, queueMs)) {

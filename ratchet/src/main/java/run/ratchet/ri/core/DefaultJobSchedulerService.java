@@ -11,7 +11,9 @@ import run.ratchet.api.RecurringJobBuilder;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.StreamingBatchBuilder;
 import run.ratchet.api.WorkflowBranch;
+import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.payload.JobPayloadFactory;
+import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
@@ -54,6 +56,7 @@ public class DefaultJobSchedulerService
   private final WorkflowConditionStore workflowConditionStore;
   private final JobWakeupService wakeupService;
   private final RecurringScheduler recurringScheduler;
+  private final JobInvocationResolver jobInvocationResolver;
 
   protected DefaultJobSchedulerService() {
     this.eventPublisher = null;
@@ -64,6 +67,28 @@ public class DefaultJobSchedulerService
     this.workflowConditionStore = null;
     this.wakeupService = null;
     this.recurringScheduler = null;
+    this.jobInvocationResolver = null;
+  }
+
+  public DefaultJobSchedulerService(
+      InternalEventPublisher eventPublisher,
+      JobStatusStore jobStatusStore,
+      JobCrudStore jobCrudStore,
+      BatchStore batchStore,
+      TagStore tagStore,
+      WorkflowConditionStore workflowConditionStore,
+      JobWakeupService wakeupService,
+      RecurringScheduler recurringScheduler) {
+    this(
+        eventPublisher,
+        jobStatusStore,
+        jobCrudStore,
+        batchStore,
+        tagStore,
+        workflowConditionStore,
+        wakeupService,
+        recurringScheduler,
+        new DefaultJobInvocationResolver());
   }
 
   @Inject
@@ -75,7 +100,8 @@ public class DefaultJobSchedulerService
       TagStore tagStore,
       WorkflowConditionStore workflowConditionStore,
       JobWakeupService wakeupService,
-      RecurringScheduler recurringScheduler) {
+      RecurringScheduler recurringScheduler,
+      JobInvocationResolver jobInvocationResolver) {
     this.eventPublisher = eventPublisher;
     this.jobStatusStore = jobStatusStore;
     this.jobCrudStore = jobCrudStore;
@@ -84,6 +110,7 @@ public class DefaultJobSchedulerService
     this.workflowConditionStore = workflowConditionStore;
     this.wakeupService = wakeupService;
     this.recurringScheduler = recurringScheduler;
+    this.jobInvocationResolver = jobInvocationResolver;
   }
 
   @Override
@@ -139,20 +166,30 @@ public class DefaultJobSchedulerService
   @Override
   public BatchBuilder enqueueBatch(String name) {
     return new DefaultBatchBuilder(
-        name, jobCrudStore, batchStore, workflowConditionStore, wakeupService);
+        name,
+        jobCrudStore,
+        batchStore,
+        workflowConditionStore,
+        wakeupService,
+        jobInvocationResolver);
   }
 
   @Override
   public <T extends Serializable> StreamingBatchBuilder<T> streamingBatch(String name) {
     return new DefaultStreamingBatchBuilder<>(
-        name, jobCrudStore, batchStore, workflowConditionStore, wakeupService);
+        name,
+        jobCrudStore,
+        batchStore,
+        workflowConditionStore,
+        wakeupService,
+        jobInvocationResolver);
   }
 
   @Override
   public RecurringJobBuilder scheduleRecurring(
       String cron, ZoneId zone, SerializableCheckedRunnable task) {
     return new DefaultRecurringJobBuilder(
-        cron, zone, task, jobCrudStore, tagStore, recurringScheduler);
+        cron, zone, task, jobCrudStore, tagStore, recurringScheduler, jobInvocationResolver);
   }
 
   @Override
@@ -325,7 +362,7 @@ public class DefaultJobSchedulerService
       }
     }
 
-    JobPayload payload = JobPayloadFactory.fromLambda(builder.task());
+    JobPayload payload = payload(builder.task());
 
     JobOptions opts = builder.opts();
     JobEntity job = new JobEntity();
@@ -338,10 +375,10 @@ public class DefaultJobSchedulerService
     job.setBusinessKey(businessKey);
     job.setResourceName(builder.resourceName());
     if (builder.onSuccess() != null) {
-      job.setOnSuccessPayload(JobPayloadFactory.fromLambda(builder.onSuccess()));
+      job.setOnSuccessPayload(payload(builder.onSuccess()));
     }
     if (builder.onFailure() != null) {
-      job.setOnFailurePayload(JobPayloadFactory.fromLambda(builder.onFailure()));
+      job.setOnFailurePayload(payload(builder.onFailure()));
     }
     job.setMaxRetries(opts.maxRetries());
     job.setBackoffPolicy(opts.backoffPolicy());
@@ -390,7 +427,7 @@ public class DefaultJobSchedulerService
       step.setStatus(JobStatus.PENDING);
       step.setPriority(opts.priority());
       step.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
-      step.setPayload(JobPayloadFactory.fromLambda(chainTask));
+      step.setPayload(payload(chainTask));
       step.setIdempotencyKey(UUID.randomUUID().toString());
       step.setDependsOn(prevId);
       step.setMaxRetries(opts.maxRetries());
@@ -410,7 +447,7 @@ public class DefaultJobSchedulerService
       branchJob.setStatus(JobStatus.PENDING);
       branchJob.setPriority(JobPriority.NORMAL);
       branchJob.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
-      branchJob.setPayload(JobPayloadFactory.fromLambda(branch.task()));
+      branchJob.setPayload(payload(branch.task()));
       branchJob.setIdempotencyKey(UUID.randomUUID().toString());
       branchJob.setDependsOn(parentId);
       JobEntity savedBranch = jobCrudStore.save(branchJob);
@@ -425,5 +462,9 @@ public class DefaultJobSchedulerService
       }
       workflowConditionStore.saveCondition(condition);
     }
+  }
+
+  private JobPayload payload(Serializable callback) {
+    return JobPayloadFactory.fromInvocation(jobInvocationResolver.resolve(callback));
   }
 }

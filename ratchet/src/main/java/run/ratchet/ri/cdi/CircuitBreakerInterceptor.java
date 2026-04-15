@@ -4,6 +4,7 @@ import run.ratchet.api.CircuitBreakerProfile;
 import run.ratchet.api.CircuitBreakerProtected;
 import run.ratchet.ri.resilience.CircuitBreaker;
 import run.ratchet.ri.resilience.CircuitBreakerRegistry;
+import run.ratchet.spi.CircuitBreakerConfigProvider;
 import jakarta.annotation.Priority;
 import jakarta.inject.Inject;
 import jakarta.interceptor.AroundInvoke;
@@ -31,14 +32,18 @@ import java.lang.reflect.Method;
 public class CircuitBreakerInterceptor {
 
   private final CircuitBreakerRegistry registry;
+  private final CircuitBreakerConfigProvider configProvider;
 
   protected CircuitBreakerInterceptor() {
     this.registry = null;
+    this.configProvider = null;
   }
 
   @Inject
-  public CircuitBreakerInterceptor(CircuitBreakerRegistry registry) {
+  public CircuitBreakerInterceptor(
+      CircuitBreakerRegistry registry, CircuitBreakerConfigProvider configProvider) {
     this.registry = registry;
+    this.configProvider = configProvider;
   }
 
   /** Wraps the intercepted method in circuit breaker protection. */
@@ -49,6 +54,10 @@ public class CircuitBreakerInterceptor {
 
     String serviceName = resolveServiceName(annotation, method);
     CircuitBreakerProfile profile = annotation.profile();
+
+    if (!configProvider.isEnabled()) {
+      return ctx.proceed();
+    }
 
     CircuitBreaker breaker = registry.getBreaker(serviceName, profile);
     return breaker.execute(ctx::proceed);

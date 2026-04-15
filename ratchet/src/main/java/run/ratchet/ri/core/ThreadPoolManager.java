@@ -1,6 +1,9 @@
 package run.ratchet.ri.core;
 
+import run.ratchet.ri.config.DefaultRatchetConfig;
+import run.ratchet.ri.config.EnvironmentRatchetConfigSource;
 import run.ratchet.ri.util.RatchetConfiguration;
+import run.ratchet.spi.ExecutionTuningProvider;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobExecutionType;
@@ -34,14 +37,14 @@ public class ThreadPoolManager {
   private final MetricsCollector metricsCollector;
   private final boolean useVirtualThreads;
   private final Map<JobExecutionType, Integer> maxConcurrencyMap;
-  private final RatchetConfiguration config;
+  private final ExecutionTuningProvider executionTuningProvider;
 
   protected ThreadPoolManager() {
     this.executorProvider = null;
     this.metricsCollector = null;
     this.useVirtualThreads = false;
     this.maxConcurrencyMap = null;
-    this.config = null;
+    this.executionTuningProvider = null;
   }
 
   public ThreadPoolManager(
@@ -50,11 +53,26 @@ public class ThreadPoolManager {
       boolean useVirtualThreads,
       Map<JobExecutionType, Integer> maxConcurrencyMap,
       RatchetConfiguration config) {
+    this(
+        executorProvider,
+        metricsCollector,
+        useVirtualThreads,
+        maxConcurrencyMap,
+        new DefaultExecutionTuningProvider(
+            new DefaultRatchetConfig(new EnvironmentRatchetConfigSource())));
+  }
+
+  public ThreadPoolManager(
+      ExecutorProvider executorProvider,
+      MetricsCollector metricsCollector,
+      boolean useVirtualThreads,
+      Map<JobExecutionType, Integer> maxConcurrencyMap,
+      ExecutionTuningProvider executionTuningProvider) {
     this.executorProvider = executorProvider;
     this.metricsCollector = metricsCollector;
     this.useVirtualThreads = useVirtualThreads;
     this.maxConcurrencyMap = maxConcurrencyMap;
-    this.config = config;
+    this.executionTuningProvider = executionTuningProvider;
 
     init();
   }
@@ -249,8 +267,9 @@ public class ThreadPoolManager {
   }
 
   private int getVirtualThreadLimit(JobExecutionType jobType) {
-    if (config != null) {
-      return config.getVirtualThreadLimit(jobType.name(), DEFAULT_VIRTUAL_THREAD_LIMIT);
+    if (executionTuningProvider != null) {
+      return executionTuningProvider.virtualThreadLimit(
+          jobType.name(), DEFAULT_VIRTUAL_THREAD_LIMIT);
     }
     return DEFAULT_VIRTUAL_THREAD_LIMIT;
   }

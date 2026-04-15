@@ -1,5 +1,6 @@
 package run.ratchet.ri.resilience;
 
+import run.ratchet.spi.CircuitBreakerConfigProvider;
 import run.ratchet.spi.ResilienceStrategy;
 import java.time.Duration;
 import java.util.concurrent.Callable;
@@ -14,13 +15,27 @@ public class DefaultResilienceStrategy implements ResilienceStrategy {
   private static final Logger log = Logger.getLogger(DefaultResilienceStrategy.class);
 
   private final CircuitBreakerRegistry registry;
+  private final CircuitBreakerConfigProvider configProvider;
 
   public DefaultResilienceStrategy(CircuitBreakerRegistry registry) {
+    this(
+        registry,
+        new DefaultCircuitBreakerConfigProvider(
+            new run.ratchet.ri.config.DefaultRatchetConfig(
+                new run.ratchet.ri.config.EnvironmentRatchetConfigSource())));
+  }
+
+  public DefaultResilienceStrategy(
+      CircuitBreakerRegistry registry, CircuitBreakerConfigProvider configProvider) {
     this.registry = registry;
+    this.configProvider = configProvider;
   }
 
   @Override
   public <T> T execute(String serviceName, Callable<T> task) throws Exception {
+    if (!configProvider.isEnabled()) {
+      return task.call();
+    }
     CircuitBreaker breaker = registry.getBreaker(serviceName);
     try {
       return breaker.execute(task);
@@ -32,12 +47,18 @@ public class DefaultResilienceStrategy implements ResilienceStrategy {
 
   @Override
   public boolean isServiceAvailable(String serviceName) {
+    if (!configProvider.isEnabled()) {
+      return true;
+    }
     CircuitBreaker.State state = registry.getBreakerState(serviceName);
     return state != CircuitBreaker.State.OPEN;
   }
 
   @Override
   public Duration getRetryDelay(String serviceName) {
+    if (!configProvider.isEnabled()) {
+      return Duration.ZERO;
+    }
     return Duration.ofMillis(registry.getBreaker(serviceName).getWaitDurationMs());
   }
 }
