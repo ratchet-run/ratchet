@@ -517,9 +517,26 @@ public class RedisClusterCoordinator implements ClusterCoordinator {
 }
 ```
 
+### 11. StartupCoordinator
+
+**Module:** `ratchet-api`
+**Package:** `run.ratchet.spi`
+**Default:** `StoreBackedStartupCoordinator` (store-backed lease)
+**Annotation:** `@Incubating`
+
+Coordinates destructive startup work using a lease rather than an external leader-election system.
+
+```java
+@Incubating
+public interface StartupCoordinator {
+    boolean tryAcquire(String actionName, Duration leaseTtl);
+    void release(String actionName);
+}
+```
+
 ---
 
-### 11. LambdaAnalyzer
+### 12. LambdaAnalyzer
 
 **Module:** `ratchet-api`
 **Package:** `run.ratchet.spi`
@@ -838,7 +855,7 @@ Run all 15 contract suites against your store implementation. All tests must pas
 
 ```xml
 <dependency>
-    <groupId>dev.jcputney</groupId>
+    <groupId>run.ratchet</groupId>
     <artifactId>ratchet-tck</artifactId>
     <version>${ratchet.version}</version>
     <scope>test</scope>
@@ -885,7 +902,8 @@ public class MySpi implements SomeRatchetSpi {
 | `RetryPolicy` | `DefaultRetryPolicy` | `@ApplicationScoped` | ratchet |
 | `ResilienceStrategy` | `DefaultResilienceStrategy` | Produced by `RatchetProducer` | ratchet |
 | `MetricsCollector` | `NoOpMetricsCollector` | `@ApplicationScoped` | ratchet |
-| `JobLogger` | `JBossLoggingJobLogger` | Per-job instance | ratchet |
+| `JobLogger` | No-op binding in `JobMdcContext` | Per-job instance | ratchet |
+| `StartupCoordinator` | `StoreBackedStartupCoordinator` | `@ApplicationScoped` | ratchet |
 | `ClassPolicy` | `PackagePrefixClassPolicy` | Produced by `RatchetProducer` | ratchet |
 | `BeanResolver` | `CdiBeanResolver` | `@ApplicationScoped` | ratchet |
 | `ExecutorProvider` | `DefaultExecutorProvider` | `@ApplicationScoped` | ratchet |

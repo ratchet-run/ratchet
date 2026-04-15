@@ -14,7 +14,7 @@ In a clustered Ratchet deployment:
 
 1. **Job claiming is safe by default** — The database handles concurrency via row-level locking (`SELECT ... FOR UPDATE SKIP LOCKED` on PostgreSQL, InnoDB row locks on MySQL, atomic updates on MongoDB). No additional configuration is needed for one-shot jobs.
 
-2. **Recurring jobs need coordination** — Without clustering, every node independently fires recurring jobs, leading to duplicates. The `ClusterCoordinator` SPI prevents this by designating one node to schedule each recurring job.
+2. **Recurring execution and startup coordination are separate concerns** — runtime recurring execution uses `scheduler_lock` so only one node advances the recurring scheduler at a time, and destructive startup cleanup is gated by the built-in `StartupCoordinator`, which also uses store-backed leases.
 
 3. **Node identity is tracked** — Each node registers itself in the `scheduler_node` table with a heartbeat. This enables distributed locking and stale-node detection.
 
@@ -24,7 +24,8 @@ There is no separate `ratchet.cluster.enabled` switch. A deployment becomes clus
 
 - Node heartbeat registration in `scheduler_node`
 - Distributed lock acquisition via `scheduler_lock`
-- Recurring job leader election
+- Singleton recurring-scheduler execution via `scheduler_lock`
+- Store-backed startup leases for destructive initialization work
 - Cross-node wakeup notifications (if a `ClusterCoordinator` is provided)
 
 ## Node Identity
@@ -53,7 +54,7 @@ There is no built-in `ratchet.cluster.node-id` property. Override node identity 
 
 ## ClusterCoordinator SPI
 
-The `ClusterCoordinator` interface coordinates work distribution across nodes:
+The `ClusterCoordinator` interface coordinates cross-node wakeup notifications:
 
 ```java
 @Incubating
@@ -75,7 +76,21 @@ public interface ClusterCoordinator {
 
 ### Database-Only Coordination
 
-If you do not provide a `ClusterCoordinator`, Ratchet falls back to database-only coordination. Each node polls independently, and recurring job deduplication relies on the `scheduler_lock` table. This works but has higher latency — nodes discover new work only on their next poll cycle.
+If you do not provide a `ClusterCoordinator`, Ratchet still coordinates one-shot claims, recurring scheduler execution, and destructive startup cleanup through the store. Each node simply polls independently, so wakeups are slower.
+
+## StartupCoordinator
+
+`StartupCoordinator` gates destructive startup work behind a store-backed lease:
+
+```java
+@Incubating
+public interface StartupCoordinator {
+  boolean tryAcquire(String actionName, Duration leaseTtl);
+  void release(String actionName);
+}
+```
+
+The default `StoreBackedStartupCoordinator` uses `scheduler_lock`, so no extra cluster configuration is required for recurring-annotation orphan cleanup.
 
 ### Redis-Based Coordinator
 
@@ -230,8 +245,6 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
-        - name: RATCHET_CLUSTER_ENABLED
-          value: "true"
 ```
 
 Pod names (`ratchet-scheduler-0`, `ratchet-scheduler-1`, `ratchet-scheduler-2`) are used as stable node identifiers.

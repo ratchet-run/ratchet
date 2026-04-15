@@ -1,16 +1,16 @@
 ---
 sidebar_position: 3
 title: Debugging Guide
-description: How to debug Ratchet jobs using per-job logging, event listeners, database queries, and CDI observers.
+description: How to debug Ratchet jobs using event listeners, database queries, CDI observers, and optional per-job logging.
 ---
 
 # Debugging Guide
 
-This guide covers practical techniques for understanding what your Ratchet jobs are doing at runtime, from per-job structured logging to database-level inspection.
+This guide covers practical techniques for understanding what your Ratchet jobs are doing at runtime, from event tracing to database-level inspection. Per-job logging is optional: `JobContext.logger()` exists on every job, but the default binding is a no-op unless you install a custom `JobLogger`.
 
-## Using JobContext.logger() for Per-Job Logging
+## Using JobContext.logger() with a Custom JobLogger
 
-Every job has access to a `JobContext` that provides a per-job logger. Log entries written through this logger are stored in the `scheduler_job_log` table, giving you a structured execution trace tied to each job ID.
+Every job has access to a `JobContext` that provides a job-scoped logger. If you install a custom `JobLogger` that publishes log lines, those entries can be stored in `scheduler_job_log`, giving you a structured execution trace tied to each job ID.
 
 ```java
 @ApplicationScoped
@@ -20,16 +20,16 @@ public class DataImportService {
         JobContext ctx = JobContext.current();
         JobLogger log = ctx.logger();
 
-        log.info("Starting import for job {}", ctx.jobId());
+        log.info("Starting import for job " + ctx.jobId());
 
         String batchSize = ctx.param("batchSize", "100");
-        log.info("Using batch size: {}", batchSize);
+        log.info("Using batch size: " + batchSize);
 
         try {
             int rows = processRecords(Integer.parseInt(batchSize));
-            log.info("Imported {} rows successfully", rows);
+            log.info("Imported " + rows + " rows successfully");
         } catch (Exception e) {
-            log.error("Import failed: {}", e.getMessage());
+            log.error("Import failed: " + e.getMessage());
             throw e;
         }
     }
@@ -38,7 +38,7 @@ public class DataImportService {
 
 ### Querying Job Logs
 
-After a job runs, you can retrieve its log entries:
+If your custom logger persists log lines, you can retrieve them after a job runs:
 
 ```sql
 -- Get all log entries for a specific job, ordered chronologically
@@ -351,7 +351,7 @@ When a job is not behaving as expected, work through this checklist:
 
 1. **Check the job status:** `SELECT status, last_error FROM scheduler_job WHERE job_id = ?`
 2. **Check execution history:** `SELECT * FROM scheduler_job_execution WHERE job_id = ? ORDER BY attempt`
-3. **Check per-job logs:** `SELECT * FROM scheduler_job_log WHERE job_id = ? ORDER BY ts`
+3. **Check per-job logs (if enabled):** `SELECT * FROM scheduler_job_log WHERE job_id = ? ORDER BY ts`
 4. **Check if the node is alive:** `SELECT * FROM scheduler_node WHERE node_id = ?`
 5. **Check the payload:** `SELECT payload FROM scheduler_job WHERE job_id = ?` -- verify the target class and method are correct
 6. **Enable debug logging** for the relevant subsystem (see table above)

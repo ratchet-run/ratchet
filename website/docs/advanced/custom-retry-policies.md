@@ -66,7 +66,7 @@ public class DefaultRetryPolicy implements RetryPolicy {
 }
 ```
 
-With the default policy, a job configured with `maxRetries(3)` and `backoffPolicy(EXPONENTIAL)` will retry up to 3 times with exponentially increasing delays.
+With the default policy, a job configured with `.withMaxRetries(3)` and exponential backoff will retry up to 3 times with increasing delays.
 
 ## BackoffPolicy Interaction
 
@@ -326,12 +326,11 @@ class CustomRetryPolicyIT {
     void shouldApplyCustomRetryPolicy() {
         AtomicInteger attempts = new AtomicInteger(0);
 
-        JobHandle handle = scheduler.newJob()
-            .task(ctx -> {
+        JobHandle handle = scheduler.enqueue(() -> {
                 attempts.incrementAndGet();
                 throw new IOException("Transient failure");
             })
-            .maxRetries(3)
+            .withMaxRetries(3)
             .submit();
 
         // Wait for retries to complete
@@ -345,12 +344,11 @@ class CustomRetryPolicyIT {
     void shouldNotRetryPermanentFailure() {
         AtomicInteger attempts = new AtomicInteger(0);
 
-        JobHandle handle = scheduler.newJob()
-            .task(ctx -> {
+        JobHandle handle = scheduler.enqueue(() -> {
                 attempts.incrementAndGet();
                 throw new InvalidPaymentException("Bad card");
             })
-            .maxRetries(3)
+            .withMaxRetries(3)
             .submit();
 
         awaitJobTerminal(handle);

@@ -568,6 +568,38 @@ void registerWakeupListener(Runnable listener)
 
 Registers a listener invoked when another node publishes new work.
 
+## StartupCoordinator
+
+Coordinates destructive startup work across nodes using a lease model. The reference implementation uses the store's distributed lock mechanism so startup cleanup does not require an external leader-election system.
+
+:::info
+This interface is marked `@Incubating` and may change.
+:::
+
+```java
+@Incubating
+public interface StartupCoordinator {
+    boolean tryAcquire(String actionName, Duration leaseTtl);
+    void release(String actionName);
+}
+```
+
+### tryAcquire
+
+```java
+boolean tryAcquire(String actionName, Duration leaseTtl)
+```
+
+Attempts to acquire a startup lease for the named action.
+
+### release
+
+```java
+void release(String actionName)
+```
+
+Releases a lease previously acquired by this node.
+
 ### Example
 
 ```java

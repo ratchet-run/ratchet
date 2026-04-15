@@ -123,7 +123,7 @@ JobHandle handle = scheduler.enqueue(() -> longRunningTask())
 long jobId = handle.id();
 
 scheduler.pauseJob(jobId);     // Prevent execution
-scheduler.resumeJob(jobId);    // Resume where it left off
+scheduler.resumeJob(jobId);    // Return the job to its pre-pause state
 scheduler.cancelJob(jobId);    // Cancel permanently
 scheduler.retryJob(jobId);     // Reset a failed job to PENDING
 ```
@@ -139,7 +139,8 @@ Ratchet's internals are composed of focused SPI interfaces. The reference implem
 | `ClassPolicy` | Security policy for payload deserialization |
 | `ErrorSanitizer` | Custom PII/credential redaction |
 | `MetricsCollector` | Export metrics to your preferred backend |
-| `ClusterCoordinator` | Distributed leader election for recurring jobs |
+| `ClusterCoordinator` | Cross-node wakeups when you supply an implementation |
+| `StartupCoordinator` | Store-backed startup leases for destructive initialization tasks |
 | `ExecutorProvider` | Virtual threads or custom thread pools |
 
 ## Target Audience

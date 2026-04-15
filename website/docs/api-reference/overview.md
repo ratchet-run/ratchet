@@ -21,7 +21,7 @@ Classes and interfaces you use directly when scheduling jobs, building workflows
 | [`RecurringJobBuilder`](./job-scheduler-service#schedulerecurrently) | Interface | Builder for configuring recurring (cron-based) jobs |
 | [`BatchBuilder`](./batch-builder) | Interface | Builder for in-memory batch processing of collections |
 | [`StreamingBatchBuilder`](./batch-builder#streamingbatchbuilder) | Interface | Builder for memory-efficient streaming batch processing |
-| [`JobContext`](./job-context) | Final class | Thread-local access to job ID, logger, and parameters during execution |
+| [`JobContext`](./job-context) | Final class | Thread-local access to job ID, job-scoped logger binding, and parameters during execution |
 | [`JobResult<T>`](./job-result) | Class | Captures execution outcome: success/failure, return value, timing, metadata |
 | [`JobHandle`](./job-scheduler-service#jobhandle) | Interface | Lightweight receipt returned after job submission, provides the job ID |
 | [`JobOptions`](./job-options) | Record | Immutable configuration for priority, retries, backoff, and timeout |
@@ -89,6 +89,7 @@ Classes and interfaces you use directly when scheduling jobs, building workflows
 | [`MetricsCollector`](./spi-interfaces#metricscollector) | Emit custom metrics (Micrometer, StatsD, etc.) |
 | [`JobLogger`](./spi-interfaces#joblogger) | Custom job logging backend |
 | [`ClusterCoordinator`](./spi-interfaces#clustercoordinator) | Distributed wakeup notifications |
+| [`StartupCoordinator`](./spi-interfaces#startupcoordinator) | Store-backed startup leases for destructive initialization tasks |
 | [`NodeIdentityProvider`](./spi-interfaces#nodeidentityprovider) | Identify nodes in a cluster |
 | [`LambdaAnalyzer`](./spi-interfaces#lambdaanalyzer) | Lambda bytecode analysis for method extraction |
 
@@ -109,7 +110,7 @@ JobSchedulerService scheduler;
 
 ### Inside a Running Job
 
-When Ratchet executes your job, [`JobContext`](./job-context) is available on the current thread. Use it to access parameters, the job ID, and a structured logger.
+When Ratchet executes your job, [`JobContext`](./job-context) is available on the current thread. Use it to access parameters, the job ID, and the current job-scoped logger binding.
 
 ### Handling Results
 
@@ -126,7 +127,7 @@ To provide a custom SPI implementation, create a CDI bean annotated with `@Alter
 
 ```xml
 <dependency>
-  <groupId>dev.jcputney</groupId>
+  <groupId>run.ratchet</groupId>
   <artifactId>ratchet-api</artifactId>
 </dependency>
 ```

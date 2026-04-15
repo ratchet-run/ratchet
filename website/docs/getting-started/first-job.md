@@ -61,12 +61,12 @@ public class InvoiceService {
 
     public void processInvoice(long invoiceId) throws Exception {
         JobContext ctx = JobContext.current();
-        ctx.logger().info("Processing invoice {}", invoiceId);
+        ctx.logger().info("Processing invoice " + invoiceId);
 
         // Simulate calling the payment gateway
         chargeCustomer(invoiceId);
 
-        ctx.logger().info("Invoice {} processed successfully", invoiceId);
+        ctx.logger().info("Invoice " + invoiceId + " processed successfully");
     }
 
     private void onInvoiceProcessed(JobContext ctx) {
@@ -154,7 +154,7 @@ public void processInvoice(long invoiceId) throws Exception {
     // All parameters
     Map<String, String> allParams = ctx.params();
 
-    ctx.logger().info("Processing invoice for {}", email);
+    ctx.logger().info("Processing invoice for " + email);
 }
 ```
 
@@ -404,9 +404,9 @@ public class InvoiceService {
 
     public void processInvoice(long invoiceId) throws Exception {
         JobContext ctx = JobContext.current();
-        ctx.logger().info("Processing invoice {}", invoiceId);
+        ctx.logger().info("Processing invoice " + invoiceId);
         chargeCustomer(invoiceId);
-        ctx.logger().info("Invoice {} charged successfully", invoiceId);
+        ctx.logger().info("Invoice " + invoiceId + " charged successfully");
     }
 
     private void chargeCustomer(long invoiceId) throws Exception {

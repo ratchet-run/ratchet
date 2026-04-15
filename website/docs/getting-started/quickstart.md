@@ -16,6 +16,7 @@ Before starting, make sure you have:
 2. A database (PostgreSQL, MySQL, or MongoDB) accessible from your application
 3. Ratchet dependencies added to your `pom.xml` (see [Installation](./installation.md))
 4. The Ratchet schema applied to your database
+5. A `ClassPolicy` CDI alternative that allows your application's packages
 
 If you haven't done steps 3 and 4 yet, here's the minimum `pom.xml` setup:
 
@@ -53,6 +54,23 @@ And apply the schema:
 ```bash
 psql -d mydb -f ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql
 ```
+
+And install the required `ClassPolicy` override before you boot the app:
+
+```java
+@Alternative
+@Priority(jakarta.interceptor.Interceptor.Priority.APPLICATION)
+@ApplicationScoped
+public class AppClassPolicy implements ClassPolicy {
+
+    @Override
+    public boolean isAllowed(String className) {
+        return className.startsWith("com.example.");
+    }
+}
+```
+
+Ratchet fails fast at startup if you leave the default allowlist empty. The `-Dratchet.allow-empty-class-policy=true` escape hatch is only for demos and tests.
 
 ## Step 1: Create a CDI Bean
 
@@ -223,6 +241,10 @@ This usually means `ratchet` is not on the classpath, or your `beans.xml` is con
 ### "No JobStore implementation found"
 
 You need a store module (`ratchet-store-postgresql`, `ratchet-store-mysql`, or `ratchet-store-mongodb`) on the classpath, and it needs a configured `DataSource` or connection. Check that your application server's data source JNDI name matches what the store expects.
+
+### Startup fails with `ClassPolicy allowedPackages is empty`
+
+Ratchet refuses to boot until you provide a `ClassPolicy` override. Install the `@Alternative @Priority(APPLICATION)` bean shown above, or use `-Dratchet.allow-empty-class-policy=true` only in demos and tests.
 
 ### Jobs are enqueued but never execute
 

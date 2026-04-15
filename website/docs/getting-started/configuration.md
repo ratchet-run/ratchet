@@ -6,7 +6,7 @@ description: CDI producer setup, beans.xml requirements, SPI defaults, and runti
 
 # Configuration
 
-Ratchet is designed to work with zero configuration in most cases. The reference implementation ships with sensible defaults for every setting, and CDI bean discovery handles all the wiring. This page covers what's happening under the hood and how to customize it when the defaults don't fit.
+Ratchet is designed to work with very little configuration once the required security boundary is in place. The reference implementation ships with sensible defaults for most settings, and CDI bean discovery handles the wiring. The main required override is `ClassPolicy`: startup fails if you leave the default allowlist empty. This page covers what's happening under the hood and how to customize it when the defaults don't fit.
 
 ## How Ratchet Bootstraps
 
@@ -122,12 +122,13 @@ CDI will select your bean over Ratchet's default. No additional configuration ne
 | `ErrorSanitizer` | `DefaultErrorSanitizer` (strips common PII patterns) | Custom redaction rules for your domain |
 | `SerializationStrategy` | `JdkSerializationStrategy` (JDK serialization for lambda payloads) | Custom payload serialization (e.g., Kryo, Protobuf) |
 | `LambdaAnalyzer` | `AsmLambdaAnalyzer` (ASM bytecode analysis) | Custom method reference extraction |
-| `ClusterCoordinator` | `NoOpClusterCoordinator` (single-node, no coordination) | Distributed leader election for recurring jobs in a cluster |
+| `ClusterCoordinator` | `NoOpClusterCoordinator` (no wakeup coordination) | Cross-node wakeups when you supply an implementation |
+| `StartupCoordinator` | `StoreBackedStartupCoordinator` (uses `scheduler_lock`) | Gate destructive startup work behind a store-backed lease |
 | `MetricsCollector` | `NoOpMetricsCollector` (discards all metrics) | Use `ratchet-micrometer` or implement for your metrics backend |
 | `BeanResolver` | `CdiBeanResolver` (CDI `Instance<T>` lookup) | Custom bean instantiation for non-CDI contexts |
 | `ExecutorProvider` | `DefaultExecutorProvider` (platform threads) | Virtual threads or custom thread pool configuration |
 | `NodeIdentityProvider` | `DefaultNodeIdentityProvider` (hostname-based with heartbeat) | Custom node identification for cloud environments |
-| `JobLogger` | JUL bridge (per-job logger that persists log lines) | Custom structured logging |
+| `JobLogger` | No-op job-scoped logger binding | Custom structured logging |
 
 ### ClassPolicy: Security Configuration
 

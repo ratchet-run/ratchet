@@ -1,12 +1,12 @@
 ---
 sidebar_position: 11
 title: Clustering
-description: ClusterCoordinator SPI, distributed leader election, node identity, and multi-node consistency
+description: ClusterCoordinator SPI, database-backed coordination, node identity, and multi-node consistency
 ---
 
 # Clustering
 
-Ratchet is designed to run on multiple nodes without additional coordination infrastructure. The database serves as the shared state, and `SKIP LOCKED` ensures safe concurrent job claiming. For enhanced responsiveness, the `ClusterCoordinator` SPI enables cross-node wakeup notifications.
+Ratchet is designed to run on multiple nodes without additional coordination infrastructure. The database serves as the shared state, `SKIP LOCKED` ensures safe concurrent job claiming, and `scheduler_lock` provides singleton execution for recurring scans. For enhanced responsiveness, the `ClusterCoordinator` SPI enables cross-node wakeup notifications.
 
 ## Multi-Node Architecture
 
@@ -54,6 +54,20 @@ LIMIT 50;
 ```
 
 Both MySQL and PostgreSQL support `SKIP LOCKED`. This is the foundation of Ratchet's multi-node execution -- it requires no external coordination service.
+
+## StartupCoordinator
+
+Destructive startup tasks are coordinated separately from wakeups. Ratchet's default `StartupCoordinator` uses a store-backed lease so only one node performs recurring-annotation orphan cleanup during startup:
+
+```java
+@Incubating
+public interface StartupCoordinator {
+    boolean tryAcquire(String actionName, Duration leaseTtl);
+    void release(String actionName);
+}
+```
+
+This is distinct from `ClusterCoordinator`: startup cleanup uses store-backed leases by default, while `ClusterCoordinator` remains optional and wakeup-focused.
 
 ## ClusterCoordinator SPI
 

@@ -65,7 +65,7 @@ This is suitable for:
 
 Multiple application instances share the same database. Ratchet uses database-level locking (`SELECT ... FOR UPDATE SKIP LOCKED` on PostgreSQL, InnoDB row locking on MySQL) to ensure each job is claimed by exactly one node.
 
-For recurring jobs, implement the `ClusterCoordinator` SPI to prevent duplicate scheduling across nodes.
+Recurring scans and destructive startup cleanup are already serialized through store-backed locks and leases. Implement `ClusterCoordinator` only if you want low-latency cross-node wakeups.
 
 See [Cluster Configuration](/docs/deployment/cluster-configuration) for details.
 
@@ -93,7 +93,7 @@ The schema creates these primary tables:
 | `scheduler_job` | Job definitions, status, payload, scheduling metadata |
 | `scheduler_job_tag` | Tags for job categorization and querying |
 | `scheduler_job_execution` | Per-attempt execution history with timing and errors |
-| `scheduler_job_log` | Per-job structured log entries |
+| `scheduler_job_log` | Optional per-job log entries if your `JobLogger` publishes them |
 | `scheduler_batch` | Batch progress tracking |
 | `scheduler_batch_metrics` | Batch performance metrics |
 | `scheduler_job_archive` | Archived completed/failed jobs |
@@ -145,7 +145,7 @@ Before going to production:
 4. **Tune polling** — Adjust `RATCHET_POLLER_MIN_DELAY_MS`, `RATCHET_POLLER_MAX_DELAY_MS`, and `RATCHET_POLLER_BATCH_SIZE` for your workload
 5. **Set up retention** — Configure `RATCHET_JOB_RETENTION_DAYS`, `RATCHET_DLQ_PURGE_DAYS`, and `RATCHET_LOG_RETENTION_DAYS` to prevent unbounded table growth
 6. **Enable metrics** — Wire `MetricsCollector` to your monitoring stack
-7. **Configure clustering** — If running multiple nodes, implement `ClusterCoordinator`
+7. **Configure wakeups if needed** — If running multiple nodes and you want faster cross-node responsiveness, implement `ClusterCoordinator`
 8. **Test failover** — Verify jobs recover when a node goes down
 
 ## Next Steps

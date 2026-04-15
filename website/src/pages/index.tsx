@@ -57,7 +57,7 @@ const features = [
   },
   {
     title: 'Enterprise Ready',
-    description: 'Jakarta EE 10, Java 17+, container-managed transactions, cluster-safe recurring jobs with distributed leader election.',
+    description: 'Jakarta EE 10, Java 17+, container-managed transactions, safe multi-node job claiming, database-backed singleton recurring scans, and optional cross-node wakeups.',
   },
 ];
 

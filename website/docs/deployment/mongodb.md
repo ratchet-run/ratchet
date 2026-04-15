@@ -32,7 +32,9 @@ This pulls in the MongoDB sync driver. No ODM (Morphia, Spring Data) is required
 
 ## Collection Setup
 
-Call `MongoCollectionInitializer.initialize()` at application startup. This is **idempotent** — safe to run on every boot:
+You normally do not need a separate bootstrap step. `MongoJobStore` runs `new MongoCollectionInitializer(database).initialize()` from its own `@PostConstruct`, so collections and indexes are created automatically when the store starts.
+
+If you want to pre-create them explicitly in a standalone bootstrap, use the initializer instance directly. The operation is **idempotent** — safe to run on every boot:
 
 ```java
 @ApplicationScoped
@@ -44,7 +46,7 @@ public class MongoStartup {
     @PostConstruct
     void init() {
         MongoDatabase db = mongoClient.getDatabase("myapp");
-        MongoCollectionInitializer.initialize(db);
+        new MongoCollectionInitializer(db).initialize();
     }
 }
 ```
@@ -57,7 +59,7 @@ This creates all collections and indexes if they don't already exist.
 |-----------|---------|
 | `scheduler_job` | Main job store — status, payload, scheduling, priority |
 | `scheduler_job_execution` | Execution history — start/end times, node, outcome |
-| `scheduler_job_log` | Structured logs per job (via `JobContext.logger()`) |
+| `scheduler_job_log` | Optional per-job log storage if your `JobLogger` publishes log lines |
 | `scheduler_job_archive` | Archived completed/failed jobs |
 | `scheduler_lock` | Distributed advisory locks with TTL |
 | `scheduler_node` | Cluster node heartbeats |
@@ -130,7 +132,7 @@ In SQL stores, tags use a separate `scheduler_job_tag` join table. In MongoDB, t
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SCHEDULER_PRIORITY_BOOST_INTERVAL_MINUTES` | `15` | How often to boost starved job priorities |
+| `RATCHET_PRIORITY_BOOST_INTERVAL_MINUTES` | `15` | How often to boost starved job priorities |
 
 ### Connection
 

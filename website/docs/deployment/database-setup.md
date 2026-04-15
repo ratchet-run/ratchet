@@ -69,7 +69,7 @@ You should see 13 tables:
 | `scheduler_job` | Job definitions, status, payload |
 | `scheduler_job_tag` | Tags for categorization |
 | `scheduler_job_execution` | Per-attempt execution history |
-| `scheduler_job_log` | Per-job structured log entries |
+| `scheduler_job_log` | Optional per-job log entries if your `JobLogger` publishes them |
 | `scheduler_batch` | Batch progress tracking |
 | `scheduler_batch_metrics` | Batch performance metrics |
 | `scheduler_job_archive` | Archived completed/failed jobs |
@@ -237,27 +237,47 @@ db.createUser({
 
 ### Initialize Collections and Indexes
 
-MongoDB does not require a DDL file — the store module creates collections and indexes automatically on startup. However, you can pre-create indexes for faster initial startup:
+MongoDB does not require a DDL file — the store module creates collections and indexes automatically on startup. However, you can pre-create the same collections and indexes for faster initial startup:
 
 ```javascript
 // mongosh
 use ratchet;
 
-db.createCollection("scheduler_jobs");
-db.createCollection("scheduler_job_executions");
-db.createCollection("scheduler_job_logs");
-db.createCollection("scheduler_nodes");
-db.createCollection("scheduler_locks");
+db.createCollection("scheduler_job");
+db.createCollection("scheduler_batch");
+db.createCollection("scheduler_batch_metrics");
+db.createCollection("scheduler_job_execution");
+db.createCollection("scheduler_job_archive");
+db.createCollection("scheduler_node");
+db.createCollection("scheduler_lock");
+db.createCollection("scheduler_workflow_condition");
+db.createCollection("scheduler_dlq_alerts");
+db.createCollection("scheduler_resource_permit");
+db.createCollection("scheduler_resource_limit");
 
 // Key indexes
-db.scheduler_jobs.createIndex({ status: 1, scheduledTime: 1 });
-db.scheduler_jobs.createIndex({ status: 1, priority: -1, scheduledTime: 1 });
-db.scheduler_jobs.createIndex({ idempotencyKey: 1 }, { unique: true });
-db.scheduler_jobs.createIndex({ jobType: 1, status: 1, nextFire: 1 });
-db.scheduler_jobs.createIndex({ "tags": 1 });
+db.scheduler_job.createIndex({ status: 1, priority: -1, scheduled_time: 1 }, { name: "idx_job_poll_composite" });
+db.scheduler_job.createIndex({ job_type: 1, status: 1, next_fire: 1 }, { name: "idx_job_recurring_composite" });
+db.scheduler_job.createIndex({ idempotency_key: 1 }, { name: "idx_job_idempotency_key", unique: true });
+db.scheduler_job.createIndex(
+  { business_key: 1 },
+  {
+    name: "idx_job_active_business_key",
+    unique: true,
+    partialFilterExpression: {
+      status: { $in: ["PENDING", "RUNNING", "PAUSED"] },
+      business_key: { $type: "string" }
+    }
+  }
+);
+db.scheduler_job.createIndex({ tags: 1 }, { name: "idx_job_tags" });
+db.scheduler_job_execution.createIndex({ job_id: 1 }, { name: "idx_execution_job_id" });
+db.scheduler_node.createIndex({ heartbeat_ts: 1 }, { name: "idx_node_heartbeat" });
+db.scheduler_lock.createIndex({ expires_at: 1 }, { name: "idx_lock_ttl", expireAfterSeconds: 0 });
 
-db.scheduler_nodes.createIndex({ heartbeatTs: 1 });
-db.scheduler_locks.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+// Only create this collection and index if you wire job-log persistence.
+db.createCollection("scheduler_job_log");
+db.scheduler_job_log.createIndex({ job_id: 1, ts: 1 }, { name: "idx_log_job_ts" });
 ```
 
 ### Connection Configuration

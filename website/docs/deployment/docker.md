@@ -159,11 +159,12 @@ create-jdbc-resource --connectionpoolid=RatchetPool java:/RatchetDS
 Configure Ratchet via environment variables in your container:
 
 ```dockerfile
-ENV RATCHET_EXECUTOR_THREADS=16
-ENV RATCHET_POLLING_INTERVAL=5000
-ENV RATCHET_POLLING_BATCH_SIZE=100
-ENV RATCHET_RETENTION_COMPLETED_DAYS=30
-ENV RATCHET_CLUSTER_ENABLED=false
+ENV RATCHET_THREAD_POOL_SIZE_SINGLE=16
+ENV RATCHET_POLLER_MIN_DELAY_MS=2000
+ENV RATCHET_POLLER_MAX_DELAY_MS=10000
+ENV RATCHET_POLLER_BATCH_SIZE=100
+ENV RATCHET_JOB_RETENTION_DAYS=30
+ENV RATCHET_NODE_HEARTBEAT_INTERVAL_SECONDS=10
 ```
 
 Or pass them at runtime:
@@ -173,8 +174,9 @@ docker run -d \
   -e DB_URL=jdbc:postgresql://db:5432/ratchet \
   -e DB_USERNAME=ratchet \
   -e DB_PASSWORD=secret \
-  -e RATCHET_EXECUTOR_THREADS=32 \
-  -e RATCHET_POLLING_INTERVAL=3000 \
+  -e RATCHET_THREAD_POOL_SIZE_SINGLE=32 \
+  -e RATCHET_POLLER_MIN_DELAY_MS=1000 \
+  -e RATCHET_POLLER_BATCH_SIZE=100 \
   -p 8080:8080 \
   myapp:latest
 ```
@@ -193,8 +195,9 @@ services:
       DB_URL: jdbc:postgresql://postgres:5432/ratchet
       DB_USERNAME: ratchet
       DB_PASSWORD: ratchet
-      RATCHET_EXECUTOR_THREADS: "16"
-      RATCHET_POLLING_INTERVAL: "5000"
+      RATCHET_THREAD_POOL_SIZE_SINGLE: "16"
+      RATCHET_POLLER_MIN_DELAY_MS: "2000"
+      RATCHET_POLLER_BATCH_SIZE: "100"
     depends_on:
       postgres:
         condition: service_healthy
@@ -281,28 +284,28 @@ For testing clustered deployments locally:
 services:
   app1:
     build: .
+    hostname: ratchet-node-1
     ports:
       - "8081:8080"
     environment:
       DB_URL: jdbc:postgresql://postgres:5432/ratchet
       DB_USERNAME: ratchet
       DB_PASSWORD: ratchet
-      HOSTNAME: ratchet-node-1
-      RATCHET_CLUSTER_ENABLED: "true"
+      RATCHET_NODE_HEARTBEAT_INTERVAL_SECONDS: "10"
     depends_on:
       postgres:
         condition: service_healthy
 
   app2:
     build: .
+    hostname: ratchet-node-2
     ports:
       - "8082:8080"
     environment:
       DB_URL: jdbc:postgresql://postgres:5432/ratchet
       DB_USERNAME: ratchet
       DB_PASSWORD: ratchet
-      HOSTNAME: ratchet-node-2
-      RATCHET_CLUSTER_ENABLED: "true"
+      RATCHET_NODE_HEARTBEAT_INTERVAL_SECONDS: "10"
     depends_on:
       postgres:
         condition: service_healthy
@@ -325,6 +328,8 @@ services:
 volumes:
   pgdata:
 ```
+
+There is no `RATCHET_CLUSTER_ENABLED` switch. Sharing the same store across multiple Ratchet nodes makes the deployment multi-node automatically. One-shot job claiming, recurring-scheduler singleton execution, and destructive startup cleanup are already coordinated through the store. Add a real `ClusterCoordinator` only if you want cross-node wakeups.
 
 ## Volume Configuration
 

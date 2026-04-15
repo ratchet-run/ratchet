@@ -347,7 +347,7 @@ public class MicrometerCollector implements MetricsCollector {
 
   @Override
   public void jobStarted(long jobId, JobType type, JobPriority priority) {
-    registry.counter("ratchet.job.started",
+    registry.counter("ratchet.jobs.started",
         "type", type.name(),
         "priority", priority.name())
         .increment();
@@ -355,18 +355,20 @@ public class MicrometerCollector implements MetricsCollector {
 
   @Override
   public void jobCompleted(long jobId, JobType type, long executionTimeMs) {
-    registry.timer("ratchet.job.duration",
-        "type", type.name(),
-        "status", "success")
+    registry.counter("ratchet.jobs.completed",
+        "type", type.name())
+        .increment();
+
+    registry.timer("ratchet.jobs.duration",
+        "type", type.name())
         .record(executionTimeMs, TimeUnit.MILLISECONDS);
   }
 
   @Override
   public void jobFailed(long jobId, JobType type, Throwable cause, int attempt) {
-    registry.counter("ratchet.job.failed",
+    registry.counter("ratchet.jobs.failed",
         "type", type.name(),
-        "error", cause.getClass().getSimpleName(),
-        "attempt", String.valueOf(attempt))
+        "exception", cause.getClass().getSimpleName())
         .increment();
   }
 }

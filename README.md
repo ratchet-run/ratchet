@@ -65,7 +65,26 @@ Import the BOM and pick your store:
 </dependencies>
 ```
 
-### 2. Apply the Schema
+### 2. Install a `ClassPolicy`
+
+Ratchet refuses to start until you provide a deserialization allowlist for job payloads. Add a CDI alternative that permits your application's packages:
+
+```java
+@Alternative
+@Priority(jakarta.interceptor.Interceptor.Priority.APPLICATION)
+@ApplicationScoped
+public class AppClassPolicy implements ClassPolicy {
+
+    @Override
+    public boolean isAllowed(String className) {
+        return className.startsWith("com.example.");
+    }
+}
+```
+
+For demos and tests only, you can bypass the fail-fast startup check with `-Dratchet.allow-empty-class-policy=true`, but the default policy still rejects every job target.
+
+### 3. Apply the Schema
 
 Ratchet ships DDL as plain SQL files — no Flyway dependency, no migration lock-in. Apply the schema however your project manages DDL:
 
@@ -77,7 +96,7 @@ psql -d mydb -f ratchet-store-postgresql/src/main/resources/ddl/postgresql-schem
 mysql mydb < ratchet-store-mysql/src/main/resources/ddl/mysql-schema.sql
 ```
 
-### 3. Schedule Your First Job
+### 4. Schedule Your First Job
 
 Inject `JobSchedulerService` into any CDI bean and start scheduling:
 
@@ -100,8 +119,6 @@ public class OrderService {
 
     public void processOrder(long orderId) {
         // Your business logic here
-        JobContext ctx = JobContext.current();
-        ctx.logger().info("Processing order {}", orderId);
     }
 
     public void sendReminder(long orderId) { /* ... */ }
@@ -211,7 +228,7 @@ Monitor job lifecycle via CDI observers or programmatic listeners:
 ```java
 // CDI observer
 public void onJobFailed(@Observes JobFailedEvent event) {
-    log.error("Job {} failed: {}", event.getJobId(), event.getErrorMessage());
+    log.error("Job " + event.getJobId() + " failed: " + event.getErrorMessage());
     alerting.notify(event);
 }
 
@@ -237,7 +254,7 @@ JobHandle handle = scheduler.enqueue(() -> longRunningTask())
 
 long jobId = handle.id();
 
-scheduler.pauseJob(jobId);    // Pause a running job
+scheduler.pauseJob(jobId);    // Pause a pending or failed job
 scheduler.resumeJob(jobId);   // Resume a paused job
 scheduler.cancelJob(jobId);   // Cancel a job
 scheduler.retryJob(jobId);    // Retry a failed job (resets to PENDING)
@@ -250,7 +267,7 @@ Attach success and failure handlers:
 ```java
 scheduler.enqueue(() -> generateReport(reportId))
     .onSuccess(ctx -> notifyUser(ctx.param("email"), "Report ready"))
-    .onFailure((ctx, error) -> log.error("Report {} failed", reportId, error))
+    .onFailure((ctx, error) -> log.error("Report " + reportId + " failed", error))
     .withParam("email", user.getEmail())
     .submit();
 ```
@@ -315,12 +332,13 @@ Ratchet is designed to be extended. Provide a CDI `@Alternative @Priority(APPLIC
 | `ErrorSanitizer` | Scrub sensitive data from error messages | `DefaultErrorSanitizer` |
 | `SerializationStrategy` | Custom payload serialization | `JdkSerializationStrategy` |
 | `LambdaAnalyzer` | Method reference extraction from lambdas | ASM bytecode analysis |
-| `ClusterCoordinator` | Distributed leader election for recurring jobs | Single-node default |
+| `ClusterCoordinator` | Distributed wakeup notifications | `NoOpClusterCoordinator` |
+| `StartupCoordinator` | Destructive startup work gated by store-backed leases | `StoreBackedStartupCoordinator` |
 | `MetricsCollector` | Metrics sink (counters, gauges, timers) | No-op |
 | `BeanResolver` | Bean instantiation strategy | CDI `Instance<T>` |
 | `ExecutorProvider` | Thread pool / virtual thread configuration | Platform default |
 | `NodeIdentityProvider` | Node identification in clusters | Hostname-based |
-| `JobLogger` | Per-job structured logging | JUL bridge |
+| `JobLogger` | Per-job job-scoped logging | No-op binding |
 
 ### Custom Store Implementation
 
@@ -371,9 +389,9 @@ Before deploying Ratchet to a production-shaped environment, work through this c
 
 ### Multi-node deployments
 
-- [ ] **Provide a real `ClusterCoordinator`.** The default `NoOpClusterCoordinator` returns `isLeader() == true` for every node — safe for **single-node only**. For multi-node, supply an `@Alternative` implementation backed by a database lease, ZooKeeper, or similar leader-election primitive. Without one, every node will run destructive startup actions (recurring job cleanup) and may cancel jobs another node just registered.
+- [ ] **Decide whether you need cross-node wakeups.** Multi-node job claiming and recurring-scheduler singleton execution are already database-backed. Add a real `ClusterCoordinator` only if you want low-latency wakeups across nodes for CRITICAL or immediate jobs.
 
-- [ ] **Tune `ratchet.recurring.convergence-window-seconds`.** The default 120-second window protects against rolling-deploy races where Node B's startup-time cleanup might cancel jobs Node A just registered. Increase if your rolling-deploy pause is longer than two minutes.
+- [ ] **Keep the startup cleanup lease conservative if you override `StartupCoordinator`.** The default `StoreBackedStartupCoordinator` uses a store-backed lease so only one node performs destructive recurring-annotation cleanup during startup.
 
 ### Operational
 
@@ -388,13 +406,13 @@ Before deploying Ratchet to a production-shaped environment, work through this c
   }
   ```
 
-- [ ] **Plan `scheduler_job_log` retention.** The bundled `LogPurgeTimer` runs `DELETE` on a schedule, which is fine up to ~10M log rows. For high-volume deployments combine purging with **time-range partitioning** of `scheduler_job_log`. See [`docs/ops/partitioning.md`](docs/ops/partitioning.md) for MySQL and PostgreSQL recipes.
+- [ ] **Plan `scheduler_job_log` retention if you wire job-log persistence.** Ratchet creates the table and schedules purging, but the default `JobLogger` binding is a no-op. If you publish `JobLogLine` events to the store, combine purging with your database's native partitioning strategy for high-volume installs.
 
 - [ ] **Cap job result size if your jobs return large objects.** Default cap is 64KB (`ratchet.jobs.max-result-bytes`); larger results are truncated to a marker JSON noting the original size. Tune via `-D` or store large results out-of-band in object storage.
 
 ### Known limitations (0.1.0-alpha)
 
-- **Logging is JUL.** Ratchet currently uses `java.util.logging` throughout. In Jakarta EE containers (WildFly, Open Liberty) this is bridged to the container's logging subsystem. In plain SE / Quarkus / non-EE harnesses, install the `jul-to-slf4j` bridge if you want logs to appear via SLF4J. **Migration to SLF4J is planned for 0.2.**
+- **Per-job logging is not wired by default.** Framework logs flow through JBoss Logging, but `JobContext.logger()` is currently bound to a no-op implementation unless you install a custom `JobLogger`.
 - **`@Incubating` SPIs may evolve.** Method names, parameters, and semantics on any interface marked `@Incubating` are subject to change between alpha releases.
 
 ## Requirements

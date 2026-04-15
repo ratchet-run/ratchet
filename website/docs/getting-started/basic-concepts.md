@@ -83,7 +83,7 @@ A `JobHandle` is returned when you submit a job. It gives you the job's ID for t
 
 ```java
 JobHandle handle = scheduler.enqueueNow(() -> doWork());
-long jobId = handle.getJobId();
+long jobId = handle.id();
 ```
 
 ## JobContext
@@ -94,7 +94,7 @@ The **JobContext** is the runtime context available inside a running job. It pro
 scheduler.enqueue(() -> {
     JobContext ctx = JobContext.current();
     String orderId = ctx.param("orderId");
-    ctx.logger().info("Processing order {}", orderId);
+    ctx.logger().info("Processing order " + orderId);
     processOrder(orderId);
 }).withParam("orderId", "12345")
   .submit();
@@ -105,7 +105,7 @@ For annotation-based jobs, you can accept the context as a parameter:
 ```java
 @Recurring(cron = "0 0 * * * ?")
 public void hourlySync(JobContext ctx) {
-    ctx.logger().info("Starting sync for job {}", ctx.jobId());
+    ctx.logger().info("Starting sync for job " + ctx.jobId());
 }
 ```
 
@@ -194,7 +194,7 @@ Ratchet publishes **CDI events** for every lifecycle transition. You can observe
 
 ```java
 public void onJobCompleted(@Observes JobCompletedEvent event) {
-    log.info("Job {} completed in {}ms", event.getJobId(), event.getExecutionTimeMs());
+    log.info("Job " + event.getJobId() + " completed in " + event.getExecutionTimeMs() + "ms");
 }
 ```
 

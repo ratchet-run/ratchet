@@ -10,7 +10,7 @@ Ratchet provides a `MetricsCollector` SPI that receives callbacks during the job
 
 ## MetricsCollector SPI
 
-The SPI defines three lifecycle callbacks:
+The SPI defines three core lifecycle callbacks plus an optional callback-failure hook:
 
 ```java
 package run.ratchet.spi;
@@ -45,6 +45,13 @@ public interface MetricsCollector {
      * @param attempt the 1-based attempt number, including the failed attempt
      */
     void jobFailed(long jobId, JobType type, Throwable cause, int attempt);
+
+    /**
+     * Notifies that an onSuccess/onFailure callback threw an exception.
+     */
+    default void callbackFailed(long jobId, JobType type, Throwable cause, int attempt) {
+        // No-op
+    }
 }
 ```
 
@@ -85,17 +92,17 @@ The `ratchet-micrometer` module provides a drop-in Micrometer adapter that publi
 
 ```xml
 <dependency>
-    <groupId>dev.jcputney</groupId>
+    <groupId>run.ratchet</groupId>
     <artifactId>ratchet-micrometer</artifactId>
     <version>${ratchet.version}</version>
 </dependency>
 ```
 
-The module uses `@Alternative @Priority(1000)` on the `MicrometerMetricsCollector` bean, which automatically overrides the default `NoOpMetricsCollector` when present on the classpath. No additional configuration is required beyond having a `MeterRegistry` bean available in CDI.
+The module uses `@Alternative @Priority(1000)` on the `MicrometerMetricsCollector` bean, which automatically overrides the default `NoOpMetricsCollector` when present on the classpath. The module also provides a fallback `SimpleMeterRegistry`, so it works out of the box. Produce your own `MeterRegistry` when you want a real backend such as Prometheus or Datadog.
 
 ### Providing a MeterRegistry
 
-The `MicrometerMetricsCollector` injects a `MeterRegistry` via CDI. You need to produce one in your application:
+The `MicrometerMetricsCollector` injects a `MeterRegistry` via CDI. Override the fallback registry in your application when you want a specific backend:
 
 ```java
 import io.micrometer.core.instrument.MeterRegistry;

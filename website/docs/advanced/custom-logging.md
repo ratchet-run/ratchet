@@ -1,12 +1,12 @@
 ---
 sidebar_position: 5
 title: Custom Logging
-description: Per-job structured logging with the JobLogger SPI
+description: Custom job-scoped logging with the JobLogger SPI
 ---
 
 # Custom Logging
 
-Ratchet provides a `JobLogger` SPI that gives each running job its own isolated logger. Log messages are routed through both a logging backend and the internal event system, enabling real-time log streaming and persistent log storage.
+Ratchet provides a `JobLogger` SPI for job-scoped logging. The current reference implementation binds `JobContext.logger()` to a no-op logger by default, so applications that want per-job log output or persistence need to install their own implementation.
 
 ## JobLogger SPI
 
@@ -37,9 +37,9 @@ public interface JobLogger {
 
 Each job execution receives its own `JobLogger` instance, bound to that job's ID. This ensures log isolation -- messages from concurrent jobs do not interleave or lose context.
 
-## Default JBoss Logging Implementation
+## Reference Pattern: JBoss Logging Implementation
 
-The reference implementation provides `JBossLoggingJobLogger`, which bridges job logs to JBoss Logging (which auto-detects the runtime backend — JBoss LogManager, SLF4J, Log4j 2, or JDK JUL) and simultaneously publishes them as internal events for persistence.
+The codebase includes `JBossLoggingJobLogger` as the reference pattern for bridging job logs to JBoss Logging (which auto-detects the runtime backend — JBoss LogManager, SLF4J, Log4j 2, or JDK JUL) and optionally publishing them as internal events for persistence.
 
 > **Note:** As of 0.2.0, `JBossLoggingJobLogger` is reserved for future per-job logger wiring and is not currently instantiated by `JobTask`. The `JobLogger` SPI is wired via a no-op implementation by default, and applications that need custom job logging can plug in their own implementation following the pattern below.
 
@@ -96,7 +96,7 @@ public class JBossLoggingJobLogger implements JobLogger {
 }
 ```
 
-The dual routing means:
+If you wire a logger like this, the dual routing means:
 
 1. **Backend log output** -- Log messages appear in the container's standard log output (console, log files), prefixed with `[Job <id>]`. The actual backend depends on what JBoss Logging detects at startup: JBoss LogManager on WildFly, the JUL fallback otherwise.
 2. **Event publishing** -- Log lines are published as `JobLogLine` events through the `InternalEventPublisher`, which routes them to the `JobLogStore` for database persistence and to any registered event listeners for real-time streaming.
@@ -113,12 +113,11 @@ The dual routing means:
 
 ## Using JobLogger in Job Tasks
 
-The `JobLogger` is available through the `JobContext` passed to your job task:
+Once you have installed a non-no-op `JobLogger`, it is available through `JobContext.current()` inside the running job:
 
 ```java
-scheduler.newJob()
-    .task(ctx -> {
-        JobLogger logger = ctx.getLogger();
+scheduler.enqueue(() -> {
+        JobLogger logger = JobContext.current().logger();
         logger.info("Starting order processing");
 
         List<Order> orders = orderRepository.findPending();
@@ -350,15 +349,15 @@ No bridge or extra dependency is required for the framework's own logs. To rende
 
 ## Log Persistence
 
-Job log lines published through the `InternalEventPublisher` are persisted via the `JobLogStore` SPI (part of the store module). This allows you to query historical job logs:
+If your custom logger publishes `JobLogLine` events through `InternalEventPublisher`, the store module persists them via the `JobLogStore` SPI. That gives you a queryable `scheduler_job_log` table or collection:
 
 ```sql
 -- Find recent error logs for a specific job
-SELECT level, message, created_at
-FROM ratchet_job_log
+SELECT level, message, ts
+FROM scheduler_job_log
 WHERE job_id = 42
   AND level = 'ERROR'
-ORDER BY created_at DESC;
+ORDER BY ts DESC;
 ```
 
 The `LogPurgeTimer` in the RI automatically cleans up old log entries based on a configurable retention period, preventing unbounded log table growth.
@@ -367,11 +366,11 @@ The `LogPurgeTimer` in the RI automatically cleans up old log entries based on a
 
 **Use appropriate log levels.** Reserve `error()` for actual failures that need investigation. Use `warn()` for recoverable problems. Use `info()` for significant milestones (job started, completed, key steps). Use `debug()` and `trace()` for diagnostic detail that is normally not visible.
 
-**Keep messages concise.** Log messages are persisted to the database. Avoid logging large objects, stack traces, or binary data through the `JobLogger`. For exceptions, log the message and type rather than the full stack trace.
+**Keep messages concise.** If you persist log lines, they end up in the database. Avoid logging large objects, stack traces, or binary data through the `JobLogger`. For exceptions, log the message and type rather than the full stack trace.
 
 **Include identifiers in messages.** Since each `JobLogger` is already bound to a job ID, include any additional correlation IDs (order ID, customer ID, batch item index) in the message text to aid debugging.
 
-**Leverage the event system.** The `InternalEventPublisher` dispatches log lines synchronously. If your custom logger does expensive work (network calls, file I/O), consider queuing log entries and flushing asynchronously to avoid blocking job execution.
+**Leverage the event system carefully.** If your logger publishes through `InternalEventPublisher`, that dispatch is synchronous. If your custom logger does expensive work (network calls, file I/O), consider queuing log entries and flushing asynchronously to avoid blocking job execution.
 
 **Configure logger levels per category.** Ratchet's framework loggers use the fully-qualified class name as the logger category (e.g. `run.ratchet.ri.core.JobTask`). Configure levels through your backend of choice. Examples:
 

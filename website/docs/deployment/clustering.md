@@ -6,7 +6,7 @@ description: Running Ratchet across multiple nodes — claim-based execution, no
 
 # Clustering
 
-Ratchet runs on multiple nodes without additional coordination infrastructure. The database is the shared state, and `SKIP LOCKED` ensures no two nodes claim the same job. For enhanced responsiveness, the optional `ClusterCoordinator` SPI enables cross-node wakeup notifications.
+Ratchet can run on multiple nodes against the same store. Ordinary job claiming is coordinated through the database, `SKIP LOCKED` ensures no two nodes claim the same job, and store-backed leases serialize destructive startup cleanup. `ClusterCoordinator` remains optional and is only for fast cross-node wakeups.
 
 ## Architecture
 
@@ -34,7 +34,7 @@ Ratchet runs on multiple nodes without additional coordination infrastructure. T
                     └─────────────┘
 ```
 
-Every node runs its own poller and workers. No node is special — there is no "master" or "coordinator." The database is the single source of truth.
+Every node runs its own poller and workers. For ordinary job claiming, no node is special — the database is the single source of truth.
 
 ## How Job Claiming Works
 
@@ -138,7 +138,7 @@ Normal and low-priority jobs wait for the next poll cycle.
 
 ### Default: No-Op
 
-Out of the box, Ratchet uses `NoOpClusterCoordinator`, which does nothing. This is correct for single-node deployments and acceptable for multi-node deployments where poll-interval latency is tolerable.
+Out of the box, Ratchet uses `NoOpClusterCoordinator`. That is fine for any deployment that can tolerate poll-interval latency for cross-node wakeups, because correctness still comes from the store.
 
 ### Example: JGroups Implementation
 

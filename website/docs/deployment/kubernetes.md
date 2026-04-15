@@ -99,8 +99,6 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
-        - name: RATCHET_CLUSTER_ENABLED
-          value: "true"
         envFrom:
         - configMapRef:
             name: ratchet-config
@@ -128,6 +126,8 @@ spec:
 ```
 
 StatefulSet pods get stable names (`ratchet-scheduler-0`, `ratchet-scheduler-1`, etc.) that serve as natural node identifiers. The `metadata.name` field is injected via the Downward API and can be read by a `NodeIdentityProvider` implementation:
+
+There is no `RATCHET_CLUSTER_ENABLED` flag. Multiple replicas become a Ratchet cluster when they share the same store. One-shot claims, recurring scans, and destructive startup cleanup are already coordinated through store-backed locking; bake in a real `ClusterCoordinator` only if you want cross-node wakeups.
 
 ```java
 @ApplicationScoped
@@ -219,12 +219,13 @@ kind: ConfigMap
 metadata:
   name: ratchet-config
 data:
-  RATCHET_EXECUTOR_THREADS: "16"
-  RATCHET_POLLING_INTERVAL: "5000"
-  RATCHET_POLLING_BATCH_SIZE: "100"
-  RATCHET_POLLING_ADAPTIVE: "true"
-  RATCHET_RETENTION_COMPLETED_DAYS: "30"
-  RATCHET_CLUSTER_ENABLED: "true"
+  RATCHET_THREAD_POOL_SIZE_SINGLE: "16"
+  RATCHET_THREAD_POOL_SIZE_RECURRING: "5"
+  RATCHET_POLLER_MIN_DELAY_MS: "2000"
+  RATCHET_POLLER_MAX_DELAY_MS: "10000"
+  RATCHET_POLLER_BATCH_SIZE: "100"
+  RATCHET_JOB_RETENTION_DAYS: "30"
+  RATCHET_NODE_HEARTBEAT_INTERVAL_SECONDS: "10"
 ```
 
 ## Secrets
@@ -298,14 +299,14 @@ Implement a Ratchet-specific health check:
 @ApplicationScoped
 public class RatchetReadinessCheck implements HealthCheck {
 
-  @Inject
-  JobSchedulerService scheduler;
+  @Resource(lookup = "java:/RatchetDS")
+  DataSource dataSource;
 
   @Override
   public HealthCheckResponse call() {
-    try {
-      // Verify store connectivity by running a minimal query
-      scheduler.findJobs(new JobQuery().limit(1));
+    try (Connection conn = dataSource.getConnection();
+         PreparedStatement ps = conn.prepareStatement("SELECT 1");
+         ResultSet rs = ps.executeQuery()) {
       return HealthCheckResponse.up("ratchet-store").build();
     } catch (Exception e) {
       return HealthCheckResponse.down("ratchet-store")
