@@ -12,7 +12,8 @@ import static org.mockito.Mockito.when;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.ri.core.RecurringAnnotationMaintenanceService;
 import run.ratchet.ri.core.RecurringRegistrationState;
-import run.ratchet.spi.ClusterCoordinator;
+import run.ratchet.spi.StartupCoordinator;
+import java.time.Duration;
 import jakarta.enterprise.inject.spi.BeanManager;
 import java.time.Instant;
 import java.util.Collections;
@@ -20,7 +21,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
-// Verifies leader-gated cleanup and convergence window in RecurringJobProcessor.
+// Verifies startup-lease-gated cleanup and convergence window in RecurringJobProcessor.
 class RecurringJobProcessorLeaderGateTest {
 
   @AfterEach
@@ -29,12 +30,13 @@ class RecurringJobProcessorLeaderGateTest {
   }
 
   @Test
-  void cleanup_skippedWhenNotLeader() throws Exception {
+  void cleanup_skippedWhenStartupLeaseNotAcquired() throws Exception {
     var maintenance = mock(RecurringAnnotationMaintenanceService.class);
     var beanManager = mock(BeanManager.class);
     when(beanManager.getBeans(any(), any())).thenReturn(Collections.emptySet());
-    var coordinator = mock(ClusterCoordinator.class);
-    when(coordinator.isLeader()).thenReturn(false);
+    var coordinator = mock(StartupCoordinator.class);
+    when(coordinator.tryAcquire("recurring-annotation-orphan-cleanup", Duration.ofMinutes(5)))
+        .thenReturn(false);
 
     var processor =
         new RecurringJobProcessor(
@@ -51,14 +53,15 @@ class RecurringJobProcessorLeaderGateTest {
   }
 
   @Test
-  void cleanup_runsWhenLeader_andAppliesConvergenceWindow() throws Exception {
+  void cleanup_runsWhenStartupLeaseAcquired_andAppliesConvergenceWindow() throws Exception {
     System.setProperty(RecurringJobProcessor.CONVERGENCE_WINDOW_PROPERTY, "120");
     var maintenance = mock(RecurringAnnotationMaintenanceService.class);
     when(maintenance.cancelOrphanedRecurringAnnotationJobs(anySet(), any())).thenReturn(0);
     var beanManager = mock(BeanManager.class);
     when(beanManager.getBeans(any(), any())).thenReturn(Collections.emptySet());
-    var coordinator = mock(ClusterCoordinator.class);
-    when(coordinator.isLeader()).thenReturn(true);
+    var coordinator = mock(StartupCoordinator.class);
+    when(coordinator.tryAcquire("recurring-annotation-orphan-cleanup", Duration.ofMinutes(5)))
+        .thenReturn(true);
 
     var processor =
         new RecurringJobProcessor(
@@ -75,6 +78,7 @@ class RecurringJobProcessorLeaderGateTest {
 
     ArgumentCaptor<Instant> cutoffCaptor = ArgumentCaptor.forClass(Instant.class);
     verify(maintenance).cancelOrphanedRecurringAnnotationJobs(anySet(), cutoffCaptor.capture());
+    verify(coordinator).release("recurring-annotation-orphan-cleanup");
 
     Instant cutoff = cutoffCaptor.getValue();
     Instant lowerBound = beforeRun.minusSeconds(120);

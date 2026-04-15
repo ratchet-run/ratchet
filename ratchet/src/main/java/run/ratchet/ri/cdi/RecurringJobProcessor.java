@@ -10,7 +10,7 @@ import run.ratchet.api.Recurring;
 import run.ratchet.api.RecurringJobBuilder;
 import run.ratchet.ri.core.RecurringAnnotationMaintenanceService;
 import run.ratchet.ri.core.RecurringRegistrationState;
-import run.ratchet.spi.ClusterCoordinator;
+import run.ratchet.spi.StartupCoordinator;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.Initialized;
 import jakarta.enterprise.event.Observes;
@@ -43,11 +43,13 @@ import org.jboss.logging.Logger;
 public class RecurringJobProcessor {
 
   private static final Logger log = Logger.getLogger(RecurringJobProcessor.class);
+  private static final String ORPHAN_CLEANUP_ACTION = "recurring-annotation-orphan-cleanup";
+  private static final Duration ORPHAN_CLEANUP_LEASE_TTL = Duration.ofMinutes(5);
 
   /**
    * System property controlling how far back the orphaned-recurring-job cleanup cutoff is shifted
    * from this node's startup instant. Jobs created within the convergence window are exempt from
-   * cleanup regardless of leader state.
+   * cleanup regardless of which node acquires the startup lease.
    *
    * @deprecated As of 0.2.0 the convergence window default is 0; the role it played is now covered
    *     more rigorously by {@link RecurringRegistrationState#shouldFire(String)}, which gates
@@ -69,7 +71,7 @@ public class RecurringJobProcessor {
   private final RecurringAnnotationMaintenanceService recurringAnnotationMaintenanceService;
   private final BeanManager beanManager;
   private final RecurringMethodInvoker methodInvoker;
-  private final ClusterCoordinator clusterCoordinator;
+  private final StartupCoordinator startupCoordinator;
   private final RecurringRegistrationState registrationState;
 
   protected RecurringJobProcessor() {
@@ -77,7 +79,7 @@ public class RecurringJobProcessor {
     this.recurringAnnotationMaintenanceService = null;
     this.beanManager = null;
     this.methodInvoker = null;
-    this.clusterCoordinator = null;
+    this.startupCoordinator = null;
     this.registrationState = null;
   }
 
@@ -87,13 +89,13 @@ public class RecurringJobProcessor {
       RecurringAnnotationMaintenanceService recurringAnnotationMaintenanceService,
       BeanManager beanManager,
       RecurringMethodInvoker methodInvoker,
-      ClusterCoordinator clusterCoordinator,
+      StartupCoordinator startupCoordinator,
       RecurringRegistrationState registrationState) {
     this.schedulerService = schedulerService;
     this.recurringAnnotationMaintenanceService = recurringAnnotationMaintenanceService;
     this.beanManager = beanManager;
     this.methodInvoker = methodInvoker;
-    this.clusterCoordinator = clusterCoordinator;
+    this.startupCoordinator = startupCoordinator;
     this.registrationState = registrationState;
   }
 
@@ -112,8 +114,8 @@ public class RecurringJobProcessor {
     log.infof("Completed registration of %s recurring jobs", registeredJobIds.size());
 
     // Publish the discovered key set to the shared registration state BEFORE running cleanup,
-    // so the executor's shouldFire gate is armed even if cleanup is delayed (e.g. leader gate
-    // skips cleanup on this node, or cleanup throws and is retried).
+    // so the executor's shouldFire gate is armed even if cleanup is delayed (e.g. another node
+    // holds the startup lease, or cleanup throws and is retried).
     if (registrationState != null) {
       registrationState.markRegistrationComplete(registeredJobIds.keySet());
     }
@@ -125,14 +127,19 @@ public class RecurringJobProcessor {
     // Cleanup is DESTRUCTIVE — cancel jobs whose business_key is not in this node's local
     // annotation set. Two guards are required for multi-node safety:
     //
-    //  1. Leader gate: only one node in the cluster should run cleanup, otherwise a node that
+    //  1. Startup lease: only one node in the cluster should run cleanup, otherwise a node that
     //     booted with a stale JAR would silently cancel jobs peers just registered.
     //  2. Convergence window: shift the cutoff back by N seconds so jobs that a peer node
     //     registered in the last N seconds (but after this node's startTime) are exempt.
     //     Closes a race window on rolling deploys where Node A's newer registration commits
     //     after Node B's startTime but before Node B's cleanup runs.
-    if (clusterCoordinator != null && !clusterCoordinator.isLeader()) {
-      log.info("Not leader, skipping orphan cleanup");
+    boolean leaseAcquired = startupCoordinator == null;
+    if (startupCoordinator != null) {
+      leaseAcquired =
+          startupCoordinator.tryAcquire(ORPHAN_CLEANUP_ACTION, ORPHAN_CLEANUP_LEASE_TTL);
+    }
+    if (!leaseAcquired) {
+      log.info("Another node holds the startup lease, skipping orphan cleanup");
       return;
     }
     Instant cutoff = startTime.minusSeconds(convergenceWindowSeconds());
@@ -147,6 +154,14 @@ public class RecurringJobProcessor {
       }
     } catch (Exception e) {
       log.error("Orphan cleanup error", e);
+    } finally {
+      if (startupCoordinator != null) {
+        try {
+          startupCoordinator.release(ORPHAN_CLEANUP_ACTION);
+        } catch (Exception e) {
+          log.debug("Failed to release orphan cleanup startup lease", e);
+        }
+      }
     }
   }
 
