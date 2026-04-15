@@ -40,20 +40,20 @@ public class PostExecutionHandler {
     this.pollerScheduler = pollerScheduler;
   }
 
-  public void markBatchChildFailed(JobEntity job) {
-    batchService.markChildFailed(job);
+  public boolean markBatchChildFailed(JobEntity job) {
+    return batchService.markChildFailed(job);
   }
 
-  public void markBatchChildSucceeded(JobEntity job) {
-    batchService.markChildSucceeded(job);
+  public boolean markBatchChildSucceeded(JobEntity job) {
+    return batchService.markChildSucceeded(job);
   }
 
   public void cancelChain(JobEntity job) {
     workflowScheduler.cancelChain(job);
   }
 
-  public void scheduleNext(JobEntity job) {
-    workflowScheduler.scheduleNext(job);
+  public boolean scheduleNext(JobEntity job) {
+    return workflowScheduler.scheduleNext(job);
   }
 
   public void moveToDlq(JobEntity job, Throwable ex) {
@@ -61,25 +61,34 @@ public class PostExecutionHandler {
   }
 
   public void handleJobSuccess(JobEntity job) {
-    switch (job.getJobType()) {
-      case BATCH_CHILD -> markBatchChildSucceeded(job);
-      case SINGLE, CHAIN_STEP, WORKFLOW_BRANCH -> scheduleNext(job);
-      default -> {
-        // No additional post-success work for recurring or system jobs.
-      }
-    }
-    pollerScheduler.wakeup();
+    boolean newWorkAvailable =
+        switch (job.getJobType()) {
+          case BATCH_CHILD -> markBatchChildSucceeded(job);
+          case SINGLE, CHAIN_STEP, WORKFLOW_BRANCH -> scheduleNext(job);
+          default -> false;
+        };
+    wakeupIfNewWorkAvailable(newWorkAvailable);
   }
 
   public void handlePermanentFailure(JobEntity job, Throwable ex) {
-    switch (job.getJobType()) {
-      case BATCH_CHILD -> markBatchChildFailed(job);
-      case SINGLE, CHAIN_STEP, WORKFLOW_BRANCH -> {
-        moveToDlq(job, ex);
-        scheduleNext(job);
-      }
-      default -> moveToDlq(job, ex);
+    boolean newWorkAvailable =
+        switch (job.getJobType()) {
+          case BATCH_CHILD -> markBatchChildFailed(job);
+          case SINGLE, CHAIN_STEP, WORKFLOW_BRANCH -> {
+            moveToDlq(job, ex);
+            yield scheduleNext(job);
+          }
+          default -> {
+            moveToDlq(job, ex);
+            yield false;
+          }
+        };
+    wakeupIfNewWorkAvailable(newWorkAvailable);
+  }
+
+  private void wakeupIfNewWorkAvailable(boolean newWorkAvailable) {
+    if (newWorkAvailable) {
+      pollerScheduler.wakeup();
     }
-    pollerScheduler.wakeup();
   }
 }

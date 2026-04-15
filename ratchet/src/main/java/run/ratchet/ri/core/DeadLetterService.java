@@ -4,14 +4,12 @@ import com.cronutils.model.Cron;
 import com.cronutils.model.time.ExecutionTime;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.ExecutorProvider;
-import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.entity.DlqAlertEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.spi.DlqAlertStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.LockStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -36,15 +34,15 @@ public class DeadLetterService {
 
   private static final Logger log = Logger.getLogger(DeadLetterService.class);
 
-  private static final String LOCK_NAME = "dlqPurger";
+  private static final String LEASE_NAME = "dlqPurger";
+  private static final Duration LEASE_TTL = Duration.ofMinutes(10);
   private static final Duration ALERT_DEDUP_WINDOW = Duration.ofHours(1);
 
   private final ExecutorProvider executorProvider;
   private final JobCrudStore jobCrudStore;
   private final JobBulkStore jobBulkStore;
-  private final LockStore lockStore;
+  private final SingletonLeaseService singletonLeaseService;
   private final DlqAlertStore dlqAlertStore;
-  private final NodeIdentityProvider nodeIdentityProvider;
   private final InternalEventPublisher eventPublisher;
   private final ErrorSanitizer errorSanitizer;
 
@@ -58,9 +56,8 @@ public class DeadLetterService {
     this.executorProvider = null;
     this.jobCrudStore = null;
     this.jobBulkStore = null;
-    this.lockStore = null;
+    this.singletonLeaseService = null;
     this.dlqAlertStore = null;
-    this.nodeIdentityProvider = null;
     this.eventPublisher = null;
     this.errorSanitizer = null;
   }
@@ -70,17 +67,15 @@ public class DeadLetterService {
       ExecutorProvider executorProvider,
       JobCrudStore jobCrudStore,
       JobBulkStore jobBulkStore,
-      LockStore lockStore,
+      SingletonLeaseService singletonLeaseService,
       DlqAlertStore dlqAlertStore,
-      NodeIdentityProvider nodeIdentityProvider,
       InternalEventPublisher eventPublisher,
       ErrorSanitizer errorSanitizer) {
     this.executorProvider = executorProvider;
     this.jobCrudStore = jobCrudStore;
     this.jobBulkStore = jobBulkStore;
-    this.lockStore = lockStore;
+    this.singletonLeaseService = singletonLeaseService;
     this.dlqAlertStore = dlqAlertStore;
-    this.nodeIdentityProvider = nodeIdentityProvider;
     this.eventPublisher = eventPublisher;
     this.errorSanitizer = errorSanitizer;
   }
@@ -150,15 +145,18 @@ public class DeadLetterService {
 
   void purge() {
     try {
-      if (!lockStore.tryLock(LOCK_NAME, Duration.ofMinutes(10), nodeIdentityProvider.getNodeId())) {
-        log.debug("DLQ purge skipped - lock held by another node");
+      Optional<SingletonLease> lease = singletonLeaseService.tryAcquire(LEASE_NAME, LEASE_TTL);
+      if (lease.isEmpty()) {
+        log.debug("DLQ purge skipped - singleton lease held by another node");
         return;
       }
 
-      Instant cutoff = Instant.now().minus(purgeAfter);
-      int deleted = jobBulkStore.deleteDlqOlderThan(cutoff);
-      if (deleted > 0) {
-        log.infof("Purged %s DLQ rows older than %s", deleted, cutoff);
+      try (SingletonLease ignored = lease.get()) {
+        Instant cutoff = Instant.now().minus(purgeAfter);
+        int deleted = jobBulkStore.deleteDlqOlderThan(cutoff);
+        if (deleted > 0) {
+          log.infof("Purged %s DLQ rows older than %s", deleted, cutoff);
+        }
       }
     } catch (Exception e) {
       log.error("DLQ purge failed", e);

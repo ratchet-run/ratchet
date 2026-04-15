@@ -1,0 +1,26 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: ratchet-nodes
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+    relabel_configs:
+      - source_labels: [__meta_docker_container_label_prometheus_scrape]
+        regex: "true"
+        action: keep
+      - source_labels: [__meta_docker_container_label_com_docker_compose_service]
+        regex: ratchet-node
+        action: keep
+      - source_labels: [__meta_docker_port_private]
+        regex: "8080"
+        action: keep
+      - source_labels: [__meta_docker_network_ip, __meta_docker_port_private]
+        separator: ":"
+        target_label: __address__
+      - source_labels: [__meta_docker_container_name]
+        regex: "/(.*)"
+        target_label: instance
+      - source_labels: [__meta_docker_container_label_com_docker_compose_project]
+        target_label: compose_project

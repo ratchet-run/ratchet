@@ -21,6 +21,7 @@ public class PollerScheduler {
   private static final Logger log = Logger.getLogger(PollerScheduler.class);
 
   private final AtomicBoolean started = new AtomicBoolean();
+  private final Object scheduleLock = new Object();
   private final ExecutorProvider executorProvider;
   private final Poller poller;
 
@@ -32,6 +33,9 @@ public class PollerScheduler {
    */
   @SuppressWarnings("java:S3077")
   private volatile ScheduledExecutorService executor;
+
+  private boolean cycleRunning;
+  private boolean wakeupPending;
 
   protected PollerScheduler() {
     this.executorProvider = null;
@@ -52,7 +56,9 @@ public class PollerScheduler {
 
     executor = executorProvider.getScheduledExecutor();
     log.info("PollerScheduler starting");
-    scheduleNext(0);
+    synchronized (scheduleLock) {
+      scheduleNextLocked(0);
+    }
     log.info("PollerScheduler started");
   }
 
@@ -62,7 +68,10 @@ public class PollerScheduler {
     }
 
     log.info("PollerScheduler stopping");
-    cancelCurrentSchedule();
+    synchronized (scheduleLock) {
+      wakeupPending = false;
+      cancelCurrentScheduleLocked();
+    }
     log.info("PollerScheduler stopped");
   }
 
@@ -79,21 +88,36 @@ public class PollerScheduler {
 
     poller.onWakeup();
 
-    cancelCurrentSchedule();
-    scheduleNext(0);
+    synchronized (scheduleLock) {
+      if (!started.get()) {
+        return;
+      }
+      if (cycleRunning) {
+        wakeupPending = true;
+        log.debug("PollerScheduler wakeup coalesced into running poll cycle");
+        return;
+      }
+      cancelCurrentScheduleLocked();
+      scheduleNextLocked(0);
+    }
 
     log.debug("PollerScheduler wakeup triggered - immediate poll scheduled");
   }
 
   void scheduleNext(long delayMs) {
+    synchronized (scheduleLock) {
+      scheduleNextLocked(delayMs);
+    }
+  }
+
+  private void scheduleNextLocked(long delayMs) {
     if (!started.get()) {
       return;
     }
-
     handle = executor.schedule(this::executePollCycle, delayMs, TimeUnit.MILLISECONDS);
   }
 
-  private void cancelCurrentSchedule() {
+  private void cancelCurrentScheduleLocked() {
     Future<?> currentHandle = handle;
     if (currentHandle != null && !currentHandle.isDone()) {
       currentHandle.cancel(false);
@@ -103,26 +127,53 @@ public class PollerScheduler {
 
   @SuppressWarnings("java:S1181")
   private void executePollCycle() {
-    if (!started.get()) {
-      return;
+    synchronized (scheduleLock) {
+      if (!started.get()) {
+        return;
+      }
+      if (cycleRunning) {
+        wakeupPending = true;
+        return;
+      }
+      cycleRunning = true;
+      handle = null;
     }
 
+    long nextDelayMs = 5000;
     try {
-      long nextDelayMs = poller.tick();
-      scheduleNext(nextDelayMs);
+      nextDelayMs = poller.tick();
     } catch (Throwable t) {
       if (!started.get()) {
+        finishPollCycle(0, false);
         return;
       }
       // CDI context gone (e.g. Arquillian undeploy) — stop permanently, next deploy starts fresh
       if (SchedulerUtils.isCdiContextGone(t)) {
-        started.set(false);
+        synchronized (scheduleLock) {
+          started.set(false);
+          cycleRunning = false;
+          wakeupPending = false;
+          handle = null;
+        }
         log.info("Poll cycle detected inactive CDI context — stopping permanently");
         return;
       }
       log.error("Poll cycle failed", t);
+    }
+
+    finishPollCycle(nextDelayMs, true);
+  }
+
+  private void finishPollCycle(long nextDelayMs, boolean reschedule) {
+    synchronized (scheduleLock) {
+      cycleRunning = false;
+      if (!reschedule || !started.get()) {
+        return;
+      }
+      long delayMs = wakeupPending ? 0 : nextDelayMs;
+      wakeupPending = false;
       try {
-        scheduleNext(5000);
+        scheduleNextLocked(delayMs);
       } catch (Exception e) {
         log.debug("Cannot reschedule poll cycle — scheduler will restart on next deploy", e);
       }

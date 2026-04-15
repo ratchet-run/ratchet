@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.api.exception.RatchetOptimisticLockException;
+import run.ratchet.store.converter.JobPayloadConverter;
+import run.ratchet.store.converter.JsonMapConverter;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.ArchivedJobEntity;
@@ -59,6 +61,8 @@ public class MysqlJobStore implements JobStore {
 
   private static final Logger log = Logger.getLogger(MysqlJobStore.class);
   private static final ObjectMapper OBJECT_MAPPER = ObjectMapperFactory.get();
+  private static final JobPayloadConverter JOB_PAYLOAD_CONVERTER = new JobPayloadConverter();
+  private static final JsonMapConverter JSON_MAP_CONVERTER = new JsonMapConverter();
   private static final String EXECUTABLE_JOB_TYPE_FILTER =
       "job_type IN ('SINGLE','BATCH_CHILD','CHAIN_STEP','WORKFLOW_BRANCH')";
   private static final String RECURRING_JOB_TYPE_FILTER = "job_type = 'RECURRING'";
@@ -1543,14 +1547,14 @@ public class MysqlJobStore implements JobStore {
   }
 
   private String payloadToJson(JobEntity job) {
-    return ArchiveHelper.payloadToJson(job, OBJECT_MAPPER);
+    return JOB_PAYLOAD_CONVERTER.convertToDatabaseColumn(job.getPayload());
   }
 
   private String paramsToJson(JobEntity job) {
-    return ArchiveHelper.paramsToJson(job, OBJECT_MAPPER);
+    return JSON_MAP_CONVERTER.convertToDatabaseColumn(job.getParams());
   }
 
   private String callbackPayloadToJson(JobPayload payload) {
-    return ArchiveHelper.callbackPayloadToJson(payload, OBJECT_MAPPER);
+    return JOB_PAYLOAD_CONVERTER.convertToDatabaseColumn(payload);
   }
 }

@@ -1,0 +1,29 @@
+services:
+  ratchet-node:
+    build:
+      args:
+        STORE: mongodb
+    environment:
+      MONGO_URI: "mongodb://mongo:27017"
+      MONGO_DATABASE: "ratchet"
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  mongo:
+    image: mongo:6
+    environment:
+      MONGO_INITDB_DATABASE: ratchet
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+    volumes:
+      - mongodata:/data/db
+      - ../../ratchet-store-mongodb/src/main/resources/ddl/mongodb-init.js:/docker-entrypoint-initdb.d/01-init.js:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.adminCommand({ ping: 1 }).ok' | grep 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  mongodata:

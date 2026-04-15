@@ -2,6 +2,8 @@ package run.ratchet.ri.core;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.time.Duration;
+import java.util.Optional;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -19,18 +21,27 @@ import org.jboss.logging.Logger;
 public class BatchRecoveryTimer {
 
   private static final Logger log = Logger.getLogger(BatchRecoveryTimer.class);
+  private static final String LEASE_NAME = "batchRecovery";
+  private static final Duration LEASE_TTL = Duration.ofMinutes(15);
 
   private final BatchService batchService;
+  private final SingletonLeaseService singletonLeaseService;
 
   private volatile ScheduledFuture<?> handle;
 
   protected BatchRecoveryTimer() {
     this.batchService = null;
+    this.singletonLeaseService = null;
+  }
+
+  public BatchRecoveryTimer(BatchService batchService) {
+    this(batchService, null);
   }
 
   @Inject
-  public BatchRecoveryTimer(BatchService batchService) {
+  public BatchRecoveryTimer(BatchService batchService, SingletonLeaseService singletonLeaseService) {
     this.batchService = batchService;
+    this.singletonLeaseService = singletonLeaseService;
   }
 
   public void start(ScheduledExecutorService executor) {
@@ -46,6 +57,27 @@ public class BatchRecoveryTimer {
   }
 
   void recoverBatches() {
+    try {
+      if (singletonLeaseService != null) {
+        Optional<SingletonLease> lease = singletonLeaseService.tryAcquire(LEASE_NAME, LEASE_TTL);
+        if (lease.isEmpty()) {
+          log.debug("Batch recovery skipped - singleton lease held by another node");
+          return;
+        }
+
+        try (SingletonLease ignored = lease.get()) {
+          recoverBatchesWithLease();
+        }
+        return;
+      }
+
+      recoverBatchesWithLease();
+    } catch (Exception e) {
+      log.error("Batch recovery scan failed", e);
+    }
+  }
+
+  private void recoverBatchesWithLease() {
     int recovered = batchService.recoverStuckBatches();
     if (recovered > 0) {
       log.infof("Batch recovery timer recovered %s stuck batch(es)", recovered);

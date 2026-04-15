@@ -3,9 +3,7 @@ package run.ratchet.ri.core;
 import com.cronutils.model.Cron;
 import com.cronutils.model.time.ExecutionTime;
 import run.ratchet.spi.ExecutorProvider;
-import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.spi.JobLogStore;
-import run.ratchet.store.spi.LockStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.time.Duration;
@@ -17,18 +15,18 @@ import java.util.concurrent.TimeUnit;
 import org.jboss.logging.Logger;
 
 /**
- * Periodically purges old job execution logs to prevent unbounded table growth. Uses a distributed
- * lock to ensure only one node in the cluster executes the purge.
+ * Periodically purges old job execution logs to prevent unbounded table growth. Uses a singleton
+ * lease to ensure only one node in the cluster executes the purge.
  */
 @ApplicationScoped
 public class LogPurgeTimer {
 
   private static final Logger log = Logger.getLogger(LogPurgeTimer.class);
-  private static final String LOCK_NAME = "logPurger";
+  private static final String LEASE_NAME = "logPurger";
+  private static final Duration LEASE_TTL = Duration.ofMinutes(10);
 
   private final JobLogStore jobLogStore;
-  private final LockStore lockStore;
-  private final NodeIdentityProvider nodeIdentityProvider;
+  private final SingletonLeaseService singletonLeaseService;
   private final ExecutorProvider executorProvider;
 
   private Duration retentionPeriod;
@@ -37,20 +35,17 @@ public class LogPurgeTimer {
 
   protected LogPurgeTimer() {
     this.jobLogStore = null;
-    this.lockStore = null;
-    this.nodeIdentityProvider = null;
+    this.singletonLeaseService = null;
     this.executorProvider = null;
   }
 
   @Inject
   public LogPurgeTimer(
       JobLogStore jobLogStore,
-      LockStore lockStore,
-      NodeIdentityProvider nodeIdentityProvider,
+      SingletonLeaseService singletonLeaseService,
       ExecutorProvider executorProvider) {
     this.jobLogStore = jobLogStore;
-    this.lockStore = lockStore;
-    this.nodeIdentityProvider = nodeIdentityProvider;
+    this.singletonLeaseService = singletonLeaseService;
     this.executorProvider = executorProvider;
   }
 
@@ -78,15 +73,18 @@ public class LogPurgeTimer {
 
   private void purge() {
     try {
-      if (!lockStore.tryLock(LOCK_NAME, Duration.ofMinutes(10), nodeIdentityProvider.getNodeId())) {
-        log.debug("Log purge skipped - lock held by another node");
+      Optional<SingletonLease> lease = singletonLeaseService.tryAcquire(LEASE_NAME, LEASE_TTL);
+      if (lease.isEmpty()) {
+        log.debug("Log purge skipped - singleton lease held by another node");
         return;
       }
 
-      Instant cutoff = Instant.now().minus(retentionPeriod);
-      int deleted = jobLogStore.purgeLogsOlderThan(cutoff);
-      if (deleted > 0) {
-        log.infof("Purged %s log rows older than %s", deleted, cutoff);
+      try (SingletonLease ignored = lease.get()) {
+        Instant cutoff = Instant.now().minus(retentionPeriod);
+        int deleted = jobLogStore.purgeLogsOlderThan(cutoff);
+        if (deleted > 0) {
+          log.infof("Purged %s log rows older than %s", deleted, cutoff);
+        }
       }
     } catch (Exception e) {
       log.error("Log purge failed", e);

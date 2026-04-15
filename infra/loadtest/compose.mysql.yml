@@ -1,0 +1,34 @@
+services:
+  ratchet-node:
+    build:
+      args:
+        STORE: mysql
+    environment:
+      DB_URL: "jdbc:mysql://mysql:3306/ratchet?sessionVariables=transaction_isolation='READ-COMMITTED'"
+      DB_USERNAME: "ratchet"
+      DB_PASSWORD: "ratchet"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  mysql:
+    image: mysql:8.0
+    command: ["--transaction-isolation=READ-COMMITTED", "--max-connections=500"]
+    environment:
+      MYSQL_DATABASE: ratchet
+      MYSQL_USER: ratchet
+      MYSQL_PASSWORD: ratchet
+      MYSQL_ROOT_PASSWORD: rootpassword
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysqldata:/var/lib/mysql
+      - ../../ratchet-store-mysql/src/main/resources/ddl/mysql-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -prootpassword"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  mysqldata:

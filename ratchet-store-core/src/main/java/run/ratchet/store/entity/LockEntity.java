@@ -7,7 +7,7 @@ import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import java.time.Instant;
 
-/** Distributed lock for cluster-wide synchronization, with automatic expiration. */
+/** Expiring store-backed lease for cluster-wide coordination. */
 @Entity
 @Table(
     name = "scheduler_lock",

@@ -3,7 +3,7 @@ package run.ratchet.store.spi;
 import run.ratchet.api.Incubating;
 import java.time.Duration;
 
-/** Distributed lock operations for cluster-wide synchronization. */
+/** Expiring store-backed lease operations for cluster-wide coordination. */
 @Incubating
 public interface LockStore {
 

@@ -1,0 +1,2 @@
+embed-server --std-out=echo --server-config=standalone.xml
+stop-embedded-server

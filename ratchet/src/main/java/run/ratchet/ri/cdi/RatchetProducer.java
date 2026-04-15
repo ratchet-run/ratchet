@@ -13,6 +13,7 @@ import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.ri.core.PostExecutionHandler;
 import run.ratchet.ri.core.PreExecutionValidator;
 import run.ratchet.ri.core.ResourcePermitService;
+import run.ratchet.ri.core.SingletonLeaseService;
 import run.ratchet.ri.core.ThreadPoolManager;
 import run.ratchet.ri.resilience.CircuitBreakerRegistry;
 import run.ratchet.ri.resilience.DefaultResilienceStrategy;
@@ -230,10 +231,12 @@ public class RatchetProducer {
   @Produces
   @ApplicationScoped
   public OrphanRecoveryTimer orphanRecoveryTimer(
-      JobBulkStore jobBulkStore, ResourcePermitService resourcePermitService) {
+      JobBulkStore jobBulkStore,
+      ResourcePermitService resourcePermitService,
+      SingletonLeaseService singletonLeaseService) {
     long orphanGraceSeconds = config.getNodeOrphanGraceSeconds();
     return new OrphanRecoveryTimer(
-        jobBulkStore, nodeStore, resourcePermitService, orphanGraceSeconds);
+        jobBulkStore, nodeStore, resourcePermitService, singletonLeaseService, orphanGraceSeconds);
   }
 
   /**

@@ -6,6 +6,7 @@ import run.ratchet.store.spi.NodeStore;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -25,24 +26,28 @@ import org.jboss.logging.Logger;
 public class OrphanRecoveryTimer {
 
   private static final Logger log = Logger.getLogger(OrphanRecoveryTimer.class);
+  private static final String LEASE_NAME = "orphanRecovery";
 
   private final JobBulkStore jobBulkStore;
   private final NodeStore nodeStore;
   private final ResourcePermitService resourcePermitService;
+  private final SingletonLeaseService singletonLeaseService;
   private final long orphanGraceSeconds;
 
   private volatile ScheduledFuture<?> handle;
+  private volatile Duration leaseTtl = Duration.ofMinutes(2);
 
   protected OrphanRecoveryTimer() {
     this.jobBulkStore = null;
     this.nodeStore = null;
     this.resourcePermitService = null;
+    this.singletonLeaseService = null;
     this.orphanGraceSeconds = 0;
   }
 
   public OrphanRecoveryTimer(
       JobBulkStore jobBulkStore, NodeStore nodeStore, ResourcePermitService resourcePermitService) {
-    this(jobBulkStore, nodeStore, resourcePermitService, 60);
+    this(jobBulkStore, nodeStore, resourcePermitService, null, 60);
   }
 
   public OrphanRecoveryTimer(
@@ -50,13 +55,24 @@ public class OrphanRecoveryTimer {
       NodeStore nodeStore,
       ResourcePermitService resourcePermitService,
       long orphanGraceSeconds) {
+    this(jobBulkStore, nodeStore, resourcePermitService, null, orphanGraceSeconds);
+  }
+
+  public OrphanRecoveryTimer(
+      JobBulkStore jobBulkStore,
+      NodeStore nodeStore,
+      ResourcePermitService resourcePermitService,
+      SingletonLeaseService singletonLeaseService,
+      long orphanGraceSeconds) {
     this.jobBulkStore = jobBulkStore;
     this.nodeStore = nodeStore;
     this.resourcePermitService = resourcePermitService;
+    this.singletonLeaseService = singletonLeaseService;
     this.orphanGraceSeconds = orphanGraceSeconds;
   }
 
   public void start(ScheduledExecutorService executor, long intervalMinutes) {
+    leaseTtl = Duration.ofMinutes(Math.max(2, intervalMinutes));
     handle =
         executor.scheduleAtFixedRate(
             this::recoverOrphans, intervalMinutes, intervalMinutes, TimeUnit.MINUTES);
@@ -74,27 +90,44 @@ public class OrphanRecoveryTimer {
 
   void recoverOrphans() {
     try {
-      int resetJobs = jobBulkStore.resetOrphanJobs(Duration.ofSeconds(orphanGraceSeconds));
+      if (singletonLeaseService != null) {
+        Optional<SingletonLease> lease = singletonLeaseService.tryAcquire(LEASE_NAME, leaseTtl);
+        if (lease.isEmpty()) {
+          log.debug("Orphan recovery skipped - singleton lease held by another node");
+          return;
+        }
 
-      Instant cutoff = Instant.now().minusSeconds(orphanGraceSeconds);
-      List<NodeEntity> staleNodes = nodeStore.findInactiveNodesSince(cutoff);
-
-      int cleanedPermits = 0;
-      int deletedNodes = 0;
-
-      if (!staleNodes.isEmpty()) {
-        List<String> staleNodeIds = staleNodes.stream().map(NodeEntity::getId).toList();
-        cleanedPermits = resourcePermitService.cleanupOrphanedPermits(staleNodeIds);
-        deletedNodes = nodeStore.deleteInactiveNodesSince(cutoff);
+        try (SingletonLease ignored = lease.get()) {
+          recoverOrphansWithLease();
+        }
+        return;
       }
 
-      if (resetJobs > 0 || cleanedPermits > 0 || deletedNodes > 0) {
-        log.infof(
-            "Orphan recovery: reset %s job(s), cleaned %s permit(s), removed %s stale node(s)",
-            resetJobs, cleanedPermits, deletedNodes);
-      }
+      recoverOrphansWithLease();
     } catch (Exception e) {
       log.error("Orphan recovery scan failed", e);
+    }
+  }
+
+  private void recoverOrphansWithLease() {
+    int resetJobs = jobBulkStore.resetOrphanJobs(Duration.ofSeconds(orphanGraceSeconds));
+
+    Instant cutoff = Instant.now().minusSeconds(orphanGraceSeconds);
+    List<NodeEntity> staleNodes = nodeStore.findInactiveNodesSince(cutoff);
+
+    int cleanedPermits = 0;
+    int deletedNodes = 0;
+
+    if (!staleNodes.isEmpty()) {
+      List<String> staleNodeIds = staleNodes.stream().map(NodeEntity::getId).toList();
+      cleanedPermits = resourcePermitService.cleanupOrphanedPermits(staleNodeIds);
+      deletedNodes = nodeStore.deleteInactiveNodesSince(cutoff);
+    }
+
+    if (resetJobs > 0 || cleanedPermits > 0 || deletedNodes > 0) {
+      log.infof(
+          "Orphan recovery: reset %s job(s), cleaned %s permit(s), removed %s stale node(s)",
+          resetJobs, cleanedPermits, deletedNodes);
     }
   }
 }

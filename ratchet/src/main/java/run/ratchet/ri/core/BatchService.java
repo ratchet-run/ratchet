@@ -88,12 +88,12 @@ public class BatchService {
     this.beanResolver = beanResolver;
   }
 
-  public void markChildFailed(JobEntity child) {
-    update(child, false);
+  public boolean markChildFailed(JobEntity child) {
+    return update(child, false);
   }
 
-  public void markChildSucceeded(JobEntity child) {
-    update(child, true);
+  public boolean markChildSucceeded(JobEntity child) {
+    return update(child, true);
   }
 
   /**
@@ -180,10 +180,10 @@ public class BatchService {
     method.invoke(instance, ctx);
   }
 
-  private void processBatchCompletion(Long parentId, BatchEntity batch) {
-    jobCrudStore
+  private boolean processBatchCompletion(Long parentId, BatchEntity batch) {
+    return jobCrudStore
         .findById(parentId)
-        .ifPresent(
+        .map(
             parent -> {
               if (parent.getStatus() == JobStatus.PENDING) {
                 parent.setStatus(
@@ -210,9 +210,11 @@ public class BatchService {
                         batch.getCompletedItems(),
                         batch.getFailedItems()));
 
-                workflowScheduler.scheduleNext(parent);
+                return workflowScheduler.scheduleNext(parent);
               }
-            });
+              return false;
+            })
+        .orElse(false);
   }
 
   private void publishBatchEvent(BatchEntity batch) {
@@ -268,10 +270,10 @@ public class BatchService {
     }
   }
 
-  private void update(JobEntity child, boolean jobSuccessful) {
+  private boolean update(JobEntity child, boolean jobSuccessful) {
     Long parentId = child.getDependsOn();
     if (parentId == null) {
-      return;
+      return false;
     }
 
     if (jobSuccessful && child.getExecutionDurationMs() != null) {
@@ -287,15 +289,17 @@ public class BatchService {
 
     if (progress == null) {
       log.warnf("Batch %s not found during update", parentId);
-      return;
+      return false;
     }
 
     triggerWithProgress(progress.progressHook(), progress);
 
     if (batchStore.markBatchCompleteIfReady(parentId)) {
-      batchStore
+      return batchStore
           .findBatchById(parentId)
-          .ifPresent(batch -> processBatchCompletion(parentId, batch));
+          .map(batch -> processBatchCompletion(parentId, batch))
+          .orElse(false);
     }
+    return false;
   }
 }

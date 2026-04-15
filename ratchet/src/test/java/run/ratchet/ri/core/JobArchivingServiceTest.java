@@ -14,7 +14,6 @@ import com.cronutils.model.CronType;
 import com.cronutils.model.definition.CronDefinitionBuilder;
 import com.cronutils.parser.CronParser;
 import run.ratchet.spi.ExecutorProvider;
-import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.spi.JobBulkStore;
@@ -22,6 +21,7 @@ import run.ratchet.store.spi.LockStore;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -45,11 +45,11 @@ class JobArchivingServiceTest {
 
   @Mock private JobBulkStore jobBulkStore;
   @Mock private ArchiveStore archiveStore;
-  @Mock private LockStore lockStore;
-  @Mock private NodeIdentityProvider nodeIdentityProvider;
+  @Mock private SingletonLeaseService singletonLeaseService;
   @Mock private ExecutorProvider executorProvider;
   @Mock private ExecutorService jobExecutor;
   @Mock private ScheduledExecutorService scheduledExecutor;
+  @Mock private LockStore lockStore;
 
   @SuppressWarnings("rawtypes")
   @Mock
@@ -61,13 +61,12 @@ class JobArchivingServiceTest {
   void setUp() {
     service =
         new JobArchivingService(
-            jobBulkStore, archiveStore, lockStore, nodeIdentityProvider, executorProvider);
+            jobBulkStore, archiveStore, singletonLeaseService, executorProvider);
 
     lenient().when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
     lenient()
         .when(scheduledExecutor.schedule(any(Runnable.class), any(Long.class), any(TimeUnit.class)))
         .thenAnswer(inv -> scheduledFuture);
-    lenient().when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
   }
 
   @Test
@@ -76,7 +75,7 @@ class JobArchivingServiceTest {
 
     service.run();
 
-    verify(lockStore, never()).tryLock(anyString(), any(Duration.class), anyString());
+    verify(singletonLeaseService, never()).tryAcquire(anyString(), any(Duration.class));
     verify(archiveStore, never()).countJobsForArchiving(any());
     verify(archiveStore, never()).findJobsForArchiving(any(), anyInt());
     verify(archiveStore, never()).archiveJobsBatch(any(), anyString(), anyString());
@@ -87,7 +86,8 @@ class JobArchivingServiceTest {
   void run_skipsArchiving_whenLockCannotBeAcquired() {
     service.init(true, 7, 100, parsedCron());
 
-    when(lockStore.tryLock(eq("jobArchiver"), any(Duration.class), eq("node-1"))).thenReturn(false);
+    when(singletonLeaseService.tryAcquire(eq("jobArchiver"), any(Duration.class)))
+        .thenReturn(Optional.empty());
 
     service.run();
 
@@ -101,11 +101,12 @@ class JobArchivingServiceTest {
   void run_acquiresLockWithTwoHourTtl_whenEnabled() {
     service.init(true, 7, 100, parsedCron());
 
-    when(lockStore.tryLock(eq("jobArchiver"), any(Duration.class), eq("node-1"))).thenReturn(false);
+    when(singletonLeaseService.tryAcquire(eq("jobArchiver"), any(Duration.class)))
+        .thenReturn(Optional.empty());
 
     service.run();
 
-    verify(lockStore).tryLock(eq("jobArchiver"), eq(Duration.ofHours(2)), eq("node-1"));
+    verify(singletonLeaseService).tryAcquire(eq("jobArchiver"), eq(Duration.ofHours(2)));
   }
 
   @Test
@@ -133,7 +134,8 @@ class JobArchivingServiceTest {
   void run_doesNotCallFindOrArchive_whenNoJobsEligible() {
     service.init(true, 7, 100, parsedCron());
 
-    when(lockStore.tryLock(anyString(), any(Duration.class), anyString())).thenReturn(true);
+    when(singletonLeaseService.tryAcquire(anyString(), any(Duration.class)))
+        .thenReturn(acquiredLease());
     when(archiveStore.countJobsForArchiving(any())).thenReturn(0L);
 
     service.run();
@@ -148,7 +150,8 @@ class JobArchivingServiceTest {
     int batchSize = 50;
     service.init(true, 7, batchSize, parsedCron());
 
-    when(lockStore.tryLock(anyString(), any(Duration.class), anyString())).thenReturn(true);
+    when(singletonLeaseService.tryAcquire(anyString(), any(Duration.class)))
+        .thenReturn(acquiredLease());
 
     List<JobEntity> batch = List.of(jobEntity(1L), jobEntity(2L));
 
@@ -172,7 +175,8 @@ class JobArchivingServiceTest {
     int batchSize = 50;
     service.init(true, 7, batchSize, parsedCron());
 
-    when(lockStore.tryLock(anyString(), any(Duration.class), anyString())).thenReturn(true);
+    when(singletonLeaseService.tryAcquire(anyString(), any(Duration.class)))
+        .thenReturn(acquiredLease());
 
     List<JobEntity> smallBatch = List.of(jobEntity(10L), jobEntity(11L), jobEntity(12L));
 
@@ -192,7 +196,8 @@ class JobArchivingServiceTest {
     int batchSize = 50;
     service.init(true, 7, batchSize, parsedCron());
 
-    when(lockStore.tryLock(anyString(), any(Duration.class), anyString())).thenReturn(true);
+    when(singletonLeaseService.tryAcquire(anyString(), any(Duration.class)))
+        .thenReturn(acquiredLease());
 
     List<JobEntity> batch = List.of(jobEntity(1L));
     when(archiveStore.countJobsForArchiving(any())).thenReturn(1L);
@@ -212,7 +217,8 @@ class JobArchivingServiceTest {
     int batchSize = 50;
     service.init(true, retentionDays, batchSize, parsedCron());
 
-    when(lockStore.tryLock(anyString(), any(Duration.class), anyString())).thenReturn(true);
+    when(singletonLeaseService.tryAcquire(anyString(), any(Duration.class)))
+        .thenReturn(acquiredLease());
 
     List<JobEntity> batch = List.of(jobEntity(99L));
     when(archiveStore.countJobsForArchiving(any())).thenReturn(1L);
@@ -241,5 +247,9 @@ class JobArchivingServiceTest {
     JobEntity entity = new JobEntity();
     entity.setId(id);
     return entity;
+  }
+
+  private Optional<SingletonLease> acquiredLease() {
+    return Optional.of(new SingletonLease(lockStore, "jobArchiver", "node-1"));
   }
 }

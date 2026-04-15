@@ -79,7 +79,7 @@ public class WorkflowScheduler extends ChainScheduler {
   }
 
   @Override
-  public void scheduleNext(JobEntity parentJob) {
+  public boolean scheduleNext(JobEntity parentJob) {
     List<WorkflowConditionEntity> conditions =
         conditionStore.findConditionsByParentJobId(parentJob.getId());
 
@@ -87,10 +87,10 @@ public class WorkflowScheduler extends ChainScheduler {
       // Fall back to original linear chaining behavior
       if (parentJob.getStatus() == JobStatus.FAILED) {
         super.cancelChain(parentJob);
+        return false;
       } else {
-        super.scheduleNext(parentJob);
+        return super.scheduleNext(parentJob);
       }
-      return;
     }
 
     log.infof("Evaluating %s workflow conditions for job %s", conditions.size(), parentJob.getId());
@@ -120,7 +120,7 @@ public class WorkflowScheduler extends ChainScheduler {
         parentJob.setLastError("Workflow condition evaluation failed: " + e.getMessage());
         jobCrudStore.save(parentJob);
         cancelChain(parentJob);
-        return;
+        return false;
       }
     }
 
@@ -132,10 +132,12 @@ public class WorkflowScheduler extends ChainScheduler {
           "No workflow conditions met for job %s, checking for linear chain", parentJob.getId());
       if (parentJob.getStatus() == JobStatus.FAILED) {
         super.cancelChain(parentJob);
+        return false;
       } else {
-        super.scheduleNext(parentJob);
+        return super.scheduleNext(parentJob);
       }
     }
+    return scheduledCount > 0;
   }
 
   @SuppressWarnings("java:S1172") // parentJob reserved for future parent context logging

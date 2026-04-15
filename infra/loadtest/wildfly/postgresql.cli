@@ -1,0 +1,24 @@
+embed-server --std-out=echo --server-config=standalone.xml
+
+module add --name=org.postgresql \
+  --resources=/opt/jboss/ratchet/drivers/postgresql.jar
+
+/subsystem=datasources/jdbc-driver=postgresql:add( \
+  driver-name=postgresql, \
+  driver-module-name=org.postgresql, \
+  driver-class-name=org.postgresql.Driver)
+
+data-source add \
+  --name=RatchetDS \
+  --jndi-name=java:jboss/datasources/RatchetDS \
+  --driver-name=postgresql \
+  --connection-url=${env.DB_URL:jdbc:postgresql://postgres:5432/ratchet} \
+  --user-name=${env.DB_USERNAME:ratchet} \
+  --password=${env.DB_PASSWORD:ratchet} \
+  --enabled=true \
+  --use-java-context=true \
+  --min-pool-size=${env.DB_MIN_POOL_SIZE:5} \
+  --max-pool-size=${env.DB_MAX_POOL_SIZE:100} \
+  --transaction-isolation=TRANSACTION_READ_COMMITTED
+
+stop-embedded-server

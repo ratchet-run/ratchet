@@ -6,6 +6,7 @@ import run.ratchet.spi.PollingConfig;
 import run.ratchet.spi.PollingDelayStrategy;
 import run.ratchet.spi.PollingStrategyProvider;
 import run.ratchet.store.dto.JobClaimDto;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobClaimStore;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -149,10 +150,15 @@ public class Poller {
     }
 
     long pollStartTime = System.currentTimeMillis();
-    List<JobClaimDto> claims =
-        jobClaimStore.claimNextBatchOptimized(batchSize, nodeIdProvider.getNodeId());
-    int jobCount = claims.size();
+    int claimLimit = calculateClaimLimit();
+    if (claimLimit <= 0) {
+      updateSystemLoadFactor();
+      return strategy.recordPollResult(0, pollStartTime);
+    }
 
+    List<JobClaimDto> claims =
+        jobClaimStore.claimNextBatchOptimized(claimLimit, nodeIdProvider.getNodeId());
+    int jobCount = claims.size();
     if (jobCount > 0) {
       handleJobsFound(claims, jobCount);
     }
@@ -164,6 +170,15 @@ public class Poller {
     log.debugf("Poll completed: claimed %s job(s), next delay %s ms", jobCount, nextDelay);
 
     return nextDelay;
+  }
+
+  private int calculateClaimLimit() {
+    int maxAvailableCapacity = 0;
+    for (JobExecutionType jobType : JobExecutionType.values()) {
+      maxAvailableCapacity =
+          Math.max(maxAvailableCapacity, threadPoolManager.getAvailableCapacity(jobType));
+    }
+    return Math.min(batchSize, maxAvailableCapacity);
   }
 
   private void updateSystemLoadFactor() {

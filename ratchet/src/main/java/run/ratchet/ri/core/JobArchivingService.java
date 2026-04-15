@@ -3,11 +3,9 @@ package run.ratchet.ri.core;
 import com.cronutils.model.Cron;
 import com.cronutils.model.time.ExecutionTime;
 import run.ratchet.spi.ExecutorProvider;
-import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.spi.JobBulkStore;
-import run.ratchet.store.spi.LockStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -22,8 +20,8 @@ import org.jboss.logging.Logger;
 
 /**
  * Moves completed jobs older than the retention period to archive storage, then purges archived
- * jobs older than 3x the retention period. Runs on a cron schedule with cluster-wide leader-lock
- * coordination to prevent duplicate runs across nodes.
+ * jobs older than 3x the retention period. Runs on a cron schedule with a singleton lease to
+ * prevent duplicate runs across nodes.
  */
 @ApplicationScoped
 @Transactional
@@ -33,12 +31,12 @@ public class JobArchivingService {
 
   private static final String ARCHIVED_BY_SYSTEM = "system";
   private static final String ARCHIVE_REASON_RETENTION = "retention_policy";
-  private static final String LOCK_NAME = "jobArchiver";
+  private static final String LEASE_NAME = "jobArchiver";
+  private static final Duration LEASE_TTL = Duration.ofHours(2);
 
   private final JobBulkStore jobBulkStore;
   private final ArchiveStore archiveStore;
-  private final LockStore lockStore;
-  private final NodeIdentityProvider nodeIdentityProvider;
+  private final SingletonLeaseService singletonLeaseService;
   private final ExecutorProvider executorProvider;
 
   private Duration retentionPeriod;
@@ -52,8 +50,7 @@ public class JobArchivingService {
   protected JobArchivingService() {
     this.jobBulkStore = null;
     this.archiveStore = null;
-    this.lockStore = null;
-    this.nodeIdentityProvider = null;
+    this.singletonLeaseService = null;
     this.executorProvider = null;
   }
 
@@ -61,13 +58,11 @@ public class JobArchivingService {
   public JobArchivingService(
       JobBulkStore jobBulkStore,
       ArchiveStore archiveStore,
-      LockStore lockStore,
-      NodeIdentityProvider nodeIdentityProvider,
+      SingletonLeaseService singletonLeaseService,
       ExecutorProvider executorProvider) {
     this.jobBulkStore = jobBulkStore;
     this.archiveStore = archiveStore;
-    this.lockStore = lockStore;
-    this.nodeIdentityProvider = nodeIdentityProvider;
+    this.singletonLeaseService = singletonLeaseService;
     this.executorProvider = executorProvider;
   }
 
@@ -102,7 +97,7 @@ public class JobArchivingService {
     }
 
     log.info("Manual archiving trigger requested");
-    executorProvider.getJobExecutor().submit(this::performArchiving);
+    executorProvider.getJobExecutor().submit(this::triggerArchivingWithLease);
   }
 
   void run() {
@@ -111,18 +106,32 @@ public class JobArchivingService {
       return;
     }
 
-    // Try to acquire leader lock with 2-hour TTL
-    if (!lockStore.tryLock(LOCK_NAME, Duration.ofHours(2), nodeIdentityProvider.getNodeId())) {
-      log.debug("Another node is running job archiving, skipping");
-      return;
-    }
-
     try {
-      performArchiving();
+      performArchivingWithLease();
     } catch (Exception e) {
       log.error("Job archiving failed", e);
     } finally {
       scheduleNext();
+    }
+  }
+
+  private void performArchivingWithLease() {
+    Optional<SingletonLease> lease = singletonLeaseService.tryAcquire(LEASE_NAME, LEASE_TTL);
+    if (lease.isEmpty()) {
+      log.debug("Job archiving skipped - singleton lease held by another node");
+      return;
+    }
+
+    try (SingletonLease ignored = lease.get()) {
+      performArchiving();
+    }
+  }
+
+  private void triggerArchivingWithLease() {
+    try {
+      performArchivingWithLease();
+    } catch (Exception e) {
+      log.error("Job archiving failed", e);
     }
   }
 

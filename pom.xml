@@ -29,6 +29,7 @@
     <module>ratchet-tck</module>
     <module>ratchet-testsuite</module>
     <module>ratchet-testsuite-jpms</module>
+    <module>ratchet-loadtest</module>
     <module>ratchet-micrometer</module>
     <module>ratchet-bom</module>
     <module>ratchet-coverage</module>
@@ -54,6 +55,7 @@
     <maven-surefire-plugin.version>3.5.2</maven-surefire-plugin.version>
     <maven-failsafe-plugin.version>3.5.2</maven-failsafe-plugin.version>
     <maven-jar-plugin.version>3.4.2</maven-jar-plugin.version>
+    <maven-war-plugin.version>3.5.1</maven-war-plugin.version>
     <maven-source-plugin.version>3.3.1</maven-source-plugin.version>
     <maven-javadoc-plugin.version>3.11.2</maven-javadoc-plugin.version>
     <spotless-maven-plugin.version>2.44.4</spotless-maven-plugin.version>
@@ -189,6 +191,11 @@
       <dependency>
         <groupId>run.ratchet</groupId>
         <artifactId>ratchet-tck</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>run.ratchet</groupId>
+        <artifactId>ratchet-micrometer</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
@@ -382,6 +389,11 @@
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-jar-plugin</artifactId>
           <version>${maven-jar-plugin.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-war-plugin</artifactId>
+          <version>${maven-war-plugin.version}</version>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>

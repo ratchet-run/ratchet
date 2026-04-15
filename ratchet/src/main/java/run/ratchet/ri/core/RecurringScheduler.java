@@ -6,7 +6,6 @@ import com.cronutils.parser.CronParser;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.LockStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.time.Duration;
@@ -21,7 +20,7 @@ import org.jboss.logging.Logger;
 
 /**
  * Polls for due recurring masters and delegates to {@link RecurringJobExecutor} to spawn children.
- * Uses distributed locking for leader election so only one node processes recurring jobs.
+ * Uses a singleton lease so only one node processes recurring jobs at a time.
  */
 @ApplicationScoped
 public class RecurringScheduler {
@@ -30,12 +29,13 @@ public class RecurringScheduler {
       new CronParser(CronDefinitionBuilder.instanceDefinitionFor(CronType.QUARTZ));
 
   private static final Logger log = Logger.getLogger(RecurringScheduler.class);
-  private static final String LOCK_NAME = "recurringScheduler";
+  private static final String LEASE_NAME = "recurringScheduler";
+  private static final Duration LEASE_TTL = Duration.ofMinutes(5);
 
   private final AtomicBoolean started = new AtomicBoolean();
   private final ExecutorProvider executorProvider;
   private final JobCrudStore jobCrudStore;
-  private final LockStore lockStore;
+  private final SingletonLeaseService singletonLeaseService;
   private final NodeIdentityProvider nodeIdentityProvider;
   private final RecurringJobExecutor recurringJobExecutor;
   private final PollerScheduler pollerScheduler;
@@ -54,7 +54,7 @@ public class RecurringScheduler {
   protected RecurringScheduler() {
     this.executorProvider = null;
     this.jobCrudStore = null;
-    this.lockStore = null;
+    this.singletonLeaseService = null;
     this.nodeIdentityProvider = null;
     this.recurringJobExecutor = null;
     this.pollerScheduler = null;
@@ -64,13 +64,13 @@ public class RecurringScheduler {
   public RecurringScheduler(
       ExecutorProvider executorProvider,
       JobCrudStore jobCrudStore,
-      LockStore lockStore,
+      SingletonLeaseService singletonLeaseService,
       NodeIdentityProvider nodeIdentityProvider,
       RecurringJobExecutor recurringJobExecutor,
       PollerScheduler pollerScheduler) {
     this.executorProvider = executorProvider;
     this.jobCrudStore = jobCrudStore;
-    this.lockStore = lockStore;
+    this.singletonLeaseService = singletonLeaseService;
     this.nodeIdentityProvider = nodeIdentityProvider;
     this.recurringJobExecutor = recurringJobExecutor;
     this.pollerScheduler = pollerScheduler;
@@ -126,18 +126,18 @@ public class RecurringScheduler {
     }
 
     ScheduledFuture<?> renewalTask = null;
+    Optional<SingletonLease> lease = Optional.empty();
     try {
-      if (!lockStore.tryLock(LOCK_NAME, Duration.ofMinutes(5), nodeIdentityProvider.getNodeId())) {
+      lease = singletonLeaseService.tryAcquire(LEASE_NAME, LEASE_TTL);
+      if (lease.isEmpty()) {
         scheduleNext(minPollMs);
         return;
       }
 
-      // Start lock renewal task
+      SingletonLease acquiredLease = lease.get();
       renewalTask =
           executor.scheduleAtFixedRate(
-              () ->
-                  lockStore.renewLock(
-                      LOCK_NAME, Duration.ofMinutes(5), nodeIdentityProvider.getNodeId()),
+              () -> renewLease(acquiredLease),
               2,
               2,
               TimeUnit.MINUTES);
@@ -171,11 +171,7 @@ public class RecurringScheduler {
       if (renewalTask != null && !renewalTask.isCancelled()) {
         renewalTask.cancel(false);
       }
-      try {
-        lockStore.unlock(LOCK_NAME, nodeIdentityProvider.getNodeId());
-      } catch (Exception e) {
-        log.debug("Failed to release recurring scheduler lock", e);
-      }
+      lease.ifPresent(SingletonLease::close);
     }
   }
 
@@ -194,6 +190,16 @@ public class RecurringScheduler {
 
     long targetDelay = Math.max(msUntilNextFire - 500, minPollMs);
     return Math.min(targetDelay, maxPollMs);
+  }
+
+  private void renewLease(SingletonLease lease) {
+    try {
+      if (!lease.renew(LEASE_TTL)) {
+        log.warnf("RecurringScheduler could not renew singleton lease %s", lease.name());
+      }
+    } catch (Exception e) {
+      log.warnf(e, "RecurringScheduler lease renewal failed for %s", lease.name());
+    }
   }
 
   private void scheduleNext(long delayMs) {

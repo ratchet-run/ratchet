@@ -53,18 +53,21 @@ public class ChainScheduler {
     }
   }
 
-  public void scheduleNext(JobEntity finished) {
+  public boolean scheduleNext(JobEntity finished) {
     List<JobEntity> children = jobCrudStore.findDependants(finished.getId());
     if (children.isEmpty()) {
-      return;
+      return false;
     }
 
+    boolean scheduled = false;
     for (JobEntity c : children) {
       if (c.getStatus() == JobStatus.PENDING && CHAIN_LOCK_TIME.equals(c.getScheduledTime())) {
         c.setScheduledTime(Instant.now());
         jobCrudStore.save(c);
         log.infof("Chain step %s unlocked (prev=%s)", c.getId(), finished.getId());
+        scheduled = true;
       }
     }
+    return scheduled;
   }
 }
