@@ -158,25 +158,27 @@ Tuned for third-party integrations with higher latency tolerance and longer reco
 | Permitted calls in HALF_OPEN | 3 |
 | Minimum calls before evaluation | 5 |
 
-## Custom Profiles via Environment Variables
+## Profile Overrides via Configuration
 
-Profile defaults can be overridden per-deployment using environment variables. The variable prefix is derived from the profile name:
+Profile defaults can be overridden per-deployment using Ratchet config. The preferred environment variable prefix is `RATCHET_CB_<PROFILE>_`:
 
 ```bash
 # Override DEFAULT profile
-export DEFAULT_FAILURE_RATE=60
-export DEFAULT_WINDOW_SIZE=50
-export DEFAULT_WAIT_MS=20000
-export DEFAULT_SLOW_CALL_MS=5000
-export DEFAULT_HALF_OPEN_CALLS=5
-export DEFAULT_MIN_CALLS=10
+export RATCHET_CB_DEFAULT_FAILURE_RATE=60
+export RATCHET_CB_DEFAULT_WINDOW_SIZE=50
+export RATCHET_CB_DEFAULT_WAIT_MS=20000
+export RATCHET_CB_DEFAULT_SLOW_CALL_MS=5000
+export RATCHET_CB_DEFAULT_HALF_OPEN_CALLS=5
+export RATCHET_CB_DEFAULT_MIN_CALLS=10
 
 # Override EXTERNAL_API profile
-export EXTERNAL_API_FAILURE_RATE=40
-export EXTERNAL_API_WAIT_MS=120000
+export RATCHET_CB_EXTERNAL_FAILURE_RATE=40
+export RATCHET_CB_EXTERNAL_WAIT_MS=120000
 ```
 
-The `CircuitBreakerConfiguration.fromEnvironment()` method reads these variables at startup, falling back to the profile's built-in defaults for any unset variable.
+The default `CircuitBreakerConfigProvider` reads these values through `RatchetConfig`. Legacy `SCHEDULER_CB_<PROFILE>_...` names are still checked as fallbacks. `RATCHET_CB_<PROFILE>_WAIT_SECONDS` is also supported for existing deployments.
+
+Set `RATCHET_CIRCUIT_BREAKER_ENABLED=false` to make both the scheduler resilience wrapper and the `@CircuitBreakerProtected` interceptor pass through without consulting circuit state.
 
 ## Programmatic Access via CircuitBreakerRegistry
 

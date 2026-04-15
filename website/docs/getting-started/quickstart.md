@@ -185,7 +185,7 @@ scheduler.enqueueNow(() -> processOrder(orderId));
 ```
 
 :::caution Keep payloads small
-Ratchet persists the lambda payload using the active `SerializationStrategy` (the default RI uses `JdkSerializationStrategy`). Pass IDs and simple serializable values, not large object graphs. A job that needs a complex object should accept an ID and look up the object from the database during execution. Job return values are stored separately as JSON metadata.
+Ratchet persists the target method metadata and captured argument values extracted by `JobInvocationResolver`. Pass IDs and simple serializable values, not large object graphs. A job that needs a complex object should accept an ID and look up the object from the database during execution. Job return values are stored separately through `ResultPersistenceStrategy`.
 :::
 
 ## Delayed Execution

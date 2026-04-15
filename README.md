@@ -330,8 +330,14 @@ Ratchet is designed to be extended. Provide a CDI `@Alternative @Priority(APPLIC
 | `ResilienceStrategy` | Circuit breaker behavior | Built-in 3-state machine |
 | `ClassPolicy` | Security — which classes can be deserialized | `PackagePrefixClassPolicy` with an empty allowlist; startup fails fast until you provide an override |
 | `ErrorSanitizer` | Scrub sensitive data from error messages | `DefaultErrorSanitizer` |
-| `SerializationStrategy` | Custom payload serialization | `JdkSerializationStrategy` |
-| `LambdaAnalyzer` | Method reference extraction from lambdas | ASM bytecode analysis |
+| `RatchetConfigSource` / `RatchetConfig` | Runtime configuration source and typed resolution | Environment variables, then system properties |
+| `ExecutionTuningProvider` | Per-execution-type concurrency and virtual-thread limits | Config-backed defaults |
+| `PollingStrategyProvider` | Poll cadence and adaptive backoff | Built-in adaptive strategy |
+| `JobInvocationResolver` | Method reference extraction from submitted callbacks | ASM bytecode analysis |
+| `ResultPersistenceStrategy` | Job return-value serialization | JSON metadata with a size cap |
+| `JobLoggerFactory` | Per-job job-scoped logging | JBoss Logging-backed logger |
+| `CircuitBreakerConfigProvider` | Built-in breaker enablement and thresholds | Config-backed profile settings |
+| `SchedulerLifecycleHook` | Scheduler startup/shutdown hooks | No hooks |
 | `ClusterCoordinator` | Distributed wakeup notifications | `NoOpClusterCoordinator` |
 | `StartupCoordinator` | Destructive startup work gated by store-backed leases | `StoreBackedStartupCoordinator` |
 | `MetricsCollector` | Metrics sink (counters, gauges, timers) | No-op |

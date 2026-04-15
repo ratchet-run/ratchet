@@ -260,49 +260,112 @@ public class PiiSanitizer implements ErrorSanitizer {
 }
 ```
 
+## JobInvocationResolver
+
+Custom callback-to-job invocation resolution. The default RI uses ASM to derive a persisted target class, method, method descriptor, static flag, and argument list from serializable callbacks.
+
+```java
+public interface JobInvocationResolver {
+    JobInvocation resolve(Serializable callback);
+    JobInvocation resolve(Serializable callback, List<Object> runtimeArguments);
+}
+```
+
+## ResultPersistenceStrategy
+
+Serializes job return values before storing them on the job row.
+
+```java
+public interface ResultPersistenceStrategy {
+    SerializedJobResult serialize(long jobId, Object result);
+}
+```
+
+## RatchetConfig
+
+Typed runtime configuration facade. The default implementation reads environment variables first and system properties second.
+
+```java
+public interface RatchetConfig {
+    <T> T get(RatchetConfigKey<T> key);
+    Optional<String> raw(RatchetConfigKey<?> key);
+}
+```
+
+## RatchetConfigSource
+
+Raw configuration source used by `RatchetConfig`.
+
+```java
+public interface RatchetConfigSource {
+    Optional<String> get(String propertyName, String environmentVariable);
+}
+```
+
+## ExecutionTuningProvider
+
+Controls per-execution-type concurrency and virtual-thread backpressure limits.
+
+```java
+public interface ExecutionTuningProvider {
+    boolean useVirtualThreads();
+    int maxConcurrency(String executionTypeName, int defaultValue);
+    int virtualThreadLimit(String executionTypeName, int defaultValue);
+}
+```
+
+## PollingStrategyProvider
+
+Creates the stateful adaptive polling delay strategy used by the RI poller.
+
+```java
+public interface PollingStrategyProvider {
+    PollingDelayStrategy create(PollingConfig config);
+}
+```
+
+## JobLoggerFactory
+
+Creates the job-scoped `JobLogger` bound into `JobContext` for each execution.
+
+```java
+public interface JobLoggerFactory {
+    JobLogger create(JobLoggerContext context);
+}
+```
+
+## CircuitBreakerConfigProvider
+
+Supplies enablement and per-profile settings for the built-in circuit breaker.
+
+```java
+public interface CircuitBreakerConfigProvider {
+    boolean isEnabled();
+    CircuitBreakerConfig configFor(CircuitBreakerProfile profile);
+}
+```
+
+## SchedulerLifecycleHook
+
+Optional CDI hook around scheduler startup and shutdown.
+
+```java
+public interface SchedulerLifecycleHook {
+    default void beforeStart() {}
+    default void afterStart() {}
+    default void beforeStop() {}
+    default void afterStop() {}
+}
+```
+
 ## SerializationStrategy
 
-Custom payload serialization and deserialization. The default RI uses `JdkSerializationStrategy` for job payloads. Job return values are stored separately as JSON metadata in the store.
+Compatibility SPI for object-to-byte serialization utilities. It is not the primary scheduler payload extension point; use `JobInvocationResolver` for submitted callbacks and `ResultPersistenceStrategy` for return values.
 
 ```java
 public interface SerializationStrategy {
     byte[] serialize(Object obj);
     <T> T deserialize(byte[] data, Class<T> type);
-}
-```
-
-### serialize
-
-```java
-byte[] serialize(Object obj)
-```
-
-Converts an object to a byte array. Implementations must be thread-safe.
-
-### deserialize
-
-```java
-<T> T deserialize(byte[] data, Class<T> type)
-```
-
-Reconstructs an object from a byte array.
-
-### Example
-
-```java
-@Alternative @Priority(APPLICATION)
-@ApplicationScoped
-public class ProtobufSerializationStrategy implements SerializationStrategy {
-
-    @Override
-    public byte[] serialize(Object obj) {
-        return protobufCodec.encode(obj);
-    }
-
-    @Override
-    public <T> T deserialize(byte[] data, Class<T> type) {
-        return protobufCodec.decode(data, type);
-    }
 }
 ```
 
@@ -662,7 +725,7 @@ public class KubernetesNodeProvider implements NodeIdentityProvider {
 
 ## LambdaAnalyzer
 
-Analyzes serializable lambda expressions to extract method metadata. Used internally to resolve the target class and method name from job lambdas.
+Compatibility SPI for simple lambda metadata extraction. It is not the primary scheduler payload extension point; use `JobInvocationResolver`.
 
 :::info
 This interface is marked `@Incubating` and may change.

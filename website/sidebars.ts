@@ -38,6 +38,7 @@ const config: SidebarsConfig = {
     'api-reference/spi-interfaces',
   ],
   advancedSidebar: [
+    'advanced/customization-platform',
     'advanced/spi-implementation',
     'advanced/circuit-breakers',
     'advanced/custom-retry-policies',

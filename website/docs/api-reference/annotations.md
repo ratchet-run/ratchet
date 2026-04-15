@@ -262,7 +262,7 @@ public interface ResilienceStrategy {
 
 `@Incubating` is applied to SPI interfaces and classes that are subject to change. If you implement an `@Incubating` interface, be aware that method signatures may be added, changed, or removed in minor releases.
 
-Currently `@Incubating` SPIs include: `ResilienceStrategy`, `ClassPolicy`, `ErrorSanitizer`, `ExecutorProvider`, `BeanResolver`, `MetricsCollector`, `JobLogger`, `ClusterCoordinator`, `StartupCoordinator`, `NodeIdentityProvider`, `LambdaAnalyzer`, and `CircuitBreakerProtected`.
+Currently `@Incubating` SPIs include the scheduler extension contracts in `run.ratchet.spi`, including `RatchetConfig`, `JobInvocationResolver`, `ResultPersistenceStrategy`, `ExecutionTuningProvider`, `PollingStrategyProvider`, `JobLoggerFactory`, `ResilienceStrategy`, `ClassPolicy`, `ErrorSanitizer`, `ExecutorProvider`, `BeanResolver`, `MetricsCollector`, `JobLogger`, `ClusterCoordinator`, `StartupCoordinator`, and `NodeIdentityProvider`.
 
 ## See Also
 

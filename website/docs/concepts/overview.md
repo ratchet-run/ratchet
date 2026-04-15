@@ -112,12 +112,14 @@ scheduler.enqueue(() -> orderService.processOrder(orderId))
 
 ### SPI-Driven Extension
 
-Ratchet separates API contracts from implementation through Service Provider Interfaces. The engine consults SPIs for persistence, serialization, retry logic, security, metrics, and cluster coordination. Default implementations are provided, and you can replace any of them:
+Ratchet separates API contracts from implementation through Service Provider Interfaces. The engine consults SPIs for persistence, invocation resolution, retry logic, security, metrics, logging, configuration, and cluster coordination. Default implementations are provided, and you can replace any of them:
 
 | SPI | Purpose | Default |
 |-----|---------|---------|
 | `JobStore` | Persistence (15 sub-interfaces) | MySQL / PostgreSQL modules |
-| `SerializationStrategy` | Payload serialization | JDK serialization |
+| `JobInvocationResolver` | Callback-to-method invocation resolution | ASM bytecode analysis |
+| `ResultPersistenceStrategy` | Job return-value persistence | JSON metadata with size cap |
+| `RatchetConfig` | Typed runtime configuration | Environment/system-property facade |
 | `RetryPolicy` | Custom retry decisions | Passthrough (uses job config) |
 | `ClassPolicy` | Security allowlist | Package-prefix matching |
 | `MetricsCollector` | Observability hooks | No-op |
@@ -127,10 +129,9 @@ SPIs marked `@Incubating` may change before 1.0:
 
 | SPI | Purpose | Default |
 |-----|---------|---------|
-| `LambdaAnalyzer` | Lambda bytecode analysis | ASM-based analyzer |
 | `NodeIdentityProvider` | Cluster node identity | Hostname + PID |
 | `ExecutorProvider` | Thread pool management | Container-managed executors |
-| `JobLogger` | Structured job logging | JUL-based logger |
+| `JobLoggerFactory` | Structured job logging | JBoss Logging-backed logger |
 | `ErrorSanitizer` | Exception message sanitization | Truncate + strip PII |
 
 ### Event System

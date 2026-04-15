@@ -22,7 +22,7 @@ Key beans produced by `RatchetProducer`:
 
 | Bean | What it does |
 |------|-------------|
-| `ThreadPoolManager` | Manages thread pools per job execution type (single, recurring, batch, chain) |
+| `ThreadPoolManager` | Manages concurrency per job execution type, including batch, chain, workflow, and system work |
 | `Poller` | Claims pending jobs from the store and dispatches them to worker threads |
 | `JobTimeoutHandler` | Enforces job timeouts and soft-timeout warnings |
 | `NodeIdentityProvider` | Identifies this node in a cluster with heartbeat registration |
@@ -120,15 +120,24 @@ CDI will select your bean over Ratchet's default. No additional configuration ne
 | `ResilienceStrategy` | `DefaultResilienceStrategy` (built-in 3-state circuit breaker) | Replace with Resilience4j or MicroProfile Fault Tolerance |
 | `ClassPolicy` | `PackagePrefixClassPolicy` (empty allowlist by default; deployment fails fast until you override it) | Lock down which classes can be deserialized from job payloads |
 | `ErrorSanitizer` | `DefaultErrorSanitizer` (strips common PII patterns) | Custom redaction rules for your domain |
-| `SerializationStrategy` | `JdkSerializationStrategy` (JDK serialization for lambda payloads) | Custom payload serialization (e.g., Kryo, Protobuf) |
-| `LambdaAnalyzer` | `AsmLambdaAnalyzer` (ASM bytecode analysis) | Custom method reference extraction |
+| `RatchetConfigSource` | Environment variables, then system properties | Custom configuration backing store |
+| `RatchetConfig` | Typed key facade over `RatchetConfigSource` | Custom config layering, validation, or refresh behavior |
+| `ExecutionTuningProvider` | Built-in per-execution-type concurrency settings | Custom thread limits and virtual-thread backpressure |
+| `PollingStrategyProvider` | Adaptive built-in polling strategy | Custom poll cadence and backoff behavior |
+| `JobInvocationResolver` | ASM bytecode analysis for serializable callbacks | Custom method reference extraction and payload creation |
+| `ResultPersistenceStrategy` | JSON result metadata with a size cap | Custom job return-value persistence |
+| `JobLoggerFactory` | JBoss Logging-backed job logger | Custom job-scoped structured logging |
+| `CircuitBreakerConfigProvider` | Typed config-backed breaker settings | Custom built-in circuit breaker thresholds and enablement |
+| `SchedulerLifecycleHook` | No hooks by default | Startup/shutdown integration hooks |
 | `ClusterCoordinator` | `NoOpClusterCoordinator` (no wakeup coordination) | Cross-node wakeups when you supply an implementation |
 | `StartupCoordinator` | `StoreBackedStartupCoordinator` (uses `scheduler_lock`) | Gate destructive startup work behind a store-backed lease |
 | `MetricsCollector` | `NoOpMetricsCollector` (discards all metrics) | Use `ratchet-micrometer` or implement for your metrics backend |
 | `BeanResolver` | `CdiBeanResolver` (CDI `Instance<T>` lookup) | Custom bean instantiation for non-CDI contexts |
 | `ExecutorProvider` | `DefaultExecutorProvider` (platform threads) | Virtual threads or custom thread pool configuration |
 | `NodeIdentityProvider` | `DefaultNodeIdentityProvider` (hostname-based with heartbeat) | Custom node identification for cloud environments |
-| `JobLogger` | No-op job-scoped logger binding | Custom structured logging |
+| `JobLogger` | Created by `JobLoggerFactory` | Custom logger facade returned by your factory |
+
+`SerializationStrategy` and `LambdaAnalyzer` remain for compatibility, but they are not the primary scheduler customization path. Use `JobInvocationResolver` for submitted callback extraction and `ResultPersistenceStrategy` for job return values.
 
 ### ClassPolicy: Security Configuration
 
@@ -168,7 +177,7 @@ This is a security boundary. Jobs execute arbitrary code by design -- the class 
 
 ## Runtime Configuration via Environment Variables
 
-`RatchetConfiguration` reads settings from environment variables (checked first) and system properties (checked second). Every setting has a `RATCHET_` prefix and a legacy `SCHEDULER_` prefix for backward compatibility.
+Ratchet's default `RatchetConfigSource` reads settings from environment variables first and system properties second. Most settings have a `RATCHET_` environment variable and a legacy fallback such as `SCHEDULER_`, `POLLER_`, or `WORKER_` depending on the original setting.
 
 ### Poller Tuning
 
@@ -193,8 +202,10 @@ The poller uses adaptive polling: it polls frequently when jobs are available an
 | `RATCHET_THREAD_POOL_SIZE_BATCH_CHILD` | `30` | Worker threads for batch child items |
 | `RATCHET_THREAD_POOL_SIZE_BATCH_PARENT` | `2` | Threads for batch parent coordination |
 | `RATCHET_THREAD_POOL_SIZE_CHAIN` | `10` | Worker threads for chain step execution |
-| `RATCHET_THREAD_POOL_SIZE_DEFAULT` | `10` | Default thread pool (workflow branches) |
-| `RATCHET_THREAD_POOL_QUEUE_SIZE` | `100` | Bounded queue size per thread pool |
+| `RATCHET_THREAD_POOL_SIZE_DLQ_ALERT` | `2` | Worker threads for scheduler DLQ alert work |
+| `RATCHET_THREAD_POOL_SIZE_WORKFLOW_JOIN` | `10` | Worker threads for workflow join work |
+| `RATCHET_THREAD_POOL_SIZE_DEFAULT` | `10` | Default thread pool size for workflow execution types unless overridden |
+| `RATCHET_THREAD_POOL_QUEUE_SIZE` | `100` | Reserved for custom executor implementations; the RI uses semaphore-based limiting |
 | `RATCHET_WORKER_USE_VIRTUAL_THREADS` | `false` | Use Java 21 virtual threads instead of platform threads |
 | `RATCHET_WORKER_DEFAULT_SLA` | `1800` | Default job timeout in seconds (30 minutes) |
 
@@ -233,6 +244,8 @@ The poller uses adaptive polling: it polls frequently when jobs are available an
 | `RATCHET_CB_EXTERNAL_FAILURE_RATE` | `60` | Failure rate threshold (%) for EXTERNAL_API profile |
 | `RATCHET_CB_EXTERNAL_WAIT_SECONDS` | `60` | Open-to-half-open wait time for EXTERNAL_API profile |
 
+All built-in profiles also accept `RATCHET_CB_<PROFILE>_WAIT_MS`, `RATCHET_CB_<PROFILE>_SLOW_CALL_MS`, `RATCHET_CB_<PROFILE>_HALF_OPEN_CALLS`, and `RATCHET_CB_<PROFILE>_MIN_CALLS`; use `EXTERNAL` for the `EXTERNAL_API` profile variable segment. `RATCHET_CIRCUIT_BREAKER_ENABLED=false` disables both the scheduler resilience wrapper and `@CircuitBreakerProtected` interceptor passthrough behavior.
+
 ### Recurring Job Configuration
 
 | Variable | Default | Description |
@@ -246,6 +259,7 @@ The poller uses adaptive polling: it polls frequently when jobs are available an
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `RATCHET_MAX_PAYLOAD_KB` | `100` | Maximum serialized job payload size in KB |
+| `RATCHET_JOB_RESULT_MAX_BYTES` | `65536` | Maximum persisted result JSON size; `0` disables the cap |
 | `RATCHET_PRIORITY_BOOST_INTERVAL_MINUTES` | `15` | How often low-priority jobs get a priority boost to prevent starvation |
 | `RATCHET_SOFT_TIMEOUT_PERCENT` | `80` | Percentage of timeout at which a soft warning is emitted |
 

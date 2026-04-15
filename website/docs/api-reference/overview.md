@@ -83,7 +83,8 @@ Classes and interfaces you use directly when scheduling jobs, building workflows
 | [`ResilienceStrategy`](./spi-interfaces#resiliencestrategy) | Circuit breaker / bulkhead wrapping |
 | [`ClassPolicy`](./spi-interfaces#classpolicy) | Deserialization class allowlist |
 | [`ErrorSanitizer`](./spi-interfaces#errorsanitizer) | Scrub sensitive data from error messages |
-| [`SerializationStrategy`](./spi-interfaces#serializationstrategy) | Custom payload serialization (default: `JdkSerializationStrategy`) |
+| [`JobInvocationResolver`](./spi-interfaces#jobinvocationresolver) | Custom callback-to-job invocation resolution |
+| [`ResultPersistenceStrategy`](./spi-interfaces#resultpersistencestrategy) | Custom job return-value persistence |
 | [`ExecutorProvider`](./spi-interfaces#executorprovider) | Supply custom thread pools or virtual threads |
 | [`BeanResolver`](./spi-interfaces#beanresolver) | Custom bean instantiation (default: CDI) |
 | [`MetricsCollector`](./spi-interfaces#metricscollector) | Emit custom metrics (Micrometer, StatsD, etc.) |
@@ -91,7 +92,7 @@ Classes and interfaces you use directly when scheduling jobs, building workflows
 | [`ClusterCoordinator`](./spi-interfaces#clustercoordinator) | Distributed wakeup notifications |
 | [`StartupCoordinator`](./spi-interfaces#startupcoordinator) | Store-backed startup leases for destructive initialization tasks |
 | [`NodeIdentityProvider`](./spi-interfaces#nodeidentityprovider) | Identify nodes in a cluster |
-| [`LambdaAnalyzer`](./spi-interfaces#lambdaanalyzer) | Lambda bytecode analysis for method extraction |
+| [`RatchetConfig`](./spi-interfaces#ratchetconfig) | Typed runtime configuration facade |
 
 ## How to Read This Reference
 

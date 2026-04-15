@@ -45,11 +45,11 @@ For the full matrix of poller, thread-pool, retention, DLQ, archiving, and circu
 
 Security and extension-point behavior are not configured with class names in properties. They are CDI beans.
 
-### SerializationStrategy
+### Payload and Result Customization
 
-Default: `JdkSerializationStrategy`
+Default payload resolution is handled by `JobInvocationResolver`; default result persistence is handled by `ResultPersistenceStrategy`.
 
-This controls how Ratchet persists job payloads. The default RI uses Java serialization for the payload itself. Job return values are stored separately as JSON metadata.
+This controls how Ratchet turns submitted callbacks into persisted target-method metadata and how completed job return values are stored. The default RI uses ASM callback analysis and JSON result metadata.
 
 ### ClassPolicy
 

@@ -6,7 +6,7 @@ description: Complete guide to implementing Ratchet SPI interfaces for custom ex
 
 # SPI Implementation Guide
 
-Ratchet is designed around a set of Service Provider Interfaces (SPIs) that decouple the core engine from specific implementations. Every major extension point -- serialization, resilience, metrics, logging, persistence, security, and cluster coordination -- is expressed as an SPI interface that you can replace with your own implementation.
+Ratchet is designed around a set of Service Provider Interfaces (SPIs) that decouple the core engine from specific implementations. Major extension points -- configuration, invocation resolution, result persistence, resilience, metrics, logging, storage, security, and cluster coordination -- are expressed as SPI interfaces that you can replace with your own implementation.
 
 This guide covers the CDI wiring pattern, the complete SPI inventory, and the store SPI with its Technology Compatibility Kit (TCK).
 
@@ -53,29 +53,29 @@ After deployment, verify your bean is active by injecting the SPI and checking t
 
 ```java
 @Inject
-SerializationStrategy strategy;
+JobInvocationResolver resolver;
 
 // In a startup observer or health check:
-log.info("Active SerializationStrategy: " + strategy.getClass().getName());
-// Should print your class, not JdkSerializationStrategy
+log.info("Active JobInvocationResolver: " + resolver.getClass().getName());
+// Should print your class, not DefaultJobInvocationResolver
 ```
 
 ## Complete SPI Reference
 
-Ratchet defines 13 SPI interfaces across two modules. Each entry below shows the interface, its default implementation, and a skeleton for a custom override.
+Ratchet defines SPI interfaces across the API, RI, and store modules. Each entry below shows the interface, its default implementation, and a skeleton for a custom override.
 
-### 1. SerializationStrategy
+### 1. JobInvocationResolver
 
 **Module:** `ratchet-api`
 **Package:** `run.ratchet.spi`
-**Default:** `JdkSerializationStrategy` (JDK `ObjectOutputStream`/`ObjectInputStream` with `ObjectInputFilter`)
+**Default:** ASM-based callback analysis
 
-Serializes and deserializes job payloads for persistence.
+Resolves submitted callbacks into persisted job invocations.
 
 ```java
-public interface SerializationStrategy {
-    byte[] serialize(Object obj);
-    <T> T deserialize(byte[] data, Class<T> type);
+public interface JobInvocationResolver {
+    JobInvocation resolve(Serializable callback);
+    JobInvocation resolve(Serializable callback, List<Object> runtimeArguments);
 }
 ```
 
@@ -85,32 +85,21 @@ public interface SerializationStrategy {
 @Alternative
 @Priority(Interceptor.Priority.APPLICATION)
 @ApplicationScoped
-public class JacksonSerializationStrategy implements SerializationStrategy {
-
-    private final ObjectMapper mapper = new ObjectMapper()
-        .registerModule(new JavaTimeModule());
+public class AppInvocationResolver implements JobInvocationResolver {
 
     @Override
-    public byte[] serialize(Object obj) {
-        try {
-            return mapper.writeValueAsBytes(obj);
-        } catch (Exception e) {
-            throw new IllegalArgumentException("Serialization failed", e);
-        }
+    public JobInvocation resolve(Serializable callback) {
+        return resolve(callback, List.of());
     }
 
     @Override
-    public <T> T deserialize(byte[] data, Class<T> type) {
-        try {
-            return mapper.readValue(data, type);
-        } catch (Exception e) {
-            throw new IllegalArgumentException("Deserialization failed", e);
-        }
+    public JobInvocation resolve(Serializable callback, List<Object> runtimeArguments) {
+        return new JobInvocation("com.example.JobTargets", "run", "()V", false, runtimeArguments);
     }
 }
 ```
 
-See [Custom Serialization](./custom-serialization.md) for detailed guidance.
+See [Payload and Result Customization](./custom-serialization.md) for detailed guidance.
 
 ---
 
@@ -536,40 +525,25 @@ public interface StartupCoordinator {
 
 ---
 
-### 12. LambdaAnalyzer
+### 12. JobLoggerFactory
 
 **Module:** `ratchet-api`
 **Package:** `run.ratchet.spi`
-**Default:** `AsmLambdaAnalyzer` (ASM bytecode analysis)
+**Default:** `DefaultJobLoggerFactory`
 **Annotation:** `@Incubating`
 
-Analyzes serializable lambda expressions to extract target method metadata.
+Creates the job-scoped logger bound into `JobContext`.
 
 ```java
 @Incubating
-public interface LambdaAnalyzer {
-    LambdaDescriptor analyze(Serializable lambda);
+public interface JobLoggerFactory {
+    JobLogger create(JobLoggerContext context);
 }
 ```
 
-The `LambdaDescriptor` record contains the extracted metadata:
-
-```java
-@Incubating
-public record LambdaDescriptor(
-    String targetClass,
-    String methodName,
-    String methodDescriptor,
-    boolean isStatic,
-    Object[] capturedArgs
-) { }
-```
-
-This is an internal SPI -- most applications will not need to replace it. The default ASM-based analyzer handles method references, static calls, instance calls, and constructor calls.
-
 ---
 
-### 12. ErrorSanitizer
+### 13. ErrorSanitizer
 
 **Module:** `ratchet-api`
 **Package:** `run.ratchet.spi`
@@ -898,17 +872,23 @@ public class MySpi implements SomeRatchetSpi {
 
 | SPI Interface | Default Implementation | CDI Scope | Module |
 |---------------|----------------------|-----------|--------|
-| `SerializationStrategy` | `JdkSerializationStrategy` | `@ApplicationScoped` | ratchet |
+| `RatchetConfigSource` | `EnvironmentRatchetConfigSource` | `@ApplicationScoped` | ratchet |
+| `RatchetConfig` | `DefaultRatchetConfig` | `@ApplicationScoped` | ratchet |
+| `JobInvocationResolver` | `DefaultJobInvocationResolver` | `@ApplicationScoped` | ratchet |
+| `ResultPersistenceStrategy` | `DefaultResultPersistenceStrategy` | `@ApplicationScoped` | ratchet |
+| `ExecutionTuningProvider` | `DefaultExecutionTuningProvider` | `@ApplicationScoped` | ratchet |
+| `PollingStrategyProvider` | `DefaultPollingStrategyProvider` | `@ApplicationScoped` | ratchet |
+| `CircuitBreakerConfigProvider` | `DefaultCircuitBreakerConfigProvider` | `@ApplicationScoped` | ratchet |
+| `SchedulerLifecycleHook` | No default hook | Optional `@ApplicationScoped` alternative | application |
 | `RetryPolicy` | `DefaultRetryPolicy` | `@ApplicationScoped` | ratchet |
 | `ResilienceStrategy` | `DefaultResilienceStrategy` | Produced by `RatchetProducer` | ratchet |
 | `MetricsCollector` | `NoOpMetricsCollector` | `@ApplicationScoped` | ratchet |
-| `JobLogger` | No-op binding in `JobMdcContext` | Per-job instance | ratchet |
+| `JobLoggerFactory` | `DefaultJobLoggerFactory` | `@ApplicationScoped` | ratchet |
 | `StartupCoordinator` | `StoreBackedStartupCoordinator` | `@ApplicationScoped` | ratchet |
 | `ClassPolicy` | `PackagePrefixClassPolicy` | Produced by `RatchetProducer` | ratchet |
 | `BeanResolver` | `CdiBeanResolver` | `@ApplicationScoped` | ratchet |
 | `ExecutorProvider` | `DefaultExecutorProvider` | `@ApplicationScoped` | ratchet |
 | `NodeIdentityProvider` | `DefaultNodeIdentityProvider` | Produced by `RatchetProducer` | ratchet |
 | `ClusterCoordinator` | `NoOpClusterCoordinator` | `@ApplicationScoped` | ratchet |
-| `LambdaAnalyzer` | `AsmLambdaAnalyzer` | Internal | ratchet |
 | `ErrorSanitizer` | `DefaultErrorSanitizer` | Produced by `RatchetProducer` | ratchet |
 | `JobStore` | MySQL / PostgreSQL | `@ApplicationScoped` | ratchet-store-* |
