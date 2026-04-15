@@ -27,8 +27,9 @@ public class RunStatusService {
 
   public RunStatusResponse status(String runId) {
     RunMetadata metadata = runRegistry.get(runId).orElse(null);
-    Map<JobStatus, Long> counts = countsForTag(Tags.run(runId));
-    long observedJobs = counts.values().stream().mapToLong(Long::longValue).sum();
+    RunSummary summary = summarizeRun(Tags.run(runId));
+    Map<JobStatus, Long> counts = summary.statusCounts();
+    long observedJobs = summary.observedJobs();
     long terminalJobs =
         counts.entrySet().stream()
             .filter(entry -> entry.getKey().isTerminal())
@@ -48,6 +49,8 @@ public class RunStatusService {
     for (JobStatus status : JobStatus.values()) {
       response.statusCounts.put(status.name(), counts.getOrDefault(status, 0L));
     }
+    response.enqueueNodeCounts.putAll(summary.enqueueNodeCounts());
+    response.executionNodeCounts.putAll(summary.executionNodeCounts());
     return response;
   }
 
@@ -77,18 +80,38 @@ public class RunStatusService {
     }
   }
 
-  private Map<JobStatus, Long> countsForTag(String tag) {
+  private RunSummary summarizeRun(String tag) {
     Map<JobStatus, Long> counts = new EnumMap<>(JobStatus.class);
+    Map<String, Long> enqueueNodeCounts = new java.util.TreeMap<>();
+    Map<String, Long> executionNodeCounts = new java.util.TreeMap<>();
+    long observedJobs = 0;
     int offset = 0;
     while (true) {
       List<Long> ids = tagStore.findJobIdsByTag(tag, PAGE_SIZE, offset);
       if (ids.isEmpty()) {
-        return counts;
+        return new RunSummary(counts, enqueueNodeCounts, executionNodeCounts, observedJobs);
       }
       for (JobEntity job : jobStore.findByIds(ids)) {
+        observedJobs++;
         counts.merge(job.getStatus(), 1L, Long::sum);
+        if (job.getParams() != null) {
+          String enqueueNode = job.getParams().get(Tags.PARAM_ENQUEUE_NODE);
+          if (enqueueNode != null && !enqueueNode.isBlank()) {
+            enqueueNodeCounts.merge(enqueueNode, 1L, Long::sum);
+          }
+        }
+        String executionNode = job.getPickedBy();
+        if (executionNode != null && !executionNode.isBlank()) {
+          executionNodeCounts.merge(executionNode, 1L, Long::sum);
+        }
       }
       offset += ids.size();
     }
   }
+
+  private record RunSummary(
+      Map<JobStatus, Long> statusCounts,
+      Map<String, Long> enqueueNodeCounts,
+      Map<String, Long> executionNodeCounts,
+      long observedJobs) {}
 }

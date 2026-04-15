@@ -66,6 +66,63 @@ Or use the helper:
 sh infra/loadtest/submit-run.sh sleep 10000 5 0.0 25 0.02 250
 ```
 
+This mode sends one API request to whichever node receives `/api/runs`; that node enqueues the
+whole run. It is useful for scheduler throughput and execution safety testing, but it intentionally
+does not exercise multi-node HTTP writes into the queue.
+
+## Continuous HTTP Enqueue Load
+
+Use the `k6` profile when the test needs each job enqueue to enter through the gateway as its own
+HTTP request. This exercises client-facing enqueue latency, nginx balancing, and concurrent writes
+from all Ratchet nodes into the shared queue.
+
+Start the cluster first:
+
+```bash
+sh infra/loadtest/run.sh postgresql 10
+```
+
+In another terminal, run a fixed-rate enqueue load. The second argument is the expected number of
+Ratchet nodes; the k6 run fails if the gateway probe or the actual enqueued job metadata sees fewer
+enqueue writer nodes than this value.
+
+```bash
+LOAD_RATE=500 LOAD_DURATION=5m JOB_WORKLOAD=sleep JOB_SLEEP_MS=10 JOB_SLEEP_JITTER_MS=50 \
+  sh infra/loadtest/run-k6-enqueue.sh postgresql 10
+```
+
+`LOAD_MODE=spread` is the default and forces short-lived client connections so node distribution is
+easy to prove. Use `LOAD_MODE=throughput` for sustained capacity testing; this keeps client
+connections alive and uses nginx upstream keepalive while still validating that accepted jobs reached
+the expected number of nodes.
+
+```bash
+LOAD_MODE=throughput LOAD_RATE=500 LOAD_DURATION=10m \
+  sh infra/loadtest/run-k6-enqueue.sh postgresql 10
+```
+
+Useful k6 environment variables:
+
+| Variable | Default | Meaning |
+| --- | ---: | --- |
+| `LOAD_MODE` | `spread` | `spread` validates distribution with short-lived connections; `throughput` uses keep-alive |
+| `LOAD_RATE` | `100` | Constant enqueue request arrival rate per second |
+| `LOAD_DURATION` | `1m` | Duration for the enqueue scenario |
+| `MIN_ACCEPT_NODES` | script argument | Minimum nodes that must accept enqueue writes |
+| `NODE_PROBE_REQUESTS` | `200` | Gateway probe requests before load starts |
+| `RUN_ID` | generated | Run ID attached to every enqueued job |
+| `JOB_WORKLOAD` | `noop` | Job workload submitted by each HTTP request |
+| `JOB_SLEEP_MS` | `0` | Base per-job sleep time |
+| `JOB_SLEEP_JITTER_MS` | `0` | Deterministic per-job extra sleep |
+| `JOB_SLEEP_SPIKE_RATE` | `0.0` | Fraction of jobs that get a long-tail sleep spike |
+| `JOB_SLEEP_SPIKE_MS` | `0` | Additional sleep for spike jobs |
+| `JOB_FAILURE_RATE` | `0.0` | Deterministic injected failure rate |
+| `JOB_PAYLOAD_BYTES` | `0` | Bytes added to each job payload argument |
+
+Each `POST /api/jobs` response includes `acceptedNodeId` and the `X-Ratchet-Node-Id` header. Run
+status includes `enqueueNodeCounts` for nodes that accepted queue writes and `executionNodeCounts`
+for nodes that claimed/executed jobs.
+
 Supported workloads:
 
 | Workload | Behavior |
@@ -139,6 +196,9 @@ the dominant job type. Very large batches let whichever node polls first reserve
 
 For PostgreSQL, set `POSTGRES_MAX_CONNECTIONS` high enough for the cluster size and datasource
 pools. A practical starting point is `nodes * DB_MAX_POOL_SIZE + 100`.
+
+The PostgreSQL overlay sets `POSTGRES_SHM_SIZE=1gb` by default via Compose `shm_size`; raise it for
+large runs if status or analytics queries report dynamic shared-memory allocation errors.
 
 For MySQL, the Compose overlay sets `READ-COMMITTED` transaction isolation and raises
 `max-connections` to support larger node counts.

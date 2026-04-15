@@ -15,4 +15,6 @@ public class RunStatusResponse {
   public Instant startedAt;
   public Instant checkedAt;
   public Map<String, Long> statusCounts = new LinkedHashMap<>();
+  public Map<String, Long> enqueueNodeCounts = new LinkedHashMap<>();
+  public Map<String, Long> executionNodeCounts = new LinkedHashMap<>();
 }

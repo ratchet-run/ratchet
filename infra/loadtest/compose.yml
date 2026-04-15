@@ -57,6 +57,40 @@ services:
     depends_on:
       - prometheus
 
+  k6:
+    image: grafana/k6:0.54.0
+    profiles:
+      - k6
+    depends_on:
+      - gateway
+    environment:
+      TARGET_URL: "${TARGET_URL:-http://gateway:8080}"
+      RUN_ID: "${RUN_ID:-}"
+      MIN_ACCEPT_NODES: "${MIN_ACCEPT_NODES:-0}"
+      NODE_PROBE_REQUESTS: "${NODE_PROBE_REQUESTS:-200}"
+      CLUSTER_WAIT_SECONDS: "${CLUSTER_WAIT_SECONDS:-60}"
+      LOAD_RATE: "${LOAD_RATE:-100}"
+      LOAD_DURATION: "${LOAD_DURATION:-1m}"
+      LOAD_PRE_ALLOCATED_VUS: "${LOAD_PRE_ALLOCATED_VUS:-50}"
+      LOAD_MAX_VUS: "${LOAD_MAX_VUS:-500}"
+      LOAD_HTTP_P95_MS: "${LOAD_HTTP_P95_MS:-1000}"
+      LOAD_HTTP_ERROR_RATE: "${LOAD_HTTP_ERROR_RATE:-0.01}"
+      LOAD_MODE: "${LOAD_MODE:-spread}"
+      LOAD_NO_CONNECTION_REUSE: "${LOAD_NO_CONNECTION_REUSE:-}"
+      JOB_WORKLOAD: "${JOB_WORKLOAD:-noop}"
+      JOB_SLEEP_MS: "${JOB_SLEEP_MS:-0}"
+      JOB_SLEEP_JITTER_MS: "${JOB_SLEEP_JITTER_MS:-0}"
+      JOB_SLEEP_SPIKE_RATE: "${JOB_SLEEP_SPIKE_RATE:-0.0}"
+      JOB_SLEEP_SPIKE_MS: "${JOB_SLEEP_SPIKE_MS:-0}"
+      JOB_FAILURE_RATE: "${JOB_FAILURE_RATE:-0.0}"
+      JOB_PAYLOAD_BYTES: "${JOB_PAYLOAD_BYTES:-0}"
+      JOB_MAX_RETRIES: "${JOB_MAX_RETRIES:-0}"
+      JOB_PRIORITY: "${JOB_PRIORITY:-NORMAL}"
+      JOB_TIMEOUT_SECONDS: "${JOB_TIMEOUT_SECONDS:-60}"
+    volumes:
+      - ./k6:/scripts:ro
+    command: ["run", "/scripts/enqueue.js"]
+
   chaos-monkey:
     image: docker:27-cli
     profiles:

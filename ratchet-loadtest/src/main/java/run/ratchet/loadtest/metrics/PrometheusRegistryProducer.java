@@ -43,8 +43,7 @@ public class PrometheusRegistryProducer extends MicrometerMeterRegistryProducer 
   private static final class JobDurationHistogramFilter implements MeterFilter {
 
     @Override
-    public DistributionStatisticConfig configure(
-        Meter.Id id, DistributionStatisticConfig config) {
+    public DistributionStatisticConfig configure(Meter.Id id, DistributionStatisticConfig config) {
       if (!"ratchet.jobs.duration".equals(id.getName())) {
         return config;
       }

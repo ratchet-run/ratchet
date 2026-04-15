@@ -1,5 +1,8 @@
 package run.ratchet.loadtest.resource;
 
+import run.ratchet.loadtest.api.EnqueueJobRequest;
+import run.ratchet.loadtest.api.JobEnqueuedResponse;
+import run.ratchet.loadtest.api.NodeResponse;
 import run.ratchet.loadtest.api.ResetRequest;
 import run.ratchet.loadtest.api.RunStartedResponse;
 import run.ratchet.loadtest.api.StartRunRequest;
@@ -7,6 +10,7 @@ import run.ratchet.loadtest.service.LoadTestResetService;
 import run.ratchet.loadtest.service.LoadTestRunner;
 import run.ratchet.loadtest.service.RunMetadata;
 import run.ratchet.loadtest.service.RunStatusService;
+import run.ratchet.spi.NodeIdentityProvider;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
@@ -18,6 +22,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import java.time.Instant;
 
 @Path("/api")
 @ApplicationScoped
@@ -28,6 +33,7 @@ public class LoadTestResource {
   @Inject LoadTestRunner runner;
   @Inject RunStatusService statusService;
   @Inject LoadTestResetService resetService;
+  @Inject NodeIdentityProvider nodeIdentityProvider;
 
   @POST
   @Path("/runs")
@@ -41,10 +47,30 @@ public class LoadTestResource {
     }
   }
 
+  @POST
+  @Path("/jobs")
+  public Response enqueue(EnqueueJobRequest request) {
+    try {
+      JobEnqueuedResponse response = runner.enqueue(request);
+      return Response.accepted(response)
+          .header("X-Ratchet-Node-Id", response.acceptedNodeId)
+          .build();
+    } catch (RuntimeException e) {
+      throw badRequest(e);
+    }
+  }
+
   @GET
   @Path("/runs/{runId}")
   public Object status(@PathParam("runId") String runId) {
     return statusService.status(runId);
+  }
+
+  @GET
+  @Path("/node")
+  public Response node() {
+    NodeResponse response = new NodeResponse(nodeIdentityProvider.getNodeId(), Instant.now());
+    return Response.ok(response).header("X-Ratchet-Node-Id", response.nodeId).build();
   }
 
   @GET
@@ -61,10 +87,14 @@ public class LoadTestResource {
   }
 
   private static WebApplicationException badRequest(RuntimeException e) {
+    String message = e.getMessage();
+    if (message == null || message.isBlank()) {
+      message = e.getClass().getSimpleName();
+    }
     return new WebApplicationException(
         Response.status(Response.Status.BAD_REQUEST)
             .type(MediaType.TEXT_PLAIN_TYPE)
-            .entity(e.getMessage())
+            .entity(message)
             .build());
   }
 }

@@ -40,7 +40,8 @@ public class LoadTestMetricsBinder {
         .description("JVM start time for this Ratchet node")
         .register(registry);
 
-    Gauge.builder("ratchet.store.jobs.ready", jobStore, store -> store.countReadyJobs(Instant.now()))
+    Gauge.builder(
+            "ratchet.store.jobs.ready", jobStore, store -> store.countReadyJobs(Instant.now()))
         .description("Jobs ready to be claimed")
         .register(registry);
 
