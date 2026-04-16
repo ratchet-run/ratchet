@@ -20,8 +20,16 @@ db.scheduler_job.createIndex(
   { name: "idx_job_poll_composite" }
 );
 db.scheduler_job.createIndex(
+  { status: 1, job_type: 1, priority: -1, scheduled_time: 1, _id: 1 },
+  { name: "idx_job_claim_exec" }
+);
+db.scheduler_job.createIndex(
   { job_type: 1, status: 1, next_fire: 1 },
   { name: "idx_job_recurring_composite" }
+);
+db.scheduler_job.createIndex(
+  { status: 1, job_type: 1, priority: -1, next_fire: 1, _id: 1 },
+  { name: "idx_job_claim_recurring" }
 );
 db.scheduler_job.createIndex(
   { idempotency_key: 1 },

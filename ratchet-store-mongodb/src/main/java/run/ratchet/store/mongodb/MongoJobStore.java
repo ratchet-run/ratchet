@@ -90,6 +90,9 @@ public class MongoJobStore implements JobStore {
   private static final List<String> TERMINAL_STATUSES = List.of("SUCCEEDED", "FAILED", "CANCELED");
   private static final int PRIORITY_BOOST_INTERVAL =
       PriorityBoostConfig.getPriorityBoostIntervalMinutes();
+  private static final int CLAIM_CANDIDATE_MULTIPLIER = 8;
+  private static final int CLAIM_CANDIDATE_FLOOR = 256;
+  private static final int CLAIM_CANDIDATE_CEILING = 2048;
 
   private final MongoDatabase database;
   private final ExecutorService claimExecutor =
@@ -1553,61 +1556,97 @@ public class MongoJobStore implements JobStore {
   /** Finds candidate job IDs sorted by effective priority (raw priority + age-based boost). */
   private List<Long> findCandidatesByBoostedPriority(
       List<String> jobTypes, String timeColumn, int limit) {
-    Date now = DocumentMapper.toDate(Instant.now());
-
-    List<Document> pipeline = new ArrayList<>();
-
-    pipeline.add(
-        new Document(
-            "$match",
-            new Document("status", "PENDING")
-                .append("job_type", new Document("$in", jobTypes))
-                .append(timeColumn, new Document("$lte", now))));
-
-    if (PRIORITY_BOOST_INTERVAL > 0) {
-      // effective_priority = priority + floor(max(0, age_minutes) / boost_interval)
-      pipeline.add(
-          new Document(
-              "$addFields",
-              new Document(
-                  "_effective_priority",
-                  new Document(
-                      "$add",
-                      List.of(
-                          "$priority",
-                          new Document(
-                              "$floor",
-                              new Document(
-                                  "$divide",
-                                  List.of(
-                                      new Document(
-                                          "$max",
-                                          List.of(
-                                              0,
-                                              new Document(
-                                                  "$divide",
-                                                  List.of(
-                                                      new Document(
-                                                          "$subtract",
-                                                          List.of(now, "$" + timeColumn)),
-                                                      60_000)))),
-                                      PRIORITY_BOOST_INTERVAL))))))));
-
-      pipeline.add(
-          new Document(
-              "$sort", new Document("_effective_priority", -1).append(timeColumn, 1).append("_id", 1)));
-    } else {
-      pipeline.add(new Document("$sort", new Document("priority", -1).append(timeColumn, 1).append("_id", 1)));
+    if (limit <= 0 || jobTypes.isEmpty()) {
+      return List.of();
     }
 
-    pipeline.add(new Document("$limit", limit));
-    pipeline.add(new Document("$project", new Document("_id", 1)));
+    Date now = DocumentMapper.toDate(Instant.now());
+    int candidateWindow = computeCandidateWindow(limit);
+    List<ClaimCandidate> candidates = new ArrayList<>(candidateWindow * jobTypes.size());
 
-    List<Long> ids = new ArrayList<>();
-    for (Document doc : jobs().aggregate(pipeline)) {
-      ids.add(doc.getLong("_id"));
+    for (String jobType : jobTypes) {
+      candidates.addAll(findCandidatesForJobType(jobType, timeColumn, now, candidateWindow));
+    }
+
+    if (candidates.isEmpty()) {
+      return List.of();
+    }
+
+    candidates.sort(
+        (left, right) -> {
+          int priorityComparison =
+              Integer.compare(
+                  effectivePriority(right, now.getTime()), effectivePriority(left, now.getTime()));
+          if (priorityComparison != 0) {
+            return priorityComparison;
+          }
+          int timeComparison = left.dueAt().compareTo(right.dueAt());
+          if (timeComparison != 0) {
+            return timeComparison;
+          }
+          return Long.compare(left.id(), right.id());
+        });
+
+    List<Long> ids = new ArrayList<>(Math.min(limit, candidates.size()));
+    for (ClaimCandidate candidate : candidates) {
+      if (ids.size() >= limit) {
+        break;
+      }
+      ids.add(candidate.id());
     }
     return ids;
+  }
+
+  private List<ClaimCandidate> findCandidatesForJobType(
+      String jobType, String timeColumn, Date now, int candidateWindow) {
+    Bson filter =
+        and(eq("status", "PENDING"), eq("job_type", jobType), lte(timeColumn, now));
+    Bson projection =
+        new Document("_id", 1).append("priority", 1).append(timeColumn, 1);
+    // We want priority DESC, then due time ASC, then _id ASC.
+    Bson sort = new Document("priority", -1).append(timeColumn, 1).append("_id", 1);
+
+    FindIterable<Document> query =
+        jobs().find(filter).sort(sort).projection(projection).limit(candidateWindow);
+
+    if ("next_fire".equals(timeColumn)) {
+      query.hintString("idx_job_claim_recurring");
+    } else {
+      query.hintString("idx_job_claim_exec");
+    }
+
+    List<ClaimCandidate> candidates = new ArrayList<>();
+    for (Document doc : query) {
+      Date dueAt = doc.getDate(timeColumn);
+      if (dueAt == null) {
+        continue;
+      }
+      candidates.add(
+          new ClaimCandidate(
+              doc.getLong("_id"),
+              doc.getInteger("priority", JobPriority.NORMAL.ordinal()),
+              dueAt));
+    }
+    return candidates;
+  }
+
+  private static int computeCandidateWindow(int limit) {
+    long scaled = (long) limit * CLAIM_CANDIDATE_MULTIPLIER;
+    long bounded = Math.max(CLAIM_CANDIDATE_FLOOR, scaled);
+    return (int) Math.min(CLAIM_CANDIDATE_CEILING, bounded);
+  }
+
+  private static int effectivePriority(ClaimCandidate candidate, long nowMillis) {
+    if (PRIORITY_BOOST_INTERVAL <= 0) {
+      return candidate.priority();
+    }
+    long ageMillis = nowMillis - candidate.dueAt().getTime();
+    if (ageMillis <= 0) {
+      return candidate.priority();
+    }
+    long boost = (ageMillis / 60_000L) / PRIORITY_BOOST_INTERVAL;
+    long effective = (long) candidate.priority() + boost;
+    return effective > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) effective;
   }
 
   private <T> List<T> claimByIds(List<Long> ids, String nodeId, Function<Document, T> mapper) {
@@ -1654,6 +1693,8 @@ public class MongoJobStore implements JobStore {
         || jobType == JobExecutionType.CHAIN_STEP
         || jobType == JobExecutionType.WORKFLOW_BRANCH;
   }
+
+  private record ClaimCandidate(long id, int priority, Date dueAt) {}
 
   private Map<String, Long> aggregateStringCountsByTag(String tag, Object groupExpression) {
     Map<String, Long> counts = new TreeMap<>();

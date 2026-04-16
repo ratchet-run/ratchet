@@ -65,10 +65,28 @@ public class MongoCollectionInitializer {
     createIndex(
         coll,
         Indexes.compoundIndex(
+            Indexes.ascending("status"),
+            Indexes.ascending("job_type"),
+            Indexes.descending("priority"),
+            Indexes.ascending("scheduled_time"),
+            Indexes.ascending("_id")),
+        "idx_job_claim_exec");
+    createIndex(
+        coll,
+        Indexes.compoundIndex(
             Indexes.ascending("job_type"),
             Indexes.ascending("status"),
             Indexes.ascending("next_fire")),
         "idx_job_recurring_composite");
+    createIndex(
+        coll,
+        Indexes.compoundIndex(
+            Indexes.ascending("status"),
+            Indexes.ascending("job_type"),
+            Indexes.descending("priority"),
+            Indexes.ascending("next_fire"),
+            Indexes.ascending("_id")),
+        "idx_job_claim_recurring");
     createIndex(
         coll,
         Indexes.ascending("idempotency_key"),
