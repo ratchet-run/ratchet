@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.api.exception.RatchetOptimisticLockException;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.converter.JsonMapConverter;
 import run.ratchet.store.dto.BatchProgress;
@@ -41,9 +42,12 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import org.jboss.logging.Logger;
 
 /**
@@ -60,6 +64,8 @@ public class PostgresqlJobStore implements JobStore {
   private static final ObjectMapper OBJECT_MAPPER = ObjectMapperFactory.get();
   private static final JobPayloadConverter JOB_PAYLOAD_CONVERTER = new JobPayloadConverter();
   private static final JsonMapConverter JSON_MAP_CONVERTER = new JsonMapConverter();
+  private static final PostgresqlConstraintDetector CONSTRAINT_DETECTOR =
+      new PostgresqlConstraintDetector();
   private static final String EXECUTABLE_JOB_TYPE_FILTER =
       "job_type IN ('SINGLE','BATCH_CHILD','CHAIN_STEP','WORKFLOW_BRANCH')";
   private static final String RECURRING_JOB_TYPE_FILTER = "job_type = 'RECURRING'";
@@ -107,8 +113,8 @@ public class PostgresqlJobStore implements JobStore {
             + timeColumn
             + "))) / (60.0 * ?2))) DESC, "
             + timeColumn
-            + " ASC"
-        : "priority DESC, " + timeColumn + " ASC";
+            + " ASC, job_id ASC"
+        : "priority DESC, " + timeColumn + " ASC, job_id ASC";
   }
 
   private static String buildClaimReturningSql(
@@ -389,75 +395,92 @@ public class PostgresqlJobStore implements JobStore {
 
   @Override
   public List<JobEntity> claimNextBatch(int limit, String nodeId) {
-    int boostInterval = PriorityBoostConfig.getPriorityBoostIntervalMinutes();
-    var claimQuery =
-        em.createNativeQuery(
-                buildClaimReturningSql(
-                    EXECUTABLE_JOB_TYPE_FILTER, "scheduled_time", boostInterval, "j.*"),
-                JobEntity.class)
-            .setParameter(1, limit)
-            .setParameter(3, nodeId);
-    if (boostInterval > 0) {
-      claimQuery.setParameter(2, boostInterval);
+    try {
+      int boostInterval = PriorityBoostConfig.getPriorityBoostIntervalMinutes();
+      var claimQuery =
+          em.createNativeQuery(
+                  buildClaimReturningSql(
+                      EXECUTABLE_JOB_TYPE_FILTER, "scheduled_time", boostInterval, "j.*"),
+                  JobEntity.class)
+              .setParameter(1, limit)
+              .setParameter(3, nodeId);
+      if (boostInterval > 0) {
+        claimQuery.setParameter(2, boostInterval);
+      }
+      @SuppressWarnings("unchecked")
+      List<JobEntity> jobs = claimQuery.getResultList();
+      return jobs;
+    } catch (RuntimeException e) {
+      throw translateTransientStoreException("claim jobs", e);
     }
-    @SuppressWarnings("unchecked")
-    List<JobEntity> jobs = claimQuery.getResultList();
-    return jobs;
   }
 
   @Override
-  public List<JobClaimDto> claimNextBatchOptimized(int limit, String nodeId) {
-    int boostInterval = PriorityBoostConfig.getPriorityBoostIntervalMinutes();
-    String selectColumns =
-        "j.job_id, j.status, j.job_type, j.priority, j.scheduled_time, j.version, "
-            + "j.timeout_sec, j.picked_by, j.picked_at, j.business_key, j.attempts, j.max_retries";
-    var claimQuery =
-        em.createNativeQuery(
-                buildClaimReturningSql(
-                    EXECUTABLE_JOB_TYPE_FILTER, "scheduled_time", boostInterval, selectColumns))
-            .setParameter(1, limit)
-            .setParameter(3, nodeId);
-    if (boostInterval > 0) {
-      claimQuery.setParameter(2, boostInterval);
+  public List<JobClaimDto> claimNextBatchOptimized(JobExecutionType jobType, int limit, String nodeId) {
+    if (limit <= 0 || !isPollerExecutable(jobType)) {
+      return List.of();
     }
-    @SuppressWarnings("unchecked")
-    List<Object[]> rows = claimQuery.getResultList();
 
-    List<JobClaimDto> claims = new ArrayList<>(rows.size());
-    for (Object[] row : rows) {
-      claims.add(
-          new JobClaimDto(
-              ((Number) row[0]).longValue(),
-              JobStatus.RUNNING,
-              JobExecutionType.valueOf((String) row[2]),
-              safeJobPriority(((Number) row[3]).intValue()),
-              toInstant(row[4]),
-              row[5] == null ? null : ((Number) row[5]).intValue(),
-              ((Number) row[6]).intValue(),
-              nodeId,
-              toInstant(row[8]),
-              (String) row[9],
-              ((Number) row[10]).intValue(),
-              ((Number) row[11]).intValue()));
+    try {
+      int boostInterval = PriorityBoostConfig.getPriorityBoostIntervalMinutes();
+      String selectColumns =
+          "j.job_id, j.status, j.job_type, j.priority, j.scheduled_time, j.version, "
+              + "j.timeout_sec, j.picked_by, j.picked_at, j.business_key, j.attempts, j.max_retries";
+      var claimQuery =
+          em.createNativeQuery(
+                  buildClaimReturningSql("job_type = ?4", "scheduled_time", boostInterval, selectColumns))
+              .setParameter(1, limit)
+              .setParameter(3, nodeId)
+              .setParameter(4, jobType.name());
+      if (boostInterval > 0) {
+        claimQuery.setParameter(2, boostInterval);
+      }
+      @SuppressWarnings("unchecked")
+      List<Object[]> rows = claimQuery.getResultList();
+
+      List<JobClaimDto> claims = new ArrayList<>(rows.size());
+      for (Object[] row : rows) {
+        claims.add(
+            new JobClaimDto(
+                ((Number) row[0]).longValue(),
+                JobStatus.RUNNING,
+                JobExecutionType.valueOf((String) row[2]),
+                safeJobPriority(((Number) row[3]).intValue()),
+                toInstant(row[4]),
+                row[5] == null ? null : ((Number) row[5]).intValue(),
+                ((Number) row[6]).intValue(),
+                nodeId,
+                toInstant(row[8]),
+                (String) row[9],
+                ((Number) row[10]).intValue(),
+                ((Number) row[11]).intValue()));
+      }
+      return claims;
+    } catch (RuntimeException e) {
+      throw translateTransientStoreException("optimized claim", e);
     }
-    return claims;
   }
 
   @Override
   public List<JobEntity> claimDueRecurring(int limit, String nodeId) {
-    int boostInterval = PriorityBoostConfig.getPriorityBoostIntervalMinutes();
-    var claimQuery =
-        em.createNativeQuery(
-                buildClaimReturningSql(RECURRING_JOB_TYPE_FILTER, "next_fire", boostInterval, "j.*"),
-                JobEntity.class)
-            .setParameter(1, limit)
-            .setParameter(3, nodeId);
-    if (boostInterval > 0) {
-      claimQuery.setParameter(2, boostInterval);
+    try {
+      int boostInterval = PriorityBoostConfig.getPriorityBoostIntervalMinutes();
+      var claimQuery =
+          em.createNativeQuery(
+                  buildClaimReturningSql(
+                      RECURRING_JOB_TYPE_FILTER, "next_fire", boostInterval, "j.*"),
+                  JobEntity.class)
+              .setParameter(1, limit)
+              .setParameter(3, nodeId);
+      if (boostInterval > 0) {
+        claimQuery.setParameter(2, boostInterval);
+      }
+      @SuppressWarnings("unchecked")
+      List<JobEntity> jobs = claimQuery.getResultList();
+      return jobs;
+    } catch (RuntimeException e) {
+      throw translateTransientStoreException("claim recurring jobs", e);
     }
-    @SuppressWarnings("unchecked")
-    List<JobEntity> jobs = claimQuery.getResultList();
-    return jobs;
   }
 
   @Override
@@ -474,17 +497,21 @@ public class PostgresqlJobStore implements JobStore {
   @Override
   public boolean compareAndSwapStatus(
       long id, JobStatus expected, JobStatus newStatus, String error) {
-    int updated =
-        em.createNativeQuery(
-                "UPDATE scheduler_job SET status = ?, last_error = ?, "
-                    + "updated_at = statement_timestamp() "
-                    + "WHERE job_id = ? AND status = ?")
-            .setParameter(1, newStatus.name())
-            .setParameter(2, error)
-            .setParameter(3, id)
-            .setParameter(4, expected.name())
-            .executeUpdate();
-    return updated > 0;
+    try {
+      int updated =
+          em.createNativeQuery(
+                  "UPDATE scheduler_job SET status = ?, last_error = ?, "
+                      + "updated_at = statement_timestamp() "
+                      + "WHERE job_id = ? AND status = ?")
+              .setParameter(1, newStatus.name())
+              .setParameter(2, error)
+              .setParameter(3, id)
+              .setParameter(4, expected.name())
+              .executeUpdate();
+      return updated > 0;
+    } catch (RuntimeException e) {
+      throw translateTransientStoreException("compare-and-swap status", e);
+    }
   }
 
   @Override
@@ -526,23 +553,50 @@ public class PostgresqlJobStore implements JobStore {
       Instant end,
       Long durationMs,
       Long queueWaitMs) {
-    int updated =
-        em.createNativeQuery(
-                "UPDATE scheduler_job SET status = 'SUCCEEDED', "
-                    + "job_result = ?::jsonb, result_type = ?, "
-                    + "execution_start_time = ?, execution_end_time = ?, "
-                    + "execution_duration_ms = ?, queue_wait_ms = ?, "
-                    + "last_error = NULL, updated_at = statement_timestamp() "
-                    + "WHERE job_id = ? AND status = 'RUNNING'")
-            .setParameter(1, resultJson)
-            .setParameter(2, resultType)
-            .setParameter(3, start == null ? null : Timestamp.from(start))
-            .setParameter(4, end == null ? null : Timestamp.from(end))
-            .setParameter(5, durationMs)
-            .setParameter(6, queueWaitMs)
-            .setParameter(7, id)
-            .executeUpdate();
-    return updated > 0;
+    try {
+      int updated =
+          em.createNativeQuery(
+                  "UPDATE scheduler_job SET status = 'SUCCEEDED', "
+                      + "job_result = ?::jsonb, result_type = ?, "
+                      + "execution_start_time = ?, execution_end_time = ?, "
+                      + "execution_duration_ms = ?, queue_wait_ms = ?, "
+                      + "last_error = NULL, updated_at = statement_timestamp() "
+                      + "WHERE job_id = ? AND status = 'RUNNING'")
+              .setParameter(1, resultJson)
+              .setParameter(2, resultType)
+              .setParameter(3, start == null ? null : Timestamp.from(start))
+              .setParameter(4, end == null ? null : Timestamp.from(end))
+              .setParameter(5, durationMs)
+              .setParameter(6, queueWaitMs)
+              .setParameter(7, id)
+              .executeUpdate();
+      return updated > 0;
+    } catch (RuntimeException e) {
+      throw translateTransientStoreException("mark job succeeded", e);
+    }
+  }
+
+  @Override
+  public boolean markJobSucceededMinimal(
+      long id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
+    try {
+      int updated =
+          em.createNativeQuery(
+                  "UPDATE scheduler_job SET status = 'SUCCEEDED', "
+                      + "execution_start_time = ?, execution_end_time = ?, "
+                      + "execution_duration_ms = ?, queue_wait_ms = ?, "
+                      + "last_error = NULL, updated_at = statement_timestamp() "
+                      + "WHERE job_id = ? AND status = 'RUNNING'")
+              .setParameter(1, start == null ? null : Timestamp.from(start))
+              .setParameter(2, end == null ? null : Timestamp.from(end))
+              .setParameter(3, durationMs)
+              .setParameter(4, queueWaitMs)
+              .setParameter(5, id)
+              .executeUpdate();
+      return updated > 0;
+    } catch (RuntimeException e) {
+      throw translateTransientStoreException("mark job succeeded minimally", e);
+    }
   }
 
   @Override
@@ -1256,6 +1310,52 @@ public class PostgresqlJobStore implements JobStore {
   }
 
   @Override
+  public Map<JobStatus, Long> countJobsByStatusForTag(String tag) {
+    @SuppressWarnings("unchecked")
+    List<Object[]> rows =
+        em.createNativeQuery(
+                "SELECT j.status, COUNT(*) FROM scheduler_job j "
+                    + "JOIN scheduler_job_tag t ON j.job_id = t.job_id "
+                    + "WHERE t.tag = ? GROUP BY j.status")
+            .setParameter(1, tag)
+            .getResultList();
+    Map<JobStatus, Long> counts = new EnumMap<>(JobStatus.class);
+    for (Object[] row : rows) {
+      counts.put(JobStatus.valueOf((String) row[0]), ((Number) row[1]).longValue());
+    }
+    return counts;
+  }
+
+  @Override
+  public Map<String, Long> countJobsByParamForTag(String tag, String paramKey) {
+    @SuppressWarnings("unchecked")
+    List<Object[]> rows =
+        em.createNativeQuery(
+                "SELECT j.params ->> ?2 AS param_value, COUNT(*) FROM scheduler_job j "
+                    + "JOIN scheduler_job_tag t ON j.job_id = t.job_id "
+                    + "WHERE t.tag = ?1 AND j.params ->> ?2 IS NOT NULL "
+                    + "GROUP BY param_value ORDER BY param_value")
+            .setParameter(1, tag)
+            .setParameter(2, paramKey)
+            .getResultList();
+    return toStringCountMap(rows);
+  }
+
+  @Override
+  public Map<String, Long> countJobsByExecutionNodeForTag(String tag) {
+    @SuppressWarnings("unchecked")
+    List<Object[]> rows =
+        em.createNativeQuery(
+                "SELECT j.picked_by, COUNT(*) FROM scheduler_job j "
+                    + "JOIN scheduler_job_tag t ON j.job_id = t.job_id "
+                    + "WHERE t.tag = ? AND j.picked_by IS NOT NULL AND j.picked_by <> '' "
+                    + "GROUP BY j.picked_by ORDER BY j.picked_by")
+            .setParameter(1, tag)
+            .getResultList();
+    return toStringCountMap(rows);
+  }
+
+  @Override
   public WorkflowConditionEntity saveCondition(WorkflowConditionEntity condition) {
     if (condition.getId() == null) {
       em.persist(condition);
@@ -1496,6 +1596,13 @@ public class PostgresqlJobStore implements JobStore {
         .executeUpdate();
   }
 
+  private static boolean isPollerExecutable(JobExecutionType jobType) {
+    return jobType == JobExecutionType.SINGLE
+        || jobType == JobExecutionType.BATCH_CHILD
+        || jobType == JobExecutionType.CHAIN_STEP
+        || jobType == JobExecutionType.WORKFLOW_BRANCH;
+  }
+
   private JobPayload parseProgressHook(Object jsonValue) {
     if (jsonValue == null) {
       return null;
@@ -1514,6 +1621,26 @@ public class PostgresqlJobStore implements JobStore {
       query.setParameter(i + 1, params[i]);
     }
     return ((Number) query.getSingleResult()).longValue();
+  }
+
+  private static Map<String, Long> toStringCountMap(List<Object[]> rows) {
+    Map<String, Long> counts = new TreeMap<>();
+    for (Object[] row : rows) {
+      String key = (String) row[0];
+      if (key == null || key.isBlank()) {
+        continue;
+      }
+      counts.put(key, ((Number) row[1]).longValue());
+    }
+    return counts;
+  }
+
+  private RuntimeException translateTransientStoreException(String operation, RuntimeException e) {
+    if (CONSTRAINT_DETECTOR.isDeadlock(e)) {
+      return new RatchetTransientStoreException(
+          "Transient PostgreSQL store concurrency failure during " + operation, e);
+    }
+    return e;
   }
 
   private ArchivedJobEntity buildArchive(JobEntity job, String reason, String archivedBy) {

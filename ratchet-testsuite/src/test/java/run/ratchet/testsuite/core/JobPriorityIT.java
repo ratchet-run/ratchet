@@ -47,7 +47,8 @@ class JobPriorityIT extends BaseRatchetIT {
     persistJob(JobExecutionType.DLQ_ALERT, JobPriority.CRITICAL, due, null);
     persistJob(JobExecutionType.WORKFLOW_JOIN, JobPriority.CRITICAL, due, null);
 
-    List<JobClaimDto> claims = jobClaimStore.claimNextBatchOptimized(10, "priority-it-node");
+    List<JobClaimDto> claims =
+        jobClaimStore.claimNextBatchOptimized(JobExecutionType.SINGLE, 10, "priority-it-node");
 
     assertEquals(List.of(high.getId(), low.getId()), claims.stream().map(JobClaimDto::id).toList());
     assertEquals(
@@ -62,7 +63,8 @@ class JobPriorityIT extends BaseRatchetIT {
     JobEntity boostedLow = persistJob(JobExecutionType.SINGLE, JobPriority.LOWEST, oldDue, null);
     JobEntity normal = persistJob(JobExecutionType.SINGLE, JobPriority.NORMAL, newDue, null);
 
-    List<JobClaimDto> claims = jobClaimStore.claimNextBatchOptimized(10, "priority-it-node");
+    List<JobClaimDto> claims =
+        jobClaimStore.claimNextBatchOptimized(JobExecutionType.SINGLE, 10, "priority-it-node");
 
     assertEquals(
         List.of(boostedLow.getId(), normal.getId()), claims.stream().map(JobClaimDto::id).toList());

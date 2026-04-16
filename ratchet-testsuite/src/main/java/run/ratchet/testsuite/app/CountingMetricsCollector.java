@@ -32,6 +32,33 @@ public class CountingMetricsCollector implements MetricsCollector {
     FAILED_COUNT.incrementAndGet();
   }
 
+  @Override
+  public void successFinalizationRetried(long jobId, JobType type) {}
+
+  @Override
+  public void successFinalizationMinimal(long jobId, JobType type) {}
+
+  @Override
+  public void successFinalizationStuck(long jobId, JobType type) {}
+
+  @Override
+  public void claimTransientFailure(String executionType) {}
+
+  @Override
+  public void jobsClaimed(String executionType, int claimedCount) {}
+
+  @Override
+  public void gateRejected(String executionType, String gateStatus) {}
+
+  @Override
+  public void localWakeup(String source) {}
+
+  @Override
+  public void clusterWakeupPublished(String transport, String outcome) {}
+
+  @Override
+  public void clusterWakeupReceived(String transport, String outcome) {}
+
   public static int getStartedCount() {
     return STARTED_COUNT.get();
   }

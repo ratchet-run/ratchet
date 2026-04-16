@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobStatus;
@@ -174,5 +175,20 @@ public abstract class AbstractJobClaimStoreContract implements JobStoreContractF
     var claimed = store().claimDueRecurring(2, "node-1");
 
     assertEquals(2, claimed.size(), "claimDueRecurring should respect the limit parameter");
+  }
+
+  @Test
+  void claimNextBatchOptimized_filtersByRequestedExecutionType() {
+    persist(newPendingJob());
+
+    JobEntity batchChild = newPendingJob();
+    batchChild.setJobType(JobExecutionType.BATCH_CHILD);
+    persist(batchChild);
+
+    List<JobClaimDto> claims =
+        store().claimNextBatchOptimized(JobExecutionType.BATCH_CHILD, 10, "node-1");
+
+    assertEquals(1, claims.size(), "optimized claim should only return the requested job type");
+    assertEquals(JobExecutionType.BATCH_CHILD, claims.get(0).jobType());
   }
 }

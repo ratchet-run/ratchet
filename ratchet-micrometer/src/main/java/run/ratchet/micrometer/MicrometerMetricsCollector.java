@@ -20,6 +20,15 @@ import java.time.Duration;
  *   <li>{@code ratchet.jobs.completed} — counter, tagged by type
  *   <li>{@code ratchet.jobs.failed} — counter, tagged by type and exception class
  *   <li>{@code ratchet.jobs.duration} — timer, tagged by type
+ *   <li>{@code ratchet.store.finalization.retries} — counter, tagged by type
+ *   <li>{@code ratchet.store.finalization.minimal_success} — counter, tagged by type
+ *   <li>{@code ratchet.store.finalization.stuck} — counter, tagged by type
+ *   <li>{@code ratchet.store.claim.transient_failures} — counter, tagged by execution type
+ *   <li>{@code ratchet.poller.claimed.jobs} — counter, tagged by execution type
+ *   <li>{@code ratchet.submission.gate.rejections} — counter, tagged by execution type and gate
+ *   <li>{@code ratchet.wakeup.local} — counter, tagged by source
+ *   <li>{@code ratchet.wakeup.cluster.publish} — counter, tagged by transport and outcome
+ *   <li>{@code ratchet.wakeup.cluster.receive} — counter, tagged by transport and outcome
  *   <li>{@code ratchet.callbacks.failed} — counter, tagged by type and exception class
  * </ul>
  */
@@ -78,6 +87,108 @@ public class MicrometerMetricsCollector implements MetricsCollector {
     Counter.builder("ratchet.jobs.failed")
         .tag("type", type.name())
         .tag("exception", cause.getClass().getSimpleName())
+        .register(registry)
+        .increment();
+  }
+
+  @Override
+  public void successFinalizationRetried(long jobId, JobType type) {
+    if (registry == null) {
+      return;
+    }
+    Counter.builder("ratchet.store.finalization.retries")
+        .tag("type", type.name())
+        .register(registry)
+        .increment();
+  }
+
+  @Override
+  public void successFinalizationMinimal(long jobId, JobType type) {
+    if (registry == null) {
+      return;
+    }
+    Counter.builder("ratchet.store.finalization.minimal_success")
+        .tag("type", type.name())
+        .register(registry)
+        .increment();
+  }
+
+  @Override
+  public void successFinalizationStuck(long jobId, JobType type) {
+    if (registry == null) {
+      return;
+    }
+    Counter.builder("ratchet.store.finalization.stuck")
+        .tag("type", type.name())
+        .register(registry)
+        .increment();
+  }
+
+  @Override
+  public void claimTransientFailure(String executionType) {
+    if (registry == null) {
+      return;
+    }
+    Counter.builder("ratchet.store.claim.transient_failures")
+        .tag("execution_type", executionType)
+        .register(registry)
+        .increment();
+  }
+
+  @Override
+  public void jobsClaimed(String executionType, int claimedCount) {
+    if (registry == null || claimedCount <= 0) {
+      return;
+    }
+    Counter.builder("ratchet.poller.claimed.jobs")
+        .tag("execution_type", executionType)
+        .register(registry)
+        .increment(claimedCount);
+  }
+
+  @Override
+  public void gateRejected(String executionType, String gateStatus) {
+    if (registry == null) {
+      return;
+    }
+    Counter.builder("ratchet.submission.gate.rejections")
+        .tag("execution_type", executionType)
+        .tag("gate_status", gateStatus)
+        .register(registry)
+        .increment();
+  }
+
+  @Override
+  public void localWakeup(String source) {
+    if (registry == null) {
+      return;
+    }
+    Counter.builder("ratchet.wakeup.local")
+        .tag("source", source)
+        .register(registry)
+        .increment();
+  }
+
+  @Override
+  public void clusterWakeupPublished(String transport, String outcome) {
+    if (registry == null) {
+      return;
+    }
+    Counter.builder("ratchet.wakeup.cluster.publish")
+        .tag("transport", transport)
+        .tag("outcome", outcome)
+        .register(registry)
+        .increment();
+  }
+
+  @Override
+  public void clusterWakeupReceived(String transport, String outcome) {
+    if (registry == null) {
+      return;
+    }
+    Counter.builder("ratchet.wakeup.cluster.receive")
+        .tag("transport", transport)
+        .tag("outcome", outcome)
         .register(registry)
         .increment();
   }

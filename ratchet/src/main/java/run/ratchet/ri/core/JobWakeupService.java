@@ -1,11 +1,12 @@
 package run.ratchet.ri.core;
 
 import run.ratchet.api.JobPriority;
+import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.ClusterCoordinator;
-import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.entity.JobExecutionType;
 import jakarta.annotation.Resource;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.transaction.Status;
 import jakarta.transaction.Synchronization;
@@ -25,20 +26,25 @@ public class JobWakeupService {
   private static final Logger log = Logger.getLogger(JobWakeupService.class);
 
   private final ClusterCoordinator clusterCoordinator;
-  private final NodeIdentityProvider nodeIdProvider;
+  private final Instance<PollerScheduler> pollerSchedulerInstance;
+  private final MetricsCollector metricsCollector;
 
   @Resource private TransactionSynchronizationRegistry txRegistry;
 
   protected JobWakeupService() {
     this.clusterCoordinator = null;
-    this.nodeIdProvider = null;
+    this.pollerSchedulerInstance = null;
+    this.metricsCollector = null;
   }
 
   @Inject
   public JobWakeupService(
-      ClusterCoordinator clusterCoordinator, NodeIdentityProvider nodeIdProvider) {
+      ClusterCoordinator clusterCoordinator,
+      Instance<PollerScheduler> pollerSchedulerInstance,
+      MetricsCollector metricsCollector) {
     this.clusterCoordinator = clusterCoordinator;
-    this.nodeIdProvider = nodeIdProvider;
+    this.pollerSchedulerInstance = pollerSchedulerInstance;
+    this.metricsCollector = metricsCollector;
   }
 
   public void notify(JobPriority priority, boolean immediate) {
@@ -70,13 +76,13 @@ public class JobWakeupService {
   }
 
   private void publishNotification(JobPriority priority) {
-    if (registerAfterCommit(priority)) {
+    if (registerAfterCommit(() -> publishNotificationNow(priority))) {
       return;
     }
     publishNotificationNow(priority);
   }
 
-  private boolean registerAfterCommit(JobPriority priority) {
+  private boolean registerAfterCommit(Runnable action) {
     if (txRegistry == null) {
       return false;
     }
@@ -94,7 +100,7 @@ public class JobWakeupService {
             @Override
             public void afterCompletion(int status) {
               if (status == Status.STATUS_COMMITTED) {
-                publishNotificationNow(priority);
+                action.run();
               }
             }
           });
@@ -106,11 +112,27 @@ public class JobWakeupService {
   }
 
   private void publishNotificationNow(JobPriority priority) {
+    wakeupLocalPoller();
     try {
       clusterCoordinator.notifyNewWork(priority);
       log.debugf("Published wakeup notification: priority=%s", priority);
     } catch (Exception e) {
       log.warnf("Wakeup notification error: %s", e.getMessage());
+    }
+  }
+
+  private void wakeupLocalPoller() {
+    if (pollerSchedulerInstance == null || !pollerSchedulerInstance.isResolvable()) {
+      return;
+    }
+
+    try {
+      if (metricsCollector != null) {
+        metricsCollector.localWakeup("job_submit");
+      }
+      pollerSchedulerInstance.get().wakeup();
+    } catch (Exception e) {
+      log.warnf("Local wakeup error: %s", e.getMessage());
     }
   }
 }

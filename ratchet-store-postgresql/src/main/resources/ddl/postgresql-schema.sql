@@ -90,7 +90,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job
 
 -- Hot-path poller indexes — required, do NOT remove without re-running the perf suite.
 CREATE INDEX IF NOT EXISTS idx_job_poll_composite ON scheduler_job (status, priority, scheduled_time);
-CREATE INDEX IF NOT EXISTS idx_job_claim_cover ON scheduler_job (status, job_type, scheduled_time, priority);
+CREATE INDEX IF NOT EXISTS idx_job_claim_cover ON scheduler_job (status, job_type, scheduled_time, priority, job_id);
 CREATE INDEX IF NOT EXISTS idx_recurring_due ON scheduler_job (status, next_fire);
 CREATE INDEX IF NOT EXISTS idx_job_recurring_composite ON scheduler_job (job_type, status, next_fire);
 -- TODO(perf-audit): idx_job_due (status, scheduled_time) is a left-prefix of idx_job_poll_composite

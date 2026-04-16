@@ -29,6 +29,7 @@ import com.mongodb.client.result.UpdateResult;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.api.exception.RatchetOptimisticLockException;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.ArchivedJobEntity;
@@ -54,9 +55,12 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
@@ -78,6 +82,7 @@ import org.jboss.logging.Logger;
 public class MongoJobStore implements JobStore {
 
   private static final Logger log = Logger.getLogger(MongoJobStore.class);
+  private static final MongoConstraintDetector CONSTRAINT_DETECTOR = new MongoConstraintDetector();
 
   private static final List<String> EXECUTABLE_JOB_TYPES =
       List.of("SINGLE", "BATCH_CHILD", "CHAIN_STEP", "WORKFLOW_BRANCH");
@@ -447,9 +452,12 @@ public class MongoJobStore implements JobStore {
   }
 
   @Override
-  public List<JobClaimDto> claimNextBatchOptimized(int limit, String nodeId) {
+  public List<JobClaimDto> claimNextBatchOptimized(JobExecutionType jobType, int limit, String nodeId) {
+    if (limit <= 0 || !isPollerExecutable(jobType)) {
+      return List.of();
+    }
     List<Long> candidateIds =
-        findCandidatesByBoostedPriority(EXECUTABLE_JOB_TYPES, "scheduled_time", limit);
+        findCandidatesByBoostedPriority(List.of(jobType.name()), "scheduled_time", limit);
     return claimByIds(candidateIds, nodeId, DocumentMapper::toJobClaimDto);
   }
 
@@ -475,16 +483,20 @@ public class MongoJobStore implements JobStore {
   @Override
   public boolean compareAndSwapStatus(
       long id, JobStatus expected, JobStatus newStatus, String error) {
-    UpdateResult result =
-        jobs()
-            .updateOne(
-                and(eq("_id", id), eq("status", expected.name())),
-                combine(
-                    set("status", newStatus.name()),
-                    set("last_error", error),
-                    set("updated_at", DocumentMapper.toDate(Instant.now())),
-                    inc("version", 1)));
-    return result.getModifiedCount() > 0;
+    try {
+      UpdateResult result =
+          jobs()
+              .updateOne(
+                  and(eq("_id", id), eq("status", expected.name())),
+                  combine(
+                      set("status", newStatus.name()),
+                      set("last_error", error),
+                      set("updated_at", DocumentMapper.toDate(Instant.now())),
+                      inc("version", 1)));
+      return result.getModifiedCount() > 0;
+    } catch (RuntimeException e) {
+      throw translateTransientStoreException("compare-and-swap status", e);
+    }
   }
 
   @Override
@@ -529,22 +541,49 @@ public class MongoJobStore implements JobStore {
       Instant end,
       Long durationMs,
       Long queueWaitMs) {
-    UpdateResult result =
-        jobs()
-            .updateOne(
-                and(eq("_id", id), eq("status", "RUNNING")),
-                combine(
-                    set("status", "SUCCEEDED"),
-                    set("job_result", resultJson),
-                    set("result_type", resultType),
-                    set("execution_start_time", DocumentMapper.toDate(start)),
-                    set("execution_end_time", DocumentMapper.toDate(end)),
-                    set("execution_duration_ms", durationMs),
-                    set("queue_wait_ms", queueWaitMs),
-                    set("last_error", null),
-                    set("updated_at", DocumentMapper.toDate(Instant.now())),
-                    inc("version", 1)));
-    return result.getModifiedCount() > 0;
+    try {
+      UpdateResult result =
+          jobs()
+              .updateOne(
+                  and(eq("_id", id), eq("status", "RUNNING")),
+                  combine(
+                      set("status", "SUCCEEDED"),
+                      set("job_result", resultJson),
+                      set("result_type", resultType),
+                      set("execution_start_time", DocumentMapper.toDate(start)),
+                      set("execution_end_time", DocumentMapper.toDate(end)),
+                      set("execution_duration_ms", durationMs),
+                      set("queue_wait_ms", queueWaitMs),
+                      set("last_error", null),
+                      set("updated_at", DocumentMapper.toDate(Instant.now())),
+                      inc("version", 1)));
+      return result.getModifiedCount() > 0;
+    } catch (RuntimeException e) {
+      throw translateTransientStoreException("mark job succeeded", e);
+    }
+  }
+
+  @Override
+  public boolean markJobSucceededMinimal(
+      long id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
+    try {
+      UpdateResult result =
+          jobs()
+              .updateOne(
+                  and(eq("_id", id), eq("status", "RUNNING")),
+                  combine(
+                      set("status", "SUCCEEDED"),
+                      set("execution_start_time", DocumentMapper.toDate(start)),
+                      set("execution_end_time", DocumentMapper.toDate(end)),
+                      set("execution_duration_ms", durationMs),
+                      set("queue_wait_ms", queueWaitMs),
+                      set("last_error", null),
+                      set("updated_at", DocumentMapper.toDate(Instant.now())),
+                      inc("version", 1)));
+      return result.getModifiedCount() > 0;
+    } catch (RuntimeException e) {
+      throw translateTransientStoreException("mark job succeeded minimally", e);
+    }
   }
 
   @Override
@@ -1180,6 +1219,37 @@ public class MongoJobStore implements JobStore {
   }
 
   @Override
+  public Map<JobStatus, Long> countJobsByStatusForTag(String tag) {
+    Map<JobStatus, Long> counts = new EnumMap<>(JobStatus.class);
+    for (Document doc :
+        jobs()
+            .aggregate(
+                List.of(
+                    new Document("$match", new Document("tags", tag)),
+                    new Document("$group", new Document("_id", "$status").append("count", new Document("$sum", 1L))),
+                    new Document("$sort", new Document("_id", 1))))) {
+      String status = doc.getString("_id");
+      if (status != null) {
+        counts.put(JobStatus.valueOf(status), ((Number) doc.get("count")).longValue());
+      }
+    }
+    return counts;
+  }
+
+  @Override
+  public Map<String, Long> countJobsByParamForTag(String tag, String paramKey) {
+    return aggregateStringCountsByTag(
+        tag,
+        new Document(
+            "$getField", new Document("field", paramKey).append("input", "$params")));
+  }
+
+  @Override
+  public Map<String, Long> countJobsByExecutionNodeForTag(String tag) {
+    return aggregateStringCountsByTag(tag, "$picked_by");
+  }
+
+  @Override
   public WorkflowConditionEntity saveCondition(WorkflowConditionEntity condition) {
     if (condition.getId() == null) {
       condition.setId(TsidFactory.next());
@@ -1524,9 +1594,10 @@ public class MongoJobStore implements JobStore {
                                       PRIORITY_BOOST_INTERVAL))))))));
 
       pipeline.add(
-          new Document("$sort", new Document("_effective_priority", -1).append(timeColumn, 1)));
+          new Document(
+              "$sort", new Document("_effective_priority", -1).append(timeColumn, 1).append("_id", 1)));
     } else {
-      pipeline.add(new Document("$sort", new Document("priority", -1).append(timeColumn, 1)));
+      pipeline.add(new Document("$sort", new Document("priority", -1).append(timeColumn, 1).append("_id", 1)));
     }
 
     pipeline.add(new Document("$limit", limit));
@@ -1575,6 +1646,42 @@ public class MongoJobStore implements JobStore {
       }
     }
     return claimed;
+  }
+
+  private static boolean isPollerExecutable(JobExecutionType jobType) {
+    return jobType == JobExecutionType.SINGLE
+        || jobType == JobExecutionType.BATCH_CHILD
+        || jobType == JobExecutionType.CHAIN_STEP
+        || jobType == JobExecutionType.WORKFLOW_BRANCH;
+  }
+
+  private Map<String, Long> aggregateStringCountsByTag(String tag, Object groupExpression) {
+    Map<String, Long> counts = new TreeMap<>();
+    for (Document doc :
+        jobs()
+            .aggregate(
+                List.of(
+                    new Document("$match", new Document("tags", tag)),
+                    new Document(
+                        "$group",
+                        new Document("_id", groupExpression)
+                            .append("count", new Document("$sum", 1L))),
+                    new Document("$sort", new Document("_id", 1))))) {
+      Object keyValue = doc.get("_id");
+      if (!(keyValue instanceof String key) || key.isBlank()) {
+        continue;
+      }
+      counts.put(key, ((Number) doc.get("count")).longValue());
+    }
+    return counts;
+  }
+
+  private RuntimeException translateTransientStoreException(String operation, RuntimeException e) {
+    if (CONSTRAINT_DETECTOR.isDeadlock(e)) {
+      return new RatchetTransientStoreException(
+          "Transient MongoDB store concurrency failure during " + operation, e);
+    }
+    return e;
   }
 
   private ArchivedJobEntity buildArchive(JobEntity job, String reason, String archivedBy) {

@@ -6,12 +6,14 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import run.ratchet.api.CircuitBreakerProtected;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.event.JobCompletedEvent;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.ErrorSanitizer;
@@ -248,6 +250,86 @@ class JobTaskTest {
     jobTask.call();
 
     verify(resourcePermitService).release("api-gateway", 42L);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void handleSuccess_retriesTransientFinalizationWithoutFailingJob() throws Exception {
+    JobEntity job = createTestJob();
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(42L)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resilienceStrategy.execute(anyString(), any(Callable.class)))
+        .thenAnswer(inv -> ((Callable<?>) inv.getArgument(1)).call());
+    when(jobStore.markJobSucceeded(anyLong(), any(), any(), any(), any(), anyLong(), anyLong()))
+        .thenThrow(new RatchetTransientStoreException("deadlock"))
+        .thenReturn(true);
+
+    jobTask.call();
+
+    verify(jobStore, times(2))
+        .markJobSucceeded(anyLong(), any(), any(), any(), any(), anyLong(), anyLong());
+    verify(jobStore, never()).markJobSucceededMinimal(anyLong(), any(), any(), anyLong(), anyLong());
+    verify(jobStore, never()).incrementRetryAttempt(anyLong());
+    verify(lifecycleFacade, never()).moveToDlq(any(), any());
+    verify(observabilityFacade).recordSuccessFinalizationRetry(job);
+    verify(observabilityFacade, never()).recordSuccessFinalizationMinimal(any());
+    verify(observabilityFacade, never()).recordSuccessFinalizationStuck(any());
+    verify(observabilityFacade).publishEvent(any(JobCompletedEvent.class));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void handleSuccess_fallsBackToMinimalSuccessAfterTransientFinalizationExhaustion() throws Exception {
+    JobEntity job = createTestJob();
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(42L)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resilienceStrategy.execute(anyString(), any(Callable.class)))
+        .thenAnswer(inv -> ((Callable<?>) inv.getArgument(1)).call());
+    when(jobStore.markJobSucceeded(anyLong(), any(), any(), any(), any(), anyLong(), anyLong()))
+        .thenThrow(new RatchetTransientStoreException("deadlock"));
+    when(jobStore.markJobSucceededMinimal(anyLong(), any(), any(), anyLong(), anyLong()))
+        .thenReturn(true);
+
+    jobTask.call();
+
+    verify(jobStore, times(5))
+        .markJobSucceeded(anyLong(), any(), any(), any(), any(), anyLong(), anyLong());
+    verify(jobStore).markJobSucceededMinimal(anyLong(), any(), any(), anyLong(), anyLong());
+    verify(jobStore, never()).incrementRetryAttempt(anyLong());
+    verify(lifecycleFacade, never()).moveToDlq(any(), any());
+    verify(observabilityFacade, times(5)).recordSuccessFinalizationRetry(job);
+    verify(observabilityFacade).recordSuccessFinalizationMinimal(job);
+    verify(observabilityFacade, never()).recordSuccessFinalizationStuck(any());
+    verify(observabilityFacade).publishEvent(any(JobCompletedEvent.class));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void handleSuccess_stuckFinalizationDoesNotMoveSuccessfulJobToFailurePath() throws Exception {
+    JobEntity job = createTestJob();
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(42L)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resilienceStrategy.execute(anyString(), any(Callable.class)))
+        .thenAnswer(inv -> ((Callable<?>) inv.getArgument(1)).call());
+    when(jobStore.markJobSucceeded(anyLong(), any(), any(), any(), any(), anyLong(), anyLong()))
+        .thenThrow(new RatchetTransientStoreException("deadlock"));
+    when(jobStore.markJobSucceededMinimal(anyLong(), any(), any(), anyLong(), anyLong()))
+        .thenThrow(new RatchetTransientStoreException("deadlock"));
+
+    jobTask.call();
+
+    verify(jobStore, times(5))
+        .markJobSucceeded(anyLong(), any(), any(), any(), any(), anyLong(), anyLong());
+    verify(jobStore).markJobSucceededMinimal(anyLong(), any(), any(), anyLong(), anyLong());
+    verify(jobStore, never()).incrementRetryAttempt(anyLong());
+    verify(lifecycleFacade, never()).moveToDlq(any(), any());
+    verify(observabilityFacade, times(5)).recordSuccessFinalizationRetry(job);
+    verify(observabilityFacade).recordSuccessFinalizationStuck(job);
+    verify(observabilityFacade, never()).publishEvent(any(JobCompletedEvent.class));
+    verify(observabilityFacade, never()).recordJobSuccess(any(), anyLong());
   }
 
   private JobEntity createTestJob() {

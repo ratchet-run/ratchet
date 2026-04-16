@@ -5,6 +5,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.spi.MetricsCollector;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
@@ -19,12 +20,16 @@ public class SubmissionFailureHandler {
   private final JobStateManager jobStateManager;
   private final RetryBufferManager retryBufferManager;
   private final ThreadPoolManager threadPoolManager;
+  private final PollerScheduler pollerScheduler;
+  private final MetricsCollector metricsCollector;
 
   protected SubmissionFailureHandler() {
     this.jobCrudStore = null;
     this.jobStateManager = null;
     this.retryBufferManager = null;
     this.threadPoolManager = null;
+    this.pollerScheduler = null;
+    this.metricsCollector = null;
   }
 
   @Inject
@@ -32,14 +37,19 @@ public class SubmissionFailureHandler {
       JobCrudStore jobCrudStore,
       JobStateManager jobStateManager,
       RetryBufferManager retryBufferManager,
-      ThreadPoolManager threadPoolManager) {
+      ThreadPoolManager threadPoolManager,
+      PollerScheduler pollerScheduler,
+      MetricsCollector metricsCollector) {
     this.jobCrudStore = jobCrudStore;
     this.jobStateManager = jobStateManager;
     this.retryBufferManager = retryBufferManager;
     this.threadPoolManager = threadPoolManager;
+    this.pollerScheduler = pollerScheduler;
+    this.metricsCollector = metricsCollector;
   }
 
   public void handleGateFailure(JobEntity job, GateCheckResult result, boolean isFirstAttempt) {
+    recordGateRejected(job.getJobType(), result);
     if (isFirstAttempt) {
       resetToPendingOrBuffer(job);
       log.info(result.reason());
@@ -57,6 +67,7 @@ public class SubmissionFailureHandler {
   }
 
   public void handleGateFailure(JobClaimDto claim, GateCheckResult result) {
+    recordGateRejected(claim.jobType(), result);
     if (jobStateManager.resetJobToPending(claim.id())) {
       log.info(result.reason());
       return;
@@ -70,7 +81,7 @@ public class SubmissionFailureHandler {
   }
 
   public void handleRejection(JobEntity job, JobExecutionType jobType, boolean isFirstAttempt) {
-    threadPoolManager.releasePermit(jobType);
+    releaseSubmissionPermit(jobType);
 
     if (isFirstAttempt) {
       resetToPendingOrBuffer(job);
@@ -93,7 +104,7 @@ public class SubmissionFailureHandler {
   }
 
   public void handleRejection(JobClaimDto claim, JobExecutionType jobType) {
-    threadPoolManager.releasePermit(jobType);
+    releaseSubmissionPermit(jobType);
 
     if (jobStateManager.resetJobToPending(claim.id())) {
       log.warn(
@@ -112,7 +123,7 @@ public class SubmissionFailureHandler {
 
   public void handleUnexpectedException(
       JobEntity job, JobExecutionType jobType, boolean isFirstAttempt, Exception exception) {
-    threadPoolManager.releasePermit(jobType);
+    releaseSubmissionPermit(jobType);
     log.errorf(exception, "Unexpected exception submitting job %s - permit released", job.getId());
 
     if (isFirstAttempt || !retryBufferManager.offer(job)) {
@@ -122,7 +133,7 @@ public class SubmissionFailureHandler {
 
   public void handleUnexpectedException(
       JobClaimDto claim, JobExecutionType jobType, Exception exception) {
-    threadPoolManager.releasePermit(jobType);
+    releaseSubmissionPermit(jobType);
     log.errorf(exception, "Unexpected exception submitting job %s - permit released", claim.id());
 
     if (jobStateManager.resetJobToPending(claim.id())) {
@@ -138,6 +149,17 @@ public class SubmissionFailureHandler {
   private void resetToPendingOrBuffer(JobEntity job) {
     if (!jobStateManager.resetJobToPending(job)) {
       retryBufferManager.forceOffer(job);
+    }
+  }
+
+  private void releaseSubmissionPermit(JobExecutionType jobType) {
+    threadPoolManager.releasePermit(jobType);
+    pollerScheduler.wakeup();
+  }
+
+  private void recordGateRejected(JobExecutionType jobType, GateCheckResult result) {
+    if (metricsCollector != null && result != null && result.isBlocked()) {
+      metricsCollector.gateRejected(jobType.name(), result.status().name());
     }
   }
 

@@ -8,6 +8,7 @@ public class PostgresqlConstraintDetector implements ConstraintDetector {
 
   private static final String SQLSTATE_UNIQUE_VIOLATION = "23505";
   private static final String SQLSTATE_DEADLOCK = "40P01";
+  private static final String SQLSTATE_SERIALIZATION_FAILURE = "40001";
 
   private static SQLException findSqlException(Throwable t) {
     while (t != null) {
@@ -61,6 +62,7 @@ public class PostgresqlConstraintDetector implements ConstraintDetector {
     if (sql == null) {
       return false;
     }
-    return SQLSTATE_DEADLOCK.equals(sql.getSQLState());
+    return SQLSTATE_DEADLOCK.equals(sql.getSQLState())
+        || SQLSTATE_SERIALIZATION_FAILURE.equals(sql.getSQLState());
   }
 }

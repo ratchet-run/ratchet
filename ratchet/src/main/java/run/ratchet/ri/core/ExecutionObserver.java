@@ -58,6 +58,18 @@ public class ExecutionObserver {
     metricsCollector.callbackFailed(job.getId(), job.getPublicJobType(), ex, attempt);
   }
 
+  public void recordSuccessFinalizationRetry(JobEntity job) {
+    metricsCollector.successFinalizationRetried(job.getId(), job.getPublicJobType());
+  }
+
+  public void recordSuccessFinalizationMinimal(JobEntity job) {
+    metricsCollector.successFinalizationMinimal(job.getId(), job.getPublicJobType());
+  }
+
+  public void recordSuccessFinalizationStuck(JobEntity job) {
+    metricsCollector.successFinalizationStuck(job.getId(), job.getPublicJobType());
+  }
+
   public void recordJobCancellation(JobEntity job) {
     // The public MetricsCollector SPI has no cancellation callback.
   }

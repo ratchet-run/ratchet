@@ -52,6 +52,7 @@ public class JobExecutorService {
   private final ClassPolicy classPolicy;
   private final JobLoggerFactory jobLoggerFactory;
   private final ResultPersistenceStrategy resultPersistenceStrategy;
+  private final PollerScheduler pollerScheduler;
 
   protected JobExecutorService() {
     this.threadPoolManager = null;
@@ -70,6 +71,7 @@ public class JobExecutorService {
     this.classPolicy = null;
     this.jobLoggerFactory = null;
     this.resultPersistenceStrategy = null;
+    this.pollerScheduler = null;
   }
 
   public JobExecutorService(
@@ -102,6 +104,7 @@ public class JobExecutorService {
         resilienceStrategy,
         errorSanitizer,
         classPolicy,
+        null,
         context -> new JBossLoggingJobLogger(context.jobId(), null),
         new DefaultResultPersistenceStrategy(
             new run.ratchet.ri.config.DefaultRatchetConfig(
@@ -124,6 +127,7 @@ public class JobExecutorService {
       ResilienceStrategy resilienceStrategy,
       ErrorSanitizer errorSanitizer,
       ClassPolicy classPolicy,
+      PollerScheduler pollerScheduler,
       JobLoggerFactory jobLoggerFactory,
       ResultPersistenceStrategy resultPersistenceStrategy) {
     this.threadPoolManager = threadPoolManager;
@@ -140,6 +144,7 @@ public class JobExecutorService {
     this.resilienceStrategy = resilienceStrategy;
     this.errorSanitizer = errorSanitizer;
     this.classPolicy = classPolicy;
+    this.pollerScheduler = pollerScheduler;
     this.jobLoggerFactory = jobLoggerFactory;
     this.resultPersistenceStrategy = resultPersistenceStrategy;
   }
@@ -187,6 +192,9 @@ public class JobExecutorService {
         return task.call();
       } finally {
         threadPoolManager.releasePermit(jobType);
+        if (pollerScheduler != null) {
+          pollerScheduler.wakeup();
+        }
         cancelTimeoutHandles(handlesRef);
       }
     };
@@ -204,6 +212,9 @@ public class JobExecutorService {
         return task.call();
       } finally {
         threadPoolManager.releasePermit(jobType);
+        if (pollerScheduler != null) {
+          pollerScheduler.wakeup();
+        }
         cancelTimeoutHandles(handlesRef);
       }
     };

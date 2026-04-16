@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.api.exception.RatchetOptimisticLockException;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.converter.JsonMapConverter;
 import run.ratchet.store.dto.BatchProgress;
@@ -42,9 +43,13 @@ import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 import org.jboss.logging.Logger;
 
@@ -63,6 +68,7 @@ public class MysqlJobStore implements JobStore {
   private static final ObjectMapper OBJECT_MAPPER = ObjectMapperFactory.get();
   private static final JobPayloadConverter JOB_PAYLOAD_CONVERTER = new JobPayloadConverter();
   private static final JsonMapConverter JSON_MAP_CONVERTER = new JsonMapConverter();
+  private static final MysqlConstraintDetector CONSTRAINT_DETECTOR = new MysqlConstraintDetector();
   private static final String EXECUTABLE_JOB_TYPE_FILTER =
       "job_type IN ('SINGLE','BATCH_CHILD','CHAIN_STEP','WORKFLOW_BRANCH')";
   private static final String RECURRING_JOB_TYPE_FILTER = "job_type = 'RECURRING'";
@@ -85,8 +91,8 @@ public class MysqlJobStore implements JobStore {
                 + timeColumn
                 + ", NOW(3))) / :boost)) DESC, "
                 + timeColumn
-                + " ASC"
-            : "priority DESC, " + timeColumn + " ASC";
+                + " ASC, job_id ASC"
+            : "priority DESC, " + timeColumn + " ASC, job_id ASC";
     return """
         SELECT %s FROM scheduler_job
         WHERE status = 'PENDING'
@@ -391,143 +397,98 @@ public class MysqlJobStore implements JobStore {
   @Override
   @SuppressWarnings("unchecked")
   public List<JobEntity> claimNextBatch(int limit, String nodeId) {
-    // Dependency resolution is handled by the orchestration layer (PostExecutionHandler
-    // schedules child jobs only after the parent completes), so the claim query only needs
-    // to find PENDING jobs that are due. No self-joins needed — matching the original
-    // nets4 JobClaimStrategy pattern.
-    int boostInterval = PriorityBoostConfig.getPriorityBoostIntervalMinutes();
-    var query =
-        em.createNativeQuery(
-                buildClaimSql("*", EXECUTABLE_JOB_TYPE_FILTER, "scheduled_time", boostInterval),
-                JobEntity.class)
-            .setParameter("lim", limit);
-    if (boostInterval > 0) {
-      query.setParameter("boost", boostInterval);
+    try {
+      // Dependency resolution is handled by the orchestration layer (PostExecutionHandler
+      // schedules child jobs only after the parent completes), so the claim query only needs
+      // to find PENDING jobs that are due. No self-joins needed — matching the original
+      // nets4 JobClaimStrategy pattern.
+      int boostInterval = PriorityBoostConfig.getPriorityBoostIntervalMinutes();
+      var query =
+          em.createNativeQuery(
+                  buildClaimSql("*", EXECUTABLE_JOB_TYPE_FILTER, "scheduled_time", boostInterval),
+                  JobEntity.class)
+              .setParameter("lim", limit);
+      if (boostInterval > 0) {
+        query.setParameter("boost", boostInterval);
+      }
+
+      @SuppressWarnings("unchecked")
+      List<JobEntity> candidates = query.getResultList();
+
+      if (candidates.isEmpty()) {
+        return List.of();
+      }
+
+      return claimEntities(candidates, nodeId);
+    } catch (RuntimeException e) {
+      throw translateTransientStoreException("claim jobs", e);
     }
-
-    @SuppressWarnings("unchecked")
-    List<JobEntity> candidates = query.getResultList();
-
-    if (candidates.isEmpty()) {
-      return List.of();
-    }
-
-    Instant now = Instant.now();
-    List<Long> ids = candidates.stream().map(JobEntity::getId).collect(Collectors.toList());
-    em.createNativeQuery(
-            "UPDATE scheduler_job SET status = 'RUNNING', picked_by = :node, "
-                + "picked_at = NOW(3), updated_at = NOW(3), version = version + 1 "
-                + "WHERE job_id IN (:ids)")
-        .setParameter("node", nodeId)
-        .setParameter("ids", ids)
-        .executeUpdate();
-
-    em.clear();
-    candidates.forEach(
-        job -> {
-          job.setStatus(JobStatus.RUNNING);
-          job.setPickedBy(nodeId);
-          job.setPickedAt(now);
-        });
-    return candidates;
   }
 
   @Override
   @SuppressWarnings("unchecked")
-  public List<JobClaimDto> claimNextBatchOptimized(int limit, String nodeId) {
-    int boostInterval = PriorityBoostConfig.getPriorityBoostIntervalMinutes();
-    var query =
-        em.createNativeQuery(
-                buildClaimSql(
-                    """
-                    job_id, status, job_type, priority, scheduled_time,
-                    version, timeout_sec, picked_by, picked_at, business_key,
-                    attempts, max_retries
-                    """,
-                    EXECUTABLE_JOB_TYPE_FILTER,
-                    "scheduled_time",
-                    boostInterval))
-            .setParameter("lim", limit);
-    if (boostInterval > 0) {
-      query.setParameter("boost", boostInterval);
-    }
-
-    @SuppressWarnings("unchecked")
-    List<Object[]> rows = query.getResultList();
-
-    if (rows.isEmpty()) {
+  public List<JobClaimDto> claimNextBatchOptimized(JobExecutionType jobType, int limit, String nodeId) {
+    if (limit <= 0 || !isPollerExecutable(jobType)) {
       return List.of();
     }
 
-    List<Long> ids =
-        rows.stream().map(r -> ((Number) r[0]).longValue()).collect(Collectors.toList());
+    try {
+      int boostInterval = PriorityBoostConfig.getPriorityBoostIntervalMinutes();
+      var query =
+          em.createNativeQuery(
+                  buildClaimSql(
+                      """
+                      job_id, status, job_type, priority, scheduled_time,
+                      version, timeout_sec, picked_by, picked_at, business_key,
+                      attempts, max_retries
+                      """,
+                      "job_type = :jobType",
+                      "scheduled_time",
+                      boostInterval))
+              .setParameter("jobType", jobType.name())
+              .setParameter("lim", limit);
+      if (boostInterval > 0) {
+        query.setParameter("boost", boostInterval);
+      }
 
-    em.createNativeQuery(
-            "UPDATE scheduler_job SET status = 'RUNNING', picked_by = :node, "
-                + "picked_at = NOW(3), updated_at = NOW(3), version = version + 1 "
-                + "WHERE job_id IN (:ids)")
-        .setParameter("node", nodeId)
-        .setParameter("ids", ids)
-        .executeUpdate();
+      @SuppressWarnings("unchecked")
+      List<Object[]> rows = query.getResultList();
 
-    Instant now = Instant.now();
-    return rows.stream()
-        .map(
-            r ->
-                new JobClaimDto(
-                    ((Number) r[0]).longValue(),
-                    JobStatus.RUNNING,
-                    JobExecutionType.valueOf((String) r[2]),
-                    safeJobPriority(((Number) r[3]).intValue()),
-                    toInstant(r[4]),
-                    ((Number) r[5]).intValue(),
-                    ((Number) r[6]).intValue(),
-                    nodeId,
-                    now,
-                    (String) r[9],
-                    ((Number) r[10]).intValue(),
-                    ((Number) r[11]).intValue()))
-        .collect(Collectors.toList());
+      if (rows.isEmpty()) {
+        return List.of();
+      }
+
+      return claimOptimizedRows(rows, nodeId);
+    } catch (RuntimeException e) {
+      throw translateTransientStoreException("optimized claim", e);
+    }
   }
 
   @Override
   @SuppressWarnings("unchecked")
   public List<JobEntity> claimDueRecurring(int limit, String nodeId) {
-    int boostInterval = PriorityBoostConfig.getPriorityBoostIntervalMinutes();
-    var query =
-        em.createNativeQuery(
-                buildClaimSql("*", RECURRING_JOB_TYPE_FILTER, "next_fire", boostInterval),
-                JobEntity.class)
-            .setParameter("lim", limit);
-    if (boostInterval > 0) {
-      query.setParameter("boost", boostInterval);
+    try {
+      int boostInterval = PriorityBoostConfig.getPriorityBoostIntervalMinutes();
+      var query =
+          em.createNativeQuery(
+                  buildClaimSql("*", RECURRING_JOB_TYPE_FILTER, "next_fire", boostInterval),
+                  JobEntity.class)
+              .setParameter("lim", limit);
+      if (boostInterval > 0) {
+        query.setParameter("boost", boostInterval);
+      }
+
+      @SuppressWarnings("unchecked")
+      List<JobEntity> candidates = query.getResultList();
+
+      if (candidates.isEmpty()) {
+        return List.of();
+      }
+
+      return claimEntities(candidates, nodeId);
+    } catch (RuntimeException e) {
+      throw translateTransientStoreException("claim recurring jobs", e);
     }
-
-    @SuppressWarnings("unchecked")
-    List<JobEntity> candidates = query.getResultList();
-
-    if (candidates.isEmpty()) {
-      return List.of();
-    }
-
-    Instant now = Instant.now();
-    List<Long> ids = candidates.stream().map(JobEntity::getId).collect(Collectors.toList());
-    em.createNativeQuery(
-            "UPDATE scheduler_job SET status = 'RUNNING', picked_by = :node, "
-                + "picked_at = NOW(3), updated_at = NOW(3), version = version + 1 "
-                + "WHERE job_id IN (:ids)")
-        .setParameter("node", nodeId)
-        .setParameter("ids", ids)
-        .executeUpdate();
-
-    em.clear();
-    candidates.forEach(
-        job -> {
-          job.setStatus(JobStatus.RUNNING);
-          job.setPickedBy(nodeId);
-          job.setPickedAt(now);
-        });
-    return candidates;
   }
 
   @Override
@@ -544,16 +505,20 @@ public class MysqlJobStore implements JobStore {
   @Override
   public boolean compareAndSwapStatus(
       long id, JobStatus expected, JobStatus newStatus, String error) {
-    int updated =
-        em.createNativeQuery(
-                "UPDATE scheduler_job SET status = :newS, last_error = :err, "
-                    + "updated_at = NOW(3) WHERE job_id = :id AND status = :exp")
-            .setParameter("newS", newStatus.name())
-            .setParameter("err", error)
-            .setParameter("id", id)
-            .setParameter("exp", expected.name())
-            .executeUpdate();
-    return updated > 0;
+    try {
+      int updated =
+          em.createNativeQuery(
+                  "UPDATE scheduler_job SET status = :newS, last_error = :err, "
+                      + "updated_at = NOW(3) WHERE job_id = :id AND status = :exp")
+              .setParameter("newS", newStatus.name())
+              .setParameter("err", error)
+              .setParameter("id", id)
+              .setParameter("exp", expected.name())
+              .executeUpdate();
+      return updated > 0;
+    } catch (RuntimeException e) {
+      throw translateTransientStoreException("compare-and-swap status", e);
+    }
   }
 
   @Override
@@ -596,23 +561,50 @@ public class MysqlJobStore implements JobStore {
       Instant end,
       Long durationMs,
       Long queueWaitMs) {
-    int updated =
-        em.createNativeQuery(
-                "UPDATE scheduler_job SET status = 'SUCCEEDED', "
-                    + "job_result = CAST(:result AS JSON), result_type = :rtype, "
-                    + "execution_start_time = :start, execution_end_time = :end, "
-                    + "execution_duration_ms = :dur, queue_wait_ms = :qwait, "
-                    + "updated_at = NOW(3) "
-                    + "WHERE job_id = :id AND status = 'RUNNING'")
-            .setParameter("result", resultJson)
-            .setParameter("rtype", resultType)
-            .setParameter("start", start != null ? Timestamp.from(start) : null)
-            .setParameter("end", end != null ? Timestamp.from(end) : null)
-            .setParameter("dur", durationMs)
-            .setParameter("qwait", queueWaitMs)
-            .setParameter("id", id)
-            .executeUpdate();
-    return updated > 0;
+    try {
+      int updated =
+          em.createNativeQuery(
+                  "UPDATE scheduler_job SET status = 'SUCCEEDED', "
+                      + "job_result = CAST(:result AS JSON), result_type = :rtype, "
+                      + "execution_start_time = :start, execution_end_time = :end, "
+                      + "execution_duration_ms = :dur, queue_wait_ms = :qwait, "
+                      + "last_error = NULL, updated_at = NOW(3) "
+                      + "WHERE job_id = :id AND status = 'RUNNING'")
+              .setParameter("result", resultJson)
+              .setParameter("rtype", resultType)
+              .setParameter("start", start != null ? Timestamp.from(start) : null)
+              .setParameter("end", end != null ? Timestamp.from(end) : null)
+              .setParameter("dur", durationMs)
+              .setParameter("qwait", queueWaitMs)
+              .setParameter("id", id)
+              .executeUpdate();
+      return updated > 0;
+    } catch (RuntimeException e) {
+      throw translateTransientStoreException("mark job succeeded", e);
+    }
+  }
+
+  @Override
+  public boolean markJobSucceededMinimal(
+      long id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
+    try {
+      int updated =
+          em.createNativeQuery(
+                  "UPDATE scheduler_job SET status = 'SUCCEEDED', "
+                      + "execution_start_time = :start, execution_end_time = :end, "
+                      + "execution_duration_ms = :dur, queue_wait_ms = :qwait, "
+                      + "last_error = NULL, updated_at = NOW(3) "
+                      + "WHERE job_id = :id AND status = 'RUNNING'")
+              .setParameter("start", start != null ? Timestamp.from(start) : null)
+              .setParameter("end", end != null ? Timestamp.from(end) : null)
+              .setParameter("dur", durationMs)
+              .setParameter("qwait", queueWaitMs)
+              .setParameter("id", id)
+              .executeUpdate();
+      return updated > 0;
+    } catch (RuntimeException e) {
+      throw translateTransientStoreException("mark job succeeded minimally", e);
+    }
   }
 
   @Override
@@ -1262,6 +1254,55 @@ public class MysqlJobStore implements JobStore {
   }
 
   @Override
+  @SuppressWarnings("unchecked")
+  public Map<JobStatus, Long> countJobsByStatusForTag(String tag) {
+    List<Object[]> rows =
+        em.createNativeQuery(
+                "SELECT j.status, COUNT(*) FROM scheduler_job j "
+                    + "JOIN scheduler_job_tag t ON j.job_id = t.job_id "
+                    + "WHERE t.tag = :tag GROUP BY j.status")
+            .setParameter("tag", tag)
+            .getResultList();
+    Map<JobStatus, Long> counts = new EnumMap<>(JobStatus.class);
+    for (Object[] row : rows) {
+      counts.put(JobStatus.valueOf((String) row[0]), ((Number) row[1]).longValue());
+    }
+    return counts;
+  }
+
+  @Override
+  @SuppressWarnings("unchecked")
+  public Map<String, Long> countJobsByParamForTag(String tag, String paramKey) {
+    String jsonPath = toJsonFieldPath(paramKey);
+    List<Object[]> rows =
+        em.createNativeQuery(
+                "SELECT JSON_UNQUOTE(JSON_EXTRACT(j.params, :jsonPath)) AS param_value, "
+                    + "COUNT(*) FROM scheduler_job j "
+                    + "JOIN scheduler_job_tag t ON j.job_id = t.job_id "
+                    + "WHERE t.tag = :tag "
+                    + "AND JSON_EXTRACT(j.params, :jsonPath) IS NOT NULL "
+                    + "GROUP BY param_value ORDER BY param_value")
+            .setParameter("tag", tag)
+            .setParameter("jsonPath", jsonPath)
+            .getResultList();
+    return toStringCountMap(rows);
+  }
+
+  @Override
+  @SuppressWarnings("unchecked")
+  public Map<String, Long> countJobsByExecutionNodeForTag(String tag) {
+    List<Object[]> rows =
+        em.createNativeQuery(
+                "SELECT j.picked_by, COUNT(*) FROM scheduler_job j "
+                    + "JOIN scheduler_job_tag t ON j.job_id = t.job_id "
+                    + "WHERE t.tag = :tag AND j.picked_by IS NOT NULL AND j.picked_by <> '' "
+                    + "GROUP BY j.picked_by ORDER BY j.picked_by")
+            .setParameter("tag", tag)
+            .getResultList();
+    return toStringCountMap(rows);
+  }
+
+  @Override
   public WorkflowConditionEntity saveCondition(WorkflowConditionEntity condition) {
     if (condition.getId() == null) {
       em.persist(condition);
@@ -1515,6 +1556,95 @@ public class MysqlJobStore implements JobStore {
         "REPEATABLE READ causes InnoDB gap locks that block concurrent job enqueue during claim"
             + " queries. Set hibernate.connection.isolation=2 in persistence.xml or"
             + " transaction-isolation=TRANSACTION_READ_COMMITTED on the datasource.");
+  }
+
+  private static boolean isPollerExecutable(JobExecutionType jobType) {
+    return jobType == JobExecutionType.SINGLE
+        || jobType == JobExecutionType.BATCH_CHILD
+        || jobType == JobExecutionType.CHAIN_STEP
+        || jobType == JobExecutionType.WORKFLOW_BRANCH;
+  }
+
+  private List<JobEntity> claimEntities(List<JobEntity> candidates, String nodeId) {
+    try {
+      Instant now = Instant.now();
+      List<JobEntity> claimed = new ArrayList<>(candidates.size());
+      for (JobEntity candidate : candidates) {
+        if (claimRow(candidate.getId(), nodeId)) {
+          candidate.setStatus(JobStatus.RUNNING);
+          candidate.setPickedBy(nodeId);
+          candidate.setPickedAt(now);
+          claimed.add(candidate);
+        }
+      }
+      em.clear();
+      return claimed;
+    } catch (RuntimeException e) {
+      throw translateTransientStoreException("claim jobs", e);
+    }
+  }
+
+  private List<JobClaimDto> claimOptimizedRows(List<Object[]> rows, String nodeId) {
+    Instant now = Instant.now();
+    List<JobClaimDto> claims = new ArrayList<>(rows.size());
+    for (Object[] row : rows) {
+      long jobId = ((Number) row[0]).longValue();
+      if (!claimRow(jobId, nodeId)) {
+        continue;
+      }
+      claims.add(
+          new JobClaimDto(
+              jobId,
+              JobStatus.RUNNING,
+              JobExecutionType.valueOf((String) row[2]),
+              safeJobPriority(((Number) row[3]).intValue()),
+              toInstant(row[4]),
+              ((Number) row[5]).intValue(),
+              ((Number) row[6]).intValue(),
+              nodeId,
+              now,
+              (String) row[9],
+              ((Number) row[10]).intValue(),
+              ((Number) row[11]).intValue()));
+    }
+    return claims;
+  }
+
+  private boolean claimRow(long jobId, String nodeId) {
+    int updated =
+        em.createNativeQuery(
+                "UPDATE scheduler_job SET status = 'RUNNING', picked_by = :node, "
+                    + "picked_at = NOW(3), updated_at = NOW(3), version = version + 1 "
+                    + "WHERE job_id = :id AND status = 'PENDING'")
+            .setParameter("node", nodeId)
+            .setParameter("id", jobId)
+            .executeUpdate();
+    return updated > 0;
+  }
+
+  private static Map<String, Long> toStringCountMap(List<Object[]> rows) {
+    Map<String, Long> counts = new TreeMap<>();
+    for (Object[] row : rows) {
+      String key = (String) row[0];
+      if (key == null || key.isBlank()) {
+        continue;
+      }
+      counts.put(key, ((Number) row[1]).longValue());
+    }
+    return counts;
+  }
+
+  private static String toJsonFieldPath(String fieldName) {
+    String escapedFieldName = fieldName.replace("\\", "\\\\").replace("\"", "\\\"");
+    return "$.\"" + escapedFieldName + "\"";
+  }
+
+  private RuntimeException translateTransientStoreException(String operation, RuntimeException e) {
+    if (CONSTRAINT_DETECTOR.isDeadlock(e)) {
+      return new RatchetTransientStoreException(
+          "Transient MySQL store concurrency failure during " + operation, e);
+    }
+    return e;
   }
 
   private JobPayload parseProgressHook(Object jsonValue) {

@@ -39,6 +39,9 @@ import java.util.Objects;
       @Index(name = "idx_method_name", columnList = "method_name"),
       @Index(name = "idx_recurring_due", columnList = "status, next_fire"),
       @Index(name = "idx_job_poll_composite", columnList = "status, priority, scheduled_time"),
+      @Index(
+          name = "idx_job_claim_cover",
+          columnList = "status, job_type, scheduled_time, priority, job_id"),
       @Index(name = "idx_job_type", columnList = "job_type"),
       @Index(name = "idx_job_recurring_composite", columnList = "job_type, status, next_fire"),
       @Index(name = "idx_job_depends_on", columnList = "depends_on"),

@@ -68,4 +68,31 @@ class ExecutionObserverTest {
         .jobCompleted(
             ArgumentMatchers.anyLong(), ArgumentMatchers.any(), ArgumentMatchers.anyLong());
   }
+
+  @Test
+  void recordSuccessFinalizationRetry_forwardsToMetricsCollector() {
+    JobEntity job = job(42L);
+
+    observer.recordSuccessFinalizationRetry(job);
+
+    verify(metricsCollector).successFinalizationRetried(42L, job.getPublicJobType());
+  }
+
+  @Test
+  void recordSuccessFinalizationMinimal_forwardsToMetricsCollector() {
+    JobEntity job = job(42L);
+
+    observer.recordSuccessFinalizationMinimal(job);
+
+    verify(metricsCollector).successFinalizationMinimal(42L, job.getPublicJobType());
+  }
+
+  @Test
+  void recordSuccessFinalizationStuck_forwardsToMetricsCollector() {
+    JobEntity job = job(42L);
+
+    observer.recordSuccessFinalizationStuck(job);
+
+    verify(metricsCollector).successFinalizationStuck(42L, job.getPublicJobType());
+  }
 }

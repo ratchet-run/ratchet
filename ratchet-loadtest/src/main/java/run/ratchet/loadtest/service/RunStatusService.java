@@ -3,7 +3,6 @@ package run.ratchet.loadtest.service;
 import run.ratchet.loadtest.api.ClusterStatusResponse;
 import run.ratchet.loadtest.api.RunStatusResponse;
 import run.ratchet.spi.NodeIdentityProvider;
-import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.TagStore;
@@ -11,7 +10,6 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 
@@ -81,32 +79,11 @@ public class RunStatusService {
   }
 
   private RunSummary summarizeRun(String tag) {
-    Map<JobStatus, Long> counts = new EnumMap<>(JobStatus.class);
-    Map<String, Long> enqueueNodeCounts = new java.util.TreeMap<>();
-    Map<String, Long> executionNodeCounts = new java.util.TreeMap<>();
-    long observedJobs = 0;
-    int offset = 0;
-    while (true) {
-      List<Long> ids = tagStore.findJobIdsByTag(tag, PAGE_SIZE, offset);
-      if (ids.isEmpty()) {
-        return new RunSummary(counts, enqueueNodeCounts, executionNodeCounts, observedJobs);
-      }
-      for (JobEntity job : jobStore.findByIds(ids)) {
-        observedJobs++;
-        counts.merge(job.getStatus(), 1L, Long::sum);
-        if (job.getParams() != null) {
-          String enqueueNode = job.getParams().get(Tags.PARAM_ENQUEUE_NODE);
-          if (enqueueNode != null && !enqueueNode.isBlank()) {
-            enqueueNodeCounts.merge(enqueueNode, 1L, Long::sum);
-          }
-        }
-        String executionNode = job.getPickedBy();
-        if (executionNode != null && !executionNode.isBlank()) {
-          executionNodeCounts.merge(executionNode, 1L, Long::sum);
-        }
-      }
-      offset += ids.size();
-    }
+    Map<JobStatus, Long> counts = tagStore.countJobsByStatusForTag(tag);
+    Map<String, Long> enqueueNodeCounts = tagStore.countJobsByParamForTag(tag, Tags.PARAM_ENQUEUE_NODE);
+    Map<String, Long> executionNodeCounts = tagStore.countJobsByExecutionNodeForTag(tag);
+    long observedJobs = counts.values().stream().mapToLong(Long::longValue).sum();
+    return new RunSummary(counts, enqueueNodeCounts, executionNodeCounts, observedJobs);
   }
 
   private record RunSummary(

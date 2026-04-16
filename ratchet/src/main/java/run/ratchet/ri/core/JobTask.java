@@ -7,6 +7,7 @@ import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.api.event.JobDlqEvent;
 import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobStartedEvent;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.ri.config.DefaultRatchetConfig;
 import run.ratchet.ri.config.EnvironmentRatchetConfigSource;
 import run.ratchet.ri.resilience.ServiceUnavailableException;
@@ -37,6 +38,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 import org.jboss.logging.Logger;
 import org.objectweb.asm.Type;
 
@@ -61,6 +63,9 @@ public class JobTask implements Callable<Void> {
   static final String RESULT_MAX_BYTES_PROPERTY = "ratchet.jobs.max-result-bytes";
 
   private static final long DEFAULT_RESULT_MAX_BYTES = 65536L;
+  private static final int SUCCESS_FINALIZATION_MAX_ATTEMPTS = 5;
+  private static final long[] SUCCESS_FINALIZATION_BACKOFF_MS = {25L, 50L, 100L, 200L, 400L};
+  private static final long SUCCESS_FINALIZATION_JITTER_MAX_MS = 25L;
 
   /**
    * Reads the maximum result-size cap from system properties on every call (not cached) so
@@ -95,6 +100,13 @@ public class JobTask implements Callable<Void> {
   private JobClaimDto claim;
   private JobExecutionEntity currentExecution;
   private boolean permitAcquired;
+
+  private enum SuccessFinalizationState {
+    COMPLETED_FULL,
+    COMPLETED_MINIMAL,
+    TERMINAL_SKIPPED,
+    STUCK
+  }
 
   protected JobTask() {
     this.jobStore = null;
@@ -556,18 +568,22 @@ public class JobTask implements Callable<Void> {
     long queueMs =
         job.getPickedAt() != null ? Duration.between(job.getPickedAt(), start).toMillis() : 0;
 
-    observabilityFacade.recordJobSuccess(job, executionMs);
-
     SerializedJobResult serializedResult =
         resultPersistenceStrategy.serialize(job.getId(), jobResult);
     String resultJson = serializedResult.json();
     String resultType = serializedResult.type();
 
-    if (!jobStore.markJobSucceeded(
-        job.getId(), resultJson, resultType, start, endTime, executionMs, queueMs)) {
+    SuccessFinalizationState finalizationState =
+        finalizeSuccessWithRetry(resultJson, resultType, start, endTime, executionMs, queueMs);
+    if (finalizationState == SuccessFinalizationState.TERMINAL_SKIPPED) {
       log.infof("Job %s already in terminal state, skipping success handling", job.getId());
       return;
     }
+    if (finalizationState == SuccessFinalizationState.STUCK) {
+      return;
+    }
+
+    observabilityFacade.recordJobSuccess(job, executionMs);
 
     if (currentExecution != null) {
       currentExecution.markSucceeded();
@@ -575,8 +591,10 @@ public class JobTask implements Callable<Void> {
     }
 
     job.setStatus(JobStatus.SUCCEEDED);
-    job.setJobResult(resultJson);
-    job.setResultType(resultType);
+    job.setJobResult(
+        finalizationState == SuccessFinalizationState.COMPLETED_FULL ? resultJson : null);
+    job.setResultType(
+        finalizationState == SuccessFinalizationState.COMPLETED_FULL ? resultType : null);
     job.setExecutionStartTime(start);
     job.setExecutionEndTime(endTime);
     job.setExecutionDurationMs(executionMs);
@@ -606,6 +624,80 @@ public class JobTask implements Callable<Void> {
     invokeCallback(job.getOnSuccessPayload(), "onSuccess");
 
     log.infof("Job %s succeeded in %s ms", job.getId(), executionMs);
+  }
+
+  private SuccessFinalizationState finalizeSuccessWithRetry(
+      String resultJson,
+      String resultType,
+      Instant start,
+      Instant end,
+      long durationMs,
+      long queueWaitMs) {
+    for (int attempt = 1; attempt <= SUCCESS_FINALIZATION_MAX_ATTEMPTS; attempt++) {
+      try {
+        boolean updated =
+            jobStore.markJobSucceeded(
+                job.getId(), resultJson, resultType, start, end, durationMs, queueWaitMs);
+        return updated
+            ? SuccessFinalizationState.COMPLETED_FULL
+            : SuccessFinalizationState.TERMINAL_SKIPPED;
+      } catch (RatchetTransientStoreException e) {
+        observabilityFacade.recordSuccessFinalizationRetry(job);
+        if (attempt == SUCCESS_FINALIZATION_MAX_ATTEMPTS) {
+          log.warnf(
+              "Job %s exhausted success finalization retries after transient store conflicts: %s",
+              job.getId(),
+              e.getMessage());
+          break;
+        }
+
+        log.warnf(
+            "Job %s transient success finalization failure on attempt %s/%s: %s",
+            job.getId(),
+            attempt,
+            SUCCESS_FINALIZATION_MAX_ATTEMPTS,
+            e.getMessage());
+
+        if (!sleepBeforeSuccessFinalizationRetry(attempt)) {
+          break;
+        }
+      }
+    }
+
+    try {
+      boolean updated =
+          jobStore.markJobSucceededMinimal(job.getId(), start, end, durationMs, queueWaitMs);
+      if (updated) {
+        observabilityFacade.recordSuccessFinalizationMinimal(job);
+        log.warnf(
+            "Job %s persisted minimal success after transient store finalization conflicts",
+            job.getId());
+        return SuccessFinalizationState.COMPLETED_MINIMAL;
+      }
+      return SuccessFinalizationState.TERMINAL_SKIPPED;
+    } catch (RatchetTransientStoreException e) {
+      observabilityFacade.recordSuccessFinalizationStuck(job);
+      log.errorf(
+          e,
+          "Job %s succeeded but success finalization is stuck after transient store conflicts",
+          job.getId());
+      return SuccessFinalizationState.STUCK;
+    }
+  }
+
+  private boolean sleepBeforeSuccessFinalizationRetry(int attempt) {
+    long baseDelay =
+        SUCCESS_FINALIZATION_BACKOFF_MS[
+            Math.min(attempt - 1, SUCCESS_FINALIZATION_BACKOFF_MS.length - 1)];
+    long jitter = ThreadLocalRandom.current().nextLong(SUCCESS_FINALIZATION_JITTER_MAX_MS + 1L);
+    try {
+      Thread.sleep(baseDelay + jitter);
+      return true;
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      log.warnf("Job %s finalization retry interrupted", job.getId());
+      return false;
+    }
   }
 
   // Matches JobTimeoutException, TimeoutException, and InterruptedException at top level and

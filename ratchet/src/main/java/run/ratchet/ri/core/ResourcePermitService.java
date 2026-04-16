@@ -24,14 +24,18 @@ public class ResourcePermitService {
   private static final Logger log = Logger.getLogger(ResourcePermitService.class);
 
   private final ResourcePermitStore resourcePermitStore;
+  private final PollerScheduler pollerScheduler;
 
   protected ResourcePermitService() {
     this.resourcePermitStore = null;
+    this.pollerScheduler = null;
   }
 
   @Inject
-  public ResourcePermitService(ResourcePermitStore resourcePermitStore) {
+  public ResourcePermitService(
+      ResourcePermitStore resourcePermitStore, PollerScheduler pollerScheduler) {
     this.resourcePermitStore = resourcePermitStore;
+    this.pollerScheduler = pollerScheduler;
   }
 
   /**
@@ -54,10 +58,12 @@ public class ResourcePermitService {
   public void release(String resourceName, long jobId) {
     resourcePermitStore.releasePermit(resourceName, jobId);
     log.debugf("Job %s released permit for resource %s", jobId, resourceName);
+    pollerScheduler.wakeup();
   }
 
   public void releaseAll(long jobId) {
     resourcePermitStore.releaseAllPermits(jobId);
+    pollerScheduler.wakeup();
   }
 
   /**

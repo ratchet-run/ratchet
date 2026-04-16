@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     CONSTRAINT chk_paused_from_status CHECK (paused_from_status IS NULL OR paused_from_status IN ('PENDING','RUNNING','SUCCEEDED','FAILED','CANCELED','PAUSED')),
     -- Hot-path poller indexes — required, do NOT remove without re-running the perf suite.
     INDEX idx_job_poll_composite (status, priority, scheduled_time),
-    INDEX idx_job_claim_cover (status, job_type, scheduled_time, priority),
+    INDEX idx_job_claim_cover (status, job_type, scheduled_time, priority, job_id),
     INDEX idx_recurring_due (status, next_fire),
     INDEX idx_job_recurring_composite (job_type, status, next_fire),
     INDEX idx_job_due (status, scheduled_time),

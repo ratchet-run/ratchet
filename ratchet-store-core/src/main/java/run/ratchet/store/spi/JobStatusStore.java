@@ -32,6 +32,9 @@ public interface JobStatusStore {
       Long durationMs,
       Long queueWaitMs);
 
+  boolean markJobSucceededMinimal(
+      long id, Instant start, Instant end, Long durationMs, Long queueWaitMs);
+
   /** Marks a batch child as succeeded and advances the parent batch counters atomically. */
   boolean markJobSucceededAndUpdateBatch(
       long jobId,

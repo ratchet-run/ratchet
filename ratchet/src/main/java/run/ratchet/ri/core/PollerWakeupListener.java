@@ -1,6 +1,7 @@
 package run.ratchet.ri.core;
 
 import run.ratchet.spi.ClusterCoordinator;
+import run.ratchet.spi.MetricsCollector;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
@@ -19,17 +20,22 @@ public class PollerWakeupListener {
 
   private final ClusterCoordinator clusterCoordinator;
   private final PollerScheduler pollerScheduler;
+  private final MetricsCollector metricsCollector;
 
   protected PollerWakeupListener() {
     this.clusterCoordinator = null;
     this.pollerScheduler = null;
+    this.metricsCollector = null;
   }
 
   @Inject
   public PollerWakeupListener(
-      ClusterCoordinator clusterCoordinator, PollerScheduler pollerScheduler) {
+      ClusterCoordinator clusterCoordinator,
+      PollerScheduler pollerScheduler,
+      MetricsCollector metricsCollector) {
     this.clusterCoordinator = clusterCoordinator;
     this.pollerScheduler = pollerScheduler;
+    this.metricsCollector = metricsCollector;
   }
 
   public void init() {
@@ -46,6 +52,9 @@ public class PollerWakeupListener {
   private void onWakeup() {
     try {
       log.debug("Wakeup notification received");
+      if (metricsCollector != null) {
+        metricsCollector.localWakeup("cluster_listener");
+      }
       pollerScheduler.wakeup();
     } catch (Exception e) {
       log.warnf("Error processing wakeup notification: %s", e.getMessage());

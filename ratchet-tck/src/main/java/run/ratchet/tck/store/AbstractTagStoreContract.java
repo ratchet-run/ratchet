@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -88,6 +89,29 @@ public abstract class AbstractTagStoreContract implements JobStoreContractFixtur
     List<Long> page = store().findJobIdsByTag("offset-tag", 10, 3);
 
     assertEquals(2, page.size(), "Offset 3 with 5 total should return 2 results");
+  }
+
+  @Test
+  void countJobsByParamForTag_supportsLiteralParamKeysWithDots() {
+    var first = newPendingJob();
+    first.setParams(Map.of("loadtest.enqueue.node", "node-a"));
+    first = persist(first);
+    store().insertTags(first.getId(), List.of("run-tag"));
+
+    var second = newPendingJob();
+    second.setParams(Map.of("loadtest.enqueue.node", "node-a"));
+    second = persist(second);
+    store().insertTags(second.getId(), List.of("run-tag"));
+
+    var third = newPendingJob();
+    third.setParams(Map.of("loadtest.enqueue.node", "node-b"));
+    third = persist(third);
+    store().insertTags(third.getId(), List.of("run-tag"));
+
+    Map<String, Long> counts = store().countJobsByParamForTag("run-tag", "loadtest.enqueue.node");
+
+    assertEquals(2L, counts.get("node-a"));
+    assertEquals(1L, counts.get("node-b"));
   }
 
   @Test

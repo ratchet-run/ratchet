@@ -166,7 +166,7 @@ public class PollingStrategy implements PollingDelayStrategy {
     idleCount = 0;
     inDeepIdle = false;
 
-    if (jobCount == batchSize) {
+    if (jobCount >= batchSize) {
       consecutiveFullBatches++;
     } else {
       consecutiveFullBatches = 0;

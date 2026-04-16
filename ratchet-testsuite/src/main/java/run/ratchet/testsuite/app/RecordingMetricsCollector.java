@@ -36,6 +36,33 @@ public class RecordingMetricsCollector implements MetricsCollector {
         new FailedMetric(jobId, type, attempt, cause == null ? null : cause.getClass().getName()));
   }
 
+  @Override
+  public void successFinalizationRetried(long jobId, JobType type) {}
+
+  @Override
+  public void successFinalizationMinimal(long jobId, JobType type) {}
+
+  @Override
+  public void successFinalizationStuck(long jobId, JobType type) {}
+
+  @Override
+  public void claimTransientFailure(String executionType) {}
+
+  @Override
+  public void jobsClaimed(String executionType, int claimedCount) {}
+
+  @Override
+  public void gateRejected(String executionType, String gateStatus) {}
+
+  @Override
+  public void localWakeup(String source) {}
+
+  @Override
+  public void clusterWakeupPublished(String transport, String outcome) {}
+
+  @Override
+  public void clusterWakeupReceived(String transport, String outcome) {}
+
   public static List<StartedMetric> startedEvents() {
     return List.copyOf(STARTED);
   }

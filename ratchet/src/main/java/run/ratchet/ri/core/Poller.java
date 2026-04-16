@@ -1,6 +1,8 @@
 package run.ratchet.ri.core;
 
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.ri.util.RatchetConfiguration;
+import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.PollingConfig;
 import run.ratchet.spi.PollingDelayStrategy;
@@ -8,6 +10,7 @@ import run.ratchet.spi.PollingStrategyProvider;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobClaimStore;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.jboss.logging.Logger;
@@ -20,6 +23,12 @@ import org.jboss.logging.Logger;
 public class Poller {
 
   private static final Logger log = Logger.getLogger(Poller.class);
+  private static final JobExecutionType[] POLLER_EXECUTABLE_TYPES = {
+    JobExecutionType.SINGLE,
+    JobExecutionType.BATCH_CHILD,
+    JobExecutionType.CHAIN_STEP,
+    JobExecutionType.WORKFLOW_BRANCH
+  };
 
   private final AtomicBoolean started = new AtomicBoolean();
   private final AtomicBoolean running = new AtomicBoolean();
@@ -31,6 +40,7 @@ public class Poller {
   private final DrainController drainController;
   private final PollerScheduler pollerScheduler;
   private final RatchetConfiguration config;
+  private final MetricsCollector metricsCollector;
   private final PollingStrategyProvider pollingStrategyProvider;
   private final int batchSize;
 
@@ -45,6 +55,7 @@ public class Poller {
     this.drainController = null;
     this.pollerScheduler = null;
     this.config = null;
+    this.metricsCollector = null;
     this.pollingStrategyProvider = null;
     this.batchSize = 0;
   }
@@ -57,6 +68,7 @@ public class Poller {
       DrainController drainController,
       PollerScheduler pollerScheduler,
       RatchetConfiguration config,
+      MetricsCollector metricsCollector,
       PollingStrategyProvider pollingStrategyProvider,
       int batchSize) {
     this.jobClaimStore = jobClaimStore;
@@ -66,6 +78,7 @@ public class Poller {
     this.drainController = drainController;
     this.pollerScheduler = pollerScheduler;
     this.config = config;
+    this.metricsCollector = metricsCollector;
     this.pollingStrategyProvider = pollingStrategyProvider;
     this.batchSize = batchSize;
   }
@@ -150,14 +163,18 @@ public class Poller {
     }
 
     long pollStartTime = System.currentTimeMillis();
-    int claimLimit = calculateClaimLimit();
-    if (claimLimit <= 0) {
+    if (!hasAvailableCapacity()) {
       updateSystemLoadFactor();
       return strategy.recordPollResult(0, pollStartTime);
     }
 
-    List<JobClaimDto> claims =
-        jobClaimStore.claimNextBatchOptimized(claimLimit, nodeIdProvider.getNodeId());
+    List<JobClaimDto> claims;
+    try {
+      claims = claimJobsByTypeBudget();
+    } catch (RatchetTransientStoreException e) {
+      return handleTransientClaimFailure(pollStartTime, e);
+    }
+
     int jobCount = claims.size();
     if (jobCount > 0) {
       handleJobsFound(claims, jobCount);
@@ -172,13 +189,45 @@ public class Poller {
     return nextDelay;
   }
 
-  private int calculateClaimLimit() {
-    int maxAvailableCapacity = 0;
-    for (JobExecutionType jobType : JobExecutionType.values()) {
-      maxAvailableCapacity =
-          Math.max(maxAvailableCapacity, threadPoolManager.getAvailableCapacity(jobType));
+  private boolean hasAvailableCapacity() {
+    for (JobExecutionType jobType : POLLER_EXECUTABLE_TYPES) {
+      if (threadPoolManager.getAvailableCapacity(jobType) > 0) {
+        return true;
+      }
     }
-    return Math.min(batchSize, maxAvailableCapacity);
+    return false;
+  }
+
+  private List<JobClaimDto> claimJobsByTypeBudget() {
+    List<JobClaimDto> claims = new ArrayList<>();
+    String nodeId = nodeIdProvider.getNodeId();
+    for (JobExecutionType jobType : POLLER_EXECUTABLE_TYPES) {
+      int availableCapacity = threadPoolManager.getAvailableCapacity(jobType);
+      if (availableCapacity <= 0) {
+        continue;
+      }
+      int claimLimit = Math.min(batchSize, availableCapacity);
+      try {
+        List<JobClaimDto> claimed = jobClaimStore.claimNextBatchOptimized(jobType, claimLimit, nodeId);
+        if (metricsCollector != null && !claimed.isEmpty()) {
+          metricsCollector.jobsClaimed(jobType.name(), claimed.size());
+        }
+        claims.addAll(claimed);
+      } catch (RatchetTransientStoreException e) {
+        if (metricsCollector != null) {
+          metricsCollector.claimTransientFailure(jobType.name());
+        }
+        throw e;
+      }
+    }
+    return claims;
+  }
+
+  private long handleTransientClaimFailure(long pollStartTime, RatchetTransientStoreException e) {
+    updateSystemLoadFactor();
+    log.warnf("Transient claim store failure: %s", e.getMessage());
+    long baseDelay = strategy.recordPollResult(0, pollStartTime);
+    return Math.min(config.getPollerMaxDelayMs(), Math.max(baseDelay, 1L) * 2L);
   }
 
   private void updateSystemLoadFactor() {

@@ -224,6 +224,7 @@ public class RatchetProducer {
         drainController,
         pollerScheduler,
         config,
+        metricsCollector,
         pollingStrategyProvider,
         batchSize);
   }

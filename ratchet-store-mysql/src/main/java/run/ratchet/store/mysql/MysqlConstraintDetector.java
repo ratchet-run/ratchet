@@ -9,6 +9,8 @@ import java.util.regex.Pattern;
 public class MysqlConstraintDetector implements ConstraintDetector {
 
   private static final Pattern CONSTRAINT_NAME_PATTERN = Pattern.compile("for key '([^']+)'");
+  private static final int DEADLOCK_ERROR_CODE = 1213;
+  private static final int LOCK_WAIT_TIMEOUT_ERROR_CODE = 1205;
 
   @Override
   public String constraintName(Exception e) {
@@ -43,11 +45,14 @@ public class MysqlConstraintDetector implements ConstraintDetector {
   public boolean isDeadlock(Exception e) {
     Throwable current = e;
     while (current != null) {
-      if (current instanceof SQLException sql && sql.getErrorCode() == 1213) {
+      if (current instanceof SQLException sql
+          && (sql.getErrorCode() == DEADLOCK_ERROR_CODE
+              || sql.getErrorCode() == LOCK_WAIT_TIMEOUT_ERROR_CODE)) {
         return true;
       }
       String msg = current.getMessage();
-      if (msg != null && msg.contains("Deadlock found")) {
+      if (msg != null
+          && (msg.contains("Deadlock found") || msg.contains("Lock wait timeout exceeded"))) {
         return true;
       }
       current = current.getCause();

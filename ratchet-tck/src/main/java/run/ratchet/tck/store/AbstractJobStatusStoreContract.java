@@ -130,6 +130,21 @@ public abstract class AbstractJobStatusStoreContract implements JobStoreContract
   }
 
   @Test
+  void markJobSucceededMinimal_updatesStatusWithoutResult() {
+    var saved = persist(newPendingJob());
+    store().compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+
+    Instant start = Instant.now().minusSeconds(5);
+    Instant end = Instant.now();
+    boolean marked = store().markJobSucceededMinimal(saved.getId(), start, end, 5000L, 100L);
+
+    assertTrue(marked, "markJobSucceededMinimal should return true for a running job");
+    var reloaded = store().findById(saved.getId()).orElseThrow();
+    assertEquals(JobStatus.SUCCEEDED, reloaded.getStatus());
+    assertTrue(reloaded.getJobResult() == null, "Minimal success should not persist result JSON");
+  }
+
+  @Test
   void scheduleJobRetry_setsNewTimeAndAttempts() {
     var saved = persist(newPendingJob());
     store().compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);

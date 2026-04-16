@@ -1,5 +1,6 @@
 package run.ratchet.testsuite.performance;
 
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.testsuite.app.ConfigurableWorkJob;
 import run.ratchet.testsuite.app.PerformanceMetricsCollector;
 import run.ratchet.testsuite.app.ProbabilisticFailingJob;
@@ -131,7 +132,7 @@ class ClaimQueryDegradationIT extends BasePerformanceIT {
 
     perfHelper.assertNoFullScan(
         "claimNextBatch @ " + lastSizeKey,
-        () -> jobClaimStore.claimNextBatchOptimized(10, "perf-test-node"));
+        () -> jobClaimStore.claimNextBatchOptimized(JobExecutionType.SINGLE, 10, "perf-test-node"));
   }
 
   private long[] measureQueryTimes(int iterations) {
