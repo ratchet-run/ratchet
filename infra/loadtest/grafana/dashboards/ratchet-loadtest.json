@@ -122,17 +122,17 @@
       "id": 4,
       "targets": [
         {
-          "expr": "sum(ratchet_store_jobs{status=\"PENDING\"})",
+          "expr": "max(ratchet_store_jobs{status=\"PENDING\"})",
           "legendFormat": "pending",
           "refId": "A"
         },
         {
-          "expr": "sum(ratchet_store_jobs{status=\"RUNNING\"})",
+          "expr": "max(ratchet_store_jobs{status=\"RUNNING\"})",
           "legendFormat": "running",
           "refId": "B"
         },
         {
-          "expr": "sum(ratchet_store_jobs_ready)",
+          "expr": "max(ratchet_store_jobs_ready)",
           "legendFormat": "ready",
           "refId": "C"
         }
@@ -163,6 +163,60 @@
         }
       ],
       "title": "Node Restarts",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
+      "id": 6,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "max(ratchet_pg_connections_total{datname=\"ratchet\"})",
+          "legendFormat": "db connections",
+          "refId": "A"
+        },
+        {
+          "expr": "max(ratchet_pg_connections_active{datname=\"ratchet\"})",
+          "legendFormat": "active db connections",
+          "refId": "B"
+        },
+        {
+          "expr": "max(ratchet_pg_connections_waiting{datname=\"ratchet\"})",
+          "legendFormat": "waiting db backends",
+          "refId": "C"
+        },
+        {
+          "expr": "max(ratchet_pg_waiting_locks_waiting{datname=\"ratchet\"})",
+          "legendFormat": "waiting locks",
+          "refId": "D"
+        },
+        {
+          "expr": "max(ratchet_store_jobs{status=\"PENDING\"})",
+          "legendFormat": "pending jobs",
+          "refId": "E"
+        }
+      ],
+      "title": "DB Pressure",
       "type": "timeseries"
     }
   ],

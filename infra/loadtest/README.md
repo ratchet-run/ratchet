@@ -111,6 +111,10 @@ Useful k6 environment variables:
 | `MIN_ACCEPT_NODES` | script argument | Minimum nodes that must accept enqueue writes |
 | `NODE_PROBE_REQUESTS` | `200` | Gateway probe requests before load starts |
 | `RUN_ID` | generated | Run ID attached to every enqueued job |
+| `LOAD_TEARDOWN_TIMEOUT` | `3m` | k6 teardown timeout for large backlog summary calls |
+| `LOAD_ENQUEUE_RETRIES` | `3` | Retry count for transient enqueue HTTP failures |
+| `LOAD_ENQUEUE_RETRY_DELAY_MS` | `100` | Initial retry delay for transient enqueue failures |
+| `LOAD_ENQUEUE_RETRY_BACKOFF` | `2.0` | Retry delay multiplier |
 | `JOB_WORKLOAD` | `noop` | Job workload submitted by each HTTP request |
 | `JOB_SLEEP_MS` | `0` | Base per-job sleep time |
 | `JOB_SLEEP_JITTER_MS` | `0` | Deterministic per-job extra sleep |
@@ -175,8 +179,10 @@ curl -sS -X POST http://localhost:8080/api/reset \
   -d '{"runId":"<run-id>"}'
 ```
 
-Prometheus scrapes all `ratchet-node` containers using Docker service discovery. Grafana provisions
-the `Ratchet Load Test` dashboard automatically.
+Prometheus scrapes all `ratchet-node` containers using Docker service discovery. The PostgreSQL
+overlay also runs `postgres-exporter` and scrapes connection, wait, and lock metrics. Grafana
+provisions the `Ratchet Load Test` dashboard automatically, including a `DB Pressure` panel for
+active database connections, waiting backends, waiting locks, and pending queue depth.
 
 ## Tuning
 
@@ -186,16 +192,19 @@ The main knobs are exposed as environment variables before running Compose:
 RATCHET_THREAD_POOL_SIZE_SINGLE=64 \
 RATCHET_POLLER_BATCH_SIZE=64 \
 RATCHET_POLLER_MIN_DELAY_MS=100 \
-DB_MAX_POOL_SIZE=100 \
-POSTGRES_MAX_CONNECTIONS=1200 \
+DB_MAX_POOL_SIZE=50 \
+POSTGRES_MAX_CONNECTIONS=800 \
 sh infra/loadtest/run.sh postgresql 10
 ```
 
 For better node balance, keep `RATCHET_POLLER_BATCH_SIZE` near the per-node executor capacity for
 the dominant job type. Very large batches let whichever node polls first reserve too much work.
 
-For PostgreSQL, set `POSTGRES_MAX_CONNECTIONS` high enough for the cluster size and datasource
-pools. A practical starting point is `nodes * DB_MAX_POOL_SIZE + 100`.
+For PostgreSQL, tune `POSTGRES_MAX_CONNECTIONS` and `DB_MAX_POOL_SIZE` together. The default
+`DB_MAX_POOL_SIZE=50` and `POSTGRES_MAX_CONNECTIONS=800` support a 10-node load-test cluster while
+leaving headroom for the exporter, manual sessions, and restart churn. A practical upper bound is
+`nodes * DB_MAX_POOL_SIZE + 100`, but raising connection counts too far can make Postgres spend more
+time scheduling connections than draining queue work.
 
 The PostgreSQL overlay sets `POSTGRES_SHM_SIZE=1gb` by default via Compose `shm_size`; raise it for
 large runs if status or analytics queries report dynamic shared-memory allocation errors.

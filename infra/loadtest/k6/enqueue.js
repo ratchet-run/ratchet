@@ -10,19 +10,25 @@ const preAllocatedVUs = intEnv('LOAD_PRE_ALLOCATED_VUS', 50);
 const maxVUs = intEnv('LOAD_MAX_VUS', 500);
 const httpP95Ms = intEnv('LOAD_HTTP_P95_MS', 1000);
 const httpErrorRate = floatEnv('LOAD_HTTP_ERROR_RATE', 0.01);
+const teardownTimeout = __ENV.LOAD_TEARDOWN_TIMEOUT || '3m';
 const minAcceptedNodes = intEnv('MIN_ACCEPT_NODES', 0);
 const nodeProbeRequests = intEnv('NODE_PROBE_REQUESTS', 200);
 const clusterWaitSeconds = intEnv('CLUSTER_WAIT_SECONDS', 60);
 const loadMode = (__ENV.LOAD_MODE || 'spread').toLowerCase();
 const spreadMode = loadMode !== 'throughput';
 const noConnectionReuse = boolEnv('LOAD_NO_CONNECTION_REUSE', spreadMode);
+const enqueueRetries = intEnv('LOAD_ENQUEUE_RETRIES', 3);
+const enqueueRetryDelayMs = intEnv('LOAD_ENQUEUE_RETRY_DELAY_MS', 100);
+const enqueueRetryBackoff = floatEnv('LOAD_ENQUEUE_RETRY_BACKOFF', 2);
 
 const enqueueRequests = new Counter('ratchet_enqueue_requests');
 const enqueueFailures = new Counter('ratchet_enqueue_failures');
+const enqueueRetryAttempts = new Counter('ratchet_enqueue_retry_attempts');
 
 export const options = {
   noConnectionReuse,
   setupTimeout: `${Math.max(60, clusterWaitSeconds * 2 + 30)}s`,
+  teardownTimeout,
   scenarios: {
     enqueue: {
       executor: 'constant-arrival-rate',
@@ -49,6 +55,10 @@ export function setup() {
   console.log(`runId=${runId}`);
   console.log(`loadMode=${loadMode}`);
   console.log(`noConnectionReuse=${noConnectionReuse}`);
+  console.log(`teardownTimeout=${teardownTimeout}`);
+  console.log(`enqueueRetries=${enqueueRetries}`);
+  console.log(`enqueueRetryDelayMs=${enqueueRetryDelayMs}`);
+  console.log(`enqueueRetryBackoff=${enqueueRetryBackoff}`);
   console.log(`clusterActiveNodes=${cluster.activeNodes}`);
   console.log(`gatewayProbeNodes=${JSON.stringify(probedNodes)}`);
 
@@ -72,9 +82,7 @@ export default function (data) {
     timeoutSeconds: intEnv('JOB_TIMEOUT_SECONDS', 60),
   });
 
-  const response = http.post(`${targetUrl}/api/jobs`, payload, {
-    headers: enqueueHeaders(),
-  });
+  const response = postJobWithRetry(payload);
   const acceptedNode = responseHeader(response, 'X-Ratchet-Node-Id') || 'missing';
   enqueueRequests.add(1, { accepted_node: acceptedNode });
 
@@ -88,9 +96,7 @@ export default function (data) {
 }
 
 export function teardown(data) {
-  const response = http.get(`${targetUrl}/api/runs/${data.runId}`, {
-    headers: controlHeaders(),
-  });
+  const response = getWithRetry(`${targetUrl}/api/runs/${data.runId}`);
   if (response.status !== 200) {
     fail(`run status returned HTTP ${response.status}`);
   }
@@ -106,6 +112,46 @@ export function teardown(data) {
         `counts=${JSON.stringify(enqueueNodeCounts)}`
     );
   }
+}
+
+function postJobWithRetry(payload) {
+  let response = null;
+  for (let attempt = 0; attempt <= enqueueRetries; attempt++) {
+    response = http.post(`${targetUrl}/api/jobs`, payload, {
+      headers: enqueueHeaders(),
+    });
+    if (!shouldRetry(response)) {
+      return response;
+    }
+    if (attempt < enqueueRetries) {
+      enqueueRetryAttempts.add(1, { status: String(response.status || 0) });
+      sleep(retryDelaySeconds(attempt));
+    }
+  }
+  return response;
+}
+
+function getWithRetry(url) {
+  let response = null;
+  for (let attempt = 0; attempt <= enqueueRetries; attempt++) {
+    response = http.get(url, { headers: controlHeaders() });
+    if (!shouldRetry(response)) {
+      return response;
+    }
+    if (attempt < enqueueRetries) {
+      sleep(retryDelaySeconds(attempt));
+    }
+  }
+  return response;
+}
+
+function shouldRetry(response) {
+  return response.status === 0 || response.status === 502 || response.status === 503 || response.status === 504;
+}
+
+function retryDelaySeconds(attempt) {
+  const multiplier = Math.pow(Math.max(1, enqueueRetryBackoff), attempt);
+  return (enqueueRetryDelayMs * multiplier) / 1000;
 }
 
 function waitForCluster() {
