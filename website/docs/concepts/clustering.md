@@ -100,41 +100,8 @@ With the no-op coordinator, jobs submitted on Node A will be picked up by Node B
 
 You can implement `ClusterCoordinator` using any messaging technology available in your environment:
 
-**JMS-based (Jakarta EE native):**
-
-```java
-@Alternative
-@Priority(APPLICATION)
-@ApplicationScoped
-public class JmsClusterCoordinator implements ClusterCoordinator {
-
-    @Resource(lookup = "java:/jms/RatchetWakeupTopic")
-    private Topic wakeupTopic;
-
-    @Inject
-    private JMSContext jmsContext;
-
-    private Runnable wakeupListener;
-
-    @Override
-    public void notifyNewWork(JobPriority priority) {
-        jmsContext.createProducer()
-            .send(wakeupTopic, priority.name());
-    }
-
-    @Override
-    public void registerWakeupListener(Runnable listener) {
-        this.wakeupListener = listener;
-    }
-
-    // JMS message-driven bean or listener handles incoming messages
-    public void onMessage(Message message) {
-        if (wakeupListener != null) {
-            wakeupListener.run();
-        }
-    }
-}
-```
+**JMS-based (Jakarta EE native):** publish a best-effort wakeup message to a shared topic and
+invoke registered listeners from a message-driven bean or other container-managed consumer.
 
 **Infinispan/JGroups-based:**
 

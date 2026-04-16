@@ -127,40 +127,9 @@ public class RedisClusterCoordinator implements ClusterCoordinator {
 
 ### JMS/Messaging-Based Coordinator
 
-For environments that already have a message broker (ActiveMQ, RabbitMQ):
-
-```java
-@ApplicationScoped
-public class JmsClusterCoordinator implements ClusterCoordinator {
-
-  @Inject
-  @JMSConnectionFactory("java:/ConnectionFactory")
-  JMSContext jms;
-
-  @Resource(lookup = "java:/jms/topic/ratchet-wakeup")
-  Topic wakeupTopic;
-
-  private final List<Runnable> listeners = new CopyOnWriteArrayList<>();
-
-  @PostConstruct
-  void init() {
-    JMSConsumer consumer = jms.createConsumer(wakeupTopic);
-    consumer.setMessageListener(msg -> {
-      listeners.forEach(Runnable::run);
-    });
-  }
-
-  @Override
-  public void notifyNewWork(JobPriority priority) {
-    jms.createProducer().send(wakeupTopic, priority.name());
-  }
-
-  @Override
-  public void registerWakeupListener(Runnable listener) {
-    listeners.add(listener);
-  }
-}
-```
+For environments that already have a message broker, implement `ClusterCoordinator` over a shared
+topic or channel and invoke the registered listeners from the container-managed consumer when a
+wakeup signal arrives.
 
 ## Distributed Locking
 
