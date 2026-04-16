@@ -1,2 +1,2 @@
-embed-server --std-out=echo --server-config=standalone.xml
+embed-server --std-out=echo --server-config=${env.WILDFLY_SERVER_CONFIG:standalone.xml}
 stop-embedded-server

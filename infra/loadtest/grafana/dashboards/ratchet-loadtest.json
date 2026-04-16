@@ -191,23 +191,23 @@
       },
       "targets": [
         {
-          "expr": "max(ratchet_pg_connections_total{datname=\"ratchet\"})",
+          "expr": "max(ratchet_pg_connections_total{datname=\"ratchet\"}) or max(mysql_global_status_threads_connected)",
           "legendFormat": "db connections",
           "refId": "A"
         },
         {
-          "expr": "max(ratchet_pg_connections_active{datname=\"ratchet\"})",
-          "legendFormat": "active db connections",
+          "expr": "max(ratchet_pg_connections_active{datname=\"ratchet\"}) or max(mysql_global_status_threads_running)",
+          "legendFormat": "active db workers",
           "refId": "B"
         },
         {
-          "expr": "max(ratchet_pg_connections_waiting{datname=\"ratchet\"})",
-          "legendFormat": "waiting db backends",
+          "expr": "max(ratchet_pg_connections_waiting{datname=\"ratchet\"}) or max(mysql_global_status_innodb_row_lock_current_waits)",
+          "legendFormat": "waiting backends / row locks",
           "refId": "C"
         },
         {
-          "expr": "max(ratchet_pg_waiting_locks_waiting{datname=\"ratchet\"})",
-          "legendFormat": "waiting locks",
+          "expr": "max(ratchet_pg_waiting_locks_waiting{datname=\"ratchet\"}) or sum(rate(mysql_global_status_innodb_row_lock_waits[1m]))",
+          "legendFormat": "lock waits / sec",
           "refId": "D"
         },
         {
@@ -217,6 +217,138 @@
         }
       ],
       "title": "DB Pressure",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "id": 7,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (execution_type) (rate(ratchet_poller_claimed_jobs_total[1m]))",
+          "legendFormat": "claimed {{ execution_type }}/sec",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (execution_type) (rate(ratchet_store_claim_transient_failures_total[1m]))",
+          "legendFormat": "claim conflicts {{ execution_type }}/sec",
+          "refId": "B"
+        }
+      ],
+      "title": "Claim Pressure",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "id": 8,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (type) (rate(ratchet_store_finalization_retries_total[1m])) or on() vector(0)",
+          "legendFormat": "finalization retries {{ type }}/sec",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (type) (rate(ratchet_store_finalization_minimal_success_total[1m])) or on() vector(0)",
+          "legendFormat": "minimal success {{ type }}/sec",
+          "refId": "B"
+        },
+        {
+          "expr": "sum by (type) (rate(ratchet_store_finalization_stuck_total[1m])) or on() vector(0)",
+          "legendFormat": "stuck finalization {{ type }}/sec",
+          "refId": "C"
+        },
+        {
+          "expr": "sum by (execution_type, gate_status) (rate(ratchet_submission_gate_rejections_total[1m])) or on() vector(0)",
+          "legendFormat": "gate {{ execution_type }} {{ gate_status }}/sec",
+          "refId": "D"
+        }
+      ],
+      "title": "Finalization And Gates",
+      "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      },
+      "id": 9,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (source) (rate(ratchet_wakeup_local_total[1m])) or on() vector(0)",
+          "legendFormat": "local {{ source }}/sec",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (transport, outcome) (rate(ratchet_wakeup_cluster_publish_total[1m])) or on() vector(0)",
+          "legendFormat": "publish {{ transport }} {{ outcome }}/sec",
+          "refId": "B"
+        },
+        {
+          "expr": "sum by (transport, outcome) (rate(ratchet_wakeup_cluster_receive_total[1m])) or on() vector(0)",
+          "legendFormat": "receive {{ transport }} {{ outcome }}/sec",
+          "refId": "C"
+        }
+      ],
+      "title": "Wakeups",
       "type": "timeseries"
     }
   ],
@@ -233,6 +365,6 @@
   "timezone": "browser",
   "title": "Ratchet Load Test",
   "uid": "ratchet-loadtest",
-  "version": 1,
+  "version": 4,
   "weekStart": ""
 }

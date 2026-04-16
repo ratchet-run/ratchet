@@ -5,9 +5,15 @@ SELF_PROJECT="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.p
 PROJECT="${COMPOSE_PROJECT_NAME:-${SELF_PROJECT:-ratchet-loadtest}}"
 SERVICE="${CHAOS_TARGET_SERVICE:-ratchet-node}"
 INTERVAL="${CHAOS_INTERVAL_SECONDS:-30}"
+INTERVAL_MIN="${CHAOS_INTERVAL_SECONDS_MIN:-$INTERVAL}"
+INTERVAL_MAX="${CHAOS_INTERVAL_SECONDS_MAX:-$INTERVAL}"
 DOWN_MIN="${CHAOS_DOWN_SECONDS_MIN:-5}"
 DOWN_MAX="${CHAOS_DOWN_SECONDS_MAX:-20}"
 PROBABILITY="${CHAOS_PROBABILITY:-1.0}"
+TARGETS_MIN="${CHAOS_TARGETS_PER_CYCLE_MIN:-1}"
+TARGETS_MAX="${CHAOS_TARGETS_PER_CYCLE_MAX:-2}"
+MIN_RUNNING="${CHAOS_MIN_RUNNING:-1}"
+ACTIONS="${CHAOS_ACTIONS:-stop,kill,pause,restart}"
 SEED="${CHAOS_SEED:-$(date +%s)}"
 RAND_VALUE=0
 RAND_BETWEEN=0
@@ -37,10 +43,81 @@ probability_threshold() {
   }'
 }
 
-echo "chaos-monkey: project=$PROJECT service=$SERVICE interval=${INTERVAL}s probability=$PROBABILITY"
+count_lines() {
+  printf '%s\n' "$1" | sed '/^$/d' | wc -l | tr -d ' '
+}
+
+pick_line() {
+  value="$1"
+  index="$2"
+  printf '%s\n' "$value" | sed -n "${index}p"
+}
+
+remove_line() {
+  value="$1"
+  index="$2"
+  printf '%s\n' "$value" | awk -v skip="$index" 'NF { if (++n != skip) print }'
+}
+
+pick_action() {
+  action_list="$(printf '%s' "$ACTIONS" | tr ',' '\n' | sed 's/^ *//;s/ *$//' | sed '/^$/d')"
+  action_count="$(count_lines "$action_list")"
+  if [ "$action_count" = "0" ]; then
+    PICKED_ACTION="stop"
+    return
+  fi
+  rand_between 1 "$action_count"
+  PICKED_ACTION="$(pick_line "$action_list" "$RAND_BETWEEN")"
+}
+
+disrupt_target() {
+  action="$1"
+  target_id="$2"
+  target_name="$3"
+  down_seconds="$4"
+
+  case "$action" in
+    stop)
+      echo "chaos-monkey: stopping $target_name for ${down_seconds}s"
+      docker stop -t 2 "$target_id" >/dev/null
+      sleep "$down_seconds"
+      echo "chaos-monkey: starting $target_name"
+      docker start "$target_id" >/dev/null
+      ;;
+    kill)
+      echo "chaos-monkey: killing $target_name for ${down_seconds}s"
+      docker kill "$target_id" >/dev/null
+      sleep "$down_seconds"
+      echo "chaos-monkey: starting $target_name after kill"
+      docker start "$target_id" >/dev/null
+      ;;
+    pause)
+      echo "chaos-monkey: pausing $target_name for ${down_seconds}s"
+      docker pause "$target_id" >/dev/null
+      sleep "$down_seconds"
+      echo "chaos-monkey: unpausing $target_name"
+      docker unpause "$target_id" >/dev/null
+      ;;
+    restart)
+      echo "chaos-monkey: restarting $target_name with ${down_seconds}s cooldown"
+      docker restart -t 2 "$target_id" >/dev/null
+      sleep "$down_seconds"
+      ;;
+    *)
+      echo "chaos-monkey: unknown action '$action' for $target_name, defaulting to stop"
+      docker stop -t 2 "$target_id" >/dev/null
+      sleep "$down_seconds"
+      docker start "$target_id" >/dev/null
+      ;;
+  esac
+}
+
+echo "chaos-monkey: project=$PROJECT service=$SERVICE interval=${INTERVAL_MIN}-${INTERVAL_MAX}s probability=$PROBABILITY actions=$ACTIONS targets=${TARGETS_MIN}-${TARGETS_MAX} min_running=$MIN_RUNNING"
 
 while true; do
-  sleep "$INTERVAL"
+  rand_between "$INTERVAL_MIN" "$INTERVAL_MAX"
+  sleep_seconds="$RAND_BETWEEN"
+  sleep "$sleep_seconds"
 
   threshold="$(probability_threshold)"
   rand32
@@ -61,17 +138,36 @@ while true; do
     continue
   fi
 
-  rand_between 1 "$count"
-  index="$RAND_BETWEEN"
-  target_line="$(printf '%s\n' "$containers" | sed -n "${index}p")"
-  target_id="$(printf '%s' "$target_line" | awk '{print $1}')"
-  target_name="$(printf '%s' "$target_line" | awk '{print $2}')"
-  rand_between "$DOWN_MIN" "$DOWN_MAX"
-  down_seconds="$RAND_BETWEEN"
+  available_to_disrupt=$(( count - MIN_RUNNING ))
+  if [ "$available_to_disrupt" -le 0 ]; then
+    echo "chaos-monkey: preserving minimum running containers count=$count min_running=$MIN_RUNNING"
+    continue
+  fi
 
-  echo "chaos-monkey: stopping $target_name for ${down_seconds}s"
-  docker stop -t 2 "$target_id" >/dev/null
-  sleep "$down_seconds"
-  echo "chaos-monkey: starting $target_name"
-  docker start "$target_id" >/dev/null
+  rand_between "$TARGETS_MIN" "$TARGETS_MAX"
+  target_count="$RAND_BETWEEN"
+  if [ "$target_count" -gt "$available_to_disrupt" ]; then
+    target_count="$available_to_disrupt"
+  fi
+
+  remaining="$containers"
+  current_target=1
+  while [ "$current_target" -le "$target_count" ]; do
+    remaining_count="$(count_lines "$remaining")"
+    if [ "$remaining_count" -le 0 ]; then
+      break
+    fi
+
+    rand_between 1 "$remaining_count"
+    index="$RAND_BETWEEN"
+    target_line="$(pick_line "$remaining" "$index")"
+    remaining="$(remove_line "$remaining" "$index")"
+    target_id="$(printf '%s' "$target_line" | awk '{print $1}')"
+    target_name="$(printf '%s' "$target_line" | awk '{print $2}')"
+    rand_between "$DOWN_MIN" "$DOWN_MAX"
+    down_seconds="$RAND_BETWEEN"
+    pick_action
+    disrupt_target "$PICKED_ACTION" "$target_id" "$target_name" "$down_seconds" &
+    current_target=$(( current_target + 1 ))
+  done
 done

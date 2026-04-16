@@ -31,11 +31,15 @@ Grafana at `http://localhost:3000` with `admin` / `ratchet` by default.
 
 ## Enable Chaos
 
-The chaos monkey uses the Docker socket to randomly stop and later restart containers whose Compose
-service is `ratchet-node`.
+The chaos monkey uses the Docker socket to randomly disrupt containers whose Compose service is
+`ratchet-node`. It can vary the attack interval, target count per cycle, and disruption mode
+(`stop`, `kill`, `pause`, `restart`) while preserving a minimum number of running nodes.
 
 ```bash
-CHAOS_INTERVAL_SECONDS=20 CHAOS_DOWN_SECONDS_MIN=5 CHAOS_DOWN_SECONDS_MAX=15 \
+CHAOS_INTERVAL_SECONDS_MIN=10 CHAOS_INTERVAL_SECONDS_MAX=35 \
+CHAOS_TARGETS_PER_CYCLE_MIN=1 CHAOS_TARGETS_PER_CYCLE_MAX=3 \
+CHAOS_ACTIONS=stop,kill,pause,restart \
+CHAOS_DOWN_SECONDS_MIN=5 CHAOS_DOWN_SECONDS_MAX=15 \
   sh infra/loadtest/run.sh postgresql 5 chaos
 ```
 

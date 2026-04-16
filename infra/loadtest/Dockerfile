@@ -1,13 +1,19 @@
 ARG STORE=postgresql
+ARG EXTRA_PROFILES=
+ARG WILDFLY_SERVER_CONFIG=standalone.xml
 
 FROM maven:3.9.9-eclipse-temurin-17 AS build
 ARG STORE=postgresql
+ARG EXTRA_PROFILES=
 WORKDIR /workspace
 COPY . .
-RUN mvn -pl ratchet-loadtest -am -P${STORE} -DskipTests package
+RUN mvn -pl ratchet-loadtest -am -P${STORE}${EXTRA_PROFILES:+,${EXTRA_PROFILES}} -DskipTests package
 
 FROM quay.io/wildfly/wildfly:39.0.1.Final-2-jdk17
 ARG STORE=postgresql
+ARG WILDFLY_SERVER_CONFIG=standalone.xml
+
+ENV WILDFLY_SERVER_CONFIG=${WILDFLY_SERVER_CONFIG}
 
 USER root
 RUN mkdir -p \
@@ -28,4 +34,4 @@ RUN chown -R jboss:root /opt/jboss/ratchet /opt/jboss/wildfly/standalone \
 
 USER jboss
 EXPOSE 8080 9990
-CMD ["/bin/sh", "-c", "exec /opt/jboss/wildfly/bin/standalone.sh -b 0.0.0.0 -Djboss.node.name=${NODE_ID:-${HOSTNAME}}"]
+CMD ["/bin/sh", "-c", "exec /opt/jboss/wildfly/bin/standalone.sh -c ${WILDFLY_SERVER_CONFIG:-standalone.xml} -b 0.0.0.0 -Djboss.node.name=${NODE_ID:-${HOSTNAME}}"]

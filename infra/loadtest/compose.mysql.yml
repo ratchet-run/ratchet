@@ -24,11 +24,27 @@ services:
     volumes:
       - mysqldata:/var/lib/mysql
       - ../../ratchet-store-mysql/src/main/resources/ddl/mysql-schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./mysql-exporter/init.sql:/docker-entrypoint-initdb.d/02-mysql-exporter-user.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -prootpassword"]
       interval: 5s
       timeout: 5s
       retries: 30
+
+  mysql-exporter:
+    image: prom/mysqld-exporter:v0.17.2
+    command: ["--config.my-cnf=/etc/mysqld-exporter/.my.cnf"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+    expose:
+      - "9104"
+    labels:
+      ratchet.loadtest: "true"
+      prometheus.scrape: "true"
+      prometheus.port: "9104"
+    volumes:
+      - ./mysql-exporter/my.cnf:/etc/mysqld-exporter/.my.cnf:ro
 
 volumes:
   mysqldata:
