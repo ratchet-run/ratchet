@@ -21,6 +21,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import jakarta.persistence.Version;
 import java.time.Instant;
 import java.util.List;
@@ -186,6 +187,10 @@ public class JobEntity implements TsidEntityListener.TsidAssignable {
   @Version
   @Column(name = "version")
   private Integer version;
+
+  // populated by MysqlJobStore hydrator from cold.terminal_status; never persisted via JPA
+  // (PG schema does not have the column yet — added in CP3).
+  @Transient private JobStatus terminalStatus;
 
   public Long getId() {
     return id;
@@ -501,6 +506,14 @@ public class JobEntity implements TsidEntityListener.TsidAssignable {
 
   public void setVersion(Integer version) {
     this.version = version;
+  }
+
+  public JobStatus getTerminalStatus() {
+    return terminalStatus;
+  }
+
+  public void setTerminalStatus(JobStatus terminalStatus) {
+    this.terminalStatus = terminalStatus;
   }
 
   @Override

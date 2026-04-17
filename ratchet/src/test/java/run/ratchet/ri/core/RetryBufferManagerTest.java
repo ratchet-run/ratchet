@@ -79,11 +79,11 @@ class RetryBufferManagerTest {
     manager.offer(job(1L, JobExecutionType.SINGLE, JobPriority.NORMAL, now));
     manager.offer(job(2L, JobExecutionType.SINGLE, JobPriority.HIGH, now));
 
-    RetryBufferManager.BufferedJob first = manager.pollFromBuffer(JobExecutionType.SINGLE);
+    RetryBufferManager.BufferedClaim first = manager.pollFromBuffer(JobExecutionType.SINGLE);
     assertNotNull(first);
     assertEquals(2L, first.jobId());
 
-    RetryBufferManager.BufferedJob second = manager.pollFromBuffer(JobExecutionType.SINGLE);
+    RetryBufferManager.BufferedClaim second = manager.pollFromBuffer(JobExecutionType.SINGLE);
     assertNotNull(second);
     assertEquals(1L, second.jobId());
   }
@@ -96,7 +96,7 @@ class RetryBufferManagerTest {
     manager.offer(job(1L, JobExecutionType.SINGLE, JobPriority.NORMAL, later));
     manager.offer(job(2L, JobExecutionType.SINGLE, JobPriority.NORMAL, earlier));
 
-    RetryBufferManager.BufferedJob first = manager.pollFromBuffer(JobExecutionType.SINGLE);
+    RetryBufferManager.BufferedClaim first = manager.pollFromBuffer(JobExecutionType.SINGLE);
     assertNotNull(first);
     assertEquals(2L, first.jobId(), "Earlier scheduled job should be polled first");
   }

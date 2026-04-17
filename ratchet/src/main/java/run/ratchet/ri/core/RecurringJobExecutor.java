@@ -7,6 +7,7 @@ import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.spi.JobClaimStore;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobStatusStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -30,11 +31,13 @@ public class RecurringJobExecutor {
 
   private final JobCrudStore jobCrudStore;
   private final JobClaimStore jobClaimStore;
+  private final JobStatusStore jobStatusStore;
   private final RecurringRegistrationState registrationState;
 
   protected RecurringJobExecutor() {
     this.jobCrudStore = null;
     this.jobClaimStore = null;
+    this.jobStatusStore = null;
     this.registrationState = null;
   }
 
@@ -42,9 +45,11 @@ public class RecurringJobExecutor {
   public RecurringJobExecutor(
       JobCrudStore jobCrudStore,
       JobClaimStore jobClaimStore,
+      JobStatusStore jobStatusStore,
       RecurringRegistrationState registrationState) {
     this.jobCrudStore = jobCrudStore;
     this.jobClaimStore = jobClaimStore;
+    this.jobStatusStore = jobStatusStore;
     this.registrationState = registrationState;
   }
 
@@ -62,19 +67,15 @@ public class RecurringJobExecutor {
       // node finished its @Recurring registration pass, refuse to fire any master whose business
       // key is not in the local known-keys set. This closes the rolling-deploy race where Node
       // B's newer JAR removes an annotation but Node A (or even Node B itself, before cleanup
-      // runs) might claim and fire the orphaned master between scan cycles. We release the
-      // claim by clearing pickedBy/pickedAt and saving without advancing nextFire — the master
-      // stays PENDING and is eligible for another claim attempt next cycle, by which point the
-      // cleanup pass will have removed it (if it really is orphaned) or it will pass the gate
-      // (if registration completed and it's known).
+      // runs) might claim and fire the orphaned master between scan cycles. Post hot/cold-split,
+      // recurring masters have no hot row and no picked_by/picked_at to clear — releasing means
+      // letting the FOR UPDATE SKIP LOCKED row lock drop at tx end. We just continue without
+      // advancing next_fire so the master is eligible next cycle.
       if (registrationState != null && !registrationState.shouldFire(master.getBusinessKey())) {
         log.debugf(
             "Recurring master %s (businessKey=%s) skipped — within startup grace and key not"
                 + " in local known set",
             master.getId(), master.getBusinessKey());
-        master.setPickedBy(null);
-        master.setPickedAt(null);
-        jobCrudStore.save(master);
         continue;
       }
       firedCount++;
@@ -108,14 +109,17 @@ public class RecurringJobExecutor {
       }
 
       if (nextOpt.isPresent()) {
+        // Cold-only metadata UPDATE — save() is allowed for next_fire advance.
         master.setNextFire(nextOpt.get());
         master.setStatus(JobStatus.PENDING);
+        jobCrudStore.save(master);
       } else {
-        master.setStatus(JobStatus.CANCELED);
+        // Cron exhausted — explicit cancel pathway runs the recurring-cancel SQL atomically
+        // (clear rec_status, set terminal_status='CANCELED', drop bkres). Routing through
+        // save() would trip the hot-mutation guard since save() can't represent the rec_status
+        // / terminal_status transition.
+        jobStatusStore.cancelJob(master.getId());
       }
-      master.setPickedBy(null);
-      master.setPickedAt(null);
-      jobCrudStore.save(master);
       log.infof("Recurring job %s fired; next=%s", master.getId(), master.getNextFire());
     }
     return firedCount;

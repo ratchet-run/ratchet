@@ -636,6 +636,60 @@ public class PostgresqlJobStore implements JobStore {
   }
 
   @Override
+  public boolean pauseRecurring(long id) {
+    // Single-table PG schema: pause-recurring is a normal PENDING→PAUSED status flip on the
+    // recurring row. CP3 will move recurring masters to scheduler_recurring_job.
+    int updated =
+        em.createNativeQuery(
+                "UPDATE scheduler_job SET status = 'PAUSED', paused_from_status = 'PENDING', "
+                    + "updated_at = statement_timestamp() "
+                    + "WHERE job_id = ? AND job_type = 'RECURRING' AND status = 'PENDING'")
+            .setParameter(1, id)
+            .executeUpdate();
+    return updated > 0;
+  }
+
+  @Override
+  public boolean resumeRecurring(long id) {
+    int updated =
+        em.createNativeQuery(
+                "UPDATE scheduler_job SET status = 'PENDING', paused_from_status = NULL, "
+                    + "updated_at = statement_timestamp() "
+                    + "WHERE job_id = ? AND job_type = 'RECURRING' AND status = 'PAUSED'")
+            .setParameter(1, id)
+            .executeUpdate();
+    return updated > 0;
+  }
+
+  @Override
+  public boolean markJobFailedTerminal(long id, String terminalError, int totalAttempts) {
+    int updated =
+        em.createNativeQuery(
+                "UPDATE scheduler_job SET status = 'FAILED', last_error = ?, "
+                    + "attempts = ?, picked_by = NULL, picked_at = NULL, "
+                    + "updated_at = statement_timestamp() "
+                    + "WHERE job_id = ? AND status = 'RUNNING'")
+            .setParameter(1, terminalError)
+            .setParameter(2, totalAttempts)
+            .setParameter(3, id)
+            .executeUpdate();
+    return updated > 0;
+  }
+
+  @Override
+  public boolean cancelJob(long id) {
+    int updated =
+        em.createNativeQuery(
+                "UPDATE scheduler_job SET status = 'CANCELED', "
+                    + "picked_by = NULL, picked_at = NULL, "
+                    + "updated_at = statement_timestamp() "
+                    + "WHERE job_id = ? AND status IN ('PENDING','RUNNING','PAUSED')")
+            .setParameter(1, id)
+            .executeUpdate();
+    return updated > 0;
+  }
+
+  @Override
   public boolean resetRunningJob(long id, String nodeId) {
     int updated =
         em.createNativeQuery(

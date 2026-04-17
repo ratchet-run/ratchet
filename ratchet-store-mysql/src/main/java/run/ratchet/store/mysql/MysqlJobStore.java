@@ -4,7 +4,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.WorkflowCondition;
-import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.converter.JobPayloadConverter;
@@ -24,6 +23,7 @@ import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
+import run.ratchet.store.id.TsidFactory;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.util.ArchiveHelper;
 import run.ratchet.store.util.IsolationCheck;
@@ -31,13 +31,12 @@ import run.ratchet.store.util.ObjectMapperFactory;
 import run.ratchet.store.util.PriorityBoostConfig;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
-import jakarta.persistence.OptimisticLockException;
 import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.TypedQuery;
 import jakarta.transaction.Transactional;
-import jakarta.inject.Inject;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
@@ -47,6 +46,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -77,6 +77,101 @@ public class MysqlJobStore implements JobStore {
       "job_type IN ('SINGLE','BATCH_CHILD','CHAIN_STEP','WORKFLOW_BRANCH')";
   private static final String RECURRING_JOB_TYPE_FILTER = "job_type = 'RECURRING'";
 
+  // ===========================================================================
+  // CP1 hot/cold split: hydration projection + INSERT SQL contracts.
+  //
+  // HYDRATION_SELECT is a positional projection of (cold LEFT JOIN hot) used by every
+  // composite-view read (findById, findByIdLatest, findByIds, findActiveByBusinessKey,
+  // findByIdempotencyKey, findDependants). Column order matches the IDX_* indices below,
+  // and the count is asserted in hydrateJobEntity().
+  // ===========================================================================
+  private static final String HYDRATION_SELECT =
+      "c.job_id, c.job_type, c.priority, c.max_retries, c.backoff_policy, c.backoff_param_ms, "
+          + "c.timeout_sec, c.cron_expr, c.zone_id, c.next_fire, c.payload, c.params, "
+          + "c.target_class, c.method_name, c.idempotency_key, c.business_key, c.resource_name, "
+          + "c.on_success_payload, c.on_failure_payload, c.depends_on, c.superseded_by, "
+          + "c.created_at, c.created_by, c.terminal_status, c.terminal_error, c.total_attempts, "
+          + "c.terminated_at, c.execution_start_time, c.execution_end_time, "
+          + "c.execution_duration_ms, c.queue_wait_ms, c.job_result, c.result_type, c.rec_status, "
+          + "q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at, "
+          + "q.paused_from_status, q.last_error, q.version, q.updated_at";
+
+  private static final int HYDRATION_COL_COUNT = 43;
+
+  // Cold positions
+  private static final int IDX_JOB_ID = 0;
+  private static final int IDX_JOB_TYPE = 1;
+  private static final int IDX_PRIORITY = 2;
+  private static final int IDX_MAX_RETRIES = 3;
+  private static final int IDX_BACKOFF_POLICY = 4;
+  private static final int IDX_BACKOFF_PARAM_MS = 5;
+  private static final int IDX_TIMEOUT_SEC = 6;
+  private static final int IDX_CRON_EXPR = 7;
+  private static final int IDX_ZONE_ID = 8;
+  private static final int IDX_NEXT_FIRE = 9;
+  private static final int IDX_PAYLOAD = 10;
+  private static final int IDX_PARAMS = 11;
+  private static final int IDX_TARGET_CLASS = 12;
+  private static final int IDX_METHOD_NAME = 13;
+  private static final int IDX_IDEMPOTENCY_KEY = 14;
+  private static final int IDX_BUSINESS_KEY = 15;
+  private static final int IDX_RESOURCE_NAME = 16;
+  private static final int IDX_ON_SUCCESS = 17;
+  private static final int IDX_ON_FAILURE = 18;
+  private static final int IDX_DEPENDS_ON = 19;
+  private static final int IDX_SUPERSEDED_BY = 20;
+  private static final int IDX_CREATED_AT = 21;
+  private static final int IDX_CREATED_BY = 22;
+  private static final int IDX_TERMINAL_STATUS = 23;
+  private static final int IDX_TERMINAL_ERROR = 24;
+  private static final int IDX_TOTAL_ATTEMPTS = 25;
+  private static final int IDX_TERMINATED_AT = 26;
+  private static final int IDX_EXEC_START = 27;
+  private static final int IDX_EXEC_END = 28;
+  private static final int IDX_EXEC_DURATION = 29;
+  private static final int IDX_QUEUE_WAIT = 30;
+  private static final int IDX_JOB_RESULT = 31;
+  private static final int IDX_RESULT_TYPE = 32;
+  private static final int IDX_REC_STATUS = 33;
+
+  // Hot positions (LEFT JOIN — all may be null when no live row exists)
+  private static final int IDX_Q_STATUS = 34;
+  private static final int IDX_Q_SCHEDULED_TIME = 35;
+  private static final int IDX_Q_ATTEMPTS = 36;
+  private static final int IDX_Q_PICKED_BY = 37;
+  private static final int IDX_Q_PICKED_AT = 38;
+  private static final int IDX_Q_PAUSED = 39;
+  private static final int IDX_Q_LAST_ERROR = 40;
+  private static final int IDX_Q_VERSION = 41;
+  // q.updated_at is included in the SELECT for completeness but currently not consumed
+  // (composite views fall back to terminated_at / created_at instead).
+
+  // Cold INSERT — 22 positional parameters; rec_status is 'P' for RECURRING, NULL otherwise.
+  private static final String COLD_INSERT_SQL =
+      "INSERT INTO scheduler_job ("
+          + "job_id, job_type, priority, max_retries, backoff_policy, backoff_param_ms, "
+          + "timeout_sec, cron_expr, zone_id, next_fire, payload, params, idempotency_key, "
+          + "business_key, resource_name, on_success_payload, on_failure_payload, depends_on, "
+          + "superseded_by, created_at, created_by, rec_status) "
+          + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, "
+          + "CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, ?, ?)";
+
+  // Hot INSERT — 15 positional parameters (last is updated_at, bound from caller's `now`).
+  private static final String HOT_INSERT_SQL =
+      "INSERT INTO scheduler_job_queue ("
+          + "job_id, status, job_type, priority, scheduled_time, business_key, timeout_sec, "
+          + "max_retries, attempts, picked_by, picked_at, paused_from_status, last_error, "
+          + "version, updated_at) "
+          + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+  // bkres INSERT — 4 positional parameters.
+  private static final String BKRES_INSERT_SQL =
+      "INSERT INTO scheduler_business_key_reservation "
+          + "(business_key, owner_job_id, owner_table, reserved_at) VALUES (?, ?, ?, ?)";
+
+  private static final String OWNER_TABLE_QUEUE = "QUEUE";
+  private static final String OWNER_TABLE_RECURRING = "RECURRING";
+
   @PersistenceContext private EntityManager em;
   @Inject private MetricsCollector metricsCollector;
 
@@ -88,6 +183,11 @@ public class MysqlJobStore implements JobStore {
     return values[ordinal];
   }
 
+  /**
+   * Builds the executable claim SELECT against the hot queue table. Recurring claim has its own SQL
+   * — see claimDueRecurring(). timeColumn is fixed at scheduled_time for executables; param is kept
+   * for callers that may pass alternate ordering in future.
+   */
   private static String buildClaimSql(
       String selectClause, String typeFilter, String timeColumn, int boostInterval) {
     String orderBy =
@@ -99,7 +199,7 @@ public class MysqlJobStore implements JobStore {
                 + " ASC, job_id ASC"
             : "priority DESC, " + timeColumn + " ASC, job_id ASC";
     return """
-        SELECT %s FROM scheduler_job
+        SELECT %s FROM scheduler_job_queue
         WHERE status = 'PENDING'
           AND %s <= NOW(3)
           AND %s
@@ -111,47 +211,300 @@ public class MysqlJobStore implements JobStore {
 
   @Override
   public JobEntity save(JobEntity job) {
+    if (job.getId() == null) {
+      saveInsert(job);
+    } else {
+      saveColdUpdate(job);
+    }
+    return job;
+  }
+
+  /**
+   * New-job INSERT path: cold + (hot if executable) + (bkres if business_key) in caller's tx.
+   *
+   * <p>Single-row inserts go through em.createNativeQuery rather than a JDBC Connection because
+   * EntityManager.unwrap(Connection.class) is not portably supported across providers. The
+   * createNativeQuery path runs within the active JTA transaction without requiring direct
+   * Connection access.
+   */
+  private void saveInsert(JobEntity job) {
+    assignTsidIfMissing(job);
+    Instant now = Instant.now();
+    Timestamp nowTs = Timestamp.from(now);
+    if (job.getCreatedAt() == null) {
+      job.setCreatedAt(now);
+    }
+    if (job.getUpdatedAt() == null) {
+      job.setUpdatedAt(now);
+    }
+
+    boolean recurring = job.getJobType() == JobExecutionType.RECURRING;
+    boolean hasBkey = job.getBusinessKey() != null;
+    boolean bornTerminal = job.getStatus() != null && isTerminalStatus(job.getStatus());
+
     try {
-      if (job.getId() == null) {
-        em.persist(job);
-        return job;
+      executeColdInsert(job, nowTs);
+      if (bornTerminal) {
+        // Test-fixture / migration callers may save() a job already in a terminal state. Skip
+        // the hot insert and reservation; backfill terminal_status + terminated_at on cold so
+        // findById/getJobStatus return the expected terminal value.
+        executeColdTerminalBackfill(job, nowTs);
+      } else {
+        if (!recurring) {
+          executeHotInsert(job, nowTs);
+        }
+        if (hasBkey) {
+          String ownerTable = recurring ? OWNER_TABLE_RECURRING : OWNER_TABLE_QUEUE;
+          insertReservation(job.getBusinessKey(), job.getId(), ownerTable);
+        }
       }
-      JobEntity merged = em.merge(job);
-      em.flush();
-      return merged;
-    } catch (OptimisticLockException e) {
-      throw new RatchetOptimisticLockException("Concurrent modification on job " + job.getId(), e);
+    } catch (RuntimeException e) {
+      if (CONSTRAINT_DETECTOR.isDuplicateBusinessKey(e)) {
+        throw new RatchetTransientStoreException(
+            "Active business key in use for job " + job.getId(), e);
+      }
+      throw e;
+    }
+
+    if (job.getTags() != null && !job.getTags().isEmpty()) {
+      insertTags(job.getId(), job.getTags());
     }
   }
 
-  @Override
-  public Optional<JobEntity> findById(long id) {
-    return Optional.ofNullable(em.find(JobEntity.class, id));
+  private static boolean isTerminalStatus(JobStatus s) {
+    return s == JobStatus.SUCCEEDED || s == JobStatus.FAILED || s == JobStatus.CANCELED;
   }
 
+  /** Backfills cold terminal_status/terminated_at for born-terminal save() inserts. */
+  private void executeColdTerminalBackfill(JobEntity job, Timestamp nowTs) {
+    em.createNativeQuery(
+            "UPDATE scheduler_job SET terminal_status = ?, terminal_error = ?, "
+                + "total_attempts = ?, terminated_at = ? "
+                + "WHERE job_id = ?")
+        .setParameter(1, job.getStatus().name())
+        .setParameter(2, job.getLastError())
+        .setParameter(3, job.getAttempts())
+        .setParameter(4, nowTs)
+        .setParameter(5, job.getId())
+        .executeUpdate();
+  }
+
+  /** Single-row cold INSERT via createNativeQuery (no JDBC Connection unwrap). */
+  private void executeColdInsert(JobEntity job, Timestamp nowTs) {
+    String recStatus = null;
+    if (job.getJobType() == JobExecutionType.RECURRING) {
+      JobStatus s = job.getStatus() != null ? job.getStatus() : JobStatus.PENDING;
+      String r = recStatusForLiveStatus(s);
+      recStatus = r != null ? r : "P";
+    }
+    em.createNativeQuery(COLD_INSERT_SQL)
+        .setParameter(1, job.getId())
+        .setParameter(2, job.getJobType().name())
+        .setParameter(3, job.getPriority().ordinal())
+        .setParameter(4, job.getMaxRetries())
+        .setParameter(5, job.getBackoffPolicy().name())
+        .setParameter(6, job.getBackoffParamMs())
+        .setParameter(7, job.getTimeoutSec())
+        .setParameter(8, job.getCronExpr())
+        .setParameter(9, job.getZoneId())
+        .setParameter(10, job.getNextFire() != null ? Timestamp.from(job.getNextFire()) : null)
+        .setParameter(11, payloadToJson(job))
+        .setParameter(12, paramsToJson(job))
+        .setParameter(13, job.getIdempotencyKey())
+        .setParameter(14, job.getBusinessKey())
+        .setParameter(15, job.getResourceName())
+        .setParameter(16, callbackPayloadToJson(job.getOnSuccessPayload()))
+        .setParameter(17, callbackPayloadToJson(job.getOnFailurePayload()))
+        .setParameter(18, job.getDependsOn())
+        .setParameter(19, job.getSupersededBy())
+        .setParameter(20, nowTs)
+        .setParameter(21, job.getCreatedBy())
+        .setParameter(22, recStatus)
+        .executeUpdate();
+  }
+
+  /** Single-row hot INSERT via createNativeQuery (no JDBC Connection unwrap). */
+  private void executeHotInsert(JobEntity job, Timestamp nowTs) {
+    JobStatus s = job.getStatus() != null ? job.getStatus() : JobStatus.PENDING;
+    Instant scheduled = job.getScheduledTime();
+    em.createNativeQuery(HOT_INSERT_SQL)
+        .setParameter(1, job.getId())
+        .setParameter(2, s.name())
+        .setParameter(3, job.getJobType().name())
+        .setParameter(4, job.getPriority().ordinal())
+        .setParameter(5, scheduled != null ? Timestamp.from(scheduled) : nowTs)
+        .setParameter(6, job.getBusinessKey())
+        .setParameter(7, job.getTimeoutSec())
+        .setParameter(8, job.getMaxRetries())
+        .setParameter(9, job.getAttempts())
+        .setParameter(10, job.getPickedBy())
+        .setParameter(11, job.getPickedAt() != null ? Timestamp.from(job.getPickedAt()) : null)
+        .setParameter(
+            12, job.getPausedFromStatus() != null ? job.getPausedFromStatus().name() : null)
+        .setParameter(13, job.getLastError())
+        .setParameter(14, job.getVersion() != null ? job.getVersion() : 0)
+        .setParameter(15, nowTs)
+        .executeUpdate();
+  }
+
+  /** Existing-job UPDATE path: cold-only metadata UPDATE; fail-fast on hot mutation. */
+  private void saveColdUpdate(JobEntity job) {
+    // Detect "scheduled_time-only on PENDING" — chain-unlock pattern. ChainScheduler.scheduleNext
+    // and JobCascadeService resume-with-executeImmediately mutate scheduledTime on a PENDING
+    // child entity then save(). Post-split, that pattern is the only legitimate hot-field
+    // mutation through save(); route it as a narrow hot UPDATE rather than fail-fast.
+    if (tryScheduledTimeOnlyHotUpdate(job)) {
+      return;
+    }
+    guardAgainstHotMutation(job);
+
+    em.createNativeQuery(
+            "UPDATE scheduler_job SET "
+                + "next_fire = ?, "
+                + "params = CAST(? AS JSON), "
+                + "on_success_payload = CAST(? AS JSON), "
+                + "on_failure_payload = CAST(? AS JSON), "
+                + "depends_on = ?, "
+                + "superseded_by = ?, "
+                + "resource_name = ? "
+                + "WHERE job_id = ?")
+        .setParameter(1, job.getNextFire() != null ? Timestamp.from(job.getNextFire()) : null)
+        .setParameter(2, paramsToJson(job))
+        .setParameter(3, callbackPayloadToJson(job.getOnSuccessPayload()))
+        .setParameter(4, callbackPayloadToJson(job.getOnFailurePayload()))
+        .setParameter(5, job.getDependsOn())
+        .setParameter(6, job.getSupersededBy())
+        .setParameter(7, job.getResourceName())
+        .setParameter(8, job.getId())
+        .executeUpdate();
+  }
+
+  /**
+   * Returns true (and applies the hot UPDATE) when the only hot-field difference between incoming
+   * and stored is scheduled_time, and the row is still PENDING. Supports chain-unlock and
+   * resume-with-executeImmediately patterns without forcing callers to reach for an explicit SPI
+   * method.
+   */
   @SuppressWarnings("unchecked")
-  @Override
-  public Optional<JobEntity> findByIdLatest(long id) {
-    List<JobEntity> results =
+  private boolean tryScheduledTimeOnlyHotUpdate(JobEntity job) {
+    long id = job.getId();
+    List<Object[]> rows =
         em.createNativeQuery(
-                "SELECT * FROM scheduler_job WHERE job_id = :id FOR UPDATE", JobEntity.class)
+                "SELECT q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at, "
+                    + "q.paused_from_status, q.last_error, q.version "
+                    + "FROM scheduler_job_queue q WHERE q.job_id = :id")
             .setParameter("id", id)
             .getResultList();
-    return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
+    if (rows.isEmpty()) {
+      return false;
+    }
+    Object[] row = rows.get(0);
+    if (!"PENDING".equals(row[0])) {
+      return false;
+    }
+    Instant storedSched = toInstant(row[1]);
+    Instant incomingSched = job.getScheduledTime();
+    if (java.util.Objects.equals(storedSched, incomingSched)) {
+      return false;
+    }
+    // All other hot fields must match (no other concurrent mutations expected).
+    if (!java.util.Objects.equals(JobStatus.PENDING, job.getStatus())
+        || !java.util.Objects.equals(((Number) row[2]).intValue(), job.getAttempts())
+        || !java.util.Objects.equals(row[3], job.getPickedBy())
+        || !java.util.Objects.equals(toInstant(row[4]), job.getPickedAt())
+        || !java.util.Objects.equals(
+            row[5] != null ? JobStatus.valueOf((String) row[5]) : null, job.getPausedFromStatus())
+        || !java.util.Objects.equals(row[6], job.getLastError())
+        || !java.util.Objects.equals(((Number) row[7]).intValue(), job.getVersion())) {
+      return false;
+    }
+    em.createNativeQuery(
+            "UPDATE scheduler_job_queue SET scheduled_time = ?, updated_at = NOW(3) "
+                + "WHERE job_id = ? AND status = 'PENDING'")
+        .setParameter(1, incomingSched != null ? Timestamp.from(incomingSched) : null)
+        .setParameter(2, id)
+        .executeUpdate();
+    return true;
+  }
+
+  @Override
+  @SuppressWarnings("unchecked")
+  public Optional<JobEntity> findById(long id) {
+    List<Object[]> rows =
+        em.createNativeQuery(
+                "SELECT "
+                    + HYDRATION_SELECT
+                    + " FROM scheduler_job c "
+                    + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
+                    + "WHERE c.job_id = :id")
+            .setParameter("id", id)
+            .getResultList();
+    if (rows.isEmpty()) {
+      return Optional.empty();
+    }
+    JobEntity job = hydrateJobEntity(rows.get(0));
+    hydrateTagsSingle(job);
+    return Optional.of(job);
+  }
+
+  @Override
+  @SuppressWarnings("unchecked")
+  public Optional<JobEntity> findByIdLatest(long id) {
+    List<Object[]> rows =
+        em.createNativeQuery(
+                "SELECT "
+                    + HYDRATION_SELECT
+                    + " FROM scheduler_job c "
+                    + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
+                    + "WHERE c.job_id = :id FOR UPDATE")
+            .setParameter("id", id)
+            .getResultList();
+    if (rows.isEmpty()) {
+      return Optional.empty();
+    }
+    JobEntity job = hydrateJobEntity(rows.get(0));
+    hydrateTagsSingle(job);
+    return Optional.of(job);
   }
 
   @Override
   public void delete(long id) {
-    findById(id).ifPresent(em::remove);
+    // Cold DELETE; FK ON DELETE CASCADE drops the hot row. bkres has no FK so explicit delete.
+    deleteReservationByOwner(id);
+    em.createNativeQuery("DELETE FROM scheduler_job WHERE job_id = :id")
+        .setParameter("id", id)
+        .executeUpdate();
   }
 
   @Override
+  @SuppressWarnings("unchecked")
   public JobStatus getJobStatus(long id) {
-    List<JobStatus> results =
-        em.createQuery("SELECT j.status FROM JobEntity j WHERE j.id = :id", JobStatus.class)
+    List<Object[]> results =
+        em.createNativeQuery(
+                "SELECT q.status, c.rec_status, c.terminal_status "
+                    + "FROM scheduler_job c "
+                    + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
+                    + "WHERE c.job_id = :id")
             .setParameter("id", id)
             .getResultList();
-    return results.isEmpty() ? null : results.get(0);
+    if (results.isEmpty()) {
+      return null;
+    }
+    Object[] row = results.get(0);
+    String live = (String) row[0];
+    if (live != null) {
+      return JobStatus.valueOf(live);
+    }
+    JobStatus rec = recStatusDecode(stringOrNull(row[1]));
+    if (rec != null) {
+      return rec;
+    }
+    String terminal = (String) row[2];
+    if (terminal != null) {
+      return JobStatus.valueOf(terminal);
+    }
+    log.errorf("Job %d has no live, recurring, or terminal status — invariant violation", id);
+    return null;
   }
 
   @SuppressWarnings("unchecked")
@@ -160,42 +513,93 @@ public class MysqlJobStore implements JobStore {
     if (ids.isEmpty()) {
       return List.of();
     }
-    return em.createNativeQuery(
-            "SELECT * FROM scheduler_job WHERE job_id IN (:ids)", JobEntity.class)
-        .setParameter("ids", ids)
-        .getResultList();
+    List<Object[]> rows =
+        em.createNativeQuery(
+                "SELECT "
+                    + HYDRATION_SELECT
+                    + " FROM scheduler_job c "
+                    + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
+                    + "WHERE c.job_id IN (:ids)")
+            .setParameter("ids", ids)
+            .getResultList();
+    List<JobEntity> jobs = new ArrayList<>(rows.size());
+    for (Object[] row : rows) {
+      jobs.add(hydrateJobEntity(row));
+    }
+    hydrateTagsBatch(jobs);
+    return jobs;
   }
 
   @Override
+  @SuppressWarnings("unchecked")
   public Optional<JobEntity> findActiveByBusinessKey(String businessKey) {
-    List<JobEntity> results =
-        em.createQuery(
-                "SELECT j FROM JobEntity j WHERE j.businessKey = :bk "
-                    + "AND j.status IN (run.ratchet.store.entity.JobStatus.PENDING, "
-                    + "run.ratchet.store.entity.JobStatus.RUNNING, "
-                    + "run.ratchet.store.entity.JobStatus.PAUSED)",
-                JobEntity.class)
+    // bkres is the authoritative active-uniqueness owner. JOIN through it to find the live job.
+    List<Object[]> rows =
+        em.createNativeQuery(
+                "SELECT br.owner_table, "
+                    + HYDRATION_SELECT
+                    + " FROM scheduler_business_key_reservation br "
+                    + "JOIN scheduler_job c ON c.job_id = br.owner_job_id "
+                    + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
+                    + "WHERE br.business_key = :bk LIMIT 1")
             .setParameter("bk", businessKey)
-            .setMaxResults(1)
             .getResultList();
-    return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
+    if (rows.isEmpty()) {
+      return Optional.empty();
+    }
+    Object[] full = rows.get(0);
+    String ownerTable = (String) full[0];
+    Object[] hydrationRow = new Object[HYDRATION_COL_COUNT];
+    System.arraycopy(full, 1, hydrationRow, 0, HYDRATION_COL_COUNT);
+    JobEntity job = hydrateJobEntity(hydrationRow);
+    if (OWNER_TABLE_QUEUE.equals(ownerTable) && hydrationRow[IDX_Q_STATUS] == null) {
+      log.errorf(
+          "bkres invariant violation: business_key=%s claims QUEUE owner job=%d but no hot row",
+          businessKey, job.getId());
+      return Optional.empty();
+    }
+    hydrateTagsSingle(job);
+    return Optional.of(job);
   }
 
   @Override
+  @SuppressWarnings("unchecked")
   public Optional<JobEntity> findByIdempotencyKey(String idempotencyKey) {
-    List<JobEntity> results =
-        em.createQuery("SELECT j FROM JobEntity j WHERE j.idempotencyKey = :key", JobEntity.class)
+    List<Object[]> rows =
+        em.createNativeQuery(
+                "SELECT "
+                    + HYDRATION_SELECT
+                    + " FROM scheduler_job c "
+                    + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
+                    + "WHERE c.idempotency_key = :key LIMIT 1")
             .setParameter("key", idempotencyKey)
-            .setMaxResults(1)
             .getResultList();
-    return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
+    if (rows.isEmpty()) {
+      return Optional.empty();
+    }
+    JobEntity job = hydrateJobEntity(rows.get(0));
+    hydrateTagsSingle(job);
+    return Optional.of(job);
   }
 
   @Override
+  @SuppressWarnings("unchecked")
   public List<JobEntity> findDependants(long parentJobId) {
-    return em.createQuery("SELECT j FROM JobEntity j WHERE j.dependsOn = :pid", JobEntity.class)
-        .setParameter("pid", parentJobId)
-        .getResultList();
+    List<Object[]> rows =
+        em.createNativeQuery(
+                "SELECT "
+                    + HYDRATION_SELECT
+                    + " FROM scheduler_job c "
+                    + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
+                    + "WHERE c.depends_on = :pid")
+            .setParameter("pid", parentJobId)
+            .getResultList();
+    List<JobEntity> jobs = new ArrayList<>(rows.size());
+    for (Object[] row : rows) {
+      jobs.add(hydrateJobEntity(row));
+    }
+    hydrateTagsBatch(jobs);
+    return jobs;
   }
 
   @Override
@@ -203,7 +607,8 @@ public class MysqlJobStore implements JobStore {
     List<?> results =
         em.createNativeQuery(
                 "SELECT MIN(next_fire) FROM scheduler_job "
-                    + "WHERE job_type = 'RECURRING' AND status = 'PENDING' AND next_fire IS NOT NULL")
+                    + "WHERE job_type = 'RECURRING' AND rec_status = 'P' "
+                    + "AND next_fire IS NOT NULL")
             .getResultList();
     if (results.isEmpty() || results.get(0) == null) {
       return Optional.empty();
@@ -222,20 +627,32 @@ public class MysqlJobStore implements JobStore {
 
   @Override
   public long countJobsByStatus(JobStatus status) {
-    return em.createQuery("SELECT COUNT(j) FROM JobEntity j WHERE j.status = :s", Long.class)
-        .setParameter("s", status)
-        .getSingleResult();
+    // Post hot/cold split: live status lives on scheduler_job_queue; terminal status lives on
+    // scheduler_job.terminal_status. Dispatch by status kind.
+    if (isLiveStatus(status)) {
+      Object result =
+          em.createNativeQuery("SELECT COUNT(*) FROM scheduler_job_queue WHERE status = :s")
+              .setParameter("s", status.name())
+              .getSingleResult();
+      return ((Number) result).longValue();
+    }
+    Object result =
+        em.createNativeQuery("SELECT COUNT(*) FROM scheduler_job WHERE terminal_status = :s")
+            .setParameter("s", status.name())
+            .getSingleResult();
+    return ((Number) result).longValue();
   }
 
   @Override
   public long countActiveJobs(JobExecutionType jobType) {
-    return em.createQuery(
-            "SELECT COUNT(j) FROM JobEntity j WHERE j.jobType = :jt "
-                + "AND j.status IN (run.ratchet.store.entity.JobStatus.PENDING, "
-                + "run.ratchet.store.entity.JobStatus.RUNNING)",
-            Long.class)
-        .setParameter("jt", jobType)
-        .getSingleResult();
+    // Hot-only: PENDING + RUNNING by job_type. job_type is denormalized on hot.
+    Object result =
+        em.createNativeQuery(
+                "SELECT COUNT(*) FROM scheduler_job_queue "
+                    + "WHERE job_type = :jt AND status IN ('PENDING','RUNNING')")
+            .setParameter("jt", jobType.name())
+            .getSingleResult();
+    return ((Number) result).longValue();
   }
 
   @Override
@@ -245,85 +662,129 @@ public class MysqlJobStore implements JobStore {
 
   @Override
   public long countReadyJobs(Instant now) {
-    return em.createQuery(
-            "SELECT COUNT(j) FROM JobEntity j WHERE j.status = run.ratchet.store.entity.JobStatus.PENDING "
-                + "AND j.scheduledTime <= :now",
-            Long.class)
-        .setParameter("now", now)
-        .getSingleResult();
+    // Hot-only: PENDING due before now.
+    Object result =
+        em.createNativeQuery(
+                "SELECT COUNT(*) FROM scheduler_job_queue "
+                    + "WHERE status = 'PENDING' AND scheduled_time <= :now")
+            .setParameter("now", Timestamp.from(now))
+            .getSingleResult();
+    return ((Number) result).longValue();
   }
 
   @Override
   public long countStuckJobs(Instant stuckThreshold) {
-    return em.createQuery(
-            "SELECT COUNT(j) FROM JobEntity j WHERE j.status = run.ratchet.store.entity.JobStatus.RUNNING "
-                + "AND j.pickedAt < :threshold",
-            Long.class)
-        .setParameter("threshold", stuckThreshold)
-        .getSingleResult();
+    // Hot-only: RUNNING with picked_at older than threshold.
+    Object result =
+        em.createNativeQuery(
+                "SELECT COUNT(*) FROM scheduler_job_queue "
+                    + "WHERE status = 'RUNNING' AND picked_at < :threshold")
+            .setParameter("threshold", Timestamp.from(stuckThreshold))
+            .getSingleResult();
+    return ((Number) result).longValue();
   }
 
   @Override
   public long countLongRunningJobs(Instant threshold) {
-    return em.createQuery(
-            "SELECT COUNT(j) FROM JobEntity j WHERE j.status = run.ratchet.store.entity.JobStatus.RUNNING "
-                + "AND j.executionStartTime < :threshold",
-            Long.class)
-        .setParameter("threshold", threshold)
-        .getSingleResult();
+    // Hot-only: post-split, execution_start_time on cold is only written at terminal transition,
+    // so it's always NULL while RUNNING. picked_at is the closest live equivalent (set on claim
+    // success) and is functionally equivalent for "running too long" detection.
+    Object result =
+        em.createNativeQuery(
+                "SELECT COUNT(*) FROM scheduler_job_queue "
+                    + "WHERE status = 'RUNNING' AND picked_at < :threshold")
+            .setParameter("threshold", Timestamp.from(threshold))
+            .getSingleResult();
+    return ((Number) result).longValue();
   }
 
   @Override
   public long countPendingBatchChildren() {
-    return em.createQuery(
-            "SELECT COUNT(j) FROM JobEntity j WHERE j.jobType = run.ratchet.store.entity.JobExecutionType.BATCH_CHILD "
-                + "AND j.status = run.ratchet.store.entity.JobStatus.PENDING",
-            Long.class)
-        .getSingleResult();
+    // Hot-only: PENDING BATCH_CHILD jobs.
+    Object result =
+        em.createNativeQuery(
+                "SELECT COUNT(*) FROM scheduler_job_queue "
+                    + "WHERE job_type = 'BATCH_CHILD' AND status = 'PENDING'")
+            .getSingleResult();
+    return ((Number) result).longValue();
   }
 
   @Override
   public long countPendingJobsByPriority(JobPriority priority) {
-    return em.createQuery(
-            "SELECT COUNT(j) FROM JobEntity j WHERE j.priority = :p "
-                + "AND j.status = run.ratchet.store.entity.JobStatus.PENDING",
-            Long.class)
-        .setParameter("p", priority)
-        .getSingleResult();
+    // Hot-only: PENDING by priority. priority is denormalized on hot as TINYINT (ordinal).
+    Object result =
+        em.createNativeQuery(
+                "SELECT COUNT(*) FROM scheduler_job_queue "
+                    + "WHERE status = 'PENDING' AND priority = :p")
+            .setParameter("p", priority.ordinal())
+            .getSingleResult();
+    return ((Number) result).longValue();
   }
 
   @Override
   public long countPendingJobsByType(JobExecutionType jobType) {
-    return em.createQuery(
-            "SELECT COUNT(j) FROM JobEntity j WHERE j.jobType = :jt "
-                + "AND j.status = run.ratchet.store.entity.JobStatus.PENDING",
-            Long.class)
-        .setParameter("jt", jobType)
-        .getSingleResult();
+    // Hot-only: PENDING by job_type. job_type is denormalized on hot.
+    Object result =
+        em.createNativeQuery(
+                "SELECT COUNT(*) FROM scheduler_job_queue "
+                    + "WHERE status = 'PENDING' AND job_type = :jt")
+            .setParameter("jt", jobType.name())
+            .getSingleResult();
+    return ((Number) result).longValue();
   }
 
   @Override
   public long countJobsByStatusSince(JobStatus status, Instant since) {
-    return em.createQuery(
-            "SELECT COUNT(j) FROM JobEntity j WHERE j.status = :s AND j.updatedAt >= :since",
-            Long.class)
-        .setParameter("s", status)
-        .setParameter("since", since)
-        .getSingleResult();
+    // Dispatch by status kind. Live → hot.updated_at; terminal → cold.terminated_at (canonical
+    // age column for terminal rows post hot/cold split).
+    if (isLiveStatus(status)) {
+      Object result =
+          em.createNativeQuery(
+                  "SELECT COUNT(*) FROM scheduler_job_queue "
+                      + "WHERE status = :s AND updated_at >= :since")
+              .setParameter("s", status.name())
+              .setParameter("since", Timestamp.from(since))
+              .getSingleResult();
+      return ((Number) result).longValue();
+    }
+    Object result =
+        em.createNativeQuery(
+                "SELECT COUNT(*) FROM scheduler_job "
+                    + "WHERE terminal_status = :s AND terminated_at >= :since")
+            .setParameter("s", status.name())
+            .setParameter("since", Timestamp.from(since))
+            .getSingleResult();
+    return ((Number) result).longValue();
   }
 
   @Override
   public long countJobsWithRetries() {
-    return em.createQuery("SELECT COUNT(j) FROM JobEntity j WHERE j.attempts > 0", Long.class)
-        .getSingleResult();
+    // Live retry attempts on hot.attempts; terminal retry totals on cold.total_attempts. Hot rows
+    // are deleted at terminal so the two sets are disjoint — sum is correct.
+    Object result =
+        em.createNativeQuery(
+                "SELECT "
+                    + "(SELECT COUNT(*) FROM scheduler_job_queue WHERE attempts > 0) "
+                    + "+ (SELECT COUNT(*) FROM scheduler_job WHERE total_attempts > 0)")
+            .getSingleResult();
+    return ((Number) result).longValue();
   }
 
   @Override
   public double getRetryRateStats(Instant since) {
+    // Recent rate = (jobs with retries) / (jobs total) over union of recently touched live (hot)
+    // and recently terminated (cold) rows. Disjoint sets — sum counts directly.
     Object result =
         em.createNativeQuery(
-                "SELECT COALESCE(AVG(CASE WHEN attempts > 0 THEN 1.0 ELSE 0.0 END), 0) "
-                    + "FROM scheduler_job WHERE updated_at >= :since")
+                "SELECT COALESCE("
+                    + "  ((SELECT COUNT(*) FROM scheduler_job_queue "
+                    + "      WHERE attempts > 0 AND updated_at >= :since) "
+                    + "   + (SELECT COUNT(*) FROM scheduler_job "
+                    + "      WHERE total_attempts > 0 AND terminated_at >= :since)) "
+                    + "  / NULLIF("
+                    + "    ((SELECT COUNT(*) FROM scheduler_job_queue WHERE updated_at >= :since) "
+                    + "     + (SELECT COUNT(*) FROM scheduler_job "
+                    + "        WHERE terminated_at >= :since)), 0), 0)")
             .setParameter("since", Timestamp.from(since))
             .getSingleResult();
     return ((Number) result).doubleValue();
@@ -331,11 +792,13 @@ public class MysqlJobStore implements JobStore {
 
   @Override
   public double getAverageProcessingTime(Instant since) {
+    // Cold-only: SUCCEEDED is terminal; execution_duration_ms is on cold and written at terminal
+    // transition; terminated_at is the canonical age column for terminal rows post-split.
     Object result =
         em.createNativeQuery(
                 "SELECT COALESCE(AVG(execution_duration_ms), 0) FROM scheduler_job "
-                    + "WHERE status = 'SUCCEEDED' AND execution_duration_ms IS NOT NULL "
-                    + "AND updated_at >= :since")
+                    + "WHERE terminal_status = 'SUCCEEDED' AND execution_duration_ms IS NOT NULL "
+                    + "AND terminated_at >= :since")
             .setParameter("since", Timestamp.from(since))
             .getSingleResult();
     return ((Number) result).doubleValue();
@@ -343,11 +806,14 @@ public class MysqlJobStore implements JobStore {
 
   @Override
   public double getAverageBatchSize(Instant since) {
+    // Batch parents may be live (hot row exists) or terminal (cold-only). Recency = whichever
+    // canonical timestamp is available: hot.updated_at (live) or cold.terminated_at (terminal).
     Object result =
         em.createNativeQuery(
                 "SELECT COALESCE(AVG(b.total_items), 0) FROM scheduler_batch b "
-                    + "JOIN scheduler_job j ON j.job_id = b.batch_id "
-                    + "WHERE j.updated_at >= :since")
+                    + "JOIN scheduler_job c ON c.job_id = b.batch_id "
+                    + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
+                    + "WHERE COALESCE(q.updated_at, c.terminated_at) >= :since")
             .setParameter("since", Timestamp.from(since))
             .getSingleResult();
     return ((Number) result).doubleValue();
@@ -355,9 +821,10 @@ public class MysqlJobStore implements JobStore {
 
   @Override
   public Optional<Instant> getOldestPendingJobTime() {
+    // Hot-only: scheduled_time + status live on scheduler_job_queue post-split.
     List<?> results =
         em.createNativeQuery(
-                "SELECT MIN(scheduled_time) FROM scheduler_job WHERE status = 'PENDING'")
+                "SELECT MIN(scheduled_time) FROM scheduler_job_queue WHERE status = 'PENDING'")
             .getResultList();
     if (results.isEmpty() || results.get(0) == null) {
       return Optional.empty();
@@ -371,12 +838,14 @@ public class MysqlJobStore implements JobStore {
 
   @Override
   public long getQueueWaitTimePercentile(double percentile) {
-    // MySQL does not support expressions in the OFFSET clause, so compute the offset in Java.
+    // Cold-only: queue_wait_ms is on cold and SUCCEEDED is terminal post-split. MySQL does not
+    // support expressions in the OFFSET clause, so compute the offset in Java.
     Number countResult =
         (Number)
             em.createNativeQuery(
                     // language=MySQL
-                    "SELECT COUNT(*) FROM scheduler_job WHERE queue_wait_ms IS NOT NULL AND status = 'SUCCEEDED'")
+                    "SELECT COUNT(*) FROM scheduler_job "
+                        + "WHERE queue_wait_ms IS NOT NULL AND terminal_status = 'SUCCEEDED'")
                 .getSingleResult();
     long total = countResult.longValue();
     if (total == 0) {
@@ -390,7 +859,7 @@ public class MysqlJobStore implements JobStore {
                 """
                 SELECT COALESCE(queue_wait_ms, 0)
                 FROM scheduler_job
-                WHERE queue_wait_ms IS NOT NULL AND status = 'SUCCEEDED'
+                WHERE queue_wait_ms IS NOT NULL AND terminal_status = 'SUCCEEDED'
                 ORDER BY queue_wait_ms ASC
                 LIMIT 1 OFFSET ?1""")
             .setParameter(1, offset)
@@ -403,28 +872,45 @@ public class MysqlJobStore implements JobStore {
   @SuppressWarnings("unchecked")
   public List<JobEntity> claimNextBatch(int limit, String nodeId) {
     try {
-      // Dependency resolution is handled by the orchestration layer (PostExecutionHandler
-      // schedules child jobs only after the parent completes), so the claim query only needs
-      // to find PENDING jobs that are due. No self-joins needed — matching the original
-      // nets4 JobClaimStrategy pattern.
       int boostInterval = PriorityBoostConfig.getPriorityBoostIntervalMinutes();
       var query =
           em.createNativeQuery(
-                  buildClaimSql("*", EXECUTABLE_JOB_TYPE_FILTER, "scheduled_time", boostInterval),
-                  JobEntity.class)
+                  buildClaimSql(
+                      "job_id, status, job_type, priority, scheduled_time, "
+                          + "version, timeout_sec, picked_by, picked_at, business_key, "
+                          + "attempts, max_retries",
+                      EXECUTABLE_JOB_TYPE_FILTER,
+                      "scheduled_time",
+                      boostInterval))
               .setParameter("lim", limit);
       if (boostInterval > 0) {
         query.setParameter("boost", boostInterval);
       }
 
       @SuppressWarnings("unchecked")
-      List<JobEntity> candidates = query.getResultList();
+      List<Object[]> candidateRows = query.getResultList();
 
-      if (candidates.isEmpty()) {
+      if (candidateRows.isEmpty()) {
         return List.of();
       }
 
-      return claimEntities(candidates, nodeId);
+      List<Long> candidateIds = new ArrayList<>(candidateRows.size());
+      for (Object[] row : candidateRows) {
+        candidateIds.add(((Number) row[0]).longValue());
+      }
+      boolean[] updated = batchClaimRowsJpa(candidateIds, nodeId, Instant.now());
+
+      List<Long> claimedIds = new ArrayList<>(candidateIds.size());
+      for (int i = 0; i < candidateIds.size(); i++) {
+        if (updated[i]) {
+          claimedIds.add(candidateIds.get(i));
+        }
+      }
+      if (claimedIds.isEmpty()) {
+        return List.of();
+      }
+      // Hydrate the full composite view for each claimed id (callers may need cold metadata).
+      return findByIds(claimedIds);
     } catch (RuntimeException e) {
       throw translateTransientStoreException("claim jobs", e);
     }
@@ -432,7 +918,8 @@ public class MysqlJobStore implements JobStore {
 
   @Override
   @SuppressWarnings("unchecked")
-  public List<JobClaimDto> claimNextBatchOptimized(JobExecutionType jobType, int limit, String nodeId) {
+  public List<JobClaimDto> claimNextBatchOptimized(
+      JobExecutionType jobType, int limit, String nodeId) {
     if (limit <= 0 || !isPollerExecutable(jobType)) {
       return List.of();
     }
@@ -459,9 +946,7 @@ public class MysqlJobStore implements JobStore {
       @SuppressWarnings("unchecked")
       List<Object[]> rows =
           timedStoreOperation(
-              "claim_lookup",
-              query::getResultList,
-              result -> result.isEmpty() ? "empty" : "hit");
+              "claim_lookup", query::getResultList, result -> result.isEmpty() ? "empty" : "hit");
 
       if (rows.isEmpty()) {
         return List.of();
@@ -476,66 +961,142 @@ public class MysqlJobStore implements JobStore {
   @Override
   @SuppressWarnings("unchecked")
   public List<JobEntity> claimDueRecurring(int limit, String nodeId) {
+    // CP1 shim: recurring masters live on cold with rec_status='P'. No state flip occurs at
+    // claim — the caller (RecurringJobExecutor) holds the FOR UPDATE SKIP LOCKED row lock for
+    // the lifetime of its @Transactional process() and writes only next_fire afterwards.
     try {
-      int boostInterval = PriorityBoostConfig.getPriorityBoostIntervalMinutes();
-      var query =
+      List<Object[]> rows =
           em.createNativeQuery(
-                  buildClaimSql("*", RECURRING_JOB_TYPE_FILTER, "next_fire", boostInterval),
-                  JobEntity.class)
-              .setParameter("lim", limit);
-      if (boostInterval > 0) {
-        query.setParameter("boost", boostInterval);
-      }
-
-      @SuppressWarnings("unchecked")
-      List<JobEntity> candidates = query.getResultList();
-
-      if (candidates.isEmpty()) {
+                  "SELECT job_id, next_fire, priority, business_key "
+                      + "FROM scheduler_job "
+                      + "WHERE job_type = 'RECURRING' "
+                      + "  AND rec_status = 'P' "
+                      + "  AND next_fire <= NOW(3) "
+                      + "ORDER BY priority DESC, next_fire ASC, job_id ASC "
+                      + "LIMIT :lim "
+                      + "FOR UPDATE SKIP LOCKED")
+              .setParameter("lim", limit)
+              .getResultList();
+      if (rows.isEmpty()) {
         return List.of();
       }
-
-      return claimEntities(candidates, nodeId);
+      List<Long> ids = new ArrayList<>(rows.size());
+      for (Object[] row : rows) {
+        ids.add(((Number) row[0]).longValue());
+      }
+      // Recurring masters need full hydration for the executor to spawn children. findByIds
+      // returns by primary-key order; preserve the priority-DESC + next_fire-ASC + job_id-ASC
+      // ordering from the claim SELECT so callers (and JobPriorityIT) see consistent ordering.
+      return reorderById(findByIds(ids), ids);
     } catch (RuntimeException e) {
       throw translateTransientStoreException("claim recurring jobs", e);
     }
   }
 
+  /** Reorders a list of JobEntity to match the order of the given id list. */
+  private static List<JobEntity> reorderById(List<JobEntity> jobs, List<Long> orderedIds) {
+    Map<Long, JobEntity> byId = new java.util.HashMap<>(jobs.size());
+    for (JobEntity j : jobs) {
+      byId.put(j.getId(), j);
+    }
+    List<JobEntity> ordered = new ArrayList<>(jobs.size());
+    for (Long id : orderedIds) {
+      JobEntity j = byId.get(id);
+      if (j != null) {
+        ordered.add(j);
+      }
+    }
+    return ordered;
+  }
+
   @Override
   public void updateJobStatus(long id, JobStatus status, String errorMessage) {
+    // Dispatch on requested target. Live → hot UPDATE; terminal → terminal pathway. The legacy
+    // contract was a single setter; post-split it must split by target kind.
     timedStoreOperation(
         "update_status",
-        () ->
-            em.createNativeQuery(
-                    "UPDATE scheduler_job SET status = :status, last_error = :err, "
+        () -> {
+          if (isLiveStatus(status)) {
+            return em.createNativeQuery(
+                    "UPDATE scheduler_job_queue SET status = :status, last_error = :err, "
                         + "updated_at = NOW(3) WHERE job_id = :id")
                 .setParameter("status", status.name())
                 .setParameter("err", errorMessage)
                 .setParameter("id", id)
-                .executeUpdate(),
+                .executeUpdate();
+          }
+          if (status == JobStatus.CANCELED) {
+            return cancelJob(id) ? 1 : 0;
+          }
+          if (status == JobStatus.FAILED) {
+            // Caller didn't supply attempts; we can't reconstruct total_attempts here, so use 0.
+            // Live callers should prefer markJobFailedTerminal directly.
+            return markJobFailedTerminal(id, errorMessage, 0) ? 1 : 0;
+          }
+          if (status == JobStatus.SUCCEEDED) {
+            return markJobSucceededMinimal(id, null, null, null, null) ? 1 : 0;
+          }
+          throw new IllegalArgumentException("Unsupported status target: " + status);
+        },
         updated -> updated > 0 ? "updated" : "miss");
   }
 
   @Override
   public boolean compareAndSwapStatus(
       long id, JobStatus expected, JobStatus newStatus, String error) {
+    // Dispatch on (expected, newStatus). All callers in RI today pass live `expected`. When
+    // newStatus is terminal (CANCELED is the common case in DefaultJobSchedulerService.cancelJob),
+    // route to the terminal pathway gated by the expected live status.
     return timedStoreOperation(
         "compare_and_swap_status",
         () -> {
           try {
-            return em.createNativeQuery(
-                        "UPDATE scheduler_job SET status = :newS, last_error = :err, "
-                            + "updated_at = NOW(3) WHERE job_id = :id AND status = :exp")
-                    .setParameter("newS", newStatus.name())
-                    .setParameter("err", error)
-                    .setParameter("id", id)
-                    .setParameter("exp", expected.name())
-                    .executeUpdate()
-                > 0;
+            if (!isLiveStatus(expected)) {
+              throw new IllegalArgumentException(
+                  "compareAndSwapStatus expected must be a live status; got " + expected);
+            }
+            if (isLiveStatus(newStatus)) {
+              return em.createNativeQuery(
+                          "UPDATE scheduler_job_queue SET status = :newS, last_error = :err, "
+                              + "updated_at = NOW(3) WHERE job_id = :id AND status = :exp")
+                      .setParameter("newS", newStatus.name())
+                      .setParameter("err", error)
+                      .setParameter("id", id)
+                      .setParameter("exp", expected.name())
+                      .executeUpdate()
+                  > 0;
+            }
+            if (newStatus == JobStatus.CANCELED) {
+              // Gate: only proceed if a hot row in the expected status exists.
+              int gateMatched =
+                  em.createNativeQuery(
+                                  "SELECT COUNT(*) FROM scheduler_job_queue "
+                                      + "WHERE job_id = :id AND status = :exp")
+                              .setParameter("id", id)
+                              .setParameter("exp", expected.name())
+                              .getSingleResult()
+                          instanceof Number n
+                      ? n.intValue()
+                      : 0;
+              return gateMatched > 0 && cancelJob(id);
+            }
+            if (newStatus == JobStatus.FAILED) {
+              // Gate on RUNNING; FAILED transition only meaningful from RUNNING post-split.
+              if (expected != JobStatus.RUNNING) {
+                return false;
+              }
+              return markJobFailedTerminal(id, error, 0);
+            }
+            throw new IllegalArgumentException("Unsupported CAS target newStatus: " + newStatus);
           } catch (RuntimeException e) {
             throw translateTransientStoreException("compare-and-swap status", e);
           }
         },
         updated -> updated ? "updated" : "miss");
+  }
+
+  private static boolean isLiveStatus(JobStatus s) {
+    return s == JobStatus.PENDING || s == JobStatus.RUNNING || s == JobStatus.PAUSED;
   }
 
   @Override
@@ -545,7 +1106,8 @@ public class MysqlJobStore implements JobStore {
             "increment_retry_attempt",
             () ->
                 em.createNativeQuery(
-                        "UPDATE scheduler_job SET attempts = attempts + 1, updated_at = NOW(3) "
+                        "UPDATE scheduler_job_queue SET attempts = attempts + 1, "
+                            + "updated_at = NOW(3) "
                             + "WHERE job_id = :id AND status = 'RUNNING'")
                     .setParameter("id", id)
                     .executeUpdate(),
@@ -554,7 +1116,7 @@ public class MysqlJobStore implements JobStore {
       return -1;
     }
     Object result =
-        em.createNativeQuery("SELECT attempts FROM scheduler_job WHERE job_id = :id")
+        em.createNativeQuery("SELECT attempts FROM scheduler_job_queue WHERE job_id = :id")
             .setParameter("id", id)
             .getSingleResult();
     return ((Number) result).intValue();
@@ -563,16 +1125,16 @@ public class MysqlJobStore implements JobStore {
   @Override
   public boolean tryPickUpJob(long id, String nodeId) {
     return timedStoreOperation(
-        "pickup_job",
-        () ->
-            em.createNativeQuery(
-                    "UPDATE scheduler_job SET status = 'RUNNING', picked_by = :node, "
-                        + "picked_at = NOW(3), updated_at = NOW(3) "
-                        + "WHERE job_id = :id AND status = 'PENDING'")
-                .setParameter("node", nodeId)
-                .setParameter("id", id)
-                .executeUpdate(),
-        updated -> updated > 0 ? "updated" : "miss")
+            "pickup_job",
+            () ->
+                em.createNativeQuery(
+                        "UPDATE scheduler_job_queue SET status = 'RUNNING', picked_by = :node, "
+                            + "picked_at = NOW(3), updated_at = NOW(3) "
+                            + "WHERE job_id = :id AND status = 'PENDING'")
+                    .setParameter("node", nodeId)
+                    .setParameter("id", id)
+                    .executeUpdate(),
+            updated -> updated > 0 ? "updated" : "miss")
         > 0;
   }
 
@@ -589,22 +1151,8 @@ public class MysqlJobStore implements JobStore {
         "mark_succeeded",
         () -> {
           try {
-            return em.createNativeQuery(
-                        "UPDATE scheduler_job SET status = 'SUCCEEDED', "
-                            + "job_result = CAST(:result AS JSON), result_type = :rtype, "
-                            + "execution_start_time = :start, execution_end_time = :end, "
-                            + "execution_duration_ms = :dur, queue_wait_ms = :qwait, "
-                            + "last_error = NULL, updated_at = NOW(3) "
-                            + "WHERE job_id = :id AND status = 'RUNNING'")
-                    .setParameter("result", resultJson)
-                    .setParameter("rtype", resultType)
-                    .setParameter("start", start != null ? Timestamp.from(start) : null)
-                    .setParameter("end", end != null ? Timestamp.from(end) : null)
-                    .setParameter("dur", durationMs)
-                    .setParameter("qwait", queueWaitMs)
-                    .setParameter("id", id)
-                    .executeUpdate()
-                > 0;
+            return doMarkTerminalSuccess(
+                id, resultJson, resultType, start, end, durationMs, queueWaitMs);
           } catch (RuntimeException e) {
             throw translateTransientStoreException("mark job succeeded", e);
           }
@@ -619,24 +1167,63 @@ public class MysqlJobStore implements JobStore {
         "mark_succeeded_minimal",
         () -> {
           try {
-            return em.createNativeQuery(
-                        "UPDATE scheduler_job SET status = 'SUCCEEDED', "
-                            + "execution_start_time = :start, execution_end_time = :end, "
-                            + "execution_duration_ms = :dur, queue_wait_ms = :qwait, "
-                            + "last_error = NULL, updated_at = NOW(3) "
-                            + "WHERE job_id = :id AND status = 'RUNNING'")
-                    .setParameter("start", start != null ? Timestamp.from(start) : null)
-                    .setParameter("end", end != null ? Timestamp.from(end) : null)
-                    .setParameter("dur", durationMs)
-                    .setParameter("qwait", queueWaitMs)
-                    .setParameter("id", id)
-                    .executeUpdate()
-                > 0;
+            return doMarkTerminalSuccess(id, null, null, start, end, durationMs, queueWaitMs);
           } catch (RuntimeException e) {
             throw translateTransientStoreException("mark job succeeded minimally", e);
           }
         },
         updated -> updated ? "updated" : "miss");
+  }
+
+  /**
+   * Terminal-success transition: capture attempts, gate-DELETE the hot row, UPDATE cold to
+   * SUCCEEDED, drop bkres. Returns true iff the hot row was the gating RUNNING row.
+   */
+  private boolean doMarkTerminalSuccess(
+      long id,
+      String resultJson,
+      String resultType,
+      Instant start,
+      Instant end,
+      Long durationMs,
+      Long queueWaitMs) {
+    Integer totalAttempts = readHotAttempts(id);
+    int hotDeleted =
+        em.createNativeQuery(
+                "DELETE FROM scheduler_job_queue WHERE job_id = :id AND status = 'RUNNING'")
+            .setParameter("id", id)
+            .executeUpdate();
+    if (hotDeleted == 0) {
+      return false;
+    }
+    em.createNativeQuery(
+            "UPDATE scheduler_job SET terminal_status = 'SUCCEEDED', "
+                + "job_result = CAST(:result AS JSON), result_type = :rtype, "
+                + "execution_start_time = :start, execution_end_time = :end, "
+                + "execution_duration_ms = :dur, queue_wait_ms = :qwait, "
+                + "total_attempts = :att, terminated_at = NOW(3) "
+                + "WHERE job_id = :id AND terminal_status IS NULL")
+        .setParameter("result", resultJson)
+        .setParameter("rtype", resultType)
+        .setParameter("start", start != null ? Timestamp.from(start) : null)
+        .setParameter("end", end != null ? Timestamp.from(end) : null)
+        .setParameter("dur", durationMs)
+        .setParameter("qwait", queueWaitMs)
+        .setParameter("att", totalAttempts)
+        .setParameter("id", id)
+        .executeUpdate();
+    deleteReservationByOwner(id);
+    return true;
+  }
+
+  /** Reads the current hot row's attempts. Returns null if no hot row exists. */
+  private Integer readHotAttempts(long id) {
+    @SuppressWarnings("unchecked")
+    List<Number> rows =
+        em.createNativeQuery("SELECT attempts FROM scheduler_job_queue WHERE job_id = :id")
+            .setParameter("id", id)
+            .getResultList();
+    return rows.isEmpty() ? null : rows.get(0).intValue();
   }
 
   @Override
@@ -659,34 +1246,114 @@ public class MysqlJobStore implements JobStore {
 
   @Override
   public boolean scheduleJobRetry(long id, String error, Instant newScheduledTime, int attempts) {
+    // Hot-only: post-split FAILED has no hot row, so the WHERE clause drops 'FAILED'.
     return timedStoreOperation(
-        "schedule_retry",
-        () ->
-            em.createNativeQuery(
-                    "UPDATE scheduler_job SET status = 'PENDING', last_error = :err, "
-                        + "scheduled_time = :st, attempts = :att, picked_by = NULL, picked_at = NULL, "
-                        + "updated_at = NOW(3) WHERE job_id = :id AND status IN ('RUNNING','FAILED')")
-                .setParameter("err", error)
-                .setParameter("st", Timestamp.from(newScheduledTime))
-                .setParameter("att", attempts)
-                .setParameter("id", id)
-                .executeUpdate(),
-        updated -> updated > 0 ? "updated" : "miss")
+            "schedule_retry",
+            () ->
+                em.createNativeQuery(
+                        "UPDATE scheduler_job_queue SET status = 'PENDING', last_error = :err, "
+                            + "scheduled_time = :st, attempts = :att, picked_by = NULL, "
+                            + "picked_at = NULL, updated_at = NOW(3) "
+                            + "WHERE job_id = :id AND status = 'RUNNING'")
+                    .setParameter("err", error)
+                    .setParameter("st", Timestamp.from(newScheduledTime))
+                    .setParameter("att", attempts)
+                    .setParameter("id", id)
+                    .executeUpdate(),
+            updated -> updated > 0 ? "updated" : "miss")
         > 0;
+  }
+
+  @Override
+  public boolean markJobFailedTerminal(long id, String terminalError, int totalAttempts) {
+    // Real terminal: gate-DELETE the RUNNING hot row, UPDATE cold to FAILED with totals, drop
+    // the bkres reservation. Single tx via @Transactional class annotation.
+    int hotDeleted =
+        em.createNativeQuery(
+                "DELETE FROM scheduler_job_queue WHERE job_id = :id AND status = 'RUNNING'")
+            .setParameter("id", id)
+            .executeUpdate();
+    if (hotDeleted == 0) {
+      return false;
+    }
+    em.createNativeQuery(
+            "UPDATE scheduler_job SET terminal_status = 'FAILED', terminal_error = :err, "
+                + "total_attempts = :att, terminated_at = NOW(3), execution_end_time = NOW(3) "
+                + "WHERE job_id = :id AND terminal_status IS NULL")
+        .setParameter("err", terminalError)
+        .setParameter("att", totalAttempts)
+        .setParameter("id", id)
+        .executeUpdate();
+    deleteReservationByOwner(id);
+    return true;
+  }
+
+  @Override
+  public boolean cancelJob(long id) {
+    // Dispatch on cold.job_type so callers don't need to know whether the target is recurring.
+    @SuppressWarnings("unchecked")
+    List<Object[]> rows =
+        em.createNativeQuery(
+                "SELECT job_type, terminal_status, rec_status FROM scheduler_job WHERE job_id = :id")
+            .setParameter("id", id)
+            .getResultList();
+    if (rows.isEmpty()) {
+      return false;
+    }
+    Object[] row = rows.get(0);
+    String jobType = (String) row[0];
+    String existingTerminal = (String) row[1];
+    if (existingTerminal != null) {
+      return false; // already terminal — idempotent no-op
+    }
+    if ("RECURRING".equals(jobType)) {
+      // Recurring master cancel: clear rec_status, set terminal_status, drop bkres.
+      // Hot row never exists for recurring masters post-split.
+      int updated =
+          em.createNativeQuery(
+                  "UPDATE scheduler_job SET rec_status = NULL, terminal_status = 'CANCELED', "
+                      + "terminated_at = NOW(3) "
+                      + "WHERE job_id = :id AND job_type = 'RECURRING' "
+                      + "AND rec_status IS NOT NULL AND terminal_status IS NULL")
+              .setParameter("id", id)
+              .executeUpdate();
+      if (updated == 0) {
+        return false;
+      }
+      deleteReservationByOwner(id);
+      return true;
+    }
+    // Executable cancel: DELETE the live hot row regardless of live status, UPDATE cold to
+    // CANCELED, drop bkres. If the hot row is gone (race with terminal), still allow the cold
+    // UPDATE to fire — terminal_status IS NULL guard makes it a no-op when raced.
+    em.createNativeQuery(
+            "DELETE FROM scheduler_job_queue WHERE job_id = :id "
+                + "AND status IN ('PENDING','RUNNING','PAUSED')")
+        .setParameter("id", id)
+        .executeUpdate();
+    int coldUpdated =
+        em.createNativeQuery(
+                "UPDATE scheduler_job SET terminal_status = 'CANCELED', terminated_at = NOW(3) "
+                    + "WHERE job_id = :id AND terminal_status IS NULL")
+            .setParameter("id", id)
+            .executeUpdate();
+    deleteReservationByOwner(id);
+    return coldUpdated > 0;
   }
 
   @Override
   public boolean resetRunningJob(long id, String nodeId) {
     return timedStoreOperation(
-        "reset_running_job",
-        () ->
-            em.createNativeQuery(
-                    "UPDATE scheduler_job SET status = 'PENDING', picked_by = NULL, picked_at = NULL, "
-                        + "updated_at = NOW(3) WHERE job_id = :id AND status = 'RUNNING' AND picked_by = :node")
-                .setParameter("id", id)
-                .setParameter("node", nodeId)
-                .executeUpdate(),
-        updated -> updated > 0 ? "updated" : "miss")
+            "reset_running_job",
+            () ->
+                em.createNativeQuery(
+                        "UPDATE scheduler_job_queue SET status = 'PENDING', picked_by = NULL, "
+                            + "picked_at = NULL, updated_at = NOW(3) "
+                            + "WHERE job_id = :id AND status = 'RUNNING' AND picked_by = :node")
+                    .setParameter("id", id)
+                    .setParameter("node", nodeId)
+                    .executeUpdate(),
+            updated -> updated > 0 ? "updated" : "miss")
         > 0;
   }
 
@@ -696,8 +1363,9 @@ public class MysqlJobStore implements JobStore {
         "reset_running_jobs",
         () ->
             em.createNativeQuery(
-                    "UPDATE scheduler_job SET status = 'PENDING', picked_by = NULL, picked_at = NULL, "
-                        + "updated_at = NOW(3) WHERE status = 'RUNNING' AND picked_by = :node")
+                    "UPDATE scheduler_job_queue SET status = 'PENDING', picked_by = NULL, "
+                        + "picked_at = NULL, updated_at = NOW(3) "
+                        + "WHERE status = 'RUNNING' AND picked_by = :node")
                 .setParameter("node", nodeId)
                 .executeUpdate(),
         updated -> updated > 0 ? "updated" : "miss");
@@ -705,23 +1373,29 @@ public class MysqlJobStore implements JobStore {
 
   @Override
   public int cancelRecurringJobsByTag(String tag) {
-    return em.createNativeQuery(
-            "UPDATE scheduler_job j JOIN scheduler_job_tag t ON j.job_id = t.job_id "
-                + "SET j.status = 'CANCELED', j.updated_at = NOW(3) "
-                + "WHERE t.tag = :tag AND j.job_type = 'RECURRING' "
-                + "AND j.status IN ('PENDING', 'RUNNING', 'PAUSED')")
-        .setParameter("tag", tag)
-        .executeUpdate();
+    @SuppressWarnings("unchecked")
+    List<Number> ids =
+        em.createNativeQuery(
+                "SELECT j.job_id FROM scheduler_job j "
+                    + "JOIN scheduler_job_tag t ON j.job_id = t.job_id "
+                    + "WHERE t.tag = :tag AND j.job_type = 'RECURRING' "
+                    + "AND j.rec_status IS NOT NULL AND j.terminal_status IS NULL")
+            .setParameter("tag", tag)
+            .getResultList();
+    return cancelRecurringByIds(ids);
   }
 
   @Override
   public int cancelRecurringJobByBusinessKey(String businessKey) {
-    return em.createNativeQuery(
-            "UPDATE scheduler_job SET status = 'CANCELED', updated_at = NOW(3) "
-                + "WHERE business_key = :bk AND job_type = 'RECURRING' "
-                + "AND status IN ('PENDING', 'RUNNING', 'PAUSED')")
-        .setParameter("bk", businessKey)
-        .executeUpdate();
+    @SuppressWarnings("unchecked")
+    List<Number> ids =
+        em.createNativeQuery(
+                "SELECT job_id FROM scheduler_job "
+                    + "WHERE business_key = :bk AND job_type = 'RECURRING' "
+                    + "AND rec_status IS NOT NULL AND terminal_status IS NULL")
+            .setParameter("bk", businessKey)
+            .getResultList();
+    return cancelRecurringByIds(ids);
   }
 
   @Override
@@ -730,36 +1404,125 @@ public class MysqlJobStore implements JobStore {
     if (registeredIds.isEmpty()) {
       return 0;
     }
-    return em.createNativeQuery(
-            "UPDATE scheduler_job SET status = 'CANCELED', updated_at = NOW(3) "
-                + "WHERE job_type = 'RECURRING' "
-                + "AND status IN ('PENDING', 'RUNNING', 'PAUSED') "
-                + "AND created_at < :nodeStart "
-                + "AND business_key IS NOT NULL "
-                + "AND business_key NOT IN (:ids)")
-        .setParameter("nodeStart", Timestamp.from(nodeStartTime))
-        .setParameter("ids", registeredIds)
-        .executeUpdate();
+    @SuppressWarnings("unchecked")
+    List<Number> ids =
+        em.createNativeQuery(
+                "SELECT job_id FROM scheduler_job WHERE job_type = 'RECURRING' "
+                    + "AND rec_status IS NOT NULL AND terminal_status IS NULL "
+                    + "AND created_at < :nodeStart AND business_key IS NOT NULL "
+                    + "AND business_key NOT IN (:ids)")
+            .setParameter("nodeStart", Timestamp.from(nodeStartTime))
+            .setParameter("ids", registeredIds)
+            .getResultList();
+    return cancelRecurringByIds(ids);
+  }
+
+  /** Bulk recurring-cancel helper: cold UPDATE per id + bkres delete per id. */
+  private int cancelRecurringByIds(List<Number> idRows) {
+    if (idRows.isEmpty()) {
+      return 0;
+    }
+    int total = 0;
+    for (Number n : idRows) {
+      long id = n.longValue();
+      int updated =
+          em.createNativeQuery(
+                  "UPDATE scheduler_job SET rec_status = NULL, terminal_status = 'CANCELED', "
+                      + "terminated_at = NOW(3) "
+                      + "WHERE job_id = :id AND job_type = 'RECURRING' "
+                      + "AND rec_status IS NOT NULL AND terminal_status IS NULL")
+              .setParameter("id", id)
+              .executeUpdate();
+      if (updated > 0) {
+        deleteReservationByOwner(id);
+        total += updated;
+      }
+    }
+    return total;
   }
 
   @Override
   public boolean resetFailedToPending(long id) {
-    int updated =
+    // (1) Lock cold and capture immutable shape fields needed for hot INSERT.
+    @SuppressWarnings("unchecked")
+    List<Object[]> rows =
         em.createNativeQuery(
-                "UPDATE scheduler_job SET status = 'PENDING', attempts = 0, "
-                    + "last_error = NULL, scheduled_time = NOW(3), "
-                    + "picked_by = NULL, picked_at = NULL, updated_at = NOW(3) "
-                    + "WHERE job_id = :id AND status = 'FAILED'")
+                "SELECT terminal_status, job_type, priority, business_key, timeout_sec, max_retries "
+                    + "FROM scheduler_job WHERE job_id = :id FOR UPDATE")
             .setParameter("id", id)
-            .executeUpdate();
-    return updated > 0;
+            .getResultList();
+    if (rows.isEmpty()) {
+      return false;
+    }
+    Object[] row = rows.get(0);
+    String terminal = (String) row[0];
+    if (!"FAILED".equals(terminal)) {
+      return false;
+    }
+    String jobType = (String) row[1];
+    int priority = ((Number) row[2]).intValue();
+    String businessKey = (String) row[3];
+    int timeoutSec = ((Number) row[4]).intValue();
+    int maxRetries = ((Number) row[5]).intValue();
+
+    // (2) Clear cold terminal fields.
+    em.createNativeQuery(
+            "UPDATE scheduler_job SET terminal_status = NULL, terminal_error = NULL, "
+                + "job_result = NULL, result_type = NULL, "
+                + "execution_start_time = NULL, execution_end_time = NULL, "
+                + "execution_duration_ms = NULL, queue_wait_ms = NULL, "
+                + "total_attempts = NULL, terminated_at = NULL "
+                + "WHERE job_id = :id AND terminal_status = 'FAILED'")
+        .setParameter("id", id)
+        .executeUpdate();
+
+    // (3) Re-insert the hot row.
+    em.createNativeQuery(
+            "INSERT INTO scheduler_job_queue "
+                + "(job_id, status, job_type, priority, scheduled_time, business_key, "
+                + "timeout_sec, max_retries, attempts, version, updated_at) "
+                + "VALUES (:id, 'PENDING', :jt, :pr, NOW(3), :bk, :to, :mr, 0, 0, NOW(3))")
+        .setParameter("id", id)
+        .setParameter("jt", jobType)
+        .setParameter("pr", priority)
+        .setParameter("bk", businessKey)
+        .setParameter("to", timeoutSec)
+        .setParameter("mr", maxRetries)
+        .executeUpdate();
+
+    // (4) Re-insert bkres if needed; duplicate-bkey here means a live owner exists → rollback.
+    if (businessKey != null) {
+      try {
+        insertReservation(businessKey, id, OWNER_TABLE_QUEUE);
+      } catch (RuntimeException e) {
+        if (CONSTRAINT_DETECTOR.isDuplicateBusinessKey(e)) {
+          throw new RatchetTransientStoreException(
+              "Cannot resurrect job " + id + ": business key already held", e);
+        }
+        throw e;
+      }
+    }
+    return true;
   }
 
   @Override
   public boolean transitionToPaused(long id, JobStatus expected) {
+    if (expected == JobStatus.PAUSED) {
+      throw new IllegalArgumentException("transitionToPaused expects expected != PAUSED");
+    }
+    if (!isLiveStatus(expected)) {
+      // Post hot/cold-split: terminal statuses (FAILED/SUCCEEDED/CANCELED) have no hot row, so
+      // pause-of-terminal can't write the paused_from_status field anywhere. RI's pauseJob
+      // chains transitionToPaused(PENDING) → transitionToPaused(FAILED); the FAILED arm returns
+      // false here, indicating "pause-of-FAILED is not supported post-split" without throwing.
+      log.debugf(
+          "transitionToPaused(%d, %s) is a no-op post hot/cold-split — terminal jobs cannot be paused",
+          id, expected);
+      return false;
+    }
     int updated =
         em.createNativeQuery(
-                "UPDATE scheduler_job SET status = 'PAUSED', "
+                "UPDATE scheduler_job_queue SET status = 'PAUSED', "
                     + "paused_from_status = :exp, updated_at = NOW(3) "
                     + "WHERE job_id = :id AND status = :exp")
             .setParameter("exp", expected.name())
@@ -770,9 +1533,13 @@ public class MysqlJobStore implements JobStore {
 
   @Override
   public boolean transitionFromPaused(long id, JobStatus target) {
+    if (!isLiveStatus(target) || target == JobStatus.PAUSED) {
+      throw new IllegalArgumentException(
+          "transitionFromPaused expects a non-PAUSED live status; got " + target);
+    }
     int updated =
         em.createNativeQuery(
-                "UPDATE scheduler_job SET status = :target, "
+                "UPDATE scheduler_job_queue SET status = :target, "
                     + "paused_from_status = NULL, updated_at = NOW(3) "
                     + "WHERE job_id = :id AND status = 'PAUSED'")
             .setParameter("target", target.name())
@@ -782,10 +1549,34 @@ public class MysqlJobStore implements JobStore {
   }
 
   @Override
+  public boolean pauseRecurring(long id) {
+    int updated =
+        em.createNativeQuery(
+                "UPDATE scheduler_job SET rec_status = 'A' "
+                    + "WHERE job_id = :id AND job_type = 'RECURRING' "
+                    + "AND rec_status = 'P' AND terminal_status IS NULL")
+            .setParameter("id", id)
+            .executeUpdate();
+    return updated > 0;
+  }
+
+  @Override
+  public boolean resumeRecurring(long id) {
+    int updated =
+        em.createNativeQuery(
+                "UPDATE scheduler_job SET rec_status = 'P' "
+                    + "WHERE job_id = :id AND job_type = 'RECURRING' "
+                    + "AND rec_status = 'A' AND terminal_status IS NULL")
+            .setParameter("id", id)
+            .executeUpdate();
+    return updated > 0;
+  }
+
+  @Override
   public JobStatus transitionFromPausedAtomic(long id) {
     List<?> results =
         em.createNativeQuery(
-                "SELECT paused_from_status FROM scheduler_job "
+                "SELECT paused_from_status FROM scheduler_job_queue "
                     + "WHERE job_id = :id AND status = 'PAUSED' FOR UPDATE")
             .setParameter("id", id)
             .getResultList();
@@ -796,7 +1587,7 @@ public class MysqlJobStore implements JobStore {
     JobStatus target = pausedFrom != null ? JobStatus.valueOf(pausedFrom) : JobStatus.PENDING;
     int updated =
         em.createNativeQuery(
-                "UPDATE scheduler_job SET status = :target, "
+                "UPDATE scheduler_job_queue SET status = :target, "
                     + "paused_from_status = NULL, updated_at = NOW(3) "
                     + "WHERE job_id = :id AND status = 'PAUSED'")
             .setParameter("target", target.name())
@@ -811,89 +1602,54 @@ public class MysqlJobStore implements JobStore {
       return;
     }
     Connection conn = em.unwrap(Connection.class);
-    try {
-      String sql =
-          "INSERT INTO scheduler_job (job_id, status, paused_from_status, scheduled_time, "
-              + "job_type, priority, attempts, max_retries, backoff_policy, backoff_param_ms, "
-              + "timeout_sec, cron_expr, zone_id, next_fire, payload, params, idempotency_key, "
-              + "business_key, resource_name, on_success_payload, on_failure_payload, "
-              + "depends_on, superseded_by, picked_by, picked_at, "
-              + "last_error, created_at, created_by, updated_at, execution_start_time, "
-              + "execution_end_time, execution_duration_ms, queue_wait_ms, job_result, "
-              + "result_type, version) "
-              + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), "
-              + "CAST(? AS JSON), ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), "
-              + "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-              + "CAST(? AS JSON), ?, 0)";
+    Instant now = Instant.now();
+    Timestamp nowTs = Timestamp.from(now);
 
-      try (PreparedStatement ps = conn.prepareStatement(sql)) {
-        Instant now = Instant.now();
+    for (JobEntity job : jobs) {
+      assignTsidIfMissing(job);
+    }
+
+    List<JobEntity> needsHot = new ArrayList<>(jobs.size());
+    List<JobEntity> needsBkres = new ArrayList<>(jobs.size());
+    for (JobEntity job : jobs) {
+      if (job.getJobType() != JobExecutionType.RECURRING) {
+        needsHot.add(job);
+      }
+      if (job.getBusinessKey() != null) {
+        needsBkres.add(job);
+      }
+    }
+
+    try {
+      // 1. Cold batch — every job.
+      try (PreparedStatement ps = conn.prepareStatement(COLD_INSERT_SQL)) {
         for (JobEntity job : jobs) {
-          int i = 1;
-          ps.setLong(i++, job.getId());
-          ps.setString(i++, (job.getStatus() != null ? job.getStatus() : JobStatus.PENDING).name());
-          ps.setString(
-              i++, job.getPausedFromStatus() != null ? job.getPausedFromStatus().name() : null);
-          ps.setTimestamp(i++, Timestamp.from(job.getScheduledTime()));
-          ps.setString(i++, job.getJobType().name());
-          ps.setInt(i++, job.getPriority().ordinal());
-          ps.setInt(i++, job.getAttempts());
-          ps.setInt(i++, job.getMaxRetries());
-          ps.setString(i++, job.getBackoffPolicy().name());
-          ps.setInt(i++, job.getBackoffParamMs());
-          ps.setInt(i++, job.getTimeoutSec());
-          ps.setString(i++, job.getCronExpr());
-          ps.setString(i++, job.getZoneId());
-          ps.setTimestamp(
-              i++, job.getNextFire() != null ? Timestamp.from(job.getNextFire()) : null);
-          ps.setString(i++, payloadToJson(job));
-          ps.setString(i++, paramsToJson(job));
-          ps.setString(i++, job.getIdempotencyKey());
-          ps.setString(i++, job.getBusinessKey());
-          ps.setString(i++, job.getResourceName());
-          ps.setString(i++, callbackPayloadToJson(job.getOnSuccessPayload()));
-          ps.setString(i++, callbackPayloadToJson(job.getOnFailurePayload()));
-          if (job.getDependsOn() != null) {
-            ps.setLong(i++, job.getDependsOn());
-          } else {
-            ps.setNull(i++, Types.BIGINT);
-          }
-          if (job.getSupersededBy() != null) {
-            ps.setLong(i++, job.getSupersededBy());
-          } else {
-            ps.setNull(i++, Types.BIGINT);
-          }
-          ps.setString(i++, job.getPickedBy());
-          ps.setTimestamp(
-              i++, job.getPickedAt() != null ? Timestamp.from(job.getPickedAt()) : null);
-          ps.setString(i++, job.getLastError());
-          ps.setTimestamp(i++, Timestamp.from(now));
-          ps.setString(i++, job.getCreatedBy());
-          ps.setTimestamp(i++, Timestamp.from(now));
-          ps.setTimestamp(
-              i++,
-              job.getExecutionStartTime() != null
-                  ? Timestamp.from(job.getExecutionStartTime())
-                  : null);
-          ps.setTimestamp(
-              i++,
-              job.getExecutionEndTime() != null ? Timestamp.from(job.getExecutionEndTime()) : null);
-          if (job.getExecutionDurationMs() != null) {
-            ps.setLong(i++, job.getExecutionDurationMs());
-          } else {
-            ps.setNull(i++, Types.BIGINT);
-          }
-          if (job.getQueueWaitMs() != null) {
-            ps.setLong(i++, job.getQueueWaitMs());
-          } else {
-            ps.setNull(i++, Types.BIGINT);
-          }
-          ps.setString(i++, job.getJobResult());
-          ps.setString(i, job.getResultType());
+          bindColdInsert(ps, job, nowTs);
           ps.addBatch();
         }
         ps.executeBatch();
-        // job_id is pre-assigned; no generated key read-back needed
+      }
+
+      // 2. Hot batch — executable jobs only.
+      if (!needsHot.isEmpty()) {
+        try (PreparedStatement ps = conn.prepareStatement(HOT_INSERT_SQL)) {
+          for (JobEntity job : needsHot) {
+            bindHotInsert(ps, job, nowTs);
+            ps.addBatch();
+          }
+          ps.executeBatch();
+        }
+      }
+
+      // 3. bkres batch — jobs that carry a business_key (executable or recurring).
+      if (!needsBkres.isEmpty()) {
+        try (PreparedStatement ps = conn.prepareStatement(BKRES_INSERT_SQL)) {
+          for (JobEntity job : needsBkres) {
+            bindBkresInsert(ps, job, nowTs);
+            ps.addBatch();
+          }
+          ps.executeBatch();
+        }
       }
     } catch (SQLException e) {
       throw new RuntimeException("Bulk insert failed", e);
@@ -901,11 +1657,99 @@ public class MysqlJobStore implements JobStore {
     em.clear();
   }
 
+  // ---- bulkInsert bind helpers (PreparedStatement positional) ----
+
+  private void bindColdInsert(PreparedStatement ps, JobEntity job, Timestamp nowTs)
+      throws SQLException {
+    int i = 1;
+    ps.setLong(i++, job.getId());
+    ps.setString(i++, job.getJobType().name());
+    ps.setInt(i++, job.getPriority().ordinal());
+    ps.setInt(i++, job.getMaxRetries());
+    ps.setString(i++, job.getBackoffPolicy().name());
+    ps.setInt(i++, job.getBackoffParamMs());
+    ps.setInt(i++, job.getTimeoutSec());
+    ps.setString(i++, job.getCronExpr());
+    ps.setString(i++, job.getZoneId());
+    if (job.getNextFire() != null) {
+      ps.setTimestamp(i++, Timestamp.from(job.getNextFire()));
+    } else {
+      ps.setNull(i++, Types.TIMESTAMP);
+    }
+    ps.setString(i++, payloadToJson(job));
+    ps.setString(i++, paramsToJson(job));
+    ps.setString(i++, job.getIdempotencyKey());
+    ps.setString(i++, job.getBusinessKey());
+    ps.setString(i++, job.getResourceName());
+    ps.setString(i++, callbackPayloadToJson(job.getOnSuccessPayload()));
+    ps.setString(i++, callbackPayloadToJson(job.getOnFailurePayload()));
+    if (job.getDependsOn() != null) {
+      ps.setLong(i++, job.getDependsOn());
+    } else {
+      ps.setNull(i++, Types.BIGINT);
+    }
+    if (job.getSupersededBy() != null) {
+      ps.setLong(i++, job.getSupersededBy());
+    } else {
+      ps.setNull(i++, Types.BIGINT);
+    }
+    ps.setTimestamp(i++, nowTs);
+    ps.setString(i++, job.getCreatedBy());
+    if (job.getJobType() == JobExecutionType.RECURRING) {
+      JobStatus s = job.getStatus() != null ? job.getStatus() : JobStatus.PENDING;
+      String rec = recStatusForLiveStatus(s);
+      ps.setString(i, rec != null ? rec : "P");
+    } else {
+      ps.setNull(i, Types.CHAR);
+    }
+  }
+
+  private void bindHotInsert(PreparedStatement ps, JobEntity job, Timestamp nowTs)
+      throws SQLException {
+    int i = 1;
+    ps.setLong(i++, job.getId());
+    JobStatus s = job.getStatus() != null ? job.getStatus() : JobStatus.PENDING;
+    ps.setString(i++, s.name());
+    ps.setString(i++, job.getJobType().name());
+    ps.setInt(i++, job.getPriority().ordinal());
+    Instant scheduled = job.getScheduledTime();
+    ps.setTimestamp(i++, scheduled != null ? Timestamp.from(scheduled) : nowTs);
+    ps.setString(i++, job.getBusinessKey());
+    ps.setInt(i++, job.getTimeoutSec());
+    ps.setInt(i++, job.getMaxRetries());
+    ps.setInt(i++, job.getAttempts());
+    ps.setString(i++, job.getPickedBy());
+    if (job.getPickedAt() != null) {
+      ps.setTimestamp(i++, Timestamp.from(job.getPickedAt()));
+    } else {
+      ps.setNull(i++, Types.TIMESTAMP);
+    }
+    ps.setString(i++, job.getPausedFromStatus() != null ? job.getPausedFromStatus().name() : null);
+    ps.setString(i++, job.getLastError());
+    ps.setInt(i++, job.getVersion() != null ? job.getVersion() : 0);
+    ps.setTimestamp(i, nowTs);
+  }
+
+  private void bindBkresInsert(PreparedStatement ps, JobEntity job, Timestamp nowTs)
+      throws SQLException {
+    ps.setString(1, job.getBusinessKey());
+    ps.setLong(2, job.getId());
+    ps.setString(
+        3,
+        job.getJobType() == JobExecutionType.RECURRING ? OWNER_TABLE_RECURRING : OWNER_TABLE_QUEUE);
+    ps.setTimestamp(4, nowTs);
+  }
+
   @Override
   public int deleteJobsByIds(List<Long> ids) {
     if (ids.isEmpty()) {
       return 0;
     }
+    // bkres has no FK; cold DELETE cascades to hot via FK ON DELETE CASCADE.
+    em.createNativeQuery(
+            "DELETE FROM scheduler_business_key_reservation WHERE owner_job_id IN (:ids)")
+        .setParameter("ids", ids)
+        .executeUpdate();
     return em.createNativeQuery("DELETE FROM scheduler_job WHERE job_id IN (:ids)")
         .setParameter("ids", ids)
         .executeUpdate();
@@ -913,10 +1757,30 @@ public class MysqlJobStore implements JobStore {
 
   @Override
   public int deleteDlqOlderThan(Instant cutoff) {
-    return em.createNativeQuery(
-            "DELETE FROM scheduler_job WHERE status = 'FAILED' AND attempts >= max_retries "
-                + "AND updated_at < :cutoff")
-        .setParameter("cutoff", Timestamp.from(cutoff))
+    // Post-split: DLQ-eligible rows live in cold with terminal_status='FAILED' and total_attempts
+    // satisfied. terminated_at is the canonical age column. bkres rows for terminal jobs are
+    // already dropped at terminal transition; the explicit cleanup below is belt-and-suspenders.
+    @SuppressWarnings("unchecked")
+    List<Number> idRows =
+        em.createNativeQuery(
+                "SELECT job_id FROM scheduler_job "
+                    + "WHERE terminal_status = 'FAILED' AND total_attempts >= max_retries "
+                    + "AND terminated_at < :cutoff")
+            .setParameter("cutoff", Timestamp.from(cutoff))
+            .getResultList();
+    if (idRows.isEmpty()) {
+      return 0;
+    }
+    List<Long> ids = new ArrayList<>(idRows.size());
+    for (Number n : idRows) {
+      ids.add(n.longValue());
+    }
+    em.createNativeQuery(
+            "DELETE FROM scheduler_business_key_reservation WHERE owner_job_id IN (:ids)")
+        .setParameter("ids", ids)
+        .executeUpdate();
+    return em.createNativeQuery("DELETE FROM scheduler_job WHERE job_id IN (:ids)")
+        .setParameter("ids", ids)
         .executeUpdate();
   }
 
@@ -924,8 +1788,8 @@ public class MysqlJobStore implements JobStore {
   public int resetOrphanJobs(Duration grace) {
     // Use SECOND granularity — toMinutes() truncates sub-minute values
     return em.createNativeQuery(
-            "UPDATE scheduler_job SET status = 'PENDING', picked_by = NULL, picked_at = NULL, "
-                + "updated_at = NOW(3) "
+            "UPDATE scheduler_job_queue SET status = 'PENDING', picked_by = NULL, "
+                + "picked_at = NULL, updated_at = NOW(3) "
                 + "WHERE status = 'RUNNING' AND picked_by NOT IN ("
                 + "  SELECT node_id FROM scheduler_node "
                 + "  WHERE TIMESTAMPDIFF(SECOND, heartbeat_ts, NOW(3)) <= :graceSec"
@@ -937,8 +1801,8 @@ public class MysqlJobStore implements JobStore {
   @Override
   public int resetOrphanJobsForNode(String nodeId) {
     return em.createNativeQuery(
-            "UPDATE scheduler_job SET status = 'PENDING', picked_by = NULL, picked_at = NULL, "
-                + "updated_at = NOW(3) "
+            "UPDATE scheduler_job_queue SET status = 'PENDING', picked_by = NULL, "
+                + "picked_at = NULL, updated_at = NOW(3) "
                 + "WHERE status = 'RUNNING' AND picked_by = :node")
         .setParameter("node", nodeId)
         .executeUpdate();
@@ -1151,24 +2015,40 @@ public class MysqlJobStore implements JobStore {
   }
 
   @Override
+  @SuppressWarnings("unchecked")
   public List<JobEntity> findJobsForArchiving(Instant olderThan, int limit) {
-    return em.createQuery(ArchiveHelper.FIND_JOBS_FOR_ARCHIVING_JPQL, JobEntity.class)
-        .setParameter("cutoff", olderThan)
-        .setMaxResults(limit)
-        .getResultList();
+    // Post hot/cold-split: terminal-state rows live in cold with terminal_status set and
+    // terminated_at as the canonical age column. Native SQL via HYDRATION_SELECT bypasses the
+    // legacy JPQL that referenced removed cold columns (status, updated_at).
+    List<Object[]> rows =
+        em.createNativeQuery(
+                "SELECT "
+                    + HYDRATION_SELECT
+                    + " FROM scheduler_job c "
+                    + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
+                    + "WHERE c.terminal_status IS NOT NULL AND c.terminated_at < :cutoff "
+                    + "ORDER BY c.terminated_at ASC "
+                    + "LIMIT :lim")
+            .setParameter("cutoff", Timestamp.from(olderThan))
+            .setParameter("lim", limit)
+            .getResultList();
+    List<JobEntity> jobs = new ArrayList<>(rows.size());
+    for (Object[] row : rows) {
+      jobs.add(hydrateJobEntity(row));
+    }
+    hydrateTagsBatch(jobs);
+    return jobs;
   }
 
   @Override
   public long countJobsForArchiving(Instant olderThan) {
-    return em.createQuery(
-            "SELECT COUNT(j) FROM JobEntity j WHERE j.status IN ("
-                + "run.ratchet.store.entity.JobStatus.SUCCEEDED, "
-                + "run.ratchet.store.entity.JobStatus.FAILED, "
-                + "run.ratchet.store.entity.JobStatus.CANCELED) "
-                + "AND j.updatedAt < :cutoff",
-            Long.class)
-        .setParameter("cutoff", olderThan)
-        .getSingleResult();
+    Object result =
+        em.createNativeQuery(
+                "SELECT COUNT(*) FROM scheduler_job "
+                    + "WHERE terminal_status IS NOT NULL AND terminated_at < :cutoff")
+            .setParameter("cutoff", Timestamp.from(olderThan))
+            .getSingleResult();
+    return ((Number) result).longValue();
   }
 
   @Override
@@ -1298,11 +2178,20 @@ public class MysqlJobStore implements JobStore {
   @Override
   @SuppressWarnings("unchecked")
   public Map<JobStatus, Long> countJobsByStatusForTag(String tag) {
+    // UNION live (hot.status) + terminal (cold.terminal_status). Hot rows are deleted at
+    // terminal so the two sets are disjoint per job_id.
     List<Object[]> rows =
         em.createNativeQuery(
-                "SELECT j.status, COUNT(*) FROM scheduler_job j "
-                    + "JOIN scheduler_job_tag t ON j.job_id = t.job_id "
-                    + "WHERE t.tag = :tag GROUP BY j.status")
+                "SELECT s, SUM(c) FROM ("
+                    + "  SELECT q.status AS s, COUNT(*) AS c FROM scheduler_job_queue q "
+                    + "    JOIN scheduler_job_tag t ON t.job_id = q.job_id "
+                    + "    WHERE t.tag = :tag GROUP BY q.status "
+                    + "  UNION ALL "
+                    + "  SELECT c.terminal_status AS s, COUNT(*) AS c FROM scheduler_job c "
+                    + "    JOIN scheduler_job_tag t ON t.job_id = c.job_id "
+                    + "    WHERE t.tag = :tag AND c.terminal_status IS NOT NULL "
+                    + "    GROUP BY c.terminal_status"
+                    + ") u GROUP BY s")
             .setParameter("tag", tag)
             .getResultList();
     Map<JobStatus, Long> counts = new EnumMap<>(JobStatus.class);
@@ -1333,12 +2222,29 @@ public class MysqlJobStore implements JobStore {
   @Override
   @SuppressWarnings("unchecked")
   public Map<String, Long> countJobsByExecutionNodeForTag(String tag) {
+    // Pre-split picked_by survived terminal as "last node that touched the row." Post-split,
+    // hot is deleted at terminal so picked_by is gone for terminal jobs. Substitute the latest
+    // scheduler_job_execution.node_id for terminal rows; keep hot.picked_by for live rows.
+    // Hot/cold are disjoint per job_id, so SUM across the union is correct.
     List<Object[]> rows =
         em.createNativeQuery(
-                "SELECT j.picked_by, COUNT(*) FROM scheduler_job j "
-                    + "JOIN scheduler_job_tag t ON j.job_id = t.job_id "
-                    + "WHERE t.tag = :tag AND j.picked_by IS NOT NULL AND j.picked_by <> '' "
-                    + "GROUP BY j.picked_by ORDER BY j.picked_by")
+                "SELECT node, SUM(c) FROM ("
+                    + "  SELECT q.picked_by AS node, COUNT(*) AS c "
+                    + "    FROM scheduler_job_queue q "
+                    + "    JOIN scheduler_job_tag t ON t.job_id = q.job_id "
+                    + "    WHERE t.tag = :tag AND q.picked_by IS NOT NULL AND q.picked_by <> '' "
+                    + "    GROUP BY q.picked_by "
+                    + "  UNION ALL "
+                    + "  SELECT e.node_id AS node, COUNT(*) AS c "
+                    + "    FROM scheduler_job c2 "
+                    + "    JOIN scheduler_job_tag t ON t.job_id = c2.job_id "
+                    + "    JOIN scheduler_job_execution e ON e.job_id = c2.job_id "
+                    + "    WHERE t.tag = :tag AND c2.terminal_status IS NOT NULL "
+                    + "      AND e.id = (SELECT MAX(e2.id) FROM scheduler_job_execution e2 "
+                    + "                  WHERE e2.job_id = c2.job_id) "
+                    + "      AND e.node_id IS NOT NULL AND e.node_id <> '' "
+                    + "    GROUP BY e.node_id"
+                    + ") u GROUP BY node ORDER BY node")
             .setParameter("tag", tag)
             .getResultList();
     return toStringCountMap(rows);
@@ -1600,6 +2506,319 @@ public class MysqlJobStore implements JobStore {
             + " transaction-isolation=TRANSACTION_READ_COMMITTED on the datasource.");
   }
 
+  // ===========================================================================
+  // CP1 helpers — TSID assignment, bkres helpers, recurring shim helpers,
+  // composite-view hydrator, hot-mutation guard.
+  // ===========================================================================
+
+  /** Assigns a TSID if the entity has no id yet. Replaces the JPA @PrePersist listener path. */
+  private static void assignTsidIfMissing(JobEntity job) {
+    if (job.getId() == null || job.getId() == 0L) {
+      job.setId(TsidFactory.next());
+    }
+  }
+
+  /** Inserts a bkres row in the caller's tx. No-op when businessKey is null. */
+  private void insertReservation(String businessKey, long ownerJobId, String ownerTable) {
+    if (businessKey == null) {
+      return;
+    }
+    em.createNativeQuery(
+            "INSERT INTO scheduler_business_key_reservation "
+                + "(business_key, owner_job_id, owner_table, reserved_at) VALUES (?, ?, ?, NOW(3))")
+        .setParameter(1, businessKey)
+        .setParameter(2, ownerJobId)
+        .setParameter(3, ownerTable)
+        .executeUpdate();
+  }
+
+  /** Drops the bkres row owned by the given job_id (if any). Returns rows deleted. */
+  @SuppressWarnings("UnusedReturnValue")
+  private int deleteReservationByOwner(long ownerJobId) {
+    return em.createNativeQuery(
+            "DELETE FROM scheduler_business_key_reservation WHERE owner_job_id = ?")
+        .setParameter(1, ownerJobId)
+        .executeUpdate();
+  }
+
+  /** Encodes a recurring master's logical status into the rec_status shim character. */
+  private static String recStatusForLiveStatus(JobStatus s) {
+    if (s == JobStatus.PENDING) return "P";
+    if (s == JobStatus.PAUSED) return "A";
+    return null;
+  }
+
+  /** Decodes the rec_status shim character into a logical JobStatus. */
+  private static JobStatus recStatusDecode(String c) {
+    if ("P".equals(c)) return JobStatus.PENDING;
+    if ("A".equals(c)) return JobStatus.PAUSED;
+    return null;
+  }
+
+  /**
+   * Hydrates a JobEntity from a (cold LEFT JOIN hot) projection row using HYDRATION_SELECT
+   * positional contract. Status is resolved by 3-source COALESCE: live (q.status) wins, then the
+   * rec_status shim, then cold.terminal_status. Tags are not populated here — callers fill them
+   * with a follow-up SELECT.
+   */
+  private JobEntity hydrateJobEntity(Object[] row) {
+    if (row == null) {
+      return null;
+    }
+    if (row.length != HYDRATION_COL_COUNT) {
+      throw new IllegalStateException(
+          "Hydration projection length mismatch: expected "
+              + HYDRATION_COL_COUNT
+              + " columns, got "
+              + row.length);
+    }
+    JobEntity j = new JobEntity();
+    j.setId(((Number) row[IDX_JOB_ID]).longValue());
+    j.setJobType(JobExecutionType.valueOf((String) row[IDX_JOB_TYPE]));
+    j.setPriority(safeJobPriority(((Number) row[IDX_PRIORITY]).intValue()));
+    j.setMaxRetries(((Number) row[IDX_MAX_RETRIES]).intValue());
+    j.setBackoffPolicy(
+        run.ratchet.api.BackoffPolicy.valueOf((String) row[IDX_BACKOFF_POLICY]));
+    j.setBackoffParamMs(((Number) row[IDX_BACKOFF_PARAM_MS]).intValue());
+    j.setTimeoutSec(((Number) row[IDX_TIMEOUT_SEC]).intValue());
+    j.setCronExpr((String) row[IDX_CRON_EXPR]);
+    j.setZoneId((String) row[IDX_ZONE_ID]);
+    j.setNextFire(toInstant(row[IDX_NEXT_FIRE]));
+    j.setPayload(JOB_PAYLOAD_CONVERTER.convertToEntityAttribute(stringOrNull(row[IDX_PAYLOAD])));
+    j.setParams(JSON_MAP_CONVERTER.convertToEntityAttribute(stringOrNull(row[IDX_PARAMS])));
+    j.setTargetClass((String) row[IDX_TARGET_CLASS]);
+    j.setMethodName((String) row[IDX_METHOD_NAME]);
+    j.setIdempotencyKey((String) row[IDX_IDEMPOTENCY_KEY]);
+    j.setBusinessKey((String) row[IDX_BUSINESS_KEY]);
+    j.setResourceName((String) row[IDX_RESOURCE_NAME]);
+    j.setOnSuccessPayload(
+        JOB_PAYLOAD_CONVERTER.convertToEntityAttribute(stringOrNull(row[IDX_ON_SUCCESS])));
+    j.setOnFailurePayload(
+        JOB_PAYLOAD_CONVERTER.convertToEntityAttribute(stringOrNull(row[IDX_ON_FAILURE])));
+    j.setDependsOn(longOrNull(row[IDX_DEPENDS_ON]));
+    j.setSupersededBy(longOrNull(row[IDX_SUPERSEDED_BY]));
+    j.setCreatedAt(toInstant(row[IDX_CREATED_AT]));
+    j.setCreatedBy((String) row[IDX_CREATED_BY]);
+
+    String terminalStr = (String) row[IDX_TERMINAL_STATUS];
+    JobStatus terminal = terminalStr != null ? JobStatus.valueOf(terminalStr) : null;
+    j.setTerminalStatus(terminal);
+
+    j.setExecutionStartTime(toInstant(row[IDX_EXEC_START]));
+    j.setExecutionEndTime(toInstant(row[IDX_EXEC_END]));
+    j.setExecutionDurationMs(longOrNull(row[IDX_EXEC_DURATION]));
+    j.setQueueWaitMs(longOrNull(row[IDX_QUEUE_WAIT]));
+    j.setJobResult(stringOrNull(row[IDX_JOB_RESULT]));
+    j.setResultType((String) row[IDX_RESULT_TYPE]);
+
+    String recStatus = stringOrNull(row[IDX_REC_STATUS]);
+
+    String liveStr = (String) row[IDX_Q_STATUS];
+    JobStatus live = liveStr != null ? JobStatus.valueOf(liveStr) : null;
+
+    JobStatus resolved;
+    if (live != null) {
+      resolved = live;
+    } else if (recStatus != null) {
+      resolved = recStatusDecode(recStatus);
+    } else if (terminal != null) {
+      resolved = terminal;
+    } else {
+      log.errorf(
+          "Job %d has no live, recurring, or terminal status — possible invariant violation",
+          j.getId());
+      resolved = null;
+    }
+    j.setStatus(resolved);
+
+    if (live != null) {
+      j.setScheduledTime(toInstant(row[IDX_Q_SCHEDULED_TIME]));
+      j.setAttempts(((Number) row[IDX_Q_ATTEMPTS]).intValue());
+      j.setPickedBy((String) row[IDX_Q_PICKED_BY]);
+      j.setPickedAt(toInstant(row[IDX_Q_PICKED_AT]));
+      String pausedFrom = (String) row[IDX_Q_PAUSED];
+      j.setPausedFromStatus(pausedFrom != null ? JobStatus.valueOf(pausedFrom) : null);
+      j.setLastError(stringOrNull(row[IDX_Q_LAST_ERROR]));
+      j.setVersion(((Number) row[IDX_Q_VERSION]).intValue());
+    } else if (recStatus != null) {
+      // Recurring master: scheduled_time is the next fire time on cold.
+      j.setScheduledTime(toInstant(row[IDX_NEXT_FIRE]));
+      j.setAttempts(0);
+      j.setVersion(0);
+    } else {
+      // Terminal-only row. Hot row is gone; scheduled_time has no live value. Fall back to
+      // execution_start_time → created_at so callers like ArchiveHelper that read
+      // job.getScheduledTime() into NOT NULL columns get a sensible value rather than null.
+      Number ta = (Number) row[IDX_TOTAL_ATTEMPTS];
+      j.setAttempts(ta != null ? ta.intValue() : 0);
+      j.setLastError(stringOrNull(row[IDX_TERMINAL_ERROR]));
+      j.setVersion(0);
+      Instant fallbackSched = toInstant(row[IDX_EXEC_START]);
+      if (fallbackSched == null) {
+        fallbackSched = toInstant(row[IDX_CREATED_AT]);
+      }
+      j.setScheduledTime(fallbackSched);
+    }
+
+    Instant updatedAt = toInstant(row[IDX_TERMINATED_AT]);
+    if (updatedAt == null) {
+      updatedAt = j.getCreatedAt();
+    }
+    j.setUpdatedAt(updatedAt);
+
+    return j;
+  }
+
+  /** Loads tags for a single job and assigns them to the entity. Non-hot-path follow-up SELECT. */
+  @SuppressWarnings("unchecked")
+  private void hydrateTagsSingle(JobEntity job) {
+    if (job == null || job.getId() == null) return;
+    List<String> tags =
+        em.createNativeQuery("SELECT tag FROM scheduler_job_tag WHERE job_id = :id")
+            .setParameter("id", job.getId())
+            .getResultList();
+    if (!tags.isEmpty()) {
+      job.setTags(tags);
+    }
+  }
+
+  /** Batch-loads tags for many jobs and assigns them by id. Single SELECT regardless of count. */
+  @SuppressWarnings("unchecked")
+  private void hydrateTagsBatch(List<JobEntity> jobs) {
+    if (jobs.isEmpty()) return;
+    List<Long> ids = new ArrayList<>(jobs.size());
+    Map<Long, JobEntity> byId = new java.util.HashMap<>();
+    for (JobEntity j : jobs) {
+      if (j.getId() != null) {
+        ids.add(j.getId());
+        byId.put(j.getId(), j);
+      }
+    }
+    if (ids.isEmpty()) return;
+    List<Object[]> rows =
+        em.createNativeQuery(
+                "SELECT job_id, tag FROM scheduler_job_tag WHERE job_id IN (:ids) ORDER BY job_id")
+            .setParameter("ids", ids)
+            .getResultList();
+    for (Object[] row : rows) {
+      long jid = ((Number) row[0]).longValue();
+      String tag = (String) row[1];
+      JobEntity j = byId.get(jid);
+      if (j == null) continue;
+      List<String> tags = j.getTags();
+      if (tags == null) {
+        tags = new ArrayList<>();
+        j.setTags(tags);
+      }
+      tags.add(tag);
+    }
+  }
+
+  /**
+   * Fail-fast guard for save() UPDATE path. Loads the current hot row + cold terminal/rec_status
+   * and throws IllegalStateException if the incoming entity carries any hot-field mutation. Forces
+   * callers to use explicit transition methods for live-state changes.
+   */
+  private void guardAgainstHotMutation(JobEntity incoming) {
+    long id = incoming.getId();
+    @SuppressWarnings("unchecked")
+    List<Object[]> rows =
+        em.createNativeQuery(
+                "SELECT q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at, "
+                    + "q.paused_from_status, q.last_error, q.version, "
+                    + "c.terminal_status, c.rec_status "
+                    + "FROM scheduler_job c "
+                    + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
+                    + "WHERE c.job_id = :id")
+            .setParameter("id", id)
+            .getResultList();
+    if (rows.isEmpty()) {
+      throw new IllegalStateException("save() called on missing job id=" + id);
+    }
+    Object[] row = rows.get(0);
+    String qStatus = (String) row[0];
+    String terminal = (String) row[8];
+    String recStatus = stringOrNull(row[9]);
+
+    if (qStatus != null) {
+      JobStatus storedStatus = JobStatus.valueOf(qStatus);
+      checkHotField(id, "status", incoming.getStatus(), storedStatus);
+      checkHotField(id, "scheduledTime", incoming.getScheduledTime(), toInstant(row[1]));
+      Integer storedAttempts = ((Number) row[2]).intValue();
+      checkHotField(id, "attempts", incoming.getAttempts(), storedAttempts);
+      checkHotField(id, "pickedBy", incoming.getPickedBy(), row[3]);
+      checkHotField(id, "pickedAt", incoming.getPickedAt(), toInstant(row[4]));
+      String pausedFrom = (String) row[5];
+      JobStatus storedPausedFrom = pausedFrom != null ? JobStatus.valueOf(pausedFrom) : null;
+      checkHotField(id, "pausedFromStatus", incoming.getPausedFromStatus(), storedPausedFrom);
+      checkHotField(id, "lastError", incoming.getLastError(), row[6]);
+      Integer storedVersion = ((Number) row[7]).intValue();
+      checkHotField(id, "version", incoming.getVersion(), storedVersion);
+      return;
+    }
+
+    // No hot row: terminal or recurring master, or cold-only orphan.
+    if (terminal != null) {
+      // Terminal row: any incoming live status is a revival attempt.
+      JobStatus incomingStatus = incoming.getStatus();
+      if (incomingStatus != null && incomingStatus != JobStatus.valueOf(terminal)) {
+        throw new IllegalStateException(
+            "save() rejected: cannot mutate terminal job id="
+                + id
+                + " (terminal="
+                + terminal
+                + ", incoming.status="
+                + incomingStatus
+                + "). Use resetFailedToPending or markJobFailedTerminal.");
+      }
+      return;
+    }
+
+    if (recStatus != null) {
+      JobStatus decoded = recStatusDecode(recStatus);
+      JobStatus incomingStatus = incoming.getStatus();
+      if (incomingStatus != null && incomingStatus != decoded) {
+        throw new IllegalStateException(
+            "save() rejected: recurring master id="
+                + id
+                + " status mutation requires explicit pause/resume API "
+                + "(stored rec_status="
+                + recStatus
+                + ", incoming.status="
+                + incomingStatus
+                + ")");
+      }
+    }
+  }
+
+  private static void checkHotField(long jobId, String fieldName, Object incoming, Object stored) {
+    if (java.util.Objects.equals(incoming, stored)) {
+      return;
+    }
+    throw new IllegalStateException(
+        "save() rejected: hot-field mutation detected for id="
+            + jobId
+            + " field="
+            + fieldName
+            + " incoming="
+            + incoming
+            + " stored="
+            + stored
+            + ". Use an explicit transition method.");
+  }
+
+  private static String stringOrNull(Object val) {
+    if (val == null) return null;
+    if (val instanceof String s) return s;
+    return val.toString();
+  }
+
+  private static Long longOrNull(Object val) {
+    if (val == null) return null;
+    if (val instanceof Number n) return n.longValue();
+    return null;
+  }
+
   private static boolean isPollerExecutable(JobExecutionType jobType) {
     return jobType == JobExecutionType.SINGLE
         || jobType == JobExecutionType.BATCH_CHILD
@@ -1607,44 +2826,25 @@ public class MysqlJobStore implements JobStore {
         || jobType == JobExecutionType.WORKFLOW_BRANCH;
   }
 
-  private List<JobEntity> claimEntities(List<JobEntity> candidates, String nodeId) {
-    return timedStoreOperation(
-        "claim_mark_running_batch",
-        () -> {
-          try {
-            Instant now = Instant.now();
-            List<JobEntity> claimed = new ArrayList<>(candidates.size());
-            for (JobEntity candidate : candidates) {
-              if (claimRow(candidate.getId(), nodeId)) {
-                candidate.setStatus(JobStatus.RUNNING);
-                candidate.setPickedBy(nodeId);
-                candidate.setPickedAt(now);
-                claimed.add(candidate);
-              }
-            }
-            em.clear();
-            return claimed;
-          } catch (RuntimeException e) {
-            throw translateTransientStoreException("claim jobs", e);
-          }
-        },
-        claimed -> claimed.isEmpty() ? "miss" : "updated");
-  }
-
   private List<JobClaimDto> claimOptimizedRows(List<Object[]> rows, String nodeId) {
     return timedStoreOperation(
         "claim_mark_running_batch",
         () -> {
           Instant now = Instant.now();
-          List<JobClaimDto> claims = new ArrayList<>(rows.size());
+          List<Long> jobIds = new ArrayList<>(rows.size());
           for (Object[] row : rows) {
-            long jobId = ((Number) row[0]).longValue();
-            if (!claimRow(jobId, nodeId)) {
+            jobIds.add(((Number) row[0]).longValue());
+          }
+          boolean[] updated = batchClaimRowsJpa(jobIds, nodeId, now);
+          List<JobClaimDto> claims = new ArrayList<>(rows.size());
+          for (int i = 0; i < rows.size(); i++) {
+            if (!updated[i]) {
               continue;
             }
+            Object[] row = rows.get(i);
             claims.add(
                 new JobClaimDto(
-                    jobId,
+                    jobIds.get(i),
                     JobStatus.RUNNING,
                     JobExecutionType.valueOf((String) row[2]),
                     safeJobPriority(((Number) row[3]).intValue()),
@@ -1662,16 +2862,43 @@ public class MysqlJobStore implements JobStore {
         claims -> claims.isEmpty() ? "miss" : "updated");
   }
 
-  private boolean claimRow(long jobId, String nodeId) {
-    int updated =
-        em.createNativeQuery(
-                "UPDATE scheduler_job SET status = 'RUNNING', picked_by = :node, "
-                    + "picked_at = NOW(3), updated_at = NOW(3), version = version + 1 "
-                    + "WHERE job_id = :id AND status = 'PENDING'")
-            .setParameter("node", nodeId)
-            .setParameter("id", jobId)
-            .executeUpdate();
-    return updated > 0;
+  private boolean[] batchClaimRowsJpa(List<Long> jobIds, String nodeId, Instant now) {
+    Timestamp nowTs = Timestamp.from(now);
+    try {
+      em.createNativeQuery(
+              "UPDATE scheduler_job_queue SET status = 'RUNNING', picked_by = :node, "
+                  + "picked_at = :pickedAt, updated_at = :updatedAt, version = version + 1 "
+                  + "WHERE job_id IN (:ids) AND status = 'PENDING' ORDER BY job_id ASC")
+          .setParameter("node", nodeId)
+          .setParameter("pickedAt", nowTs)
+          .setParameter("updatedAt", nowTs)
+          .setParameter("ids", jobIds)
+          .executeUpdate();
+
+      @SuppressWarnings("unchecked")
+      List<Number> claimedRows =
+          em.createNativeQuery(
+                  "SELECT job_id FROM scheduler_job_queue WHERE job_id IN (:ids) "
+                      + "AND status = 'RUNNING' AND picked_by = :node AND picked_at = :pickedAt "
+                      + "ORDER BY job_id ASC")
+              .setParameter("ids", jobIds)
+              .setParameter("node", nodeId)
+              .setParameter("pickedAt", nowTs)
+              .getResultList();
+
+      Set<Long> claimedIds = new HashSet<>(claimedRows.size());
+      for (Number claimedRow : claimedRows) {
+        claimedIds.add(claimedRow.longValue());
+      }
+
+      boolean[] updated = new boolean[jobIds.size()];
+      for (int i = 0; i < jobIds.size(); i++) {
+        updated[i] = claimedIds.contains(jobIds.get(i));
+      }
+      return updated;
+    } catch (RuntimeException e) {
+      throw translateTransientStoreException("claim jobs", e);
+    }
   }
 
   private static Map<String, Long> toStringCountMap(List<Object[]> rows) {

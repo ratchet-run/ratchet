@@ -43,6 +43,7 @@ public class Poller {
   private final MetricsCollector metricsCollector;
   private final PollingStrategyProvider pollingStrategyProvider;
   private final int batchSize;
+  private final int claimHeadroomFactor;
 
   @SuppressWarnings("java:S3077")
   private volatile PollingDelayStrategy strategy;
@@ -58,6 +59,7 @@ public class Poller {
     this.metricsCollector = null;
     this.pollingStrategyProvider = null;
     this.batchSize = 0;
+    this.claimHeadroomFactor = 0;
   }
 
   public Poller(
@@ -81,6 +83,7 @@ public class Poller {
     this.metricsCollector = metricsCollector;
     this.pollingStrategyProvider = pollingStrategyProvider;
     this.batchSize = batchSize;
+    this.claimHeadroomFactor = Math.max(0, config.getPollerClaimHeadroomFactor());
   }
 
   public PollingStrategy.PollingStats getPollingStats() {
@@ -206,7 +209,7 @@ public class Poller {
       if (availableCapacity <= 0) {
         continue;
       }
-      int claimLimit = Math.min(batchSize, availableCapacity);
+      int claimLimit = computeClaimLimit(availableCapacity);
       try {
         List<JobClaimDto> claimed = jobClaimStore.claimNextBatchOptimized(jobType, claimLimit, nodeId);
         if (metricsCollector != null && !claimed.isEmpty()) {
@@ -228,6 +231,15 @@ public class Poller {
     log.warnf("Transient claim store failure: %s", e.getMessage());
     long baseDelay = strategy.recordPollResult(0, pollStartTime);
     return Math.min(config.getPollerMaxDelayMs(), Math.max(baseDelay, 1L) * 2L);
+  }
+
+  private int computeClaimLimit(int availableCapacity) {
+    int immediateLimit = Math.min(batchSize, availableCapacity);
+    if (claimHeadroomFactor <= 0 || immediateLimit >= batchSize) {
+      return immediateLimit;
+    }
+    int reserve = Math.min(batchSize - immediateLimit, availableCapacity * claimHeadroomFactor);
+    return immediateLimit + reserve;
   }
 
   private void updateSystemLoadFactor() {

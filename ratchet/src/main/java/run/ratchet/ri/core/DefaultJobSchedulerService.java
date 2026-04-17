@@ -168,6 +168,7 @@ public class DefaultJobSchedulerService
     return new DefaultBatchBuilder(
         name,
         jobCrudStore,
+        jobStatusStore,
         batchStore,
         workflowConditionStore,
         wakeupService,
@@ -250,30 +251,38 @@ public class DefaultJobSchedulerService
   @Transactional
   public boolean pauseJob(long jobId) {
     // Idempotent: already paused is a no-op success
-    JobStatus current = jobCrudStore.getJobStatus(jobId);
-    if (current == null) {
+    JobEntity job = jobCrudStore.findById(jobId).orElse(null);
+    if (job == null) {
       log.debugf("Cannot pause job %s — not found", jobId);
       return false;
     }
+    JobStatus current = job.getStatus();
     if (current == JobStatus.PAUSED) {
       log.debugf("Job %s is already paused", jobId);
       return true;
     }
 
-    // Try PENDING → PAUSED (atomically sets paused_from_status)
+    // Recurring masters use the rec_status shim (cold-only) — no hot row.
+    if (job.getJobType() == JobExecutionType.RECURRING) {
+      if (jobStatusStore.pauseRecurring(jobId)) {
+        log.debugf("Paused recurring master %s", jobId);
+        return true;
+      }
+      log.debugf("Cannot pause recurring master %s — current rec_status %s", jobId, current);
+      return false;
+    }
+
+    // Executable jobs: try PENDING → PAUSED on hot.
     if (jobStatusStore.transitionToPaused(jobId, JobStatus.PENDING)) {
       log.debugf("Paused pending job %s", jobId);
       return true;
     }
 
-    // Try FAILED → PAUSED (atomically sets paused_from_status)
-    if (jobStatusStore.transitionToPaused(jobId, JobStatus.FAILED)) {
-      log.debugf("Paused failed job %s", jobId);
-      return true;
-    }
-
+    // Post hot/cold-split: pause-of-FAILED is no longer supported. FAILED is terminal-only and
+    // has no hot row, so paused_from_status has nowhere to live. transitionToPaused returns
+    // false for terminal expected statuses.
     log.debugf(
-        "Cannot pause job %s — current status %s is not pausable (only PENDING or FAILED)",
+        "Cannot pause job %s — current status %s is not pausable (only PENDING is eligible)",
         jobId, current);
     return false;
   }
@@ -281,14 +290,25 @@ public class DefaultJobSchedulerService
   @Override
   @Transactional
   public boolean resumeJob(long jobId) {
+    // Recurring masters: rec_status 'A' → 'P'.
+    JobEntity job = jobCrudStore.findById(jobId).orElse(null);
+    if (job == null) {
+      log.debugf("Cannot resume job %s — not found", jobId);
+      return false;
+    }
+    if (job.getJobType() == JobExecutionType.RECURRING) {
+      if (jobStatusStore.resumeRecurring(jobId)) {
+        log.debugf("Resumed recurring master %s", jobId);
+        recurringScheduler.kick();
+        return true;
+      }
+      log.debugf("Cannot resume recurring master %s — not paused", jobId);
+      return false;
+    }
+
     JobStatus target = jobStatusStore.transitionFromPausedAtomic(jobId);
     if (target == null) {
-      JobStatus current = jobCrudStore.getJobStatus(jobId);
-      if (current == null) {
-        log.debugf("Cannot resume job %s — not found", jobId);
-      } else {
-        log.debugf("Cannot resume job %s — not in PAUSED state (current: %s)", jobId, current);
-      }
+      log.debugf("Cannot resume job %s — not in PAUSED state (current: %s)", jobId, job.getStatus());
       return false;
     }
     log.debugf("Resumed job %s to %s", jobId, target);

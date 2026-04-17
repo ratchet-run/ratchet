@@ -626,6 +626,66 @@ public class MongoJobStore implements JobStore {
   }
 
   @Override
+  public boolean pauseRecurring(long id) {
+    UpdateResult result =
+        jobs()
+            .updateOne(
+                and(eq("_id", id), eq("job_type", "RECURRING"), eq("status", "PENDING")),
+                combine(
+                    set("status", "PAUSED"),
+                    set("paused_from_status", "PENDING"),
+                    set("updated_at", DocumentMapper.toDate(Instant.now())),
+                    inc("version", 1)));
+    return result.getModifiedCount() > 0;
+  }
+
+  @Override
+  public boolean resumeRecurring(long id) {
+    UpdateResult result =
+        jobs()
+            .updateOne(
+                and(eq("_id", id), eq("job_type", "RECURRING"), eq("status", "PAUSED")),
+                combine(
+                    set("status", "PENDING"),
+                    set("paused_from_status", null),
+                    set("updated_at", DocumentMapper.toDate(Instant.now())),
+                    inc("version", 1)));
+    return result.getModifiedCount() > 0;
+  }
+
+  @Override
+  public boolean markJobFailedTerminal(long id, String terminalError, int totalAttempts) {
+    UpdateResult result =
+        jobs()
+            .updateOne(
+                and(eq("_id", id), eq("status", "RUNNING")),
+                combine(
+                    set("status", "FAILED"),
+                    set("last_error", terminalError),
+                    set("attempts", totalAttempts),
+                    set("picked_by", null),
+                    set("picked_at", null),
+                    set("updated_at", DocumentMapper.toDate(Instant.now())),
+                    inc("version", 1)));
+    return result.getModifiedCount() > 0;
+  }
+
+  @Override
+  public boolean cancelJob(long id) {
+    UpdateResult result =
+        jobs()
+            .updateOne(
+                and(eq("_id", id), in("status", List.of("PENDING", "RUNNING", "PAUSED"))),
+                combine(
+                    set("status", "CANCELED"),
+                    set("picked_by", null),
+                    set("picked_at", null),
+                    set("updated_at", DocumentMapper.toDate(Instant.now())),
+                    inc("version", 1)));
+    return result.getModifiedCount() > 0;
+  }
+
+  @Override
   public boolean resetRunningJob(long id, String nodeId) {
     UpdateResult result =
         jobs()

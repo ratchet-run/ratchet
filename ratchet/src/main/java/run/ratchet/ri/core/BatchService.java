@@ -15,6 +15,7 @@ import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.spi.BatchMetricsStore;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobStatusStore;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -50,6 +51,7 @@ public class BatchService {
 
   private final BatchStore batchStore;
   private final JobCrudStore jobCrudStore;
+  private final JobStatusStore jobStatusStore;
   private final BatchMetricsStore metricsStore;
   private final MetricsCollector metricsCollector;
   private final InternalEventPublisher eventPublisher;
@@ -60,6 +62,7 @@ public class BatchService {
   protected BatchService() {
     this.batchStore = null;
     this.jobCrudStore = null;
+    this.jobStatusStore = null;
     this.metricsStore = null;
     this.metricsCollector = null;
     this.eventPublisher = null;
@@ -72,6 +75,7 @@ public class BatchService {
   public BatchService(
       BatchStore batchStore,
       JobCrudStore jobCrudStore,
+      JobStatusStore jobStatusStore,
       BatchMetricsStore metricsStore,
       MetricsCollector metricsCollector,
       InternalEventPublisher eventPublisher,
@@ -80,6 +84,7 @@ public class BatchService {
       BeanResolver beanResolver) {
     this.batchStore = batchStore;
     this.jobCrudStore = jobCrudStore;
+    this.jobStatusStore = jobStatusStore;
     this.metricsStore = metricsStore;
     this.metricsCollector = metricsCollector;
     this.eventPublisher = eventPublisher;
@@ -186,9 +191,25 @@ public class BatchService {
         .map(
             parent -> {
               if (parent.getStatus() == JobStatus.PENDING) {
-                parent.setStatus(
-                    batch.getFailedItems() == 0 ? JobStatus.SUCCEEDED : JobStatus.FAILED);
-                jobCrudStore.save(parent);
+                // Skip-execute the parent into terminal SUCCEEDED/FAILED. Post hot/cold-split,
+                // save() can't mutate the hot row's status; the equivalent is a synthetic pickup
+                // followed by mark-terminal so the hot DELETE + cold UPDATE + bkres DELETE all
+                // run atomically through the store.
+                boolean succeeded = batch.getFailedItems() == 0;
+                if (jobStatusStore.tryPickUpJob(
+                    parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID)) {
+                  java.time.Instant nowTs = java.time.Instant.now();
+                  if (succeeded) {
+                    jobStatusStore.markJobSucceededMinimal(parentId, nowTs, nowTs, 0L, 0L);
+                    parent.setStatus(JobStatus.SUCCEEDED);
+                  } else {
+                    jobStatusStore.markJobFailedTerminal(
+                        parentId,
+                        "Batch completed with " + batch.getFailedItems() + " failed children",
+                        0);
+                    parent.setStatus(JobStatus.FAILED);
+                  }
+                }
 
                 metricsStore.finalizeBatchMetrics(parentId);
 

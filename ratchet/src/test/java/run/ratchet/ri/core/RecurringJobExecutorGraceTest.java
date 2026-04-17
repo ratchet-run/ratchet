@@ -33,6 +33,7 @@ class RecurringJobExecutorGraceTest {
 
   @Mock private JobCrudStore jobCrudStore;
   @Mock private JobClaimStore jobClaimStore;
+  @Mock private run.ratchet.store.spi.JobStatusStore jobStatusStore;
 
   private RecurringRegistrationState state;
   private RecurringJobExecutor executor;
@@ -41,7 +42,7 @@ class RecurringJobExecutorGraceTest {
   void setUp() {
     System.clearProperty(RecurringRegistrationState.STARTUP_GRACE_PROPERTY);
     state = new RecurringRegistrationState();
-    executor = new RecurringJobExecutor(jobCrudStore, jobClaimStore, state);
+    executor = new RecurringJobExecutor(jobCrudStore, jobClaimStore, jobStatusStore, state);
   }
 
   @AfterEach
@@ -60,14 +61,11 @@ class RecurringJobExecutorGraceTest {
 
     assertEquals(0, fired, "orphaned master must not fire during startup grace");
 
-    // Master was saved with picked* fields cleared, but next_fire was NOT advanced.
-    ArgumentCaptor<JobEntity> savedCaptor = ArgumentCaptor.forClass(JobEntity.class);
-    verify(jobCrudStore, times(1)).save(savedCaptor.capture());
-    JobEntity saved = savedCaptor.getValue();
-    assertNull(saved.getPickedBy(), "pickedBy must be cleared so master can be re-claimed");
-    assertNull(saved.getPickedAt(), "pickedAt must be cleared");
-    assertEquals(orphan.getNextFire(), saved.getNextFire(), "nextFire must NOT be advanced");
-    assertEquals(JobStatus.PENDING, saved.getStatus(), "master must remain PENDING");
+    // Post hot/cold-split: recurring masters have no hot row to release. The grace skip is a
+    // no-op continue — the FOR UPDATE SKIP LOCKED row lock from claimDueRecurring drops at
+    // tx end. No save() call is expected, and the master's next_fire stays unchanged so it's
+    // eligible on the next claim cycle.
+    verify(jobCrudStore, never()).save(any(JobEntity.class));
   }
 
   @Test
@@ -110,8 +108,10 @@ class RecurringJobExecutorGraceTest {
     int fired = executor.process(10, "node-A");
 
     assertEquals(1, fired);
-    // 1 release for orphan1 + 1 release for orphan2 + 2 saves for known (child + master) = 4
-    verify(jobCrudStore, times(4)).save(any(JobEntity.class));
+    // Post hot/cold-split: orphans skip without save() (no hot row to release). Only the
+    // known master triggers two saves: one for the spawned child, one for the next_fire
+    // cold-only update on the master.
+    verify(jobCrudStore, times(2)).save(any(JobEntity.class));
   }
 
   @Test

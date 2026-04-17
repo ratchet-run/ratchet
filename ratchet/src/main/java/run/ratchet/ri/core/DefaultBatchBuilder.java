@@ -20,6 +20,7 @@ import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobStatusStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 import java.io.Serializable;
 import java.time.Duration;
@@ -35,8 +36,15 @@ public class DefaultBatchBuilder implements BatchBuilder {
 
   private static final Logger log = Logger.getLogger(DefaultBatchBuilder.class);
 
+  /**
+   * Synthetic picker recorded on the BATCH_PARENT hot row when the empty-batch shortcut
+   * skip-executes the parent into terminal SUCCEEDED. No real worker ever owns this id.
+   */
+  static final String BATCH_LIFECYCLE_NODE_ID = "ratchet:batch-lifecycle";
+
   private final String name;
   private final JobCrudStore jobCrudStore;
+  private final JobStatusStore jobStatusStore;
   private final BatchStore batchStore;
   private final WorkflowConditionStore workflowConditionStore;
   private final JobWakeupService wakeupService;
@@ -49,12 +57,14 @@ public class DefaultBatchBuilder implements BatchBuilder {
   DefaultBatchBuilder(
       String name,
       JobCrudStore jobCrudStore,
+      JobStatusStore jobStatusStore,
       BatchStore batchStore,
       WorkflowConditionStore workflowConditionStore,
       JobWakeupService wakeupService) {
     this(
         name,
         jobCrudStore,
+        jobStatusStore,
         batchStore,
         workflowConditionStore,
         wakeupService,
@@ -64,12 +74,14 @@ public class DefaultBatchBuilder implements BatchBuilder {
   DefaultBatchBuilder(
       String name,
       JobCrudStore jobCrudStore,
+      JobStatusStore jobStatusStore,
       BatchStore batchStore,
       WorkflowConditionStore workflowConditionStore,
       JobWakeupService wakeupService,
       JobInvocationResolver jobInvocationResolver) {
     this.name = name;
     this.jobCrudStore = jobCrudStore;
+    this.jobStatusStore = jobStatusStore;
     this.batchStore = batchStore;
     this.workflowConditionStore = workflowConditionStore;
     this.wakeupService = wakeupService;
@@ -114,8 +126,12 @@ public class DefaultBatchBuilder implements BatchBuilder {
     batchStore.saveBatch(batch);
 
     if (children.isEmpty()) {
-      savedParent.setStatus(JobStatus.SUCCEEDED);
-      jobCrudStore.save(savedParent);
+      // Skip-execute the parent into terminal SUCCEEDED. Post hot/cold-split, save() can't
+      // mutate hot status; the equivalent is a synthetic pickup followed by mark succeeded.
+      if (jobStatusStore.tryPickUpJob(parentId, BATCH_LIFECYCLE_NODE_ID)) {
+        Instant now = Instant.now();
+        jobStatusStore.markJobSucceededMinimal(parentId, now, now, 0L, 0L);
+      }
       batchStore.markBatchCompleteIfReady(parentId);
       log.infof(
           "Batch '%s' submitted with 0 children — completed immediately (id=%s)", name, parentId);

@@ -1,6 +1,7 @@
 package run.ratchet.testsuite.dlq;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -113,15 +114,15 @@ class DeadLetterQueueIT extends BaseRatchetIT {
   }
 
   @Test
-  void failedJob_pauseAndResume_shouldRestoreFailedStatus() {
+  void failedJob_pauseShouldBeRejected() {
+    // FAILED is terminal-only (no hot row), so paused_from_status has nowhere to live.
+    // Pause-of-FAILED is not supported; the job remains FAILED and pauseJob returns false.
     JobHandle handle = jobService.enqueue(FailOnceJob::execute).withMaxRetries(0).submit();
 
     JobAssertions.assertJobFailed(jobCrudStore, handle);
-    assertTrue(jobService.pauseJob(handle.id()), "pauseJob should succeed for FAILED jobs");
-    JobAssertions.assertJobStatus(jobCrudStore, handle, JobStatus.PAUSED);
-
-    assertTrue(
-        jobService.resumeJob(handle.id()), "resumeJob should succeed for paused FAILED jobs");
+    assertFalse(
+        jobService.pauseJob(handle.id()),
+        "pauseJob must reject FAILED jobs in terminal state");
     JobAssertions.assertJobStatus(jobCrudStore, handle, JobStatus.FAILED);
   }
 }

@@ -3,6 +3,7 @@ package run.ratchet.ri.cdi;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import run.ratchet.ri.core.BatchRecoveryTimer;
 import run.ratchet.ri.core.DeadLetterService;
@@ -17,11 +18,56 @@ import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.ri.util.RatchetConfiguration;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
+import java.util.concurrent.ScheduledExecutorService;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 
 // Verifies drain is engaged before poller.stop() during shutdown.
 class RatchetLifecycleShutdownTest {
+
+  @Test
+  void onStartupStartsRetryBufferDrainer() {
+    Poller poller = mock(Poller.class);
+    RecurringScheduler recurringScheduler = mock(RecurringScheduler.class);
+    OrphanRecoveryTimer orphanRecoveryTimer = mock(OrphanRecoveryTimer.class);
+    BatchRecoveryTimer batchRecoveryTimer = mock(BatchRecoveryTimer.class);
+    DeadLetterService deadLetterService = mock(DeadLetterService.class);
+    JobArchivingService jobArchivingService = mock(JobArchivingService.class);
+    LogPurgeTimer logPurgeTimer = mock(LogPurgeTimer.class);
+    PollerWakeupListener pollerWakeupListener = mock(PollerWakeupListener.class);
+    ExecutorProvider executorProvider = mock(ExecutorProvider.class);
+    ScheduledExecutorService scheduledExecutor = mock(ScheduledExecutorService.class);
+    NodeIdentityProvider nodeIdentityProvider = mock(NodeIdentityProvider.class);
+    DrainController drainController = mock(DrainController.class);
+    RatchetConfiguration config = mock(RatchetConfiguration.class);
+    JobExecutionCoordinator jobExecutionCoordinator = mock(JobExecutionCoordinator.class);
+
+    when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
+    when(config.getOrphanScanIntervalMinutes()).thenReturn(1L);
+    when(config.isDlqPurgeEnabled()).thenReturn(false);
+    when(config.isJobArchiveEnabled()).thenReturn(false);
+    when(config.isLogPurgeEnabled()).thenReturn(false);
+
+    RatchetLifecycle lifecycle =
+        new RatchetLifecycle(
+            poller,
+            recurringScheduler,
+            orphanRecoveryTimer,
+            batchRecoveryTimer,
+            deadLetterService,
+            jobArchivingService,
+            logPurgeTimer,
+            pollerWakeupListener,
+            executorProvider,
+            nodeIdentityProvider,
+            drainController,
+            config,
+            jobExecutionCoordinator);
+
+    lifecycle.onStartup(new Object());
+
+    verify(jobExecutionCoordinator).initRetryBufferDrainer();
+  }
 
   @Test
   void onShutdownEngagesDrainBeforeStoppingPoller() {

@@ -43,6 +43,10 @@ public class JobSubmissionService {
     trySubmit(job, false);
   }
 
+  void submitBuffered(JobClaimDto claim) {
+    trySubmit(claim);
+  }
+
   private void trySubmit(JobEntity job, boolean isFirstAttempt) {
     JobExecutionType jobType = job.getJobType();
 

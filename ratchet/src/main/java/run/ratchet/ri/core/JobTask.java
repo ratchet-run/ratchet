@@ -238,6 +238,15 @@ public class JobTask implements Callable<Void> {
     }
 
     String nodeId = nodeIdProvider.getNodeId();
+    if (claim != null
+        && (jobEntity.getStatus() != JobStatus.RUNNING
+            || (jobEntity.getPickedBy() != null && !nodeId.equals(jobEntity.getPickedBy())))) {
+      log.infof(
+          "Job %s claim no longer owned by this node (status=%s, pickedBy=%s) - skipping execution",
+          jobId, jobEntity.getStatus(), jobEntity.getPickedBy());
+      JobMdcContext.clear();
+      return null;
+    }
     JobLogger logger =
         jobLoggerFactory.create(
             new JobLoggerContext(

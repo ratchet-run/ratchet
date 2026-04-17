@@ -48,6 +48,22 @@ public interface JobStatusStore {
 
   boolean scheduleJobRetry(long id, String error, Instant newScheduledTime, int attempts);
 
+  /**
+   * Atomically transitions a RUNNING job to terminal FAILED state. Captures total attempts and
+   * terminal error in a single store call. Replaces the legacy {@code setStatus(FAILED)+save}
+   * pattern that is incompatible with the hot/cold split (hot DELETE + cold UPDATE +
+   * bkres DELETE in one tx).
+   */
+  boolean markJobFailedTerminal(long id, String terminalError, int totalAttempts);
+
+  /**
+   * Cancels a job by id. Dispatches by job_type internally: executable jobs DELETE the live queue
+   * row + UPDATE cold to terminal CANCELED; recurring masters clear the recurring shim and set
+   * cold terminal CANCELED. Single-table store implementations may treat this as an UPDATE to
+   * CANCELED. Returns true iff the job transitioned to CANCELED.
+   */
+  boolean cancelJob(long id);
+
   boolean resetRunningJob(long id, String nodeId);
 
   int resetRunningJobs(String nodeId);
@@ -81,4 +97,17 @@ public interface JobStatusStore {
    * the database row in the same operation to avoid TOCTOU races.
    */
   JobStatus transitionFromPausedAtomic(long id);
+
+  /**
+   * Pauses a recurring master. Post hot/cold-split, recurring masters live in cold with the
+   * rec_status shim ('P' PENDING, 'A' PAUSED) and have no hot row. Single-table store
+   * implementations may treat this as a status flip on the live row. Returns true iff the master
+   * transitioned from PENDING to PAUSED.
+   */
+  boolean pauseRecurring(long id);
+
+  /**
+   * Resumes a recurring master. Returns true iff the master transitioned from PAUSED to PENDING.
+   */
+  boolean resumeRecurring(long id);
 }

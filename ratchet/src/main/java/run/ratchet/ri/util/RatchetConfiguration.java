@@ -63,6 +63,12 @@ public class RatchetConfiguration {
           new String[] {"RATCHET_POLLER_IDLE_THRESHOLD", "POLLER_IDLE_THRESHOLD"},
           new String[] {"RATCHET_POLLER_MAX_DELAY_MS", "POLLER_MAX_DELAY_MS"},
           new String[] {"RATCHET_POLLER_MIN_DELAY_MS", "POLLER_MIN_DELAY_MS"},
+          new String[] {
+            "RATCHET_POLLER_CLAIM_HEADROOM_FACTOR", "SCHEDULER_POLLER_CLAIM_HEADROOM_FACTOR"
+          },
+          new String[] {
+            "RATCHET_RETRY_BUFFER_DRAIN_INTERVAL_MS", "SCHEDULER_RETRY_BUFFER_DRAIN_INTERVAL_MS"
+          },
           new String[] {"RATCHET_RECURRING_BATCH_LIMIT", "RECURRING_BATCH_LIMIT"},
           new String[] {"RATCHET_RECURRING_MAX_POLL_MS", "RECURRING_MAX_POLL_MS"},
           new String[] {"RATCHET_RECURRING_POLL_MS", "RECURRING_POLL_MS"},
@@ -121,6 +127,8 @@ public class RatchetConfiguration {
   private final String pollerIdleThreshold;
   private final String pollerMaxDelayMs;
   private final String pollerMinDelayMs;
+  private final String pollerClaimHeadroomFactor;
+  private final String retryBufferDrainIntervalMs;
 
   private final String recurringBatchLimit;
   private final String recurringMaxPollMs;
@@ -239,6 +247,16 @@ public class RatchetConfiguration {
         getEnvWithFallback("RATCHET_POLLER_MAX_DELAY_MS", "POLLER_MAX_DELAY_MS", "10000");
     this.pollerMinDelayMs =
         getEnvWithFallback("RATCHET_POLLER_MIN_DELAY_MS", "POLLER_MIN_DELAY_MS", "2000");
+    this.pollerClaimHeadroomFactor =
+        getEnvWithFallback(
+            "RATCHET_POLLER_CLAIM_HEADROOM_FACTOR",
+            "SCHEDULER_POLLER_CLAIM_HEADROOM_FACTOR",
+            "0");
+    this.retryBufferDrainIntervalMs =
+        getEnvWithFallback(
+            "RATCHET_RETRY_BUFFER_DRAIN_INTERVAL_MS",
+            "SCHEDULER_RETRY_BUFFER_DRAIN_INTERVAL_MS",
+            "1000");
 
     this.recurringBatchLimit =
         getEnvWithFallback("RATCHET_RECURRING_BATCH_LIMIT", "RECURRING_BATCH_LIMIT", "20");
@@ -454,6 +472,14 @@ public class RatchetConfiguration {
 
   public Long getPollerMinDelayMs() {
     return parseLongOrDefault(pollerMinDelayMs, 2000L);
+  }
+
+  public Integer getPollerClaimHeadroomFactor() {
+    return parseIntOrDefault(pollerClaimHeadroomFactor, 0);
+  }
+
+  public Long getRetryBufferDrainIntervalMs() {
+    return parseLongOrDefault(retryBufferDrainIntervalMs, 1000L);
   }
 
   public Integer getRecurringBatchLimit() {

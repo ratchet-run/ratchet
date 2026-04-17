@@ -45,6 +45,7 @@ public class JobExecutionCoordinator {
   }
 
   public void shutdown() {
+    retryBufferDrainer.shutdown();
     int reset = jobStateManager.resetRunningJobsForNode();
     log.infof("JobExecutionCoordinator shutdown - reset %s RUNNING jobs to PENDING", reset);
   }

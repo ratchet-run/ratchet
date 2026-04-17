@@ -188,6 +188,7 @@ public class RatchetLifecycle {
     }
 
     pollerWakeupListener.init();
+    jobExecutionCoordinator.initRetryBufferDrainer();
 
     notifyHooks("afterStart", SchedulerLifecycleHook::afterStart);
     log.info("Ratchet started");
@@ -211,7 +212,7 @@ public class RatchetLifecycle {
     deadLetterService.stop();
     jobArchivingService.stop();
     logPurgeTimer.stop();
-    // Reset RUNNING jobs to PENDING so other nodes can pick them up
+    // Stop background resubmission before resetting RUNNING jobs to PENDING.
     jobExecutionCoordinator.shutdown();
 
     JobTask.clearCaches();

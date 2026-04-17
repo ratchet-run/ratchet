@@ -2,8 +2,10 @@ package run.ratchet.ri.core;
 
 import run.ratchet.api.JobPriority;
 import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.spi.JobStatusStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -22,8 +24,8 @@ import java.util.concurrent.locks.ReentrantLock;
 import org.jboss.logging.Logger;
 
 /**
- * Priority-ordered retry buffers for jobs awaiting executor capacity. Separate bounded buffer per
- * {@link JobExecutionType}, drained by {@link RetryBufferDrainer}.
+ * Priority-ordered retry buffers for claimed jobs awaiting executor capacity. Separate bounded
+ * buffer per {@link JobExecutionType}, drained by {@link RetryBufferDrainer}.
  */
 @ApplicationScoped
 @Transactional
@@ -39,7 +41,7 @@ public class RetryBufferManager {
   private final JobStatusStore jobStatusStore;
   private final NodeIdentityProvider nodeIdentityProvider;
 
-  private final Map<JobExecutionType, Queue<BufferedJob>> retryBuffers =
+  private final Map<JobExecutionType, Queue<BufferedClaim>> retryBuffers =
       new EnumMap<>(JobExecutionType.class);
 
   private final Map<JobExecutionType, ReentrantLock> bufferLocks =
@@ -60,10 +62,10 @@ public class RetryBufferManager {
     this.jobStatusStore = jobStatusStore;
     this.nodeIdentityProvider = nodeIdentityProvider;
 
-    Comparator<BufferedJob> jobComparator =
+    Comparator<BufferedClaim> jobComparator =
         Comparator.comparing(
-                (BufferedJob job) -> job.priority().ordinal(), Comparator.reverseOrder())
-            .thenComparing(BufferedJob::scheduledTime);
+                (BufferedClaim job) -> job.priority().ordinal(), Comparator.reverseOrder())
+            .thenComparing(BufferedClaim::scheduledTime);
 
     for (JobExecutionType jobType : JobExecutionType.values()) {
       retryBuffers.put(jobType, new PriorityBlockingQueue<>(100, jobComparator));
@@ -72,54 +74,59 @@ public class RetryBufferManager {
   }
 
   /**
-   * Buffers a job, bypassing {@link #MAX_BUFFER_SIZE_PER_TYPE} but still respecting {@link
-   * #HARD_CAP_PER_TYPE}. Jobs exceeding the hard cap are sent to the DLQ.
+   * Buffers a claim, bypassing {@link #MAX_BUFFER_SIZE_PER_TYPE} but still respecting {@link
+   * #HARD_CAP_PER_TYPE}. Claims exceeding the hard cap are moved to the DLQ to avoid silent loss.
    *
    * @return true if buffered, false if the hard cap was reached
    */
   public boolean forceOffer(JobEntity job) {
-    Queue<BufferedJob> buffer = retryBuffers.get(job.getJobType());
-    ReentrantLock lock = bufferLocks.get(job.getJobType());
+    return forceOffer(BufferedClaim.from(job));
+  }
+
+  public boolean forceOffer(JobClaimDto claim) {
+    return forceOffer(BufferedClaim.from(claim));
+  }
+
+  private boolean forceOffer(BufferedClaim claim) {
+    Queue<BufferedClaim> buffer = retryBuffers.get(claim.jobType());
+    ReentrantLock lock = bufferLocks.get(claim.jobType());
 
     lock.lock();
     try {
-      // Enforce hard cap even for forced offers to prevent memory exhaustion
       if (buffer.size() >= HARD_CAP_PER_TYPE) {
         log.errorf(
             "CRITICAL: Retry buffer hard cap (%d) reached for job type %s. "
                 + "Job %s moving to DLQ to prevent loss. "
                 + "This indicates sustained system failure - investigate immediately.",
-            HARD_CAP_PER_TYPE, job.getJobType(), job.getId());
-        // Move job to DLQ instead of dropping it silently
+            HARD_CAP_PER_TYPE, claim.jobType(), claim.jobId());
         deadLetterService.moveToDlq(
-            job,
+            toDlqJob(claim),
             new IllegalStateException(
-                "Retry buffer hard cap exceeded for job type " + job.getJobType()));
+                "Retry buffer hard cap exceeded for job type " + claim.jobType()));
         return false;
       }
 
-      // Log warning when exceeding normal limit (but under hard cap)
       if (buffer.size() >= MAX_BUFFER_SIZE_PER_TYPE) {
         log.warnf(
             "Retry buffer exceeding normal limit (%d) for job type %s. "
                 + "Current size: %d. Force-buffering job %s.",
-            MAX_BUFFER_SIZE_PER_TYPE, job.getJobType(), buffer.size(), job.getId());
+            MAX_BUFFER_SIZE_PER_TYPE, claim.jobType(), buffer.size(), claim.jobId());
       }
 
-      return buffer.offer(BufferedJob.from(job));
+      return buffer.offer(claim);
     } finally {
       lock.unlock();
     }
   }
 
   /** Unmodifiable view; use {@link #pollFromBuffer} or {@link #pollBatchFromBuffer} to drain. */
-  public Collection<BufferedJob> getBuffer(JobExecutionType jobType) {
-    Queue<BufferedJob> queue = retryBuffers.get(jobType);
+  public Collection<BufferedClaim> getBuffer(JobExecutionType jobType) {
+    Queue<BufferedClaim> queue = retryBuffers.get(jobType);
     return queue != null ? Collections.unmodifiableCollection(queue) : List.of();
   }
 
-  public BufferedJob pollFromBuffer(JobExecutionType jobType) {
-    Queue<BufferedJob> buffer = retryBuffers.get(jobType);
+  public BufferedClaim pollFromBuffer(JobExecutionType jobType) {
+    Queue<BufferedClaim> buffer = retryBuffers.get(jobType);
     ReentrantLock lock = bufferLocks.get(jobType);
     lock.lock();
     try {
@@ -129,14 +136,14 @@ public class RetryBufferManager {
     }
   }
 
-  public List<BufferedJob> pollBatchFromBuffer(JobExecutionType jobType, int limit) {
-    Queue<BufferedJob> buffer = retryBuffers.get(jobType);
+  public List<BufferedClaim> pollBatchFromBuffer(JobExecutionType jobType, int limit) {
+    Queue<BufferedClaim> buffer = retryBuffers.get(jobType);
     ReentrantLock lock = bufferLocks.get(jobType);
     lock.lock();
     try {
-      List<BufferedJob> jobs = new ArrayList<>(Math.max(limit, 0));
+      List<BufferedClaim> jobs = new ArrayList<>(Math.max(limit, 0));
       for (int i = 0; i < limit; i++) {
-        BufferedJob buffered = buffer.poll();
+        BufferedClaim buffered = buffer.poll();
         if (buffered == null) {
           break;
         }
@@ -149,7 +156,7 @@ public class RetryBufferManager {
   }
 
   public boolean isBufferEmpty(JobExecutionType jobType) {
-    Queue<BufferedJob> buffer = retryBuffers.get(jobType);
+    Queue<BufferedClaim> buffer = retryBuffers.get(jobType);
     ReentrantLock lock = bufferLocks.get(jobType);
     lock.lock();
     try {
@@ -164,14 +171,22 @@ public class RetryBufferManager {
    *     #MAX_BUFFER_SIZE_PER_TYPE})
    */
   public boolean offer(JobEntity job) {
-    Queue<BufferedJob> buffer = retryBuffers.get(job.getJobType());
-    ReentrantLock lock = bufferLocks.get(job.getJobType());
+    return offer(BufferedClaim.from(job));
+  }
+
+  public boolean offer(JobClaimDto claim) {
+    return offer(BufferedClaim.from(claim));
+  }
+
+  private boolean offer(BufferedClaim claim) {
+    Queue<BufferedClaim> buffer = retryBuffers.get(claim.jobType());
+    ReentrantLock lock = bufferLocks.get(claim.jobType());
     lock.lock();
     try {
       if (buffer.size() >= MAX_BUFFER_SIZE_PER_TYPE) {
         return false;
       }
-      return buffer.offer(BufferedJob.from(job));
+      return buffer.offer(claim);
     } finally {
       lock.unlock();
     }
@@ -179,12 +194,11 @@ public class RetryBufferManager {
 
   public int totalSize() {
     int total = 0;
-    for (Map.Entry<JobExecutionType, Queue<BufferedJob>> entry : retryBuffers.entrySet()) {
+    for (Map.Entry<JobExecutionType, Queue<BufferedClaim>> entry : retryBuffers.entrySet()) {
       ReentrantLock lock = bufferLocks.get(entry.getKey());
       lock.lock();
       try {
-        Queue<BufferedJob> buffer = entry.getValue();
-        total += buffer.size();
+        total += entry.getValue().size();
       } finally {
         lock.unlock();
       }
@@ -195,12 +209,12 @@ public class RetryBufferManager {
   public void flushOnShutdown() {
     int flushed = 0;
     String nodeId = nodeIdentityProvider.getNodeId();
-    for (Map.Entry<JobExecutionType, Queue<BufferedJob>> entry : retryBuffers.entrySet()) {
-      Queue<BufferedJob> buffer = entry.getValue();
+    for (Map.Entry<JobExecutionType, Queue<BufferedClaim>> entry : retryBuffers.entrySet()) {
+      Queue<BufferedClaim> buffer = entry.getValue();
       ReentrantLock lock = bufferLocks.get(entry.getKey());
       lock.lock();
       try {
-        BufferedJob buffered;
+        BufferedClaim buffered;
         while ((buffered = buffer.poll()) != null) {
           try {
             if (jobStatusStore.resetRunningJob(buffered.jobId(), nodeId)) {
@@ -219,12 +233,76 @@ public class RetryBufferManager {
     }
   }
 
-  public record BufferedJob(
-      Long jobId, JobExecutionType jobType, JobPriority priority, Instant scheduledTime) {
+  private static JobEntity toDlqJob(BufferedClaim claim) {
+    JobEntity job = new JobEntity();
+    job.setId(claim.jobId());
+    job.setJobType(claim.jobType());
+    job.setPriority(claim.priority());
+    job.setScheduledTime(claim.scheduledTime());
+    job.setTimeoutSec(claim.timeoutSec());
+    job.setPickedBy(claim.pickedBy());
+    job.setPickedAt(claim.pickedAt());
+    job.setBusinessKey(claim.businessKey());
+    job.setAttempts(claim.attempts());
+    job.setMaxRetries(claim.maxRetries());
+    job.setStatus(JobStatus.RUNNING);
+    return job;
+  }
 
-    static BufferedJob from(JobEntity job) {
-      return new BufferedJob(
-          job.getId(), job.getJobType(), job.getPriority(), job.getScheduledTime());
+  public record BufferedClaim(
+      Long jobId,
+      JobExecutionType jobType,
+      JobPriority priority,
+      Instant scheduledTime,
+      int timeoutSec,
+      String pickedBy,
+      Instant pickedAt,
+      String businessKey,
+      int attempts,
+      int maxRetries) {
+
+    static BufferedClaim from(JobEntity job) {
+      return new BufferedClaim(
+          job.getId(),
+          job.getJobType(),
+          job.getPriority(),
+          job.getScheduledTime(),
+          job.getTimeoutSec(),
+          job.getPickedBy(),
+          job.getPickedAt(),
+          job.getBusinessKey(),
+          job.getAttempts(),
+          job.getMaxRetries());
+    }
+
+    static BufferedClaim from(JobClaimDto claim) {
+      return new BufferedClaim(
+          claim.id(),
+          claim.jobType(),
+          claim.priority(),
+          claim.scheduledTime(),
+          claim.timeoutSec(),
+          claim.pickedBy(),
+          claim.pickedAt(),
+          claim.businessKey(),
+          claim.attempts(),
+          claim.maxRetries());
+    }
+
+    JobClaimDto toClaimDto() {
+      return new JobClaimDto(
+          jobId,
+          JobStatus.RUNNING,
+          jobType,
+          priority,
+          scheduledTime,
+          0,
+          timeoutSec,
+          pickedBy,
+          pickedAt,
+          businessKey,
+          attempts,
+          maxRetries);
     }
   }
 }

@@ -3,31 +3,37 @@ package run.ratchet.ri.core;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobStatusStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Queue;
 import java.util.Set;
+import org.jboss.logging.Logger;
 
 /** Cascades pause/resume through job dependency trees via BFS. */
 @ApplicationScoped
 @Transactional
 public class JobCascadeService {
 
+  private static final Logger log = Logger.getLogger(JobCascadeService.class);
+
   private final JobCrudStore jobCrudStore;
+  private final JobStatusStore jobStatusStore;
 
   protected JobCascadeService() {
     this.jobCrudStore = null;
+    this.jobStatusStore = null;
   }
 
   @Inject
-  public JobCascadeService(JobCrudStore jobCrudStore) {
+  public JobCascadeService(JobCrudStore jobCrudStore, JobStatusStore jobStatusStore) {
     this.jobCrudStore = jobCrudStore;
+    this.jobStatusStore = jobStatusStore;
   }
 
   /**
@@ -59,9 +65,12 @@ public class JobCascadeService {
             continue;
           }
 
-          if (child.getStatus() == JobStatus.PENDING || child.getStatus() == JobStatus.FAILED) {
-            child.setStatus(JobStatus.PAUSED);
-            jobCrudStore.save(child);
+          // Post hot/cold-split: only PENDING (live) can be paused via the hot transition.
+          // FAILED is terminal post-split — it has no hot row, so the legacy FAILED→PAUSED
+          // path is no longer expressible without a resurrection step. Skipping FAILED keeps
+          // the cascade behavior conservative; the cleanup is a separate task.
+          if (child.getStatus() == JobStatus.PENDING
+              && jobStatusStore.transitionToPaused(child.getId(), JobStatus.PENDING)) {
             pausedCount++;
           } else {
             skippedCount++;
@@ -104,12 +113,16 @@ public class JobCascadeService {
             continue;
           }
 
-          if (child.getStatus() == JobStatus.PAUSED) {
-            child.setStatus(JobStatus.PENDING);
+          if (child.getStatus() == JobStatus.PAUSED
+              && jobStatusStore.transitionFromPaused(child.getId(), JobStatus.PENDING)) {
+            // executeImmediately scheduled_time bump isn't expressible through the post-split
+            // hot transition SPI; resumed children keep their original scheduled_time. Logging
+            // the gap so callers can opt into the future explicit reschedule API.
             if (executeImmediately) {
-              child.setScheduledTime(Instant.now());
+              log.debugf(
+                  "executeImmediately ignored for resumed child %s — scheduled_time unchanged",
+                  child.getId());
             }
-            jobCrudStore.save(child);
             resumedCount++;
           } else {
             skippedCount++;

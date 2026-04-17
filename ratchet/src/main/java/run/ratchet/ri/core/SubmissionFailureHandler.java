@@ -3,8 +3,6 @@ package run.ratchet.ri.core;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.entity.JobStatus;
-import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.spi.MetricsCollector;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -16,7 +14,6 @@ public class SubmissionFailureHandler {
 
   private static final Logger log = Logger.getLogger(SubmissionFailureHandler.class);
 
-  private final JobCrudStore jobCrudStore;
   private final JobStateManager jobStateManager;
   private final RetryBufferManager retryBufferManager;
   private final ThreadPoolManager threadPoolManager;
@@ -24,7 +21,6 @@ public class SubmissionFailureHandler {
   private final MetricsCollector metricsCollector;
 
   protected SubmissionFailureHandler() {
-    this.jobCrudStore = null;
     this.jobStateManager = null;
     this.retryBufferManager = null;
     this.threadPoolManager = null;
@@ -34,13 +30,11 @@ public class SubmissionFailureHandler {
 
   @Inject
   public SubmissionFailureHandler(
-      JobCrudStore jobCrudStore,
       JobStateManager jobStateManager,
       RetryBufferManager retryBufferManager,
       ThreadPoolManager threadPoolManager,
       PollerScheduler pollerScheduler,
       MetricsCollector metricsCollector) {
-    this.jobCrudStore = jobCrudStore;
     this.jobStateManager = jobStateManager;
     this.retryBufferManager = retryBufferManager;
     this.threadPoolManager = threadPoolManager;
@@ -68,14 +62,13 @@ public class SubmissionFailureHandler {
 
   public void handleGateFailure(JobClaimDto claim, GateCheckResult result) {
     recordGateRejected(claim.jobType(), result);
-    if (jobStateManager.resetJobToPending(claim.id())) {
+    if (bufferClaim(claim)) {
       log.info(result.reason());
       return;
     }
-
-    JobEntity job = loadJobForBuffer(claim.id());
-    if (job != null) {
-      retryBufferManager.forceOffer(job);
+    if (jobStateManager.resetJobToPending(claim.id())) {
+      log.info(result.reason());
+      return;
     }
     log.info(result.reason());
   }
@@ -106,19 +99,21 @@ public class SubmissionFailureHandler {
   public void handleRejection(JobClaimDto claim, JobExecutionType jobType) {
     releaseSubmissionPermit(jobType);
 
+    if (bufferClaim(claim)) {
+      log.warn(
+          String.format("Executor for %s rejected job %d - buffered locally", jobType, claim.id()));
+      return;
+    }
     if (jobStateManager.resetJobToPending(claim.id())) {
       log.warn(
           String.format(
               "Executor for %s rejected job %d - returned to PENDING", jobType, claim.id()));
       return;
     }
-
-    JobEntity job = loadJobForBuffer(claim.id());
-    if (job != null) {
-      retryBufferManager.forceOffer(job);
-    }
     log.warn(
-        String.format("Executor for %s rejected job %d - buffered for retry", jobType, claim.id()));
+        String.format(
+            "Executor for %s rejected job %d - neither buffered nor reset cleanly",
+            jobType, claim.id()));
   }
 
   public void handleUnexpectedException(
@@ -136,14 +131,10 @@ public class SubmissionFailureHandler {
     releaseSubmissionPermit(jobType);
     log.errorf(exception, "Unexpected exception submitting job %s - permit released", claim.id());
 
-    if (jobStateManager.resetJobToPending(claim.id())) {
+    if (bufferClaim(claim)) {
       return;
     }
-
-    JobEntity job = loadJobForBuffer(claim.id());
-    if (job != null) {
-      retryBufferManager.forceOffer(job);
-    }
+    jobStateManager.resetJobToPending(claim.id());
   }
 
   private void resetToPendingOrBuffer(JobEntity job) {
@@ -163,23 +154,7 @@ public class SubmissionFailureHandler {
     }
   }
 
-  private JobEntity loadJobForBuffer(Long jobId) {
-    return jobCrudStore
-        .findByIdLatest(jobId)
-        .filter(
-            job -> {
-              if (job.getStatus() != JobStatus.RUNNING) {
-                log.infof(
-                    "Job %s status changed to %s - skipping buffer, another node may have handled it",
-                    jobId, job.getStatus());
-                return false;
-              }
-              return true;
-            })
-        .orElseGet(
-            () -> {
-              log.warnf("Job %s not found when loading for buffer - may have been deleted", jobId);
-              return null;
-            });
+  private boolean bufferClaim(JobClaimDto claim) {
+    return retryBufferManager.offer(claim);
   }
 }

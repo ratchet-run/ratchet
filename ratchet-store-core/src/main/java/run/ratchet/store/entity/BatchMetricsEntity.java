@@ -2,6 +2,7 @@ package run.ratchet.store.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.MapsId;
@@ -25,7 +26,11 @@ public class BatchMetricsEntity {
   @Column(name = "batch_id")
   private Long batchId;
 
-  @OneToOne
+  // lazy fetch to avoid eagerly joining scheduler_job for columns that no longer exist on
+  // cold post hot/cold-split (status, attempts, picked_*, scheduled_time, updated_at, version,
+  // last_error, paused_from_status). The batchJob field is link-only and never traversed by
+  // application code.
+  @OneToOne(fetch = FetchType.LAZY, optional = false)
   @MapsId
   @JoinColumn(name = "batch_id")
   private JobEntity batchJob;

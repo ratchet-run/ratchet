@@ -350,6 +350,45 @@
       ],
       "title": "Wakeups",
       "type": "timeseries"
+    },
+    {
+      "datasource": "Prometheus",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      },
+      "id": 10,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "(sum by (store, operation) (rate(ratchet_store_operation_seconds_sum{operation=~\"claim_lookup|claim_mark_running_batch|mark_succeeded\", outcome=~\"hit|updated\"}[1m])) / sum by (store, operation) (rate(ratchet_store_operation_seconds_count{operation=~\"claim_lookup|claim_mark_running_batch|mark_succeeded\", outcome=~\"hit|updated\"}[1m]))) * 1000",
+          "legendFormat": "avg {{ store }} {{ operation }}",
+          "refId": "A"
+        },
+        {
+          "expr": "max by (store, operation) (ratchet_store_operation_seconds_max{operation=~\"claim_lookup|claim_mark_running_batch|mark_succeeded\", outcome=~\"hit|updated\"}) * 1000",
+          "legendFormat": "max {{ store }} {{ operation }}",
+          "refId": "B"
+        }
+      ],
+      "title": "Store Operation Timings",
+      "type": "timeseries"
     }
   ],
   "refresh": "5s",
