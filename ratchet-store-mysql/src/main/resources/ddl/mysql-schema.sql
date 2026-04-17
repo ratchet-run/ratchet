@@ -92,9 +92,11 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     CONSTRAINT chk_paused_from_status CHECK (paused_from_status IS NULL OR paused_from_status IN ('PENDING','RUNNING','SUCCEEDED','FAILED','CANCELED','PAUSED')),
     -- Hot-path poller indexes — required, do NOT remove without re-running the perf suite.
     INDEX idx_job_poll_composite (status, priority, scheduled_time),
-    INDEX idx_job_claim_cover (status, job_type, scheduled_time, priority, job_id),
+    -- Claim order is status/job_type filtered, then priority DESC, scheduled_time ASC, job_id ASC.
+    INDEX idx_job_claim_cover (status, job_type, priority DESC, scheduled_time ASC, job_id ASC),
     INDEX idx_recurring_due (status, next_fire),
-    INDEX idx_job_recurring_composite (job_type, status, next_fire),
+    -- Recurring masters follow the same priority-first ordering using next_fire as the due column.
+    INDEX idx_job_recurring_composite (status, job_type, priority DESC, next_fire ASC, job_id ASC),
     INDEX idx_job_due (status, scheduled_time),
     INDEX idx_job_priority_due (priority, scheduled_time),
     -- Lookup/relationship indexes.
@@ -119,6 +121,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job_tag
     job_id BIGINT UNSIGNED NOT NULL,
     tag    VARCHAR(64)     NOT NULL,
     PRIMARY KEY (job_id, tag),
+    INDEX idx_job_tag_tag_job (tag, job_id),
     CONSTRAINT fk_job_tag_job FOREIGN KEY (job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
