@@ -6,6 +6,7 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.converter.JsonMapConverter;
 import run.ratchet.store.dto.BatchProgress;
@@ -36,6 +37,7 @@ import jakarta.persistence.OptimisticLockException;
 import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.TypedQuery;
 import jakarta.transaction.Transactional;
+import jakarta.inject.Inject;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
@@ -50,6 +52,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.jboss.logging.Logger;
 
@@ -74,6 +78,7 @@ public class MysqlJobStore implements JobStore {
   private static final String RECURRING_JOB_TYPE_FILTER = "job_type = 'RECURRING'";
 
   @PersistenceContext private EntityManager em;
+  @Inject private MetricsCollector metricsCollector;
 
   private static JobPriority safeJobPriority(int ordinal) {
     JobPriority[] values = JobPriority.values();
@@ -452,7 +457,11 @@ public class MysqlJobStore implements JobStore {
       }
 
       @SuppressWarnings("unchecked")
-      List<Object[]> rows = query.getResultList();
+      List<Object[]> rows =
+          timedStoreOperation(
+              "claim_lookup",
+              query::getResultList,
+              result -> result.isEmpty() ? "empty" : "hit");
 
       if (rows.isEmpty()) {
         return List.of();
@@ -493,42 +502,54 @@ public class MysqlJobStore implements JobStore {
 
   @Override
   public void updateJobStatus(long id, JobStatus status, String errorMessage) {
-    em.createNativeQuery(
-            "UPDATE scheduler_job SET status = :status, last_error = :err, "
-                + "updated_at = NOW(3) WHERE job_id = :id")
-        .setParameter("status", status.name())
-        .setParameter("err", errorMessage)
-        .setParameter("id", id)
-        .executeUpdate();
+    timedStoreOperation(
+        "update_status",
+        () ->
+            em.createNativeQuery(
+                    "UPDATE scheduler_job SET status = :status, last_error = :err, "
+                        + "updated_at = NOW(3) WHERE job_id = :id")
+                .setParameter("status", status.name())
+                .setParameter("err", errorMessage)
+                .setParameter("id", id)
+                .executeUpdate(),
+        updated -> updated > 0 ? "updated" : "miss");
   }
 
   @Override
   public boolean compareAndSwapStatus(
       long id, JobStatus expected, JobStatus newStatus, String error) {
-    try {
-      int updated =
-          em.createNativeQuery(
-                  "UPDATE scheduler_job SET status = :newS, last_error = :err, "
-                      + "updated_at = NOW(3) WHERE job_id = :id AND status = :exp")
-              .setParameter("newS", newStatus.name())
-              .setParameter("err", error)
-              .setParameter("id", id)
-              .setParameter("exp", expected.name())
-              .executeUpdate();
-      return updated > 0;
-    } catch (RuntimeException e) {
-      throw translateTransientStoreException("compare-and-swap status", e);
-    }
+    return timedStoreOperation(
+        "compare_and_swap_status",
+        () -> {
+          try {
+            return em.createNativeQuery(
+                        "UPDATE scheduler_job SET status = :newS, last_error = :err, "
+                            + "updated_at = NOW(3) WHERE job_id = :id AND status = :exp")
+                    .setParameter("newS", newStatus.name())
+                    .setParameter("err", error)
+                    .setParameter("id", id)
+                    .setParameter("exp", expected.name())
+                    .executeUpdate()
+                > 0;
+          } catch (RuntimeException e) {
+            throw translateTransientStoreException("compare-and-swap status", e);
+          }
+        },
+        updated -> updated ? "updated" : "miss");
   }
 
   @Override
   public int incrementRetryAttempt(long id) {
     int updated =
-        em.createNativeQuery(
-                "UPDATE scheduler_job SET attempts = attempts + 1, updated_at = NOW(3) "
-                    + "WHERE job_id = :id AND status = 'RUNNING'")
-            .setParameter("id", id)
-            .executeUpdate();
+        timedStoreOperation(
+            "increment_retry_attempt",
+            () ->
+                em.createNativeQuery(
+                        "UPDATE scheduler_job SET attempts = attempts + 1, updated_at = NOW(3) "
+                            + "WHERE job_id = :id AND status = 'RUNNING'")
+                    .setParameter("id", id)
+                    .executeUpdate(),
+            count -> count > 0 ? "updated" : "miss");
     if (updated == 0) {
       return -1;
     }
@@ -541,15 +562,18 @@ public class MysqlJobStore implements JobStore {
 
   @Override
   public boolean tryPickUpJob(long id, String nodeId) {
-    int updated =
-        em.createNativeQuery(
-                "UPDATE scheduler_job SET status = 'RUNNING', picked_by = :node, "
-                    + "picked_at = NOW(3), updated_at = NOW(3) "
-                    + "WHERE job_id = :id AND status = 'PENDING'")
-            .setParameter("node", nodeId)
-            .setParameter("id", id)
-            .executeUpdate();
-    return updated > 0;
+    return timedStoreOperation(
+        "pickup_job",
+        () ->
+            em.createNativeQuery(
+                    "UPDATE scheduler_job SET status = 'RUNNING', picked_by = :node, "
+                        + "picked_at = NOW(3), updated_at = NOW(3) "
+                        + "WHERE job_id = :id AND status = 'PENDING'")
+                .setParameter("node", nodeId)
+                .setParameter("id", id)
+                .executeUpdate(),
+        updated -> updated > 0 ? "updated" : "miss")
+        > 0;
   }
 
   @Override
@@ -561,50 +585,58 @@ public class MysqlJobStore implements JobStore {
       Instant end,
       Long durationMs,
       Long queueWaitMs) {
-    try {
-      int updated =
-          em.createNativeQuery(
-                  "UPDATE scheduler_job SET status = 'SUCCEEDED', "
-                      + "job_result = CAST(:result AS JSON), result_type = :rtype, "
-                      + "execution_start_time = :start, execution_end_time = :end, "
-                      + "execution_duration_ms = :dur, queue_wait_ms = :qwait, "
-                      + "last_error = NULL, updated_at = NOW(3) "
-                      + "WHERE job_id = :id AND status = 'RUNNING'")
-              .setParameter("result", resultJson)
-              .setParameter("rtype", resultType)
-              .setParameter("start", start != null ? Timestamp.from(start) : null)
-              .setParameter("end", end != null ? Timestamp.from(end) : null)
-              .setParameter("dur", durationMs)
-              .setParameter("qwait", queueWaitMs)
-              .setParameter("id", id)
-              .executeUpdate();
-      return updated > 0;
-    } catch (RuntimeException e) {
-      throw translateTransientStoreException("mark job succeeded", e);
-    }
+    return timedStoreOperation(
+        "mark_succeeded",
+        () -> {
+          try {
+            return em.createNativeQuery(
+                        "UPDATE scheduler_job SET status = 'SUCCEEDED', "
+                            + "job_result = CAST(:result AS JSON), result_type = :rtype, "
+                            + "execution_start_time = :start, execution_end_time = :end, "
+                            + "execution_duration_ms = :dur, queue_wait_ms = :qwait, "
+                            + "last_error = NULL, updated_at = NOW(3) "
+                            + "WHERE job_id = :id AND status = 'RUNNING'")
+                    .setParameter("result", resultJson)
+                    .setParameter("rtype", resultType)
+                    .setParameter("start", start != null ? Timestamp.from(start) : null)
+                    .setParameter("end", end != null ? Timestamp.from(end) : null)
+                    .setParameter("dur", durationMs)
+                    .setParameter("qwait", queueWaitMs)
+                    .setParameter("id", id)
+                    .executeUpdate()
+                > 0;
+          } catch (RuntimeException e) {
+            throw translateTransientStoreException("mark job succeeded", e);
+          }
+        },
+        updated -> updated ? "updated" : "miss");
   }
 
   @Override
   public boolean markJobSucceededMinimal(
       long id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
-    try {
-      int updated =
-          em.createNativeQuery(
-                  "UPDATE scheduler_job SET status = 'SUCCEEDED', "
-                      + "execution_start_time = :start, execution_end_time = :end, "
-                      + "execution_duration_ms = :dur, queue_wait_ms = :qwait, "
-                      + "last_error = NULL, updated_at = NOW(3) "
-                      + "WHERE job_id = :id AND status = 'RUNNING'")
-              .setParameter("start", start != null ? Timestamp.from(start) : null)
-              .setParameter("end", end != null ? Timestamp.from(end) : null)
-              .setParameter("dur", durationMs)
-              .setParameter("qwait", queueWaitMs)
-              .setParameter("id", id)
-              .executeUpdate();
-      return updated > 0;
-    } catch (RuntimeException e) {
-      throw translateTransientStoreException("mark job succeeded minimally", e);
-    }
+    return timedStoreOperation(
+        "mark_succeeded_minimal",
+        () -> {
+          try {
+            return em.createNativeQuery(
+                        "UPDATE scheduler_job SET status = 'SUCCEEDED', "
+                            + "execution_start_time = :start, execution_end_time = :end, "
+                            + "execution_duration_ms = :dur, queue_wait_ms = :qwait, "
+                            + "last_error = NULL, updated_at = NOW(3) "
+                            + "WHERE job_id = :id AND status = 'RUNNING'")
+                    .setParameter("start", start != null ? Timestamp.from(start) : null)
+                    .setParameter("end", end != null ? Timestamp.from(end) : null)
+                    .setParameter("dur", durationMs)
+                    .setParameter("qwait", queueWaitMs)
+                    .setParameter("id", id)
+                    .executeUpdate()
+                > 0;
+          } catch (RuntimeException e) {
+            throw translateTransientStoreException("mark job succeeded minimally", e);
+          }
+        },
+        updated -> updated ? "updated" : "miss");
   }
 
   @Override
@@ -627,38 +659,48 @@ public class MysqlJobStore implements JobStore {
 
   @Override
   public boolean scheduleJobRetry(long id, String error, Instant newScheduledTime, int attempts) {
-    int updated =
-        em.createNativeQuery(
-                "UPDATE scheduler_job SET status = 'PENDING', last_error = :err, "
-                    + "scheduled_time = :st, attempts = :att, picked_by = NULL, picked_at = NULL, "
-                    + "updated_at = NOW(3) WHERE job_id = :id AND status IN ('RUNNING','FAILED')")
-            .setParameter("err", error)
-            .setParameter("st", Timestamp.from(newScheduledTime))
-            .setParameter("att", attempts)
-            .setParameter("id", id)
-            .executeUpdate();
-    return updated > 0;
+    return timedStoreOperation(
+        "schedule_retry",
+        () ->
+            em.createNativeQuery(
+                    "UPDATE scheduler_job SET status = 'PENDING', last_error = :err, "
+                        + "scheduled_time = :st, attempts = :att, picked_by = NULL, picked_at = NULL, "
+                        + "updated_at = NOW(3) WHERE job_id = :id AND status IN ('RUNNING','FAILED')")
+                .setParameter("err", error)
+                .setParameter("st", Timestamp.from(newScheduledTime))
+                .setParameter("att", attempts)
+                .setParameter("id", id)
+                .executeUpdate(),
+        updated -> updated > 0 ? "updated" : "miss")
+        > 0;
   }
 
   @Override
   public boolean resetRunningJob(long id, String nodeId) {
-    int updated =
-        em.createNativeQuery(
-                "UPDATE scheduler_job SET status = 'PENDING', picked_by = NULL, picked_at = NULL, "
-                    + "updated_at = NOW(3) WHERE job_id = :id AND status = 'RUNNING' AND picked_by = :node")
-            .setParameter("id", id)
-            .setParameter("node", nodeId)
-            .executeUpdate();
-    return updated > 0;
+    return timedStoreOperation(
+        "reset_running_job",
+        () ->
+            em.createNativeQuery(
+                    "UPDATE scheduler_job SET status = 'PENDING', picked_by = NULL, picked_at = NULL, "
+                        + "updated_at = NOW(3) WHERE job_id = :id AND status = 'RUNNING' AND picked_by = :node")
+                .setParameter("id", id)
+                .setParameter("node", nodeId)
+                .executeUpdate(),
+        updated -> updated > 0 ? "updated" : "miss")
+        > 0;
   }
 
   @Override
   public int resetRunningJobs(String nodeId) {
-    return em.createNativeQuery(
-            "UPDATE scheduler_job SET status = 'PENDING', picked_by = NULL, picked_at = NULL, "
-                + "updated_at = NOW(3) WHERE status = 'RUNNING' AND picked_by = :node")
-        .setParameter("node", nodeId)
-        .executeUpdate();
+    return timedStoreOperation(
+        "reset_running_jobs",
+        () ->
+            em.createNativeQuery(
+                    "UPDATE scheduler_job SET status = 'PENDING', picked_by = NULL, picked_at = NULL, "
+                        + "updated_at = NOW(3) WHERE status = 'RUNNING' AND picked_by = :node")
+                .setParameter("node", nodeId)
+                .executeUpdate(),
+        updated -> updated > 0 ? "updated" : "miss");
   }
 
   @Override
@@ -1566,48 +1608,58 @@ public class MysqlJobStore implements JobStore {
   }
 
   private List<JobEntity> claimEntities(List<JobEntity> candidates, String nodeId) {
-    try {
-      Instant now = Instant.now();
-      List<JobEntity> claimed = new ArrayList<>(candidates.size());
-      for (JobEntity candidate : candidates) {
-        if (claimRow(candidate.getId(), nodeId)) {
-          candidate.setStatus(JobStatus.RUNNING);
-          candidate.setPickedBy(nodeId);
-          candidate.setPickedAt(now);
-          claimed.add(candidate);
-        }
-      }
-      em.clear();
-      return claimed;
-    } catch (RuntimeException e) {
-      throw translateTransientStoreException("claim jobs", e);
-    }
+    return timedStoreOperation(
+        "claim_mark_running_batch",
+        () -> {
+          try {
+            Instant now = Instant.now();
+            List<JobEntity> claimed = new ArrayList<>(candidates.size());
+            for (JobEntity candidate : candidates) {
+              if (claimRow(candidate.getId(), nodeId)) {
+                candidate.setStatus(JobStatus.RUNNING);
+                candidate.setPickedBy(nodeId);
+                candidate.setPickedAt(now);
+                claimed.add(candidate);
+              }
+            }
+            em.clear();
+            return claimed;
+          } catch (RuntimeException e) {
+            throw translateTransientStoreException("claim jobs", e);
+          }
+        },
+        claimed -> claimed.isEmpty() ? "miss" : "updated");
   }
 
   private List<JobClaimDto> claimOptimizedRows(List<Object[]> rows, String nodeId) {
-    Instant now = Instant.now();
-    List<JobClaimDto> claims = new ArrayList<>(rows.size());
-    for (Object[] row : rows) {
-      long jobId = ((Number) row[0]).longValue();
-      if (!claimRow(jobId, nodeId)) {
-        continue;
-      }
-      claims.add(
-          new JobClaimDto(
-              jobId,
-              JobStatus.RUNNING,
-              JobExecutionType.valueOf((String) row[2]),
-              safeJobPriority(((Number) row[3]).intValue()),
-              toInstant(row[4]),
-              ((Number) row[5]).intValue(),
-              ((Number) row[6]).intValue(),
-              nodeId,
-              now,
-              (String) row[9],
-              ((Number) row[10]).intValue(),
-              ((Number) row[11]).intValue()));
-    }
-    return claims;
+    return timedStoreOperation(
+        "claim_mark_running_batch",
+        () -> {
+          Instant now = Instant.now();
+          List<JobClaimDto> claims = new ArrayList<>(rows.size());
+          for (Object[] row : rows) {
+            long jobId = ((Number) row[0]).longValue();
+            if (!claimRow(jobId, nodeId)) {
+              continue;
+            }
+            claims.add(
+                new JobClaimDto(
+                    jobId,
+                    JobStatus.RUNNING,
+                    JobExecutionType.valueOf((String) row[2]),
+                    safeJobPriority(((Number) row[3]).intValue()),
+                    toInstant(row[4]),
+                    ((Number) row[5]).intValue(),
+                    ((Number) row[6]).intValue(),
+                    nodeId,
+                    now,
+                    (String) row[9],
+                    ((Number) row[10]).intValue(),
+                    ((Number) row[11]).intValue()));
+          }
+          return claims;
+        },
+        claims -> claims.isEmpty() ? "miss" : "updated");
   }
 
   private boolean claimRow(long jobId, String nodeId) {
@@ -1645,6 +1697,26 @@ public class MysqlJobStore implements JobStore {
           "Transient MySQL store concurrency failure during " + operation, e);
     }
     return e;
+  }
+
+  private <T> T timedStoreOperation(
+      String operation, Supplier<T> action, Function<T, String> outcomeFunction) {
+    long startNanos = System.nanoTime();
+    try {
+      T result = action.get();
+      recordStoreOperation(operation, outcomeFunction.apply(result), startNanos);
+      return result;
+    } catch (RatchetTransientStoreException e) {
+      recordStoreOperation(operation, "transient_failure", startNanos);
+      throw e;
+    } catch (RuntimeException e) {
+      recordStoreOperation(operation, "failure", startNanos);
+      throw e;
+    }
+  }
+
+  private void recordStoreOperation(String operation, String outcome, long startNanos) {
+    metricsCollector.storeOperation("mysql", operation, outcome, System.nanoTime() - startNanos);
   }
 
   private JobPayload parseProgressHook(Object jsonValue) {

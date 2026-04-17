@@ -30,6 +30,7 @@ import java.time.Duration;
  *   <li>{@code ratchet.wakeup.cluster.publish} — counter, tagged by transport and outcome
  *   <li>{@code ratchet.wakeup.cluster.receive} — counter, tagged by transport and outcome
  *   <li>{@code ratchet.callbacks.failed} — counter, tagged by type and exception class
+ *   <li>{@code ratchet.store.operation} — timer, tagged by store, operation, and outcome
  * </ul>
  */
 @Alternative
@@ -203,5 +204,18 @@ public class MicrometerMetricsCollector implements MetricsCollector {
         .tag("exception", cause.getClass().getSimpleName())
         .register(registry)
         .increment();
+  }
+
+  @Override
+  public void storeOperation(String store, String operation, String outcome, long durationNanos) {
+    if (registry == null) {
+      return;
+    }
+    Timer.builder("ratchet.store.operation")
+        .tag("store", store)
+        .tag("operation", operation)
+        .tag("outcome", outcome)
+        .register(registry)
+        .record(Duration.ofNanos(durationNanos));
   }
 }

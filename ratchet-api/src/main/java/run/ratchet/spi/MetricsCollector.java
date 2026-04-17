@@ -78,4 +78,16 @@ public interface MetricsCollector {
   default void callbackFailed(long jobId, JobType type, Throwable cause, int attempt) {
     // default no-op
   }
+
+  /**
+   * Called when the store finishes a timed operation on the hot path.
+   *
+   * @param store backend/store identifier, e.g. {@code mysql}
+   * @param operation logical operation, e.g. {@code claim_lookup} or {@code mark_succeeded}
+   * @param outcome outcome label, e.g. {@code success}, {@code miss}, or {@code transient_failure}
+   * @param durationNanos elapsed wall-clock time in nanoseconds
+   */
+  default void storeOperation(String store, String operation, String outcome, long durationNanos) {
+    // default no-op
+  }
 }
