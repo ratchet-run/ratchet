@@ -41,9 +41,11 @@ import java.util.Objects;
       @Index(name = "idx_job_poll_composite", columnList = "status, priority, scheduled_time"),
       @Index(
           name = "idx_job_claim_cover",
-          columnList = "status, job_type, scheduled_time, priority, job_id"),
+          columnList = "status, job_type, priority, scheduled_time, job_id"),
       @Index(name = "idx_job_type", columnList = "job_type"),
-      @Index(name = "idx_job_recurring_composite", columnList = "job_type, status, next_fire"),
+      @Index(
+          name = "idx_job_recurring_composite",
+          columnList = "status, job_type, priority, next_fire, job_id"),
       @Index(name = "idx_job_depends_on", columnList = "depends_on"),
       @Index(name = "idx_job_superseded_by", columnList = "superseded_by"),
       @Index(name = "idx_job_business_key", columnList = "business_key"),
@@ -121,7 +123,10 @@ public class JobEntity implements TsidEntityListener.TsidAssignable {
   private String businessKey;
 
   @ElementCollection(fetch = FetchType.LAZY)
-  @CollectionTable(name = "scheduler_job_tag", joinColumns = @JoinColumn(name = "job_id"))
+  @CollectionTable(
+      name = "scheduler_job_tag",
+      joinColumns = @JoinColumn(name = "job_id"),
+      indexes = @Index(name = "idx_job_tag_tag_job", columnList = "tag, job_id"))
   @Column(name = "tag", length = 64)
   private List<String> tags;
 

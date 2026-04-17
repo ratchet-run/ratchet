@@ -90,9 +90,21 @@ CREATE TABLE IF NOT EXISTS scheduler_job
 
 -- Hot-path poller indexes — required, do NOT remove without re-running the perf suite.
 CREATE INDEX IF NOT EXISTS idx_job_poll_composite ON scheduler_job (status, priority, scheduled_time);
-CREATE INDEX IF NOT EXISTS idx_job_claim_cover ON scheduler_job (status, job_type, scheduled_time, priority, job_id);
+-- Match the executable claim order used by PostgresqlJobStore:
+--   WHERE status = 'PENDING' AND job_type = ?
+--   ORDER BY priority DESC, scheduled_time ASC, job_id ASC
+-- The partial predicate removes the leading status column from the index key and keeps
+-- write amplification lower than a full-table covering index.
+CREATE INDEX IF NOT EXISTS idx_job_claim_cover
+    ON scheduler_job (job_type, priority DESC, scheduled_time ASC, job_id ASC)
+    WHERE status = 'PENDING';
 CREATE INDEX IF NOT EXISTS idx_recurring_due ON scheduler_job (status, next_fire);
-CREATE INDEX IF NOT EXISTS idx_job_recurring_composite ON scheduler_job (job_type, status, next_fire);
+-- Match recurring claim order:
+--   WHERE status = 'PENDING' AND job_type = 'RECURRING'
+--   ORDER BY priority DESC, next_fire ASC, job_id ASC
+CREATE INDEX IF NOT EXISTS idx_job_recurring_composite
+    ON scheduler_job (job_type, priority DESC, next_fire ASC, job_id ASC)
+    WHERE status = 'PENDING';
 -- TODO(perf-audit): idx_job_due (status, scheduled_time) is a left-prefix of idx_job_poll_composite
 -- (status, priority, scheduled_time) and likely redundant for the planner. Confirm with
 -- pg_stat_user_indexes on a representative workload before dropping to avoid an accidental
@@ -123,6 +135,9 @@ CREATE TABLE IF NOT EXISTS scheduler_job_tag
     CONSTRAINT pk_scheduler_job_tag PRIMARY KEY (job_id, tag),
     CONSTRAINT fk_job_tag_job FOREIGN KEY (job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
 );
+
+-- Support run-status and other tag-first aggregations.
+CREATE INDEX IF NOT EXISTS idx_job_tag_tag_job ON scheduler_job_tag (tag, job_id);
 
 -- 6. scheduler_batch
 CREATE TABLE IF NOT EXISTS scheduler_batch

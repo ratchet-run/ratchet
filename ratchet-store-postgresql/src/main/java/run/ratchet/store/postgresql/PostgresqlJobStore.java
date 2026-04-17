@@ -111,7 +111,7 @@ public class PostgresqlJobStore implements JobStore {
     return boostInterval > 0
         ? "(priority + FLOOR(GREATEST(0, EXTRACT(EPOCH FROM (statement_timestamp() - "
             + timeColumn
-            + "))) / (60.0 * ?2))) DESC, "
+            + "))) / (60.0 * :boostInterval))) DESC, "
             + timeColumn
             + " ASC, job_id ASC"
         : "priority DESC, " + timeColumn + " ASC, job_id ASC";
@@ -130,9 +130,9 @@ public class PostgresqlJobStore implements JobStore {
         + "  ORDER BY "
         + buildBoostOrderBy(timeColumn, boostInterval)
         + "  FOR UPDATE SKIP LOCKED"
-        + "  LIMIT ?1"
+        + "  LIMIT :limit"
         + ") "
-        + "UPDATE scheduler_job AS j SET status = 'RUNNING', picked_by = ?3, "
+        + "UPDATE scheduler_job AS j SET status = 'RUNNING', picked_by = :nodeId, "
         + "picked_at = statement_timestamp(), updated_at = statement_timestamp(), "
         + "version = version + 1 "
         + "FROM picked WHERE j.job_id = picked.job_id "
@@ -428,12 +428,13 @@ public class PostgresqlJobStore implements JobStore {
               + "j.timeout_sec, j.picked_by, j.picked_at, j.business_key, j.attempts, j.max_retries";
       var claimQuery =
           em.createNativeQuery(
-                  buildClaimReturningSql("job_type = ?4", "scheduled_time", boostInterval, selectColumns))
-              .setParameter(1, limit)
-              .setParameter(3, nodeId)
-              .setParameter(4, jobType.name());
+                  buildClaimReturningSql(
+                      "job_type = :jobType", "scheduled_time", boostInterval, selectColumns))
+              .setParameter("limit", limit)
+              .setParameter("nodeId", nodeId)
+              .setParameter("jobType", jobType.name());
       if (boostInterval > 0) {
-        claimQuery.setParameter(2, boostInterval);
+        claimQuery.setParameter("boostInterval", boostInterval);
       }
       @SuppressWarnings("unchecked")
       List<Object[]> rows = claimQuery.getResultList();
@@ -470,10 +471,10 @@ public class PostgresqlJobStore implements JobStore {
                   buildClaimReturningSql(
                       RECURRING_JOB_TYPE_FILTER, "next_fire", boostInterval, "j.*"),
                   JobEntity.class)
-              .setParameter(1, limit)
-              .setParameter(3, nodeId);
+              .setParameter("limit", limit)
+              .setParameter("nodeId", nodeId);
       if (boostInterval > 0) {
-        claimQuery.setParameter(2, boostInterval);
+        claimQuery.setParameter("boostInterval", boostInterval);
       }
       @SuppressWarnings("unchecked")
       List<JobEntity> jobs = claimQuery.getResultList();
