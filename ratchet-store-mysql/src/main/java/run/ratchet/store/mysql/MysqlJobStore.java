@@ -175,6 +175,14 @@ public class MysqlJobStore implements JobStore {
   @PersistenceContext private EntityManager em;
   @Inject private MetricsCollector metricsCollector;
 
+  public MysqlJobStore() {}
+
+  /** Test-only constructor: bypasses CDI to wire EM + metrics directly. */
+  MysqlJobStore(EntityManager em, MetricsCollector metricsCollector) {
+    this.em = em;
+    this.metricsCollector = metricsCollector;
+  }
+
   private static JobPriority safeJobPriority(int ordinal) {
     JobPriority[] values = JobPriority.values();
     if (ordinal < 0 || ordinal >= values.length) {
