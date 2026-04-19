@@ -39,7 +39,8 @@ public class BatchRecoveryTimer {
   }
 
   @Inject
-  public BatchRecoveryTimer(BatchService batchService, SingletonLeaseService singletonLeaseService) {
+  public BatchRecoveryTimer(
+      BatchService batchService, SingletonLeaseService singletonLeaseService) {
     this.batchService = batchService;
     this.singletonLeaseService = singletonLeaseService;
   }

@@ -4,8 +4,7 @@ import run.ratchet.api.Incubating;
 
 /**
  * Historical super-interface for all job status operations. Decomposed into {@link
- * JobTerminalStore}, {@link JobRetryStore}, {@link JobPauseStore}, and {@link
- * JobBatchStatusStore}.
+ * JobTerminalStore}, {@link JobRetryStore}, {@link JobPauseStore}, and {@link JobBatchStatusStore}.
  *
  * <p>This marker composes the four new sub-interfaces for one release so existing implementations
  * keep compiling. New callers should depend on the narrowest of the four that they actually need,

@@ -43,7 +43,10 @@ public interface MetricsCollector {
    */
   void successFinalizationStuck(long jobId, JobType type);
 
-  /** Called when the poller hits a transient store conflict while claiming work for an execution role. */
+  /**
+   * Called when the poller hits a transient store conflict while claiming work for an execution
+   * role.
+   */
   void claimTransientFailure(String executionType);
 
   /** Called after the poller claims executable work for a specific execution role. */

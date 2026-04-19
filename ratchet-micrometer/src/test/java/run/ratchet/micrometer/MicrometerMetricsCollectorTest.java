@@ -16,7 +16,8 @@ class MicrometerMetricsCollectorTest {
     SimpleMeterRegistry registry = new SimpleMeterRegistry();
     MicrometerMetricsCollector collector = new MicrometerMetricsCollector(registry);
 
-    collector.jobFailed(1L, JobType.SINGLE, new RuntimeException("wrapped", new TimeoutException()), 2);
+    collector.jobFailed(
+        1L, JobType.SINGLE, new RuntimeException("wrapped", new TimeoutException()), 2);
 
     assertEquals(
         1.0,
@@ -27,7 +28,10 @@ class MicrometerMetricsCollectorTest {
             .counter()
             .count());
     assertNull(
-        registry.find("ratchet.jobs.failed").tags("type", "SINGLE", "exception", "RuntimeException").counter());
+        registry
+            .find("ratchet.jobs.failed")
+            .tags("type", "SINGLE", "exception", "RuntimeException")
+            .counter());
   }
 
   @Test

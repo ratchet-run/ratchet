@@ -80,7 +80,8 @@ public class RunStatusService {
 
   private RunSummary summarizeRun(String tag) {
     Map<JobStatus, Long> counts = tagStore.countJobsByStatusForTag(tag);
-    Map<String, Long> enqueueNodeCounts = tagStore.countJobsByParamForTag(tag, Tags.PARAM_ENQUEUE_NODE);
+    Map<String, Long> enqueueNodeCounts =
+        tagStore.countJobsByParamForTag(tag, Tags.PARAM_ENQUEUE_NODE);
     Map<String, Long> executionNodeCounts = tagStore.countJobsByExecutionNodeForTag(tag);
     long observedJobs = counts.values().stream().mapToLong(Long::longValue).sum();
     return new RunSummary(counts, enqueueNodeCounts, executionNodeCounts, observedJobs);

@@ -1,8 +1,8 @@
 package run.ratchet.ri.core;
 
 import run.ratchet.api.JobPriority;
-import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.ClusterCoordinator;
+import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobExecutionType;
 import jakarta.annotation.Resource;
 import jakarta.enterprise.context.ApplicationScoped;

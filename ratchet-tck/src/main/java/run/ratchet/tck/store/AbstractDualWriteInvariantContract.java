@@ -18,12 +18,12 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Contract tests for stores that split live queue state from cold metadata into separate physical
- * structures (e.g. the MySQL hot/cold split with {@code scheduler_job_queue} and
- * {@code scheduler_business_key_reservation}).
+ * structures (e.g. the MySQL hot/cold split with {@code scheduler_job_queue} and {@code
+ * scheduler_business_key_reservation}).
  *
  * <p>The assertions are SPI-only and pass on any conforming store, but they are designed to expose
- * dual-write defects: bkres leaks at terminal, hot rows surviving terminal, count drift between
- * the live queue and the metadata table, and stale ownership of business keys after lifecycle
+ * dual-write defects: bkres leaks at terminal, hot rows surviving terminal, count drift between the
+ * live queue and the metadata table, and stale ownership of business keys after lifecycle
  * transitions.
  */
 public abstract class AbstractDualWriteInvariantContract implements JobStoreContractFixture {

@@ -3,8 +3,8 @@ package run.ratchet.store.postgresql;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.sql.SQLRecoverableException;
 import java.sql.SQLException;
+import java.sql.SQLRecoverableException;
 import org.junit.jupiter.api.Test;
 
 class PostgresqlConstraintDetectorTest {

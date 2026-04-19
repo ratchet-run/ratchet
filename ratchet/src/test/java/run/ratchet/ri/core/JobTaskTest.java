@@ -269,7 +269,8 @@ class JobTaskTest {
 
     verify(jobStore, times(2))
         .markJobSucceeded(anyLong(), any(), any(), any(), any(), anyLong(), anyLong());
-    verify(jobStore, never()).markJobSucceededMinimal(anyLong(), any(), any(), anyLong(), anyLong());
+    verify(jobStore, never())
+        .markJobSucceededMinimal(anyLong(), any(), any(), anyLong(), anyLong());
     verify(jobStore, never()).incrementRetryAttempt(anyLong());
     verify(lifecycleFacade, never()).moveToDlq(any(), any());
     verify(observabilityFacade).recordSuccessFinalizationRetry(job);
@@ -280,7 +281,8 @@ class JobTaskTest {
 
   @Test
   @SuppressWarnings("unchecked")
-  void handleSuccess_fallsBackToMinimalSuccessAfterTransientFinalizationExhaustion() throws Exception {
+  void handleSuccess_fallsBackToMinimalSuccessAfterTransientFinalizationExhaustion()
+      throws Exception {
     JobEntity job = createTestJob();
     initJobTaskWithDefaultStubs(job);
     when(jobStore.getJobStatus(42L)).thenReturn(JobStatus.RUNNING);

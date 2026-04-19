@@ -136,11 +136,7 @@ public class RecurringScheduler {
 
       SingletonLease acquiredLease = lease.get();
       renewalTask =
-          executor.scheduleAtFixedRate(
-              () -> renewLease(acquiredLease),
-              2,
-              2,
-              TimeUnit.MINUTES);
+          executor.scheduleAtFixedRate(() -> renewLease(acquiredLease), 2, 2, TimeUnit.MINUTES);
 
       int processedCount =
           recurringJobExecutor.process(batchLimit, nodeIdentityProvider.getNodeId());

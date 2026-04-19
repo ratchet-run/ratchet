@@ -1,8 +1,8 @@
 package run.ratchet.store.mysql;
 
 import run.ratchet.store.ConstraintDetector;
-import java.sql.SQLRecoverableException;
 import java.sql.SQLException;
+import java.sql.SQLRecoverableException;
 import java.sql.SQLTransientException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;

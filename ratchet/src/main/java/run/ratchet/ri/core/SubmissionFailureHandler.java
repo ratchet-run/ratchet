@@ -1,9 +1,9 @@
 package run.ratchet.ri.core;
 
+import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.spi.MetricsCollector;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;

@@ -655,17 +655,13 @@ public class JobTask implements Callable<Void> {
         if (attempt == SUCCESS_FINALIZATION_MAX_ATTEMPTS) {
           log.warnf(
               "Job %s exhausted success finalization retries after transient store conflicts: %s",
-              job.getId(),
-              e.getMessage());
+              job.getId(), e.getMessage());
           break;
         }
 
         log.warnf(
             "Job %s transient success finalization failure on attempt %s/%s: %s",
-            job.getId(),
-            attempt,
-            SUCCESS_FINALIZATION_MAX_ATTEMPTS,
-            e.getMessage());
+            job.getId(), attempt, SUCCESS_FINALIZATION_MAX_ATTEMPTS, e.getMessage());
 
         if (!sleepBeforeSuccessFinalizationRetry(attempt)) {
           break;

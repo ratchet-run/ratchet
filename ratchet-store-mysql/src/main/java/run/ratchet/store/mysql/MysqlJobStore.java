@@ -1244,9 +1244,9 @@ public class MysqlJobStore implements JobStore {
   }
 
   /**
-   * Drops the RUNNING hot row and any business-key reservation after a successful cold-row
-   * terminal transition. The preceding UPDATE ... JOIN ensures the hot row was the gating RUNNING
-   * row; if we fail to remove it here, the transaction should roll back.
+   * Drops the RUNNING hot row and any business-key reservation after a successful cold-row terminal
+   * transition. The preceding UPDATE ... JOIN ensures the hot row was the gating RUNNING row; if we
+   * fail to remove it here, the transaction should roll back.
    */
   private void deleteHotRowAndReservationAfterSuccess(long id) {
     int deleted =

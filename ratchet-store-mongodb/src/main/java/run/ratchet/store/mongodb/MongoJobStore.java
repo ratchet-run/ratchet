@@ -94,13 +94,13 @@ public class MongoJobStore implements JobStore {
   private static final int CLAIM_CANDIDATE_FLOOR = 256;
 
   /**
-   * Upper bound on the priority-boost candidate window. Boost is best-effort above this
-   * threshold: once PENDING backlog for a single type exceeds {@value}, older low-raw-priority
-   * jobs may not surface for the boost pass because the candidate-selection query caps at this
-   * count. Top-priority jobs are still claimed first, but starvation of the oldest low-priority
-   * jobs is possible under sustained backlog beyond this ceiling — this is the documented
-   * contract, not a bug. Operators who run consistently hot should either raise concurrency or
-   * shed low-priority work at enqueue time.
+   * Upper bound on the priority-boost candidate window. Boost is best-effort above this threshold:
+   * once PENDING backlog for a single type exceeds {@value}, older low-raw-priority jobs may not
+   * surface for the boost pass because the candidate-selection query caps at this count.
+   * Top-priority jobs are still claimed first, but starvation of the oldest low-priority jobs is
+   * possible under sustained backlog beyond this ceiling — this is the documented contract, not a
+   * bug. Operators who run consistently hot should either raise concurrency or shed low-priority
+   * work at enqueue time.
    */
   private static final int CLAIM_CANDIDATE_CEILING = 2048;
 
@@ -465,7 +465,8 @@ public class MongoJobStore implements JobStore {
   }
 
   @Override
-  public List<JobClaimDto> claimNextBatchOptimized(JobExecutionType jobType, int limit, String nodeId) {
+  public List<JobClaimDto> claimNextBatchOptimized(
+      JobExecutionType jobType, int limit, String nodeId) {
     if (limit <= 0 || !isPollerExecutable(jobType)) {
       return List.of();
     }
@@ -1299,7 +1300,9 @@ public class MongoJobStore implements JobStore {
             .aggregate(
                 List.of(
                     new Document("$match", new Document("tags", tag)),
-                    new Document("$group", new Document("_id", "$status").append("count", new Document("$sum", 1L))),
+                    new Document(
+                        "$group",
+                        new Document("_id", "$status").append("count", new Document("$sum", 1L))),
                     new Document("$sort", new Document("_id", 1))))) {
       String status = doc.getString("_id");
       if (status != null) {
@@ -1312,9 +1315,7 @@ public class MongoJobStore implements JobStore {
   @Override
   public Map<String, Long> countJobsByParamForTag(String tag, String paramKey) {
     return aggregateStringCountsByTag(
-        tag,
-        new Document(
-            "$getField", new Document("field", paramKey).append("input", "$params")));
+        tag, new Document("$getField", new Document("field", paramKey).append("input", "$params")));
   }
 
   @Override
@@ -1669,10 +1670,8 @@ public class MongoJobStore implements JobStore {
 
   private List<ClaimCandidate> findCandidatesForJobType(
       String jobType, String timeColumn, Date now, int candidateWindow) {
-    Bson filter =
-        and(eq("status", "PENDING"), eq("job_type", jobType), lte(timeColumn, now));
-    Bson projection =
-        new Document("_id", 1).append("priority", 1).append(timeColumn, 1);
+    Bson filter = and(eq("status", "PENDING"), eq("job_type", jobType), lte(timeColumn, now));
+    Bson projection = new Document("_id", 1).append("priority", 1).append(timeColumn, 1);
     // We want priority DESC, then due time ASC, then _id ASC.
     Bson sort = new Document("priority", -1).append(timeColumn, 1).append("_id", 1);
 
@@ -1693,9 +1692,7 @@ public class MongoJobStore implements JobStore {
       }
       candidates.add(
           new ClaimCandidate(
-              doc.getLong("_id"),
-              doc.getInteger("priority", JobPriority.NORMAL.ordinal()),
-              dueAt));
+              doc.getLong("_id"), doc.getInteger("priority", JobPriority.NORMAL.ordinal()), dueAt));
     }
     return candidates;
   }

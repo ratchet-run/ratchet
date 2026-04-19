@@ -29,7 +29,8 @@ class MongoConstraintDetectorTest {
   void detectsNodeRecoveringFailures() {
     BsonDocument response = new BsonDocument("ok", new BsonInt32(0));
     Exception wrapped =
-        new RuntimeException("wrapper", new MongoNodeIsRecoveringException(response, SERVER_ADDRESS));
+        new RuntimeException(
+            "wrapper", new MongoNodeIsRecoveringException(response, SERVER_ADDRESS));
 
     assertTrue(detector.isTransientConnectionFailure(wrapped));
   }

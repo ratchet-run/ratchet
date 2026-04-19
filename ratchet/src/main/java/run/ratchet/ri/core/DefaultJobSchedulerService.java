@@ -308,7 +308,8 @@ public class DefaultJobSchedulerService
 
     JobStatus target = jobStatusStore.transitionFromPausedAtomic(jobId);
     if (target == null) {
-      log.debugf("Cannot resume job %s — not in PAUSED state (current: %s)", jobId, job.getStatus());
+      log.debugf(
+          "Cannot resume job %s — not in PAUSED state (current: %s)", jobId, job.getStatus());
       return false;
     }
     log.debugf("Resumed job %s to %s", jobId, target);

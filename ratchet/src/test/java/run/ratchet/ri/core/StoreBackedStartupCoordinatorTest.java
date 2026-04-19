@@ -33,8 +33,7 @@ class StoreBackedStartupCoordinatorTest {
     coordinator.tryAcquire("recurring-annotation-orphan-cleanup", Duration.ofMinutes(5));
 
     verify(lockStore)
-        .tryLock(
-            "startup:recurring-annotation-orphan-cleanup", Duration.ofMinutes(5), "node-1");
+        .tryLock("startup:recurring-annotation-orphan-cleanup", Duration.ofMinutes(5), "node-1");
   }
 
   @Test

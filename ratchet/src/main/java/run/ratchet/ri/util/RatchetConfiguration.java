@@ -256,9 +256,7 @@ public class RatchetConfiguration {
         getEnvWithFallback("RATCHET_POLLER_MIN_DELAY_MS", "POLLER_MIN_DELAY_MS", "2000");
     this.pollerClaimHeadroomFactor =
         getEnvWithFallback(
-            "RATCHET_POLLER_CLAIM_HEADROOM_FACTOR",
-            "SCHEDULER_POLLER_CLAIM_HEADROOM_FACTOR",
-            "0");
+            "RATCHET_POLLER_CLAIM_HEADROOM_FACTOR", "SCHEDULER_POLLER_CLAIM_HEADROOM_FACTOR", "0");
     this.retryBufferDrainIntervalMs =
         getEnvWithFallback(
             "RATCHET_RETRY_BUFFER_DRAIN_INTERVAL_MS",

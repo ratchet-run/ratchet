@@ -416,7 +416,8 @@ public class PostgresqlJobStore implements JobStore {
   }
 
   @Override
-  public List<JobClaimDto> claimNextBatchOptimized(JobExecutionType jobType, int limit, String nodeId) {
+  public List<JobClaimDto> claimNextBatchOptimized(
+      JobExecutionType jobType, int limit, String nodeId) {
     if (limit <= 0 || !isPollerExecutable(jobType)) {
       return List.of();
     }
@@ -954,7 +955,8 @@ public class PostgresqlJobStore implements JobStore {
     query.setParameter(
         parameter++, job.getPickedAt() == null ? null : Timestamp.from(job.getPickedAt()));
     query.setParameter(parameter++, job.getLastError());
-    query.setParameter(parameter++, Timestamp.from(job.getCreatedAt() != null ? job.getCreatedAt() : now));
+    query.setParameter(
+        parameter++, Timestamp.from(job.getCreatedAt() != null ? job.getCreatedAt() : now));
     query.setParameter(parameter++, job.getCreatedBy());
     query.setParameter(parameter++, Timestamp.from(now));
     query.setParameter(

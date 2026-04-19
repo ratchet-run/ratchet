@@ -1,9 +1,9 @@
 package run.ratchet.ri.core;
 
 import run.ratchet.ri.core.RetryBufferManager.BufferedClaim;
+import run.ratchet.ri.util.RatchetConfiguration;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.ri.util.RatchetConfiguration;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.List;
@@ -90,7 +90,8 @@ public class RetryBufferDrainer {
           break;
         }
 
-        List<BufferedClaim> bufferedJobs = retryBufferManager.pollBatchFromBuffer(jobType, capacity);
+        List<BufferedClaim> bufferedJobs =
+            retryBufferManager.pollBatchFromBuffer(jobType, capacity);
         if (bufferedJobs.isEmpty()) {
           break;
         }

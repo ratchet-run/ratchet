@@ -30,7 +30,8 @@ public enum ExceptionFamily {
     return UNKNOWN;
   }
 
-  private static boolean hasCause(Throwable throwable, java.util.function.Predicate<Throwable> test) {
+  private static boolean hasCause(
+      Throwable throwable, java.util.function.Predicate<Throwable> test) {
     Throwable current = throwable;
     while (current != null) {
       if (test.test(current)) {

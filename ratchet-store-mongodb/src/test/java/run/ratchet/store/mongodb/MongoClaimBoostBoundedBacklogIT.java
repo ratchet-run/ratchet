@@ -12,9 +12,9 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
- * Pins the documented {@code CLAIM_CANDIDATE_CEILING} contract: above a backlog of 2048
- * candidates per type, top-priority jobs still win but the oldest low-priority jobs may not
- * surface for the boost pass.
+ * Pins the documented {@code CLAIM_CANDIDATE_CEILING} contract: above a backlog of 2048 candidates
+ * per type, top-priority jobs still win but the oldest low-priority jobs may not surface for the
+ * boost pass.
  */
 class MongoClaimBoostBoundedBacklogIT extends BaseDocumentStoreIT {
 

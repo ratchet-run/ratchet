@@ -176,10 +176,7 @@ public class MicrometerMetricsCollector implements MetricsCollector {
     if (registry == null) {
       return;
     }
-    Counter.builder("ratchet.wakeup.local")
-        .tag("source", source)
-        .register(registry)
-        .increment();
+    Counter.builder("ratchet.wakeup.local").tag("source", source).register(registry).increment();
   }
 
   @Override
@@ -252,7 +249,12 @@ public class MicrometerMetricsCollector implements MetricsCollector {
   }
 
   private void logRawFailure(
-      String context, long jobId, JobType type, Throwable cause, ExceptionFamily family, int attempt) {
+      String context,
+      long jobId,
+      JobType type,
+      Throwable cause,
+      ExceptionFamily family,
+      int attempt) {
     String className = cause != null ? cause.getClass().getName() : "null";
     log.warnf(
         "%s failure recorded for job %d (type=%s, family=%s, attempt=%d, exception=%s)",

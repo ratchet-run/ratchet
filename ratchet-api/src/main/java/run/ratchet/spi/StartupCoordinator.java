@@ -6,8 +6,8 @@ import java.time.Duration;
 /**
  * Coordinates one-time or destructive startup actions across nodes.
  *
- * <p>The reference implementation uses the store's distributed lock/lease mechanism so startup
- * work can be safely gated without relying on an external leader-election system.
+ * <p>The reference implementation uses the store's distributed lock/lease mechanism so startup work
+ * can be safely gated without relying on an external leader-election system.
  */
 @Incubating
 public interface StartupCoordinator {

@@ -1,8 +1,8 @@
 package run.ratchet.store.postgresql;
 
 import run.ratchet.store.ConstraintDetector;
-import java.sql.SQLRecoverableException;
 import java.sql.SQLException;
+import java.sql.SQLRecoverableException;
 import java.sql.SQLTransientException;
 
 /** PostgreSQL-specific constraint violation detector. */

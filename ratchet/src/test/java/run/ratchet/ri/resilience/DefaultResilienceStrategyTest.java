@@ -113,14 +113,12 @@ class DefaultResilienceStrategyTest {
     CircuitBreakerConfig config = provider.configFor(CircuitBreakerProfile.DEFAULT);
 
     assertEquals(
-        CircuitBreakerConfiguration.DEFAULT.failureRateThreshold(),
-        config.failureRateThreshold());
+        CircuitBreakerConfiguration.DEFAULT.failureRateThreshold(), config.failureRateThreshold());
     assertEquals(
         CircuitBreakerConfiguration.DEFAULT.slidingWindowSize(), config.slidingWindowSize());
     assertEquals(CircuitBreakerConfiguration.DEFAULT.waitDurationMs(), config.waitDurationMs());
     assertEquals(
-        CircuitBreakerConfiguration.DEFAULT.slowCallThresholdMs(),
-        config.slowCallThresholdMs());
+        CircuitBreakerConfiguration.DEFAULT.slowCallThresholdMs(), config.slowCallThresholdMs());
     assertEquals(
         CircuitBreakerConfiguration.DEFAULT.permittedCallsInHalfOpen(),
         config.permittedCallsInHalfOpen());
