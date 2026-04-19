@@ -24,12 +24,16 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.testcontainers.containers.JdbcDatabaseContainer;
 
 /**
- * Shared Testcontainers + Hibernate fixture for JPA-backed TCK suites.
+ * Shared Testcontainers + JPA fixture for store TCK suites.
  *
- * <p>Subclasses supply a started {@link JdbcDatabaseContainer}, a Hibernate dialect name, a
- * persistence-unit name (PU lives in the dialect module's {@code src/test/resources/META-INF/
- * persistence.xml}), and a factory for the concrete {@link JobStore} given a plain {@link
- * EntityManager}.
+ * <p>Subclasses supply a started {@link JdbcDatabaseContainer}, a map of provider-specific JPA
+ * properties (e.g. {@code hibernate.dialect} for Hibernate-backed subclasses), a persistence-unit
+ * name (PU lives in the dialect module's {@code src/test/resources/META-INF/persistence.xml}), and
+ * a factory for the concrete {@link JobStore} given a plain {@link EntityManager}.
+ *
+ * <p>This base is JPA-provider agnostic: it only sets the standard {@code
+ * jakarta.persistence.jdbc.*} overrides. Any Hibernate- or EclipseLink-specific keys are the
+ * subclass's responsibility, supplied via {@link #jpaProperties()}.
  *
  * <p>Production stores are CDI-managed with {@code @Transactional} and per-thread
  * {@code @PersistenceContext} injection. Tests have neither. This fixture closes the gap with two
@@ -75,8 +79,13 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
   /** Started Testcontainers JDBC container. Subclass owns its lifecycle. */
   protected abstract JdbcDatabaseContainer<?> container();
 
-  /** Fully-qualified Hibernate dialect class name. */
-  protected abstract String hibernateDialect();
+  /**
+   * Provider-specific JPA properties merged into the EMF override map. Subclasses supply keys like
+   * {@code hibernate.dialect} or {@code eclipselink.target-database}. The base reserves {@code
+   * jakarta.persistence.jdbc.*} keys for JDBC connection wiring; subclass keys take precedence over
+   * any base value if collisions occur.
+   */
+  protected abstract Map<String, Object> jpaProperties();
 
   /** Persistence-unit name as declared in the dialect module's {@code persistence.xml}. */
   protected abstract String persistenceUnitName();
@@ -151,11 +160,7 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
     overrides.put("jakarta.persistence.jdbc.user", container.getUsername());
     overrides.put("jakarta.persistence.jdbc.password", container.getPassword());
     overrides.put("jakarta.persistence.jdbc.driver", container.getDriverClassName());
-    overrides.put("hibernate.dialect", hibernateDialect());
-    overrides.put("hibernate.hbm2ddl.auto", "none");
-    overrides.put("hibernate.show_sql", "false");
-    overrides.put("hibernate.format_sql", "false");
-    overrides.put("hibernate.connection.provider_disables_autocommit", "false");
+    overrides.putAll(jpaProperties());
     return Persistence.createEntityManagerFactory(persistenceUnitName(), overrides);
   }
 

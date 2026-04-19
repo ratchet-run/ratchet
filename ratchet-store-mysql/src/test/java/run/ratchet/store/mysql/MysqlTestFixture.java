@@ -4,6 +4,7 @@ import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.tck.store.JpaContainerFixture;
 import jakarta.persistence.EntityManager;
+import java.util.Map;
 import org.testcontainers.containers.JdbcDatabaseContainer;
 import org.testcontainers.mysql.MySQLContainer;
 
@@ -29,8 +30,13 @@ public class MysqlTestFixture extends JpaContainerFixture {
   }
 
   @Override
-  protected String hibernateDialect() {
-    return "org.hibernate.dialect.MySQLDialect";
+  protected Map<String, Object> jpaProperties() {
+    return Map.of(
+        "hibernate.dialect", "org.hibernate.dialect.MySQLDialect",
+        "hibernate.hbm2ddl.auto", "none",
+        "hibernate.show_sql", "false",
+        "hibernate.format_sql", "false",
+        "hibernate.connection.provider_disables_autocommit", "false");
   }
 
   @Override
