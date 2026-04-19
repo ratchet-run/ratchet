@@ -1239,9 +1239,22 @@ public class PostgresqlJobStore implements JobStore {
 
   @Override
   public Instant getDatabaseTime() {
-    Timestamp ts =
-        (Timestamp) em.createNativeQuery("SELECT statement_timestamp()").getSingleResult();
-    return ts.toInstant();
+    // The PostgreSQL JDBC driver returns statement_timestamp() as java.time.OffsetDateTime /
+    // Instant in recent versions, and as java.sql.Timestamp in older ones. Accept either shape
+    // rather than casting narrowly.
+    Object ts = em.createNativeQuery("SELECT statement_timestamp()").getSingleResult();
+    if (ts instanceof Instant i) {
+      return i;
+    }
+    if (ts instanceof java.time.OffsetDateTime odt) {
+      return odt.toInstant();
+    }
+    if (ts instanceof Timestamp t) {
+      return t.toInstant();
+    }
+    throw new IllegalStateException(
+        "Unexpected statement_timestamp() result type: "
+            + (ts == null ? "null" : ts.getClass().getName()));
   }
 
   @Override

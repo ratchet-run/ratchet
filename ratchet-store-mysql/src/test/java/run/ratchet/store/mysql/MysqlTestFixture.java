@@ -18,6 +18,13 @@ public class MysqlTestFixture extends JpaContainerFixture {
           .withDatabaseName("ratchet_test")
           .withUsername("ratchet")
           .withPassword("ratchet")
+          // Force the JDBC driver to treat DATETIME columns as UTC. Testcontainers' MySQL
+          // defaults to server TZ = UTC, but without this URL param the driver interprets the
+          // stored string as JVM-local time, shifting round-tripped Instants by the JVM's offset
+          // from UTC. mysql-connector-j >=8.0.23 honors `connectionTimeZone`; older pre-8.0.23
+          // drivers use `serverTimezone` — we set both for safety.
+          .withUrlParam("connectionTimeZone", "UTC")
+          .withUrlParam("serverTimezone", "UTC")
           .withInitScript("ddl/mysql-schema.sql")
           .withReuse(true);
 
