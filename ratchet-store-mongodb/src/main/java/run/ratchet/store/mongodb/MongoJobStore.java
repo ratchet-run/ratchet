@@ -92,6 +92,16 @@ public class MongoJobStore implements JobStore {
       PriorityBoostConfig.getPriorityBoostIntervalMinutes();
   private static final int CLAIM_CANDIDATE_MULTIPLIER = 8;
   private static final int CLAIM_CANDIDATE_FLOOR = 256;
+
+  /**
+   * Upper bound on the priority-boost candidate window. Boost is best-effort above this
+   * threshold: once PENDING backlog for a single type exceeds {@value}, older low-raw-priority
+   * jobs may not surface for the boost pass because the candidate-selection query caps at this
+   * count. Top-priority jobs are still claimed first, but starvation of the oldest low-priority
+   * jobs is possible under sustained backlog beyond this ceiling — this is the documented
+   * contract, not a bug. Operators who run consistently hot should either raise concurrency or
+   * shed low-priority work at enqueue time.
+   */
   private static final int CLAIM_CANDIDATE_CEILING = 2048;
 
   private final MongoDatabase database;
