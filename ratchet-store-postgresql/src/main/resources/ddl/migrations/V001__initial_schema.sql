@@ -1,3 +1,7 @@
+-- Ratchet PostgreSQL V001 — initial schema.
+-- Single-table live + terminal design. Hot/cold split was applied in V005;
+-- yet; any future split will ship as V002.
+
 -- 0. ratchet_schema_version
 CREATE TABLE IF NOT EXISTS ratchet_schema_version
 (
@@ -324,3 +328,8 @@ CREATE TABLE IF NOT EXISTS scheduler_resource_permit
 
 CREATE INDEX IF NOT EXISTS idx_resource_permit_resource ON scheduler_resource_permit (resource_name);
 CREATE INDEX IF NOT EXISTS idx_resource_permit_job ON scheduler_resource_permit (job_id);
+
+-- Record this migration.
+INSERT INTO ratchet_schema_version (version, description)
+VALUES ('001', 'Initial schema (single-table live + terminal state)')
+ON CONFLICT (version) DO NOTHING;
