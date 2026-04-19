@@ -1,5 +1,6 @@
 package run.ratchet.store.postgresql;
 
+import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.tck.store.JpaContainerFixture;
@@ -53,6 +54,16 @@ public class PostgresqlTestFixture extends JpaContainerFixture {
   @Override
   protected JobStore createStore(EntityManager em, MetricsCollector metrics) {
     return new PostgresqlJobStore(em);
+  }
+
+  @Override
+  public boolean isStaleWriteException(Throwable t) {
+    for (Throwable c = t; c != null; c = c.getCause()) {
+      if (c instanceof RatchetOptimisticLockException) {
+        return true;
+      }
+    }
+    return false;
   }
 
   @Override

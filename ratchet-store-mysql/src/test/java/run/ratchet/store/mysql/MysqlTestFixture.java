@@ -1,5 +1,6 @@
 package run.ratchet.store.mysql;
 
+import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.tck.store.JpaContainerFixture;
@@ -47,6 +48,16 @@ public class MysqlTestFixture extends JpaContainerFixture {
   @Override
   protected JobStore createStore(EntityManager em, MetricsCollector metrics) {
     return new MysqlJobStore(em, metrics);
+  }
+
+  @Override
+  public boolean isStaleWriteException(Throwable t) {
+    for (Throwable c = t; c != null; c = c.getCause()) {
+      if (c instanceof RatchetOptimisticLockException) {
+        return true;
+      }
+    }
+    return false;
   }
 
   @Override
