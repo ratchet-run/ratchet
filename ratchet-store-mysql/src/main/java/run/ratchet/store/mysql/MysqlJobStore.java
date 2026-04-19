@@ -35,13 +35,10 @@ import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.PersistenceContext;
+import jakarta.persistence.Query;
 import jakarta.persistence.TypedQuery;
 import jakarta.transaction.Transactional;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.SQLException;
 import java.sql.Timestamp;
-import java.sql.Types;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -1646,7 +1643,11 @@ public class MysqlJobStore implements JobStore {
     if (jobs.isEmpty()) {
       return;
     }
-    Connection conn = em.unwrap(Connection.class);
+    // Per-row JPA native queries with positional parameters. Previously batched raw JDBC via
+    // em.unwrap(Connection.class), which is a Hibernate-specific extension — not supported on
+    // EclipseLink. Trade per-row overhead for JPA spec portability; if CP1 load characteristics
+    // make this a bottleneck, the right answer is a provider-managed JDBC batch hint
+    // (hibernate.jdbc.batch_size or equivalent) rather than unwrapping the connection.
     Instant now = Instant.now();
     Timestamp nowTs = Timestamp.from(now);
 
@@ -1654,135 +1655,99 @@ public class MysqlJobStore implements JobStore {
       assignTsidIfMissing(job);
     }
 
-    List<JobEntity> needsHot = new ArrayList<>(jobs.size());
-    List<JobEntity> needsBkres = new ArrayList<>(jobs.size());
+    // 1. Cold insert — every job.
     for (JobEntity job : jobs) {
-      if (job.getJobType() != JobExecutionType.RECURRING) {
-        needsHot.add(job);
-      }
-      if (job.getBusinessKey() != null) {
-        needsBkres.add(job);
-      }
+      Query q = em.createNativeQuery(COLD_INSERT_SQL);
+      bindColdInsert(q, job, nowTs);
+      q.executeUpdate();
     }
 
-    try {
-      // 1. Cold batch — every job.
-      try (PreparedStatement ps = conn.prepareStatement(COLD_INSERT_SQL)) {
-        for (JobEntity job : jobs) {
-          bindColdInsert(ps, job, nowTs);
-          ps.addBatch();
-        }
-        ps.executeBatch();
+    // 2. Hot insert — executable jobs only.
+    for (JobEntity job : jobs) {
+      if (job.getJobType() == JobExecutionType.RECURRING) {
+        continue;
       }
-
-      // 2. Hot batch — executable jobs only.
-      if (!needsHot.isEmpty()) {
-        try (PreparedStatement ps = conn.prepareStatement(HOT_INSERT_SQL)) {
-          for (JobEntity job : needsHot) {
-            bindHotInsert(ps, job, nowTs);
-            ps.addBatch();
-          }
-          ps.executeBatch();
-        }
-      }
-
-      // 3. bkres batch — jobs that carry a business_key (executable or recurring).
-      if (!needsBkres.isEmpty()) {
-        try (PreparedStatement ps = conn.prepareStatement(BKRES_INSERT_SQL)) {
-          for (JobEntity job : needsBkres) {
-            bindBkresInsert(ps, job, nowTs);
-            ps.addBatch();
-          }
-          ps.executeBatch();
-        }
-      }
-    } catch (SQLException e) {
-      throw new RuntimeException("Bulk insert failed", e);
+      Query q = em.createNativeQuery(HOT_INSERT_SQL);
+      bindHotInsert(q, job, nowTs);
+      q.executeUpdate();
     }
+
+    // 3. bkres insert — jobs that carry a business_key (executable or recurring).
+    for (JobEntity job : jobs) {
+      if (job.getBusinessKey() == null) {
+        continue;
+      }
+      Query q = em.createNativeQuery(BKRES_INSERT_SQL);
+      bindBkresInsert(q, job, nowTs);
+      q.executeUpdate();
+    }
+
     em.clear();
   }
 
-  // ---- bulkInsert bind helpers (PreparedStatement positional) ----
+  // ---- bulkInsert bind helpers (JPA Query positional) ----
 
-  private void bindColdInsert(PreparedStatement ps, JobEntity job, Timestamp nowTs)
-      throws SQLException {
+  private void bindColdInsert(Query q, JobEntity job, Timestamp nowTs) {
     int i = 1;
-    ps.setLong(i++, job.getId());
-    ps.setString(i++, job.getJobType().name());
-    ps.setInt(i++, job.getPriority().ordinal());
-    ps.setInt(i++, job.getMaxRetries());
-    ps.setString(i++, job.getBackoffPolicy().name());
-    ps.setInt(i++, job.getBackoffParamMs());
-    ps.setInt(i++, job.getTimeoutSec());
-    ps.setString(i++, job.getCronExpr());
-    ps.setString(i++, job.getZoneId());
-    if (job.getNextFire() != null) {
-      ps.setTimestamp(i++, Timestamp.from(job.getNextFire()));
-    } else {
-      ps.setNull(i++, Types.TIMESTAMP);
-    }
-    ps.setString(i++, payloadToJson(job));
-    ps.setString(i++, paramsToJson(job));
-    ps.setString(i++, job.getIdempotencyKey());
-    ps.setString(i++, job.getBusinessKey());
-    ps.setString(i++, job.getResourceName());
-    ps.setString(i++, callbackPayloadToJson(job.getOnSuccessPayload()));
-    ps.setString(i++, callbackPayloadToJson(job.getOnFailurePayload()));
-    if (job.getDependsOn() != null) {
-      ps.setLong(i++, job.getDependsOn());
-    } else {
-      ps.setNull(i++, Types.BIGINT);
-    }
-    if (job.getSupersededBy() != null) {
-      ps.setLong(i++, job.getSupersededBy());
-    } else {
-      ps.setNull(i++, Types.BIGINT);
-    }
-    ps.setTimestamp(i++, nowTs);
-    ps.setString(i++, job.getCreatedBy());
+    q.setParameter(i++, job.getId());
+    q.setParameter(i++, job.getJobType().name());
+    q.setParameter(i++, job.getPriority().ordinal());
+    q.setParameter(i++, job.getMaxRetries());
+    q.setParameter(i++, job.getBackoffPolicy().name());
+    q.setParameter(i++, job.getBackoffParamMs());
+    q.setParameter(i++, job.getTimeoutSec());
+    q.setParameter(i++, job.getCronExpr());
+    q.setParameter(i++, job.getZoneId());
+    q.setParameter(i++, job.getNextFire() != null ? Timestamp.from(job.getNextFire()) : null);
+    q.setParameter(i++, payloadToJson(job));
+    q.setParameter(i++, paramsToJson(job));
+    q.setParameter(i++, job.getIdempotencyKey());
+    q.setParameter(i++, job.getBusinessKey());
+    q.setParameter(i++, job.getResourceName());
+    q.setParameter(i++, callbackPayloadToJson(job.getOnSuccessPayload()));
+    q.setParameter(i++, callbackPayloadToJson(job.getOnFailurePayload()));
+    q.setParameter(i++, job.getDependsOn());
+    q.setParameter(i++, job.getSupersededBy());
+    q.setParameter(i++, nowTs);
+    q.setParameter(i++, job.getCreatedBy());
+    String recStatus = null;
     if (job.getJobType() == JobExecutionType.RECURRING) {
       JobStatus s = job.getStatus() != null ? job.getStatus() : JobStatus.PENDING;
       String rec = recStatusForLiveStatus(s);
-      ps.setString(i, rec != null ? rec : "P");
-    } else {
-      ps.setNull(i, Types.CHAR);
+      recStatus = rec != null ? rec : "P";
     }
+    q.setParameter(i, recStatus);
   }
 
-  private void bindHotInsert(PreparedStatement ps, JobEntity job, Timestamp nowTs)
-      throws SQLException {
+  private void bindHotInsert(Query q, JobEntity job, Timestamp nowTs) {
     int i = 1;
-    ps.setLong(i++, job.getId());
+    q.setParameter(i++, job.getId());
     JobStatus s = job.getStatus() != null ? job.getStatus() : JobStatus.PENDING;
-    ps.setString(i++, s.name());
-    ps.setString(i++, job.getJobType().name());
-    ps.setInt(i++, job.getPriority().ordinal());
+    q.setParameter(i++, s.name());
+    q.setParameter(i++, job.getJobType().name());
+    q.setParameter(i++, job.getPriority().ordinal());
     Instant scheduled = job.getScheduledTime();
-    ps.setTimestamp(i++, scheduled != null ? Timestamp.from(scheduled) : nowTs);
-    ps.setString(i++, job.getBusinessKey());
-    ps.setInt(i++, job.getTimeoutSec());
-    ps.setInt(i++, job.getMaxRetries());
-    ps.setInt(i++, job.getAttempts());
-    ps.setString(i++, job.getPickedBy());
-    if (job.getPickedAt() != null) {
-      ps.setTimestamp(i++, Timestamp.from(job.getPickedAt()));
-    } else {
-      ps.setNull(i++, Types.TIMESTAMP);
-    }
-    ps.setString(i++, job.getPausedFromStatus() != null ? job.getPausedFromStatus().name() : null);
-    ps.setString(i++, job.getLastError());
-    ps.setInt(i++, job.getVersion() != null ? job.getVersion() : 0);
-    ps.setTimestamp(i, nowTs);
+    q.setParameter(i++, scheduled != null ? Timestamp.from(scheduled) : nowTs);
+    q.setParameter(i++, job.getBusinessKey());
+    q.setParameter(i++, job.getTimeoutSec());
+    q.setParameter(i++, job.getMaxRetries());
+    q.setParameter(i++, job.getAttempts());
+    q.setParameter(i++, job.getPickedBy());
+    q.setParameter(i++, job.getPickedAt() != null ? Timestamp.from(job.getPickedAt()) : null);
+    q.setParameter(
+        i++, job.getPausedFromStatus() != null ? job.getPausedFromStatus().name() : null);
+    q.setParameter(i++, job.getLastError());
+    q.setParameter(i++, job.getVersion() != null ? job.getVersion() : 0);
+    q.setParameter(i, nowTs);
   }
 
-  private void bindBkresInsert(PreparedStatement ps, JobEntity job, Timestamp nowTs)
-      throws SQLException {
-    ps.setString(1, job.getBusinessKey());
-    ps.setLong(2, job.getId());
-    ps.setString(
+  private void bindBkresInsert(Query q, JobEntity job, Timestamp nowTs) {
+    q.setParameter(1, job.getBusinessKey());
+    q.setParameter(2, job.getId());
+    q.setParameter(
         3,
         job.getJobType() == JobExecutionType.RECURRING ? OWNER_TABLE_RECURRING : OWNER_TABLE_QUEUE);
-    ps.setTimestamp(4, nowTs);
+    q.setParameter(4, nowTs);
   }
 
   @Override
