@@ -72,6 +72,13 @@ public class PostgresqlJobStore implements JobStore {
 
   @PersistenceContext private EntityManager em;
 
+  public PostgresqlJobStore() {}
+
+  /** Test-only constructor: bypasses CDI to wire the EM directly. */
+  PostgresqlJobStore(EntityManager em) {
+    this.em = em;
+  }
+
   /** Warns (or fails) if the connection isolation level is not READ COMMITTED. */
   @PostConstruct
   void checkIsolationLevel() {
