@@ -195,16 +195,24 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
                 Object result = method.invoke(delegate, args);
                 if (owner && tx.isActive()) {
                   tx.commit();
+                  // Production @Transactional + container-managed PersistenceContext resets the
+                  // L1 cache between method invocations. The thread-local EM used by this proxy
+                  // would otherwise leak stale cached entities across method boundaries, so
+                  // subsequent em.find() calls would miss server-side UPDATEs issued via native
+                  // SQL. Clear after commit to match production semantics.
+                  em.clear();
                 }
                 return result;
               } catch (InvocationTargetException ite) {
                 if (owner && tx.isActive()) {
                   tx.rollback();
+                  em.clear();
                 }
                 throw ite.getCause();
               } catch (Throwable t) {
                 if (owner && tx.isActive()) {
                   tx.rollback();
+                  em.clear();
                 }
                 throw t;
               }

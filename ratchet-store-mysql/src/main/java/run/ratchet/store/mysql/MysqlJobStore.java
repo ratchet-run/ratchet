@@ -2373,6 +2373,12 @@ public class MysqlJobStore implements JobStore {
   @Override
   public BatchMetricsEntity saveBatchMetrics(BatchMetricsEntity metrics) {
     if (em.find(BatchMetricsEntity.class, metrics.getBatchId()) == null) {
+      // JPA 3.2 @MapsId derived-identity contract: the relationship attribute supplies identity.
+      // Hibernate relaxes this and accepts a scalar id alone, but EclipseLink rejects persist().
+      // Resolve the reference explicitly so both providers see a valid derived id.
+      if (metrics.getBatchJob() == null) {
+        metrics.setBatchJob(em.getReference(JobEntity.class, metrics.getBatchId()));
+      }
       em.persist(metrics);
       return metrics;
     }
