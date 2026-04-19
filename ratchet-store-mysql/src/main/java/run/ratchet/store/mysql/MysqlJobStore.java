@@ -1014,7 +1014,16 @@ public class MysqlJobStore implements JobStore {
       // Recurring masters need full hydration for the executor to spawn children. findByIds
       // returns by primary-key order; preserve the priority-DESC + next_fire-ASC + job_id-ASC
       // ordering from the claim SELECT so callers (and JobPriorityIT) see consistent ordering.
-      return reorderById(findByIds(ids), ids);
+      List<JobEntity> ordered = reorderById(findByIds(ids), ids);
+      // CP1 design: recurring masters live on cold only (scheduler_job.rec_status='P'); they
+      // have no row on scheduler_job_queue and therefore no persisted status column. Callers
+      // observe "claim completed" via the FOR UPDATE SKIP LOCKED row lock, not a status flip.
+      // Stamp status=RUNNING on the returned in-memory JobEntity so the contract and executor
+      // see a consistent "claimed" signal — the DB row stays at rec_status='P' per design.
+      for (JobEntity job : ordered) {
+        job.setStatus(JobStatus.RUNNING);
+      }
+      return ordered;
     } catch (RuntimeException e) {
       throw translateTransientStoreException("claim recurring jobs", e);
     }
