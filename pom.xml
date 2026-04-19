@@ -70,6 +70,7 @@
     <mysql-connector.version>8.3.0</mysql-connector.version>
     <postgresql-driver.version>42.7.7</postgresql-driver.version>
     <mongodb-driver.version>5.3.0</mongodb-driver.version>
+    <hibernate.version>6.6.15.Final</hibernate.version>
     <jboss-logging.version>3.6.1.Final</jboss-logging.version>
     <maven-dependency-plugin.version>3.8.1</maven-dependency-plugin.version>
     <jacoco-maven-plugin.version>0.8.12</jacoco-maven-plugin.version>
@@ -266,6 +267,14 @@
         <groupId>org.jboss.logging</groupId>
         <artifactId>jboss-logging</artifactId>
         <version>${jboss-logging.version}</version>
+      </dependency>
+
+      <!-- Hibernate (test-scope only; production JPA provider is chosen by the adopter) -->
+      <dependency>
+        <groupId>org.hibernate.orm</groupId>
+        <artifactId>hibernate-core</artifactId>
+        <version>${hibernate.version}</version>
+        <scope>test</scope>
       </dependency>
     </dependencies>
   </dependencyManagement>
