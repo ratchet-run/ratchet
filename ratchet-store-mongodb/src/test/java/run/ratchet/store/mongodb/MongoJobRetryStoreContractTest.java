@@ -2,10 +2,10 @@ package run.ratchet.store.mongodb;
 
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobStore;
-import run.ratchet.tck.store.AbstractJobStatusStoreContract;
+import run.ratchet.tck.store.AbstractJobRetryStoreContract;
 
-/** MongoDB contract test for {@code JobStatusStore} operations. */
-class MongoJobStatusStoreContractTest extends AbstractJobStatusStoreContract {
+/** MongoDB contract test for {@code JobRetryStore} operations. */
+class MongoJobRetryStoreContractTest extends AbstractJobRetryStoreContract {
 
   private final MongoTestFixture fixture = new MongoTestFixture();
 
