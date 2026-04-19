@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.WorkflowCondition;
+import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.converter.JobPayloadConverter;
@@ -189,9 +190,19 @@ public class MysqlJobStore implements JobStore {
     return values[ordinal];
   }
 
+  private static String buildBoostedOrderBy(String timeColumn, int boostInterval) {
+    return boostInterval > 0
+        ? "(priority + FLOOR(GREATEST(0, TIMESTAMPDIFF(MINUTE, "
+            + timeColumn
+            + ", NOW(3))) / ?)) DESC, "
+            + timeColumn
+            + " ASC, job_id ASC"
+        : "priority DESC, " + timeColumn + " ASC, job_id ASC";
+  }
+
   /**
    * Builds the executable claim SELECT against the hot queue table using positional {@code ?}
-   * placeholders. Recurring claim has its own SQL — see claimDueRecurring().
+   * placeholders.
    *
    * <p>Placeholder order in the returned SQL (caller must bind in this exact order):
    *
@@ -204,14 +215,6 @@ public class MysqlJobStore implements JobStore {
    */
   private static String buildClaimSql(
       String selectClause, String typeFilter, String timeColumn, int boostInterval) {
-    String orderBy =
-        boostInterval > 0
-            ? "(priority + FLOOR(GREATEST(0, TIMESTAMPDIFF(MINUTE, "
-                + timeColumn
-                + ", NOW(3))) / ?)) DESC, "
-                + timeColumn
-                + " ASC, job_id ASC"
-            : "priority DESC, " + timeColumn + " ASC, job_id ASC";
     return """
         SELECT %s FROM scheduler_job_queue
         WHERE status = 'PENDING'
@@ -220,7 +223,8 @@ public class MysqlJobStore implements JobStore {
         ORDER BY %s
         LIMIT ?
         FOR UPDATE SKIP LOCKED"""
-        .formatted(selectClause, timeColumn, typeFilter, orderBy);
+        .formatted(
+            selectClause, timeColumn, typeFilter, buildBoostedOrderBy(timeColumn, boostInterval));
   }
 
   @Override
@@ -365,11 +369,21 @@ public class MysqlJobStore implements JobStore {
   private void saveColdUpdate(JobEntity job) {
     // Detect "scheduled_time-only on PENDING" — chain-unlock pattern. ChainScheduler.scheduleNext
     // and JobCascadeService resume-with-executeImmediately mutate scheduledTime on a PENDING
-    // child entity then save(). Post-split, that pattern is the only legitimate hot-field
-    // mutation through save(); route it as a narrow hot UPDATE rather than fail-fast.
+    // child entity then save(). Fast path — no version check needed (PENDING + same version
+    // assumed by caller).
     if (tryScheduledTimeOnlyHotUpdate(job)) {
       return;
     }
+    // General hot-field / status-mutation dispatch. Implements the documented save() contract:
+    // version-gated UPDATE with JPA optimistic-lock semantics. On concurrent modification, throws
+    // RatchetOptimisticLockException (matching PostgreSQL + MongoDB parity). Dispatches by
+    // mutation class — live target = hot UPDATE; terminal target = hot DELETE + cold
+    // terminalization + bkres release.
+    if (tryHotMutationDispatch(job)) {
+      return;
+    }
+    // Fall-through: terminal-already-stored revival or recurring-master status mutation — still
+    // hard-rejected. Cold-only mutations on live executable rows proceed below.
     guardAgainstHotMutation(job);
 
     em.createNativeQuery(
@@ -992,18 +1006,24 @@ public class MysqlJobStore implements JobStore {
     // claim — the caller (RecurringJobExecutor) holds the FOR UPDATE SKIP LOCKED row lock for
     // the lifetime of its @Transactional process() and writes only next_fire afterwards.
     try {
-      List<Object[]> rows =
+      int boostInterval = PriorityBoostConfig.getPriorityBoostIntervalMinutes();
+      var query =
           em.createNativeQuery(
-                  "SELECT job_id, next_fire, priority, business_key "
-                      + "FROM scheduler_job "
-                      + "WHERE job_type = 'RECURRING' "
-                      + "  AND rec_status = 'P' "
-                      + "  AND next_fire <= NOW(3) "
-                      + "ORDER BY priority DESC, next_fire ASC, job_id ASC "
-                      + "LIMIT ? "
-                      + "FOR UPDATE SKIP LOCKED")
-              .setParameter(1, limit)
-              .getResultList();
+              "SELECT job_id, next_fire, priority, business_key "
+                  + "FROM scheduler_job "
+                  + "WHERE job_type = 'RECURRING' "
+                  + "  AND rec_status = 'P' "
+                  + "  AND next_fire <= NOW(3) "
+                  + "ORDER BY "
+                  + buildBoostedOrderBy("next_fire", boostInterval)
+                  + " "
+                  + "LIMIT ? "
+                  + "FOR UPDATE SKIP LOCKED");
+      int parameter = 1;
+      if (boostInterval > 0) {
+        query.setParameter(parameter++, boostInterval);
+      }
+      List<Object[]> rows = query.setParameter(parameter, limit).getResultList();
       if (rows.isEmpty()) {
         return List.of();
       }
@@ -2818,6 +2838,153 @@ public class MysqlJobStore implements JobStore {
       }
       tags.add(tag);
     }
+  }
+
+  /**
+   * Version-gated hot-field and status-mutation dispatch. Implements the save() contract's
+   * optimistic-lock semantics for CP1:
+   *
+   * <ul>
+   *   <li>Live executable row + status stays live: version-gated UPDATE on scheduler_job_queue.
+   *   <li>Live executable row + status transitions to terminal: version-gated DELETE from hot,
+   *       UPDATE on cold terminal_status, release bkres reservation.
+   *   <li>Live executable row + non-status hot-field mutation (picked_by, picked_at, attempts,
+   *       last_error, paused_from_status, scheduled_time): same version-gated hot UPDATE path.
+   * </ul>
+   *
+   * <p>Returns {@code true} when dispatch handled the save (either successfully or by throwing
+   * {@link RatchetOptimisticLockException}). Returns {@code false} when there's no hot row, the
+   * cold row is terminal, or the row is a recurring master — letting {@link
+   * #guardAgainstHotMutation} reject invalid cases explicitly.
+   */
+  @SuppressWarnings("unchecked")
+  private boolean tryHotMutationDispatch(JobEntity incoming) {
+    long id = incoming.getId();
+    List<Object[]> rows =
+        em.createNativeQuery(
+                "SELECT q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at, "
+                    + "q.paused_from_status, q.last_error, q.version, "
+                    + "c.terminal_status, c.rec_status "
+                    + "FROM scheduler_job c "
+                    + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
+                    + "WHERE c.job_id = ?")
+            .setParameter(1, id)
+            .getResultList();
+    if (rows.isEmpty()) {
+      return false;
+    }
+    Object[] row = rows.get(0);
+    String hotStatusStr = (String) row[0];
+    String terminalStr = (String) row[8];
+    String recStatus = stringOrNull(row[9]);
+    if (terminalStr != null || recStatus != null || hotStatusStr == null) {
+      return false;
+    }
+
+    JobStatus storedStatus = JobStatus.valueOf(hotStatusStr);
+    Instant storedSched = toInstant(row[1]);
+    int storedAttempts = ((Number) row[2]).intValue();
+    Object storedPickedBy = row[3];
+    Instant storedPickedAt = toInstant(row[4]);
+    String storedPausedFromStr = (String) row[5];
+    JobStatus storedPausedFrom =
+        storedPausedFromStr != null ? JobStatus.valueOf(storedPausedFromStr) : null;
+    Object storedLastError = row[6];
+    int storedVersion = ((Number) row[7]).intValue();
+
+    boolean statusDiffers = incoming.getStatus() != null && incoming.getStatus() != storedStatus;
+    boolean anyHotFieldDiffers =
+        statusDiffers
+            || !java.util.Objects.equals(incoming.getScheduledTime(), storedSched)
+            || incoming.getAttempts() != storedAttempts
+            || !java.util.Objects.equals(incoming.getPickedBy(), storedPickedBy)
+            || !java.util.Objects.equals(incoming.getPickedAt(), storedPickedAt)
+            || !java.util.Objects.equals(incoming.getPausedFromStatus(), storedPausedFrom)
+            || !java.util.Objects.equals(incoming.getLastError(), storedLastError);
+
+    if (!anyHotFieldDiffers) {
+      return false;
+    }
+
+    Integer incomingVersion = incoming.getVersion();
+    if (incomingVersion != null && incomingVersion.intValue() != storedVersion) {
+      throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
+    }
+
+    if (statusDiffers && incoming.getStatus().isTerminal()) {
+      terminalizeViaSave(incoming, storedVersion);
+    } else {
+      updateHotLiveViaVersion(incoming, storedVersion);
+    }
+    return true;
+  }
+
+  /**
+   * Version-gated hot UPDATE for live-state mutations. Writes all mutable hot fields from the
+   * incoming entity; bumps version by 1. Throws {@link RatchetOptimisticLockException} if no row
+   * matches the expected version (concurrent modification).
+   */
+  private void updateHotLiveViaVersion(JobEntity incoming, int expectedVersion) {
+    long id = incoming.getId();
+    JobStatus status = incoming.getStatus() != null ? incoming.getStatus() : JobStatus.PENDING;
+    int updated =
+        em.createNativeQuery(
+                "UPDATE scheduler_job_queue SET "
+                    + "status = ?, scheduled_time = ?, attempts = ?, picked_by = ?, picked_at = ?, "
+                    + "paused_from_status = ?, last_error = ?, version = version + 1, "
+                    + "updated_at = NOW(3) "
+                    + "WHERE job_id = ? AND version = ?")
+            .setParameter(1, status.name())
+            .setParameter(
+                2,
+                incoming.getScheduledTime() != null
+                    ? Timestamp.from(incoming.getScheduledTime())
+                    : null)
+            .setParameter(3, incoming.getAttempts())
+            .setParameter(4, incoming.getPickedBy())
+            .setParameter(
+                5, incoming.getPickedAt() != null ? Timestamp.from(incoming.getPickedAt()) : null)
+            .setParameter(
+                6,
+                incoming.getPausedFromStatus() != null
+                    ? incoming.getPausedFromStatus().name()
+                    : null)
+            .setParameter(7, incoming.getLastError())
+            .setParameter(8, id)
+            .setParameter(9, expectedVersion)
+            .executeUpdate();
+    if (updated == 0) {
+      throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
+    }
+    incoming.setVersion(expectedVersion + 1);
+  }
+
+  /**
+   * Version-gated terminal transition via save(). Deletes the hot row (gated on version), stamps
+   * terminal_status on cold, releases the bkres reservation. Throws {@link
+   * RatchetOptimisticLockException} if the hot DELETE matches zero rows (concurrent modification).
+   */
+  private void terminalizeViaSave(JobEntity incoming, int expectedVersion) {
+    long id = incoming.getId();
+    int deleted =
+        em.createNativeQuery("DELETE FROM scheduler_job_queue WHERE job_id = ? AND version = ?")
+            .setParameter(1, id)
+            .setParameter(2, expectedVersion)
+            .executeUpdate();
+    if (deleted == 0) {
+      throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
+    }
+    em.createNativeQuery(
+            "UPDATE scheduler_job SET terminal_status = ?, "
+                + "terminal_error = COALESCE(?, terminal_error), "
+                + "terminated_at = NOW(3) "
+                + "WHERE job_id = ? AND terminal_status IS NULL")
+        .setParameter(1, incoming.getStatus().name())
+        .setParameter(2, incoming.getLastError())
+        .setParameter(3, id)
+        .executeUpdate();
+    deleteReservationByOwner(id);
+    incoming.setVersion(expectedVersion + 1);
   }
 
   /**
