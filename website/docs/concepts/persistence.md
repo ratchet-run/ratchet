@@ -235,9 +235,11 @@ This is used primarily for idempotency key enforcement -- when a duplicate key i
 
 ## DDL Schema
 
-Ratchet ships DDL as plain SQL files in each store module's `src/main/resources/ddl/` directory. There is no Flyway or Liquibase dependency -- your application is responsible for applying the schema.
+Ratchet ships DDL as plain SQL files in each store module's `src/main/resources/ddl/` directory. The `*-schema.sql` file is the authoritative clean-install schema for that dialect, and it now reserves a `ratchet_schema_version` table for ordered upgrades.
 
-This matches the approach used by Jakarta Batch (jBeret) and other Jakarta EE specifications. The rationale: schema migration is an application concern, and different teams have different migration tooling preferences.
+Ratchet still does not run migrations automatically by default. Your application remains responsible for applying schema changes, whether through Flyway, Liquibase, or another deployment-time mechanism. When incremental Ratchet migration scripts are added, they live under `ddl/migrations/` and follow the `V###__description.sql` convention. Those ordered `V*` files must compose to the same schema shipped in the clean-install DDL.
+
+If you do not already use a migration framework, `ratchet-store-core` also exposes `SchemaMigrator`, a small optional utility that discovers ordered `V*` scripts, serializes startup with a database advisory lock, validates checksums in `ratchet_schema_version`, and applies only pending scripts. Call it from a `SchedulerLifecycleHook.beforeStart` hook so migrations finish before the poller starts claiming jobs.
 
 ```
 ratchet-store-mysql/src/main/resources/ddl/mysql-schema.sql

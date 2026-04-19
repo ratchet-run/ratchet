@@ -113,6 +113,9 @@ public class RatchetConfiguration {
   private final String logRetentionDays;
   private final String maxPayloadKb;
   private final String metricsClustering;
+  private final String schemaAutoMigrate;
+  private final String schemaMigrationDialect;
+  private final String schemaMigrationPrefix;
 
   private final String nodeHeartbeatIntervalSeconds;
   private final String nodeOrphanGraceSeconds;
@@ -215,6 +218,10 @@ public class RatchetConfiguration {
         getEnvWithFallback("RATCHET_MAX_PAYLOAD_KB", "SCHEDULER_MAX_PAYLOAD_KB", "100");
     this.metricsClustering =
         getEnvWithFallback("RATCHET_METRICS_CLUSTERING", "SCHEDULER_METRICS_CLUSTERING", "none");
+    this.schemaAutoMigrate = getEnvOrDefault("RATCHET_SCHEMA_AUTO_MIGRATE", "false");
+    this.schemaMigrationDialect = getEnvOrDefault("RATCHET_SCHEMA_MIGRATION_DIALECT", "");
+    this.schemaMigrationPrefix =
+        getEnvOrDefault("RATCHET_SCHEMA_MIGRATION_PREFIX", "ddl/migrations");
 
     this.nodeHeartbeatIntervalSeconds =
         getEnvWithFallback(
@@ -428,6 +435,20 @@ public class RatchetConfiguration {
 
   public String getMetricsClustering() {
     return metricsClustering != null ? metricsClustering.toLowerCase() : "none";
+  }
+
+  public boolean isSchemaAutoMigrateEnabled() {
+    return Boolean.parseBoolean(schemaAutoMigrate);
+  }
+
+  public String getSchemaMigrationDialect() {
+    return schemaMigrationDialect;
+  }
+
+  public String getSchemaMigrationPrefix() {
+    return schemaMigrationPrefix != null && !schemaMigrationPrefix.isBlank()
+        ? schemaMigrationPrefix
+        : "ddl/migrations";
   }
 
   public Long getNodeHeartbeatIntervalSeconds() {

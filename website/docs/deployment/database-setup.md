@@ -351,6 +351,27 @@ For schema changes between Ratchet versions:
 
 Since Ratchet does not bundle a migration framework, you are free to manage schema changes using whatever tool your team already uses (Flyway, Liquibase, manual scripts, etc.).
 
+If you want Ratchet to run its own packaged `ddl/migrations/V###__description.sql` files at startup, wire the optional `SchemaMigrator` utility from a lifecycle hook:
+
+```java
+@ApplicationScoped
+class RatchetSchemaMigrationHook implements SchedulerLifecycleHook {
+  @Inject DataSource dataSource;
+  @Inject RatchetConfiguration config;
+
+  @Override
+  public void beforeStart() throws Exception {
+    if (config.isSchemaAutoMigrateEnabled()) {
+      new SchemaMigrator(
+              dataSource, config.getSchemaMigrationDialect(), config.getSchemaMigrationPrefix())
+          .migrate();
+    }
+  }
+}
+```
+
+`SchemaMigrator` currently supports `mysql` and `postgresql`, uses `ratchet_schema_version` for checksum tracking, and must run before `Poller.init()`. The built-in `RatchetLifecycle` invokes `SchedulerLifecycleHook.beforeStart` before scheduler startup, so this hook is the safe integration point.
+
 ## Backup Strategy
 
 ### PostgreSQL

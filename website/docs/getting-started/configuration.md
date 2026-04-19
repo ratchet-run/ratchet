@@ -244,7 +244,7 @@ The poller uses adaptive polling: it polls frequently when jobs are available an
 | `RATCHET_CB_EXTERNAL_FAILURE_RATE` | `60` | Failure rate threshold (%) for EXTERNAL_API profile |
 | `RATCHET_CB_EXTERNAL_WAIT_SECONDS` | `60` | Open-to-half-open wait time for EXTERNAL_API profile |
 
-All built-in profiles also accept `RATCHET_CB_<PROFILE>_WAIT_MS`, `RATCHET_CB_<PROFILE>_SLOW_CALL_MS`, `RATCHET_CB_<PROFILE>_HALF_OPEN_CALLS`, and `RATCHET_CB_<PROFILE>_MIN_CALLS`; use `EXTERNAL` for the `EXTERNAL_API` profile variable segment. `RATCHET_CIRCUIT_BREAKER_ENABLED=false` disables both the scheduler resilience wrapper and `@CircuitBreakerProtected` interceptor passthrough behavior.
+All built-in profiles also accept `RATCHET_CB_<PROFILE>_WAIT_MS`, `RATCHET_CB_<PROFILE>_SLOW_CALL_MS`, `RATCHET_CB_<PROFILE>_HALF_OPEN_CALLS`, and `RATCHET_CB_<PROFILE>_MIN_CALLS`; use `EXTERNAL` for the `EXTERNAL_API` profile variable segment. Internal poller claim protection uses the `CLAIM_PATH` profile, so `RATCHET_CB_CLAIM_PATH_*` overrides are valid as well. `RATCHET_CIRCUIT_BREAKER_ENABLED=false` disables both the scheduler resilience wrapper and `@CircuitBreakerProtected` interceptor passthrough behavior.
 
 ### Recurring Job Configuration
 
@@ -262,6 +262,9 @@ All built-in profiles also accept `RATCHET_CB_<PROFILE>_WAIT_MS`, `RATCHET_CB_<P
 | `RATCHET_JOB_RESULT_MAX_BYTES` | `65536` | Maximum persisted result JSON size; `0` disables the cap |
 | `RATCHET_PRIORITY_BOOST_INTERVAL_MINUTES` | `15` | How often low-priority jobs get a priority boost to prevent starvation |
 | `RATCHET_SOFT_TIMEOUT_PERCENT` | `80` | Percentage of timeout at which a soft warning is emitted |
+| `RATCHET_SCHEMA_AUTO_MIGRATE` | `false` | Guard flag for application-provided startup hooks that call `SchemaMigrator` |
+| `RATCHET_SCHEMA_MIGRATION_DIALECT` | `""` | Dialect passed to `SchemaMigrator` (`mysql` or `postgresql`) |
+| `RATCHET_SCHEMA_MIGRATION_PREFIX` | `ddl/migrations` | Classpath prefix for Ratchet `V###__description.sql` migration scripts |
 
 ## Example: Production Configuration
 
