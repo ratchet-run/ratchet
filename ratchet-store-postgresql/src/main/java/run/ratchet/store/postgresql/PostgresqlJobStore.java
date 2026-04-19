@@ -42,6 +42,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -118,12 +119,25 @@ public class PostgresqlJobStore implements JobStore {
     return boostInterval > 0
         ? "(priority + FLOOR(GREATEST(0, EXTRACT(EPOCH FROM (statement_timestamp() - "
             + timeColumn
-            + "))) / (60.0 * :boostInterval))) DESC, "
+            + "))) / (60.0 * ?))) DESC, "
             + timeColumn
             + " ASC, job_id ASC"
         : "priority DESC, " + timeColumn + " ASC, job_id ASC";
   }
 
+  /**
+   * Builds the "claim jobs" CTE+UPDATE SQL using positional {@code ?} placeholders.
+   *
+   * <p>Placeholder order in the returned SQL (caller must bind in this exact order):
+   *
+   * <ol>
+   *   <li>Any placeholders already present in {@code typeFilter} (e.g. a single {@code ?} for a
+   *       jobType value)
+   *   <li>{@code boostInterval} — only if {@code boostInterval > 0}
+   *   <li>{@code limit}
+   *   <li>{@code nodeId}
+   * </ol>
+   */
   private static String buildClaimReturningSql(
       String typeFilter, String timeColumn, int boostInterval, String returningClause) {
     return "WITH picked AS ("
@@ -137,9 +151,9 @@ public class PostgresqlJobStore implements JobStore {
         + "  ORDER BY "
         + buildBoostOrderBy(timeColumn, boostInterval)
         + "  FOR UPDATE SKIP LOCKED"
-        + "  LIMIT :limit"
+        + "  LIMIT ?"
         + ") "
-        + "UPDATE scheduler_job AS j SET status = 'RUNNING', picked_by = :nodeId, "
+        + "UPDATE scheduler_job AS j SET status = 'RUNNING', picked_by = ?, "
         + "picked_at = statement_timestamp(), updated_at = statement_timestamp(), "
         + "version = version + 1 "
         + "FROM picked WHERE j.job_id = picked.job_id "
@@ -209,11 +223,16 @@ public class PostgresqlJobStore implements JobStore {
     if (ids.isEmpty()) {
       return List.of();
     }
+    String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+    Query query =
+        em.createNativeQuery(
+            "SELECT * FROM scheduler_job WHERE job_id IN (" + placeholders + ")", JobEntity.class);
+    int parameter = 1;
+    for (Long id : ids) {
+      query.setParameter(parameter++, id);
+    }
     @SuppressWarnings("unchecked")
-    List<JobEntity> results =
-        em.createNativeQuery("SELECT * FROM scheduler_job WHERE job_id IN (:ids)", JobEntity.class)
-            .setParameter("ids", ids)
-            .getResultList();
+    List<JobEntity> results = query.getResultList();
     return results;
   }
 
@@ -406,14 +425,15 @@ public class PostgresqlJobStore implements JobStore {
       int boostInterval = PriorityBoostConfig.getPriorityBoostIntervalMinutes();
       var claimQuery =
           em.createNativeQuery(
-                  buildClaimReturningSql(
-                      EXECUTABLE_JOB_TYPE_FILTER, "scheduled_time", boostInterval, "j.*"),
-                  JobEntity.class)
-              .setParameter(1, limit)
-              .setParameter(3, nodeId);
+              buildClaimReturningSql(
+                  EXECUTABLE_JOB_TYPE_FILTER, "scheduled_time", boostInterval, "j.*"),
+              JobEntity.class);
+      int parameter = 1;
       if (boostInterval > 0) {
-        claimQuery.setParameter(2, boostInterval);
+        claimQuery.setParameter(parameter++, boostInterval);
       }
+      claimQuery.setParameter(parameter++, limit);
+      claimQuery.setParameter(parameter++, nodeId);
       @SuppressWarnings("unchecked")
       List<JobEntity> jobs = claimQuery.getResultList();
       return jobs;
@@ -436,14 +456,15 @@ public class PostgresqlJobStore implements JobStore {
               + "j.timeout_sec, j.picked_by, j.picked_at, j.business_key, j.attempts, j.max_retries";
       var claimQuery =
           em.createNativeQuery(
-                  buildClaimReturningSql(
-                      "job_type = :jobType", "scheduled_time", boostInterval, selectColumns))
-              .setParameter("limit", limit)
-              .setParameter("nodeId", nodeId)
-              .setParameter("jobType", jobType.name());
+              buildClaimReturningSql(
+                  "job_type = ?", "scheduled_time", boostInterval, selectColumns));
+      int parameter = 1;
+      claimQuery.setParameter(parameter++, jobType.name());
       if (boostInterval > 0) {
-        claimQuery.setParameter("boostInterval", boostInterval);
+        claimQuery.setParameter(parameter++, boostInterval);
       }
+      claimQuery.setParameter(parameter++, limit);
+      claimQuery.setParameter(parameter++, nodeId);
       @SuppressWarnings("unchecked")
       List<Object[]> rows = claimQuery.getResultList();
 
@@ -476,14 +497,14 @@ public class PostgresqlJobStore implements JobStore {
       int boostInterval = PriorityBoostConfig.getPriorityBoostIntervalMinutes();
       var claimQuery =
           em.createNativeQuery(
-                  buildClaimReturningSql(
-                      RECURRING_JOB_TYPE_FILTER, "next_fire", boostInterval, "j.*"),
-                  JobEntity.class)
-              .setParameter("limit", limit)
-              .setParameter("nodeId", nodeId);
+              buildClaimReturningSql(RECURRING_JOB_TYPE_FILTER, "next_fire", boostInterval, "j.*"),
+              JobEntity.class);
+      int parameter = 1;
       if (boostInterval > 0) {
-        claimQuery.setParameter("boostInterval", boostInterval);
+        claimQuery.setParameter(parameter++, boostInterval);
       }
+      claimQuery.setParameter(parameter++, limit);
+      claimQuery.setParameter(parameter++, nodeId);
       @SuppressWarnings("unchecked")
       List<JobEntity> jobs = claimQuery.getResultList();
       return jobs;
@@ -754,17 +775,25 @@ public class PostgresqlJobStore implements JobStore {
     if (registeredIds.isEmpty()) {
       return 0;
     }
-    return em.createNativeQuery(
+    List<String> idsList = new ArrayList<>(registeredIds);
+    String placeholders = String.join(",", Collections.nCopies(idsList.size(), "?"));
+    Query query =
+        em.createNativeQuery(
             "UPDATE scheduler_job SET status = 'CANCELED', "
                 + "updated_at = statement_timestamp() "
                 + "WHERE job_type = 'RECURRING' "
                 + "AND status IN ('PENDING','RUNNING','PAUSED') "
-                + "AND created_at < :cutoff "
+                + "AND created_at < ? "
                 + "AND business_key IS NOT NULL "
-                + "AND business_key NOT IN (:ids)")
-        .setParameter("cutoff", Timestamp.from(nodeStartTime))
-        .setParameter("ids", registeredIds)
-        .executeUpdate();
+                + "AND business_key NOT IN ("
+                + placeholders
+                + ")");
+    int parameter = 1;
+    query.setParameter(parameter++, Timestamp.from(nodeStartTime));
+    for (String id : idsList) {
+      query.setParameter(parameter++, id);
+    }
+    return query.executeUpdate();
   }
 
   @Override
@@ -983,9 +1012,14 @@ public class PostgresqlJobStore implements JobStore {
     if (ids.isEmpty()) {
       return 0;
     }
-    return em.createNativeQuery("DELETE FROM scheduler_job WHERE job_id IN (:ids)")
-        .setParameter("ids", ids)
-        .executeUpdate();
+    String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+    Query query =
+        em.createNativeQuery("DELETE FROM scheduler_job WHERE job_id IN (" + placeholders + ")");
+    int parameter = 1;
+    for (Long id : ids) {
+      query.setParameter(parameter++, id);
+    }
+    return query.executeUpdate();
   }
 
   @Override
@@ -1661,9 +1695,15 @@ public class PostgresqlJobStore implements JobStore {
     if (staleNodeIds.isEmpty()) {
       return 0;
     }
-    return em.createNativeQuery("DELETE FROM scheduler_resource_permit WHERE node_id IN (:nodeIds)")
-        .setParameter("nodeIds", staleNodeIds)
-        .executeUpdate();
+    String placeholders = String.join(",", Collections.nCopies(staleNodeIds.size(), "?"));
+    Query query =
+        em.createNativeQuery(
+            "DELETE FROM scheduler_resource_permit WHERE node_id IN (" + placeholders + ")");
+    int parameter = 1;
+    for (String nodeId : staleNodeIds) {
+      query.setParameter(parameter++, nodeId);
+    }
+    return query.executeUpdate();
   }
 
   private static boolean isPollerExecutable(JobExecutionType jobType) {

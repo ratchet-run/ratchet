@@ -42,6 +42,7 @@ import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.List;
@@ -189,9 +190,17 @@ public class MysqlJobStore implements JobStore {
   }
 
   /**
-   * Builds the executable claim SELECT against the hot queue table. Recurring claim has its own SQL
-   * — see claimDueRecurring(). timeColumn is fixed at scheduled_time for executables; param is kept
-   * for callers that may pass alternate ordering in future.
+   * Builds the executable claim SELECT against the hot queue table using positional {@code ?}
+   * placeholders. Recurring claim has its own SQL — see claimDueRecurring().
+   *
+   * <p>Placeholder order in the returned SQL (caller must bind in this exact order):
+   *
+   * <ol>
+   *   <li>Any placeholders already present in {@code typeFilter} (e.g. a single {@code ?} for a
+   *       jobType value)
+   *   <li>{@code boost} — only if {@code boostInterval > 0}
+   *   <li>{@code lim} (the row limit)
+   * </ol>
    */
   private static String buildClaimSql(
       String selectClause, String typeFilter, String timeColumn, int boostInterval) {
@@ -199,7 +208,7 @@ public class MysqlJobStore implements JobStore {
         boostInterval > 0
             ? "(priority + FLOOR(GREATEST(0, TIMESTAMPDIFF(MINUTE, "
                 + timeColumn
-                + ", NOW(3))) / :boost)) DESC, "
+                + ", NOW(3))) / ?)) DESC, "
                 + timeColumn
                 + " ASC, job_id ASC"
             : "priority DESC, " + timeColumn + " ASC, job_id ASC";
@@ -209,7 +218,7 @@ public class MysqlJobStore implements JobStore {
           AND %s <= NOW(3)
           AND %s
         ORDER BY %s
-        LIMIT :lim
+        LIMIT ?
         FOR UPDATE SKIP LOCKED"""
         .formatted(selectClause, timeColumn, typeFilter, orderBy);
   }
@@ -397,8 +406,8 @@ public class MysqlJobStore implements JobStore {
         em.createNativeQuery(
                 "SELECT q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at, "
                     + "q.paused_from_status, q.last_error, q.version "
-                    + "FROM scheduler_job_queue q WHERE q.job_id = :id")
-            .setParameter("id", id)
+                    + "FROM scheduler_job_queue q WHERE q.job_id = ?")
+            .setParameter(1, id)
             .getResultList();
     if (rows.isEmpty()) {
       return false;
@@ -441,8 +450,8 @@ public class MysqlJobStore implements JobStore {
                     + HYDRATION_SELECT
                     + " FROM scheduler_job c "
                     + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
-                    + "WHERE c.job_id = :id")
-            .setParameter("id", id)
+                    + "WHERE c.job_id = ?")
+            .setParameter(1, id)
             .getResultList();
     if (rows.isEmpty()) {
       return Optional.empty();
@@ -461,8 +470,8 @@ public class MysqlJobStore implements JobStore {
                     + HYDRATION_SELECT
                     + " FROM scheduler_job c "
                     + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
-                    + "WHERE c.job_id = :id FOR UPDATE")
-            .setParameter("id", id)
+                    + "WHERE c.job_id = ? FOR UPDATE")
+            .setParameter(1, id)
             .getResultList();
     if (rows.isEmpty()) {
       return Optional.empty();
@@ -476,8 +485,8 @@ public class MysqlJobStore implements JobStore {
   public void delete(long id) {
     // Cold DELETE; FK ON DELETE CASCADE drops the hot row. bkres has no FK so explicit delete.
     deleteReservationByOwner(id);
-    em.createNativeQuery("DELETE FROM scheduler_job WHERE job_id = :id")
-        .setParameter("id", id)
+    em.createNativeQuery("DELETE FROM scheduler_job WHERE job_id = ?")
+        .setParameter(1, id)
         .executeUpdate();
   }
 
@@ -489,8 +498,8 @@ public class MysqlJobStore implements JobStore {
                 "SELECT q.status, c.rec_status, c.terminal_status "
                     + "FROM scheduler_job c "
                     + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
-                    + "WHERE c.job_id = :id")
-            .setParameter("id", id)
+                    + "WHERE c.job_id = ?")
+            .setParameter(1, id)
             .getResultList();
     if (results.isEmpty()) {
       return null;
@@ -518,15 +527,22 @@ public class MysqlJobStore implements JobStore {
     if (ids.isEmpty()) {
       return List.of();
     }
-    List<Object[]> rows =
+    String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+    Query idsQuery =
         em.createNativeQuery(
-                "SELECT "
-                    + HYDRATION_SELECT
-                    + " FROM scheduler_job c "
-                    + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
-                    + "WHERE c.job_id IN (:ids)")
-            .setParameter("ids", ids)
-            .getResultList();
+            "SELECT "
+                + HYDRATION_SELECT
+                + " FROM scheduler_job c "
+                + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
+                + "WHERE c.job_id IN ("
+                + placeholders
+                + ")");
+    int parameter = 1;
+    for (Long id : ids) {
+      idsQuery.setParameter(parameter++, id);
+    }
+    @SuppressWarnings("unchecked")
+    List<Object[]> rows = idsQuery.getResultList();
     List<JobEntity> jobs = new ArrayList<>(rows.size());
     for (Object[] row : rows) {
       jobs.add(hydrateJobEntity(row));
@@ -546,8 +562,8 @@ public class MysqlJobStore implements JobStore {
                     + " FROM scheduler_business_key_reservation br "
                     + "JOIN scheduler_job c ON c.job_id = br.owner_job_id "
                     + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
-                    + "WHERE br.business_key = :bk LIMIT 1")
-            .setParameter("bk", businessKey)
+                    + "WHERE br.business_key = ? LIMIT 1")
+            .setParameter(1, businessKey)
             .getResultList();
     if (rows.isEmpty()) {
       return Optional.empty();
@@ -576,8 +592,8 @@ public class MysqlJobStore implements JobStore {
                     + HYDRATION_SELECT
                     + " FROM scheduler_job c "
                     + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
-                    + "WHERE c.idempotency_key = :key LIMIT 1")
-            .setParameter("key", idempotencyKey)
+                    + "WHERE c.idempotency_key = ? LIMIT 1")
+            .setParameter(1, idempotencyKey)
             .getResultList();
     if (rows.isEmpty()) {
       return Optional.empty();
@@ -596,8 +612,8 @@ public class MysqlJobStore implements JobStore {
                     + HYDRATION_SELECT
                     + " FROM scheduler_job c "
                     + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
-                    + "WHERE c.depends_on = :pid")
-            .setParameter("pid", parentJobId)
+                    + "WHERE c.depends_on = ?")
+            .setParameter(1, parentJobId)
             .getResultList();
     List<JobEntity> jobs = new ArrayList<>(rows.size());
     for (Object[] row : rows) {
@@ -636,14 +652,14 @@ public class MysqlJobStore implements JobStore {
     // scheduler_job.terminal_status. Dispatch by status kind.
     if (isLiveStatus(status)) {
       Object result =
-          em.createNativeQuery("SELECT COUNT(*) FROM scheduler_job_queue WHERE status = :s")
-              .setParameter("s", status.name())
+          em.createNativeQuery("SELECT COUNT(*) FROM scheduler_job_queue WHERE status = ?")
+              .setParameter(1, status.name())
               .getSingleResult();
       return ((Number) result).longValue();
     }
     Object result =
-        em.createNativeQuery("SELECT COUNT(*) FROM scheduler_job WHERE terminal_status = :s")
-            .setParameter("s", status.name())
+        em.createNativeQuery("SELECT COUNT(*) FROM scheduler_job WHERE terminal_status = ?")
+            .setParameter(1, status.name())
             .getSingleResult();
     return ((Number) result).longValue();
   }
@@ -654,8 +670,8 @@ public class MysqlJobStore implements JobStore {
     Object result =
         em.createNativeQuery(
                 "SELECT COUNT(*) FROM scheduler_job_queue "
-                    + "WHERE job_type = :jt AND status IN ('PENDING','RUNNING')")
-            .setParameter("jt", jobType.name())
+                    + "WHERE job_type = ? AND status IN ('PENDING','RUNNING')")
+            .setParameter(1, jobType.name())
             .getSingleResult();
     return ((Number) result).longValue();
   }
@@ -671,8 +687,8 @@ public class MysqlJobStore implements JobStore {
     Object result =
         em.createNativeQuery(
                 "SELECT COUNT(*) FROM scheduler_job_queue "
-                    + "WHERE status = 'PENDING' AND scheduled_time <= :now")
-            .setParameter("now", Timestamp.from(now))
+                    + "WHERE status = 'PENDING' AND scheduled_time <= ?")
+            .setParameter(1, Timestamp.from(now))
             .getSingleResult();
     return ((Number) result).longValue();
   }
@@ -683,8 +699,8 @@ public class MysqlJobStore implements JobStore {
     Object result =
         em.createNativeQuery(
                 "SELECT COUNT(*) FROM scheduler_job_queue "
-                    + "WHERE status = 'RUNNING' AND picked_at < :threshold")
-            .setParameter("threshold", Timestamp.from(stuckThreshold))
+                    + "WHERE status = 'RUNNING' AND picked_at < ?")
+            .setParameter(1, Timestamp.from(stuckThreshold))
             .getSingleResult();
     return ((Number) result).longValue();
   }
@@ -697,8 +713,8 @@ public class MysqlJobStore implements JobStore {
     Object result =
         em.createNativeQuery(
                 "SELECT COUNT(*) FROM scheduler_job_queue "
-                    + "WHERE status = 'RUNNING' AND picked_at < :threshold")
-            .setParameter("threshold", Timestamp.from(threshold))
+                    + "WHERE status = 'RUNNING' AND picked_at < ?")
+            .setParameter(1, Timestamp.from(threshold))
             .getSingleResult();
     return ((Number) result).longValue();
   }
@@ -720,8 +736,8 @@ public class MysqlJobStore implements JobStore {
     Object result =
         em.createNativeQuery(
                 "SELECT COUNT(*) FROM scheduler_job_queue "
-                    + "WHERE status = 'PENDING' AND priority = :p")
-            .setParameter("p", priority.ordinal())
+                    + "WHERE status = 'PENDING' AND priority = ?")
+            .setParameter(1, priority.ordinal())
             .getSingleResult();
     return ((Number) result).longValue();
   }
@@ -732,8 +748,8 @@ public class MysqlJobStore implements JobStore {
     Object result =
         em.createNativeQuery(
                 "SELECT COUNT(*) FROM scheduler_job_queue "
-                    + "WHERE status = 'PENDING' AND job_type = :jt")
-            .setParameter("jt", jobType.name())
+                    + "WHERE status = 'PENDING' AND job_type = ?")
+            .setParameter(1, jobType.name())
             .getSingleResult();
     return ((Number) result).longValue();
   }
@@ -746,18 +762,18 @@ public class MysqlJobStore implements JobStore {
       Object result =
           em.createNativeQuery(
                   "SELECT COUNT(*) FROM scheduler_job_queue "
-                      + "WHERE status = :s AND updated_at >= :since")
-              .setParameter("s", status.name())
-              .setParameter("since", Timestamp.from(since))
+                      + "WHERE status = ? AND updated_at >= ?")
+              .setParameter(1, status.name())
+              .setParameter(2, Timestamp.from(since))
               .getSingleResult();
       return ((Number) result).longValue();
     }
     Object result =
         em.createNativeQuery(
                 "SELECT COUNT(*) FROM scheduler_job "
-                    + "WHERE terminal_status = :s AND terminated_at >= :since")
-            .setParameter("s", status.name())
-            .setParameter("since", Timestamp.from(since))
+                    + "WHERE terminal_status = ? AND terminated_at >= ?")
+            .setParameter(1, status.name())
+            .setParameter(2, Timestamp.from(since))
             .getSingleResult();
     return ((Number) result).longValue();
   }
@@ -779,18 +795,22 @@ public class MysqlJobStore implements JobStore {
   public double getRetryRateStats(Instant since) {
     // Recent rate = (jobs with retries) / (jobs total) over union of recently touched live (hot)
     // and recently terminated (cold) rows. Disjoint sets — sum counts directly.
+    Timestamp sinceTs = Timestamp.from(since);
     Object result =
         em.createNativeQuery(
                 "SELECT COALESCE("
                     + "  ((SELECT COUNT(*) FROM scheduler_job_queue "
-                    + "      WHERE attempts > 0 AND updated_at >= :since) "
+                    + "      WHERE attempts > 0 AND updated_at >= ?) "
                     + "   + (SELECT COUNT(*) FROM scheduler_job "
-                    + "      WHERE total_attempts > 0 AND terminated_at >= :since)) "
+                    + "      WHERE total_attempts > 0 AND terminated_at >= ?)) "
                     + "  / NULLIF("
-                    + "    ((SELECT COUNT(*) FROM scheduler_job_queue WHERE updated_at >= :since) "
+                    + "    ((SELECT COUNT(*) FROM scheduler_job_queue WHERE updated_at >= ?) "
                     + "     + (SELECT COUNT(*) FROM scheduler_job "
-                    + "        WHERE terminated_at >= :since)), 0), 0)")
-            .setParameter("since", Timestamp.from(since))
+                    + "        WHERE terminated_at >= ?)), 0), 0)")
+            .setParameter(1, sinceTs)
+            .setParameter(2, sinceTs)
+            .setParameter(3, sinceTs)
+            .setParameter(4, sinceTs)
             .getSingleResult();
     return ((Number) result).doubleValue();
   }
@@ -803,8 +823,8 @@ public class MysqlJobStore implements JobStore {
         em.createNativeQuery(
                 "SELECT COALESCE(AVG(execution_duration_ms), 0) FROM scheduler_job "
                     + "WHERE terminal_status = 'SUCCEEDED' AND execution_duration_ms IS NOT NULL "
-                    + "AND terminated_at >= :since")
-            .setParameter("since", Timestamp.from(since))
+                    + "AND terminated_at >= ?")
+            .setParameter(1, Timestamp.from(since))
             .getSingleResult();
     return ((Number) result).doubleValue();
   }
@@ -818,8 +838,8 @@ public class MysqlJobStore implements JobStore {
                 "SELECT COALESCE(AVG(b.total_items), 0) FROM scheduler_batch b "
                     + "JOIN scheduler_job c ON c.job_id = b.batch_id "
                     + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
-                    + "WHERE COALESCE(q.updated_at, c.terminated_at) >= :since")
-            .setParameter("since", Timestamp.from(since))
+                    + "WHERE COALESCE(q.updated_at, c.terminated_at) >= ?")
+            .setParameter(1, Timestamp.from(since))
             .getSingleResult();
     return ((Number) result).doubleValue();
   }
@@ -880,17 +900,18 @@ public class MysqlJobStore implements JobStore {
       int boostInterval = PriorityBoostConfig.getPriorityBoostIntervalMinutes();
       var query =
           em.createNativeQuery(
-                  buildClaimSql(
-                      "job_id, status, job_type, priority, scheduled_time, "
-                          + "version, timeout_sec, picked_by, picked_at, business_key, "
-                          + "attempts, max_retries",
-                      EXECUTABLE_JOB_TYPE_FILTER,
-                      "scheduled_time",
-                      boostInterval))
-              .setParameter("lim", limit);
+              buildClaimSql(
+                  "job_id, status, job_type, priority, scheduled_time, "
+                      + "version, timeout_sec, picked_by, picked_at, business_key, "
+                      + "attempts, max_retries",
+                  EXECUTABLE_JOB_TYPE_FILTER,
+                  "scheduled_time",
+                  boostInterval));
+      int parameter = 1;
       if (boostInterval > 0) {
-        query.setParameter("boost", boostInterval);
+        query.setParameter(parameter++, boostInterval);
       }
+      query.setParameter(parameter++, limit);
 
       @SuppressWarnings("unchecked")
       List<Object[]> candidateRows = query.getResultList();
@@ -933,20 +954,21 @@ public class MysqlJobStore implements JobStore {
       int boostInterval = PriorityBoostConfig.getPriorityBoostIntervalMinutes();
       var query =
           em.createNativeQuery(
-                  buildClaimSql(
-                      """
-                      job_id, status, job_type, priority, scheduled_time,
-                      version, timeout_sec, picked_by, picked_at, business_key,
-                      attempts, max_retries
-                      """,
-                      "job_type = :jobType",
-                      "scheduled_time",
-                      boostInterval))
-              .setParameter("jobType", jobType.name())
-              .setParameter("lim", limit);
+              buildClaimSql(
+                  """
+                  job_id, status, job_type, priority, scheduled_time,
+                  version, timeout_sec, picked_by, picked_at, business_key,
+                  attempts, max_retries
+                  """,
+                  "job_type = ?",
+                  "scheduled_time",
+                  boostInterval));
+      int parameter = 1;
+      query.setParameter(parameter++, jobType.name());
       if (boostInterval > 0) {
-        query.setParameter("boost", boostInterval);
+        query.setParameter(parameter++, boostInterval);
       }
+      query.setParameter(parameter++, limit);
 
       @SuppressWarnings("unchecked")
       List<Object[]> rows =
@@ -978,9 +1000,9 @@ public class MysqlJobStore implements JobStore {
                       + "  AND rec_status = 'P' "
                       + "  AND next_fire <= NOW(3) "
                       + "ORDER BY priority DESC, next_fire ASC, job_id ASC "
-                      + "LIMIT :lim "
+                      + "LIMIT ? "
                       + "FOR UPDATE SKIP LOCKED")
-              .setParameter("lim", limit)
+              .setParameter(1, limit)
               .getResultList();
       if (rows.isEmpty()) {
         return List.of();
@@ -1023,11 +1045,11 @@ public class MysqlJobStore implements JobStore {
         () -> {
           if (isLiveStatus(status)) {
             return em.createNativeQuery(
-                    "UPDATE scheduler_job_queue SET status = :status, last_error = :err, "
-                        + "updated_at = NOW(3) WHERE job_id = :id")
-                .setParameter("status", status.name())
-                .setParameter("err", errorMessage)
-                .setParameter("id", id)
+                    "UPDATE scheduler_job_queue SET status = ?, last_error = ?, "
+                        + "updated_at = NOW(3) WHERE job_id = ?")
+                .setParameter(1, status.name())
+                .setParameter(2, errorMessage)
+                .setParameter(3, id)
                 .executeUpdate();
           }
           if (status == JobStatus.CANCELED) {
@@ -1062,12 +1084,12 @@ public class MysqlJobStore implements JobStore {
             }
             if (isLiveStatus(newStatus)) {
               return em.createNativeQuery(
-                          "UPDATE scheduler_job_queue SET status = :newS, last_error = :err, "
-                              + "updated_at = NOW(3) WHERE job_id = :id AND status = :exp")
-                      .setParameter("newS", newStatus.name())
-                      .setParameter("err", error)
-                      .setParameter("id", id)
-                      .setParameter("exp", expected.name())
+                          "UPDATE scheduler_job_queue SET status = ?, last_error = ?, "
+                              + "updated_at = NOW(3) WHERE job_id = ? AND status = ?")
+                      .setParameter(1, newStatus.name())
+                      .setParameter(2, error)
+                      .setParameter(3, id)
+                      .setParameter(4, expected.name())
                       .executeUpdate()
                   > 0;
             }
@@ -1076,9 +1098,9 @@ public class MysqlJobStore implements JobStore {
               int gateMatched =
                   em.createNativeQuery(
                                   "SELECT COUNT(*) FROM scheduler_job_queue "
-                                      + "WHERE job_id = :id AND status = :exp")
-                              .setParameter("id", id)
-                              .setParameter("exp", expected.name())
+                                      + "WHERE job_id = ? AND status = ?")
+                              .setParameter(1, id)
+                              .setParameter(2, expected.name())
                               .getSingleResult()
                           instanceof Number n
                       ? n.intValue()
@@ -1113,16 +1135,16 @@ public class MysqlJobStore implements JobStore {
                 em.createNativeQuery(
                         "UPDATE scheduler_job_queue SET attempts = attempts + 1, "
                             + "updated_at = NOW(3) "
-                            + "WHERE job_id = :id AND status = 'RUNNING'")
-                    .setParameter("id", id)
+                            + "WHERE job_id = ? AND status = 'RUNNING'")
+                    .setParameter(1, id)
                     .executeUpdate(),
             count -> count > 0 ? "updated" : "miss");
     if (updated == 0) {
       return -1;
     }
     Object result =
-        em.createNativeQuery("SELECT attempts FROM scheduler_job_queue WHERE job_id = :id")
-            .setParameter("id", id)
+        em.createNativeQuery("SELECT attempts FROM scheduler_job_queue WHERE job_id = ?")
+            .setParameter(1, id)
             .getSingleResult();
     return ((Number) result).intValue();
   }
@@ -1133,11 +1155,11 @@ public class MysqlJobStore implements JobStore {
             "pickup_job",
             () ->
                 em.createNativeQuery(
-                        "UPDATE scheduler_job_queue SET status = 'RUNNING', picked_by = :node, "
+                        "UPDATE scheduler_job_queue SET status = 'RUNNING', picked_by = ?, "
                             + "picked_at = NOW(3), updated_at = NOW(3) "
-                            + "WHERE job_id = :id AND status = 'PENDING'")
-                    .setParameter("node", nodeId)
-                    .setParameter("id", id)
+                            + "WHERE job_id = ? AND status = 'PENDING'")
+                    .setParameter(1, nodeId)
+                    .setParameter(2, id)
                     .executeUpdate(),
             updated -> updated > 0 ? "updated" : "miss")
         > 0;
@@ -1198,19 +1220,19 @@ public class MysqlJobStore implements JobStore {
                 "UPDATE scheduler_job c "
                     + "JOIN scheduler_job_queue q ON q.job_id = c.job_id "
                     + "SET c.terminal_status = 'SUCCEEDED', "
-                    + "c.job_result = CAST(:result AS JSON), c.result_type = :rtype, "
-                    + "c.execution_start_time = :start, c.execution_end_time = :end, "
-                    + "c.execution_duration_ms = :dur, c.queue_wait_ms = :qwait, "
+                    + "c.job_result = CAST(? AS JSON), c.result_type = ?, "
+                    + "c.execution_start_time = ?, c.execution_end_time = ?, "
+                    + "c.execution_duration_ms = ?, c.queue_wait_ms = ?, "
                     + "c.total_attempts = q.attempts, c.terminated_at = NOW(3) "
-                    + "WHERE c.job_id = :id AND c.terminal_status IS NULL "
+                    + "WHERE c.job_id = ? AND c.terminal_status IS NULL "
                     + "AND q.status = 'RUNNING'")
-            .setParameter("result", resultJson)
-            .setParameter("rtype", resultType)
-            .setParameter("start", start != null ? Timestamp.from(start) : null)
-            .setParameter("end", end != null ? Timestamp.from(end) : null)
-            .setParameter("dur", durationMs)
-            .setParameter("qwait", queueWaitMs)
-            .setParameter("id", id)
+            .setParameter(1, resultJson)
+            .setParameter(2, resultType)
+            .setParameter(3, start != null ? Timestamp.from(start) : null)
+            .setParameter(4, end != null ? Timestamp.from(end) : null)
+            .setParameter(5, durationMs)
+            .setParameter(6, queueWaitMs)
+            .setParameter(7, id)
             .executeUpdate();
     if (coldUpdated == 0) {
       return false;
@@ -1230,16 +1252,16 @@ public class MysqlJobStore implements JobStore {
                 "UPDATE scheduler_job c "
                     + "JOIN scheduler_job_queue q ON q.job_id = c.job_id "
                     + "SET c.terminal_status = 'SUCCEEDED', "
-                    + "c.execution_start_time = :start, c.execution_end_time = :end, "
-                    + "c.execution_duration_ms = :dur, c.queue_wait_ms = :qwait, "
+                    + "c.execution_start_time = ?, c.execution_end_time = ?, "
+                    + "c.execution_duration_ms = ?, c.queue_wait_ms = ?, "
                     + "c.total_attempts = q.attempts, c.terminated_at = NOW(3) "
-                    + "WHERE c.job_id = :id AND c.terminal_status IS NULL "
+                    + "WHERE c.job_id = ? AND c.terminal_status IS NULL "
                     + "AND q.status = 'RUNNING'")
-            .setParameter("start", start != null ? Timestamp.from(start) : null)
-            .setParameter("end", end != null ? Timestamp.from(end) : null)
-            .setParameter("dur", durationMs)
-            .setParameter("qwait", queueWaitMs)
-            .setParameter("id", id)
+            .setParameter(1, start != null ? Timestamp.from(start) : null)
+            .setParameter(2, end != null ? Timestamp.from(end) : null)
+            .setParameter(3, durationMs)
+            .setParameter(4, queueWaitMs)
+            .setParameter(5, id)
             .executeUpdate();
     if (coldUpdated == 0) {
       return false;
@@ -1259,8 +1281,8 @@ public class MysqlJobStore implements JobStore {
                 "DELETE q, br FROM scheduler_job_queue q "
                     + "LEFT JOIN scheduler_business_key_reservation br "
                     + "ON br.owner_job_id = q.job_id "
-                    + "WHERE q.job_id = :id AND q.status = 'RUNNING'")
-            .setParameter("id", id)
+                    + "WHERE q.job_id = ? AND q.status = 'RUNNING'")
+            .setParameter(1, id)
             .executeUpdate();
     if (deleted == 0) {
       throw new IllegalStateException(
@@ -1293,14 +1315,14 @@ public class MysqlJobStore implements JobStore {
             "schedule_retry",
             () ->
                 em.createNativeQuery(
-                        "UPDATE scheduler_job_queue SET status = 'PENDING', last_error = :err, "
-                            + "scheduled_time = :st, attempts = :att, picked_by = NULL, "
+                        "UPDATE scheduler_job_queue SET status = 'PENDING', last_error = ?, "
+                            + "scheduled_time = ?, attempts = ?, picked_by = NULL, "
                             + "picked_at = NULL, updated_at = NOW(3) "
-                            + "WHERE job_id = :id AND status = 'RUNNING'")
-                    .setParameter("err", error)
-                    .setParameter("st", Timestamp.from(newScheduledTime))
-                    .setParameter("att", attempts)
-                    .setParameter("id", id)
+                            + "WHERE job_id = ? AND status = 'RUNNING'")
+                    .setParameter(1, error)
+                    .setParameter(2, Timestamp.from(newScheduledTime))
+                    .setParameter(3, attempts)
+                    .setParameter(4, id)
                     .executeUpdate(),
             updated -> updated > 0 ? "updated" : "miss")
         > 0;
@@ -1312,19 +1334,19 @@ public class MysqlJobStore implements JobStore {
     // the bkres reservation. Single tx via @Transactional class annotation.
     int hotDeleted =
         em.createNativeQuery(
-                "DELETE FROM scheduler_job_queue WHERE job_id = :id AND status = 'RUNNING'")
-            .setParameter("id", id)
+                "DELETE FROM scheduler_job_queue WHERE job_id = ? AND status = 'RUNNING'")
+            .setParameter(1, id)
             .executeUpdate();
     if (hotDeleted == 0) {
       return false;
     }
     em.createNativeQuery(
-            "UPDATE scheduler_job SET terminal_status = 'FAILED', terminal_error = :err, "
-                + "total_attempts = :att, terminated_at = NOW(3), execution_end_time = NOW(3) "
-                + "WHERE job_id = :id AND terminal_status IS NULL")
-        .setParameter("err", terminalError)
-        .setParameter("att", totalAttempts)
-        .setParameter("id", id)
+            "UPDATE scheduler_job SET terminal_status = 'FAILED', terminal_error = ?, "
+                + "total_attempts = ?, terminated_at = NOW(3), execution_end_time = NOW(3) "
+                + "WHERE job_id = ? AND terminal_status IS NULL")
+        .setParameter(1, terminalError)
+        .setParameter(2, totalAttempts)
+        .setParameter(3, id)
         .executeUpdate();
     deleteReservationByOwner(id);
     return true;
@@ -1336,8 +1358,8 @@ public class MysqlJobStore implements JobStore {
     @SuppressWarnings("unchecked")
     List<Object[]> rows =
         em.createNativeQuery(
-                "SELECT job_type, terminal_status, rec_status FROM scheduler_job WHERE job_id = :id")
-            .setParameter("id", id)
+                "SELECT job_type, terminal_status, rec_status FROM scheduler_job WHERE job_id = ?")
+            .setParameter(1, id)
             .getResultList();
     if (rows.isEmpty()) {
       return false;
@@ -1355,9 +1377,9 @@ public class MysqlJobStore implements JobStore {
           em.createNativeQuery(
                   "UPDATE scheduler_job SET rec_status = NULL, terminal_status = 'CANCELED', "
                       + "terminated_at = NOW(3) "
-                      + "WHERE job_id = :id AND job_type = 'RECURRING' "
+                      + "WHERE job_id = ? AND job_type = 'RECURRING' "
                       + "AND rec_status IS NOT NULL AND terminal_status IS NULL")
-              .setParameter("id", id)
+              .setParameter(1, id)
               .executeUpdate();
       if (updated == 0) {
         return false;
@@ -1369,15 +1391,15 @@ public class MysqlJobStore implements JobStore {
     // CANCELED, drop bkres. If the hot row is gone (race with terminal), still allow the cold
     // UPDATE to fire — terminal_status IS NULL guard makes it a no-op when raced.
     em.createNativeQuery(
-            "DELETE FROM scheduler_job_queue WHERE job_id = :id "
+            "DELETE FROM scheduler_job_queue WHERE job_id = ? "
                 + "AND status IN ('PENDING','RUNNING','PAUSED')")
-        .setParameter("id", id)
+        .setParameter(1, id)
         .executeUpdate();
     int coldUpdated =
         em.createNativeQuery(
                 "UPDATE scheduler_job SET terminal_status = 'CANCELED', terminated_at = NOW(3) "
-                    + "WHERE job_id = :id AND terminal_status IS NULL")
-            .setParameter("id", id)
+                    + "WHERE job_id = ? AND terminal_status IS NULL")
+            .setParameter(1, id)
             .executeUpdate();
     deleteReservationByOwner(id);
     return coldUpdated > 0;
@@ -1391,9 +1413,9 @@ public class MysqlJobStore implements JobStore {
                 em.createNativeQuery(
                         "UPDATE scheduler_job_queue SET status = 'PENDING', picked_by = NULL, "
                             + "picked_at = NULL, updated_at = NOW(3) "
-                            + "WHERE job_id = :id AND status = 'RUNNING' AND picked_by = :node")
-                    .setParameter("id", id)
-                    .setParameter("node", nodeId)
+                            + "WHERE job_id = ? AND status = 'RUNNING' AND picked_by = ?")
+                    .setParameter(1, id)
+                    .setParameter(2, nodeId)
                     .executeUpdate(),
             updated -> updated > 0 ? "updated" : "miss")
         > 0;
@@ -1407,8 +1429,8 @@ public class MysqlJobStore implements JobStore {
             em.createNativeQuery(
                     "UPDATE scheduler_job_queue SET status = 'PENDING', picked_by = NULL, "
                         + "picked_at = NULL, updated_at = NOW(3) "
-                        + "WHERE status = 'RUNNING' AND picked_by = :node")
-                .setParameter("node", nodeId)
+                        + "WHERE status = 'RUNNING' AND picked_by = ?")
+                .setParameter(1, nodeId)
                 .executeUpdate(),
         updated -> updated > 0 ? "updated" : "miss");
   }
@@ -1420,9 +1442,9 @@ public class MysqlJobStore implements JobStore {
         em.createNativeQuery(
                 "SELECT j.job_id FROM scheduler_job j "
                     + "JOIN scheduler_job_tag t ON j.job_id = t.job_id "
-                    + "WHERE t.tag = :tag AND j.job_type = 'RECURRING' "
+                    + "WHERE t.tag = ? AND j.job_type = 'RECURRING' "
                     + "AND j.rec_status IS NOT NULL AND j.terminal_status IS NULL")
-            .setParameter("tag", tag)
+            .setParameter(1, tag)
             .getResultList();
     return cancelRecurringByIds(ids);
   }
@@ -1433,9 +1455,9 @@ public class MysqlJobStore implements JobStore {
     List<Number> ids =
         em.createNativeQuery(
                 "SELECT job_id FROM scheduler_job "
-                    + "WHERE business_key = :bk AND job_type = 'RECURRING' "
+                    + "WHERE business_key = ? AND job_type = 'RECURRING' "
                     + "AND rec_status IS NOT NULL AND terminal_status IS NULL")
-            .setParameter("bk", businessKey)
+            .setParameter(1, businessKey)
             .getResultList();
     return cancelRecurringByIds(ids);
   }
@@ -1446,16 +1468,23 @@ public class MysqlJobStore implements JobStore {
     if (registeredIds.isEmpty()) {
       return 0;
     }
-    @SuppressWarnings("unchecked")
-    List<Number> ids =
+    List<String> idsList = new ArrayList<>(registeredIds);
+    String placeholders = String.join(",", Collections.nCopies(idsList.size(), "?"));
+    Query query =
         em.createNativeQuery(
-                "SELECT job_id FROM scheduler_job WHERE job_type = 'RECURRING' "
-                    + "AND rec_status IS NOT NULL AND terminal_status IS NULL "
-                    + "AND created_at < :nodeStart AND business_key IS NOT NULL "
-                    + "AND business_key NOT IN (:ids)")
-            .setParameter("nodeStart", Timestamp.from(nodeStartTime))
-            .setParameter("ids", registeredIds)
-            .getResultList();
+            "SELECT job_id FROM scheduler_job WHERE job_type = 'RECURRING' "
+                + "AND rec_status IS NOT NULL AND terminal_status IS NULL "
+                + "AND created_at < ? AND business_key IS NOT NULL "
+                + "AND business_key NOT IN ("
+                + placeholders
+                + ")");
+    int parameter = 1;
+    query.setParameter(parameter++, Timestamp.from(nodeStartTime));
+    for (String id : idsList) {
+      query.setParameter(parameter++, id);
+    }
+    @SuppressWarnings("unchecked")
+    List<Number> ids = query.getResultList();
     return cancelRecurringByIds(ids);
   }
 
@@ -1471,9 +1500,9 @@ public class MysqlJobStore implements JobStore {
           em.createNativeQuery(
                   "UPDATE scheduler_job SET rec_status = NULL, terminal_status = 'CANCELED', "
                       + "terminated_at = NOW(3) "
-                      + "WHERE job_id = :id AND job_type = 'RECURRING' "
+                      + "WHERE job_id = ? AND job_type = 'RECURRING' "
                       + "AND rec_status IS NOT NULL AND terminal_status IS NULL")
-              .setParameter("id", id)
+              .setParameter(1, id)
               .executeUpdate();
       if (updated > 0) {
         deleteReservationByOwner(id);
@@ -1490,8 +1519,8 @@ public class MysqlJobStore implements JobStore {
     List<Object[]> rows =
         em.createNativeQuery(
                 "SELECT terminal_status, job_type, priority, business_key, timeout_sec, max_retries "
-                    + "FROM scheduler_job WHERE job_id = :id FOR UPDATE")
-            .setParameter("id", id)
+                    + "FROM scheduler_job WHERE job_id = ? FOR UPDATE")
+            .setParameter(1, id)
             .getResultList();
     if (rows.isEmpty()) {
       return false;
@@ -1514,8 +1543,8 @@ public class MysqlJobStore implements JobStore {
                 + "execution_start_time = NULL, execution_end_time = NULL, "
                 + "execution_duration_ms = NULL, queue_wait_ms = NULL, "
                 + "total_attempts = NULL, terminated_at = NULL "
-                + "WHERE job_id = :id AND terminal_status = 'FAILED'")
-        .setParameter("id", id)
+                + "WHERE job_id = ? AND terminal_status = 'FAILED'")
+        .setParameter(1, id)
         .executeUpdate();
 
     // (3) Re-insert the hot row.
@@ -1523,13 +1552,13 @@ public class MysqlJobStore implements JobStore {
             "INSERT INTO scheduler_job_queue "
                 + "(job_id, status, job_type, priority, scheduled_time, business_key, "
                 + "timeout_sec, max_retries, attempts, version, updated_at) "
-                + "VALUES (:id, 'PENDING', :jt, :pr, NOW(3), :bk, :to, :mr, 0, 0, NOW(3))")
-        .setParameter("id", id)
-        .setParameter("jt", jobType)
-        .setParameter("pr", priority)
-        .setParameter("bk", businessKey)
-        .setParameter("to", timeoutSec)
-        .setParameter("mr", maxRetries)
+                + "VALUES (?, 'PENDING', ?, ?, NOW(3), ?, ?, ?, 0, 0, NOW(3))")
+        .setParameter(1, id)
+        .setParameter(2, jobType)
+        .setParameter(3, priority)
+        .setParameter(4, businessKey)
+        .setParameter(5, timeoutSec)
+        .setParameter(6, maxRetries)
         .executeUpdate();
 
     // (4) Re-insert bkres if needed; duplicate-bkey here means a live owner exists → rollback.
@@ -1565,10 +1594,11 @@ public class MysqlJobStore implements JobStore {
     int updated =
         em.createNativeQuery(
                 "UPDATE scheduler_job_queue SET status = 'PAUSED', "
-                    + "paused_from_status = :exp, updated_at = NOW(3) "
-                    + "WHERE job_id = :id AND status = :exp")
-            .setParameter("exp", expected.name())
-            .setParameter("id", id)
+                    + "paused_from_status = ?, updated_at = NOW(3) "
+                    + "WHERE job_id = ? AND status = ?")
+            .setParameter(1, expected.name())
+            .setParameter(2, id)
+            .setParameter(3, expected.name())
             .executeUpdate();
     return updated > 0;
   }
@@ -1581,11 +1611,11 @@ public class MysqlJobStore implements JobStore {
     }
     int updated =
         em.createNativeQuery(
-                "UPDATE scheduler_job_queue SET status = :target, "
+                "UPDATE scheduler_job_queue SET status = ?, "
                     + "paused_from_status = NULL, updated_at = NOW(3) "
-                    + "WHERE job_id = :id AND status = 'PAUSED'")
-            .setParameter("target", target.name())
-            .setParameter("id", id)
+                    + "WHERE job_id = ? AND status = 'PAUSED'")
+            .setParameter(1, target.name())
+            .setParameter(2, id)
             .executeUpdate();
     return updated > 0;
   }
@@ -1595,9 +1625,9 @@ public class MysqlJobStore implements JobStore {
     int updated =
         em.createNativeQuery(
                 "UPDATE scheduler_job SET rec_status = 'A' "
-                    + "WHERE job_id = :id AND job_type = 'RECURRING' "
+                    + "WHERE job_id = ? AND job_type = 'RECURRING' "
                     + "AND rec_status = 'P' AND terminal_status IS NULL")
-            .setParameter("id", id)
+            .setParameter(1, id)
             .executeUpdate();
     return updated > 0;
   }
@@ -1607,9 +1637,9 @@ public class MysqlJobStore implements JobStore {
     int updated =
         em.createNativeQuery(
                 "UPDATE scheduler_job SET rec_status = 'P' "
-                    + "WHERE job_id = :id AND job_type = 'RECURRING' "
+                    + "WHERE job_id = ? AND job_type = 'RECURRING' "
                     + "AND rec_status = 'A' AND terminal_status IS NULL")
-            .setParameter("id", id)
+            .setParameter(1, id)
             .executeUpdate();
     return updated > 0;
   }
@@ -1619,8 +1649,8 @@ public class MysqlJobStore implements JobStore {
     List<?> results =
         em.createNativeQuery(
                 "SELECT paused_from_status FROM scheduler_job_queue "
-                    + "WHERE job_id = :id AND status = 'PAUSED' FOR UPDATE")
-            .setParameter("id", id)
+                    + "WHERE job_id = ? AND status = 'PAUSED' FOR UPDATE")
+            .setParameter(1, id)
             .getResultList();
     if (results.isEmpty()) {
       return null;
@@ -1629,11 +1659,11 @@ public class MysqlJobStore implements JobStore {
     JobStatus target = pausedFrom != null ? JobStatus.valueOf(pausedFrom) : JobStatus.PENDING;
     int updated =
         em.createNativeQuery(
-                "UPDATE scheduler_job_queue SET status = :target, "
+                "UPDATE scheduler_job_queue SET status = ?, "
                     + "paused_from_status = NULL, updated_at = NOW(3) "
-                    + "WHERE job_id = :id AND status = 'PAUSED'")
-            .setParameter("target", target.name())
-            .setParameter("id", id)
+                    + "WHERE job_id = ? AND status = 'PAUSED'")
+            .setParameter(1, target.name())
+            .setParameter(2, id)
             .executeUpdate();
     return updated > 0 ? target : null;
   }
@@ -1756,13 +1786,24 @@ public class MysqlJobStore implements JobStore {
       return 0;
     }
     // bkres has no FK; cold DELETE cascades to hot via FK ON DELETE CASCADE.
-    em.createNativeQuery(
-            "DELETE FROM scheduler_business_key_reservation WHERE owner_job_id IN (:ids)")
-        .setParameter("ids", ids)
-        .executeUpdate();
-    return em.createNativeQuery("DELETE FROM scheduler_job WHERE job_id IN (:ids)")
-        .setParameter("ids", ids)
-        .executeUpdate();
+    String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+    Query bkresDelete =
+        em.createNativeQuery(
+            "DELETE FROM scheduler_business_key_reservation WHERE owner_job_id IN ("
+                + placeholders
+                + ")");
+    int parameter = 1;
+    for (Long id : ids) {
+      bkresDelete.setParameter(parameter++, id);
+    }
+    bkresDelete.executeUpdate();
+    Query jobDelete =
+        em.createNativeQuery("DELETE FROM scheduler_job WHERE job_id IN (" + placeholders + ")");
+    parameter = 1;
+    for (Long id : ids) {
+      jobDelete.setParameter(parameter++, id);
+    }
+    return jobDelete.executeUpdate();
   }
 
   @Override
@@ -1775,8 +1816,8 @@ public class MysqlJobStore implements JobStore {
         em.createNativeQuery(
                 "SELECT job_id FROM scheduler_job "
                     + "WHERE terminal_status = 'FAILED' AND total_attempts >= max_retries "
-                    + "AND terminated_at < :cutoff")
-            .setParameter("cutoff", Timestamp.from(cutoff))
+                    + "AND terminated_at < ?")
+            .setParameter(1, Timestamp.from(cutoff))
             .getResultList();
     if (idRows.isEmpty()) {
       return 0;
@@ -1785,26 +1826,39 @@ public class MysqlJobStore implements JobStore {
     for (Number n : idRows) {
       ids.add(n.longValue());
     }
-    em.createNativeQuery(
-            "DELETE FROM scheduler_business_key_reservation WHERE owner_job_id IN (:ids)")
-        .setParameter("ids", ids)
-        .executeUpdate();
-    return em.createNativeQuery("DELETE FROM scheduler_job WHERE job_id IN (:ids)")
-        .setParameter("ids", ids)
-        .executeUpdate();
+    String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+    Query bkresDelete =
+        em.createNativeQuery(
+            "DELETE FROM scheduler_business_key_reservation WHERE owner_job_id IN ("
+                + placeholders
+                + ")");
+    int parameter = 1;
+    for (Long id : ids) {
+      bkresDelete.setParameter(parameter++, id);
+    }
+    bkresDelete.executeUpdate();
+    Query jobDelete =
+        em.createNativeQuery("DELETE FROM scheduler_job WHERE job_id IN (" + placeholders + ")");
+    parameter = 1;
+    for (Long id : ids) {
+      jobDelete.setParameter(parameter++, id);
+    }
+    return jobDelete.executeUpdate();
   }
 
   @Override
   public int resetOrphanJobs(Duration grace) {
     // Use SECOND granularity — toMinutes() truncates sub-minute values
+    long graceSec = grace.toSeconds();
     return em.createNativeQuery(
             "UPDATE scheduler_job_queue SET status = 'PENDING', picked_by = NULL, "
                 + "picked_at = NULL, updated_at = NOW(3) "
                 + "WHERE status = 'RUNNING' AND picked_by NOT IN ("
                 + "  SELECT node_id FROM scheduler_node "
-                + "  WHERE TIMESTAMPDIFF(SECOND, heartbeat_ts, NOW(3)) <= :graceSec"
-                + ") AND TIMESTAMPDIFF(SECOND, picked_at, NOW(3)) >= :graceSec")
-        .setParameter("graceSec", grace.toSeconds())
+                + "  WHERE TIMESTAMPDIFF(SECOND, heartbeat_ts, NOW(3)) <= ?"
+                + ") AND TIMESTAMPDIFF(SECOND, picked_at, NOW(3)) >= ?")
+        .setParameter(1, graceSec)
+        .setParameter(2, graceSec)
         .executeUpdate();
   }
 
@@ -1813,8 +1867,8 @@ public class MysqlJobStore implements JobStore {
     return em.createNativeQuery(
             "UPDATE scheduler_job_queue SET status = 'PENDING', picked_by = NULL, "
                 + "picked_at = NULL, updated_at = NOW(3) "
-                + "WHERE status = 'RUNNING' AND picked_by = :node")
-        .setParameter("node", nodeId)
+                + "WHERE status = 'RUNNING' AND picked_by = ?")
+        .setParameter(1, nodeId)
         .executeUpdate();
   }
 
@@ -1848,14 +1902,14 @@ public class MysqlJobStore implements JobStore {
         (Object[])
             em.createNativeQuery(
                     "SELECT completed_items, failed_items, total_items, progress_hook "
-                        + "FROM scheduler_batch WHERE batch_id = :bid FOR UPDATE")
-                .setParameter("bid", batchId)
+                        + "FROM scheduler_batch WHERE batch_id = ? FOR UPDATE")
+                .setParameter(1, batchId)
                 .getSingleResult();
 
     int newCompleted = ((Number) locked[0]).intValue() + 1;
-    em.createNativeQuery("UPDATE scheduler_batch SET completed_items = :ci WHERE batch_id = :bid")
-        .setParameter("ci", newCompleted)
-        .setParameter("bid", batchId)
+    em.createNativeQuery("UPDATE scheduler_batch SET completed_items = ? WHERE batch_id = ?")
+        .setParameter(1, newCompleted)
+        .setParameter(2, batchId)
         .executeUpdate();
 
     return new BatchProgress(
@@ -1872,14 +1926,14 @@ public class MysqlJobStore implements JobStore {
         (Object[])
             em.createNativeQuery(
                     "SELECT completed_items, failed_items, total_items, progress_hook "
-                        + "FROM scheduler_batch WHERE batch_id = :bid FOR UPDATE")
-                .setParameter("bid", batchId)
+                        + "FROM scheduler_batch WHERE batch_id = ? FOR UPDATE")
+                .setParameter(1, batchId)
                 .getSingleResult();
 
     int newFailed = ((Number) locked[1]).intValue() + 1;
-    em.createNativeQuery("UPDATE scheduler_batch SET failed_items = :fi WHERE batch_id = :bid")
-        .setParameter("fi", newFailed)
-        .setParameter("bid", batchId)
+    em.createNativeQuery("UPDATE scheduler_batch SET failed_items = ? WHERE batch_id = ?")
+        .setParameter(1, newFailed)
+        .setParameter(2, batchId)
         .executeUpdate();
 
     return new BatchProgress(
@@ -1895,9 +1949,9 @@ public class MysqlJobStore implements JobStore {
     int updated =
         em.createNativeQuery(
                 "UPDATE scheduler_batch SET completion_processed = 1 "
-                    + "WHERE batch_id = :bid AND completion_processed = 0 "
+                    + "WHERE batch_id = ? AND completion_processed = 0 "
                     + "AND (completed_items + failed_items) >= total_items")
-            .setParameter("bid", batchId)
+            .setParameter(1, batchId)
             .executeUpdate();
     return updated > 0;
   }
@@ -1910,8 +1964,8 @@ public class MysqlJobStore implements JobStore {
                 "SELECT batch_id FROM scheduler_batch "
                     + "WHERE completion_processed = 0 "
                     + "AND (completed_items + failed_items) >= total_items "
-                    + "LIMIT :lim")
-            .setParameter("lim", limit)
+                    + "LIMIT ?")
+            .setParameter(1, limit)
             .getResultList();
     return results.stream().map(Number::longValue).toList();
   }
@@ -1919,10 +1973,9 @@ public class MysqlJobStore implements JobStore {
   @Override
   public boolean updateBatchTotalItems(long batchId, int totalItems) {
     int updated =
-        em.createNativeQuery(
-                "UPDATE scheduler_batch SET total_items = :total WHERE batch_id = :bid")
-            .setParameter("total", totalItems)
-            .setParameter("bid", batchId)
+        em.createNativeQuery("UPDATE scheduler_batch SET total_items = ? WHERE batch_id = ?")
+            .setParameter(1, totalItems)
+            .setParameter(2, batchId)
             .executeUpdate();
     return updated > 0;
   }
@@ -1931,29 +1984,28 @@ public class MysqlJobStore implements JobStore {
   public boolean tryLock(String name, Duration ttl, String nodeId) {
     em.createNativeQuery(
             "INSERT INTO scheduler_lock (lock_name, owner_node, locked_at, expires_at) "
-                + "VALUES (:name, :node, NOW(3), DATE_ADD(NOW(3), INTERVAL :ttl SECOND)) "
+                + "VALUES (?, ?, NOW(3), DATE_ADD(NOW(3), INTERVAL ? SECOND)) "
                 + "ON DUPLICATE KEY UPDATE "
                 + "  owner_node = IF(expires_at < NOW(3), VALUES(owner_node), owner_node), "
                 + "  locked_at = IF(expires_at < NOW(3), NOW(3), locked_at), "
                 + "  expires_at = IF(expires_at < NOW(3), VALUES(expires_at), expires_at)")
-        .setParameter("name", name)
-        .setParameter("node", nodeId)
-        .setParameter("ttl", ttl.toSeconds())
+        .setParameter(1, name)
+        .setParameter(2, nodeId)
+        .setParameter(3, ttl.toSeconds())
         .executeUpdate();
 
     Object owner =
-        em.createNativeQuery("SELECT owner_node FROM scheduler_lock WHERE lock_name = :name")
-            .setParameter("name", name)
+        em.createNativeQuery("SELECT owner_node FROM scheduler_lock WHERE lock_name = ?")
+            .setParameter(1, name)
             .getSingleResult();
     return nodeId.equals(owner);
   }
 
   @Override
   public void unlock(String name, String nodeId) {
-    em.createNativeQuery(
-            "DELETE FROM scheduler_lock WHERE lock_name = :name AND owner_node = :node")
-        .setParameter("name", name)
-        .setParameter("node", nodeId)
+    em.createNativeQuery("DELETE FROM scheduler_lock WHERE lock_name = ? AND owner_node = ?")
+        .setParameter(1, name)
+        .setParameter(2, nodeId)
         .executeUpdate();
   }
 
@@ -1961,23 +2013,25 @@ public class MysqlJobStore implements JobStore {
   public boolean renewLock(String name, Duration extension, String nodeId) {
     int updated =
         em.createNativeQuery(
-                "UPDATE scheduler_lock SET expires_at = DATE_ADD(NOW(3), INTERVAL :ext SECOND) "
-                    + "WHERE lock_name = :name AND owner_node = :node")
-            .setParameter("ext", extension.toSeconds())
-            .setParameter("name", name)
-            .setParameter("node", nodeId)
+                "UPDATE scheduler_lock SET expires_at = DATE_ADD(NOW(3), INTERVAL ? SECOND) "
+                    + "WHERE lock_name = ? AND owner_node = ?")
+            .setParameter(1, extension.toSeconds())
+            .setParameter(2, name)
+            .setParameter(3, nodeId)
             .executeUpdate();
     return updated > 0;
   }
 
   @Override
   public void upsertHeartbeat(String nodeId, Instant ts) {
+    Timestamp tsTs = Timestamp.from(ts);
     em.createNativeQuery(
             "INSERT INTO scheduler_node (node_id, heartbeat_ts, started_at) "
-                + "VALUES (:id, :ts, :ts) "
+                + "VALUES (?, ?, ?) "
                 + "ON DUPLICATE KEY UPDATE heartbeat_ts = VALUES(heartbeat_ts)")
-        .setParameter("id", nodeId)
-        .setParameter("ts", Timestamp.from(ts))
+        .setParameter(1, nodeId)
+        .setParameter(2, tsTs)
+        .setParameter(3, tsTs)
         .executeUpdate();
   }
 
@@ -2036,11 +2090,11 @@ public class MysqlJobStore implements JobStore {
                     + HYDRATION_SELECT
                     + " FROM scheduler_job c "
                     + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
-                    + "WHERE c.terminal_status IS NOT NULL AND c.terminated_at < :cutoff "
+                    + "WHERE c.terminal_status IS NOT NULL AND c.terminated_at < ? "
                     + "ORDER BY c.terminated_at ASC "
-                    + "LIMIT :lim")
-            .setParameter("cutoff", Timestamp.from(olderThan))
-            .setParameter("lim", limit)
+                    + "LIMIT ?")
+            .setParameter(1, Timestamp.from(olderThan))
+            .setParameter(2, limit)
             .getResultList();
     List<JobEntity> jobs = new ArrayList<>(rows.size());
     for (Object[] row : rows) {
@@ -2055,8 +2109,8 @@ public class MysqlJobStore implements JobStore {
     Object result =
         em.createNativeQuery(
                 "SELECT COUNT(*) FROM scheduler_job "
-                    + "WHERE terminal_status IS NOT NULL AND terminated_at < :cutoff")
-            .setParameter("cutoff", Timestamp.from(olderThan))
+                    + "WHERE terminal_status IS NOT NULL AND terminated_at < ?")
+            .setParameter(1, Timestamp.from(olderThan))
             .getSingleResult();
     return ((Number) result).longValue();
   }
@@ -2159,28 +2213,27 @@ public class MysqlJobStore implements JobStore {
       return;
     }
     for (String tag : tags) {
-      em.createNativeQuery("INSERT IGNORE INTO scheduler_job_tag (job_id, tag) VALUES (:jid, :tag)")
-          .setParameter("jid", jobId)
-          .setParameter("tag", tag)
+      em.createNativeQuery("INSERT IGNORE INTO scheduler_job_tag (job_id, tag) VALUES (?, ?)")
+          .setParameter(1, jobId)
+          .setParameter(2, tag)
           .executeUpdate();
     }
   }
 
   @Override
   public int deleteTagsByJobId(long jobId) {
-    return em.createNativeQuery("DELETE FROM scheduler_job_tag WHERE job_id = :jid")
-        .setParameter("jid", jobId)
+    return em.createNativeQuery("DELETE FROM scheduler_job_tag WHERE job_id = ?")
+        .setParameter(1, jobId)
         .executeUpdate();
   }
 
   @Override
   public List<Long> findJobIdsByTag(String tag, int limit, int offset) {
     List<?> rows =
-        em.createNativeQuery(
-                "SELECT job_id FROM scheduler_job_tag WHERE tag = :tag LIMIT :lim OFFSET :off")
-            .setParameter("tag", tag)
-            .setParameter("lim", limit)
-            .setParameter("off", offset)
+        em.createNativeQuery("SELECT job_id FROM scheduler_job_tag WHERE tag = ? LIMIT ? OFFSET ?")
+            .setParameter(1, tag)
+            .setParameter(2, limit)
+            .setParameter(3, offset)
             .getResultList();
     return rows.stream().map(r -> ((Number) r).longValue()).collect(Collectors.toList());
   }
@@ -2195,14 +2248,15 @@ public class MysqlJobStore implements JobStore {
                 "SELECT s, SUM(c) FROM ("
                     + "  SELECT q.status AS s, COUNT(*) AS c FROM scheduler_job_queue q "
                     + "    JOIN scheduler_job_tag t ON t.job_id = q.job_id "
-                    + "    WHERE t.tag = :tag GROUP BY q.status "
+                    + "    WHERE t.tag = ? GROUP BY q.status "
                     + "  UNION ALL "
                     + "  SELECT c.terminal_status AS s, COUNT(*) AS c FROM scheduler_job c "
                     + "    JOIN scheduler_job_tag t ON t.job_id = c.job_id "
-                    + "    WHERE t.tag = :tag AND c.terminal_status IS NOT NULL "
+                    + "    WHERE t.tag = ? AND c.terminal_status IS NOT NULL "
                     + "    GROUP BY c.terminal_status"
                     + ") u GROUP BY s")
-            .setParameter("tag", tag)
+            .setParameter(1, tag)
+            .setParameter(2, tag)
             .getResultList();
     Map<JobStatus, Long> counts = new EnumMap<>(JobStatus.class);
     for (Object[] row : rows) {
@@ -2217,14 +2271,15 @@ public class MysqlJobStore implements JobStore {
     String jsonPath = toJsonFieldPath(paramKey);
     List<Object[]> rows =
         em.createNativeQuery(
-                "SELECT JSON_UNQUOTE(JSON_EXTRACT(j.params, :jsonPath)) AS param_value, "
+                "SELECT JSON_UNQUOTE(JSON_EXTRACT(j.params, ?)) AS param_value, "
                     + "COUNT(*) FROM scheduler_job j "
                     + "JOIN scheduler_job_tag t ON j.job_id = t.job_id "
-                    + "WHERE t.tag = :tag "
-                    + "AND JSON_EXTRACT(j.params, :jsonPath) IS NOT NULL "
+                    + "WHERE t.tag = ? "
+                    + "AND JSON_EXTRACT(j.params, ?) IS NOT NULL "
                     + "GROUP BY param_value ORDER BY param_value")
-            .setParameter("tag", tag)
-            .setParameter("jsonPath", jsonPath)
+            .setParameter(1, jsonPath)
+            .setParameter(2, tag)
+            .setParameter(3, jsonPath)
             .getResultList();
     return toStringCountMap(rows);
   }
@@ -2242,20 +2297,21 @@ public class MysqlJobStore implements JobStore {
                     + "  SELECT q.picked_by AS node, COUNT(*) AS c "
                     + "    FROM scheduler_job_queue q "
                     + "    JOIN scheduler_job_tag t ON t.job_id = q.job_id "
-                    + "    WHERE t.tag = :tag AND q.picked_by IS NOT NULL AND q.picked_by <> '' "
+                    + "    WHERE t.tag = ? AND q.picked_by IS NOT NULL AND q.picked_by <> '' "
                     + "    GROUP BY q.picked_by "
                     + "  UNION ALL "
                     + "  SELECT e.node_id AS node, COUNT(*) AS c "
                     + "    FROM scheduler_job c2 "
                     + "    JOIN scheduler_job_tag t ON t.job_id = c2.job_id "
                     + "    JOIN scheduler_job_execution e ON e.job_id = c2.job_id "
-                    + "    WHERE t.tag = :tag AND c2.terminal_status IS NOT NULL "
+                    + "    WHERE t.tag = ? AND c2.terminal_status IS NOT NULL "
                     + "      AND e.id = (SELECT MAX(e2.id) FROM scheduler_job_execution e2 "
                     + "                  WHERE e2.job_id = c2.job_id) "
                     + "      AND e.node_id IS NOT NULL AND e.node_id <> '' "
                     + "    GROUP BY e.node_id"
                     + ") u GROUP BY node ORDER BY node")
-            .setParameter("tag", tag)
+            .setParameter(1, tag)
+            .setParameter(2, tag)
             .getResultList();
     return toStringCountMap(rows);
   }
@@ -2359,11 +2415,11 @@ public class MysqlJobStore implements JobStore {
   public void addChildExecutionTime(long batchId, long durationMs) {
     em.createNativeQuery(
             "UPDATE scheduler_batch_metrics "
-                + "SET child_execution_ms = COALESCE(child_execution_ms, 0) + :dur, "
+                + "SET child_execution_ms = COALESCE(child_execution_ms, 0) + ?, "
                 + "success_count = success_count + 1 "
-                + "WHERE batch_id = :bid")
-        .setParameter("dur", durationMs)
-        .setParameter("bid", batchId)
+                + "WHERE batch_id = ?")
+        .setParameter(1, durationMs)
+        .setParameter(2, batchId)
         .executeUpdate();
   }
 
@@ -2374,17 +2430,16 @@ public class MysqlJobStore implements JobStore {
                 + "total_duration_ms = TIMESTAMPDIFF(MICROSECOND, started_at, NOW(3)) / 1000, "
                 + "overhead_ms = COALESCE("
                 + "  TIMESTAMPDIFF(MICROSECOND, started_at, NOW(3)) / 1000 - child_execution_ms, 0) "
-                + "WHERE batch_id = :bid")
-        .setParameter("bid", batchId)
+                + "WHERE batch_id = ?")
+        .setParameter(1, batchId)
         .executeUpdate();
   }
 
   @Override
   public void updateBatchMetricsChildCount(long batchId, int childCount) {
-    em.createNativeQuery(
-            "UPDATE scheduler_batch_metrics SET child_count = :cnt WHERE batch_id = :bid")
-        .setParameter("cnt", childCount)
-        .setParameter("bid", batchId)
+    em.createNativeQuery("UPDATE scheduler_batch_metrics SET child_count = ? WHERE batch_id = ?")
+        .setParameter(1, childCount)
+        .setParameter(2, batchId)
         .executeUpdate();
   }
 
@@ -2418,10 +2473,11 @@ public class MysqlJobStore implements JobStore {
     List<Object[]> permitResults =
         em.createNativeQuery(
                 "SELECT max_concurrent, "
-                    + "(SELECT COUNT(*) FROM scheduler_resource_permit WHERE resource_name = :res) "
-                    + "FROM scheduler_resource_limit WHERE resource_name = :res "
+                    + "(SELECT COUNT(*) FROM scheduler_resource_permit WHERE resource_name = ?) "
+                    + "FROM scheduler_resource_limit WHERE resource_name = ? "
                     + "FOR UPDATE")
-            .setParameter("res", resource)
+            .setParameter(1, resource)
+            .setParameter(2, resource)
             .getResultList();
     Object[] limits = permitResults.stream().findFirst().orElse(null);
 
@@ -2444,17 +2500,16 @@ public class MysqlJobStore implements JobStore {
   @Override
   public void releasePermit(String resource, long jobId) {
     em.createNativeQuery(
-            "DELETE FROM scheduler_resource_permit "
-                + "WHERE resource_name = :res AND job_id = :jid")
-        .setParameter("res", resource)
-        .setParameter("jid", jobId)
+            "DELETE FROM scheduler_resource_permit " + "WHERE resource_name = ? AND job_id = ?")
+        .setParameter(1, resource)
+        .setParameter(2, jobId)
         .executeUpdate();
   }
 
   @Override
   public void releaseAllPermits(long jobId) {
-    em.createNativeQuery("DELETE FROM scheduler_resource_permit WHERE job_id = :jid")
-        .setParameter("jid", jobId)
+    em.createNativeQuery("DELETE FROM scheduler_resource_permit WHERE job_id = ?")
+        .setParameter(1, jobId)
         .executeUpdate();
   }
 
@@ -2463,8 +2518,8 @@ public class MysqlJobStore implements JobStore {
     try {
       return ((Number)
               em.createNativeQuery(
-                      "SELECT retry_delay_ms FROM scheduler_resource_limit WHERE resource_name = :res")
-                  .setParameter("res", resource)
+                      "SELECT retry_delay_ms FROM scheduler_resource_limit WHERE resource_name = ?")
+                  .setParameter(1, resource)
                   .getSingleResult())
           .intValue();
     } catch (NoResultException e) {
@@ -2478,16 +2533,16 @@ public class MysqlJobStore implements JobStore {
     em.createNativeQuery(
             "INSERT INTO scheduler_resource_limit "
                 + "(resource_name, max_concurrent, retry_delay_ms, description, created_at, updated_at) "
-                + "VALUES (:name, :max, :delay, :desc, NOW(3), NOW(3)) "
+                + "VALUES (?, ?, ?, ?, NOW(3), NOW(3)) "
                 + "ON DUPLICATE KEY UPDATE "
                 + "max_concurrent = VALUES(max_concurrent), "
                 + "retry_delay_ms = VALUES(retry_delay_ms), "
                 + "description = VALUES(description), "
                 + "updated_at = NOW(3)")
-        .setParameter("name", name)
-        .setParameter("max", maxConcurrent)
-        .setParameter("delay", retryDelayMs)
-        .setParameter("desc", description)
+        .setParameter(1, name)
+        .setParameter(2, maxConcurrent)
+        .setParameter(3, retryDelayMs)
+        .setParameter(4, description)
         .executeUpdate();
   }
 
@@ -2496,9 +2551,15 @@ public class MysqlJobStore implements JobStore {
     if (staleNodeIds.isEmpty()) {
       return 0;
     }
-    return em.createNativeQuery("DELETE FROM scheduler_resource_permit WHERE node_id IN (:nodes)")
-        .setParameter("nodes", staleNodeIds)
-        .executeUpdate();
+    String placeholders = String.join(",", Collections.nCopies(staleNodeIds.size(), "?"));
+    Query query =
+        em.createNativeQuery(
+            "DELETE FROM scheduler_resource_permit WHERE node_id IN (" + placeholders + ")");
+    int parameter = 1;
+    for (String nodeId : staleNodeIds) {
+      query.setParameter(parameter++, nodeId);
+    }
+    return query.executeUpdate();
   }
 
   /**
@@ -2690,8 +2751,8 @@ public class MysqlJobStore implements JobStore {
   private void hydrateTagsSingle(JobEntity job) {
     if (job == null || job.getId() == null) return;
     List<String> tags =
-        em.createNativeQuery("SELECT tag FROM scheduler_job_tag WHERE job_id = :id")
-            .setParameter("id", job.getId())
+        em.createNativeQuery("SELECT tag FROM scheduler_job_tag WHERE job_id = ?")
+            .setParameter(1, job.getId())
             .getResultList();
     if (!tags.isEmpty()) {
       job.setTags(tags);
@@ -2699,7 +2760,6 @@ public class MysqlJobStore implements JobStore {
   }
 
   /** Batch-loads tags for many jobs and assigns them by id. Single SELECT regardless of count. */
-  @SuppressWarnings("unchecked")
   private void hydrateTagsBatch(List<JobEntity> jobs) {
     if (jobs.isEmpty()) return;
     List<Long> ids = new ArrayList<>(jobs.size());
@@ -2711,11 +2771,18 @@ public class MysqlJobStore implements JobStore {
       }
     }
     if (ids.isEmpty()) return;
-    List<Object[]> rows =
+    String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+    Query tagQuery =
         em.createNativeQuery(
-                "SELECT job_id, tag FROM scheduler_job_tag WHERE job_id IN (:ids) ORDER BY job_id")
-            .setParameter("ids", ids)
-            .getResultList();
+            "SELECT job_id, tag FROM scheduler_job_tag WHERE job_id IN ("
+                + placeholders
+                + ") ORDER BY job_id");
+    int parameter = 1;
+    for (Long id : ids) {
+      tagQuery.setParameter(parameter++, id);
+    }
+    @SuppressWarnings("unchecked")
+    List<Object[]> rows = tagQuery.getResultList();
     for (Object[] row : rows) {
       long jid = ((Number) row[0]).longValue();
       String tag = (String) row[1];
@@ -2745,8 +2812,8 @@ public class MysqlJobStore implements JobStore {
                     + "c.terminal_status, c.rec_status "
                     + "FROM scheduler_job c "
                     + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
-                    + "WHERE c.job_id = :id")
-            .setParameter("id", id)
+                    + "WHERE c.job_id = ?")
+            .setParameter(1, id)
             .getResultList();
     if (rows.isEmpty()) {
       throw new IllegalStateException("save() called on missing job id=" + id);
@@ -2881,26 +2948,37 @@ public class MysqlJobStore implements JobStore {
   private boolean[] batchClaimRowsJpa(List<Long> jobIds, String nodeId, Instant now) {
     Timestamp nowTs = Timestamp.from(now);
     try {
-      em.createNativeQuery(
-              "UPDATE scheduler_job_queue SET status = 'RUNNING', picked_by = :node, "
-                  + "picked_at = :pickedAt, updated_at = :updatedAt, version = version + 1 "
-                  + "WHERE job_id IN (:ids) AND status = 'PENDING' ORDER BY job_id ASC")
-          .setParameter("node", nodeId)
-          .setParameter("pickedAt", nowTs)
-          .setParameter("updatedAt", nowTs)
-          .setParameter("ids", jobIds)
-          .executeUpdate();
-
-      @SuppressWarnings("unchecked")
-      List<Number> claimedRows =
+      String placeholders = String.join(",", Collections.nCopies(jobIds.size(), "?"));
+      Query updateQuery =
           em.createNativeQuery(
-                  "SELECT job_id FROM scheduler_job_queue WHERE job_id IN (:ids) "
-                      + "AND status = 'RUNNING' AND picked_by = :node AND picked_at = :pickedAt "
-                      + "ORDER BY job_id ASC")
-              .setParameter("ids", jobIds)
-              .setParameter("node", nodeId)
-              .setParameter("pickedAt", nowTs)
-              .getResultList();
+              "UPDATE scheduler_job_queue SET status = 'RUNNING', picked_by = ?, "
+                  + "picked_at = ?, updated_at = ?, version = version + 1 "
+                  + "WHERE job_id IN ("
+                  + placeholders
+                  + ") AND status = 'PENDING' ORDER BY job_id ASC");
+      int parameter = 1;
+      updateQuery.setParameter(parameter++, nodeId);
+      updateQuery.setParameter(parameter++, nowTs);
+      updateQuery.setParameter(parameter++, nowTs);
+      for (Long id : jobIds) {
+        updateQuery.setParameter(parameter++, id);
+      }
+      updateQuery.executeUpdate();
+
+      Query selectQuery =
+          em.createNativeQuery(
+              "SELECT job_id FROM scheduler_job_queue WHERE job_id IN ("
+                  + placeholders
+                  + ") AND status = 'RUNNING' AND picked_by = ? AND picked_at = ? "
+                  + "ORDER BY job_id ASC");
+      parameter = 1;
+      for (Long id : jobIds) {
+        selectQuery.setParameter(parameter++, id);
+      }
+      selectQuery.setParameter(parameter++, nodeId);
+      selectQuery.setParameter(parameter++, nowTs);
+      @SuppressWarnings("unchecked")
+      List<Number> claimedRows = selectQuery.getResultList();
 
       Set<Long> claimedIds = new HashSet<>(claimedRows.size());
       for (Number claimedRow : claimedRows) {
