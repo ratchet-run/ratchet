@@ -63,13 +63,12 @@ public class RatchetArchiveBuilder {
   }
 
   public RatchetArchiveBuilder addPersistenceXml(String dbType) {
-    String dialect =
-        switch (dbType) {
-          case "mysql" -> "org.hibernate.dialect.MySQLDialect";
-          case "postgresql" -> "org.hibernate.dialect.PostgreSQLDialect";
-          default -> throw new IllegalArgumentException("Unsupported db type: " + dbType);
-        };
-
+    if (!dbType.equals("mysql") && !dbType.equals("postgresql")) {
+      throw new IllegalArgumentException("Unsupported db type: " + dbType);
+    }
+    // No <provider> or hibernate.dialect pin — WildFly auto-discovers via ServiceLoader and the
+    // JPA provider auto-detects the dialect from the JDBC URL exposed by RatchetDS. Remaining
+    // property keys are opt-in Hibernate tuning and no-op under any other JPA provider.
     String persistenceXml =
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
             + "<persistence xmlns=\"https://jakarta.ee/xml/ns/persistence\"\n"
@@ -93,9 +92,6 @@ public class RatchetArchiveBuilder {
             + "    <class>run.ratchet.store.entity.LockEntity</class>\n"
             + "    <exclude-unlisted-classes>true</exclude-unlisted-classes>\n"
             + "    <properties>\n"
-            + "      <property name=\"hibernate.dialect\" value=\""
-            + dialect
-            + "\"/>\n"
             + "      <property name=\"hibernate.hbm2ddl.auto\" value=\"none\"/>\n"
             + "      <property name=\"hibernate.show_sql\" value=\"true\"/>\n"
             + "      <property name=\"hibernate.connection.isolation\" value=\"2\"/>\n"

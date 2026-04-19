@@ -32,8 +32,9 @@ public class MysqlTestFixture extends JpaContainerFixture {
 
   @Override
   protected Map<String, Object> jpaProperties() {
+    // No hibernate.dialect pin — Hibernate 6 auto-detects from the JDBC URL. Remaining keys are
+    // opt-in Hibernate tuning and no-op under any other JPA provider.
     return Map.of(
-        "hibernate.dialect", "org.hibernate.dialect.MySQLDialect",
         "hibernate.hbm2ddl.auto", "none",
         "hibernate.show_sql", "false",
         "hibernate.format_sql", "false",
