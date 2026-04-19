@@ -2063,7 +2063,12 @@ public class MysqlJobStore implements JobStore {
 
   @Override
   public ArchivedJobEntity archiveJob(JobEntity job, String reason, String archivedBy) {
-    ArchivedJobEntity archive = buildArchive(job, reason, archivedBy);
+    // Re-fetch with tags hydrated before building the archive record. The incoming job may be
+    // detached (e.g. when the caller obtained it from a prior transaction), in which case
+    // buildArchive's tags access would throw LazyInitializationException. JPQL JOIN FETCH is
+    // JPA-spec portable and hydrates the collection in a single query.
+    JobEntity hydrated = hydrateForArchive(job);
+    ArchivedJobEntity archive = buildArchive(hydrated, reason, archivedBy);
     em.persist(archive);
     return archive;
   }
@@ -2072,10 +2077,19 @@ public class MysqlJobStore implements JobStore {
   public int archiveJobsBatch(List<JobEntity> jobs, String reason, String archivedBy) {
     int count = 0;
     for (JobEntity job : jobs) {
-      em.persist(buildArchive(job, reason, archivedBy));
+      archiveJob(job, reason, archivedBy);
       count++;
     }
     return count;
+  }
+
+  private JobEntity hydrateForArchive(JobEntity job) {
+    // MySQL's CP1 hot/cold split means JPQL on JobEntity can't auto-hydrate — the entity has
+    // fields (attempts, status, picked_*, etc.) that live in scheduler_job_queue, not
+    // scheduler_job. findById already does the cross-table hydrate + loads tags eagerly, so
+    // just reuse it.
+    return findById(job.getId())
+        .orElseThrow(() -> new IllegalStateException("Job not found for archival: " + job.getId()));
   }
 
   @Override

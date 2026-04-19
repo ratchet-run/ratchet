@@ -1246,9 +1246,22 @@ public class PostgresqlJobStore implements JobStore {
 
   @Override
   public ArchivedJobEntity archiveJob(JobEntity job, String reason, String archivedBy) {
-    ArchivedJobEntity archive = buildArchive(job, reason, archivedBy);
+    // Re-fetch with tags hydrated before building the archive record. The incoming job may be
+    // detached (e.g. when the caller obtained it from a prior transaction), in which case
+    // buildArchive's tags access would throw LazyInitializationException. JPQL JOIN FETCH is
+    // JPA-spec portable and hydrates the collection in a single query.
+    JobEntity hydrated = hydrateForArchive(job);
+    ArchivedJobEntity archive = buildArchive(hydrated, reason, archivedBy);
     em.persist(archive);
     return archive;
+  }
+
+  private JobEntity hydrateForArchive(JobEntity job) {
+    return em.createQuery(
+            "SELECT DISTINCT j FROM JobEntity j LEFT JOIN FETCH j.tags WHERE j.id = :id",
+            JobEntity.class)
+        .setParameter("id", job.getId())
+        .getSingleResult();
   }
 
   @Override
