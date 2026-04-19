@@ -160,10 +160,11 @@ Pre-configured profiles for common use cases:
 
 | Profile | Use Case | Failure Threshold | Sliding Window | Wait Duration |
 |---|---|---|---|---|
-| `DEFAULT` | General internal services | 50% | 100 calls | 60 seconds |
+| `DEFAULT` | General internal services | 50% | 100 calls | 30 seconds |
 | `FAST` | Quick failure detection | 50% | 20 calls | 10 seconds |
 | `CRITICAL` | High-availability services | 75% | 200 calls | 60 seconds |
 | `EXTERNAL_API` | Third-party integrations | 60% | 50 calls | 60 seconds |
+| `CLAIM_PATH` | Poller store-claim path | 50% | 20 calls | 5 seconds |
 
 ### Examples
 

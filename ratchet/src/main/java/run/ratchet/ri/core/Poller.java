@@ -1,6 +1,10 @@
 package run.ratchet.ri.core;
 
+import run.ratchet.api.CircuitBreakerProfile;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.ri.resilience.CircuitBreaker;
+import run.ratchet.ri.resilience.CircuitBreakerRegistry;
+import run.ratchet.ri.resilience.ServiceUnavailableException;
 import run.ratchet.ri.util.RatchetConfiguration;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
@@ -23,6 +27,7 @@ import org.jboss.logging.Logger;
 public class Poller {
 
   private static final Logger log = Logger.getLogger(Poller.class);
+  private static final String CLAIM_BREAKER_NAME = "store.claim";
   private static final JobExecutionType[] POLLER_EXECUTABLE_TYPES = {
     JobExecutionType.SINGLE,
     JobExecutionType.BATCH_CHILD,
@@ -42,6 +47,8 @@ public class Poller {
   private final RatchetConfiguration config;
   private final MetricsCollector metricsCollector;
   private final PollingStrategyProvider pollingStrategyProvider;
+  private final CircuitBreaker claimCircuitBreaker;
+  private final boolean claimCircuitBreakerEnabled;
   private final int batchSize;
   private final int claimHeadroomFactor;
 
@@ -58,6 +65,8 @@ public class Poller {
     this.config = null;
     this.metricsCollector = null;
     this.pollingStrategyProvider = null;
+    this.claimCircuitBreaker = null;
+    this.claimCircuitBreakerEnabled = false;
     this.batchSize = 0;
     this.claimHeadroomFactor = 0;
   }
@@ -71,6 +80,8 @@ public class Poller {
       PollerScheduler pollerScheduler,
       RatchetConfiguration config,
       MetricsCollector metricsCollector,
+      CircuitBreakerRegistry circuitBreakerRegistry,
+      boolean claimCircuitBreakerEnabled,
       PollingStrategyProvider pollingStrategyProvider,
       int batchSize) {
     this.jobClaimStore = jobClaimStore;
@@ -81,6 +92,12 @@ public class Poller {
     this.pollerScheduler = pollerScheduler;
     this.config = config;
     this.metricsCollector = metricsCollector;
+    this.claimCircuitBreakerEnabled = claimCircuitBreakerEnabled;
+    this.claimCircuitBreaker =
+        claimCircuitBreakerEnabled && circuitBreakerRegistry != null
+            ? circuitBreakerRegistry.getBreaker(
+                CLAIM_BREAKER_NAME, CircuitBreakerProfile.CLAIM_PATH)
+            : null;
     this.pollingStrategyProvider = pollingStrategyProvider;
     this.batchSize = batchSize;
     this.claimHeadroomFactor = Math.max(0, config.getPollerClaimHeadroomFactor());
@@ -110,6 +127,7 @@ public class Poller {
                 batchSize));
 
     pollerScheduler.start();
+    publishClaimBreakerState();
 
     log.infof("Poller initialized (batch=%s)", batchSize);
   }
@@ -173,10 +191,15 @@ public class Poller {
 
     List<JobClaimDto> claims;
     try {
-      claims = claimJobsByTypeBudget();
+      claims = claimJobsWithCircuitBreaker();
     } catch (RatchetTransientStoreException e) {
+      publishClaimBreakerState();
       return handleTransientClaimFailure(pollStartTime, e);
+    } catch (ServiceUnavailableException e) {
+      publishClaimBreakerState();
+      return handleOpenCircuit(pollStartTime, e);
     }
+    publishClaimBreakerState();
 
     int jobCount = claims.size();
     if (jobCount > 0) {
@@ -211,7 +234,8 @@ public class Poller {
       }
       int claimLimit = computeClaimLimit(availableCapacity);
       try {
-        List<JobClaimDto> claimed = jobClaimStore.claimNextBatchOptimized(jobType, claimLimit, nodeId);
+        List<JobClaimDto> claimed =
+            jobClaimStore.claimNextBatchOptimized(jobType, claimLimit, nodeId);
         if (metricsCollector != null && !claimed.isEmpty()) {
           metricsCollector.jobsClaimed(jobType.name(), claimed.size());
         }
@@ -226,11 +250,40 @@ public class Poller {
     return claims;
   }
 
+  private List<JobClaimDto> claimJobsWithCircuitBreaker() {
+    if (!claimCircuitBreakerEnabled || claimCircuitBreaker == null) {
+      return claimJobsByTypeBudget();
+    }
+    try {
+      return claimCircuitBreaker.execute(this::claimJobsByTypeBudget);
+    } catch (Exception e) {
+      if (e instanceof RatchetTransientStoreException transientStoreException) {
+        throw transientStoreException;
+      }
+      if (e instanceof ServiceUnavailableException serviceUnavailableException) {
+        throw serviceUnavailableException;
+      }
+      if (e instanceof RuntimeException runtimeException) {
+        throw runtimeException;
+      }
+      throw new RuntimeException("Unexpected checked exception while claiming jobs", e);
+    }
+  }
+
   private long handleTransientClaimFailure(long pollStartTime, RatchetTransientStoreException e) {
     updateSystemLoadFactor();
     log.warnf("Transient claim store failure: %s", e.getMessage());
     long baseDelay = strategy.recordPollResult(0, pollStartTime);
     return Math.min(config.getPollerMaxDelayMs(), Math.max(baseDelay, 1L) * 2L);
+  }
+
+  private long handleOpenCircuit(long pollStartTime, ServiceUnavailableException e) {
+    updateSystemLoadFactor();
+    log.warnf("Claim path circuit breaker open: %s", e.getMessage());
+    long baseDelay = strategy.recordPollResult(0, pollStartTime);
+    long breakerDelay =
+        claimCircuitBreaker != null ? claimCircuitBreaker.getWaitDurationMs() : baseDelay;
+    return Math.min(config.getPollerMaxDelayMs(), Math.max(baseDelay, breakerDelay));
   }
 
   private int computeClaimLimit(int availableCapacity) {
@@ -257,6 +310,13 @@ public class Poller {
     if (poolCount > 0) {
       double avgUtilization = totalUtilization / poolCount;
       strategy.updateSystemLoadFactor(avgUtilization);
+    }
+  }
+
+  private void publishClaimBreakerState() {
+    if (metricsCollector != null && claimCircuitBreakerEnabled && claimCircuitBreaker != null) {
+      metricsCollector.pollerBreakerState(
+          CLAIM_BREAKER_NAME, claimCircuitBreaker.getState().name());
     }
   }
 }

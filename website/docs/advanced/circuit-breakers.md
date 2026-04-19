@@ -104,7 +104,7 @@ public void sendPasswordReset(String to) { ... }
 
 ## CircuitBreakerProfile
 
-Ratchet ships with four pre-configured profiles, each tuned for a different use case:
+Ratchet ships with five pre-configured profiles, each tuned for a different use case:
 
 ### DEFAULT
 
@@ -158,6 +158,19 @@ Tuned for third-party integrations with higher latency tolerance and longer reco
 | Permitted calls in HALF_OPEN | 3 |
 | Minimum calls before evaluation | 5 |
 
+### CLAIM_PATH
+
+Internal profile used by the poller when claiming work from the store. It trips quickly, recovers quickly, and uses a single half-open probe so a sick database does not keep every poll tick busy-looping on transient failures.
+
+| Parameter | Value |
+|-----------|-------|
+| Failure rate threshold | 50% |
+| Sliding window size | 20 calls |
+| Wait duration (OPEN) | 5 seconds |
+| Slow call threshold | 2 seconds |
+| Permitted calls in HALF_OPEN | 1 |
+| Minimum calls before evaluation | 5 |
+
 ## Profile Overrides via Configuration
 
 Profile defaults can be overridden per-deployment using Ratchet config. The preferred environment variable prefix is `RATCHET_CB_<PROFILE>_`:
@@ -174,6 +187,9 @@ export RATCHET_CB_DEFAULT_MIN_CALLS=10
 # Override EXTERNAL_API profile
 export RATCHET_CB_EXTERNAL_FAILURE_RATE=40
 export RATCHET_CB_EXTERNAL_WAIT_MS=120000
+
+# Override CLAIM_PATH profile
+export RATCHET_CB_CLAIM_PATH_WAIT_MS=10000
 ```
 
 The default `CircuitBreakerConfigProvider` reads these values through `RatchetConfig`. Legacy `SCHEDULER_CB_<PROFILE>_...` names are still checked as fallbacks. `RATCHET_CB_<PROFILE>_WAIT_SECONDS` is also supported for existing deployments.

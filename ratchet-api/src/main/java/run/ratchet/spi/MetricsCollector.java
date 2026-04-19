@@ -90,4 +90,14 @@ public interface MetricsCollector {
   default void storeOperation(String store, String operation, String outcome, long durationNanos) {
     // default no-op
   }
+
+  /**
+   * Called when the poller updates its claim-path circuit breaker state.
+   *
+   * @param breakerName logical breaker identifier, e.g. {@code store.claim}
+   * @param state breaker state enum name, e.g. {@code CLOSED} or {@code OPEN}
+   */
+  default void pollerBreakerState(String breakerName, String state) {
+    // default no-op
+  }
 }

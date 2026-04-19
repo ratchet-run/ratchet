@@ -1,16 +1,23 @@
 package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import run.ratchet.api.CircuitBreakerProfile;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.ri.resilience.CircuitBreaker;
+import run.ratchet.ri.resilience.CircuitBreakerConfiguration;
+import run.ratchet.ri.resilience.CircuitBreakerRegistry;
 import run.ratchet.ri.util.RatchetConfiguration;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
@@ -38,8 +45,10 @@ class PollerTest {
   @Mock private PollerScheduler pollerScheduler;
   @Mock private RatchetConfiguration config;
   @Mock private MetricsCollector metricsCollector;
+  @Mock private CircuitBreakerRegistry circuitBreakerRegistry;
 
   private Poller poller;
+  private CircuitBreaker claimCircuitBreaker;
 
   @BeforeEach
   void setUp() {
@@ -52,19 +61,13 @@ class PollerTest {
     when(threadPoolManager.getThreadPoolHealth()).thenReturn(new EnumMap<>(JobExecutionType.class));
     when(nodeIdProvider.getNodeId()).thenReturn("node-1");
     when(drainController.isDraining()).thenReturn(false);
+    claimCircuitBreaker =
+        new CircuitBreaker(
+            "store.claim", new CircuitBreakerConfiguration(50.0f, 2, 5_000L, 2_000L, 1, 2));
+    when(circuitBreakerRegistry.getBreaker("store.claim", CircuitBreakerProfile.CLAIM_PATH))
+        .thenReturn(claimCircuitBreaker);
 
-    poller =
-        new Poller(
-            jobClaimStore,
-            jobExecutionCoordinator,
-            nodeIdProvider,
-            threadPoolManager,
-            drainController,
-            pollerScheduler,
-            config,
-            metricsCollector,
-            new DefaultPollingStrategyProvider(),
-            5);
+    poller = newPoller(true);
     poller.init();
   }
 
@@ -75,34 +78,8 @@ class PollerTest {
     when(threadPoolManager.getAvailableCapacity(JobExecutionType.CHAIN_STEP)).thenReturn(0);
     when(threadPoolManager.getAvailableCapacity(JobExecutionType.WORKFLOW_BRANCH)).thenReturn(0);
 
-    JobClaimDto singleClaim =
-        new JobClaimDto(
-            1L,
-            JobStatus.RUNNING,
-            JobExecutionType.SINGLE,
-            JobPriority.NORMAL,
-            Instant.now(),
-            0,
-            30,
-            "node-1",
-            Instant.now(),
-            "single",
-            0,
-            0);
-    JobClaimDto batchClaim =
-        new JobClaimDto(
-            2L,
-            JobStatus.RUNNING,
-            JobExecutionType.BATCH_CHILD,
-            JobPriority.NORMAL,
-            Instant.now(),
-            0,
-            30,
-            "node-1",
-            Instant.now(),
-            "batch",
-            0,
-            0);
+    JobClaimDto singleClaim = claim(1L, JobExecutionType.SINGLE, "single");
+    JobClaimDto batchClaim = claim(2L, JobExecutionType.BATCH_CHILD, "batch");
 
     when(jobClaimStore.claimNextBatchOptimized(JobExecutionType.SINGLE, 2, "node-1"))
         .thenReturn(List.of(singleClaim));
@@ -121,6 +98,7 @@ class PollerTest {
     verify(jobExecutionCoordinator).submit(batchClaim);
     verify(metricsCollector).jobsClaimed(JobExecutionType.SINGLE.name(), 1);
     verify(metricsCollector).jobsClaimed(JobExecutionType.BATCH_CHILD.name(), 1);
+    verify(metricsCollector, atLeastOnce()).pollerBreakerState("store.claim", "CLOSED");
     assertEquals(4000L, nextDelay);
   }
 
@@ -136,5 +114,81 @@ class PollerTest {
     verify(metricsCollector).claimTransientFailure(JobExecutionType.SINGLE.name());
     verify(metricsCollector, never()).jobsClaimed(anyString(), anyInt());
     assertEquals(4000L, nextDelay);
+  }
+
+  @Test
+  void tick_consecutiveTransientFailuresTripBreakerAndSkipSubsequentClaim() {
+    when(threadPoolManager.getAvailableCapacity(JobExecutionType.SINGLE)).thenReturn(1);
+    when(jobClaimStore.claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-1"))
+        .thenThrow(new RatchetTransientStoreException("deadlock"));
+
+    poller.tick();
+    poller.tick();
+    long nextDelay = poller.tick();
+
+    verify(jobClaimStore, times(2)).claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-1");
+    verify(metricsCollector, atLeastOnce()).pollerBreakerState("store.claim", "OPEN");
+    assertEquals(CircuitBreaker.State.OPEN, claimCircuitBreaker.getState());
+    assertTrue(nextDelay >= 5_000L);
+  }
+
+  @Test
+  void tick_halfOpenProbeRecoversAfterOpenWait() {
+    claimCircuitBreaker =
+        new CircuitBreaker(
+            "store.claim", new CircuitBreakerConfiguration(50.0f, 2, 0L, 2_000L, 1, 2));
+    when(circuitBreakerRegistry.getBreaker("store.claim", CircuitBreakerProfile.CLAIM_PATH))
+        .thenReturn(claimCircuitBreaker);
+    poller = newPoller(true);
+    poller.init();
+
+    when(threadPoolManager.getAvailableCapacity(JobExecutionType.SINGLE)).thenReturn(1);
+    when(jobClaimStore.claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-1"))
+        .thenThrow(new RatchetTransientStoreException("deadlock"))
+        .thenThrow(new RatchetTransientStoreException("deadlock"))
+        .thenReturn(List.of(claim(3L, JobExecutionType.SINGLE, "recovered")));
+
+    poller.tick();
+    poller.tick();
+    long nextDelay = poller.tick();
+
+    verify(jobClaimStore, times(3)).claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-1");
+    verify(jobExecutionCoordinator).submit(any(JobClaimDto.class));
+    verify(metricsCollector, atLeastOnce()).pollerBreakerState("store.claim", "HALF_OPEN");
+    verify(metricsCollector, atLeastOnce()).pollerBreakerState("store.claim", "CLOSED");
+    assertEquals(CircuitBreaker.State.CLOSED, claimCircuitBreaker.getState());
+    assertEquals(4_000L, nextDelay);
+  }
+
+  private Poller newPoller(boolean breakerEnabled) {
+    return new Poller(
+        jobClaimStore,
+        jobExecutionCoordinator,
+        nodeIdProvider,
+        threadPoolManager,
+        drainController,
+        pollerScheduler,
+        config,
+        metricsCollector,
+        circuitBreakerRegistry,
+        breakerEnabled,
+        new DefaultPollingStrategyProvider(),
+        5);
+  }
+
+  private JobClaimDto claim(long jobId, JobExecutionType jobType, String type) {
+    return new JobClaimDto(
+        jobId,
+        JobStatus.RUNNING,
+        jobType,
+        JobPriority.NORMAL,
+        Instant.now(),
+        0,
+        30,
+        "node-1",
+        Instant.now(),
+        type,
+        0,
+        0);
   }
 }

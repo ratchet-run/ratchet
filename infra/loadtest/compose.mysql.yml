@@ -4,7 +4,7 @@ services:
       args:
         STORE: mysql
     environment:
-      DB_URL: "jdbc:mysql://mysql:3306/ratchet?sessionVariables=transaction_isolation='READ-COMMITTED'"
+      DB_URL: "${DB_URL:-jdbc:mysql://mysql:3306/ratchet?sessionVariables=transaction_isolation='READ-COMMITTED'&cachePrepStmts=true&prepStmtCacheSize=250&prepStmtCacheSqlLimit=2048&useServerPrepStmts=true}"
       DB_USERNAME: "ratchet"
       DB_PASSWORD: "ratchet"
       DB_MIN_POOL_SIZE: "${DB_MIN_POOL_SIZE:-2}"

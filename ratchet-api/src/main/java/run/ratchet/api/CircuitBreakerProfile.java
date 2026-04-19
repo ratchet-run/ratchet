@@ -9,6 +9,7 @@ package run.ratchet.api;
  *   <li><b>FAST</b> — Quick failure detection (50% threshold, 20-call window, 10s wait)
  *   <li><b>CRITICAL</b> — High-availability services (75% threshold, 200-call window, 60s wait)
  *   <li><b>EXTERNAL_API</b> — Third-party integrations (60% threshold, 50-call window, 60s wait)
+ *   <li><b>CLAIM_PATH</b> — Poller store-claim path (50% threshold, 20-call window, 5s wait)
  * </ul>
  */
 @Incubating
@@ -16,5 +17,6 @@ public enum CircuitBreakerProfile {
   DEFAULT,
   FAST,
   CRITICAL,
-  EXTERNAL_API
+  EXTERNAL_API,
+  CLAIM_PATH
 }

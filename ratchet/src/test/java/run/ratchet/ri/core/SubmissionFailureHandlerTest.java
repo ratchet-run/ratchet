@@ -8,7 +8,6 @@ import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobStatus;
-import run.ratchet.store.spi.JobCrudStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -18,7 +17,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class SubmissionFailureHandlerTest {
 
-  @Mock private JobCrudStore jobCrudStore;
   @Mock private JobStateManager jobStateManager;
   @Mock private RetryBufferManager retryBufferManager;
   @Mock private ThreadPoolManager threadPoolManager;
@@ -31,7 +29,6 @@ class SubmissionFailureHandlerTest {
   void setUp() {
     handler =
         new SubmissionFailureHandler(
-            jobCrudStore,
             jobStateManager,
             retryBufferManager,
             threadPoolManager,

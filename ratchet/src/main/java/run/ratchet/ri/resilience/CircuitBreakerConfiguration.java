@@ -35,11 +35,15 @@ public record CircuitBreakerConfiguration(
   public static final CircuitBreakerConfiguration EXTERNAL_API =
       new CircuitBreakerConfiguration(60.0f, 50, 60_000L, 5_000L, 3, 5);
 
+  public static final CircuitBreakerConfiguration CLAIM_PATH =
+      new CircuitBreakerConfiguration(50.0f, 20, 5_000L, 2_000L, 1, 5);
+
   public static CircuitBreakerConfiguration forProfile(CircuitBreakerProfile profile) {
     return switch (profile) {
       case FAST -> FAST;
       case CRITICAL -> CRITICAL;
       case EXTERNAL_API -> EXTERNAL_API;
+      case CLAIM_PATH -> CLAIM_PATH;
       default -> DEFAULT;
     };
   }

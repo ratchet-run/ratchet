@@ -214,7 +214,8 @@ public class RatchetProducer {
       NodeIdentityProvider nodeIdProvider,
       ThreadPoolManager threadPoolManager,
       DrainController drainController,
-      PollerScheduler pollerScheduler) {
+      PollerScheduler pollerScheduler,
+      CircuitBreakerRegistry circuitBreakerRegistry) {
     int batchSize = config.getPollerBatchSize();
     return new Poller(
         jobClaimStore,
@@ -225,6 +226,8 @@ public class RatchetProducer {
         pollerScheduler,
         config,
         metricsCollector,
+        circuitBreakerRegistry,
+        circuitBreakerConfigProvider.isEnabled(),
         pollingStrategyProvider,
         batchSize);
   }
