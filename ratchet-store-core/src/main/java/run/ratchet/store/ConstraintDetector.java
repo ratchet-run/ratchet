@@ -14,4 +14,6 @@ public interface ConstraintDetector {
   boolean isDuplicateKey(Exception e);
 
   boolean isDeadlock(Exception e);
+
+  boolean isTransientConnectionFailure(Exception e);
 }

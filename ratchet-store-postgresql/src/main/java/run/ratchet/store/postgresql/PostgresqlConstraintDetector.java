@@ -1,7 +1,9 @@
 package run.ratchet.store.postgresql;
 
 import run.ratchet.store.ConstraintDetector;
+import java.sql.SQLRecoverableException;
 import java.sql.SQLException;
+import java.sql.SQLTransientException;
 
 /** PostgreSQL-specific constraint violation detector. */
 public class PostgresqlConstraintDetector implements ConstraintDetector {
@@ -9,6 +11,9 @@ public class PostgresqlConstraintDetector implements ConstraintDetector {
   private static final String SQLSTATE_UNIQUE_VIOLATION = "23505";
   private static final String SQLSTATE_DEADLOCK = "40P01";
   private static final String SQLSTATE_SERIALIZATION_FAILURE = "40001";
+  private static final String SQLSTATE_ADMIN_SHUTDOWN = "57P01";
+  private static final String SQLSTATE_CRASH_SHUTDOWN = "57P02";
+  private static final String SQLSTATE_CANNOT_CONNECT_NOW = "57P03";
 
   private static SQLException findSqlException(Throwable t) {
     while (t != null) {
@@ -64,5 +69,26 @@ public class PostgresqlConstraintDetector implements ConstraintDetector {
     }
     return SQLSTATE_DEADLOCK.equals(sql.getSQLState())
         || SQLSTATE_SERIALIZATION_FAILURE.equals(sql.getSQLState());
+  }
+
+  @Override
+  public boolean isTransientConnectionFailure(Exception e) {
+    Throwable current = e;
+    while (current != null) {
+      if (current instanceof SQLTransientException || current instanceof SQLRecoverableException) {
+        return true;
+      }
+      if (current instanceof SQLException sql) {
+        String sqlState = sql.getSQLState();
+        if ((sqlState != null && sqlState.startsWith("08"))
+            || SQLSTATE_ADMIN_SHUTDOWN.equals(sqlState)
+            || SQLSTATE_CRASH_SHUTDOWN.equals(sqlState)
+            || SQLSTATE_CANNOT_CONNECT_NOW.equals(sqlState)) {
+          return true;
+        }
+      }
+      current = current.getCause();
+    }
+    return false;
   }
 }

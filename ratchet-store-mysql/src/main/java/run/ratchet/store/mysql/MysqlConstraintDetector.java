@@ -1,7 +1,9 @@
 package run.ratchet.store.mysql;
 
 import run.ratchet.store.ConstraintDetector;
+import java.sql.SQLRecoverableException;
 import java.sql.SQLException;
+import java.sql.SQLTransientException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -11,6 +13,12 @@ public class MysqlConstraintDetector implements ConstraintDetector {
   private static final Pattern CONSTRAINT_NAME_PATTERN = Pattern.compile("for key '([^']+)'");
   private static final int DEADLOCK_ERROR_CODE = 1213;
   private static final int LOCK_WAIT_TIMEOUT_ERROR_CODE = 1205;
+  private static final int CONNECTION_REFUSED_ERROR_CODE = 2002;
+  private static final int CONNECTION_FAILED_ERROR_CODE = 2003;
+  private static final int SERVER_GONE_AWAY_ERROR_CODE = 2006;
+  private static final int LOST_CONNECTION_ERROR_CODE = 2013;
+  private static final String COMMUNICATIONS_EXCEPTION =
+      "com.mysql.cj.exceptions.CommunicationsException";
 
   @Override
   public String constraintName(Exception e) {
@@ -67,6 +75,31 @@ public class MysqlConstraintDetector implements ConstraintDetector {
       if (msg != null
           && (msg.contains("Deadlock found") || msg.contains("Lock wait timeout exceeded"))) {
         return true;
+      }
+      current = current.getCause();
+    }
+    return false;
+  }
+
+  @Override
+  public boolean isTransientConnectionFailure(Exception e) {
+    Throwable current = e;
+    while (current != null) {
+      if (current instanceof SQLTransientException || current instanceof SQLRecoverableException) {
+        return true;
+      }
+      if (COMMUNICATIONS_EXCEPTION.equals(current.getClass().getName())) {
+        return true;
+      }
+      if (current instanceof SQLException sql) {
+        String sqlState = sql.getSQLState();
+        if ((sqlState != null && sqlState.startsWith("08"))
+            || sql.getErrorCode() == CONNECTION_REFUSED_ERROR_CODE
+            || sql.getErrorCode() == CONNECTION_FAILED_ERROR_CODE
+            || sql.getErrorCode() == SERVER_GONE_AWAY_ERROR_CODE
+            || sql.getErrorCode() == LOST_CONNECTION_ERROR_CODE) {
+          return true;
+        }
       }
       current = current.getCause();
     }

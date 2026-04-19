@@ -1,6 +1,10 @@
 package run.ratchet.store.mongodb;
 
 import com.mongodb.MongoCommandException;
+import com.mongodb.MongoException;
+import com.mongodb.MongoNodeIsRecoveringException;
+import com.mongodb.MongoNotPrimaryException;
+import com.mongodb.MongoSocketException;
 import com.mongodb.MongoWriteException;
 import run.ratchet.store.ConstraintDetector;
 
@@ -56,6 +60,24 @@ public class MongoConstraintDetector implements ConstraintDetector {
     }
     MongoWriteException mwe = findWriteException(e);
     return mwe != null && mwe.getCode() == WRITE_CONFLICT_CODE;
+  }
+
+  @Override
+  public boolean isTransientConnectionFailure(Exception e) {
+    Throwable current = e;
+    while (current != null) {
+      if (current instanceof MongoSocketException
+          || current instanceof MongoNotPrimaryException
+          || current instanceof MongoNodeIsRecoveringException) {
+        return true;
+      }
+      if (current instanceof MongoException mongoException
+          && mongoException.hasErrorLabel("RetryableWriteError")) {
+        return true;
+      }
+      current = current.getCause();
+    }
+    return false;
   }
 
   private static MongoWriteException findWriteException(Throwable t) {

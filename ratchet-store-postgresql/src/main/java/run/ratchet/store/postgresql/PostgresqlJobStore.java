@@ -1691,7 +1691,7 @@ public class PostgresqlJobStore implements JobStore {
   }
 
   private RuntimeException translateTransientStoreException(String operation, RuntimeException e) {
-    if (CONSTRAINT_DETECTOR.isDeadlock(e)) {
+    if (CONSTRAINT_DETECTOR.isDeadlock(e) || CONSTRAINT_DETECTOR.isTransientConnectionFailure(e)) {
       return new RatchetTransientStoreException(
           "Transient PostgreSQL store concurrency failure during " + operation, e);
     }

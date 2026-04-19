@@ -1151,7 +1151,7 @@ public class MysqlJobStore implements JobStore {
         "mark_succeeded",
         () -> {
           try {
-            return doMarkTerminalSuccess(
+            return doMarkTerminalSuccessWithResult(
                 id, resultJson, resultType, start, end, durationMs, queueWaitMs);
           } catch (RuntimeException e) {
             throw translateTransientStoreException("mark job succeeded", e);
@@ -1167,7 +1167,7 @@ public class MysqlJobStore implements JobStore {
         "mark_succeeded_minimal",
         () -> {
           try {
-            return doMarkTerminalSuccess(id, null, null, start, end, durationMs, queueWaitMs);
+            return doMarkTerminalSuccessMinimal(id, start, end, durationMs, queueWaitMs);
           } catch (RuntimeException e) {
             throw translateTransientStoreException("mark job succeeded minimally", e);
           }
@@ -1176,10 +1176,11 @@ public class MysqlJobStore implements JobStore {
   }
 
   /**
-   * Terminal-success transition: capture attempts, gate-DELETE the hot row, UPDATE cold to
-   * SUCCEEDED, drop bkres. Returns true iff the hot row was the gating RUNNING row.
+   * Terminal-success transition with a persisted result payload. Reads attempts directly from the
+   * hot row via UPDATE ... JOIN, then drops the hot row and any business-key reservation in a
+   * single multi-table DELETE.
    */
-  private boolean doMarkTerminalSuccess(
+  private boolean doMarkTerminalSuccessWithResult(
       long id,
       String resultJson,
       String resultType,
@@ -1187,43 +1188,79 @@ public class MysqlJobStore implements JobStore {
       Instant end,
       Long durationMs,
       Long queueWaitMs) {
-    Integer totalAttempts = readHotAttempts(id);
-    int hotDeleted =
+    int coldUpdated =
         em.createNativeQuery(
-                "DELETE FROM scheduler_job_queue WHERE job_id = :id AND status = 'RUNNING'")
+                "UPDATE scheduler_job c "
+                    + "JOIN scheduler_job_queue q ON q.job_id = c.job_id "
+                    + "SET c.terminal_status = 'SUCCEEDED', "
+                    + "c.job_result = CAST(:result AS JSON), c.result_type = :rtype, "
+                    + "c.execution_start_time = :start, c.execution_end_time = :end, "
+                    + "c.execution_duration_ms = :dur, c.queue_wait_ms = :qwait, "
+                    + "c.total_attempts = q.attempts, c.terminated_at = NOW(3) "
+                    + "WHERE c.job_id = :id AND c.terminal_status IS NULL "
+                    + "AND q.status = 'RUNNING'")
+            .setParameter("result", resultJson)
+            .setParameter("rtype", resultType)
+            .setParameter("start", start != null ? Timestamp.from(start) : null)
+            .setParameter("end", end != null ? Timestamp.from(end) : null)
+            .setParameter("dur", durationMs)
+            .setParameter("qwait", queueWaitMs)
             .setParameter("id", id)
             .executeUpdate();
-    if (hotDeleted == 0) {
+    if (coldUpdated == 0) {
       return false;
     }
-    em.createNativeQuery(
-            "UPDATE scheduler_job SET terminal_status = 'SUCCEEDED', "
-                + "job_result = CAST(:result AS JSON), result_type = :rtype, "
-                + "execution_start_time = :start, execution_end_time = :end, "
-                + "execution_duration_ms = :dur, queue_wait_ms = :qwait, "
-                + "total_attempts = :att, terminated_at = NOW(3) "
-                + "WHERE job_id = :id AND terminal_status IS NULL")
-        .setParameter("result", resultJson)
-        .setParameter("rtype", resultType)
-        .setParameter("start", start != null ? Timestamp.from(start) : null)
-        .setParameter("end", end != null ? Timestamp.from(end) : null)
-        .setParameter("dur", durationMs)
-        .setParameter("qwait", queueWaitMs)
-        .setParameter("att", totalAttempts)
-        .setParameter("id", id)
-        .executeUpdate();
-    deleteReservationByOwner(id);
+    deleteHotRowAndReservationAfterSuccess(id);
     return true;
   }
 
-  /** Reads the current hot row's attempts. Returns null if no hot row exists. */
-  private Integer readHotAttempts(long id) {
-    @SuppressWarnings("unchecked")
-    List<Number> rows =
-        em.createNativeQuery("SELECT attempts FROM scheduler_job_queue WHERE job_id = :id")
+  /**
+   * Minimal terminal-success transition for empty/noop results. Uses the same hot-row JOIN to
+   * capture attempts, but skips JSON/result columns entirely.
+   */
+  private boolean doMarkTerminalSuccessMinimal(
+      long id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
+    int coldUpdated =
+        em.createNativeQuery(
+                "UPDATE scheduler_job c "
+                    + "JOIN scheduler_job_queue q ON q.job_id = c.job_id "
+                    + "SET c.terminal_status = 'SUCCEEDED', "
+                    + "c.execution_start_time = :start, c.execution_end_time = :end, "
+                    + "c.execution_duration_ms = :dur, c.queue_wait_ms = :qwait, "
+                    + "c.total_attempts = q.attempts, c.terminated_at = NOW(3) "
+                    + "WHERE c.job_id = :id AND c.terminal_status IS NULL "
+                    + "AND q.status = 'RUNNING'")
+            .setParameter("start", start != null ? Timestamp.from(start) : null)
+            .setParameter("end", end != null ? Timestamp.from(end) : null)
+            .setParameter("dur", durationMs)
+            .setParameter("qwait", queueWaitMs)
             .setParameter("id", id)
-            .getResultList();
-    return rows.isEmpty() ? null : rows.get(0).intValue();
+            .executeUpdate();
+    if (coldUpdated == 0) {
+      return false;
+    }
+    deleteHotRowAndReservationAfterSuccess(id);
+    return true;
+  }
+
+  /**
+   * Drops the RUNNING hot row and any business-key reservation after a successful cold-row
+   * terminal transition. The preceding UPDATE ... JOIN ensures the hot row was the gating RUNNING
+   * row; if we fail to remove it here, the transaction should roll back.
+   */
+  private void deleteHotRowAndReservationAfterSuccess(long id) {
+    int deleted =
+        em.createNativeQuery(
+                "DELETE q, br FROM scheduler_job_queue q "
+                    + "LEFT JOIN scheduler_business_key_reservation br "
+                    + "ON br.owner_job_id = q.job_id "
+                    + "WHERE q.job_id = :id AND q.status = 'RUNNING'")
+            .setParameter("id", id)
+            .executeUpdate();
+    if (deleted == 0) {
+      throw new IllegalStateException(
+          "terminal success updated cold row but failed to remove hot row for job " + id);
+    }
   }
 
   @Override
@@ -2919,7 +2956,7 @@ public class MysqlJobStore implements JobStore {
   }
 
   private RuntimeException translateTransientStoreException(String operation, RuntimeException e) {
-    if (CONSTRAINT_DETECTOR.isDeadlock(e)) {
+    if (CONSTRAINT_DETECTOR.isDeadlock(e) || CONSTRAINT_DETECTOR.isTransientConnectionFailure(e)) {
       return new RatchetTransientStoreException(
           "Transient MySQL store concurrency failure during " + operation, e);
     }
