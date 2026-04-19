@@ -2,8 +2,10 @@ package run.ratchet.micrometer;
 
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
+import run.ratchet.spi.ExceptionFamily;
 import run.ratchet.spi.MetricsCollector;
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import jakarta.annotation.Priority;
@@ -11,6 +13,10 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Alternative;
 import jakarta.inject.Inject;
 import java.time.Duration;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.jboss.logging.Logger;
 
 /**
  * Metrics published:
@@ -18,7 +24,7 @@ import java.time.Duration;
  * <ul>
  *   <li>{@code ratchet.jobs.started} — counter, tagged by type and priority
  *   <li>{@code ratchet.jobs.completed} — counter, tagged by type
- *   <li>{@code ratchet.jobs.failed} — counter, tagged by type and exception class
+ *   <li>{@code ratchet.jobs.failed} — counter, tagged by type and exception family
  *   <li>{@code ratchet.jobs.duration} — timer, tagged by type
  *   <li>{@code ratchet.store.finalization.retries} — counter, tagged by type
  *   <li>{@code ratchet.store.finalization.minimal_success} — counter, tagged by type
@@ -29,7 +35,8 @@ import java.time.Duration;
  *   <li>{@code ratchet.wakeup.local} — counter, tagged by source
  *   <li>{@code ratchet.wakeup.cluster.publish} — counter, tagged by transport and outcome
  *   <li>{@code ratchet.wakeup.cluster.receive} — counter, tagged by transport and outcome
- *   <li>{@code ratchet.callbacks.failed} — counter, tagged by type and exception class
+ *   <li>{@code ratchet.callbacks.failed} — counter, tagged by type and exception family
+ *   <li>{@code ratchet.poller.breaker.state} — gauge, tagged by breaker
  *   <li>{@code ratchet.store.operation} — timer, tagged by store, operation, and outcome
  * </ul>
  */
@@ -38,7 +45,10 @@ import java.time.Duration;
 @ApplicationScoped
 public class MicrometerMetricsCollector implements MetricsCollector {
 
+  private static final Logger log = Logger.getLogger(MicrometerMetricsCollector.class);
+
   private final MeterRegistry registry;
+  private final Map<String, AtomicInteger> pollerBreakerStates = new ConcurrentHashMap<>();
 
   // Required by CDI proxy. The CDI proxy never invokes business methods on this instance —
   // every real call goes to the @Inject constructor below. We still guard the field below
@@ -85,11 +95,13 @@ public class MicrometerMetricsCollector implements MetricsCollector {
     if (registry == null) {
       return;
     }
+    ExceptionFamily family = ExceptionFamily.classify(cause);
     Counter.builder("ratchet.jobs.failed")
         .tag("type", type.name())
-        .tag("exception", cause.getClass().getSimpleName())
+        .tag("family", family.name())
         .register(registry)
         .increment();
+    logRawFailure("job", jobId, type, cause, family, attempt);
   }
 
   @Override
@@ -199,11 +211,13 @@ public class MicrometerMetricsCollector implements MetricsCollector {
     if (registry == null) {
       return;
     }
+    ExceptionFamily family = ExceptionFamily.classify(cause);
     Counter.builder("ratchet.callbacks.failed")
         .tag("type", type.name())
-        .tag("exception", cause.getClass().getSimpleName())
+        .tag("family", family.name())
         .register(registry)
         .increment();
+    logRawFailure("callback", jobId, type, cause, family, attempt);
   }
 
   @Override
@@ -217,5 +231,41 @@ public class MicrometerMetricsCollector implements MetricsCollector {
         .tag("outcome", outcome)
         .register(registry)
         .record(Duration.ofNanos(durationNanos));
+  }
+
+  @Override
+  public void pollerBreakerState(String breakerName, String state) {
+    if (registry == null || breakerName == null || breakerName.isBlank()) {
+      return;
+    }
+    AtomicInteger gaugeValue =
+        pollerBreakerStates.computeIfAbsent(
+            breakerName,
+            key -> {
+              AtomicInteger stateValue = new AtomicInteger();
+              Gauge.builder("ratchet.poller.breaker.state", stateValue, AtomicInteger::get)
+                  .tag("breaker", key)
+                  .register(registry);
+              return stateValue;
+            });
+    gaugeValue.set(toBreakerStateValue(state));
+  }
+
+  private void logRawFailure(
+      String context, long jobId, JobType type, Throwable cause, ExceptionFamily family, int attempt) {
+    String className = cause != null ? cause.getClass().getName() : "null";
+    log.warnf(
+        "%s failure recorded for job %d (type=%s, family=%s, attempt=%d, exception=%s)",
+        context, jobId, type.name(), family.name(), attempt, className);
+  }
+
+  private int toBreakerStateValue(String state) {
+    if ("OPEN".equals(state)) {
+      return 2;
+    }
+    if ("HALF_OPEN".equals(state)) {
+      return 1;
+    }
+    return 0;
   }
 }
