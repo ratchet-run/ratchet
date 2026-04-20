@@ -19,11 +19,13 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Enumeration;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.regex.Matcher;
@@ -120,10 +122,14 @@ public final class SchemaMigrator {
    */
   public List<MigrationScript> discoverMigrations() throws IOException {
     Map<String, MigrationScript> scripts = new HashMap<>();
+    Set<String> seenResources = new HashSet<>();
     Enumeration<URL> roots = classLoader.getResources(classpathPrefix);
     while (roots.hasMoreElements()) {
       URL root = roots.nextElement();
       for (String resourceName : resourceNames(root)) {
+        if (!seenResources.add(resourceName)) {
+          continue;
+        }
         MigrationScript script = readScript(resourceName);
         MigrationScript previous = scripts.putIfAbsent(script.version(), script);
         if (previous != null) {

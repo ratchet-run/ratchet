@@ -21,8 +21,8 @@ import org.jboss.logging.Logger;
  * <p>System property {@code ratchet.isolation-check}:
  *
  * <ul>
- *   <li>{@code warn} (default) — log {@code WARN} and continue
- *   <li>{@code fail} — throw {@link IsolationCheckFailedException}
+ *   <li>{@code fail} (default) — throw {@link IsolationCheckFailedException}
+ *   <li>{@code warn} — log {@code WARN} and continue
  *   <li>{@code disable} — skip the check entirely
  * </ul>
  *
@@ -61,19 +61,20 @@ public final class IsolationCheck {
 
   /**
    * Resolves the active mode from the {@link #SYSTEM_PROPERTY} system property. Defaults to {@link
-   * Mode#WARN} if the property is unset, empty, or unrecognized.
+   * Mode#FAIL} if the property is unset, empty, or unrecognized.
    *
    * @return current operating mode
    */
   public static Mode currentMode() {
     String prop = System.getProperty(SYSTEM_PROPERTY);
     if (prop == null || prop.isBlank()) {
-      return Mode.WARN;
+      return Mode.FAIL;
     }
     return switch (prop.trim().toLowerCase(Locale.ROOT)) {
+      case "warn" -> Mode.WARN;
       case "fail" -> Mode.FAIL;
       case "disable", "off", "false" -> Mode.DISABLE;
-      default -> Mode.WARN;
+      default -> Mode.FAIL;
     };
   }
 

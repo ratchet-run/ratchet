@@ -39,8 +39,8 @@ class IsolationCheckTest {
   }
 
   @Test
-  void currentModeDefaultsToWarn() {
-    assertEquals(IsolationCheck.Mode.WARN, IsolationCheck.currentMode());
+  void currentModeDefaultsToFail() {
+    assertEquals(IsolationCheck.Mode.FAIL, IsolationCheck.currentMode());
   }
 
   @Test
@@ -58,9 +58,15 @@ class IsolationCheckTest {
   }
 
   @Test
-  void currentModeFallsBackToWarnForUnknownValue() {
-    System.setProperty(IsolationCheck.SYSTEM_PROPERTY, "yelling");
+  void currentModeRespectsExplicitWarn() {
+    System.setProperty(IsolationCheck.SYSTEM_PROPERTY, "warn");
     assertEquals(IsolationCheck.Mode.WARN, IsolationCheck.currentMode());
+  }
+
+  @Test
+  void currentModeFallsBackToFailForUnknownValue() {
+    System.setProperty(IsolationCheck.SYSTEM_PROPERTY, "yelling");
+    assertEquals(IsolationCheck.Mode.FAIL, IsolationCheck.currentMode());
   }
 
   @Test
@@ -113,6 +119,7 @@ class IsolationCheckTest {
 
   @Test
   void verifyWarnsOnMismatchInWarnMode() {
+    System.setProperty(IsolationCheck.SYSTEM_PROPERTY, "warn");
     when(query8.getSingleResult()).thenReturn("REPEATABLE-READ");
     // No exception expected — WARN mode logs and continues.
     IsolationCheck.verifyReadCommitted(
