@@ -70,6 +70,8 @@ public class PostgresqlJobStore implements JobStore {
   private static final String EXECUTABLE_JOB_TYPE_FILTER =
       "job_type IN ('SINGLE','BATCH_CHILD','CHAIN_STEP','WORKFLOW_BRANCH')";
   private static final String RECURRING_JOB_TYPE_FILTER = "job_type = 'RECURRING'";
+  private static final String OWNER_TABLE_QUEUE = "QUEUE";
+  private static final String OWNER_TABLE_RECURRING = "RECURRING";
 
   @PersistenceContext private EntityManager em;
 
@@ -241,7 +243,9 @@ public class PostgresqlJobStore implements JobStore {
     @SuppressWarnings("unchecked")
     List<JobEntity> results =
         em.createNativeQuery(
-                "SELECT * FROM scheduler_job WHERE business_key = ? AND status IN ('PENDING','RUNNING','PAUSED') LIMIT 1",
+                "SELECT j.* FROM scheduler_business_key_reservation br "
+                    + "JOIN scheduler_job j ON j.job_id = br.owner_job_id "
+                    + "WHERE br.business_key = ? LIMIT 1",
                 JobEntity.class)
             .setParameter(1, businessKey)
             .getResultList();
@@ -515,13 +519,17 @@ public class PostgresqlJobStore implements JobStore {
 
   @Override
   public void updateJobStatus(long id, JobStatus status, String errorMessage) {
-    em.createNativeQuery(
-            "UPDATE scheduler_job SET status = ?, last_error = ?, "
-                + "updated_at = statement_timestamp() WHERE job_id = ?")
-        .setParameter(1, status.name())
-        .setParameter(2, errorMessage)
-        .setParameter(3, id)
-        .executeUpdate();
+    int updated =
+        em.createNativeQuery(
+                "UPDATE scheduler_job SET status = ?, last_error = ?, "
+                    + "updated_at = statement_timestamp() WHERE job_id = ?")
+            .setParameter(1, status.name())
+            .setParameter(2, errorMessage)
+            .setParameter(3, id)
+            .executeUpdate();
+    if (updated > 0) {
+      syncBusinessKeyReservation(id, status);
+    }
   }
 
   @Override
@@ -538,6 +546,13 @@ public class PostgresqlJobStore implements JobStore {
               .setParameter(3, id)
               .setParameter(4, expected.name())
               .executeUpdate();
+      if (updated > 0) {
+        if (isTerminalStatus(newStatus)) {
+          deleteReservationByOwner(id);
+        } else if (isTerminalStatus(expected)) {
+          syncBusinessKeyReservation(id, newStatus);
+        }
+      }
       return updated > 0;
     } catch (RuntimeException e) {
       throw translateTransientStoreException("compare-and-swap status", e);
@@ -600,6 +615,9 @@ public class PostgresqlJobStore implements JobStore {
               .setParameter(6, queueWaitMs)
               .setParameter(7, id)
               .executeUpdate();
+      if (updated > 0) {
+        deleteReservationByOwner(id);
+      }
       return updated > 0;
     } catch (RuntimeException e) {
       throw translateTransientStoreException("mark job succeeded", e);
@@ -623,6 +641,9 @@ public class PostgresqlJobStore implements JobStore {
               .setParameter(4, queueWaitMs)
               .setParameter(5, id)
               .executeUpdate();
+      if (updated > 0) {
+        deleteReservationByOwner(id);
+      }
       return updated > 0;
     } catch (RuntimeException e) {
       throw translateTransientStoreException("mark job succeeded minimally", e);
@@ -649,19 +670,24 @@ public class PostgresqlJobStore implements JobStore {
 
   @Override
   public boolean scheduleJobRetry(long id, String error, Instant newScheduledTime, int attempts) {
-    int updated =
+    List<?> updated =
         em.createNativeQuery(
                 "UPDATE scheduler_job SET status = 'PENDING', "
                     + "scheduled_time = ?, attempts = ?, last_error = ?, "
                     + "picked_by = NULL, picked_at = NULL, "
                     + "updated_at = statement_timestamp() "
-                    + "WHERE job_id = ? AND status IN ('RUNNING','FAILED')")
+                    + "WHERE job_id = ? AND status IN ('RUNNING','FAILED') "
+                    + "RETURNING job_id")
             .setParameter(1, Timestamp.from(newScheduledTime))
             .setParameter(2, attempts)
             .setParameter(3, error)
             .setParameter(4, id)
-            .executeUpdate();
-    return updated > 0;
+            .getResultList();
+    if (updated.isEmpty()) {
+      return false;
+    }
+    syncBusinessKeyReservation(id, JobStatus.PENDING);
+    return true;
   }
 
   @Override
@@ -702,6 +728,9 @@ public class PostgresqlJobStore implements JobStore {
             .setParameter(2, totalAttempts)
             .setParameter(3, id)
             .executeUpdate();
+    if (updated > 0) {
+      deleteReservationByOwner(id);
+    }
     return updated > 0;
   }
 
@@ -715,6 +744,9 @@ public class PostgresqlJobStore implements JobStore {
                     + "WHERE job_id = ? AND status IN ('PENDING','RUNNING','PAUSED')")
             .setParameter(1, id)
             .executeUpdate();
+    if (updated > 0) {
+      deleteReservationByOwner(id);
+    }
     return updated > 0;
   }
 
@@ -745,28 +777,38 @@ public class PostgresqlJobStore implements JobStore {
 
   @Override
   public int cancelRecurringJobsByTag(String tag) {
-    return em.createNativeQuery(
-            "UPDATE scheduler_job SET status = 'CANCELED', "
-                + "updated_at = statement_timestamp() "
-                + "WHERE job_id IN ("
-                + "  SELECT j.job_id FROM scheduler_job j "
-                + "  INNER JOIN scheduler_job_tag t ON j.job_id = t.job_id "
-                + "  WHERE t.tag = ? AND j.job_type = 'RECURRING' "
-                + "  AND j.status IN ('PENDING','RUNNING','PAUSED')"
-                + ")")
-        .setParameter(1, tag)
-        .executeUpdate();
+    @SuppressWarnings("unchecked")
+    List<Number> canceled =
+        em.createNativeQuery(
+                "UPDATE scheduler_job SET status = 'CANCELED', "
+                    + "updated_at = statement_timestamp() "
+                    + "WHERE job_id IN ("
+                    + "  SELECT j.job_id FROM scheduler_job j "
+                    + "  INNER JOIN scheduler_job_tag t ON j.job_id = t.job_id "
+                    + "  WHERE t.tag = ? AND j.job_type = 'RECURRING' "
+                    + "  AND j.status IN ('PENDING','RUNNING','PAUSED')"
+                    + ") "
+                    + "RETURNING job_id")
+            .setParameter(1, tag)
+            .getResultList();
+    deleteReservationsByOwners(canceled);
+    return canceled.size();
   }
 
   @Override
   public int cancelRecurringJobByBusinessKey(String businessKey) {
-    return em.createNativeQuery(
-            "UPDATE scheduler_job SET status = 'CANCELED', "
-                + "updated_at = statement_timestamp() "
-                + "WHERE business_key = ? AND job_type = 'RECURRING' "
-                + "AND status IN ('PENDING','RUNNING','PAUSED')")
-        .setParameter(1, businessKey)
-        .executeUpdate();
+    @SuppressWarnings("unchecked")
+    List<Number> canceled =
+        em.createNativeQuery(
+                "UPDATE scheduler_job SET status = 'CANCELED', "
+                    + "updated_at = statement_timestamp() "
+                    + "WHERE business_key = ? AND job_type = 'RECURRING' "
+                    + "AND status IN ('PENDING','RUNNING','PAUSED') "
+                    + "RETURNING job_id")
+            .setParameter(1, businessKey)
+            .getResultList();
+    deleteReservationsByOwners(canceled);
+    return canceled.size();
   }
 
   @Override
@@ -787,27 +829,36 @@ public class PostgresqlJobStore implements JobStore {
                 + "AND business_key IS NOT NULL "
                 + "AND business_key NOT IN ("
                 + placeholders
-                + ")");
+                + ") "
+                + "RETURNING job_id");
     int parameter = 1;
     query.setParameter(parameter++, Timestamp.from(nodeStartTime));
     for (String id : idsList) {
       query.setParameter(parameter++, id);
     }
-    return query.executeUpdate();
+    @SuppressWarnings("unchecked")
+    List<Number> canceled = query.getResultList();
+    deleteReservationsByOwners(canceled);
+    return canceled.size();
   }
 
   @Override
   public boolean resetFailedToPending(long id) {
-    int updated =
+    List<?> updated =
         em.createNativeQuery(
                 "UPDATE scheduler_job SET status = 'PENDING', attempts = 0, "
                     + "last_error = NULL, scheduled_time = statement_timestamp(), "
                     + "picked_by = NULL, picked_at = NULL, "
                     + "updated_at = statement_timestamp() "
-                    + "WHERE job_id = ? AND status = 'FAILED'")
+                    + "WHERE job_id = ? AND status = 'FAILED' "
+                    + "RETURNING job_id")
             .setParameter(1, id)
-            .executeUpdate();
-    return updated > 0;
+            .getResultList();
+    if (updated.isEmpty()) {
+      return false;
+    }
+    syncBusinessKeyReservation(id, JobStatus.PENDING);
+    return true;
   }
 
   @Override
@@ -836,6 +887,9 @@ public class PostgresqlJobStore implements JobStore {
             .setParameter(1, target.name())
             .setParameter(2, id)
             .executeUpdate();
+    if (updated > 0 && isTerminalStatus(target)) {
+      deleteReservationByOwner(id);
+    }
     return updated > 0;
   }
 
@@ -854,7 +908,11 @@ public class PostgresqlJobStore implements JobStore {
     if (results.isEmpty()) {
       return null;
     }
-    return JobStatus.valueOf((String) results.get(0));
+    JobStatus status = JobStatus.valueOf((String) results.get(0));
+    if (isTerminalStatus(status)) {
+      deleteReservationByOwner(id);
+    }
+    return status;
   }
 
   @Override
@@ -882,6 +940,7 @@ public class PostgresqlJobStore implements JobStore {
         Query query = em.createNativeQuery(sql);
         setBulkInsertParameters(query, job, Instant.now());
         query.executeUpdate();
+        syncBusinessKeyReservation(job);
       }
     } catch (Exception e) {
       throw new RuntimeException("Bulk insert error: " + e.getMessage(), e);
@@ -955,6 +1014,7 @@ public class PostgresqlJobStore implements JobStore {
     if (updated == 0) {
       throw new RatchetOptimisticLockException("Concurrent modification on job " + job.getId());
     }
+    syncBusinessKeyReservation(job);
     job.setUpdatedAt(updatedAt);
     job.setVersion(expectedVersion + 1);
     return job;
@@ -1737,6 +1797,94 @@ public class PostgresqlJobStore implements JobStore {
         || jobType == JobExecutionType.BATCH_CHILD
         || jobType == JobExecutionType.CHAIN_STEP
         || jobType == JobExecutionType.WORKFLOW_BRANCH;
+  }
+
+  private static boolean isLiveStatus(JobStatus status) {
+    return status == JobStatus.PENDING || status == JobStatus.RUNNING || status == JobStatus.PAUSED;
+  }
+
+  private static boolean isTerminalStatus(JobStatus status) {
+    return status == JobStatus.SUCCEEDED
+        || status == JobStatus.FAILED
+        || status == JobStatus.CANCELED;
+  }
+
+  private static JobStatus effectiveStatus(JobStatus status) {
+    return status == null ? JobStatus.PENDING : status;
+  }
+
+  private static String ownerTableFor(JobExecutionType jobType) {
+    return jobType == JobExecutionType.RECURRING ? OWNER_TABLE_RECURRING : OWNER_TABLE_QUEUE;
+  }
+
+  private static String ownerTableFor(String jobType) {
+    return JobExecutionType.RECURRING.name().equals(jobType)
+        ? OWNER_TABLE_RECURRING
+        : OWNER_TABLE_QUEUE;
+  }
+
+  private void syncBusinessKeyReservation(JobEntity job) {
+    deleteReservationByOwner(job.getId());
+    JobStatus status = effectiveStatus(job.getStatus());
+    if (isLiveStatus(status) && job.getBusinessKey() != null) {
+      insertReservation(job.getBusinessKey(), job.getId(), ownerTableFor(job.getJobType()));
+    }
+  }
+
+  private void syncBusinessKeyReservation(long ownerJobId, JobStatus status) {
+    deleteReservationByOwner(ownerJobId);
+    if (!isLiveStatus(status)) {
+      return;
+    }
+    @SuppressWarnings("unchecked")
+    List<Object[]> rows =
+        em.createNativeQuery("SELECT business_key, job_type FROM scheduler_job WHERE job_id = ?")
+            .setParameter(1, ownerJobId)
+            .getResultList();
+    if (rows.isEmpty()) {
+      return;
+    }
+    Object[] row = rows.get(0);
+    String businessKey = (String) row[0];
+    if (businessKey != null) {
+      insertReservation(businessKey, ownerJobId, ownerTableFor((String) row[1]));
+    }
+  }
+
+  private void insertReservation(String businessKey, long ownerJobId, String ownerTable) {
+    em.createNativeQuery(
+            "INSERT INTO scheduler_business_key_reservation "
+                + "(business_key, owner_job_id, owner_table, reserved_at) "
+                + "VALUES (?, ?, ?, statement_timestamp())")
+        .setParameter(1, businessKey)
+        .setParameter(2, ownerJobId)
+        .setParameter(3, ownerTable)
+        .executeUpdate();
+  }
+
+  @SuppressWarnings("UnusedReturnValue")
+  private int deleteReservationByOwner(long ownerJobId) {
+    return em.createNativeQuery(
+            "DELETE FROM scheduler_business_key_reservation WHERE owner_job_id = ?")
+        .setParameter(1, ownerJobId)
+        .executeUpdate();
+  }
+
+  private void deleteReservationsByOwners(List<? extends Number> ownerJobIds) {
+    if (ownerJobIds.isEmpty()) {
+      return;
+    }
+    String placeholders = String.join(",", Collections.nCopies(ownerJobIds.size(), "?"));
+    Query query =
+        em.createNativeQuery(
+            "DELETE FROM scheduler_business_key_reservation WHERE owner_job_id IN ("
+                + placeholders
+                + ")");
+    int parameter = 1;
+    for (Number ownerJobId : ownerJobIds) {
+      query.setParameter(parameter++, ownerJobId.longValue());
+    }
+    query.executeUpdate();
   }
 
   private JobPayload parseProgressHook(Object jsonValue) {

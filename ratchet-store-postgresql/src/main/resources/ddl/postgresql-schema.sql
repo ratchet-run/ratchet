@@ -98,6 +98,22 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     CONSTRAINT chk_paused_from_status CHECK (paused_from_status IS NULL OR paused_from_status IN ('PENDING', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELED', 'PAUSED'))
 );
 
+-- 4a. Business-key active-uniqueness reservation table.
+-- Authoritative ownership lookup for active business keys. The main scheduler_job.business_key
+-- column remains for observability and archive/search projections; uniqueness is enforced here.
+CREATE TABLE IF NOT EXISTS scheduler_business_key_reservation
+(
+    business_key TEXT NOT NULL,
+    owner_job_id BIGINT NOT NULL,
+    owner_table TEXT NOT NULL,
+    reserved_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT pk_scheduler_business_key_reservation PRIMARY KEY (business_key),
+    CONSTRAINT chk_bk_owner_table CHECK (owner_table IN ('QUEUE', 'RECURRING')),
+    CONSTRAINT fk_bk_owner_job FOREIGN KEY (owner_job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_bk_owner ON scheduler_business_key_reservation (owner_job_id);
+
 -- Hot-path poller indexes — required, do NOT remove without re-running the perf suite.
 CREATE INDEX IF NOT EXISTS idx_job_poll_composite ON scheduler_job (status, priority, scheduled_time);
 -- Match the executable claim filter used by PostgresqlJobStore:
@@ -133,9 +149,7 @@ CREATE INDEX IF NOT EXISTS idx_job_updated_at ON scheduler_job (updated_at);
 -- DROPPED: idx_target_class and idx_method_name were debug-only and added measurable
 -- write amplification on the hot insert path. See ddl/postgresql-debug-indexes.sql for
 -- the optional companion file that adds them back when needed.
-
--- Partial unique index for active business key (replaces MySQL generated column approach)
-CREATE UNIQUE INDEX IF NOT EXISTS idx_job_active_business_key ON scheduler_job (business_key) WHERE status IN ('PENDING', 'RUNNING', 'PAUSED') AND business_key IS NOT NULL;
+-- DROPPED: idx_job_active_business_key (ownership moved to scheduler_business_key_reservation).
 
 -- 5. scheduler_job_tag
 CREATE TABLE IF NOT EXISTS scheduler_job_tag
