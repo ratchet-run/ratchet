@@ -8,7 +8,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /** MySQL-specific constraint violation detector. */
-public class MysqlConstraintDetector implements ConstraintDetector {
+class MysqlConstraintDetector implements ConstraintDetector {
 
   private static final Pattern CONSTRAINT_NAME_PATTERN = Pattern.compile("for key '([^']+)'");
   private static final int DEADLOCK_ERROR_CODE = 1213;

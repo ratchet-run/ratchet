@@ -1,0 +1,57 @@
+package run.ratchet.store.mysql;
+
+import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.spi.MetricsCollector;
+import jakarta.persistence.EntityManager;
+import java.util.function.Function;
+import java.util.function.Supplier;
+
+final class MysqlStoreContext {
+
+  private static final String DIALECT = "mysql";
+
+  private final EntityManager em;
+  private final MetricsCollector metricsCollector;
+  private final MysqlConstraintDetector constraintDetector = new MysqlConstraintDetector();
+
+  MysqlStoreContext(EntityManager em, MetricsCollector metricsCollector) {
+    this.em = em;
+    this.metricsCollector = metricsCollector;
+  }
+
+  EntityManager em() {
+    return em;
+  }
+
+  MysqlConstraintDetector constraintDetector() {
+    return constraintDetector;
+  }
+
+  RuntimeException translateTransientStoreException(String operation, RuntimeException e) {
+    if (constraintDetector.isDeadlock(e) || constraintDetector.isTransientConnectionFailure(e)) {
+      return new RatchetTransientStoreException(
+          "Transient MySQL store concurrency failure during " + operation, e);
+    }
+    return e;
+  }
+
+  <T> T timedStoreOperation(
+      String operation, Supplier<T> action, Function<T, String> outcomeFunction) {
+    long startNanos = System.nanoTime();
+    try {
+      T result = action.get();
+      recordStoreOperation(operation, outcomeFunction.apply(result), startNanos);
+      return result;
+    } catch (RatchetTransientStoreException e) {
+      recordStoreOperation(operation, "transient_failure", startNanos);
+      throw e;
+    } catch (RuntimeException e) {
+      recordStoreOperation(operation, "failure", startNanos);
+      throw e;
+    }
+  }
+
+  private void recordStoreOperation(String operation, String outcome, long startNanos) {
+    metricsCollector.storeOperation(DIALECT, operation, outcome, System.nanoTime() - startNanos);
+  }
+}

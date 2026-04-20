@@ -59,7 +59,7 @@ public class MysqlTestFixture extends JpaContainerFixture {
 
   @Override
   protected JobStore createStore(EntityManager em, MetricsCollector metrics) {
-    return new MysqlJobStore(em, metrics);
+    return new MysqlJobStoreImpl(em, metrics);
   }
 
   @Override

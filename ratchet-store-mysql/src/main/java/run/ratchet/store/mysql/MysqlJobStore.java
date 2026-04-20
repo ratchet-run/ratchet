@@ -1,25 +1,11 @@
 package run.ratchet.store.mysql;
 
-import run.ratchet.spi.MetricsCollector;
-import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.persistence.EntityManager;
-import jakarta.transaction.Transactional;
+import run.ratchet.store.spi.JobStore;
 
 /**
- * Public CDI entry point for the MySQL store.
+ * Public MySQL-specific store type.
  *
- * <p>The implementation lives in {@link MysqlJobStoreDelegate}; keeping this facade small preserves
- * the public type adopters inject while allowing the internal store to be decomposed further
- * without changing that entry point.
+ * <p>The CDI implementation is package-private; consumers can inject this interface without
+ * exposing the concrete store as an extension point.
  */
-@ApplicationScoped
-@Transactional
-public class MysqlJobStore extends MysqlJobStoreDelegate {
-
-  public MysqlJobStore() {}
-
-  /** Test-only constructor: bypasses CDI to wire EM + metrics directly. */
-  MysqlJobStore(EntityManager em, MetricsCollector metricsCollector) {
-    super(em, metricsCollector);
-  }
-}
+public interface MysqlJobStore extends JobStore {}
