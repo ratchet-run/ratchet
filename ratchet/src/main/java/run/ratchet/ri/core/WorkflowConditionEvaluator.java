@@ -203,13 +203,8 @@ public class WorkflowConditionEvaluator {
         return predicate.test(result);
       }
 
-      log.warn("Predicate deserialization error; using heuristic fallback");
-
-      if (expression.contains("executionTime")) {
-        return result.getExecutionTimeMsOrZero() > extractThreshold(expression);
-      }
-
-      return result.isSuccess();
+      log.warn("Predicate deserialization failed; condition rejected");
+      return false;
 
     } catch (Exception e) {
       log.error("Custom condition error", e);
@@ -246,18 +241,6 @@ public class WorkflowConditionEvaluator {
 
   private boolean evaluateSuccess(JobEntity parentJob) {
     return parentJob.getStatus() == JobStatus.SUCCEEDED;
-  }
-
-  private long extractThreshold(String expression) {
-    try {
-      String[] parts = expression.split(">");
-      if (parts.length == 2) {
-        return Long.parseLong(parts[1].trim());
-      }
-    } catch (Exception e) {
-      // Ignore parsing errors
-    }
-    return 0;
   }
 
   private Object parseJobResult(String jobResultJson, String resultType) {

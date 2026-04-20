@@ -209,6 +209,18 @@ class WorkflowConditionEvaluatorTest {
   }
 
   @Test
+  void customCondition_deserializationFailure_returnsFalseWithoutHeuristicFallback() {
+    JobEntity parent = parentJob(JobStatus.SUCCEEDED);
+    parent.setExecutionDurationMs(10L);
+    when(lambdaSerializer.deserializeJobResultPredicate("executionTime > 1")).thenReturn(null);
+
+    assertFalse(
+        evaluator.evaluate(
+            conditionWithExpression(WorkflowCondition.ConditionType.CUSTOM, "executionTime > 1"),
+            parent));
+  }
+
+  @Test
   void resultValue_deserializedFunction_returnsFunctionResult() {
     JobEntity parent = parentJob(JobStatus.SUCCEEDED);
     parent.setJobResult("150");

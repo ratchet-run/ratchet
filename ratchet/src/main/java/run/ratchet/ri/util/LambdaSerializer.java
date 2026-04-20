@@ -4,15 +4,19 @@ import run.ratchet.api.BatchContext;
 import run.ratchet.api.JobResult;
 import run.ratchet.api.SerializableFunction;
 import run.ratchet.api.SerializablePredicate;
+import run.ratchet.spi.ClassPolicy;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InvalidClassException;
+import java.io.ObjectInputFilter;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.ObjectStreamClass;
 import java.util.Base64;
+import java.util.Objects;
 import java.util.Set;
 import org.jboss.logging.Logger;
 
@@ -33,10 +37,15 @@ import org.jboss.logging.Logger;
 public class LambdaSerializer {
 
   private static final Logger log = Logger.getLogger(LambdaSerializer.class);
+  private static final long MAX_ARRAY_LENGTH = 10_000;
+  private static final long MAX_DEPTH = 20;
+  private static final long MAX_REFERENCES = 1_000;
+  private static final long MAX_STREAM_BYTES = 1_000_000;
 
   private static final Set<String> ALLOWED_CLASSES =
       Set.of(
           "java.io.Serializable",
+          "java.lang.Enum",
           "[Z",
           "[B",
           "[C",
@@ -52,6 +61,8 @@ public class LambdaSerializer {
 
   private static final Set<String> ALLOWED_CLASS_PREFIXES =
       Set.of("run.ratchet.", "java.time.", "java.math.");
+
+  private final ClassPolicy classPolicy;
 
   /**
    * {@code java.lang} classes accepted during deserialization. Deliberately excludes {@code
@@ -94,6 +105,15 @@ public class LambdaSerializer {
           "java.util.Date",
           "java.util.EnumMap",
           "java.util.EnumSet");
+
+  protected LambdaSerializer() {
+    this.classPolicy = className -> false;
+  }
+
+  @Inject
+  public LambdaSerializer(ClassPolicy classPolicy) {
+    this.classPolicy = Objects.requireNonNull(classPolicy, "classPolicy");
+  }
 
   @SuppressWarnings("unchecked")
   public SerializablePredicate<BatchContext> deserializeBatchContextPredicate(String serialized) {
@@ -188,35 +208,74 @@ public class LambdaSerializer {
 
   private ObjectInputStream createSecureObjectInputStream(ByteArrayInputStream bais)
       throws IOException {
-    return new ObjectInputStream(bais) {
-      @Override
-      protected Class<?> resolveClass(ObjectStreamClass desc)
-          throws IOException, ClassNotFoundException {
+    ObjectInputStream ois =
+        new ObjectInputStream(bais) {
+          @Override
+          protected Class<?> resolveClass(ObjectStreamClass desc)
+              throws IOException, ClassNotFoundException {
 
-        String className = desc.getName();
+            String className = desc.getName();
 
-        if (ALLOWED_CLASSES.contains(className)) {
-          return super.resolveClass(desc);
-        }
+            if (isAllowedClassName(className)) {
+              return super.resolveClass(desc);
+            }
 
-        if (ALLOWED_JAVA_LANG_CLASSES.contains(className)
-            || ALLOWED_JAVA_UTIL_CLASSES.contains(className)) {
-          return super.resolveClass(desc);
-        }
-
-        for (String prefix : ALLOWED_CLASS_PREFIXES) {
-          if (className.startsWith(prefix)) {
-            return super.resolveClass(desc);
+            throw unauthorizedClass(className);
           }
-        }
+        };
+    ois.setObjectInputFilter(this::filterClass);
+    return ois;
+  }
 
-        log.errorf("Blocked unauthorized deserialization attempt for class: %s", className);
+  private ObjectInputFilter.Status filterClass(ObjectInputFilter.FilterInfo info) {
+    if (info.arrayLength() > MAX_ARRAY_LENGTH
+        || info.depth() > MAX_DEPTH
+        || info.references() > MAX_REFERENCES
+        || info.streamBytes() > MAX_STREAM_BYTES) {
+      return ObjectInputFilter.Status.REJECTED;
+    }
+    return ObjectInputFilter.Status.UNDECIDED;
+  }
 
-        throw new InvalidClassException(
-            "Unauthorized deserialization attempt for class: "
-                + className
-                + ". This class is not in the allowlist for workflow predicates.");
+  private boolean isAllowedClassName(String className) {
+    if (ALLOWED_CLASSES.contains(className)
+        || ALLOWED_JAVA_LANG_CLASSES.contains(className)
+        || ALLOWED_JAVA_UTIL_CLASSES.contains(className)) {
+      return true;
+    }
+
+    for (String prefix : ALLOWED_CLASS_PREFIXES) {
+      if (className.startsWith(prefix)) {
+        return true;
       }
-    };
+    }
+
+    String policyName = objectArrayElementType(className);
+    return policyName != null && classPolicy.isAllowed(policyName);
+  }
+
+  private static String objectArrayElementType(String className) {
+    String element = className;
+    while (element.startsWith("[")) {
+      if (element.length() == 2) {
+        return null;
+      }
+      element = element.substring(1);
+    }
+    if (element.startsWith("L") && element.endsWith(";")) {
+      return element.substring(1, element.length() - 1);
+    }
+    if (element.indexOf('.') > 0) {
+      return element;
+    }
+    return null;
+  }
+
+  private InvalidClassException unauthorizedClass(String className) {
+    log.errorf("Blocked unauthorized deserialization attempt for class: %s", className);
+    return new InvalidClassException(
+        "Unauthorized deserialization attempt for class: "
+            + className
+            + ". This class is not allowed for workflow predicates.");
   }
 }
