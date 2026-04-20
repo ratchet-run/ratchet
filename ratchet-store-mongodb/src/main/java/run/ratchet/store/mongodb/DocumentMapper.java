@@ -423,7 +423,7 @@ public final class DocumentMapper {
 
   static Document payloadToDocument(JobPayload payload) {
     if (payload == null) {
-      return new Document();
+      return null;
     }
     Document doc = new Document();
     doc.append("target", payload.target());
@@ -435,7 +435,7 @@ public final class DocumentMapper {
   }
 
   static JobPayload documentToPayload(Document doc) {
-    if (doc == null) {
+    if (doc == null || doc.isEmpty()) {
       return null;
     }
     @SuppressWarnings("unchecked")

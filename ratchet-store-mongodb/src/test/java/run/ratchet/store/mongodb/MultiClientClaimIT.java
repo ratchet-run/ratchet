@@ -57,8 +57,8 @@ class MultiClientClaimIT {
     clientB = MongoClients.create(MONGO.getConnectionString());
     dbA = clientA.getDatabase(dbName);
     dbB = clientB.getDatabase(dbName);
-    storeA = new MongoJobStore(dbA);
-    storeB = new MongoJobStore(dbB);
+    storeA = new MongoJobStoreImpl(dbA);
+    storeB = new MongoJobStoreImpl(dbB);
     new MongoCollectionInitializer(dbA).initialize();
   }
 

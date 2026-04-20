@@ -6,7 +6,7 @@ import java.sql.SQLRecoverableException;
 import java.sql.SQLTransientException;
 
 /** PostgreSQL-specific constraint violation detector. */
-public class PostgresqlConstraintDetector implements ConstraintDetector {
+class PostgresqlConstraintDetector implements ConstraintDetector {
 
   private static final String SQLSTATE_UNIQUE_VIOLATION = "23505";
   private static final String SQLSTATE_DEADLOCK = "40P01";

@@ -54,7 +54,7 @@ public class PostgresqlTestFixture extends JpaContainerFixture {
 
   @Override
   protected JobStore createStore(EntityManager em, MetricsCollector metrics) {
-    return new PostgresqlJobStore(em);
+    return new PostgresqlJobStoreImpl(em);
   }
 
   @Override

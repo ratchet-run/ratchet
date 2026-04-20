@@ -9,7 +9,7 @@ import com.mongodb.MongoWriteException;
 import run.ratchet.store.ConstraintDetector;
 
 /** MongoDB-specific constraint violation detector. */
-public class MongoConstraintDetector implements ConstraintDetector {
+class MongoConstraintDetector implements ConstraintDetector {
 
   private static final int DUPLICATE_KEY_CODE = 11000;
   private static final int WRITE_CONFLICT_CODE = 112;

@@ -11,13 +11,13 @@ import org.bson.conversions.Bson;
 import org.jboss.logging.Logger;
 
 /** Creates MongoDB collections and indexes required by the Ratchet scheduler at startup. */
-public class MongoCollectionInitializer {
+class MongoCollectionInitializer {
 
   private static final Logger log = Logger.getLogger(MongoCollectionInitializer.class);
 
   private final MongoDatabase database;
 
-  public MongoCollectionInitializer(MongoDatabase database) {
+  MongoCollectionInitializer(MongoDatabase database) {
     this.database = database;
   }
 
@@ -37,7 +37,21 @@ public class MongoCollectionInitializer {
     }
   }
 
-  public void initialize() {
+  private static void createRequiredIndex(
+      MongoCollection<Document> coll, Bson keys, IndexOptions options) {
+    try {
+      coll.createIndex(keys, options);
+    } catch (Exception e) {
+      throw new IllegalStateException(
+          "Required MongoDB index "
+              + options.getName()
+              + " could not be created on "
+              + coll.getNamespace().getCollectionName(),
+          e);
+    }
+  }
+
+  void initialize() {
     log.debug("Initializing MongoDB collections and indexes");
     createJobIndexes();
     createBatchIndexes();
@@ -87,11 +101,11 @@ public class MongoCollectionInitializer {
             Indexes.ascending("next_fire"),
             Indexes.ascending("_id")),
         "idx_job_claim_recurring");
-    createIndex(
+    createRequiredIndex(
         coll,
         Indexes.ascending("idempotency_key"),
         new IndexOptions().name("idx_job_idempotency_key").unique(true));
-    createIndex(
+    createRequiredIndex(
         coll,
         Indexes.ascending("business_key"),
         new IndexOptions()
@@ -171,7 +185,7 @@ public class MongoCollectionInitializer {
 
   private void createDlqAlertIndexes() {
     var coll = database.getCollection("scheduler_dlq_alerts");
-    createIndex(
+    createRequiredIndex(
         coll,
         Indexes.compoundIndex(Indexes.ascending("job_id"), Indexes.ascending("error_hash")),
         new IndexOptions().name("idx_dlq_job_hash").unique(true));
