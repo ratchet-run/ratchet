@@ -133,7 +133,8 @@ CDI will select your bean over Ratchet's default. No additional configuration ne
 | `StartupCoordinator` | `StoreBackedStartupCoordinator` (uses `scheduler_lock`) | Gate destructive startup work behind a store-backed lease |
 | `MetricsCollector` | `NoOpMetricsCollector` (discards all metrics) | Use `ratchet-micrometer` or implement for your metrics backend |
 | `BeanResolver` | `CdiBeanResolver` (CDI `Instance<T>` lookup) | Custom bean instantiation for non-CDI contexts |
-| `ExecutorProvider` | `DefaultExecutorProvider` (platform threads) | Virtual threads or custom thread pool configuration |
+| `ExecutorProvider` | `DefaultExecutorProvider` (Jakarta Concurrency managed executors) | Use `StandaloneExecutorProvider` for plain CDI/tests or provide custom managed executors |
+| `RatchetEntityManagerProvider` | Store default provider using unnamed `@PersistenceContext` | Bind SQL stores to a specific application persistence unit |
 | `NodeIdentityProvider` | `DefaultNodeIdentityProvider` (hostname-based with heartbeat) | Custom node identification for cloud environments |
 | `JobLogger` | Created by `JobLoggerFactory` | Custom logger facade returned by your factory |
 

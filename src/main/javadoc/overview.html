@@ -33,7 +33,7 @@ Schedule a job with a simple lambda expression:
 &#64;Inject JobSchedulerService scheduler;
 
 // Schedule a job to run immediately
-scheduler.enqueueNow(() -> myService.processData())
+scheduler.enqueue(() -> myService.processData())
   .withMaxRetries(3)
   .submit();
 

@@ -10,7 +10,7 @@ Ratchet runs on any Jakarta EE 10 runtime. This guide shows how to containerize 
 
 ## Base Image Selection
 
-Choose a base image that provides a Jakarta EE 10 Web Profile runtime:
+Choose a base image that provides the Jakarta EE 10 services Ratchet's default RI runtime uses: CDI, JPA, Interceptors, and Jakarta Concurrency.
 
 | Runtime | Base Image | Notes |
 |---------|-----------|-------|

@@ -12,11 +12,11 @@ Ratchet on MongoDB 5.0+.
 
 - MongoDB 5.0 or later (for snapshot reads and stable API)
 - WiredTiger storage engine (default since MongoDB 3.2)
-- Replica set or sharded cluster (required for transactions)
 
-:::caution Standalone mode
-MongoDB standalone instances do not support multi-document transactions. Ratchet requires a replica set, even for single-node deployments. Use `mongod --replSet rs0` and `rs.initiate()` for development.
-:::
+Ratchet's MongoDB store uses atomic single-document operations for job claiming and state
+transitions. A standalone MongoDB server is acceptable for the store. Use a replica set or sharded
+cluster when your application has separate requirements for multi-document transactions or high
+availability.
 
 ## Maven Dependency
 
@@ -32,26 +32,9 @@ This pulls in the MongoDB sync driver. No ODM (Morphia, Spring Data) is required
 
 ## Collection Setup
 
-You normally do not need a separate bootstrap step. `MongoJobStore` runs `new MongoCollectionInitializer(database).initialize()` from its own `@PostConstruct`, so collections and indexes are created automatically when the store starts.
-
-If you want to pre-create them explicitly in a standalone bootstrap, use the initializer instance directly. The operation is **idempotent** — safe to run on every boot:
-
-```java
-@ApplicationScoped
-public class MongoStartup {
-
-    @Inject
-    MongoClient mongoClient;
-
-    @PostConstruct
-    void init() {
-        MongoDatabase db = mongoClient.getDatabase("myapp");
-        new MongoCollectionInitializer(db).initialize();
-    }
-}
-```
-
-This creates all collections and indexes if they don't already exist.
+You normally do not need a separate bootstrap step. The MongoDB store initializes collections and
+indexes from its own `@PostConstruct`, so they are created automatically when the store starts. The
+operation is idempotent and safe to run on every boot.
 
 ## Collections
 
@@ -138,26 +121,55 @@ In SQL stores, tags use a separate `scheduler_job_tag` join table. In MongoDB, t
 
 ### Connection
 
-The MongoDB store expects a `MongoClient` CDI bean. How you produce it depends on your environment:
+The MongoDB store injects a `MongoDatabase` CDI bean. Keep the underlying `MongoClient` as an
+application-scoped resource and close it at shutdown:
 
-**WildFly / JBoss with a managed connection:**
 ```java
-@Produces
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
+import com.mongodb.client.MongoDatabase;
+import jakarta.annotation.PreDestroy;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Produces;
+
 @ApplicationScoped
-public MongoClient mongoClient() {
-    return MongoClients.create("mongodb://localhost:27017");
+public class MongoProducer {
+  private MongoClient client;
+
+  @Produces
+  @ApplicationScoped
+  public MongoDatabase mongoDatabase() {
+    if (client == null) {
+      client = MongoClients.create("mongodb://localhost:27017");
+    }
+    return client.getDatabase("ratchet");
+  }
+
+  @PreDestroy
+  void close() {
+    if (client != null) {
+      client.close();
+    }
+  }
 }
 ```
 
-**With connection string from environment:**
+With MicroProfile Config, read the URI and database name from your own application properties:
+
 ```java
 @Produces
 @ApplicationScoped
-public MongoClient mongoClient(
-        @ConfigProperty(name = "mongodb.uri") String uri) {
-    return MongoClients.create(uri);
+public MongoDatabase mongoDatabase(
+    @ConfigProperty(name = "mongodb.uri") String uri,
+    @ConfigProperty(name = "mongodb.database", defaultValue = "ratchet") String database) {
+  client = MongoClients.create(uri);
+  return client.getDatabase(database);
 }
 ```
+
+Required unique indexes are created at startup. If Ratchet cannot create the idempotency,
+active-business-key, or DLQ deduplication indexes, startup fails so duplicate scheduling semantics
+are not silently weakened.
 
 ## Monitoring
 

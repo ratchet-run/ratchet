@@ -23,7 +23,7 @@ psql -U ratchet -d myapp -f ratchet-store-postgresql/src/main/resources/ddl/post
 # MySQL
 mysql -u ratchet -p myapp < ratchet-store-mysql/src/main/resources/ddl/mysql-schema.sql
 
-# MongoDB — runs automatically via MongoCollectionInitializer.initialize()
+# MongoDB — collections and indexes are initialized automatically at store startup
 ```
 
 Ratchet ships plain SQL files, not migrations. Apply them however your project manages DDL (Flyway, Liquibase, manual scripts, etc.).
@@ -96,11 +96,11 @@ WHERE status = 'PENDING';
 </datasource>
 ```
 
-### MongoDB replica set required
+### MongoDB transaction error
 
 **Symptom:** `Transaction numbers are only allowed on a replica set member or mongos` at startup.
 
-**Fix:** MongoDB requires a replica set for transactions. For development:
+**Fix:** Ratchet's MongoDB store does not require multi-document transactions. This error usually means application code, a test fixture, or another library started a MongoDB transaction. Use a replica set for that workload, or remove the transaction wrapper around Ratchet store calls. For development:
 
 ```bash
 mongod --replSet rs0

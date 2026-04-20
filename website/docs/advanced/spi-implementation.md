@@ -8,7 +8,10 @@ description: Complete guide to implementing Ratchet SPI interfaces for custom ex
 
 Ratchet is designed around a set of Service Provider Interfaces (SPIs) that decouple the core engine from specific implementations. Major extension points -- configuration, invocation resolution, result persistence, resilience, metrics, logging, storage, security, and cluster coordination -- are expressed as SPI interfaces that you can replace with your own implementation.
 
-This guide covers the CDI wiring pattern, the complete SPI inventory, and the store SPI with its Technology Compatibility Kit (TCK).
+This guide covers the CDI wiring pattern, the complete SPI inventory, and Ratchet conformance tiers.
+The currently published `ratchet-tck` contracts validate store SPI implementations; API and
+RI/runtime conformance coverage lives in the Ratchet testsuite and is being separated into explicit
+tiers.
 
 ## The CDI @Alternative Pattern
 
@@ -678,7 +681,7 @@ import jakarta.interceptor.Interceptor;
 @Alternative
 @Priority(Interceptor.Priority.APPLICATION)
 @ApplicationScoped
-public class MongoJobStore implements JobStore {
+public class CustomMongoJobStore implements JobStore {
 
     @Inject
     private MongoDatabase database;
@@ -737,7 +740,7 @@ public class MongoJobStore implements JobStore {
 
 ### Validating with the TCK
 
-The Technology Compatibility Kit (TCK) provides abstract test contracts for each store sub-interface. To validate your custom store, extend the TCK contracts and provide a `JobStoreContractFixture`:
+The published store SPI Technology Compatibility Kit (TCK) provides abstract test contracts for each store sub-interface. To validate your custom store, extend the TCK contracts and provide a `JobStoreContractFixture`:
 
 ```java
 import run.ratchet.tck.store.JobStoreContractFixture;
@@ -748,10 +751,10 @@ import run.ratchet.store.spi.JobStore;
 // 1. Implement the fixture
 public class MongoStoreFixture implements JobStoreContractFixture {
 
-    private final MongoJobStore store;
+    private final CustomMongoJobStore store;
 
     public MongoStoreFixture(MongoDatabase database) {
-        this.store = new MongoJobStore(database);
+        this.store = new CustomMongoJobStore(database);
     }
 
     @Override
@@ -823,7 +826,7 @@ The TCK includes abstract contracts for each store sub-interface:
 | `AbstractDlqAlertStoreContract` | DLQ alert lifecycle |
 | `AbstractResourcePermitStoreContract` | Permit acquire and release |
 
-Run all 15 contract suites against your store implementation. All tests must pass before the store is considered compatible.
+Run all contract suites against your store implementation. All tests must pass before the store is considered store-compatible. API and RI/runtime compatibility are separate conformance tiers.
 
 ### Adding the TCK Dependency
 

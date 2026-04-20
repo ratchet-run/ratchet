@@ -6,14 +6,14 @@ description: What you need to deploy Ratchet — application server, database, m
 
 # Deployment Overview
 
-Ratchet is a portable, CDI-based job scheduler for Jakarta EE. It deploys as a set of JAR modules inside your application, running on any Jakarta EE 10 Web Profile runtime with a supported database backend.
+Ratchet is a portable, CDI-based job scheduler for Jakarta EE. It deploys as a set of JAR modules inside your application, running on Jakarta EE 10 runtimes with the services used by the reference implementation.
 
 ## What You Need
 
 | Component | Requirement | Notes |
 |-----------|-------------|-------|
 | **Java** | 17 or later | Virtual threads available on 21+ |
-| **Jakarta EE Runtime** | 10 (Web Profile) | WildFly, Payara, Open Liberty, etc. |
+| **Jakarta EE Runtime** | 10 with CDI, JPA, Interceptors, and Jakarta Concurrency | WildFly, Payara, Open Liberty, etc. |
 | **CDI** | 4.0+ | `beans.xml` with `bean-discovery-mode="all"` |
 | **Database** | MySQL 8+, PostgreSQL 14+, or MongoDB 6+ | One store module per database |
 | **Build Tool** | Maven 3.8+ | BOM import for version management |

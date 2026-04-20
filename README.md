@@ -317,7 +317,7 @@ scheduler.enqueue(() -> generateReport(reportId))
 | `ratchet-store-postgresql` | PostgreSQL store with partial indexes and JSONB | ratchet-store-core |
 | `ratchet-store-mongodb` | MongoDB document store implementation | ratchet-store-core |
 | `ratchet-micrometer` | Micrometer metrics adapter | ratchet-api, Micrometer |
-| `ratchet-tck` | Technology Compatibility Kit for custom store implementations | ratchet-store-core, JUnit 5 |
+| `ratchet-tck` | Technology Compatibility Kit contracts; current published contracts cover store SPI behavior while API and RI/runtime conformance live in the testsuite | ratchet-store-core, JUnit 5 |
 | `ratchet-bom` | Bill of Materials for version alignment | — |
 
 ### SPI Extension Points
@@ -342,7 +342,8 @@ Ratchet is designed to be extended. Provide a CDI `@Alternative @Priority(APPLIC
 | `StartupCoordinator` | Destructive startup work gated by store-backed leases | `StoreBackedStartupCoordinator` |
 | `MetricsCollector` | Metrics sink (counters, gauges, timers) | No-op |
 | `BeanResolver` | Bean instantiation strategy | CDI `Instance<T>` |
-| `ExecutorProvider` | Thread pool / virtual thread configuration | Platform default |
+| `ExecutorProvider` | Thread pool / virtual thread configuration | Jakarta Concurrency managed executors |
+| `RatchetEntityManagerProvider` | SQL store `EntityManager` binding | Unnamed `@PersistenceContext` |
 | `NodeIdentityProvider` | Node identification in clusters | Hostname-based |
 | `JobLogger` | Per-job job-scoped logging | No-op binding |
 
@@ -369,7 +370,7 @@ public class MyCustomStoreTest extends AbstractJobCrudStoreContract {
 }
 ```
 
-The TCK provides 15 abstract test classes covering CRUD, claiming, status transitions, archiving, execution tracking, batches, locks, and more.
+Ratchet uses tiered conformance. The published `ratchet-tck` module currently provides store SPI contracts covering CRUD, claiming, status transitions, archiving, execution tracking, batches, locks, and more. API and RI/runtime conformance coverage is in `ratchet-testsuite`; those tests are the seed for separate published conformance tiers.
 
 ## Production Checklist
 
@@ -424,8 +425,8 @@ Before deploying Ratchet to a production-shaped environment, work through this c
 ## Requirements
 
 - **Java**: 17+
-- **Jakarta EE**: 10 (Web Profile) — CDI 4.0, JPA 3.1, Interceptors 2.1
-- **Runtime**: Any Jakarta EE 10 compatible server (WildFly, Open Liberty, Payara, etc.)
+- **Jakarta EE**: 10 with CDI 4.0, JPA 3.1, Interceptors 2.1, and Jakarta Concurrency 3.0 for the default RI executor
+- **Runtime**: Jakarta EE 10 compatible server with managed executor support (WildFly, Open Liberty, Payara, etc.); plain CDI/test deployments can opt into `StandaloneExecutorProvider`
 - **Database**: MySQL 8+, PostgreSQL 14+, or MongoDB 6+
 
 ## Building from Source

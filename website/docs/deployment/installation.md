@@ -9,7 +9,7 @@ Getting Ratchet running in your application.
 ## Prerequisites
 
 - **Java**: 17 or later
-- **Jakarta EE**: 10 (Web Profile)
+- **Jakarta EE**: 10 with CDI, JPA, Interceptors, and Jakarta Concurrency for the default RI runtime
 - **Database**: MySQL 8+, PostgreSQL 14+, or MongoDB 6+
 - **Maven**: 3.8+
 
@@ -143,7 +143,7 @@ Ratchet reads runtime settings from environment variables first and system prope
 | `RATCHET_THREAD_POOL_SIZE_SINGLE` | `20` | Worker threads for one-off jobs |
 | `RATCHET_JOB_RETENTION_DAYS` | `90` | Completed-job retention before archiving |
 
-SPI customizations such as `ClassPolicy`, `JobInvocationResolver`, `ResultPersistenceStrategy`, `ExecutionTuningProvider`, and `ErrorSanitizer` are overridden with CDI `@Alternative` beans, not string property names. See [Configuration](/docs/getting-started/configuration).
+SPI customizations such as `ClassPolicy`, `JobInvocationResolver`, `ResultPersistenceStrategy`, `ExecutionTuningProvider`, `ExecutorProvider`, `RatchetEntityManagerProvider`, and `ErrorSanitizer` are overridden with CDI `@Alternative` beans, not string property names. See [Configuration](/docs/getting-started/configuration).
 
 ## Step 6: Verify
 

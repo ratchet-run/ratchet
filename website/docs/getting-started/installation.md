@@ -72,7 +72,7 @@ You need exactly one store module matching your database:
 | Module | Purpose | You need it when... |
 |--------|---------|---------------------|
 | `ratchet-micrometer` | Micrometer metrics adapter implementing `MetricsCollector` SPI | You want to export scheduler metrics to Prometheus, Datadog, or any Micrometer-supported backend |
-| `ratchet-tck` | Technology Compatibility Kit: abstract JUnit 5 test classes covering all store SPI contracts | You're building a custom store implementation |
+| `ratchet-tck` | Technology Compatibility Kit contracts. The current published contracts cover store SPI behavior; API and RI/runtime conformance tests live in the Ratchet testsuite and are being split into explicit tiers. | You're building or validating a compatible implementation |
 
 ## Choosing Your Modules
 
@@ -202,19 +202,26 @@ This is a deliberate design decision. Other schedulers (like Quartz) bundle thei
 
 ## Jakarta EE Server Compatibility
 
-Ratchet targets Jakarta EE 10 Web Profile. The core requirements are:
+Ratchet targets Jakarta EE 10 runtimes with the services used by the reference implementation. The
+default runtime requirements are:
 
 - **CDI 4.0** -- for dependency injection, bean discovery, and event observation
 - **JPA 3.1** -- for the store implementations' entity mapping
 - **Interceptors 2.1** -- for `@CircuitBreakerProtected` support
+- **Jakarta Concurrency 3.0** -- for the default managed executor provider
 
 Servers known to work:
 
 | Server | Version | Notes |
 |--------|---------|-------|
 | WildFly | 27+ | Primary test target |
-| Open Liberty | 23.0.0.3+ | Requires `cdi-4.0` and `persistence-3.1` features |
+| Open Liberty | 23.0.0.3+ | Requires `cdi-4.0`, `persistence-3.1`, and managed executor support |
 | Payara | 6.2023.1+ | Jakarta EE 10 certified |
+
+Plain Web Profile or standalone CDI environments can opt into
+`run.ratchet.ri.cdi.StandaloneExecutorProvider` as an alternative
+`ExecutorProvider`. That fallback owns unmanaged executors and is intended for tests, demos, and
+non-container deployments.
 
 ## What's Next
 

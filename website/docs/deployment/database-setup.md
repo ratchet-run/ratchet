@@ -284,13 +284,14 @@ db.scheduler_job_log.createIndex({ job_id: 1, ts: 1 }, { name: "idx_log_job_ts" 
 
 ### Connection Configuration
 
-Ratchet does not define its own MongoDB URI property. Configure the connection through your application runtime and expose a `MongoClient` bean. For example:
+Ratchet does not define its own MongoDB URI property. Configure the connection through your application runtime and expose a `MongoDatabase` bean. For example:
 
 ```java
 @Produces
 @ApplicationScoped
-public MongoClient mongoClient() {
-    return MongoClients.create("mongodb://ratchet:password@localhost:27017/ratchet");
+public MongoDatabase mongoDatabase() {
+    return MongoClients.create("mongodb://ratchet:password@localhost:27017")
+        .getDatabase("ratchet");
 }
 ```
 

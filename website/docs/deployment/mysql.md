@@ -57,13 +57,45 @@ Configure your data source for MySQL:
 
 ```xml
 <!-- persistence.xml -->
-<persistence-unit name="RatchetPU" transaction-type="JTA">
+<persistence-unit name="your-application-pu" transaction-type="JTA">
   <jta-data-source>java:/RatchetDS</jta-data-source>
+  <class>run.ratchet.store.entity.JobEntity</class>
+  <class>run.ratchet.store.entity.JobExecutionEntity</class>
+  <class>run.ratchet.store.entity.ResourceLimitEntity</class>
+  <class>run.ratchet.store.entity.BatchMetricsEntity</class>
+  <class>run.ratchet.store.entity.WorkflowConditionEntity</class>
+  <class>run.ratchet.store.entity.ArchivedJobEntity</class>
+  <class>run.ratchet.store.entity.NodeEntity</class>
+  <class>run.ratchet.store.entity.DlqAlertEntity</class>
+  <class>run.ratchet.store.entity.JobLogEntity</class>
+  <class>run.ratchet.store.entity.ResourcePermitEntity</class>
+  <class>run.ratchet.store.entity.BatchEntity</class>
+  <class>run.ratchet.store.entity.LockEntity</class>
+  <exclude-unlisted-classes>true</exclude-unlisted-classes>
   <properties>
     <property name="hibernate.dialect" value="org.hibernate.dialect.MySQL8Dialect" />
     <property name="hibernate.connection.isolation" value="2" />
   </properties>
 </persistence-unit>
+```
+
+The MySQL store does not require a fixed persistence-unit name. By default it uses the deployment's
+unnamed `@PersistenceContext`. If your application has multiple persistence units, provide a CDI
+alternative for `RatchetEntityManagerProvider`:
+
+```java
+@ApplicationScoped
+@Alternative
+@Priority(Interceptor.Priority.APPLICATION)
+public class RatchetPuProvider implements RatchetEntityManagerProvider {
+  @PersistenceContext(unitName = "your-application-pu")
+  EntityManager em;
+
+  @Override
+  public EntityManager getEntityManager() {
+    return em;
+  }
+}
 ```
 
 Or via WildFly CLI:
@@ -88,6 +120,9 @@ MySQL defaults to `REPEATABLE READ`, which acquires gap locks on `SELECT ... FOR
 - **JDBC URL**: `?sessionVariables=transaction_isolation='READ-COMMITTED'`
 - **persistence.xml**: `<property name="hibernate.connection.isolation" value="2"/>`
 - **WildFly -ds.xml**: `<transaction-isolation>TRANSACTION_READ_COMMITTED</transaction-isolation>`
+
+Ratchet checks this at startup and fails by default when the active session is not
+`READ COMMITTED`. Use `-Dratchet.isolation-check=warn` only as an explicit temporary opt-out.
 :::
 
 ### MySQL-Specific Settings

@@ -151,15 +151,15 @@ Ratchet is built for **Jakarta EE developers** building applications on servers 
 - JPA / relational databases
 - Maven dependency management
 
-If you're building a microservice on Spring Boot or Quarkus and not targeting a full Jakarta EE server, Ratchet may still work (both frameworks support CDI), but it's primarily designed and tested against the Jakarta EE Web Profile.
+If you're building a microservice on Spring Boot or Quarkus and not targeting a full Jakarta EE server, Ratchet may still work with explicit CDI wiring and the standalone executor fallback, but the reference implementation is primarily designed and tested against Jakarta EE runtimes with managed executors.
 
 ## Requirements
 
 | Component | Version |
 |-----------|---------|
 | **Java** | 17+ |
-| **Jakarta EE** | 10 (Web Profile) -- CDI 4.0, JPA 3.1, Interceptors 2.1 |
-| **Runtime** | Any Jakarta EE 10 compatible server (WildFly, Open Liberty, Payara) |
+| **Jakarta EE** | 10 -- CDI 4.0, JPA 3.1, Interceptors 2.1, Jakarta Concurrency 3.0 |
+| **Runtime** | Jakarta EE 10 compatible server with managed executor support (WildFly, Open Liberty, Payara) |
 | **Database** | MySQL 8+, PostgreSQL 14+, or MongoDB 6+ |
 
 ## Project Status
