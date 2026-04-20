@@ -21,15 +21,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import org.testcontainers.containers.JdbcDatabaseContainer;
 
 /**
  * Shared Testcontainers + JPA fixture for store TCK suites.
  *
- * <p>Subclasses supply a started {@link JdbcDatabaseContainer}, a map of provider-specific JPA
+ * <p>Subclasses supply a started Testcontainers JDBC container, a map of provider-specific JPA
  * properties (e.g. {@code hibernate.dialect} for Hibernate-backed subclasses), a persistence-unit
  * name (PU lives in the dialect module's {@code src/test/resources/META-INF/persistence.xml}), and
- * a factory for the concrete {@link JobStore} given a plain {@link EntityManager}.
+ * a factory for the concrete {@link JobStore} given a plain {@link EntityManager}. This base class
+ * intentionally avoids a compile-time Testcontainers type so the TCK jar can be a clean JPMS
+ * module; concrete store test modules own their Testcontainers dependencies.
  *
  * <p>This base is JPA-provider agnostic: it only sets the standard {@code
  * jakarta.persistence.jdbc.*} overrides. Any Hibernate- or EclipseLink-specific keys are the
@@ -63,12 +64,12 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
   private final JobStore storeProxy;
 
   protected JpaContainerFixture() {
-    JdbcDatabaseContainer<?> container = container();
-    if (!container.isRunning()) {
+    Object container = container();
+    if (!containerBoolean(container, "isRunning")) {
       throw new IllegalStateException(
           "Subclass must start the Testcontainers container before constructing the fixture");
     }
-    String cacheKey = persistenceUnitName() + "@" + container.getJdbcUrl();
+    String cacheKey = persistenceUnitName() + "@" + containerString(container, "getJdbcUrl");
     this.emf = EMF_CACHE.computeIfAbsent(cacheKey, k -> createEntityManagerFactory(container));
     this.threadEm = ThreadLocal.withInitial(emf::createEntityManager);
     this.emProxy = newThreadLocalEmProxy();
@@ -77,7 +78,7 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
   }
 
   /** Started Testcontainers JDBC container. Subclass owns its lifecycle. */
-  protected abstract JdbcDatabaseContainer<?> container();
+  protected abstract Object container();
 
   /**
    * Provider-specific JPA properties merged into the EMF override map. Subclasses supply keys like
@@ -154,14 +155,40 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
     runInTransaction(() -> threadEm.get().createNativeQuery(sql).executeUpdate());
   }
 
-  private EntityManagerFactory createEntityManagerFactory(JdbcDatabaseContainer<?> container) {
+  private EntityManagerFactory createEntityManagerFactory(Object container) {
     Map<String, Object> overrides = new HashMap<>();
-    overrides.put("jakarta.persistence.jdbc.url", container.getJdbcUrl());
-    overrides.put("jakarta.persistence.jdbc.user", container.getUsername());
-    overrides.put("jakarta.persistence.jdbc.password", container.getPassword());
-    overrides.put("jakarta.persistence.jdbc.driver", container.getDriverClassName());
+    overrides.put("jakarta.persistence.jdbc.url", containerString(container, "getJdbcUrl"));
+    overrides.put("jakarta.persistence.jdbc.user", containerString(container, "getUsername"));
+    overrides.put("jakarta.persistence.jdbc.password", containerString(container, "getPassword"));
+    overrides.put(
+        "jakarta.persistence.jdbc.driver", containerString(container, "getDriverClassName"));
     overrides.putAll(jpaProperties());
     return Persistence.createEntityManagerFactory(persistenceUnitName(), overrides);
+  }
+
+  private static boolean containerBoolean(Object container, String methodName) {
+    Object value = invokeContainerMethod(container, methodName);
+    if (value instanceof Boolean result) {
+      return result;
+    }
+    throw new IllegalStateException("Container method " + methodName + " did not return boolean");
+  }
+
+  private static String containerString(Object container, String methodName) {
+    Object value = invokeContainerMethod(container, methodName);
+    if (value instanceof String result) {
+      return result;
+    }
+    throw new IllegalStateException("Container method " + methodName + " did not return String");
+  }
+
+  private static Object invokeContainerMethod(Object container, String methodName) {
+    try {
+      return container.getClass().getMethod(methodName).invoke(container);
+    } catch (ReflectiveOperationException e) {
+      throw new IllegalStateException(
+          "Expected Testcontainers JDBC container method " + methodName, e);
+    }
   }
 
   private EntityManager newThreadLocalEmProxy() {

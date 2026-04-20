@@ -13,6 +13,7 @@ import run.ratchet.testsuite.util.BaseRatchetIT;
 import run.ratchet.testsuite.util.JobAssertions;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 import jakarta.inject.Inject;
+import java.time.Duration;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
@@ -62,7 +63,7 @@ class JobLifecycleIT extends BaseRatchetIT {
 
   @Test
   void enqueue_shouldStartInPendingStatus() {
-    JobHandle handle = jobService.enqueue(SimpleJob::execute).submit();
+    JobHandle handle = jobService.schedule(Duration.ofMinutes(5), SimpleJob::execute).submit();
 
     assertNotNull(handle);
     var job = jobCrudStore.findById(handle.id());

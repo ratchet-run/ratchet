@@ -31,6 +31,16 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
   }
 
   @Test
+  void findByIdLatest_roundTripsPersistedJob() {
+    var saved = persist(newPendingJob());
+
+    var reloaded = store().findByIdLatest(saved.getId());
+
+    assertTrue(reloaded.isPresent(), "Persisted job should be reloadable by latest read");
+    assertEquals(saved.getId(), reloaded.get().getId());
+  }
+
+  @Test
   void findByIds_returnsEveryRequestedRow() {
     var first = persist(newPendingJob());
     var second = persist(newPendingJob());
