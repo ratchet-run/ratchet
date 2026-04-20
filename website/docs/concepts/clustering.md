@@ -44,7 +44,7 @@ The core guarantee: **no two nodes will claim the same job**. This is enforced a
 -- Node A runs:
 SELECT * FROM scheduler_job
 WHERE status = 'PENDING' AND scheduled_time <= NOW()
-ORDER BY priority DESC, scheduled_time ASC
+ORDER BY (priority + age_boost) DESC, scheduled_time ASC
 FOR UPDATE SKIP LOCKED
 LIMIT 50;
 

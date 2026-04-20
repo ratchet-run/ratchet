@@ -37,13 +37,14 @@ The `Poller` is the heart of Ratchet's pull-based architecture. It periodically 
 
 ### Claim Query
 
-The core query selects PENDING jobs whose scheduled time has passed, ordered by priority and age:
+The core query selects PENDING jobs whose scheduled time has passed, ordered by effective priority
+and due time:
 
 ```sql
 SELECT * FROM scheduler_job
 WHERE status = 'PENDING'
   AND scheduled_time <= CURRENT_TIMESTAMP
-ORDER BY priority DESC, scheduled_time ASC
+ORDER BY (priority + age_boost) DESC, scheduled_time ASC
 FOR UPDATE SKIP LOCKED
 LIMIT :batchSize
 ```
@@ -51,8 +52,9 @@ LIMIT :batchSize
 Key properties of this query:
 
 - **`FOR UPDATE SKIP LOCKED`** -- Two nodes running this query concurrently will claim disjoint sets of jobs. Neither blocks the other. This is the foundation of Ratchet's cluster-safe execution.
-- **Priority ordering** -- CRITICAL jobs are always claimed before NORMAL jobs.
-- **Age ordering** -- Within the same priority, older jobs are claimed first (fairness).
+- **Priority ordering** -- Raw priority is the base priority.
+- **Age boosting** -- `age_boost` is computed as `floor(wait_minutes / RATCHET_PRIORITY_BOOST_INTERVAL_MINUTES)`, so sufficiently old low-priority work can move ahead of newer high-priority work.
+- **Age ordering** -- Within the same effective priority, older jobs are claimed first (fairness).
 - **Batch claiming** -- Up to `batchSize` jobs are claimed in a single query to reduce database round trips.
 
 After the query, claimed jobs are updated:

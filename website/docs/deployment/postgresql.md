@@ -94,7 +94,8 @@ Ratchet uses PostgreSQL's `SKIP LOCKED` clause for lock-free job claiming:
 SELECT * FROM scheduler_job
 WHERE status = 'PENDING'
   AND scheduled_time <= NOW()
-ORDER BY priority DESC, scheduled_time ASC
+ORDER BY priority + FLOOR(GREATEST(0, EXTRACT(EPOCH FROM (statement_timestamp() - scheduled_time)) / 60) / 15) DESC,
+         scheduled_time ASC
 LIMIT 10
 FOR UPDATE SKIP LOCKED;
 ```

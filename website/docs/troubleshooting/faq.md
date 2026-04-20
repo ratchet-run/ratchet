@@ -188,15 +188,15 @@ Ratchet supports five priority levels:
 
 | Priority | Enum Value | Numeric Value |
 |---|---|---|
-| `CRITICAL` | `JobPriority.CRITICAL` | 0 |
-| `HIGH` | `JobPriority.HIGH` | 1 |
+| `LOWEST` | `JobPriority.LOWEST` | 0 |
+| `LOW` | `JobPriority.LOW` | 1 |
 | `NORMAL` | `JobPriority.NORMAL` | 2 (default) |
-| `LOW` | `JobPriority.LOW` | 3 |
-| `BACKGROUND` | `JobPriority.BACKGROUND` | 4 |
+| `HIGH` | `JobPriority.HIGH` | 3 |
+| `CRITICAL` | `JobPriority.CRITICAL` | 4 |
 
-The poller claims jobs ordered by `priority ASC, scheduled_time ASC`, so higher-priority jobs (lower numeric value) are picked up first. The database index `idx_job_poll_composite` on `(status, priority, scheduled_time)` makes this efficient.
+The poller claims jobs ordered by effective priority descending, then due time. Effective priority starts with the numeric priority and adds `floor(wait_minutes / RATCHET_PRIORITY_BOOST_INTERVAL_MINUTES)`.
 
-Additionally, Ratchet includes automatic **priority boosting**: jobs that have been waiting in PENDING for too long get their priority bumped to prevent starvation. This is controlled by `RATCHET_PRIORITY_BOOST_INTERVAL_MINUTES` (default 15).
+With the default 15-minute interval, a long-waiting low-priority job can overtake newer high-priority work. This boost is computed during claim ordering; it does not rewrite the stored priority. Set `RATCHET_PRIORITY_BOOST_INTERVAL_MINUTES=0` to disable boosting.
 
 ## How Are Job Results Stored?
 

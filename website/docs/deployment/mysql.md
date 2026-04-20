@@ -118,21 +118,21 @@ The MySQL schema uses several MySQL-specific features:
 - **ENUM types** for `status`, `job_type`, `backoff_policy`, and `level` columns
 - **JSON columns** for `payload`, `params`, `job_result`, and `mdc`
 - **GENERATED ALWAYS AS ... STORED** columns to extract `target_class` and `method_name` from payload JSON
-- **Generated `active_business_key`** column for uniqueness enforcement on active jobs only
+- **Reservation table** for active business-key uniqueness without keeping terminal rows hot
 
 ### Key Indexes
 
 The schema includes optimized indexes for the polling query:
 
 ```sql
--- Composite index for the main polling query
-INDEX idx_job_claim_cover (status, job_type, scheduled_time, priority)
+-- Executable claim path on scheduler_job_queue
+INDEX idx_claim_executable (status, job_type, scheduled_time, priority, job_id)
 
--- Composite index for priority-ordered polling
-INDEX idx_job_poll_composite (status, priority, scheduled_time)
+-- Orphan recovery
+INDEX idx_queue_orphan (status, picked_at, picked_by)
 
--- Recurring job scheduling
-INDEX idx_job_recurring_composite (job_type, status, next_fire)
+-- recurring-master scheduling
+INDEX idx_job_recurring_pending (job_type, rec_status, next_fire)
 ```
 
 ## Performance Tuning

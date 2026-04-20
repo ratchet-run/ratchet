@@ -92,14 +92,15 @@ The `scheduler_job` table includes these indexes optimized for the Poller and co
 
 | Index | Columns | Purpose |
 |-------|---------|---------|
-| `idx_job_poll_composite` | `status, priority, scheduled_time` | Main polling query |
+| `idx_job_claim_cover` | `job_type, scheduled_time, priority, job_id` where `status = 'PENDING'` | PostgreSQL executable claim filter |
+| `idx_claim_executable` | `status, job_type, scheduled_time, priority, job_id` | MySQL executable claim filter |
+| `idx_job_poll_composite` | `status, priority, scheduled_time` | General polling lookup |
 | `idx_job_due` | `status, scheduled_time` | Simple due-job lookup |
 | `idx_job_priority_due` | `priority, scheduled_time` | Priority-ordered queries |
 | `idx_recurring_due` | `status, next_fire` | Recurring job scheduling |
-| `idx_job_recurring_composite` | `job_type, status, next_fire` | Recurring job filtering |
+| `idx_job_recurring_composite` | `next_fire, priority, job_id` where `status = 'PENDING'` and `job_type = 'RECURRING'` | PostgreSQL recurring claim filter |
 | `idx_job_depends_on` | `depends_on` | Chain/workflow traversal |
 | `idx_job_business_key` | `business_key` | Business key uniqueness check |
-| `idx_job_type` | `job_type` | Type-based filtering |
 | `idx_job_picked_by` | `picked_by` | Orphan recovery by node |
 
 ## TSID Identifiers

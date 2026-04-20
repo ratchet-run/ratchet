@@ -44,7 +44,7 @@ When a node's poller fires, it runs a `SELECT ... FOR UPDATE SKIP LOCKED` query:
 SELECT * FROM scheduler_job
 WHERE status = 'PENDING'
   AND scheduled_time <= NOW()
-ORDER BY priority DESC, scheduled_time ASC
+ORDER BY (priority + age_boost) DESC, scheduled_time ASC
 FOR UPDATE SKIP LOCKED
 LIMIT :batchSize;
 ```
@@ -181,14 +181,9 @@ public class JGroupsClusterCoordinator implements ClusterCoordinator {
 
 ## Priority Boosting
 
-Long-waiting low-priority jobs get promoted automatically. The store periodically boosts jobs that have been pending longer than `SCHEDULER_PRIORITY_BOOST_INTERVAL_MINUTES` (default: 15):
+Long-waiting low-priority jobs get promoted automatically. Each claim orders by raw priority plus `floor(wait_minutes / RATCHET_PRIORITY_BOOST_INTERVAL_MINUTES)` (default: 15).
 
-- `LOWEST` → `LOW`
-- `LOW` → `NORMAL`
-- `NORMAL` → `HIGH`
-- `HIGH` → `CRITICAL`
-
-This prevents starvation in clusters with sustained high-priority load.
+Boosting is part of claim ordering only; persisted priority is not rewritten. Set `RATCHET_PRIORITY_BOOST_INTERVAL_MINUTES=0` to disable the boost.
 
 ## Distributed Locks
 

@@ -268,21 +268,24 @@ EXPLAIN ANALYZE
 SELECT * FROM scheduler_job
 WHERE status = 'PENDING'
   AND scheduled_time <= NOW()
-ORDER BY priority DESC, scheduled_time ASC
+ORDER BY priority + FLOOR(GREATEST(0, EXTRACT(EPOCH FROM (statement_timestamp() - scheduled_time)) / 60) / 15) DESC,
+         scheduled_time ASC
 LIMIT 100
 FOR UPDATE SKIP LOCKED;
 
 -- MySQL
 EXPLAIN
-SELECT * FROM scheduler_job
+SELECT * FROM scheduler_job_queue FORCE INDEX (idx_claim_executable)
 WHERE status = 'PENDING'
+  AND job_type = 'SINGLE'
   AND scheduled_time <= NOW()
-ORDER BY priority DESC, scheduled_time ASC
+ORDER BY priority + FLOOR(GREATEST(0, TIMESTAMPDIFF(MINUTE, scheduled_time, NOW(3))) / 15) DESC,
+         scheduled_time ASC
 LIMIT 100
-FOR UPDATE;
+FOR UPDATE SKIP LOCKED;
 ```
 
-The query should use the `idx_job_poll_composite` or `idx_job_claim_cover` index. If you see a sequential scan, check that statistics are up to date:
+The query should use `idx_job_claim_cover` on PostgreSQL or `idx_claim_executable` on MySQL. A sort on computed effective priority is expected; a full scan of the pending queue is not. If you see a sequential scan, check that statistics are up to date:
 
 ```sql
 -- PostgreSQL

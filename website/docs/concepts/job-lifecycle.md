@@ -129,12 +129,12 @@ The Poller executes a query like:
 SELECT * FROM scheduler_job
 WHERE status = 'PENDING'
   AND scheduled_time <= NOW()
-ORDER BY priority DESC, scheduled_time ASC
+ORDER BY (priority + age_boost) DESC, scheduled_time ASC
 FOR UPDATE SKIP LOCKED
 LIMIT :batchSize
 ```
 
-`SKIP LOCKED` is critical -- it allows multiple nodes to poll concurrently without blocking each other. Each node claims a non-overlapping set of jobs. The claimed jobs are atomically updated:
+`age_boost` is computed from the configured priority-boost interval, so old low-priority work can outrank newer high-priority work. `SKIP LOCKED` is critical -- it allows multiple nodes to poll concurrently without blocking each other. Each node claims a non-overlapping set of jobs. The claimed jobs are atomically updated:
 
 - `status` = RUNNING
 - `picked_by` = node ID

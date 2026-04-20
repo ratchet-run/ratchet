@@ -38,7 +38,8 @@ Ratchet ships plain SQL files, not migrations. Apply them however your project m
 EXPLAIN ANALYZE
 SELECT * FROM scheduler_job
 WHERE status = 'PENDING' AND scheduled_time <= NOW()
-ORDER BY priority DESC, scheduled_time ASC
+ORDER BY priority + FLOOR(GREATEST(0, EXTRACT(EPOCH FROM (statement_timestamp() - scheduled_time)) / 60) / 15) DESC,
+         scheduled_time ASC
 FOR UPDATE SKIP LOCKED LIMIT 10;
 ```
 
@@ -47,8 +48,9 @@ If you see a sequential scan instead of an index scan, the composite index is mi
 **Fix:** Re-apply the DDL or create the index manually:
 ```sql
 -- PostgreSQL
-CREATE INDEX IF NOT EXISTS idx_job_poll_composite
-ON scheduler_job (status, priority DESC, scheduled_time ASC);
+CREATE INDEX IF NOT EXISTS idx_job_claim_cover
+ON scheduler_job (job_type, scheduled_time ASC, priority DESC, job_id ASC)
+WHERE status = 'PENDING';
 ```
 
 ### Schema version mismatch
@@ -171,7 +173,8 @@ Only reset jobs if you're certain the claiming node is truly dead. Resetting a j
 EXPLAIN ANALYZE
 SELECT * FROM scheduler_job
 WHERE status = 'PENDING' AND scheduled_time <= NOW()
-ORDER BY priority DESC, scheduled_time ASC
+ORDER BY priority + FLOOR(GREATEST(0, EXTRACT(EPOCH FROM (statement_timestamp() - scheduled_time)) / 60) / 15) DESC,
+         scheduled_time ASC
 FOR UPDATE SKIP LOCKED LIMIT 10;
 ```
 

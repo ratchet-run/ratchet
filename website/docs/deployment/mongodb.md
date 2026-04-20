@@ -75,8 +75,10 @@ The initializer creates these indexes for query performance:
 
 | Index | Fields | Notes |
 |-------|--------|-------|
-| `idx_job_poll_composite` | `status`, `priority` DESC, `scheduled_time` | Primary polling query |
-| `idx_job_recurring_composite` | `job_type`, `status`, `next_fire` | Recurring job claims |
+| `idx_job_claim_exec` | `status`, `job_type`, `priority` DESC, `scheduled_time`, `_id` | Executable claim candidate filtering |
+| `idx_job_claim_recurring` | `status`, `job_type`, `priority` DESC, `next_fire`, `_id` | Recurring claim candidate filtering |
+| `idx_job_poll_composite` | `status`, `priority` DESC, `scheduled_time` | General due-job lookup |
+| `idx_job_recurring_composite` | `job_type`, `status`, `next_fire` | Recurring due-time lookup |
 | `idx_job_idempotency_key` | `idempotency_key` | **Unique** — global dedup |
 | `idx_job_active_business_key` | `business_key` | **Unique partial** — only for PENDING/RUNNING/PAUSED |
 | `idx_job_tags` | `tags` | Multikey index for tag-based queries |
@@ -97,14 +99,14 @@ The initializer creates these indexes for query performance:
 
 ## How It Differs from SQL Stores
 
-MongoDB doesn't have `SELECT ... FOR UPDATE SKIP LOCKED`. Instead, the MongoDB store uses **atomic `findOneAndUpdate`** operations for all state transitions:
+MongoDB doesn't have `SELECT ... FOR UPDATE SKIP LOCKED`. Instead, the MongoDB store first ranks due candidates with an aggregation that computes effective priority, then claims each selected ID with an **atomic `findOneAndUpdate`**:
 
 ```javascript
-// Claim a pending job (atomic)
+// Claim one selected candidate ID (atomic)
 db.scheduler_job.findOneAndUpdate(
-  { status: "PENDING", scheduled_time: { $lte: ISODate() } },
+  { _id: candidateId, status: "PENDING" },
   { $set: { status: "RUNNING", picked_by: nodeId, picked_at: ISODate() } },
-  { sort: { priority: -1, scheduled_time: 1 } }
+  { returnDocument: "after" }
 )
 ```
 
