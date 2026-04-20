@@ -12,7 +12,7 @@
 
   <artifactId>ratchet-testsuite-jpms</artifactId>
   <name>Ratchet :: JPMS Consumer Test</name>
-  <description>JPMS consumer tests for ratchet-api encapsulation</description>
+  <description>JPMS consumer tests for Ratchet module descriptors</description>
 
   <dependencies>
     <dependency>
@@ -20,7 +20,7 @@
       <artifactId>ratchet-api</artifactId>
     </dependency>
 
-    <!-- needed for negative-compilation test against ri internals -->
+    <!-- Required by the probe module so RI JPMS metadata is resolved during compilation. -->
     <dependency>
       <groupId>run.ratchet</groupId>
       <artifactId>ratchet</artifactId>

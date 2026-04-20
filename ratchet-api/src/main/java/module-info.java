@@ -6,11 +6,8 @@
  * evolve between minor releases. Module-path exports are an access-control mechanism, not a
  * stability promise. Treat {@code @Incubating} types as semver-exempt.
  *
- * <p>Implementation packages live in the {@code ratchet} jar (automatic module {@code
- * ratchet.ri}) and are NOT exported by any Ratchet module. Consumers running on the module path
- * have read access to the API and SPI packages declared below; the implementation classes in {@code
- * run.ratchet.ri.*} are inaccessible (compile error on import). Classpath consumers see no
- * change in 0.2.0.
+ * <p>Ratchet runtime, store, metrics, and TCK artifacts also provide explicit module descriptors.
+ * Classpath consumers see no change.
  */
 module run.ratchet.api {
   // jakarta.cdi is `requires transitive` because Ratchet's API surface includes CDI annotations

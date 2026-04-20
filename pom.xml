@@ -68,6 +68,7 @@
     <wildfly.version>39.0.1.Final</wildfly.version>
     <wildfly-arquillian.version>5.1.0.Final</wildfly-arquillian.version>
     <mysql-connector.version>8.3.0</mysql-connector.version>
+    <protobuf-java.version>3.25.5</protobuf-java.version>
     <postgresql-driver.version>42.7.7</postgresql-driver.version>
     <mongodb-driver.version>5.3.0</mongodb-driver.version>
     <hibernate.version>6.6.15.Final</hibernate.version>
@@ -94,9 +95,45 @@
         <scope>provided</scope>
       </dependency>
       <dependency>
+        <groupId>jakarta.annotation</groupId>
+        <artifactId>jakarta.annotation-api</artifactId>
+        <version>2.1.1</version>
+        <scope>provided</scope>
+      </dependency>
+      <dependency>
+        <groupId>jakarta.inject</groupId>
+        <artifactId>jakarta.inject-api</artifactId>
+        <version>2.0.1</version>
+        <scope>provided</scope>
+      </dependency>
+      <dependency>
         <groupId>jakarta.interceptor</groupId>
         <artifactId>jakarta.interceptor-api</artifactId>
         <version>2.1.0</version>
+        <scope>provided</scope>
+      </dependency>
+      <dependency>
+        <groupId>jakarta.transaction</groupId>
+        <artifactId>jakarta.transaction-api</artifactId>
+        <version>2.0.1</version>
+        <scope>provided</scope>
+      </dependency>
+      <dependency>
+        <groupId>jakarta.persistence</groupId>
+        <artifactId>jakarta.persistence-api</artifactId>
+        <version>3.1.0</version>
+        <scope>provided</scope>
+      </dependency>
+      <dependency>
+        <groupId>jakarta.json</groupId>
+        <artifactId>jakarta.json-api</artifactId>
+        <version>2.1.0</version>
+        <scope>provided</scope>
+      </dependency>
+      <dependency>
+        <groupId>jakarta.json.bind</groupId>
+        <artifactId>jakarta.json.bind-api</artifactId>
+        <version>3.0.0</version>
         <scope>provided</scope>
       </dependency>
 
@@ -247,6 +284,12 @@
         <scope>test</scope>
       </dependency>
 
+      <dependency>
+        <groupId>com.google.protobuf</groupId>
+        <artifactId>protobuf-java</artifactId>
+        <version>${protobuf-java.version}</version>
+      </dependency>
+
       <!-- PostgreSQL Driver -->
       <dependency>
         <groupId>org.postgresql</groupId>
@@ -393,6 +436,9 @@
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-failsafe-plugin</artifactId>
           <version>${maven-failsafe-plugin.version}</version>
+          <configuration>
+            <useModulePath>false</useModulePath>
+          </configuration>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
@@ -471,6 +517,7 @@
         <artifactId>maven-surefire-plugin</artifactId>
         <configuration>
           <argLine>-XX:+EnableDynamicAgentLoading ${argLine}</argLine>
+          <useModulePath>false</useModulePath>
         </configuration>
       </plugin>
       <plugin>
