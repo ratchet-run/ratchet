@@ -5,4 +5,5 @@
 - Incremental scripts live under `ddl/migrations/` and use the `V###__description.sql` naming convention. Current set:
   - `V001__initial_schema.sql` — initial schema.
   - `V002__hot_cold_split.sql` — introduces `scheduler_job_queue` + `scheduler_business_key_reservation` and moves live state off `scheduler_job`.
+  - `V003__claim_due_index_alignment.sql` — realigns the executable claim index for due-time filtering under computed priority boosting.
 - The ordered `V*` scripts must compose to the same schema shipped in `mysql-schema.sql`.

@@ -216,7 +216,7 @@ public class MysqlJobStore implements JobStore {
   private static String buildClaimSql(
       String selectClause, String typeFilter, String timeColumn, int boostInterval) {
     return """
-        SELECT %s FROM scheduler_job_queue
+        SELECT %s FROM scheduler_job_queue FORCE INDEX (idx_claim_executable)
         WHERE status = 'PENDING'
           AND %s <= NOW(3)
           AND %s

@@ -4,4 +4,5 @@
 - `ratchet_schema_version` is reserved for ordered upgrades tracked by external migration tooling or the opt-in `SchemaMigrator` utility.
 - Incremental scripts live under `ddl/migrations/` and use the `V###__description.sql` naming convention. Current set:
   - `V001__initial_schema.sql` — baseline single-table schema.
+  - `V002__claim_due_index_alignment.sql` — realigns the executable claim index for due-time filtering under computed priority boosting.
 - The ordered `V*` scripts must compose to the same schema shipped in `postgresql-schema.sql`.

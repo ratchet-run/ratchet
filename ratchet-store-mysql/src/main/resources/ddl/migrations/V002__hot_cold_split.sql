@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job_queue
     CONSTRAINT chk_queue_priority CHECK (priority BETWEEN 0 AND 4),
     CONSTRAINT chk_queue_paused_from_status CHECK (paused_from_status IS NULL OR paused_from_status IN ('PENDING','RUNNING','PAUSED')),
     CONSTRAINT fk_job_queue_job FOREIGN KEY (job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE,
-    INDEX idx_claim_executable (status, job_type, priority DESC, scheduled_time ASC, job_id ASC),
+    INDEX idx_claim_executable (status, job_type, scheduled_time ASC, priority DESC, job_id ASC),
     INDEX idx_queue_orphan (status, picked_at, picked_by)
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4

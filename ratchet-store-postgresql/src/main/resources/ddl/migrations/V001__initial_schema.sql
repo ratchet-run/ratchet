@@ -104,21 +104,22 @@ CREATE TABLE IF NOT EXISTS scheduler_job
 
 -- Hot-path poller indexes — required, do NOT remove without re-running the perf suite.
 CREATE INDEX IF NOT EXISTS idx_job_poll_composite ON scheduler_job (status, priority, scheduled_time);
--- Match the executable claim order used by PostgresqlJobStore:
+-- Match the executable claim filter used by PostgresqlJobStore:
 --   WHERE status = 'PENDING' AND job_type = ?
---   ORDER BY priority DESC, scheduled_time ASC, job_id ASC
+--   AND scheduled_time <= statement_timestamp()
+-- Computed age-boost ordering is sorted after the index scan.
 -- The partial predicate removes the leading status column from the index key and keeps
 -- write amplification lower than a full-table covering index.
 CREATE INDEX IF NOT EXISTS idx_job_claim_cover
-    ON scheduler_job (job_type, priority DESC, scheduled_time ASC, job_id ASC)
+    ON scheduler_job (job_type, scheduled_time ASC, priority DESC, job_id ASC)
     WHERE status = 'PENDING';
 CREATE INDEX IF NOT EXISTS idx_recurring_due ON scheduler_job (status, next_fire);
 -- Match recurring claim order:
 --   WHERE status = 'PENDING' AND job_type = 'RECURRING'
---   ORDER BY priority DESC, next_fire ASC, job_id ASC
+--   AND next_fire <= statement_timestamp()
 CREATE INDEX IF NOT EXISTS idx_job_recurring_composite
-    ON scheduler_job (job_type, priority DESC, next_fire ASC, job_id ASC)
-    WHERE status = 'PENDING';
+    ON scheduler_job (next_fire ASC, priority DESC, job_id ASC)
+    WHERE status = 'PENDING' AND job_type = 'RECURRING';
 -- TODO(perf-audit): idx_job_due (status, scheduled_time) is a left-prefix of idx_job_poll_composite
 -- (status, priority, scheduled_time) and likely redundant for the planner. Confirm with
 -- pg_stat_user_indexes on a representative workload before dropping to avoid an accidental
@@ -127,7 +128,6 @@ CREATE INDEX IF NOT EXISTS idx_job_due ON scheduler_job (status, scheduled_time)
 CREATE INDEX IF NOT EXISTS idx_job_priority_due ON scheduler_job (priority, scheduled_time);
 -- Lookup/relationship indexes.
 CREATE INDEX IF NOT EXISTS idx_job_picked_by ON scheduler_job (picked_by);
-CREATE INDEX IF NOT EXISTS idx_job_type ON scheduler_job (job_type);
 CREATE INDEX IF NOT EXISTS idx_job_depends_on ON scheduler_job (depends_on);
 CREATE INDEX IF NOT EXISTS idx_job_superseded_by ON scheduler_job (superseded_by);
 CREATE INDEX IF NOT EXISTS idx_job_business_key ON scheduler_job (business_key);
