@@ -3,11 +3,14 @@ package run.ratchet.tck.store;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import run.ratchet.api.JobPriority;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobStatus;
+import run.ratchet.store.util.PriorityBoostConfig;
 import run.ratchet.tck.util.ConcurrentTestRunner;
 import java.time.Duration;
 import java.time.Instant;
@@ -23,6 +26,14 @@ public abstract class AbstractJobClaimStoreContract implements JobStoreContractF
   @AfterEach
   void cleanupClaimFixture() {
     cleanupStore();
+  }
+
+  private static Instant oldEnoughForLowestToBeatCritical() {
+    int boostInterval = PriorityBoostConfig.getPriorityBoostIntervalMinutes();
+    assumeTrue(boostInterval > 0, "priority boosting is disabled");
+    return Instant.now()
+        .minus(Duration.ofMinutes((long) boostInterval * (JobPriority.CRITICAL.ordinal() + 1L)))
+        .minusSeconds(1);
   }
 
   @Test
@@ -66,6 +77,28 @@ public abstract class AbstractJobClaimStoreContract implements JobStoreContractF
     var claimed = store().claimNextBatch(10, "node-1");
 
     assertTrue(claimed.isEmpty(), "claimNextBatch on empty store should return empty list");
+  }
+
+  @Test
+  void claimNextBatchOptimized_usesAgeBoostedEffectivePriority() {
+    JobEntity oldLow = newPendingJob();
+    oldLow.setPriority(JobPriority.LOWEST);
+    oldLow.setScheduledTime(oldEnoughForLowestToBeatCritical());
+    oldLow = persist(oldLow);
+
+    JobEntity freshCritical = newPendingJob();
+    freshCritical.setPriority(JobPriority.CRITICAL);
+    freshCritical.setScheduledTime(Instant.now().minusSeconds(1));
+    persist(freshCritical);
+
+    List<JobClaimDto> claims =
+        store().claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-1");
+
+    assertEquals(1, claims.size(), "optimized claim should return the requested job");
+    assertEquals(
+        oldLow.getId(),
+        claims.get(0).id(),
+        "age-boosted LOWEST job should outrank a fresh CRITICAL job");
   }
 
   @Test
@@ -175,6 +208,31 @@ public abstract class AbstractJobClaimStoreContract implements JobStoreContractF
     var claimed = store().claimDueRecurring(2, "node-1");
 
     assertEquals(2, claimed.size(), "claimDueRecurring should respect the limit parameter");
+  }
+
+  @Test
+  void claimDueRecurring_usesAgeBoostedEffectivePriority() {
+    JobEntity oldLow = newPendingJob();
+    oldLow.setJobType(JobExecutionType.RECURRING);
+    oldLow.setCronExpr("0 * * * *");
+    oldLow.setPriority(JobPriority.LOWEST);
+    oldLow.setNextFire(oldEnoughForLowestToBeatCritical());
+    oldLow = persist(oldLow);
+
+    JobEntity freshCritical = newPendingJob();
+    freshCritical.setJobType(JobExecutionType.RECURRING);
+    freshCritical.setCronExpr("0 * * * *");
+    freshCritical.setPriority(JobPriority.CRITICAL);
+    freshCritical.setNextFire(Instant.now().minusSeconds(1));
+    persist(freshCritical);
+
+    var claimed = store().claimDueRecurring(1, "node-1");
+
+    assertEquals(1, claimed.size(), "claimDueRecurring should return the requested job");
+    assertEquals(
+        oldLow.getId(),
+        claimed.get(0).getId(),
+        "age-boosted recurring LOWEST job should outrank a fresh CRITICAL job");
   }
 
   @Test
