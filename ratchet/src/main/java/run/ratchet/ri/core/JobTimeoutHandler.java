@@ -2,8 +2,9 @@ package run.ratchet.ri.core;
 
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobStatus;
+import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.JobStatusStore;
+import run.ratchet.store.spi.JobRetryStore;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.Future;
@@ -23,14 +24,16 @@ public class JobTimeoutHandler {
   private static final Logger log = Logger.getLogger(JobTimeoutHandler.class);
 
   private final JobCrudStore jobCrudStore;
-  private final JobStatusStore jobStatusStore;
+  private final JobRetryStore jobRetryStore;
+  private final JobBatchStatusStore jobBatchStatusStore;
   private final PostExecutionHandler lifecycleFacade;
   private final int softTimeoutPercent;
   private final long defaultTimeoutSeconds;
 
   protected JobTimeoutHandler() {
     this.jobCrudStore = null;
-    this.jobStatusStore = null;
+    this.jobRetryStore = null;
+    this.jobBatchStatusStore = null;
     this.lifecycleFacade = null;
     this.softTimeoutPercent = 0;
     this.defaultTimeoutSeconds = 0;
@@ -38,12 +41,14 @@ public class JobTimeoutHandler {
 
   public JobTimeoutHandler(
       JobCrudStore jobCrudStore,
-      JobStatusStore jobStatusStore,
+      JobRetryStore jobRetryStore,
+      JobBatchStatusStore jobBatchStatusStore,
       PostExecutionHandler lifecycleFacade,
       int softTimeoutPercent,
       long defaultTimeoutSeconds) {
     this.jobCrudStore = jobCrudStore;
-    this.jobStatusStore = jobStatusStore;
+    this.jobRetryStore = jobRetryStore;
+    this.jobBatchStatusStore = jobBatchStatusStore;
     this.lifecycleFacade = lifecycleFacade;
     this.softTimeoutPercent = softTimeoutPercent;
     this.defaultTimeoutSeconds = defaultTimeoutSeconds;
@@ -165,7 +170,7 @@ public class JobTimeoutHandler {
     }
 
     // Step 1: Increment attempts while status is still RUNNING.
-    int newAttempts = jobStatusStore.incrementRetryAttempt(jobId);
+    int newAttempts = jobRetryStore.incrementRetryAttempt(jobId);
     if (newAttempts < 0) {
       // Not in RUNNING anymore — worker already transitioned it. Nothing to do.
       log.infof("Job %s already left RUNNING when timeout handler ran", jobId);
@@ -176,7 +181,7 @@ public class JobTimeoutHandler {
     if (newAttempts <= job.getMaxRetries()) {
       Instant retryTime = Instant.now().plusSeconds(timeoutSec);
       boolean rescheduled =
-          jobStatusStore.scheduleJobRetry(jobId, timeoutEx.getMessage(), retryTime, newAttempts);
+          jobRetryStore.scheduleJobRetry(jobId, timeoutEx.getMessage(), retryTime, newAttempts);
       if (rescheduled) {
         log.warnf(
             "Job %s timed out but has retries remaining (%s/%s) — rescheduled for %s",
@@ -194,7 +199,7 @@ public class JobTimeoutHandler {
 
     // Step 3: Retries exhausted — CAS to FAILED and route to DLQ.
     boolean marked =
-        jobStatusStore.compareAndSwapStatus(
+        jobBatchStatusStore.compareAndSwapStatus(
             jobId, JobStatus.RUNNING, JobStatus.FAILED, timeoutEx.getMessage());
     if (!marked) {
       log.infof("Job %s already in terminal state when timeout handler ran", jobId);

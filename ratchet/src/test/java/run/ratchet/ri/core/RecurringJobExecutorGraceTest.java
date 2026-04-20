@@ -14,6 +14,7 @@ import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.spi.JobClaimStore;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobTerminalStore;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
@@ -31,7 +32,7 @@ class RecurringJobExecutorGraceTest {
 
   @Mock private JobCrudStore jobCrudStore;
   @Mock private JobClaimStore jobClaimStore;
-  @Mock private run.ratchet.store.spi.JobStatusStore jobStatusStore;
+  @Mock private JobTerminalStore jobTerminalStore;
 
   private RecurringRegistrationState state;
   private RecurringJobExecutor executor;
@@ -40,7 +41,7 @@ class RecurringJobExecutorGraceTest {
   void setUp() {
     System.clearProperty(RecurringRegistrationState.STARTUP_GRACE_PROPERTY);
     state = new RecurringRegistrationState();
-    executor = new RecurringJobExecutor(jobCrudStore, jobClaimStore, jobStatusStore, state);
+    executor = new RecurringJobExecutor(jobCrudStore, jobClaimStore, jobTerminalStore, state);
   }
 
   @AfterEach

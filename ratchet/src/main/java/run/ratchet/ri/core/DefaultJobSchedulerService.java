@@ -20,8 +20,11 @@ import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.BatchStore;
+import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.JobStatusStore;
+import run.ratchet.store.spi.JobPauseStore;
+import run.ratchet.store.spi.JobRetryStore;
+import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -49,7 +52,10 @@ public class DefaultJobSchedulerService
   private static final Logger log = Logger.getLogger(DefaultJobSchedulerService.class);
 
   private final InternalEventPublisher eventPublisher;
-  private final JobStatusStore jobStatusStore;
+  private final JobBatchStatusStore jobBatchStatusStore;
+  private final JobPauseStore jobPauseStore;
+  private final JobRetryStore jobRetryStore;
+  private final JobTerminalStore jobTerminalStore;
   private final JobCrudStore jobCrudStore;
   private final BatchStore batchStore;
   private final TagStore tagStore;
@@ -60,7 +66,10 @@ public class DefaultJobSchedulerService
 
   protected DefaultJobSchedulerService() {
     this.eventPublisher = null;
-    this.jobStatusStore = null;
+    this.jobBatchStatusStore = null;
+    this.jobPauseStore = null;
+    this.jobRetryStore = null;
+    this.jobTerminalStore = null;
     this.jobCrudStore = null;
     this.batchStore = null;
     this.tagStore = null;
@@ -72,7 +81,10 @@ public class DefaultJobSchedulerService
 
   public DefaultJobSchedulerService(
       InternalEventPublisher eventPublisher,
-      JobStatusStore jobStatusStore,
+      JobBatchStatusStore jobBatchStatusStore,
+      JobPauseStore jobPauseStore,
+      JobRetryStore jobRetryStore,
+      JobTerminalStore jobTerminalStore,
       JobCrudStore jobCrudStore,
       BatchStore batchStore,
       TagStore tagStore,
@@ -81,7 +93,10 @@ public class DefaultJobSchedulerService
       RecurringScheduler recurringScheduler) {
     this(
         eventPublisher,
-        jobStatusStore,
+        jobBatchStatusStore,
+        jobPauseStore,
+        jobRetryStore,
+        jobTerminalStore,
         jobCrudStore,
         batchStore,
         tagStore,
@@ -94,7 +109,10 @@ public class DefaultJobSchedulerService
   @Inject
   public DefaultJobSchedulerService(
       InternalEventPublisher eventPublisher,
-      JobStatusStore jobStatusStore,
+      JobBatchStatusStore jobBatchStatusStore,
+      JobPauseStore jobPauseStore,
+      JobRetryStore jobRetryStore,
+      JobTerminalStore jobTerminalStore,
       JobCrudStore jobCrudStore,
       BatchStore batchStore,
       TagStore tagStore,
@@ -103,7 +121,10 @@ public class DefaultJobSchedulerService
       RecurringScheduler recurringScheduler,
       JobInvocationResolver jobInvocationResolver) {
     this.eventPublisher = eventPublisher;
-    this.jobStatusStore = jobStatusStore;
+    this.jobBatchStatusStore = jobBatchStatusStore;
+    this.jobPauseStore = jobPauseStore;
+    this.jobRetryStore = jobRetryStore;
+    this.jobTerminalStore = jobTerminalStore;
     this.jobCrudStore = jobCrudStore;
     this.batchStore = batchStore;
     this.tagStore = tagStore;
@@ -117,19 +138,22 @@ public class DefaultJobSchedulerService
   @Transactional
   public boolean cancelJob(long jobId) {
     // Try PENDING → CANCELED first (most common case)
-    if (jobStatusStore.compareAndSwapStatus(jobId, JobStatus.PENDING, JobStatus.CANCELED, null)) {
+    if (jobBatchStatusStore.compareAndSwapStatus(
+        jobId, JobStatus.PENDING, JobStatus.CANCELED, null)) {
       log.debugf("Canceled pending job %s", jobId);
       return true;
     }
 
     // Try RUNNING → CANCELED (executor should check status before committing)
-    if (jobStatusStore.compareAndSwapStatus(jobId, JobStatus.RUNNING, JobStatus.CANCELED, null)) {
+    if (jobBatchStatusStore.compareAndSwapStatus(
+        jobId, JobStatus.RUNNING, JobStatus.CANCELED, null)) {
       log.debugf("Canceled running job %s", jobId);
       return true;
     }
 
     // Try PAUSED → CANCELED
-    if (jobStatusStore.compareAndSwapStatus(jobId, JobStatus.PAUSED, JobStatus.CANCELED, null)) {
+    if (jobBatchStatusStore.compareAndSwapStatus(
+        jobId, JobStatus.PAUSED, JobStatus.CANCELED, null)) {
       log.debugf("Canceled paused job %s", jobId);
       return true;
     }
@@ -168,7 +192,8 @@ public class DefaultJobSchedulerService
     return new DefaultBatchBuilder(
         name,
         jobCrudStore,
-        jobStatusStore,
+        jobBatchStatusStore,
+        jobTerminalStore,
         batchStore,
         workflowConditionStore,
         wakeupService,
@@ -218,10 +243,10 @@ public class DefaultJobSchedulerService
     // Cancel the old job using CAS to avoid conflicting with concurrent executors.
     // Try each cancellable state in order; if all fail, the job is already terminal.
     boolean canceled =
-        jobStatusStore.compareAndSwapStatus(jobId, JobStatus.PENDING, JobStatus.CANCELED, null)
-            || jobStatusStore.compareAndSwapStatus(
+        jobBatchStatusStore.compareAndSwapStatus(jobId, JobStatus.PENDING, JobStatus.CANCELED, null)
+            || jobBatchStatusStore.compareAndSwapStatus(
                 jobId, JobStatus.RUNNING, JobStatus.CANCELED, null)
-            || jobStatusStore.compareAndSwapStatus(
+            || jobBatchStatusStore.compareAndSwapStatus(
                 jobId, JobStatus.PAUSED, JobStatus.CANCELED, null);
 
     // Reload after CAS: compareAndSwapStatus bumps the optimistic-lock version; writing the
@@ -264,7 +289,7 @@ public class DefaultJobSchedulerService
 
     // Recurring masters use the rec_status shim (cold-only) — no hot row.
     if (job.getJobType() == JobExecutionType.RECURRING) {
-      if (jobStatusStore.pauseRecurring(jobId)) {
+      if (jobPauseStore.pauseRecurring(jobId)) {
         log.debugf("Paused recurring master %s", jobId);
         return true;
       }
@@ -273,7 +298,7 @@ public class DefaultJobSchedulerService
     }
 
     // Executable jobs: try PENDING → PAUSED on hot.
-    if (jobStatusStore.transitionToPaused(jobId, JobStatus.PENDING)) {
+    if (jobPauseStore.transitionToPaused(jobId, JobStatus.PENDING)) {
       log.debugf("Paused pending job %s", jobId);
       return true;
     }
@@ -297,7 +322,7 @@ public class DefaultJobSchedulerService
       return false;
     }
     if (job.getJobType() == JobExecutionType.RECURRING) {
-      if (jobStatusStore.resumeRecurring(jobId)) {
+      if (jobPauseStore.resumeRecurring(jobId)) {
         log.debugf("Resumed recurring master %s", jobId);
         recurringScheduler.kick();
         return true;
@@ -306,7 +331,7 @@ public class DefaultJobSchedulerService
       return false;
     }
 
-    JobStatus target = jobStatusStore.transitionFromPausedAtomic(jobId);
+    JobStatus target = jobPauseStore.transitionFromPausedAtomic(jobId);
     if (target == null) {
       log.debugf(
           "Cannot resume job %s — not in PAUSED state (current: %s)", jobId, job.getStatus());
@@ -322,7 +347,7 @@ public class DefaultJobSchedulerService
   @Override
   @Transactional
   public boolean retryJob(long jobId) {
-    if (jobStatusStore.resetFailedToPending(jobId)) {
+    if (jobRetryStore.resetFailedToPending(jobId)) {
       log.debugf("Retried failed job %s — reset to PENDING", jobId);
       return true;
     }
@@ -339,19 +364,19 @@ public class DefaultJobSchedulerService
   @Override
   @Transactional
   public int cancelRecurringJobsByTag(String tag) {
-    return jobStatusStore.cancelRecurringJobsByTag(tag);
+    return jobBatchStatusStore.cancelRecurringJobsByTag(tag);
   }
 
   @Override
   @Transactional
   public int cancelRecurringJobByBusinessKey(String businessKey) {
-    return jobStatusStore.cancelRecurringJobByBusinessKey(businessKey);
+    return jobBatchStatusStore.cancelRecurringJobByBusinessKey(businessKey);
   }
 
   @Transactional
   public int cancelOrphanedRecurringAnnotationJobs(
       Set<String> registeredIds, Instant nodeStartTime) {
-    return jobStatusStore.cancelOrphanedRecurringAnnotationJobs(registeredIds, nodeStartTime);
+    return jobBatchStatusStore.cancelOrphanedRecurringAnnotationJobs(registeredIds, nodeStartTime);
   }
 
   /**

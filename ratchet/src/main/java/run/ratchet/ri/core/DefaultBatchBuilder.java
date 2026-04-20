@@ -19,8 +19,9 @@ import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.BatchStore;
+import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.JobStatusStore;
+import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 import java.io.Serializable;
 import java.time.Duration;
@@ -44,7 +45,8 @@ public class DefaultBatchBuilder implements BatchBuilder {
 
   private final String name;
   private final JobCrudStore jobCrudStore;
-  private final JobStatusStore jobStatusStore;
+  private final JobBatchStatusStore jobBatchStatusStore;
+  private final JobTerminalStore jobTerminalStore;
   private final BatchStore batchStore;
   private final WorkflowConditionStore workflowConditionStore;
   private final JobWakeupService wakeupService;
@@ -57,14 +59,16 @@ public class DefaultBatchBuilder implements BatchBuilder {
   DefaultBatchBuilder(
       String name,
       JobCrudStore jobCrudStore,
-      JobStatusStore jobStatusStore,
+      JobBatchStatusStore jobBatchStatusStore,
+      JobTerminalStore jobTerminalStore,
       BatchStore batchStore,
       WorkflowConditionStore workflowConditionStore,
       JobWakeupService wakeupService) {
     this(
         name,
         jobCrudStore,
-        jobStatusStore,
+        jobBatchStatusStore,
+        jobTerminalStore,
         batchStore,
         workflowConditionStore,
         wakeupService,
@@ -74,14 +78,16 @@ public class DefaultBatchBuilder implements BatchBuilder {
   DefaultBatchBuilder(
       String name,
       JobCrudStore jobCrudStore,
-      JobStatusStore jobStatusStore,
+      JobBatchStatusStore jobBatchStatusStore,
+      JobTerminalStore jobTerminalStore,
       BatchStore batchStore,
       WorkflowConditionStore workflowConditionStore,
       JobWakeupService wakeupService,
       JobInvocationResolver jobInvocationResolver) {
     this.name = name;
     this.jobCrudStore = jobCrudStore;
-    this.jobStatusStore = jobStatusStore;
+    this.jobBatchStatusStore = jobBatchStatusStore;
+    this.jobTerminalStore = jobTerminalStore;
     this.batchStore = batchStore;
     this.workflowConditionStore = workflowConditionStore;
     this.wakeupService = wakeupService;
@@ -128,9 +134,9 @@ public class DefaultBatchBuilder implements BatchBuilder {
     if (children.isEmpty()) {
       // Skip-execute the parent into terminal SUCCEEDED. Post hot/cold-split, save() can't
       // mutate hot status; the equivalent is a synthetic pickup followed by mark succeeded.
-      if (jobStatusStore.tryPickUpJob(parentId, BATCH_LIFECYCLE_NODE_ID)) {
+      if (jobBatchStatusStore.tryPickUpJob(parentId, BATCH_LIFECYCLE_NODE_ID)) {
         Instant now = Instant.now();
-        jobStatusStore.markJobSucceededMinimal(parentId, now, now, 0L, 0L);
+        jobTerminalStore.markJobSucceededMinimal(parentId, now, now, 0L, 0L);
       }
       batchStore.markBatchCompleteIfReady(parentId);
       log.infof(

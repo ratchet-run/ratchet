@@ -7,7 +7,7 @@ import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.spi.JobClaimStore;
 import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.JobStatusStore;
+import run.ratchet.store.spi.JobTerminalStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -31,13 +31,13 @@ public class RecurringJobExecutor {
 
   private final JobCrudStore jobCrudStore;
   private final JobClaimStore jobClaimStore;
-  private final JobStatusStore jobStatusStore;
+  private final JobTerminalStore jobTerminalStore;
   private final RecurringRegistrationState registrationState;
 
   protected RecurringJobExecutor() {
     this.jobCrudStore = null;
     this.jobClaimStore = null;
-    this.jobStatusStore = null;
+    this.jobTerminalStore = null;
     this.registrationState = null;
   }
 
@@ -45,11 +45,11 @@ public class RecurringJobExecutor {
   public RecurringJobExecutor(
       JobCrudStore jobCrudStore,
       JobClaimStore jobClaimStore,
-      JobStatusStore jobStatusStore,
+      JobTerminalStore jobTerminalStore,
       RecurringRegistrationState registrationState) {
     this.jobCrudStore = jobCrudStore;
     this.jobClaimStore = jobClaimStore;
-    this.jobStatusStore = jobStatusStore;
+    this.jobTerminalStore = jobTerminalStore;
     this.registrationState = registrationState;
   }
 
@@ -118,7 +118,7 @@ public class RecurringJobExecutor {
         // (clear rec_status, set terminal_status='CANCELED', drop bkres). Routing through
         // save() would trip the hot-mutation guard since save() can't represent the rec_status
         // / terminal_status transition.
-        jobStatusStore.cancelJob(master.getId());
+        jobTerminalStore.cancelJob(master.getId());
       }
       log.infof("Recurring job %s fired; next=%s", master.getId(), master.getNextFire());
     }

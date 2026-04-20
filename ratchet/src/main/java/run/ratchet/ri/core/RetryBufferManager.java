@@ -6,7 +6,7 @@ import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobStatus;
-import run.ratchet.store.spi.JobStatusStore;
+import run.ratchet.store.spi.JobBatchStatusStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -38,7 +38,7 @@ public class RetryBufferManager {
   private static final Logger log = Logger.getLogger(RetryBufferManager.class);
 
   private final DeadLetterService deadLetterService;
-  private final JobStatusStore jobStatusStore;
+  private final JobBatchStatusStore jobBatchStatusStore;
   private final NodeIdentityProvider nodeIdentityProvider;
 
   private final Map<JobExecutionType, Queue<BufferedClaim>> retryBuffers =
@@ -49,17 +49,17 @@ public class RetryBufferManager {
 
   protected RetryBufferManager() {
     this.deadLetterService = null;
-    this.jobStatusStore = null;
+    this.jobBatchStatusStore = null;
     this.nodeIdentityProvider = null;
   }
 
   @Inject
   public RetryBufferManager(
       DeadLetterService deadLetterService,
-      JobStatusStore jobStatusStore,
+      JobBatchStatusStore jobBatchStatusStore,
       NodeIdentityProvider nodeIdentityProvider) {
     this.deadLetterService = deadLetterService;
-    this.jobStatusStore = jobStatusStore;
+    this.jobBatchStatusStore = jobBatchStatusStore;
     this.nodeIdentityProvider = nodeIdentityProvider;
 
     Comparator<BufferedClaim> jobComparator =
@@ -217,7 +217,7 @@ public class RetryBufferManager {
         BufferedClaim buffered;
         while ((buffered = buffer.poll()) != null) {
           try {
-            if (jobStatusStore.resetRunningJob(buffered.jobId(), nodeId)) {
+            if (jobBatchStatusStore.resetRunningJob(buffered.jobId(), nodeId)) {
               flushed++;
             }
           } catch (Exception e) {

@@ -10,7 +10,7 @@ import static org.mockito.Mockito.when;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobStatus;
-import run.ratchet.store.spi.JobStatusStore;
+import run.ratchet.store.spi.JobBatchStatusStore;
 import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,21 +24,21 @@ class JobStateManagerTest {
   private static final String NODE_ID = "node-abc";
   private static final long JOB_ID = 42L;
 
-  @Mock private JobStatusStore jobStatusStore;
+  @Mock private JobBatchStatusStore jobBatchStatusStore;
   @Mock private NodeIdentityProvider nodeIdentityProvider;
 
   private JobStateManager manager;
 
   @BeforeEach
   void setUp() {
-    manager = new JobStateManager(jobStatusStore, nodeIdentityProvider);
+    manager = new JobStateManager(jobBatchStatusStore, nodeIdentityProvider);
   }
 
   @Test
   void resetJobToPending_entity_casSucceeds_updatesAllFields() {
     JobEntity job = runningJob(JOB_ID);
     when(nodeIdentityProvider.getNodeId()).thenReturn(NODE_ID);
-    when(jobStatusStore.resetRunningJob(JOB_ID, NODE_ID)).thenReturn(true);
+    when(jobBatchStatusStore.resetRunningJob(JOB_ID, NODE_ID)).thenReturn(true);
 
     boolean result = manager.resetJobToPending(job);
 
@@ -54,7 +54,7 @@ class JobStateManagerTest {
     JobEntity job = runningJob(JOB_ID);
     job.setPickedAt(pickedAt);
     when(nodeIdentityProvider.getNodeId()).thenReturn(NODE_ID);
-    when(jobStatusStore.resetRunningJob(JOB_ID, NODE_ID)).thenReturn(false);
+    when(jobBatchStatusStore.resetRunningJob(JOB_ID, NODE_ID)).thenReturn(false);
 
     boolean result = manager.resetJobToPending(job);
 
@@ -67,18 +67,18 @@ class JobStateManagerTest {
   @Test
   void resetJobToPending_byId_delegatesToStoreWithNodeId() {
     when(nodeIdentityProvider.getNodeId()).thenReturn(NODE_ID);
-    when(jobStatusStore.resetRunningJob(JOB_ID, NODE_ID)).thenReturn(true);
+    when(jobBatchStatusStore.resetRunningJob(JOB_ID, NODE_ID)).thenReturn(true);
 
     boolean result = manager.resetJobToPending(JOB_ID);
 
     assertTrue(result);
-    verify(jobStatusStore).resetRunningJob(JOB_ID, NODE_ID);
+    verify(jobBatchStatusStore).resetRunningJob(JOB_ID, NODE_ID);
   }
 
   @Test
   void resetJobToPending_byId_storeReturnsFalse_returnsFalse() {
     when(nodeIdentityProvider.getNodeId()).thenReturn(NODE_ID);
-    when(jobStatusStore.resetRunningJob(JOB_ID, NODE_ID)).thenReturn(false);
+    when(jobBatchStatusStore.resetRunningJob(JOB_ID, NODE_ID)).thenReturn(false);
 
     boolean result = manager.resetJobToPending(JOB_ID);
 
@@ -88,7 +88,7 @@ class JobStateManagerTest {
   @Test
   void resetJobToPending_byId_storeThrows_returnsFalse() {
     when(nodeIdentityProvider.getNodeId()).thenReturn(NODE_ID);
-    when(jobStatusStore.resetRunningJob(JOB_ID, NODE_ID))
+    when(jobBatchStatusStore.resetRunningJob(JOB_ID, NODE_ID))
         .thenThrow(new RuntimeException("DB error"));
 
     boolean result = manager.resetJobToPending(JOB_ID);
@@ -99,18 +99,18 @@ class JobStateManagerTest {
   @Test
   void resetRunningJobsForNode_delegatesToStoreWithNodeId() {
     when(nodeIdentityProvider.getNodeId()).thenReturn(NODE_ID);
-    when(jobStatusStore.resetRunningJobs(NODE_ID)).thenReturn(3);
+    when(jobBatchStatusStore.resetRunningJobs(NODE_ID)).thenReturn(3);
 
     int count = manager.resetRunningJobsForNode();
 
     assertEquals(3, count);
-    verify(jobStatusStore).resetRunningJobs(NODE_ID);
+    verify(jobBatchStatusStore).resetRunningJobs(NODE_ID);
   }
 
   @Test
   void resetRunningJobsForNode_returnsZeroWhenNoJobsReset() {
     when(nodeIdentityProvider.getNodeId()).thenReturn(NODE_ID);
-    when(jobStatusStore.resetRunningJobs(NODE_ID)).thenReturn(0);
+    when(jobBatchStatusStore.resetRunningJobs(NODE_ID)).thenReturn(0);
 
     int count = manager.resetRunningJobsForNode();
 
@@ -122,7 +122,7 @@ class JobStateManagerTest {
     JobEntity job = runningJob(JOB_ID);
     job.setDependsOn(null);
     when(nodeIdentityProvider.getNodeId()).thenReturn(NODE_ID);
-    when(jobStatusStore.resetRunningJob(JOB_ID, NODE_ID)).thenReturn(true);
+    when(jobBatchStatusStore.resetRunningJob(JOB_ID, NODE_ID)).thenReturn(true);
 
     boolean result = manager.resetJobToPending(job);
 
@@ -135,7 +135,7 @@ class JobStateManagerTest {
     JobEntity job = runningJob(JOB_ID);
     job.setDependsOn(99L);
     when(nodeIdentityProvider.getNodeId()).thenReturn(NODE_ID);
-    when(jobStatusStore.resetRunningJob(JOB_ID, NODE_ID)).thenReturn(true);
+    when(jobBatchStatusStore.resetRunningJob(JOB_ID, NODE_ID)).thenReturn(true);
 
     manager.resetJobToPending(job);
 
@@ -146,12 +146,12 @@ class JobStateManagerTest {
   void resetJobToPending_byId_usesNodeIdFromProvider() {
     String differentNodeId = "node-xyz";
     when(nodeIdentityProvider.getNodeId()).thenReturn(differentNodeId);
-    when(jobStatusStore.resetRunningJob(JOB_ID, differentNodeId)).thenReturn(true);
+    when(jobBatchStatusStore.resetRunningJob(JOB_ID, differentNodeId)).thenReturn(true);
 
     boolean result = manager.resetJobToPending(JOB_ID);
 
     assertTrue(result);
-    verify(jobStatusStore).resetRunningJob(JOB_ID, differentNodeId);
+    verify(jobBatchStatusStore).resetRunningJob(JOB_ID, differentNodeId);
   }
 
   private static JobEntity runningJob(long id) {

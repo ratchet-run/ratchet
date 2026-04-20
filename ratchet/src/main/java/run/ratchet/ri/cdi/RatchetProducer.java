@@ -32,10 +32,11 @@ import run.ratchet.spi.PollingStrategyProvider;
 import run.ratchet.spi.ResilienceStrategy;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.ExecutionStore;
+import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobClaimStore;
 import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.JobStatusStore;
+import run.ratchet.store.spi.JobRetryStore;
 import run.ratchet.store.spi.NodeStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Default;
@@ -61,7 +62,8 @@ public class RatchetProducer {
   private final ExecutorProvider executorProvider;
   private final MetricsCollector metricsCollector;
   private final JobCrudStore jobCrudStore;
-  private final JobStatusStore jobStatusStore;
+  private final JobRetryStore jobRetryStore;
+  private final JobBatchStatusStore jobBatchStatusStore;
   private final PostExecutionHandler postExecutionHandler;
   private final NodeStore nodeStore;
   private final RatchetConfiguration config;
@@ -73,7 +75,8 @@ public class RatchetProducer {
     this.executorProvider = null;
     this.metricsCollector = null;
     this.jobCrudStore = null;
-    this.jobStatusStore = null;
+    this.jobRetryStore = null;
+    this.jobBatchStatusStore = null;
     this.postExecutionHandler = null;
     this.nodeStore = null;
     this.config = null;
@@ -87,7 +90,8 @@ public class RatchetProducer {
       ExecutorProvider executorProvider,
       MetricsCollector metricsCollector,
       JobCrudStore jobCrudStore,
-      JobStatusStore jobStatusStore,
+      JobRetryStore jobRetryStore,
+      JobBatchStatusStore jobBatchStatusStore,
       PostExecutionHandler postExecutionHandler,
       NodeStore nodeStore,
       RatchetConfiguration config,
@@ -97,7 +101,8 @@ public class RatchetProducer {
     this.executorProvider = executorProvider;
     this.metricsCollector = metricsCollector;
     this.jobCrudStore = jobCrudStore;
-    this.jobStatusStore = jobStatusStore;
+    this.jobRetryStore = jobRetryStore;
+    this.jobBatchStatusStore = jobBatchStatusStore;
     this.postExecutionHandler = postExecutionHandler;
     this.nodeStore = nodeStore;
     this.config = config;
@@ -145,7 +150,8 @@ public class RatchetProducer {
 
     return new JobTimeoutHandler(
         jobCrudStore,
-        jobStatusStore,
+        jobRetryStore,
+        jobBatchStatusStore,
         postExecutionHandler,
         softTimeoutPercent,
         defaultTimeoutSeconds);

@@ -9,7 +9,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.DlqAlertStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.JobStatusStore;
+import run.ratchet.store.spi.JobTerminalStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -41,7 +41,7 @@ public class DeadLetterService {
   private final ExecutorProvider executorProvider;
   private final JobCrudStore jobCrudStore;
   private final JobBulkStore jobBulkStore;
-  private final JobStatusStore jobStatusStore;
+  private final JobTerminalStore jobTerminalStore;
   private final SingletonLeaseService singletonLeaseService;
   private final DlqAlertStore dlqAlertStore;
   private final InternalEventPublisher eventPublisher;
@@ -57,7 +57,7 @@ public class DeadLetterService {
     this.executorProvider = null;
     this.jobCrudStore = null;
     this.jobBulkStore = null;
-    this.jobStatusStore = null;
+    this.jobTerminalStore = null;
     this.singletonLeaseService = null;
     this.dlqAlertStore = null;
     this.eventPublisher = null;
@@ -69,7 +69,7 @@ public class DeadLetterService {
       ExecutorProvider executorProvider,
       JobCrudStore jobCrudStore,
       JobBulkStore jobBulkStore,
-      JobStatusStore jobStatusStore,
+      JobTerminalStore jobTerminalStore,
       SingletonLeaseService singletonLeaseService,
       DlqAlertStore dlqAlertStore,
       InternalEventPublisher eventPublisher,
@@ -77,7 +77,7 @@ public class DeadLetterService {
     this.executorProvider = executorProvider;
     this.jobCrudStore = jobCrudStore;
     this.jobBulkStore = jobBulkStore;
-    this.jobStatusStore = jobStatusStore;
+    this.jobTerminalStore = jobTerminalStore;
     this.singletonLeaseService = singletonLeaseService;
     this.dlqAlertStore = dlqAlertStore;
     this.eventPublisher = eventPublisher;
@@ -89,7 +89,7 @@ public class DeadLetterService {
     // guard. The terminal transition (DELETE hot + UPDATE cold to FAILED + DELETE bkres) is now
     // a single explicit store call that captures total_attempts atomically.
     String sanitized = errorSanitizer.sanitize(cause);
-    jobStatusStore.markJobFailedTerminal(job.getId(), sanitized, job.getAttempts());
+    jobTerminalStore.markJobFailedTerminal(job.getId(), sanitized, job.getAttempts());
     job.setLastError(sanitized);
 
     recordDlqAlert(job, cause);

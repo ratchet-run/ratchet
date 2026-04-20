@@ -4,8 +4,9 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.entity.WorkflowConditionEntity;
+import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.JobStatusStore;
+import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -28,25 +29,29 @@ public class WorkflowScheduler extends ChainScheduler {
   private final WorkflowConditionStore conditionStore;
   private final WorkflowConditionEvaluator conditionEvaluator;
   private final JobCrudStore jobCrudStore;
-  private final JobStatusStore jobStatusStore;
+  private final JobBatchStatusStore jobBatchStatusStore;
+  private final JobTerminalStore jobTerminalStore;
 
   protected WorkflowScheduler() {
     super();
     this.conditionStore = null;
     this.conditionEvaluator = null;
     this.jobCrudStore = null;
-    this.jobStatusStore = null;
+    this.jobBatchStatusStore = null;
+    this.jobTerminalStore = null;
   }
 
   @Inject
   public WorkflowScheduler(
       JobCrudStore jobCrudStore,
-      JobStatusStore jobStatusStore,
+      JobBatchStatusStore jobBatchStatusStore,
+      JobTerminalStore jobTerminalStore,
       WorkflowConditionStore conditionStore,
       WorkflowConditionEvaluator conditionEvaluator) {
     super(jobCrudStore);
     this.jobCrudStore = jobCrudStore;
-    this.jobStatusStore = jobStatusStore;
+    this.jobBatchStatusStore = jobBatchStatusStore;
+    this.jobTerminalStore = jobTerminalStore;
     this.conditionStore = conditionStore;
     this.conditionEvaluator = conditionEvaluator;
   }
@@ -67,7 +72,7 @@ public class WorkflowScheduler extends ChainScheduler {
               childJob -> {
                 // Terminal CANCELED transition: cancelJob runs DELETE hot + UPDATE cold +
                 // DELETE bkres atomically. setStatus()+save() is rejected by the hot guard.
-                if (jobStatusStore.cancelJob(childJob.getId())) {
+                if (jobTerminalStore.cancelJob(childJob.getId())) {
                   canceledCount.incrementAndGet();
                   log.infof(
                       "Canceled workflow branch job %s due to parent job %s failure",
@@ -124,9 +129,9 @@ public class WorkflowScheduler extends ChainScheduler {
         // Mark parent FAILED through the explicit terminal pathway. The parent is BATCH_PARENT
         // sitting at PENDING; we synthesize the picker so the gate matches before mark-failed.
         String error = "Workflow condition evaluation failed: " + e.getMessage();
-        if (jobStatusStore.tryPickUpJob(
+        if (jobBatchStatusStore.tryPickUpJob(
             parentJob.getId(), DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID)) {
-          jobStatusStore.markJobFailedTerminal(parentJob.getId(), error, parentJob.getAttempts());
+          jobTerminalStore.markJobFailedTerminal(parentJob.getId(), error, parentJob.getAttempts());
         }
         parentJob.setStatus(JobStatus.FAILED);
         parentJob.setLastError(error);

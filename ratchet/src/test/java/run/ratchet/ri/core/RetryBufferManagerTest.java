@@ -14,7 +14,7 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.spi.JobStatusStore;
+import run.ratchet.store.spi.JobBatchStatusStore;
 import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,14 +26,14 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class RetryBufferManagerTest {
 
   @Mock private DeadLetterService deadLetterService;
-  @Mock private JobStatusStore jobStatusStore;
+  @Mock private JobBatchStatusStore jobBatchStatusStore;
   @Mock private NodeIdentityProvider nodeIdentityProvider;
 
   private RetryBufferManager manager;
 
   @BeforeEach
   void setUp() {
-    manager = new RetryBufferManager(deadLetterService, jobStatusStore, nodeIdentityProvider);
+    manager = new RetryBufferManager(deadLetterService, jobBatchStatusStore, nodeIdentityProvider);
   }
 
   private static JobEntity job(
@@ -140,13 +140,13 @@ class RetryBufferManagerTest {
     manager.offer(standardJob(2L));
 
     when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
-    when(jobStatusStore.resetRunningJob(1L, "node-1")).thenReturn(true);
-    when(jobStatusStore.resetRunningJob(2L, "node-1")).thenReturn(true);
+    when(jobBatchStatusStore.resetRunningJob(1L, "node-1")).thenReturn(true);
+    when(jobBatchStatusStore.resetRunningJob(2L, "node-1")).thenReturn(true);
 
     manager.flushOnShutdown();
 
-    verify(jobStatusStore).resetRunningJob(1L, "node-1");
-    verify(jobStatusStore).resetRunningJob(2L, "node-1");
+    verify(jobBatchStatusStore).resetRunningJob(1L, "node-1");
+    verify(jobBatchStatusStore).resetRunningJob(2L, "node-1");
     assertTrue(manager.isBufferEmpty(JobExecutionType.SINGLE));
   }
 
@@ -154,12 +154,12 @@ class RetryBufferManagerTest {
   void flushOnShutdown_doesNotOverwriteTerminalJobs() {
     manager.offer(standardJob(1L));
     when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
-    when(jobStatusStore.resetRunningJob(1L, "node-1")).thenReturn(false);
+    when(jobBatchStatusStore.resetRunningJob(1L, "node-1")).thenReturn(false);
 
     manager.flushOnShutdown();
 
-    verify(jobStatusStore).resetRunningJob(1L, "node-1");
-    verify(jobStatusStore, never()).resetRunningJob(1L, "other-node");
+    verify(jobBatchStatusStore).resetRunningJob(1L, "node-1");
+    verify(jobBatchStatusStore, never()).resetRunningJob(1L, "other-node");
     assertTrue(manager.isBufferEmpty(JobExecutionType.SINGLE));
   }
 }

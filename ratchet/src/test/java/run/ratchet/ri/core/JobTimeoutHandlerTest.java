@@ -12,8 +12,9 @@ import static org.mockito.Mockito.when;
 
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobStatus;
+import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.JobStatusStore;
+import run.ratchet.store.spi.JobRetryStore;
 import java.time.Instant;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -29,14 +30,17 @@ class JobTimeoutHandlerTest {
   private static final long TIMEOUT_SEC = 30L;
 
   @Mock private JobCrudStore jobCrudStore;
-  @Mock private JobStatusStore jobStatusStore;
+  @Mock private JobRetryStore jobRetryStore;
+  @Mock private JobBatchStatusStore jobBatchStatusStore;
   @Mock private PostExecutionHandler lifecycleFacade;
 
   private JobTimeoutHandler handler;
 
   @BeforeEach
   void setUp() {
-    handler = new JobTimeoutHandler(jobCrudStore, jobStatusStore, lifecycleFacade, 80, 60L);
+    handler =
+        new JobTimeoutHandler(
+            jobCrudStore, jobRetryStore, jobBatchStatusStore, lifecycleFacade, 80, 60L);
   }
 
   private JobEntity jobWithMaxRetries(int maxRetries) {
@@ -51,31 +55,31 @@ class JobTimeoutHandlerTest {
   void retriesRemainingReschedulesInsteadOfDlq() {
     JobEntity job = jobWithMaxRetries(3);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
-    when(jobStatusStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
-    when(jobStatusStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1)))
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1)))
         .thenReturn(true);
 
     handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
 
-    verify(jobStatusStore, times(1))
+    verify(jobRetryStore, times(1))
         .scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1));
     verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
-    verify(jobStatusStore, never()).compareAndSwapStatus(anyLong(), any(), any(), any());
+    verify(jobBatchStatusStore, never()).compareAndSwapStatus(anyLong(), any(), any(), any());
   }
 
   @Test
   void retriesExhaustedCasesToFailedAndEscalatesDlq() {
     JobEntity job = jobWithMaxRetries(0);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
-    when(jobStatusStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
-    when(jobStatusStore.compareAndSwapStatus(
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
+    when(jobBatchStatusStore.compareAndSwapStatus(
             eq(JOB_ID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), anyString()))
         .thenReturn(true);
 
     handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
 
-    verify(jobStatusStore, never()).scheduleJobRetry(anyLong(), anyString(), any(), anyInt());
-    verify(jobStatusStore, times(1))
+    verify(jobRetryStore, never()).scheduleJobRetry(anyLong(), anyString(), any(), anyInt());
+    verify(jobBatchStatusStore, times(1))
         .compareAndSwapStatus(eq(JOB_ID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), anyString());
     verify(lifecycleFacade, times(1)).handlePermanentFailure(eq(job), any());
   }
@@ -84,26 +88,26 @@ class JobTimeoutHandlerTest {
   void racePathDoesNotEscalateToDlqWhenScheduleRetryLoses() {
     JobEntity job = jobWithMaxRetries(3);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
-    when(jobStatusStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
-    when(jobStatusStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1)))
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1)))
         .thenReturn(false);
 
     handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
 
     verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
-    verify(jobStatusStore, never()).compareAndSwapStatus(anyLong(), any(), any(), any());
+    verify(jobBatchStatusStore, never()).compareAndSwapStatus(anyLong(), any(), any(), any());
   }
 
   @Test
   void incrementRetryReturnsMinusOneExitsCleanly() {
     JobEntity job = jobWithMaxRetries(3);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
-    when(jobStatusStore.incrementRetryAttempt(JOB_ID)).thenReturn(-1);
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(-1);
 
     handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
 
-    verify(jobStatusStore, never()).scheduleJobRetry(anyLong(), anyString(), any(), anyInt());
-    verify(jobStatusStore, never()).compareAndSwapStatus(anyLong(), any(), any(), any());
+    verify(jobRetryStore, never()).scheduleJobRetry(anyLong(), anyString(), any(), anyInt());
+    verify(jobBatchStatusStore, never()).compareAndSwapStatus(anyLong(), any(), any(), any());
     verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
   }
 
@@ -113,8 +117,8 @@ class JobTimeoutHandlerTest {
 
     handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
 
-    verify(jobStatusStore, never()).incrementRetryAttempt(anyLong());
-    verify(jobStatusStore, never()).scheduleJobRetry(anyLong(), anyString(), any(), anyInt());
+    verify(jobRetryStore, never()).incrementRetryAttempt(anyLong());
+    verify(jobRetryStore, never()).scheduleJobRetry(anyLong(), anyString(), any(), anyInt());
     verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
   }
 }

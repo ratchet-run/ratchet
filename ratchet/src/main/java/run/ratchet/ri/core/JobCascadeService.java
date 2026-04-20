@@ -3,7 +3,7 @@ package run.ratchet.ri.core;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.JobStatusStore;
+import run.ratchet.store.spi.JobPauseStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -23,17 +23,17 @@ public class JobCascadeService {
   private static final Logger log = Logger.getLogger(JobCascadeService.class);
 
   private final JobCrudStore jobCrudStore;
-  private final JobStatusStore jobStatusStore;
+  private final JobPauseStore jobPauseStore;
 
   protected JobCascadeService() {
     this.jobCrudStore = null;
-    this.jobStatusStore = null;
+    this.jobPauseStore = null;
   }
 
   @Inject
-  public JobCascadeService(JobCrudStore jobCrudStore, JobStatusStore jobStatusStore) {
+  public JobCascadeService(JobCrudStore jobCrudStore, JobPauseStore jobPauseStore) {
     this.jobCrudStore = jobCrudStore;
-    this.jobStatusStore = jobStatusStore;
+    this.jobPauseStore = jobPauseStore;
   }
 
   /**
@@ -70,7 +70,7 @@ public class JobCascadeService {
           // path is no longer expressible without a resurrection step. Skipping FAILED keeps
           // the cascade behavior conservative; the cleanup is a separate task.
           if (child.getStatus() == JobStatus.PENDING
-              && jobStatusStore.transitionToPaused(child.getId(), JobStatus.PENDING)) {
+              && jobPauseStore.transitionToPaused(child.getId(), JobStatus.PENDING)) {
             pausedCount++;
           } else {
             skippedCount++;
@@ -114,7 +114,7 @@ public class JobCascadeService {
           }
 
           if (child.getStatus() == JobStatus.PAUSED
-              && jobStatusStore.transitionFromPaused(child.getId(), JobStatus.PENDING)) {
+              && jobPauseStore.transitionFromPaused(child.getId(), JobStatus.PENDING)) {
             // executeImmediately scheduled_time bump isn't expressible through the post-split
             // hot transition SPI; resumed children keep their original scheduled_time. Logging
             // the gap so callers can opt into the future explicit reschedule API.

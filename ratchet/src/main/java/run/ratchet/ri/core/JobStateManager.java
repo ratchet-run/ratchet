@@ -3,7 +3,7 @@ package run.ratchet.ri.core;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobStatus;
-import run.ratchet.store.spi.JobStatusStore;
+import run.ratchet.store.spi.JobBatchStatusStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -16,17 +16,18 @@ public class JobStateManager {
 
   private static final Logger log = Logger.getLogger(JobStateManager.class);
 
-  private final JobStatusStore jobStatusStore;
+  private final JobBatchStatusStore jobBatchStatusStore;
   private final NodeIdentityProvider nodeIdentityProvider;
 
   protected JobStateManager() {
-    this.jobStatusStore = null;
+    this.jobBatchStatusStore = null;
     this.nodeIdentityProvider = null;
   }
 
   @Inject
-  public JobStateManager(JobStatusStore jobStatusStore, NodeIdentityProvider nodeIdentityProvider) {
-    this.jobStatusStore = jobStatusStore;
+  public JobStateManager(
+      JobBatchStatusStore jobBatchStatusStore, NodeIdentityProvider nodeIdentityProvider) {
+    this.jobBatchStatusStore = jobBatchStatusStore;
     this.nodeIdentityProvider = nodeIdentityProvider;
   }
 
@@ -46,7 +47,7 @@ public class JobStateManager {
 
   public boolean resetJobToPending(Long jobId) {
     try {
-      boolean reset = jobStatusStore.resetRunningJob(jobId, nodeIdentityProvider.getNodeId());
+      boolean reset = jobBatchStatusStore.resetRunningJob(jobId, nodeIdentityProvider.getNodeId());
       if (reset) {
         return true;
       }
@@ -61,6 +62,6 @@ public class JobStateManager {
 
   /** Resets all RUNNING jobs owned by this node to PENDING. */
   public int resetRunningJobsForNode() {
-    return jobStatusStore.resetRunningJobs(nodeIdentityProvider.getNodeId());
+    return jobBatchStatusStore.resetRunningJobs(nodeIdentityProvider.getNodeId());
   }
 }
