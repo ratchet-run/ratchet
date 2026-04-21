@@ -9,13 +9,6 @@ import java.time.Instant;
 public class JobCallbackFailedEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = 1L;
-
-  /** Identifies which callback failed — e.g. {@code ON_SUCCESS}, {@code ON_FAILURE}. */
-  public enum CallbackType {
-    ON_SUCCESS,
-    ON_FAILURE
-  }
-
   private final CallbackType callbackType;
   private final String errorMessage;
   private final String causeClassName;
@@ -70,5 +63,11 @@ public class JobCallbackFailedEvent extends AbstractJobSchedulerEvent {
 
   public Integer getCallbackAttempt() {
     return callbackAttempt;
+  }
+
+  /** Identifies which callback failed — e.g. {@code ON_SUCCESS}, {@code ON_FAILURE}. */
+  public enum CallbackType {
+    ON_SUCCESS,
+    ON_FAILURE
   }
 }

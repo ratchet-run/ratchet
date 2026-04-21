@@ -23,17 +23,17 @@ import org.junit.jupiter.api.Test;
 /** Base contract tests for {@code JobClaimStore}. */
 public abstract class AbstractJobClaimStoreContract implements JobStoreContractFixture {
 
-  @AfterEach
-  void cleanupClaimFixture() {
-    cleanupStore();
-  }
-
   private static Instant oldEnoughForLowestToBeatCritical() {
     int boostInterval = RatchetOptions.defaults().store().priorityBoostIntervalMinutes();
     assumeTrue(boostInterval > 0, "priority boosting is disabled");
     return Instant.now()
         .minus(Duration.ofMinutes((long) boostInterval * (JobPriority.CRITICAL.ordinal() + 1L)))
         .minusSeconds(1);
+  }
+
+  @AfterEach
+  void cleanupClaimFixture() {
+    cleanupStore();
   }
 
   @Test

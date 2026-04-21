@@ -10,14 +10,6 @@ class JobPayloadInputValidatorTest {
 
   private final JobPayloadInputValidator validator = new JobPayloadInputValidator();
 
-  public static class Target {
-    public void run() {}
-
-    public void greet(String name) {}
-
-    public void add(int a, int b) {}
-  }
-
   @Test
   void nullPayloadThrows() {
     assertThrows(IllegalArgumentException.class, () -> validator.validateAtCreation(null));
@@ -77,5 +69,13 @@ class JobPayloadInputValidatorTest {
     IllegalArgumentException ex =
         assertThrows(IllegalArgumentException.class, () -> validator.validateAtCreation(payload));
     assertTrue(ex.getMessage().contains("not found"));
+  }
+
+  public static class Target {
+    public void run() {}
+
+    public void greet(String name) {}
+
+    public void add(int a, int b) {}
   }
 }

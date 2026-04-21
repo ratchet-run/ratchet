@@ -29,6 +29,14 @@ public class StoreBackedStartupCoordinator implements StartupCoordinator {
     this.nodeIdentityProvider = nodeIdentityProvider;
   }
 
+  private static String lockName(String actionName) {
+    String normalized = Objects.requireNonNull(actionName, "actionName must not be null").trim();
+    if (normalized.isEmpty()) {
+      throw new IllegalArgumentException("actionName must not be blank");
+    }
+    return LOCK_PREFIX + normalized;
+  }
+
   @Override
   public boolean tryAcquire(String actionName, Duration leaseTtl) {
     return lockStore.tryLock(lockName(actionName), leaseTtl, nodeIdentityProvider.getNodeId());
@@ -37,13 +45,5 @@ public class StoreBackedStartupCoordinator implements StartupCoordinator {
   @Override
   public void release(String actionName) {
     lockStore.unlock(lockName(actionName), nodeIdentityProvider.getNodeId());
-  }
-
-  private static String lockName(String actionName) {
-    String normalized = Objects.requireNonNull(actionName, "actionName must not be null").trim();
-    if (normalized.isEmpty()) {
-      throw new IllegalArgumentException("actionName must not be blank");
-    }
-    return LOCK_PREFIX + normalized;
   }
 }

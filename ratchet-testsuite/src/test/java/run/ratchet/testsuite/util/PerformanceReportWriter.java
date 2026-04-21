@@ -31,35 +31,6 @@ public class PerformanceReportWriter {
     this.dbType = dbType;
   }
 
-  public void addReport(PerformanceReport report) {
-    reports.add(report);
-  }
-
-  /**
-   * Writes this class's accumulated reports as a fragment file. Called from {@code @AfterEach} in
-   * each performance test class.
-   *
-   * @param className the simple class name (used in the fragment filename)
-   */
-  public void writeClassFragment(String className) {
-    if (reports.isEmpty()) {
-      return;
-    }
-    Path outputDir = getOutputDir();
-    try {
-      Files.createDirectories(outputDir);
-      Path fragmentFile = outputDir.resolve(dbType + "-" + className + ".json");
-      String json =
-          reports.stream().map(PerformanceReport::toJson).collect(Collectors.joining("\n")) + "\n";
-      Files.writeString(fragmentFile, json, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-      log.info(
-          "Performance fragment written to " + fragmentFile + " (" + reports.size() + " results)");
-      reports.clear();
-    } catch (IOException e) {
-      log.warning("Performance fragment write error: " + e.getMessage());
-    }
-  }
-
   /**
    * Reads all fragment files for the given database type, prints a consolidated summary table to
    * stdout, and writes the combined JSON report.
@@ -141,5 +112,34 @@ public class PerformanceReportWriter {
 
   private static Path getOutputDir() {
     return Path.of(System.getProperty("project.build.directory", "target"), "performance-results");
+  }
+
+  public void addReport(PerformanceReport report) {
+    reports.add(report);
+  }
+
+  /**
+   * Writes this class's accumulated reports as a fragment file. Called from {@code @AfterEach} in
+   * each performance test class.
+   *
+   * @param className the simple class name (used in the fragment filename)
+   */
+  public void writeClassFragment(String className) {
+    if (reports.isEmpty()) {
+      return;
+    }
+    Path outputDir = getOutputDir();
+    try {
+      Files.createDirectories(outputDir);
+      Path fragmentFile = outputDir.resolve(dbType + "-" + className + ".json");
+      String json =
+          reports.stream().map(PerformanceReport::toJson).collect(Collectors.joining("\n")) + "\n";
+      Files.writeString(fragmentFile, json, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+      log.info(
+          "Performance fragment written to " + fragmentFile + " (" + reports.size() + " results)");
+      reports.clear();
+    } catch (IOException e) {
+      log.warning("Performance fragment write error: " + e.getMessage());
+    }
   }
 }

@@ -2,6 +2,7 @@ package run.ratchet.testsuite.security;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -47,8 +48,9 @@ class ClassPolicyIT extends BaseRatchetIT {
   @Test
   void classPolicy_shouldBeInjectable() {
     assertNotNull(classPolicy, "ClassPolicy should be injectable as a CDI bean");
-    assertTrue(
-        classPolicy instanceof TestClassPolicy,
+    assertInstanceOf(
+        TestClassPolicy.class,
+        classPolicy,
         "Injected ClassPolicy should be TestClassPolicy (test @Alternative)");
   }
 

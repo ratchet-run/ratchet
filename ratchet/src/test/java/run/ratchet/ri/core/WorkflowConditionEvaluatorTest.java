@@ -28,10 +28,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class WorkflowConditionEvaluatorTest {
 
+  private final ClassPolicy classPolicy = className -> true;
   @Mock private BatchStore batchStore;
   @Mock private LambdaSerializer lambdaSerializer;
-  private final ClassPolicy classPolicy = className -> true;
-
   private WorkflowConditionEvaluator evaluator;
 
   private static JobEntity parentJob(JobStatus status) {

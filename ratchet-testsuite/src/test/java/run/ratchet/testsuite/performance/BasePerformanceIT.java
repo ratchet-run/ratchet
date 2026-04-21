@@ -34,21 +34,6 @@ public abstract class BasePerformanceIT extends BaseRatchetIT {
   @Inject protected PollerScheduler pollerScheduler;
   @Inject protected PerformanceTestHelper perfHelper;
 
-  /** Stop poller to avoid TRUNCATE deadlock. */
-  @Override
-  protected void truncateAll() throws Exception {
-    pollerScheduler.stop();
-    // Brief pause to let any in-flight poll cycle complete its transaction
-    Thread.sleep(100);
-    super.truncateAll();
-  }
-
-  @BeforeEach
-  void restartPoller() {
-    pollerScheduler.start();
-    pollerScheduler.wakeup();
-  }
-
   protected static int getWarmupCount() {
     return Integer.getInteger("perf.warmup.count", 50);
   }
@@ -77,6 +62,38 @@ public abstract class BasePerformanceIT extends BaseRatchetIT {
     return new PerformanceReportWriter(getDbType());
   }
 
+  protected static long[] computePercentiles(long[] data, double... percentiles) {
+    Arrays.sort(data);
+    long[] result = new long[percentiles.length];
+    for (int i = 0; i < percentiles.length; i++) {
+      int index = (int) Math.ceil(percentiles[i] * data.length) - 1;
+      result[i] = data[Math.max(0, index)];
+    }
+    return result;
+  }
+
+  protected static String formatSizeKey(int tableSize) {
+    if (tableSize >= 1_000_000 && tableSize % 1_000_000 == 0) {
+      return (tableSize / 1_000_000) + "M";
+    }
+    return (tableSize / 1000) + "K";
+  }
+
+  @BeforeEach
+  void restartPoller() {
+    pollerScheduler.start();
+    pollerScheduler.wakeup();
+  }
+
+  /** Stop poller to avoid TRUNCATE deadlock. */
+  @Override
+  protected void truncateAll() throws Exception {
+    pollerScheduler.stop();
+    // Brief pause to let any in-flight poll cycle complete its transaction
+    Thread.sleep(100);
+    super.truncateAll();
+  }
+
   protected List<JobHandle> enqueueN(int count, SerializableCheckedRunnable task) {
     List<JobHandle> handles = new ArrayList<>(count);
     for (int i = 0; i < count; i++) {
@@ -99,16 +116,6 @@ public abstract class BasePerformanceIT extends BaseRatchetIT {
                 }
               }
             });
-  }
-
-  protected static long[] computePercentiles(long[] data, double... percentiles) {
-    Arrays.sort(data);
-    long[] result = new long[percentiles.length];
-    for (int i = 0; i < percentiles.length; i++) {
-      int index = (int) Math.ceil(percentiles[i] * data.length) - 1;
-      result[i] = data[Math.max(0, index)];
-    }
-    return result;
   }
 
   protected long[] queryQueueWaitPercentiles(double... percentiles) {
@@ -144,12 +151,5 @@ public abstract class BasePerformanceIT extends BaseRatchetIT {
       handles.add(jobService.enqueue(task).withMaxRetries(maxRetries).submit());
     }
     return handles;
-  }
-
-  protected static String formatSizeKey(int tableSize) {
-    if (tableSize >= 1_000_000 && tableSize % 1_000_000 == 0) {
-      return (tableSize / 1_000_000) + "M";
-    }
-    return (tableSize / 1000) + "K";
   }
 }

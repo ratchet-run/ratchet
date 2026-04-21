@@ -21,7 +21,7 @@ final class JobLoggerFormat {
     while (i < format.length()) {
       if (i + 1 < format.length() && format.charAt(i) == '{' && format.charAt(i + 1) == '}') {
         if (argIdx < args.length) {
-          sb.append(String.valueOf(args[argIdx++]));
+          sb.append(args[argIdx++]);
         } else {
           sb.append("{}");
         }
@@ -34,7 +34,7 @@ final class JobLoggerFormat {
     if (argIdx < args.length) {
       sb.append(" [extra args:");
       for (int j = argIdx; j < args.length; j++) {
-        sb.append(' ').append(String.valueOf(args[j]));
+        sb.append(' ').append(args[j]);
         if (j < args.length - 1) {
           sb.append(',');
         }

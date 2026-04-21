@@ -35,14 +35,13 @@ import org.jboss.logging.Logger;
 /** {@inheritDoc} */
 public class DefaultBatchBuilder implements BatchBuilder {
 
-  private static final Logger log = Logger.getLogger(DefaultBatchBuilder.class);
-
   /**
    * Synthetic picker recorded on the BATCH_PARENT hot row when the empty-batch shortcut
    * skip-executes the parent into terminal SUCCEEDED. No real worker ever owns this id.
    */
   static final String BATCH_LIFECYCLE_NODE_ID = "ratchet:batch-lifecycle";
 
+  private static final Logger log = Logger.getLogger(DefaultBatchBuilder.class);
   private final String name;
   private final JobCrudStore jobCrudStore;
   private final JobBatchStatusStore jobBatchStatusStore;

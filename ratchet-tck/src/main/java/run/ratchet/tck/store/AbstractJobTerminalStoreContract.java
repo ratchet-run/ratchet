@@ -2,6 +2,7 @@ package run.ratchet.tck.store;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import run.ratchet.store.entity.JobStatus;
@@ -47,6 +48,6 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
     assertTrue(marked, "markJobSucceededMinimal should return true for a running job");
     var reloaded = store().findById(saved.getId()).orElseThrow();
     assertEquals(JobStatus.SUCCEEDED, reloaded.getStatus());
-    assertTrue(reloaded.getJobResult() == null, "Minimal success should not persist result JSON");
+    assertNull(reloaded.getJobResult(), "Minimal success should not persist result JSON");
   }
 }

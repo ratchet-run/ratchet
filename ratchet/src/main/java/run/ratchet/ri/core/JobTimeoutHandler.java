@@ -96,20 +96,54 @@ public class JobTimeoutHandler {
     return new TimeoutHandles(soft, hard);
   }
 
-  /**
-   * Cancellable handle bundle for the soft and hard timeout tasks scheduled against a job
-   * execution. Callers must invoke {@link #cancel()} on job completion so the tasks do not linger
-   * in the scheduler queue until their original fire time.
-   */
-  public record TimeoutHandles(ScheduledFuture<?> soft, ScheduledFuture<?> hard) {
-    public void cancel() {
-      if (soft != null) {
-        soft.cancel(false);
-      }
-      if (hard != null) {
-        hard.cancel(false);
-      }
+  /** Applies timeout routing: retry if attempts remain, otherwise fail permanently. */
+  void processHardTimeout(Long jobId, long timeoutSec) {
+    TimeoutException timeoutEx =
+        new TimeoutException("Hard timeout exceeded (" + timeoutSec + "s)");
+    JobEntity job = jobCrudStore.findById(jobId).orElse(null);
+    if (job == null) {
+      log.infof("Job %s no longer exists when timeout handler ran", jobId);
+      return;
     }
+
+    // Step 1: Increment attempts while status is still RUNNING.
+    int newAttempts = jobRetryStore.incrementRetryAttempt(jobId);
+    if (newAttempts < 0) {
+      // Not in RUNNING anymore — worker already transitioned it. Nothing to do.
+      log.infof("Job %s already left RUNNING when timeout handler ran", jobId);
+      return;
+    }
+
+    // Step 2: Retries remain? Try to reschedule.
+    if (newAttempts <= job.getMaxRetries()) {
+      Instant retryTime = Instant.now().plusSeconds(timeoutSec);
+      boolean rescheduled =
+          jobRetryStore.scheduleJobRetry(jobId, timeoutEx.getMessage(), retryTime, newAttempts);
+      if (rescheduled) {
+        log.warnf(
+            "Job %s timed out but has retries remaining (%s/%s) — rescheduled for %s",
+            jobId, newAttempts, job.getMaxRetries(), retryTime);
+        return;
+      }
+      // scheduleJobRetry returned false — a competing path finalized the job between the
+      // increment and the reschedule. Do NOT escalate to DLQ; the job already has a terminal
+      // state set by the competing path.
+      log.infof(
+          "Job %s timed out but was already finalized by a competing path — no DLQ escalation",
+          jobId);
+      return;
+    }
+
+    // Step 3: Retries exhausted — CAS to FAILED and route to DLQ.
+    boolean marked =
+        jobBatchStatusStore.compareAndSwapStatus(
+            jobId, JobStatus.RUNNING, JobStatus.FAILED, timeoutEx.getMessage());
+    if (!marked) {
+      log.infof("Job %s already in terminal state when timeout handler ran", jobId);
+      return;
+    }
+    log.infof("Job %s marked as FAILED due to hard timeout (retries exhausted)", jobId);
+    lifecycleFacade.handlePermanentFailure(job, timeoutEx);
   }
 
   private String formatDuration(Duration duration) {
@@ -159,53 +193,19 @@ public class JobTimeoutHandler {
     }
   }
 
-  /** Applies timeout routing: retry if attempts remain, otherwise fail permanently. */
-  void processHardTimeout(Long jobId, long timeoutSec) {
-    TimeoutException timeoutEx =
-        new TimeoutException("Hard timeout exceeded (" + timeoutSec + "s)");
-    JobEntity job = jobCrudStore.findById(jobId).orElse(null);
-    if (job == null) {
-      log.infof("Job %s no longer exists when timeout handler ran", jobId);
-      return;
-    }
-
-    // Step 1: Increment attempts while status is still RUNNING.
-    int newAttempts = jobRetryStore.incrementRetryAttempt(jobId);
-    if (newAttempts < 0) {
-      // Not in RUNNING anymore — worker already transitioned it. Nothing to do.
-      log.infof("Job %s already left RUNNING when timeout handler ran", jobId);
-      return;
-    }
-
-    // Step 2: Retries remain? Try to reschedule.
-    if (newAttempts <= job.getMaxRetries()) {
-      Instant retryTime = Instant.now().plusSeconds(timeoutSec);
-      boolean rescheduled =
-          jobRetryStore.scheduleJobRetry(jobId, timeoutEx.getMessage(), retryTime, newAttempts);
-      if (rescheduled) {
-        log.warnf(
-            "Job %s timed out but has retries remaining (%s/%s) — rescheduled for %s",
-            jobId, newAttempts, job.getMaxRetries(), retryTime);
-        return;
+  /**
+   * Cancellable handle bundle for the soft and hard timeout tasks scheduled against a job
+   * execution. Callers must invoke {@link #cancel()} on job completion so the tasks do not linger
+   * in the scheduler queue until their original fire time.
+   */
+  public record TimeoutHandles(ScheduledFuture<?> soft, ScheduledFuture<?> hard) {
+    public void cancel() {
+      if (soft != null) {
+        soft.cancel(false);
       }
-      // scheduleJobRetry returned false — a competing path finalized the job between the
-      // increment and the reschedule. Do NOT escalate to DLQ; the job already has a terminal
-      // state set by the competing path.
-      log.infof(
-          "Job %s timed out but was already finalized by a competing path — no DLQ escalation",
-          jobId);
-      return;
+      if (hard != null) {
+        hard.cancel(false);
+      }
     }
-
-    // Step 3: Retries exhausted — CAS to FAILED and route to DLQ.
-    boolean marked =
-        jobBatchStatusStore.compareAndSwapStatus(
-            jobId, JobStatus.RUNNING, JobStatus.FAILED, timeoutEx.getMessage());
-    if (!marked) {
-      log.infof("Job %s already in terminal state when timeout handler ran", jobId);
-      return;
-    }
-    log.infof("Job %s marked as FAILED due to hard timeout (retries exhausted)", jobId);
-    lifecycleFacade.handlePermanentFailure(job, timeoutEx);
   }
 }

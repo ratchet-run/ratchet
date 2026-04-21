@@ -77,22 +77,30 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
     this.storeProxy = newTransactionalStoreProxy(delegate);
   }
 
-  /** Started Testcontainers JDBC container. Subclass owns its lifecycle. */
-  protected abstract Object container();
+  private static boolean containerBoolean(Object container, String methodName) {
+    Object value = invokeContainerMethod(container, methodName);
+    if (value instanceof Boolean result) {
+      return result;
+    }
+    throw new IllegalStateException("Container method " + methodName + " did not return boolean");
+  }
 
-  /**
-   * Provider-specific JPA properties merged into the EMF override map. Subclasses supply keys like
-   * {@code hibernate.dialect} or {@code eclipselink.target-database}. The base reserves {@code
-   * jakarta.persistence.jdbc.*} keys for JDBC connection wiring; subclass keys take precedence over
-   * any base value if collisions occur.
-   */
-  protected abstract Map<String, Object> jpaProperties();
+  private static String containerString(Object container, String methodName) {
+    Object value = invokeContainerMethod(container, methodName);
+    if (value instanceof String result) {
+      return result;
+    }
+    throw new IllegalStateException("Container method " + methodName + " did not return String");
+  }
 
-  /** Persistence-unit name as declared in the dialect module's {@code persistence.xml}. */
-  protected abstract String persistenceUnitName();
-
-  /** Instantiate the concrete store with a plain EM and a no-op metrics collector. */
-  protected abstract JobStore createStore(EntityManager em, MetricsCollector metrics);
+  private static Object invokeContainerMethod(Object container, String methodName) {
+    try {
+      return container.getClass().getMethod(methodName).invoke(container);
+    } catch (ReflectiveOperationException e) {
+      throw new IllegalStateException(
+          "Expected Testcontainers JDBC container method " + methodName, e);
+    }
+  }
 
   /** Truncate/delete all rows across every ratchet table, in dependency order. */
   @Override
@@ -129,6 +137,23 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
     return job;
   }
 
+  /** Started Testcontainers JDBC container. Subclass owns its lifecycle. */
+  protected abstract Object container();
+
+  /**
+   * Provider-specific JPA properties merged into the EMF override map. Subclasses supply keys like
+   * {@code hibernate.dialect} or {@code eclipselink.target-database}. The base reserves {@code
+   * jakarta.persistence.jdbc.*} keys for JDBC connection wiring; subclass keys take precedence over
+   * any base value if collisions occur.
+   */
+  protected abstract Map<String, Object> jpaProperties();
+
+  /** Persistence-unit name as declared in the dialect module's {@code persistence.xml}. */
+  protected abstract String persistenceUnitName();
+
+  /** Instantiate the concrete store with a plain EM and a no-op metrics collector. */
+  protected abstract JobStore createStore(EntityManager em, MetricsCollector metrics);
+
   /** Run a unit of work inside a JPA transaction on the calling thread's EM. */
   protected final void runInTransaction(Runnable work) {
     EntityManager em = threadEm.get();
@@ -164,31 +189,6 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
         "jakarta.persistence.jdbc.driver", containerString(container, "getDriverClassName"));
     overrides.putAll(jpaProperties());
     return Persistence.createEntityManagerFactory(persistenceUnitName(), overrides);
-  }
-
-  private static boolean containerBoolean(Object container, String methodName) {
-    Object value = invokeContainerMethod(container, methodName);
-    if (value instanceof Boolean result) {
-      return result;
-    }
-    throw new IllegalStateException("Container method " + methodName + " did not return boolean");
-  }
-
-  private static String containerString(Object container, String methodName) {
-    Object value = invokeContainerMethod(container, methodName);
-    if (value instanceof String result) {
-      return result;
-    }
-    throw new IllegalStateException("Container method " + methodName + " did not return String");
-  }
-
-  private static Object invokeContainerMethod(Object container, String methodName) {
-    try {
-      return container.getClass().getMethod(methodName).invoke(container);
-    } catch (ReflectiveOperationException e) {
-      throw new IllegalStateException(
-          "Expected Testcontainers JDBC container method " + methodName, e);
-    }
   }
 
   private EntityManager newThreadLocalEmProxy() {

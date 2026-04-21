@@ -13,16 +13,16 @@ public class TestRecurringJobs {
 
   private static final AtomicInteger EVERY_MINUTE_COUNT = new AtomicInteger(0);
 
-  @Recurring(cron = "*/5 * * * * ?", id = "test-every-5-seconds")
-  public void everyMinute() {
-    EVERY_MINUTE_COUNT.incrementAndGet();
-  }
-
   public static int getEveryMinuteCount() {
     return EVERY_MINUTE_COUNT.get();
   }
 
   public static void resetCounts() {
     EVERY_MINUTE_COUNT.set(0);
+  }
+
+  @Recurring(cron = "*/5 * * * * ?", id = "test-every-5-seconds")
+  public void everyMinute() {
+    EVERY_MINUTE_COUNT.incrementAndGet();
   }
 }

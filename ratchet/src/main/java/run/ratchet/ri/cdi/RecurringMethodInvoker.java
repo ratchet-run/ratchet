@@ -15,8 +15,6 @@ import java.util.concurrent.ConcurrentMap;
 @ApplicationScoped
 public class RecurringMethodInvoker {
 
-  private record MethodCacheKey(String className, String methodName, boolean hasJobContextParam) {}
-
   private final ConcurrentMap<MethodCacheKey, Method> methodCache = new ConcurrentHashMap<>();
   private final Instance<Object> allBeans;
   private final ClassPolicy classPolicy;
@@ -124,4 +122,6 @@ public class RecurringMethodInvoker {
     methodCache.put(key, resolved);
     return resolved;
   }
+
+  private record MethodCacheKey(String className, String methodName, boolean hasJobContextParam) {}
 }

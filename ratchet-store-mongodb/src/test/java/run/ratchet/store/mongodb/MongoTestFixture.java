@@ -5,6 +5,7 @@ import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoDatabase;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -34,8 +35,7 @@ public class MongoTestFixture implements JobStoreContractFixture {
     this.client = MongoClients.create(MONGO.getConnectionString());
     this.database =
         client.getDatabase("ratchet_test_" + UUID.randomUUID().toString().substring(0, 8));
-    this.store =
-        new MongoJobStoreImpl(database, run.ratchet.api.RatchetOptions.defaults());
+    this.store = new MongoJobStoreImpl(database, RatchetOptions.defaults());
     // @PostConstruct is CDI-only; instantiation here bypasses it, leaving collections without
     // their unique indexes. Initialize explicitly so contract tests see the same schema as a
     // production deployment.

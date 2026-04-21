@@ -30,6 +30,30 @@ public class LoadTestRunner {
   @Inject RunRegistry runRegistry;
   @Inject NodeIdentityProvider nodeIdentityProvider;
 
+  private static int validateJobs(int jobs) {
+    if (jobs <= 0) {
+      throw new IllegalArgumentException("jobs must be greater than zero");
+    }
+    if (jobs > MAX_JOBS_PER_REQUEST) {
+      throw new IllegalArgumentException("jobs exceeds max allowed value " + MAX_JOBS_PER_REQUEST);
+    }
+    return jobs;
+  }
+
+  private static JobPriority parsePriority(String raw) {
+    if (raw == null || raw.isBlank()) {
+      return JobPriority.NORMAL;
+    }
+    return JobPriority.valueOf(raw.trim().replace('-', '_').toUpperCase(Locale.ROOT));
+  }
+
+  private static String payload(int bytes) {
+    if (bytes <= 0) {
+      return "";
+    }
+    return "x".repeat(bytes);
+  }
+
   public RunMetadata start(StartRunRequest request) {
     StartRunRequest req = request == null ? new StartRunRequest() : request;
     int jobs = validateJobs(req.jobs);
@@ -123,30 +147,6 @@ public class LoadTestRunner {
         .tag("source", source)
         .register(prometheusRegistry.meterRegistry())
         .increment(jobs);
-  }
-
-  private static int validateJobs(int jobs) {
-    if (jobs <= 0) {
-      throw new IllegalArgumentException("jobs must be greater than zero");
-    }
-    if (jobs > MAX_JOBS_PER_REQUEST) {
-      throw new IllegalArgumentException("jobs exceeds max allowed value " + MAX_JOBS_PER_REQUEST);
-    }
-    return jobs;
-  }
-
-  private static JobPriority parsePriority(String raw) {
-    if (raw == null || raw.isBlank()) {
-      return JobPriority.NORMAL;
-    }
-    return JobPriority.valueOf(raw.trim().replace('-', '_').toUpperCase(Locale.ROOT));
-  }
-
-  private static String payload(int bytes) {
-    if (bytes <= 0) {
-      return "";
-    }
-    return "x".repeat(bytes);
   }
 
   private record JobConfig(

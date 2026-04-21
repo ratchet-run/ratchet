@@ -97,37 +97,6 @@ public class DeadLetterService {
     log.warnf("Job %s moved to DLQ", job.getId());
   }
 
-  private void recordDlqAlert(JobEntity job, Throwable cause) {
-    try {
-      String errorHash = hashError(cause);
-      Instant cutoff = Instant.now().minus(ALERT_DEDUP_WINDOW);
-
-      if (dlqAlertStore.existsRecentDlqAlert(job.getId(), errorHash, cutoff)) {
-        log.debugf("DLQ alert suppressed for job %s (duplicate within window)", job.getId());
-        return;
-      }
-
-      DlqAlertEntity alert = new DlqAlertEntity();
-      alert.setJobId(job.getId());
-      alert.setErrorHash(errorHash);
-      alert.setAlertSentAt(Instant.now());
-      alert.setAlertChannel("system");
-      dlqAlertStore.saveDlqAlert(alert);
-    } catch (Exception e) {
-      log.warnf(e, "DLQ alert error for job %s", job.getId());
-    }
-  }
-
-  private String hashError(Throwable cause) {
-    try {
-      MessageDigest md = MessageDigest.getInstance("SHA-256");
-      byte[] hash = md.digest(cause.toString().getBytes(StandardCharsets.UTF_8));
-      return HexFormat.of().formatHex(hash, 0, 8);
-    } catch (Exception e) {
-      return cause.getClass().getSimpleName();
-    }
-  }
-
   public void stop() {
     stopped = true;
   }
@@ -167,6 +136,37 @@ public class DeadLetterService {
       }
     } catch (Exception e) {
       log.error("DLQ purge failed", e);
+    }
+  }
+
+  private void recordDlqAlert(JobEntity job, Throwable cause) {
+    try {
+      String errorHash = hashError(cause);
+      Instant cutoff = Instant.now().minus(ALERT_DEDUP_WINDOW);
+
+      if (dlqAlertStore.existsRecentDlqAlert(job.getId(), errorHash, cutoff)) {
+        log.debugf("DLQ alert suppressed for job %s (duplicate within window)", job.getId());
+        return;
+      }
+
+      DlqAlertEntity alert = new DlqAlertEntity();
+      alert.setJobId(job.getId());
+      alert.setErrorHash(errorHash);
+      alert.setAlertSentAt(Instant.now());
+      alert.setAlertChannel("system");
+      dlqAlertStore.saveDlqAlert(alert);
+    } catch (Exception e) {
+      log.warnf(e, "DLQ alert error for job %s", job.getId());
+    }
+  }
+
+  private String hashError(Throwable cause) {
+    try {
+      MessageDigest md = MessageDigest.getInstance("SHA-256");
+      byte[] hash = md.digest(cause.toString().getBytes(StandardCharsets.UTF_8));
+      return HexFormat.of().formatHex(hash, 0, 8);
+    } catch (Exception e) {
+      return cause.getClass().getSimpleName();
     }
   }
 

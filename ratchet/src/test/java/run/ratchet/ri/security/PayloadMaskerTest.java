@@ -10,7 +10,7 @@ class PayloadMaskerTest {
 
   @Test
   void maskPayload_nullInput_returnsNull() {
-    assertNull(PayloadMasker.maskPayload((String) null));
+    assertNull(PayloadMasker.maskPayload(null));
   }
 
   @Test

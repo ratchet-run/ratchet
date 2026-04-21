@@ -25,30 +25,6 @@ class PostgresqlExplainPlanCaptureIT {
   private static final int SEED_JOBS = 600;
   private static final PostgresqlTestFixture FIXTURE = new PostgresqlTestFixture();
 
-  @BeforeEach
-  void clean() {
-    FIXTURE.cleanupStore();
-  }
-
-  @Test
-  void optimizedExecutableClaimPlan_usesClaimCoveringIndex() throws Exception {
-    seedPendingJobs();
-    try (Connection conn = connection();
-        Statement statement = conn.createStatement()) {
-      conn.setAutoCommit(false);
-      statement.execute("ANALYZE scheduler_job");
-      // The fixture table is intentionally small, so PostgreSQL may prefer a sequential scan on
-      // cost alone. Disable seqscan locally to verify the intended claim index remains usable.
-      statement.execute("SET LOCAL enable_seqscan = off");
-      String plan = explainJson(statement);
-      writePlan("target/explain-plans/postgresql-optimized-claim.json", plan);
-      conn.rollback();
-
-      assertTrue(plan.contains("\"Relation Name\": \"scheduler_job\""), plan);
-      assertTrue(plan.contains("\"Index Name\": \"idx_job_claim_cover\""), plan);
-    }
-  }
-
   private static void seedPendingJobs() {
     Instant now = Instant.now();
     JobPriority[] priorities = JobPriority.values();
@@ -108,5 +84,29 @@ class PostgresqlExplainPlanCaptureIT {
     Path output = Path.of(path);
     Files.createDirectories(output.getParent());
     Files.writeString(output, plan + System.lineSeparator());
+  }
+
+  @BeforeEach
+  void clean() {
+    FIXTURE.cleanupStore();
+  }
+
+  @Test
+  void optimizedExecutableClaimPlan_usesClaimCoveringIndex() throws Exception {
+    seedPendingJobs();
+    try (Connection conn = connection();
+        Statement statement = conn.createStatement()) {
+      conn.setAutoCommit(false);
+      statement.execute("ANALYZE scheduler_job");
+      // The fixture table is intentionally small, so PostgreSQL may prefer a sequential scan on
+      // cost alone. Disable seqscan locally to verify the intended claim index remains usable.
+      statement.execute("SET LOCAL enable_seqscan = off");
+      String plan = explainJson(statement);
+      writePlan("target/explain-plans/postgresql-optimized-claim.json", plan);
+      conn.rollback();
+
+      assertTrue(plan.contains("\"Relation Name\": \"scheduler_job\""), plan);
+      assertTrue(plan.contains("\"Index Name\": \"idx_job_claim_cover\""), plan);
+    }
   }
 }

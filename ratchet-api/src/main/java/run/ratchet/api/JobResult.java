@@ -79,6 +79,15 @@ public class JobResult<T> implements Serializable {
         success, value, error, exception, executionTimeMs, startTime, endTime, metadata);
   }
 
+  private static RuntimeException sanitizeThrowable(Throwable t) {
+    RuntimeException safe = new RuntimeException(t.getClass().getName() + ": " + t.getMessage());
+    safe.setStackTrace(t.getStackTrace());
+    if (t.getCause() != null && t.getCause() != t) {
+      safe.initCause(sanitizeThrowable(t.getCause()));
+    }
+    return safe;
+  }
+
   public T getValue() {
     return value;
   }
@@ -152,39 +161,6 @@ public class JobResult<T> implements Serializable {
     return success;
   }
 
-  /**
-   * Ensures serialization safety by converting any non-serializable Throwable in the exception
-   * field to a safe RuntimeException that preserves the original class name, message, and stack
-   * trace.
-   *
-   * <p>This is transparent to callers — in-memory access via {@link #getException()} returns the
-   * original Throwable. Only the serialized form is sanitized.
-   */
-  @Serial
-  private Object writeReplace() throws ObjectStreamException {
-    if (exception == null) {
-      return this;
-    }
-    return new JobResult<>(
-        success,
-        value,
-        error,
-        sanitizeThrowable(exception),
-        executionTimeMs,
-        startTime,
-        endTime,
-        metadata);
-  }
-
-  private static RuntimeException sanitizeThrowable(Throwable t) {
-    RuntimeException safe = new RuntimeException(t.getClass().getName() + ": " + t.getMessage());
-    safe.setStackTrace(t.getStackTrace());
-    if (t.getCause() != null && t.getCause() != t) {
-      safe.initCause(sanitizeThrowable(t.getCause()));
-    }
-    return safe;
-  }
-
   @Override
   public boolean equals(Object o) {
     if (this == o) {
@@ -230,5 +206,29 @@ public class JobResult<T> implements Serializable {
         + ", metadata="
         + metadata
         + ')';
+  }
+
+  /**
+   * Ensures serialization safety by converting any non-serializable Throwable in the exception
+   * field to a safe RuntimeException that preserves the original class name, message, and stack
+   * trace.
+   *
+   * <p>This is transparent to callers — in-memory access via {@link #getException()} returns the
+   * original Throwable. Only the serialized form is sanitized.
+   */
+  @Serial
+  private Object writeReplace() throws ObjectStreamException {
+    if (exception == null) {
+      return this;
+    }
+    return new JobResult<>(
+        success,
+        value,
+        error,
+        sanitizeThrowable(exception),
+        executionTimeMs,
+        startTime,
+        endTime,
+        metadata);
   }
 }

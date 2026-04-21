@@ -13,48 +13,6 @@ public class LoadTestWorkloadExecutor {
 
   @Inject PrometheusRegistryProducer prometheusRegistry;
 
-  public void execute(
-      String runId,
-      String workload,
-      String sequence,
-      String sleepMs,
-      String sleepJitterMs,
-      String sleepSpikeRate,
-      String sleepSpikeMs,
-      String failureRate,
-      String payload)
-      throws Exception {
-    execute(
-        new WorkloadSpec(
-            runId,
-            WorkloadType.parse(workload),
-            Integer.parseInt(sequence),
-            Long.parseLong(sleepMs),
-            Long.parseLong(sleepJitterMs),
-            Double.parseDouble(sleepSpikeRate),
-            Long.parseLong(sleepSpikeMs),
-            Double.parseDouble(failureRate),
-            payload));
-  }
-
-  public void execute(WorkloadSpec spec) throws Exception {
-    WorkloadType effective = effectiveWorkload(spec);
-    MeterRegistry registry = prometheusRegistry.meterRegistry();
-    Timer.Sample sample = Timer.start(registry);
-    String outcome = "succeeded";
-    try {
-      execute(spec, effective);
-    } catch (Exception e) {
-      outcome = "failed";
-      if (e instanceof InterruptedException) {
-        Thread.currentThread().interrupt();
-      }
-      throw e;
-    } finally {
-      recordAttempt(registry, spec.type(), effective, outcome, sample);
-    }
-  }
-
   private static void execute(WorkloadSpec spec, WorkloadType effective) throws Exception {
     if (spec.payload() != null && !spec.payload().isEmpty()) {
       spec.payload().hashCode();
@@ -156,6 +114,48 @@ public class LoadTestWorkloadExecutor {
   private static void sleep(long sleepMs) throws InterruptedException {
     if (sleepMs > 0) {
       Thread.sleep(sleepMs);
+    }
+  }
+
+  public void execute(
+      String runId,
+      String workload,
+      String sequence,
+      String sleepMs,
+      String sleepJitterMs,
+      String sleepSpikeRate,
+      String sleepSpikeMs,
+      String failureRate,
+      String payload)
+      throws Exception {
+    execute(
+        new WorkloadSpec(
+            runId,
+            WorkloadType.parse(workload),
+            Integer.parseInt(sequence),
+            Long.parseLong(sleepMs),
+            Long.parseLong(sleepJitterMs),
+            Double.parseDouble(sleepSpikeRate),
+            Long.parseLong(sleepSpikeMs),
+            Double.parseDouble(failureRate),
+            payload));
+  }
+
+  public void execute(WorkloadSpec spec) throws Exception {
+    WorkloadType effective = effectiveWorkload(spec);
+    MeterRegistry registry = prometheusRegistry.meterRegistry();
+    Timer.Sample sample = Timer.start(registry);
+    String outcome = "succeeded";
+    try {
+      execute(spec, effective);
+    } catch (Exception e) {
+      outcome = "failed";
+      if (e instanceof InterruptedException) {
+        Thread.currentThread().interrupt();
+      }
+      throw e;
+    } finally {
+      recordAttempt(registry, spec.type(), effective, outcome, sample);
     }
   }
 }

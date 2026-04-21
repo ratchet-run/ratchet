@@ -14,10 +14,6 @@ import org.jboss.logging.Logger;
 
 final class MysqlJobRowMapper {
 
-  private static final Logger log = Logger.getLogger(MysqlJobRowMapper.class);
-  private static final JobPayloadConverter JOB_PAYLOAD_CONVERTER = new JobPayloadConverter();
-  private static final JsonMapConverter JSON_MAP_CONVERTER = new JsonMapConverter();
-
   static final String HYDRATION_SELECT =
       "c.job_id, c.job_type, c.priority, c.max_retries, c.backoff_policy, c.backoff_param_ms, "
           + "c.timeout_sec, c.cron_expr, c.zone_id, c.next_fire, c.payload, c.params, "
@@ -28,9 +24,11 @@ final class MysqlJobRowMapper {
           + "c.execution_duration_ms, c.queue_wait_ms, c.job_result, c.result_type, c.rec_status, "
           + "q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at, "
           + "q.paused_from_status, q.last_error, q.version, q.updated_at";
-
   static final int HYDRATION_COL_COUNT = 43;
-
+  static final int IDX_Q_STATUS = 34;
+  private static final Logger log = Logger.getLogger(MysqlJobRowMapper.class);
+  private static final JobPayloadConverter JOB_PAYLOAD_CONVERTER = new JobPayloadConverter();
+  private static final JsonMapConverter JSON_MAP_CONVERTER = new JsonMapConverter();
   private static final int IDX_JOB_ID = 0;
   private static final int IDX_JOB_TYPE = 1;
   private static final int IDX_PRIORITY = 2;
@@ -65,8 +63,6 @@ final class MysqlJobRowMapper {
   private static final int IDX_JOB_RESULT = 31;
   private static final int IDX_RESULT_TYPE = 32;
   private static final int IDX_REC_STATUS = 33;
-
-  static final int IDX_Q_STATUS = 34;
   private static final int IDX_Q_SCHEDULED_TIME = 35;
   private static final int IDX_Q_ATTEMPTS = 36;
   private static final int IDX_Q_PICKED_BY = 37;
@@ -74,6 +70,66 @@ final class MysqlJobRowMapper {
   private static final int IDX_Q_PAUSED = 39;
   private static final int IDX_Q_LAST_ERROR = 40;
   private static final int IDX_Q_VERSION = 41;
+
+  static boolean isTerminalStatus(JobStatus s) {
+    return s == JobStatus.SUCCEEDED || s == JobStatus.FAILED || s == JobStatus.CANCELED;
+  }
+
+  static boolean isLiveStatus(JobStatus s) {
+    return s == JobStatus.PENDING || s == JobStatus.RUNNING || s == JobStatus.PAUSED;
+  }
+
+  static boolean isPollerExecutable(JobExecutionType jobType) {
+    return jobType == JobExecutionType.SINGLE
+        || jobType == JobExecutionType.BATCH_CHILD
+        || jobType == JobExecutionType.CHAIN_STEP
+        || jobType == JobExecutionType.WORKFLOW_BRANCH;
+  }
+
+  static JobPriority safeJobPriority(int ordinal) {
+    JobPriority[] values = JobPriority.values();
+    if (ordinal < 0 || ordinal >= values.length) {
+      return JobPriority.NORMAL;
+    }
+    return values[ordinal];
+  }
+
+  static String recStatusForLiveStatus(JobStatus s) {
+    if (s == JobStatus.PENDING) return "P";
+    if (s == JobStatus.PAUSED) return "A";
+    return null;
+  }
+
+  static JobStatus recStatusDecode(String c) {
+    if ("P".equals(c)) return JobStatus.PENDING;
+    if ("A".equals(c)) return JobStatus.PAUSED;
+    return null;
+  }
+
+  static String stringOrNull(Object val) {
+    if (val == null) return null;
+    if (val instanceof String s) return s;
+    return val.toString();
+  }
+
+  static Long longOrNull(Object val) {
+    if (val == null) return null;
+    if (val instanceof Number n) return n.longValue();
+    return null;
+  }
+
+  static Instant toInstant(Object val) {
+    if (val == null) {
+      return null;
+    }
+    if (val instanceof Timestamp ts) {
+      return ts.toInstant();
+    }
+    if (val instanceof Instant inst) {
+      return inst;
+    }
+    return null;
+  }
 
   JobEntity hydrateJobEntity(Object[] row) {
     if (row == null) {
@@ -175,66 +231,6 @@ final class MysqlJobRowMapper {
     j.setUpdatedAt(updatedAt);
 
     return j;
-  }
-
-  static boolean isTerminalStatus(JobStatus s) {
-    return s == JobStatus.SUCCEEDED || s == JobStatus.FAILED || s == JobStatus.CANCELED;
-  }
-
-  static boolean isLiveStatus(JobStatus s) {
-    return s == JobStatus.PENDING || s == JobStatus.RUNNING || s == JobStatus.PAUSED;
-  }
-
-  static boolean isPollerExecutable(JobExecutionType jobType) {
-    return jobType == JobExecutionType.SINGLE
-        || jobType == JobExecutionType.BATCH_CHILD
-        || jobType == JobExecutionType.CHAIN_STEP
-        || jobType == JobExecutionType.WORKFLOW_BRANCH;
-  }
-
-  static JobPriority safeJobPriority(int ordinal) {
-    JobPriority[] values = JobPriority.values();
-    if (ordinal < 0 || ordinal >= values.length) {
-      return JobPriority.NORMAL;
-    }
-    return values[ordinal];
-  }
-
-  static String recStatusForLiveStatus(JobStatus s) {
-    if (s == JobStatus.PENDING) return "P";
-    if (s == JobStatus.PAUSED) return "A";
-    return null;
-  }
-
-  static JobStatus recStatusDecode(String c) {
-    if ("P".equals(c)) return JobStatus.PENDING;
-    if ("A".equals(c)) return JobStatus.PAUSED;
-    return null;
-  }
-
-  static String stringOrNull(Object val) {
-    if (val == null) return null;
-    if (val instanceof String s) return s;
-    return val.toString();
-  }
-
-  static Long longOrNull(Object val) {
-    if (val == null) return null;
-    if (val instanceof Number n) return n.longValue();
-    return null;
-  }
-
-  static Instant toInstant(Object val) {
-    if (val == null) {
-      return null;
-    }
-    if (val instanceof Timestamp ts) {
-      return ts.toInstant();
-    }
-    if (val instanceof Instant inst) {
-      return inst;
-    }
-    return null;
   }
 
   String payloadToJson(JobEntity job) {

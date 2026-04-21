@@ -192,83 +192,6 @@ final class MysqlJobLifecycleOperations
         updated -> updated ? "updated" : "miss");
   }
 
-  private boolean doMarkTerminalSuccessWithResult(
-      long id,
-      String resultJson,
-      String resultType,
-      Instant start,
-      Instant end,
-      Long durationMs,
-      Long queueWaitMs) {
-    int coldUpdated =
-        ctx.em()
-            .createNativeQuery(
-                "UPDATE scheduler_job c "
-                    + "JOIN scheduler_job_queue q ON q.job_id = c.job_id "
-                    + "SET c.terminal_status = 'SUCCEEDED', "
-                    + "c.job_result = CAST(? AS JSON), c.result_type = ?, "
-                    + "c.execution_start_time = ?, c.execution_end_time = ?, "
-                    + "c.execution_duration_ms = ?, c.queue_wait_ms = ?, "
-                    + "c.total_attempts = q.attempts, c.terminated_at = NOW(3) "
-                    + "WHERE c.job_id = ? AND c.terminal_status IS NULL "
-                    + "AND q.status = 'RUNNING'")
-            .setParameter(1, resultJson)
-            .setParameter(2, resultType)
-            .setParameter(3, start != null ? Timestamp.from(start) : null)
-            .setParameter(4, end != null ? Timestamp.from(end) : null)
-            .setParameter(5, durationMs)
-            .setParameter(6, queueWaitMs)
-            .setParameter(7, id)
-            .executeUpdate();
-    if (coldUpdated == 0) {
-      return false;
-    }
-    deleteHotRowAndReservationAfterSuccess(id);
-    return true;
-  }
-
-  private boolean doMarkTerminalSuccessMinimal(
-      long id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
-    int coldUpdated =
-        ctx.em()
-            .createNativeQuery(
-                "UPDATE scheduler_job c "
-                    + "JOIN scheduler_job_queue q ON q.job_id = c.job_id "
-                    + "SET c.terminal_status = 'SUCCEEDED', "
-                    + "c.execution_start_time = ?, c.execution_end_time = ?, "
-                    + "c.execution_duration_ms = ?, c.queue_wait_ms = ?, "
-                    + "c.total_attempts = q.attempts, c.terminated_at = NOW(3) "
-                    + "WHERE c.job_id = ? AND c.terminal_status IS NULL "
-                    + "AND q.status = 'RUNNING'")
-            .setParameter(1, start != null ? Timestamp.from(start) : null)
-            .setParameter(2, end != null ? Timestamp.from(end) : null)
-            .setParameter(3, durationMs)
-            .setParameter(4, queueWaitMs)
-            .setParameter(5, id)
-            .executeUpdate();
-    if (coldUpdated == 0) {
-      return false;
-    }
-    deleteHotRowAndReservationAfterSuccess(id);
-    return true;
-  }
-
-  private void deleteHotRowAndReservationAfterSuccess(long id) {
-    int deleted =
-        ctx.em()
-            .createNativeQuery(
-                "DELETE q, br FROM scheduler_job_queue q "
-                    + "LEFT JOIN scheduler_business_key_reservation br "
-                    + "ON br.owner_job_id = q.job_id "
-                    + "WHERE q.job_id = ? AND q.status = 'RUNNING'")
-            .setParameter(1, id)
-            .executeUpdate();
-    if (deleted == 0) {
-      throw new IllegalStateException(
-          "terminal success updated cold row but failed to remove hot row for job " + id);
-    }
-  }
-
   @Override
   public boolean markJobSucceededAndUpdateBatch(
       long jobId,
@@ -470,30 +393,6 @@ final class MysqlJobLifecycleOperations
     return cancelRecurringByIds(ids);
   }
 
-  private int cancelRecurringByIds(List<Number> idRows) {
-    if (idRows.isEmpty()) {
-      return 0;
-    }
-    int total = 0;
-    for (Number n : idRows) {
-      long id = n.longValue();
-      int updated =
-          ctx.em()
-              .createNativeQuery(
-                  "UPDATE scheduler_job SET rec_status = NULL, terminal_status = 'CANCELED', "
-                      + "terminated_at = NOW(3) "
-                      + "WHERE job_id = ? AND job_type = 'RECURRING' "
-                      + "AND rec_status IS NOT NULL AND terminal_status IS NULL")
-              .setParameter(1, id)
-              .executeUpdate();
-      if (updated > 0) {
-        reservations.deleteReservationByOwner(id);
-        total += updated;
-      }
-    }
-    return total;
-  }
-
   @Override
   public boolean resetFailedToPending(long id) {
     @SuppressWarnings("unchecked")
@@ -650,5 +549,106 @@ final class MysqlJobLifecycleOperations
             .setParameter(2, id)
             .executeUpdate();
     return updated > 0 ? target : null;
+  }
+
+  private boolean doMarkTerminalSuccessWithResult(
+      long id,
+      String resultJson,
+      String resultType,
+      Instant start,
+      Instant end,
+      Long durationMs,
+      Long queueWaitMs) {
+    int coldUpdated =
+        ctx.em()
+            .createNativeQuery(
+                "UPDATE scheduler_job c "
+                    + "JOIN scheduler_job_queue q ON q.job_id = c.job_id "
+                    + "SET c.terminal_status = 'SUCCEEDED', "
+                    + "c.job_result = CAST(? AS JSON), c.result_type = ?, "
+                    + "c.execution_start_time = ?, c.execution_end_time = ?, "
+                    + "c.execution_duration_ms = ?, c.queue_wait_ms = ?, "
+                    + "c.total_attempts = q.attempts, c.terminated_at = NOW(3) "
+                    + "WHERE c.job_id = ? AND c.terminal_status IS NULL "
+                    + "AND q.status = 'RUNNING'")
+            .setParameter(1, resultJson)
+            .setParameter(2, resultType)
+            .setParameter(3, start != null ? Timestamp.from(start) : null)
+            .setParameter(4, end != null ? Timestamp.from(end) : null)
+            .setParameter(5, durationMs)
+            .setParameter(6, queueWaitMs)
+            .setParameter(7, id)
+            .executeUpdate();
+    if (coldUpdated == 0) {
+      return false;
+    }
+    deleteHotRowAndReservationAfterSuccess(id);
+    return true;
+  }
+
+  private boolean doMarkTerminalSuccessMinimal(
+      long id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
+    int coldUpdated =
+        ctx.em()
+            .createNativeQuery(
+                "UPDATE scheduler_job c "
+                    + "JOIN scheduler_job_queue q ON q.job_id = c.job_id "
+                    + "SET c.terminal_status = 'SUCCEEDED', "
+                    + "c.execution_start_time = ?, c.execution_end_time = ?, "
+                    + "c.execution_duration_ms = ?, c.queue_wait_ms = ?, "
+                    + "c.total_attempts = q.attempts, c.terminated_at = NOW(3) "
+                    + "WHERE c.job_id = ? AND c.terminal_status IS NULL "
+                    + "AND q.status = 'RUNNING'")
+            .setParameter(1, start != null ? Timestamp.from(start) : null)
+            .setParameter(2, end != null ? Timestamp.from(end) : null)
+            .setParameter(3, durationMs)
+            .setParameter(4, queueWaitMs)
+            .setParameter(5, id)
+            .executeUpdate();
+    if (coldUpdated == 0) {
+      return false;
+    }
+    deleteHotRowAndReservationAfterSuccess(id);
+    return true;
+  }
+
+  private void deleteHotRowAndReservationAfterSuccess(long id) {
+    int deleted =
+        ctx.em()
+            .createNativeQuery(
+                "DELETE q, br FROM scheduler_job_queue q "
+                    + "LEFT JOIN scheduler_business_key_reservation br "
+                    + "ON br.owner_job_id = q.job_id "
+                    + "WHERE q.job_id = ? AND q.status = 'RUNNING'")
+            .setParameter(1, id)
+            .executeUpdate();
+    if (deleted == 0) {
+      throw new IllegalStateException(
+          "terminal success updated cold row but failed to remove hot row for job " + id);
+    }
+  }
+
+  private int cancelRecurringByIds(List<Number> idRows) {
+    if (idRows.isEmpty()) {
+      return 0;
+    }
+    int total = 0;
+    for (Number n : idRows) {
+      long id = n.longValue();
+      int updated =
+          ctx.em()
+              .createNativeQuery(
+                  "UPDATE scheduler_job SET rec_status = NULL, terminal_status = 'CANCELED', "
+                      + "terminated_at = NOW(3) "
+                      + "WHERE job_id = ? AND job_type = 'RECURRING' "
+                      + "AND rec_status IS NOT NULL AND terminal_status IS NULL")
+              .setParameter(1, id)
+              .executeUpdate();
+      if (updated > 0) {
+        reservations.deleteReservationByOwner(id);
+        total += updated;
+      }
+    }
+    return total;
   }
 }

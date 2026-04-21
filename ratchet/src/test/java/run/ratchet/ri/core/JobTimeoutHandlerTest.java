@@ -43,14 +43,6 @@ class JobTimeoutHandlerTest {
             jobCrudStore, jobRetryStore, jobBatchStatusStore, lifecycleFacade, 80, 60L);
   }
 
-  private JobEntity jobWithMaxRetries(int maxRetries) {
-    JobEntity job = new JobEntity();
-    job.setId(JOB_ID);
-    job.setMaxRetries(maxRetries);
-    job.setStatus(JobStatus.RUNNING);
-    return job;
-  }
-
   @Test
   void retriesRemainingReschedulesInsteadOfDlq() {
     JobEntity job = jobWithMaxRetries(3);
@@ -120,5 +112,13 @@ class JobTimeoutHandlerTest {
     verify(jobRetryStore, never()).incrementRetryAttempt(anyLong());
     verify(jobRetryStore, never()).scheduleJobRetry(anyLong(), anyString(), any(), anyInt());
     verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
+  }
+
+  private JobEntity jobWithMaxRetries(int maxRetries) {
+    JobEntity job = new JobEntity();
+    job.setId(JOB_ID);
+    job.setMaxRetries(maxRetries);
+    job.setStatus(JobStatus.RUNNING);
+    return job;
   }
 }

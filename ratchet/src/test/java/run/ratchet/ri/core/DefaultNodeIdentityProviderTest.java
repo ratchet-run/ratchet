@@ -1,5 +1,6 @@
 package run.ratchet.ri.core;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -108,8 +109,8 @@ class DefaultNodeIdentityProviderTest {
     shutdownThread.join(TimeUnit.SECONDS.toMillis(5));
     heartbeatThread.join(TimeUnit.SECONDS.toMillis(5));
 
-    assertTrue(!shutdownThread.isAlive(), "shutdown should finish");
-    assertTrue(!heartbeatThread.isAlive(), "heartbeat callback should finish");
+    assertFalse(shutdownThread.isAlive(), "shutdown should finish");
+    assertFalse(heartbeatThread.isAlive(), "heartbeat callback should finish");
 
     verify(scheduledFuture).cancel(true);
     verify(scheduledExecutor, never())

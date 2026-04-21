@@ -9,9 +9,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 public class ProbabilisticFailingJob {
 
-  private static volatile double failureRate = 0.0;
   private static final AtomicInteger SUCCESS_COUNT = new AtomicInteger(0);
   private static final AtomicInteger FAILURE_COUNT = new AtomicInteger(0);
+  private static volatile double failureRate = 0.0;
 
   public static void execute() {
     if (ThreadLocalRandom.current().nextDouble() < failureRate) {

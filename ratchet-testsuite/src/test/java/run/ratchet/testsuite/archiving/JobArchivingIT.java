@@ -30,18 +30,13 @@ import org.junit.jupiter.api.Test;
 /** Validates job archiving moves completed jobs to the archive table based on retention policy. */
 class JobArchivingIT extends BaseRatchetIT {
 
-  @Inject private TestJobService jobService;
-
-  @Inject private JobCrudStore jobCrudStore;
-
-  @Inject private ArchiveStore archiveStore;
-
-  @Inject private JobArchivingService archivingService;
-
-  @Inject private TestDataManipulator dataManipulator;
-
   private static final CronParser CRON_PARSER =
       new CronParser(CronDefinitionBuilder.instanceDefinitionFor(CronType.QUARTZ));
+  @Inject private TestJobService jobService;
+  @Inject private JobCrudStore jobCrudStore;
+  @Inject private ArchiveStore archiveStore;
+  @Inject private JobArchivingService archivingService;
+  @Inject private TestDataManipulator dataManipulator;
 
   @Deployment
   public static WebArchive createDeployment() {

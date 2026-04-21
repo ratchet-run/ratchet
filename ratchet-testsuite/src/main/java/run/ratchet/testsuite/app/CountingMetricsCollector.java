@@ -17,6 +17,24 @@ public class CountingMetricsCollector implements MetricsCollector {
   private static final AtomicInteger COMPLETED_COUNT = new AtomicInteger(0);
   private static final AtomicInteger FAILED_COUNT = new AtomicInteger(0);
 
+  public static int getStartedCount() {
+    return STARTED_COUNT.get();
+  }
+
+  public static int getCompletedCount() {
+    return COMPLETED_COUNT.get();
+  }
+
+  public static int getFailedCount() {
+    return FAILED_COUNT.get();
+  }
+
+  public static void resetCounts() {
+    STARTED_COUNT.set(0);
+    COMPLETED_COUNT.set(0);
+    FAILED_COUNT.set(0);
+  }
+
   @Override
   public void jobStarted(long jobId, JobType type, JobPriority priority) {
     STARTED_COUNT.incrementAndGet();
@@ -58,22 +76,4 @@ public class CountingMetricsCollector implements MetricsCollector {
 
   @Override
   public void clusterWakeupReceived(String transport, String outcome) {}
-
-  public static int getStartedCount() {
-    return STARTED_COUNT.get();
-  }
-
-  public static int getCompletedCount() {
-    return COMPLETED_COUNT.get();
-  }
-
-  public static int getFailedCount() {
-    return FAILED_COUNT.get();
-  }
-
-  public static void resetCounts() {
-    STARTED_COUNT.set(0);
-    COMPLETED_COUNT.set(0);
-    FAILED_COUNT.set(0);
-  }
 }

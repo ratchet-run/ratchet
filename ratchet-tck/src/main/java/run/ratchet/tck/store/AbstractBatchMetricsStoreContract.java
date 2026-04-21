@@ -2,6 +2,7 @@ package run.ratchet.tck.store;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import run.ratchet.store.entity.BatchMetricsEntity;
@@ -81,7 +82,7 @@ public abstract class AbstractBatchMetricsStoreContract implements JobStoreContr
     store().finalizeBatchMetrics(parent.getId());
 
     var found = store().findBatchMetrics(parent.getId()).orElseThrow();
-    assertTrue(found.getCompletedAt() != null, "finalizeBatchMetrics should set completedAt");
+    assertNotNull(found.getCompletedAt(), "finalizeBatchMetrics should set completedAt");
   }
 
   @Test

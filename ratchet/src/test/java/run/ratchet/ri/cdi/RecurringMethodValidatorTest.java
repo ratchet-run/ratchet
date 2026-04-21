@@ -59,10 +59,10 @@ class RecurringMethodValidatorTest {
 
   @SuppressWarnings("unused")
   public static class InvalidBean {
-    private void privateMethod() {}
-
     public void tooManyParams(JobContext ctx, String extra) {}
 
     public void wrongParamType(String notContext) {}
+
+    private void privateMethod() {}
   }
 }

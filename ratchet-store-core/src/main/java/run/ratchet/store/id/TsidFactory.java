@@ -48,11 +48,10 @@ import org.jboss.logging.Logger;
  */
 public final class TsidFactory {
 
-  private static final Logger LOG = Logger.getLogger(TsidFactory.class);
-
   /** 2024-01-01T00:00:00Z — custom epoch to maximize useful timestamp range. */
   static final long CUSTOM_EPOCH_MS = Instant.parse("2024-01-01T00:00:00Z").toEpochMilli();
 
+  private static final Logger LOG = Logger.getLogger(TsidFactory.class);
   private static final int NODE_BITS = 10;
   private static final int SEQUENCE_BITS = 12;
   private static final long SEQUENCE_MASK = (1L << SEQUENCE_BITS) - 1; // 4095

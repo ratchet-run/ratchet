@@ -130,6 +130,10 @@ public class CircuitBreaker {
     }
   }
 
+  public long getWaitDurationMs() {
+    return config.waitDurationMs();
+  }
+
   private <T> T executeInClosed(Callable<T> task) throws Exception {
     try {
       T result = task.call();
@@ -139,10 +143,6 @@ public class CircuitBreaker {
       recordFailure();
       throw e;
     }
-  }
-
-  public long getWaitDurationMs() {
-    return config.waitDurationMs();
   }
 
   private <T> T executeInHalfOpen(Callable<T> task) throws Exception {

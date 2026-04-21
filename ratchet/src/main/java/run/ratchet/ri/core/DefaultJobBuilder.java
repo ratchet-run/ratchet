@@ -41,12 +41,6 @@ public final class DefaultJobBuilder implements JobBuilder {
   private String businessKey;
   private String resourceName;
 
-  /** A UUID idempotency key is auto-generated at creation time. */
-  public static JobBuilder create(
-      JobSubmitter submitter, SerializableCheckedRunnable task, Duration delay) {
-    return new DefaultJobBuilder(submitter, task, delay);
-  }
-
   DefaultJobBuilder(JobSubmitter submitter, SerializableCheckedRunnable task, Duration delay) {
     this.submitter = submitter;
     this.task = task;
@@ -54,6 +48,12 @@ public final class DefaultJobBuilder implements JobBuilder {
     // Auto-generate idempotency key at builder creation time (NOT at persist time!)
     // This ensures same builder retried = same UUID = deduplicated
     this.idempotencyKey = UUID.randomUUID().toString();
+  }
+
+  /** A UUID idempotency key is auto-generated at creation time. */
+  public static JobBuilder create(
+      JobSubmitter submitter, SerializableCheckedRunnable task, Duration delay) {
+    return new DefaultJobBuilder(submitter, task, delay);
   }
 
   @Override

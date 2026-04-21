@@ -38,14 +38,6 @@ class RecurringAnnotationIT extends BaseRatchetIT {
         .build();
   }
 
-  @Override
-  @BeforeEach
-  protected void truncateAll() {
-    // Skip table truncation — the @Recurring job registered during CDI startup is the
-    // subject under test. Truncating scheduler_job would destroy the recurring master
-    // that RecurringJobProcessor registered at deployment time.
-  }
-
   @BeforeEach
   void resetCounts() {
     TestRecurringJobs.resetCounts();
@@ -63,5 +55,13 @@ class RecurringAnnotationIT extends BaseRatchetIT {
                     TestRecurringJobs.getEveryMinuteCount() >= 1,
                     "Expected @Recurring method to fire at least once but count was "
                         + TestRecurringJobs.getEveryMinuteCount()));
+  }
+
+  @Override
+  @BeforeEach
+  protected void truncateAll() {
+    // Skip table truncation — the @Recurring job registered during CDI startup is the
+    // subject under test. Truncating scheduler_job would destroy the recurring master
+    // that RecurringJobProcessor registered at deployment time.
   }
 }

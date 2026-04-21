@@ -14,11 +14,6 @@ class JobPayloadConverterTest {
 
   private final JobPayloadConverter converter = new JobPayloadConverter();
 
-  private JobPayload samplePayload() {
-    return new JobPayload(
-        "com.example.MyService", "process", "(Ljava/lang/String;)V", true, List.of("hello"));
-  }
-
   @Test
   void roundtrip_preservesAllFields() {
     JobPayload original = samplePayload();
@@ -61,5 +56,10 @@ class JobPayloadConverterTest {
     assertThrows(
         IllegalArgumentException.class,
         () -> converter.convertToEntityAttribute("{not valid json"));
+  }
+
+  private JobPayload samplePayload() {
+    return new JobPayload(
+        "com.example.MyService", "process", "(Ljava/lang/String;)V", true, List.of("hello"));
   }
 }

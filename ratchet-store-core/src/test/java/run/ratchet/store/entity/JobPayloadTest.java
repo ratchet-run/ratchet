@@ -8,10 +8,6 @@ import org.junit.jupiter.api.Test;
 
 class JobPayloadTest {
 
-  private JobPayload payload(String descriptor) {
-    return new JobPayload("com.example.Foo", "bar", descriptor, false, List.of());
-  }
-
   @Test
   void noParams_returnsEmptyArray() {
     Class<?>[] types = payload("()V").parameterTypes();
@@ -67,5 +63,9 @@ class JobPayloadTest {
     Class<?>[] fromVoid = payload("(I)V").parameterTypes();
     Class<?>[] fromString = payload("(I)Ljava/lang/String;").parameterTypes();
     assertArrayEquals(fromVoid, fromString);
+  }
+
+  private JobPayload payload(String descriptor) {
+    return new JobPayload("com.example.Foo", "bar", descriptor, false, List.of());
   }
 }

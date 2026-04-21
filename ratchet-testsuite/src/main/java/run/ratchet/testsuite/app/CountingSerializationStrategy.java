@@ -18,6 +18,19 @@ public class CountingSerializationStrategy implements SerializationStrategy {
   private static final AtomicInteger SERIALIZE_COUNT = new AtomicInteger(0);
   private static final AtomicInteger DESERIALIZE_COUNT = new AtomicInteger(0);
 
+  public static int getSerializeCount() {
+    return SERIALIZE_COUNT.get();
+  }
+
+  public static int getDeserializeCount() {
+    return DESERIALIZE_COUNT.get();
+  }
+
+  public static void resetCounts() {
+    SERIALIZE_COUNT.set(0);
+    DESERIALIZE_COUNT.set(0);
+  }
+
   @Override
   public byte[] serialize(Object obj) {
     SERIALIZE_COUNT.incrementAndGet();
@@ -41,18 +54,5 @@ public class CountingSerializationStrategy implements SerializationStrategy {
     } catch (Exception e) {
       throw new RuntimeException("Deserialization error for " + type.getName(), e);
     }
-  }
-
-  public static int getSerializeCount() {
-    return SERIALIZE_COUNT.get();
-  }
-
-  public static int getDeserializeCount() {
-    return DESERIALIZE_COUNT.get();
-  }
-
-  public static void resetCounts() {
-    SERIALIZE_COUNT.set(0);
-    DESERIALIZE_COUNT.set(0);
   }
 }

@@ -8,6 +8,7 @@ import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoDatabase;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
@@ -50,49 +51,6 @@ class MultiClientClaimIT {
   private MongoJobStore storeA;
   private MongoJobStore storeB;
 
-  @BeforeEach
-  void setUp() {
-    String dbName = "ratchet_multi_" + UUID.randomUUID().toString().substring(0, 8);
-    clientA = MongoClients.create(MONGO.getConnectionString());
-    clientB = MongoClients.create(MONGO.getConnectionString());
-    dbA = clientA.getDatabase(dbName);
-    dbB = clientB.getDatabase(dbName);
-    storeA = new MongoJobStoreImpl(dbA, run.ratchet.api.RatchetOptions.defaults());
-    storeB = new MongoJobStoreImpl(dbB, run.ratchet.api.RatchetOptions.defaults());
-    new MongoCollectionInitializer(dbA).initialize();
-  }
-
-  @AfterEach
-  void tearDown() {
-    dbA.drop();
-    clientA.close();
-    clientB.close();
-  }
-
-  @Test
-  void twoClients_noDuplicateClaims() throws InterruptedException {
-    int jobCount = 100;
-    for (int i = 0; i < jobCount; i++) {
-      storeA.save(newPendingJob());
-    }
-
-    Set<Long> allClaimed = ConcurrentHashMap.newKeySet();
-    List<Long> duplicates = Collections.synchronizedList(new ArrayList<>());
-    CountDownLatch start = new CountDownLatch(1);
-    CountDownLatch done = new CountDownLatch(2);
-
-    ExecutorService pool = Executors.newFixedThreadPool(2);
-    pool.submit(() -> race(storeA, "node-A", start, done, allClaimed, duplicates));
-    pool.submit(() -> race(storeB, "node-B", start, done, allClaimed, duplicates));
-
-    start.countDown();
-    assertTrue(done.await(30, TimeUnit.SECONDS), "both clients must finish within 30s");
-    pool.shutdown();
-
-    assertEquals(0, duplicates.size(), "no job should be claimed by both clients: " + duplicates);
-    assertEquals(jobCount, allClaimed.size(), "every job should be claimed exactly once");
-  }
-
   private static void race(
       MongoJobStore store,
       String nodeId,
@@ -130,5 +88,48 @@ class MultiClientClaimIT {
     job.setIdempotencyKey(UUID.randomUUID().toString());
     job.setPayload(new JobPayload("com.example.TestJob", "execute", "()V", false, List.of()));
     return job;
+  }
+
+  @BeforeEach
+  void setUp() {
+    String dbName = "ratchet_multi_" + UUID.randomUUID().toString().substring(0, 8);
+    clientA = MongoClients.create(MONGO.getConnectionString());
+    clientB = MongoClients.create(MONGO.getConnectionString());
+    dbA = clientA.getDatabase(dbName);
+    dbB = clientB.getDatabase(dbName);
+    storeA = new MongoJobStoreImpl(dbA, RatchetOptions.defaults());
+    storeB = new MongoJobStoreImpl(dbB, RatchetOptions.defaults());
+    new MongoCollectionInitializer(dbA).initialize();
+  }
+
+  @AfterEach
+  void tearDown() {
+    dbA.drop();
+    clientA.close();
+    clientB.close();
+  }
+
+  @Test
+  void twoClients_noDuplicateClaims() throws InterruptedException {
+    int jobCount = 100;
+    for (int i = 0; i < jobCount; i++) {
+      storeA.save(newPendingJob());
+    }
+
+    Set<Long> allClaimed = ConcurrentHashMap.newKeySet();
+    List<Long> duplicates = Collections.synchronizedList(new ArrayList<>());
+    CountDownLatch start = new CountDownLatch(1);
+    CountDownLatch done = new CountDownLatch(2);
+
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    pool.submit(() -> race(storeA, "node-A", start, done, allClaimed, duplicates));
+    pool.submit(() -> race(storeB, "node-B", start, done, allClaimed, duplicates));
+
+    start.countDown();
+    assertTrue(done.await(30, TimeUnit.SECONDS), "both clients must finish within 30s");
+    pool.shutdown();
+
+    assertEquals(0, duplicates.size(), "no job should be claimed by both clients: " + duplicates);
+    assertEquals(jobCount, allClaimed.size(), "every job should be claimed exactly once");
   }
 }

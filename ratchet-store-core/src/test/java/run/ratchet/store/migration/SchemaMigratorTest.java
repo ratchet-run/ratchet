@@ -31,6 +31,28 @@ class SchemaMigratorTest {
   private ResultSet mysqlLock;
   private ResultSet mysqlRelease;
 
+  private static ResultSet missingVersion() throws Exception {
+    ResultSet resultSet = mock(ResultSet.class);
+    when(resultSet.next()).thenReturn(false);
+    return resultSet;
+  }
+
+  private static ResultSet existingVersion(String checksum) throws Exception {
+    ResultSet resultSet = mock(ResultSet.class);
+    when(resultSet.next()).thenReturn(true);
+    when(resultSet.getString(1)).thenReturn(checksum);
+    return resultSet;
+  }
+
+  private static int indexOfContaining(List<String> values, String needle) {
+    for (int i = 0; i < values.size(); i++) {
+      if (values.get(i).contains(needle)) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
   @BeforeEach
   void setUp() throws Exception {
     dataSource = mock(DataSource.class);
@@ -122,27 +144,5 @@ class SchemaMigratorTest {
     assertEquals(0, result.skippedCount());
     verify(statement).execute(startsWith("SELECT pg_advisory_lock("));
     verify(statement).execute(startsWith("SELECT pg_advisory_unlock("));
-  }
-
-  private static ResultSet missingVersion() throws Exception {
-    ResultSet resultSet = mock(ResultSet.class);
-    when(resultSet.next()).thenReturn(false);
-    return resultSet;
-  }
-
-  private static ResultSet existingVersion(String checksum) throws Exception {
-    ResultSet resultSet = mock(ResultSet.class);
-    when(resultSet.next()).thenReturn(true);
-    when(resultSet.getString(1)).thenReturn(checksum);
-    return resultSet;
-  }
-
-  private static int indexOfContaining(List<String> values, String needle) {
-    for (int i = 0; i < values.size(); i++) {
-      if (values.get(i).contains(needle)) {
-        return i;
-      }
-    }
-    return -1;
   }
 }

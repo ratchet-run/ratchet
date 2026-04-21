@@ -20,6 +20,24 @@ public class RecordingMetricsCollector implements MetricsCollector {
       new ConcurrentLinkedQueue<>();
   private static final ConcurrentLinkedQueue<FailedMetric> FAILED = new ConcurrentLinkedQueue<>();
 
+  public static List<StartedMetric> startedEvents() {
+    return List.copyOf(STARTED);
+  }
+
+  public static List<CompletedMetric> completedEvents() {
+    return List.copyOf(COMPLETED);
+  }
+
+  public static List<FailedMetric> failedEvents() {
+    return List.copyOf(FAILED);
+  }
+
+  public static void reset() {
+    STARTED.clear();
+    COMPLETED.clear();
+    FAILED.clear();
+  }
+
   @Override
   public void jobStarted(long jobId, JobType type, JobPriority priority) {
     STARTED.add(new StartedMetric(jobId, type, priority));
@@ -62,24 +80,6 @@ public class RecordingMetricsCollector implements MetricsCollector {
 
   @Override
   public void clusterWakeupReceived(String transport, String outcome) {}
-
-  public static List<StartedMetric> startedEvents() {
-    return List.copyOf(STARTED);
-  }
-
-  public static List<CompletedMetric> completedEvents() {
-    return List.copyOf(COMPLETED);
-  }
-
-  public static List<FailedMetric> failedEvents() {
-    return List.copyOf(FAILED);
-  }
-
-  public static void reset() {
-    STARTED.clear();
-    COMPLETED.clear();
-    FAILED.clear();
-  }
 
   public record StartedMetric(long jobId, JobType type, JobPriority priority) {}
 

@@ -1,5 +1,6 @@
 package run.ratchet.store.mysql;
 
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.spi.JobStore;
@@ -33,40 +34,6 @@ public class MysqlTestFixture extends JpaContainerFixture {
   }
 
   @Override
-  protected JdbcDatabaseContainer<?> container() {
-    return CONTAINER;
-  }
-
-  @Override
-  protected Map<String, Object> jpaProperties() {
-    // No hibernate.dialect pin — Hibernate 6 auto-detects from the JDBC URL. Remaining keys are
-    // opt-in Hibernate tuning and no-op under any other JPA provider. connection.isolation=2
-    // maps to READ_COMMITTED (TRANSACTION_READ_COMMITTED on java.sql.Connection), matching the
-    // Arquillian/WildFly test stack and avoiding MySQL REPEATABLE-READ gap-lock deadlocks under
-    // concurrent claim.
-    return Map.of(
-        "hibernate.hbm2ddl.auto", "none",
-        "hibernate.show_sql", "false",
-        "hibernate.format_sql", "false",
-        "hibernate.connection.provider_disables_autocommit", "false",
-        "hibernate.connection.isolation", "2");
-  }
-
-  @Override
-  protected String persistenceUnitName() {
-    return "ratchet-mysql-tck";
-  }
-
-  @Override
-  protected JobStore createStore(EntityManager em, MetricsCollector metrics) {
-    MysqlJobStoreImpl store =
-        new MysqlJobStoreImpl(
-            () -> em, metrics, run.ratchet.api.RatchetOptions.defaults());
-    store.checkIsolationLevel();
-    return store;
-  }
-
-  @Override
   public boolean isStaleWriteException(Throwable t) {
     for (Throwable c = t; c != null; c = c.getCause()) {
       if (c instanceof RatchetOptimisticLockException) {
@@ -94,5 +61,37 @@ public class MysqlTestFixture extends JpaContainerFixture {
     executeNativeSql("DELETE FROM scheduler_resource_limit");
     executeNativeSql("DELETE FROM scheduler_lock");
     executeNativeSql("DELETE FROM scheduler_node");
+  }
+
+  @Override
+  protected JdbcDatabaseContainer<?> container() {
+    return CONTAINER;
+  }
+
+  @Override
+  protected Map<String, Object> jpaProperties() {
+    // No hibernate.dialect pin — Hibernate 6 auto-detects from the JDBC URL. Remaining keys are
+    // opt-in Hibernate tuning and no-op under any other JPA provider. connection.isolation=2
+    // maps to READ_COMMITTED (TRANSACTION_READ_COMMITTED on java.sql.Connection), matching the
+    // Arquillian/WildFly test stack and avoiding MySQL REPEATABLE-READ gap-lock deadlocks under
+    // concurrent claim.
+    return Map.of(
+        "hibernate.hbm2ddl.auto", "none",
+        "hibernate.show_sql", "false",
+        "hibernate.format_sql", "false",
+        "hibernate.connection.provider_disables_autocommit", "false",
+        "hibernate.connection.isolation", "2");
+  }
+
+  @Override
+  protected String persistenceUnitName() {
+    return "ratchet-mysql-tck";
+  }
+
+  @Override
+  protected JobStore createStore(EntityManager em, MetricsCollector metrics) {
+    MysqlJobStoreImpl store = new MysqlJobStoreImpl(() -> em, metrics, RatchetOptions.defaults());
+    store.checkIsolationLevel();
+    return store;
   }
 }

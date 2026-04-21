@@ -74,39 +74,6 @@ class MysqlJobStoreImpl implements MysqlJobStore {
     this.options = options;
   }
 
-  @PostConstruct
-  void checkIsolationLevel() {
-    if (em == null) {
-      em = entityManagerProvider.getEntityManager();
-    }
-    options.node().explicitTsidNodeId().ifPresent(TsidFactory::configureNodeId);
-    IsolationCheck.verifyReadCommitted(
-        em,
-        "MySQL",
-        List.of("SELECT @@SESSION.transaction_isolation", "SELECT @@SESSION.tx_isolation"),
-        "READ-COMMITTED",
-        "REPEATABLE READ causes InnoDB gap locks that block concurrent job enqueue during claim"
-            + " queries. Set hibernate.connection.isolation=2 in persistence.xml or"
-            + " transaction-isolation=TRANSACTION_READ_COMMITTED on the datasource.",
-        options.store().isolationCheckMode());
-    initDelegates();
-  }
-
-  private void initDelegates() {
-    MysqlStoreContext ctx =
-        new MysqlStoreContext(em, metricsCollector, options.store().priorityBoostIntervalMinutes());
-    MysqlJobRowMapper mapper = new MysqlJobRowMapper();
-    MysqlBusinessKeyReservations reservations = new MysqlBusinessKeyReservations(ctx);
-    tags = new MysqlTagOperations(ctx);
-    jobs = new MysqlJobCrudOperations(ctx, mapper, reservations, tags);
-    batches = new MysqlBatchOperations(ctx);
-    claims = new MysqlJobClaimOperations(ctx, jobs);
-    lifecycle = new MysqlJobLifecycleOperations(ctx, reservations, batches);
-    nodeLocks = new MysqlNodeLockOperations(ctx);
-    archives = new MysqlArchiveOperations(ctx, mapper, tags, jobs);
-    auxiliary = new MysqlAuxiliaryOperations(ctx);
-  }
-
   @Override
   public JobEntity save(JobEntity job) {
     return jobs.save(job);
@@ -689,5 +656,38 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   @Override
   public int cleanupOrphanedPermits(List<String> staleNodeIds) {
     return auxiliary.cleanupOrphanedPermits(staleNodeIds);
+  }
+
+  @PostConstruct
+  void checkIsolationLevel() {
+    if (em == null) {
+      em = entityManagerProvider.getEntityManager();
+    }
+    options.node().explicitTsidNodeId().ifPresent(TsidFactory::configureNodeId);
+    IsolationCheck.verifyReadCommitted(
+        em,
+        "MySQL",
+        List.of("SELECT @@SESSION.transaction_isolation", "SELECT @@SESSION.tx_isolation"),
+        "READ-COMMITTED",
+        "REPEATABLE READ causes InnoDB gap locks that block concurrent job enqueue during claim"
+            + " queries. Set hibernate.connection.isolation=2 in persistence.xml or"
+            + " transaction-isolation=TRANSACTION_READ_COMMITTED on the datasource.",
+        options.store().isolationCheckMode());
+    initDelegates();
+  }
+
+  private void initDelegates() {
+    MysqlStoreContext ctx =
+        new MysqlStoreContext(em, metricsCollector, options.store().priorityBoostIntervalMinutes());
+    MysqlJobRowMapper mapper = new MysqlJobRowMapper();
+    MysqlBusinessKeyReservations reservations = new MysqlBusinessKeyReservations(ctx);
+    tags = new MysqlTagOperations(ctx);
+    jobs = new MysqlJobCrudOperations(ctx, mapper, reservations, tags);
+    batches = new MysqlBatchOperations(ctx);
+    claims = new MysqlJobClaimOperations(ctx, jobs);
+    lifecycle = new MysqlJobLifecycleOperations(ctx, reservations, batches);
+    nodeLocks = new MysqlNodeLockOperations(ctx);
+    archives = new MysqlArchiveOperations(ctx, mapper, tags, jobs);
+    auxiliary = new MysqlAuxiliaryOperations(ctx);
   }
 }

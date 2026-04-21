@@ -9,9 +9,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class SlowJob {
 
-  private static volatile long sleepMs = 60_000;
   private static final AtomicBoolean STARTED = new AtomicBoolean(false);
   private static final AtomicBoolean COMPLETED = new AtomicBoolean(false);
+  private static volatile long sleepMs = 60_000;
 
   public static void execute() throws InterruptedException {
     STARTED.set(true);

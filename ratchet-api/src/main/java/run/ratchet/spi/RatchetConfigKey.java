@@ -20,17 +20,6 @@ public record RatchetConfigKey<T>(
     Objects.requireNonNull(parser, "parser must not be null");
   }
 
-  public T parse(String raw) {
-    if (raw == null || raw.isBlank()) {
-      return defaultValue;
-    }
-    try {
-      return parser.apply(raw.trim());
-    } catch (RuntimeException e) {
-      return defaultValue;
-    }
-  }
-
   public static RatchetConfigKey<Boolean> bool(
       String name, String environmentVariable, boolean defaultValue) {
     return new RatchetConfigKey<>(
@@ -135,5 +124,16 @@ public record RatchetConfigKey<T>(
       throw new IllegalArgumentException("Value is below the allowed minimum");
     }
     return value;
+  }
+
+  public T parse(String raw) {
+    if (raw == null || raw.isBlank()) {
+      return defaultValue;
+    }
+    try {
+      return parser.apply(raw.trim());
+    } catch (RuntimeException e) {
+      return defaultValue;
+    }
   }
 }

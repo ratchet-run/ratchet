@@ -28,6 +28,10 @@ import org.junit.jupiter.api.Test;
  */
 public abstract class AbstractDualWriteInvariantContract implements JobStoreContractFixture {
 
+  private static String uniqueBusinessKey() {
+    return "dual-write-" + UUID.randomUUID();
+  }
+
   @AfterEach
   void cleanupDualWriteFixture() {
     cleanupStore();
@@ -208,9 +212,5 @@ public abstract class AbstractDualWriteInvariantContract implements JobStoreCont
     JobEntity job = newPendingJob();
     job.setBusinessKey(bk);
     return job;
-  }
-
-  private static String uniqueBusinessKey() {
-    return "dual-write-" + UUID.randomUUID();
   }
 }

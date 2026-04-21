@@ -70,7 +70,7 @@ class DeadLetterQueueIT extends BaseRatchetIT {
     assertTrue(received, "Should have received JobDlqEvent after retries exhausted");
 
     var dlqEvents = eventCapture.getEvents(JobDlqEvent.class);
-    assertTrue(!dlqEvents.isEmpty(), "Should have at least one DLQ event");
+    assertFalse(dlqEvents.isEmpty(), "Should have at least one DLQ event");
 
     JobDlqEvent dlqEvent = dlqEvents.get(0);
     assertNotNull(dlqEvent.getErrorMessage(), "DLQ event should have an error message");

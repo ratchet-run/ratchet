@@ -20,11 +20,9 @@ public class EventCapture {
 
   private final CopyOnWriteArrayList<AbstractJobSchedulerEvent> events =
       new CopyOnWriteArrayList<>();
-
+  private final Object awaitLock = new Object();
   private CountDownLatch latch = new CountDownLatch(1);
   private Class<? extends AbstractJobSchedulerEvent> expectedType;
-
-  private final Object awaitLock = new Object();
 
   public void onEvent(@Observes AbstractJobSchedulerEvent event) {
     events.add(event);

@@ -153,6 +153,10 @@ public class RatchetArchiveBuilder {
     return this;
   }
 
+  public WebArchive build() {
+    return archive;
+  }
+
   private void addAwaitility() {
     // Awaitility is needed in-container by JobAssertions but is test-scoped
     // (not pulled in by importCompileAndRuntimeDependencies)
@@ -162,9 +166,5 @@ public class RatchetArchiveBuilder {
             .resolve("org.awaitility:awaitility")
             .withTransitivity()
             .asFile());
-  }
-
-  public WebArchive build() {
-    return archive;
   }
 }

@@ -12,6 +12,11 @@ public class LoadTestMongoProducer {
 
   private MongoClient client;
 
+  private static String envOrDefault(String name, String defaultValue) {
+    String value = System.getenv(name);
+    return value == null || value.isBlank() ? defaultValue : value;
+  }
+
   @Produces
   @ApplicationScoped
   public MongoDatabase mongoDatabase() {
@@ -26,10 +31,5 @@ public class LoadTestMongoProducer {
     if (client != null) {
       client.close();
     }
-  }
-
-  private static String envOrDefault(String name, String defaultValue) {
-    String value = System.getenv(name);
-    return value == null || value.isBlank() ? defaultValue : value;
   }
 }

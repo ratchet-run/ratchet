@@ -23,6 +23,24 @@ public record PerformanceReport(
               + ",\"p95Ms\":(\\d+)"
               + ",\"p99Ms\":(\\d+)");
 
+  public static PerformanceReport fromJson(String json) {
+    if (json == null || json.isBlank()) {
+      return null;
+    }
+    Matcher m = JSON_PATTERN.matcher(json);
+    if (!m.find()) {
+      return null;
+    }
+    return new PerformanceReport(
+        m.group(1),
+        Integer.parseInt(m.group(2)),
+        Long.parseLong(m.group(3)),
+        Double.parseDouble(m.group(4)),
+        Long.parseLong(m.group(5)),
+        Long.parseLong(m.group(6)),
+        Long.parseLong(m.group(7)));
+  }
+
   public String toSummaryLine() {
     return String.format(
         "%-40s  %6d jobs  %8.1f jobs/s  p50=%4dms  p95=%4dms  p99=%4dms  total=%6dms",
@@ -52,23 +70,5 @@ public record PerformanceReport(
         + "\"p99Ms\":"
         + p99Ms
         + "}";
-  }
-
-  public static PerformanceReport fromJson(String json) {
-    if (json == null || json.isBlank()) {
-      return null;
-    }
-    Matcher m = JSON_PATTERN.matcher(json);
-    if (!m.find()) {
-      return null;
-    }
-    return new PerformanceReport(
-        m.group(1),
-        Integer.parseInt(m.group(2)),
-        Long.parseLong(m.group(3)),
-        Double.parseDouble(m.group(4)),
-        Long.parseLong(m.group(5)),
-        Long.parseLong(m.group(6)),
-        Long.parseLong(m.group(7)));
   }
 }

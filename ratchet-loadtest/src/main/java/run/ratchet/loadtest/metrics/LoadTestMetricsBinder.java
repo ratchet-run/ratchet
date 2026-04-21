@@ -18,11 +18,6 @@ public class LoadTestMetricsBinder {
 
   private boolean bound;
 
-  @PostConstruct
-  void bind() {
-    ensureBound();
-  }
-
   public synchronized void ensureBound() {
     if (bound) {
       return;
@@ -52,5 +47,10 @@ public class LoadTestMetricsBinder {
           .register(registry);
     }
     bound = true;
+  }
+
+  @PostConstruct
+  void bind() {
+    ensureBound();
   }
 }

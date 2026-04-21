@@ -35,6 +35,18 @@ public class LoadTestResource {
   @Inject LoadTestResetService resetService;
   @Inject NodeIdentityProvider nodeIdentityProvider;
 
+  private static WebApplicationException badRequest(RuntimeException e) {
+    String message = e.getMessage();
+    if (message == null || message.isBlank()) {
+      message = e.getClass().getSimpleName();
+    }
+    return new WebApplicationException(
+        Response.status(Response.Status.BAD_REQUEST)
+            .type(MediaType.TEXT_PLAIN_TYPE)
+            .entity(message)
+            .build());
+  }
+
   @POST
   @Path("/runs")
   public RunStartedResponse start(StartRunRequest request) {
@@ -84,17 +96,5 @@ public class LoadTestResource {
   public Object reset(ResetRequest request) {
     String runId = request == null ? null : request.runId;
     return resetService.reset(runId);
-  }
-
-  private static WebApplicationException badRequest(RuntimeException e) {
-    String message = e.getMessage();
-    if (message == null || message.isBlank()) {
-      message = e.getClass().getSimpleName();
-    }
-    return new WebApplicationException(
-        Response.status(Response.Status.BAD_REQUEST)
-            .type(MediaType.TEXT_PLAIN_TYPE)
-            .entity(message)
-            .build());
   }
 }

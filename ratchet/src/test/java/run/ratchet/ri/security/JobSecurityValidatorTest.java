@@ -11,19 +11,6 @@ class JobSecurityValidatorTest {
 
   private static final String THIS_PACKAGE = "run.ratchet.ri.security.";
 
-  public static class SampleTarget {
-    public void doWork() {}
-
-    public void doWorkWithArg(String arg) {}
-
-    private void secretMethod() {}
-  }
-
-  private JobSecurityValidator validatorAllowing(String... prefixes) {
-    PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy(Set.of(prefixes));
-    return new JobSecurityValidator(policy);
-  }
-
   @Test
   void allowedClassAndPublicMethodPasses() {
     JobSecurityValidator validator = validatorAllowing(THIS_PACKAGE);
@@ -81,5 +68,18 @@ class JobSecurityValidatorTest {
             false,
             List.of("hello"));
     assertDoesNotThrow(() -> validator.validate(payload));
+  }
+
+  private JobSecurityValidator validatorAllowing(String... prefixes) {
+    PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy(Set.of(prefixes));
+    return new JobSecurityValidator(policy);
+  }
+
+  public static class SampleTarget {
+    public void doWork() {}
+
+    public void doWorkWithArg(String arg) {}
+
+    private void secretMethod() {}
   }
 }

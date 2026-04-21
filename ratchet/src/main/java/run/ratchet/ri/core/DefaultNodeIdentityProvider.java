@@ -94,6 +94,27 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
     this.explicitNodeId = explicitNodeId;
   }
 
+  private static boolean isContainerShutdownException(Throwable throwable) {
+    Throwable current = throwable;
+    while (current != null) {
+      String className = current.getClass().getName();
+      if (className.endsWith("ContextNotActiveException")) {
+        return true;
+      }
+
+      String message = current.getMessage();
+      if (message != null) {
+        for (String marker : CONTAINER_SHUTDOWN_ERROR_MARKERS) {
+          if (message.contains(marker)) {
+            return true;
+          }
+        }
+      }
+      current = current.getCause();
+    }
+    return false;
+  }
+
   @Override
   public String getNodeId() {
     return nodeId;
@@ -130,6 +151,18 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
     scheduleNextHeartbeat();
   }
 
+  /** Shuts down the heartbeat scheduler. */
+  public void shutdown() {
+    initialized.set(false);
+    if (heartbeatHandle != null) {
+      heartbeatHandle.cancel(true);
+      heartbeatHandle = null;
+    }
+    synchronized (heartbeatLifecycleMonitor) {
+      // Wait for any in-flight heartbeat callback to observe initialized=false and exit.
+    }
+  }
+
   /**
    * Warns if app-server and DB clocks differ by more than 5 seconds. Skew can cause premature
    * orphan recovery or stale heartbeats.
@@ -149,18 +182,6 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
       }
     } catch (Exception e) {
       log.warnf("Clock skew check skipped: %s", e.getMessage());
-    }
-  }
-
-  /** Shuts down the heartbeat scheduler. */
-  public void shutdown() {
-    initialized.set(false);
-    if (heartbeatHandle != null) {
-      heartbeatHandle.cancel(true);
-      heartbeatHandle = null;
-    }
-    synchronized (heartbeatLifecycleMonitor) {
-      // Wait for any in-flight heartbeat callback to observe initialized=false and exit.
     }
   }
 
@@ -263,26 +284,5 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
         scheduleHeartbeatWithDelay(cappedDelay);
       }
     }
-  }
-
-  private static boolean isContainerShutdownException(Throwable throwable) {
-    Throwable current = throwable;
-    while (current != null) {
-      String className = current.getClass().getName();
-      if (className.endsWith("ContextNotActiveException")) {
-        return true;
-      }
-
-      String message = current.getMessage();
-      if (message != null) {
-        for (String marker : CONTAINER_SHUTDOWN_ERROR_MARKERS) {
-          if (message.contains(marker)) {
-            return true;
-          }
-        }
-      }
-      current = current.getCause();
-    }
-    return false;
   }
 }

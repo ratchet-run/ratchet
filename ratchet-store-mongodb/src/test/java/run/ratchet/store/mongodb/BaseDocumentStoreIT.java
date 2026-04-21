@@ -5,6 +5,7 @@ import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoDatabase;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
@@ -43,7 +44,7 @@ public abstract class BaseDocumentStoreIT {
   void setUp() {
     client = MongoClients.create(MONGO.getConnectionString());
     database = client.getDatabase("ratchet_it_" + UUID.randomUUID().toString().substring(0, 8));
-    store = new MongoJobStoreImpl(database, run.ratchet.api.RatchetOptions.defaults());
+    store = new MongoJobStoreImpl(database, RatchetOptions.defaults());
     // Store collection initialization is @PostConstruct, which only fires inside a CDI container.
     // Plain-new instantiation in test fixtures bypasses it, so the unique indexes on
     // idempotency_key / business_key that IdempotencyIT relies on never get created. Call the

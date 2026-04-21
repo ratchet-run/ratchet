@@ -12,64 +12,6 @@ import org.junit.jupiter.api.Test;
 
 class RecurringAnnotationParserTest {
 
-  @Test
-  void generateJobId_usesExplicitId() {
-    Recurring annotation = recurring("my-custom-id", "0 * * * * ?");
-    assertEquals(
-        "my-custom-id",
-        RecurringAnnotationParser.generateJobId(annotation, "com.example.MyService", "myMethod"));
-  }
-
-  @Test
-  void generateJobId_generatesFromClassAndMethod() {
-    Recurring annotation = recurring("", "0 * * * * ?");
-    assertEquals(
-        "com.example.MyService.myMethod",
-        RecurringAnnotationParser.generateJobId(annotation, "com.example.MyService", "myMethod"));
-  }
-
-  @Test
-  void isEnabled_defaultTrue() {
-    Recurring annotation = recurring("", "0 * * * * ?");
-    assertTrue(RecurringAnnotationParser.isEnabled(annotation));
-  }
-
-  @Test
-  void isEnabled_explicitFalse() {
-    Recurring annotation = recurringWithEnabled(false);
-    assertFalse(RecurringAnnotationParser.isEnabled(annotation));
-  }
-
-  @Test
-  void mapPriority_lowestRange() {
-    assertEquals(JobPriority.LOWEST, RecurringAnnotationParser.mapPriority(1));
-    assertEquals(JobPriority.LOWEST, RecurringAnnotationParser.mapPriority(2));
-  }
-
-  @Test
-  void mapPriority_lowRange() {
-    assertEquals(JobPriority.LOW, RecurringAnnotationParser.mapPriority(3));
-    assertEquals(JobPriority.LOW, RecurringAnnotationParser.mapPriority(4));
-  }
-
-  @Test
-  void mapPriority_normalRange() {
-    assertEquals(JobPriority.NORMAL, RecurringAnnotationParser.mapPriority(5));
-    assertEquals(JobPriority.NORMAL, RecurringAnnotationParser.mapPriority(6));
-  }
-
-  @Test
-  void mapPriority_highRange() {
-    assertEquals(JobPriority.HIGH, RecurringAnnotationParser.mapPriority(7));
-    assertEquals(JobPriority.HIGH, RecurringAnnotationParser.mapPriority(8));
-  }
-
-  @Test
-  void mapPriority_criticalRange() {
-    assertEquals(JobPriority.CRITICAL, RecurringAnnotationParser.mapPriority(9));
-    assertEquals(JobPriority.CRITICAL, RecurringAnnotationParser.mapPriority(10));
-  }
-
   private static Recurring recurring(String id, String cron) {
     return new Recurring() {
       @Override
@@ -196,5 +138,63 @@ class RecurringAnnotationParserTest {
         return new String[0];
       }
     };
+  }
+
+  @Test
+  void generateJobId_usesExplicitId() {
+    Recurring annotation = recurring("my-custom-id", "0 * * * * ?");
+    assertEquals(
+        "my-custom-id",
+        RecurringAnnotationParser.generateJobId(annotation, "com.example.MyService", "myMethod"));
+  }
+
+  @Test
+  void generateJobId_generatesFromClassAndMethod() {
+    Recurring annotation = recurring("", "0 * * * * ?");
+    assertEquals(
+        "com.example.MyService.myMethod",
+        RecurringAnnotationParser.generateJobId(annotation, "com.example.MyService", "myMethod"));
+  }
+
+  @Test
+  void isEnabled_defaultTrue() {
+    Recurring annotation = recurring("", "0 * * * * ?");
+    assertTrue(RecurringAnnotationParser.isEnabled(annotation));
+  }
+
+  @Test
+  void isEnabled_explicitFalse() {
+    Recurring annotation = recurringWithEnabled(false);
+    assertFalse(RecurringAnnotationParser.isEnabled(annotation));
+  }
+
+  @Test
+  void mapPriority_lowestRange() {
+    assertEquals(JobPriority.LOWEST, RecurringAnnotationParser.mapPriority(1));
+    assertEquals(JobPriority.LOWEST, RecurringAnnotationParser.mapPriority(2));
+  }
+
+  @Test
+  void mapPriority_lowRange() {
+    assertEquals(JobPriority.LOW, RecurringAnnotationParser.mapPriority(3));
+    assertEquals(JobPriority.LOW, RecurringAnnotationParser.mapPriority(4));
+  }
+
+  @Test
+  void mapPriority_normalRange() {
+    assertEquals(JobPriority.NORMAL, RecurringAnnotationParser.mapPriority(5));
+    assertEquals(JobPriority.NORMAL, RecurringAnnotationParser.mapPriority(6));
+  }
+
+  @Test
+  void mapPriority_highRange() {
+    assertEquals(JobPriority.HIGH, RecurringAnnotationParser.mapPriority(7));
+    assertEquals(JobPriority.HIGH, RecurringAnnotationParser.mapPriority(8));
+  }
+
+  @Test
+  void mapPriority_criticalRange() {
+    assertEquals(JobPriority.CRITICAL, RecurringAnnotationParser.mapPriority(9));
+    assertEquals(JobPriority.CRITICAL, RecurringAnnotationParser.mapPriority(10));
   }
 }

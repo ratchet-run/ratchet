@@ -31,11 +31,6 @@ class RetryBufferManagerTest {
 
   private RetryBufferManager manager;
 
-  @BeforeEach
-  void setUp() {
-    manager = new RetryBufferManager(deadLetterService, jobBatchStatusStore, nodeIdentityProvider);
-  }
-
   private static JobEntity job(
       long id, JobExecutionType type, JobPriority priority, Instant scheduledTime) {
     JobEntity j = new JobEntity();
@@ -48,6 +43,11 @@ class RetryBufferManagerTest {
 
   private static JobEntity standardJob(long id) {
     return job(id, JobExecutionType.SINGLE, JobPriority.NORMAL, Instant.now());
+  }
+
+  @BeforeEach
+  void setUp() {
+    manager = new RetryBufferManager(deadLetterService, jobBatchStatusStore, nodeIdentityProvider);
   }
 
   @Test

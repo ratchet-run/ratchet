@@ -12,15 +12,6 @@ public class CircuitBreakerTestService {
   private static final AtomicInteger CALL_COUNT = new AtomicInteger(0);
   private static volatile boolean shouldFail = false;
 
-  @CircuitBreakerProtected(service = "test-service", profile = CircuitBreakerProfile.FAST)
-  public String callService() {
-    CALL_COUNT.incrementAndGet();
-    if (shouldFail) {
-      throw new RuntimeException("Simulated service failure");
-    }
-    return "success";
-  }
-
   public static void setShouldFail(boolean fail) {
     shouldFail = fail;
   }
@@ -32,5 +23,14 @@ public class CircuitBreakerTestService {
   public static void reset() {
     CALL_COUNT.set(0);
     shouldFail = false;
+  }
+
+  @CircuitBreakerProtected(service = "test-service", profile = CircuitBreakerProfile.FAST)
+  public String callService() {
+    CALL_COUNT.incrementAndGet();
+    if (shouldFail) {
+      throw new RuntimeException("Simulated service failure");
+    }
+    return "success";
   }
 }

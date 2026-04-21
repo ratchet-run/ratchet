@@ -56,6 +56,14 @@ class BatchCompletionContentionIT extends BasePerformanceIT {
         .build();
   }
 
+  private static List<String> generateItems(int count) {
+    List<String> items = new ArrayList<>(count);
+    for (int i = 0; i < count; i++) {
+      items.add("item-" + i);
+    }
+    return items;
+  }
+
   @BeforeEach
   void resetCounters() {
     TimingJob.resetCount();
@@ -121,13 +129,5 @@ class BatchCompletionContentionIT extends BasePerformanceIT {
             scalingRatio));
 
     baseline.assertLatencyWithinTolerance("batchContention.scalingRatio", scalingRatio);
-  }
-
-  private static List<String> generateItems(int count) {
-    List<String> items = new ArrayList<>(count);
-    for (int i = 0; i < count; i++) {
-      items.add("item-" + i);
-    }
-    return items;
   }
 }

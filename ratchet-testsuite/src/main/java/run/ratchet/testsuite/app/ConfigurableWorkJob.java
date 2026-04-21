@@ -5,8 +5,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 /** Test job with adjustable sleep. */
 public class ConfigurableWorkJob {
 
-  private static volatile long sleepMs = 5;
   private static final AtomicInteger INVOCATION_COUNT = new AtomicInteger(0);
+  private static volatile long sleepMs = 5;
 
   public static void execute() throws InterruptedException {
     Thread.sleep(sleepMs);

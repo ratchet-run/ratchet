@@ -29,6 +29,15 @@ class JobStateManagerTest {
 
   private JobStateManager manager;
 
+  private static JobEntity runningJob(long id) {
+    JobEntity job = new JobEntity();
+    job.setId(id);
+    job.setStatus(JobStatus.RUNNING);
+    job.setPickedBy(NODE_ID);
+    job.setPickedAt(Instant.now());
+    return job;
+  }
+
   @BeforeEach
   void setUp() {
     manager = new JobStateManager(jobBatchStatusStore, nodeIdentityProvider);
@@ -152,14 +161,5 @@ class JobStateManagerTest {
 
     assertTrue(result);
     verify(jobBatchStatusStore).resetRunningJob(JOB_ID, differentNodeId);
-  }
-
-  private static JobEntity runningJob(long id) {
-    JobEntity job = new JobEntity();
-    job.setId(id);
-    job.setStatus(JobStatus.RUNNING);
-    job.setPickedBy(NODE_ID);
-    job.setPickedAt(Instant.now());
-    return job;
   }
 }

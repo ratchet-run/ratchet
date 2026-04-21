@@ -1,5 +1,6 @@
 package run.ratchet.store.postgresql;
 
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.spi.JobStore;
@@ -32,35 +33,6 @@ public class PostgresqlTestFixture extends JpaContainerFixture {
   }
 
   @Override
-  protected JdbcDatabaseContainer<?> container() {
-    return CONTAINER;
-  }
-
-  @Override
-  protected Map<String, Object> jpaProperties() {
-    // No hibernate.dialect pin — Hibernate 6 auto-detects from the JDBC URL. Remaining keys are
-    // opt-in Hibernate tuning and no-op under any other JPA provider.
-    return Map.of(
-        "hibernate.hbm2ddl.auto", "none",
-        "hibernate.show_sql", "false",
-        "hibernate.format_sql", "false",
-        "hibernate.connection.provider_disables_autocommit", "false");
-  }
-
-  @Override
-  protected String persistenceUnitName() {
-    return "ratchet-postgresql-tck";
-  }
-
-  @Override
-  protected JobStore createStore(EntityManager em, MetricsCollector metrics) {
-    PostgresqlJobStoreImpl store =
-        new PostgresqlJobStoreImpl(() -> em, run.ratchet.api.RatchetOptions.defaults());
-    store.checkIsolationLevel();
-    return store;
-  }
-
-  @Override
   public boolean isStaleWriteException(Throwable t) {
     for (Throwable c = t; c != null; c = c.getCause()) {
       if (c instanceof RatchetOptimisticLockException) {
@@ -85,5 +57,33 @@ public class PostgresqlTestFixture extends JpaContainerFixture {
     executeNativeSql("DELETE FROM scheduler_resource_limit");
     executeNativeSql("DELETE FROM scheduler_lock");
     executeNativeSql("DELETE FROM scheduler_node");
+  }
+
+  @Override
+  protected JdbcDatabaseContainer<?> container() {
+    return CONTAINER;
+  }
+
+  @Override
+  protected Map<String, Object> jpaProperties() {
+    // No hibernate.dialect pin — Hibernate 6 auto-detects from the JDBC URL. Remaining keys are
+    // opt-in Hibernate tuning and no-op under any other JPA provider.
+    return Map.of(
+        "hibernate.hbm2ddl.auto", "none",
+        "hibernate.show_sql", "false",
+        "hibernate.format_sql", "false",
+        "hibernate.connection.provider_disables_autocommit", "false");
+  }
+
+  @Override
+  protected String persistenceUnitName() {
+    return "ratchet-postgresql-tck";
+  }
+
+  @Override
+  protected JobStore createStore(EntityManager em, MetricsCollector metrics) {
+    PostgresqlJobStoreImpl store = new PostgresqlJobStoreImpl(() -> em, RatchetOptions.defaults());
+    store.checkIsolationLevel();
+    return store;
   }
 }

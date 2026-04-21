@@ -74,6 +74,17 @@ public class WorkflowConditionEntity implements Serializable, TsidEntityListener
 
   public WorkflowConditionEntity() {}
 
+  private static String serializeExpression(Serializable expression) {
+    try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        ObjectOutputStream oos = new ObjectOutputStream(baos)) {
+      oos.writeObject(expression);
+      oos.flush();
+      return Base64.getEncoder().encodeToString(baos.toByteArray());
+    } catch (IOException e) {
+      throw new IllegalArgumentException("Condition expression serialization error", e);
+    }
+  }
+
   public Long getId() {
     return id;
   }
@@ -160,17 +171,6 @@ public class WorkflowConditionEntity implements Serializable, TsidEntityListener
       this.conditionExpression = serializeExpression(expression);
     } else {
       this.conditionExpression = expression.toString();
-    }
-  }
-
-  private static String serializeExpression(Serializable expression) {
-    try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        ObjectOutputStream oos = new ObjectOutputStream(baos)) {
-      oos.writeObject(expression);
-      oos.flush();
-      return Base64.getEncoder().encodeToString(baos.toByteArray());
-    } catch (IOException e) {
-      throw new IllegalArgumentException("Condition expression serialization error", e);
     }
   }
 

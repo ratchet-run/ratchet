@@ -21,24 +21,6 @@ public record JobPayload(
           'F', float.class,
           'D', double.class);
 
-  /**
-   * Extracts the parameter types from the method descriptor.
-   *
-   * @throws IllegalStateException if parameter types cannot be resolved
-   */
-  public Class<?>[] parameterTypes() {
-    Type[] asmTypes = Type.getArgumentTypes(methodDescriptor);
-    Class<?>[] clz = new Class<?>[asmTypes.length];
-    try {
-      for (int i = 0; i < asmTypes.length; i++) {
-        clz[i] = resolveType(asmTypes[i]);
-      }
-    } catch (ClassNotFoundException e) {
-      throw new IllegalStateException("Cannot resolve parameter types from descriptor", e);
-    }
-    return clz;
-  }
-
   private static Class<?> resolveType(Type type) throws ClassNotFoundException {
     return switch (type.getSort()) {
       case Type.VOID -> void.class;
@@ -60,5 +42,23 @@ public record JobPayload(
           Class.forName(type.getClassName(), false, Thread.currentThread().getContextClassLoader());
       default -> throw new IllegalArgumentException("Unsupported ASM type sort: " + type.getSort());
     };
+  }
+
+  /**
+   * Extracts the parameter types from the method descriptor.
+   *
+   * @throws IllegalStateException if parameter types cannot be resolved
+   */
+  public Class<?>[] parameterTypes() {
+    Type[] asmTypes = Type.getArgumentTypes(methodDescriptor);
+    Class<?>[] clz = new Class<?>[asmTypes.length];
+    try {
+      for (int i = 0; i < asmTypes.length; i++) {
+        clz[i] = resolveType(asmTypes[i]);
+      }
+    } catch (ClassNotFoundException e) {
+      throw new IllegalStateException("Cannot resolve parameter types from descriptor", e);
+    }
+    return clz;
   }
 }

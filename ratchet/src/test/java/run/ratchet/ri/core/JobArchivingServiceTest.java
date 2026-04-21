@@ -57,6 +57,16 @@ class JobArchivingServiceTest {
 
   private JobArchivingService service;
 
+  private static Cron parsedCron() {
+    return CRON_PARSER.parse(DAILY_CRON);
+  }
+
+  private static JobEntity jobEntity(long id) {
+    JobEntity entity = new JobEntity();
+    entity.setId(id);
+    return entity;
+  }
+
   @BeforeEach
   void setUp() {
     service =
@@ -237,16 +247,6 @@ class JobArchivingServiceTest {
     Instant expectedMax = Instant.now().minus(Duration.ofDays((long) retentionDays * 3 - 1));
 
     Assertions.assertTrue(cutoff.isAfter(expectedMin) && cutoff.isBefore(expectedMax));
-  }
-
-  private static Cron parsedCron() {
-    return CRON_PARSER.parse(DAILY_CRON);
-  }
-
-  private static JobEntity jobEntity(long id) {
-    JobEntity entity = new JobEntity();
-    entity.setId(id);
-    return entity;
   }
 
   private Optional<SingletonLease> acquiredLease() {

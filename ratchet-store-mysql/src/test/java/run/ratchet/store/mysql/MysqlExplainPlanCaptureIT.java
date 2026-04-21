@@ -26,32 +26,6 @@ class MysqlExplainPlanCaptureIT {
   private static final int SEED_JOBS = 600;
   private static final MysqlTestFixture FIXTURE = new MysqlTestFixture();
 
-  @BeforeEach
-  void clean() {
-    FIXTURE.cleanupStore();
-  }
-
-  @Test
-  void optimizedExecutableClaimPlan_usesClaimCoveringIndex() throws Exception {
-    seedPendingJobs();
-    try (Connection conn = connection();
-        Statement statement = conn.createStatement()) {
-      statement.execute("ANALYZE TABLE scheduler_job_queue");
-      String plan = explainJson(statement);
-      writePlan("target/explain-plans/mysql-optimized-claim.json", plan);
-
-      assertTrue(
-          plan.contains("\"table_name\": \"scheduler_job_queue\""),
-          "claim plan should target scheduler_job_queue: " + plan);
-      assertTrue(
-          plan.contains("\"key\": \"idx_claim_executable\""),
-          "claim plan should use idx_claim_executable: " + plan);
-      assertFalse(
-          plan.contains("\"access_type\": \"ALL\""),
-          "claim plan should not full-scan scheduler_job_queue: " + plan);
-    }
-  }
-
   private static void seedPendingJobs() {
     Instant now = Instant.now();
     JobPriority[] priorities = JobPriority.values();
@@ -102,5 +76,31 @@ class MysqlExplainPlanCaptureIT {
     Path output = Path.of(path);
     Files.createDirectories(output.getParent());
     Files.writeString(output, plan + System.lineSeparator());
+  }
+
+  @BeforeEach
+  void clean() {
+    FIXTURE.cleanupStore();
+  }
+
+  @Test
+  void optimizedExecutableClaimPlan_usesClaimCoveringIndex() throws Exception {
+    seedPendingJobs();
+    try (Connection conn = connection();
+        Statement statement = conn.createStatement()) {
+      statement.execute("ANALYZE TABLE scheduler_job_queue");
+      String plan = explainJson(statement);
+      writePlan("target/explain-plans/mysql-optimized-claim.json", plan);
+
+      assertTrue(
+          plan.contains("\"table_name\": \"scheduler_job_queue\""),
+          "claim plan should target scheduler_job_queue: " + plan);
+      assertTrue(
+          plan.contains("\"key\": \"idx_claim_executable\""),
+          "claim plan should use idx_claim_executable: " + plan);
+      assertFalse(
+          plan.contains("\"access_type\": \"ALL\""),
+          "claim plan should not full-scan scheduler_job_queue: " + plan);
+    }
   }
 }

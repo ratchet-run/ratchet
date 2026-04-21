@@ -36,7 +36,7 @@ import org.jboss.logging.Logger;
 public class JobExecutorService {
 
   private static final Logger log = Logger.getLogger(JobExecutorService.class);
-
+  private static final boolean VIRTUAL_THREADS_AVAILABLE = Runtime.version().feature() >= 21;
   private final ThreadPoolManager threadPoolManager;
   private final JobTimeoutHandler timeoutHandler;
   private final ExecutorProvider executorProvider;
@@ -148,6 +148,30 @@ public class JobExecutorService {
     this.resultPersistenceStrategy = resultPersistenceStrategy;
   }
 
+  private static void cancelTimeoutHandles(
+      AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef) {
+    JobTimeoutHandler.TimeoutHandles handles = handlesRef.get();
+    if (handles != null) {
+      handles.cancel();
+    }
+  }
+
+  private static Thread createVirtualThread(Runnable task, String name) {
+    try {
+      // Thread.ofVirtual().name(name).unstarted(task) — via reflection for Java 17 compilation
+      Object builder = Thread.class.getMethod("ofVirtual").invoke(null);
+      builder = builder.getClass().getMethod("name", String.class).invoke(builder, name);
+      return (Thread)
+          builder.getClass().getMethod("unstarted", Runnable.class).invoke(builder, task);
+    } catch (Exception e) {
+      log.warnf(
+          "Virtual thread creation failed, falling back to platform thread: %s", e.getMessage());
+      Thread fallback = new Thread(task, name);
+      fallback.setDaemon(true);
+      return fallback;
+    }
+  }
+
   public ExecutionResult execute(JobEntity job) {
     JobExecutionType jobType = job.getJobType();
     AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef = new AtomicReference<>();
@@ -219,14 +243,6 @@ public class JobExecutorService {
     };
   }
 
-  private static void cancelTimeoutHandles(
-      AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef) {
-    JobTimeoutHandler.TimeoutHandles handles = handlesRef.get();
-    if (handles != null) {
-      handles.cancel();
-    }
-  }
-
   private JobTask createTask() {
     return new JobTask(
         jobStore,
@@ -256,8 +272,6 @@ public class JobExecutorService {
       return null;
     }
   }
-
-  private static final boolean VIRTUAL_THREADS_AVAILABLE = Runtime.version().feature() >= 21;
 
   private Future<Void> submitToExecutor(
       Long jobId, JobExecutionType jobType, Callable<Void> callable) {
@@ -291,22 +305,6 @@ public class JobExecutorService {
     }
     thread.start();
     return new InterruptibleThreadFuture(future, thread);
-  }
-
-  private static Thread createVirtualThread(Runnable task, String name) {
-    try {
-      // Thread.ofVirtual().name(name).unstarted(task) — via reflection for Java 17 compilation
-      Object builder = Thread.class.getMethod("ofVirtual").invoke(null);
-      builder = builder.getClass().getMethod("name", String.class).invoke(builder, name);
-      return (Thread)
-          builder.getClass().getMethod("unstarted", Runnable.class).invoke(builder, task);
-    } catch (Exception e) {
-      log.warnf(
-          "Virtual thread creation failed, falling back to platform thread: %s", e.getMessage());
-      Thread fallback = new Thread(task, name);
-      fallback.setDaemon(true);
-      return fallback;
-    }
   }
 
   // Wraps CompletableFuture with a thread reference so cancel(true) can interrupt the thread.

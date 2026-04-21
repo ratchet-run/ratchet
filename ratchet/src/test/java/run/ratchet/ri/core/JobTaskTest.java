@@ -40,6 +40,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class JobTaskTest {
 
+  private final ClassPolicy classPolicy = className -> true;
   @Mock private JobStore jobStore;
   @Mock private ResourcePermitService resourcePermitService;
   @Mock private PostExecutionHandler lifecycleFacade;
@@ -50,8 +51,6 @@ class JobTaskTest {
   @Mock private RetryPolicy retryPolicy;
   @Mock private ResilienceStrategy resilienceStrategy;
   @Mock private ErrorSanitizer errorSanitizer;
-  private final ClassPolicy classPolicy = className -> true;
-
   private JobTask jobTask;
 
   public static String testJobMethod() {

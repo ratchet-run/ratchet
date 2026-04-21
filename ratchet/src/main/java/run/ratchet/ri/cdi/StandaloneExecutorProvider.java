@@ -26,22 +26,6 @@ public class StandaloneExecutorProvider implements ExecutorProvider {
   private final ScheduledExecutorService scheduledExecutor =
       Executors.newScheduledThreadPool(2, namedThreadFactory("ratchet-standalone-scheduler"));
 
-  @Override
-  public ExecutorService getJobExecutor() {
-    return jobExecutor;
-  }
-
-  @Override
-  public ScheduledExecutorService getScheduledExecutor() {
-    return scheduledExecutor;
-  }
-
-  @PreDestroy
-  void shutdown() {
-    shutdown(jobExecutor);
-    shutdown(scheduledExecutor);
-  }
-
   private static void shutdown(ExecutorService executor) {
     executor.shutdown();
     try {
@@ -61,5 +45,21 @@ public class StandaloneExecutorProvider implements ExecutorProvider {
       thread.setDaemon(true);
       return thread;
     };
+  }
+
+  @Override
+  public ExecutorService getJobExecutor() {
+    return jobExecutor;
+  }
+
+  @Override
+  public ScheduledExecutorService getScheduledExecutor() {
+    return scheduledExecutor;
+  }
+
+  @PreDestroy
+  void shutdown() {
+    shutdown(jobExecutor);
+    shutdown(scheduledExecutor);
   }
 }

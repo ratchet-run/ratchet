@@ -73,6 +73,22 @@ public class RetryBufferManager {
     }
   }
 
+  private static JobEntity toDlqJob(BufferedClaim claim) {
+    JobEntity job = new JobEntity();
+    job.setId(claim.jobId());
+    job.setJobType(claim.jobType());
+    job.setPriority(claim.priority());
+    job.setScheduledTime(claim.scheduledTime());
+    job.setTimeoutSec(claim.timeoutSec());
+    job.setPickedBy(claim.pickedBy());
+    job.setPickedAt(claim.pickedAt());
+    job.setBusinessKey(claim.businessKey());
+    job.setAttempts(claim.attempts());
+    job.setMaxRetries(claim.maxRetries());
+    job.setStatus(JobStatus.RUNNING);
+    return job;
+  }
+
   /**
    * Buffers a claim, bypassing {@link #MAX_BUFFER_SIZE_PER_TYPE} but still respecting {@link
    * #HARD_CAP_PER_TYPE}. Claims exceeding the hard cap are moved to the DLQ to avoid silent loss.
@@ -85,38 +101,6 @@ public class RetryBufferManager {
 
   public boolean forceOffer(JobClaimDto claim) {
     return forceOffer(BufferedClaim.from(claim));
-  }
-
-  private boolean forceOffer(BufferedClaim claim) {
-    Queue<BufferedClaim> buffer = retryBuffers.get(claim.jobType());
-    ReentrantLock lock = bufferLocks.get(claim.jobType());
-
-    lock.lock();
-    try {
-      if (buffer.size() >= HARD_CAP_PER_TYPE) {
-        log.errorf(
-            "CRITICAL: Retry buffer hard cap (%d) reached for job type %s. "
-                + "Job %s moving to DLQ to prevent loss. "
-                + "This indicates sustained system failure - investigate immediately.",
-            HARD_CAP_PER_TYPE, claim.jobType(), claim.jobId());
-        deadLetterService.moveToDlq(
-            toDlqJob(claim),
-            new IllegalStateException(
-                "Retry buffer hard cap exceeded for job type " + claim.jobType()));
-        return false;
-      }
-
-      if (buffer.size() >= MAX_BUFFER_SIZE_PER_TYPE) {
-        log.warnf(
-            "Retry buffer exceeding normal limit (%d) for job type %s. "
-                + "Current size: %d. Force-buffering job %s.",
-            MAX_BUFFER_SIZE_PER_TYPE, claim.jobType(), buffer.size(), claim.jobId());
-      }
-
-      return buffer.offer(claim);
-    } finally {
-      lock.unlock();
-    }
   }
 
   /** Unmodifiable view; use {@link #pollFromBuffer} or {@link #pollBatchFromBuffer} to drain. */
@@ -178,20 +162,6 @@ public class RetryBufferManager {
     return offer(BufferedClaim.from(claim));
   }
 
-  private boolean offer(BufferedClaim claim) {
-    Queue<BufferedClaim> buffer = retryBuffers.get(claim.jobType());
-    ReentrantLock lock = bufferLocks.get(claim.jobType());
-    lock.lock();
-    try {
-      if (buffer.size() >= MAX_BUFFER_SIZE_PER_TYPE) {
-        return false;
-      }
-      return buffer.offer(claim);
-    } finally {
-      lock.unlock();
-    }
-  }
-
   public int totalSize() {
     int total = 0;
     for (Map.Entry<JobExecutionType, Queue<BufferedClaim>> entry : retryBuffers.entrySet()) {
@@ -233,20 +203,50 @@ public class RetryBufferManager {
     }
   }
 
-  private static JobEntity toDlqJob(BufferedClaim claim) {
-    JobEntity job = new JobEntity();
-    job.setId(claim.jobId());
-    job.setJobType(claim.jobType());
-    job.setPriority(claim.priority());
-    job.setScheduledTime(claim.scheduledTime());
-    job.setTimeoutSec(claim.timeoutSec());
-    job.setPickedBy(claim.pickedBy());
-    job.setPickedAt(claim.pickedAt());
-    job.setBusinessKey(claim.businessKey());
-    job.setAttempts(claim.attempts());
-    job.setMaxRetries(claim.maxRetries());
-    job.setStatus(JobStatus.RUNNING);
-    return job;
+  private boolean forceOffer(BufferedClaim claim) {
+    Queue<BufferedClaim> buffer = retryBuffers.get(claim.jobType());
+    ReentrantLock lock = bufferLocks.get(claim.jobType());
+
+    lock.lock();
+    try {
+      if (buffer.size() >= HARD_CAP_PER_TYPE) {
+        log.errorf(
+            "CRITICAL: Retry buffer hard cap (%d) reached for job type %s. "
+                + "Job %s moving to DLQ to prevent loss. "
+                + "This indicates sustained system failure - investigate immediately.",
+            HARD_CAP_PER_TYPE, claim.jobType(), claim.jobId());
+        deadLetterService.moveToDlq(
+            toDlqJob(claim),
+            new IllegalStateException(
+                "Retry buffer hard cap exceeded for job type " + claim.jobType()));
+        return false;
+      }
+
+      if (buffer.size() >= MAX_BUFFER_SIZE_PER_TYPE) {
+        log.warnf(
+            "Retry buffer exceeding normal limit (%d) for job type %s. "
+                + "Current size: %d. Force-buffering job %s.",
+            MAX_BUFFER_SIZE_PER_TYPE, claim.jobType(), buffer.size(), claim.jobId());
+      }
+
+      return buffer.offer(claim);
+    } finally {
+      lock.unlock();
+    }
+  }
+
+  private boolean offer(BufferedClaim claim) {
+    Queue<BufferedClaim> buffer = retryBuffers.get(claim.jobType());
+    ReentrantLock lock = bufferLocks.get(claim.jobType());
+    lock.lock();
+    try {
+      if (buffer.size() >= MAX_BUFFER_SIZE_PER_TYPE) {
+        return false;
+      }
+      return buffer.offer(claim);
+    } finally {
+      lock.unlock();
+    }
   }
 
   public record BufferedClaim(

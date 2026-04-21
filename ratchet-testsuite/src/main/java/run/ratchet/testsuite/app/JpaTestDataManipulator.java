@@ -21,6 +21,10 @@ public class JpaTestDataManipulator implements TestDataManipulator {
 
   @Inject private UserTransaction utx;
 
+  private static boolean isPostgresql() {
+    return "postgresql".equalsIgnoreCase(System.getProperty("ratchet.test.db.type", "mysql"));
+  }
+
   @Override
   public void setJobUpdatedAt(long jobId, Instant updatedAt) {
     try {
@@ -68,9 +72,5 @@ public class JpaTestDataManipulator implements TestDataManipulator {
     } catch (Exception ignored) {
       // best-effort rollback
     }
-  }
-
-  private static boolean isPostgresql() {
-    return "postgresql".equalsIgnoreCase(System.getProperty("ratchet.test.db.type", "mysql"));
   }
 }

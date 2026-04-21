@@ -46,11 +46,6 @@ final class MysqlArchiveOperations implements ArchiveStore {
     return count;
   }
 
-  private JobEntity hydrateForArchive(JobEntity job) {
-    return jobs.findById(job.getId())
-        .orElseThrow(() -> new IllegalStateException("Job not found for archival: " + job.getId()));
-  }
-
   @Override
   @SuppressWarnings("unchecked")
   public List<JobEntity> findJobsForArchiving(Instant olderThan, int limit) {
@@ -128,5 +123,10 @@ final class MysqlArchiveOperations implements ArchiveStore {
         .createQuery("DELETE FROM ArchivedJobEntity a WHERE a.archivedAt < :cutoff")
         .setParameter("cutoff", olderThan)
         .executeUpdate();
+  }
+
+  private JobEntity hydrateForArchive(JobEntity job) {
+    return jobs.findById(job.getId())
+        .orElseThrow(() -> new IllegalStateException("Job not found for archival: " + job.getId()));
   }
 }

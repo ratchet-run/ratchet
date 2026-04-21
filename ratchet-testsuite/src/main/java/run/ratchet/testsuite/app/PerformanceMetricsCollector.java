@@ -30,6 +30,47 @@ public class PerformanceMetricsCollector implements MetricsCollector {
   private static volatile Instant firstStart;
   private static volatile Instant lastCompletion;
 
+  public static PerformanceSnapshot snapshot() {
+    long[] times = EXECUTION_TIMES.stream().mapToLong(Long::longValue).toArray();
+    Arrays.sort(times);
+
+    long completed = COMPLETED_COUNT.get();
+    double throughput = 0.0;
+
+    if (firstStart != null && lastCompletion != null && completed > 0) {
+      long elapsedMs = lastCompletion.toEpochMilli() - firstStart.toEpochMilli();
+      if (elapsedMs > 0) {
+        throughput = (completed * 1000.0) / elapsedMs;
+      }
+    }
+
+    return new PerformanceSnapshot(
+        completed,
+        throughput,
+        percentile(times, 0.50),
+        percentile(times, 0.95),
+        percentile(times, 0.99),
+        STARTED_COUNT.get(),
+        FAILED_COUNT.get());
+  }
+
+  public static void reset() {
+    EXECUTION_TIMES.clear();
+    STARTED_COUNT.set(0);
+    COMPLETED_COUNT.set(0);
+    FAILED_COUNT.set(0);
+    firstStart = null;
+    lastCompletion = null;
+  }
+
+  private static long percentile(long[] sorted, double p) {
+    if (sorted.length == 0) {
+      return 0;
+    }
+    int index = (int) Math.ceil(p * sorted.length) - 1;
+    return sorted[Math.max(0, index)];
+  }
+
   @Override
   public void jobStarted(long jobId, JobType type, JobPriority priority) {
     STARTED_COUNT.incrementAndGet();
@@ -76,47 +117,6 @@ public class PerformanceMetricsCollector implements MetricsCollector {
 
   @Override
   public void clusterWakeupReceived(String transport, String outcome) {}
-
-  public static PerformanceSnapshot snapshot() {
-    long[] times = EXECUTION_TIMES.stream().mapToLong(Long::longValue).toArray();
-    Arrays.sort(times);
-
-    long completed = COMPLETED_COUNT.get();
-    double throughput = 0.0;
-
-    if (firstStart != null && lastCompletion != null && completed > 0) {
-      long elapsedMs = lastCompletion.toEpochMilli() - firstStart.toEpochMilli();
-      if (elapsedMs > 0) {
-        throughput = (completed * 1000.0) / elapsedMs;
-      }
-    }
-
-    return new PerformanceSnapshot(
-        completed,
-        throughput,
-        percentile(times, 0.50),
-        percentile(times, 0.95),
-        percentile(times, 0.99),
-        STARTED_COUNT.get(),
-        FAILED_COUNT.get());
-  }
-
-  public static void reset() {
-    EXECUTION_TIMES.clear();
-    STARTED_COUNT.set(0);
-    COMPLETED_COUNT.set(0);
-    FAILED_COUNT.set(0);
-    firstStart = null;
-    lastCompletion = null;
-  }
-
-  private static long percentile(long[] sorted, double p) {
-    if (sorted.length == 0) {
-      return 0;
-    }
-    int index = (int) Math.ceil(p * sorted.length) - 1;
-    return sorted[Math.max(0, index)];
-  }
 
   public record PerformanceSnapshot(
       long completedCount,

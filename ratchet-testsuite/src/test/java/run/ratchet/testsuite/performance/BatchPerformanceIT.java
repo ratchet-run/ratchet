@@ -47,6 +47,14 @@ class BatchPerformanceIT extends BasePerformanceIT {
         .build();
   }
 
+  private static List<String> generateItems(int count) {
+    List<String> items = new ArrayList<>(count);
+    for (int i = 0; i < count; i++) {
+      items.add("item-" + i);
+    }
+    return items;
+  }
+
   @BeforeEach
   void resetCounters() {
     TimingJob.resetCount();
@@ -132,13 +140,5 @@ class BatchPerformanceIT extends BasePerformanceIT {
 
     baseline.assertWithinTolerance("batch." + batchSize + ".throughputJobsPerSec", throughput);
     baseline.assertLatencyWithinTolerance("batch." + batchSize + ".totalTimeMs", totalMs);
-  }
-
-  private static List<String> generateItems(int count) {
-    List<String> items = new ArrayList<>(count);
-    for (int i = 0; i < count; i++) {
-      items.add("item-" + i);
-    }
-    return items;
   }
 }

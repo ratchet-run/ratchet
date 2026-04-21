@@ -22,6 +22,12 @@ class PostExecutionHandlerTest {
 
   private PostExecutionHandler handler;
 
+  private static JobEntity job(JobExecutionType jobType) {
+    JobEntity job = new JobEntity();
+    job.setJobType(jobType);
+    return job;
+  }
+
   @BeforeEach
   void setUp() {
     handler =
@@ -57,11 +63,5 @@ class PostExecutionHandlerTest {
     handler.handleJobSuccess(job);
 
     verify(pollerScheduler, never()).wakeup();
-  }
-
-  private static JobEntity job(JobExecutionType jobType) {
-    JobEntity job = new JobEntity();
-    job.setJobType(jobType);
-    return job;
   }
 }

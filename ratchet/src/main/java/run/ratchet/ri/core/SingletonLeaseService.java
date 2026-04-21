@@ -26,18 +26,6 @@ public class SingletonLeaseService {
     this.nodeIdentityProvider = nodeIdentityProvider;
   }
 
-  public Optional<SingletonLease> tryAcquire(String leaseName, Duration ttl) {
-    String normalizedName = requireLeaseName(leaseName);
-    requirePositiveDuration(ttl, "ttl");
-
-    String nodeId = nodeIdentityProvider.getNodeId();
-    if (!lockStore.tryLock(normalizedName, ttl, nodeId)) {
-      return Optional.empty();
-    }
-
-    return Optional.of(new SingletonLease(lockStore, normalizedName, nodeId));
-  }
-
   static String requireLeaseName(String leaseName) {
     String normalized = Objects.requireNonNull(leaseName, "leaseName must not be null").trim();
     if (normalized.isEmpty()) {
@@ -51,5 +39,17 @@ public class SingletonLeaseService {
     if (duration.isZero() || duration.isNegative()) {
       throw new IllegalArgumentException(argumentName + " must be positive");
     }
+  }
+
+  public Optional<SingletonLease> tryAcquire(String leaseName, Duration ttl) {
+    String normalizedName = requireLeaseName(leaseName);
+    requirePositiveDuration(ttl, "ttl");
+
+    String nodeId = nodeIdentityProvider.getNodeId();
+    if (!lockStore.tryLock(normalizedName, ttl, nodeId)) {
+      return Optional.empty();
+    }
+
+    return Optional.of(new SingletonLease(lockStore, normalizedName, nodeId));
   }
 }

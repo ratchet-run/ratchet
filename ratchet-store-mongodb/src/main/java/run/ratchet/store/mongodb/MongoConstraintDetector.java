@@ -14,6 +14,26 @@ class MongoConstraintDetector implements ConstraintDetector {
   private static final int DUPLICATE_KEY_CODE = 11000;
   private static final int WRITE_CONFLICT_CODE = 112;
 
+  private static MongoWriteException findWriteException(Throwable t) {
+    while (t != null) {
+      if (t instanceof MongoWriteException mwe) {
+        return mwe;
+      }
+      t = t.getCause();
+    }
+    return null;
+  }
+
+  private static MongoCommandException findCommandException(Throwable t) {
+    while (t != null) {
+      if (t instanceof MongoCommandException mce) {
+        return mce;
+      }
+      t = t.getCause();
+    }
+    return null;
+  }
+
   @Override
   public String constraintName(Exception e) {
     MongoWriteException mwe = findWriteException(e);
@@ -78,25 +98,5 @@ class MongoConstraintDetector implements ConstraintDetector {
       current = current.getCause();
     }
     return false;
-  }
-
-  private static MongoWriteException findWriteException(Throwable t) {
-    while (t != null) {
-      if (t instanceof MongoWriteException mwe) {
-        return mwe;
-      }
-      t = t.getCause();
-    }
-    return null;
-  }
-
-  private static MongoCommandException findCommandException(Throwable t) {
-    while (t != null) {
-      if (t instanceof MongoCommandException mce) {
-        return mce;
-      }
-      t = t.getCause();
-    }
-    return null;
   }
 }

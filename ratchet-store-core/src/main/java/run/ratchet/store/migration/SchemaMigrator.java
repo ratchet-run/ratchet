@@ -74,6 +74,109 @@ public final class SchemaMigrator {
     this.classLoader = Objects.requireNonNull(classLoader, "classLoader");
   }
 
+  private static String normalizePrefix(String prefix) {
+    String normalized =
+        prefix == null || prefix.isBlank() ? DEFAULT_MIGRATION_PREFIX : prefix.trim();
+    while (normalized.startsWith("/")) {
+      normalized = normalized.substring(1);
+    }
+    while (normalized.endsWith("/")) {
+      normalized = normalized.substring(0, normalized.length() - 1);
+    }
+    return normalized;
+  }
+
+  private static String sha256(String value) {
+    try {
+      MessageDigest digest = MessageDigest.getInstance("SHA-256");
+      return HexFormat.of().formatHex(digest.digest(value.getBytes(StandardCharsets.UTF_8)));
+    } catch (NoSuchAlgorithmException e) {
+      throw new SchemaMigrationException("SHA-256 digest is not available", e);
+    }
+  }
+
+  private static List<String> splitStatements(String sql) {
+    List<String> statements = new ArrayList<>();
+    StringBuilder current = new StringBuilder();
+    boolean singleQuoted = false;
+    boolean doubleQuoted = false;
+    boolean lineComment = false;
+    boolean blockComment = false;
+
+    for (int i = 0; i < sql.length(); i++) {
+      char c = sql.charAt(i);
+      char next = i + 1 < sql.length() ? sql.charAt(i + 1) : '\0';
+
+      if (lineComment) {
+        current.append(c);
+        if (c == '\n') {
+          lineComment = false;
+        }
+        continue;
+      }
+      if (blockComment) {
+        current.append(c);
+        if (c == '*' && next == '/') {
+          current.append(next);
+          i++;
+          blockComment = false;
+        }
+        continue;
+      }
+      if (singleQuoted) {
+        current.append(c);
+        if (c == '\'' && next == '\'') {
+          current.append(next);
+          i++;
+        } else if (c == '\'') {
+          singleQuoted = false;
+        }
+        continue;
+      }
+      if (doubleQuoted) {
+        current.append(c);
+        if (c == '"' && next == '"') {
+          current.append(next);
+          i++;
+        } else if (c == '"') {
+          doubleQuoted = false;
+        }
+        continue;
+      }
+
+      if (c == '-' && next == '-') {
+        current.append(c).append(next);
+        i++;
+        lineComment = true;
+      } else if (c == '/' && next == '*') {
+        current.append(c).append(next);
+        i++;
+        blockComment = true;
+      } else if (c == '\'') {
+        current.append(c);
+        singleQuoted = true;
+      } else if (c == '"') {
+        current.append(c);
+        doubleQuoted = true;
+      } else if (c == ';') {
+        addStatement(statements, current);
+      } else {
+        current.append(c);
+      }
+    }
+
+    addStatement(statements, current);
+    return statements;
+  }
+
+  private static void addStatement(List<String> statements, StringBuilder current) {
+    String statement = current.toString().trim();
+    if (!statement.isEmpty()) {
+      statements.add(statement);
+    }
+    current.setLength(0);
+  }
+
   /**
    * Discovers, validates, and applies pending migration scripts in ascending version order.
    *
@@ -298,109 +401,6 @@ public final class SchemaMigrator {
       return new MigrationScript(
           matcher.group(1), matcher.group(2).replace('_', ' '), resourceName, sha256(sql), sql);
     }
-  }
-
-  private static String normalizePrefix(String prefix) {
-    String normalized =
-        prefix == null || prefix.isBlank() ? DEFAULT_MIGRATION_PREFIX : prefix.trim();
-    while (normalized.startsWith("/")) {
-      normalized = normalized.substring(1);
-    }
-    while (normalized.endsWith("/")) {
-      normalized = normalized.substring(0, normalized.length() - 1);
-    }
-    return normalized;
-  }
-
-  private static String sha256(String value) {
-    try {
-      MessageDigest digest = MessageDigest.getInstance("SHA-256");
-      return HexFormat.of().formatHex(digest.digest(value.getBytes(StandardCharsets.UTF_8)));
-    } catch (NoSuchAlgorithmException e) {
-      throw new SchemaMigrationException("SHA-256 digest is not available", e);
-    }
-  }
-
-  private static List<String> splitStatements(String sql) {
-    List<String> statements = new ArrayList<>();
-    StringBuilder current = new StringBuilder();
-    boolean singleQuoted = false;
-    boolean doubleQuoted = false;
-    boolean lineComment = false;
-    boolean blockComment = false;
-
-    for (int i = 0; i < sql.length(); i++) {
-      char c = sql.charAt(i);
-      char next = i + 1 < sql.length() ? sql.charAt(i + 1) : '\0';
-
-      if (lineComment) {
-        current.append(c);
-        if (c == '\n') {
-          lineComment = false;
-        }
-        continue;
-      }
-      if (blockComment) {
-        current.append(c);
-        if (c == '*' && next == '/') {
-          current.append(next);
-          i++;
-          blockComment = false;
-        }
-        continue;
-      }
-      if (singleQuoted) {
-        current.append(c);
-        if (c == '\'' && next == '\'') {
-          current.append(next);
-          i++;
-        } else if (c == '\'') {
-          singleQuoted = false;
-        }
-        continue;
-      }
-      if (doubleQuoted) {
-        current.append(c);
-        if (c == '"' && next == '"') {
-          current.append(next);
-          i++;
-        } else if (c == '"') {
-          doubleQuoted = false;
-        }
-        continue;
-      }
-
-      if (c == '-' && next == '-') {
-        current.append(c).append(next);
-        i++;
-        lineComment = true;
-      } else if (c == '/' && next == '*') {
-        current.append(c).append(next);
-        i++;
-        blockComment = true;
-      } else if (c == '\'') {
-        current.append(c);
-        singleQuoted = true;
-      } else if (c == '"') {
-        current.append(c);
-        doubleQuoted = true;
-      } else if (c == ';') {
-        addStatement(statements, current);
-      } else {
-        current.append(c);
-      }
-    }
-
-    addStatement(statements, current);
-    return statements;
-  }
-
-  private static void addStatement(List<String> statements, StringBuilder current) {
-    String statement = current.toString().trim();
-    if (!statement.isEmpty()) {
-      statements.add(statement);
-    }
-    current.setLength(0);
   }
 
   private enum Dialect {
