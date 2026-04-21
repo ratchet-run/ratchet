@@ -1,6 +1,5 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.api.RatchetOptions;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.ErrorSanitizer;
@@ -73,41 +72,6 @@ public class JobExecutorService {
     this.jobLoggerFactory = null;
     this.resultPersistenceStrategy = null;
     this.pollerScheduler = null;
-  }
-
-  public JobExecutorService(
-      ThreadPoolManager threadPoolManager,
-      JobTimeoutHandler timeoutHandler,
-      ExecutorProvider executorProvider,
-      JobStore jobStore,
-      ResourcePermitService resourcePermitService,
-      PostExecutionHandler postExecutionHandler,
-      NodeIdentityProvider nodeIdProvider,
-      ExecutionObserver executionObserver,
-      PreExecutionValidator preExecutionValidator,
-      BeanResolver beanResolver,
-      RetryPolicy retryPolicy,
-      ResilienceStrategy resilienceStrategy,
-      ErrorSanitizer errorSanitizer,
-      ClassPolicy classPolicy) {
-    this(
-        threadPoolManager,
-        timeoutHandler,
-        executorProvider,
-        jobStore,
-        resourcePermitService,
-        postExecutionHandler,
-        nodeIdProvider,
-        executionObserver,
-        preExecutionValidator,
-        beanResolver,
-        retryPolicy,
-        resilienceStrategy,
-        errorSanitizer,
-        classPolicy,
-        null,
-        context -> new JBossLoggingJobLogger(context.jobId(), null),
-        new DefaultResultPersistenceStrategy(RatchetOptions.defaults()));
   }
 
   @Inject
