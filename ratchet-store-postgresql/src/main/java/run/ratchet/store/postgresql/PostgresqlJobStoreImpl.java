@@ -43,12 +43,10 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.TreeMap;
 import org.jboss.logging.Logger;
 
 /**
@@ -76,6 +74,8 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   private final RatchetEntityManagerProvider entityManagerProvider;
   private final RatchetOptions options;
   private EntityManager em;
+
+  private PostgresqlTagOperations tags;
 
   /** No-arg constructor required by CDI normal-scope proxying. Not for direct use. */
   protected PostgresqlJobStoreImpl() {
@@ -186,18 +186,6 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
     return JobExecutionType.RECURRING.name().equals(jobType)
         ? OWNER_TABLE_RECURRING
         : OWNER_TABLE_QUEUE;
-  }
-
-  private static Map<String, Long> toStringCountMap(List<Object[]> rows) {
-    Map<String, Long> counts = new TreeMap<>();
-    for (Object[] row : rows) {
-      String key = (String) row[0];
-      if (key == null || key.isBlank()) {
-        continue;
-      }
-      counts.put(key, ((Number) row[1]).longValue());
-    }
-    return counts;
   }
 
   @Override
@@ -1368,85 +1356,33 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   @Override
-  public void insertTags(long jobId, List<String> tags) {
-    if (tags == null || tags.isEmpty()) {
-      return;
-    }
-    for (String tag : tags) {
-      em.createNativeQuery(
-              "INSERT INTO scheduler_job_tag (job_id, tag) VALUES (?, ?) "
-                  + "ON CONFLICT (job_id, tag) DO NOTHING")
-          .setParameter(1, jobId)
-          .setParameter(2, tag)
-          .executeUpdate();
-    }
+  public void insertTags(long jobId, List<String> tagsToInsert) {
+    tags.insertTags(jobId, tagsToInsert);
   }
 
   @Override
   public int deleteTagsByJobId(long jobId) {
-    return em.createNativeQuery("DELETE FROM scheduler_job_tag WHERE job_id = ?")
-        .setParameter(1, jobId)
-        .executeUpdate();
+    return tags.deleteTagsByJobId(jobId);
   }
 
   @Override
   public List<Long> findJobIdsByTag(String tag, int limit, int offset) {
-    @SuppressWarnings("unchecked")
-    List<Number> results =
-        em.createNativeQuery(
-                "SELECT job_id FROM scheduler_job_tag WHERE tag = ? "
-                    + "ORDER BY job_id LIMIT ? OFFSET ?")
-            .setParameter(1, tag)
-            .setParameter(2, limit)
-            .setParameter(3, offset)
-            .getResultList();
-    return results.stream().map(Number::longValue).toList();
+    return tags.findJobIdsByTag(tag, limit, offset);
   }
 
   @Override
   public Map<JobStatus, Long> countJobsByStatusForTag(String tag) {
-    @SuppressWarnings("unchecked")
-    List<Object[]> rows =
-        em.createNativeQuery(
-                "SELECT j.status, COUNT(*) FROM scheduler_job j "
-                    + "JOIN scheduler_job_tag t ON j.job_id = t.job_id "
-                    + "WHERE t.tag = ? GROUP BY j.status")
-            .setParameter(1, tag)
-            .getResultList();
-    Map<JobStatus, Long> counts = new EnumMap<>(JobStatus.class);
-    for (Object[] row : rows) {
-      counts.put(JobStatus.valueOf((String) row[0]), ((Number) row[1]).longValue());
-    }
-    return counts;
+    return tags.countJobsByStatusForTag(tag);
   }
 
   @Override
   public Map<String, Long> countJobsByParamForTag(String tag, String paramKey) {
-    @SuppressWarnings("unchecked")
-    List<Object[]> rows =
-        em.createNativeQuery(
-                "SELECT j.params ->> ?2 AS param_value, COUNT(*) FROM scheduler_job j "
-                    + "JOIN scheduler_job_tag t ON j.job_id = t.job_id "
-                    + "WHERE t.tag = ?1 AND j.params ->> ?2 IS NOT NULL "
-                    + "GROUP BY param_value ORDER BY param_value")
-            .setParameter(1, tag)
-            .setParameter(2, paramKey)
-            .getResultList();
-    return toStringCountMap(rows);
+    return tags.countJobsByParamForTag(tag, paramKey);
   }
 
   @Override
   public Map<String, Long> countJobsByExecutionNodeForTag(String tag) {
-    @SuppressWarnings("unchecked")
-    List<Object[]> rows =
-        em.createNativeQuery(
-                "SELECT j.picked_by, COUNT(*) FROM scheduler_job j "
-                    + "JOIN scheduler_job_tag t ON j.job_id = t.job_id "
-                    + "WHERE t.tag = ? AND j.picked_by IS NOT NULL AND j.picked_by <> '' "
-                    + "GROUP BY j.picked_by ORDER BY j.picked_by")
-            .setParameter(1, tag)
-            .getResultList();
-    return toStringCountMap(rows);
+    return tags.countJobsByExecutionNodeForTag(tag);
   }
 
   @Override
@@ -1719,6 +1655,13 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
             + " default_transaction_isolation = 'read committed' in postgresql.conf or unset any"
             + " connection pool override (e.g. hibernate.connection.isolation=2).",
         options.store().isolationCheckMode());
+    initDelegates();
+  }
+
+  private void initDelegates() {
+    PostgresqlStoreContext ctx =
+        new PostgresqlStoreContext(em, options.store().priorityBoostIntervalMinutes());
+    tags = new PostgresqlTagOperations(ctx);
   }
 
   private JobEntity updateJob(JobEntity job) {
