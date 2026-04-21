@@ -17,7 +17,6 @@ import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.entity.NodeEntity;
-import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.TsidFactory;
 import run.ratchet.store.spi.RatchetEntityManagerProvider;
@@ -28,7 +27,6 @@ import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
-import jakarta.persistence.NoResultException;
 import jakarta.persistence.Query;
 import jakarta.transaction.Transactional;
 import java.sql.Timestamp;
@@ -70,6 +68,9 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   private PostgresqlTagOperations tags;
   private PostgresqlJobCrudOperations jobs;
   private PostgresqlBatchOperations batches;
+  private PostgresqlNodeLockOperations nodeLocks;
+  private PostgresqlArchiveOperations archives;
+  private PostgresqlAuxiliaryOperations auxiliary;
 
   /** No-arg constructor required by CDI normal-scope proxying. Not for direct use. */
   protected PostgresqlJobStoreImpl() {
@@ -382,22 +383,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
 
   @Override
   public Instant getDatabaseTime() {
-    // The PostgreSQL JDBC driver returns statement_timestamp() as java.time.OffsetDateTime /
-    // Instant in recent versions, and as java.sql.Timestamp in older ones. Accept either shape
-    // rather than casting narrowly.
-    Object ts = em.createNativeQuery("SELECT statement_timestamp()").getSingleResult();
-    if (ts instanceof Instant i) {
-      return i;
-    }
-    if (ts instanceof OffsetDateTime odt) {
-      return odt.toInstant();
-    }
-    if (ts instanceof Timestamp t) {
-      return t.toInstant();
-    }
-    throw new IllegalStateException(
-        "Unexpected statement_timestamp() result type: "
-            + (ts == null ? "null" : ts.getClass().getName()));
+    return nodeLocks.getDatabaseTime();
   }
 
   @Override
@@ -865,214 +851,98 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
 
   @Override
   public boolean tryLock(String name, Duration ttl, String nodeId) {
-    long ttlSeconds = ttl.toSeconds();
-    int updated =
-        em.createNativeQuery(
-                "INSERT INTO scheduler_lock (lock_name, owner_node, locked_at, expires_at) "
-                    + "VALUES (?, ?, statement_timestamp(), statement_timestamp() + ? * interval '1 second') "
-                    + "ON CONFLICT (lock_name) DO UPDATE SET "
-                    + "  owner_node = EXCLUDED.owner_node, "
-                    + "  locked_at = statement_timestamp(), "
-                    + "  expires_at = statement_timestamp() + ? * interval '1 second' "
-                    + "WHERE scheduler_lock.expires_at < statement_timestamp() "
-                    + "   OR scheduler_lock.owner_node = ?")
-            .setParameter(1, name)
-            .setParameter(2, nodeId)
-            .setParameter(3, ttlSeconds)
-            .setParameter(4, ttlSeconds)
-            .setParameter(5, nodeId)
-            .executeUpdate();
-    return updated > 0;
+    return nodeLocks.tryLock(name, ttl, nodeId);
   }
 
   @Override
   public void unlock(String name, String nodeId) {
-    em.createNativeQuery("DELETE FROM scheduler_lock WHERE lock_name = ? AND owner_node = ?")
-        .setParameter(1, name)
-        .setParameter(2, nodeId)
-        .executeUpdate();
+    nodeLocks.unlock(name, nodeId);
   }
 
   @Override
   public boolean renewLock(String name, Duration extension, String nodeId) {
-    long extensionSeconds = extension.toSeconds();
-    int updated =
-        em.createNativeQuery(
-                "UPDATE scheduler_lock SET "
-                    + "expires_at = statement_timestamp() + ? * interval '1 second' "
-                    + "WHERE lock_name = ? AND owner_node = ?")
-            .setParameter(1, extensionSeconds)
-            .setParameter(2, name)
-            .setParameter(3, nodeId)
-            .executeUpdate();
-    return updated > 0;
+    return nodeLocks.renewLock(name, extension, nodeId);
   }
 
   @Override
   public void upsertHeartbeat(String nodeId, Instant ts) {
-    em.createNativeQuery(
-            "INSERT INTO scheduler_node (node_id, heartbeat_ts, started_at) "
-                + "VALUES (?, ?, ?) "
-                + "ON CONFLICT (node_id) DO UPDATE SET heartbeat_ts = EXCLUDED.heartbeat_ts")
-        .setParameter(1, nodeId)
-        .setParameter(2, Timestamp.from(ts))
-        .setParameter(3, Timestamp.from(ts))
-        .executeUpdate();
+    nodeLocks.upsertHeartbeat(nodeId, ts);
   }
 
   @Override
   public Optional<NodeEntity> findNodeById(String nodeId) {
-    return Optional.ofNullable(em.find(NodeEntity.class, nodeId));
+    return nodeLocks.findNodeById(nodeId);
   }
 
   @Override
   public List<NodeEntity> findInactiveNodesSince(Instant cutoff) {
-    @SuppressWarnings("unchecked")
-    List<NodeEntity> results =
-        em.createNativeQuery(
-                "SELECT * FROM scheduler_node WHERE heartbeat_ts < ?", NodeEntity.class)
-            .setParameter(1, Timestamp.from(cutoff))
-            .getResultList();
-    return results;
+    return nodeLocks.findInactiveNodesSince(cutoff);
   }
 
   @Override
   public int deleteInactiveNodesSince(Instant cutoff) {
-    return em.createNativeQuery("DELETE FROM scheduler_node WHERE heartbeat_ts < ?")
-        .setParameter(1, Timestamp.from(cutoff))
-        .executeUpdate();
+    return nodeLocks.deleteInactiveNodesSince(cutoff);
   }
 
   @Override
   public ArchivedJobEntity archiveJob(JobEntity job, String reason, String archivedBy) {
-    // Re-fetch with tags hydrated before building the archive record. The incoming job may be
-    // detached (e.g. when the caller obtained it from a prior transaction), in which case
-    // buildArchive's tags access would throw LazyInitializationException. JPQL JOIN FETCH is
-    // JPA-spec portable and hydrates the collection in a single query.
-    JobEntity hydrated = jobs.hydrateForArchive(job);
-    ArchivedJobEntity archive = buildArchive(hydrated, reason, archivedBy);
-    em.persist(archive);
-    return archive;
+    return archives.archiveJob(job, reason, archivedBy);
   }
 
   @Override
-  public int archiveJobsBatch(List<JobEntity> jobs, String reason, String archivedBy) {
-    int count = 0;
-    for (JobEntity job : jobs) {
-      archiveJob(job, reason, archivedBy);
-      count++;
-    }
-    return count;
+  public int archiveJobsBatch(List<JobEntity> jobsToArchive, String reason, String archivedBy) {
+    return archives.archiveJobsBatch(jobsToArchive, reason, archivedBy);
   }
 
   @Override
   public List<JobEntity> findJobsForArchiving(Instant olderThan, int limit) {
-    return em.createQuery(ArchiveHelper.FIND_JOBS_FOR_ARCHIVING_JPQL, JobEntity.class)
-        .setParameter("cutoff", olderThan)
-        .setMaxResults(limit)
-        .getResultList();
+    return archives.findJobsForArchiving(olderThan, limit);
   }
 
   @Override
   public long countJobsForArchiving(Instant olderThan) {
-    return countByNative(
-        "SELECT COUNT(*) FROM scheduler_job "
-            + "WHERE status IN ('SUCCEEDED','FAILED','CANCELED') AND updated_at < ?",
-        Timestamp.from(olderThan));
+    return archives.countJobsForArchiving(olderThan);
   }
 
   @Override
   public List<ArchivedJobEntity> findArchivedJobs(
       String targetClass, String businessKey, Instant from, Instant to, int limit) {
-    StringBuilder sql = new StringBuilder("SELECT * FROM scheduler_job_archive WHERE 1=1");
-    List<Object> params = new ArrayList<>();
-    if (targetClass != null) {
-      sql.append(" AND target_class = ?");
-      params.add(targetClass);
-    }
-    if (businessKey != null) {
-      sql.append(" AND business_key = ?");
-      params.add(businessKey);
-    }
-    if (from != null) {
-      sql.append(" AND archived_at >= ?");
-      params.add(Timestamp.from(from));
-    }
-    if (to != null) {
-      sql.append(" AND archived_at <= ?");
-      params.add(Timestamp.from(to));
-    }
-    sql.append(" ORDER BY archived_at DESC LIMIT ?");
-    params.add(limit);
-
-    var query = em.createNativeQuery(sql.toString(), ArchivedJobEntity.class);
-    for (int i = 0; i < params.size(); i++) {
-      query.setParameter(i + 1, params.get(i));
-    }
-    @SuppressWarnings("unchecked")
-    List<ArchivedJobEntity> results = query.getResultList();
-    return results;
+    return archives.findArchivedJobs(targetClass, businessKey, from, to, limit);
   }
 
   @Override
   public int purgeArchivedJobs(Instant olderThan) {
-    return em.createNativeQuery("DELETE FROM scheduler_job_archive WHERE archived_at < ?")
-        .setParameter(1, Timestamp.from(olderThan))
-        .executeUpdate();
+    return archives.purgeArchivedJobs(olderThan);
   }
 
   @Override
   public JobExecutionEntity saveExecution(JobExecutionEntity execution) {
-    if (execution.getId() == null) {
-      em.persist(execution);
-      return execution;
-    }
-    return em.merge(execution);
+    return auxiliary.saveExecution(execution);
   }
 
   @Override
   public List<JobExecutionEntity> findExecutionsByJobId(long jobId) {
-    @SuppressWarnings("unchecked")
-    List<JobExecutionEntity> results =
-        em.createNativeQuery(
-                "SELECT * FROM scheduler_job_execution WHERE job_id = ? ORDER BY attempt ASC",
-                JobExecutionEntity.class)
-            .setParameter(1, jobId)
-            .getResultList();
-    return results;
+    return auxiliary.findExecutionsByJobId(jobId);
   }
 
   @Override
   public Optional<JobExecutionEntity> findLatestExecution(long jobId) {
-    @SuppressWarnings("unchecked")
-    List<JobExecutionEntity> results =
-        em.createNativeQuery(
-                "SELECT * FROM scheduler_job_execution WHERE job_id = ? ORDER BY attempt DESC LIMIT 1",
-                JobExecutionEntity.class)
-            .setParameter(1, jobId)
-            .getResultList();
-    return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
+    return auxiliary.findLatestExecution(jobId);
   }
 
   @Override
   public int countExecutionAttempts(long jobId) {
-    return ((Number)
-            em.createNativeQuery("SELECT COUNT(*) FROM scheduler_job_execution WHERE job_id = ?")
-                .setParameter(1, jobId)
-                .getSingleResult())
-        .intValue();
+    return auxiliary.countExecutionAttempts(jobId);
   }
 
   @Override
   public void appendLog(JobLogEntity logEntry) {
-    em.persist(logEntry);
+    auxiliary.appendLog(logEntry);
   }
 
   @Override
   public int purgeLogsOlderThan(Instant cutoff) {
-    return em.createNativeQuery("DELETE FROM scheduler_job_log WHERE ts < ?")
-        .setParameter(1, Timestamp.from(cutoff))
-        .executeUpdate();
+    return auxiliary.purgeLogsOlderThan(cutoff);
   }
 
   @Override
@@ -1107,83 +977,48 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
 
   @Override
   public WorkflowConditionEntity saveCondition(WorkflowConditionEntity condition) {
-    if (condition.getId() == null) {
-      em.persist(condition);
-      return condition;
-    }
-    return em.merge(condition);
+    return auxiliary.saveCondition(condition);
   }
 
   @Override
   public WorkflowConditionEntity findConditionById(long id) {
-    return em.find(WorkflowConditionEntity.class, id);
+    return auxiliary.findConditionById(id);
   }
 
   @Override
   public List<WorkflowConditionEntity> findConditionsByParentJobId(long parentJobId) {
-    @SuppressWarnings("unchecked")
-    List<WorkflowConditionEntity> results =
-        em.createNativeQuery(
-                "SELECT * FROM scheduler_workflow_condition WHERE parent_job_id = ? "
-                    + "ORDER BY condition_priority ASC",
-                WorkflowConditionEntity.class)
-            .setParameter(1, parentJobId)
-            .getResultList();
-    return results;
+    return auxiliary.findConditionsByParentJobId(parentJobId);
   }
 
   @Override
   public List<WorkflowConditionEntity> findConditionsByChildJobId(long childJobId) {
-    @SuppressWarnings("unchecked")
-    List<WorkflowConditionEntity> results =
-        em.createNativeQuery(
-                "SELECT * FROM scheduler_workflow_condition WHERE child_job_id = ?",
-                WorkflowConditionEntity.class)
-            .setParameter(1, childJobId)
-            .getResultList();
-    return results;
+    return auxiliary.findConditionsByChildJobId(childJobId);
   }
 
   @Override
   public List<WorkflowConditionEntity> findConditionsByType(
       long parentJobId, WorkflowCondition.ConditionType type) {
-    @SuppressWarnings("unchecked")
-    List<WorkflowConditionEntity> results =
-        em.createNativeQuery(
-                "SELECT * FROM scheduler_workflow_condition "
-                    + "WHERE parent_job_id = ? AND condition_type = ?",
-                WorkflowConditionEntity.class)
-            .setParameter(1, parentJobId)
-            .setParameter(2, type.name())
-            .getResultList();
-    return results;
+    return auxiliary.findConditionsByType(parentJobId, type);
   }
 
   @Override
   public void deleteConditionById(long id) {
-    em.createNativeQuery("DELETE FROM scheduler_workflow_condition WHERE id = ?")
-        .setParameter(1, id)
-        .executeUpdate();
+    auxiliary.deleteConditionById(id);
   }
 
   @Override
   public void deleteConditionsByParentJobId(long parentJobId) {
-    em.createNativeQuery("DELETE FROM scheduler_workflow_condition WHERE parent_job_id = ?")
-        .setParameter(1, parentJobId)
-        .executeUpdate();
+    auxiliary.deleteConditionsByParentJobId(parentJobId);
   }
 
   @Override
   public void deleteConditionsByChildJobId(long childJobId) {
-    em.createNativeQuery("DELETE FROM scheduler_workflow_condition WHERE child_job_id = ?")
-        .setParameter(1, childJobId)
-        .executeUpdate();
+    auxiliary.deleteConditionsByChildJobId(childJobId);
   }
 
   @Override
   public long countConditionsByParentJobId(long parentJobId) {
-    return countByNative(
-        "SELECT COUNT(*) FROM scheduler_workflow_condition WHERE parent_job_id = ?", parentJobId);
+    return auxiliary.countConditionsByParentJobId(parentJobId);
   }
 
   @Override
@@ -1213,118 +1048,43 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
 
   @Override
   public DlqAlertEntity saveDlqAlert(DlqAlertEntity alert) {
-    if (alert.getId() == null) {
-      em.persist(alert);
-      return alert;
-    }
-    return em.merge(alert);
+    return auxiliary.saveDlqAlert(alert);
   }
 
   @Override
   public boolean existsRecentDlqAlert(long jobId, String errorHash, Instant cutoff) {
-    long count =
-        countByNative(
-            "SELECT COUNT(*) FROM scheduler_dlq_alerts "
-                + "WHERE job_id = ? AND error_hash = ? AND alert_sent_at >= ?",
-            jobId,
-            errorHash,
-            Timestamp.from(cutoff));
-    return count > 0;
+    return auxiliary.existsRecentDlqAlert(jobId, errorHash, cutoff);
   }
 
   @Override
   public boolean tryAcquirePermit(String resource, long jobId, String nodeId) {
-    // Lock the resource limit row to serialize concurrent permit acquisitions
-    Object[] limitRow;
-    try {
-      limitRow =
-          (Object[])
-              em.createNativeQuery(
-                      "SELECT max_concurrent, retry_delay_ms FROM scheduler_resource_limit "
-                          + "WHERE resource_name = ? FOR UPDATE")
-                  .setParameter(1, resource)
-                  .getSingleResult();
-    } catch (NoResultException e) {
-      return false;
-    }
-
-    int maxConcurrent = ((Number) limitRow[0]).intValue();
-    long activeCount =
-        countByNative(
-            "SELECT COUNT(*) FROM scheduler_resource_permit WHERE resource_name = ?", resource);
-
-    if (activeCount >= maxConcurrent) {
-      return false;
-    }
-
-    ResourcePermitEntity permit = ResourcePermitEntity.create(resource, jobId, nodeId);
-    em.persist(permit);
-    return true;
+    return auxiliary.tryAcquirePermit(resource, jobId, nodeId);
   }
 
   @Override
   public void releasePermit(String resource, long jobId) {
-    em.createNativeQuery(
-            "DELETE FROM scheduler_resource_permit WHERE resource_name = ? AND job_id = ?")
-        .setParameter(1, resource)
-        .setParameter(2, jobId)
-        .executeUpdate();
+    auxiliary.releasePermit(resource, jobId);
   }
 
   @Override
   public void releaseAllPermits(long jobId) {
-    em.createNativeQuery("DELETE FROM scheduler_resource_permit WHERE job_id = ?")
-        .setParameter(1, jobId)
-        .executeUpdate();
+    auxiliary.releaseAllPermits(jobId);
   }
 
   @Override
   public int getPermitRetryDelay(String resource) {
-    try {
-      Object result =
-          em.createNativeQuery(
-                  "SELECT retry_delay_ms FROM scheduler_resource_limit WHERE resource_name = ?")
-              .setParameter(1, resource)
-              .getSingleResult();
-      return ((Number) result).intValue();
-    } catch (NoResultException e) {
-      return 5000;
-    }
+    return auxiliary.getPermitRetryDelay(resource);
   }
 
   @Override
   public void configureResource(
       String name, int maxConcurrent, int retryDelayMs, String description) {
-    em.createNativeQuery(
-            "INSERT INTO scheduler_resource_limit (resource_name, max_concurrent, retry_delay_ms, "
-                + "description, created_at, updated_at) "
-                + "VALUES (?, ?, ?, ?, statement_timestamp(), statement_timestamp()) "
-                + "ON CONFLICT (resource_name) DO UPDATE SET "
-                + "  max_concurrent = EXCLUDED.max_concurrent, "
-                + "  retry_delay_ms = EXCLUDED.retry_delay_ms, "
-                + "  description = EXCLUDED.description, "
-                + "  updated_at = statement_timestamp()")
-        .setParameter(1, name)
-        .setParameter(2, maxConcurrent)
-        .setParameter(3, retryDelayMs)
-        .setParameter(4, description)
-        .executeUpdate();
+    auxiliary.configureResource(name, maxConcurrent, retryDelayMs, description);
   }
 
   @Override
   public int cleanupOrphanedPermits(List<String> staleNodeIds) {
-    if (staleNodeIds.isEmpty()) {
-      return 0;
-    }
-    String placeholders = String.join(",", Collections.nCopies(staleNodeIds.size(), "?"));
-    Query query =
-        em.createNativeQuery(
-            "DELETE FROM scheduler_resource_permit WHERE node_id IN (" + placeholders + ")");
-    int parameter = 1;
-    for (String nodeId : staleNodeIds) {
-      query.setParameter(parameter++, nodeId);
-    }
-    return query.executeUpdate();
+    return auxiliary.cleanupOrphanedPermits(staleNodeIds);
   }
 
   /** Warns (or fails) if the connection isolation level is not READ COMMITTED. */
@@ -1353,6 +1113,9 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
     tags = new PostgresqlTagOperations(ctx);
     jobs = new PostgresqlJobCrudOperations(ctx, reservations, tags);
     batches = new PostgresqlBatchOperations(ctx);
+    nodeLocks = new PostgresqlNodeLockOperations(ctx);
+    archives = new PostgresqlArchiveOperations(ctx, jobs);
+    auxiliary = new PostgresqlAuxiliaryOperations(ctx);
   }
 
   private long countByNative(String sql, Object... params) {

@@ -61,4 +61,12 @@ final class PostgresqlStoreContext {
     }
     return e;
   }
+
+  long countByNative(String sql, Object... params) {
+    var query = em.createNativeQuery(sql);
+    for (int i = 0; i < params.length; i++) {
+      query.setParameter(i + 1, params[i]);
+    }
+    return ((Number) query.getSingleResult()).longValue();
+  }
 }
