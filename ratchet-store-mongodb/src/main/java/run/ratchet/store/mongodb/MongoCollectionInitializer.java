@@ -1,5 +1,7 @@
 package run.ratchet.store.mongodb;
 
+import static run.ratchet.store.mongodb.MongoFieldNames.*;
+
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.IndexOptions;
@@ -72,57 +74,55 @@ class MongoCollectionInitializer {
     createIndex(
         coll,
         Indexes.compoundIndex(
-            Indexes.ascending("status"),
-            Indexes.descending("priority"),
-            Indexes.ascending("scheduled_time")),
+            Indexes.ascending(STATUS),
+            Indexes.descending(PRIORITY),
+            Indexes.ascending(SCHEDULED_TIME)),
         "idx_job_poll_composite");
     createIndex(
         coll,
         Indexes.compoundIndex(
-            Indexes.ascending("status"),
-            Indexes.ascending("job_type"),
-            Indexes.descending("priority"),
-            Indexes.ascending("scheduled_time"),
-            Indexes.ascending("_id")),
-        "idx_job_claim_exec");
+            Indexes.ascending(STATUS),
+            Indexes.ascending(JOB_TYPE),
+            Indexes.descending(PRIORITY),
+            Indexes.ascending(SCHEDULED_TIME),
+            Indexes.ascending(ID)),
+        MongoIndexHints.JOB_CLAIM_EXEC);
     createIndex(
         coll,
         Indexes.compoundIndex(
-            Indexes.ascending("job_type"),
-            Indexes.ascending("status"),
-            Indexes.ascending("next_fire")),
+            Indexes.ascending(JOB_TYPE), Indexes.ascending(STATUS), Indexes.ascending(NEXT_FIRE)),
         "idx_job_recurring_composite");
     createIndex(
         coll,
         Indexes.compoundIndex(
-            Indexes.ascending("status"),
-            Indexes.ascending("job_type"),
-            Indexes.descending("priority"),
-            Indexes.ascending("next_fire"),
-            Indexes.ascending("_id")),
-        "idx_job_claim_recurring");
+            Indexes.ascending(STATUS),
+            Indexes.ascending(JOB_TYPE),
+            Indexes.descending(PRIORITY),
+            Indexes.ascending(NEXT_FIRE),
+            Indexes.ascending(ID)),
+        MongoIndexHints.JOB_CLAIM_RECURRING);
     createRequiredIndex(
         coll,
-        Indexes.ascending("idempotency_key"),
+        Indexes.ascending(IDEMPOTENCY_KEY),
         new IndexOptions().name("idx_job_idempotency_key").unique(true));
     createRequiredIndex(
         coll,
-        Indexes.ascending("business_key"),
+        Indexes.ascending(BUSINESS_KEY),
         new IndexOptions()
             .name("idx_job_active_business_key")
             .unique(true)
             .partialFilterExpression(
-                new Document("status", new Document("$in", List.of("PENDING", "RUNNING", "PAUSED")))
-                    .append("business_key", new Document("$type", "string"))));
-    createIndex(coll, Indexes.ascending("tags"), "idx_job_tags");
-    createIndex(coll, Indexes.ascending("picked_by"), "idx_job_picked_by");
-    createIndex(coll, Indexes.ascending("depends_on"), "idx_job_depends_on");
-    createIndex(coll, Indexes.ascending("target_class"), "idx_job_target_class");
-    createIndex(coll, Indexes.ascending("method_name"), "idx_job_method_name");
-    createIndex(coll, Indexes.ascending("created_at"), "idx_job_created_at");
-    createIndex(coll, Indexes.ascending("updated_at"), "idx_job_updated_at");
-    createIndex(coll, Indexes.ascending("job_type"), "idx_job_type");
-    createIndex(coll, Indexes.ascending("superseded_by"), "idx_job_superseded_by");
+                new Document(STATUS, new Document("$in", List.of("PENDING", "RUNNING", "PAUSED")))
+                    .append(BUSINESS_KEY, new Document("$type", "string"))));
+    createIndex(coll, Indexes.ascending(TAGS), "idx_job_tags");
+    createIndex(coll, Indexes.ascending(PICKED_BY), "idx_job_picked_by");
+    createIndex(coll, Indexes.ascending(DEPENDS_ON), "idx_job_depends_on");
+    createIndex(coll, Indexes.ascending(TARGET_CLASS), "idx_job_target_class");
+    createIndex(coll, Indexes.ascending(METHOD_NAME), "idx_job_method_name");
+    createIndex(coll, Indexes.ascending(CREATED_AT), "idx_job_created_at");
+    createIndex(coll, Indexes.ascending(UPDATED_AT), "idx_job_updated_at");
+    createIndex(coll, Indexes.ascending(JOB_TYPE), "idx_job_type");
+    createIndex(coll, Indexes.ascending(SUPERSEDED_BY), "idx_job_superseded_by");
   }
 
   private void createBatchIndexes() {}
@@ -131,10 +131,10 @@ class MongoCollectionInitializer {
 
   private void createExecutionIndexes() {
     var coll = database.getCollection("scheduler_job_execution");
-    createIndex(coll, Indexes.ascending("job_id"), "idx_execution_job_id");
+    createIndex(coll, Indexes.ascending(JOB_ID), "idx_execution_job_id");
     createIndex(
         coll,
-        Indexes.compoundIndex(Indexes.ascending("node_id"), Indexes.ascending("started_at")),
+        Indexes.compoundIndex(Indexes.ascending(NODE_ID), Indexes.ascending(STARTED_AT)),
         "idx_execution_node_started");
   }
 
@@ -142,35 +142,35 @@ class MongoCollectionInitializer {
     var coll = database.getCollection("scheduler_job_log");
     createIndex(
         coll,
-        Indexes.compoundIndex(Indexes.ascending("job_id"), Indexes.ascending("ts")),
+        Indexes.compoundIndex(Indexes.ascending(JOB_ID), Indexes.ascending(TS)),
         "idx_log_job_ts");
-    createIndex(coll, Indexes.ascending("ts"), "idx_log_ts");
+    createIndex(coll, Indexes.ascending(TS), "idx_log_ts");
   }
 
   private void createArchiveIndexes() {
     var coll = database.getCollection("scheduler_job_archive");
-    createIndex(coll, Indexes.ascending("original_job_id"), "idx_archive_original_job_id");
-    createIndex(coll, Indexes.ascending("final_status"), "idx_archive_final_status");
-    createIndex(coll, Indexes.ascending("archived_at"), "idx_archive_archived_at");
-    createIndex(coll, Indexes.ascending("target_class"), "idx_archive_target_class");
-    createIndex(coll, Indexes.ascending("business_key"), "idx_archive_business_key");
-    createIndex(coll, Indexes.ascending("original_created_at"), "idx_archive_original_created_at");
-    createIndex(coll, Indexes.ascending("completion_time"), "idx_archive_completion_time");
-    createIndex(coll, Indexes.ascending("job_type"), "idx_archive_job_type");
-    createIndex(coll, Indexes.ascending("priority"), "idx_archive_priority");
+    createIndex(coll, Indexes.ascending(ORIGINAL_JOB_ID), "idx_archive_original_job_id");
+    createIndex(coll, Indexes.ascending(FINAL_STATUS), "idx_archive_final_status");
+    createIndex(coll, Indexes.ascending(ARCHIVED_AT), "idx_archive_archived_at");
+    createIndex(coll, Indexes.ascending(TARGET_CLASS), "idx_archive_target_class");
+    createIndex(coll, Indexes.ascending(BUSINESS_KEY), "idx_archive_business_key");
+    createIndex(coll, Indexes.ascending(ORIGINAL_CREATED_AT), "idx_archive_original_created_at");
+    createIndex(coll, Indexes.ascending(COMPLETION_TIME), "idx_archive_completion_time");
+    createIndex(coll, Indexes.ascending(JOB_TYPE), "idx_archive_job_type");
+    createIndex(coll, Indexes.ascending(PRIORITY), "idx_archive_priority");
   }
 
   private void createLockIndexes() {
     var coll = database.getCollection("scheduler_lock");
     createIndex(
         coll,
-        Indexes.ascending("expires_at"),
+        Indexes.ascending(EXPIRES_AT),
         new IndexOptions().name("idx_lock_ttl").expireAfter(0L, TimeUnit.SECONDS));
   }
 
   private void createNodeIndexes() {
     var coll = database.getCollection("scheduler_node");
-    createIndex(coll, Indexes.ascending("heartbeat_ts"), "idx_node_heartbeat");
+    createIndex(coll, Indexes.ascending(HEARTBEAT_TS), "idx_node_heartbeat");
   }
 
   private void createWorkflowConditionIndexes() {
@@ -178,26 +178,26 @@ class MongoCollectionInitializer {
     createIndex(
         coll,
         Indexes.compoundIndex(
-            Indexes.ascending("parent_job_id"), Indexes.ascending("condition_priority")),
+            Indexes.ascending(PARENT_JOB_ID), Indexes.ascending(CONDITION_PRIORITY)),
         "idx_wfc_parent_priority");
-    createIndex(coll, Indexes.ascending("child_job_id"), "idx_wfc_child");
+    createIndex(coll, Indexes.ascending(CHILD_JOB_ID), "idx_wfc_child");
   }
 
   private void createDlqAlertIndexes() {
     var coll = database.getCollection("scheduler_dlq_alerts");
     createRequiredIndex(
         coll,
-        Indexes.compoundIndex(Indexes.ascending("job_id"), Indexes.ascending("error_hash")),
+        Indexes.compoundIndex(Indexes.ascending(JOB_ID), Indexes.ascending(ERROR_HASH)),
         new IndexOptions().name("idx_dlq_job_hash").unique(true));
-    createIndex(coll, Indexes.ascending("alert_sent_at"), "idx_dlq_sent_at");
+    createIndex(coll, Indexes.ascending(ALERT_SENT_AT), "idx_dlq_sent_at");
   }
 
   private void createResourceLimitIndexes() {}
 
   private void createResourcePermitIndexes() {
     var coll = database.getCollection("scheduler_resource_permit");
-    createIndex(coll, Indexes.ascending("resource_name"), "idx_permit_resource");
-    createIndex(coll, Indexes.ascending("job_id"), "idx_permit_job_id");
-    createIndex(coll, Indexes.ascending("node_id"), "idx_permit_node_id");
+    createIndex(coll, Indexes.ascending(RESOURCE_NAME), "idx_permit_resource");
+    createIndex(coll, Indexes.ascending(JOB_ID), "idx_permit_job_id");
+    createIndex(coll, Indexes.ascending(NODE_ID), "idx_permit_node_id");
   }
 }

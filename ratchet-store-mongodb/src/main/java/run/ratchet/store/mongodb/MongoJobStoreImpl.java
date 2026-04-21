@@ -15,6 +15,7 @@ import static com.mongodb.client.model.Updates.combine;
 import static com.mongodb.client.model.Updates.inc;
 import static com.mongodb.client.model.Updates.set;
 import static com.mongodb.client.model.Updates.setOnInsert;
+import static run.ratchet.store.mongodb.MongoFieldNames.*;
 
 import com.mongodb.MongoCommandException;
 import com.mongodb.client.FindIterable;
@@ -138,7 +139,7 @@ class MongoJobStoreImpl implements MongoJobStore {
     UpdateResult result =
         jobs()
             .replaceOne(
-                and(eq("_id", job.getId()), eq("version", expectedVersion)),
+                and(eq(ID, job.getId()), eq(VERSION, expectedVersion)),
                 doc,
                 new ReplaceOptions().upsert(false));
     if (result.getMatchedCount() == 0) {
@@ -156,7 +157,7 @@ class MongoJobStoreImpl implements MongoJobStore {
 
   @Override
   public Optional<JobEntity> findById(long id) {
-    Document doc = jobs().find(eq("_id", id)).first();
+    Document doc = jobs().find(eq(ID, id)).first();
     return doc == null ? Optional.empty() : Optional.of(DocumentMapper.toJobEntity(doc));
   }
 
@@ -169,16 +170,16 @@ class MongoJobStoreImpl implements MongoJobStore {
 
   @Override
   public void delete(long id) {
-    jobs().deleteOne(eq("_id", id));
+    jobs().deleteOne(eq(ID, id));
   }
 
   @Override
   public JobStatus getJobStatus(long id) {
-    Document doc = jobs().find(eq("_id", id)).projection(new Document("status", 1)).first();
+    Document doc = jobs().find(eq(ID, id)).projection(new Document(STATUS, 1)).first();
     if (doc == null) {
       return null;
     }
-    return JobStatus.valueOf(doc.getString("status"));
+    return JobStatus.valueOf(doc.getString(STATUS));
   }
 
   @Override
@@ -187,7 +188,7 @@ class MongoJobStoreImpl implements MongoJobStore {
       return List.of();
     }
     List<JobEntity> results = new ArrayList<>();
-    for (Document doc : jobs().find(in("_id", ids))) {
+    for (Document doc : jobs().find(in(ID, ids))) {
       results.add(DocumentMapper.toJobEntity(doc));
     }
     return results;
@@ -197,7 +198,7 @@ class MongoJobStoreImpl implements MongoJobStore {
   public Optional<JobEntity> findActiveByBusinessKey(String businessKey) {
     Document doc =
         jobs()
-            .find(and(eq("business_key", businessKey), in("status", ACTIVE_STATUSES)))
+            .find(and(eq(BUSINESS_KEY, businessKey), in(STATUS, ACTIVE_STATUSES)))
             .limit(1)
             .first();
     return doc == null ? Optional.empty() : Optional.of(DocumentMapper.toJobEntity(doc));
@@ -205,14 +206,14 @@ class MongoJobStoreImpl implements MongoJobStore {
 
   @Override
   public Optional<JobEntity> findByIdempotencyKey(String idempotencyKey) {
-    Document doc = jobs().find(eq("idempotency_key", idempotencyKey)).first();
+    Document doc = jobs().find(eq(IDEMPOTENCY_KEY, idempotencyKey)).first();
     return doc == null ? Optional.empty() : Optional.of(DocumentMapper.toJobEntity(doc));
   }
 
   @Override
   public List<JobEntity> findDependants(long parentJobId) {
     List<JobEntity> results = new ArrayList<>();
-    for (Document doc : jobs().find(eq("depends_on", parentJobId))) {
+    for (Document doc : jobs().find(eq(DEPENDS_ON, parentJobId))) {
       results.add(DocumentMapper.toJobEntity(doc));
     }
     return results;
@@ -222,32 +223,32 @@ class MongoJobStoreImpl implements MongoJobStore {
   public Optional<Instant> findEarliestRecurringNextFire() {
     Document doc =
         jobs()
-            .find(and(eq("job_type", "RECURRING"), eq("status", "PENDING"), ne("next_fire", null)))
-            .sort(ascending("next_fire"))
-            .projection(new Document("next_fire", 1))
+            .find(and(eq(JOB_TYPE, "RECURRING"), eq(STATUS, "PENDING"), ne(NEXT_FIRE, null)))
+            .sort(ascending(NEXT_FIRE))
+            .projection(new Document(NEXT_FIRE, 1))
             .limit(1)
             .first();
-    if (doc == null || doc.getDate("next_fire") == null) {
+    if (doc == null || doc.getDate(NEXT_FIRE) == null) {
       return Optional.empty();
     }
-    return Optional.of(DocumentMapper.toInstant(doc.getDate("next_fire")));
+    return Optional.of(DocumentMapper.toInstant(doc.getDate(NEXT_FIRE)));
   }
 
   @Override
   public long countPendingJobs() {
-    return jobs().countDocuments(eq("status", "PENDING"));
+    return jobs().countDocuments(eq(STATUS, "PENDING"));
   }
 
   @Override
   public long countJobsByStatus(JobStatus status) {
-    return jobs().countDocuments(eq("status", status.name()));
+    return jobs().countDocuments(eq(STATUS, status.name()));
   }
 
   @Override
   public long countActiveJobs(JobExecutionType jobType) {
     return jobs()
         .countDocuments(
-            and(eq("job_type", jobType.name()), in("status", List.of("PENDING", "RUNNING"))));
+            and(eq(JOB_TYPE, jobType.name()), in(STATUS, List.of("PENDING", "RUNNING"))));
   }
 
   @Override
@@ -259,50 +260,48 @@ class MongoJobStoreImpl implements MongoJobStore {
   public long countReadyJobs(Instant now) {
     return jobs()
         .countDocuments(
-            and(eq("status", "PENDING"), lte("scheduled_time", DocumentMapper.toDate(now))));
+            and(eq(STATUS, "PENDING"), lte(SCHEDULED_TIME, DocumentMapper.toDate(now))));
   }
 
   @Override
   public long countStuckJobs(Instant stuckThreshold) {
     return jobs()
         .countDocuments(
-            and(eq("status", "RUNNING"), lt("picked_at", DocumentMapper.toDate(stuckThreshold))));
+            and(eq(STATUS, "RUNNING"), lt(PICKED_AT, DocumentMapper.toDate(stuckThreshold))));
   }
 
   @Override
   public long countLongRunningJobs(Instant threshold) {
     return jobs()
         .countDocuments(
-            and(
-                eq("status", "RUNNING"),
-                lt("execution_start_time", DocumentMapper.toDate(threshold))));
+            and(eq(STATUS, "RUNNING"), lt(EXECUTION_START_TIME, DocumentMapper.toDate(threshold))));
   }
 
   @Override
   public long countPendingBatchChildren() {
-    return jobs().countDocuments(and(eq("job_type", "BATCH_CHILD"), eq("status", "PENDING")));
+    return jobs().countDocuments(and(eq(JOB_TYPE, "BATCH_CHILD"), eq(STATUS, "PENDING")));
   }
 
   @Override
   public long countPendingJobsByPriority(JobPriority priority) {
-    return jobs().countDocuments(and(eq("status", "PENDING"), eq("priority", priority.ordinal())));
+    return jobs().countDocuments(and(eq(STATUS, "PENDING"), eq(PRIORITY, priority.ordinal())));
   }
 
   @Override
   public long countPendingJobsByType(JobExecutionType jobType) {
-    return jobs().countDocuments(and(eq("status", "PENDING"), eq("job_type", jobType.name())));
+    return jobs().countDocuments(and(eq(STATUS, "PENDING"), eq(JOB_TYPE, jobType.name())));
   }
 
   @Override
   public long countJobsByStatusSince(JobStatus status, Instant since) {
     return jobs()
         .countDocuments(
-            and(eq("status", status.name()), gte("updated_at", DocumentMapper.toDate(since))));
+            and(eq(STATUS, status.name()), gte(UPDATED_AT, DocumentMapper.toDate(since))));
   }
 
   @Override
   public long countJobsWithRetries() {
-    return jobs().countDocuments(new Document("attempts", new Document("$gt", 0)));
+    return jobs().countDocuments(new Document(ATTEMPTS, new Document("$gt", 0)));
   }
 
   @Override
@@ -311,10 +310,10 @@ class MongoJobStoreImpl implements MongoJobStore {
         List.of(
             new Document(
                 "$match",
-                new Document("updated_at", new Document("$gte", DocumentMapper.toDate(since)))),
+                new Document(UPDATED_AT, new Document("$gte", DocumentMapper.toDate(since)))),
             new Document(
                 "$group",
-                new Document("_id", null)
+                new Document(ID, null)
                     .append("total", new Document("$sum", 1))
                     .append(
                         "retried",
@@ -322,7 +321,7 @@ class MongoJobStoreImpl implements MongoJobStore {
                             "$sum",
                             new Document(
                                 "$cond",
-                                List.of(new Document("$gt", List.of("$attempts", 0)), 1, 0))))));
+                                List.of(new Document("$gt", List.of("$" + ATTEMPTS, 0)), 1, 0))))));
     Document result = jobs().aggregate(pipeline).first();
     if (result == null || result.getInteger("total", 0) == 0) {
       return 0.0;
@@ -336,12 +335,12 @@ class MongoJobStoreImpl implements MongoJobStore {
         List.of(
             new Document(
                 "$match",
-                new Document("status", "SUCCEEDED")
-                    .append("updated_at", new Document("$gte", DocumentMapper.toDate(since)))),
+                new Document(STATUS, "SUCCEEDED")
+                    .append(UPDATED_AT, new Document("$gte", DocumentMapper.toDate(since)))),
             new Document(
                 "$group",
-                new Document("_id", null)
-                    .append("avg", new Document("$avg", "$execution_duration_ms"))));
+                new Document(ID, null)
+                    .append("avg", new Document("$avg", "$" + EXECUTION_DURATION_MS))));
     Document result = jobs().aggregate(pipeline).first();
     if (result == null || result.get("avg") == null) {
       return 0.0;
@@ -357,8 +356,8 @@ class MongoJobStoreImpl implements MongoJobStore {
             new Document(
                 "$lookup",
                 new Document("from", "scheduler_job")
-                    .append("localField", "_id")
-                    .append("foreignField", "_id")
+                    .append("localField", ID)
+                    .append("foreignField", ID)
                     .append("as", "job")),
             new Document("$unwind", "$job"),
             new Document(
@@ -366,7 +365,7 @@ class MongoJobStoreImpl implements MongoJobStore {
                 new Document("job.updated_at", new Document("$gte", DocumentMapper.toDate(since)))),
             new Document(
                 "$group",
-                new Document("_id", null).append("avg", new Document("$avg", "$total_items"))));
+                new Document(ID, null).append("avg", new Document("$avg", "$" + TOTAL_ITEMS))));
     Document result = batches().aggregate(pipeline).first();
     if (result == null || result.get("avg") == null) {
       return 0.0;
@@ -378,15 +377,15 @@ class MongoJobStoreImpl implements MongoJobStore {
   public Optional<Instant> getOldestPendingJobTime() {
     Document doc =
         jobs()
-            .find(eq("status", "PENDING"))
-            .sort(ascending("scheduled_time"))
-            .projection(new Document("scheduled_time", 1))
+            .find(eq(STATUS, "PENDING"))
+            .sort(ascending(SCHEDULED_TIME))
+            .projection(new Document(SCHEDULED_TIME, 1))
             .limit(1)
             .first();
-    if (doc == null || doc.getDate("scheduled_time") == null) {
+    if (doc == null || doc.getDate(SCHEDULED_TIME) == null) {
       return Optional.empty();
     }
-    return Optional.of(DocumentMapper.toInstant(doc.getDate("scheduled_time")));
+    return Optional.of(DocumentMapper.toInstant(doc.getDate(SCHEDULED_TIME)));
   }
 
   @Override
@@ -396,16 +395,15 @@ class MongoJobStoreImpl implements MongoJobStore {
         List.of(
             new Document(
                 "$match",
-                new Document("queue_wait_ms", new Document("$ne", null))
-                    .append("status", "SUCCEEDED")),
+                new Document(QUEUE_WAIT_MS, new Document("$ne", null)).append(STATUS, "SUCCEEDED")),
             new Document(
                 "$group",
-                new Document("_id", null)
+                new Document(ID, null)
                     .append(
                         "p",
                         new Document(
                             "$percentile",
-                            new Document("input", "$queue_wait_ms")
+                            new Document("input", "$" + QUEUE_WAIT_MS)
                                 .append("p", List.of(percentile))
                                 .append("method", "approximate")))));
     try {
@@ -422,26 +420,26 @@ class MongoJobStoreImpl implements MongoJobStore {
       log.debug("$percentile aggregation not available, using sort+skip approximation");
     }
     // Fallback: sort by queue_wait_ms, skip to percentile position
-    long total = jobs().countDocuments(and(ne("queue_wait_ms", null), eq("status", "SUCCEEDED")));
+    long total = jobs().countDocuments(and(ne(QUEUE_WAIT_MS, null), eq(STATUS, "SUCCEEDED")));
     if (total == 0) {
       return 0;
     }
     long skipCount = (long) (total * percentile);
     Document doc =
         jobs()
-            .find(and(ne("queue_wait_ms", null), eq("status", "SUCCEEDED")))
-            .sort(ascending("queue_wait_ms"))
+            .find(and(ne(QUEUE_WAIT_MS, null), eq(STATUS, "SUCCEEDED")))
+            .sort(ascending(QUEUE_WAIT_MS))
             .skip((int) Math.min(skipCount, Integer.MAX_VALUE))
             .limit(1)
-            .projection(new Document("queue_wait_ms", 1))
+            .projection(new Document(QUEUE_WAIT_MS, 1))
             .first();
-    return doc == null || doc.getLong("queue_wait_ms") == null ? 0 : doc.getLong("queue_wait_ms");
+    return doc == null || doc.getLong(QUEUE_WAIT_MS) == null ? 0 : doc.getLong(QUEUE_WAIT_MS);
   }
 
   @Override
   public List<JobEntity> claimNextBatch(int limit, String nodeId) {
     List<Long> candidateIds =
-        findCandidatesByBoostedPriority(EXECUTABLE_JOB_TYPES, "scheduled_time", limit);
+        findCandidatesByBoostedPriority(EXECUTABLE_JOB_TYPES, SCHEDULED_TIME, limit);
     return claimByIds(candidateIds, nodeId, DocumentMapper::toJobEntity);
   }
 
@@ -452,14 +450,14 @@ class MongoJobStoreImpl implements MongoJobStore {
       return List.of();
     }
     List<Long> candidateIds =
-        findCandidatesByBoostedPriority(List.of(jobType.name()), "scheduled_time", limit);
+        findCandidatesByBoostedPriority(List.of(jobType.name()), SCHEDULED_TIME, limit);
     return claimByIds(candidateIds, nodeId, DocumentMapper::toJobClaimDto);
   }
 
   @Override
   public List<JobEntity> claimDueRecurring(int limit, String nodeId) {
     List<Long> candidateIds =
-        findCandidatesByBoostedPriority(List.of("RECURRING"), "next_fire", limit);
+        findCandidatesByBoostedPriority(List.of("RECURRING"), NEXT_FIRE, limit);
     return claimByIds(candidateIds, nodeId, DocumentMapper::toJobEntity);
   }
 
@@ -467,12 +465,12 @@ class MongoJobStoreImpl implements MongoJobStore {
   public void updateJobStatus(long id, JobStatus status, String errorMessage) {
     jobs()
         .updateOne(
-            eq("_id", id),
+            eq(ID, id),
             combine(
-                set("status", status.name()),
-                set("last_error", errorMessage),
-                set("updated_at", DocumentMapper.toDate(Instant.now())),
-                inc("version", 1)));
+                set(STATUS, status.name()),
+                set(LAST_ERROR, errorMessage),
+                set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                inc(VERSION, 1)));
   }
 
   @Override
@@ -482,12 +480,12 @@ class MongoJobStoreImpl implements MongoJobStore {
       UpdateResult result =
           jobs()
               .updateOne(
-                  and(eq("_id", id), eq("status", expected.name())),
+                  and(eq(ID, id), eq(STATUS, expected.name())),
                   combine(
-                      set("status", newStatus.name()),
-                      set("last_error", error),
-                      set("updated_at", DocumentMapper.toDate(Instant.now())),
-                      inc("version", 1)));
+                      set(STATUS, newStatus.name()),
+                      set(LAST_ERROR, error),
+                      set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                      inc(VERSION, 1)));
       return result.getModifiedCount() > 0;
     } catch (RuntimeException e) {
       throw translateTransientStoreException("compare-and-swap status", e);
@@ -499,16 +497,16 @@ class MongoJobStoreImpl implements MongoJobStore {
     Document doc =
         jobs()
             .findOneAndUpdate(
-                and(eq("_id", id), eq("status", "RUNNING")),
+                and(eq(ID, id), eq(STATUS, "RUNNING")),
                 combine(
-                    inc("attempts", 1),
-                    set("updated_at", DocumentMapper.toDate(Instant.now())),
-                    inc("version", 1)),
+                    inc(ATTEMPTS, 1),
+                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                    inc(VERSION, 1)),
                 new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
     if (doc == null) {
       return -1;
     }
-    return doc.getInteger("attempts");
+    return doc.getInteger(ATTEMPTS);
   }
 
   @Override
@@ -517,13 +515,13 @@ class MongoJobStoreImpl implements MongoJobStore {
     UpdateResult result =
         jobs()
             .updateOne(
-                and(eq("_id", id), eq("status", "PENDING")),
+                and(eq(ID, id), eq(STATUS, "PENDING")),
                 combine(
-                    set("status", "RUNNING"),
-                    set("picked_by", nodeId),
-                    set("picked_at", DocumentMapper.toDate(now)),
-                    set("updated_at", DocumentMapper.toDate(now)),
-                    inc("version", 1)));
+                    set(STATUS, "RUNNING"),
+                    set(PICKED_BY, nodeId),
+                    set(PICKED_AT, DocumentMapper.toDate(now)),
+                    set(UPDATED_AT, DocumentMapper.toDate(now)),
+                    inc(VERSION, 1)));
     return result.getModifiedCount() > 0;
   }
 
@@ -540,18 +538,18 @@ class MongoJobStoreImpl implements MongoJobStore {
       UpdateResult result =
           jobs()
               .updateOne(
-                  and(eq("_id", id), eq("status", "RUNNING")),
+                  and(eq(ID, id), eq(STATUS, "RUNNING")),
                   combine(
-                      set("status", "SUCCEEDED"),
-                      set("job_result", resultJson),
-                      set("result_type", resultType),
-                      set("execution_start_time", DocumentMapper.toDate(start)),
-                      set("execution_end_time", DocumentMapper.toDate(end)),
-                      set("execution_duration_ms", durationMs),
-                      set("queue_wait_ms", queueWaitMs),
-                      set("last_error", null),
-                      set("updated_at", DocumentMapper.toDate(Instant.now())),
-                      inc("version", 1)));
+                      set(STATUS, "SUCCEEDED"),
+                      set(JOB_RESULT, resultJson),
+                      set(RESULT_TYPE, resultType),
+                      set(EXECUTION_START_TIME, DocumentMapper.toDate(start)),
+                      set(EXECUTION_END_TIME, DocumentMapper.toDate(end)),
+                      set(EXECUTION_DURATION_MS, durationMs),
+                      set(QUEUE_WAIT_MS, queueWaitMs),
+                      set(LAST_ERROR, null),
+                      set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                      inc(VERSION, 1)));
       return result.getModifiedCount() > 0;
     } catch (RuntimeException e) {
       throw translateTransientStoreException("mark job succeeded", e);
@@ -565,16 +563,16 @@ class MongoJobStoreImpl implements MongoJobStore {
       UpdateResult result =
           jobs()
               .updateOne(
-                  and(eq("_id", id), eq("status", "RUNNING")),
+                  and(eq(ID, id), eq(STATUS, "RUNNING")),
                   combine(
-                      set("status", "SUCCEEDED"),
-                      set("execution_start_time", DocumentMapper.toDate(start)),
-                      set("execution_end_time", DocumentMapper.toDate(end)),
-                      set("execution_duration_ms", durationMs),
-                      set("queue_wait_ms", queueWaitMs),
-                      set("last_error", null),
-                      set("updated_at", DocumentMapper.toDate(Instant.now())),
-                      inc("version", 1)));
+                      set(STATUS, "SUCCEEDED"),
+                      set(EXECUTION_START_TIME, DocumentMapper.toDate(start)),
+                      set(EXECUTION_END_TIME, DocumentMapper.toDate(end)),
+                      set(EXECUTION_DURATION_MS, durationMs),
+                      set(QUEUE_WAIT_MS, queueWaitMs),
+                      set(LAST_ERROR, null),
+                      set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                      inc(VERSION, 1)));
       return result.getModifiedCount() > 0;
     } catch (RuntimeException e) {
       throw translateTransientStoreException("mark job succeeded minimally", e);
@@ -604,16 +602,16 @@ class MongoJobStoreImpl implements MongoJobStore {
     UpdateResult result =
         jobs()
             .updateOne(
-                and(eq("_id", id), in("status", List.of("RUNNING", "FAILED"))),
+                and(eq(ID, id), in(STATUS, List.of("RUNNING", "FAILED"))),
                 combine(
-                    set("status", "PENDING"),
-                    set("scheduled_time", DocumentMapper.toDate(newScheduledTime)),
-                    set("attempts", attempts),
-                    set("last_error", error),
-                    set("picked_by", null),
-                    set("picked_at", null),
-                    set("updated_at", DocumentMapper.toDate(Instant.now())),
-                    inc("version", 1)));
+                    set(STATUS, "PENDING"),
+                    set(SCHEDULED_TIME, DocumentMapper.toDate(newScheduledTime)),
+                    set(ATTEMPTS, attempts),
+                    set(LAST_ERROR, error),
+                    set(PICKED_BY, null),
+                    set(PICKED_AT, null),
+                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                    inc(VERSION, 1)));
     return result.getModifiedCount() > 0;
   }
 
@@ -622,12 +620,12 @@ class MongoJobStoreImpl implements MongoJobStore {
     UpdateResult result =
         jobs()
             .updateOne(
-                and(eq("_id", id), eq("job_type", "RECURRING"), eq("status", "PENDING")),
+                and(eq(ID, id), eq(JOB_TYPE, "RECURRING"), eq(STATUS, "PENDING")),
                 combine(
-                    set("status", "PAUSED"),
-                    set("paused_from_status", "PENDING"),
-                    set("updated_at", DocumentMapper.toDate(Instant.now())),
-                    inc("version", 1)));
+                    set(STATUS, "PAUSED"),
+                    set(PAUSED_FROM_STATUS, "PENDING"),
+                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                    inc(VERSION, 1)));
     return result.getModifiedCount() > 0;
   }
 
@@ -636,12 +634,12 @@ class MongoJobStoreImpl implements MongoJobStore {
     UpdateResult result =
         jobs()
             .updateOne(
-                and(eq("_id", id), eq("job_type", "RECURRING"), eq("status", "PAUSED")),
+                and(eq(ID, id), eq(JOB_TYPE, "RECURRING"), eq(STATUS, "PAUSED")),
                 combine(
-                    set("status", "PENDING"),
-                    set("paused_from_status", null),
-                    set("updated_at", DocumentMapper.toDate(Instant.now())),
-                    inc("version", 1)));
+                    set(STATUS, "PENDING"),
+                    set(PAUSED_FROM_STATUS, null),
+                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                    inc(VERSION, 1)));
     return result.getModifiedCount() > 0;
   }
 
@@ -650,15 +648,15 @@ class MongoJobStoreImpl implements MongoJobStore {
     UpdateResult result =
         jobs()
             .updateOne(
-                and(eq("_id", id), eq("status", "RUNNING")),
+                and(eq(ID, id), eq(STATUS, "RUNNING")),
                 combine(
-                    set("status", "FAILED"),
-                    set("last_error", terminalError),
-                    set("attempts", totalAttempts),
-                    set("picked_by", null),
-                    set("picked_at", null),
-                    set("updated_at", DocumentMapper.toDate(Instant.now())),
-                    inc("version", 1)));
+                    set(STATUS, "FAILED"),
+                    set(LAST_ERROR, terminalError),
+                    set(ATTEMPTS, totalAttempts),
+                    set(PICKED_BY, null),
+                    set(PICKED_AT, null),
+                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                    inc(VERSION, 1)));
     return result.getModifiedCount() > 0;
   }
 
@@ -667,13 +665,13 @@ class MongoJobStoreImpl implements MongoJobStore {
     UpdateResult result =
         jobs()
             .updateOne(
-                and(eq("_id", id), in("status", List.of("PENDING", "RUNNING", "PAUSED"))),
+                and(eq(ID, id), in(STATUS, List.of("PENDING", "RUNNING", "PAUSED"))),
                 combine(
-                    set("status", "CANCELED"),
-                    set("picked_by", null),
-                    set("picked_at", null),
-                    set("updated_at", DocumentMapper.toDate(Instant.now())),
-                    inc("version", 1)));
+                    set(STATUS, "CANCELED"),
+                    set(PICKED_BY, null),
+                    set(PICKED_AT, null),
+                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                    inc(VERSION, 1)));
     return result.getModifiedCount() > 0;
   }
 
@@ -682,13 +680,13 @@ class MongoJobStoreImpl implements MongoJobStore {
     UpdateResult result =
         jobs()
             .updateOne(
-                and(eq("_id", id), eq("status", "RUNNING"), eq("picked_by", nodeId)),
+                and(eq(ID, id), eq(STATUS, "RUNNING"), eq(PICKED_BY, nodeId)),
                 combine(
-                    set("status", "PENDING"),
-                    set("picked_by", null),
-                    set("picked_at", null),
-                    set("updated_at", DocumentMapper.toDate(Instant.now())),
-                    inc("version", 1)));
+                    set(STATUS, "PENDING"),
+                    set(PICKED_BY, null),
+                    set(PICKED_AT, null),
+                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                    inc(VERSION, 1)));
     return result.getModifiedCount() > 0;
   }
 
@@ -697,13 +695,13 @@ class MongoJobStoreImpl implements MongoJobStore {
     UpdateResult result =
         jobs()
             .updateMany(
-                and(eq("status", "RUNNING"), eq("picked_by", nodeId)),
+                and(eq(STATUS, "RUNNING"), eq(PICKED_BY, nodeId)),
                 combine(
-                    set("status", "PENDING"),
-                    set("picked_by", null),
-                    set("picked_at", null),
-                    set("updated_at", DocumentMapper.toDate(Instant.now())),
-                    inc("version", 1)));
+                    set(STATUS, "PENDING"),
+                    set(PICKED_BY, null),
+                    set(PICKED_AT, null),
+                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                    inc(VERSION, 1)));
     return (int) result.getModifiedCount();
   }
 
@@ -712,11 +710,11 @@ class MongoJobStoreImpl implements MongoJobStore {
     UpdateResult result =
         jobs()
             .updateMany(
-                and(eq("tags", tag), eq("job_type", "RECURRING"), in("status", ACTIVE_STATUSES)),
+                and(eq(TAGS, tag), eq(JOB_TYPE, "RECURRING"), in(STATUS, ACTIVE_STATUSES)),
                 combine(
-                    set("status", "CANCELED"),
-                    set("updated_at", DocumentMapper.toDate(Instant.now())),
-                    inc("version", 1)));
+                    set(STATUS, "CANCELED"),
+                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                    inc(VERSION, 1)));
     return (int) result.getModifiedCount();
   }
 
@@ -726,13 +724,13 @@ class MongoJobStoreImpl implements MongoJobStore {
         jobs()
             .updateMany(
                 and(
-                    eq("business_key", businessKey),
-                    eq("job_type", "RECURRING"),
-                    in("status", ACTIVE_STATUSES)),
+                    eq(BUSINESS_KEY, businessKey),
+                    eq(JOB_TYPE, "RECURRING"),
+                    in(STATUS, ACTIVE_STATUSES)),
                 combine(
-                    set("status", "CANCELED"),
-                    set("updated_at", DocumentMapper.toDate(Instant.now())),
-                    inc("version", 1)));
+                    set(STATUS, "CANCELED"),
+                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                    inc(VERSION, 1)));
     return (int) result.getModifiedCount();
   }
 
@@ -746,15 +744,15 @@ class MongoJobStoreImpl implements MongoJobStore {
         jobs()
             .updateMany(
                 and(
-                    eq("job_type", "RECURRING"),
-                    in("status", ACTIVE_STATUSES),
-                    lt("created_at", DocumentMapper.toDate(nodeStartTime)),
-                    ne("business_key", null),
-                    nin("business_key", registeredIds)),
+                    eq(JOB_TYPE, "RECURRING"),
+                    in(STATUS, ACTIVE_STATUSES),
+                    lt(CREATED_AT, DocumentMapper.toDate(nodeStartTime)),
+                    ne(BUSINESS_KEY, null),
+                    nin(BUSINESS_KEY, registeredIds)),
                 combine(
-                    set("status", "CANCELED"),
-                    set("updated_at", DocumentMapper.toDate(Instant.now())),
-                    inc("version", 1)));
+                    set(STATUS, "CANCELED"),
+                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                    inc(VERSION, 1)));
     return (int) result.getModifiedCount();
   }
 
@@ -763,16 +761,16 @@ class MongoJobStoreImpl implements MongoJobStore {
     UpdateResult result =
         jobs()
             .updateOne(
-                and(eq("_id", id), eq("status", "FAILED")),
+                and(eq(ID, id), eq(STATUS, "FAILED")),
                 combine(
-                    set("status", "PENDING"),
-                    set("attempts", 0),
-                    set("last_error", null),
-                    set("scheduled_time", DocumentMapper.toDate(Instant.now())),
-                    set("picked_by", null),
-                    set("picked_at", null),
-                    set("updated_at", DocumentMapper.toDate(Instant.now())),
-                    inc("version", 1)));
+                    set(STATUS, "PENDING"),
+                    set(ATTEMPTS, 0),
+                    set(LAST_ERROR, null),
+                    set(SCHEDULED_TIME, DocumentMapper.toDate(Instant.now())),
+                    set(PICKED_BY, null),
+                    set(PICKED_AT, null),
+                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                    inc(VERSION, 1)));
     return result.getModifiedCount() > 0;
   }
 
@@ -781,12 +779,12 @@ class MongoJobStoreImpl implements MongoJobStore {
     UpdateResult result =
         jobs()
             .updateOne(
-                and(eq("_id", id), eq("status", expected.name())),
+                and(eq(ID, id), eq(STATUS, expected.name())),
                 combine(
-                    set("status", "PAUSED"),
-                    set("paused_from_status", expected.name()),
-                    set("updated_at", DocumentMapper.toDate(Instant.now())),
-                    inc("version", 1)));
+                    set(STATUS, "PAUSED"),
+                    set(PAUSED_FROM_STATUS, expected.name()),
+                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                    inc(VERSION, 1)));
     return result.getModifiedCount() > 0;
   }
 
@@ -795,12 +793,12 @@ class MongoJobStoreImpl implements MongoJobStore {
     UpdateResult result =
         jobs()
             .updateOne(
-                and(eq("_id", id), eq("status", "PAUSED")),
+                and(eq(ID, id), eq(STATUS, "PAUSED")),
                 combine(
-                    set("status", target.name()),
-                    set("paused_from_status", null),
-                    set("updated_at", DocumentMapper.toDate(Instant.now())),
-                    inc("version", 1)));
+                    set(STATUS, target.name()),
+                    set(PAUSED_FROM_STATUS, null),
+                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                    inc(VERSION, 1)));
     return result.getModifiedCount() > 0;
   }
 
@@ -809,22 +807,23 @@ class MongoJobStoreImpl implements MongoJobStore {
     Document before =
         jobs()
             .findOneAndUpdate(
-                and(eq("_id", id), eq("status", "PAUSED")),
+                and(eq(ID, id), eq(STATUS, "PAUSED")),
                 List.of(
                     new Document(
                         "$set",
                         new Document()
                             .append(
-                                "status",
-                                new Document("$ifNull", List.of("$paused_from_status", "PENDING")))
-                            .append("paused_from_status", null)
-                            .append("updated_at", new Date())
-                            .append("version", new Document("$add", List.of("$version", 1))))),
+                                STATUS,
+                                new Document(
+                                    "$ifNull", List.of("$" + PAUSED_FROM_STATUS, "PENDING")))
+                            .append(PAUSED_FROM_STATUS, null)
+                            .append(UPDATED_AT, new Date())
+                            .append(VERSION, new Document("$add", List.of("$" + VERSION, 1))))),
                 new FindOneAndUpdateOptions().returnDocument(ReturnDocument.BEFORE));
     if (before == null) {
       return null;
     }
-    String pausedFrom = before.getString("paused_from_status");
+    String pausedFrom = before.getString(PAUSED_FROM_STATUS);
     return pausedFrom != null ? JobStatus.valueOf(pausedFrom) : JobStatus.PENDING;
   }
 
@@ -856,7 +855,7 @@ class MongoJobStoreImpl implements MongoJobStore {
     if (ids.isEmpty()) {
       return 0;
     }
-    DeleteResult result = jobs().deleteMany(in("_id", ids));
+    DeleteResult result = jobs().deleteMany(in(ID, ids));
     return (int) result.getDeletedCount();
   }
 
@@ -866,10 +865,10 @@ class MongoJobStoreImpl implements MongoJobStore {
         jobs()
             .deleteMany(
                 and(
-                    eq("status", "FAILED"),
+                    eq(STATUS, "FAILED"),
                     new Document(
-                        "$expr", new Document("$gte", List.of("$attempts", "$max_retries"))),
-                    lt("updated_at", DocumentMapper.toDate(cutoff))));
+                        "$expr", new Document("$gte", List.of("$" + ATTEMPTS, "$" + MAX_RETRIES))),
+                    lt(UPDATED_AT, DocumentMapper.toDate(cutoff))));
     return (int) result.getDeletedCount();
   }
 
@@ -880,17 +879,16 @@ class MongoJobStoreImpl implements MongoJobStore {
 
     // Find active node IDs
     List<String> activeNodeIds = new ArrayList<>();
-    for (Document doc : nodes().find(gte("heartbeat_ts", cutoff))) {
-      activeNodeIds.add(doc.getString("_id"));
+    for (Document doc : nodes().find(gte(HEARTBEAT_TS, cutoff))) {
+      activeNodeIds.add(doc.getString(ID));
     }
 
     Bson filter;
     if (activeNodeIds.isEmpty()) {
       // All nodes are inactive — reset all running jobs past grace
-      filter = and(eq("status", "RUNNING"), lt("picked_at", cutoff));
+      filter = and(eq(STATUS, "RUNNING"), lt(PICKED_AT, cutoff));
     } else {
-      filter =
-          and(eq("status", "RUNNING"), nin("picked_by", activeNodeIds), lt("picked_at", cutoff));
+      filter = and(eq(STATUS, "RUNNING"), nin(PICKED_BY, activeNodeIds), lt(PICKED_AT, cutoff));
     }
 
     UpdateResult result =
@@ -898,11 +896,11 @@ class MongoJobStoreImpl implements MongoJobStore {
             .updateMany(
                 filter,
                 combine(
-                    set("status", "PENDING"),
-                    set("picked_by", null),
-                    set("picked_at", null),
-                    set("updated_at", DocumentMapper.toDate(Instant.now())),
-                    inc("version", 1)));
+                    set(STATUS, "PENDING"),
+                    set(PICKED_BY, null),
+                    set(PICKED_AT, null),
+                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                    inc(VERSION, 1)));
     return (int) result.getModifiedCount();
   }
 
@@ -911,26 +909,26 @@ class MongoJobStoreImpl implements MongoJobStore {
     UpdateResult result =
         jobs()
             .updateMany(
-                and(eq("status", "RUNNING"), eq("picked_by", nodeId)),
+                and(eq(STATUS, "RUNNING"), eq(PICKED_BY, nodeId)),
                 combine(
-                    set("status", "PENDING"),
-                    set("picked_by", null),
-                    set("picked_at", null),
-                    set("updated_at", DocumentMapper.toDate(Instant.now())),
-                    inc("version", 1)));
+                    set(STATUS, "PENDING"),
+                    set(PICKED_BY, null),
+                    set(PICKED_AT, null),
+                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                    inc(VERSION, 1)));
     return (int) result.getModifiedCount();
   }
 
   @Override
   public BatchEntity saveBatch(BatchEntity batch) {
     Document doc = DocumentMapper.toDocument(batch);
-    batches().replaceOne(eq("_id", batch.getId()), doc, new ReplaceOptions().upsert(true));
+    batches().replaceOne(eq(ID, batch.getId()), doc, new ReplaceOptions().upsert(true));
     return batch;
   }
 
   @Override
   public Optional<BatchEntity> findBatchById(long batchId) {
-    Document doc = batches().find(eq("_id", batchId)).first();
+    Document doc = batches().find(eq(ID, batchId)).first();
     return doc == null ? Optional.empty() : Optional.of(DocumentMapper.toBatchEntity(doc));
   }
 
@@ -940,7 +938,7 @@ class MongoJobStoreImpl implements MongoJobStore {
       return List.of();
     }
     List<BatchEntity> result = new ArrayList<>();
-    for (Document doc : batches().find(in("_id", batchIds))) {
+    for (Document doc : batches().find(in(ID, batchIds))) {
       result.add(DocumentMapper.toBatchEntity(doc));
     }
     return result;
@@ -951,8 +949,8 @@ class MongoJobStoreImpl implements MongoJobStore {
     Document doc =
         batches()
             .findOneAndUpdate(
-                eq("_id", batchId),
-                inc("completed_items", 1),
+                eq(ID, batchId),
+                inc(COMPLETED_ITEMS, 1),
                 new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
     if (doc == null) {
       throw new IllegalStateException("Batch not found: " + batchId);
@@ -965,8 +963,8 @@ class MongoJobStoreImpl implements MongoJobStore {
     Document doc =
         batches()
             .findOneAndUpdate(
-                eq("_id", batchId),
-                inc("failed_items", 1),
+                eq(ID, batchId),
+                inc(FAILED_ITEMS, 1),
                 new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
     if (doc == null) {
       throw new IllegalStateException("Batch not found: " + batchId);
@@ -980,16 +978,17 @@ class MongoJobStoreImpl implements MongoJobStore {
         batches()
             .updateOne(
                 and(
-                    eq("_id", batchId),
-                    eq("completion_processed", false),
+                    eq(ID, batchId),
+                    eq(COMPLETION_PROCESSED, false),
                     new Document(
                         "$expr",
                         new Document(
                             "$gte",
                             List.of(
-                                new Document("$add", List.of("$completed_items", "$failed_items")),
-                                "$total_items")))),
-                set("completion_processed", true));
+                                new Document(
+                                    "$add", List.of("$" + COMPLETED_ITEMS, "$" + FAILED_ITEMS)),
+                                "$" + TOTAL_ITEMS)))),
+                set(COMPLETION_PROCESSED, true));
     return result.getModifiedCount() > 0;
   }
 
@@ -1000,25 +999,26 @@ class MongoJobStoreImpl implements MongoJobStore {
         batches()
             .find(
                 and(
-                    eq("completion_processed", false),
+                    eq(COMPLETION_PROCESSED, false),
                     new Document(
                         "$expr",
                         new Document(
                             "$gte",
                             List.of(
-                                new Document("$add", List.of("$completed_items", "$failed_items")),
-                                "$total_items")))))
-            .projection(new Document("_id", 1))
+                                new Document(
+                                    "$add", List.of("$" + COMPLETED_ITEMS, "$" + FAILED_ITEMS)),
+                                "$" + TOTAL_ITEMS)))))
+            .projection(new Document(ID, 1))
             .limit(limit);
     for (Document doc : results) {
-      ids.add(doc.getLong("_id"));
+      ids.add(doc.getLong(ID));
     }
     return ids;
   }
 
   @Override
   public boolean updateBatchTotalItems(long batchId, int totalItems) {
-    UpdateResult result = batches().updateOne(eq("_id", batchId), set("total_items", totalItems));
+    UpdateResult result = batches().updateOne(eq(ID, batchId), set(TOTAL_ITEMS, totalItems));
     return result.getModifiedCount() > 0;
   }
 
@@ -1032,16 +1032,16 @@ class MongoJobStoreImpl implements MongoJobStore {
       Document result =
           locks()
               .findOneAndUpdate(
-                  and(eq("_id", name), lt("expires_at", now)),
+                  and(eq(ID, name), lt(EXPIRES_AT, now)),
                   combine(
-                      set("owner_node", nodeId),
-                      set("locked_at", now),
-                      set("expires_at", expiresAt),
-                      setOnInsert("_id", name)),
+                      set(OWNER_NODE, nodeId),
+                      set(LOCKED_AT, now),
+                      set(EXPIRES_AT, expiresAt),
+                      setOnInsert(ID, name)),
                   new FindOneAndUpdateOptions().upsert(true).returnDocument(ReturnDocument.AFTER));
 
       // If we got a result with our nodeId, the lock was acquired (insert or expired-update)
-      return result != null && nodeId.equals(result.getString("owner_node"));
+      return result != null && nodeId.equals(result.getString(OWNER_NODE));
     } catch (MongoCommandException e) {
       // 11000 = duplicate key (lock already held)
       if (e.getErrorCode() == 11000) {
@@ -1053,16 +1053,14 @@ class MongoJobStoreImpl implements MongoJobStore {
 
   @Override
   public void unlock(String name, String nodeId) {
-    locks().deleteOne(and(eq("_id", name), eq("owner_node", nodeId)));
+    locks().deleteOne(and(eq(ID, name), eq(OWNER_NODE, nodeId)));
   }
 
   @Override
   public boolean renewLock(String name, Duration extension, String nodeId) {
     Date newExpiry = DocumentMapper.toDate(Instant.now().plus(extension));
     UpdateResult result =
-        locks()
-            .updateOne(
-                and(eq("_id", name), eq("owner_node", nodeId)), set("expires_at", newExpiry));
+        locks().updateOne(and(eq(ID, name), eq(OWNER_NODE, nodeId)), set(EXPIRES_AT, newExpiry));
     return result.getModifiedCount() > 0;
   }
 
@@ -1071,21 +1069,21 @@ class MongoJobStoreImpl implements MongoJobStore {
     Date tsDate = DocumentMapper.toDate(ts);
     nodes()
         .updateOne(
-            eq("_id", nodeId),
-            combine(set("heartbeat_ts", tsDate), setOnInsert("started_at", tsDate)),
+            eq(ID, nodeId),
+            combine(set(HEARTBEAT_TS, tsDate), setOnInsert(STARTED_AT, tsDate)),
             new UpdateOptions().upsert(true));
   }
 
   @Override
   public Optional<NodeEntity> findNodeById(String nodeId) {
-    Document doc = nodes().find(eq("_id", nodeId)).first();
+    Document doc = nodes().find(eq(ID, nodeId)).first();
     return doc == null ? Optional.empty() : Optional.of(DocumentMapper.toNodeEntity(doc));
   }
 
   @Override
   public List<NodeEntity> findInactiveNodesSince(Instant cutoff) {
     List<NodeEntity> results = new ArrayList<>();
-    for (Document doc : nodes().find(lt("heartbeat_ts", DocumentMapper.toDate(cutoff)))) {
+    for (Document doc : nodes().find(lt(HEARTBEAT_TS, DocumentMapper.toDate(cutoff)))) {
       results.add(DocumentMapper.toNodeEntity(doc));
     }
     return results;
@@ -1093,7 +1091,7 @@ class MongoJobStoreImpl implements MongoJobStore {
 
   @Override
   public int deleteInactiveNodesSince(Instant cutoff) {
-    DeleteResult result = nodes().deleteMany(lt("heartbeat_ts", DocumentMapper.toDate(cutoff)));
+    DeleteResult result = nodes().deleteMany(lt(HEARTBEAT_TS, DocumentMapper.toDate(cutoff)));
     return (int) result.getDeletedCount();
   }
 
@@ -1135,9 +1133,9 @@ class MongoJobStoreImpl implements MongoJobStore {
         jobs()
             .find(
                 and(
-                    in("status", TERMINAL_STATUSES),
-                    lt("updated_at", DocumentMapper.toDate(olderThan))))
-            .sort(ascending("updated_at"))
+                    in(STATUS, TERMINAL_STATUSES),
+                    lt(UPDATED_AT, DocumentMapper.toDate(olderThan))))
+            .sort(ascending(UPDATED_AT))
             .limit(limit)) {
       results.add(DocumentMapper.toJobEntity(doc));
     }
@@ -1148,9 +1146,7 @@ class MongoJobStoreImpl implements MongoJobStore {
   public long countJobsForArchiving(Instant olderThan) {
     return jobs()
         .countDocuments(
-            and(
-                in("status", TERMINAL_STATUSES),
-                lt("updated_at", DocumentMapper.toDate(olderThan))));
+            and(in(STATUS, TERMINAL_STATUSES), lt(UPDATED_AT, DocumentMapper.toDate(olderThan))));
   }
 
   @Override
@@ -1158,21 +1154,21 @@ class MongoJobStoreImpl implements MongoJobStore {
       String targetClass, String businessKey, Instant from, Instant to, int limit) {
     List<Bson> filters = new ArrayList<>();
     if (targetClass != null) {
-      filters.add(eq("target_class", targetClass));
+      filters.add(eq(TARGET_CLASS, targetClass));
     }
     if (businessKey != null) {
-      filters.add(eq("business_key", businessKey));
+      filters.add(eq(BUSINESS_KEY, businessKey));
     }
     if (from != null) {
-      filters.add(gte("archived_at", DocumentMapper.toDate(from)));
+      filters.add(gte(ARCHIVED_AT, DocumentMapper.toDate(from)));
     }
     if (to != null) {
-      filters.add(lte("archived_at", DocumentMapper.toDate(to)));
+      filters.add(lte(ARCHIVED_AT, DocumentMapper.toDate(to)));
     }
 
     Bson filter = filters.isEmpty() ? new Document() : and(filters);
     List<ArchivedJobEntity> results = new ArrayList<>();
-    for (Document doc : archives().find(filter).sort(descending("archived_at")).limit(limit)) {
+    for (Document doc : archives().find(filter).sort(descending(ARCHIVED_AT)).limit(limit)) {
       results.add(DocumentMapper.toArchivedJobEntity(doc));
     }
     return results;
@@ -1180,8 +1176,7 @@ class MongoJobStoreImpl implements MongoJobStore {
 
   @Override
   public int purgeArchivedJobs(Instant olderThan) {
-    DeleteResult result =
-        archives().deleteMany(lt("archived_at", DocumentMapper.toDate(olderThan)));
+    DeleteResult result = archives().deleteMany(lt(ARCHIVED_AT, DocumentMapper.toDate(olderThan)));
     return (int) result.getDeletedCount();
   }
 
@@ -1191,14 +1186,14 @@ class MongoJobStoreImpl implements MongoJobStore {
       execution.setId(TsidFactory.next());
     }
     Document doc = DocumentMapper.toDocument(execution);
-    executions().replaceOne(eq("_id", execution.getId()), doc, new ReplaceOptions().upsert(true));
+    executions().replaceOne(eq(ID, execution.getId()), doc, new ReplaceOptions().upsert(true));
     return execution;
   }
 
   @Override
   public List<JobExecutionEntity> findExecutionsByJobId(long jobId) {
     List<JobExecutionEntity> results = new ArrayList<>();
-    for (Document doc : executions().find(eq("job_id", jobId)).sort(ascending("attempt"))) {
+    for (Document doc : executions().find(eq(JOB_ID, jobId)).sort(ascending(ATTEMPT))) {
       results.add(DocumentMapper.toJobExecutionEntity(doc));
     }
     return results;
@@ -1206,14 +1201,13 @@ class MongoJobStoreImpl implements MongoJobStore {
 
   @Override
   public Optional<JobExecutionEntity> findLatestExecution(long jobId) {
-    Document doc =
-        executions().find(eq("job_id", jobId)).sort(descending("attempt")).limit(1).first();
+    Document doc = executions().find(eq(JOB_ID, jobId)).sort(descending(ATTEMPT)).limit(1).first();
     return doc == null ? Optional.empty() : Optional.of(DocumentMapper.toJobExecutionEntity(doc));
   }
 
   @Override
   public int countExecutionAttempts(long jobId) {
-    return (int) executions().countDocuments(eq("job_id", jobId));
+    return (int) executions().countDocuments(eq(JOB_ID, jobId));
   }
 
   @Override
@@ -1227,7 +1221,7 @@ class MongoJobStoreImpl implements MongoJobStore {
 
   @Override
   public int purgeLogsOlderThan(Instant cutoff) {
-    DeleteResult result = jobLogs().deleteMany(lt("ts", DocumentMapper.toDate(cutoff)));
+    DeleteResult result = jobLogs().deleteMany(lt(TS, DocumentMapper.toDate(cutoff)));
     return (int) result.getDeletedCount();
   }
 
@@ -1239,8 +1233,8 @@ class MongoJobStoreImpl implements MongoJobStore {
     // Tags are embedded in job document — use $addToSet with $each
     jobs()
         .updateOne(
-            eq("_id", jobId),
-            new Document("$addToSet", new Document("tags", new Document("$each", tags))));
+            eq(ID, jobId),
+            new Document("$addToSet", new Document(TAGS, new Document("$each", tags))));
   }
 
   @Override
@@ -1248,13 +1242,13 @@ class MongoJobStoreImpl implements MongoJobStore {
     Document before =
         jobs()
             .findOneAndUpdate(
-                eq("_id", jobId),
-                set("tags", List.of()),
+                eq(ID, jobId),
+                set(TAGS, List.of()),
                 new FindOneAndUpdateOptions().returnDocument(ReturnDocument.BEFORE));
     if (before == null) {
       return 0;
     }
-    List<String> oldTags = before.getList("tags", String.class);
+    List<String> oldTags = before.getList(TAGS, String.class);
     return oldTags == null ? 0 : oldTags.size();
   }
 
@@ -1263,12 +1257,12 @@ class MongoJobStoreImpl implements MongoJobStore {
     List<Long> ids = new ArrayList<>();
     for (Document doc :
         jobs()
-            .find(eq("tags", tag))
-            .projection(new Document("_id", 1))
-            .sort(ascending("_id"))
+            .find(eq(TAGS, tag))
+            .projection(new Document(ID, 1))
+            .sort(ascending(ID))
             .skip(offset)
             .limit(limit)) {
-      ids.add(doc.getLong("_id"));
+      ids.add(doc.getLong(ID));
     }
     return ids;
   }
@@ -1280,12 +1274,12 @@ class MongoJobStoreImpl implements MongoJobStore {
         jobs()
             .aggregate(
                 List.of(
-                    new Document("$match", new Document("tags", tag)),
+                    new Document("$match", new Document(TAGS, tag)),
                     new Document(
                         "$group",
-                        new Document("_id", "$status").append("count", new Document("$sum", 1L))),
-                    new Document("$sort", new Document("_id", 1))))) {
-      String status = doc.getString("_id");
+                        new Document(ID, "$" + STATUS).append("count", new Document("$sum", 1L))),
+                    new Document("$sort", new Document(ID, 1))))) {
+      String status = doc.getString(ID);
       if (status != null) {
         counts.put(JobStatus.valueOf(status), ((Number) doc.get("count")).longValue());
       }
@@ -1301,7 +1295,7 @@ class MongoJobStoreImpl implements MongoJobStore {
 
   @Override
   public Map<String, Long> countJobsByExecutionNodeForTag(String tag) {
-    return aggregateStringCountsByTag(tag, "$picked_by");
+    return aggregateStringCountsByTag(tag, "$" + PICKED_BY);
   }
 
   @Override
@@ -1314,13 +1308,13 @@ class MongoJobStoreImpl implements MongoJobStore {
     }
     Document doc = DocumentMapper.toDocument(condition);
     workflowConditions()
-        .replaceOne(eq("_id", condition.getId()), doc, new ReplaceOptions().upsert(true));
+        .replaceOne(eq(ID, condition.getId()), doc, new ReplaceOptions().upsert(true));
     return condition;
   }
 
   @Override
   public WorkflowConditionEntity findConditionById(long id) {
-    Document doc = workflowConditions().find(eq("_id", id)).first();
+    Document doc = workflowConditions().find(eq(ID, id)).first();
     return doc == null ? null : DocumentMapper.toWorkflowConditionEntity(doc);
   }
 
@@ -1329,8 +1323,8 @@ class MongoJobStoreImpl implements MongoJobStore {
     List<WorkflowConditionEntity> results = new ArrayList<>();
     for (Document doc :
         workflowConditions()
-            .find(eq("parent_job_id", parentJobId))
-            .sort(ascending("condition_priority"))) {
+            .find(eq(PARENT_JOB_ID, parentJobId))
+            .sort(ascending(CONDITION_PRIORITY))) {
       results.add(DocumentMapper.toWorkflowConditionEntity(doc));
     }
     return results;
@@ -1339,7 +1333,7 @@ class MongoJobStoreImpl implements MongoJobStore {
   @Override
   public List<WorkflowConditionEntity> findConditionsByChildJobId(long childJobId) {
     List<WorkflowConditionEntity> results = new ArrayList<>();
-    for (Document doc : workflowConditions().find(eq("child_job_id", childJobId))) {
+    for (Document doc : workflowConditions().find(eq(CHILD_JOB_ID, childJobId))) {
       results.add(DocumentMapper.toWorkflowConditionEntity(doc));
     }
     return results;
@@ -1351,7 +1345,7 @@ class MongoJobStoreImpl implements MongoJobStore {
     List<WorkflowConditionEntity> results = new ArrayList<>();
     for (Document doc :
         workflowConditions()
-            .find(and(eq("parent_job_id", parentJobId), eq("condition_type", type.name())))) {
+            .find(and(eq(PARENT_JOB_ID, parentJobId), eq(CONDITION_TYPE, type.name())))) {
       results.add(DocumentMapper.toWorkflowConditionEntity(doc));
     }
     return results;
@@ -1359,35 +1353,34 @@ class MongoJobStoreImpl implements MongoJobStore {
 
   @Override
   public void deleteConditionById(long id) {
-    workflowConditions().deleteOne(eq("_id", id));
+    workflowConditions().deleteOne(eq(ID, id));
   }
 
   @Override
   public void deleteConditionsByParentJobId(long parentJobId) {
-    workflowConditions().deleteMany(eq("parent_job_id", parentJobId));
+    workflowConditions().deleteMany(eq(PARENT_JOB_ID, parentJobId));
   }
 
   @Override
   public void deleteConditionsByChildJobId(long childJobId) {
-    workflowConditions().deleteMany(eq("child_job_id", childJobId));
+    workflowConditions().deleteMany(eq(CHILD_JOB_ID, childJobId));
   }
 
   @Override
   public long countConditionsByParentJobId(long parentJobId) {
-    return workflowConditions().countDocuments(eq("parent_job_id", parentJobId));
+    return workflowConditions().countDocuments(eq(PARENT_JOB_ID, parentJobId));
   }
 
   @Override
   public BatchMetricsEntity saveBatchMetrics(BatchMetricsEntity metrics) {
     Document doc = DocumentMapper.toDocument(metrics);
-    batchMetrics()
-        .replaceOne(eq("_id", metrics.getBatchId()), doc, new ReplaceOptions().upsert(true));
+    batchMetrics().replaceOne(eq(ID, metrics.getBatchId()), doc, new ReplaceOptions().upsert(true));
     return metrics;
   }
 
   @Override
   public Optional<BatchMetricsEntity> findBatchMetrics(long batchId) {
-    Document doc = batchMetrics().find(eq("_id", batchId)).first();
+    Document doc = batchMetrics().find(eq(ID, batchId)).first();
     return doc == null ? Optional.empty() : Optional.of(DocumentMapper.toBatchMetricsEntity(doc));
   }
 
@@ -1395,19 +1388,18 @@ class MongoJobStoreImpl implements MongoJobStore {
   public void addChildExecutionTime(long batchId, long durationMs) {
     batchMetrics()
         .updateOne(
-            eq("_id", batchId),
-            combine(inc("child_execution_ms", durationMs), inc("success_count", 1)));
+            eq(ID, batchId), combine(inc(CHILD_EXECUTION_MS, durationMs), inc(SUCCESS_COUNT, 1)));
   }
 
   @Override
   public void finalizeBatchMetrics(long batchId) {
-    Document doc = batchMetrics().find(eq("_id", batchId)).first();
+    Document doc = batchMetrics().find(eq(ID, batchId)).first();
     if (doc == null) {
       return;
     }
     Instant now = Instant.now();
-    Date startedAt = doc.getDate("started_at");
-    Long childExecutionMs = doc.getLong("child_execution_ms");
+    Date startedAt = doc.getDate(STARTED_AT);
+    Long childExecutionMs = doc.getLong(CHILD_EXECUTION_MS);
 
     Long totalDurationMs = null;
     Long overheadMs = null;
@@ -1420,16 +1412,16 @@ class MongoJobStoreImpl implements MongoJobStore {
 
     batchMetrics()
         .updateOne(
-            eq("_id", batchId),
+            eq(ID, batchId),
             combine(
-                set("completed_at", DocumentMapper.toDate(now)),
-                set("total_duration_ms", totalDurationMs),
-                set("overhead_ms", overheadMs)));
+                set(COMPLETED_AT, DocumentMapper.toDate(now)),
+                set(TOTAL_DURATION_MS, totalDurationMs),
+                set(OVERHEAD_MS, overheadMs)));
   }
 
   @Override
   public void updateBatchMetricsChildCount(long batchId, int childCount) {
-    batchMetrics().updateOne(eq("_id", batchId), set("child_count", childCount));
+    batchMetrics().updateOne(eq(ID, batchId), set(CHILD_COUNT, childCount));
   }
 
   @Override
@@ -1438,7 +1430,7 @@ class MongoJobStoreImpl implements MongoJobStore {
       alert.setId(TsidFactory.next());
     }
     Document doc = DocumentMapper.toDocument(alert);
-    dlqAlerts().replaceOne(eq("_id", alert.getId()), doc, new ReplaceOptions().upsert(true));
+    dlqAlerts().replaceOne(eq(ID, alert.getId()), doc, new ReplaceOptions().upsert(true));
     return alert;
   }
 
@@ -1447,9 +1439,9 @@ class MongoJobStoreImpl implements MongoJobStore {
     return dlqAlerts()
             .countDocuments(
                 and(
-                    eq("job_id", jobId),
-                    eq("error_hash", errorHash),
-                    gte("alert_sent_at", DocumentMapper.toDate(cutoff))))
+                    eq(JOB_ID, jobId),
+                    eq(ERROR_HASH, errorHash),
+                    gte(ALERT_SENT_AT, DocumentMapper.toDate(cutoff))))
         > 0;
   }
 
@@ -1461,14 +1453,14 @@ class MongoJobStoreImpl implements MongoJobStore {
         resourceLimits()
             .findOneAndUpdate(
                 and(
-                    eq("_id", resource),
+                    eq(ID, resource),
                     expr(
                         new Document(
                             "$lt",
                             List.of(
-                                new Document("$ifNull", List.of("$active_count", 0)),
-                                "$max_concurrent")))),
-                inc("active_count", 1),
+                                new Document("$ifNull", List.of("$" + ACTIVE_COUNT, 0)),
+                                "$" + MAX_CONCURRENT)))),
+                inc(ACTIVE_COUNT, 1),
                 new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
 
     if (result == null) {
@@ -1484,9 +1476,9 @@ class MongoJobStoreImpl implements MongoJobStore {
   @Override
   public void releasePermit(String resource, long jobId) {
     DeleteResult dr =
-        resourcePermits().deleteOne(and(eq("resource_name", resource), eq("job_id", jobId)));
+        resourcePermits().deleteOne(and(eq(RESOURCE_NAME, resource), eq(JOB_ID, jobId)));
     if (dr.getDeletedCount() > 0) {
-      resourceLimits().updateOne(eq("_id", resource), inc("active_count", -1));
+      resourceLimits().updateOne(eq(ID, resource), inc(ACTIVE_COUNT, -1));
     }
   }
 
@@ -1494,23 +1486,23 @@ class MongoJobStoreImpl implements MongoJobStore {
   public void releaseAllPermits(long jobId) {
     List<String> resources = new ArrayList<>();
     resourcePermits()
-        .find(eq("job_id", jobId))
-        .forEach(doc -> resources.add(doc.getString("resource_name")));
-    DeleteResult dr = resourcePermits().deleteMany(eq("job_id", jobId));
+        .find(eq(JOB_ID, jobId))
+        .forEach(doc -> resources.add(doc.getString(RESOURCE_NAME)));
+    DeleteResult dr = resourcePermits().deleteMany(eq(JOB_ID, jobId));
     if (dr.getDeletedCount() > 0) {
       for (String resource : resources) {
-        resourceLimits().updateOne(eq("_id", resource), inc("active_count", -1));
+        resourceLimits().updateOne(eq(ID, resource), inc(ACTIVE_COUNT, -1));
       }
     }
   }
 
   @Override
   public int getPermitRetryDelay(String resource) {
-    Document doc = resourceLimits().find(eq("_id", resource)).first();
+    Document doc = resourceLimits().find(eq(ID, resource)).first();
     if (doc == null) {
       return 5000;
     }
-    return doc.getInteger("retry_delay_ms", 5000);
+    return doc.getInteger(RETRY_DELAY_MS, 5000);
   }
 
   @Override
@@ -1519,14 +1511,14 @@ class MongoJobStoreImpl implements MongoJobStore {
     Instant now = Instant.now();
     resourceLimits()
         .updateOne(
-            eq("_id", name),
+            eq(ID, name),
             combine(
-                set("max_concurrent", maxConcurrent),
-                set("retry_delay_ms", retryDelayMs),
-                set("description", description),
-                set("updated_at", DocumentMapper.toDate(now)),
-                setOnInsert("created_at", DocumentMapper.toDate(now)),
-                setOnInsert("active_count", 0)),
+                set(MAX_CONCURRENT, maxConcurrent),
+                set(RETRY_DELAY_MS, retryDelayMs),
+                set(DESCRIPTION, description),
+                set(UPDATED_AT, DocumentMapper.toDate(now)),
+                setOnInsert(CREATED_AT, DocumentMapper.toDate(now)),
+                setOnInsert(ACTIVE_COUNT, 0)),
             new UpdateOptions().upsert(true));
   }
 
@@ -1536,18 +1528,18 @@ class MongoJobStoreImpl implements MongoJobStore {
       return 0;
     }
     List<Document> orphanedPermits = new ArrayList<>();
-    resourcePermits().find(in("node_id", staleNodeIds)).forEach(orphanedPermits::add);
-    DeleteResult result = resourcePermits().deleteMany(in("node_id", staleNodeIds));
+    resourcePermits().find(in(NODE_ID, staleNodeIds)).forEach(orphanedPermits::add);
+    DeleteResult result = resourcePermits().deleteMany(in(NODE_ID, staleNodeIds));
     orphanedPermits.stream()
-        .map(doc -> doc.getString("resource_name"))
+        .map(doc -> doc.getString(RESOURCE_NAME))
         .distinct()
         .forEach(
             resource -> {
               long count =
                   orphanedPermits.stream()
-                      .filter(doc -> resource.equals(doc.getString("resource_name")))
+                      .filter(doc -> resource.equals(doc.getString(RESOURCE_NAME)))
                       .count();
-              resourceLimits().updateOne(eq("_id", resource), inc("active_count", (int) -count));
+              resourceLimits().updateOne(eq(ID, resource), inc(ACTIVE_COUNT, (int) -count));
             });
     return (int) result.getDeletedCount();
   }
@@ -1629,38 +1621,38 @@ class MongoJobStoreImpl implements MongoJobStore {
     Bson match =
         new Document(
             "$match",
-            new Document("status", "PENDING")
-                .append("job_type", new Document("$in", jobTypes))
+            new Document(STATUS, "PENDING")
+                .append(JOB_TYPE, new Document("$in", jobTypes))
                 .append(timeColumn, new Document("$lte", now)));
     Bson project =
         new Document(
             "$project",
-            new Document("_id", 1)
+            new Document(ID, 1)
                 .append(timeColumn, 1)
                 .append("effective_priority", effectivePriorityExpression(timeColumn, now)));
     Bson sort =
         new Document(
-            "$sort", new Document("effective_priority", -1).append(timeColumn, 1).append("_id", 1));
+            "$sort", new Document("effective_priority", -1).append(timeColumn, 1).append(ID, 1));
     Bson batchLimit = new Document("$limit", limit);
 
     var query = jobs().aggregate(List.of(match, project, sort, batchLimit)).allowDiskUse(true);
 
-    if ("next_fire".equals(timeColumn)) {
-      query.hintString("idx_job_claim_recurring");
+    if (NEXT_FIRE.equals(timeColumn)) {
+      query.hintString(MongoIndexHints.JOB_CLAIM_RECURRING);
     } else {
-      query.hintString("idx_job_claim_exec");
+      query.hintString(MongoIndexHints.JOB_CLAIM_EXEC);
     }
 
     List<Long> ids = new ArrayList<>(limit);
     for (Document doc : query) {
-      ids.add(doc.getLong("_id"));
+      ids.add(doc.getLong(ID));
     }
     return ids;
   }
 
   private Object effectivePriorityExpression(String timeColumn, Date now) {
     Object priorityExpression =
-        new Document("$ifNull", List.of("$priority", JobPriority.NORMAL.ordinal()));
+        new Document("$ifNull", List.of("$" + PRIORITY, JobPriority.NORMAL.ordinal()));
     int priorityBoostInterval = options.store().priorityBoostIntervalMinutes();
     if (priorityBoostInterval <= 0) {
       return priorityExpression;
@@ -1690,13 +1682,13 @@ class MongoJobStoreImpl implements MongoJobStore {
                         () ->
                             jobs()
                                 .findOneAndUpdate(
-                                    and(eq("_id", id), eq("status", "PENDING")),
+                                    and(eq(ID, id), eq(STATUS, "PENDING")),
                                     combine(
-                                        set("status", "RUNNING"),
-                                        set("picked_by", nodeId),
-                                        set("picked_at", nowDate),
-                                        set("updated_at", nowDate),
-                                        inc("version", 1)),
+                                        set(STATUS, "RUNNING"),
+                                        set(PICKED_BY, nodeId),
+                                        set(PICKED_AT, nowDate),
+                                        set(UPDATED_AT, nowDate),
+                                        inc(VERSION, 1)),
                                     opts),
                         claimExecutor))
             .toList();
@@ -1721,13 +1713,13 @@ class MongoJobStoreImpl implements MongoJobStore {
         jobs()
             .aggregate(
                 List.of(
-                    new Document("$match", new Document("tags", tag)),
+                    new Document("$match", new Document(TAGS, tag)),
                     new Document(
                         "$group",
-                        new Document("_id", groupExpression)
+                        new Document(ID, groupExpression)
                             .append("count", new Document("$sum", 1L))),
-                    new Document("$sort", new Document("_id", 1))))) {
-      Object keyValue = doc.get("_id");
+                    new Document("$sort", new Document(ID, 1))))) {
+      Object keyValue = doc.get(ID);
       if (!(keyValue instanceof String key) || key.isBlank()) {
         continue;
       }
