@@ -5,10 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.WorkflowCondition;
-import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
-import run.ratchet.store.converter.JobPayloadConverter;
-import run.ratchet.store.converter.JsonMapConverter;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.ArchivedJobEntity;
@@ -34,7 +31,6 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
-import jakarta.persistence.OptimisticLockException;
 import jakarta.persistence.Query;
 import jakarta.transaction.Transactional;
 import java.sql.Timestamp;
@@ -61,21 +57,20 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
 
   private static final Logger log = Logger.getLogger(PostgresqlJobStoreImpl.class);
   private static final ObjectMapper OBJECT_MAPPER = ObjectMapperFactory.get();
-  private static final JobPayloadConverter JOB_PAYLOAD_CONVERTER = new JobPayloadConverter();
-  private static final JsonMapConverter JSON_MAP_CONVERTER = new JsonMapConverter();
   private static final PostgresqlConstraintDetector CONSTRAINT_DETECTOR =
       new PostgresqlConstraintDetector();
   private static final String EXECUTABLE_JOB_TYPE_FILTER =
       "job_type IN ('SINGLE','BATCH_CHILD','CHAIN_STEP','WORKFLOW_BRANCH')";
   private static final String RECURRING_JOB_TYPE_FILTER = "job_type = 'RECURRING'";
-  private static final String OWNER_TABLE_QUEUE = "QUEUE";
-  private static final String OWNER_TABLE_RECURRING = "RECURRING";
 
   private final RatchetEntityManagerProvider entityManagerProvider;
   private final RatchetOptions options;
   private EntityManager em;
 
+  private PostgresqlStoreContext ctx;
+  private PostgresqlBusinessKeyReservations reservations;
   private PostgresqlTagOperations tags;
+  private PostgresqlJobCrudOperations jobs;
 
   /** No-arg constructor required by CDI normal-scope proxying. Not for direct use. */
   protected PostgresqlJobStoreImpl() {
@@ -157,37 +152,6 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
         + returningClause;
   }
 
-  private static boolean isPollerExecutable(JobExecutionType jobType) {
-    return jobType == JobExecutionType.SINGLE
-        || jobType == JobExecutionType.BATCH_CHILD
-        || jobType == JobExecutionType.CHAIN_STEP
-        || jobType == JobExecutionType.WORKFLOW_BRANCH;
-  }
-
-  private static boolean isLiveStatus(JobStatus status) {
-    return status == JobStatus.PENDING || status == JobStatus.RUNNING || status == JobStatus.PAUSED;
-  }
-
-  private static boolean isTerminalStatus(JobStatus status) {
-    return status == JobStatus.SUCCEEDED
-        || status == JobStatus.FAILED
-        || status == JobStatus.CANCELED;
-  }
-
-  private static JobStatus effectiveStatus(JobStatus status) {
-    return status == null ? JobStatus.PENDING : status;
-  }
-
-  private static String ownerTableFor(JobExecutionType jobType) {
-    return jobType == JobExecutionType.RECURRING ? OWNER_TABLE_RECURRING : OWNER_TABLE_QUEUE;
-  }
-
-  private static String ownerTableFor(String jobType) {
-    return JobExecutionType.RECURRING.name().equals(jobType)
-        ? OWNER_TABLE_RECURRING
-        : OWNER_TABLE_QUEUE;
-  }
-
   @Override
   public List<JobEntity> claimNextBatch(int limit, String nodeId) {
     try {
@@ -214,7 +178,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   @Override
   public List<JobClaimDto> claimNextBatchOptimized(
       JobExecutionType jobType, int limit, String nodeId) {
-    if (limit <= 0 || !isPollerExecutable(jobType)) {
+    if (limit <= 0 || !PostgresqlStoreContext.isPollerExecutable(jobType)) {
       return List.of();
     }
 
@@ -262,261 +226,137 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
 
   @Override
   public JobEntity save(JobEntity job) {
-    try {
-      if (job.getId() == null || job.getId() == 0L) {
-        Instant now = Instant.now();
-        job.setId(TsidFactory.next());
-        if (job.getCreatedAt() == null) {
-          job.setCreatedAt(now);
-        }
-        job.setUpdatedAt(now);
-        job.setVersion(0);
-        bulkInsert(List.of(job));
-        insertTags(job.getId(), job.getTags());
-        return job;
-      }
-      return updateJob(job);
-    } catch (OptimisticLockException e) {
-      throw new RatchetOptimisticLockException("Concurrent modification on job " + job.getId(), e);
-    }
+    return jobs.save(job);
   }
 
   @Override
   public Optional<JobEntity> findById(long id) {
-    return Optional.ofNullable(em.find(JobEntity.class, id));
+    return jobs.findById(id);
   }
 
   @Override
   public Optional<JobEntity> findByIdLatest(long id) {
-    @SuppressWarnings("unchecked")
-    List<JobEntity> results =
-        em.createNativeQuery("SELECT * FROM scheduler_job WHERE job_id = ?", JobEntity.class)
-            .setParameter(1, id)
-            .getResultList();
-    return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
+    return jobs.findByIdLatest(id);
   }
 
   @Override
   public void delete(long id) {
-    em.createNativeQuery("DELETE FROM scheduler_job WHERE job_id = ?")
-        .setParameter(1, id)
-        .executeUpdate();
+    jobs.delete(id);
   }
 
   @Override
   public JobStatus getJobStatus(long id) {
-    @SuppressWarnings("unchecked")
-    List<Object> results =
-        em.createNativeQuery("SELECT status FROM scheduler_job WHERE job_id = ?")
-            .setParameter(1, id)
-            .getResultList();
-    if (results.isEmpty()) {
-      return null;
-    }
-    return JobStatus.valueOf((String) results.get(0));
+    return jobs.getJobStatus(id);
   }
 
   @Override
   public List<JobEntity> findByIds(List<Long> ids) {
-    if (ids.isEmpty()) {
-      return List.of();
-    }
-    String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
-    Query query =
-        em.createNativeQuery(
-            "SELECT * FROM scheduler_job WHERE job_id IN (" + placeholders + ")", JobEntity.class);
-    int parameter = 1;
-    for (Long id : ids) {
-      query.setParameter(parameter++, id);
-    }
-    @SuppressWarnings("unchecked")
-    List<JobEntity> results = query.getResultList();
-    return results;
+    return jobs.findByIds(ids);
   }
 
   @Override
   public Optional<JobEntity> findActiveByBusinessKey(String businessKey) {
-    @SuppressWarnings("unchecked")
-    List<JobEntity> results =
-        em.createNativeQuery(
-                "SELECT j.* FROM scheduler_business_key_reservation br "
-                    + "JOIN scheduler_job j ON j.job_id = br.owner_job_id "
-                    + "WHERE br.business_key = ? LIMIT 1",
-                JobEntity.class)
-            .setParameter(1, businessKey)
-            .getResultList();
-    return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
+    return jobs.findActiveByBusinessKey(businessKey);
   }
 
   @Override
   public Optional<JobEntity> findByIdempotencyKey(String idempotencyKey) {
-    @SuppressWarnings("unchecked")
-    List<JobEntity> results =
-        em.createNativeQuery(
-                "SELECT * FROM scheduler_job WHERE idempotency_key = ?", JobEntity.class)
-            .setParameter(1, idempotencyKey)
-            .getResultList();
-    return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
+    return jobs.findByIdempotencyKey(idempotencyKey);
   }
 
   @Override
   public List<JobEntity> findDependants(long parentJobId) {
-    @SuppressWarnings("unchecked")
-    List<JobEntity> results =
-        em.createNativeQuery("SELECT * FROM scheduler_job WHERE depends_on = ?", JobEntity.class)
-            .setParameter(1, parentJobId)
-            .getResultList();
-    return results;
+    return jobs.findDependants(parentJobId);
   }
 
   @Override
   public Optional<Instant> findEarliestRecurringNextFire() {
-    @SuppressWarnings("unchecked")
-    List<Object> results =
-        em.createNativeQuery(
-                "SELECT MIN(next_fire) FROM scheduler_job "
-                    + "WHERE job_type = 'RECURRING' AND status = 'PENDING' AND next_fire IS NOT NULL")
-            .getResultList();
-    if (results.isEmpty() || results.get(0) == null) {
-      return Optional.empty();
-    }
-    return Optional.of(toInstant(results.get(0)));
+    return jobs.findEarliestRecurringNextFire();
   }
 
   @Override
   public long countPendingJobs() {
-    return countByNative("SELECT COUNT(*) FROM scheduler_job WHERE status = 'PENDING'");
+    return jobs.countPendingJobs();
   }
 
   @Override
   public long countJobsByStatus(JobStatus status) {
-    return countByNative("SELECT COUNT(*) FROM scheduler_job WHERE status = ?", status.name());
+    return jobs.countJobsByStatus(status);
   }
 
   @Override
   public long countActiveJobs(JobExecutionType jobType) {
-    return countByNative(
-        "SELECT COUNT(*) FROM scheduler_job WHERE job_type = ? AND status IN ('PENDING','RUNNING')",
-        jobType.name());
+    return jobs.countActiveJobs(jobType);
   }
 
   @Override
   public long countActiveNodes() {
-    return countByNative("SELECT COUNT(*) FROM scheduler_node");
+    return jobs.countActiveNodes();
   }
 
   @Override
   public long countReadyJobs(Instant now) {
-    return countByNative(
-        "SELECT COUNT(*) FROM scheduler_job WHERE status = 'PENDING' AND scheduled_time <= ?",
-        Timestamp.from(now));
+    return jobs.countReadyJobs(now);
   }
 
   @Override
   public long countStuckJobs(Instant stuckThreshold) {
-    return countByNative(
-        "SELECT COUNT(*) FROM scheduler_job WHERE status = 'RUNNING' AND picked_at < ?",
-        Timestamp.from(stuckThreshold));
+    return jobs.countStuckJobs(stuckThreshold);
   }
 
   @Override
   public long countLongRunningJobs(Instant threshold) {
-    return countByNative(
-        "SELECT COUNT(*) FROM scheduler_job WHERE status = 'RUNNING' AND execution_start_time < ?",
-        Timestamp.from(threshold));
+    return jobs.countLongRunningJobs(threshold);
   }
 
   @Override
   public long countPendingBatchChildren() {
-    return countByNative(
-        "SELECT COUNT(*) FROM scheduler_job WHERE job_type = 'BATCH_CHILD' AND status = 'PENDING'");
+    return jobs.countPendingBatchChildren();
   }
 
   @Override
   public long countPendingJobsByPriority(JobPriority priority) {
-    return countByNative(
-        "SELECT COUNT(*) FROM scheduler_job WHERE status = 'PENDING' AND priority = ?",
-        priority.ordinal());
+    return jobs.countPendingJobsByPriority(priority);
   }
 
   @Override
   public long countPendingJobsByType(JobExecutionType jobType) {
-    return countByNative(
-        "SELECT COUNT(*) FROM scheduler_job WHERE status = 'PENDING' AND job_type = ?",
-        jobType.name());
+    return jobs.countPendingJobsByType(jobType);
   }
 
   @Override
   public long countJobsByStatusSince(JobStatus status, Instant since) {
-    return countByNative(
-        "SELECT COUNT(*) FROM scheduler_job WHERE status = ? AND updated_at >= ?",
-        status.name(),
-        Timestamp.from(since));
+    return jobs.countJobsByStatusSince(status, since);
   }
 
   @Override
   public long countJobsWithRetries() {
-    return countByNative("SELECT COUNT(*) FROM scheduler_job WHERE attempts > 0");
+    return jobs.countJobsWithRetries();
   }
 
   @Override
   public double getRetryRateStats(Instant since) {
-    Object result =
-        em.createNativeQuery(
-                "SELECT CASE WHEN COUNT(*) = 0 THEN 0.0 "
-                    + "ELSE CAST(SUM(CASE WHEN attempts > 0 THEN 1 ELSE 0 END) AS DOUBLE PRECISION) / COUNT(*) END "
-                    + "FROM scheduler_job WHERE updated_at >= ?")
-            .setParameter(1, Timestamp.from(since))
-            .getSingleResult();
-    return result == null ? 0.0 : ((Number) result).doubleValue();
+    return jobs.getRetryRateStats(since);
   }
 
   @Override
   public double getAverageProcessingTime(Instant since) {
-    Object result =
-        em.createNativeQuery(
-                "SELECT COALESCE(AVG(execution_duration_ms), 0) "
-                    + "FROM scheduler_job WHERE status = 'SUCCEEDED' AND updated_at >= ?")
-            .setParameter(1, Timestamp.from(since))
-            .getSingleResult();
-    return result == null ? 0.0 : ((Number) result).doubleValue();
+    return jobs.getAverageProcessingTime(since);
   }
 
   @Override
   public double getAverageBatchSize(Instant since) {
-    Object result =
-        em.createNativeQuery(
-                "SELECT COALESCE(AVG(total_items), 0) "
-                    + "FROM scheduler_batch b "
-                    + "INNER JOIN scheduler_job j ON b.batch_id = j.job_id "
-                    + "WHERE j.updated_at >= ?")
-            .setParameter(1, Timestamp.from(since))
-            .getSingleResult();
-    return result == null ? 0.0 : ((Number) result).doubleValue();
+    return jobs.getAverageBatchSize(since);
   }
 
   @Override
   public Optional<Instant> getOldestPendingJobTime() {
-    @SuppressWarnings("unchecked")
-    List<Object> results =
-        em.createNativeQuery(
-                "SELECT MIN(scheduled_time) FROM scheduler_job WHERE status = 'PENDING'")
-            .getResultList();
-    if (results.isEmpty() || results.get(0) == null) {
-      return Optional.empty();
-    }
-    return Optional.of(toInstant(results.get(0)));
+    return jobs.getOldestPendingJobTime();
   }
 
   @Override
   public long getQueueWaitTimePercentile(double percentile) {
-    Object result =
-        em.createNativeQuery(
-                "SELECT COALESCE(PERCENTILE_CONT(?) WITHIN GROUP (ORDER BY queue_wait_ms), 0) "
-                    + "FROM scheduler_job WHERE queue_wait_ms IS NOT NULL AND status = 'SUCCEEDED'")
-            .setParameter(1, percentile)
-            .getSingleResult();
-    return result == null ? 0L : ((Number) result).longValue();
+    return jobs.getQueueWaitTimePercentile(percentile);
   }
 
   @Override
@@ -572,7 +412,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
             .setParameter(3, id)
             .executeUpdate();
     if (updated > 0) {
-      syncBusinessKeyReservation(id, status);
+      reservations.syncForJob(id, status);
     }
   }
 
@@ -591,10 +431,10 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
               .setParameter(4, expected.name())
               .executeUpdate();
       if (updated > 0) {
-        if (isTerminalStatus(newStatus)) {
-          deleteReservationByOwner(id);
-        } else if (isTerminalStatus(expected)) {
-          syncBusinessKeyReservation(id, newStatus);
+        if (PostgresqlStoreContext.isTerminalStatus(newStatus)) {
+          reservations.deleteReservationByOwner(id);
+        } else if (PostgresqlStoreContext.isTerminalStatus(expected)) {
+          reservations.syncForJob(id, newStatus);
         }
       }
       return updated > 0;
@@ -660,7 +500,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
               .setParameter(7, id)
               .executeUpdate();
       if (updated > 0) {
-        deleteReservationByOwner(id);
+        reservations.deleteReservationByOwner(id);
       }
       return updated > 0;
     } catch (RuntimeException e) {
@@ -686,7 +526,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
               .setParameter(5, id)
               .executeUpdate();
       if (updated > 0) {
-        deleteReservationByOwner(id);
+        reservations.deleteReservationByOwner(id);
       }
       return updated > 0;
     } catch (RuntimeException e) {
@@ -730,7 +570,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
     if (updated.isEmpty()) {
       return false;
     }
-    syncBusinessKeyReservation(id, JobStatus.PENDING);
+    reservations.syncForJob(id, JobStatus.PENDING);
     return true;
   }
 
@@ -773,7 +613,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
             .setParameter(3, id)
             .executeUpdate();
     if (updated > 0) {
-      deleteReservationByOwner(id);
+      reservations.deleteReservationByOwner(id);
     }
     return updated > 0;
   }
@@ -789,7 +629,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
             .setParameter(1, id)
             .executeUpdate();
     if (updated > 0) {
-      deleteReservationByOwner(id);
+      reservations.deleteReservationByOwner(id);
     }
     return updated > 0;
   }
@@ -835,7 +675,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
                     + "RETURNING job_id")
             .setParameter(1, tag)
             .getResultList();
-    deleteReservationsByOwners(canceled);
+    reservations.deleteReservationsByOwners(canceled);
     return canceled.size();
   }
 
@@ -851,7 +691,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
                     + "RETURNING job_id")
             .setParameter(1, businessKey)
             .getResultList();
-    deleteReservationsByOwners(canceled);
+    reservations.deleteReservationsByOwners(canceled);
     return canceled.size();
   }
 
@@ -882,7 +722,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
     }
     @SuppressWarnings("unchecked")
     List<Number> canceled = query.getResultList();
-    deleteReservationsByOwners(canceled);
+    reservations.deleteReservationsByOwners(canceled);
     return canceled.size();
   }
 
@@ -901,7 +741,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
     if (updated.isEmpty()) {
       return false;
     }
-    syncBusinessKeyReservation(id, JobStatus.PENDING);
+    reservations.syncForJob(id, JobStatus.PENDING);
     return true;
   }
 
@@ -931,8 +771,8 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
             .setParameter(1, target.name())
             .setParameter(2, id)
             .executeUpdate();
-    if (updated > 0 && isTerminalStatus(target)) {
-      deleteReservationByOwner(id);
+    if (updated > 0 && PostgresqlStoreContext.isTerminalStatus(target)) {
+      reservations.deleteReservationByOwner(id);
     }
     return updated > 0;
   }
@@ -953,98 +793,35 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
       return null;
     }
     JobStatus status = JobStatus.valueOf((String) results.get(0));
-    if (isTerminalStatus(status)) {
-      deleteReservationByOwner(id);
+    if (PostgresqlStoreContext.isTerminalStatus(status)) {
+      reservations.deleteReservationByOwner(id);
     }
     return status;
   }
 
   @Override
-  public void bulkInsert(List<JobEntity> jobs) {
-    if (jobs.isEmpty()) {
-      return;
-    }
-    // JSONB columns require explicit casts when bound as strings. Using JPA native SQL keeps this
-    // path portable across managed containers without relying on provider-specific unwrap APIs.
-    String sql =
-        "INSERT INTO scheduler_job "
-            + "(job_id, status, paused_from_status, scheduled_time, job_type, priority, "
-            + "attempts, max_retries, backoff_policy, backoff_param_ms, timeout_sec, "
-            + "cron_expr, zone_id, next_fire, payload, params, "
-            + "idempotency_key, business_key, resource_name, "
-            + "on_success_payload, on_failure_payload, "
-            + "depends_on, superseded_by, "
-            + "picked_by, picked_at, last_error, created_at, created_by, "
-            + "updated_at, execution_start_time, execution_end_time, execution_duration_ms, "
-            + "queue_wait_ms, job_result, result_type, version) "
-            + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,CAST(? AS jsonb),CAST(? AS jsonb),?,?,?,"
-            + "CAST(? AS jsonb),CAST(? AS jsonb),?,?,?,?,?,?,?,?,?,?,?,?,CAST(? AS jsonb),?,0)";
-    try {
-      for (JobEntity job : jobs) {
-        Query query = em.createNativeQuery(sql);
-        setBulkInsertParameters(query, job, Instant.now());
-        query.executeUpdate();
-        syncBusinessKeyReservation(job);
-      }
-    } catch (Exception e) {
-      throw new RuntimeException("Bulk insert error: " + e.getMessage(), e);
-    } finally {
-      em.clear();
-    }
+  public void bulkInsert(List<JobEntity> jobsToInsert) {
+    jobs.bulkInsert(jobsToInsert);
   }
 
   @Override
   public int deleteJobsByIds(List<Long> ids) {
-    if (ids.isEmpty()) {
-      return 0;
-    }
-    String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
-    Query query =
-        em.createNativeQuery("DELETE FROM scheduler_job WHERE job_id IN (" + placeholders + ")");
-    int parameter = 1;
-    for (Long id : ids) {
-      query.setParameter(parameter++, id);
-    }
-    return query.executeUpdate();
+    return jobs.deleteJobsByIds(ids);
   }
 
   @Override
   public int deleteDlqOlderThan(Instant cutoff) {
-    return em.createNativeQuery(
-            "DELETE FROM scheduler_job WHERE status = 'FAILED' "
-                + "AND attempts >= max_retries AND updated_at < ?")
-        .setParameter(1, Timestamp.from(cutoff))
-        .executeUpdate();
+    return jobs.deleteDlqOlderThan(cutoff);
   }
 
   @Override
   public int resetOrphanJobs(Duration grace) {
-    // Use SECOND granularity — toMinutes() truncates sub-minute values
-    long graceSeconds = grace.toSeconds();
-    return em.createNativeQuery(
-            "UPDATE scheduler_job SET status = 'PENDING', "
-                + "picked_by = NULL, picked_at = NULL, "
-                + "updated_at = statement_timestamp() "
-                + "WHERE status = 'RUNNING' "
-                + "AND picked_by NOT IN ("
-                + "  SELECT node_id FROM scheduler_node "
-                + "  WHERE heartbeat_ts > statement_timestamp() - ? * interval '1 second'"
-                + ") "
-                + "AND extract(epoch from (statement_timestamp() - picked_at))::bigint >= ?")
-        .setParameter(1, graceSeconds)
-        .setParameter(2, graceSeconds)
-        .executeUpdate();
+    return jobs.resetOrphanJobs(grace);
   }
 
   @Override
   public int resetOrphanJobsForNode(String nodeId) {
-    return em.createNativeQuery(
-            "UPDATE scheduler_job SET status = 'PENDING', "
-                + "picked_by = NULL, picked_at = NULL, "
-                + "updated_at = statement_timestamp() "
-                + "WHERE status = 'RUNNING' AND picked_by = ?")
-        .setParameter(1, nodeId)
-        .executeUpdate();
+    return jobs.resetOrphanJobsForNode(nodeId);
   }
 
   @Override
@@ -1229,7 +1006,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
     // detached (e.g. when the caller obtained it from a prior transaction), in which case
     // buildArchive's tags access would throw LazyInitializationException. JPQL JOIN FETCH is
     // JPA-spec portable and hydrates the collection in a single query.
-    JobEntity hydrated = hydrateForArchive(job);
+    JobEntity hydrated = jobs.hydrateForArchive(job);
     ArchivedJobEntity archive = buildArchive(hydrated, reason, archivedBy);
     em.persist(archive);
     return archive;
@@ -1659,203 +1436,10 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   private void initDelegates() {
-    PostgresqlStoreContext ctx =
-        new PostgresqlStoreContext(em, options.store().priorityBoostIntervalMinutes());
+    ctx = new PostgresqlStoreContext(em, options.store().priorityBoostIntervalMinutes());
+    reservations = new PostgresqlBusinessKeyReservations(ctx);
     tags = new PostgresqlTagOperations(ctx);
-  }
-
-  private JobEntity updateJob(JobEntity job) {
-    if (em.contains(job)) {
-      em.detach(job);
-    }
-
-    Instant updatedAt = job.getUpdatedAt() != null ? job.getUpdatedAt() : Instant.now();
-    int expectedVersion = job.getVersion() == null ? 0 : job.getVersion();
-    String sql =
-        "UPDATE scheduler_job SET "
-            + "status = ?, paused_from_status = ?, scheduled_time = ?, job_type = ?, "
-            + "priority = ?, attempts = ?, max_retries = ?, backoff_policy = ?, "
-            + "backoff_param_ms = ?, timeout_sec = ?, cron_expr = ?, zone_id = ?, "
-            + "next_fire = ?, payload = CAST(? AS jsonb), params = CAST(? AS jsonb), "
-            + "idempotency_key = ?, business_key = ?, resource_name = ?, "
-            + "on_success_payload = CAST(? AS jsonb), on_failure_payload = CAST(? AS jsonb), "
-            + "depends_on = ?, superseded_by = ?, picked_by = ?, picked_at = ?, last_error = ?, "
-            + "updated_at = ?, execution_start_time = ?, execution_end_time = ?, "
-            + "execution_duration_ms = ?, queue_wait_ms = ?, job_result = CAST(? AS jsonb), "
-            + "result_type = ?, version = version + 1 "
-            + "WHERE job_id = ? AND version = ?";
-
-    Query query = em.createNativeQuery(sql);
-    int parameter = 1;
-    query.setParameter(parameter++, job.getStatus() == null ? "PENDING" : job.getStatus().name());
-    query.setParameter(
-        parameter++, job.getPausedFromStatus() == null ? null : job.getPausedFromStatus().name());
-    query.setParameter(parameter++, Timestamp.from(job.getScheduledTime()));
-    query.setParameter(parameter++, job.getJobType().name());
-    query.setParameter(parameter++, job.getPriority().ordinal());
-    query.setParameter(parameter++, job.getAttempts());
-    query.setParameter(parameter++, job.getMaxRetries());
-    query.setParameter(parameter++, job.getBackoffPolicy().name());
-    query.setParameter(parameter++, job.getBackoffParamMs());
-    query.setParameter(parameter++, job.getTimeoutSec());
-    query.setParameter(parameter++, job.getCronExpr() == null ? "" : job.getCronExpr());
-    query.setParameter(parameter++, job.getZoneId() == null ? "UTC" : job.getZoneId());
-    query.setParameter(
-        parameter++, job.getNextFire() == null ? null : Timestamp.from(job.getNextFire()));
-    query.setParameter(parameter++, payloadToJson(job));
-    query.setParameter(parameter++, paramsToJson(job));
-    query.setParameter(parameter++, job.getIdempotencyKey());
-    query.setParameter(parameter++, job.getBusinessKey());
-    query.setParameter(parameter++, job.getResourceName());
-    query.setParameter(parameter++, callbackPayloadToJson(job.getOnSuccessPayload()));
-    query.setParameter(parameter++, callbackPayloadToJson(job.getOnFailurePayload()));
-    query.setParameter(parameter++, job.getDependsOn());
-    query.setParameter(parameter++, job.getSupersededBy());
-    query.setParameter(parameter++, job.getPickedBy());
-    query.setParameter(
-        parameter++, job.getPickedAt() == null ? null : Timestamp.from(job.getPickedAt()));
-    query.setParameter(parameter++, job.getLastError());
-    query.setParameter(parameter++, Timestamp.from(updatedAt));
-    query.setParameter(
-        parameter++,
-        job.getExecutionStartTime() == null ? null : Timestamp.from(job.getExecutionStartTime()));
-    query.setParameter(
-        parameter++,
-        job.getExecutionEndTime() == null ? null : Timestamp.from(job.getExecutionEndTime()));
-    query.setParameter(parameter++, job.getExecutionDurationMs());
-    query.setParameter(parameter++, job.getQueueWaitMs());
-    query.setParameter(parameter++, job.getJobResult());
-    query.setParameter(parameter++, job.getResultType());
-    query.setParameter(parameter++, job.getId());
-    query.setParameter(parameter, expectedVersion);
-
-    int updated = query.executeUpdate();
-    if (updated == 0) {
-      throw new RatchetOptimisticLockException("Concurrent modification on job " + job.getId());
-    }
-    syncBusinessKeyReservation(job);
-    job.setUpdatedAt(updatedAt);
-    job.setVersion(expectedVersion + 1);
-    return job;
-  }
-
-  private void setBulkInsertParameters(Query query, JobEntity job, Instant now) {
-    int parameter = 1;
-    query.setParameter(parameter++, job.getId());
-    query.setParameter(parameter++, job.getStatus() == null ? "PENDING" : job.getStatus().name());
-    query.setParameter(
-        parameter++, job.getPausedFromStatus() == null ? null : job.getPausedFromStatus().name());
-    query.setParameter(parameter++, Timestamp.from(job.getScheduledTime()));
-    query.setParameter(parameter++, job.getJobType().name());
-    query.setParameter(parameter++, job.getPriority().ordinal());
-    query.setParameter(parameter++, job.getAttempts());
-    query.setParameter(parameter++, job.getMaxRetries());
-    query.setParameter(parameter++, job.getBackoffPolicy().name());
-    query.setParameter(parameter++, job.getBackoffParamMs());
-    query.setParameter(parameter++, job.getTimeoutSec());
-    query.setParameter(parameter++, job.getCronExpr() == null ? "" : job.getCronExpr());
-    query.setParameter(parameter++, job.getZoneId() == null ? "UTC" : job.getZoneId());
-    query.setParameter(
-        parameter++, job.getNextFire() == null ? null : Timestamp.from(job.getNextFire()));
-    query.setParameter(parameter++, payloadToJson(job));
-    query.setParameter(parameter++, paramsToJson(job));
-    query.setParameter(parameter++, job.getIdempotencyKey());
-    query.setParameter(parameter++, job.getBusinessKey());
-    query.setParameter(parameter++, job.getResourceName());
-    query.setParameter(parameter++, callbackPayloadToJson(job.getOnSuccessPayload()));
-    query.setParameter(parameter++, callbackPayloadToJson(job.getOnFailurePayload()));
-    query.setParameter(parameter++, job.getDependsOn());
-    query.setParameter(parameter++, job.getSupersededBy());
-    query.setParameter(parameter++, job.getPickedBy());
-    query.setParameter(
-        parameter++, job.getPickedAt() == null ? null : Timestamp.from(job.getPickedAt()));
-    query.setParameter(parameter++, job.getLastError());
-    query.setParameter(
-        parameter++, Timestamp.from(job.getCreatedAt() != null ? job.getCreatedAt() : now));
-    query.setParameter(parameter++, job.getCreatedBy());
-    query.setParameter(parameter++, Timestamp.from(now));
-    query.setParameter(
-        parameter++,
-        job.getExecutionStartTime() == null ? null : Timestamp.from(job.getExecutionStartTime()));
-    query.setParameter(
-        parameter++,
-        job.getExecutionEndTime() == null ? null : Timestamp.from(job.getExecutionEndTime()));
-    query.setParameter(parameter++, job.getExecutionDurationMs());
-    query.setParameter(parameter++, job.getQueueWaitMs());
-    query.setParameter(parameter++, job.getJobResult());
-    query.setParameter(parameter, job.getResultType());
-  }
-
-  private JobEntity hydrateForArchive(JobEntity job) {
-    return em.createQuery(
-            "SELECT DISTINCT j FROM JobEntity j LEFT JOIN FETCH j.tags WHERE j.id = :id",
-            JobEntity.class)
-        .setParameter("id", job.getId())
-        .getSingleResult();
-  }
-
-  private void syncBusinessKeyReservation(JobEntity job) {
-    deleteReservationByOwner(job.getId());
-    JobStatus status = effectiveStatus(job.getStatus());
-    if (isLiveStatus(status) && job.getBusinessKey() != null) {
-      insertReservation(job.getBusinessKey(), job.getId(), ownerTableFor(job.getJobType()));
-    }
-  }
-
-  private void syncBusinessKeyReservation(long ownerJobId, JobStatus status) {
-    deleteReservationByOwner(ownerJobId);
-    if (!isLiveStatus(status)) {
-      return;
-    }
-    @SuppressWarnings("unchecked")
-    List<Object[]> rows =
-        em.createNativeQuery("SELECT business_key, job_type FROM scheduler_job WHERE job_id = ?")
-            .setParameter(1, ownerJobId)
-            .getResultList();
-    if (rows.isEmpty()) {
-      return;
-    }
-    Object[] row = rows.get(0);
-    String businessKey = (String) row[0];
-    if (businessKey != null) {
-      insertReservation(businessKey, ownerJobId, ownerTableFor((String) row[1]));
-    }
-  }
-
-  private void insertReservation(String businessKey, long ownerJobId, String ownerTable) {
-    em.createNativeQuery(
-            "INSERT INTO scheduler_business_key_reservation "
-                + "(business_key, owner_job_id, owner_table, reserved_at) "
-                + "VALUES (?, ?, ?, statement_timestamp())")
-        .setParameter(1, businessKey)
-        .setParameter(2, ownerJobId)
-        .setParameter(3, ownerTable)
-        .executeUpdate();
-  }
-
-  @SuppressWarnings("UnusedReturnValue")
-  private int deleteReservationByOwner(long ownerJobId) {
-    return em.createNativeQuery(
-            "DELETE FROM scheduler_business_key_reservation WHERE owner_job_id = ?")
-        .setParameter(1, ownerJobId)
-        .executeUpdate();
-  }
-
-  private void deleteReservationsByOwners(List<? extends Number> ownerJobIds) {
-    if (ownerJobIds.isEmpty()) {
-      return;
-    }
-    String placeholders = String.join(",", Collections.nCopies(ownerJobIds.size(), "?"));
-    Query query =
-        em.createNativeQuery(
-            "DELETE FROM scheduler_business_key_reservation WHERE owner_job_id IN ("
-                + placeholders
-                + ")");
-    int parameter = 1;
-    for (Number ownerJobId : ownerJobIds) {
-      query.setParameter(parameter++, ownerJobId.longValue());
-    }
-    query.executeUpdate();
+    jobs = new PostgresqlJobCrudOperations(ctx, reservations, tags);
   }
 
   private JobPayload parseProgressHook(Object jsonValue) {
@@ -1888,17 +1472,5 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
 
   private ArchivedJobEntity buildArchive(JobEntity job, String reason, String archivedBy) {
     return ArchiveHelper.buildArchive(job, reason, archivedBy);
-  }
-
-  private String payloadToJson(JobEntity job) {
-    return JOB_PAYLOAD_CONVERTER.convertToDatabaseColumn(job.getPayload());
-  }
-
-  private String paramsToJson(JobEntity job) {
-    return JSON_MAP_CONVERTER.convertToDatabaseColumn(job.getParams());
-  }
-
-  private String callbackPayloadToJson(JobPayload payload) {
-    return JOB_PAYLOAD_CONVERTER.convertToDatabaseColumn(payload);
   }
 }
