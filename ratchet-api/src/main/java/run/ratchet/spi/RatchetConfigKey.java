@@ -3,15 +3,21 @@ package run.ratchet.spi;
 import run.ratchet.api.Incubating;
 import java.util.Objects;
 import java.util.function.Function;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Typed configuration key used by {@link RatchetConfig}.
  *
- * <p>Ratchet checks the canonical property/env name. Invalid values fall back to the key default.
+ * <p>Ratchet checks the canonical property/env name. Invalid values fall back to the key default
+ * and emit a single WARN log so operators can spot typos instead of discovering them as silent
+ * behavior drift.
  */
 @Incubating
 public record RatchetConfigKey<T>(
     String name, String environmentVariable, T defaultValue, Function<String, T> parser) {
+
+  private static final Logger LOG = Logger.getLogger(RatchetConfigKey.class.getName());
 
   public RatchetConfigKey {
     Objects.requireNonNull(name, "name must not be null");
@@ -133,6 +139,19 @@ public record RatchetConfigKey<T>(
     try {
       return parser.apply(raw.trim());
     } catch (RuntimeException e) {
+      LOG.log(
+          Level.WARNING,
+          e,
+          () ->
+              "Invalid value for Ratchet config key '"
+                  + name
+                  + "' (env '"
+                  + environmentVariable
+                  + "'): '"
+                  + raw
+                  + "' — falling back to default '"
+                  + defaultValue
+                  + "'");
       return defaultValue;
     }
   }

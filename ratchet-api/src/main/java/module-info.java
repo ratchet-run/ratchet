@@ -25,6 +25,10 @@ module run.ratchet.api {
   // resolver can satisfy interceptor when ratchet-api is the root module.
   requires jakarta.annotation;
 
+  // java.util.logging is used by RatchetConfigKey to WARN on invalid values before falling back
+  // to defaults. JUL is chosen over SLF4J/JBoss Logging to keep ratchet-api dependency-free.
+  requires java.logging;
+
   exports run.ratchet.api;
   exports run.ratchet.api.event;
   exports run.ratchet.api.exception;
