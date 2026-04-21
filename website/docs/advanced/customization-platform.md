@@ -52,15 +52,9 @@ No string-based implementation class names are loaded by Ratchet. This keeps the
 
 ## Configuration Model
 
-The preferred Jakarta EE model is an `@ApplicationScoped RatchetOptions` producer. If no options bean exists, Ratchet builds one from this source chain:
+Applications must produce an `@ApplicationScoped RatchetOptions` bean — Ratchet refuses to start otherwise. See [Configuration](/docs/getting-started/configuration) for the canonical patterns.
 
-1. CDI-provided `RatchetConfigSource` beans
-2. MicroProfile Config, when present
-3. Environment variables, such as `RATCHET_POLLER_BATCH_SIZE`
-4. System properties, such as `ratchet.poller.batch-size`
-5. Built-in defaults
-
-Produce `RatchetOptions` for normal application configuration. Produce `RatchetConfigSource` only when your platform already owns raw configuration and you want Ratchet's typed fallback keys to read from it.
+`RatchetConfigSource` is an advanced overlay: produce it only when your platform already owns raw configuration and you want a producer that calls `RatchetOptionsFactory.fromEnvironment(yourSource)` to fold that platform on top of the ambient `RATCHET_*` / MicroProfile Config chain.
 
 ## Deeper Customization
 

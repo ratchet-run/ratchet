@@ -193,7 +193,7 @@ RatchetOptions.builder()
     .build();
 ```
 
-If no `RatchetOptions` bean exists, the fallback source chain can read canonical `ratchet.circuit-breaker.<profile>.*` properties and `RATCHET_CB_<PROFILE>_...` environment variables.
+If your `RatchetOptions` producer uses `RatchetOptionsFactory.fromEnvironment()`, profile thresholds are read from canonical `ratchet.circuit-breaker.<profile>.*` properties and `RATCHET_CB_<PROFILE>_...` environment variables.
 
 Set `RatchetOptions.builder().circuitBreaker(cb -> cb.enabled(false))` to make both the scheduler resilience wrapper and the `@CircuitBreakerProtected` interceptor pass through without consulting circuit state.
 

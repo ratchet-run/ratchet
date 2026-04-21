@@ -1,12 +1,16 @@
 ---
 sidebar_position: 5
 title: Configuration
-description: CDI producer setup, beans.xml requirements, RatchetOptions, and runtime source-chain fallbacks
+description: CDI producer setup, beans.xml requirements, and the required RatchetOptions bean
 ---
 
 # Configuration
 
-Ratchet is designed to run in Jakarta EE without static global configuration. CDI owns the runtime objects, Ratchet consumes one immutable `RatchetOptions` bean when you provide it, and store-specific resources remain normal CDI resources.
+Ratchet is designed to run in Jakarta EE without static global configuration. CDI owns the runtime objects, Ratchet consumes one immutable `RatchetOptions` bean that your application produces, and store-specific resources remain normal CDI resources.
+
+:::important Required producer
+Your application **must** produce exactly one `@ApplicationScoped RatchetOptions` bean. If no producer is found, CDI fails deployment with `UnsatisfiedResolutionException` and the scheduler never starts — this is the intended kill-switch for deployments that pull `ratchet` onto the classpath without wanting it active. There is no automatic fallback chain.
+:::
 
 ## How Ratchet Bootstraps
 
@@ -50,7 +54,34 @@ If you use `@CircuitBreakerProtected`, enable its interceptor:
 
 ## RatchetOptions
 
-The preferred Jakarta EE configuration style is a CDI producer:
+You have two idiomatic ways to produce `RatchetOptions`. Pick one per application.
+
+### Option A: Environment-driven producer
+
+For container deployments, the smallest viable producer reads `RATCHET_*` environment variables (and MicroProfile Config, if present) via `RatchetOptionsFactory.fromEnvironment()`:
+
+```java
+import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.RatchetOptionsFactory;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Produces;
+
+@ApplicationScoped
+public class SchedulerConfiguration {
+
+    @Produces
+    @ApplicationScoped
+    RatchetOptions ratchetOptions() {
+        return RatchetOptionsFactory.fromEnvironment();
+    }
+}
+```
+
+With zero arguments, `fromEnvironment()` reads exclusively from MicroProfile Config and environment variables, applying compiled-in defaults for keys absent from those sources. See [Source Chain](#source-chain) below to overlay custom `RatchetConfigSource` implementations.
+
+### Option B: Programmatic producer
+
+For applications that want compile-time-checked configuration without env-var round-tripping, use the builder directly:
 
 ```java
 import run.ratchet.api.RatchetOptions;
@@ -83,6 +114,8 @@ public class SchedulerConfiguration {
 ```
 
 Only produce one unqualified `RatchetOptions` bean per application. Multiple unqualified beans are treated as a deployment error because Ratchet cannot know which set of options should own the runtime.
+
+Keep the producer method `@ApplicationScoped` so configuration sources are read once at bootstrap rather than on every injection.
 
 ## Store Resources
 
@@ -188,19 +221,32 @@ public class OrdersRatchetEntityManagerProvider implements RatchetEntityManagerP
 | `circuitBreaker.enabled(boolean)` | `true` | Master switch for built-in circuit breakers |
 | `circuitBreaker.profile(profile, builder)` | profile defaults | Per-profile thresholds |
 
-## Source Chain Fallback
+## Source Chain
 
-If the application does not produce `RatchetOptions`, Ratchet builds options from:
+When you call `RatchetOptionsFactory.fromEnvironment(...)` from inside your producer, the factory reads from this chain in order of precedence (highest first):
 
-1. CDI-provided `RatchetConfigSource` beans
+1. Caller-supplied `RatchetConfigSource` instances (passed as varargs)
 2. MicroProfile Config, when present
-3. Environment variables
-4. System properties
-5. Built-in defaults
+3. Environment variables (canonical `RATCHET_*` names)
+4. Built-in defaults
 
-`RatchetOptions` remains the primary model. `RatchetConfigSource` is useful when your platform already centralizes configuration and you want Ratchet to read from that platform without making static calls.
+This is not a runtime fallback — Ratchet only reads it when your producer explicitly asks it to. If you use Option B (programmatic) your producer skips the chain entirely.
+
+To overlay a platform-specific config source on top of env + MP Config, pass it as a vararg:
 
 ```java
+@ApplicationScoped
+public class SchedulerConfiguration {
+
+    @Inject PlatformRatchetConfigSource platformSource;
+
+    @Produces
+    @ApplicationScoped
+    RatchetOptions ratchetOptions() {
+        return RatchetOptionsFactory.fromEnvironment(platformSource);
+    }
+}
+
 @ApplicationScoped
 public class PlatformRatchetConfigSource implements RatchetConfigSource {
 
@@ -212,7 +258,7 @@ public class PlatformRatchetConfigSource implements RatchetConfigSource {
 }
 ```
 
-The env/sysprop fallback recognizes canonical `ratchet.*` property names and `RATCHET_*` environment variable names. New Jakarta EE applications should prefer the CDI producer for application-owned configuration.
+The env lookup recognizes canonical `ratchet.*` property names and `RATCHET_*` environment variable names.
 
 ## SPI Overrides
 

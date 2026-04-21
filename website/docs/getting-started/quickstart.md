@@ -16,7 +16,8 @@ Before starting, make sure you have:
 2. A database (PostgreSQL, MySQL, or MongoDB) accessible from your application
 3. Ratchet dependencies added to your `pom.xml` (see [Installation](./installation.md))
 4. The Ratchet schema applied to your database
-5. A `ClassPolicy` CDI alternative that allows your application's packages
+5. A `@Produces RatchetOptions` CDI bean — required; no automatic fallback
+6. A `ClassPolicy` CDI alternative that allows your application's packages
 
 If you haven't done steps 3 and 4 yet, here's the minimum `pom.xml` setup:
 
@@ -54,6 +55,27 @@ And apply the schema:
 ```bash
 psql -d mydb -f ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql
 ```
+
+And produce a `RatchetOptions` bean so the scheduler can start. The smallest viable producer reads `RATCHET_*` environment variables:
+
+```java
+import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.RatchetOptionsFactory;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Produces;
+
+@ApplicationScoped
+public class RatchetConfig {
+
+    @Produces
+    @ApplicationScoped
+    RatchetOptions ratchetOptions() {
+        return RatchetOptionsFactory.fromEnvironment();
+    }
+}
+```
+
+Without this bean, CDI fails deployment with `UnsatisfiedResolutionException` and the scheduler never starts. See [Configuration](./configuration.md) for the builder-based alternative and custom sources.
 
 And install the required `ClassPolicy` override before you boot the app:
 
@@ -248,7 +270,7 @@ Ratchet refuses to boot until you provide a `ClassPolicy` override. Install the 
 
 ### Jobs are enqueued but never execute
 
-Check that `RatchetLifecycle` logged `Ratchet started` and that `Poller` logged `Poller initialized (...)`. If you don't see those messages, the lifecycle bean isn't being activated. This can happen if CDI bean discovery is misconfigured or if the `ratchet` module isn't deployed.
+Check that `RatchetLifecycle` logged `Ratchet started` and that `Poller` logged `Poller initialized (...)`. If you don't see those messages, the lifecycle bean isn't being activated. This can happen if CDI bean discovery is misconfigured, if your application didn't produce a `RatchetOptions` bean (deployment fails with `UnsatisfiedResolutionException`), or if the `ratchet` module isn't deployed.
 
 ## What's Next
 

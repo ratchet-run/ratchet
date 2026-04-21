@@ -106,9 +106,9 @@ The schema creates these primary tables:
 
 ## Configuration
 
-Ratchet's preferred deployment configuration is a CDI-produced `RatchetOptions` bean. If no options bean exists, the RI falls back to CDI `RatchetConfigSource` beans, optional MicroProfile Config, environment variables, system properties, and built-in defaults.
+Ratchet **requires** a CDI-produced `RatchetOptions` bean. If no producer is found, CDI fails deployment with `UnsatisfiedResolutionException` and the scheduler never starts — a first-class kill-switch for any deployment that includes `ratchet` without wanting it active.
 
-Use CDI producers for application-owned settings and store resources. Use the source-chain fallback when your platform already centralizes raw configuration.
+The producer may build options programmatically or read `RATCHET_*` environment variables and MicroProfile Config via `RatchetOptionsFactory.fromEnvironment()`. See [Configuration](/docs/getting-started/configuration) for both patterns.
 
 Key configuration areas:
 

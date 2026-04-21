@@ -875,7 +875,7 @@ public class MySpi implements SomeRatchetSpi {
 
 | SPI Interface | Default Implementation | CDI Scope | Module |
 |---------------|----------------------|-----------|--------|
-| `RatchetConfigSource` | Source-chain fallback behind `RatchetOptions` | Optional `@ApplicationScoped` application bean | application |
+| `RatchetConfigSource` | Overlay for `RatchetOptionsFactory.fromEnvironment(...)` when the application's own config platform fronts env vars / MP Config | Optional `@ApplicationScoped` application bean | application |
 | `JobInvocationResolver` | `DefaultJobInvocationResolver` | `@ApplicationScoped` | ratchet |
 | `ResultPersistenceStrategy` | `DefaultResultPersistenceStrategy` | `@ApplicationScoped` | ratchet |
 | `ExecutionTuningProvider` | `DefaultExecutionTuningProvider` | `@ApplicationScoped` | ratchet |

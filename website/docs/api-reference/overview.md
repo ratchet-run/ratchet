@@ -92,7 +92,7 @@ Classes and interfaces you use directly when scheduling jobs, building workflows
 | [`ClusterCoordinator`](./spi-interfaces#clustercoordinator) | Distributed wakeup notifications |
 | [`StartupCoordinator`](./spi-interfaces#startupcoordinator) | Store-backed startup leases for destructive initialization tasks |
 | [`NodeIdentityProvider`](./spi-interfaces#nodeidentityprovider) | Identify nodes in a cluster |
-| `RatchetOptions` | CDI-producible immutable runtime options |
+| `RatchetOptions` | Required `@ApplicationScoped` CDI-produced runtime options — applications must produce one or the scheduler refuses to start |
 
 ## How to Read This Reference
 

@@ -8,11 +8,11 @@ Tuning Ratchet for your deployment.
 
 Ratchet's Jakarta EE configuration model is CDI-first:
 
-- Produce a single `@ApplicationScoped RatchetOptions` bean for scheduler tuning.
+- Produce exactly one `@ApplicationScoped RatchetOptions` bean — **required**. If absent, CDI fails deployment with `UnsatisfiedResolutionException` and the scheduler never starts.
 - Produce store resources, such as `EntityManager`, `MongoDatabase`, and managed executors, as normal CDI resources.
 - Replace behavioral extension points with CDI `@Alternative` beans.
 
-If no `RatchetOptions` bean exists, the RI builds one from the fallback source chain: CDI-provided `RatchetConfigSource` beans, optional MicroProfile Config when present, environment variables, system properties, then built-in defaults.
+The producer may either build options programmatically (see [RatchetOptions Producer](#ratchetoptions-producer) below) or read env vars + MicroProfile Config via `RatchetOptionsFactory.fromEnvironment()` (see [Source Chain](#source-chain) below). See the canonical [Configuration](/docs/getting-started/configuration) page for a deeper walkthrough.
 
 ## RatchetOptions Producer
 
@@ -85,13 +85,31 @@ public class OrdersRatchetEntityManagerProvider implements RatchetEntityManagerP
 | `payload.maxResultBytes(65536)` | `65536` | Persisted result JSON cap; `0` disables truncation |
 | `store.priorityBoostIntervalMinutes(15)` | `15` | Starvation-prevention priority boost interval |
 
-## Source Chain Fallback
+## Source Chain
 
-`RatchetOptions` is the preferred API. The source chain exists for platforms that already centralize configuration elsewhere.
-
-To plug in a custom source, produce a CDI bean:
+For container deployments, write a producer that reads `RATCHET_*` environment variables and MicroProfile Config via `RatchetOptionsFactory.fromEnvironment()`:
 
 ```java
+@ApplicationScoped
+public class AppSchedulerConfig {
+
+    @Produces
+    @ApplicationScoped
+    RatchetOptions ratchetOptions() {
+        return RatchetOptionsFactory.fromEnvironment();
+    }
+}
+```
+
+Pass a `RatchetConfigSource` to overlay a platform-specific source ahead of the ambient chain:
+
+```java
+@Produces
+@ApplicationScoped
+RatchetOptions ratchetOptions(PlatformRatchetConfigSource platformSource) {
+    return RatchetOptionsFactory.fromEnvironment(platformSource);
+}
+
 @ApplicationScoped
 public class PlatformRatchetConfigSource implements RatchetConfigSource {
 
@@ -103,7 +121,7 @@ public class PlatformRatchetConfigSource implements RatchetConfigSource {
 }
 ```
 
-The built-in env/sysprop fallback understands the `RATCHET_*` names used by older deployments and the typed property names, such as `ratchet.poller.batch-size`.
+The env lookup recognizes canonical `RATCHET_*` environment variable names and `ratchet.*` property names, such as `ratchet.poller.batch-size`.
 
 ## SPI Overrides
 

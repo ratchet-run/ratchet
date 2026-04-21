@@ -330,7 +330,8 @@ Ratchet is designed to be extended. Provide a CDI `@Alternative @Priority(APPLIC
 | `ResilienceStrategy` | Circuit breaker behavior | Built-in 3-state machine |
 | `ClassPolicy` | Security — which classes can be deserialized | `PackagePrefixClassPolicy` with an empty allowlist; startup fails fast until you provide an override |
 | `ErrorSanitizer` | Scrub sensitive data from error messages | `DefaultErrorSanitizer` |
-| `RatchetOptions` / `RatchetConfigSource` | Runtime options and fallback source-chain resolution | CDI-produced options, then source-chain defaults |
+| `RatchetOptions` | Required runtime options bean; deployment fails without a CDI producer | Application-provided via `@Produces`; use `RatchetOptionsFactory.fromEnvironment()` for env-driven configuration |
+| `RatchetConfigSource` | Platform config overlay passed to `RatchetOptionsFactory.fromEnvironment(...)` | Optional |
 | `ExecutionTuningProvider` | Per-execution-type concurrency and virtual-thread limits | Config-backed defaults |
 | `PollingStrategyProvider` | Poll cadence and adaptive backoff | Built-in adaptive strategy |
 | `JobInvocationResolver` | Method reference extraction from submitted callbacks | ASM bytecode analysis |

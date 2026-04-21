@@ -119,7 +119,7 @@ Ratchet separates API contracts from implementation through Service Provider Int
 | `JobStore` | Persistence (15 sub-interfaces) | MySQL / PostgreSQL modules |
 | `JobInvocationResolver` | Callback-to-method invocation resolution | ASM bytecode analysis |
 | `ResultPersistenceStrategy` | Job return-value persistence | JSON metadata with size cap |
-| `RatchetOptions` | Typed runtime options | CDI-produced immutable options |
+| `RatchetOptions` | Typed runtime options | Required CDI producer — see [Configuration](/docs/getting-started/configuration) |
 | `RetryPolicy` | Custom retry decisions | Passthrough (uses job config) |
 | `ClassPolicy` | Security allowlist | Package-prefix matching |
 | `MetricsCollector` | Observability hooks | No-op |

@@ -8,6 +8,10 @@ description: A complete walkthrough of creating a job with retries, backoff, par
 
 The [Quick Start](./quickstart.md) showed the fire-and-forget pattern. This guide builds a complete, production-quality job with retry handling, exponential backoff, parameters, success/failure callbacks, and event monitoring. By the end, you'll understand every option on the `JobBuilder` fluent API.
 
+:::note Prerequisite
+This guide assumes you've already produced a `@ApplicationScoped RatchetOptions` bean. If you haven't, see [Configuration](./configuration.md) — the scheduler won't start without one.
+:::
+
 ## The Scenario
 
 We're building an invoice processing service. When an invoice is submitted, we need to:

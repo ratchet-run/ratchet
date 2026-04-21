@@ -283,7 +283,7 @@ public interface ResultPersistenceStrategy {
 
 ## RatchetConfig
 
-Typed runtime configuration facade used by the RI to build `RatchetOptions` when the application does not produce options directly. Most applications should produce `RatchetOptions`; this contract exists for platform source-chain integrations.
+Typed runtime configuration facade used internally by `RatchetOptionsFactory` to resolve keys against a chain of `RatchetConfigSource` instances. Most applications never interact with this directly; they either build `RatchetOptions` programmatically or call `RatchetOptionsFactory.fromEnvironment()` from their producer (see [Configuration](/docs/getting-started/configuration)).
 
 ```java
 public interface RatchetConfig {
@@ -294,7 +294,7 @@ public interface RatchetConfig {
 
 ## RatchetConfigSource
 
-Raw configuration source used by `RatchetConfig`. CDI-provided sources are consulted before optional MicroProfile Config, environment variables, system properties, and built-in defaults.
+Raw configuration source read by `RatchetOptionsFactory.fromEnvironment(RatchetConfigSource...)`. Pass instances as varargs from your `RatchetOptions` producer to overlay a platform-specific source ahead of the ambient MicroProfile Config / environment variable chain.
 
 ```java
 public interface RatchetConfigSource {

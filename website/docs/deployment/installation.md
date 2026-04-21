@@ -132,9 +132,23 @@ public class MyService {
 }
 ```
 
-## Step 5: Configuration
+## Step 5: Configuration (required)
 
-Produce `RatchetOptions` for runtime tuning. If no options bean exists, Ratchet can fall back to CDI `RatchetConfigSource`, MicroProfile Config, environment variables, system properties, and built-in defaults. A few common knobs:
+Produce a single `@ApplicationScoped RatchetOptions` bean — the scheduler refuses to start without it. The smallest viable producer reads `RATCHET_*` environment variables and MicroProfile Config:
+
+```java
+@ApplicationScoped
+public class RatchetConfig {
+
+    @Produces
+    @ApplicationScoped
+    RatchetOptions ratchetOptions() {
+        return RatchetOptionsFactory.fromEnvironment();
+    }
+}
+```
+
+See [Configuration](/docs/getting-started/configuration) for the programmatic builder alternative and custom sources. Common knobs:
 
 | Setting | Default | Purpose |
 |---------|---------|---------|

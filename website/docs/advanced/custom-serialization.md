@@ -56,7 +56,7 @@ public class RedactingResultPersistence implements ResultPersistenceStrategy {
 }
 ```
 
-The default size cap is controlled by `RatchetOptions.builder().payload(p -> p.maxResultBytes(...))`. Set it to `0` to disable truncation. If no `RatchetOptions` bean exists, the fallback source chain also recognizes `ratchet.jobs.max-result-bytes` and `RATCHET_JOB_RESULT_MAX_BYTES`.
+The default size cap is controlled by `RatchetOptions.builder().payload(p -> p.maxResultBytes(...))`. Set it to `0` to disable truncation. If your `RatchetOptions` producer uses `RatchetOptionsFactory.fromEnvironment()`, the same cap is read from `ratchet.jobs.max-result-bytes` / `RATCHET_JOB_RESULT_MAX_BYTES`.
 
 ## Compatibility SPIs
 
