@@ -43,9 +43,9 @@ import java.util.Set;
 @Transactional
 class MysqlJobStoreImpl implements MysqlJobStore {
 
-  @Inject private RatchetEntityManagerProvider entityManagerProvider;
-  @Inject private MetricsCollector metricsCollector;
-  @Inject private RatchetOptions options;
+  private final RatchetEntityManagerProvider entityManagerProvider;
+  private final MetricsCollector metricsCollector;
+  private final RatchetOptions options;
   private EntityManager em;
 
   private MysqlJobCrudOperations jobs;
@@ -57,14 +57,21 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   private MysqlAuxiliaryOperations auxiliary;
   private MysqlTagOperations tags;
 
-  MysqlJobStoreImpl() {}
+  /** No-arg constructor required by CDI normal-scope proxying. Not for direct use. */
+  protected MysqlJobStoreImpl() {
+    this.entityManagerProvider = null;
+    this.metricsCollector = null;
+    this.options = null;
+  }
 
-  /** Test-only constructor: bypasses CDI to wire EM + metrics directly. */
-  MysqlJobStoreImpl(EntityManager em, MetricsCollector metricsCollector) {
-    this.em = em;
+  @Inject
+  MysqlJobStoreImpl(
+      RatchetEntityManagerProvider entityManagerProvider,
+      MetricsCollector metricsCollector,
+      RatchetOptions options) {
+    this.entityManagerProvider = entityManagerProvider;
     this.metricsCollector = metricsCollector;
-    this.options = RatchetOptions.defaults();
-    initDelegates();
+    this.options = options;
   }
 
   @PostConstruct

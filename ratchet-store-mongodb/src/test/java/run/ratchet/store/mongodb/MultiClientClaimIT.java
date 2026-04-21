@@ -57,8 +57,8 @@ class MultiClientClaimIT {
     clientB = MongoClients.create(MONGO.getConnectionString());
     dbA = clientA.getDatabase(dbName);
     dbB = clientB.getDatabase(dbName);
-    storeA = new MongoJobStoreImpl(dbA);
-    storeB = new MongoJobStoreImpl(dbB);
+    storeA = new MongoJobStoreImpl(dbA, run.ratchet.api.RatchetOptions.defaults());
+    storeB = new MongoJobStoreImpl(dbB, run.ratchet.api.RatchetOptions.defaults());
     new MongoCollectionInitializer(dbA).initialize();
   }
 

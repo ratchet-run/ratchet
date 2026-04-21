@@ -37,7 +37,7 @@ public class AppSchedulerConfig {
 }
 ```
 
-This object is immutable and container-scoped. It avoids static runtime configuration, survives redeploys cleanly, and lets multiple applications in the same server use different settings.
+This object is immutable and container-scoped. It avoids static runtime configuration, survives redeploys cleanly, and lets multiple applications in the same server use different settings. See [Configuration](/docs/getting-started/configuration) for the env-driven alternative.
 
 ## Store Resources
 
@@ -104,10 +104,16 @@ public class AppSchedulerConfig {
 Pass a `RatchetConfigSource` to overlay a platform-specific source ahead of the ambient chain:
 
 ```java
-@Produces
 @ApplicationScoped
-RatchetOptions ratchetOptions(PlatformRatchetConfigSource platformSource) {
-    return RatchetOptionsFactory.fromEnvironment(platformSource);
+public class AppSchedulerConfig {
+
+    @Inject PlatformRatchetConfigSource platformSource;
+
+    @Produces
+    @ApplicationScoped
+    RatchetOptions ratchetOptions() {
+        return RatchetOptionsFactory.fromEnvironment(platformSource);
+    }
 }
 
 @ApplicationScoped

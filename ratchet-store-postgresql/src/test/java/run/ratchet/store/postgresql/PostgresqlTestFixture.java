@@ -54,7 +54,10 @@ public class PostgresqlTestFixture extends JpaContainerFixture {
 
   @Override
   protected JobStore createStore(EntityManager em, MetricsCollector metrics) {
-    return new PostgresqlJobStoreImpl(em);
+    PostgresqlJobStoreImpl store =
+        new PostgresqlJobStoreImpl(() -> em, run.ratchet.api.RatchetOptions.defaults());
+    store.checkIsolationLevel();
+    return store;
   }
 
   @Override

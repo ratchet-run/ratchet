@@ -106,10 +106,6 @@ class MongoJobStoreImpl implements MongoJobStore {
     options.node().explicitTsidNodeId().ifPresent(TsidFactory::configureNodeId);
   }
 
-  MongoJobStoreImpl(MongoDatabase database) {
-    this(database, RatchetOptions.defaults());
-  }
-
   private static boolean isPollerExecutable(JobExecutionType jobType) {
     return jobType == JobExecutionType.SINGLE
         || jobType == JobExecutionType.BATCH_CHILD

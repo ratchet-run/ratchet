@@ -73,15 +73,21 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   private static final String OWNER_TABLE_QUEUE = "QUEUE";
   private static final String OWNER_TABLE_RECURRING = "RECURRING";
 
-  @Inject private RatchetEntityManagerProvider entityManagerProvider;
-  @Inject private RatchetOptions options;
+  private final RatchetEntityManagerProvider entityManagerProvider;
+  private final RatchetOptions options;
   private EntityManager em;
 
-  PostgresqlJobStoreImpl() {}
+  /** No-arg constructor required by CDI normal-scope proxying. Not for direct use. */
+  protected PostgresqlJobStoreImpl() {
+    this.entityManagerProvider = null;
+    this.options = null;
+  }
 
-  /** Test-only constructor: bypasses CDI to wire the EM directly. */
-  PostgresqlJobStoreImpl(EntityManager em) {
-    this.em = em;
+  @Inject
+  PostgresqlJobStoreImpl(
+      RatchetEntityManagerProvider entityManagerProvider, RatchetOptions options) {
+    this.entityManagerProvider = entityManagerProvider;
+    this.options = options;
   }
 
   private static Instant toInstant(Object value) {

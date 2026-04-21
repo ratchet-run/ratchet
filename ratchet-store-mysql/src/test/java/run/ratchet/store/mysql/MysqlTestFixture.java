@@ -59,7 +59,11 @@ public class MysqlTestFixture extends JpaContainerFixture {
 
   @Override
   protected JobStore createStore(EntityManager em, MetricsCollector metrics) {
-    return new MysqlJobStoreImpl(em, metrics);
+    MysqlJobStoreImpl store =
+        new MysqlJobStoreImpl(
+            () -> em, metrics, run.ratchet.api.RatchetOptions.defaults());
+    store.checkIsolationLevel();
+    return store;
   }
 
   @Override

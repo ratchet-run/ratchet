@@ -8,38 +8,139 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Consumer;
 
-/** Immutable CDI-producible runtime options for Ratchet. */
-public record RatchetOptions(
-    PollingOptions polling,
-    ExecutionOptions execution,
-    NodeOptions node,
-    RecurringOptions recurring,
-    RetryBufferOptions retryBuffer,
-    TimeoutOptions timeout,
-    MaintenanceOptions maintenance,
-    NotificationOptions notifications,
-    SchemaOptions schema,
-    PayloadOptions payload,
-    MetricsOptions metrics,
-    SecurityOptions security,
-    StoreOptions store,
-    CircuitBreakerOptions circuitBreaker) {
+/**
+ * Immutable CDI-producible runtime options for Ratchet.
+ *
+ * <p>Declared as a non-final class (not a record) so CDI normal scopes such as
+ * {@code @ApplicationScoped} can generate a client proxy around an application's {@code @Produces}
+ * bean. Instances are still immutable — all fields are {@code final} and set only through {@link
+ * Builder}. Use {@link #builder()} or {@link #defaults()} to construct.
+ */
+public class RatchetOptions {
 
-  public RatchetOptions {
-    polling = Objects.requireNonNull(polling, "polling must not be null");
-    execution = Objects.requireNonNull(execution, "execution must not be null");
-    node = Objects.requireNonNull(node, "node must not be null");
-    recurring = Objects.requireNonNull(recurring, "recurring must not be null");
-    retryBuffer = Objects.requireNonNull(retryBuffer, "retryBuffer must not be null");
-    timeout = Objects.requireNonNull(timeout, "timeout must not be null");
-    maintenance = Objects.requireNonNull(maintenance, "maintenance must not be null");
-    notifications = Objects.requireNonNull(notifications, "notifications must not be null");
-    schema = Objects.requireNonNull(schema, "schema must not be null");
-    payload = Objects.requireNonNull(payload, "payload must not be null");
-    metrics = Objects.requireNonNull(metrics, "metrics must not be null");
-    security = Objects.requireNonNull(security, "security must not be null");
-    store = Objects.requireNonNull(store, "store must not be null");
-    circuitBreaker = Objects.requireNonNull(circuitBreaker, "circuitBreaker must not be null");
+  private final PollingOptions polling;
+  private final ExecutionOptions execution;
+  private final NodeOptions node;
+  private final RecurringOptions recurring;
+  private final RetryBufferOptions retryBuffer;
+  private final TimeoutOptions timeout;
+  private final MaintenanceOptions maintenance;
+  private final NotificationOptions notifications;
+  private final SchemaOptions schema;
+  private final PayloadOptions payload;
+  private final MetricsOptions metrics;
+  private final SecurityOptions security;
+  private final StoreOptions store;
+  private final CircuitBreakerOptions circuitBreaker;
+
+  /**
+   * No-arg constructor used only by CDI to generate the client proxy subclass. Sets all fields to
+   * {@code null}; the proxy never invokes these fields because every method call is intercepted and
+   * delegated to the real {@code @Produces} bean instance. Do not invoke directly — use {@link
+   * #builder()} or {@link #defaults()}.
+   */
+  protected RatchetOptions() {
+    this.polling = null;
+    this.execution = null;
+    this.node = null;
+    this.recurring = null;
+    this.retryBuffer = null;
+    this.timeout = null;
+    this.maintenance = null;
+    this.notifications = null;
+    this.schema = null;
+    this.payload = null;
+    this.metrics = null;
+    this.security = null;
+    this.store = null;
+    this.circuitBreaker = null;
+  }
+
+  public RatchetOptions(
+      PollingOptions polling,
+      ExecutionOptions execution,
+      NodeOptions node,
+      RecurringOptions recurring,
+      RetryBufferOptions retryBuffer,
+      TimeoutOptions timeout,
+      MaintenanceOptions maintenance,
+      NotificationOptions notifications,
+      SchemaOptions schema,
+      PayloadOptions payload,
+      MetricsOptions metrics,
+      SecurityOptions security,
+      StoreOptions store,
+      CircuitBreakerOptions circuitBreaker) {
+    this.polling = Objects.requireNonNull(polling, "polling must not be null");
+    this.execution = Objects.requireNonNull(execution, "execution must not be null");
+    this.node = Objects.requireNonNull(node, "node must not be null");
+    this.recurring = Objects.requireNonNull(recurring, "recurring must not be null");
+    this.retryBuffer = Objects.requireNonNull(retryBuffer, "retryBuffer must not be null");
+    this.timeout = Objects.requireNonNull(timeout, "timeout must not be null");
+    this.maintenance = Objects.requireNonNull(maintenance, "maintenance must not be null");
+    this.notifications = Objects.requireNonNull(notifications, "notifications must not be null");
+    this.schema = Objects.requireNonNull(schema, "schema must not be null");
+    this.payload = Objects.requireNonNull(payload, "payload must not be null");
+    this.metrics = Objects.requireNonNull(metrics, "metrics must not be null");
+    this.security = Objects.requireNonNull(security, "security must not be null");
+    this.store = Objects.requireNonNull(store, "store must not be null");
+    this.circuitBreaker = Objects.requireNonNull(circuitBreaker, "circuitBreaker must not be null");
+  }
+
+  public PollingOptions polling() {
+    return polling;
+  }
+
+  public ExecutionOptions execution() {
+    return execution;
+  }
+
+  public NodeOptions node() {
+    return node;
+  }
+
+  public RecurringOptions recurring() {
+    return recurring;
+  }
+
+  public RetryBufferOptions retryBuffer() {
+    return retryBuffer;
+  }
+
+  public TimeoutOptions timeout() {
+    return timeout;
+  }
+
+  public MaintenanceOptions maintenance() {
+    return maintenance;
+  }
+
+  public NotificationOptions notifications() {
+    return notifications;
+  }
+
+  public SchemaOptions schema() {
+    return schema;
+  }
+
+  public PayloadOptions payload() {
+    return payload;
+  }
+
+  public MetricsOptions metrics() {
+    return metrics;
+  }
+
+  public SecurityOptions security() {
+    return security;
+  }
+
+  public StoreOptions store() {
+    return store;
+  }
+
+  public CircuitBreakerOptions circuitBreaker() {
+    return circuitBreaker;
   }
 
   public static RatchetOptions defaults() {

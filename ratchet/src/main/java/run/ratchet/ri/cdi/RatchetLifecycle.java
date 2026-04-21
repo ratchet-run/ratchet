@@ -109,7 +109,7 @@ public class RatchetLifecycle {
       ExecutorProvider executorProvider,
       NodeIdentityProvider nodeIdentityProvider,
       DrainController drainController,
-      Instance<RatchetOptions> options,
+      RatchetOptions options,
       JobExecutionCoordinator jobExecutionCoordinator,
       Instance<SchedulerLifecycleHook> lifecycleHooks) {
     this(
@@ -124,7 +124,7 @@ public class RatchetLifecycle {
         executorProvider,
         nodeIdentityProvider,
         drainController,
-        options.get(),
+        options,
         jobExecutionCoordinator,
         (Iterable<SchedulerLifecycleHook>) lifecycleHooks);
   }
