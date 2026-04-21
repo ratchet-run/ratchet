@@ -53,12 +53,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
-import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
@@ -84,6 +82,7 @@ class MongoJobStoreImpl implements MongoJobStore {
   private final MongoDatabase database;
   private final RatchetOptions options;
   private final MongoStoreContext ctx;
+  private final MongoTagOperations tags;
 
   private final ExecutorService claimExecutor =
       Executors.newFixedThreadPool(
@@ -99,6 +98,7 @@ class MongoJobStoreImpl implements MongoJobStore {
     this.database = database;
     this.options = options;
     this.ctx = new MongoStoreContext(database, options.store().priorityBoostIntervalMinutes());
+    this.tags = new MongoTagOperations(ctx);
     options.node().explicitTsidNodeId().ifPresent(TsidFactory::configureNodeId);
   }
 
@@ -1223,76 +1223,33 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
-  public void insertTags(long jobId, List<String> tags) {
-    if (tags == null || tags.isEmpty()) {
-      return;
-    }
-    // Tags are embedded in job document — use $addToSet with $each
-    ctx.jobs()
-        .updateOne(
-            eq(ID, jobId),
-            new Document("$addToSet", new Document(TAGS, new Document("$each", tags))));
+  public void insertTags(long jobId, List<String> tagList) {
+    tags.insertTags(jobId, tagList);
   }
 
   @Override
   public int deleteTagsByJobId(long jobId) {
-    Document before =
-        ctx.jobs()
-            .findOneAndUpdate(
-                eq(ID, jobId),
-                set(TAGS, List.of()),
-                new FindOneAndUpdateOptions().returnDocument(ReturnDocument.BEFORE));
-    if (before == null) {
-      return 0;
-    }
-    List<String> oldTags = before.getList(TAGS, String.class);
-    return oldTags == null ? 0 : oldTags.size();
+    return tags.deleteTagsByJobId(jobId);
   }
 
   @Override
   public List<Long> findJobIdsByTag(String tag, int limit, int offset) {
-    List<Long> ids = new ArrayList<>();
-    for (Document doc :
-        ctx.jobs()
-            .find(eq(TAGS, tag))
-            .projection(new Document(ID, 1))
-            .sort(ascending(ID))
-            .skip(offset)
-            .limit(limit)) {
-      ids.add(doc.getLong(ID));
-    }
-    return ids;
+    return tags.findJobIdsByTag(tag, limit, offset);
   }
 
   @Override
   public Map<JobStatus, Long> countJobsByStatusForTag(String tag) {
-    Map<JobStatus, Long> counts = new EnumMap<>(JobStatus.class);
-    for (Document doc :
-        ctx.jobs()
-            .aggregate(
-                List.of(
-                    new Document("$match", new Document(TAGS, tag)),
-                    new Document(
-                        "$group",
-                        new Document(ID, "$" + STATUS).append("count", new Document("$sum", 1L))),
-                    new Document("$sort", new Document(ID, 1))))) {
-      String status = doc.getString(ID);
-      if (status != null) {
-        counts.put(JobStatus.valueOf(status), ((Number) doc.get("count")).longValue());
-      }
-    }
-    return counts;
+    return tags.countJobsByStatusForTag(tag);
   }
 
   @Override
   public Map<String, Long> countJobsByParamForTag(String tag, String paramKey) {
-    return aggregateStringCountsByTag(
-        tag, new Document("$getField", new Document("field", paramKey).append("input", "$params")));
+    return tags.countJobsByParamForTag(tag, paramKey);
   }
 
   @Override
   public Map<String, Long> countJobsByExecutionNodeForTag(String tag) {
-    return aggregateStringCountsByTag(tag, "$" + PICKED_BY);
+    return tags.countJobsByExecutionNodeForTag(tag);
   }
 
   @Override
@@ -1655,27 +1612,6 @@ class MongoJobStoreImpl implements MongoJobStore {
       }
     }
     return claimed;
-  }
-
-  private Map<String, Long> aggregateStringCountsByTag(String tag, Object groupExpression) {
-    Map<String, Long> counts = new TreeMap<>();
-    for (Document doc :
-        ctx.jobs()
-            .aggregate(
-                List.of(
-                    new Document("$match", new Document(TAGS, tag)),
-                    new Document(
-                        "$group",
-                        new Document(ID, groupExpression)
-                            .append("count", new Document("$sum", 1L))),
-                    new Document("$sort", new Document(ID, 1))))) {
-      Object keyValue = doc.get(ID);
-      if (!(keyValue instanceof String key) || key.isBlank()) {
-        continue;
-      }
-      counts.put(key, ((Number) doc.get("count")).longValue());
-    }
-    return counts;
   }
 
   private ArchivedJobEntity buildArchive(JobEntity job, String reason, String archivedBy) {
