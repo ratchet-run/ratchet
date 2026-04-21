@@ -113,11 +113,9 @@ In SQL stores, tags use a separate `scheduler_job_tag` join table. In MongoDB, t
 
 ## Configuration
 
-### Environment Variables
+### Shared Options
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `RATCHET_PRIORITY_BOOST_INTERVAL_MINUTES` | `15` | How often to boost starved job priorities |
+Use `RatchetOptions.builder().store(s -> s.priorityBoostIntervalMinutes(...))` to configure the shared starvation-prevention priority boost interval. The default is 15 minutes.
 
 ### Connection
 

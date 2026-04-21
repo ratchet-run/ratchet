@@ -173,20 +173,20 @@ These MDC values are available in your log format patterns for correlation:
 
 ## Configuration Reference
 
-Ratchet reads configuration from environment variables (checked first) and system properties (checked second). All variables support both `RATCHET_*` and legacy `SCHEDULER_*` prefixes.
+Ratchet reads a CDI-produced `RatchetOptions` bean first. If no options bean exists, the fallback source chain checks CDI `RatchetConfigSource`, MicroProfile Config, environment variables, system properties, and built-in defaults. The fallback recognizes canonical `ratchet.*` property names and `RATCHET_*` environment variable names.
 
 Key diagnostic-related settings:
 
-| Variable | Default | Purpose |
+| Option | Default | Purpose |
 |---|---|---|
-| `RATCHET_POLLER_MIN_DELAY_MS` | `2000` | Minimum time between poll cycles |
-| `RATCHET_POLLER_MAX_DELAY_MS` | `10000` | Maximum time between poll cycles (idle) |
-| `RATCHET_POLLER_BATCH_SIZE` | `50` | Jobs claimed per poll cycle |
-| `RATCHET_NODE_ORPHAN_GRACE_SECONDS` | `60` | Time before a stale node's jobs are recovered |
-| `RATCHET_ORPHAN_SCAN_INTERVAL_MINUTES` | `5` | How often to scan for orphaned jobs |
-| `RATCHET_SOFT_TIMEOUT_PERCENT` | `80` | Percentage of timeout at which warning fires |
-| `RATCHET_WORKER_DEFAULT_SLA` | `1800` | Default job timeout in seconds (30 min) |
-| `RATCHET_CIRCUIT_BREAKER_ENABLED` | `true` | Enable/disable the built-in circuit breaker |
+| `polling.minDelayMs(...)` | `2000` | Minimum time between poll cycles |
+| `polling.maxDelayMs(...)` | `10000` | Maximum time between poll cycles (idle) |
+| `polling.batchSize(...)` | `50` | Jobs claimed per poll cycle |
+| `node.orphanGraceSeconds(...)` | `60` | Time before a stale node's jobs are recovered |
+| `node.orphanScanIntervalMinutes(...)` | `5` | How often to scan for orphaned jobs |
+| `timeout.softTimeoutPercent(...)` | `80` | Percentage of timeout at which warning fires |
+| `timeout.defaultSlaSeconds(...)` | `1800` | Default job timeout in seconds (30 min) |
+| `circuitBreaker.enabled(...)` | `true` | Enable/disable the built-in circuit breaker |
 
 ## Getting Help
 

@@ -53,7 +53,7 @@ Key properties of this query:
 
 - **`FOR UPDATE SKIP LOCKED`** -- Two nodes running this query concurrently will claim disjoint sets of jobs. Neither blocks the other. This is the foundation of Ratchet's cluster-safe execution.
 - **Priority ordering** -- Raw priority is the base priority.
-- **Age boosting** -- `age_boost` is computed as `floor(wait_minutes / RATCHET_PRIORITY_BOOST_INTERVAL_MINUTES)`, so sufficiently old low-priority work can move ahead of newer high-priority work.
+- **Age boosting** -- `age_boost` is computed as `floor(wait_minutes / priorityBoostIntervalMinutes)`, so sufficiently old low-priority work can move ahead of newer high-priority work. Configure the interval with `RatchetOptions.store(...)`.
 - **Age ordering** -- Within the same effective priority, older jobs are claimed first (fairness).
 - **Batch claiming** -- Up to `batchSize` jobs are claimed in a single query to reduce database round trips.
 

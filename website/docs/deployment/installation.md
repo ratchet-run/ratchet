@@ -134,14 +134,14 @@ public class MyService {
 
 ## Step 5: Configuration
 
-Ratchet reads runtime settings from environment variables first and system properties second. A few common knobs:
+Produce `RatchetOptions` for runtime tuning. If no options bean exists, Ratchet can fall back to CDI `RatchetConfigSource`, MicroProfile Config, environment variables, system properties, and built-in defaults. A few common knobs:
 
 | Setting | Default | Purpose |
 |---------|---------|---------|
-| `RATCHET_POLLER_BATCH_SIZE` | `50` | Jobs claimed per poll cycle |
-| `RATCHET_POLLER_MIN_DELAY_MS` | `2000` | Minimum poll interval |
-| `RATCHET_THREAD_POOL_SIZE_SINGLE` | `20` | Worker threads for one-off jobs |
-| `RATCHET_JOB_RETENTION_DAYS` | `90` | Completed-job retention before archiving |
+| `polling.batchSize(...)` | `50` | Jobs claimed per poll cycle |
+| `polling.minDelayMs(...)` | `2000` | Minimum poll interval |
+| `execution.maxConcurrency("SINGLE", ...)` | `20` | Worker threads for one-off jobs |
+| `maintenance.jobRetentionDays(...)` | `90` | Completed-job retention before archiving |
 
 SPI customizations such as `ClassPolicy`, `JobInvocationResolver`, `ResultPersistenceStrategy`, `ExecutionTuningProvider`, `ExecutorProvider`, `RatchetEntityManagerProvider`, and `ErrorSanitizer` are overridden with CDI `@Alternative` beans, not string property names. See [Configuration](/docs/getting-started/configuration).
 

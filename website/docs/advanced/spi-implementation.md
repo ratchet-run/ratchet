@@ -140,8 +140,8 @@ public class SmartRetryPolicy implements RetryPolicy {
     }
 
     private boolean isTransient(Throwable t) {
-        return t instanceof java.io.IOException
-            || t instanceof java.util.concurrent.TimeoutException;
+        return t instanceof IOException
+            || t instanceof TimeoutException;
     }
 }
 ```
@@ -439,11 +439,11 @@ public class HostnameNodeIdentityProvider implements NodeIdentityProvider {
 
     public HostnameNodeIdentityProvider() {
         try {
-            String hostname = java.net.InetAddress.getLocalHost().getHostName();
+            String hostname = InetAddress.getLocalHost().getHostName();
             String pid = ProcessHandle.current().pid() + "";
             this.nodeId = hostname + "-" + pid;
         } catch (Exception e) {
-            this.nodeId = java.util.UUID.randomUUID().toString();
+            this.nodeId = UUID.randomUUID().toString();
         }
     }
 
@@ -875,8 +875,7 @@ public class MySpi implements SomeRatchetSpi {
 
 | SPI Interface | Default Implementation | CDI Scope | Module |
 |---------------|----------------------|-----------|--------|
-| `RatchetConfigSource` | `EnvironmentRatchetConfigSource` | `@ApplicationScoped` | ratchet |
-| `RatchetConfig` | `DefaultRatchetConfig` | `@ApplicationScoped` | ratchet |
+| `RatchetConfigSource` | Source-chain fallback behind `RatchetOptions` | Optional `@ApplicationScoped` application bean | application |
 | `JobInvocationResolver` | `DefaultJobInvocationResolver` | `@ApplicationScoped` | ratchet |
 | `ResultPersistenceStrategy` | `DefaultResultPersistenceStrategy` | `@ApplicationScoped` | ratchet |
 | `ExecutionTuningProvider` | `DefaultExecutionTuningProvider` | `@ApplicationScoped` | ratchet |

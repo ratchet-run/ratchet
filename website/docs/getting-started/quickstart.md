@@ -70,7 +70,7 @@ public class AppClassPolicy implements ClassPolicy {
 }
 ```
 
-Ratchet fails fast at startup if you leave the default allowlist empty. The `-Dratchet.allow-empty-class-policy=true` escape hatch is only for demos and tests.
+Ratchet fails fast at startup if you leave the default allowlist empty. The `RatchetOptions.security().allowEmptyClassPolicy(true)` escape hatch is only for demos and tests.
 
 ## Step 1: Create a CDI Bean
 
@@ -244,7 +244,7 @@ You need a store module (`ratchet-store-postgresql`, `ratchet-store-mysql`, or `
 
 ### Startup fails with `ClassPolicy allowedPackages is empty`
 
-Ratchet refuses to boot until you provide a `ClassPolicy` override. Install the `@Alternative @Priority(APPLICATION)` bean shown above, or use `-Dratchet.allow-empty-class-policy=true` only in demos and tests.
+Ratchet refuses to boot until you provide a `ClassPolicy` override. Install the `@Alternative @Priority(APPLICATION)` bean shown above, or use `RatchetOptions.security().allowEmptyClassPolicy(true)` only in demos and tests.
 
 ### Jobs are enqueued but never execute
 

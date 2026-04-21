@@ -196,10 +196,10 @@ Priority determines which jobs are claimed first when multiple are eligible. The
 The Poller's claim query orders by **effective priority**, then due time. Effective priority is the persisted priority plus an age-based boost:
 
 ```text
-effective_priority = priority + floor(wait_minutes / RATCHET_PRIORITY_BOOST_INTERVAL_MINUTES)
+effective_priority = priority + floor(wait_minutes / priorityBoostIntervalMinutes)
 ```
 
-With the default 15-minute boost interval, long-waiting low-priority jobs can outrank newer high-priority jobs. This is intentional starvation prevention. Set `RATCHET_PRIORITY_BOOST_INTERVAL_MINUTES=0` to disable boosting and use raw priority ordering.
+With the default 15-minute boost interval, long-waiting low-priority jobs can outrank newer high-priority jobs. This is intentional starvation prevention. Set `RatchetOptions.builder().store(s -> s.priorityBoostIntervalMinutes(0))` to disable boosting and use raw priority ordering.
 
 ```java
 scheduler.enqueue(() -> billingService.process(invoice))

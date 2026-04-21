@@ -6,81 +6,116 @@ title: Configuration
 
 Tuning Ratchet for your deployment.
 
-This page is the deployment-focused companion to the more exhaustive [Getting Started configuration guide](/docs/getting-started/configuration). The short version:
+Ratchet's Jakarta EE configuration model is CDI-first:
 
-- Operational settings come from environment variables first, then system properties.
-- SPI customizations come from CDI `@Alternative` beans.
-- The defaults are intentionally conservative and security-biased.
+- Produce a single `@ApplicationScoped RatchetOptions` bean for scheduler tuning.
+- Produce store resources, such as `EntityManager`, `MongoDatabase`, and managed executors, as normal CDI resources.
+- Replace behavioral extension points with CDI `@Alternative` beans.
 
-## Runtime Settings
+If no `RatchetOptions` bean exists, the RI builds one from the fallback source chain: CDI-provided `RatchetConfigSource` beans, optional MicroProfile Config when present, environment variables, system properties, then built-in defaults.
 
-`RatchetConfiguration` reads environment variables with the `RATCHET_` prefix and falls back to matching `-D` system properties. Examples:
+## RatchetOptions Producer
 
-```bash
-RATCHET_POLLER_BATCH_SIZE=100
-RATCHET_POLLER_MIN_DELAY_MS=500
-RATCHET_THREAD_POOL_SIZE_SINGLE=32
-RATCHET_WORKER_USE_VIRTUAL_THREADS=true
-RATCHET_NODE_HEARTBEAT_INTERVAL_SECONDS=10
+```java
+import run.ratchet.api.RatchetOptions;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Produces;
+
+@ApplicationScoped
+public class AppSchedulerConfig {
+
+    @Produces
+    @ApplicationScoped
+    RatchetOptions ratchetOptions() {
+        return RatchetOptions.builder()
+            .polling(p -> p.batchSize(100).minDelayMs(500).burstDelayMs(100))
+            .execution(e -> e.maxConcurrency("SINGLE", 32).maxConcurrency("BATCH_CHILD", 64))
+            .node(n -> n.heartbeatIntervalSeconds(10).orphanGraceSeconds(90))
+            .maintenance(m -> m.jobRetentionDays(30).logRetentionDays(14))
+            .build();
+    }
+}
 ```
 
-### Common Deployment Knobs
+This object is immutable and container-scoped. It avoids static runtime configuration, survives redeploys cleanly, and lets multiple applications in the same server use different settings.
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `RATCHET_POLLER_BATCH_SIZE` | `50` | Jobs claimed per poll cycle |
-| `RATCHET_POLLER_MIN_DELAY_MS` | `2000` | Minimum poll interval |
-| `RATCHET_POLLER_MAX_DELAY_MS` | `10000` | Maximum adaptive poll interval |
-| `RATCHET_THREAD_POOL_SIZE_SINGLE` | `20` | Worker threads for one-off jobs |
-| `RATCHET_THREAD_POOL_SIZE_BATCH_CHILD` | `30` | Worker threads for batch children |
-| `RATCHET_WORKER_USE_VIRTUAL_THREADS` | `false` | Switch to Java 21 virtual threads |
-| `RATCHET_NODE_HEARTBEAT_INTERVAL_SECONDS` | `10` | Node heartbeat interval |
-| `RATCHET_NODE_ORPHAN_GRACE_SECONDS` | `60` | Grace period before reclaiming orphaned work |
-| `RATCHET_JOB_RETENTION_DAYS` | `90` | Completed-job retention before archiving |
-| `RATCHET_LOG_RETENTION_DAYS` | `30` | Per-job log retention |
+## Store Resources
 
-For the full matrix of poller, thread-pool, retention, DLQ, archiving, and circuit-breaker settings, see [Getting Started configuration](/docs/getting-started/configuration).
+Keep store wiring Jakarta EE native. Configure the resources themselves with CDI instead of encoding connection details in scheduler properties.
+
+```java
+@Produces
+@ApplicationScoped
+MongoDatabase ratchetMongoDatabase(MongoClient client) {
+    return client.getDatabase("ratchet");
+}
+```
+
+SQL stores still use `RatchetEntityManagerProvider` when you need to bind Ratchet to a specific persistence unit.
+
+```java
+@ApplicationScoped
+public class OrdersRatchetEntityManagerProvider implements RatchetEntityManagerProvider {
+
+    @PersistenceContext(unitName = "orders-pu")
+    EntityManager entityManager;
+
+    @Override
+    public EntityManager getEntityManager() {
+        return entityManager;
+    }
+}
+```
+
+## Common Options
+
+| Builder path | Default | Purpose |
+|---|---:|---|
+| `polling.batchSize(50)` | `50` | Jobs claimed per poll cycle |
+| `polling.minDelayMs(2000)` | `2000` | Minimum poll interval |
+| `polling.maxDelayMs(10000)` | `10000` | Maximum adaptive poll interval |
+| `execution.maxConcurrency("SINGLE", 20)` | `20` | Worker concurrency for one-off jobs |
+| `execution.maxConcurrency("BATCH_CHILD", 30)` | `30` | Worker concurrency for batch children |
+| `execution.useVirtualThreads(false)` | `false` | Switch to Java virtual-thread execution |
+| `node.heartbeatIntervalSeconds(10)` | `10` | Node heartbeat interval |
+| `node.orphanGraceSeconds(60)` | `60` | Grace period before reclaiming orphaned work |
+| `maintenance.jobRetentionDays(90)` | `90` | Completed-job retention before archiving |
+| `maintenance.logRetentionDays(30)` | `30` | Per-job log retention |
+| `payload.maxPayloadKb(100)` | `100` | Serialized job payload size cap |
+| `payload.maxResultBytes(65536)` | `65536` | Persisted result JSON cap; `0` disables truncation |
+| `store.priorityBoostIntervalMinutes(15)` | `15` | Starvation-prevention priority boost interval |
+
+## Source Chain Fallback
+
+`RatchetOptions` is the preferred API. The source chain exists for platforms that already centralize configuration elsewhere.
+
+To plug in a custom source, produce a CDI bean:
+
+```java
+@ApplicationScoped
+public class PlatformRatchetConfigSource implements RatchetConfigSource {
+
+    @Override
+    public Optional<String> get(String propertyName, String environmentVariable) {
+        return platformConfig.lookup(propertyName)
+            .or(() -> platformConfig.lookup(environmentVariable));
+    }
+}
+```
+
+The built-in env/sysprop fallback understands the `RATCHET_*` names used by older deployments and the typed property names, such as `ratchet.poller.batch-size`.
 
 ## SPI Overrides
 
-Security and extension-point behavior are not configured with class names in properties. They are CDI beans.
+Security and behavior extension points are CDI beans, not class names in properties.
 
-### Payload and Result Customization
-
-Default payload resolution is handled by `JobInvocationResolver`; default result persistence is handled by `ResultPersistenceStrategy`.
-
-This controls how Ratchet turns submitted callbacks into persisted target-method metadata and how completed job return values are stored. The default RI uses ASM callback analysis and JSON result metadata.
-
-### ClassPolicy
-
-Default: `PackagePrefixClassPolicy` with an empty allowlist
-
-This is an intentional security boundary. By default, `RatchetProducer` refuses to start until you provide an `@Alternative @Priority(APPLICATION)` `ClassPolicy` bean naming the application package prefixes that may be invoked.
-
-### ErrorSanitizer
-
-Default: `DefaultErrorSanitizer`
-
-The default sanitizer redacts common credential patterns, JDBC URLs, and email-like data before errors are persisted.
-
-### MetricsCollector
-
-Default: `NoOpMetricsCollector`
-
-If you want metrics, add `ratchet-micrometer` or provide your own CDI alternative.
-
-## Example: Production Environment
-
-```bash
-RATCHET_POLLER_BATCH_SIZE=100
-RATCHET_POLLER_MIN_DELAY_MS=500
-RATCHET_THREAD_POOL_SIZE_SINGLE=32
-RATCHET_THREAD_POOL_SIZE_BATCH_CHILD=64
-RATCHET_NODE_HEARTBEAT_INTERVAL_SECONDS=10
-RATCHET_NODE_ORPHAN_GRACE_SECONDS=90
-RATCHET_JOB_RETENTION_DAYS=30
-RATCHET_LOG_RETENTION_DAYS=14
-```
+| SPI | Default | What to override |
+|---|---|---|
+| `ClassPolicy` | Empty package allowlist; startup fails fast | Allowed application packages |
+| `ErrorSanitizer` | Common PII and credential redaction | Domain-specific redaction |
+| `MetricsCollector` | No-op | Micrometer or another metrics backend |
+| `ExecutorProvider` | Jakarta Concurrency managed executors | Custom managed executors or standalone tests |
+| `ResilienceStrategy` | Built-in circuit breaker | External resilience library |
 
 ## See Also
 

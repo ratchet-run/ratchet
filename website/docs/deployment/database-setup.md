@@ -360,13 +360,13 @@ If you want Ratchet to run its own packaged `ddl/migrations/V###__description.sq
 @ApplicationScoped
 class RatchetSchemaMigrationHook implements SchedulerLifecycleHook {
   @Inject DataSource dataSource;
-  @Inject RatchetConfiguration config;
+  @Inject RatchetOptions options;
 
   @Override
   public void beforeStart() throws Exception {
-    if (config.isSchemaAutoMigrateEnabled()) {
+    if (options.schema().autoMigrate()) {
       new SchemaMigrator(
-              dataSource, config.getSchemaMigrationDialect(), config.getSchemaMigrationPrefix())
+              dataSource, options.schema().migrationDialect(), options.schema().migrationPrefix())
           .migrate();
     }
   }

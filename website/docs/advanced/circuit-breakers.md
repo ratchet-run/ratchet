@@ -173,28 +173,29 @@ Internal profile used by the poller when claiming work from the store. It trips 
 
 ## Profile Overrides via Configuration
 
-Profile defaults can be overridden per-deployment using Ratchet config. The preferred environment variable prefix is `RATCHET_CB_<PROFILE>_`:
+Profile defaults can be overridden per deployment with `RatchetOptions`:
 
-```bash
-# Override DEFAULT profile
-export RATCHET_CB_DEFAULT_FAILURE_RATE=60
-export RATCHET_CB_DEFAULT_WINDOW_SIZE=50
-export RATCHET_CB_DEFAULT_WAIT_MS=20000
-export RATCHET_CB_DEFAULT_SLOW_CALL_MS=5000
-export RATCHET_CB_DEFAULT_HALF_OPEN_CALLS=5
-export RATCHET_CB_DEFAULT_MIN_CALLS=10
-
-# Override EXTERNAL_API profile
-export RATCHET_CB_EXTERNAL_FAILURE_RATE=40
-export RATCHET_CB_EXTERNAL_WAIT_MS=120000
-
-# Override CLAIM_PATH profile
-export RATCHET_CB_CLAIM_PATH_WAIT_MS=10000
+```java
+RatchetOptions.builder()
+    .circuitBreaker(cb -> cb
+        .profile(CircuitBreakerProfile.DEFAULT, p -> p
+            .failureRateThreshold(60)
+            .slidingWindowSize(50)
+            .waitDurationMs(20_000)
+            .slowCallThresholdMs(5_000)
+            .permittedCallsInHalfOpen(5)
+            .minimumCalls(10))
+        .profile(CircuitBreakerProfile.EXTERNAL_API, p -> p
+            .failureRateThreshold(40)
+            .waitDurationMs(120_000))
+        .profile(CircuitBreakerProfile.CLAIM_PATH, p -> p
+            .waitDurationMs(10_000)))
+    .build();
 ```
 
-The default `CircuitBreakerConfigProvider` reads these values through `RatchetConfig`. Legacy `SCHEDULER_CB_<PROFILE>_...` names are still checked as fallbacks. `RATCHET_CB_<PROFILE>_WAIT_SECONDS` is also supported for existing deployments.
+If no `RatchetOptions` bean exists, the fallback source chain can read canonical `ratchet.circuit-breaker.<profile>.*` properties and `RATCHET_CB_<PROFILE>_...` environment variables.
 
-Set `RATCHET_CIRCUIT_BREAKER_ENABLED=false` to make both the scheduler resilience wrapper and the `@CircuitBreakerProtected` interceptor pass through without consulting circuit state.
+Set `RatchetOptions.builder().circuitBreaker(cb -> cb.enabled(false))` to make both the scheduler resilience wrapper and the `@CircuitBreakerProtected` interceptor pass through without consulting circuit state.
 
 ## Programmatic Access via CircuitBreakerRegistry
 

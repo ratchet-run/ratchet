@@ -156,11 +156,11 @@ The built-in circuit breaker is lightweight by design:
 
 The circuit breaker is resolved per job by inspecting the `@CircuitBreakerProtected` annotation on the target method or class. Service names are cached after first resolution, so reflection only happens once.
 
-**Disabling it:** If you do not need circuit breaking, set `RATCHET_CIRCUIT_BREAKER_ENABLED=false`. This replaces the circuit breaker with a passthrough that adds zero overhead.
+**Disabling it:** If you do not need circuit breaking, set `RatchetOptions.builder().circuitBreaker(cb -> cb.enabled(false))`. This replaces the circuit breaker with a passthrough that adds zero overhead.
 
 ## Can I Use Virtual Threads?
 
-Yes. Set `RATCHET_WORKER_USE_VIRTUAL_THREADS=true` to switch from platform thread pools to virtual threads.
+Yes. Set `RatchetOptions.builder().execution(e -> e.useVirtualThreads(true))` to switch from platform thread pools to virtual threads.
 
 When enabled:
 - The `ThreadPoolManager` creates virtual threads via `Thread.ofVirtual()` instead of using `ExecutorService` thread pools
@@ -194,9 +194,9 @@ Ratchet supports five priority levels:
 | `HIGH` | `JobPriority.HIGH` | 3 |
 | `CRITICAL` | `JobPriority.CRITICAL` | 4 |
 
-The poller claims jobs ordered by effective priority descending, then due time. Effective priority starts with the numeric priority and adds `floor(wait_minutes / RATCHET_PRIORITY_BOOST_INTERVAL_MINUTES)`.
+The poller claims jobs ordered by effective priority descending, then due time. Effective priority starts with the numeric priority and adds `floor(wait_minutes / priorityBoostIntervalMinutes)`.
 
-With the default 15-minute interval, a long-waiting low-priority job can overtake newer high-priority work. This boost is computed during claim ordering; it does not rewrite the stored priority. Set `RATCHET_PRIORITY_BOOST_INTERVAL_MINUTES=0` to disable boosting.
+With the default 15-minute interval, a long-waiting low-priority job can overtake newer high-priority work. This boost is computed during claim ordering; it does not rewrite the stored priority. Set `RatchetOptions.builder().store(s -> s.priorityBoostIntervalMinutes(0))` to disable boosting.
 
 ## How Are Job Results Stored?
 
@@ -215,7 +215,7 @@ If serialization fails (e.g., the return type is not JSON-serializable), a warni
 
 ## What Is the Maximum Payload Size?
 
-The default maximum payload size is 100 KB, controlled by `RATCHET_MAX_PAYLOAD_KB`. The payload includes the serialized lambda descriptor (target class, method name, method descriptor, arguments).
+The default maximum payload size is 100 KB, controlled by `RatchetOptions.builder().payload(p -> p.maxPayloadKb(...))`. The payload includes the serialized lambda descriptor (target class, method name, method descriptor, arguments).
 
 If you need to pass large data to a job, pass a reference (e.g., a database ID or S3 key) rather than the data itself:
 

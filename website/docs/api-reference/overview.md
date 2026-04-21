@@ -92,7 +92,7 @@ Classes and interfaces you use directly when scheduling jobs, building workflows
 | [`ClusterCoordinator`](./spi-interfaces#clustercoordinator) | Distributed wakeup notifications |
 | [`StartupCoordinator`](./spi-interfaces#startupcoordinator) | Store-backed startup leases for destructive initialization tasks |
 | [`NodeIdentityProvider`](./spi-interfaces#nodeidentityprovider) | Identify nodes in a cluster |
-| [`RatchetConfig`](./spi-interfaces#ratchetconfig) | Typed runtime configuration facade |
+| `RatchetOptions` | CDI-producible immutable runtime options |
 
 ## How to Read This Reference
 

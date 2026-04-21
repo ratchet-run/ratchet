@@ -22,7 +22,7 @@ Marks a method for cron-scheduled recurring execution. Annotated methods are aut
     zone = "America/New_York",
     id = "nightly-cleanup",
     name = "Nightly Cleanup",
-    enabled = "true",
+    enabled = true,
     priority = 5,
     maxRetries = 3,
     backoffPolicy = BackoffPolicy.EXPONENTIAL,
@@ -40,7 +40,7 @@ Marks a method for cron-scheduled recurring execution. Annotated methods are aut
 | `zone` | `String` | `"UTC"` | No | Timezone for cron evaluation. Must be a valid `ZoneId`. |
 | `id` | `String` | `""` | No | Unique job ID. If empty, defaults to fully qualified class + method name. Used as business key. |
 | `name` | `String` | `""` | No | Human-readable name for logs and monitoring. Defaults to method name. |
-| `enabled` | `String` | `"true"` | No | Whether the job is enabled. Supports property placeholders (e.g., `"${app.cleanup.enabled:true}"`). |
+| `enabled` | `boolean` | `true` | No | Whether the job is registered at startup. |
 | `priority` | `int` | `5` | No | Priority on a 1-10 scale. Mapped to `JobPriority` (see [mapping](./job-options#priority-in-recurring)). |
 | `maxRetries` | `int` | `3` | No | Maximum retry attempts on failure. |
 | `backoffPolicy` | `BackoffPolicy` | `EXPONENTIAL` | No | Retry delay strategy: `NONE`, `FIXED`, or `EXPONENTIAL`. |
@@ -108,11 +108,11 @@ public class MaintenanceService {
         // health check logic
     }
 
-    // Conditionally enabled via configuration property
+    // Explicitly disabled
     @Recurring(
         cron = "0 0 3 * * ?",
         name = "Archive Old Records",
-        enabled = "${app.archiving.enabled:false}"
+        enabled = false
     )
     public void archiveRecords() {
         // archiving logic
@@ -263,7 +263,7 @@ public interface ResilienceStrategy {
 
 `@Incubating` is applied to SPI interfaces and classes that are subject to change. If you implement an `@Incubating` interface, be aware that method signatures may be added, changed, or removed in minor releases.
 
-Currently `@Incubating` SPIs include the scheduler extension contracts in `run.ratchet.spi`, including `RatchetConfig`, `JobInvocationResolver`, `ResultPersistenceStrategy`, `ExecutionTuningProvider`, `PollingStrategyProvider`, `JobLoggerFactory`, `ResilienceStrategy`, `ClassPolicy`, `ErrorSanitizer`, `ExecutorProvider`, `BeanResolver`, `MetricsCollector`, `JobLogger`, `ClusterCoordinator`, `StartupCoordinator`, and `NodeIdentityProvider`.
+Currently `@Incubating` SPIs include the scheduler extension contracts in `run.ratchet.spi`, including `RatchetConfigSource`, `JobInvocationResolver`, `ResultPersistenceStrategy`, `ExecutionTuningProvider`, `PollingStrategyProvider`, `JobLoggerFactory`, `ResilienceStrategy`, `ClassPolicy`, `ErrorSanitizer`, `ExecutorProvider`, `BeanResolver`, `MetricsCollector`, `JobLogger`, `ClusterCoordinator`, `StartupCoordinator`, and `NodeIdentityProvider`.
 
 ## See Also
 

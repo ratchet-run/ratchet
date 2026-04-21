@@ -53,7 +53,7 @@ The most common cause of a broken fresh deployment is an empty `ClassPolicy` all
 ERROR: ClassPolicy allowedPackages is empty — refusing to start. Provide an
 @Alternative @Priority(APPLICATION) ClassPolicy bean with your application's package
 prefixes, or opt out (ONLY for demos/tests) with
--Dratchet.allow-empty-class-policy=true
+RatchetOptions.builder().security(s -> s.allowEmptyClassPolicy(true)).build()
 ```
 
 You must provide a `ClassPolicy` bean that allows your application packages:
@@ -74,7 +74,7 @@ public class AppClassPolicy implements ClassPolicy {
 }
 ```
 
-If you explicitly set `-Dratchet.allow-empty-class-policy=true`, the application will start but the default policy still rejects every job target. In that opt-out mode, "jobs never run" is expected until you install a real `ClassPolicy`.
+If you explicitly set `RatchetOptions.security().allowEmptyClassPolicy(true)`, the application will start but the default policy still rejects every job target. In that opt-out mode, "jobs never run" is expected until you install a real `ClassPolicy`.
 
 ### Check 4: Is the Database Accessible?
 
@@ -221,24 +221,19 @@ The circuit breaker transitions:
 **Solutions:**
 
 1. Fix the underlying service failure
-2. Temporarily increase the wait duration to reduce retry pressure:
-   ```bash
-   export RATCHET_CB_DEFAULT_WAIT_SECONDS=120
-   ```
+2. Temporarily increase the wait duration with `RatchetOptions.circuitBreaker(...)` to reduce retry pressure.
 3. If the circuit breaker is not appropriate for your use case, disable it:
-   ```bash
-   export RATCHET_CIRCUIT_BREAKER_ENABLED=false
-   ```
+   `RatchetOptions.builder().circuitBreaker(cb -> cb.enabled(false)).build()`
 
 **Tuning parameters:**
 
-| Variable | Default | Purpose |
+| Option | Default | Purpose |
 |---|---|---|
-| `RATCHET_CB_DEFAULT_FAILURE_RATE` | `50` | Failure percentage to trip the breaker |
-| `RATCHET_CB_DEFAULT_WAIT_SECONDS` | `30` | Seconds the circuit stays open |
-| `RATCHET_CB_DEFAULT_WINDOW_SIZE` | `100` | Sliding window size for rate calculation |
-| `RATCHET_CB_EXTERNAL_FAILURE_RATE` | `60` | Failure rate for external service profiles |
-| `RATCHET_CB_EXTERNAL_WAIT_SECONDS` | `60` | Wait duration for external service profiles |
+| `circuitBreaker.profile(DEFAULT).failureRateThreshold` | `50` | Failure percentage to trip the breaker |
+| `circuitBreaker.profile(DEFAULT).waitDurationMs` | `30000` | Milliseconds the circuit stays open |
+| `circuitBreaker.profile(DEFAULT).slidingWindowSize` | `100` | Sliding window size for rate calculation |
+| `circuitBreaker.profile(EXTERNAL_API).failureRateThreshold` | `60` | Failure rate for external service profiles |
+| `RATCHET_CB_EXTERNAL_API_WAIT_MS` | `60000` | Wait duration for external service profiles |
 
 ## Database Constraint Violations
 
@@ -288,8 +283,8 @@ SEVERE: Job 12345 exceeded timeout of 1800s. Cancelling execution. Elapsed: 30m 
 **Configuration:**
 
 - Per-job timeout: set `timeoutSec` on the job entity (via `JobBuilder.withTimeout()`)
-- Global default: `RATCHET_WORKER_DEFAULT_SLA` (default 1800 seconds / 30 minutes)
-- Soft timeout percentage: `RATCHET_SOFT_TIMEOUT_PERCENT` (default 80)
+- Global default: `RatchetOptions.timeout(t -> t.defaultSlaSeconds(...))` (default 1800 seconds / 30 minutes)
+- Soft timeout percentage: `RatchetOptions.timeout(t -> t.softTimeoutPercent(...))` (default 80)
 
 **Important:** The hard timeout uses `Future.cancel(true)`, which sets the thread's interrupt flag. Your job code must check `Thread.interrupted()` or handle `InterruptedException` to stop cleanly. If your job ignores interrupts (e.g., stuck in a tight CPU loop with no blocking calls), the timeout cannot forcefully kill it.
 
@@ -301,13 +296,13 @@ SEVERE: Job 12345 exceeded timeout of 1800s. Cancelling execution. Elapsed: 30m 
 
 Ratchet uses type-isolated thread pools with semaphore-based concurrency limits. Each job execution type has its own pool:
 
-| Job Type | Default Pool Size | Env Variable |
+| Job Type | Default Pool Size | RatchetOptions key |
 |---|---|---|
-| `SINGLE` | 20 | `RATCHET_THREAD_POOL_SIZE_SINGLE` |
-| `RECURRING` | 5 | `RATCHET_THREAD_POOL_SIZE_RECURRING` |
-| `BATCH_CHILD` | 30 | `RATCHET_THREAD_POOL_SIZE_BATCH_CHILD` |
-| `BATCH_PARENT` | 2 | `RATCHET_THREAD_POOL_SIZE_BATCH_PARENT` |
-| `CHAIN_STEP` | 10 | `RATCHET_THREAD_POOL_SIZE_CHAIN` |
+| `SINGLE` | 20 | `execution.maxConcurrency("SINGLE", ...)` |
+| `RECURRING` | 5 | `execution.maxConcurrency("RECURRING", ...)` |
+| `BATCH_CHILD` | 30 | `execution.maxConcurrency("BATCH_CHILD", ...)` |
+| `BATCH_PARENT` | 2 | `execution.maxConcurrency("BATCH_PARENT", ...)` |
+| `CHAIN_STEP` | 10 | `execution.maxConcurrency("CHAIN_STEP", ...)` |
 
 When a pool is at capacity, the poller skips claiming jobs of that type. Look for:
 

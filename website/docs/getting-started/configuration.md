@@ -1,55 +1,27 @@
 ---
 sidebar_position: 5
 title: Configuration
-description: CDI producer setup, beans.xml requirements, SPI defaults, and runtime tuning via environment variables
+description: CDI producer setup, beans.xml requirements, RatchetOptions, and runtime source-chain fallbacks
 ---
 
 # Configuration
 
-Ratchet is designed to work with very little configuration once the required security boundary is in place. The reference implementation ships with sensible defaults for most settings, and CDI bean discovery handles the wiring. The main required override is `ClassPolicy`: startup fails if you leave the default allowlist empty. This page covers what's happening under the hood and how to customize it when the defaults don't fit.
+Ratchet is designed to run in Jakarta EE without static global configuration. CDI owns the runtime objects, Ratchet consumes one immutable `RatchetOptions` bean when you provide it, and store-specific resources remain normal CDI resources.
 
 ## How Ratchet Bootstraps
 
-When your application starts, two CDI beans drive the initialization:
+Two CDI beans drive startup:
 
-### RatchetProducer
+| Bean | Role |
+|---|---|
+| `RatchetProducer` | Produces the internal scheduler components that combine options with injectable dependencies |
+| `RatchetLifecycle` | Starts pollers, recurring scheduling, recovery timers, retention tasks, and cluster wakeup listeners |
 
-`RatchetProducer` is an `@ApplicationScoped` CDI bean that creates and wires the internal components that require configuration values mixed with injectable dependencies. It produces beans like `ThreadPoolManager`, `JobTimeoutHandler`, `Poller`, and the default SPI implementations.
+On shutdown, components stop in reverse order and static caches are cleared to release classloader references.
 
-You don't need to create or configure `RatchetProducer` -- it's discovered automatically by CDI. But understanding what it produces helps you know what's available to override.
+## beans.xml
 
-Key beans produced by `RatchetProducer`:
-
-| Bean | What it does |
-|------|-------------|
-| `ThreadPoolManager` | Manages concurrency per job execution type, including batch, chain, workflow, and system work |
-| `Poller` | Claims pending jobs from the store and dispatches them to worker threads |
-| `JobTimeoutHandler` | Enforces job timeouts and soft-timeout warnings |
-| `NodeIdentityProvider` | Identifies this node in a cluster with heartbeat registration |
-| `ClassPolicy` | Security policy controlling which classes can be deserialized from job payloads |
-| `ResilienceStrategy` | Circuit breaker backed by the built-in state machine |
-| `ErrorSanitizer` | Strips PII and credentials from error messages before persistence |
-
-### RatchetLifecycle
-
-`RatchetLifecycle` is an `@ApplicationScoped` bean that observes the CDI `@Initialized(ApplicationScoped.class)` event to start all scheduler components at application startup, and uses `@PreDestroy` to shut them down gracefully.
-
-Startup order:
-
-1. **Poller** -- starts claiming and executing pending jobs
-2. **RecurringScheduler** -- starts spawning due recurring job children based on cron schedules
-3. **OrphanRecoveryTimer** -- periodic scan for stuck jobs from crashed nodes
-4. **BatchRecoveryTimer** -- periodic scan for stuck batch completions
-5. **DeadLetterService** -- schedules daily DLQ purge (if enabled)
-6. **JobArchivingService** -- schedules cron-based archiving of completed jobs (if enabled)
-7. **LogPurgeTimer** -- schedules cron-based log purging (if enabled)
-8. **PollerWakeupListener** -- registers for cluster wakeup notifications
-
-On shutdown, all components are stopped in reverse order, and static caches are cleared to release classloader references.
-
-## beans.xml Requirements
-
-Ratchet's CDI beans use `@ApplicationScoped` and are discovered through annotated bean discovery. In Jakarta CDI 4.0, the default discovery mode is `annotated`, which works out of the box. If your `beans.xml` explicitly sets a discovery mode, make sure it's either `annotated` or `all`:
+Ratchet's CDI beans use annotated discovery. Jakarta CDI 4.0 works without a `beans.xml` in most applications. If you define one, keep discovery mode as `annotated` or `all`:
 
 ```xml
 <!-- src/main/webapp/WEB-INF/beans.xml -->
@@ -62,13 +34,7 @@ Ratchet's CDI beans use `@ApplicationScoped` and are discovered through annotate
 </beans>
 ```
 
-:::info No beans.xml needed in most cases
-Jakarta CDI 4.0 uses `annotated` discovery by default. If you don't have a `beans.xml` at all, Ratchet will work. You only need one if your project explicitly configures discovery mode or defines CDI alternatives.
-:::
-
-### Enabling the Circuit Breaker Interceptor
-
-If you use the `@CircuitBreakerProtected` annotation, the interceptor must be activated in `beans.xml`:
+If you use `@CircuitBreakerProtected`, enable its interceptor:
 
 ```xml
 <beans xmlns="https://jakarta.ee/xml/ns/jakartaee"
@@ -82,26 +48,183 @@ If you use the `@CircuitBreakerProtected` annotation, the interceptor must be ac
 </beans>
 ```
 
-Without this interceptor declaration, `@CircuitBreakerProtected` annotations are silently ignored.
+## RatchetOptions
 
-## SPI Defaults and How to Override Them
-
-Ratchet's architecture is built around Service Provider Interfaces (SPIs). The reference implementation provides defaults for all of them, but you can replace any default with a CDI alternative.
-
-### Override Pattern
-
-To override any SPI default, provide your own `@ApplicationScoped` bean with `@Alternative` and `@Priority(APPLICATION)`:
+The preferred Jakarta EE configuration style is a CDI producer:
 
 ```java
-import jakarta.annotation.Priority;
+import run.ratchet.api.RatchetOptions;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.enterprise.inject.Alternative;
+import jakarta.enterprise.inject.Produces;
+
+@ApplicationScoped
+public class SchedulerConfiguration {
+
+    @Produces
+    @ApplicationScoped
+    RatchetOptions ratchetOptions() {
+        return RatchetOptions.builder()
+            .polling(p -> p.batchSize(100).minDelayMs(500).burstDelayMs(100))
+            .execution(e -> e
+                .maxConcurrency("SINGLE", 30)
+                .maxConcurrency("BATCH_CHILD", 50)
+                .useVirtualThreads(false))
+            .node(n -> n
+                .heartbeatIntervalSeconds(5)
+                .orphanGraceSeconds(30)
+                .tsidNodeId(7))
+            .maintenance(m -> m
+                .jobRetentionDays(30)
+                .logRetentionDays(14))
+            .payload(p -> p.maxPayloadKb(200).maxResultBytes(65536))
+            .build();
+    }
+}
+```
+
+Only produce one unqualified `RatchetOptions` bean per application. Multiple unqualified beans are treated as a deployment error because Ratchet cannot know which set of options should own the runtime.
+
+## Store Resources
+
+Store resources stay container-native. Ratchet does not expect static connection configuration.
+
+For MongoDB:
+
+```java
+@Produces
+@ApplicationScoped
+MongoDatabase ratchetMongoDatabase(MongoClient client) {
+    return client.getDatabase("ratchet");
+}
+```
+
+For SQL stores using a named persistence unit:
+
+```java
+@ApplicationScoped
+public class OrdersRatchetEntityManagerProvider implements RatchetEntityManagerProvider {
+
+    @PersistenceContext(unitName = "orders-pu")
+    EntityManager entityManager;
+
+    @Override
+    public EntityManager getEntityManager() {
+        return entityManager;
+    }
+}
+```
+
+## Option Reference
+
+### Polling
+
+| Builder method | Default | Description |
+|---|---:|---|
+| `batchSize(int)` | `50` | Number of jobs claimed per poll cycle |
+| `minDelayMs(long)` | `2000` | Minimum polling interval |
+| `maxDelayMs(long)` | `10000` | Maximum polling interval when idle |
+| `burstDelayMs(long)` | `500` | Polling interval under high job volume |
+| `idleThreshold(int)` | `3` | Empty polls before entering idle mode |
+| `deepIdleDelayMs(long)` | `30000` | Polling interval in deep idle mode |
+| `claimHeadroomFactor(int)` | `0` | Extra claim headroom over current worker capacity |
+
+### Execution
+
+| Builder method | Default | Description |
+|---|---:|---|
+| `useVirtualThreads(boolean)` | `false` | Use virtual threads where supported |
+| `queueSize(int)` | `100` | Reserved for custom executor implementations |
+| `maxConcurrency("SINGLE", int)` | `20` | One-off job concurrency |
+| `maxConcurrency("RECURRING", int)` | `5` | Recurring child concurrency |
+| `maxConcurrency("BATCH_CHILD", int)` | `30` | Batch child concurrency |
+| `maxConcurrency("BATCH_PARENT", int)` | `2` | Batch parent coordination concurrency |
+| `maxConcurrency("CHAIN_STEP", int)` | `10` | Chain step concurrency |
+| `maxConcurrency("WORKFLOW_BRANCH", int)` | `10` | Workflow branch concurrency |
+| `maxConcurrency("WORKFLOW_JOIN", int)` | `10` | Workflow join concurrency |
+| `virtualThreadLimit(String, int)` | unset | Backpressure limit for virtual-thread execution |
+| `rateLimitPerMinute(String, int)` | unset | Per-execution-type rate limit |
+
+### Node and Store
+
+| Builder method | Default | Description |
+|---|---:|---|
+| `nodeId(String)` | generated | Stable logical node id |
+| `tsidNodeId(int)` | hash-based | Explicit 10-bit TSID node id, `0` through `1023` |
+| `heartbeatIntervalSeconds(long)` | `10` | Heartbeat interval |
+| `orphanGraceSeconds(long)` | `60` | Grace window before orphan recovery |
+| `orphanScanIntervalMinutes(long)` | `5` | Orphan recovery scan cadence |
+| `dynamicHeartbeatEnabled(boolean)` | `true` | Adjust heartbeat cadence by load |
+| `store.isolationCheckMode(FAIL)` | `FAIL` | SQL isolation validation behavior |
+| `store.priorityBoostIntervalMinutes(15)` | `15` | Age-based priority boost interval; `0` disables boosting |
+
+### Retention and Payloads
+
+| Builder method | Default | Description |
+|---|---:|---|
+| `dlqPurgeEnabled(boolean)` | `true` | Enable DLQ purging |
+| `dlqPurgeCron(String)` | `0 0 2 * * ?` | DLQ purge schedule |
+| `dlqPurgeDays(long)` | `90` | Dead-letter retention |
+| `jobArchiveEnabled(boolean)` | `true` | Enable job archiving |
+| `jobArchiveCron(String)` | `0 0 1 * * ?` | Archive schedule |
+| `jobRetentionDays(long)` | `90` | Completed-job retention |
+| `jobArchiveBatchSize(int)` | `1000` | Jobs per archive pass |
+| `logPurgeEnabled(boolean)` | `true` | Enable job log purging |
+| `logPurgeCron(String)` | `0 30 2 * * ?` | Log purge schedule |
+| `logRetentionDays(long)` | `30` | Job log retention |
+| `payload.maxPayloadKb(int)` | `100` | Serialized job payload cap |
+| `payload.maxResultBytes(long)` | `65536` | Persisted result cap; `0` disables truncation |
+
+### Recurring, Timeouts, and Circuit Breakers
+
+| Builder method | Default | Description |
+|---|---:|---|
+| `recurring.batchLimit(int)` | `20` | Due recurring jobs spawned per cycle |
+| `recurring.pollMs(long)` | `1000` | Recurring scheduler poll interval |
+| `recurring.maxPollMs(long)` | `60000` | Maximum recurring scheduler backoff |
+| `recurring.startupGraceSeconds(long)` | `60` | Grace period before orphaned recurring masters fire |
+| `recurring.convergenceWindowSeconds(long)` | `0` | Startup cleanup convergence window |
+| `timeout.softTimeoutPercent(int)` | `80` | Percent of SLA where warning fires |
+| `timeout.defaultSlaSeconds(long)` | `1800` | Default job SLA timeout |
+| `circuitBreaker.enabled(boolean)` | `true` | Master switch for built-in circuit breakers |
+| `circuitBreaker.profile(profile, builder)` | profile defaults | Per-profile thresholds |
+
+## Source Chain Fallback
+
+If the application does not produce `RatchetOptions`, Ratchet builds options from:
+
+1. CDI-provided `RatchetConfigSource` beans
+2. MicroProfile Config, when present
+3. Environment variables
+4. System properties
+5. Built-in defaults
+
+`RatchetOptions` remains the primary model. `RatchetConfigSource` is useful when your platform already centralizes configuration and you want Ratchet to read from that platform without making static calls.
+
+```java
+@ApplicationScoped
+public class PlatformRatchetConfigSource implements RatchetConfigSource {
+
+    @Override
+    public Optional<String> get(String propertyName, String environmentVariable) {
+        return platformConfig.lookup(propertyName)
+            .or(() -> platformConfig.lookup(environmentVariable));
+    }
+}
+```
+
+The env/sysprop fallback recognizes canonical `ratchet.*` property names and `RATCHET_*` environment variable names. New Jakarta EE applications should prefer the CDI producer for application-owned configuration.
+
+## SPI Overrides
+
+Override SPIs with CDI alternatives:
+
+```java
 import static jakarta.interceptor.Interceptor.Priority.APPLICATION;
 
 @Alternative
 @Priority(APPLICATION)
 @ApplicationScoped
-public class MyCustomClassPolicy implements ClassPolicy {
+public class AppClassPolicy implements ClassPolicy {
 
     @Override
     public boolean isAllowed(String className) {
@@ -110,205 +233,40 @@ public class MyCustomClassPolicy implements ClassPolicy {
 }
 ```
 
-CDI will select your bean over Ratchet's default. No additional configuration needed.
+| SPI | Default | What to override |
+|---|---|---|
+| `RetryPolicy` | Uses job retry options | Custom retry/no-retry decisions |
+| `ResilienceStrategy` | Built-in circuit breaker | External resilience library |
+| `ClassPolicy` | Empty allowlist; deployment fails fast | Application package allowlist |
+| `ErrorSanitizer` | Common PII and credential redaction | Domain-specific redaction |
+| `ExecutionTuningProvider` | `RatchetOptions`-backed settings | Custom concurrency logic |
+| `PollingStrategyProvider` | Adaptive polling strategy | Custom poll cadence |
+| `ResultPersistenceStrategy` | JSON result metadata with size cap | Custom return-value persistence |
+| `CircuitBreakerConfigProvider` | `RatchetOptions`-backed profile settings | Custom built-in breaker thresholds |
+| `ClusterCoordinator` | No-op | Cross-node wakeups |
+| `StartupCoordinator` | Store-backed startup lease | Custom startup coordination |
+| `MetricsCollector` | No-op | Micrometer or another metrics backend |
+| `ExecutorProvider` | Jakarta Concurrency managed executors | Custom executor ownership |
+| `RatchetEntityManagerProvider` | Store default provider | Specific SQL persistence unit |
+| `NodeIdentityProvider` | Hostname-based with heartbeat | Cloud-specific node identity |
 
-### SPI Reference
+## ClassPolicy
 
-| SPI Interface | Default Implementation | What to override |
-|---------------|----------------------|------------------|
-| `RetryPolicy` | `DefaultRetryPolicy` (defers to `maxRetries` on the job) | Custom retry/no-retry decisions based on exception type or job state |
-| `ResilienceStrategy` | `DefaultResilienceStrategy` (built-in 3-state circuit breaker) | Replace with Resilience4j or MicroProfile Fault Tolerance |
-| `ClassPolicy` | `PackagePrefixClassPolicy` (empty allowlist by default; deployment fails fast until you override it) | Lock down which classes can be deserialized from job payloads |
-| `ErrorSanitizer` | `DefaultErrorSanitizer` (strips common PII patterns) | Custom redaction rules for your domain |
-| `RatchetConfigSource` | Environment variables, then system properties | Custom configuration backing store |
-| `RatchetConfig` | Typed key facade over `RatchetConfigSource` | Custom config layering, validation, or refresh behavior |
-| `ExecutionTuningProvider` | Built-in per-execution-type concurrency settings | Custom thread limits and virtual-thread backpressure |
-| `PollingStrategyProvider` | Adaptive built-in polling strategy | Custom poll cadence and backoff behavior |
-| `JobInvocationResolver` | ASM bytecode analysis for serializable callbacks | Custom method reference extraction and payload creation |
-| `ResultPersistenceStrategy` | JSON result metadata with a size cap | Custom job return-value persistence |
-| `JobLoggerFactory` | JBoss Logging-backed job logger | Custom job-scoped structured logging |
-| `CircuitBreakerConfigProvider` | Typed config-backed breaker settings | Custom built-in circuit breaker thresholds and enablement |
-| `SchedulerLifecycleHook` | No hooks by default | Startup/shutdown integration hooks |
-| `ClusterCoordinator` | `NoOpClusterCoordinator` (no wakeup coordination) | Cross-node wakeups when you supply an implementation |
-| `StartupCoordinator` | `StoreBackedStartupCoordinator` (uses `scheduler_lock`) | Gate destructive startup work behind a store-backed lease |
-| `MetricsCollector` | `NoOpMetricsCollector` (discards all metrics) | Use `ratchet-micrometer` or implement for your metrics backend |
-| `BeanResolver` | `CdiBeanResolver` (CDI `Instance<T>` lookup) | Custom bean instantiation for non-CDI contexts |
-| `ExecutorProvider` | `DefaultExecutorProvider` (Jakarta Concurrency managed executors) | Use `StandaloneExecutorProvider` for plain CDI/tests or provide custom managed executors |
-| `RatchetEntityManagerProvider` | Store default provider using unnamed `@PersistenceContext` | Bind SQL stores to a specific application persistence unit |
-| `NodeIdentityProvider` | `DefaultNodeIdentityProvider` (hostname-based with heartbeat) | Custom node identification for cloud environments |
-| `JobLogger` | Created by `JobLoggerFactory` | Custom logger facade returned by your factory |
+The default `PackagePrefixClassPolicy` has an empty allowlist. Ratchet refuses to start until you provide a real allowlist, because jobs execute application code by design.
 
-`SerializationStrategy` and `LambdaAnalyzer` remain for compatibility, but they are not the primary scheduler customization path. Use `JobInvocationResolver` for submitted callback extraction and `ResultPersistenceStrategy` for job return values.
-
-### ClassPolicy: Security Configuration
-
-The default `PackagePrefixClassPolicy` controls which classes can be instantiated when deserializing job payloads. Its allowlist is intentionally empty. By default, `RatchetProducer` treats that as a deployment error so you don't accidentally ship a scheduler that can never run jobs:
-
-```
-ERROR: ClassPolicy allowedPackages is empty — refusing to start. Provide an
-@Alternative @Priority(APPLICATION) ClassPolicy bean with your application's package
-prefixes, or opt out (ONLY for demos/tests) with
--Dratchet.allow-empty-class-policy=true
-```
-
-To fix this, create a `ClassPolicy` alternative that allows your application's packages:
+For demos and tests only, you can opt out through options:
 
 ```java
-@Alternative
-@Priority(APPLICATION)
-@ApplicationScoped
-public class AppClassPolicy implements ClassPolicy {
-
-    private static final Set<String> ALLOWED = Set.of(
-        "com.example.billing.",
-        "com.example.inventory.",
-        "com.example.notifications."
-    );
-
-    @Override
-    public boolean isAllowed(String className) {
-        return ALLOWED.stream().anyMatch(className::startsWith);
-    }
-}
+RatchetOptions.builder()
+    .security(s -> s.allowEmptyClassPolicy(true))
+    .build();
 ```
 
-If you explicitly set `-Dratchet.allow-empty-class-policy=true`, startup will continue but the default policy still rejects every target class. That switch is for demos and tests, not production.
-
-This is a security boundary. Jobs execute arbitrary code by design -- the class policy ensures only your own classes can be targeted.
-
-## Runtime Configuration via Environment Variables
-
-Ratchet's default `RatchetConfigSource` reads settings from environment variables first and system properties second. Most settings have a `RATCHET_` environment variable and a legacy fallback such as `SCHEDULER_`, `POLLER_`, or `WORKER_` depending on the original setting.
-
-### Poller Tuning
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `RATCHET_POLLER_BATCH_SIZE` | `50` | Number of jobs claimed per poll cycle |
-| `RATCHET_POLLER_MIN_DELAY_MS` | `2000` | Minimum polling interval in milliseconds |
-| `RATCHET_POLLER_MAX_DELAY_MS` | `10000` | Maximum polling interval (adaptive polling backs off to this) |
-| `RATCHET_POLLER_BURST_DELAY_MS` | `500` | Polling interval when high job volume is detected |
-| `RATCHET_POLLER_IDLE_THRESHOLD` | `3` | Number of empty polls before entering idle mode |
-| `RATCHET_POLLER_DEEP_IDLE_DELAY_MS` | `30000` | Polling interval in deep idle mode |
-| `RATCHET_POLLER_DEEP_IDLE_THRESHOLD_MS` | `60000` | Time in idle before entering deep idle |
-
-The poller uses adaptive polling: it polls frequently when jobs are available and backs off when the queue is empty. This minimizes database load during quiet periods while maintaining responsiveness when jobs arrive.
-
-### Thread Pool Configuration
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `RATCHET_THREAD_POOL_SIZE_SINGLE` | `20` | Worker threads for individual jobs |
-| `RATCHET_THREAD_POOL_SIZE_RECURRING` | `5` | Worker threads for recurring jobs |
-| `RATCHET_THREAD_POOL_SIZE_BATCH_CHILD` | `30` | Worker threads for batch child items |
-| `RATCHET_THREAD_POOL_SIZE_BATCH_PARENT` | `2` | Threads for batch parent coordination |
-| `RATCHET_THREAD_POOL_SIZE_CHAIN` | `10` | Worker threads for chain step execution |
-| `RATCHET_THREAD_POOL_SIZE_DLQ_ALERT` | `2` | Worker threads for scheduler DLQ alert work |
-| `RATCHET_THREAD_POOL_SIZE_WORKFLOW_JOIN` | `10` | Worker threads for workflow join work |
-| `RATCHET_THREAD_POOL_SIZE_DEFAULT` | `10` | Default thread pool size for workflow execution types unless overridden |
-| `RATCHET_THREAD_POOL_QUEUE_SIZE` | `100` | Reserved for custom executor implementations; the RI uses semaphore-based limiting |
-| `RATCHET_WORKER_USE_VIRTUAL_THREADS` | `false` | Use Java 21 virtual threads instead of platform threads |
-| `RATCHET_WORKER_DEFAULT_SLA` | `1800` | Default job timeout in seconds (30 minutes) |
-
-### Node Health and Cluster Configuration
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `RATCHET_NODE_HEARTBEAT_INTERVAL_SECONDS` | `10` | How often this node sends heartbeats |
-| `RATCHET_NODE_ORPHAN_GRACE_SECONDS` | `60` | Time before a missing node's jobs are reclaimed |
-| `RATCHET_ORPHAN_SCAN_INTERVAL_MINUTES` | `5` | How often to scan for orphaned jobs |
-| `RATCHET_DYNAMIC_HEARTBEAT_ENABLED` | `true` | Adjust heartbeat frequency based on load |
-
-### Data Retention
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `RATCHET_DLQ_PURGE_ENABLED` | `true` | Enable automatic dead letter queue purging |
-| `RATCHET_DLQ_PURGE_CRON` | `0 0 2 * * ?` | Cron schedule for DLQ purge (daily at 2 AM) |
-| `RATCHET_DLQ_PURGE_DAYS` | `90` | Days to retain dead-lettered jobs |
-| `RATCHET_JOB_ARCHIVE_ENABLED` | `true` | Enable automatic job archiving |
-| `RATCHET_JOB_ARCHIVER_CRON` | `0 0 1 * * ?` | Cron schedule for archiving (daily at 1 AM) |
-| `RATCHET_JOB_RETENTION_DAYS` | `90` | Days to retain completed jobs before archiving |
-| `RATCHET_JOB_ARCHIVE_BATCH_SIZE` | `1000` | Jobs processed per archiving pass |
-| `RATCHET_LOG_PURGE_ENABLED` | `true` | Enable automatic job log purging |
-| `RATCHET_LOG_PURGER_CRON` | `0 30 2 * * ?` | Cron schedule for log purge (daily at 2:30 AM) |
-| `RATCHET_LOG_RETENTION_DAYS` | `30` | Days to retain job logs |
-
-### Circuit Breaker Configuration
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `RATCHET_CIRCUIT_BREAKER_ENABLED` | `true` | Master switch for circuit breaker functionality |
-| `RATCHET_CB_DEFAULT_FAILURE_RATE` | `50` | Failure rate threshold (%) for DEFAULT profile |
-| `RATCHET_CB_DEFAULT_WAIT_SECONDS` | `30` | Open-to-half-open wait time for DEFAULT profile |
-| `RATCHET_CB_DEFAULT_WINDOW_SIZE` | `100` | Sliding window size for DEFAULT profile |
-| `RATCHET_CB_EXTERNAL_FAILURE_RATE` | `60` | Failure rate threshold (%) for EXTERNAL_API profile |
-| `RATCHET_CB_EXTERNAL_WAIT_SECONDS` | `60` | Open-to-half-open wait time for EXTERNAL_API profile |
-
-All built-in profiles also accept `RATCHET_CB_<PROFILE>_WAIT_MS`, `RATCHET_CB_<PROFILE>_SLOW_CALL_MS`, `RATCHET_CB_<PROFILE>_HALF_OPEN_CALLS`, and `RATCHET_CB_<PROFILE>_MIN_CALLS`; use `EXTERNAL` for the `EXTERNAL_API` profile variable segment. Internal poller claim protection uses the `CLAIM_PATH` profile, so `RATCHET_CB_CLAIM_PATH_*` overrides are valid as well. `RATCHET_CIRCUIT_BREAKER_ENABLED=false` disables both the scheduler resilience wrapper and `@CircuitBreakerProtected` interceptor passthrough behavior.
-
-### Recurring Job Configuration
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `RATCHET_RECURRING_POLL_MS` | `1000` | How often to check for due recurring jobs |
-| `RATCHET_RECURRING_MAX_POLL_MS` | `60000` | Maximum polling interval for recurring scheduler |
-| `RATCHET_RECURRING_BATCH_LIMIT` | `20` | Maximum recurring jobs spawned per poll cycle |
-
-### Other Settings
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `RATCHET_MAX_PAYLOAD_KB` | `100` | Maximum serialized job payload size in KB |
-| `RATCHET_JOB_RESULT_MAX_BYTES` | `65536` | Maximum persisted result JSON size; `0` disables the cap |
-| `RATCHET_PRIORITY_BOOST_INTERVAL_MINUTES` | `15` | How often low-priority jobs get a priority boost to prevent starvation |
-| `RATCHET_SOFT_TIMEOUT_PERCENT` | `80` | Percentage of timeout at which a soft warning is emitted |
-| `RATCHET_SCHEMA_AUTO_MIGRATE` | `false` | Guard flag for application-provided startup hooks that call `SchemaMigrator` |
-| `RATCHET_SCHEMA_MIGRATION_DIALECT` | `""` | Dialect passed to `SchemaMigrator` (`mysql` or `postgresql`) |
-| `RATCHET_SCHEMA_MIGRATION_PREFIX` | `ddl/migrations` | Classpath prefix for Ratchet `V###__description.sql` migration scripts |
-
-## Example: Production Configuration
-
-Here's a typical configuration for a production deployment using environment variables:
-
-```bash
-# Thread pools sized for the workload
-RATCHET_THREAD_POOL_SIZE_SINGLE=30
-RATCHET_THREAD_POOL_SIZE_BATCH_CHILD=50
-
-# Aggressive polling for low-latency job execution
-RATCHET_POLLER_MIN_DELAY_MS=500
-RATCHET_POLLER_BURST_DELAY_MS=100
-
-# Cluster node configuration
-RATCHET_NODE_HEARTBEAT_INTERVAL_SECONDS=5
-RATCHET_NODE_ORPHAN_GRACE_SECONDS=30
-
-# Data retention
-RATCHET_JOB_RETENTION_DAYS=30
-RATCHET_LOG_RETENTION_DAYS=14
-
-# Payload limits
-RATCHET_MAX_PAYLOAD_KB=200
-```
-
-## Example: Development Configuration
-
-For local development, you might want faster polling and shorter retention:
-
-```bash
-RATCHET_POLLER_MIN_DELAY_MS=500
-RATCHET_POLLER_MAX_DELAY_MS=2000
-RATCHET_JOB_RETENTION_DAYS=7
-RATCHET_LOG_RETENTION_DAYS=3
-RATCHET_DLQ_PURGE_DAYS=7
-```
+In that mode the default policy still rejects every target class. Install a real `ClassPolicy` before running jobs.
 
 ## What's Next
-
-You now have a complete understanding of how to install, use, and configure Ratchet. For deeper topics:
 
 - **Batch processing** -- Build parallel batch jobs with progress tracking and streaming pipelines
 - **Recurring jobs** -- Use `@Recurring` annotations and programmatic cron scheduling
 - **Circuit breaker** -- Protect external service calls with `@CircuitBreakerProtected`
-- **Custom store implementations** -- Use the TCK to validate your own persistence backend
+- **Custom stores** -- Use the TCK to validate your own persistence backend

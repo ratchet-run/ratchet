@@ -132,7 +132,7 @@ Ratchet supports three backoff policies:
 
 The poller selects higher-priority jobs first when multiple are available. Jobs with `CRITICAL` priority also trigger immediate wakeup notifications across cluster nodes, bypassing the normal polling delay.
 
-**Timeout** sets the maximum wall-clock time a job can run. If `processInvoice` takes longer than 5 minutes, the job is terminated and marked as failed. Set this based on realistic expectations -- too short causes unnecessary failures, too long delays detection of stuck jobs. The default SLA timeout (when no explicit timeout is set) is 30 minutes, configurable via the `RATCHET_WORKER_DEFAULT_SLA` environment variable.
+**Timeout** sets the maximum wall-clock time a job can run. If `processInvoice` takes longer than 5 minutes, the job is terminated and marked as failed. Set this based on realistic expectations -- too short causes unnecessary failures, too long delays detection of stuck jobs. The default SLA timeout (when no explicit timeout is set) is 30 minutes, configurable with `RatchetOptions.timeout(t -> t.defaultSlaSeconds(...))`.
 
 ## Step 4: Pass Parameters
 
@@ -417,4 +417,4 @@ public class InvoiceService {
 
 ## What's Next
 
-- [Configuration](./configuration.md) -- Set up CDI producers, configure `beans.xml`, and tune runtime behavior with environment variables
+- [Configuration](./configuration.md) -- Set up CDI producers, configure `beans.xml`, and tune runtime behavior with `RatchetOptions`

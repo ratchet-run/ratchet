@@ -283,7 +283,7 @@ public interface ResultPersistenceStrategy {
 
 ## RatchetConfig
 
-Typed runtime configuration facade. The default implementation reads environment variables first and system properties second.
+Typed runtime configuration facade used by the RI to build `RatchetOptions` when the application does not produce options directly. Most applications should produce `RatchetOptions`; this contract exists for platform source-chain integrations.
 
 ```java
 public interface RatchetConfig {
@@ -294,7 +294,7 @@ public interface RatchetConfig {
 
 ## RatchetConfigSource
 
-Raw configuration source used by `RatchetConfig`.
+Raw configuration source used by `RatchetConfig`. CDI-provided sources are consulted before optional MicroProfile Config, environment variables, system properties, and built-in defaults.
 
 ```java
 public interface RatchetConfigSource {

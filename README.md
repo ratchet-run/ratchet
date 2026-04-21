@@ -82,7 +82,7 @@ public class AppClassPolicy implements ClassPolicy {
 }
 ```
 
-For demos and tests only, you can bypass the fail-fast startup check with `-Dratchet.allow-empty-class-policy=true`, but the default policy still rejects every job target.
+For demos and tests only, you can bypass the fail-fast startup check with `RatchetOptions.builder().security(s -> s.allowEmptyClassPolicy(true))`, but the default policy still rejects every job target.
 
 ### 3. Apply the Schema
 
@@ -330,7 +330,7 @@ Ratchet is designed to be extended. Provide a CDI `@Alternative @Priority(APPLIC
 | `ResilienceStrategy` | Circuit breaker behavior | Built-in 3-state machine |
 | `ClassPolicy` | Security — which classes can be deserialized | `PackagePrefixClassPolicy` with an empty allowlist; startup fails fast until you provide an override |
 | `ErrorSanitizer` | Scrub sensitive data from error messages | `DefaultErrorSanitizer` |
-| `RatchetConfigSource` / `RatchetConfig` | Runtime configuration source and typed resolution | Environment variables, then system properties |
+| `RatchetOptions` / `RatchetConfigSource` | Runtime options and fallback source-chain resolution | CDI-produced options, then source-chain defaults |
 | `ExecutionTuningProvider` | Per-execution-type concurrency and virtual-thread limits | Config-backed defaults |
 | `PollingStrategyProvider` | Poll cadence and adaptive backoff | Built-in adaptive strategy |
 | `JobInvocationResolver` | Method reference extraction from submitted callbacks | ASM bytecode analysis |
@@ -388,7 +388,7 @@ Before deploying Ratchet to a production-shaped environment, work through this c
     return new PackagePrefixClassPolicy(Set.of("com.acme.jobs."));
   }
   ```
-  A hardcoded denylist (`Runtime`, `ProcessBuilder`, `javax.script`, reflection, JDK internals) blocks well-known RCE gadgets regardless of allowlist content. To opt out of the fail-fast guard for demos and tests, set `-Dratchet.allow-empty-class-policy=true`.
+  A hardcoded denylist (`Runtime`, `ProcessBuilder`, `javax.script`, reflection, JDK internals) blocks well-known RCE gadgets regardless of allowlist content. To opt out of the fail-fast guard for demos and tests, set `RatchetOptions.security().allowEmptyClassPolicy(true)`.
 
 - [ ] **Apply the schema.** Ratchet ships DDL as plain SQL files — no Flyway lock-in. Apply once per database before starting any node. See `ratchet-store-{mysql,postgresql}/src/main/resources/ddl/`.
 

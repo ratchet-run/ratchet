@@ -124,7 +124,7 @@ The `@Recurring` annotation supports these properties:
 | `backoffPolicy` | `EXPONENTIAL` | Backoff between retries |
 | `backoffDelayMs` | `1000` | Base delay for backoff |
 | `timeoutSeconds` | `3600` | Max execution time |
-| `enabled` | `"true"` | Supports property placeholders |
+| `enabled` | `true` | Whether the recurring job is registered at startup |
 | `tags` | `{}` | Tags for filtering |
 
 ## BATCH Jobs

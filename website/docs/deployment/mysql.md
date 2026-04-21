@@ -122,18 +122,19 @@ MySQL defaults to `REPEATABLE READ`, which acquires gap locks on `SELECT ... FOR
 - **WildFly -ds.xml**: `<transaction-isolation>TRANSACTION_READ_COMMITTED</transaction-isolation>`
 
 Ratchet checks this at startup and fails by default when the active session is not
-`READ COMMITTED`. Use `-Dratchet.isolation-check=warn` only as an explicit temporary opt-out.
+`READ COMMITTED`. Use `RatchetOptions.builder().store(s -> s.isolationCheckMode(RatchetOptions.IsolationCheckMode.WARN))`
+only as an explicit temporary opt-out.
 :::
 
 ### MySQL-Specific Settings
 
 Ratchet does not expose MySQL-only tuning flags. Use the shared scheduler settings instead:
 
-- `RATCHET_POLLER_BATCH_SIZE`
-- `RATCHET_POLLER_MIN_DELAY_MS`
-- `RATCHET_POLLER_MAX_DELAY_MS`
-- `RATCHET_THREAD_POOL_SIZE_SINGLE`
-- `RATCHET_JOB_RETENTION_DAYS`
+- `RatchetOptions.polling().batchSize()`
+- `RatchetOptions.polling().minDelayMs()`
+- `RatchetOptions.polling().maxDelayMs()`
+- `RatchetOptions.execution().maxConcurrency("SINGLE", ...)`
+- `RatchetOptions.maintenance().jobRetentionDays()`
 
 ## Schema Design
 

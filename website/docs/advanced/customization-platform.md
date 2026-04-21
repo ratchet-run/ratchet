@@ -29,14 +29,13 @@ No string-based implementation class names are loaded by Ratchet. This keeps the
 
 | SPI | Default | Use it to customize |
 |-----|---------|---------------------|
-| `RatchetConfigSource` | Environment variables, then system properties | Where raw config comes from, such as database-backed config or a platform config service |
-| `RatchetConfig` | Typed facade over `RatchetConfigSource` | How config keys are resolved, validated, or layered |
-| `ExecutionTuningProvider` | Built-in thread pool and virtual-thread settings | Per-execution-type concurrency and virtual-thread backpressure limits |
+| `RatchetConfigSource` | Source-chain fallback behind `RatchetOptions` | Where raw fallback config comes from, such as database-backed config or a platform config service |
+| `ExecutionTuningProvider` | `RatchetOptions`-backed thread pool and virtual-thread settings | Per-execution-type concurrency and virtual-thread backpressure limits |
 | `PollingStrategyProvider` | Adaptive RI polling strategy | Poll cadence, backoff, burst behavior, or an externally coordinated polling policy |
 | `JobInvocationResolver` | ASM-based lambda/method-reference analysis | How submitted callbacks become persisted target-method invocations |
 | `ResultPersistenceStrategy` | JSON result metadata with a size cap | Return-value serialization, truncation, redaction, or disabling result persistence |
 | `JobLoggerFactory` | JBoss Logging-backed per-job logger | Job-scoped structured logging and log event publishing |
-| `CircuitBreakerConfigProvider` | Typed config-backed built-in breaker settings | Circuit breaker enablement and per-profile thresholds |
+| `CircuitBreakerConfigProvider` | `RatchetOptions`-backed built-in breaker settings | Circuit breaker enablement and per-profile thresholds |
 | `ResilienceStrategy` | Built-in circuit breaker wrapper | Replace the built-in resilience layer entirely |
 | `SchedulerLifecycleHook` | No hooks by default | Startup/shutdown integration with external systems |
 | `ClassPolicy` | Empty allowlist, fail-fast at startup | Security boundary for job target classes |
@@ -53,14 +52,15 @@ No string-based implementation class names are loaded by Ratchet. This keeps the
 
 ## Configuration Model
 
-The default `RatchetConfigSource` checks:
+The preferred Jakarta EE model is an `@ApplicationScoped RatchetOptions` producer. If no options bean exists, Ratchet builds one from this source chain:
 
-1. Preferred environment variable, such as `RATCHET_POLLER_BATCH_SIZE`
-2. Preferred system property, such as `ratchet.poller.batch-size`
-3. Preferred environment-variable name as a system property, useful in tests
-4. Legacy environment variable/property, when a key declares one
+1. CDI-provided `RatchetConfigSource` beans
+2. MicroProfile Config, when present
+3. Environment variables, such as `RATCHET_POLLER_BATCH_SIZE`
+4. System properties, such as `ratchet.poller.batch-size`
+5. Built-in defaults
 
-Override `RatchetConfigSource` when you only need a new backing store. Override `RatchetConfig` when you need custom layering, validation, auditing, or live refresh semantics.
+Produce `RatchetOptions` for normal application configuration. Produce `RatchetConfigSource` only when your platform already owns raw configuration and you want Ratchet's typed fallback keys to read from it.
 
 ## Deeper Customization
 

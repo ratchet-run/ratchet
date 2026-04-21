@@ -134,7 +134,7 @@ Ratchet uses **Time-Sorted IDs (TSIDs)** instead of auto-increment primary keys.
 
 The 10-bit node ID is determined by (in priority order):
 
-1. `RATCHET_NODE_ID` environment variable or system property (0-1023)
+1. `RatchetOptions.builder().node(n -> n.tsidNodeId(...))` (0-1023)
 2. Hash of `hostname + PID` (automatic, usually sufficient)
 3. Random fallback if hostname resolution fails
 
