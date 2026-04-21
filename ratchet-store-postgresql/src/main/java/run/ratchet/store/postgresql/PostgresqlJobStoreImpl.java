@@ -1,10 +1,8 @@
 package run.ratchet.store.postgresql;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.WorkflowCondition;
-import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.ArchivedJobEntity;
@@ -20,44 +18,29 @@ import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.TsidFactory;
 import run.ratchet.store.spi.RatchetEntityManagerProvider;
-import run.ratchet.store.util.ArchiveHelper;
 import run.ratchet.store.util.IsolationCheck;
-import run.ratchet.store.util.ObjectMapperFactory;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
-import jakarta.persistence.Query;
 import jakarta.transaction.Transactional;
-import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.OffsetDateTime;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import org.jboss.logging.Logger;
 
 /**
- * PostgreSQL implementation of the {@link PostgresqlJobStore} API.
+ * Package-private PostgreSQL CDI implementation behind the public {@link PostgresqlJobStore} type.
  *
- * <p>Uses JPA EntityManager for simple CRUD and native SQL for PostgreSQL-specific operations such
- * as {@code FOR UPDATE SKIP LOCKED}, {@code ON CONFLICT}, and {@code RETURNING} clauses.
+ * <p>This class is intentionally a CDI/test wiring composite. Cohesive package-private operation
+ * classes own the actual SQL for each store area, while this type owns injection, lifecycle, and
+ * SPI forwarding.
  */
 @ApplicationScoped
 @Transactional
 class PostgresqlJobStoreImpl implements PostgresqlJobStore {
-
-  private static final Logger log = Logger.getLogger(PostgresqlJobStoreImpl.class);
-  private static final ObjectMapper OBJECT_MAPPER = ObjectMapperFactory.get();
-  private static final PostgresqlConstraintDetector CONSTRAINT_DETECTOR =
-      new PostgresqlConstraintDetector();
-  private static final String EXECUTABLE_JOB_TYPE_FILTER =
-      "job_type IN ('SINGLE','BATCH_CHILD','CHAIN_STEP','WORKFLOW_BRANCH')";
-  private static final String RECURRING_JOB_TYPE_FILTER = "job_type = 'RECURRING'";
 
   private final RatchetEntityManagerProvider entityManagerProvider;
   private final RatchetOptions options;
@@ -68,6 +51,8 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   private PostgresqlTagOperations tags;
   private PostgresqlJobCrudOperations jobs;
   private PostgresqlBatchOperations batches;
+  private PostgresqlJobClaimOperations claims;
+  private PostgresqlJobLifecycleOperations lifecycle;
   private PostgresqlNodeLockOperations nodeLocks;
   private PostgresqlArchiveOperations archives;
   private PostgresqlAuxiliaryOperations auxiliary;
@@ -83,145 +68,6 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
       RatchetEntityManagerProvider entityManagerProvider, RatchetOptions options) {
     this.entityManagerProvider = entityManagerProvider;
     this.options = options;
-  }
-
-  private static Instant toInstant(Object value) {
-    if (value instanceof Instant) {
-      return (Instant) value;
-    }
-    if (value instanceof Timestamp) {
-      return ((Timestamp) value).toInstant();
-    }
-    if (value instanceof OffsetDateTime) {
-      return ((OffsetDateTime) value).toInstant();
-    }
-    throw new IllegalArgumentException("Cannot convert " + value.getClass() + " to Instant");
-  }
-
-  private static JobPriority safeJobPriority(int ordinal) {
-    JobPriority[] values = JobPriority.values();
-    if (ordinal < 0 || ordinal >= values.length) {
-      return JobPriority.NORMAL;
-    }
-    return values[ordinal];
-  }
-
-  private static String buildBoostOrderBy(String timeColumn, int boostInterval) {
-    return boostInterval > 0
-        ? "(priority + FLOOR(GREATEST(0, EXTRACT(EPOCH FROM (statement_timestamp() - "
-            + timeColumn
-            + "))) / (60.0 * ?))) DESC, "
-            + timeColumn
-            + " ASC, job_id ASC"
-        : "priority DESC, " + timeColumn + " ASC, job_id ASC";
-  }
-
-  /**
-   * Builds the "claim jobs" CTE+UPDATE SQL using positional {@code ?} placeholders.
-   *
-   * <p>Placeholder order in the returned SQL (caller must bind in this exact order):
-   *
-   * <ol>
-   *   <li>Any placeholders already present in {@code typeFilter} (e.g. a single {@code ?} for a
-   *       jobType value)
-   *   <li>{@code boostInterval} — only if {@code boostInterval > 0}
-   *   <li>{@code limit}
-   *   <li>{@code nodeId}
-   * </ol>
-   */
-  private static String buildClaimReturningSql(
-      String typeFilter, String timeColumn, int boostInterval, String returningClause) {
-    return "WITH picked AS ("
-        + "  SELECT job_id FROM scheduler_job"
-        + "  WHERE status = 'PENDING'"
-        + "    AND "
-        + timeColumn
-        + " <= statement_timestamp()"
-        + "    AND "
-        + typeFilter
-        + "  ORDER BY "
-        + buildBoostOrderBy(timeColumn, boostInterval)
-        + "  FOR UPDATE SKIP LOCKED"
-        + "  LIMIT ?"
-        + ") "
-        + "UPDATE scheduler_job AS j SET status = 'RUNNING', picked_by = ?, "
-        + "picked_at = statement_timestamp(), updated_at = statement_timestamp(), "
-        + "version = version + 1 "
-        + "FROM picked WHERE j.job_id = picked.job_id "
-        + "RETURNING "
-        + returningClause;
-  }
-
-  @Override
-  public List<JobEntity> claimNextBatch(int limit, String nodeId) {
-    try {
-      int boostInterval = options.store().priorityBoostIntervalMinutes();
-      var claimQuery =
-          em.createNativeQuery(
-              buildClaimReturningSql(
-                  EXECUTABLE_JOB_TYPE_FILTER, "scheduled_time", boostInterval, "j.*"),
-              JobEntity.class);
-      int parameter = 1;
-      if (boostInterval > 0) {
-        claimQuery.setParameter(parameter++, boostInterval);
-      }
-      claimQuery.setParameter(parameter++, limit);
-      claimQuery.setParameter(parameter++, nodeId);
-      @SuppressWarnings("unchecked")
-      List<JobEntity> jobs = claimQuery.getResultList();
-      return jobs;
-    } catch (RuntimeException e) {
-      throw translateTransientStoreException("claim jobs", e);
-    }
-  }
-
-  @Override
-  public List<JobClaimDto> claimNextBatchOptimized(
-      JobExecutionType jobType, int limit, String nodeId) {
-    if (limit <= 0 || !PostgresqlStoreContext.isPollerExecutable(jobType)) {
-      return List.of();
-    }
-
-    try {
-      int boostInterval = options.store().priorityBoostIntervalMinutes();
-      String selectColumns =
-          "j.job_id, j.status, j.job_type, j.priority, j.scheduled_time, j.version, "
-              + "j.timeout_sec, j.picked_by, j.picked_at, j.business_key, j.attempts, j.max_retries";
-      var claimQuery =
-          em.createNativeQuery(
-              buildClaimReturningSql(
-                  "job_type = ?", "scheduled_time", boostInterval, selectColumns));
-      int parameter = 1;
-      claimQuery.setParameter(parameter++, jobType.name());
-      if (boostInterval > 0) {
-        claimQuery.setParameter(parameter++, boostInterval);
-      }
-      claimQuery.setParameter(parameter++, limit);
-      claimQuery.setParameter(parameter++, nodeId);
-      @SuppressWarnings("unchecked")
-      List<Object[]> rows = claimQuery.getResultList();
-
-      List<JobClaimDto> claims = new ArrayList<>(rows.size());
-      for (Object[] row : rows) {
-        claims.add(
-            new JobClaimDto(
-                ((Number) row[0]).longValue(),
-                JobStatus.RUNNING,
-                JobExecutionType.valueOf((String) row[2]),
-                safeJobPriority(((Number) row[3]).intValue()),
-                toInstant(row[4]),
-                row[5] == null ? null : ((Number) row[5]).intValue(),
-                ((Number) row[6]).intValue(),
-                nodeId,
-                toInstant(row[8]),
-                (String) row[9],
-                ((Number) row[10]).intValue(),
-                ((Number) row[11]).intValue()));
-      }
-      return claims;
-    } catch (RuntimeException e) {
-      throw translateTransientStoreException("optimized claim", e);
-    }
   }
 
   @Override
@@ -360,431 +206,6 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   @Override
-  public List<JobEntity> claimDueRecurring(int limit, String nodeId) {
-    try {
-      int boostInterval = options.store().priorityBoostIntervalMinutes();
-      var claimQuery =
-          em.createNativeQuery(
-              buildClaimReturningSql(RECURRING_JOB_TYPE_FILTER, "next_fire", boostInterval, "j.*"),
-              JobEntity.class);
-      int parameter = 1;
-      if (boostInterval > 0) {
-        claimQuery.setParameter(parameter++, boostInterval);
-      }
-      claimQuery.setParameter(parameter++, limit);
-      claimQuery.setParameter(parameter++, nodeId);
-      @SuppressWarnings("unchecked")
-      List<JobEntity> jobs = claimQuery.getResultList();
-      return jobs;
-    } catch (RuntimeException e) {
-      throw translateTransientStoreException("claim recurring jobs", e);
-    }
-  }
-
-  @Override
-  public Instant getDatabaseTime() {
-    return nodeLocks.getDatabaseTime();
-  }
-
-  @Override
-  public void updateJobStatus(long id, JobStatus status, String errorMessage) {
-    int updated =
-        em.createNativeQuery(
-                "UPDATE scheduler_job SET status = ?, last_error = ?, "
-                    + "updated_at = statement_timestamp() WHERE job_id = ?")
-            .setParameter(1, status.name())
-            .setParameter(2, errorMessage)
-            .setParameter(3, id)
-            .executeUpdate();
-    if (updated > 0) {
-      reservations.syncForJob(id, status);
-    }
-  }
-
-  @Override
-  public boolean compareAndSwapStatus(
-      long id, JobStatus expected, JobStatus newStatus, String error) {
-    try {
-      int updated =
-          em.createNativeQuery(
-                  "UPDATE scheduler_job SET status = ?, last_error = ?, "
-                      + "updated_at = statement_timestamp() "
-                      + "WHERE job_id = ? AND status = ?")
-              .setParameter(1, newStatus.name())
-              .setParameter(2, error)
-              .setParameter(3, id)
-              .setParameter(4, expected.name())
-              .executeUpdate();
-      if (updated > 0) {
-        if (PostgresqlStoreContext.isTerminalStatus(newStatus)) {
-          reservations.deleteReservationByOwner(id);
-        } else if (PostgresqlStoreContext.isTerminalStatus(expected)) {
-          reservations.syncForJob(id, newStatus);
-        }
-      }
-      return updated > 0;
-    } catch (RuntimeException e) {
-      throw translateTransientStoreException("compare-and-swap status", e);
-    }
-  }
-
-  @Override
-  public int incrementRetryAttempt(long id) {
-    List<?> results =
-        em.createNativeQuery(
-                "UPDATE scheduler_job SET attempts = attempts + 1, "
-                    + "updated_at = statement_timestamp() "
-                    + "WHERE job_id = ? "
-                    + "AND status = 'RUNNING' "
-                    + "RETURNING attempts")
-            .setParameter(1, id)
-            .getResultList();
-    if (results.isEmpty()) {
-      return -1;
-    }
-    return ((Number) results.get(0)).intValue();
-  }
-
-  @Override
-  public boolean tryPickUpJob(long id, String nodeId) {
-    int updated =
-        em.createNativeQuery(
-                "UPDATE scheduler_job SET status = 'RUNNING', picked_by = ?, "
-                    + "picked_at = statement_timestamp(), updated_at = statement_timestamp() "
-                    + "WHERE job_id = ? AND status = 'PENDING'")
-            .setParameter(1, nodeId)
-            .setParameter(2, id)
-            .executeUpdate();
-    return updated > 0;
-  }
-
-  @Override
-  public boolean markJobSucceeded(
-      long id,
-      String resultJson,
-      String resultType,
-      Instant start,
-      Instant end,
-      Long durationMs,
-      Long queueWaitMs) {
-    try {
-      int updated =
-          em.createNativeQuery(
-                  "UPDATE scheduler_job SET status = 'SUCCEEDED', "
-                      + "job_result = ?::jsonb, result_type = ?, "
-                      + "execution_start_time = ?, execution_end_time = ?, "
-                      + "execution_duration_ms = ?, queue_wait_ms = ?, "
-                      + "last_error = NULL, updated_at = statement_timestamp() "
-                      + "WHERE job_id = ? AND status = 'RUNNING'")
-              .setParameter(1, resultJson)
-              .setParameter(2, resultType)
-              .setParameter(3, start == null ? null : Timestamp.from(start))
-              .setParameter(4, end == null ? null : Timestamp.from(end))
-              .setParameter(5, durationMs)
-              .setParameter(6, queueWaitMs)
-              .setParameter(7, id)
-              .executeUpdate();
-      if (updated > 0) {
-        reservations.deleteReservationByOwner(id);
-      }
-      return updated > 0;
-    } catch (RuntimeException e) {
-      throw translateTransientStoreException("mark job succeeded", e);
-    }
-  }
-
-  @Override
-  public boolean markJobSucceededMinimal(
-      long id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
-    try {
-      int updated =
-          em.createNativeQuery(
-                  "UPDATE scheduler_job SET status = 'SUCCEEDED', "
-                      + "execution_start_time = ?, execution_end_time = ?, "
-                      + "execution_duration_ms = ?, queue_wait_ms = ?, "
-                      + "last_error = NULL, updated_at = statement_timestamp() "
-                      + "WHERE job_id = ? AND status = 'RUNNING'")
-              .setParameter(1, start == null ? null : Timestamp.from(start))
-              .setParameter(2, end == null ? null : Timestamp.from(end))
-              .setParameter(3, durationMs)
-              .setParameter(4, queueWaitMs)
-              .setParameter(5, id)
-              .executeUpdate();
-      if (updated > 0) {
-        reservations.deleteReservationByOwner(id);
-      }
-      return updated > 0;
-    } catch (RuntimeException e) {
-      throw translateTransientStoreException("mark job succeeded minimally", e);
-    }
-  }
-
-  @Override
-  public boolean markJobSucceededAndUpdateBatch(
-      long jobId,
-      String resultJson,
-      String resultType,
-      Instant start,
-      Instant end,
-      Long durationMs,
-      Long queueWaitMs,
-      long batchId) {
-    boolean jobUpdated =
-        markJobSucceeded(jobId, resultJson, resultType, start, end, durationMs, queueWaitMs);
-    if (jobUpdated) {
-      incrementCompletedAtomic(batchId);
-    }
-    return jobUpdated;
-  }
-
-  @Override
-  public boolean scheduleJobRetry(long id, String error, Instant newScheduledTime, int attempts) {
-    List<?> updated =
-        em.createNativeQuery(
-                "UPDATE scheduler_job SET status = 'PENDING', "
-                    + "scheduled_time = ?, attempts = ?, last_error = ?, "
-                    + "picked_by = NULL, picked_at = NULL, "
-                    + "updated_at = statement_timestamp() "
-                    + "WHERE job_id = ? AND status IN ('RUNNING','FAILED') "
-                    + "RETURNING job_id")
-            .setParameter(1, Timestamp.from(newScheduledTime))
-            .setParameter(2, attempts)
-            .setParameter(3, error)
-            .setParameter(4, id)
-            .getResultList();
-    if (updated.isEmpty()) {
-      return false;
-    }
-    reservations.syncForJob(id, JobStatus.PENDING);
-    return true;
-  }
-
-  @Override
-  public boolean pauseRecurring(long id) {
-    // Single-table PG schema: pause-recurring is a normal PENDING→PAUSED status flip on the
-    // recurring row. CP3 will move recurring masters to scheduler_recurring_job.
-    int updated =
-        em.createNativeQuery(
-                "UPDATE scheduler_job SET status = 'PAUSED', paused_from_status = 'PENDING', "
-                    + "updated_at = statement_timestamp() "
-                    + "WHERE job_id = ? AND job_type = 'RECURRING' AND status = 'PENDING'")
-            .setParameter(1, id)
-            .executeUpdate();
-    return updated > 0;
-  }
-
-  @Override
-  public boolean resumeRecurring(long id) {
-    int updated =
-        em.createNativeQuery(
-                "UPDATE scheduler_job SET status = 'PENDING', paused_from_status = NULL, "
-                    + "updated_at = statement_timestamp() "
-                    + "WHERE job_id = ? AND job_type = 'RECURRING' AND status = 'PAUSED'")
-            .setParameter(1, id)
-            .executeUpdate();
-    return updated > 0;
-  }
-
-  @Override
-  public boolean markJobFailedTerminal(long id, String terminalError, int totalAttempts) {
-    int updated =
-        em.createNativeQuery(
-                "UPDATE scheduler_job SET status = 'FAILED', last_error = ?, "
-                    + "attempts = ?, picked_by = NULL, picked_at = NULL, "
-                    + "updated_at = statement_timestamp() "
-                    + "WHERE job_id = ? AND status = 'RUNNING'")
-            .setParameter(1, terminalError)
-            .setParameter(2, totalAttempts)
-            .setParameter(3, id)
-            .executeUpdate();
-    if (updated > 0) {
-      reservations.deleteReservationByOwner(id);
-    }
-    return updated > 0;
-  }
-
-  @Override
-  public boolean cancelJob(long id) {
-    int updated =
-        em.createNativeQuery(
-                "UPDATE scheduler_job SET status = 'CANCELED', "
-                    + "picked_by = NULL, picked_at = NULL, "
-                    + "updated_at = statement_timestamp() "
-                    + "WHERE job_id = ? AND status IN ('PENDING','RUNNING','PAUSED')")
-            .setParameter(1, id)
-            .executeUpdate();
-    if (updated > 0) {
-      reservations.deleteReservationByOwner(id);
-    }
-    return updated > 0;
-  }
-
-  @Override
-  public boolean resetRunningJob(long id, String nodeId) {
-    int updated =
-        em.createNativeQuery(
-                "UPDATE scheduler_job SET status = 'PENDING', "
-                    + "picked_by = NULL, picked_at = NULL, "
-                    + "updated_at = statement_timestamp() "
-                    + "WHERE job_id = ? AND status = 'RUNNING' AND picked_by = ?")
-            .setParameter(1, id)
-            .setParameter(2, nodeId)
-            .executeUpdate();
-    return updated > 0;
-  }
-
-  @Override
-  public int resetRunningJobs(String nodeId) {
-    return em.createNativeQuery(
-            "UPDATE scheduler_job SET status = 'PENDING', "
-                + "picked_by = NULL, picked_at = NULL, "
-                + "updated_at = statement_timestamp() "
-                + "WHERE status = 'RUNNING' AND picked_by = ?")
-        .setParameter(1, nodeId)
-        .executeUpdate();
-  }
-
-  @Override
-  public int cancelRecurringJobsByTag(String tag) {
-    @SuppressWarnings("unchecked")
-    List<Number> canceled =
-        em.createNativeQuery(
-                "UPDATE scheduler_job SET status = 'CANCELED', "
-                    + "updated_at = statement_timestamp() "
-                    + "WHERE job_id IN ("
-                    + "  SELECT j.job_id FROM scheduler_job j "
-                    + "  INNER JOIN scheduler_job_tag t ON j.job_id = t.job_id "
-                    + "  WHERE t.tag = ? AND j.job_type = 'RECURRING' "
-                    + "  AND j.status IN ('PENDING','RUNNING','PAUSED')"
-                    + ") "
-                    + "RETURNING job_id")
-            .setParameter(1, tag)
-            .getResultList();
-    reservations.deleteReservationsByOwners(canceled);
-    return canceled.size();
-  }
-
-  @Override
-  public int cancelRecurringJobByBusinessKey(String businessKey) {
-    @SuppressWarnings("unchecked")
-    List<Number> canceled =
-        em.createNativeQuery(
-                "UPDATE scheduler_job SET status = 'CANCELED', "
-                    + "updated_at = statement_timestamp() "
-                    + "WHERE business_key = ? AND job_type = 'RECURRING' "
-                    + "AND status IN ('PENDING','RUNNING','PAUSED') "
-                    + "RETURNING job_id")
-            .setParameter(1, businessKey)
-            .getResultList();
-    reservations.deleteReservationsByOwners(canceled);
-    return canceled.size();
-  }
-
-  @Override
-  public int cancelOrphanedRecurringAnnotationJobs(
-      Set<String> registeredIds, Instant nodeStartTime) {
-    if (registeredIds.isEmpty()) {
-      return 0;
-    }
-    List<String> idsList = new ArrayList<>(registeredIds);
-    String placeholders = String.join(",", Collections.nCopies(idsList.size(), "?"));
-    Query query =
-        em.createNativeQuery(
-            "UPDATE scheduler_job SET status = 'CANCELED', "
-                + "updated_at = statement_timestamp() "
-                + "WHERE job_type = 'RECURRING' "
-                + "AND status IN ('PENDING','RUNNING','PAUSED') "
-                + "AND created_at < ? "
-                + "AND business_key IS NOT NULL "
-                + "AND business_key NOT IN ("
-                + placeholders
-                + ") "
-                + "RETURNING job_id");
-    int parameter = 1;
-    query.setParameter(parameter++, Timestamp.from(nodeStartTime));
-    for (String id : idsList) {
-      query.setParameter(parameter++, id);
-    }
-    @SuppressWarnings("unchecked")
-    List<Number> canceled = query.getResultList();
-    reservations.deleteReservationsByOwners(canceled);
-    return canceled.size();
-  }
-
-  @Override
-  public boolean resetFailedToPending(long id) {
-    List<?> updated =
-        em.createNativeQuery(
-                "UPDATE scheduler_job SET status = 'PENDING', attempts = 0, "
-                    + "last_error = NULL, scheduled_time = statement_timestamp(), "
-                    + "picked_by = NULL, picked_at = NULL, "
-                    + "updated_at = statement_timestamp() "
-                    + "WHERE job_id = ? AND status = 'FAILED' "
-                    + "RETURNING job_id")
-            .setParameter(1, id)
-            .getResultList();
-    if (updated.isEmpty()) {
-      return false;
-    }
-    reservations.syncForJob(id, JobStatus.PENDING);
-    return true;
-  }
-
-  @Override
-  public boolean transitionToPaused(long id, JobStatus expected) {
-    int updated =
-        em.createNativeQuery(
-                "UPDATE scheduler_job SET status = 'PAUSED', "
-                    + "paused_from_status = ?, "
-                    + "updated_at = statement_timestamp() "
-                    + "WHERE job_id = ? AND status = ?")
-            .setParameter(1, expected.name())
-            .setParameter(2, id)
-            .setParameter(3, expected.name())
-            .executeUpdate();
-    return updated > 0;
-  }
-
-  @Override
-  public boolean transitionFromPaused(long id, JobStatus target) {
-    int updated =
-        em.createNativeQuery(
-                "UPDATE scheduler_job SET status = ?, "
-                    + "paused_from_status = NULL, "
-                    + "updated_at = statement_timestamp() "
-                    + "WHERE job_id = ? AND status = 'PAUSED'")
-            .setParameter(1, target.name())
-            .setParameter(2, id)
-            .executeUpdate();
-    if (updated > 0 && PostgresqlStoreContext.isTerminalStatus(target)) {
-      reservations.deleteReservationByOwner(id);
-    }
-    return updated > 0;
-  }
-
-  @Override
-  public JobStatus transitionFromPausedAtomic(long id) {
-    List<?> results =
-        em.createNativeQuery(
-                "UPDATE scheduler_job "
-                    + "SET status = COALESCE(paused_from_status, 'PENDING'), "
-                    + "paused_from_status = NULL, "
-                    + "updated_at = statement_timestamp() "
-                    + "WHERE job_id = ? AND status = 'PAUSED' "
-                    + "RETURNING status")
-            .setParameter(1, id)
-            .getResultList();
-    if (results.isEmpty()) {
-      return null;
-    }
-    JobStatus status = JobStatus.valueOf((String) results.get(0));
-    if (PostgresqlStoreContext.isTerminalStatus(status)) {
-      reservations.deleteReservationByOwner(id);
-    }
-    return status;
-  }
-
-  @Override
   public void bulkInsert(List<JobEntity> jobsToInsert) {
     jobs.bulkInsert(jobsToInsert);
   }
@@ -807,6 +228,147 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   @Override
   public int resetOrphanJobsForNode(String nodeId) {
     return jobs.resetOrphanJobsForNode(nodeId);
+  }
+
+  @Override
+  public List<JobEntity> claimNextBatch(int limit, String nodeId) {
+    return claims.claimNextBatch(limit, nodeId);
+  }
+
+  @Override
+  public List<JobClaimDto> claimNextBatchOptimized(
+      JobExecutionType jobType, int limit, String nodeId) {
+    return claims.claimNextBatchOptimized(jobType, limit, nodeId);
+  }
+
+  @Override
+  public List<JobEntity> claimDueRecurring(int limit, String nodeId) {
+    return claims.claimDueRecurring(limit, nodeId);
+  }
+
+  @Override
+  public void updateJobStatus(long id, JobStatus status, String errorMessage) {
+    lifecycle.updateJobStatus(id, status, errorMessage);
+  }
+
+  @Override
+  public boolean compareAndSwapStatus(
+      long id, JobStatus expected, JobStatus newStatus, String error) {
+    return lifecycle.compareAndSwapStatus(id, expected, newStatus, error);
+  }
+
+  @Override
+  public int incrementRetryAttempt(long id) {
+    return lifecycle.incrementRetryAttempt(id);
+  }
+
+  @Override
+  public boolean tryPickUpJob(long id, String nodeId) {
+    return lifecycle.tryPickUpJob(id, nodeId);
+  }
+
+  @Override
+  public boolean markJobSucceeded(
+      long id,
+      String resultJson,
+      String resultType,
+      Instant start,
+      Instant end,
+      Long durationMs,
+      Long queueWaitMs) {
+    return lifecycle.markJobSucceeded(
+        id, resultJson, resultType, start, end, durationMs, queueWaitMs);
+  }
+
+  @Override
+  public boolean markJobSucceededMinimal(
+      long id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
+    return lifecycle.markJobSucceededMinimal(id, start, end, durationMs, queueWaitMs);
+  }
+
+  @Override
+  public boolean markJobSucceededAndUpdateBatch(
+      long jobId,
+      String resultJson,
+      String resultType,
+      Instant start,
+      Instant end,
+      Long durationMs,
+      Long queueWaitMs,
+      long batchId) {
+    return lifecycle.markJobSucceededAndUpdateBatch(
+        jobId, resultJson, resultType, start, end, durationMs, queueWaitMs, batchId);
+  }
+
+  @Override
+  public boolean markJobFailedTerminal(long id, String terminalError, int totalAttempts) {
+    return lifecycle.markJobFailedTerminal(id, terminalError, totalAttempts);
+  }
+
+  @Override
+  public boolean cancelJob(long id) {
+    return lifecycle.cancelJob(id);
+  }
+
+  @Override
+  public boolean scheduleJobRetry(long id, String error, Instant newScheduledTime, int attempts) {
+    return lifecycle.scheduleJobRetry(id, error, newScheduledTime, attempts);
+  }
+
+  @Override
+  public boolean resetFailedToPending(long id) {
+    return lifecycle.resetFailedToPending(id);
+  }
+
+  @Override
+  public boolean resetRunningJob(long id, String nodeId) {
+    return lifecycle.resetRunningJob(id, nodeId);
+  }
+
+  @Override
+  public int resetRunningJobs(String nodeId) {
+    return lifecycle.resetRunningJobs(nodeId);
+  }
+
+  @Override
+  public int cancelRecurringJobsByTag(String tag) {
+    return lifecycle.cancelRecurringJobsByTag(tag);
+  }
+
+  @Override
+  public int cancelRecurringJobByBusinessKey(String businessKey) {
+    return lifecycle.cancelRecurringJobByBusinessKey(businessKey);
+  }
+
+  @Override
+  public int cancelOrphanedRecurringAnnotationJobs(
+      Set<String> registeredIds, Instant nodeStartTime) {
+    return lifecycle.cancelOrphanedRecurringAnnotationJobs(registeredIds, nodeStartTime);
+  }
+
+  @Override
+  public boolean transitionToPaused(long id, JobStatus expected) {
+    return lifecycle.transitionToPaused(id, expected);
+  }
+
+  @Override
+  public boolean transitionFromPaused(long id, JobStatus target) {
+    return lifecycle.transitionFromPaused(id, target);
+  }
+
+  @Override
+  public JobStatus transitionFromPausedAtomic(long id) {
+    return lifecycle.transitionFromPausedAtomic(id);
+  }
+
+  @Override
+  public boolean pauseRecurring(long id) {
+    return lifecycle.pauseRecurring(id);
+  }
+
+  @Override
+  public boolean resumeRecurring(long id) {
+    return lifecycle.resumeRecurring(id);
   }
 
   @Override
@@ -850,6 +412,31 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   @Override
+  public BatchMetricsEntity saveBatchMetrics(BatchMetricsEntity metrics) {
+    return batches.saveBatchMetrics(metrics);
+  }
+
+  @Override
+  public Optional<BatchMetricsEntity> findBatchMetrics(long batchId) {
+    return batches.findBatchMetrics(batchId);
+  }
+
+  @Override
+  public void addChildExecutionTime(long batchId, long durationMs) {
+    batches.addChildExecutionTime(batchId, durationMs);
+  }
+
+  @Override
+  public void finalizeBatchMetrics(long batchId) {
+    batches.finalizeBatchMetrics(batchId);
+  }
+
+  @Override
+  public void updateBatchMetricsChildCount(long batchId, int childCount) {
+    batches.updateBatchMetricsChildCount(batchId, childCount);
+  }
+
+  @Override
   public boolean tryLock(String name, Duration ttl, String nodeId) {
     return nodeLocks.tryLock(name, ttl, nodeId);
   }
@@ -882,6 +469,11 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   @Override
   public int deleteInactiveNodesSince(Instant cutoff) {
     return nodeLocks.deleteInactiveNodesSince(cutoff);
+  }
+
+  @Override
+  public Instant getDatabaseTime() {
+    return nodeLocks.getDatabaseTime();
   }
 
   @Override
@@ -936,8 +528,8 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   @Override
-  public void appendLog(JobLogEntity logEntry) {
-    auxiliary.appendLog(logEntry);
+  public void appendLog(JobLogEntity log) {
+    auxiliary.appendLog(log);
   }
 
   @Override
@@ -1022,31 +614,6 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   @Override
-  public BatchMetricsEntity saveBatchMetrics(BatchMetricsEntity metrics) {
-    return batches.saveBatchMetrics(metrics);
-  }
-
-  @Override
-  public Optional<BatchMetricsEntity> findBatchMetrics(long batchId) {
-    return batches.findBatchMetrics(batchId);
-  }
-
-  @Override
-  public void addChildExecutionTime(long batchId, long durationMs) {
-    batches.addChildExecutionTime(batchId, durationMs);
-  }
-
-  @Override
-  public void finalizeBatchMetrics(long batchId) {
-    batches.finalizeBatchMetrics(batchId);
-  }
-
-  @Override
-  public void updateBatchMetricsChildCount(long batchId, int childCount) {
-    batches.updateBatchMetricsChildCount(batchId, childCount);
-  }
-
-  @Override
   public DlqAlertEntity saveDlqAlert(DlqAlertEntity alert) {
     return auxiliary.saveDlqAlert(alert);
   }
@@ -1087,7 +654,6 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
     return auxiliary.cleanupOrphanedPermits(staleNodeIds);
   }
 
-  /** Warns (or fails) if the connection isolation level is not READ COMMITTED. */
   @PostConstruct
   void checkIsolationLevel() {
     if (em == null) {
@@ -1113,28 +679,10 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
     tags = new PostgresqlTagOperations(ctx);
     jobs = new PostgresqlJobCrudOperations(ctx, reservations, tags);
     batches = new PostgresqlBatchOperations(ctx);
+    claims = new PostgresqlJobClaimOperations(ctx);
+    lifecycle = new PostgresqlJobLifecycleOperations(ctx, reservations, batches);
     nodeLocks = new PostgresqlNodeLockOperations(ctx);
     archives = new PostgresqlArchiveOperations(ctx, jobs);
     auxiliary = new PostgresqlAuxiliaryOperations(ctx);
-  }
-
-  private long countByNative(String sql, Object... params) {
-    var query = em.createNativeQuery(sql);
-    for (int i = 0; i < params.length; i++) {
-      query.setParameter(i + 1, params[i]);
-    }
-    return ((Number) query.getSingleResult()).longValue();
-  }
-
-  private RuntimeException translateTransientStoreException(String operation, RuntimeException e) {
-    if (CONSTRAINT_DETECTOR.isDeadlock(e) || CONSTRAINT_DETECTOR.isTransientConnectionFailure(e)) {
-      return new RatchetTransientStoreException(
-          "Transient PostgreSQL store concurrency failure during " + operation, e);
-    }
-    return e;
-  }
-
-  private ArchivedJobEntity buildArchive(JobEntity job, String reason, String archivedBy) {
-    return ArchiveHelper.buildArchive(job, reason, archivedBy);
   }
 }
