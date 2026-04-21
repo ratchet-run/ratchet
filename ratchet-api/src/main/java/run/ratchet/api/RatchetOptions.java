@@ -16,6 +16,7 @@ import java.util.function.Consumer;
  * bean. Instances are still immutable — all fields are {@code final} and set only through {@link
  * Builder}. Use {@link #builder()} or {@link #defaults()} to construct.
  */
+@SuppressWarnings("ClassCanBeRecord")
 public class RatchetOptions {
 
   private final PollingOptions polling;
@@ -85,62 +86,6 @@ public class RatchetOptions {
     this.security = Objects.requireNonNull(security, "security must not be null");
     this.store = Objects.requireNonNull(store, "store must not be null");
     this.circuitBreaker = Objects.requireNonNull(circuitBreaker, "circuitBreaker must not be null");
-  }
-
-  public PollingOptions polling() {
-    return polling;
-  }
-
-  public ExecutionOptions execution() {
-    return execution;
-  }
-
-  public NodeOptions node() {
-    return node;
-  }
-
-  public RecurringOptions recurring() {
-    return recurring;
-  }
-
-  public RetryBufferOptions retryBuffer() {
-    return retryBuffer;
-  }
-
-  public TimeoutOptions timeout() {
-    return timeout;
-  }
-
-  public MaintenanceOptions maintenance() {
-    return maintenance;
-  }
-
-  public NotificationOptions notifications() {
-    return notifications;
-  }
-
-  public SchemaOptions schema() {
-    return schema;
-  }
-
-  public PayloadOptions payload() {
-    return payload;
-  }
-
-  public MetricsOptions metrics() {
-    return metrics;
-  }
-
-  public SecurityOptions security() {
-    return security;
-  }
-
-  public StoreOptions store() {
-    return store;
-  }
-
-  public CircuitBreakerOptions circuitBreaker() {
-    return circuitBreaker;
   }
 
   public static RatchetOptions defaults() {
@@ -224,6 +169,62 @@ public class RatchetOptions {
       throw new IllegalArgumentException(name + " must be at least " + minInclusive);
     }
     return value;
+  }
+
+  public PollingOptions polling() {
+    return polling;
+  }
+
+  public ExecutionOptions execution() {
+    return execution;
+  }
+
+  public NodeOptions node() {
+    return node;
+  }
+
+  public RecurringOptions recurring() {
+    return recurring;
+  }
+
+  public RetryBufferOptions retryBuffer() {
+    return retryBuffer;
+  }
+
+  public TimeoutOptions timeout() {
+    return timeout;
+  }
+
+  public MaintenanceOptions maintenance() {
+    return maintenance;
+  }
+
+  public NotificationOptions notifications() {
+    return notifications;
+  }
+
+  public SchemaOptions schema() {
+    return schema;
+  }
+
+  public PayloadOptions payload() {
+    return payload;
+  }
+
+  public MetricsOptions metrics() {
+    return metrics;
+  }
+
+  public SecurityOptions security() {
+    return security;
+  }
+
+  public StoreOptions store() {
+    return store;
+  }
+
+  public CircuitBreakerOptions circuitBreaker() {
+    return circuitBreaker;
   }
 
   public enum IsolationCheckMode {
