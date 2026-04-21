@@ -28,11 +28,9 @@ import com.mongodb.client.result.DeleteResult;
 import com.mongodb.client.result.UpdateResult;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.RatchetOptions;
-import run.ratchet.api.RatchetOptionsFactory;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
-import run.ratchet.spi.RatchetConfigSource;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.ArchivedJobEntity;
@@ -51,8 +49,6 @@ import run.ratchet.store.id.TsidFactory;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.enterprise.inject.Instance;
-import jakarta.enterprise.inject.spi.DeploymentException;
 import jakarta.inject.Inject;
 import java.time.Duration;
 import java.time.Instant;
@@ -104,34 +100,14 @@ class MongoJobStoreImpl implements MongoJobStore {
           });
 
   @Inject
-  MongoJobStoreImpl(
-      MongoDatabase database,
-      Instance<RatchetOptions> optionsInstance,
-      Instance<RatchetConfigSource> configSources) {
-    this(database, resolveOptions(optionsInstance, configSources));
-  }
-
-  MongoJobStoreImpl(MongoDatabase database) {
-    this(database, RatchetOptions.defaults());
-  }
-
-  private MongoJobStoreImpl(MongoDatabase database, RatchetOptions options) {
+  MongoJobStoreImpl(MongoDatabase database, RatchetOptions options) {
     this.database = database;
     this.options = options;
     options.node().explicitTsidNodeId().ifPresent(TsidFactory::configureNodeId);
   }
 
-  private static RatchetOptions resolveOptions(
-      Instance<RatchetOptions> optionsInstance, Instance<RatchetConfigSource> configSources) {
-    if (optionsInstance == null || optionsInstance.isUnsatisfied()) {
-      return RatchetOptionsFactory.fromFallbackSources(configSources);
-    }
-    if (optionsInstance.isAmbiguous()) {
-      throw new DeploymentException(
-          "Multiple unqualified RatchetOptions beans found. Produce exactly one @ApplicationScoped"
-              + " RatchetOptions bean for the application.");
-    }
-    return optionsInstance.get();
+  MongoJobStoreImpl(MongoDatabase database) {
+    this(database, RatchetOptions.defaults());
   }
 
   private static boolean isPollerExecutable(JobExecutionType jobType) {
@@ -1810,7 +1786,6 @@ class MongoJobStoreImpl implements MongoJobStore {
     }
     return a;
   }
-
 
   private record ClaimCandidate(long id, int priority, Date dueAt) {}
 }

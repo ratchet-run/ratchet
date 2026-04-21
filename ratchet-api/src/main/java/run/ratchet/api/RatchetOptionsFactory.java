@@ -115,13 +115,36 @@ public final class RatchetOptionsFactory {
         .build();
   }
 
-  public static RatchetOptions fromFallbackSources(Iterable<RatchetConfigSource> configSources) {
+  /**
+   * Builds {@link RatchetOptions} by reading the ambient configuration chain (MicroProfile Config
+   * when present, then environment variables), optionally overlaid with caller-supplied {@link
+   * RatchetConfigSource} instances.
+   *
+   * <p>Intended for use inside a CDI producer method:
+   *
+   * <pre>{@code
+   * @Produces
+   * @ApplicationScoped
+   * public RatchetOptions ratchetOptions() {
+   *   return RatchetOptionsFactory.fromEnvironment();
+   * }
+   * }</pre>
+   *
+   * <p>Calling with no arguments reads exclusively from MicroProfile Config and environment
+   * variables, applying compiled-in defaults for keys absent from those sources. Caller-supplied
+   * sources take precedence over the ambient chain.
+   *
+   * <p>The surrounding producer method should be {@code @ApplicationScoped} so sources are read
+   * once at bootstrap rather than on every injection.
+   *
+   * @param additional optional overlay sources consulted before MicroProfile Config / env vars
+   * @return the fully-populated, immutable {@link RatchetOptions}
+   */
+  public static RatchetOptions fromEnvironment(RatchetConfigSource... additional) {
     List<RatchetConfigSource> sources = new ArrayList<>();
-    if (configSources != null) {
-      for (RatchetConfigSource source : configSources) {
-        if (source != null) {
-          sources.add(source);
-        }
+    for (RatchetConfigSource source : additional) {
+      if (source != null) {
+        sources.add(source);
       }
     }
     MicroProfileRatchetConfigSource.create().ifPresent(sources::add);

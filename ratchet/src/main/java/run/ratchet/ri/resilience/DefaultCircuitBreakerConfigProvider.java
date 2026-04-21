@@ -2,7 +2,6 @@ package run.ratchet.ri.resilience;
 
 import run.ratchet.api.CircuitBreakerProfile;
 import run.ratchet.api.RatchetOptions;
-import run.ratchet.ri.config.RatchetOptionsResolver;
 import run.ratchet.spi.CircuitBreakerConfig;
 import run.ratchet.spi.CircuitBreakerConfigProvider;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -19,10 +18,6 @@ public class DefaultCircuitBreakerConfigProvider implements CircuitBreakerConfig
   }
 
   @Inject
-  public DefaultCircuitBreakerConfigProvider(RatchetOptionsResolver optionsResolver) {
-    this(optionsResolver.get());
-  }
-
   public DefaultCircuitBreakerConfigProvider(RatchetOptions options) {
     this.options = options;
   }

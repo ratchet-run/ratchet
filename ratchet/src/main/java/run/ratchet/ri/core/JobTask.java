@@ -953,7 +953,6 @@ public class JobTask implements Callable<Void> {
     STUCK
   }
 
-
   private static class ResourceCapacityException extends RuntimeException {
 
     @Serial private static final long serialVersionUID = 2983760024642099243L;

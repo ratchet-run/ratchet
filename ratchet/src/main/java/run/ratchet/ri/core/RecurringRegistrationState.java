@@ -1,7 +1,6 @@
 package run.ratchet.ri.core;
 
 import run.ratchet.api.RatchetOptions;
-import run.ratchet.ri.config.RatchetOptionsResolver;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.time.Duration;
@@ -32,11 +31,7 @@ public class RecurringRegistrationState {
   }
 
   @Inject
-  public RecurringRegistrationState(RatchetOptionsResolver optionsResolver) {
-    this(optionsResolver.get());
-  }
-
-  RecurringRegistrationState(RatchetOptions options) {
+  public RecurringRegistrationState(RatchetOptions options) {
     this.startupGraceSeconds = options.recurring().startupGraceSeconds();
   }
 

@@ -1,7 +1,6 @@
 package run.ratchet.ri.core;
 
 import run.ratchet.api.RatchetOptions;
-import run.ratchet.ri.config.RatchetOptionsResolver;
 import run.ratchet.spi.ExecutionTuningProvider;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -17,10 +16,6 @@ public class DefaultExecutionTuningProvider implements ExecutionTuningProvider {
   }
 
   @Inject
-  public DefaultExecutionTuningProvider(RatchetOptionsResolver optionsResolver) {
-    this(optionsResolver.get());
-  }
-
   public DefaultExecutionTuningProvider(RatchetOptions options) {
     this.options = options;
   }

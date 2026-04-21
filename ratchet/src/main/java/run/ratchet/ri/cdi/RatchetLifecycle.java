@@ -2,7 +2,6 @@ package run.ratchet.ri.cdi;
 
 import com.cronutils.model.Cron;
 import run.ratchet.api.RatchetOptions;
-import run.ratchet.ri.config.RatchetOptionsResolver;
 import run.ratchet.ri.core.BatchRecoveryTimer;
 import run.ratchet.ri.core.DeadLetterService;
 import run.ratchet.ri.core.DefaultNodeIdentityProvider;
@@ -110,7 +109,7 @@ public class RatchetLifecycle {
       ExecutorProvider executorProvider,
       NodeIdentityProvider nodeIdentityProvider,
       DrainController drainController,
-      RatchetOptionsResolver optionsResolver,
+      Instance<RatchetOptions> options,
       JobExecutionCoordinator jobExecutionCoordinator,
       Instance<SchedulerLifecycleHook> lifecycleHooks) {
     this(
@@ -125,7 +124,7 @@ public class RatchetLifecycle {
         executorProvider,
         nodeIdentityProvider,
         drainController,
-        optionsResolver.get(),
+        options.get(),
         jobExecutionCoordinator,
         (Iterable<SchedulerLifecycleHook>) lifecycleHooks);
   }

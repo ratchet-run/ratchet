@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import run.ratchet.spi.RatchetConfigSource;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -31,7 +30,7 @@ class RatchetOptionsFactoryTest {
                             Map.of("ratchet.worker.use-virtual-threads", "true")
                                 .getOrDefault(propertyName, null)));
 
-    RatchetOptions options = RatchetOptionsFactory.fromFallbackSources(List.of(source));
+    RatchetOptions options = RatchetOptionsFactory.fromEnvironment(source);
 
     assertEquals(123, options.polling().batchSize());
     assertTrue(options.execution().useVirtualThreads());

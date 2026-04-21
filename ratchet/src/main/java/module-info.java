@@ -15,7 +15,6 @@ module run.ratchet.ri {
   requires org.objectweb.asm.tree;
 
   opens run.ratchet.ri.cdi;
-  opens run.ratchet.ri.config;
   opens run.ratchet.ri.core;
   opens run.ratchet.ri.payload;
   opens run.ratchet.ri.resilience;

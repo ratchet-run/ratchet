@@ -4,11 +4,9 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.RatchetOptions;
-import run.ratchet.api.RatchetOptionsFactory;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
-import run.ratchet.spi.RatchetConfigSource;
 import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.converter.JsonMapConverter;
 import run.ratchet.store.dto.BatchProgress;
@@ -33,8 +31,6 @@ import run.ratchet.store.util.IsolationCheck;
 import run.ratchet.store.util.ObjectMapperFactory;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.enterprise.inject.Instance;
-import jakarta.enterprise.inject.spi.DeploymentException;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
@@ -78,9 +74,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   private static final String OWNER_TABLE_RECURRING = "RECURRING";
 
   @Inject private RatchetEntityManagerProvider entityManagerProvider;
-  @Inject private Instance<RatchetOptions> optionsInstance;
-  @Inject private Instance<RatchetConfigSource> configSources;
-  private RatchetOptions options = RatchetOptions.defaults();
+  @Inject private RatchetOptions options;
   private EntityManager em;
 
   PostgresqlJobStoreImpl() {}
@@ -1708,7 +1702,6 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
     if (em == null) {
       em = entityManagerProvider.getEntityManager();
     }
-    options = resolveOptions();
     options.node().explicitTsidNodeId().ifPresent(TsidFactory::configureNodeId);
     IsolationCheck.verifyReadCommitted(
         em,
@@ -1842,18 +1835,6 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
     query.setParameter(parameter++, job.getQueueWaitMs());
     query.setParameter(parameter++, job.getJobResult());
     query.setParameter(parameter, job.getResultType());
-  }
-
-  private RatchetOptions resolveOptions() {
-    if (optionsInstance == null || optionsInstance.isUnsatisfied()) {
-      return RatchetOptionsFactory.fromFallbackSources(configSources);
-    }
-    if (optionsInstance.isAmbiguous()) {
-      throw new DeploymentException(
-          "Multiple unqualified RatchetOptions beans found. Produce exactly one @ApplicationScoped"
-              + " RatchetOptions bean for the application.");
-    }
-    return optionsInstance.get();
   }
 
   private JobEntity hydrateForArchive(JobEntity job) {

@@ -9,7 +9,6 @@ import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.Recurring;
 import run.ratchet.api.RecurringJobBuilder;
-import run.ratchet.ri.config.RatchetOptionsResolver;
 import run.ratchet.ri.core.RecurringAnnotationMaintenanceService;
 import run.ratchet.ri.core.RecurringRegistrationState;
 import run.ratchet.spi.StartupCoordinator;
@@ -80,14 +79,14 @@ public class RecurringJobProcessor {
       RecurringMethodInvoker methodInvoker,
       StartupCoordinator startupCoordinator,
       RecurringRegistrationState registrationState,
-      RatchetOptionsResolver optionsResolver) {
+      RatchetOptions options) {
     this.schedulerService = schedulerService;
     this.recurringAnnotationMaintenanceService = recurringAnnotationMaintenanceService;
     this.beanManager = beanManager;
     this.methodInvoker = methodInvoker;
     this.startupCoordinator = startupCoordinator;
     this.registrationState = registrationState;
-    this.options = optionsResolver.get();
+    this.options = options;
   }
 
   public RecurringJobProcessor(
@@ -105,23 +104,6 @@ public class RecurringJobProcessor {
         startupCoordinator,
         registrationState,
         RatchetOptions.defaults());
-  }
-
-  RecurringJobProcessor(
-      JobSchedulerService schedulerService,
-      RecurringAnnotationMaintenanceService recurringAnnotationMaintenanceService,
-      BeanManager beanManager,
-      RecurringMethodInvoker methodInvoker,
-      StartupCoordinator startupCoordinator,
-      RecurringRegistrationState registrationState,
-      RatchetOptions options) {
-    this.schedulerService = schedulerService;
-    this.recurringAnnotationMaintenanceService = recurringAnnotationMaintenanceService;
-    this.beanManager = beanManager;
-    this.methodInvoker = methodInvoker;
-    this.startupCoordinator = startupCoordinator;
-    this.registrationState = registrationState;
-    this.options = options;
   }
 
   void onStartup(@Observes @Initialized(ApplicationScoped.class) Object init) {

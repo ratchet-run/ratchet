@@ -44,7 +44,10 @@ class JobTaskClassCacheBypassTest {
                 throw e.getCause();
               }
             });
-    assertInstanceOf(SecurityException.class, thrown, "Denied class must throw SecurityException, got: " + thrown);
+    assertInstanceOf(
+        SecurityException.class,
+        thrown,
+        "Denied class must throw SecurityException, got: " + thrown);
 
     Field cacheField = JobTask.class.getDeclaredField("CLASS_CACHE");
     cacheField.setAccessible(true);
@@ -89,7 +92,9 @@ class JobTaskClassCacheBypassTest {
                 throw e.getCause();
               }
             });
-    assertInstanceOf(SecurityException.class, thrown,
+    assertInstanceOf(
+        SecurityException.class,
+        thrown,
         "Cache hit must re-validate policy; denied class must throw even if cached");
   }
 

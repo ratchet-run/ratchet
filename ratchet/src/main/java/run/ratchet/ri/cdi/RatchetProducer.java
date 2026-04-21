@@ -1,7 +1,6 @@
 package run.ratchet.ri.cdi;
 
 import run.ratchet.api.RatchetOptions;
-import run.ratchet.ri.config.RatchetOptionsResolver;
 import run.ratchet.ri.core.DefaultNodeIdentityProvider;
 import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.DynamicHeartbeatCalculator;
@@ -41,6 +40,7 @@ import run.ratchet.store.spi.JobRetryStore;
 import run.ratchet.store.spi.NodeStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Default;
+import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.Produces;
 import jakarta.enterprise.inject.spi.DeploymentException;
 import jakarta.inject.Inject;
@@ -96,7 +96,7 @@ public class RatchetProducer {
       JobBatchStatusStore jobBatchStatusStore,
       PostExecutionHandler postExecutionHandler,
       NodeStore nodeStore,
-      RatchetOptionsResolver optionsResolver,
+      Instance<RatchetOptions> options,
       ExecutionTuningProvider executionTuningProvider,
       PollingStrategyProvider pollingStrategyProvider,
       CircuitBreakerConfigProvider circuitBreakerConfigProvider) {
@@ -107,7 +107,7 @@ public class RatchetProducer {
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.postExecutionHandler = postExecutionHandler;
     this.nodeStore = nodeStore;
-    this.options = optionsResolver.get();
+    this.options = options.get();
     this.executionTuningProvider = executionTuningProvider;
     this.pollingStrategyProvider = pollingStrategyProvider;
     this.circuitBreakerConfigProvider = circuitBreakerConfigProvider;

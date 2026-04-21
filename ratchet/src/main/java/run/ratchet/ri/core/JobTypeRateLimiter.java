@@ -1,7 +1,6 @@
 package run.ratchet.ri.core;
 
 import run.ratchet.api.RatchetOptions;
-import run.ratchet.ri.config.RatchetOptionsResolver;
 import run.ratchet.store.entity.JobExecutionType;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -26,11 +25,7 @@ public class JobTypeRateLimiter {
   }
 
   @Inject
-  public JobTypeRateLimiter(RatchetOptionsResolver optionsResolver) {
-    this(optionsResolver.get());
-  }
-
-  JobTypeRateLimiter(RatchetOptions options) {
+  public JobTypeRateLimiter(RatchetOptions options) {
     this.options = options;
     init();
   }

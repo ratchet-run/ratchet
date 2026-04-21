@@ -61,6 +61,7 @@ public class LambdaSerializer {
 
   private static final Set<String> ALLOWED_CLASS_PREFIXES =
       Set.of("run.ratchet.", "java.time.", "java.math.");
+
   /**
    * {@code java.lang} classes accepted during deserialization. Deliberately excludes {@code
    * Throwable}, {@code Exception}, and {@code RuntimeException} — broad allowlisting of base
@@ -84,6 +85,7 @@ public class LambdaSerializer {
           "java.lang.IllegalArgumentException",
           "java.lang.NullPointerException",
           "java.lang.UnsupportedOperationException");
+
   private static final Set<String> ALLOWED_JAVA_UTIL_CLASSES =
       Set.of(
           "java.util.ArrayList",

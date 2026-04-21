@@ -54,6 +54,7 @@ public class BatchService {
   private final WorkflowScheduler workflowScheduler;
   private final ClassPolicy classPolicy;
   private final BeanResolver beanResolver;
+
   protected BatchService() {
     this.batchStore = null;
     this.jobCrudStore = null;

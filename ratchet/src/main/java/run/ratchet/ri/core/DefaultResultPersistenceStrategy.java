@@ -2,7 +2,6 @@ package run.ratchet.ri.core;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import run.ratchet.api.RatchetOptions;
-import run.ratchet.ri.config.RatchetOptionsResolver;
 import run.ratchet.spi.ResultPersistenceStrategy;
 import run.ratchet.spi.SerializedJobResult;
 import run.ratchet.store.util.ObjectMapperFactory;
@@ -25,10 +24,6 @@ public class DefaultResultPersistenceStrategy implements ResultPersistenceStrate
   }
 
   @Inject
-  public DefaultResultPersistenceStrategy(RatchetOptionsResolver optionsResolver) {
-    this(optionsResolver.get());
-  }
-
   public DefaultResultPersistenceStrategy(RatchetOptions options) {
     this.options = options;
   }

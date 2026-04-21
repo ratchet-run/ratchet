@@ -10,6 +10,7 @@ import run.ratchet.testsuite.app.PerformanceTestHelper;
 import run.ratchet.testsuite.app.TestCleanupStrategy;
 import run.ratchet.testsuite.app.TestDataManipulator;
 import run.ratchet.testsuite.app.TestMongoProducer;
+import run.ratchet.testsuite.app.TestRatchetOptionsProducer;
 import run.ratchet.testsuite.infra.JdbcContainerExtension;
 import run.ratchet.testsuite.infra.JdbcDatabaseConfig;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
@@ -125,7 +126,8 @@ public class RatchetArchiveBuilder {
         TestClassPolicy.class,
         TestCleanupStrategy.class,
         TestDataManipulator.class,
-        PerformanceTestHelper.class);
+        PerformanceTestHelper.class,
+        TestRatchetOptionsProducer.class);
 
     // Store-specific classes
     switch (dbType) {
