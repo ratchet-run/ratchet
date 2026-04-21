@@ -34,4 +34,4 @@ RUN chown -R jboss:root /opt/jboss/ratchet /opt/jboss/wildfly/standalone \
 
 USER jboss
 EXPOSE 8080 9990
-CMD ["/bin/sh", "-c", "exec /opt/jboss/wildfly/bin/standalone.sh -c ${WILDFLY_SERVER_CONFIG:-standalone.xml} -b 0.0.0.0 -Djboss.node.name=${NODE_ID:-${HOSTNAME}}"]
+CMD ["/bin/sh", "-c", "exec /opt/jboss/wildfly/bin/standalone.sh -c ${WILDFLY_SERVER_CONFIG:-standalone.xml} -b 0.0.0.0 -Dratchet.node.id=${NODE_ID:-${HOSTNAME}}"]
