@@ -1,58 +1,42 @@
 package run.ratchet.ri.core;
 
+import run.ratchet.api.RatchetOptions;
+import run.ratchet.ri.config.RatchetOptionsResolver;
 import run.ratchet.spi.ExecutionTuningProvider;
-import run.ratchet.spi.RatchetConfig;
-import run.ratchet.spi.RatchetConfigKey;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
-/** Default execution tuning backed by Ratchet config keys. */
+/** Default execution tuning backed by CDI-provided Ratchet options. */
 @ApplicationScoped
 public class DefaultExecutionTuningProvider implements ExecutionTuningProvider {
 
-  private static final RatchetConfigKey<Boolean> USE_VIRTUAL_THREADS =
-      RatchetConfigKey.bool(
-          "ratchet.worker.use-virtual-threads",
-          "RATCHET_WORKER_USE_VIRTUAL_THREADS",
-          "worker.use-virtual-threads",
-          "WORKER_USE_VIRTUAL_THREADS",
-          false);
-
-  private final RatchetConfig config;
+  private final RatchetOptions options;
 
   protected DefaultExecutionTuningProvider() {
-    this.config = null;
+    this.options = null;
   }
 
   @Inject
-  public DefaultExecutionTuningProvider(RatchetConfig config) {
-    this.config = config;
+  public DefaultExecutionTuningProvider(RatchetOptionsResolver optionsResolver) {
+    this(optionsResolver.get());
+  }
+
+  public DefaultExecutionTuningProvider(RatchetOptions options) {
+    this.options = options;
   }
 
   @Override
   public boolean useVirtualThreads() {
-    return config.get(USE_VIRTUAL_THREADS);
+    return options.execution().useVirtualThreads();
   }
 
   @Override
   public int maxConcurrency(String executionTypeName, int defaultValue) {
-    return config.get(
-        RatchetConfigKey.integer(
-            "ratchet.thread-pool-size." + executionTypeName.toLowerCase().replace('_', '-'),
-            "RATCHET_THREAD_POOL_SIZE_" + executionTypeName,
-            "scheduler.thread-pool-size." + executionTypeName.toLowerCase().replace('_', '-'),
-            "SCHEDULER_THREAD_POOL_SIZE_" + executionTypeName,
-            defaultValue));
+    return options.execution().maxConcurrency(executionTypeName, defaultValue);
   }
 
   @Override
   public int virtualThreadLimit(String executionTypeName, int defaultValue) {
-    return config.get(
-        RatchetConfigKey.integer(
-            "ratchet.virtual-thread-limit." + executionTypeName.toLowerCase().replace('_', '-'),
-            "RATCHET_VIRTUAL_THREAD_LIMIT_" + executionTypeName,
-            "virtual-thread-limit." + executionTypeName.toLowerCase().replace('_', '-'),
-            "VIRTUAL_THREAD_LIMIT_" + executionTypeName,
-            defaultValue));
+    return options.execution().virtualThreadLimit(executionTypeName, defaultValue);
   }
 }

@@ -9,8 +9,8 @@ import jakarta.inject.Inject;
 
 /**
  * Resolves CDI beans by type via {@link Instance}. Throws {@link IllegalStateException} if no bean
- * or multiple beans are found, and refuses {@link jakarta.enterprise.context.Dependent}-scoped
- * beans whose lifecycle it cannot manage.
+ * or multiple beans are found, and refuses {@link Dependent}-scoped beans whose lifecycle it cannot
+ * manage.
  */
 @ApplicationScoped
 public class CdiBeanResolver implements BeanResolver {

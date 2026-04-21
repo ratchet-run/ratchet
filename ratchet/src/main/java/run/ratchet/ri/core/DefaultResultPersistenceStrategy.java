@@ -1,8 +1,8 @@
 package run.ratchet.ri.core;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import run.ratchet.spi.RatchetConfig;
-import run.ratchet.spi.RatchetConfigKey;
+import run.ratchet.api.RatchetOptions;
+import run.ratchet.ri.config.RatchetOptionsResolver;
 import run.ratchet.spi.ResultPersistenceStrategy;
 import run.ratchet.spi.SerializedJobResult;
 import run.ratchet.store.util.ObjectMapperFactory;
@@ -18,24 +18,19 @@ public class DefaultResultPersistenceStrategy implements ResultPersistenceStrate
   private static final Logger log = Logger.getLogger(DefaultResultPersistenceStrategy.class);
   private static final ObjectMapper OBJECT_MAPPER = ObjectMapperFactory.get();
 
-  static final RatchetConfigKey<Long> RESULT_MAX_BYTES =
-      RatchetConfigKey.longAtLeast(
-          "ratchet.jobs.max-result-bytes",
-          "RATCHET_JOB_RESULT_MAX_BYTES",
-          "ratchet.jobs.max-result-bytes",
-          "RATCHET_JOBS_MAX_RESULT_BYTES",
-          65536L,
-          0L);
-
-  private final RatchetConfig config;
+  private final RatchetOptions options;
 
   protected DefaultResultPersistenceStrategy() {
-    this.config = null;
+    this.options = null;
   }
 
   @Inject
-  public DefaultResultPersistenceStrategy(RatchetConfig config) {
-    this.config = config;
+  public DefaultResultPersistenceStrategy(RatchetOptionsResolver optionsResolver) {
+    this(optionsResolver.get());
+  }
+
+  public DefaultResultPersistenceStrategy(RatchetOptions options) {
+    this.options = options;
   }
 
   @Override
@@ -47,12 +42,12 @@ public class DefaultResultPersistenceStrategy implements ResultPersistenceStrate
     try {
       String resultJson = OBJECT_MAPPER.writeValueAsString(result);
       String resultType = result.getClass().getName();
-      long maxBytes = config.get(RESULT_MAX_BYTES);
+      long maxBytes = options.payload().maxResultBytes();
       int resultBytes = resultJson.getBytes(StandardCharsets.UTF_8).length;
       if (maxBytes > 0 && resultBytes > maxBytes) {
         log.warnf(
-            "Job %s result exceeds %s=%s bytes (actual=%s); truncating to marker",
-            jobId, RESULT_MAX_BYTES.name(), maxBytes, resultBytes);
+            "Job %s result exceeds configured maxResultBytes=%s bytes (actual=%s); truncating to marker",
+            jobId, maxBytes, resultBytes);
         resultJson =
             "{\"_truncated\":true,\"_originalSize\":"
                 + resultBytes

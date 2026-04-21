@@ -20,7 +20,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -42,13 +41,9 @@ class DefaultNodeIdentityProviderTest {
   @Captor private ArgumentCaptor<Runnable> runnableCaptor;
 
   private DefaultNodeIdentityProvider provider;
-  private String previousNodeName;
 
   @BeforeEach
   void setUp() {
-    previousNodeName = System.getProperty("jboss.node.name");
-    System.setProperty("jboss.node.name", "test-node");
-
     when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
     doReturn(scheduledFuture)
         .when(scheduledExecutor)
@@ -58,16 +53,14 @@ class DefaultNodeIdentityProviderTest {
 
     provider =
         new DefaultNodeIdentityProvider(
-            nodeStore, jobBulkStore, heartbeatCalculator, executorProvider, 5, 30, false);
-  }
-
-  @AfterEach
-  void tearDown() {
-    if (previousNodeName == null) {
-      System.clearProperty("jboss.node.name");
-    } else {
-      System.setProperty("jboss.node.name", previousNodeName);
-    }
+            nodeStore,
+            jobBulkStore,
+            heartbeatCalculator,
+            executorProvider,
+            5,
+            30,
+            false,
+            "test-node");
   }
 
   @Test

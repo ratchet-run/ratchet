@@ -1,15 +1,15 @@
 package run.ratchet.ri.core;
 
 import run.ratchet.api.CircuitBreakerProtected;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.event.JobCallbackFailedEvent;
 import run.ratchet.api.event.JobCancelledEvent;
 import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.api.event.JobDlqEvent;
 import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobStartedEvent;
+import run.ratchet.api.exception.JobTimeoutException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
-import run.ratchet.ri.config.DefaultRatchetConfig;
-import run.ratchet.ri.config.EnvironmentRatchetConfigSource;
 import run.ratchet.ri.resilience.ServiceUnavailableException;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
@@ -39,6 +39,7 @@ import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeoutException;
 import org.jboss.logging.Logger;
 import org.objectweb.asm.Type;
 
@@ -55,33 +56,9 @@ public class JobTask implements Callable<Void> {
   private static final ConcurrentHashMap<String, String> SERVICE_NAME_CACHE =
       new ConcurrentHashMap<>();
 
-  /**
-   * System property controlling the maximum size in bytes of a serialized job result. Results
-   * exceeding this size are truncated to a marker JSON noting the original size. Default 65536
-   * (64KB). Set to 0 to disable the cap.
-   */
-  static final String RESULT_MAX_BYTES_PROPERTY = "ratchet.jobs.max-result-bytes";
-
-  private static final long DEFAULT_RESULT_MAX_BYTES = 65536L;
   private static final int SUCCESS_FINALIZATION_MAX_ATTEMPTS = 5;
   private static final long[] SUCCESS_FINALIZATION_BACKOFF_MS = {25L, 50L, 100L, 200L, 400L};
   private static final long SUCCESS_FINALIZATION_JITTER_MAX_MS = 25L;
-
-  /**
-   * Reads the maximum result-size cap from system properties on every call (not cached) so
-   * operators can tune it via {@code -D} flags without rebuilding.
-   */
-  static long maxResultBytes() {
-    String raw = System.getProperty(RESULT_MAX_BYTES_PROPERTY);
-    if (raw == null || raw.isBlank()) {
-      return DEFAULT_RESULT_MAX_BYTES;
-    }
-    try {
-      return Math.max(0L, Long.parseLong(raw.trim()));
-    } catch (NumberFormatException e) {
-      return DEFAULT_RESULT_MAX_BYTES;
-    }
-  }
 
   private final JobStore jobStore;
   private final ResourcePermitService resourcePermitService;
@@ -100,13 +77,6 @@ public class JobTask implements Callable<Void> {
   private JobClaimDto claim;
   private JobExecutionEntity currentExecution;
   private boolean permitAcquired;
-
-  private enum SuccessFinalizationState {
-    COMPLETED_FULL,
-    COMPLETED_MINIMAL,
-    TERMINAL_SKIPPED,
-    STUCK
-  }
 
   protected JobTask() {
     this.jobStore = null;
@@ -149,8 +119,7 @@ public class JobTask implements Callable<Void> {
         errorSanitizer,
         classPolicy,
         context -> new JBossLoggingJobLogger(context.jobId(), null),
-        new DefaultResultPersistenceStrategy(
-            new DefaultRatchetConfig(new EnvironmentRatchetConfigSource())));
+        new DefaultResultPersistenceStrategy(RatchetOptions.defaults()));
   }
 
   @Inject
@@ -181,25 +150,6 @@ public class JobTask implements Callable<Void> {
     this.classPolicy = classPolicy;
     this.jobLoggerFactory = jobLoggerFactory;
     this.resultPersistenceStrategy = resultPersistenceStrategy;
-  }
-
-  // ONLY path that populates CLASS_CACHE. Re-checks ClassPolicy on every call (even cache hits)
-  // to block post-load policy changes and cache-poisoning from code that bypasses validationFacade.
-  private Class<?> loadAllowedClass(String className) throws ClassNotFoundException {
-    if (className == null || className.isEmpty()) {
-      throw new SecurityException("Class name cannot be null or empty");
-    }
-    if (classPolicy != null && !classPolicy.isAllowed(className)) {
-      throw new SecurityException("Class " + className + " is not allowed for job execution.");
-    }
-    Class<?> cached = CLASS_CACHE.get(className);
-    if (cached != null) {
-      return cached;
-    }
-    Class<?> loaded =
-        Class.forName(className, true, Thread.currentThread().getContextClassLoader());
-    CLASS_CACHE.putIfAbsent(className, loaded);
-    return loaded;
   }
 
   /**
@@ -368,6 +318,25 @@ public class JobTask implements Callable<Void> {
   void initFromClaim(JobClaimDto claim) {
     this.claim = claim;
     this.job = null;
+  }
+
+  // ONLY path that populates CLASS_CACHE. Re-checks ClassPolicy on every call (even cache hits)
+  // to block post-load policy changes and cache-poisoning from code that bypasses validationFacade.
+  private Class<?> loadAllowedClass(String className) throws ClassNotFoundException {
+    if (className == null || className.isEmpty()) {
+      throw new SecurityException("Class name cannot be null or empty");
+    }
+    if (classPolicy != null && !classPolicy.isAllowed(className)) {
+      throw new SecurityException("Class " + className + " is not allowed for job execution.");
+    }
+    Class<?> cached = CLASS_CACHE.get(className);
+    if (cached != null) {
+      return cached;
+    }
+    Class<?> loaded =
+        Class.forName(className, true, Thread.currentThread().getContextClassLoader());
+    CLASS_CACHE.putIfAbsent(className, loaded);
+    return loaded;
   }
 
   private JobEntity getJob() {
@@ -709,11 +678,11 @@ public class JobTask implements Callable<Void> {
   // one cause deep — all three are produced by JobTimeoutHandler cancel paths.
   private void logIfTimeout(Throwable ex) {
     boolean wasTimeout =
-        ex instanceof run.ratchet.api.exception.JobTimeoutException
-            || ex instanceof java.util.concurrent.TimeoutException
+        ex instanceof JobTimeoutException
+            || ex instanceof TimeoutException
             || ex instanceof InterruptedException
-            || ex.getCause() instanceof run.ratchet.api.exception.JobTimeoutException
-            || ex.getCause() instanceof java.util.concurrent.TimeoutException
+            || ex.getCause() instanceof JobTimeoutException
+            || ex.getCause() instanceof TimeoutException
             || ex.getCause() instanceof InterruptedException;
     if (wasTimeout) {
       log.errorf(ex, "Job %s was cancelled due to timeout", job.getId());
@@ -976,6 +945,14 @@ public class JobTask implements Callable<Void> {
           ex.getMessage());
     }
   }
+
+  private enum SuccessFinalizationState {
+    COMPLETED_FULL,
+    COMPLETED_MINIMAL,
+    TERMINAL_SKIPPED,
+    STUCK
+  }
+
 
   private static class ResourceCapacityException extends RuntimeException {
 

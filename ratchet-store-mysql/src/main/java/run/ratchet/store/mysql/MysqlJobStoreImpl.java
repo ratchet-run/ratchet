@@ -1,8 +1,11 @@
 package run.ratchet.store.mysql;
 
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.RatchetOptionsFactory;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.spi.MetricsCollector;
+import run.ratchet.spi.RatchetConfigSource;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.ArchivedJobEntity;
@@ -16,10 +19,13 @@ import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
+import run.ratchet.store.id.TsidFactory;
 import run.ratchet.store.spi.RatchetEntityManagerProvider;
 import run.ratchet.store.util.IsolationCheck;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
+import jakarta.enterprise.inject.spi.DeploymentException;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
@@ -43,6 +49,9 @@ class MysqlJobStoreImpl implements MysqlJobStore {
 
   @Inject private RatchetEntityManagerProvider entityManagerProvider;
   @Inject private MetricsCollector metricsCollector;
+  @Inject private Instance<RatchetOptions> optionsInstance;
+  @Inject private Instance<RatchetConfigSource> configSources;
+  private RatchetOptions options = RatchetOptions.defaults();
   private EntityManager em;
 
   private MysqlJobCrudOperations jobs;
@@ -68,6 +77,8 @@ class MysqlJobStoreImpl implements MysqlJobStore {
     if (em == null) {
       em = entityManagerProvider.getEntityManager();
     }
+    options = resolveOptions();
+    options.node().explicitTsidNodeId().ifPresent(TsidFactory::configureNodeId);
     IsolationCheck.verifyReadCommitted(
         em,
         "MySQL",
@@ -75,12 +86,14 @@ class MysqlJobStoreImpl implements MysqlJobStore {
         "READ-COMMITTED",
         "REPEATABLE READ causes InnoDB gap locks that block concurrent job enqueue during claim"
             + " queries. Set hibernate.connection.isolation=2 in persistence.xml or"
-            + " transaction-isolation=TRANSACTION_READ_COMMITTED on the datasource.");
+            + " transaction-isolation=TRANSACTION_READ_COMMITTED on the datasource.",
+        options.store().isolationCheckMode());
     initDelegates();
   }
 
   private void initDelegates() {
-    MysqlStoreContext ctx = new MysqlStoreContext(em, metricsCollector);
+    MysqlStoreContext ctx =
+        new MysqlStoreContext(em, metricsCollector, options.store().priorityBoostIntervalMinutes());
     MysqlJobRowMapper mapper = new MysqlJobRowMapper();
     MysqlBusinessKeyReservations reservations = new MysqlBusinessKeyReservations(ctx);
     tags = new MysqlTagOperations(ctx);
@@ -91,6 +104,18 @@ class MysqlJobStoreImpl implements MysqlJobStore {
     nodeLocks = new MysqlNodeLockOperations(ctx);
     archives = new MysqlArchiveOperations(ctx, mapper, tags, jobs);
     auxiliary = new MysqlAuxiliaryOperations(ctx);
+  }
+
+  private RatchetOptions resolveOptions() {
+    if (optionsInstance == null || optionsInstance.isUnsatisfied()) {
+      return RatchetOptionsFactory.fromFallbackSources(configSources);
+    }
+    if (optionsInstance.isAmbiguous()) {
+      throw new DeploymentException(
+          "Multiple unqualified RatchetOptions beans found. Produce exactly one @ApplicationScoped"
+              + " RatchetOptions bean for the application.");
+    }
+    return optionsInstance.get();
   }
 
   @Override

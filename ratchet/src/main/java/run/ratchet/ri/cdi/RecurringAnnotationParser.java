@@ -4,8 +4,8 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.Recurring;
 
 /**
- * Parses {@code @Recurring} annotation values: enabled flag (with {@code ${prop}} resolution),
- * numeric-to-{@link JobPriority} mapping, and job ID generation.
+ * Parses {@code @Recurring} annotation values: enabled flag, numeric-to-{@link JobPriority}
+ * mapping, and job ID generation.
  *
  * @see RecurringJobProcessor
  */
@@ -21,18 +21,9 @@ final class RecurringAnnotationParser {
     return className + "." + methodName;
   }
 
-  /**
-   * Returns true if the job should be registered. Supports {@code "${prop}"} and {@code
-   * "${prop:default}"} placeholder syntax resolved from system properties then env vars.
-   */
+  /** Returns true if the job should be registered. */
   static boolean isEnabled(Recurring annotation) {
-    String value = annotation.enabled();
-
-    if (value.startsWith("${") && value.endsWith("}")) {
-      return resolvePropertyPlaceholder(value);
-    }
-
-    return Boolean.parseBoolean(value);
+    return annotation.enabled();
   }
 
   /**
@@ -51,24 +42,5 @@ final class RecurringAnnotationParser {
     } else {
       return JobPriority.CRITICAL;
     }
-  }
-
-  private static boolean resolvePropertyPlaceholder(String placeholder) {
-    String expr = placeholder.substring(2, placeholder.length() - 1);
-    int colonIdx = expr.lastIndexOf(':');
-
-    String propName = colonIdx > 0 ? expr.substring(0, colonIdx) : expr;
-    String defaultVal = colonIdx > 0 ? expr.substring(colonIdx + 1) : "true";
-
-    // Try system property first
-    String resolved = System.getProperty(propName);
-
-    // Fall back to environment variable (dots -> underscores, uppercase)
-    if (resolved == null) {
-      String envName = propName.replace('.', '_').toUpperCase();
-      resolved = System.getenv(envName);
-    }
-
-    return Boolean.parseBoolean(resolved != null ? resolved : defaultVal);
   }
 }

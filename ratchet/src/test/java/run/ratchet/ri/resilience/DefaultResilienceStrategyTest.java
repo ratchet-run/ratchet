@@ -3,11 +3,9 @@ package run.ratchet.ri.resilience;
 import static org.junit.jupiter.api.Assertions.*;
 
 import run.ratchet.api.CircuitBreakerProfile;
-import run.ratchet.ri.config.DefaultRatchetConfig;
-import run.ratchet.ri.config.EnvironmentRatchetConfigSource;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.spi.CircuitBreakerConfig;
 import run.ratchet.spi.CircuitBreakerConfigProvider;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -19,16 +17,6 @@ class DefaultResilienceStrategyTest {
   void setUp() {
     CircuitBreakerRegistry registry = new CircuitBreakerRegistry();
     strategy = new DefaultResilienceStrategy(registry);
-  }
-
-  @AfterEach
-  void clearProperties() {
-    System.clearProperty("RATCHET_CB_DEFAULT_FAILURE_RATE");
-    System.clearProperty("RATCHET_CB_DEFAULT_WINDOW_SIZE");
-    System.clearProperty("RATCHET_CB_DEFAULT_WAIT_MS");
-    System.clearProperty("RATCHET_CB_DEFAULT_SLOW_CALL_MS");
-    System.clearProperty("RATCHET_CB_DEFAULT_HALF_OPEN_CALLS");
-    System.clearProperty("RATCHET_CB_DEFAULT_MIN_CALLS");
   }
 
   @Test
@@ -99,30 +87,31 @@ class DefaultResilienceStrategyTest {
   }
 
   @Test
-  void defaultCircuitBreakerConfigRejectsOutOfRangeValues() {
-    System.setProperty("RATCHET_CB_DEFAULT_FAILURE_RATE", "150");
-    System.setProperty("RATCHET_CB_DEFAULT_WINDOW_SIZE", "0");
-    System.setProperty("RATCHET_CB_DEFAULT_WAIT_MS", "-1");
-    System.setProperty("RATCHET_CB_DEFAULT_SLOW_CALL_MS", "-1");
-    System.setProperty("RATCHET_CB_DEFAULT_HALF_OPEN_CALLS", "0");
-    System.setProperty("RATCHET_CB_DEFAULT_MIN_CALLS", "0");
-
-    DefaultCircuitBreakerConfigProvider provider =
-        new DefaultCircuitBreakerConfigProvider(
-            new DefaultRatchetConfig(new EnvironmentRatchetConfigSource()));
+  void defaultCircuitBreakerConfigUsesRatchetOptions() {
+    RatchetOptions options =
+        RatchetOptions.builder()
+            .circuitBreaker(
+                circuitBreaker ->
+                    circuitBreaker.profile(
+                        CircuitBreakerProfile.DEFAULT,
+                        profile ->
+                            profile
+                                .failureRateThreshold(75.0f)
+                                .slidingWindowSize(7)
+                                .waitDurationMs(1234L)
+                                .slowCallThresholdMs(4321L)
+                                .permittedCallsInHalfOpen(2)
+                                .minimumCalls(3)))
+            .build();
+    DefaultCircuitBreakerConfigProvider provider = new DefaultCircuitBreakerConfigProvider(options);
     CircuitBreakerConfig config = provider.configFor(CircuitBreakerProfile.DEFAULT);
 
-    assertEquals(
-        CircuitBreakerConfiguration.DEFAULT.failureRateThreshold(), config.failureRateThreshold());
-    assertEquals(
-        CircuitBreakerConfiguration.DEFAULT.slidingWindowSize(), config.slidingWindowSize());
-    assertEquals(CircuitBreakerConfiguration.DEFAULT.waitDurationMs(), config.waitDurationMs());
-    assertEquals(
-        CircuitBreakerConfiguration.DEFAULT.slowCallThresholdMs(), config.slowCallThresholdMs());
-    assertEquals(
-        CircuitBreakerConfiguration.DEFAULT.permittedCallsInHalfOpen(),
-        config.permittedCallsInHalfOpen());
-    assertEquals(CircuitBreakerConfiguration.DEFAULT.minimumCalls(), config.minimumCalls());
+    assertEquals(75.0f, config.failureRateThreshold());
+    assertEquals(7, config.slidingWindowSize());
+    assertEquals(1234L, config.waitDurationMs());
+    assertEquals(4321L, config.slowCallThresholdMs());
+    assertEquals(2, config.permittedCallsInHalfOpen());
+    assertEquals(3, config.minimumCalls());
   }
 
   private static final class TestCircuitBreakerConfigProvider

@@ -6,8 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import run.ratchet.api.RatchetOptions;
 import java.util.Set;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -18,12 +18,6 @@ class RecurringRegistrationStateTest {
   @BeforeEach
   void setUp() {
     state = new RecurringRegistrationState();
-    System.clearProperty(RecurringRegistrationState.STARTUP_GRACE_PROPERTY);
-  }
-
-  @AfterEach
-  void tearDown() {
-    System.clearProperty(RecurringRegistrationState.STARTUP_GRACE_PROPERTY);
   }
 
   @Test
@@ -59,8 +53,11 @@ class RecurringRegistrationStateTest {
 
   @Test
   void shouldFireReturnsTrueAfterGraceExpires() {
-    // Use a 0-second grace via system property to simulate post-grace state immediately.
-    System.setProperty(RecurringRegistrationState.STARTUP_GRACE_PROPERTY, "0");
+    state =
+        new RecurringRegistrationState(
+            RatchetOptions.builder()
+                .recurring(recurring -> recurring.startupGraceSeconds(0))
+                .build());
     state.markRegistrationComplete(Set.of("alpha"));
     // Even an unknown key fires because the grace window is 0.
     assertTrue(state.shouldFire("orphan"));
@@ -68,7 +65,11 @@ class RecurringRegistrationStateTest {
 
   @Test
   void inStartupGraceIsFalseWhenGraceIsZero() {
-    System.setProperty(RecurringRegistrationState.STARTUP_GRACE_PROPERTY, "0");
+    state =
+        new RecurringRegistrationState(
+            RatchetOptions.builder()
+                .recurring(recurring -> recurring.startupGraceSeconds(0))
+                .build());
     state.markRegistrationComplete(Set.of("alpha"));
     assertFalse(state.inStartupGrace());
   }
@@ -103,30 +104,16 @@ class RecurringRegistrationStateTest {
 
   @Test
   void startupGraceSecondsDefaultsTo60() {
-    assertEquals(60L, RecurringRegistrationState.startupGraceSeconds());
+    assertEquals(60L, state.startupGraceSeconds());
   }
 
   @Test
-  void startupGraceSecondsHonorsSystemProperty() {
-    System.setProperty(RecurringRegistrationState.STARTUP_GRACE_PROPERTY, "30");
-    assertEquals(30L, RecurringRegistrationState.startupGraceSeconds());
-  }
-
-  @Test
-  void startupGraceSecondsClampsNegativeToZero() {
-    System.setProperty(RecurringRegistrationState.STARTUP_GRACE_PROPERTY, "-5");
-    assertEquals(0L, RecurringRegistrationState.startupGraceSeconds());
-  }
-
-  @Test
-  void startupGraceSecondsFallsBackOnInvalidProperty() {
-    System.setProperty(RecurringRegistrationState.STARTUP_GRACE_PROPERTY, "not-a-number");
-    assertEquals(60L, RecurringRegistrationState.startupGraceSeconds());
-  }
-
-  @Test
-  void startupGraceSecondsTreatsBlankAsUnset() {
-    System.setProperty(RecurringRegistrationState.STARTUP_GRACE_PROPERTY, "   ");
-    assertEquals(60L, RecurringRegistrationState.startupGraceSeconds());
+  void startupGraceSecondsHonorsRatchetOptions() {
+    state =
+        new RecurringRegistrationState(
+            RatchetOptions.builder()
+                .recurring(recurring -> recurring.startupGraceSeconds(30))
+                .build());
+    assertEquals(30L, state.startupGraceSeconds());
   }
 }

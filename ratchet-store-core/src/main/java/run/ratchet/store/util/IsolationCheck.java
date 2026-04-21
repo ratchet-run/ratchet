@@ -1,5 +1,6 @@
 package run.ratchet.store.util;
 
+import run.ratchet.api.RatchetOptions;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceException;
 import java.util.List;
@@ -13,18 +14,8 @@ import org.jboss.logging.Logger;
  * <p>Both MySQL ({@code REPEATABLE READ} default) and PostgreSQL can be configured with stricter
  * isolation that breaks claim semantics. Operators don't realize until they hit deadlocks or stale
  * reads in production. This helper runs at {@code @PostConstruct} time in each store implementation
- * and either logs a warning, throws an exception, or skips the check based on the {@code
- * ratchet.isolation-check} system property.
- *
- * <h2>Configuration</h2>
- *
- * <p>System property {@code ratchet.isolation-check}:
- *
- * <ul>
- *   <li>{@code fail} (default) — throw {@link IsolationCheckFailedException}
- *   <li>{@code warn} — log {@code WARN} and continue
- *   <li>{@code disable} — skip the check entirely
- * </ul>
+ * and either logs a warning, throws an exception, or skips the check based on {@link
+ * RatchetOptions.StoreOptions#isolationCheckMode()}.
  *
  * <h2>Why per-store callers</h2>
  *
@@ -42,41 +33,9 @@ import org.jboss.logging.Logger;
  */
 public final class IsolationCheck {
 
-  /**
-   * System property controlling check behavior. Values: {@code warn}, {@code fail}, {@code
-   * disable}.
-   */
-  public static final String SYSTEM_PROPERTY = "ratchet.isolation-check";
-
   private static final Logger log = Logger.getLogger(IsolationCheck.class);
 
-  /** Operating mode of the isolation check. */
-  public enum Mode {
-    WARN,
-    FAIL,
-    DISABLE
-  }
-
   private IsolationCheck() {}
-
-  /**
-   * Resolves the active mode from the {@link #SYSTEM_PROPERTY} system property. Defaults to {@link
-   * Mode#FAIL} if the property is unset, empty, or unrecognized.
-   *
-   * @return current operating mode
-   */
-  public static Mode currentMode() {
-    String prop = System.getProperty(SYSTEM_PROPERTY);
-    if (prop == null || prop.isBlank()) {
-      return Mode.FAIL;
-    }
-    return switch (prop.trim().toLowerCase(Locale.ROOT)) {
-      case "warn" -> Mode.WARN;
-      case "fail" -> Mode.FAIL;
-      case "disable", "off", "false" -> Mode.DISABLE;
-      default -> Mode.FAIL;
-    };
-  }
 
   /**
    * Verifies the database session isolation matches the expected value. Tries each query in order;
@@ -89,8 +48,8 @@ public final class IsolationCheck {
    * @param expectedValueIgnoreCase the expected isolation value (case-insensitive match, e.g.
    *     "READ-COMMITTED" or "read committed")
    * @param remediation operator-facing fix instructions appended to the warning message
-   * @throws IsolationCheckFailedException when {@link Mode#FAIL} is active and the actual value
-   *     does not match
+   * @throws IsolationCheckFailedException when fail mode is active and the actual value does not
+   *     match
    */
   public static void verifyReadCommitted(
       EntityManager em,
@@ -98,9 +57,24 @@ public final class IsolationCheck {
       List<String> queries,
       String expectedValueIgnoreCase,
       String remediation) {
-    Mode mode = currentMode();
-    if (mode == Mode.DISABLE) {
-      log.debugf("%s isolation check disabled via %s system property", dbName, SYSTEM_PROPERTY);
+    verifyReadCommitted(
+        em,
+        dbName,
+        queries,
+        expectedValueIgnoreCase,
+        remediation,
+        RatchetOptions.IsolationCheckMode.FAIL);
+  }
+
+  public static void verifyReadCommitted(
+      EntityManager em,
+      String dbName,
+      List<String> queries,
+      String expectedValueIgnoreCase,
+      String remediation,
+      RatchetOptions.IsolationCheckMode mode) {
+    if (mode == RatchetOptions.IsolationCheckMode.DISABLE) {
+      log.debugf("%s isolation check disabled by RatchetOptions", dbName);
       return;
     }
 
@@ -131,7 +105,7 @@ public final class IsolationCheck {
           String.format(
               "%s session isolation is '%s' — Ratchet requires %s. %s",
               dbName, actual, expectedValueIgnoreCase, remediation);
-      if (mode == Mode.FAIL) {
+      if (mode == RatchetOptions.IsolationCheckMode.FAIL) {
         throw new IsolationCheckFailedException(message);
       }
       log.warn(message);

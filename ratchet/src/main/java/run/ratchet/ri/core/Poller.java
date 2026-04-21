@@ -1,11 +1,11 @@
 package run.ratchet.ri.core;
 
 import run.ratchet.api.CircuitBreakerProfile;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.ri.resilience.CircuitBreaker;
 import run.ratchet.ri.resilience.CircuitBreakerRegistry;
 import run.ratchet.ri.resilience.ServiceUnavailableException;
-import run.ratchet.ri.util.RatchetConfiguration;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.PollingConfig;
@@ -44,7 +44,7 @@ public class Poller {
   private final ThreadPoolManager threadPoolManager;
   private final DrainController drainController;
   private final PollerScheduler pollerScheduler;
-  private final RatchetConfiguration config;
+  private final RatchetOptions options;
   private final MetricsCollector metricsCollector;
   private final PollingStrategyProvider pollingStrategyProvider;
   private final CircuitBreaker claimCircuitBreaker;
@@ -62,7 +62,7 @@ public class Poller {
     this.threadPoolManager = null;
     this.drainController = null;
     this.pollerScheduler = null;
-    this.config = null;
+    this.options = null;
     this.metricsCollector = null;
     this.pollingStrategyProvider = null;
     this.claimCircuitBreaker = null;
@@ -78,7 +78,7 @@ public class Poller {
       ThreadPoolManager threadPoolManager,
       DrainController drainController,
       PollerScheduler pollerScheduler,
-      RatchetConfiguration config,
+      RatchetOptions options,
       MetricsCollector metricsCollector,
       CircuitBreakerRegistry circuitBreakerRegistry,
       boolean claimCircuitBreakerEnabled,
@@ -90,7 +90,7 @@ public class Poller {
     this.threadPoolManager = threadPoolManager;
     this.drainController = drainController;
     this.pollerScheduler = pollerScheduler;
-    this.config = config;
+    this.options = options;
     this.metricsCollector = metricsCollector;
     this.claimCircuitBreakerEnabled = claimCircuitBreakerEnabled;
     this.claimCircuitBreaker =
@@ -100,7 +100,7 @@ public class Poller {
             : null;
     this.pollingStrategyProvider = pollingStrategyProvider;
     this.batchSize = batchSize;
-    this.claimHeadroomFactor = Math.max(0, config.getPollerClaimHeadroomFactor());
+    this.claimHeadroomFactor = Math.max(0, options.polling().claimHeadroomFactor());
   }
 
   public PollingStrategy.PollingStats getPollingStats() {
@@ -118,12 +118,12 @@ public class Poller {
     this.strategy =
         pollingStrategyProvider.create(
             new PollingConfig(
-                config.getPollerBurstDelayMs(),
-                config.getPollerMinDelayMs(),
-                config.getPollerMaxDelayMs(),
-                config.getPollerDeepIdleDelayMs(),
-                config.getPollerDeepIdleThresholdMs(),
-                config.getPollerIdleThreshold(),
+                options.polling().burstDelayMs(),
+                options.polling().minDelayMs(),
+                options.polling().maxDelayMs(),
+                options.polling().deepIdleDelayMs(),
+                options.polling().deepIdleThresholdMs(),
+                options.polling().idleThreshold(),
                 batchSize));
 
     pollerScheduler.start();
@@ -274,7 +274,7 @@ public class Poller {
     updateSystemLoadFactor();
     log.warnf("Transient claim store failure: %s", e.getMessage());
     long baseDelay = strategy.recordPollResult(0, pollStartTime);
-    return Math.min(config.getPollerMaxDelayMs(), Math.max(baseDelay, 1L) * 2L);
+    return Math.min(options.polling().maxDelayMs(), Math.max(baseDelay, 1L) * 2L);
   }
 
   private long handleOpenCircuit(long pollStartTime, ServiceUnavailableException e) {
@@ -283,7 +283,7 @@ public class Poller {
     long baseDelay = strategy.recordPollResult(0, pollStartTime);
     long breakerDelay =
         claimCircuitBreaker != null ? claimCircuitBreaker.getWaitDurationMs() : baseDelay;
-    return Math.min(config.getPollerMaxDelayMs(), Math.max(baseDelay, breakerDelay));
+    return Math.min(options.polling().maxDelayMs(), Math.max(baseDelay, breakerDelay));
   }
 
   private int computeClaimLimit(int availableCapacity) {

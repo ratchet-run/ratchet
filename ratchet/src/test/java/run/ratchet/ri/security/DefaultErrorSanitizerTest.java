@@ -90,17 +90,16 @@ class DefaultErrorSanitizerTest {
 
   @Test
   void redactsEmailsByDefault() {
-    String prior = System.getProperty(DefaultErrorSanitizer.REDACT_EMAILS_PROPERTY);
-    System.clearProperty(DefaultErrorSanitizer.REDACT_EMAILS_PROPERTY);
-    try {
-      String out = sanitizer.sanitize(new RuntimeException("notify alice@example.com failed"));
-      assertFalse(out.contains("alice@example.com"), "email must be redacted by default");
-      assertTrue(out.contains("***REDACTED***"));
-    } finally {
-      if (prior != null) {
-        System.setProperty(DefaultErrorSanitizer.REDACT_EMAILS_PROPERTY, prior);
-      }
-    }
+    String out = sanitizer.sanitize(new RuntimeException("notify alice@example.com failed"));
+    assertFalse(out.contains("alice@example.com"), "email must be redacted by default");
+    assertTrue(out.contains("***REDACTED***"));
+  }
+
+  @Test
+  void canDisableEmailRedactionThroughOptions() {
+    DefaultErrorSanitizer sanitizer = new DefaultErrorSanitizer(false);
+    String out = sanitizer.sanitize(new RuntimeException("notify alice@example.com failed"));
+    assertTrue(out.contains("alice@example.com"));
   }
 
   @Test

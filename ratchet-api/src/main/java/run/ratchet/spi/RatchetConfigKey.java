@@ -7,17 +7,11 @@ import java.util.function.Function;
 /**
  * Typed configuration key used by {@link RatchetConfig}.
  *
- * <p>Ratchet checks the preferred environment variable/property first, then the optional legacy
- * environment variable/property. Invalid values fall back to the key default.
+ * <p>Ratchet checks the canonical property/env name. Invalid values fall back to the key default.
  */
 @Incubating
 public record RatchetConfigKey<T>(
-    String name,
-    String environmentVariable,
-    String legacyName,
-    String legacyEnvironmentVariable,
-    T defaultValue,
-    Function<String, T> parser) {
+    String name, String environmentVariable, T defaultValue, Function<String, T> parser) {
 
   public RatchetConfigKey {
     Objects.requireNonNull(name, "name must not be null");
@@ -37,136 +31,64 @@ public record RatchetConfigKey<T>(
     }
   }
 
-  public boolean hasLegacyName() {
-    return legacyName != null && !legacyName.isBlank();
-  }
-
-  public boolean hasLegacyEnvironmentVariable() {
-    return legacyEnvironmentVariable != null && !legacyEnvironmentVariable.isBlank();
-  }
-
   public static RatchetConfigKey<Boolean> bool(
-      String name,
-      String environmentVariable,
-      String legacyName,
-      String legacyEnvironmentVariable,
-      boolean defaultValue) {
+      String name, String environmentVariable, boolean defaultValue) {
     return new RatchetConfigKey<>(
-        name,
-        environmentVariable,
-        legacyName,
-        legacyEnvironmentVariable,
-        defaultValue,
-        RatchetConfigKey::parseStrictBoolean);
+        name, environmentVariable, defaultValue, RatchetConfigKey::parseStrictBoolean);
   }
 
   public static RatchetConfigKey<Float> floating(
-      String name,
-      String environmentVariable,
-      String legacyName,
-      String legacyEnvironmentVariable,
-      float defaultValue) {
+      String name, String environmentVariable, float defaultValue) {
     return new RatchetConfigKey<>(
-        name,
-        environmentVariable,
-        legacyName,
-        legacyEnvironmentVariable,
-        defaultValue,
-        raw -> requireNonNegative(Float.parseFloat(raw)));
+        name, environmentVariable, defaultValue, raw -> requireNonNegative(Float.parseFloat(raw)));
   }
 
   public static RatchetConfigKey<Float> floatingRange(
       String name,
       String environmentVariable,
-      String legacyName,
-      String legacyEnvironmentVariable,
       float defaultValue,
       float minInclusive,
       float maxInclusive) {
     return new RatchetConfigKey<>(
         name,
         environmentVariable,
-        legacyName,
-        legacyEnvironmentVariable,
         defaultValue,
         raw -> requireRange(Float.parseFloat(raw), minInclusive, maxInclusive));
   }
 
   public static RatchetConfigKey<Integer> integer(
-      String name,
-      String environmentVariable,
-      String legacyName,
-      String legacyEnvironmentVariable,
-      int defaultValue) {
+      String name, String environmentVariable, int defaultValue) {
     return new RatchetConfigKey<>(
-        name,
-        environmentVariable,
-        legacyName,
-        legacyEnvironmentVariable,
-        defaultValue,
-        raw -> requireNonNegative(Integer.parseInt(raw)));
+        name, environmentVariable, defaultValue, raw -> requireNonNegative(Integer.parseInt(raw)));
   }
 
   public static RatchetConfigKey<Integer> integerAtLeast(
-      String name,
-      String environmentVariable,
-      String legacyName,
-      String legacyEnvironmentVariable,
-      int defaultValue,
-      int minInclusive) {
+      String name, String environmentVariable, int defaultValue, int minInclusive) {
     return new RatchetConfigKey<>(
         name,
         environmentVariable,
-        legacyName,
-        legacyEnvironmentVariable,
         defaultValue,
         raw -> requireAtLeast(Integer.parseInt(raw), minInclusive));
   }
 
   public static RatchetConfigKey<Long> longValue(
-      String name,
-      String environmentVariable,
-      String legacyName,
-      String legacyEnvironmentVariable,
-      long defaultValue) {
+      String name, String environmentVariable, long defaultValue) {
     return new RatchetConfigKey<>(
-        name,
-        environmentVariable,
-        legacyName,
-        legacyEnvironmentVariable,
-        defaultValue,
-        raw -> requireNonNegative(Long.parseLong(raw)));
+        name, environmentVariable, defaultValue, raw -> requireNonNegative(Long.parseLong(raw)));
   }
 
   public static RatchetConfigKey<Long> longAtLeast(
-      String name,
-      String environmentVariable,
-      String legacyName,
-      String legacyEnvironmentVariable,
-      long defaultValue,
-      long minInclusive) {
+      String name, String environmentVariable, long defaultValue, long minInclusive) {
     return new RatchetConfigKey<>(
         name,
         environmentVariable,
-        legacyName,
-        legacyEnvironmentVariable,
         defaultValue,
         raw -> requireAtLeast(Long.parseLong(raw), minInclusive));
   }
 
   public static RatchetConfigKey<String> string(
-      String name,
-      String environmentVariable,
-      String legacyName,
-      String legacyEnvironmentVariable,
-      String defaultValue) {
-    return new RatchetConfigKey<>(
-        name,
-        environmentVariable,
-        legacyName,
-        legacyEnvironmentVariable,
-        defaultValue,
-        Function.identity());
+      String name, String environmentVariable, String defaultValue) {
+    return new RatchetConfigKey<>(name, environmentVariable, defaultValue, Function.identity());
   }
 
   private static boolean parseStrictBoolean(String raw) {

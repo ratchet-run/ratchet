@@ -6,8 +6,10 @@ import com.cronutils.parser.CronParser;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobOptions;
 import run.ratchet.api.JobSchedulerService;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.Recurring;
 import run.ratchet.api.RecurringJobBuilder;
+import run.ratchet.ri.config.RatchetOptionsResolver;
 import run.ratchet.ri.core.RecurringAnnotationMaintenanceService;
 import run.ratchet.ri.core.RecurringRegistrationState;
 import run.ratchet.spi.StartupCoordinator;
@@ -24,6 +26,7 @@ import java.time.ZoneId;
 import java.time.zone.ZoneRulesException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -46,22 +49,6 @@ public class RecurringJobProcessor {
   private static final String ORPHAN_CLEANUP_ACTION = "recurring-annotation-orphan-cleanup";
   private static final Duration ORPHAN_CLEANUP_LEASE_TTL = Duration.ofMinutes(5);
 
-  /**
-   * System property controlling how far back the orphaned-recurring-job cleanup cutoff is shifted
-   * from this node's startup instant. Jobs created within the convergence window are exempt from
-   * cleanup regardless of which node acquires the startup lease.
-   *
-   * @deprecated As of 0.2.0 the convergence window default is 0; the role it played is now covered
-   *     more rigorously by {@link RecurringRegistrationState#shouldFire(String)}, which gates
-   *     firing of orphaned masters during the post-registration startup grace window ({@link
-   *     RecurringRegistrationState#STARTUP_GRACE_PROPERTY}). The convergence window property is
-   *     still honored for one release for backward compatibility but will be removed in 0.3.0.
-   */
-  @Deprecated(since = "0.2.0", forRemoval = true)
-  static final String CONVERGENCE_WINDOW_PROPERTY = "ratchet.recurring.convergence-window-seconds";
-
-  private static final long DEFAULT_CONVERGENCE_WINDOW_SECONDS = 0L;
-
   private static final CronParser CRON_PARSER =
       new CronParser(CronDefinitionBuilder.instanceDefinitionFor(CronType.QUARTZ));
 
@@ -73,6 +60,7 @@ public class RecurringJobProcessor {
   private final RecurringMethodInvoker methodInvoker;
   private final StartupCoordinator startupCoordinator;
   private final RecurringRegistrationState registrationState;
+  private final RatchetOptions options;
 
   protected RecurringJobProcessor() {
     this.schedulerService = null;
@@ -81,6 +69,7 @@ public class RecurringJobProcessor {
     this.methodInvoker = null;
     this.startupCoordinator = null;
     this.registrationState = null;
+    this.options = null;
   }
 
   @Inject
@@ -90,13 +79,49 @@ public class RecurringJobProcessor {
       BeanManager beanManager,
       RecurringMethodInvoker methodInvoker,
       StartupCoordinator startupCoordinator,
-      RecurringRegistrationState registrationState) {
+      RecurringRegistrationState registrationState,
+      RatchetOptionsResolver optionsResolver) {
     this.schedulerService = schedulerService;
     this.recurringAnnotationMaintenanceService = recurringAnnotationMaintenanceService;
     this.beanManager = beanManager;
     this.methodInvoker = methodInvoker;
     this.startupCoordinator = startupCoordinator;
     this.registrationState = registrationState;
+    this.options = optionsResolver.get();
+  }
+
+  public RecurringJobProcessor(
+      JobSchedulerService schedulerService,
+      RecurringAnnotationMaintenanceService recurringAnnotationMaintenanceService,
+      BeanManager beanManager,
+      RecurringMethodInvoker methodInvoker,
+      StartupCoordinator startupCoordinator,
+      RecurringRegistrationState registrationState) {
+    this(
+        schedulerService,
+        recurringAnnotationMaintenanceService,
+        beanManager,
+        methodInvoker,
+        startupCoordinator,
+        registrationState,
+        RatchetOptions.defaults());
+  }
+
+  RecurringJobProcessor(
+      JobSchedulerService schedulerService,
+      RecurringAnnotationMaintenanceService recurringAnnotationMaintenanceService,
+      BeanManager beanManager,
+      RecurringMethodInvoker methodInvoker,
+      StartupCoordinator startupCoordinator,
+      RecurringRegistrationState registrationState,
+      RatchetOptions options) {
+    this.schedulerService = schedulerService;
+    this.recurringAnnotationMaintenanceService = recurringAnnotationMaintenanceService;
+    this.beanManager = beanManager;
+    this.methodInvoker = methodInvoker;
+    this.startupCoordinator = startupCoordinator;
+    this.registrationState = registrationState;
+    this.options = options;
   }
 
   void onStartup(@Observes @Initialized(ApplicationScoped.class) Object init) {
@@ -142,7 +167,7 @@ public class RecurringJobProcessor {
       log.info("Another node holds the startup lease, skipping orphan cleanup");
       return;
     }
-    Instant cutoff = startTime.minusSeconds(convergenceWindowSeconds());
+    Instant cutoff = startTime.minusSeconds(options.recurring().convergenceWindowSeconds());
     try {
       Set<String> registeredIds = registeredJobIds.keySet();
       int canceled =
@@ -165,26 +190,6 @@ public class RecurringJobProcessor {
     }
   }
 
-  /**
-   * Returns the convergence window in seconds, read fresh from system properties on each call (not
-   * cached) so operators can tune behavior via {@code -D} flags without rebuilding.
-   */
-  static long convergenceWindowSeconds() {
-    String raw = System.getProperty(CONVERGENCE_WINDOW_PROPERTY);
-    if (raw == null || raw.isBlank()) {
-      return DEFAULT_CONVERGENCE_WINDOW_SECONDS;
-    }
-    try {
-      long parsed = Long.parseLong(raw.trim());
-      return Math.max(0L, parsed);
-    } catch (NumberFormatException e) {
-      log.warnf(
-          "Invalid value for %s: '%s' — falling back to default %ss",
-          CONVERGENCE_WINDOW_PROPERTY, raw, DEFAULT_CONVERGENCE_WINDOW_SECONDS);
-      return DEFAULT_CONVERGENCE_WINDOW_SECONDS;
-    }
-  }
-
   private void cancelExistingJobs(String jobId) {
     int canceled = schedulerService.cancelRecurringJobByBusinessKey(jobId);
     if (canceled > 0) {
@@ -198,7 +203,7 @@ public class RecurringJobProcessor {
     // getDeclaredMethods() alone misses inherited methods. Filter synthetic/bridge methods
     // (which Weld and other CDI implementations sometimes generate) and dedupe by signature
     // so a bridge + real method pair only registers once.
-    java.util.Set<String> seen = new java.util.HashSet<>();
+    Set<String> seen = new HashSet<>();
     Class<?> current = beanClass;
     while (current != null && current != Object.class) {
       for (var method : current.getDeclaredMethods()) {
@@ -209,7 +214,7 @@ public class RecurringJobProcessor {
         if (annotation == null) {
           continue;
         }
-        String signature = method.getName() + java.util.Arrays.toString(method.getParameterTypes());
+        String signature = method.getName() + Arrays.toString(method.getParameterTypes());
         if (!seen.add(signature)) {
           continue;
         }

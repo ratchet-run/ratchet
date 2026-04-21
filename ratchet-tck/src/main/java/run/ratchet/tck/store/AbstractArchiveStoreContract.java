@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobStatus;
 import java.time.Instant;
 import java.util.List;
@@ -121,8 +122,7 @@ public abstract class AbstractArchiveStoreContract implements JobStoreContractFi
     assertTrue(results.isEmpty(), "findArchivedJobs on empty store should return empty list");
   }
 
-  private run.ratchet.store.entity.JobEntity completeJob(
-      run.ratchet.store.entity.JobEntity job) {
+  private JobEntity completeJob(JobEntity job) {
     store().compareAndSwapStatus(job.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
     store().markJobSucceeded(job.getId(), null, null, Instant.now(), Instant.now(), 100L, 50L);
     return store().findById(job.getId()).orElseThrow();

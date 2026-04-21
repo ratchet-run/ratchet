@@ -1,6 +1,9 @@
 package run.ratchet.ri.core;
 
+import run.ratchet.api.RatchetOptions;
+import run.ratchet.ri.config.RatchetOptionsResolver;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
@@ -16,17 +19,26 @@ import org.jboss.logging.Logger;
 @ApplicationScoped
 public class RecurringRegistrationState {
 
-  /** System property controlling the post-registration grace window in seconds. */
-  public static final String STARTUP_GRACE_PROPERTY = "ratchet.recurring.startup-grace-seconds";
-
-  private static final long DEFAULT_STARTUP_GRACE_SECONDS = 60L;
-
   private static final Logger log = Logger.getLogger(RecurringRegistrationState.class);
 
   private final Set<String> knownAnnotationKeys = ConcurrentHashMap.newKeySet();
+  private final long startupGraceSeconds;
 
   @SuppressWarnings("java:S3077")
   private volatile Instant registrationCompletedAt;
+
+  public RecurringRegistrationState() {
+    this(RatchetOptions.defaults());
+  }
+
+  @Inject
+  public RecurringRegistrationState(RatchetOptionsResolver optionsResolver) {
+    this(optionsResolver.get());
+  }
+
+  RecurringRegistrationState(RatchetOptions options) {
+    this.startupGraceSeconds = options.recurring().startupGraceSeconds();
+  }
 
   /**
    * Records the keys discovered during a registration pass. Replaces any prior contents (so a
@@ -63,7 +75,7 @@ public class RecurringRegistrationState {
       return true;
     }
 
-    long graceSeconds = startupGraceSeconds();
+    long graceSeconds = startupGraceSeconds;
     if (graceSeconds == 0) {
       return true;
     }
@@ -95,7 +107,7 @@ public class RecurringRegistrationState {
     if (completedAt == null) {
       return false;
     }
-    long graceSeconds = startupGraceSeconds();
+    long graceSeconds = startupGraceSeconds;
     if (graceSeconds == 0) {
       return false;
     }
@@ -106,25 +118,8 @@ public class RecurringRegistrationState {
     return registrationCompletedAt;
   }
 
-  /**
-   * Reads {@link #STARTUP_GRACE_PROPERTY} from system properties on each call (not cached) so
-   * operators can tune behavior via {@code -D} flags without rebuilding. Negative values are
-   * clamped to zero (which disables the grace check).
-   */
-  public static long startupGraceSeconds() {
-    String raw = System.getProperty(STARTUP_GRACE_PROPERTY);
-    if (raw == null || raw.isBlank()) {
-      return DEFAULT_STARTUP_GRACE_SECONDS;
-    }
-    try {
-      long parsed = Long.parseLong(raw.trim());
-      return Math.max(0L, parsed);
-    } catch (NumberFormatException e) {
-      log.warnf(
-          "Invalid value for %s: '%s' — falling back to default %ss",
-          STARTUP_GRACE_PROPERTY, raw, DEFAULT_STARTUP_GRACE_SECONDS);
-      return DEFAULT_STARTUP_GRACE_SECONDS;
-    }
+  public long startupGraceSeconds() {
+    return startupGraceSeconds;
   }
 
   Set<String> snapshotKnownKeys() {

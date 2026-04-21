@@ -7,6 +7,7 @@ import jakarta.persistence.Query;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -18,6 +19,23 @@ final class MysqlTagOperations implements TagStore {
 
   MysqlTagOperations(MysqlStoreContext ctx) {
     this.ctx = ctx;
+  }
+
+  private static Map<String, Long> toStringCountMap(List<Object[]> rows) {
+    Map<String, Long> counts = new TreeMap<>();
+    for (Object[] row : rows) {
+      String key = (String) row[0];
+      if (key == null || key.isBlank()) {
+        continue;
+      }
+      counts.put(key, ((Number) row[1]).longValue());
+    }
+    return counts;
+  }
+
+  private static String toJsonFieldPath(String fieldName) {
+    String escapedFieldName = fieldName.replace("\\", "\\\\").replace("\"", "\\\"");
+    return "$.\"" + escapedFieldName + "\"";
   }
 
   @Override
@@ -146,7 +164,7 @@ final class MysqlTagOperations implements TagStore {
   void hydrateTagsBatch(List<JobEntity> jobs) {
     if (jobs.isEmpty()) return;
     List<Long> ids = new ArrayList<>(jobs.size());
-    Map<Long, JobEntity> byId = new java.util.HashMap<>();
+    Map<Long, JobEntity> byId = new HashMap<>();
     for (JobEntity j : jobs) {
       if (j.getId() != null) {
         ids.add(j.getId());
@@ -179,22 +197,5 @@ final class MysqlTagOperations implements TagStore {
       }
       tags.add(tag);
     }
-  }
-
-  private static Map<String, Long> toStringCountMap(List<Object[]> rows) {
-    Map<String, Long> counts = new TreeMap<>();
-    for (Object[] row : rows) {
-      String key = (String) row[0];
-      if (key == null || key.isBlank()) {
-        continue;
-      }
-      counts.put(key, ((Number) row[1]).longValue());
-    }
-    return counts;
-  }
-
-  private static String toJsonFieldPath(String fieldName) {
-    String escapedFieldName = fieldName.replace("\\", "\\\\").replace("\"", "\\\"");
-    return "$.\"" + escapedFieldName + "\"";
   }
 }

@@ -1,6 +1,8 @@
 package run.ratchet.ri.cdi;
 
 import com.cronutils.model.Cron;
+import run.ratchet.api.RatchetOptions;
+import run.ratchet.ri.config.RatchetOptionsResolver;
 import run.ratchet.ri.core.BatchRecoveryTimer;
 import run.ratchet.ri.core.DeadLetterService;
 import run.ratchet.ri.core.DefaultNodeIdentityProvider;
@@ -13,7 +15,6 @@ import run.ratchet.ri.core.OrphanRecoveryTimer;
 import run.ratchet.ri.core.Poller;
 import run.ratchet.ri.core.PollerWakeupListener;
 import run.ratchet.ri.core.RecurringScheduler;
-import run.ratchet.ri.util.RatchetConfiguration;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.SchedulerLifecycleHook;
@@ -44,7 +45,7 @@ public class RatchetLifecycle {
   private final ExecutorProvider executorProvider;
   private final NodeIdentityProvider nodeIdentityProvider;
   private final DrainController drainController;
-  private final RatchetConfiguration config;
+  private final RatchetOptions options;
   private final JobExecutionCoordinator jobExecutionCoordinator;
   private final Iterable<SchedulerLifecycleHook> lifecycleHooks;
 
@@ -60,7 +61,7 @@ public class RatchetLifecycle {
     this.executorProvider = null;
     this.nodeIdentityProvider = null;
     this.drainController = null;
-    this.config = null;
+    this.options = null;
     this.jobExecutionCoordinator = null;
     this.lifecycleHooks = List.of();
   }
@@ -77,7 +78,7 @@ public class RatchetLifecycle {
       ExecutorProvider executorProvider,
       NodeIdentityProvider nodeIdentityProvider,
       DrainController drainController,
-      RatchetConfiguration config,
+      RatchetOptions options,
       JobExecutionCoordinator jobExecutionCoordinator) {
     this(
         poller,
@@ -91,7 +92,7 @@ public class RatchetLifecycle {
         executorProvider,
         nodeIdentityProvider,
         drainController,
-        config,
+        options,
         jobExecutionCoordinator,
         List.of());
   }
@@ -109,7 +110,7 @@ public class RatchetLifecycle {
       ExecutorProvider executorProvider,
       NodeIdentityProvider nodeIdentityProvider,
       DrainController drainController,
-      RatchetConfiguration config,
+      RatchetOptionsResolver optionsResolver,
       JobExecutionCoordinator jobExecutionCoordinator,
       Instance<SchedulerLifecycleHook> lifecycleHooks) {
     this(
@@ -124,7 +125,7 @@ public class RatchetLifecycle {
         executorProvider,
         nodeIdentityProvider,
         drainController,
-        config,
+        optionsResolver.get(),
         jobExecutionCoordinator,
         (Iterable<SchedulerLifecycleHook>) lifecycleHooks);
   }
@@ -141,7 +142,7 @@ public class RatchetLifecycle {
       ExecutorProvider executorProvider,
       NodeIdentityProvider nodeIdentityProvider,
       DrainController drainController,
-      RatchetConfiguration config,
+      RatchetOptions options,
       JobExecutionCoordinator jobExecutionCoordinator,
       Iterable<SchedulerLifecycleHook> lifecycleHooks) {
     this.poller = poller;
@@ -155,7 +156,7 @@ public class RatchetLifecycle {
     this.executorProvider = executorProvider;
     this.nodeIdentityProvider = nodeIdentityProvider;
     this.drainController = drainController;
-    this.config = config;
+    this.options = options;
     this.jobExecutionCoordinator = jobExecutionCoordinator;
     this.lifecycleHooks = lifecycleHooks;
   }
@@ -164,27 +165,34 @@ public class RatchetLifecycle {
     log.info("Ratchet starting");
     notifyHooks("beforeStart", SchedulerLifecycleHook::beforeStart);
 
+    recurringScheduler.configure(
+        options.recurring().pollMs(),
+        options.recurring().maxPollMs(),
+        options.recurring().batchLimit());
     poller.init();
     recurringScheduler.init();
 
     orphanRecoveryTimer.start(
-        executorProvider.getScheduledExecutor(), config.getOrphanScanIntervalMinutes());
+        executorProvider.getScheduledExecutor(), options.node().orphanScanIntervalMinutes());
     batchRecoveryTimer.start(executorProvider.getScheduledExecutor());
 
-    if (config.isDlqPurgeEnabled()) {
-      Cron dlqCron = RecurringScheduler.PARSER.parse(config.getDlqPurgeCron());
-      deadLetterService.init(config.getDlqPurgeDays(), dlqCron);
+    if (options.maintenance().dlqPurgeEnabled()) {
+      Cron dlqCron = RecurringScheduler.PARSER.parse(options.maintenance().dlqPurgeCron());
+      deadLetterService.init(options.maintenance().dlqPurgeDays(), dlqCron);
     }
 
-    if (config.isJobArchiveEnabled()) {
-      Cron archiveCron = RecurringScheduler.PARSER.parse(config.getJobArchiverCron());
+    if (options.maintenance().jobArchiveEnabled()) {
+      Cron archiveCron = RecurringScheduler.PARSER.parse(options.maintenance().jobArchiveCron());
       jobArchivingService.init(
-          true, config.getJobRetentionDays(), config.getJobArchiveBatchSize(), archiveCron);
+          true,
+          options.maintenance().jobRetentionDays(),
+          options.maintenance().jobArchiveBatchSize(),
+          archiveCron);
     }
 
-    if (config.isLogPurgeEnabled()) {
-      Cron logCron = RecurringScheduler.PARSER.parse(config.getLogPurgeCron());
-      logPurgeTimer.init(config.getLogRetentionDays(), logCron);
+    if (options.maintenance().logPurgeEnabled()) {
+      Cron logCron = RecurringScheduler.PARSER.parse(options.maintenance().logPurgeCron());
+      logPurgeTimer.init(options.maintenance().logRetentionDays(), logCron);
     }
 
     pollerWakeupListener.init();

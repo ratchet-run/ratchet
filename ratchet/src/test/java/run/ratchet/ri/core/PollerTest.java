@@ -14,11 +14,11 @@ import static org.mockito.Mockito.when;
 
 import run.ratchet.api.CircuitBreakerProfile;
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.ri.resilience.CircuitBreaker;
 import run.ratchet.ri.resilience.CircuitBreakerConfiguration;
 import run.ratchet.ri.resilience.CircuitBreakerRegistry;
-import run.ratchet.ri.util.RatchetConfiguration;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.dto.JobClaimDto;
@@ -43,21 +43,28 @@ class PollerTest {
   @Mock private ThreadPoolManager threadPoolManager;
   @Mock private DrainController drainController;
   @Mock private PollerScheduler pollerScheduler;
-  @Mock private RatchetConfiguration config;
   @Mock private MetricsCollector metricsCollector;
   @Mock private CircuitBreakerRegistry circuitBreakerRegistry;
 
   private Poller poller;
   private CircuitBreaker claimCircuitBreaker;
+  private RatchetOptions options;
 
   @BeforeEach
   void setUp() {
-    when(config.getPollerBurstDelayMs()).thenReturn(500L);
-    when(config.getPollerMinDelayMs()).thenReturn(2000L);
-    when(config.getPollerMaxDelayMs()).thenReturn(30000L);
-    when(config.getPollerDeepIdleDelayMs()).thenReturn(60000L);
-    when(config.getPollerDeepIdleThresholdMs()).thenReturn(300000L);
-    when(config.getPollerIdleThreshold()).thenReturn(5);
+    options =
+        RatchetOptions.builder()
+            .polling(
+                polling ->
+                    polling
+                        .batchSize(5)
+                        .burstDelayMs(500L)
+                        .minDelayMs(2000L)
+                        .maxDelayMs(30000L)
+                        .deepIdleDelayMs(60000L)
+                        .deepIdleThresholdMs(300000L)
+                        .idleThreshold(5))
+            .build();
     when(threadPoolManager.getThreadPoolHealth()).thenReturn(new EnumMap<>(JobExecutionType.class));
     when(nodeIdProvider.getNodeId()).thenReturn("node-1");
     when(drainController.isDraining()).thenReturn(false);
@@ -168,7 +175,7 @@ class PollerTest {
         threadPoolManager,
         drainController,
         pollerScheduler,
-        config,
+        options,
         metricsCollector,
         circuitBreakerRegistry,
         breakerEnabled,

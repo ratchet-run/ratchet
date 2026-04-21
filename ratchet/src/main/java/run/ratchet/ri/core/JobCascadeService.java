@@ -66,7 +66,7 @@ public class JobCascadeService {
           }
 
           // Post hot/cold-split: only PENDING (live) can be paused via the hot transition.
-          // FAILED is terminal post-split — it has no hot row, so the legacy FAILED→PAUSED
+          // FAILED is terminal post-split — it has no hot row, so the previous FAILED→PAUSED
           // path is no longer expressible without a resurrection step. Skipping FAILED keeps
           // the cascade behavior conservative; the cleanup is a separate task.
           if (child.getStatus() == JobStatus.PENDING

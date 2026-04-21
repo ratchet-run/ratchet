@@ -1,7 +1,7 @@
 package run.ratchet.ri.core;
 
+import run.ratchet.ri.config.RatchetOptionsResolver;
 import run.ratchet.ri.core.RetryBufferManager.BufferedClaim;
-import run.ratchet.ri.util.RatchetConfiguration;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.store.entity.JobExecutionType;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -49,13 +49,13 @@ public class RetryBufferDrainer {
       JobSubmissionService jobSubmissionService,
       ThreadPoolManager threadPoolManager,
       DrainController drainController,
-      RatchetConfiguration config) {
+      RatchetOptionsResolver optionsResolver) {
     this.executorProvider = executorProvider;
     this.retryBufferManager = retryBufferManager;
     this.jobSubmissionService = jobSubmissionService;
     this.threadPoolManager = threadPoolManager;
     this.drainController = drainController;
-    this.drainIntervalMs = Math.max(50L, config.getRetryBufferDrainIntervalMs());
+    this.drainIntervalMs = Math.max(50L, optionsResolver.get().retryBuffer().drainIntervalMs());
   }
 
   void start() {

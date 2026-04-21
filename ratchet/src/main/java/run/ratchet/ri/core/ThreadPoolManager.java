@@ -1,8 +1,5 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.ri.config.DefaultRatchetConfig;
-import run.ratchet.ri.config.EnvironmentRatchetConfigSource;
-import run.ratchet.ri.util.RatchetConfiguration;
 import run.ratchet.spi.ExecutionTuningProvider;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.MetricsCollector;
@@ -45,21 +42,6 @@ public class ThreadPoolManager {
     this.useVirtualThreads = false;
     this.maxConcurrencyMap = null;
     this.executionTuningProvider = null;
-  }
-
-  public ThreadPoolManager(
-      ExecutorProvider executorProvider,
-      MetricsCollector metricsCollector,
-      boolean useVirtualThreads,
-      Map<JobExecutionType, Integer> maxConcurrencyMap,
-      RatchetConfiguration config) {
-    this(
-        executorProvider,
-        metricsCollector,
-        useVirtualThreads,
-        maxConcurrencyMap,
-        new DefaultExecutionTuningProvider(
-            new DefaultRatchetConfig(new EnvironmentRatchetConfigSource())));
   }
 
   public ThreadPoolManager(

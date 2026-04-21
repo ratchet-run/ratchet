@@ -22,8 +22,8 @@ import org.jboss.logging.Logger;
 
 /**
  * Serializes and deserializes {@link SerializablePredicate} and {@link SerializableFunction}
- * instances to/from Base64. Uses an allowlist-based {@link java.io.ObjectInputStream} filter to
- * block deserialization of unauthorized classes.
+ * instances to/from Base64. Uses an allowlist-based {@link ObjectInputStream} filter to block
+ * deserialization of unauthorized classes.
  *
  * @see SerializablePredicate
  */
@@ -61,9 +61,6 @@ public class LambdaSerializer {
 
   private static final Set<String> ALLOWED_CLASS_PREFIXES =
       Set.of("run.ratchet.", "java.time.", "java.math.");
-
-  private final ClassPolicy classPolicy;
-
   /**
    * {@code java.lang} classes accepted during deserialization. Deliberately excludes {@code
    * Throwable}, {@code Exception}, and {@code RuntimeException} — broad allowlisting of base
@@ -87,7 +84,6 @@ public class LambdaSerializer {
           "java.lang.IllegalArgumentException",
           "java.lang.NullPointerException",
           "java.lang.UnsupportedOperationException");
-
   private static final Set<String> ALLOWED_JAVA_UTIL_CLASSES =
       Set.of(
           "java.util.ArrayList",
@@ -105,6 +101,7 @@ public class LambdaSerializer {
           "java.util.Date",
           "java.util.EnumMap",
           "java.util.EnumSet");
+  private final ClassPolicy classPolicy;
 
   protected LambdaSerializer() {
     this.classPolicy = className -> false;
@@ -113,6 +110,23 @@ public class LambdaSerializer {
   @Inject
   public LambdaSerializer(ClassPolicy classPolicy) {
     this.classPolicy = Objects.requireNonNull(classPolicy, "classPolicy");
+  }
+
+  private static String objectArrayElementType(String className) {
+    String element = className;
+    while (element.startsWith("[")) {
+      if (element.length() == 2) {
+        return null;
+      }
+      element = element.substring(1);
+    }
+    if (element.startsWith("L") && element.endsWith(";")) {
+      return element.substring(1, element.length() - 1);
+    }
+    if (element.indexOf('.') > 0) {
+      return element;
+    }
+    return null;
   }
 
   @SuppressWarnings("unchecked")
@@ -132,37 +146,6 @@ public class LambdaSerializer {
   public SerializableFunction<Object, Boolean> deserializeResultFunction(String serialized) {
     return (SerializableFunction<Object, Boolean>)
         deserialize(serialized, SerializableFunction.class, "result function");
-  }
-
-  @SuppressWarnings("java:S3740")
-  private <T> T deserialize(String serialized, Class<T> expectedType, String label) {
-    if (serialized == null || serialized.trim().isEmpty()) {
-      return null;
-    }
-
-    try {
-      byte[] bytes = Base64.getDecoder().decode(serialized);
-
-      try (ByteArrayInputStream bais = new ByteArrayInputStream(bytes);
-          ObjectInputStream ois = createSecureObjectInputStream(bais)) {
-
-        Object obj = ois.readObject();
-
-        if (expectedType.isInstance(obj)) {
-          return expectedType.cast(obj);
-        }
-
-        log.warnf(
-            "Deserialized object is not a %s: %s", expectedType.getSimpleName(), obj.getClass());
-        return null;
-      }
-    } catch (InvalidClassException e) {
-      log.errorf(e, "Security: Blocked deserialization of unauthorized class in %s", label);
-      return null;
-    } catch (Exception e) {
-      log.errorf(e, "Deserialization error for %s", label);
-      return null;
-    }
   }
 
   public boolean isValidSerializedPredicate(String serialized) {
@@ -202,6 +185,37 @@ public class LambdaSerializer {
       return Base64.getEncoder().encodeToString(bytes);
     } catch (IOException e) {
       log.error("Predicate serialization error", e);
+      return null;
+    }
+  }
+
+  @SuppressWarnings("java:S3740")
+  private <T> T deserialize(String serialized, Class<T> expectedType, String label) {
+    if (serialized == null || serialized.trim().isEmpty()) {
+      return null;
+    }
+
+    try {
+      byte[] bytes = Base64.getDecoder().decode(serialized);
+
+      try (ByteArrayInputStream bais = new ByteArrayInputStream(bytes);
+          ObjectInputStream ois = createSecureObjectInputStream(bais)) {
+
+        Object obj = ois.readObject();
+
+        if (expectedType.isInstance(obj)) {
+          return expectedType.cast(obj);
+        }
+
+        log.warnf(
+            "Deserialized object is not a %s: %s", expectedType.getSimpleName(), obj.getClass());
+        return null;
+      }
+    } catch (InvalidClassException e) {
+      log.errorf(e, "Security: Blocked deserialization of unauthorized class in %s", label);
+      return null;
+    } catch (Exception e) {
+      log.errorf(e, "Deserialization error for %s", label);
       return null;
     }
   }
@@ -252,23 +266,6 @@ public class LambdaSerializer {
 
     String policyName = objectArrayElementType(className);
     return policyName != null && classPolicy.isAllowed(policyName);
-  }
-
-  private static String objectArrayElementType(String className) {
-    String element = className;
-    while (element.startsWith("[")) {
-      if (element.length() == 2) {
-        return null;
-      }
-      element = element.substring(1);
-    }
-    if (element.startsWith("L") && element.endsWith(";")) {
-      return element.substring(1, element.length() - 1);
-    }
-    if (element.indexOf('.') > 0) {
-      return element;
-    }
-    return null;
   }
 
   private InvalidClassException unauthorizedClass(String className) {

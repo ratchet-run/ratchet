@@ -48,11 +48,8 @@ public @interface Recurring {
    */
   String cron();
 
-  /**
-   * Whether this recurring job is enabled. Supports property placeholders, e.g. {@code
-   * "${app.maintenance.enabled:true}"}.
-   */
-  String enabled() default "true";
+  /** Whether this recurring job is enabled. */
+  boolean enabled() default true;
 
   /**
    * Unique job identifier used as a business key. Defaults to fully-qualified class name + method

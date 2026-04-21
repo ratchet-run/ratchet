@@ -1,14 +1,14 @@
 package run.ratchet.ri.core;
 
+import run.ratchet.api.DoNotRetry;
 import jakarta.enterprise.context.ApplicationScoped;
 import java.util.Set;
 import org.jboss.logging.Logger;
 
 /**
  * Determines whether a failed job should be retried based on its exception type. Checks a built-in
- * list of well-known permanent-failure exceptions and the {@link
- * run.ratchet.api.DoNotRetry} annotation. The full cause chain is examined, so wrapping a
- * non-retryable exception does not hide it.
+ * list of well-known permanent-failure exceptions and the {@link DoNotRetry} annotation. The full
+ * cause chain is examined, so wrapping a non-retryable exception does not hide it.
  */
 @ApplicationScoped
 public class DoNotRetryPolicy {
@@ -48,7 +48,6 @@ public class DoNotRetryPolicy {
     return false;
   }
 
-  @SuppressWarnings("removal")
   private boolean isDoNotRetryException(Throwable exception) {
     String className = exception.getClass().getName();
     if (DO_NOT_RETRY_EXCEPTIONS.contains(className)) {
@@ -56,7 +55,6 @@ public class DoNotRetryPolicy {
     }
 
     // Support both the API annotation and the deprecated RI alias during migration.
-    return exception.getClass().isAnnotationPresent(run.ratchet.api.DoNotRetry.class)
-        || exception.getClass().isAnnotationPresent(run.ratchet.ri.core.DoNotRetry.class);
+    return exception.getClass().isAnnotationPresent(DoNotRetry.class);
   }
 }

@@ -39,6 +39,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
   private final long heartbeatIntervalSeconds;
   private final long orphanGraceSeconds;
   private final boolean dynamicHeartbeatEnabled;
+  private final String explicitNodeId;
   private final Object heartbeatLifecycleMonitor = new Object();
 
   private ScheduledFuture<?> heartbeatHandle;
@@ -52,6 +53,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
     this.heartbeatIntervalSeconds = 0;
     this.orphanGraceSeconds = 0;
     this.dynamicHeartbeatEnabled = false;
+    this.explicitNodeId = null;
   }
 
   public DefaultNodeIdentityProvider(
@@ -62,6 +64,26 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
       long heartbeatIntervalSeconds,
       long orphanGraceSeconds,
       boolean dynamicHeartbeatEnabled) {
+    this(
+        nodeStore,
+        jobBulkStore,
+        heartbeatCalculator,
+        executorProvider,
+        heartbeatIntervalSeconds,
+        orphanGraceSeconds,
+        dynamicHeartbeatEnabled,
+        null);
+  }
+
+  public DefaultNodeIdentityProvider(
+      NodeStore nodeStore,
+      JobBulkStore jobBulkStore,
+      DynamicHeartbeatCalculator heartbeatCalculator,
+      ExecutorProvider executorProvider,
+      long heartbeatIntervalSeconds,
+      long orphanGraceSeconds,
+      boolean dynamicHeartbeatEnabled,
+      String explicitNodeId) {
     this.nodeStore = nodeStore;
     this.jobBulkStore = jobBulkStore;
     this.heartbeatCalculator = heartbeatCalculator;
@@ -69,6 +91,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
     this.heartbeatIntervalSeconds = heartbeatIntervalSeconds;
     this.orphanGraceSeconds = orphanGraceSeconds;
     this.dynamicHeartbeatEnabled = dynamicHeartbeatEnabled;
+    this.explicitNodeId = explicitNodeId;
   }
 
   @Override
@@ -142,9 +165,8 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
   }
 
   private String resolveNodeId() {
-    String jboss = System.getProperty("jboss.node.name");
-    if (jboss != null && !jboss.isBlank()) {
-      return jboss;
+    if (explicitNodeId != null && !explicitNodeId.isBlank()) {
+      return explicitNodeId;
     }
     try {
       String host = resolveHostnameWithTimeout();

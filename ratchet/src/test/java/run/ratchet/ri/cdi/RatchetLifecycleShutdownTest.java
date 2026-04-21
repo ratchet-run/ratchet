@@ -5,6 +5,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.BatchRecoveryTimer;
 import run.ratchet.ri.core.DeadLetterService;
 import run.ratchet.ri.core.DrainController;
@@ -15,7 +16,6 @@ import run.ratchet.ri.core.OrphanRecoveryTimer;
 import run.ratchet.ri.core.Poller;
 import run.ratchet.ri.core.PollerWakeupListener;
 import run.ratchet.ri.core.RecurringScheduler;
-import run.ratchet.ri.util.RatchetConfiguration;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
 import java.util.concurrent.ScheduledExecutorService;
@@ -39,14 +39,19 @@ class RatchetLifecycleShutdownTest {
     ScheduledExecutorService scheduledExecutor = mock(ScheduledExecutorService.class);
     NodeIdentityProvider nodeIdentityProvider = mock(NodeIdentityProvider.class);
     DrainController drainController = mock(DrainController.class);
-    RatchetConfiguration config = mock(RatchetConfiguration.class);
+    RatchetOptions options =
+        RatchetOptions.builder()
+            .node(node -> node.orphanScanIntervalMinutes(1L))
+            .maintenance(
+                maintenance ->
+                    maintenance
+                        .dlqPurgeEnabled(false)
+                        .jobArchiveEnabled(false)
+                        .logPurgeEnabled(false))
+            .build();
     JobExecutionCoordinator jobExecutionCoordinator = mock(JobExecutionCoordinator.class);
 
     when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
-    when(config.getOrphanScanIntervalMinutes()).thenReturn(1L);
-    when(config.isDlqPurgeEnabled()).thenReturn(false);
-    when(config.isJobArchiveEnabled()).thenReturn(false);
-    when(config.isLogPurgeEnabled()).thenReturn(false);
 
     RatchetLifecycle lifecycle =
         new RatchetLifecycle(
@@ -61,7 +66,7 @@ class RatchetLifecycleShutdownTest {
             executorProvider,
             nodeIdentityProvider,
             drainController,
-            config,
+            options,
             jobExecutionCoordinator);
 
     lifecycle.onStartup(new Object());
@@ -82,7 +87,7 @@ class RatchetLifecycleShutdownTest {
     PollerWakeupListener pollerWakeupListener = mock(PollerWakeupListener.class);
     ExecutorProvider executorProvider = mock(ExecutorProvider.class);
     NodeIdentityProvider nodeIdentityProvider = mock(NodeIdentityProvider.class);
-    RatchetConfiguration config = mock(RatchetConfiguration.class);
+    RatchetOptions options = RatchetOptions.defaults();
     JobExecutionCoordinator jobExecutionCoordinator = mock(JobExecutionCoordinator.class);
 
     RatchetLifecycle lifecycle =
@@ -98,7 +103,7 @@ class RatchetLifecycleShutdownTest {
             executorProvider,
             nodeIdentityProvider,
             drainController,
-            config,
+            options,
             jobExecutionCoordinator);
 
     lifecycle.onShutdown();

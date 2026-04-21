@@ -1,5 +1,6 @@
 package run.ratchet.ri.core;
 
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.ErrorSanitizer;
@@ -106,9 +107,7 @@ public class JobExecutorService {
         classPolicy,
         null,
         context -> new JBossLoggingJobLogger(context.jobId(), null),
-        new DefaultResultPersistenceStrategy(
-            new run.ratchet.ri.config.DefaultRatchetConfig(
-                new run.ratchet.ri.config.EnvironmentRatchetConfigSource())));
+        new DefaultResultPersistenceStrategy(RatchetOptions.defaults()));
   }
 
   @Inject

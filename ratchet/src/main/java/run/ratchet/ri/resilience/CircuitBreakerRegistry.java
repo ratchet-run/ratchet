@@ -1,6 +1,7 @@
 package run.ratchet.ri.resilience;
 
 import run.ratchet.api.CircuitBreakerProfile;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.spi.CircuitBreakerConfigProvider;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -25,10 +26,7 @@ public class CircuitBreakerRegistry {
   private final CircuitBreakerConfigProvider configProvider;
 
   public CircuitBreakerRegistry() {
-    this(
-        new DefaultCircuitBreakerConfigProvider(
-            new run.ratchet.ri.config.DefaultRatchetConfig(
-                new run.ratchet.ri.config.EnvironmentRatchetConfigSource())));
+    this(new DefaultCircuitBreakerConfigProvider(RatchetOptions.defaults()));
   }
 
   @Inject

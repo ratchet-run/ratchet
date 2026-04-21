@@ -19,7 +19,7 @@ public interface JobCrudStore {
   Optional<JobEntity> findById(long id);
 
   /**
-   * Loads the latest job row by primary key. Despite the legacy name, no row-level lock is acquired
+   * Loads the latest job row by primary key. Despite the method name, no row-level lock is acquired
    * — backends rely on optimistic version checks at the actual mutation site ({@code
    * findOneAndUpdate} on Mongo, {@code WHERE version = ?} on SQL). Callers MUST use a
    * version-checked update path; this method is read-only.

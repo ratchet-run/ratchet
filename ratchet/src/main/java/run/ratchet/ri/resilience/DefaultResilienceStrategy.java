@@ -1,5 +1,6 @@
 package run.ratchet.ri.resilience;
 
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.spi.CircuitBreakerConfigProvider;
 import run.ratchet.spi.ResilienceStrategy;
 import java.time.Duration;
@@ -18,11 +19,7 @@ public class DefaultResilienceStrategy implements ResilienceStrategy {
   private final CircuitBreakerConfigProvider configProvider;
 
   public DefaultResilienceStrategy(CircuitBreakerRegistry registry) {
-    this(
-        registry,
-        new DefaultCircuitBreakerConfigProvider(
-            new run.ratchet.ri.config.DefaultRatchetConfig(
-                new run.ratchet.ri.config.EnvironmentRatchetConfigSource())));
+    this(registry, new DefaultCircuitBreakerConfigProvider(RatchetOptions.defaults()));
   }
 
   public DefaultResilienceStrategy(

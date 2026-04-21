@@ -107,7 +107,7 @@ public interface JobBuilder {
   /** Sets the maximum number of retry attempts (must be &gt;= 0). */
   JobBuilder withMaxRetries(int retries);
 
-  /** Adds a string parameter accessible via {@link run.ratchet.api.JobContext#param}. */
+  /** Adds a string parameter accessible via {@link JobContext#param}. */
   JobBuilder withParam(String key, String value);
 
   /** Sets the job execution priority. */

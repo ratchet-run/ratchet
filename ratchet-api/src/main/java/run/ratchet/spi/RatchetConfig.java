@@ -3,7 +3,7 @@ package run.ratchet.spi;
 import run.ratchet.api.Incubating;
 import java.util.Optional;
 
-/** Typed runtime configuration facade. */
+/** Typed runtime configuration facade used to build {@code RatchetOptions}. */
 @Incubating
 public interface RatchetConfig {
 

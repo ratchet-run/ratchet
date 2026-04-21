@@ -1,6 +1,6 @@
 package run.ratchet.store.util;
 
-/** Thrown when ratchet.isolation-check=fail and the DB isolation level is wrong. */
+/** Thrown when SQL isolation validation is configured to fail and the isolation level is wrong. */
 public class IsolationCheckFailedException extends RuntimeException {
 
   private static final long serialVersionUID = 1L;

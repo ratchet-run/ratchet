@@ -36,32 +36,8 @@ class RecurringAnnotationParserTest {
 
   @Test
   void isEnabled_explicitFalse() {
-    Recurring annotation = recurringWithEnabled("false");
+    Recurring annotation = recurringWithEnabled(false);
     assertFalse(RecurringAnnotationParser.isEnabled(annotation));
-  }
-
-  @Test
-  void isEnabled_propertyPlaceholderWithDefault() {
-    Recurring annotation = recurringWithEnabled("${nonexistent.property:false}");
-    assertFalse(RecurringAnnotationParser.isEnabled(annotation));
-  }
-
-  @Test
-  void isEnabled_propertyPlaceholderDefaultTrue() {
-    Recurring annotation = recurringWithEnabled("${nonexistent.property:true}");
-    assertTrue(RecurringAnnotationParser.isEnabled(annotation));
-  }
-
-  @Test
-  void isEnabled_systemPropertyOverridesDefault() {
-    String propName = "ratchet.test.enabled." + System.nanoTime();
-    try {
-      System.setProperty(propName, "false");
-      Recurring annotation = recurringWithEnabled("${" + propName + ":true}");
-      assertFalse(RecurringAnnotationParser.isEnabled(annotation));
-    } finally {
-      System.clearProperty(propName);
-    }
   }
 
   @Test
@@ -122,8 +98,8 @@ class RecurringAnnotationParserTest {
       }
 
       @Override
-      public String enabled() {
-        return "true";
+      public boolean enabled() {
+        return true;
       }
 
       @Override
@@ -158,7 +134,7 @@ class RecurringAnnotationParserTest {
     };
   }
 
-  private static Recurring recurringWithEnabled(String enabled) {
+  private static Recurring recurringWithEnabled(boolean enabled) {
     return new Recurring() {
       @Override
       public Class<? extends Annotation> annotationType() {
@@ -186,7 +162,7 @@ class RecurringAnnotationParserTest {
       }
 
       @Override
-      public String enabled() {
+      public boolean enabled() {
         return enabled;
       }
 

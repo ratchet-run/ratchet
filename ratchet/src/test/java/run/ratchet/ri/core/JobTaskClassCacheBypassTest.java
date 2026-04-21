@@ -2,11 +2,13 @@ package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import run.ratchet.spi.ClassPolicy;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -38,13 +40,11 @@ class JobTaskClassCacheBypassTest {
             () -> {
               try {
                 helper.invoke(task, "java.lang.String");
-              } catch (java.lang.reflect.InvocationTargetException e) {
+              } catch (InvocationTargetException e) {
                 throw e.getCause();
               }
             });
-    assertTrue(
-        thrown instanceof SecurityException,
-        "Denied class must throw SecurityException, got: " + thrown);
+    assertInstanceOf(SecurityException.class, thrown, "Denied class must throw SecurityException, got: " + thrown);
 
     Field cacheField = JobTask.class.getDeclaredField("CLASS_CACHE");
     cacheField.setAccessible(true);
@@ -85,12 +85,11 @@ class JobTaskClassCacheBypassTest {
             () -> {
               try {
                 helper.invoke(denyTask, "java.lang.String");
-              } catch (java.lang.reflect.InvocationTargetException e) {
+              } catch (InvocationTargetException e) {
                 throw e.getCause();
               }
             });
-    assertTrue(
-        thrown instanceof SecurityException,
+    assertInstanceOf(SecurityException.class, thrown,
         "Cache hit must re-validate policy; denied class must throw even if cached");
   }
 

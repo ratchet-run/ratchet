@@ -4,8 +4,7 @@ import run.ratchet.api.CircuitBreakerProfile;
 import run.ratchet.spi.CircuitBreakerConfig;
 
 /**
- * Configuration for a circuit breaker instance. Read from system properties or environment
- * variables.
+ * Configuration for a circuit breaker instance.
  *
  * @param failureRateThreshold percentage (0-100) of failures that triggers OPEN state
  * @param slidingWindowSize number of recent calls tracked for failure rate calculation
@@ -56,52 +55,5 @@ public record CircuitBreakerConfiguration(
         config.slowCallThresholdMs(),
         config.permittedCallsInHalfOpen(),
         config.minimumCalls());
-  }
-
-  public static CircuitBreakerConfiguration fromEnvironment(
-      String prefix, CircuitBreakerConfiguration defaults) {
-    return new CircuitBreakerConfiguration(
-        floatEnv(prefix + "_FAILURE_RATE", defaults.failureRateThreshold),
-        intEnv(prefix + "_WINDOW_SIZE", defaults.slidingWindowSize),
-        longEnv(prefix + "_WAIT_MS", defaults.waitDurationMs),
-        longEnv(prefix + "_SLOW_CALL_MS", defaults.slowCallThresholdMs),
-        intEnv(prefix + "_HALF_OPEN_CALLS", defaults.permittedCallsInHalfOpen),
-        intEnv(prefix + "_MIN_CALLS", defaults.minimumCalls));
-  }
-
-  private static float floatEnv(String key, float defaultValue) {
-    String value = System.getenv(key);
-    if (value == null || value.isEmpty()) {
-      return defaultValue;
-    }
-    try {
-      return Float.parseFloat(value);
-    } catch (NumberFormatException e) {
-      return defaultValue;
-    }
-  }
-
-  private static int intEnv(String key, int defaultValue) {
-    String value = System.getenv(key);
-    if (value == null || value.isEmpty()) {
-      return defaultValue;
-    }
-    try {
-      return Integer.parseInt(value);
-    } catch (NumberFormatException e) {
-      return defaultValue;
-    }
-  }
-
-  private static long longEnv(String key, long defaultValue) {
-    String value = System.getenv(key);
-    if (value == null || value.isEmpty()) {
-      return defaultValue;
-    }
-    try {
-      return Long.parseLong(value);
-    } catch (NumberFormatException e) {
-      return defaultValue;
-    }
   }
 }

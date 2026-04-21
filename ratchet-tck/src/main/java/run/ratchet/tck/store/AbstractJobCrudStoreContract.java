@@ -8,6 +8,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.tck.util.ConcurrentTestRunner;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -131,9 +132,7 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
     job.setBusinessKey("bk-terminal-" + job.getIdempotencyKey());
     var saved = persist(job);
     store().compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
-    store()
-        .markJobSucceeded(
-            saved.getId(), null, null, java.time.Instant.now(), java.time.Instant.now(), 0L, 0L);
+    store().markJobSucceeded(saved.getId(), null, null, Instant.now(), Instant.now(), 0L, 0L);
 
     // Guard: verify the CAS actually landed before testing the query filter
     var reloaded = store().findById(saved.getId()).orElseThrow();

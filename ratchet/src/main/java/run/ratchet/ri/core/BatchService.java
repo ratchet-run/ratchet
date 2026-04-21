@@ -22,6 +22,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import java.lang.reflect.Method;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -43,13 +44,6 @@ public class BatchService {
   private static final ConcurrentHashMap<String, Method> HOOK_METHOD_CACHE =
       new ConcurrentHashMap<>();
   private static final ConcurrentHashMap<String, Class<?>> CLASS_CACHE = new ConcurrentHashMap<>();
-
-  @PreDestroy
-  public void clearCaches() {
-    HOOK_METHOD_CACHE.clear();
-    CLASS_CACHE.clear();
-  }
-
   private final BatchStore batchStore;
   private final JobCrudStore jobCrudStore;
   private final JobBatchStatusStore jobBatchStatusStore;
@@ -60,7 +54,6 @@ public class BatchService {
   private final WorkflowScheduler workflowScheduler;
   private final ClassPolicy classPolicy;
   private final BeanResolver beanResolver;
-
   protected BatchService() {
     this.batchStore = null;
     this.jobCrudStore = null;
@@ -96,6 +89,12 @@ public class BatchService {
     this.workflowScheduler = workflowScheduler;
     this.classPolicy = classPolicy;
     this.beanResolver = beanResolver;
+  }
+
+  @PreDestroy
+  public void clearCaches() {
+    HOOK_METHOD_CACHE.clear();
+    CLASS_CACHE.clear();
   }
 
   public boolean markChildFailed(JobEntity child) {
@@ -203,7 +202,7 @@ public class BatchService {
                 boolean succeeded = batch.getFailedItems() == 0;
                 if (jobBatchStatusStore.tryPickUpJob(
                     parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID)) {
-                  java.time.Instant nowTs = java.time.Instant.now();
+                  Instant nowTs = Instant.now();
                   if (succeeded) {
                     jobTerminalStore.markJobSucceededMinimal(parentId, nowTs, nowTs, 0L, 0L);
                     parent.setStatus(JobStatus.SUCCEEDED);

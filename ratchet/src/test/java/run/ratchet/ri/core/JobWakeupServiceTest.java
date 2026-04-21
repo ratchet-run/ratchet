@@ -18,6 +18,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -63,7 +64,7 @@ class JobWakeupServiceTest {
               return null;
             })
         .when(txRegistry)
-        .registerInterposedSynchronization(org.mockito.ArgumentMatchers.any());
+        .registerInterposedSynchronization(ArgumentMatchers.any());
     injectTxRegistry(txRegistry);
 
     wakeupService.notify(JobPriority.CRITICAL, true);
@@ -94,7 +95,7 @@ class JobWakeupServiceTest {
     when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
     doThrow(new IllegalStateException("boom"))
         .when(txRegistry)
-        .registerInterposedSynchronization(org.mockito.ArgumentMatchers.any());
+        .registerInterposedSynchronization(ArgumentMatchers.any());
     injectTxRegistry(txRegistry);
 
     wakeupService.notify(JobPriority.HIGH, true);

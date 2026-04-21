@@ -16,6 +16,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import org.jboss.logging.Logger;
 
@@ -55,6 +56,28 @@ final class MysqlJobCrudOperations implements JobCrudStore, JobBulkStore {
     this.tags = tags;
   }
 
+  private static void checkHotField(long jobId, String fieldName, Object incoming, Object stored) {
+    if (Objects.equals(incoming, stored)) {
+      return;
+    }
+    throw new IllegalStateException(
+        "save() rejected: hot-field mutation detected for id="
+            + jobId
+            + " field="
+            + fieldName
+            + " incoming="
+            + incoming
+            + " stored="
+            + stored
+            + ". Use an explicit transition method.");
+  }
+
+  private static void assignTsidIfMissing(JobEntity job) {
+    if (job.getId() == null || job.getId() == 0L) {
+      job.setId(TsidFactory.next());
+    }
+  }
+
   @Override
   public JobEntity save(JobEntity job) {
     if (job.getId() == null) {
@@ -63,197 +86,6 @@ final class MysqlJobCrudOperations implements JobCrudStore, JobBulkStore {
       saveColdUpdate(job);
     }
     return job;
-  }
-
-  private void saveInsert(JobEntity job) {
-    assignTsidIfMissing(job);
-    Instant now = Instant.now();
-    Timestamp nowTs = Timestamp.from(now);
-    if (job.getCreatedAt() == null) {
-      job.setCreatedAt(now);
-    }
-    if (job.getUpdatedAt() == null) {
-      job.setUpdatedAt(now);
-    }
-
-    boolean recurring = job.getJobType() == JobExecutionType.RECURRING;
-    boolean hasBkey = job.getBusinessKey() != null;
-    boolean bornTerminal =
-        job.getStatus() != null && MysqlJobRowMapper.isTerminalStatus(job.getStatus());
-
-    try {
-      executeColdInsert(job, nowTs);
-      if (bornTerminal) {
-        executeColdTerminalBackfill(job, nowTs);
-      } else {
-        if (!recurring) {
-          executeHotInsert(job, nowTs);
-        }
-        if (hasBkey) {
-          String ownerTable =
-              recurring
-                  ? MysqlBusinessKeyReservations.OWNER_TABLE_RECURRING
-                  : MysqlBusinessKeyReservations.OWNER_TABLE_QUEUE;
-          reservations.insertReservation(job.getBusinessKey(), job.getId(), ownerTable);
-        }
-      }
-    } catch (RuntimeException e) {
-      if (ctx.constraintDetector().isDuplicateBusinessKey(e)) {
-        throw new RatchetTransientStoreException(
-            "Active business key in use for job " + job.getId(), e);
-      }
-      throw e;
-    }
-
-    if (job.getTags() != null && !job.getTags().isEmpty()) {
-      tags.insertTags(job.getId(), job.getTags());
-    }
-  }
-
-  private void executeColdTerminalBackfill(JobEntity job, Timestamp nowTs) {
-    ctx.em()
-        .createNativeQuery(
-            "UPDATE scheduler_job SET terminal_status = ?, terminal_error = ?, "
-                + "total_attempts = ?, terminated_at = ? "
-                + "WHERE job_id = ?")
-        .setParameter(1, job.getStatus().name())
-        .setParameter(2, job.getLastError())
-        .setParameter(3, job.getAttempts())
-        .setParameter(4, nowTs)
-        .setParameter(5, job.getId())
-        .executeUpdate();
-  }
-
-  private void executeColdInsert(JobEntity job, Timestamp nowTs) {
-    String recStatus = null;
-    if (job.getJobType() == JobExecutionType.RECURRING) {
-      JobStatus s = job.getStatus() != null ? job.getStatus() : JobStatus.PENDING;
-      String r = MysqlJobRowMapper.recStatusForLiveStatus(s);
-      recStatus = r != null ? r : "P";
-    }
-    ctx.em()
-        .createNativeQuery(COLD_INSERT_SQL)
-        .setParameter(1, job.getId())
-        .setParameter(2, job.getJobType().name())
-        .setParameter(3, job.getPriority().ordinal())
-        .setParameter(4, job.getMaxRetries())
-        .setParameter(5, job.getBackoffPolicy().name())
-        .setParameter(6, job.getBackoffParamMs())
-        .setParameter(7, job.getTimeoutSec())
-        .setParameter(8, job.getCronExpr())
-        .setParameter(9, job.getZoneId())
-        .setParameter(10, job.getNextFire() != null ? Timestamp.from(job.getNextFire()) : null)
-        .setParameter(11, mapper.payloadToJson(job))
-        .setParameter(12, mapper.paramsToJson(job))
-        .setParameter(13, job.getIdempotencyKey())
-        .setParameter(14, job.getBusinessKey())
-        .setParameter(15, job.getResourceName())
-        .setParameter(16, mapper.callbackPayloadToJson(job.getOnSuccessPayload()))
-        .setParameter(17, mapper.callbackPayloadToJson(job.getOnFailurePayload()))
-        .setParameter(18, job.getDependsOn())
-        .setParameter(19, job.getSupersededBy())
-        .setParameter(20, nowTs)
-        .setParameter(21, job.getCreatedBy())
-        .setParameter(22, recStatus)
-        .executeUpdate();
-  }
-
-  private void executeHotInsert(JobEntity job, Timestamp nowTs) {
-    JobStatus s = job.getStatus() != null ? job.getStatus() : JobStatus.PENDING;
-    Instant scheduled = job.getScheduledTime();
-    ctx.em()
-        .createNativeQuery(HOT_INSERT_SQL)
-        .setParameter(1, job.getId())
-        .setParameter(2, s.name())
-        .setParameter(3, job.getJobType().name())
-        .setParameter(4, job.getPriority().ordinal())
-        .setParameter(5, scheduled != null ? Timestamp.from(scheduled) : nowTs)
-        .setParameter(6, job.getBusinessKey())
-        .setParameter(7, job.getTimeoutSec())
-        .setParameter(8, job.getMaxRetries())
-        .setParameter(9, job.getAttempts())
-        .setParameter(10, job.getPickedBy())
-        .setParameter(11, job.getPickedAt() != null ? Timestamp.from(job.getPickedAt()) : null)
-        .setParameter(
-            12, job.getPausedFromStatus() != null ? job.getPausedFromStatus().name() : null)
-        .setParameter(13, job.getLastError())
-        .setParameter(14, job.getVersion() != null ? job.getVersion() : 0)
-        .setParameter(15, nowTs)
-        .executeUpdate();
-  }
-
-  private void saveColdUpdate(JobEntity job) {
-    if (tryScheduledTimeOnlyHotUpdate(job)) {
-      return;
-    }
-    if (tryHotMutationDispatch(job)) {
-      return;
-    }
-    guardAgainstHotMutation(job);
-
-    ctx.em()
-        .createNativeQuery(
-            "UPDATE scheduler_job SET "
-                + "next_fire = ?, "
-                + "params = CAST(? AS JSON), "
-                + "on_success_payload = CAST(? AS JSON), "
-                + "on_failure_payload = CAST(? AS JSON), "
-                + "depends_on = ?, "
-                + "superseded_by = ?, "
-                + "resource_name = ? "
-                + "WHERE job_id = ?")
-        .setParameter(1, job.getNextFire() != null ? Timestamp.from(job.getNextFire()) : null)
-        .setParameter(2, mapper.paramsToJson(job))
-        .setParameter(3, mapper.callbackPayloadToJson(job.getOnSuccessPayload()))
-        .setParameter(4, mapper.callbackPayloadToJson(job.getOnFailurePayload()))
-        .setParameter(5, job.getDependsOn())
-        .setParameter(6, job.getSupersededBy())
-        .setParameter(7, job.getResourceName())
-        .setParameter(8, job.getId())
-        .executeUpdate();
-  }
-
-  @SuppressWarnings("unchecked")
-  private boolean tryScheduledTimeOnlyHotUpdate(JobEntity job) {
-    long id = job.getId();
-    List<Object[]> rows =
-        ctx.em()
-            .createNativeQuery(
-                "SELECT q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at, "
-                    + "q.paused_from_status, q.last_error, q.version "
-                    + "FROM scheduler_job_queue q WHERE q.job_id = ?")
-            .setParameter(1, id)
-            .getResultList();
-    if (rows.isEmpty()) {
-      return false;
-    }
-    Object[] row = rows.get(0);
-    if (!"PENDING".equals(row[0])) {
-      return false;
-    }
-    Instant storedSched = MysqlJobRowMapper.toInstant(row[1]);
-    Instant incomingSched = job.getScheduledTime();
-    if (java.util.Objects.equals(storedSched, incomingSched)) {
-      return false;
-    }
-    if (!java.util.Objects.equals(JobStatus.PENDING, job.getStatus())
-        || !java.util.Objects.equals(((Number) row[2]).intValue(), job.getAttempts())
-        || !java.util.Objects.equals(row[3], job.getPickedBy())
-        || !java.util.Objects.equals(MysqlJobRowMapper.toInstant(row[4]), job.getPickedAt())
-        || !java.util.Objects.equals(
-            row[5] != null ? JobStatus.valueOf((String) row[5]) : null, job.getPausedFromStatus())
-        || !java.util.Objects.equals(row[6], job.getLastError())
-        || !java.util.Objects.equals(((Number) row[7]).intValue(), job.getVersion())) {
-      return false;
-    }
-    ctx.em()
-        .createNativeQuery(
-            "UPDATE scheduler_job_queue SET scheduled_time = ?, updated_at = NOW(3) "
-                + "WHERE job_id = ? AND status = 'PENDING'")
-        .setParameter(1, incomingSched != null ? Timestamp.from(incomingSched) : null)
-        .setParameter(2, id)
-        .executeUpdate();
-    return true;
   }
 
   @Override
@@ -746,60 +578,6 @@ final class MysqlJobCrudOperations implements JobCrudStore, JobBulkStore {
     ctx.em().clear();
   }
 
-  private void bindColdInsert(Query q, JobEntity job, Timestamp nowTs) {
-    int i = 1;
-    q.setParameter(i++, job.getId());
-    q.setParameter(i++, job.getJobType().name());
-    q.setParameter(i++, job.getPriority().ordinal());
-    q.setParameter(i++, job.getMaxRetries());
-    q.setParameter(i++, job.getBackoffPolicy().name());
-    q.setParameter(i++, job.getBackoffParamMs());
-    q.setParameter(i++, job.getTimeoutSec());
-    q.setParameter(i++, job.getCronExpr());
-    q.setParameter(i++, job.getZoneId());
-    q.setParameter(i++, job.getNextFire() != null ? Timestamp.from(job.getNextFire()) : null);
-    q.setParameter(i++, mapper.payloadToJson(job));
-    q.setParameter(i++, mapper.paramsToJson(job));
-    q.setParameter(i++, job.getIdempotencyKey());
-    q.setParameter(i++, job.getBusinessKey());
-    q.setParameter(i++, job.getResourceName());
-    q.setParameter(i++, mapper.callbackPayloadToJson(job.getOnSuccessPayload()));
-    q.setParameter(i++, mapper.callbackPayloadToJson(job.getOnFailurePayload()));
-    q.setParameter(i++, job.getDependsOn());
-    q.setParameter(i++, job.getSupersededBy());
-    q.setParameter(i++, nowTs);
-    q.setParameter(i++, job.getCreatedBy());
-    String recStatus = null;
-    if (job.getJobType() == JobExecutionType.RECURRING) {
-      JobStatus s = job.getStatus() != null ? job.getStatus() : JobStatus.PENDING;
-      String rec = MysqlJobRowMapper.recStatusForLiveStatus(s);
-      recStatus = rec != null ? rec : "P";
-    }
-    q.setParameter(i, recStatus);
-  }
-
-  private void bindHotInsert(Query q, JobEntity job, Timestamp nowTs) {
-    int i = 1;
-    q.setParameter(i++, job.getId());
-    JobStatus s = job.getStatus() != null ? job.getStatus() : JobStatus.PENDING;
-    q.setParameter(i++, s.name());
-    q.setParameter(i++, job.getJobType().name());
-    q.setParameter(i++, job.getPriority().ordinal());
-    Instant scheduled = job.getScheduledTime();
-    q.setParameter(i++, scheduled != null ? Timestamp.from(scheduled) : nowTs);
-    q.setParameter(i++, job.getBusinessKey());
-    q.setParameter(i++, job.getTimeoutSec());
-    q.setParameter(i++, job.getMaxRetries());
-    q.setParameter(i++, job.getAttempts());
-    q.setParameter(i++, job.getPickedBy());
-    q.setParameter(i++, job.getPickedAt() != null ? Timestamp.from(job.getPickedAt()) : null);
-    q.setParameter(
-        i++, job.getPausedFromStatus() != null ? job.getPausedFromStatus().name() : null);
-    q.setParameter(i++, job.getLastError());
-    q.setParameter(i++, job.getVersion() != null ? job.getVersion() : 0);
-    q.setParameter(i, nowTs);
-  }
-
   @Override
   public int deleteJobsByIds(List<Long> ids) {
     if (ids.isEmpty()) {
@@ -894,66 +672,248 @@ final class MysqlJobCrudOperations implements JobCrudStore, JobBulkStore {
         .executeUpdate();
   }
 
+  private void saveInsert(JobEntity job) {
+    assignTsidIfMissing(job);
+    Instant now = Instant.now();
+    Timestamp nowTs = Timestamp.from(now);
+    if (job.getCreatedAt() == null) {
+      job.setCreatedAt(now);
+    }
+    if (job.getUpdatedAt() == null) {
+      job.setUpdatedAt(now);
+    }
+
+    boolean recurring = job.getJobType() == JobExecutionType.RECURRING;
+    boolean hasBkey = job.getBusinessKey() != null;
+    boolean bornTerminal =
+        job.getStatus() != null && MysqlJobRowMapper.isTerminalStatus(job.getStatus());
+
+    try {
+      executeColdInsert(job, nowTs);
+      if (bornTerminal) {
+        executeColdTerminalBackfill(job, nowTs);
+      } else {
+        if (!recurring) {
+          executeHotInsert(job, nowTs);
+        }
+        if (hasBkey) {
+          String ownerTable =
+              recurring
+                  ? MysqlBusinessKeyReservations.OWNER_TABLE_RECURRING
+                  : MysqlBusinessKeyReservations.OWNER_TABLE_QUEUE;
+          reservations.insertReservation(job.getBusinessKey(), job.getId(), ownerTable);
+        }
+      }
+    } catch (RuntimeException e) {
+      if (ctx.constraintDetector().isDuplicateBusinessKey(e)) {
+        throw new RatchetTransientStoreException(
+            "Active business key in use for job " + job.getId(), e);
+      }
+      throw e;
+    }
+
+    if (job.getTags() != null && !job.getTags().isEmpty()) {
+      tags.insertTags(job.getId(), job.getTags());
+    }
+  }
+
+  private void executeColdTerminalBackfill(JobEntity job, Timestamp nowTs) {
+    ctx.em()
+        .createNativeQuery(
+            "UPDATE scheduler_job SET terminal_status = ?, terminal_error = ?, "
+                + "total_attempts = ?, terminated_at = ? "
+                + "WHERE job_id = ?")
+        .setParameter(1, job.getStatus().name())
+        .setParameter(2, job.getLastError())
+        .setParameter(3, job.getAttempts())
+        .setParameter(4, nowTs)
+        .setParameter(5, job.getId())
+        .executeUpdate();
+  }
+
+  private void executeColdInsert(JobEntity job, Timestamp nowTs) {
+    String recStatus = null;
+    if (job.getJobType() == JobExecutionType.RECURRING) {
+      JobStatus s = job.getStatus() != null ? job.getStatus() : JobStatus.PENDING;
+      String r = MysqlJobRowMapper.recStatusForLiveStatus(s);
+      recStatus = r != null ? r : "P";
+    }
+    ctx.em()
+        .createNativeQuery(COLD_INSERT_SQL)
+        .setParameter(1, job.getId())
+        .setParameter(2, job.getJobType().name())
+        .setParameter(3, job.getPriority().ordinal())
+        .setParameter(4, job.getMaxRetries())
+        .setParameter(5, job.getBackoffPolicy().name())
+        .setParameter(6, job.getBackoffParamMs())
+        .setParameter(7, job.getTimeoutSec())
+        .setParameter(8, job.getCronExpr())
+        .setParameter(9, job.getZoneId())
+        .setParameter(10, job.getNextFire() != null ? Timestamp.from(job.getNextFire()) : null)
+        .setParameter(11, mapper.payloadToJson(job))
+        .setParameter(12, mapper.paramsToJson(job))
+        .setParameter(13, job.getIdempotencyKey())
+        .setParameter(14, job.getBusinessKey())
+        .setParameter(15, job.getResourceName())
+        .setParameter(16, mapper.callbackPayloadToJson(job.getOnSuccessPayload()))
+        .setParameter(17, mapper.callbackPayloadToJson(job.getOnFailurePayload()))
+        .setParameter(18, job.getDependsOn())
+        .setParameter(19, job.getSupersededBy())
+        .setParameter(20, nowTs)
+        .setParameter(21, job.getCreatedBy())
+        .setParameter(22, recStatus)
+        .executeUpdate();
+  }
+
+  private void executeHotInsert(JobEntity job, Timestamp nowTs) {
+    JobStatus s = job.getStatus() != null ? job.getStatus() : JobStatus.PENDING;
+    Instant scheduled = job.getScheduledTime();
+    ctx.em()
+        .createNativeQuery(HOT_INSERT_SQL)
+        .setParameter(1, job.getId())
+        .setParameter(2, s.name())
+        .setParameter(3, job.getJobType().name())
+        .setParameter(4, job.getPriority().ordinal())
+        .setParameter(5, scheduled != null ? Timestamp.from(scheduled) : nowTs)
+        .setParameter(6, job.getBusinessKey())
+        .setParameter(7, job.getTimeoutSec())
+        .setParameter(8, job.getMaxRetries())
+        .setParameter(9, job.getAttempts())
+        .setParameter(10, job.getPickedBy())
+        .setParameter(11, job.getPickedAt() != null ? Timestamp.from(job.getPickedAt()) : null)
+        .setParameter(
+            12, job.getPausedFromStatus() != null ? job.getPausedFromStatus().name() : null)
+        .setParameter(13, job.getLastError())
+        .setParameter(14, job.getVersion() != null ? job.getVersion() : 0)
+        .setParameter(15, nowTs)
+        .executeUpdate();
+  }
+
+  private void saveColdUpdate(JobEntity job) {
+    if (tryScheduledTimeOnlyHotUpdate(job)) {
+      return;
+    }
+    if (tryHotMutationDispatch(job)) {
+      return;
+    }
+    guardAgainstHotMutation(job);
+
+    ctx.em()
+        .createNativeQuery(
+            "UPDATE scheduler_job SET "
+                + "next_fire = ?, "
+                + "params = CAST(? AS JSON), "
+                + "on_success_payload = CAST(? AS JSON), "
+                + "on_failure_payload = CAST(? AS JSON), "
+                + "depends_on = ?, "
+                + "superseded_by = ?, "
+                + "resource_name = ? "
+                + "WHERE job_id = ?")
+        .setParameter(1, job.getNextFire() != null ? Timestamp.from(job.getNextFire()) : null)
+        .setParameter(2, mapper.paramsToJson(job))
+        .setParameter(3, mapper.callbackPayloadToJson(job.getOnSuccessPayload()))
+        .setParameter(4, mapper.callbackPayloadToJson(job.getOnFailurePayload()))
+        .setParameter(5, job.getDependsOn())
+        .setParameter(6, job.getSupersededBy())
+        .setParameter(7, job.getResourceName())
+        .setParameter(8, job.getId())
+        .executeUpdate();
+  }
+
+  private void bindColdInsert(Query q, JobEntity job, Timestamp nowTs) {
+    int i = 1;
+    q.setParameter(i++, job.getId());
+    q.setParameter(i++, job.getJobType().name());
+    q.setParameter(i++, job.getPriority().ordinal());
+    q.setParameter(i++, job.getMaxRetries());
+    q.setParameter(i++, job.getBackoffPolicy().name());
+    q.setParameter(i++, job.getBackoffParamMs());
+    q.setParameter(i++, job.getTimeoutSec());
+    q.setParameter(i++, job.getCronExpr());
+    q.setParameter(i++, job.getZoneId());
+    q.setParameter(i++, job.getNextFire() != null ? Timestamp.from(job.getNextFire()) : null);
+    q.setParameter(i++, mapper.payloadToJson(job));
+    q.setParameter(i++, mapper.paramsToJson(job));
+    q.setParameter(i++, job.getIdempotencyKey());
+    q.setParameter(i++, job.getBusinessKey());
+    q.setParameter(i++, job.getResourceName());
+    q.setParameter(i++, mapper.callbackPayloadToJson(job.getOnSuccessPayload()));
+    q.setParameter(i++, mapper.callbackPayloadToJson(job.getOnFailurePayload()));
+    q.setParameter(i++, job.getDependsOn());
+    q.setParameter(i++, job.getSupersededBy());
+    q.setParameter(i++, nowTs);
+    q.setParameter(i++, job.getCreatedBy());
+    String recStatus = null;
+    if (job.getJobType() == JobExecutionType.RECURRING) {
+      JobStatus s = job.getStatus() != null ? job.getStatus() : JobStatus.PENDING;
+      String rec = MysqlJobRowMapper.recStatusForLiveStatus(s);
+      recStatus = rec != null ? rec : "P";
+    }
+    q.setParameter(i, recStatus);
+  }
+
+  private void bindHotInsert(Query q, JobEntity job, Timestamp nowTs) {
+    int i = 1;
+    q.setParameter(i++, job.getId());
+    JobStatus s = job.getStatus() != null ? job.getStatus() : JobStatus.PENDING;
+    q.setParameter(i++, s.name());
+    q.setParameter(i++, job.getJobType().name());
+    q.setParameter(i++, job.getPriority().ordinal());
+    Instant scheduled = job.getScheduledTime();
+    q.setParameter(i++, scheduled != null ? Timestamp.from(scheduled) : nowTs);
+    q.setParameter(i++, job.getBusinessKey());
+    q.setParameter(i++, job.getTimeoutSec());
+    q.setParameter(i++, job.getMaxRetries());
+    q.setParameter(i++, job.getAttempts());
+    q.setParameter(i++, job.getPickedBy());
+    q.setParameter(i++, job.getPickedAt() != null ? Timestamp.from(job.getPickedAt()) : null);
+    q.setParameter(
+        i++, job.getPausedFromStatus() != null ? job.getPausedFromStatus().name() : null);
+    q.setParameter(i++, job.getLastError());
+    q.setParameter(i++, job.getVersion() != null ? job.getVersion() : 0);
+    q.setParameter(i, nowTs);
+  }
+
   @SuppressWarnings("unchecked")
-  private boolean tryHotMutationDispatch(JobEntity incoming) {
-    long id = incoming.getId();
+  private boolean tryScheduledTimeOnlyHotUpdate(JobEntity job) {
+    long id = job.getId();
     List<Object[]> rows =
         ctx.em()
             .createNativeQuery(
                 "SELECT q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at, "
-                    + "q.paused_from_status, q.last_error, q.version, "
-                    + "c.terminal_status, c.rec_status "
-                    + "FROM scheduler_job c "
-                    + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
-                    + "WHERE c.job_id = ?")
+                    + "q.paused_from_status, q.last_error, q.version "
+                    + "FROM scheduler_job_queue q WHERE q.job_id = ?")
             .setParameter(1, id)
             .getResultList();
     if (rows.isEmpty()) {
       return false;
     }
     Object[] row = rows.get(0);
-    String hotStatusStr = (String) row[0];
-    String terminalStr = (String) row[8];
-    String recStatus = MysqlJobRowMapper.stringOrNull(row[9]);
-    if (terminalStr != null || recStatus != null || hotStatusStr == null) {
+    if (!"PENDING".equals(row[0])) {
       return false;
     }
-
-    JobStatus storedStatus = JobStatus.valueOf(hotStatusStr);
     Instant storedSched = MysqlJobRowMapper.toInstant(row[1]);
-    int storedAttempts = ((Number) row[2]).intValue();
-    Object storedPickedBy = row[3];
-    Instant storedPickedAt = MysqlJobRowMapper.toInstant(row[4]);
-    String storedPausedFromStr = (String) row[5];
-    JobStatus storedPausedFrom =
-        storedPausedFromStr != null ? JobStatus.valueOf(storedPausedFromStr) : null;
-    Object storedLastError = row[6];
-    int storedVersion = ((Number) row[7]).intValue();
-
-    boolean statusDiffers = incoming.getStatus() != null && incoming.getStatus() != storedStatus;
-    boolean anyHotFieldDiffers =
-        statusDiffers
-            || !java.util.Objects.equals(incoming.getScheduledTime(), storedSched)
-            || incoming.getAttempts() != storedAttempts
-            || !java.util.Objects.equals(incoming.getPickedBy(), storedPickedBy)
-            || !java.util.Objects.equals(incoming.getPickedAt(), storedPickedAt)
-            || !java.util.Objects.equals(incoming.getPausedFromStatus(), storedPausedFrom)
-            || !java.util.Objects.equals(incoming.getLastError(), storedLastError);
-
-    if (!anyHotFieldDiffers) {
+    Instant incomingSched = job.getScheduledTime();
+    if (Objects.equals(storedSched, incomingSched)) {
       return false;
     }
-
-    Integer incomingVersion = incoming.getVersion();
-    if (incomingVersion != null && incomingVersion.intValue() != storedVersion) {
-      throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
+    if (!Objects.equals(JobStatus.PENDING, job.getStatus())
+        || !Objects.equals(((Number) row[2]).intValue(), job.getAttempts())
+        || !Objects.equals(row[3], job.getPickedBy())
+        || !Objects.equals(MysqlJobRowMapper.toInstant(row[4]), job.getPickedAt())
+        || !Objects.equals(
+            row[5] != null ? JobStatus.valueOf((String) row[5]) : null, job.getPausedFromStatus())
+        || !Objects.equals(row[6], job.getLastError())
+        || !Objects.equals(((Number) row[7]).intValue(), job.getVersion())) {
+      return false;
     }
-
-    if (statusDiffers && incoming.getStatus().isTerminal()) {
-      terminalizeViaSave(incoming, storedVersion);
-    } else {
-      updateHotLiveViaVersion(incoming, storedVersion);
-    }
+    ctx.em()
+        .createNativeQuery(
+            "UPDATE scheduler_job_queue SET scheduled_time = ?, updated_at = NOW(3) "
+                + "WHERE job_id = ? AND status = 'PENDING'")
+        .setParameter(1, incomingSched != null ? Timestamp.from(incomingSched) : null)
+        .setParameter(2, id)
+        .executeUpdate();
     return true;
   }
 
@@ -1090,25 +1050,66 @@ final class MysqlJobCrudOperations implements JobCrudStore, JobBulkStore {
     }
   }
 
-  private static void checkHotField(long jobId, String fieldName, Object incoming, Object stored) {
-    if (java.util.Objects.equals(incoming, stored)) {
-      return;
+  @SuppressWarnings("unchecked")
+  private boolean tryHotMutationDispatch(JobEntity incoming) {
+    long id = incoming.getId();
+    List<Object[]> rows =
+        ctx.em()
+            .createNativeQuery(
+                "SELECT q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at, "
+                    + "q.paused_from_status, q.last_error, q.version, "
+                    + "c.terminal_status, c.rec_status "
+                    + "FROM scheduler_job c "
+                    + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
+                    + "WHERE c.job_id = ?")
+            .setParameter(1, id)
+            .getResultList();
+    if (rows.isEmpty()) {
+      return false;
     }
-    throw new IllegalStateException(
-        "save() rejected: hot-field mutation detected for id="
-            + jobId
-            + " field="
-            + fieldName
-            + " incoming="
-            + incoming
-            + " stored="
-            + stored
-            + ". Use an explicit transition method.");
-  }
+    Object[] row = rows.get(0);
+    String hotStatusStr = (String) row[0];
+    String terminalStr = (String) row[8];
+    String recStatus = MysqlJobRowMapper.stringOrNull(row[9]);
+    if (terminalStr != null || recStatus != null || hotStatusStr == null) {
+      return false;
+    }
 
-  private static void assignTsidIfMissing(JobEntity job) {
-    if (job.getId() == null || job.getId() == 0L) {
-      job.setId(TsidFactory.next());
+    JobStatus storedStatus = JobStatus.valueOf(hotStatusStr);
+    Instant storedSched = MysqlJobRowMapper.toInstant(row[1]);
+    int storedAttempts = ((Number) row[2]).intValue();
+    Object storedPickedBy = row[3];
+    Instant storedPickedAt = MysqlJobRowMapper.toInstant(row[4]);
+    String storedPausedFromStr = (String) row[5];
+    JobStatus storedPausedFrom =
+        storedPausedFromStr != null ? JobStatus.valueOf(storedPausedFromStr) : null;
+    Object storedLastError = row[6];
+    int storedVersion = ((Number) row[7]).intValue();
+
+    boolean statusDiffers = incoming.getStatus() != null && incoming.getStatus() != storedStatus;
+    boolean anyHotFieldDiffers =
+        statusDiffers
+            || !Objects.equals(incoming.getScheduledTime(), storedSched)
+            || incoming.getAttempts() != storedAttempts
+            || !Objects.equals(incoming.getPickedBy(), storedPickedBy)
+            || !Objects.equals(incoming.getPickedAt(), storedPickedAt)
+            || !Objects.equals(incoming.getPausedFromStatus(), storedPausedFrom)
+            || !Objects.equals(incoming.getLastError(), storedLastError);
+
+    if (!anyHotFieldDiffers) {
+      return false;
     }
+
+    Integer incomingVersion = incoming.getVersion();
+    if (incomingVersion != null && incomingVersion.intValue() != storedVersion) {
+      throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
+    }
+
+    if (statusDiffers && incoming.getStatus().isTerminal()) {
+      terminalizeViaSave(incoming, storedVersion);
+    } else {
+      updateHotLiveViaVersion(incoming, storedVersion);
+    }
+    return true;
   }
 }

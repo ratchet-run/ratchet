@@ -12,11 +12,18 @@ final class MysqlStoreContext {
 
   private final EntityManager em;
   private final MetricsCollector metricsCollector;
+  private final int priorityBoostIntervalMinutes;
   private final MysqlConstraintDetector constraintDetector = new MysqlConstraintDetector();
 
   MysqlStoreContext(EntityManager em, MetricsCollector metricsCollector) {
+    this(em, metricsCollector, 15);
+  }
+
+  MysqlStoreContext(
+      EntityManager em, MetricsCollector metricsCollector, int priorityBoostIntervalMinutes) {
     this.em = em;
     this.metricsCollector = metricsCollector;
+    this.priorityBoostIntervalMinutes = priorityBoostIntervalMinutes;
   }
 
   EntityManager em() {
@@ -25,6 +32,10 @@ final class MysqlStoreContext {
 
   MysqlConstraintDetector constraintDetector() {
     return constraintDetector;
+  }
+
+  int priorityBoostIntervalMinutes() {
+    return priorityBoostIntervalMinutes;
   }
 
   RuntimeException translateTransientStoreException(String operation, RuntimeException e) {

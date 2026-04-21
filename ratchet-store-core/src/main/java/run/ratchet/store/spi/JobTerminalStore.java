@@ -38,7 +38,7 @@ public interface JobTerminalStore {
 
   /**
    * Atomically transitions a RUNNING job to terminal FAILED state. Captures total attempts and
-   * terminal error in a single store call. Replaces the legacy {@code setStatus(FAILED)+save}
+   * terminal error in a single store call. Replaces the older {@code setStatus(FAILED)+save}
    * pattern that is incompatible with the hot/cold split (hot DELETE + cold UPDATE + bkres
    * DELETE in one tx).
    */

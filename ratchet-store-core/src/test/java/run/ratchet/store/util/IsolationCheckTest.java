@@ -1,6 +1,5 @@
 package run.ratchet.store.util;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -8,13 +7,15 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
+import run.ratchet.api.RatchetOptions;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceException;
 import jakarta.persistence.Query;
 import java.util.List;
-import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 class IsolationCheckTest {
 
@@ -30,43 +31,6 @@ class IsolationCheckTest {
     when(em.createNativeQuery("SELECT @@SESSION.transaction_isolation")).thenReturn(query8);
     when(em.createNativeQuery("SELECT @@SESSION.tx_isolation")).thenReturn(query57);
     when(em.createNativeQuery("SHOW transaction_isolation")).thenReturn(query8);
-    System.clearProperty(IsolationCheck.SYSTEM_PROPERTY);
-  }
-
-  @AfterEach
-  void tearDown() {
-    System.clearProperty(IsolationCheck.SYSTEM_PROPERTY);
-  }
-
-  @Test
-  void currentModeDefaultsToFail() {
-    assertEquals(IsolationCheck.Mode.FAIL, IsolationCheck.currentMode());
-  }
-
-  @Test
-  void currentModeRespectsExplicitFail() {
-    System.setProperty(IsolationCheck.SYSTEM_PROPERTY, "fail");
-    assertEquals(IsolationCheck.Mode.FAIL, IsolationCheck.currentMode());
-  }
-
-  @Test
-  void currentModeRespectsDisableSynonyms() {
-    for (String value : List.of("disable", "off", "false", "DISABLE", " disable ")) {
-      System.setProperty(IsolationCheck.SYSTEM_PROPERTY, value);
-      assertEquals(IsolationCheck.Mode.DISABLE, IsolationCheck.currentMode(), "value=" + value);
-    }
-  }
-
-  @Test
-  void currentModeRespectsExplicitWarn() {
-    System.setProperty(IsolationCheck.SYSTEM_PROPERTY, "warn");
-    assertEquals(IsolationCheck.Mode.WARN, IsolationCheck.currentMode());
-  }
-
-  @Test
-  void currentModeFallsBackToFailForUnknownValue() {
-    System.setProperty(IsolationCheck.SYSTEM_PROPERTY, "yelling");
-    assertEquals(IsolationCheck.Mode.FAIL, IsolationCheck.currentMode());
   }
 
   @Test
@@ -119,16 +83,18 @@ class IsolationCheckTest {
 
   @Test
   void verifyWarnsOnMismatchInWarnMode() {
-    System.setProperty(IsolationCheck.SYSTEM_PROPERTY, "warn");
     when(query8.getSingleResult()).thenReturn("REPEATABLE-READ");
-    // No exception expected — WARN mode logs and continues.
     IsolationCheck.verifyReadCommitted(
-        em, "MySQL", List.of("SELECT @@SESSION.transaction_isolation"), "READ-COMMITTED", "fix");
+        em,
+        "MySQL",
+        List.of("SELECT @@SESSION.transaction_isolation"),
+        "READ-COMMITTED",
+        "fix",
+        RatchetOptions.IsolationCheckMode.WARN);
   }
 
   @Test
   void verifyThrowsOnMismatchInFailMode() {
-    System.setProperty(IsolationCheck.SYSTEM_PROPERTY, "fail");
     when(query8.getSingleResult()).thenReturn("SERIALIZABLE");
 
     IsolationCheckFailedException ex =
@@ -143,29 +109,33 @@ class IsolationCheckTest {
                     "use read committed"));
 
     String msg = ex.getMessage();
-    org.junit.jupiter.api.Assertions.assertTrue(msg.contains("PostgreSQL"));
-    org.junit.jupiter.api.Assertions.assertTrue(msg.contains("SERIALIZABLE"));
-    org.junit.jupiter.api.Assertions.assertTrue(msg.contains("use read committed"));
+    Assertions.assertTrue(msg.contains("PostgreSQL"));
+    Assertions.assertTrue(msg.contains("SERIALIZABLE"));
+    Assertions.assertTrue(msg.contains("use read committed"));
   }
 
   @Test
   void verifySkipsCompletelyWhenDisabled() {
-    System.setProperty(IsolationCheck.SYSTEM_PROPERTY, "disable");
-    // Even if the underlying connection is in SERIALIZABLE, disable should short-circuit.
     IsolationCheck.verifyReadCommitted(
-        em, "MySQL", List.of("SELECT @@SESSION.transaction_isolation"), "READ-COMMITTED", "fix");
-    // Critical: disable means the query is NEVER issued. No interaction with the EM.
-    verify(em, org.mockito.Mockito.never()).createNativeQuery(anyString());
+        em,
+        "MySQL",
+        List.of("SELECT @@SESSION.transaction_isolation"),
+        "READ-COMMITTED",
+        "fix",
+        RatchetOptions.IsolationCheckMode.DISABLE);
+    verify(em, Mockito.never()).createNativeQuery(anyString());
   }
 
   @Test
   void verifySkipsCompletelyWhenDisabledEvenInFailMode() {
-    // disable wins over fail.
-    System.setProperty(IsolationCheck.SYSTEM_PROPERTY, "disable");
     when(query8.getSingleResult()).thenReturn("SERIALIZABLE");
-    // Should not throw.
     IsolationCheck.verifyReadCommitted(
-        em, "MySQL", List.of("SELECT @@SESSION.transaction_isolation"), "READ-COMMITTED", "fix");
+        em,
+        "MySQL",
+        List.of("SELECT @@SESSION.transaction_isolation"),
+        "READ-COMMITTED",
+        "fix",
+        RatchetOptions.IsolationCheckMode.DISABLE);
   }
 
   @Test

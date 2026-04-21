@@ -4,9 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.util.PriorityBoostConfig;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -23,7 +23,7 @@ class MongoClaimBoostBoundedBacklogIT extends BaseDocumentStoreIT {
   private static final int CLAIM_LIMIT = 5;
 
   private static Instant oldEnoughForLowestToBeatCritical() {
-    int boostInterval = PriorityBoostConfig.getPriorityBoostIntervalMinutes();
+    int boostInterval = RatchetOptions.defaults().store().priorityBoostIntervalMinutes();
     assumeTrue(boostInterval > 0, "priority boosting is disabled");
     return Instant.now()
         .minus(Duration.ofMinutes((long) boostInterval * (JobPriority.CRITICAL.ordinal() + 1L)))

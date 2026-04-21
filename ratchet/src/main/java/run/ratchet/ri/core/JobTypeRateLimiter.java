@@ -1,18 +1,17 @@
 package run.ratchet.ri.core;
 
+import run.ratchet.api.RatchetOptions;
+import run.ratchet.ri.config.RatchetOptionsResolver;
 import run.ratchet.store.entity.JobExecutionType;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.jboss.logging.Logger;
 
-/**
- * Per-type rate limiter using a one-minute sliding window. Configured via environment variables
- * named {@code SCHEDULER_RATE_LIMIT_<TYPE>} (e.g. {@code SCHEDULER_RATE_LIMIT_SINGLE}). A value of
- * 0 or unset means unlimited.
- */
+/** Per-type rate limiter using a one-minute sliding window. A value of 0 means unlimited. */
 @ApplicationScoped
 public class JobTypeRateLimiter {
 
@@ -20,9 +19,19 @@ public class JobTypeRateLimiter {
 
   private final Map<JobExecutionType, Integer> rateLimits = new EnumMap<>(JobExecutionType.class);
   private final Map<JobExecutionType, RateWindow> rateWindows = new ConcurrentHashMap<>();
+  private final RatchetOptions options;
 
-  /** Creates a new rate limiter and initializes rate limits from environment variables. */
   public JobTypeRateLimiter() {
+    this(RatchetOptions.defaults());
+  }
+
+  @Inject
+  public JobTypeRateLimiter(RatchetOptionsResolver optionsResolver) {
+    this(optionsResolver.get());
+  }
+
+  JobTypeRateLimiter(RatchetOptions options) {
+    this.options = options;
     init();
   }
 
@@ -59,20 +68,11 @@ public class JobTypeRateLimiter {
     return window.tryAcquire(maxPerMinute);
   }
 
-  /** Reads rate limits from environment variables. */
   void init() {
-    rateLimits.put(JobExecutionType.SINGLE, getRateLimitFromEnv("SCHEDULER_RATE_LIMIT_SINGLE", 0));
-    rateLimits.put(
-        JobExecutionType.RECURRING, getRateLimitFromEnv("SCHEDULER_RATE_LIMIT_RECURRING", 0));
-    rateLimits.put(
-        JobExecutionType.BATCH_CHILD, getRateLimitFromEnv("SCHEDULER_RATE_LIMIT_BATCH_CHILD", 0));
-    rateLimits.put(
-        JobExecutionType.CHAIN_STEP, getRateLimitFromEnv("SCHEDULER_RATE_LIMIT_CHAIN_STEP", 0));
-    rateLimits.put(
-        JobExecutionType.BATCH_PARENT, getRateLimitFromEnv("SCHEDULER_RATE_LIMIT_BATCH_PARENT", 0));
-    rateLimits.put(
-        JobExecutionType.WORKFLOW_BRANCH,
-        getRateLimitFromEnv("SCHEDULER_RATE_LIMIT_WORKFLOW_BRANCH", 0));
+    rateLimits.clear();
+    for (JobExecutionType type : JobExecutionType.values()) {
+      rateLimits.put(type, options.execution().rateLimitPerMinute(type.name()));
+    }
 
     boolean anyConfigured = false;
     for (Map.Entry<JobExecutionType, Integer> entry : rateLimits.entrySet()) {
@@ -84,20 +84,6 @@ public class JobTypeRateLimiter {
 
     if (!anyConfigured) {
       log.debug("No rate limits configured — all job types unlimited");
-    }
-  }
-
-  private int getRateLimitFromEnv(String envVar, int defaultValue) {
-    String value = System.getenv(envVar);
-    if (value == null || value.isBlank()) {
-      return defaultValue;
-    }
-    try {
-      int limit = Integer.parseInt(value.trim());
-      return Math.max(limit, 0);
-    } catch (NumberFormatException e) {
-      log.warnf("Invalid rate limit value for %s: %s, using unlimited", envVar, value);
-      return defaultValue;
     }
   }
 

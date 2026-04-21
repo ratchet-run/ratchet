@@ -7,15 +7,6 @@ import java.util.regex.Pattern;
 /** Strips PII (JDBC URLs, credentials, optionally emails) from exception messages. */
 public class DefaultErrorSanitizer implements ErrorSanitizer {
 
-  /**
-   * System property controlling whether email-like patterns are redacted from exception messages.
-   * Enabled by default so that user emails leaking into job error messages never reach {@code
-   * last_error} columns. Set to {@code false} to opt out when business-record IDs happen to match
-   * the email pattern (e.g. {@code order-2026@dev}) and the false positives are worse than the PII
-   * risk.
-   */
-  static final String REDACT_EMAILS_PROPERTY = "ratchet.error-sanitizer.redact-emails";
-
   private static final int MAX_LENGTH = 2000;
   private static final int MAX_CAUSE_DEPTH = 10;
   private static final String REDACTED = "***REDACTED***";
@@ -49,6 +40,16 @@ public class DefaultErrorSanitizer implements ErrorSanitizer {
           "([?&;](?:password|passwd|pwd|user|username|secret|token|apikey|api_key|access_key|credential))"
               + "=[^&\\s;,)]+",
           Pattern.CASE_INSENSITIVE);
+
+  private final boolean redactEmails;
+
+  public DefaultErrorSanitizer() {
+    this(true);
+  }
+
+  public DefaultErrorSanitizer(boolean redactEmails) {
+    this.redactEmails = redactEmails;
+  }
 
   @Override
   public String sanitize(Throwable ex) {
@@ -94,11 +95,11 @@ public class DefaultErrorSanitizer implements ErrorSanitizer {
     return result.toString();
   }
 
-  private static String redact(String text) {
+  private String redact(String text) {
     String sanitized = text;
     sanitized = JDBC_URL.matcher(sanitized).replaceAll(REDACTED);
     sanitized = URL_WITH_CREDENTIALS.matcher(sanitized).replaceAll(REDACTED);
-    if (Boolean.parseBoolean(System.getProperty(REDACT_EMAILS_PROPERTY, "true"))) {
+    if (redactEmails) {
       sanitized = EMAIL.matcher(sanitized).replaceAll(REDACTED);
     }
     sanitized = URL_PARAM_CREDENTIAL.matcher(sanitized).replaceAll("$1=" + REDACTED);

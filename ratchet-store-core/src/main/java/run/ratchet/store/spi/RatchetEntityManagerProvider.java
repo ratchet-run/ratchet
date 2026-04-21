@@ -8,7 +8,7 @@ import jakarta.persistence.EntityManager;
  *
  * <p>Applications with multiple persistence units can override this SPI with a CDI alternative that
  * injects the desired {@code @PersistenceContext(unitName = "...")}. The store modules' default
- * providers keep the legacy unnamed {@code @PersistenceContext} behavior.
+ * providers keep the unnamed {@code @PersistenceContext} behavior.
  */
 @Incubating
 public interface RatchetEntityManagerProvider {

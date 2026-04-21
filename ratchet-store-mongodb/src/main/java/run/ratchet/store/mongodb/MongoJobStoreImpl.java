@@ -27,9 +27,12 @@ import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.result.DeleteResult;
 import com.mongodb.client.result.UpdateResult;
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.RatchetOptionsFactory;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.spi.RatchetConfigSource;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.ArchivedJobEntity;
@@ -45,10 +48,11 @@ import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.TsidFactory;
-import run.ratchet.store.util.PriorityBoostConfig;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
+import jakarta.enterprise.inject.spi.DeploymentException;
 import jakarta.inject.Inject;
 import java.time.Duration;
 import java.time.Instant;
@@ -75,7 +79,7 @@ import org.jboss.logging.Logger;
  *
  * <p>Uses the MongoDB sync driver directly (no ODM). All state transitions use atomic {@code
  * findOneAndUpdate} operations. Tags are embedded in the job document as an array. IDs are
- * generated via {@link run.ratchet.store.id.TsidFactory}.
+ * generated via {@link TsidFactory}.
  */
 @ApplicationScoped
 class MongoJobStoreImpl implements MongoJobStore {
@@ -87,10 +91,9 @@ class MongoJobStoreImpl implements MongoJobStore {
       List.of("SINGLE", "BATCH_CHILD", "CHAIN_STEP", "WORKFLOW_BRANCH");
   private static final List<String> ACTIVE_STATUSES = List.of("PENDING", "RUNNING", "PAUSED");
   private static final List<String> TERMINAL_STATUSES = List.of("SUCCEEDED", "FAILED", "CANCELED");
-  private static final int PRIORITY_BOOST_INTERVAL =
-      PriorityBoostConfig.getPriorityBoostIntervalMinutes();
 
   private final MongoDatabase database;
+  private final RatchetOptions options;
   private final ExecutorService claimExecutor =
       Executors.newFixedThreadPool(
           Math.max(2, Runtime.getRuntime().availableProcessors()),
@@ -101,21 +104,41 @@ class MongoJobStoreImpl implements MongoJobStore {
           });
 
   @Inject
-  MongoJobStoreImpl(MongoDatabase database) {
-    this.database = database;
+  MongoJobStoreImpl(
+      MongoDatabase database,
+      Instance<RatchetOptions> optionsInstance,
+      Instance<RatchetConfigSource> configSources) {
+    this(database, resolveOptions(optionsInstance, configSources));
   }
 
-  @PreDestroy
-  void shutdown() {
-    claimExecutor.shutdown();
-    try {
-      if (!claimExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
-        claimExecutor.shutdownNow();
-      }
-    } catch (InterruptedException e) {
-      claimExecutor.shutdownNow();
-      Thread.currentThread().interrupt();
+  MongoJobStoreImpl(MongoDatabase database) {
+    this(database, RatchetOptions.defaults());
+  }
+
+  private MongoJobStoreImpl(MongoDatabase database, RatchetOptions options) {
+    this.database = database;
+    this.options = options;
+    options.node().explicitTsidNodeId().ifPresent(TsidFactory::configureNodeId);
+  }
+
+  private static RatchetOptions resolveOptions(
+      Instance<RatchetOptions> optionsInstance, Instance<RatchetConfigSource> configSources) {
+    if (optionsInstance == null || optionsInstance.isUnsatisfied()) {
+      return RatchetOptionsFactory.fromFallbackSources(configSources);
     }
+    if (optionsInstance.isAmbiguous()) {
+      throw new DeploymentException(
+          "Multiple unqualified RatchetOptions beans found. Produce exactly one @ApplicationScoped"
+              + " RatchetOptions bean for the application.");
+    }
+    return optionsInstance.get();
+  }
+
+  private static boolean isPollerExecutable(JobExecutionType jobType) {
+    return jobType == JobExecutionType.SINGLE
+        || jobType == JobExecutionType.BATCH_CHILD
+        || jobType == JobExecutionType.CHAIN_STEP
+        || jobType == JobExecutionType.WORKFLOW_BRANCH;
   }
 
   @Override
@@ -1557,6 +1580,19 @@ class MongoJobStoreImpl implements MongoJobStore {
     return (int) result.getDeletedCount();
   }
 
+  @PreDestroy
+  void shutdown() {
+    claimExecutor.shutdown();
+    try {
+      if (!claimExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+        claimExecutor.shutdownNow();
+      }
+    } catch (InterruptedException e) {
+      claimExecutor.shutdownNow();
+      Thread.currentThread().interrupt();
+    }
+  }
+
   @PostConstruct
   void initializeCollections() {
     new MongoCollectionInitializer(database).initialize();
@@ -1650,10 +1686,11 @@ class MongoJobStoreImpl implements MongoJobStore {
     return ids;
   }
 
-  private static Object effectivePriorityExpression(String timeColumn, Date now) {
+  private Object effectivePriorityExpression(String timeColumn, Date now) {
     Object priorityExpression =
         new Document("$ifNull", List.of("$priority", JobPriority.NORMAL.ordinal()));
-    if (PRIORITY_BOOST_INTERVAL <= 0) {
+    int priorityBoostInterval = options.store().priorityBoostIntervalMinutes();
+    if (priorityBoostInterval <= 0) {
       return priorityExpression;
     }
     Object ageMillisExpression =
@@ -1664,7 +1701,7 @@ class MongoJobStoreImpl implements MongoJobStore {
     Object boostExpression =
         new Document(
             "$floor",
-            new Document("$divide", List.of(ageMinutesExpression, PRIORITY_BOOST_INTERVAL)));
+            new Document("$divide", List.of(ageMinutesExpression, priorityBoostInterval)));
     return new Document("$add", List.of(priorityExpression, boostExpression));
   }
 
@@ -1705,15 +1742,6 @@ class MongoJobStoreImpl implements MongoJobStore {
     }
     return claimed;
   }
-
-  private static boolean isPollerExecutable(JobExecutionType jobType) {
-    return jobType == JobExecutionType.SINGLE
-        || jobType == JobExecutionType.BATCH_CHILD
-        || jobType == JobExecutionType.CHAIN_STEP
-        || jobType == JobExecutionType.WORKFLOW_BRANCH;
-  }
-
-  private record ClaimCandidate(long id, int priority, Date dueAt) {}
 
   private Map<String, Long> aggregateStringCountsByTag(String tag, Object groupExpression) {
     Map<String, Long> counts = new TreeMap<>();
@@ -1782,4 +1810,7 @@ class MongoJobStoreImpl implements MongoJobStore {
     }
     return a;
   }
+
+
+  private record ClaimCandidate(long id, int priority, Date dueAt) {}
 }

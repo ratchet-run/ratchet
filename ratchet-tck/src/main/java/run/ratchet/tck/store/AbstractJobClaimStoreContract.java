@@ -6,11 +6,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobStatus;
-import run.ratchet.store.util.PriorityBoostConfig;
 import run.ratchet.tck.util.ConcurrentTestRunner;
 import java.time.Duration;
 import java.time.Instant;
@@ -29,7 +29,7 @@ public abstract class AbstractJobClaimStoreContract implements JobStoreContractF
   }
 
   private static Instant oldEnoughForLowestToBeatCritical() {
-    int boostInterval = PriorityBoostConfig.getPriorityBoostIntervalMinutes();
+    int boostInterval = RatchetOptions.defaults().store().priorityBoostIntervalMinutes();
     assumeTrue(boostInterval > 0, "priority boosting is disabled");
     return Instant.now()
         .minus(Duration.ofMinutes((long) boostInterval * (JobPriority.CRITICAL.ordinal() + 1L)))

@@ -3,6 +3,7 @@ package run.ratchet.store.id;
 import java.net.InetAddress;
 import java.security.SecureRandom;
 import java.time.Instant;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import org.jboss.logging.Logger;
 
@@ -40,10 +41,10 @@ import org.jboss.logging.Logger;
  *
  * <p>A collision between two concurrent nodes means both can mint the same 64-bit ID within the
  * same millisecond, causing duplicate-primary-key failures on insert. For deployments with more
- * than a handful of nodes, set the environment variable {@code RATCHET_NODE_ID} (or the system
- * property of the same name) to an explicit integer in the range {@code [0, 1023]} on each node.
- * Both the auto-derived hash path and the {@link SecureRandom} exception-fallback path log a WARN
- * on first initialization so the coordination gap is visible in startup logs.
+ * than a handful of nodes, configure a unique {@code RatchetOptions.node(...tsidNodeId(...))}
+ * integer in the range {@code [0, 1023]} on each node. Both the auto-derived hash path and the
+ * {@link SecureRandom} exception-fallback path log a WARN on first initialization so the
+ * coordination gap is visible in startup logs.
  */
 public final class TsidFactory {
 
@@ -55,7 +56,7 @@ public final class TsidFactory {
   private static final int NODE_BITS = 10;
   private static final int SEQUENCE_BITS = 12;
   private static final long SEQUENCE_MASK = (1L << SEQUENCE_BITS) - 1; // 4095
-  private static final int NODE_ID = computeNodeId();
+  private static final AtomicInteger NODE_ID = new AtomicInteger(computeNodeId());
 
   /**
    * Tracks the last timestamp + sequence packed together to guarantee monotonicity even under clock
@@ -64,6 +65,13 @@ public final class TsidFactory {
   private static final AtomicLong LAST_TS_SEQ = new AtomicLong(0);
 
   private TsidFactory() {}
+
+  public static void configureNodeId(int nodeId) {
+    if (nodeId < 0 || nodeId >= (1 << NODE_BITS)) {
+      throw new IllegalArgumentException("nodeId must be between 0 and 1023");
+    }
+    NODE_ID.set(nodeId);
+  }
 
   /**
    * Generates the next TSID.
@@ -100,7 +108,7 @@ public final class TsidFactory {
       long next = (timestamp << SEQUENCE_BITS) | sequence;
       if (LAST_TS_SEQ.compareAndSet(prev, next)) {
         return (timestamp << (NODE_BITS + SEQUENCE_BITS))
-            | ((long) NODE_ID << SEQUENCE_BITS)
+            | ((long) NODE_ID.get() << SEQUENCE_BITS)
             | sequence;
       }
       // CAS failed, retry
@@ -118,38 +126,23 @@ public final class TsidFactory {
   }
 
   private static int computeNodeId() {
-    // Allow explicit node ID via environment variable or system property (0–1023)
-    String explicit = System.getenv("RATCHET_NODE_ID");
-    if (explicit == null || explicit.isEmpty()) {
-      explicit = System.getProperty("RATCHET_NODE_ID");
-    }
-    if (explicit != null && !explicit.isEmpty()) {
-      try {
-        int nodeId = Integer.parseInt(explicit.trim());
-        if (nodeId >= 0 && nodeId < (1 << NODE_BITS)) {
-          return nodeId;
-        }
-      } catch (NumberFormatException ignored) {
-        // fall through to auto-detection
-      }
-    }
     try {
       String host = InetAddress.getLocalHost().getHostName();
       long pid = ProcessHandle.current().pid();
       int nodeId = Math.abs((host + "-" + pid).hashCode()) & ((1 << NODE_BITS) - 1);
       LOG.warnf(
-          "RATCHET_NODE_ID is unset; derived node slot %d from hash(%s-%d). "
+          "RatchetOptions.node().tsidNodeId is unset; derived node slot %d from hash(%s-%d). "
               + "Collision probability reaches ~50%% at 38 concurrent nodes. "
-              + "Set RATCHET_NODE_ID [0-1023] explicitly in multi-node deployments.",
+              + "Set RatchetOptions.node(...tsidNodeId(...)) explicitly in multi-node deployments.",
           nodeId, host, pid);
       return nodeId;
     } catch (Exception e) {
       int nodeId = new SecureRandom().nextInt(1 << NODE_BITS);
       LOG.warnf(
           e,
-          "RATCHET_NODE_ID is unset and hostname resolution failed (%s); "
+          "RatchetOptions.node().tsidNodeId is unset and hostname resolution failed (%s); "
               + "falling back to random node slot %d. This slot is unstable across JVM restarts. "
-              + "Set RATCHET_NODE_ID [0-1023] explicitly to avoid TSID collisions.",
+              + "Set RatchetOptions.node(...tsidNodeId(...)) explicitly to avoid TSID collisions.",
           e.getClass().getSimpleName(),
           nodeId);
       return nodeId;

@@ -5,12 +5,12 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.spi.JobClaimStore;
-import run.ratchet.store.util.PriorityBoostConfig;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -29,11 +29,50 @@ final class MysqlJobClaimOperations implements JobClaimStore {
     this.jobs = jobs;
   }
 
+  private static List<JobEntity> reorderById(List<JobEntity> jobs, List<Long> orderedIds) {
+    Map<Long, JobEntity> byId = new HashMap<>(jobs.size());
+    for (JobEntity j : jobs) {
+      byId.put(j.getId(), j);
+    }
+    List<JobEntity> ordered = new ArrayList<>(jobs.size());
+    for (Long id : orderedIds) {
+      JobEntity j = byId.get(id);
+      if (j != null) {
+        ordered.add(j);
+      }
+    }
+    return ordered;
+  }
+
+  private static String buildClaimSql(
+      String selectClause, String typeFilter, String timeColumn, int boostInterval) {
+    return """
+        SELECT %s FROM scheduler_job_queue FORCE INDEX (idx_claim_executable)
+        WHERE status = 'PENDING'
+          AND %s <= NOW(3)
+          AND %s
+        ORDER BY %s
+        LIMIT ?
+        FOR UPDATE SKIP LOCKED"""
+        .formatted(
+            selectClause, timeColumn, typeFilter, buildBoostedOrderBy(timeColumn, boostInterval));
+  }
+
+  private static String buildBoostedOrderBy(String timeColumn, int boostInterval) {
+    return boostInterval > 0
+        ? "(priority + FLOOR(GREATEST(0, TIMESTAMPDIFF(MINUTE, "
+            + timeColumn
+            + ", NOW(3))) / ?)) DESC, "
+            + timeColumn
+            + " ASC, job_id ASC"
+        : "priority DESC, " + timeColumn + " ASC, job_id ASC";
+  }
+
   @Override
   @SuppressWarnings("unchecked")
   public List<JobEntity> claimNextBatch(int limit, String nodeId) {
     try {
-      int boostInterval = PriorityBoostConfig.getPriorityBoostIntervalMinutes();
+      int boostInterval = ctx.priorityBoostIntervalMinutes();
       var query =
           ctx.em()
               .createNativeQuery(
@@ -86,7 +125,7 @@ final class MysqlJobClaimOperations implements JobClaimStore {
     }
 
     try {
-      int boostInterval = PriorityBoostConfig.getPriorityBoostIntervalMinutes();
+      int boostInterval = ctx.priorityBoostIntervalMinutes();
       var query =
           ctx.em()
               .createNativeQuery(
@@ -124,7 +163,7 @@ final class MysqlJobClaimOperations implements JobClaimStore {
   @SuppressWarnings("unchecked")
   public List<JobEntity> claimDueRecurring(int limit, String nodeId) {
     try {
-      int boostInterval = PriorityBoostConfig.getPriorityBoostIntervalMinutes();
+      int boostInterval = ctx.priorityBoostIntervalMinutes();
       var query =
           ctx.em()
               .createNativeQuery(
@@ -246,44 +285,5 @@ final class MysqlJobClaimOperations implements JobClaimStore {
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("claim jobs", e);
     }
-  }
-
-  private static String buildClaimSql(
-      String selectClause, String typeFilter, String timeColumn, int boostInterval) {
-    return """
-        SELECT %s FROM scheduler_job_queue FORCE INDEX (idx_claim_executable)
-        WHERE status = 'PENDING'
-          AND %s <= NOW(3)
-          AND %s
-        ORDER BY %s
-        LIMIT ?
-        FOR UPDATE SKIP LOCKED"""
-        .formatted(
-            selectClause, timeColumn, typeFilter, buildBoostedOrderBy(timeColumn, boostInterval));
-  }
-
-  private static String buildBoostedOrderBy(String timeColumn, int boostInterval) {
-    return boostInterval > 0
-        ? "(priority + FLOOR(GREATEST(0, TIMESTAMPDIFF(MINUTE, "
-            + timeColumn
-            + ", NOW(3))) / ?)) DESC, "
-            + timeColumn
-            + " ASC, job_id ASC"
-        : "priority DESC, " + timeColumn + " ASC, job_id ASC";
-  }
-
-  private static List<JobEntity> reorderById(List<JobEntity> jobs, List<Long> orderedIds) {
-    Map<Long, JobEntity> byId = new java.util.HashMap<>(jobs.size());
-    for (JobEntity j : jobs) {
-      byId.put(j.getId(), j);
-    }
-    List<JobEntity> ordered = new ArrayList<>(jobs.size());
-    for (Long id : orderedIds) {
-      JobEntity j = byId.get(id);
-      if (j != null) {
-        ordered.add(j);
-      }
-    }
-    return ordered;
   }
 }

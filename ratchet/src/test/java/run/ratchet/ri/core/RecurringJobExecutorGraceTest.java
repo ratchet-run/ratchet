@@ -9,6 +9,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobStatus;
@@ -18,7 +19,6 @@ import run.ratchet.store.spi.JobTerminalStore;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -39,14 +39,8 @@ class RecurringJobExecutorGraceTest {
 
   @BeforeEach
   void setUp() {
-    System.clearProperty(RecurringRegistrationState.STARTUP_GRACE_PROPERTY);
     state = new RecurringRegistrationState();
     executor = new RecurringJobExecutor(jobCrudStore, jobClaimStore, jobTerminalStore, state);
-  }
-
-  @AfterEach
-  void tearDown() {
-    System.clearProperty(RecurringRegistrationState.STARTUP_GRACE_PROPERTY);
   }
 
   @Test
@@ -83,7 +77,12 @@ class RecurringJobExecutorGraceTest {
 
   @Test
   void firesAnyMasterAfterGraceExpires() {
-    System.setProperty(RecurringRegistrationState.STARTUP_GRACE_PROPERTY, "0");
+    state =
+        new RecurringRegistrationState(
+            RatchetOptions.builder()
+                .recurring(recurring -> recurring.startupGraceSeconds(0))
+                .build());
+    executor = new RecurringJobExecutor(jobCrudStore, jobClaimStore, jobTerminalStore, state);
     state.markRegistrationComplete(Set.of("known-key"));
 
     JobEntity unknown = recurringMaster(99L, "unknown-key");

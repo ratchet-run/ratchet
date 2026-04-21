@@ -1,7 +1,10 @@
 package run.ratchet.spi;
 
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import java.net.SocketTimeoutException;
+import java.nio.channels.InterruptedByTimeoutException;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Predicate;
 
 /** Bounded exception families for metrics tags. */
 public enum ExceptionFamily {
@@ -30,8 +33,7 @@ public enum ExceptionFamily {
     return UNKNOWN;
   }
 
-  private static boolean hasCause(
-      Throwable throwable, java.util.function.Predicate<Throwable> test) {
+  private static boolean hasCause(Throwable throwable, Predicate<Throwable> test) {
     Throwable current = throwable;
     while (current != null) {
       if (test.test(current)) {
@@ -44,8 +46,8 @@ public enum ExceptionFamily {
 
   private static boolean isTimeout(Throwable throwable) {
     return throwable instanceof TimeoutException
-        || throwable instanceof java.net.SocketTimeoutException
-        || throwable instanceof java.nio.channels.InterruptedByTimeoutException
+        || throwable instanceof SocketTimeoutException
+        || throwable instanceof InterruptedByTimeoutException
         || isNamed(throwable, "java.net.http.HttpTimeoutException");
   }
 

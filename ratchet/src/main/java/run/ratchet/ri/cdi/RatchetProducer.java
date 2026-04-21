@@ -1,5 +1,7 @@
 package run.ratchet.ri.cdi;
 
+import run.ratchet.api.RatchetOptions;
+import run.ratchet.ri.config.RatchetOptionsResolver;
 import run.ratchet.ri.core.DefaultNodeIdentityProvider;
 import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.DynamicHeartbeatCalculator;
@@ -20,7 +22,6 @@ import run.ratchet.ri.resilience.DefaultResilienceStrategy;
 import run.ratchet.ri.security.DefaultErrorSanitizer;
 import run.ratchet.ri.security.JobSecurityValidator;
 import run.ratchet.ri.security.PackagePrefixClassPolicy;
-import run.ratchet.ri.util.RatchetConfiguration;
 import run.ratchet.spi.CircuitBreakerConfigProvider;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.ErrorSanitizer;
@@ -41,6 +42,7 @@ import run.ratchet.store.spi.NodeStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Default;
 import jakarta.enterprise.inject.Produces;
+import jakarta.enterprise.inject.spi.DeploymentException;
 import jakarta.inject.Inject;
 import java.util.EnumMap;
 import java.util.Map;
@@ -48,7 +50,7 @@ import org.jboss.logging.Logger;
 
 /**
  * CDI producer for Ratchet beans that require configuration values mixed with injectable
- * dependencies. Configuration is read from the injected {@link RatchetConfiguration} bean.
+ * dependencies. Configuration is read from the injected {@link RatchetOptions} bean.
  *
  * <p>Beans with purely injectable constructors are annotated directly with
  * {@code @ApplicationScoped} and {@code @Inject}. This producer handles the remaining beans whose
@@ -66,7 +68,7 @@ public class RatchetProducer {
   private final JobBatchStatusStore jobBatchStatusStore;
   private final PostExecutionHandler postExecutionHandler;
   private final NodeStore nodeStore;
-  private final RatchetConfiguration config;
+  private final RatchetOptions options;
   private final ExecutionTuningProvider executionTuningProvider;
   private final PollingStrategyProvider pollingStrategyProvider;
   private final CircuitBreakerConfigProvider circuitBreakerConfigProvider;
@@ -79,7 +81,7 @@ public class RatchetProducer {
     this.jobBatchStatusStore = null;
     this.postExecutionHandler = null;
     this.nodeStore = null;
-    this.config = null;
+    this.options = null;
     this.executionTuningProvider = null;
     this.pollingStrategyProvider = null;
     this.circuitBreakerConfigProvider = null;
@@ -94,7 +96,7 @@ public class RatchetProducer {
       JobBatchStatusStore jobBatchStatusStore,
       PostExecutionHandler postExecutionHandler,
       NodeStore nodeStore,
-      RatchetConfiguration config,
+      RatchetOptionsResolver optionsResolver,
       ExecutionTuningProvider executionTuningProvider,
       PollingStrategyProvider pollingStrategyProvider,
       CircuitBreakerConfigProvider circuitBreakerConfigProvider) {
@@ -105,7 +107,7 @@ public class RatchetProducer {
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.postExecutionHandler = postExecutionHandler;
     this.nodeStore = nodeStore;
-    this.config = config;
+    this.options = optionsResolver.get();
     this.executionTuningProvider = executionTuningProvider;
     this.pollingStrategyProvider = pollingStrategyProvider;
     this.circuitBreakerConfigProvider = circuitBreakerConfigProvider;
@@ -130,23 +132,11 @@ public class RatchetProducer {
         executionTuningProvider);
   }
 
-  private int defaultConcurrency(JobExecutionType type) {
-    return switch (type) {
-      case SINGLE -> config.getThreadPoolSizeSingle();
-      case RECURRING -> config.getThreadPoolSizeRecurring();
-      case BATCH_CHILD -> config.getThreadPoolSizeBatchChild();
-      case BATCH_PARENT -> config.getThreadPoolSizeBatchParent();
-      case CHAIN_STEP -> config.getThreadPoolSizeChain();
-      case DLQ_ALERT -> config.getThreadPoolSizeDlq();
-      case WORKFLOW_BRANCH, WORKFLOW_JOIN -> config.getThreadPoolSizeDefault();
-    };
-  }
-
   @Produces
   @ApplicationScoped
   public JobTimeoutHandler jobTimeoutHandler() {
-    int softTimeoutPercent = config.getSoftTimeoutPercent();
-    long defaultTimeoutSeconds = config.getWorkerDefaultSLA();
+    int softTimeoutPercent = options.timeout().softTimeoutPercent();
+    long defaultTimeoutSeconds = options.timeout().defaultSlaSeconds();
 
     return new JobTimeoutHandler(
         jobCrudStore,
@@ -160,9 +150,9 @@ public class RatchetProducer {
   @Produces
   @ApplicationScoped
   public DynamicHeartbeatCalculator dynamicHeartbeatCalculator() {
-    long baseHeartbeatIntervalSeconds = config.getNodeHeartbeatIntervalSeconds();
-    long pollerMinDelayMs = config.getPollerMinDelayMs();
-    long pollerMaxDelayMs = config.getPollerMaxDelayMs();
+    long baseHeartbeatIntervalSeconds = options.node().heartbeatIntervalSeconds();
+    long pollerMinDelayMs = options.polling().minDelayMs();
+    long pollerMaxDelayMs = options.polling().maxDelayMs();
 
     return new DynamicHeartbeatCalculator(
         jobCrudStore, baseHeartbeatIntervalSeconds, pollerMinDelayMs, pollerMaxDelayMs);
@@ -172,9 +162,9 @@ public class RatchetProducer {
   @ApplicationScoped
   public NodeIdentityProvider nodeIdentityProvider(
       DynamicHeartbeatCalculator heartbeatCalculator, JobBulkStore jobBulkStore) {
-    long heartbeatIntervalSeconds = config.getNodeHeartbeatIntervalSeconds();
-    long orphanGraceSeconds = config.getNodeOrphanGraceSeconds();
-    boolean dynamicHeartbeatEnabled = config.isDynamicHeartbeatEnabled();
+    long heartbeatIntervalSeconds = options.node().heartbeatIntervalSeconds();
+    long orphanGraceSeconds = options.node().orphanGraceSeconds();
+    boolean dynamicHeartbeatEnabled = options.node().dynamicHeartbeatEnabled();
 
     DefaultNodeIdentityProvider provider =
         new DefaultNodeIdentityProvider(
@@ -184,9 +174,36 @@ public class RatchetProducer {
             executorProvider,
             heartbeatIntervalSeconds,
             orphanGraceSeconds,
-            dynamicHeartbeatEnabled);
+            dynamicHeartbeatEnabled,
+            options.node().explicitNodeId().orElse(null));
     provider.init();
     return provider;
+  }
+
+  @Produces
+  @ApplicationScoped
+  public Poller poller(
+      JobClaimStore jobClaimStore,
+      JobExecutionCoordinator jobExecutionCoordinator,
+      NodeIdentityProvider nodeIdProvider,
+      ThreadPoolManager threadPoolManager,
+      DrainController drainController,
+      PollerScheduler pollerScheduler,
+      CircuitBreakerRegistry circuitBreakerRegistry) {
+    int batchSize = options.polling().batchSize();
+    return new Poller(
+        jobClaimStore,
+        jobExecutionCoordinator,
+        nodeIdProvider,
+        threadPoolManager,
+        drainController,
+        pollerScheduler,
+        options,
+        metricsCollector,
+        circuitBreakerRegistry,
+        circuitBreakerConfigProvider.isEnabled(),
+        pollingStrategyProvider,
+        batchSize);
   }
 
   @Produces
@@ -214,57 +231,24 @@ public class RatchetProducer {
 
   @Produces
   @ApplicationScoped
-  public Poller poller(
-      JobClaimStore jobClaimStore,
-      JobExecutionCoordinator jobExecutionCoordinator,
-      NodeIdentityProvider nodeIdProvider,
-      ThreadPoolManager threadPoolManager,
-      DrainController drainController,
-      PollerScheduler pollerScheduler,
-      CircuitBreakerRegistry circuitBreakerRegistry) {
-    int batchSize = config.getPollerBatchSize();
-    return new Poller(
-        jobClaimStore,
-        jobExecutionCoordinator,
-        nodeIdProvider,
-        threadPoolManager,
-        drainController,
-        pollerScheduler,
-        config,
-        metricsCollector,
-        circuitBreakerRegistry,
-        circuitBreakerConfigProvider.isEnabled(),
-        pollingStrategyProvider,
-        batchSize);
-  }
-
-  @Produces
-  @ApplicationScoped
   public OrphanRecoveryTimer orphanRecoveryTimer(
       JobBulkStore jobBulkStore,
       ResourcePermitService resourcePermitService,
       SingletonLeaseService singletonLeaseService) {
-    long orphanGraceSeconds = config.getNodeOrphanGraceSeconds();
+    long orphanGraceSeconds = options.node().orphanGraceSeconds();
     return new OrphanRecoveryTimer(
         jobBulkStore, nodeStore, resourcePermitService, singletonLeaseService, orphanGraceSeconds);
   }
-
-  /**
-   * System property that opts out of the fail-fast empty-allowlist check. Set to {@code true} only
-   * for demos, TCK fixtures, or tests that deliberately want a deny-all policy. Production
-   * deployments should provide a real {@code @Alternative} {@link ClassPolicy} bean instead.
-   */
-  static final String ALLOW_EMPTY_CLASS_POLICY_PROPERTY = "ratchet.allow-empty-class-policy";
 
   /**
    * Produces the default {@link ClassPolicy} bean. Users override by providing their own
    * {@code @Alternative @Priority(APPLICATION) ClassPolicy} bean.
    *
    * <p><b>Fail-fast:</b> if no allowlist is configured, this producer throws {@link
-   * jakarta.enterprise.inject.spi.DeploymentException} at container startup. The default {@link
-   * PackagePrefixClassPolicy} with an empty allowlist is a deny-all configuration that would
-   * prevent any job from running — silently failing in production is worse than refusing to start.
-   * Set system property {@code -Dratchet.allow-empty-class-policy=true} to opt out.
+   * DeploymentException} at container startup. The default {@link PackagePrefixClassPolicy} with an
+   * empty allowlist is a deny-all configuration that would prevent any job from running. Set {@link
+   * RatchetOptions.SecurityBuilder#allowEmptyClassPolicy} only for demos, fixtures, or tests that
+   * deliberately want a deny-all policy.
    */
   @Produces
   @Default
@@ -272,25 +256,31 @@ public class RatchetProducer {
   public ClassPolicy classPolicy() {
     PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy();
     if (policy.getAllowedPackages().isEmpty()) {
-      // Read fresh each call; do NOT cache in a static initializer so operators can tune via -D.
-      boolean allowEmpty =
-          Boolean.parseBoolean(System.getProperty(ALLOW_EMPTY_CLASS_POLICY_PROPERTY, "false"));
-      if (!allowEmpty) {
+      if (!options.security().allowEmptyClassPolicy()) {
         String message =
             "ClassPolicy allowedPackages is empty — refusing to start. "
                 + "Provide an @Alternative @Priority(APPLICATION) ClassPolicy bean with your "
-                + "application's package prefixes, or opt out (ONLY for demos/tests) with "
-                + "-D"
-                + ALLOW_EMPTY_CLASS_POLICY_PROPERTY
-                + "=true";
+                + "application's package prefixes, or set "
+                + "RatchetOptions.security(...allowEmptyClassPolicy(true)) ONLY for demos/tests.";
         log.error(message);
-        throw new jakarta.enterprise.inject.spi.DeploymentException(message);
+        throw new DeploymentException(message);
       }
       log.errorf(
-          "ClassPolicy allowedPackages is empty — %s=true overrides the fail-fast guard. ALL job targets will be rejected.",
-          ALLOW_EMPTY_CLASS_POLICY_PROPERTY);
+          "ClassPolicy allowedPackages is empty and RatchetOptions allows it. ALL job targets will be rejected.");
     }
     return policy;
+  }
+
+  /**
+   * Produces the default {@link ErrorSanitizer} bean that strips PII and credentials from exception
+   * messages before persistence. Users can override by providing their own
+   * {@code @Alternative @Priority(APPLICATION) ErrorSanitizer} bean.
+   */
+  @Produces
+  @Default
+  @ApplicationScoped
+  public ErrorSanitizer errorSanitizer() {
+    return new DefaultErrorSanitizer(options.security().redactEmails());
   }
 
   /**
@@ -305,15 +295,16 @@ public class RatchetProducer {
     return new DefaultResilienceStrategy(circuitBreakerRegistry, circuitBreakerConfigProvider);
   }
 
-  /**
-   * Produces the default {@link ErrorSanitizer} bean that strips PII and credentials from exception
-   * messages before persistence. Users can override by providing their own
-   * {@code @Alternative @Priority(APPLICATION) ErrorSanitizer} bean.
-   */
-  @Produces
-  @Default
-  @ApplicationScoped
-  public ErrorSanitizer errorSanitizer() {
-    return new DefaultErrorSanitizer();
+  private int defaultConcurrency(JobExecutionType type) {
+    return switch (type) {
+      case SINGLE -> options.execution().maxConcurrency("SINGLE", 20);
+      case RECURRING -> options.execution().maxConcurrency("RECURRING", 5);
+      case BATCH_CHILD -> options.execution().maxConcurrency("BATCH_CHILD", 30);
+      case BATCH_PARENT -> options.execution().maxConcurrency("BATCH_PARENT", 2);
+      case CHAIN_STEP -> options.execution().maxConcurrency("CHAIN_STEP", 10);
+      case DLQ_ALERT -> options.execution().maxConcurrency("DLQ_ALERT", 2);
+      case WORKFLOW_BRANCH -> options.execution().maxConcurrency("WORKFLOW_BRANCH", 10);
+      case WORKFLOW_JOIN -> options.execution().maxConcurrency("WORKFLOW_JOIN", 10);
+    };
   }
 }
