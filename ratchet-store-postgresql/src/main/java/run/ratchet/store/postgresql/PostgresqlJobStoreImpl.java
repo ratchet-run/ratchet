@@ -1,6 +1,5 @@
 package run.ratchet.store.postgresql;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.RatchetOptions;
@@ -16,7 +15,6 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobLogEntity;
-import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.ResourcePermitEntity;
@@ -71,6 +69,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   private PostgresqlBusinessKeyReservations reservations;
   private PostgresqlTagOperations tags;
   private PostgresqlJobCrudOperations jobs;
+  private PostgresqlBatchOperations batches;
 
   /** No-arg constructor required by CDI normal-scope proxying. Not for direct use. */
   protected PostgresqlJobStoreImpl() {
@@ -826,98 +825,42 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
 
   @Override
   public BatchEntity saveBatch(BatchEntity batch) {
-    if (em.find(BatchEntity.class, batch.getId()) == null) {
-      em.persist(batch);
-      return batch;
-    }
-    return em.merge(batch);
+    return batches.saveBatch(batch);
   }
 
   @Override
   public Optional<BatchEntity> findBatchById(long batchId) {
-    return Optional.ofNullable(em.find(BatchEntity.class, batchId));
+    return batches.findBatchById(batchId);
   }
 
   @Override
   public List<BatchEntity> findBatchesByIds(List<Long> batchIds) {
-    if (batchIds == null || batchIds.isEmpty()) {
-      return List.of();
-    }
-    return em.createQuery("SELECT b FROM BatchEntity b WHERE b.id IN :ids", BatchEntity.class)
-        .setParameter("ids", batchIds)
-        .getResultList();
+    return batches.findBatchesByIds(batchIds);
   }
 
   @Override
   public BatchProgress incrementCompletedAtomic(long batchId) {
-    Object[] row =
-        (Object[])
-            em.createNativeQuery(
-                    "UPDATE scheduler_batch SET completed_items = completed_items + 1 "
-                        + "WHERE batch_id = ? "
-                        + "RETURNING completed_items, failed_items, total_items, progress_hook")
-                .setParameter(1, batchId)
-                .getSingleResult();
-    return new BatchProgress(
-        batchId,
-        ((Number) row[2]).intValue(),
-        ((Number) row[0]).intValue(),
-        ((Number) row[1]).intValue(),
-        parseProgressHook(row[3]));
+    return batches.incrementCompletedAtomic(batchId);
   }
 
   @Override
   public BatchProgress incrementFailedAtomic(long batchId) {
-    Object[] row =
-        (Object[])
-            em.createNativeQuery(
-                    "UPDATE scheduler_batch SET failed_items = failed_items + 1 "
-                        + "WHERE batch_id = ? "
-                        + "RETURNING completed_items, failed_items, total_items, progress_hook")
-                .setParameter(1, batchId)
-                .getSingleResult();
-    return new BatchProgress(
-        batchId,
-        ((Number) row[2]).intValue(),
-        ((Number) row[0]).intValue(),
-        ((Number) row[1]).intValue(),
-        parseProgressHook(row[3]));
+    return batches.incrementFailedAtomic(batchId);
   }
 
   @Override
   public boolean markBatchCompleteIfReady(long batchId) {
-    int updated =
-        em.createNativeQuery(
-                "UPDATE scheduler_batch SET completion_processed = TRUE "
-                    + "WHERE batch_id = ? AND completion_processed = FALSE "
-                    + "AND (completed_items + failed_items) >= total_items")
-            .setParameter(1, batchId)
-            .executeUpdate();
-    return updated > 0;
+    return batches.markBatchCompleteIfReady(batchId);
   }
 
   @Override
   public List<Long> findRecoverableBatchIds(int limit) {
-    @SuppressWarnings("unchecked")
-    List<Number> results =
-        em.createNativeQuery(
-                "SELECT batch_id FROM scheduler_batch "
-                    + "WHERE completion_processed = FALSE "
-                    + "AND (completed_items + failed_items) >= total_items "
-                    + "LIMIT ?")
-            .setParameter(1, limit)
-            .getResultList();
-    return results.stream().map(Number::longValue).toList();
+    return batches.findRecoverableBatchIds(limit);
   }
 
   @Override
   public boolean updateBatchTotalItems(long batchId, int totalItems) {
-    int updated =
-        em.createNativeQuery("UPDATE scheduler_batch SET total_items = ? WHERE batch_id = ?")
-            .setParameter(1, totalItems)
-            .setParameter(2, batchId)
-            .executeUpdate();
-    return updated > 0;
+    return batches.updateBatchTotalItems(batchId, totalItems);
   }
 
   @Override
@@ -1245,58 +1188,27 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
 
   @Override
   public BatchMetricsEntity saveBatchMetrics(BatchMetricsEntity metrics) {
-    if (em.find(BatchMetricsEntity.class, metrics.getBatchId()) == null) {
-      // JPA 3.2 @MapsId derived-identity contract: the relationship attribute supplies identity.
-      // Hibernate relaxes this and accepts a scalar id alone, but EclipseLink rejects persist().
-      // Resolve the reference explicitly so both providers see a valid derived id.
-      if (metrics.getBatchJob() == null) {
-        metrics.setBatchJob(em.getReference(JobEntity.class, metrics.getBatchId()));
-      }
-      em.persist(metrics);
-      return metrics;
-    }
-    return em.merge(metrics);
+    return batches.saveBatchMetrics(metrics);
   }
 
   @Override
   public Optional<BatchMetricsEntity> findBatchMetrics(long batchId) {
-    return Optional.ofNullable(em.find(BatchMetricsEntity.class, batchId));
+    return batches.findBatchMetrics(batchId);
   }
 
   @Override
   public void addChildExecutionTime(long batchId, long durationMs) {
-    em.createNativeQuery(
-            "UPDATE scheduler_batch_metrics SET "
-                + "child_execution_ms = COALESCE(child_execution_ms, 0) + ?, "
-                + "success_count = success_count + 1 "
-                + "WHERE batch_id = ?")
-        .setParameter(1, durationMs)
-        .setParameter(2, batchId)
-        .executeUpdate();
+    batches.addChildExecutionTime(batchId, durationMs);
   }
 
   @Override
   public void finalizeBatchMetrics(long batchId) {
-    em.createNativeQuery(
-            "UPDATE scheduler_batch_metrics SET "
-                + "completed_at = statement_timestamp(), "
-                + "total_duration_ms = CASE WHEN started_at IS NOT NULL "
-                + "  THEN EXTRACT(EPOCH FROM (statement_timestamp() - started_at))::bigint * 1000 "
-                + "  ELSE NULL END, "
-                + "overhead_ms = CASE WHEN started_at IS NOT NULL AND child_execution_ms IS NOT NULL "
-                + "  THEN EXTRACT(EPOCH FROM (statement_timestamp() - started_at))::bigint * 1000 - child_execution_ms "
-                + "  ELSE NULL END "
-                + "WHERE batch_id = ?")
-        .setParameter(1, batchId)
-        .executeUpdate();
+    batches.finalizeBatchMetrics(batchId);
   }
 
   @Override
   public void updateBatchMetricsChildCount(long batchId, int childCount) {
-    em.createNativeQuery("UPDATE scheduler_batch_metrics SET child_count = ? WHERE batch_id = ?")
-        .setParameter(1, childCount)
-        .setParameter(2, batchId)
-        .executeUpdate();
+    batches.updateBatchMetricsChildCount(batchId, childCount);
   }
 
   @Override
@@ -1440,18 +1352,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
     reservations = new PostgresqlBusinessKeyReservations(ctx);
     tags = new PostgresqlTagOperations(ctx);
     jobs = new PostgresqlJobCrudOperations(ctx, reservations, tags);
-  }
-
-  private JobPayload parseProgressHook(Object jsonValue) {
-    if (jsonValue == null) {
-      return null;
-    }
-    try {
-      return OBJECT_MAPPER.readValue(jsonValue.toString(), JobPayload.class);
-    } catch (JsonProcessingException e) {
-      log.warnf("Bad progress_hook JSON: %s", e.getMessage());
-      return null;
-    }
+    batches = new PostgresqlBatchOperations(ctx);
   }
 
   private long countByNative(String sql, Object... params) {
