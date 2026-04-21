@@ -29,7 +29,6 @@ import com.mongodb.client.result.UpdateResult;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.WorkflowCondition;
-import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.ArchivedJobEntity;
@@ -83,6 +82,7 @@ class MongoJobStoreImpl implements MongoJobStore {
   private final RatchetOptions options;
   private final MongoStoreContext ctx;
   private final MongoTagOperations tags;
+  private final MongoJobCrudOperations crud;
 
   private final ExecutorService claimExecutor =
       Executors.newFixedThreadPool(
@@ -99,329 +99,143 @@ class MongoJobStoreImpl implements MongoJobStore {
     this.options = options;
     this.ctx = new MongoStoreContext(database, options.store().priorityBoostIntervalMinutes());
     this.tags = new MongoTagOperations(ctx);
+    this.crud = new MongoJobCrudOperations(ctx);
     options.node().explicitTsidNodeId().ifPresent(TsidFactory::configureNodeId);
   }
 
   @Override
   public JobEntity save(JobEntity job) {
-    Instant now = Instant.now();
-    if (job.getId() == null) {
-      job.setId(TsidFactory.next());
-      job.setCreatedAt(now);
-      job.setUpdatedAt(now);
-      if (job.getVersion() == null) {
-        job.setVersion(0);
-      }
-      Document doc = DocumentMapper.toDocument(job);
-      ctx.jobs().insertOne(doc);
-      return job;
-    }
-    job.setUpdatedAt(now);
-
-    // optimistic lock via version match — mismatch throws RatchetOptimisticLockException.
-    // Version is bumped before replaceOne; rolled back on match failure so the caller's entity
-    // reflects reality (prevents phantom version on reuse after catch).
-    Integer expectedVersion = job.getVersion() != null ? job.getVersion() : 0;
-    job.setVersion(expectedVersion + 1);
-    Document doc = DocumentMapper.toDocument(job);
-    UpdateResult result =
-        ctx.jobs()
-            .replaceOne(
-                and(eq(ID, job.getId()), eq(VERSION, expectedVersion)),
-                doc,
-                new ReplaceOptions().upsert(false));
-    if (result.getMatchedCount() == 0) {
-      // Roll back the in-memory version bump so the caller's entity reflects reality.
-      job.setVersion(expectedVersion);
-      throw new RatchetOptimisticLockException(
-          "Concurrent modification on job "
-              + job.getId()
-              + " (expectedVersion="
-              + expectedVersion
-              + ")");
-    }
-    return job;
+    return crud.save(job);
   }
 
   @Override
   public Optional<JobEntity> findById(long id) {
-    Document doc = ctx.jobs().find(eq(ID, id)).first();
-    return doc == null ? Optional.empty() : Optional.of(DocumentMapper.toJobEntity(doc));
+    return crud.findById(id);
   }
 
   @Override
   public Optional<JobEntity> findByIdLatest(long id) {
-    // MongoDB has no row-level locking; findOneAndUpdate is the atomic primitive.
-    // Callers MUST mutate via a version-checked update path.
-    return findById(id);
+    return crud.findByIdLatest(id);
   }
 
   @Override
   public void delete(long id) {
-    ctx.jobs().deleteOne(eq(ID, id));
+    crud.delete(id);
   }
 
   @Override
   public JobStatus getJobStatus(long id) {
-    Document doc = ctx.jobs().find(eq(ID, id)).projection(new Document(STATUS, 1)).first();
-    if (doc == null) {
-      return null;
-    }
-    return JobStatus.valueOf(doc.getString(STATUS));
+    return crud.getJobStatus(id);
   }
 
   @Override
   public List<JobEntity> findByIds(List<Long> ids) {
-    if (ids.isEmpty()) {
-      return List.of();
-    }
-    List<JobEntity> results = new ArrayList<>();
-    for (Document doc : ctx.jobs().find(in(ID, ids))) {
-      results.add(DocumentMapper.toJobEntity(doc));
-    }
-    return results;
+    return crud.findByIds(ids);
   }
 
   @Override
   public Optional<JobEntity> findActiveByBusinessKey(String businessKey) {
-    Document doc =
-        ctx.jobs()
-            .find(and(eq(BUSINESS_KEY, businessKey), in(STATUS, MongoStoreContext.ACTIVE_STATUSES)))
-            .limit(1)
-            .first();
-    return doc == null ? Optional.empty() : Optional.of(DocumentMapper.toJobEntity(doc));
+    return crud.findActiveByBusinessKey(businessKey);
   }
 
   @Override
   public Optional<JobEntity> findByIdempotencyKey(String idempotencyKey) {
-    Document doc = ctx.jobs().find(eq(IDEMPOTENCY_KEY, idempotencyKey)).first();
-    return doc == null ? Optional.empty() : Optional.of(DocumentMapper.toJobEntity(doc));
+    return crud.findByIdempotencyKey(idempotencyKey);
   }
 
   @Override
   public List<JobEntity> findDependants(long parentJobId) {
-    List<JobEntity> results = new ArrayList<>();
-    for (Document doc : ctx.jobs().find(eq(DEPENDS_ON, parentJobId))) {
-      results.add(DocumentMapper.toJobEntity(doc));
-    }
-    return results;
+    return crud.findDependants(parentJobId);
   }
 
   @Override
   public Optional<Instant> findEarliestRecurringNextFire() {
-    Document doc =
-        ctx.jobs()
-            .find(and(eq(JOB_TYPE, "RECURRING"), eq(STATUS, "PENDING"), ne(NEXT_FIRE, null)))
-            .sort(ascending(NEXT_FIRE))
-            .projection(new Document(NEXT_FIRE, 1))
-            .limit(1)
-            .first();
-    if (doc == null || doc.getDate(NEXT_FIRE) == null) {
-      return Optional.empty();
-    }
-    return Optional.of(DocumentMapper.toInstant(doc.getDate(NEXT_FIRE)));
+    return crud.findEarliestRecurringNextFire();
   }
 
   @Override
   public long countPendingJobs() {
-    return ctx.jobs().countDocuments(eq(STATUS, "PENDING"));
+    return crud.countPendingJobs();
   }
 
   @Override
   public long countJobsByStatus(JobStatus status) {
-    return ctx.jobs().countDocuments(eq(STATUS, status.name()));
+    return crud.countJobsByStatus(status);
   }
 
   @Override
   public long countActiveJobs(JobExecutionType jobType) {
-    return ctx.jobs()
-        .countDocuments(
-            and(eq(JOB_TYPE, jobType.name()), in(STATUS, List.of("PENDING", "RUNNING"))));
+    return crud.countActiveJobs(jobType);
   }
 
   @Override
   public long countActiveNodes() {
-    return ctx.nodes().countDocuments();
+    return crud.countActiveNodes();
   }
 
   @Override
   public long countReadyJobs(Instant now) {
-    return ctx.jobs()
-        .countDocuments(
-            and(eq(STATUS, "PENDING"), lte(SCHEDULED_TIME, DocumentMapper.toDate(now))));
+    return crud.countReadyJobs(now);
   }
 
   @Override
   public long countStuckJobs(Instant stuckThreshold) {
-    return ctx.jobs()
-        .countDocuments(
-            and(eq(STATUS, "RUNNING"), lt(PICKED_AT, DocumentMapper.toDate(stuckThreshold))));
+    return crud.countStuckJobs(stuckThreshold);
   }
 
   @Override
   public long countLongRunningJobs(Instant threshold) {
-    return ctx.jobs()
-        .countDocuments(
-            and(eq(STATUS, "RUNNING"), lt(EXECUTION_START_TIME, DocumentMapper.toDate(threshold))));
+    return crud.countLongRunningJobs(threshold);
   }
 
   @Override
   public long countPendingBatchChildren() {
-    return ctx.jobs().countDocuments(and(eq(JOB_TYPE, "BATCH_CHILD"), eq(STATUS, "PENDING")));
+    return crud.countPendingBatchChildren();
   }
 
   @Override
   public long countPendingJobsByPriority(JobPriority priority) {
-    return ctx.jobs().countDocuments(and(eq(STATUS, "PENDING"), eq(PRIORITY, priority.ordinal())));
+    return crud.countPendingJobsByPriority(priority);
   }
 
   @Override
   public long countPendingJobsByType(JobExecutionType jobType) {
-    return ctx.jobs().countDocuments(and(eq(STATUS, "PENDING"), eq(JOB_TYPE, jobType.name())));
+    return crud.countPendingJobsByType(jobType);
   }
 
   @Override
   public long countJobsByStatusSince(JobStatus status, Instant since) {
-    return ctx.jobs()
-        .countDocuments(
-            and(eq(STATUS, status.name()), gte(UPDATED_AT, DocumentMapper.toDate(since))));
+    return crud.countJobsByStatusSince(status, since);
   }
 
   @Override
   public long countJobsWithRetries() {
-    return ctx.jobs().countDocuments(new Document(ATTEMPTS, new Document("$gt", 0)));
+    return crud.countJobsWithRetries();
   }
 
   @Override
   public double getRetryRateStats(Instant since) {
-    List<Document> pipeline =
-        List.of(
-            new Document(
-                "$match",
-                new Document(UPDATED_AT, new Document("$gte", DocumentMapper.toDate(since)))),
-            new Document(
-                "$group",
-                new Document(ID, null)
-                    .append("total", new Document("$sum", 1))
-                    .append(
-                        "retried",
-                        new Document(
-                            "$sum",
-                            new Document(
-                                "$cond",
-                                List.of(new Document("$gt", List.of("$" + ATTEMPTS, 0)), 1, 0))))));
-    Document result = ctx.jobs().aggregate(pipeline).first();
-    if (result == null || result.getInteger("total", 0) == 0) {
-      return 0.0;
-    }
-    return result.getInteger("retried", 0) / (double) result.getInteger("total");
+    return crud.getRetryRateStats(since);
   }
 
   @Override
   public double getAverageProcessingTime(Instant since) {
-    List<Document> pipeline =
-        List.of(
-            new Document(
-                "$match",
-                new Document(STATUS, "SUCCEEDED")
-                    .append(UPDATED_AT, new Document("$gte", DocumentMapper.toDate(since)))),
-            new Document(
-                "$group",
-                new Document(ID, null)
-                    .append("avg", new Document("$avg", "$" + EXECUTION_DURATION_MS))));
-    Document result = ctx.jobs().aggregate(pipeline).first();
-    if (result == null || result.get("avg") == null) {
-      return 0.0;
-    }
-    return ((Number) result.get("avg")).doubleValue();
+    return crud.getAverageProcessingTime(since);
   }
 
   @Override
   public double getAverageBatchSize(Instant since) {
-    // Look up batch entities joined with their parent job updated_at
-    List<Document> pipeline =
-        List.of(
-            new Document(
-                "$lookup",
-                new Document("from", "scheduler_job")
-                    .append("localField", ID)
-                    .append("foreignField", ID)
-                    .append("as", "job")),
-            new Document("$unwind", "$job"),
-            new Document(
-                "$match",
-                new Document("job.updated_at", new Document("$gte", DocumentMapper.toDate(since)))),
-            new Document(
-                "$group",
-                new Document(ID, null).append("avg", new Document("$avg", "$" + TOTAL_ITEMS))));
-    Document result = ctx.batches().aggregate(pipeline).first();
-    if (result == null || result.get("avg") == null) {
-      return 0.0;
-    }
-    return ((Number) result.get("avg")).doubleValue();
+    return crud.getAverageBatchSize(since);
   }
 
   @Override
   public Optional<Instant> getOldestPendingJobTime() {
-    Document doc =
-        ctx.jobs()
-            .find(eq(STATUS, "PENDING"))
-            .sort(ascending(SCHEDULED_TIME))
-            .projection(new Document(SCHEDULED_TIME, 1))
-            .limit(1)
-            .first();
-    if (doc == null || doc.getDate(SCHEDULED_TIME) == null) {
-      return Optional.empty();
-    }
-    return Optional.of(DocumentMapper.toInstant(doc.getDate(SCHEDULED_TIME)));
+    return crud.getOldestPendingJobTime();
   }
 
   @Override
   public long getQueueWaitTimePercentile(double percentile) {
-    // Use $setWindowFields with $percentile (MongoDB 7.0+), fallback to sort+skip approximation
-    List<Document> pipeline =
-        List.of(
-            new Document(
-                "$match",
-                new Document(QUEUE_WAIT_MS, new Document("$ne", null)).append(STATUS, "SUCCEEDED")),
-            new Document(
-                "$group",
-                new Document(ID, null)
-                    .append(
-                        "p",
-                        new Document(
-                            "$percentile",
-                            new Document("input", "$" + QUEUE_WAIT_MS)
-                                .append("p", List.of(percentile))
-                                .append("method", "approximate")))));
-    try {
-      Document result = ctx.jobs().aggregate(pipeline).first();
-      if (result != null && result.get("p") != null) {
-        @SuppressWarnings("unchecked")
-        List<Number> pValues = (List<Number>) result.get("p");
-        if (!pValues.isEmpty()) {
-          return pValues.get(0).longValue();
-        }
-      }
-    } catch (Exception e) {
-      // $percentile not supported — fall back to sort+skip
-      log.debug("$percentile aggregation not available, using sort+skip approximation");
-    }
-    // Fallback: sort by queue_wait_ms, skip to percentile position
-    long total = ctx.jobs().countDocuments(and(ne(QUEUE_WAIT_MS, null), eq(STATUS, "SUCCEEDED")));
-    if (total == 0) {
-      return 0;
-    }
-    long skipCount = (long) (total * percentile);
-    Document doc =
-        ctx.jobs()
-            .find(and(ne(QUEUE_WAIT_MS, null), eq(STATUS, "SUCCEEDED")))
-            .sort(ascending(QUEUE_WAIT_MS))
-            .skip((int) Math.min(skipCount, Integer.MAX_VALUE))
-            .limit(1)
-            .projection(new Document(QUEUE_WAIT_MS, 1))
-            .first();
-    return doc == null || doc.getLong(QUEUE_WAIT_MS) == null ? 0 : doc.getLong(QUEUE_WAIT_MS);
+    return crud.getQueueWaitTimePercentile(percentile);
   }
 
   @Override
@@ -821,94 +635,27 @@ class MongoJobStoreImpl implements MongoJobStore {
 
   @Override
   public void bulkInsert(List<JobEntity> jobList) {
-    if (jobList.isEmpty()) {
-      return;
-    }
-    Instant now = Instant.now();
-    List<Document> docs = new ArrayList<>(jobList.size());
-    for (JobEntity job : jobList) {
-      if (job.getId() == null) {
-        job.setId(TsidFactory.next());
-      }
-      if (job.getCreatedAt() == null) {
-        job.setCreatedAt(now);
-      }
-      job.setUpdatedAt(now);
-      if (job.getVersion() == null) {
-        job.setVersion(0);
-      }
-      docs.add(DocumentMapper.toDocument(job));
-    }
-    ctx.jobs().insertMany(docs);
+    crud.bulkInsert(jobList);
   }
 
   @Override
   public int deleteJobsByIds(List<Long> ids) {
-    if (ids.isEmpty()) {
-      return 0;
-    }
-    DeleteResult result = ctx.jobs().deleteMany(in(ID, ids));
-    return (int) result.getDeletedCount();
+    return crud.deleteJobsByIds(ids);
   }
 
   @Override
   public int deleteDlqOlderThan(Instant cutoff) {
-    DeleteResult result =
-        ctx.jobs()
-            .deleteMany(
-                and(
-                    eq(STATUS, "FAILED"),
-                    new Document(
-                        "$expr", new Document("$gte", List.of("$" + ATTEMPTS, "$" + MAX_RETRIES))),
-                    lt(UPDATED_AT, DocumentMapper.toDate(cutoff))));
-    return (int) result.getDeletedCount();
+    return crud.deleteDlqOlderThan(cutoff);
   }
 
   @Override
   public int resetOrphanJobs(Duration grace) {
-    // Use Duration directly — toMinutes() truncates sub-minute values
-    Date cutoff = DocumentMapper.toDate(Instant.now().minus(grace));
-
-    // Find active node IDs
-    List<String> activeNodeIds = new ArrayList<>();
-    for (Document doc : ctx.nodes().find(gte(HEARTBEAT_TS, cutoff))) {
-      activeNodeIds.add(doc.getString(ID));
-    }
-
-    Bson filter;
-    if (activeNodeIds.isEmpty()) {
-      // All nodes are inactive — reset all running jobs past grace
-      filter = and(eq(STATUS, "RUNNING"), lt(PICKED_AT, cutoff));
-    } else {
-      filter = and(eq(STATUS, "RUNNING"), nin(PICKED_BY, activeNodeIds), lt(PICKED_AT, cutoff));
-    }
-
-    UpdateResult result =
-        ctx.jobs()
-            .updateMany(
-                filter,
-                combine(
-                    set(STATUS, "PENDING"),
-                    set(PICKED_BY, null),
-                    set(PICKED_AT, null),
-                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
-                    inc(VERSION, 1)));
-    return (int) result.getModifiedCount();
+    return crud.resetOrphanJobs(grace);
   }
 
   @Override
   public int resetOrphanJobsForNode(String nodeId) {
-    UpdateResult result =
-        ctx.jobs()
-            .updateMany(
-                and(eq(STATUS, "RUNNING"), eq(PICKED_BY, nodeId)),
-                combine(
-                    set(STATUS, "PENDING"),
-                    set(PICKED_BY, null),
-                    set(PICKED_AT, null),
-                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
-                    inc(VERSION, 1)));
-    return (int) result.getModifiedCount();
+    return crud.resetOrphanJobsForNode(nodeId);
   }
 
   @Override
