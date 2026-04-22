@@ -4,21 +4,15 @@ import run.ratchet.api.BatchBuilder;
 import run.ratchet.api.JobBuilder;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobOptions;
-import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobSchedulerService;
-import run.ratchet.api.JobSubmitter;
 import run.ratchet.api.RecurringJobBuilder;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.StreamingBatchBuilder;
-import run.ratchet.api.WorkflowBranch;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
-import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.entity.JobStatus;
-import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
@@ -34,20 +28,14 @@ import java.io.Serializable;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
-import java.util.List;
-import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 import java.util.function.Consumer;
 import org.jboss.logging.Logger;
 
-/**
- * Core scheduling API implementation. Delegates to store SPIs for persistence and also implements
- * {@link JobSubmitter} so builders can call back into {@link #submit(JobBuilder)}.
- */
+/** Core scheduling API implementation. Delegates builder persistence to a CDI-managed service. */
 @ApplicationScoped
 public class DefaultJobSchedulerService
-    implements JobSchedulerService, JobSubmitter, RecurringAnnotationMaintenanceService {
+    implements JobSchedulerService, RecurringAnnotationMaintenanceService {
 
   private static final Logger log = Logger.getLogger(DefaultJobSchedulerService.class);
 
@@ -63,6 +51,7 @@ public class DefaultJobSchedulerService
   private final JobWakeupService wakeupService;
   private final RecurringScheduler recurringScheduler;
   private final JobInvocationResolver jobInvocationResolver;
+  private final DefaultJobCreationService jobCreationService;
 
   protected DefaultJobSchedulerService() {
     this.eventPublisher = null;
@@ -77,6 +66,7 @@ public class DefaultJobSchedulerService
     this.wakeupService = null;
     this.recurringScheduler = null;
     this.jobInvocationResolver = null;
+    this.jobCreationService = null;
   }
 
   public DefaultJobSchedulerService(
@@ -103,7 +93,16 @@ public class DefaultJobSchedulerService
         workflowConditionStore,
         wakeupService,
         recurringScheduler,
-        new DefaultJobInvocationResolver());
+        new DefaultJobInvocationResolver(),
+        new DefaultJobCreationService(
+            jobBatchStatusStore,
+            jobTerminalStore,
+            jobCrudStore,
+            batchStore,
+            tagStore,
+            workflowConditionStore,
+            wakeupService,
+            recurringScheduler));
   }
 
   @Inject
@@ -119,7 +118,8 @@ public class DefaultJobSchedulerService
       WorkflowConditionStore workflowConditionStore,
       JobWakeupService wakeupService,
       RecurringScheduler recurringScheduler,
-      JobInvocationResolver jobInvocationResolver) {
+      JobInvocationResolver jobInvocationResolver,
+      DefaultJobCreationService jobCreationService) {
     this.eventPublisher = eventPublisher;
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.jobPauseStore = jobPauseStore;
@@ -132,6 +132,7 @@ public class DefaultJobSchedulerService
     this.wakeupService = wakeupService;
     this.recurringScheduler = recurringScheduler;
     this.jobInvocationResolver = jobInvocationResolver;
+    this.jobCreationService = jobCreationService;
   }
 
   @Override
@@ -174,48 +175,33 @@ public class DefaultJobSchedulerService
 
   @Override
   public JobBuilder enqueue(SerializableCheckedRunnable task) {
-    return DefaultJobBuilder.create(this, task, Duration.ZERO);
+    return DefaultJobBuilder.create(jobCreationService, task, Duration.ZERO);
   }
 
   @Override
   public JobHandle enqueueNow(SerializableCheckedRunnable task) {
-    return DefaultJobBuilder.create(this, task, Duration.ZERO).immediate().submit();
+    return DefaultJobBuilder.create(jobCreationService, task, Duration.ZERO).immediate().submit();
   }
 
   @Override
   public JobBuilder schedule(Duration delay, SerializableCheckedRunnable task) {
-    return DefaultJobBuilder.create(this, task, delay);
+    return DefaultJobBuilder.create(jobCreationService, task, delay);
   }
 
   @Override
   public BatchBuilder enqueueBatch(String name) {
-    return new DefaultBatchBuilder(
-        name,
-        jobCrudStore,
-        jobBatchStatusStore,
-        jobTerminalStore,
-        batchStore,
-        workflowConditionStore,
-        wakeupService,
-        jobInvocationResolver);
+    return new DefaultBatchBuilder(name, jobCreationService, jobInvocationResolver);
   }
 
   @Override
   public <T extends Serializable> StreamingBatchBuilder<T> streamingBatch(String name) {
-    return new DefaultStreamingBatchBuilder<>(
-        name,
-        jobCrudStore,
-        batchStore,
-        workflowConditionStore,
-        wakeupService,
-        jobInvocationResolver);
+    return new DefaultStreamingBatchBuilder<>(name, jobCreationService);
   }
 
   @Override
   public RecurringJobBuilder scheduleRecurring(
       String cron, ZoneId zone, SerializableCheckedRunnable task) {
-    return new DefaultRecurringJobBuilder(
-        cron, zone, task, jobCrudStore, tagStore, recurringScheduler, jobInvocationResolver);
+    return new DefaultRecurringJobBuilder(cron, zone, task, jobCreationService);
   }
 
   @Override
@@ -230,7 +216,7 @@ public class DefaultJobSchedulerService
         .findById(jobId)
         .orElseThrow(() -> new IllegalArgumentException("Job not found for replacement: " + jobId));
 
-    JobBuilder builder = DefaultJobBuilder.create(this, newTask, delay);
+    JobBuilder builder = DefaultJobBuilder.create(jobCreationService, newTask, delay);
     if (opts != null) {
       builder
           .withPriority(opts.priority())
@@ -377,140 +363,5 @@ public class DefaultJobSchedulerService
   public int cancelOrphanedRecurringAnnotationJobs(
       Set<String> registeredIds, Instant nodeStartTime) {
     return jobBatchStatusStore.cancelOrphanedRecurringAnnotationJobs(registeredIds, nodeStartTime);
-  }
-
-  /**
-   * {@link JobSubmitter} implementation. Handles idempotency, persists chain/workflow steps, and
-   * wakes the poller if needed.
-   */
-  @Override
-  @Transactional
-  public JobHandle submit(JobBuilder builder) {
-    String idempotencyKey = builder.idempotencyKey();
-    Optional<JobEntity> existingByKey = jobCrudStore.findByIdempotencyKey(idempotencyKey);
-    if (existingByKey.isPresent()) {
-      Long existingId = existingByKey.get().getId();
-      log.debugf(
-          "Duplicate idempotency key '%s', returning existing job %s", idempotencyKey, existingId);
-      return () -> existingId;
-    }
-
-    String businessKey = builder.businessKey();
-    if (businessKey != null) {
-      Optional<JobEntity> activeByBk = jobCrudStore.findActiveByBusinessKey(businessKey);
-      if (activeByBk.isPresent()) {
-        throw new IllegalStateException(
-            "Active job already exists with business key '"
-                + businessKey
-                + "' (jobId="
-                + activeByBk.get().getId()
-                + ")");
-      }
-    }
-
-    JobPayload payload = payload(builder.task());
-
-    JobOptions opts = builder.opts();
-    JobEntity job = new JobEntity();
-    job.setJobType(JobExecutionType.SINGLE);
-    job.setStatus(JobStatus.PENDING);
-    job.setPriority(opts.priority());
-    job.setScheduledTime(Instant.now().plus(builder.delay()));
-    job.setPayload(payload);
-    job.setIdempotencyKey(idempotencyKey);
-    job.setBusinessKey(businessKey);
-    job.setResourceName(builder.resourceName());
-    if (builder.onSuccess() != null) {
-      job.setOnSuccessPayload(payload(builder.onSuccess()));
-    }
-    if (builder.onFailure() != null) {
-      job.setOnFailurePayload(payload(builder.onFailure()));
-    }
-    job.setMaxRetries(opts.maxRetries());
-    job.setBackoffPolicy(opts.backoffPolicy());
-    job.setBackoffParamMs((int) opts.backoffParam().toMillis());
-    job.setTimeoutSec(opts.timeoutSec());
-    if (!builder.params().isEmpty()) {
-      job.setParams(builder.params());
-    }
-
-    JobEntity saved = jobCrudStore.save(job);
-    Long jobId = saved.getId();
-
-    List<String> tags = builder.tags();
-    if (!tags.isEmpty()) {
-      tagStore.insertTags(jobId, tags);
-    }
-
-    List<SerializableCheckedRunnable> chainTasks = builder.chainTasks();
-    if (!chainTasks.isEmpty()) {
-      createChainSteps(jobId, chainTasks, opts);
-    }
-
-    List<WorkflowBranch> branches = builder.workflowBranches();
-    if (!branches.isEmpty()) {
-      createWorkflowBranches(jobId, branches);
-    }
-
-    boolean shouldWakeup =
-        builder.isImmediate()
-            || opts.priority() == JobPriority.CRITICAL
-            || builder.delay().isZero();
-    if (shouldWakeup) {
-      wakeupService.notify(opts.priority(), true);
-    }
-
-    log.debugf("Job submitted (id=%s, type=SINGLE, delay=%s)", jobId, builder.delay());
-    return () -> jobId;
-  }
-
-  private void createChainSteps(
-      Long predecessorId, List<SerializableCheckedRunnable> chainTasks, JobOptions opts) {
-    Long prevId = predecessorId;
-    for (SerializableCheckedRunnable chainTask : chainTasks) {
-      JobEntity step = new JobEntity();
-      step.setJobType(JobExecutionType.CHAIN_STEP);
-      step.setStatus(JobStatus.PENDING);
-      step.setPriority(opts.priority());
-      step.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
-      step.setPayload(payload(chainTask));
-      step.setIdempotencyKey(UUID.randomUUID().toString());
-      step.setDependsOn(prevId);
-      step.setMaxRetries(opts.maxRetries());
-      step.setBackoffPolicy(opts.backoffPolicy());
-      step.setBackoffParamMs((int) opts.backoffParam().toMillis());
-      step.setTimeoutSec(opts.timeoutSec());
-
-      JobEntity savedStep = jobCrudStore.save(step);
-      prevId = savedStep.getId();
-    }
-  }
-
-  private void createWorkflowBranches(Long parentId, List<WorkflowBranch> branches) {
-    for (WorkflowBranch branch : branches) {
-      JobEntity branchJob = new JobEntity();
-      branchJob.setJobType(JobExecutionType.WORKFLOW_BRANCH);
-      branchJob.setStatus(JobStatus.PENDING);
-      branchJob.setPriority(JobPriority.NORMAL);
-      branchJob.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
-      branchJob.setPayload(payload(branch.task()));
-      branchJob.setIdempotencyKey(UUID.randomUUID().toString());
-      branchJob.setDependsOn(parentId);
-      JobEntity savedBranch = jobCrudStore.save(branchJob);
-
-      WorkflowConditionEntity condition = new WorkflowConditionEntity();
-      condition.setParentJobId(parentId);
-      condition.setChildJobId(savedBranch.getId());
-      condition.setConditionType(branch.condition().type());
-      condition.setConditionPriority(branch.condition().priority());
-      if (branch.condition().expression() != null) {
-        condition.setConditionExpressionSerialized(branch.condition().expression());
-      }
-      workflowConditionStore.saveCondition(condition);
-    }
-  }
-
-  private JobPayload payload(Serializable callback) {
-    return JobPayloadFactory.fromInvocation(jobInvocationResolver.resolve(callback));
   }
 }

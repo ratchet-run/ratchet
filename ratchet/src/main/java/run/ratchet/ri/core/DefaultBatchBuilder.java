@@ -3,7 +3,6 @@ package run.ratchet.ri.core;
 import run.ratchet.api.BatchBuilder;
 import run.ratchet.api.BatchContext;
 import run.ratchet.api.JobHandle;
-import run.ratchet.api.JobPriority;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.SerializableConsumer;
 import run.ratchet.api.SerializablePredicate;
@@ -12,25 +11,11 @@ import run.ratchet.api.WorkflowCondition;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.spi.JobInvocationResolver;
-import run.ratchet.store.entity.BatchEntity;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
-import run.ratchet.store.entity.JobStatus;
-import run.ratchet.store.entity.WorkflowConditionEntity;
-import run.ratchet.store.spi.BatchStore;
-import run.ratchet.store.spi.JobBatchStatusStore;
-import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.JobTerminalStore;
-import run.ratchet.store.spi.WorkflowConditionStore;
 import java.io.Serializable;
-import java.time.Duration;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import java.util.UUID;
-import org.jboss.logging.Logger;
 
 /** {@inheritDoc} */
 public class DefaultBatchBuilder implements BatchBuilder {
@@ -41,55 +26,22 @@ public class DefaultBatchBuilder implements BatchBuilder {
    */
   static final String BATCH_LIFECYCLE_NODE_ID = "ratchet:batch-lifecycle";
 
-  private static final Logger log = Logger.getLogger(DefaultBatchBuilder.class);
   private final String name;
-  private final JobCrudStore jobCrudStore;
-  private final JobBatchStatusStore jobBatchStatusStore;
-  private final JobTerminalStore jobTerminalStore;
-  private final BatchStore batchStore;
-  private final WorkflowConditionStore workflowConditionStore;
-  private final JobWakeupService wakeupService;
+  private final BatchSubmitter submitter;
   private final JobInvocationResolver jobInvocationResolver;
 
   private final List<ChildSpec> children = new ArrayList<>();
   private final List<WorkflowBranch> workflowBranches = new ArrayList<>();
   private SerializableConsumer<BatchContext> progressHook;
 
-  DefaultBatchBuilder(
-      String name,
-      JobCrudStore jobCrudStore,
-      JobBatchStatusStore jobBatchStatusStore,
-      JobTerminalStore jobTerminalStore,
-      BatchStore batchStore,
-      WorkflowConditionStore workflowConditionStore,
-      JobWakeupService wakeupService) {
-    this(
-        name,
-        jobCrudStore,
-        jobBatchStatusStore,
-        jobTerminalStore,
-        batchStore,
-        workflowConditionStore,
-        wakeupService,
-        new DefaultJobInvocationResolver());
+  DefaultBatchBuilder(String name, BatchSubmitter submitter) {
+    this(name, submitter, new DefaultJobInvocationResolver());
   }
 
   DefaultBatchBuilder(
-      String name,
-      JobCrudStore jobCrudStore,
-      JobBatchStatusStore jobBatchStatusStore,
-      JobTerminalStore jobTerminalStore,
-      BatchStore batchStore,
-      WorkflowConditionStore workflowConditionStore,
-      JobWakeupService wakeupService,
-      JobInvocationResolver jobInvocationResolver) {
+      String name, BatchSubmitter submitter, JobInvocationResolver jobInvocationResolver) {
     this.name = name;
-    this.jobCrudStore = jobCrudStore;
-    this.jobBatchStatusStore = jobBatchStatusStore;
-    this.jobTerminalStore = jobTerminalStore;
-    this.batchStore = batchStore;
-    this.workflowConditionStore = workflowConditionStore;
-    this.wakeupService = wakeupService;
+    this.submitter = submitter;
     this.jobInvocationResolver = jobInvocationResolver;
   }
 
@@ -110,59 +62,7 @@ public class DefaultBatchBuilder implements BatchBuilder {
 
   @Override
   public JobHandle submit() {
-    JobEntity parent = new JobEntity();
-    parent.setJobType(JobExecutionType.BATCH_PARENT);
-    parent.setStatus(JobStatus.PENDING);
-    parent.setPriority(JobPriority.NORMAL);
-    parent.setScheduledTime(Instant.now());
-    parent.setPayload(JobPayloadFactory.noop());
-    parent.setIdempotencyKey(UUID.randomUUID().toString());
-    JobEntity savedParent = jobCrudStore.save(parent);
-    Long parentId = savedParent.getId();
-
-    BatchEntity batch = new BatchEntity();
-    batch.setId(parentId);
-    batch.setTotalItems(children.size());
-    batch.setCompletedItems(0);
-    batch.setFailedItems(0);
-    if (progressHook != null) {
-      batch.setProgressHook(payload(progressHook));
-    }
-    batchStore.saveBatch(batch);
-
-    if (children.isEmpty()) {
-      // Skip-execute the parent into terminal SUCCEEDED. Post hot/cold-split, save() can't
-      // mutate hot status; the equivalent is a synthetic pickup followed by mark succeeded.
-      if (jobBatchStatusStore.tryPickUpJob(parentId, BATCH_LIFECYCLE_NODE_ID)) {
-        Instant now = Instant.now();
-        jobTerminalStore.markJobSucceededMinimal(parentId, now, now, 0L, 0L);
-      }
-      batchStore.markBatchCompleteIfReady(parentId);
-      log.infof(
-          "Batch '%s' submitted with 0 children — completed immediately (id=%s)", name, parentId);
-      return () -> parentId;
-    }
-
-    for (ChildSpec child : children) {
-      JobEntity childJob = new JobEntity();
-      childJob.setJobType(JobExecutionType.BATCH_CHILD);
-      childJob.setStatus(JobStatus.PENDING);
-      childJob.setPriority(JobPriority.NORMAL);
-      childJob.setScheduledTime(Instant.now());
-      childJob.setPayload(child.payload);
-      childJob.setIdempotencyKey(UUID.randomUUID().toString());
-      childJob.setDependsOn(parentId);
-      jobCrudStore.save(childJob);
-    }
-
-    for (WorkflowBranch branch : workflowBranches) {
-      createWorkflowBranch(parentId, branch);
-    }
-
-    wakeupService.notifyIfNeeded(JobExecutionType.BATCH_PARENT, JobPriority.NORMAL, Duration.ZERO);
-
-    log.infof("Batch '%s' submitted with %s children (id=%s)", name, children.size(), parentId);
-    return () -> parentId;
+    return submitter.submit(this);
   }
 
   @Override
@@ -203,28 +103,6 @@ public class DefaultBatchBuilder implements BatchBuilder {
     return this;
   }
 
-  private void createWorkflowBranch(Long parentId, WorkflowBranch branch) {
-    JobEntity branchJob = new JobEntity();
-    branchJob.setJobType(JobExecutionType.WORKFLOW_BRANCH);
-    branchJob.setStatus(JobStatus.PENDING);
-    branchJob.setPriority(JobPriority.NORMAL);
-    branchJob.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
-    branchJob.setPayload(payload(branch.task()));
-    branchJob.setIdempotencyKey(UUID.randomUUID().toString());
-    branchJob.setDependsOn(parentId);
-    JobEntity savedBranch = jobCrudStore.save(branchJob);
-
-    WorkflowConditionEntity condition = new WorkflowConditionEntity();
-    condition.setParentJobId(parentId);
-    condition.setChildJobId(savedBranch.getId());
-    condition.setConditionType(branch.condition().type());
-    condition.setConditionPriority(branch.condition().priority());
-    if (branch.condition().expression() != null) {
-      condition.setConditionExpressionSerialized(branch.condition().expression());
-    }
-    workflowConditionStore.saveCondition(condition);
-  }
-
   private JobPayload payload(Serializable callback) {
     return JobPayloadFactory.fromInvocation(jobInvocationResolver.resolve(callback));
   }
@@ -234,5 +112,21 @@ public class DefaultBatchBuilder implements BatchBuilder {
         jobInvocationResolver.resolve(callback, runtimeArguments));
   }
 
-  private record ChildSpec(JobPayload payload) {}
+  String name() {
+    return name;
+  }
+
+  List<ChildSpec> children() {
+    return children;
+  }
+
+  List<WorkflowBranch> workflowBranches() {
+    return workflowBranches;
+  }
+
+  SerializableConsumer<BatchContext> progressHook() {
+    return progressHook;
+  }
+
+  record ChildSpec(JobPayload payload) {}
 }
