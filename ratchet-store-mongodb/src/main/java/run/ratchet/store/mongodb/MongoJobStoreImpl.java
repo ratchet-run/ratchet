@@ -1,25 +1,8 @@
 package run.ratchet.store.mongodb;
 
-import static com.mongodb.client.model.Filters.and;
-import static com.mongodb.client.model.Filters.eq;
-import static com.mongodb.client.model.Filters.expr;
-import static com.mongodb.client.model.Filters.gte;
-import static com.mongodb.client.model.Filters.in;
-import static com.mongodb.client.model.Filters.lt;
-import static com.mongodb.client.model.Sorts.ascending;
-import static com.mongodb.client.model.Sorts.descending;
-import static com.mongodb.client.model.Updates.combine;
-import static com.mongodb.client.model.Updates.inc;
-import static com.mongodb.client.model.Updates.set;
-import static com.mongodb.client.model.Updates.setOnInsert;
 import static run.ratchet.store.mongodb.MongoFieldNames.*;
 
 import com.mongodb.client.MongoDatabase;
-import com.mongodb.client.model.FindOneAndUpdateOptions;
-import com.mongodb.client.model.ReplaceOptions;
-import com.mongodb.client.model.ReturnDocument;
-import com.mongodb.client.model.UpdateOptions;
-import com.mongodb.client.result.DeleteResult;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.WorkflowCondition;
@@ -35,7 +18,6 @@ import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.entity.NodeEntity;
-import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.TsidFactory;
 import jakarta.annotation.PostConstruct;
@@ -44,7 +26,6 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -53,7 +34,6 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import org.bson.Document;
 import org.jboss.logging.Logger;
 
 /**
@@ -78,6 +58,7 @@ class MongoJobStoreImpl implements MongoJobStore {
   private final MongoJobLifecycleOperations lifecycle;
   private final MongoNodeLockOperations nodeLocks;
   private final MongoArchiveOperations archives;
+  private final MongoAuxiliaryOperations auxiliary;
 
   private final ExecutorService claimExecutor =
       Executors.newFixedThreadPool(
@@ -100,6 +81,7 @@ class MongoJobStoreImpl implements MongoJobStore {
     this.lifecycle = new MongoJobLifecycleOperations(ctx, batches);
     this.nodeLocks = new MongoNodeLockOperations(ctx);
     this.archives = new MongoArchiveOperations(ctx);
+    this.auxiliary = new MongoAuxiliaryOperations(ctx);
     options.node().explicitTsidNodeId().ifPresent(TsidFactory::configureNodeId);
   }
 
@@ -517,48 +499,32 @@ class MongoJobStoreImpl implements MongoJobStore {
 
   @Override
   public JobExecutionEntity saveExecution(JobExecutionEntity execution) {
-    if (execution.getId() == null) {
-      execution.setId(TsidFactory.next());
-    }
-    Document doc = DocumentMapper.toDocument(execution);
-    ctx.executions().replaceOne(eq(ID, execution.getId()), doc, new ReplaceOptions().upsert(true));
-    return execution;
+    return auxiliary.saveExecution(execution);
   }
 
   @Override
   public List<JobExecutionEntity> findExecutionsByJobId(long jobId) {
-    List<JobExecutionEntity> results = new ArrayList<>();
-    for (Document doc : ctx.executions().find(eq(JOB_ID, jobId)).sort(ascending(ATTEMPT))) {
-      results.add(DocumentMapper.toJobExecutionEntity(doc));
-    }
-    return results;
+    return auxiliary.findExecutionsByJobId(jobId);
   }
 
   @Override
   public Optional<JobExecutionEntity> findLatestExecution(long jobId) {
-    Document doc =
-        ctx.executions().find(eq(JOB_ID, jobId)).sort(descending(ATTEMPT)).limit(1).first();
-    return doc == null ? Optional.empty() : Optional.of(DocumentMapper.toJobExecutionEntity(doc));
+    return auxiliary.findLatestExecution(jobId);
   }
 
   @Override
   public int countExecutionAttempts(long jobId) {
-    return (int) ctx.executions().countDocuments(eq(JOB_ID, jobId));
+    return auxiliary.countExecutionAttempts(jobId);
   }
 
   @Override
   public void appendLog(JobLogEntity logEntry) {
-    if (logEntry.getId() == null) {
-      logEntry.setId(TsidFactory.next());
-    }
-    Document doc = DocumentMapper.toDocument(logEntry);
-    ctx.jobLogs().insertOne(doc);
+    auxiliary.appendLog(logEntry);
   }
 
   @Override
   public int purgeLogsOlderThan(Instant cutoff) {
-    DeleteResult result = ctx.jobLogs().deleteMany(lt(TS, DocumentMapper.toDate(cutoff)));
-    return (int) result.getDeletedCount();
+    return auxiliary.purgeLogsOlderThan(cutoff);
   }
 
   @Override
@@ -593,75 +559,48 @@ class MongoJobStoreImpl implements MongoJobStore {
 
   @Override
   public WorkflowConditionEntity saveCondition(WorkflowConditionEntity condition) {
-    if (condition.getId() == null) {
-      condition.setId(TsidFactory.next());
-      if (condition.getCreatedAt() == null) {
-        condition.setCreatedAt(Instant.now());
-      }
-    }
-    Document doc = DocumentMapper.toDocument(condition);
-    ctx.workflowConditions()
-        .replaceOne(eq(ID, condition.getId()), doc, new ReplaceOptions().upsert(true));
-    return condition;
+    return auxiliary.saveCondition(condition);
   }
 
   @Override
   public WorkflowConditionEntity findConditionById(long id) {
-    Document doc = ctx.workflowConditions().find(eq(ID, id)).first();
-    return doc == null ? null : DocumentMapper.toWorkflowConditionEntity(doc);
+    return auxiliary.findConditionById(id);
   }
 
   @Override
   public List<WorkflowConditionEntity> findConditionsByParentJobId(long parentJobId) {
-    List<WorkflowConditionEntity> results = new ArrayList<>();
-    for (Document doc :
-        ctx.workflowConditions()
-            .find(eq(PARENT_JOB_ID, parentJobId))
-            .sort(ascending(CONDITION_PRIORITY))) {
-      results.add(DocumentMapper.toWorkflowConditionEntity(doc));
-    }
-    return results;
+    return auxiliary.findConditionsByParentJobId(parentJobId);
   }
 
   @Override
   public List<WorkflowConditionEntity> findConditionsByChildJobId(long childJobId) {
-    List<WorkflowConditionEntity> results = new ArrayList<>();
-    for (Document doc : ctx.workflowConditions().find(eq(CHILD_JOB_ID, childJobId))) {
-      results.add(DocumentMapper.toWorkflowConditionEntity(doc));
-    }
-    return results;
+    return auxiliary.findConditionsByChildJobId(childJobId);
   }
 
   @Override
   public List<WorkflowConditionEntity> findConditionsByType(
       long parentJobId, WorkflowCondition.ConditionType type) {
-    List<WorkflowConditionEntity> results = new ArrayList<>();
-    for (Document doc :
-        ctx.workflowConditions()
-            .find(and(eq(PARENT_JOB_ID, parentJobId), eq(CONDITION_TYPE, type.name())))) {
-      results.add(DocumentMapper.toWorkflowConditionEntity(doc));
-    }
-    return results;
+    return auxiliary.findConditionsByType(parentJobId, type);
   }
 
   @Override
   public void deleteConditionById(long id) {
-    ctx.workflowConditions().deleteOne(eq(ID, id));
+    auxiliary.deleteConditionById(id);
   }
 
   @Override
   public void deleteConditionsByParentJobId(long parentJobId) {
-    ctx.workflowConditions().deleteMany(eq(PARENT_JOB_ID, parentJobId));
+    auxiliary.deleteConditionsByParentJobId(parentJobId);
   }
 
   @Override
   public void deleteConditionsByChildJobId(long childJobId) {
-    ctx.workflowConditions().deleteMany(eq(CHILD_JOB_ID, childJobId));
+    auxiliary.deleteConditionsByChildJobId(childJobId);
   }
 
   @Override
   public long countConditionsByParentJobId(long parentJobId) {
-    return ctx.workflowConditions().countDocuments(eq(PARENT_JOB_ID, parentJobId));
+    return auxiliary.countConditionsByParentJobId(parentJobId);
   }
 
   @Override
@@ -691,122 +630,43 @@ class MongoJobStoreImpl implements MongoJobStore {
 
   @Override
   public DlqAlertEntity saveDlqAlert(DlqAlertEntity alert) {
-    if (alert.getId() == null) {
-      alert.setId(TsidFactory.next());
-    }
-    Document doc = DocumentMapper.toDocument(alert);
-    ctx.dlqAlerts().replaceOne(eq(ID, alert.getId()), doc, new ReplaceOptions().upsert(true));
-    return alert;
+    return auxiliary.saveDlqAlert(alert);
   }
 
   @Override
   public boolean existsRecentDlqAlert(long jobId, String errorHash, Instant cutoff) {
-    return ctx.dlqAlerts()
-            .countDocuments(
-                and(
-                    eq(JOB_ID, jobId),
-                    eq(ERROR_HASH, errorHash),
-                    gte(ALERT_SENT_AT, DocumentMapper.toDate(cutoff))))
-        > 0;
+    return auxiliary.existsRecentDlqAlert(jobId, errorHash, cutoff);
   }
 
   @Override
   public boolean tryAcquirePermit(String resource, long jobId, String nodeId) {
-    // Atomically increment active_count only if it is below max_concurrent.
-    // Uses $expr to compare two fields in the same document, ensuring no TOCTOU race.
-    Document result =
-        ctx.resourceLimits()
-            .findOneAndUpdate(
-                and(
-                    eq(ID, resource),
-                    expr(
-                        new Document(
-                            "$lt",
-                            List.of(
-                                new Document("$ifNull", List.of("$" + ACTIVE_COUNT, 0)),
-                                "$" + MAX_CONCURRENT)))),
-                inc(ACTIVE_COUNT, 1),
-                new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
-
-    if (result == null) {
-      return false;
-    }
-
-    ResourcePermitEntity permit = ResourcePermitEntity.create(resource, jobId, nodeId);
-    permit.setId(TsidFactory.next());
-    ctx.resourcePermits().insertOne(DocumentMapper.toDocument(permit));
-    return true;
+    return auxiliary.tryAcquirePermit(resource, jobId, nodeId);
   }
 
   @Override
   public void releasePermit(String resource, long jobId) {
-    DeleteResult dr =
-        ctx.resourcePermits().deleteOne(and(eq(RESOURCE_NAME, resource), eq(JOB_ID, jobId)));
-    if (dr.getDeletedCount() > 0) {
-      ctx.resourceLimits().updateOne(eq(ID, resource), inc(ACTIVE_COUNT, -1));
-    }
+    auxiliary.releasePermit(resource, jobId);
   }
 
   @Override
   public void releaseAllPermits(long jobId) {
-    List<String> resources = new ArrayList<>();
-    ctx.resourcePermits()
-        .find(eq(JOB_ID, jobId))
-        .forEach(doc -> resources.add(doc.getString(RESOURCE_NAME)));
-    DeleteResult dr = ctx.resourcePermits().deleteMany(eq(JOB_ID, jobId));
-    if (dr.getDeletedCount() > 0) {
-      for (String resource : resources) {
-        ctx.resourceLimits().updateOne(eq(ID, resource), inc(ACTIVE_COUNT, -1));
-      }
-    }
+    auxiliary.releaseAllPermits(jobId);
   }
 
   @Override
   public int getPermitRetryDelay(String resource) {
-    Document doc = ctx.resourceLimits().find(eq(ID, resource)).first();
-    if (doc == null) {
-      return 5000;
-    }
-    return doc.getInteger(RETRY_DELAY_MS, 5000);
+    return auxiliary.getPermitRetryDelay(resource);
   }
 
   @Override
   public void configureResource(
       String name, int maxConcurrent, int retryDelayMs, String description) {
-    Instant now = Instant.now();
-    ctx.resourceLimits()
-        .updateOne(
-            eq(ID, name),
-            combine(
-                set(MAX_CONCURRENT, maxConcurrent),
-                set(RETRY_DELAY_MS, retryDelayMs),
-                set(DESCRIPTION, description),
-                set(UPDATED_AT, DocumentMapper.toDate(now)),
-                setOnInsert(CREATED_AT, DocumentMapper.toDate(now)),
-                setOnInsert(ACTIVE_COUNT, 0)),
-            new UpdateOptions().upsert(true));
+    auxiliary.configureResource(name, maxConcurrent, retryDelayMs, description);
   }
 
   @Override
   public int cleanupOrphanedPermits(List<String> staleNodeIds) {
-    if (staleNodeIds.isEmpty()) {
-      return 0;
-    }
-    List<Document> orphanedPermits = new ArrayList<>();
-    ctx.resourcePermits().find(in(NODE_ID, staleNodeIds)).forEach(orphanedPermits::add);
-    DeleteResult result = ctx.resourcePermits().deleteMany(in(NODE_ID, staleNodeIds));
-    orphanedPermits.stream()
-        .map(doc -> doc.getString(RESOURCE_NAME))
-        .distinct()
-        .forEach(
-            resource -> {
-              long count =
-                  orphanedPermits.stream()
-                      .filter(doc -> resource.equals(doc.getString(RESOURCE_NAME)))
-                      .count();
-              ctx.resourceLimits().updateOne(eq(ID, resource), inc(ACTIVE_COUNT, (int) -count));
-            });
-    return (int) result.getDeletedCount();
+    return auxiliary.cleanupOrphanedPermits(staleNodeIds);
   }
 
   @PreDestroy
