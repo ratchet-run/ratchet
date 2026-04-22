@@ -16,6 +16,8 @@ import run.ratchet.tck.store.JobStoreContractFixture;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import org.testcontainers.containers.MongoDBContainer;
 
 /** Shared Testcontainers-based fixture for MongoDB TCK tests. */
@@ -30,12 +32,20 @@ public class MongoTestFixture implements JobStoreContractFixture {
   private final MongoClient client;
   private final MongoDatabase database;
   private final MongoJobStore store;
+  private final ExecutorService claimExecutor;
 
   public MongoTestFixture() {
     this.client = MongoClients.create(MONGO.getConnectionString());
     this.database =
         client.getDatabase("ratchet_test_" + UUID.randomUUID().toString().substring(0, 8));
-    this.store = new MongoJobStoreImpl(database, RatchetOptions.defaults());
+    this.claimExecutor =
+        Executors.newCachedThreadPool(
+            r -> {
+              Thread thread = new Thread(r, "ratchet-mongo-test-claim");
+              thread.setDaemon(true);
+              return thread;
+            });
+    this.store = new MongoJobStoreImpl(database, RatchetOptions.defaults(), claimExecutor);
     // @PostConstruct is CDI-only; instantiation here bypasses it, leaving collections without
     // their unique indexes. Initialize explicitly so contract tests see the same schema as a
     // production deployment.

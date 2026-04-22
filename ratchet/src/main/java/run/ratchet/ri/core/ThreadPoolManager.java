@@ -11,10 +11,7 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.jboss.logging.Logger;
 
-/**
- * Manages per-{@link JobExecutionType} concurrency limits via semaphores (platform threads) or
- * atomic counters (virtual threads).
- */
+/** Manages per-{@link JobExecutionType} concurrency limits before work reaches the executor. */
 public class ThreadPoolManager {
 
   private static final Logger log = Logger.getLogger(ThreadPoolManager.class);
@@ -97,11 +94,6 @@ public class ThreadPoolManager {
   }
 
   public ExecutorService getExecutor(JobExecutionType jobType) {
-    if (useVirtualThreads) {
-      throw new IllegalStateException(
-          "getExecutor() should not be called when virtual threads are enabled. "
-              + "Create virtual threads directly using Thread.ofVirtual() instead.");
-    }
     return executorProvider.getJobExecutor();
   }
 
@@ -244,7 +236,7 @@ public class ThreadPoolManager {
     log.infof(
         "Thread pool manager initialized with %s",
         (useVirtualThreads
-            ? "virtual threads (with backpressure limits)"
+            ? "executor-backed virtual-thread-style backpressure limits"
             : "managed executors with semaphore-based limiting"));
   }
 

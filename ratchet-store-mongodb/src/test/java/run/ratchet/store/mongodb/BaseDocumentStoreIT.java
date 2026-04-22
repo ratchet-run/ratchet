@@ -13,6 +13,8 @@ import run.ratchet.store.entity.JobStatus;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,6 +34,7 @@ public abstract class BaseDocumentStoreIT {
   private MongoClient client;
   private MongoDatabase database;
   private MongoJobStore store;
+  private ExecutorService claimExecutor;
 
   @BeforeAll
   static void startContainer() {
@@ -44,7 +47,8 @@ public abstract class BaseDocumentStoreIT {
   void setUp() {
     client = MongoClients.create(MONGO.getConnectionString());
     database = client.getDatabase("ratchet_it_" + UUID.randomUUID().toString().substring(0, 8));
-    store = new MongoJobStoreImpl(database, RatchetOptions.defaults());
+    claimExecutor = Executors.newCachedThreadPool();
+    store = new MongoJobStoreImpl(database, RatchetOptions.defaults(), claimExecutor);
     // Store collection initialization is @PostConstruct, which only fires inside a CDI container.
     // Plain-new instantiation in test fixtures bypasses it, so the unique indexes on
     // idempotency_key / business_key that IdempotencyIT relies on never get created. Call the
@@ -59,6 +63,9 @@ public abstract class BaseDocumentStoreIT {
     }
     if (client != null) {
       client.close();
+    }
+    if (claimExecutor != null) {
+      claimExecutor.shutdownNow();
     }
   }
 

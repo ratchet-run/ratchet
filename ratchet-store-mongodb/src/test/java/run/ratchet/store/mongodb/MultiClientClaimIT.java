@@ -50,6 +50,8 @@ class MultiClientClaimIT {
   private MongoDatabase dbB;
   private MongoJobStore storeA;
   private MongoJobStore storeB;
+  private ExecutorService claimExecutorA;
+  private ExecutorService claimExecutorB;
 
   private static void race(
       MongoJobStore store,
@@ -97,8 +99,10 @@ class MultiClientClaimIT {
     clientB = MongoClients.create(MONGO.getConnectionString());
     dbA = clientA.getDatabase(dbName);
     dbB = clientB.getDatabase(dbName);
-    storeA = new MongoJobStoreImpl(dbA, RatchetOptions.defaults());
-    storeB = new MongoJobStoreImpl(dbB, RatchetOptions.defaults());
+    claimExecutorA = Executors.newCachedThreadPool();
+    claimExecutorB = Executors.newCachedThreadPool();
+    storeA = new MongoJobStoreImpl(dbA, RatchetOptions.defaults(), claimExecutorA);
+    storeB = new MongoJobStoreImpl(dbB, RatchetOptions.defaults(), claimExecutorB);
     new MongoCollectionInitializer(dbA).initialize();
   }
 
@@ -107,6 +111,8 @@ class MultiClientClaimIT {
     dbA.drop();
     clientA.close();
     clientB.close();
+    claimExecutorA.shutdownNow();
+    claimExecutorB.shutdownNow();
   }
 
   @Test

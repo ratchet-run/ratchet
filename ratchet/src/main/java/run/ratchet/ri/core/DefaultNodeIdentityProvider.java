@@ -10,8 +10,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -200,20 +198,16 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
   }
 
   private String resolveHostnameWithTimeout() throws Exception {
-    ExecutorService dnsExecutor =
-        Executors.newSingleThreadExecutor(
-            r -> {
-              Thread t = new Thread(r, "node-id-dns-lookup");
-              t.setDaemon(true);
-              return t;
-            });
+    if (executorProvider == null || executorProvider.getJobExecutor() == null) {
+      return InetAddress.getLocalHost().getHostName();
+    }
+    Future<String> future =
+        executorProvider.getJobExecutor().submit(() -> InetAddress.getLocalHost().getHostName());
     try {
-      Future<String> future = dnsExecutor.submit(() -> InetAddress.getLocalHost().getHostName());
       return future.get(5, TimeUnit.SECONDS);
     } catch (TimeoutException e) {
+      future.cancel(true);
       throw new TimeoutException("DNS hostname lookup timed out after 5 seconds");
-    } finally {
-      dnsExecutor.shutdownNow();
     }
   }
 

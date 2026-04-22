@@ -38,10 +38,9 @@ import org.jboss.logging.Logger;
  * Claim pipeline: candidate planning via {@code $match → $project → $sort → $limit} with index
  * hints, followed by per-candidate atomic {@code findOneAndUpdate} executed in parallel.
  *
- * <p>The caller-owned {@link ExecutorService} is intentionally not managed here: {@code
- * MongoJobStoreImpl} keeps lifecycle ownership so {@code @PreDestroy} drains the pool before the
- * {@code MongoDatabase} teardown. Operation classes are constructed via {@code new} so CDI does not
- * call lifecycle hooks on them.
+ * <p>The caller-owned {@link ExecutorService} is intentionally not managed here: production
+ * deployments pass the Jakarta-managed executor supplied by the configured executor provider.
+ * Operation classes are constructed via {@code new} so CDI does not call lifecycle hooks on them.
  */
 final class MongoJobClaimOperations {
 

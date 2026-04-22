@@ -4,6 +4,7 @@ import com.mongodb.client.MongoDatabase;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.WorkflowCondition;
+import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.ArchivedJobEntity;
@@ -19,7 +20,6 @@ import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.TsidFactory;
 import jakarta.annotation.PostConstruct;
-import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.time.Duration;
@@ -29,8 +29,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 
 /**
  * MongoDB implementation of the {@link MongoJobStore} API.
@@ -53,20 +51,30 @@ class MongoJobStoreImpl implements MongoJobStore {
   private final MongoNodeLockOperations nodeLocks;
   private final MongoArchiveOperations archives;
   private final MongoAuxiliaryOperations auxiliary;
-
-  private final ExecutorService claimExecutor =
-      Executors.newFixedThreadPool(
-          Math.max(2, Runtime.getRuntime().availableProcessors()),
-          r -> {
-            Thread t = new Thread(r, "ratchet-mongo-claim");
-            t.setDaemon(true);
-            return t;
-          });
+  private final ExecutorService claimExecutor;
 
   @Inject
-  MongoJobStoreImpl(MongoDatabase database, RatchetOptions options) {
+  MongoJobStoreImpl(
+      MongoDatabase database, RatchetOptions options, ExecutorProvider executorProvider) {
     this.database = database;
     this.options = options;
+    this.claimExecutor = executorProvider.getJobExecutor();
+    this.ctx = new MongoStoreContext(database, options.store().priorityBoostIntervalMinutes());
+    this.tags = new MongoTagOperations(ctx);
+    this.crud = new MongoJobCrudOperations(ctx);
+    this.batches = new MongoBatchOperations(ctx);
+    this.claims = new MongoJobClaimOperations(ctx, claimExecutor);
+    this.lifecycle = new MongoJobLifecycleOperations(ctx, batches);
+    this.nodeLocks = new MongoNodeLockOperations(ctx);
+    this.archives = new MongoArchiveOperations(ctx);
+    this.auxiliary = new MongoAuxiliaryOperations(ctx);
+    options.node().explicitTsidNodeId().ifPresent(TsidFactory::configureNodeId);
+  }
+
+  MongoJobStoreImpl(MongoDatabase database, RatchetOptions options, ExecutorService claimExecutor) {
+    this.database = database;
+    this.options = options;
+    this.claimExecutor = claimExecutor;
     this.ctx = new MongoStoreContext(database, options.store().priorityBoostIntervalMinutes());
     this.tags = new MongoTagOperations(ctx);
     this.crud = new MongoJobCrudOperations(ctx);
@@ -661,19 +669,6 @@ class MongoJobStoreImpl implements MongoJobStore {
   @Override
   public int cleanupOrphanedPermits(List<String> staleNodeIds) {
     return auxiliary.cleanupOrphanedPermits(staleNodeIds);
-  }
-
-  @PreDestroy
-  void shutdown() {
-    claimExecutor.shutdown();
-    try {
-      if (!claimExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
-        claimExecutor.shutdownNow();
-      }
-    } catch (InterruptedException e) {
-      claimExecutor.shutdownNow();
-      Thread.currentThread().interrupt();
-    }
   }
 
   @PostConstruct
