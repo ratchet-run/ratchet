@@ -7,8 +7,6 @@ import static com.mongodb.client.model.Filters.gte;
 import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Filters.lt;
 import static com.mongodb.client.model.Filters.lte;
-import static com.mongodb.client.model.Filters.ne;
-import static com.mongodb.client.model.Filters.nin;
 import static com.mongodb.client.model.Sorts.ascending;
 import static com.mongodb.client.model.Sorts.descending;
 import static com.mongodb.client.model.Updates.combine;
@@ -81,6 +79,7 @@ class MongoJobStoreImpl implements MongoJobStore {
   private final MongoJobCrudOperations crud;
   private final MongoBatchOperations batches;
   private final MongoJobClaimOperations claims;
+  private final MongoJobLifecycleOperations lifecycle;
 
   private final ExecutorService claimExecutor =
       Executors.newFixedThreadPool(
@@ -100,6 +99,7 @@ class MongoJobStoreImpl implements MongoJobStore {
     this.crud = new MongoJobCrudOperations(ctx);
     this.batches = new MongoBatchOperations(ctx);
     this.claims = new MongoJobClaimOperations(ctx, claimExecutor);
+    this.lifecycle = new MongoJobLifecycleOperations(ctx, batches);
     options.node().explicitTsidNodeId().ifPresent(TsidFactory::configureNodeId);
   }
 
@@ -256,66 +256,23 @@ class MongoJobStoreImpl implements MongoJobStore {
 
   @Override
   public void updateJobStatus(long id, JobStatus status, String errorMessage) {
-    ctx.jobs()
-        .updateOne(
-            eq(ID, id),
-            combine(
-                set(STATUS, status.name()),
-                set(LAST_ERROR, errorMessage),
-                set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
-                inc(VERSION, 1)));
+    lifecycle.updateJobStatus(id, status, errorMessage);
   }
 
   @Override
   public boolean compareAndSwapStatus(
       long id, JobStatus expected, JobStatus newStatus, String error) {
-    try {
-      UpdateResult result =
-          ctx.jobs()
-              .updateOne(
-                  and(eq(ID, id), eq(STATUS, expected.name())),
-                  combine(
-                      set(STATUS, newStatus.name()),
-                      set(LAST_ERROR, error),
-                      set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
-                      inc(VERSION, 1)));
-      return result.getModifiedCount() > 0;
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("compare-and-swap status", e);
-    }
+    return lifecycle.compareAndSwapStatus(id, expected, newStatus, error);
   }
 
   @Override
   public int incrementRetryAttempt(long id) {
-    Document doc =
-        ctx.jobs()
-            .findOneAndUpdate(
-                and(eq(ID, id), eq(STATUS, "RUNNING")),
-                combine(
-                    inc(ATTEMPTS, 1),
-                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
-                    inc(VERSION, 1)),
-                new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
-    if (doc == null) {
-      return -1;
-    }
-    return doc.getInteger(ATTEMPTS);
+    return lifecycle.incrementRetryAttempt(id);
   }
 
   @Override
   public boolean tryPickUpJob(long id, String nodeId) {
-    Instant now = Instant.now();
-    UpdateResult result =
-        ctx.jobs()
-            .updateOne(
-                and(eq(ID, id), eq(STATUS, "PENDING")),
-                combine(
-                    set(STATUS, "RUNNING"),
-                    set(PICKED_BY, nodeId),
-                    set(PICKED_AT, DocumentMapper.toDate(now)),
-                    set(UPDATED_AT, DocumentMapper.toDate(now)),
-                    inc(VERSION, 1)));
-    return result.getModifiedCount() > 0;
+    return lifecycle.tryPickUpJob(id, nodeId);
   }
 
   @Override
@@ -327,49 +284,14 @@ class MongoJobStoreImpl implements MongoJobStore {
       Instant end,
       Long durationMs,
       Long queueWaitMs) {
-    try {
-      UpdateResult result =
-          ctx.jobs()
-              .updateOne(
-                  and(eq(ID, id), eq(STATUS, "RUNNING")),
-                  combine(
-                      set(STATUS, "SUCCEEDED"),
-                      set(JOB_RESULT, resultJson),
-                      set(RESULT_TYPE, resultType),
-                      set(EXECUTION_START_TIME, DocumentMapper.toDate(start)),
-                      set(EXECUTION_END_TIME, DocumentMapper.toDate(end)),
-                      set(EXECUTION_DURATION_MS, durationMs),
-                      set(QUEUE_WAIT_MS, queueWaitMs),
-                      set(LAST_ERROR, null),
-                      set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
-                      inc(VERSION, 1)));
-      return result.getModifiedCount() > 0;
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("mark job succeeded", e);
-    }
+    return lifecycle.markJobSucceeded(
+        id, resultJson, resultType, start, end, durationMs, queueWaitMs);
   }
 
   @Override
   public boolean markJobSucceededMinimal(
       long id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
-    try {
-      UpdateResult result =
-          ctx.jobs()
-              .updateOne(
-                  and(eq(ID, id), eq(STATUS, "RUNNING")),
-                  combine(
-                      set(STATUS, "SUCCEEDED"),
-                      set(EXECUTION_START_TIME, DocumentMapper.toDate(start)),
-                      set(EXECUTION_END_TIME, DocumentMapper.toDate(end)),
-                      set(EXECUTION_DURATION_MS, durationMs),
-                      set(QUEUE_WAIT_MS, queueWaitMs),
-                      set(LAST_ERROR, null),
-                      set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
-                      inc(VERSION, 1)));
-      return result.getModifiedCount() > 0;
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("mark job succeeded minimally", e);
-    }
+    return lifecycle.markJobSucceededMinimal(id, start, end, durationMs, queueWaitMs);
   }
 
   @Override
@@ -382,245 +304,79 @@ class MongoJobStoreImpl implements MongoJobStore {
       Long durationMs,
       Long queueWaitMs,
       long batchId) {
-    boolean jobUpdated =
-        markJobSucceeded(jobId, resultJson, resultType, start, end, durationMs, queueWaitMs);
-    if (jobUpdated) {
-      incrementCompletedAtomic(batchId);
-    }
-    return jobUpdated;
+    return lifecycle.markJobSucceededAndUpdateBatch(
+        jobId, resultJson, resultType, start, end, durationMs, queueWaitMs, batchId);
   }
 
   @Override
   public boolean scheduleJobRetry(long id, String error, Instant newScheduledTime, int attempts) {
-    UpdateResult result =
-        ctx.jobs()
-            .updateOne(
-                and(eq(ID, id), in(STATUS, List.of("RUNNING", "FAILED"))),
-                combine(
-                    set(STATUS, "PENDING"),
-                    set(SCHEDULED_TIME, DocumentMapper.toDate(newScheduledTime)),
-                    set(ATTEMPTS, attempts),
-                    set(LAST_ERROR, error),
-                    set(PICKED_BY, null),
-                    set(PICKED_AT, null),
-                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
-                    inc(VERSION, 1)));
-    return result.getModifiedCount() > 0;
+    return lifecycle.scheduleJobRetry(id, error, newScheduledTime, attempts);
   }
 
   @Override
   public boolean pauseRecurring(long id) {
-    UpdateResult result =
-        ctx.jobs()
-            .updateOne(
-                and(eq(ID, id), eq(JOB_TYPE, "RECURRING"), eq(STATUS, "PENDING")),
-                combine(
-                    set(STATUS, "PAUSED"),
-                    set(PAUSED_FROM_STATUS, "PENDING"),
-                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
-                    inc(VERSION, 1)));
-    return result.getModifiedCount() > 0;
+    return lifecycle.pauseRecurring(id);
   }
 
   @Override
   public boolean resumeRecurring(long id) {
-    UpdateResult result =
-        ctx.jobs()
-            .updateOne(
-                and(eq(ID, id), eq(JOB_TYPE, "RECURRING"), eq(STATUS, "PAUSED")),
-                combine(
-                    set(STATUS, "PENDING"),
-                    set(PAUSED_FROM_STATUS, null),
-                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
-                    inc(VERSION, 1)));
-    return result.getModifiedCount() > 0;
+    return lifecycle.resumeRecurring(id);
   }
 
   @Override
   public boolean markJobFailedTerminal(long id, String terminalError, int totalAttempts) {
-    UpdateResult result =
-        ctx.jobs()
-            .updateOne(
-                and(eq(ID, id), eq(STATUS, "RUNNING")),
-                combine(
-                    set(STATUS, "FAILED"),
-                    set(LAST_ERROR, terminalError),
-                    set(ATTEMPTS, totalAttempts),
-                    set(PICKED_BY, null),
-                    set(PICKED_AT, null),
-                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
-                    inc(VERSION, 1)));
-    return result.getModifiedCount() > 0;
+    return lifecycle.markJobFailedTerminal(id, terminalError, totalAttempts);
   }
 
   @Override
   public boolean cancelJob(long id) {
-    UpdateResult result =
-        ctx.jobs()
-            .updateOne(
-                and(eq(ID, id), in(STATUS, List.of("PENDING", "RUNNING", "PAUSED"))),
-                combine(
-                    set(STATUS, "CANCELED"),
-                    set(PICKED_BY, null),
-                    set(PICKED_AT, null),
-                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
-                    inc(VERSION, 1)));
-    return result.getModifiedCount() > 0;
+    return lifecycle.cancelJob(id);
   }
 
   @Override
   public boolean resetRunningJob(long id, String nodeId) {
-    UpdateResult result =
-        ctx.jobs()
-            .updateOne(
-                and(eq(ID, id), eq(STATUS, "RUNNING"), eq(PICKED_BY, nodeId)),
-                combine(
-                    set(STATUS, "PENDING"),
-                    set(PICKED_BY, null),
-                    set(PICKED_AT, null),
-                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
-                    inc(VERSION, 1)));
-    return result.getModifiedCount() > 0;
+    return lifecycle.resetRunningJob(id, nodeId);
   }
 
   @Override
   public int resetRunningJobs(String nodeId) {
-    UpdateResult result =
-        ctx.jobs()
-            .updateMany(
-                and(eq(STATUS, "RUNNING"), eq(PICKED_BY, nodeId)),
-                combine(
-                    set(STATUS, "PENDING"),
-                    set(PICKED_BY, null),
-                    set(PICKED_AT, null),
-                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
-                    inc(VERSION, 1)));
-    return (int) result.getModifiedCount();
+    return lifecycle.resetRunningJobs(nodeId);
   }
 
   @Override
   public int cancelRecurringJobsByTag(String tag) {
-    UpdateResult result =
-        ctx.jobs()
-            .updateMany(
-                and(
-                    eq(TAGS, tag),
-                    eq(JOB_TYPE, "RECURRING"),
-                    in(STATUS, MongoStoreContext.ACTIVE_STATUSES)),
-                combine(
-                    set(STATUS, "CANCELED"),
-                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
-                    inc(VERSION, 1)));
-    return (int) result.getModifiedCount();
+    return lifecycle.cancelRecurringJobsByTag(tag);
   }
 
   @Override
   public int cancelRecurringJobByBusinessKey(String businessKey) {
-    UpdateResult result =
-        ctx.jobs()
-            .updateMany(
-                and(
-                    eq(BUSINESS_KEY, businessKey),
-                    eq(JOB_TYPE, "RECURRING"),
-                    in(STATUS, MongoStoreContext.ACTIVE_STATUSES)),
-                combine(
-                    set(STATUS, "CANCELED"),
-                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
-                    inc(VERSION, 1)));
-    return (int) result.getModifiedCount();
+    return lifecycle.cancelRecurringJobByBusinessKey(businessKey);
   }
 
   @Override
   public int cancelOrphanedRecurringAnnotationJobs(
       Set<String> registeredIds, Instant nodeStartTime) {
-    if (registeredIds.isEmpty()) {
-      return 0;
-    }
-    UpdateResult result =
-        ctx.jobs()
-            .updateMany(
-                and(
-                    eq(JOB_TYPE, "RECURRING"),
-                    in(STATUS, MongoStoreContext.ACTIVE_STATUSES),
-                    lt(CREATED_AT, DocumentMapper.toDate(nodeStartTime)),
-                    ne(BUSINESS_KEY, null),
-                    nin(BUSINESS_KEY, registeredIds)),
-                combine(
-                    set(STATUS, "CANCELED"),
-                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
-                    inc(VERSION, 1)));
-    return (int) result.getModifiedCount();
+    return lifecycle.cancelOrphanedRecurringAnnotationJobs(registeredIds, nodeStartTime);
   }
 
   @Override
   public boolean resetFailedToPending(long id) {
-    UpdateResult result =
-        ctx.jobs()
-            .updateOne(
-                and(eq(ID, id), eq(STATUS, "FAILED")),
-                combine(
-                    set(STATUS, "PENDING"),
-                    set(ATTEMPTS, 0),
-                    set(LAST_ERROR, null),
-                    set(SCHEDULED_TIME, DocumentMapper.toDate(Instant.now())),
-                    set(PICKED_BY, null),
-                    set(PICKED_AT, null),
-                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
-                    inc(VERSION, 1)));
-    return result.getModifiedCount() > 0;
+    return lifecycle.resetFailedToPending(id);
   }
 
   @Override
   public boolean transitionToPaused(long id, JobStatus expected) {
-    UpdateResult result =
-        ctx.jobs()
-            .updateOne(
-                and(eq(ID, id), eq(STATUS, expected.name())),
-                combine(
-                    set(STATUS, "PAUSED"),
-                    set(PAUSED_FROM_STATUS, expected.name()),
-                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
-                    inc(VERSION, 1)));
-    return result.getModifiedCount() > 0;
+    return lifecycle.transitionToPaused(id, expected);
   }
 
   @Override
   public boolean transitionFromPaused(long id, JobStatus target) {
-    UpdateResult result =
-        ctx.jobs()
-            .updateOne(
-                and(eq(ID, id), eq(STATUS, "PAUSED")),
-                combine(
-                    set(STATUS, target.name()),
-                    set(PAUSED_FROM_STATUS, null),
-                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
-                    inc(VERSION, 1)));
-    return result.getModifiedCount() > 0;
+    return lifecycle.transitionFromPaused(id, target);
   }
 
   @Override
   public JobStatus transitionFromPausedAtomic(long id) {
-    Document before =
-        ctx.jobs()
-            .findOneAndUpdate(
-                and(eq(ID, id), eq(STATUS, "PAUSED")),
-                List.of(
-                    new Document(
-                        "$set",
-                        new Document()
-                            .append(
-                                STATUS,
-                                new Document(
-                                    "$ifNull", List.of("$" + PAUSED_FROM_STATUS, "PENDING")))
-                            .append(PAUSED_FROM_STATUS, null)
-                            .append(UPDATED_AT, new Date())
-                            .append(VERSION, new Document("$add", List.of("$" + VERSION, 1))))),
-                new FindOneAndUpdateOptions().returnDocument(ReturnDocument.BEFORE));
-    if (before == null) {
-      return null;
-    }
-    String pausedFrom = before.getString(PAUSED_FROM_STATUS);
-    return pausedFrom != null ? JobStatus.valueOf(pausedFrom) : JobStatus.PENDING;
+    return lifecycle.transitionFromPausedAtomic(id);
   }
 
   @Override
