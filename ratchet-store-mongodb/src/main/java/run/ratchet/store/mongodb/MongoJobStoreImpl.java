@@ -18,7 +18,6 @@ import static com.mongodb.client.model.Updates.setOnInsert;
 import static run.ratchet.store.mongodb.MongoFieldNames.*;
 
 import com.mongodb.MongoCommandException;
-import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.FindOneAndUpdateOptions;
 import com.mongodb.client.model.ReplaceOptions;
@@ -83,6 +82,7 @@ class MongoJobStoreImpl implements MongoJobStore {
   private final MongoStoreContext ctx;
   private final MongoTagOperations tags;
   private final MongoJobCrudOperations crud;
+  private final MongoBatchOperations batches;
 
   private final ExecutorService claimExecutor =
       Executors.newFixedThreadPool(
@@ -100,6 +100,7 @@ class MongoJobStoreImpl implements MongoJobStore {
     this.ctx = new MongoStoreContext(database, options.store().priorityBoostIntervalMinutes());
     this.tags = new MongoTagOperations(ctx);
     this.crud = new MongoJobCrudOperations(ctx);
+    this.batches = new MongoBatchOperations(ctx);
     options.node().explicitTsidNodeId().ifPresent(TsidFactory::configureNodeId);
   }
 
@@ -660,105 +661,42 @@ class MongoJobStoreImpl implements MongoJobStore {
 
   @Override
   public BatchEntity saveBatch(BatchEntity batch) {
-    Document doc = DocumentMapper.toDocument(batch);
-    ctx.batches().replaceOne(eq(ID, batch.getId()), doc, new ReplaceOptions().upsert(true));
-    return batch;
+    return batches.saveBatch(batch);
   }
 
   @Override
   public Optional<BatchEntity> findBatchById(long batchId) {
-    Document doc = ctx.batches().find(eq(ID, batchId)).first();
-    return doc == null ? Optional.empty() : Optional.of(DocumentMapper.toBatchEntity(doc));
+    return batches.findBatchById(batchId);
   }
 
   @Override
   public List<BatchEntity> findBatchesByIds(List<Long> batchIds) {
-    if (batchIds == null || batchIds.isEmpty()) {
-      return List.of();
-    }
-    List<BatchEntity> result = new ArrayList<>();
-    for (Document doc : ctx.batches().find(in(ID, batchIds))) {
-      result.add(DocumentMapper.toBatchEntity(doc));
-    }
-    return result;
+    return batches.findBatchesByIds(batchIds);
   }
 
   @Override
   public BatchProgress incrementCompletedAtomic(long batchId) {
-    Document doc =
-        ctx.batches()
-            .findOneAndUpdate(
-                eq(ID, batchId),
-                inc(COMPLETED_ITEMS, 1),
-                new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
-    if (doc == null) {
-      throw new IllegalStateException("Batch not found: " + batchId);
-    }
-    return DocumentMapper.toBatchProgress(doc, batchId);
+    return batches.incrementCompletedAtomic(batchId);
   }
 
   @Override
   public BatchProgress incrementFailedAtomic(long batchId) {
-    Document doc =
-        ctx.batches()
-            .findOneAndUpdate(
-                eq(ID, batchId),
-                inc(FAILED_ITEMS, 1),
-                new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
-    if (doc == null) {
-      throw new IllegalStateException("Batch not found: " + batchId);
-    }
-    return DocumentMapper.toBatchProgress(doc, batchId);
+    return batches.incrementFailedAtomic(batchId);
   }
 
   @Override
   public boolean markBatchCompleteIfReady(long batchId) {
-    UpdateResult result =
-        ctx.batches()
-            .updateOne(
-                and(
-                    eq(ID, batchId),
-                    eq(COMPLETION_PROCESSED, false),
-                    new Document(
-                        "$expr",
-                        new Document(
-                            "$gte",
-                            List.of(
-                                new Document(
-                                    "$add", List.of("$" + COMPLETED_ITEMS, "$" + FAILED_ITEMS)),
-                                "$" + TOTAL_ITEMS)))),
-                set(COMPLETION_PROCESSED, true));
-    return result.getModifiedCount() > 0;
+    return batches.markBatchCompleteIfReady(batchId);
   }
 
   @Override
   public List<Long> findRecoverableBatchIds(int limit) {
-    List<Long> ids = new ArrayList<>();
-    FindIterable<Document> results =
-        ctx.batches()
-            .find(
-                and(
-                    eq(COMPLETION_PROCESSED, false),
-                    new Document(
-                        "$expr",
-                        new Document(
-                            "$gte",
-                            List.of(
-                                new Document(
-                                    "$add", List.of("$" + COMPLETED_ITEMS, "$" + FAILED_ITEMS)),
-                                "$" + TOTAL_ITEMS)))))
-            .projection(new Document(ID, 1))
-            .limit(limit);
-    for (Document doc : results) {
-      ids.add(doc.getLong(ID));
-    }
-    return ids;
+    return batches.findRecoverableBatchIds(limit);
   }
 
   @Override
   public boolean updateBatchTotalItems(long batchId, int totalItems) {
-    UpdateResult result = ctx.batches().updateOne(eq(ID, batchId), set(TOTAL_ITEMS, totalItems));
-    return result.getModifiedCount() > 0;
+    return batches.updateBatchTotalItems(batchId, totalItems);
   }
 
   @Override
@@ -1074,56 +1012,27 @@ class MongoJobStoreImpl implements MongoJobStore {
 
   @Override
   public BatchMetricsEntity saveBatchMetrics(BatchMetricsEntity metrics) {
-    Document doc = DocumentMapper.toDocument(metrics);
-    ctx.batchMetrics()
-        .replaceOne(eq(ID, metrics.getBatchId()), doc, new ReplaceOptions().upsert(true));
-    return metrics;
+    return batches.saveBatchMetrics(metrics);
   }
 
   @Override
   public Optional<BatchMetricsEntity> findBatchMetrics(long batchId) {
-    Document doc = ctx.batchMetrics().find(eq(ID, batchId)).first();
-    return doc == null ? Optional.empty() : Optional.of(DocumentMapper.toBatchMetricsEntity(doc));
+    return batches.findBatchMetrics(batchId);
   }
 
   @Override
   public void addChildExecutionTime(long batchId, long durationMs) {
-    ctx.batchMetrics()
-        .updateOne(
-            eq(ID, batchId), combine(inc(CHILD_EXECUTION_MS, durationMs), inc(SUCCESS_COUNT, 1)));
+    batches.addChildExecutionTime(batchId, durationMs);
   }
 
   @Override
   public void finalizeBatchMetrics(long batchId) {
-    Document doc = ctx.batchMetrics().find(eq(ID, batchId)).first();
-    if (doc == null) {
-      return;
-    }
-    Instant now = Instant.now();
-    Date startedAt = doc.getDate(STARTED_AT);
-    Long childExecutionMs = doc.getLong(CHILD_EXECUTION_MS);
-
-    Long totalDurationMs = null;
-    Long overheadMs = null;
-    if (startedAt != null) {
-      totalDurationMs = Duration.between(startedAt.toInstant(), now).toMillis();
-      if (childExecutionMs != null) {
-        overheadMs = totalDurationMs - childExecutionMs;
-      }
-    }
-
-    ctx.batchMetrics()
-        .updateOne(
-            eq(ID, batchId),
-            combine(
-                set(COMPLETED_AT, DocumentMapper.toDate(now)),
-                set(TOTAL_DURATION_MS, totalDurationMs),
-                set(OVERHEAD_MS, overheadMs)));
+    batches.finalizeBatchMetrics(batchId);
   }
 
   @Override
   public void updateBatchMetricsChildCount(long batchId, int childCount) {
-    ctx.batchMetrics().updateOne(eq(ID, batchId), set(CHILD_COUNT, childCount));
+    batches.updateBatchMetricsChildCount(batchId, childCount);
   }
 
   @Override
