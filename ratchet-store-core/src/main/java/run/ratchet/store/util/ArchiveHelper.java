@@ -72,7 +72,7 @@ public final class ArchiveHelper {
       return "{}";
     }
     try {
-      return mapper.writeValueAsString(job.getPayload());
+      return PayloadMasker.maskPayload(mapper.writeValueAsString(job.getPayload()));
     } catch (Exception e) {
       log.warn("Payload serialization error", e);
       return "{}";
@@ -104,7 +104,7 @@ public final class ArchiveHelper {
       return null;
     }
     try {
-      return mapper.writeValueAsString(payload);
+      return PayloadMasker.maskPayload(mapper.writeValueAsString(payload));
     } catch (Exception e) {
       log.warn("Callback payload serialization error", e);
       return null;
