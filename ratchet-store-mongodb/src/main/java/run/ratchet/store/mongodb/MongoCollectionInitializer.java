@@ -78,7 +78,7 @@ class MongoCollectionInitializer {
             Indexes.descending(PRIORITY),
             Indexes.ascending(SCHEDULED_TIME)),
         "idx_job_poll_composite");
-    createIndex(
+    createRequiredIndex(
         coll,
         Indexes.compoundIndex(
             Indexes.ascending(STATUS),
@@ -86,13 +86,13 @@ class MongoCollectionInitializer {
             Indexes.descending(PRIORITY),
             Indexes.ascending(SCHEDULED_TIME),
             Indexes.ascending(ID)),
-        MongoIndexHints.JOB_CLAIM_EXEC);
+        new IndexOptions().name(MongoIndexHints.JOB_CLAIM_EXEC));
     createIndex(
         coll,
         Indexes.compoundIndex(
             Indexes.ascending(JOB_TYPE), Indexes.ascending(STATUS), Indexes.ascending(NEXT_FIRE)),
         "idx_job_recurring_composite");
-    createIndex(
+    createRequiredIndex(
         coll,
         Indexes.compoundIndex(
             Indexes.ascending(STATUS),
@@ -100,7 +100,7 @@ class MongoCollectionInitializer {
             Indexes.descending(PRIORITY),
             Indexes.ascending(NEXT_FIRE),
             Indexes.ascending(ID)),
-        MongoIndexHints.JOB_CLAIM_RECURRING);
+        new IndexOptions().name(MongoIndexHints.JOB_CLAIM_RECURRING));
     createRequiredIndex(
         coll,
         Indexes.ascending(IDEMPOTENCY_KEY),

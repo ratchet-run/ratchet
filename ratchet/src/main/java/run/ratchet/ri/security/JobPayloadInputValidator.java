@@ -1,6 +1,7 @@
 package run.ratchet.ri.security;
 
 import run.ratchet.store.entity.JobPayload;
+import jakarta.enterprise.context.ApplicationScoped;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
@@ -16,6 +17,7 @@ import org.jboss.logging.Logger;
  *
  * @see JobSecurityValidator
  */
+@ApplicationScoped
 public class JobPayloadInputValidator {
 
   private static final Logger log = Logger.getLogger(JobPayloadInputValidator.class);
@@ -173,7 +175,7 @@ public class JobPayloadInputValidator {
     }
     try {
       Class<?> clazz =
-          Class.forName(payload.target(), true, Thread.currentThread().getContextClassLoader());
+          Class.forName(payload.target(), false, Thread.currentThread().getContextClassLoader());
       validateMethodSignature(clazz, payload, errors);
     } catch (ClassNotFoundException e) {
       // Already reported by validateTargetClass
@@ -188,7 +190,7 @@ public class JobPayloadInputValidator {
       return;
     }
     try {
-      Class.forName(payload.target(), true, Thread.currentThread().getContextClassLoader());
+      Class.forName(payload.target(), false, Thread.currentThread().getContextClassLoader());
     } catch (ClassNotFoundException e) {
       errors.add("Target class not found: " + payload.target() + " - " + e.getMessage());
     } catch (Exception e) {
