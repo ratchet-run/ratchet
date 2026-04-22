@@ -1,7 +1,5 @@
 package run.ratchet.store.mongodb;
 
-import static run.ratchet.store.mongodb.MongoFieldNames.*;
-
 import com.mongodb.client.MongoDatabase;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.RatchetOptions;
@@ -26,7 +24,6 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -34,7 +31,6 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import org.jboss.logging.Logger;
 
 /**
  * MongoDB implementation of the {@link MongoJobStore} API.
@@ -45,8 +41,6 @@ import org.jboss.logging.Logger;
  */
 @ApplicationScoped
 class MongoJobStoreImpl implements MongoJobStore {
-
-  private static final Logger log = Logger.getLogger(MongoJobStoreImpl.class);
 
   private final MongoDatabase database;
   private final RatchetOptions options;
@@ -686,6 +680,4 @@ class MongoJobStoreImpl implements MongoJobStore {
   void initializeCollections() {
     new MongoCollectionInitializer(database).initialize();
   }
-
-  private record ClaimCandidate(long id, int priority, Date dueAt) {}
 }
