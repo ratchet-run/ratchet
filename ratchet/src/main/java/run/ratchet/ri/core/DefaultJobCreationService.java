@@ -11,6 +11,7 @@ import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.WorkflowBranch;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.payload.JobPayloadFactory;
+import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.ri.security.JobPayloadInputValidator;
 import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.store.entity.BatchEntity;
@@ -54,6 +55,7 @@ public class DefaultJobCreationService
   private final RecurringScheduler recurringScheduler;
   private final JobInvocationResolver jobInvocationResolver;
   private final JobPayloadInputValidator payloadValidator;
+  private final CallerPrincipalProvider callerPrincipalProvider;
 
   protected DefaultJobCreationService() {
     this.jobBatchStatusStore = null;
@@ -66,6 +68,7 @@ public class DefaultJobCreationService
     this.recurringScheduler = null;
     this.jobInvocationResolver = null;
     this.payloadValidator = null;
+    this.callerPrincipalProvider = null;
   }
 
   public DefaultJobCreationService(
@@ -87,7 +90,8 @@ public class DefaultJobCreationService
         wakeupService,
         recurringScheduler,
         new DefaultJobInvocationResolver(),
-        new JobPayloadInputValidator());
+        new JobPayloadInputValidator(),
+        null);
   }
 
   @Inject
@@ -101,7 +105,8 @@ public class DefaultJobCreationService
       JobWakeupService wakeupService,
       RecurringScheduler recurringScheduler,
       JobInvocationResolver jobInvocationResolver,
-      JobPayloadInputValidator payloadValidator) {
+      JobPayloadInputValidator payloadValidator,
+      CallerPrincipalProvider callerPrincipalProvider) {
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.jobTerminalStore = jobTerminalStore;
     this.jobCrudStore = jobCrudStore;
@@ -112,6 +117,7 @@ public class DefaultJobCreationService
     this.recurringScheduler = recurringScheduler;
     this.jobInvocationResolver = jobInvocationResolver;
     this.payloadValidator = payloadValidator;
+    this.callerPrincipalProvider = callerPrincipalProvider;
   }
 
   @Override
@@ -157,6 +163,7 @@ public class DefaultJobCreationService
     if (builder.onFailure() != null) {
       job.setOnFailurePayload(payload(builder.onFailure()));
     }
+    stampCallerPrincipal(job);
     applyOptions(job, opts);
     if (!builder.params().isEmpty()) {
       job.setParams(builder.params());
@@ -226,6 +233,7 @@ public class DefaultJobCreationService
       childJob.setPayload(validate(child.payload()));
       childJob.setIdempotencyKey(UUID.randomUUID().toString());
       childJob.setDependsOn(parentId);
+      stampCallerPrincipal(childJob);
       jobCrudStore.save(childJob);
     }
 
@@ -329,6 +337,7 @@ public class DefaultJobCreationService
     job.setZoneId(builder.zone().getId());
     job.setNextFire(nextFire);
     applyOptions(job, options);
+    stampCallerPrincipal(job);
 
     JobEntity saved = jobCrudStore.save(job);
 
@@ -359,6 +368,7 @@ public class DefaultJobCreationService
     parent.setScheduledTime(Instant.now());
     parent.setPayload(validate(JobPayloadFactory.noop()));
     parent.setIdempotencyKey(UUID.randomUUID().toString());
+    stampCallerPrincipal(parent);
     return parent;
   }
 
@@ -383,6 +393,7 @@ public class DefaultJobCreationService
       step.setIdempotencyKey(UUID.randomUUID().toString());
       step.setDependsOn(prevId);
       applyOptions(step, opts);
+      stampCallerPrincipal(step);
 
       JobEntity savedStep = jobCrudStore.save(step);
       prevId = savedStep.getId();
@@ -401,6 +412,7 @@ public class DefaultJobCreationService
       child.setPayload(payload(builder.action(), List.of(item)));
       child.setIdempotencyKey(UUID.randomUUID().toString());
       child.setDependsOn(parentId);
+      stampCallerPrincipal(child);
       jobCrudStore.save(child);
       count++;
     }
@@ -422,6 +434,7 @@ public class DefaultJobCreationService
     branchJob.setPayload(payload(branch.task()));
     branchJob.setIdempotencyKey(UUID.randomUUID().toString());
     branchJob.setDependsOn(parentId);
+    stampCallerPrincipal(branchJob);
     JobEntity savedBranch = jobCrudStore.save(branchJob);
 
     WorkflowConditionEntity condition = new WorkflowConditionEntity();
@@ -448,5 +461,12 @@ public class DefaultJobCreationService
   private JobPayload validate(JobPayload payload) {
     payloadValidator.validateAtCreation(payload);
     return payload;
+  }
+
+  private void stampCallerPrincipal(JobEntity job) {
+    if (callerPrincipalProvider == null) {
+      return;
+    }
+    callerPrincipalProvider.currentPrincipal().ifPresent(job::setCallerPrincipal);
   }
 }

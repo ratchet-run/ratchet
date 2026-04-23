@@ -136,6 +136,12 @@
         <version>3.0.0</version>
         <scope>provided</scope>
       </dependency>
+      <dependency>
+        <groupId>jakarta.security.enterprise</groupId>
+        <artifactId>jakarta.security.enterprise-api</artifactId>
+        <version>3.0.0</version>
+        <scope>provided</scope>
+      </dependency>
 
       <dependency>
         <groupId>org.ow2.asm</groupId>

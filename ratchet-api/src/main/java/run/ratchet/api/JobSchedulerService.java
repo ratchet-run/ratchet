@@ -35,6 +35,19 @@ import java.util.function.Consumer;
  * compound operations. Such implementations MUST document which operations are atomic at the store
  * level and which are best-effort.
  *
+ * <h2>Security context capture</h2>
+ *
+ * <p>Implementations MUST capture the caller principal at job creation when a container security
+ * context is available and store it on the job entity. When no security context is active or the
+ * context provides no authenticated principal, implementations MUST store null. The captured
+ * principal MUST be immutable once set — subsequent job mutations (status transitions, retries,
+ * rescheduling) MUST NOT overwrite the original capture.
+ *
+ * <p>No authorization enforcement is performed on job submission, cancellation, pausing,
+ * resumption, or retry. The captured principal is exposed on the entity for audit and for
+ * downstream consumers that wish to build their own authorization policy; this specification does
+ * not prescribe one.
+ *
  * @see jakarta.transaction.Transactional
  */
 public interface JobSchedulerService {
