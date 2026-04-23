@@ -1,11 +1,8 @@
 package run.ratchet.store.util;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobPayload;
 import java.time.Instant;
-import org.jboss.logging.Logger;
 
 /** Shared utilities for archiving jobs across JPA-based store implementations. */
 public final class ArchiveHelper {
@@ -18,8 +15,6 @@ public final class ArchiveHelper {
           + "run.ratchet.store.entity.JobStatus.CANCELED) "
           + "AND j.updatedAt < :cutoff "
           + "ORDER BY j.updatedAt ASC";
-
-  private static final Logger log = Logger.getLogger(ArchiveHelper.class);
 
   private ArchiveHelper() {}
 
@@ -61,53 +56,5 @@ public final class ArchiveHelper {
       a.setTags(String.join(",", job.getTags()));
     }
     return a;
-  }
-
-  /**
-   * Serializes a job's payload to JSON. Returns "{}" on failure so archival is never blocked by a
-   * serialization error.
-   */
-  public static String payloadToJson(JobEntity job, ObjectMapper mapper) {
-    if (job.getPayload() == null) {
-      return "{}";
-    }
-    try {
-      return PayloadMasker.maskPayload(mapper.writeValueAsString(job.getPayload()));
-    } catch (Exception e) {
-      log.warn("Payload serialization error", e);
-      return "{}";
-    }
-  }
-
-  /**
-   * Serializes a job's params map to JSON. Returns {@code null} when params are absent. Returns
-   * {@code null} on failure so archival is never blocked by a serialization error.
-   */
-  public static String paramsToJson(JobEntity job, ObjectMapper mapper) {
-    if (job.getParams() == null) {
-      return null;
-    }
-    try {
-      return mapper.writeValueAsString(job.getParams());
-    } catch (Exception e) {
-      log.warn("Params serialization error", e);
-      return null;
-    }
-  }
-
-  /**
-   * Serializes a callback payload to JSON. Returns {@code null} when the payload is absent. Returns
-   * {@code null} on failure so archival is never blocked by a serialization error.
-   */
-  public static String callbackPayloadToJson(JobPayload payload, ObjectMapper mapper) {
-    if (payload == null) {
-      return null;
-    }
-    try {
-      return PayloadMasker.maskPayload(mapper.writeValueAsString(payload));
-    } catch (Exception e) {
-      log.warn("Callback payload serialization error", e);
-      return null;
-    }
   }
 }

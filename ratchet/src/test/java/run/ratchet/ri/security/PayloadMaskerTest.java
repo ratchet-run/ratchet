@@ -52,4 +52,12 @@ class PayloadMaskerTest {
     assertTrue(masked.contains("\"apiKey\":\"***REDACTED***\""));
     assertTrue(masked.contains("\"endpoint\":\"https://example.com\""));
   }
+
+  @Test
+  void maskPayload_arrayRoot_passesThroughUnchanged() {
+    // Array and scalar roots are not object-masked; they must round-trip unchanged
+    // rather than silently collapse to ***REDACTED***.
+    assertEquals("[{\"password\":\"x\"}]", PayloadMasker.maskPayload("[{\"password\":\"x\"}]"));
+    assertEquals("42", PayloadMasker.maskPayload("42"));
+  }
 }

@@ -1,9 +1,14 @@
 package run.ratchet.store.util;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import run.ratchet.store.converter.PayloadSerializerHolder;
+import jakarta.json.Json;
+import jakarta.json.JsonArray;
+import jakarta.json.JsonArrayBuilder;
+import jakarta.json.JsonObject;
+import jakarta.json.JsonObjectBuilder;
+import jakarta.json.JsonReader;
+import jakarta.json.JsonValue;
+import java.io.StringReader;
 import java.util.Set;
 import org.jboss.logging.Logger;
 
@@ -11,7 +16,6 @@ import org.jboss.logging.Logger;
 public final class PayloadMasker {
 
   private static final Logger log = Logger.getLogger(PayloadMasker.class);
-  private static final ObjectMapper MAPPER = ObjectMapperFactory.get();
   private static final String MASKED_VALUE = "***REDACTED***";
 
   private static final Set<String> SENSITIVE_FIELDS =
@@ -56,12 +60,14 @@ public final class PayloadMasker {
       return null;
     }
 
-    try {
-      JsonNode root = MAPPER.readTree(payloadJson);
-      if (root.isObject()) {
-        maskObject((ObjectNode) root);
+    try (JsonReader reader = Json.createReader(new StringReader(payloadJson))) {
+      JsonValue root = reader.readValue();
+      if (root.getValueType() == JsonValue.ValueType.OBJECT) {
+        return maskObject(root.asJsonObject()).build().toString();
       }
-      return MAPPER.writeValueAsString(root);
+      // Array and scalar roots pass through unchanged: field-level masking only applies
+      // when the root is an object, matching the prior Jackson behavior.
+      return root.toString();
     } catch (Exception e) {
       log.warnf("Payload masking error, redacting: %s", e.getMessage());
       return MASKED_VALUE;
@@ -77,7 +83,7 @@ public final class PayloadMasker {
     }
 
     try {
-      String json = MAPPER.writeValueAsString(payload);
+      String json = PayloadSerializerHolder.get().serialize(payload);
       return maskPayload(json);
     } catch (Exception e) {
       log.warnf("Payload serialization error, redacting: %s", e.getMessage());
@@ -94,28 +100,35 @@ public final class PayloadMasker {
         .anyMatch(sensitive -> lowerFieldName.contains(sensitive.toLowerCase()));
   }
 
-  private static void maskArray(ArrayNode array) {
-    for (JsonNode item : array) {
-      if (item.isObject()) {
-        maskObject((ObjectNode) item);
-      } else if (item.isArray()) {
-        maskArray((ArrayNode) item);
+  private static JsonObjectBuilder maskObject(JsonObject object) {
+    JsonObjectBuilder builder = Json.createObjectBuilder();
+    for (var entry : object.entrySet()) {
+      String key = entry.getKey();
+      JsonValue value = entry.getValue();
+      if (isSensitiveField(key)) {
+        builder.add(key, MASKED_VALUE);
+      } else if (value.getValueType() == JsonValue.ValueType.OBJECT) {
+        builder.add(key, maskObject(value.asJsonObject()));
+      } else if (value.getValueType() == JsonValue.ValueType.ARRAY) {
+        builder.add(key, maskArray(value.asJsonArray()));
+      } else {
+        builder.add(key, value);
       }
     }
+    return builder;
   }
 
-  private static void maskObject(ObjectNode node) {
-    node.fieldNames()
-        .forEachRemaining(
-            fieldName -> {
-              JsonNode child = node.get(fieldName);
-              if (isSensitiveField(fieldName)) {
-                node.put(fieldName, MASKED_VALUE);
-              } else if (child.isObject()) {
-                maskObject((ObjectNode) child);
-              } else if (child.isArray()) {
-                maskArray((ArrayNode) child);
-              }
-            });
+  private static JsonArrayBuilder maskArray(JsonArray array) {
+    JsonArrayBuilder builder = Json.createArrayBuilder();
+    for (JsonValue item : array) {
+      if (item.getValueType() == JsonValue.ValueType.OBJECT) {
+        builder.add(maskObject(item.asJsonObject()));
+      } else if (item.getValueType() == JsonValue.ValueType.ARRAY) {
+        builder.add(maskArray(item.asJsonArray()));
+      } else {
+        builder.add(item);
+      }
+    }
+    return builder;
   }
 }
