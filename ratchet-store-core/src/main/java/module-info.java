@@ -1,8 +1,6 @@
 module run.ratchet.store.core {
   requires transitive run.ratchet.api;
   requires transitive jakarta.persistence;
-  requires com.fasterxml.jackson.databind;
-  requires com.fasterxml.jackson.datatype.jsr310;
   requires jakarta.json;
   requires jakarta.json.bind;
   requires java.sql;

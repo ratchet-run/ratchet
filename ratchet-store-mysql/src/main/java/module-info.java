@@ -1,8 +1,6 @@
 module run.ratchet.store.mysql {
   requires run.ratchet.api;
   requires run.ratchet.store.core;
-  requires com.fasterxml.jackson.core;
-  requires com.fasterxml.jackson.databind;
   requires jakarta.annotation;
   requires jakarta.cdi;
   requires jakarta.inject;
