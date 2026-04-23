@@ -32,6 +32,20 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
   }
 
   @Test
+  void saveAndFindById_roundTripsCallerPrincipalField() {
+    JobEntity job = newPendingJob();
+    job.setCallerPrincipal("alice");
+    JobEntity saved = persist(job);
+
+    JobEntity reloaded = store().findById(saved.getId()).orElseThrow();
+
+    assertEquals(
+        "alice",
+        reloaded.getCallerPrincipal(),
+        "Caller principal must round-trip through save/findById");
+  }
+
+  @Test
   void findByIdLatest_roundTripsPersistedJob() {
     var saved = persist(newPendingJob());
 

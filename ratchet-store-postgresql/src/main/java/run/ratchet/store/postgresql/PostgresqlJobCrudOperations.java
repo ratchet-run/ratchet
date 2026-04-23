@@ -34,11 +34,11 @@ final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore {
           + "idempotency_key, business_key, resource_name, "
           + "on_success_payload, on_failure_payload, "
           + "depends_on, superseded_by, "
-          + "picked_by, picked_at, last_error, created_at, created_by, "
+          + "picked_by, picked_at, last_error, created_at, created_by, caller_principal, "
           + "updated_at, execution_start_time, execution_end_time, execution_duration_ms, "
           + "queue_wait_ms, job_result, result_type, version) "
           + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,CAST(? AS jsonb),CAST(? AS jsonb),?,?,?,"
-          + "CAST(? AS jsonb),CAST(? AS jsonb),?,?,?,?,?,?,?,?,?,?,?,?,CAST(? AS jsonb),?,0)";
+          + "CAST(? AS jsonb),CAST(? AS jsonb),?,?,?,?,?,?,?,?,?,?,?,?,?,CAST(? AS jsonb),?,0)";
 
   private static final String UPDATE_SQL =
       "UPDATE scheduler_job SET "
@@ -543,6 +543,7 @@ final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore {
     query.setParameter(
         parameter++, Timestamp.from(job.getCreatedAt() != null ? job.getCreatedAt() : now));
     query.setParameter(parameter++, job.getCreatedBy());
+    query.setParameter(parameter++, job.getCallerPrincipal());
     query.setParameter(parameter++, Timestamp.from(now));
     query.setParameter(
         parameter++,

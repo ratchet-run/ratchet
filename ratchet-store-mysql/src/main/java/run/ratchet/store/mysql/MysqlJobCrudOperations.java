@@ -29,9 +29,9 @@ final class MysqlJobCrudOperations implements JobCrudStore, JobBulkStore {
           + "job_id, job_type, priority, max_retries, backoff_policy, backoff_param_ms, "
           + "timeout_sec, cron_expr, zone_id, next_fire, payload, params, idempotency_key, "
           + "business_key, resource_name, on_success_payload, on_failure_payload, depends_on, "
-          + "superseded_by, created_at, created_by, rec_status) "
+          + "superseded_by, created_at, created_by, caller_principal, rec_status) "
           + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, "
-          + "CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, ?, ?)";
+          + "CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, ?, ?, ?)";
 
   private static final String HOT_INSERT_SQL =
       "INSERT INTO scheduler_job_queue ("
@@ -761,7 +761,8 @@ final class MysqlJobCrudOperations implements JobCrudStore, JobBulkStore {
         .setParameter(19, job.getSupersededBy())
         .setParameter(20, nowTs)
         .setParameter(21, job.getCreatedBy())
-        .setParameter(22, recStatus)
+        .setParameter(22, job.getCallerPrincipal())
+        .setParameter(23, recStatus)
         .executeUpdate();
   }
 
@@ -843,6 +844,7 @@ final class MysqlJobCrudOperations implements JobCrudStore, JobBulkStore {
     q.setParameter(i++, job.getSupersededBy());
     q.setParameter(i++, nowTs);
     q.setParameter(i++, job.getCreatedBy());
+    q.setParameter(i++, job.getCallerPrincipal());
     String recStatus = null;
     if (job.getJobType() == JobExecutionType.RECURRING) {
       JobStatus s = job.getStatus() != null ? job.getStatus() : JobStatus.PENDING;
