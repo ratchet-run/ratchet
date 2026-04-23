@@ -1,7 +1,6 @@
 package run.ratchet.store.mysql;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.BatchMetricsEntity;
@@ -9,7 +8,6 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.BatchMetricsStore;
 import run.ratchet.store.spi.BatchStore;
-import run.ratchet.store.util.ObjectMapperFactory;
 import java.util.List;
 import java.util.Optional;
 import org.jboss.logging.Logger;
@@ -17,7 +15,6 @@ import org.jboss.logging.Logger;
 final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
 
   private static final Logger log = Logger.getLogger(MysqlBatchOperations.class);
-  private static final ObjectMapper OBJECT_MAPPER = ObjectMapperFactory.get();
 
   private final MysqlStoreContext ctx;
 
@@ -198,8 +195,8 @@ final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
       return null;
     }
     try {
-      return OBJECT_MAPPER.readValue(jsonValue.toString(), JobPayload.class);
-    } catch (JsonProcessingException e) {
+      return PayloadSerializerHolder.get().deserialize(jsonValue.toString(), JobPayload.class);
+    } catch (IllegalArgumentException e) {
       log.warnf("Bad progress_hook JSON: %s", e.getMessage());
       return null;
     }

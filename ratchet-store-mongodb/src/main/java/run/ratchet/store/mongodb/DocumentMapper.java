@@ -1,7 +1,5 @@
 package run.ratchet.store.mongodb;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.WorkflowCondition;
@@ -23,16 +21,13 @@ import run.ratchet.store.entity.WorkflowConditionEntity;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.bson.Document;
-import org.jboss.logging.Logger;
 
 /** Bidirectional mapping between Ratchet store-core entities and MongoDB BSON documents. */
 public final class DocumentMapper {
-
-  private static final Logger log = Logger.getLogger(DocumentMapper.class);
-  private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
   private DocumentMapper() {}
 
@@ -463,13 +458,9 @@ public final class DocumentMapper {
     if (doc == null) {
       return Collections.emptyMap();
     }
-    try {
-      String json = doc.toJson();
-      return OBJECT_MAPPER.readValue(json, new TypeReference<>() {});
-    } catch (Exception e) {
-      log.warn("Params document deserialization error", e);
-      return Collections.emptyMap();
-    }
+    Map<String, String> out = new LinkedHashMap<>();
+    doc.forEach((k, v) -> out.put(k, v == null ? null : String.valueOf(v)));
+    return out;
   }
 
   private static Document nodeInfoToDocument(Map<String, Object> nodeInfo) {
@@ -481,17 +472,13 @@ public final class DocumentMapper {
     return doc;
   }
 
+  /**
+   * Callers must supply primitives or Strings via {@link #nodeInfoToDocument}; BSON-native types
+   * (ObjectId, Date, Decimal128) surface here as their raw Java forms rather than the nested map
+   * wrappers that the prior extended-JSON roundtrip produced.
+   */
   private static Map<String, Object> documentToNodeInfo(Document doc) {
-    if (doc == null) {
-      return Collections.emptyMap();
-    }
-    try {
-      String json = doc.toJson();
-      return OBJECT_MAPPER.readValue(json, new TypeReference<>() {});
-    } catch (Exception e) {
-      log.warn("Node info deserialization error", e);
-      return Collections.emptyMap();
-    }
+    return doc == null ? Collections.emptyMap() : new LinkedHashMap<>(doc);
   }
 
   static Date toDate(Instant instant) {
