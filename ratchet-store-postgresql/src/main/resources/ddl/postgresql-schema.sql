@@ -77,6 +77,9 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     last_error            TEXT,
     created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_by            VARCHAR(255),
+    -- Captured at creation from jakarta.security.enterprise.SecurityContext when resolvable; null
+    -- otherwise. No enforcement performed — see JobSchedulerService Javadoc.
+    caller_principal      VARCHAR(255),
     updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     execution_start_time TIMESTAMPTZ(6),
     execution_end_time TIMESTAMPTZ(6),

@@ -163,6 +163,9 @@ public class JobEntity implements TsidEntityListener.TsidAssignable {
   @Column(name = "created_by", updatable = false)
   private String createdBy;
 
+  @Column(name = "caller_principal", updatable = false, length = 255)
+  private String callerPrincipal;
+
   @Column(name = "updated_at")
   private Instant updatedAt;
 
@@ -442,6 +445,14 @@ public class JobEntity implements TsidEntityListener.TsidAssignable {
 
   public void setCreatedBy(String createdBy) {
     this.createdBy = createdBy;
+  }
+
+  public String getCallerPrincipal() {
+    return callerPrincipal;
+  }
+
+  public void setCallerPrincipal(String callerPrincipal) {
+    this.callerPrincipal = callerPrincipal;
   }
 
   public Instant getUpdatedAt() {

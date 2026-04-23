@@ -24,6 +24,7 @@ final class MongoFieldNames {
   static final String LAST_ERROR = "last_error";
   static final String VERSION = "version";
   static final String CREATED_AT = "created_at";
+  static final String CALLER_PRINCIPAL = "caller_principal";
   static final String UPDATED_AT = "updated_at";
 
   // Scheduling

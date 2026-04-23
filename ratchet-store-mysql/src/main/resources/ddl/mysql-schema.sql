@@ -89,6 +89,10 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     superseded_by         BIGINT UNSIGNED                                                                                                     NULL,
     created_at            DATETIME(6)                                                                                                         NOT NULL,
     created_by            VARCHAR(255)                                                                                                        NULL,
+    -- Captured at creation from jakarta.security.enterprise.SecurityContext when resolvable; null
+    -- otherwise. No enforcement performed — downstream consumers read this field for audit or to
+    -- build their own authorization layer. See JobSchedulerService Javadoc.
+    caller_principal      VARCHAR(255)                                                                                                        NULL,
     -- Terminal fields — NULL while live; set exactly once at terminal transition; only
     -- cleared by resetFailedToPending. Archival / deleteDlqOlderThan use terminated_at.
     terminal_status       ENUM ('SUCCEEDED','FAILED','CANCELED')                                                                              NULL,
