@@ -31,6 +31,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.RETRY_DELAY_MS;
 import static run.ratchet.store.mongodb.MongoFieldNames.TS;
 import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
 
+import com.mongodb.client.ClientSession;
 import com.mongodb.client.model.FindOneAndUpdateOptions;
 import com.mongodb.client.model.ReplaceOptions;
 import com.mongodb.client.model.ReturnDocument;
@@ -190,48 +191,67 @@ final class MongoAuxiliaryOperations {
   }
 
   boolean tryAcquirePermit(String resource, long jobId, String nodeId) {
-    Document result =
-        ctx.resourceLimits()
-            .findOneAndUpdate(
-                and(
-                    eq(ID, resource),
-                    expr(
-                        new Document(
-                            "$lt",
-                            List.of(
-                                new Document("$ifNull", List.of("$" + ACTIVE_COUNT, 0)),
-                                "$" + MAX_CONCURRENT)))),
-                inc(ACTIVE_COUNT, 1),
-                new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
+    try (ClientSession session = ctx.startSession()) {
+      return session.withTransaction(
+          () -> {
+            Document result =
+                ctx.resourceLimits()
+                    .findOneAndUpdate(
+                        session,
+                        and(
+                            eq(ID, resource),
+                            expr(
+                                new Document(
+                                    "$lt",
+                                    List.of(
+                                        new Document("$ifNull", List.of("$" + ACTIVE_COUNT, 0)),
+                                        "$" + MAX_CONCURRENT)))),
+                        inc(ACTIVE_COUNT, 1),
+                        new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
 
-    if (result == null) {
-      return false;
+            if (result == null) {
+              return false;
+            }
+
+            ResourcePermitEntity permit = ResourcePermitEntity.create(resource, jobId, nodeId);
+            permit.setId(TsidFactory.next());
+            ctx.resourcePermits().insertOne(session, DocumentMapper.toDocument(permit));
+            return true;
+          });
     }
-
-    ResourcePermitEntity permit = ResourcePermitEntity.create(resource, jobId, nodeId);
-    permit.setId(TsidFactory.next());
-    ctx.resourcePermits().insertOne(DocumentMapper.toDocument(permit));
-    return true;
   }
 
   void releasePermit(String resource, long jobId) {
-    DeleteResult dr =
-        ctx.resourcePermits().deleteOne(and(eq(RESOURCE_NAME, resource), eq(JOB_ID, jobId)));
-    if (dr.getDeletedCount() > 0) {
-      ctx.resourceLimits().updateOne(eq(ID, resource), inc(ACTIVE_COUNT, -1));
+    try (ClientSession session = ctx.startSession()) {
+      session.withTransaction(
+          () -> {
+            DeleteResult dr =
+                ctx.resourcePermits()
+                    .deleteOne(session, and(eq(RESOURCE_NAME, resource), eq(JOB_ID, jobId)));
+            if (dr.getDeletedCount() > 0) {
+              ctx.resourceLimits().updateOne(session, eq(ID, resource), inc(ACTIVE_COUNT, -1));
+            }
+            return null;
+          });
     }
   }
 
   void releaseAllPermits(long jobId) {
-    List<String> resources = new ArrayList<>();
-    ctx.resourcePermits()
-        .find(eq(JOB_ID, jobId))
-        .forEach(doc -> resources.add(doc.getString(RESOURCE_NAME)));
-    DeleteResult dr = ctx.resourcePermits().deleteMany(eq(JOB_ID, jobId));
-    if (dr.getDeletedCount() > 0) {
-      for (String resource : resources) {
-        ctx.resourceLimits().updateOne(eq(ID, resource), inc(ACTIVE_COUNT, -1));
-      }
+    try (ClientSession session = ctx.startSession()) {
+      session.withTransaction(
+          () -> {
+            List<String> resources = new ArrayList<>();
+            ctx.resourcePermits()
+                .find(session, eq(JOB_ID, jobId))
+                .forEach(doc -> resources.add(doc.getString(RESOURCE_NAME)));
+            DeleteResult dr = ctx.resourcePermits().deleteMany(session, eq(JOB_ID, jobId));
+            if (dr.getDeletedCount() > 0) {
+              for (String resource : resources) {
+                ctx.resourceLimits().updateOne(session, eq(ID, resource), inc(ACTIVE_COUNT, -1));
+              }
+            }
+            return null;
+          });
     }
   }
 
@@ -262,20 +282,29 @@ final class MongoAuxiliaryOperations {
     if (staleNodeIds.isEmpty()) {
       return 0;
     }
-    List<Document> orphanedPermits = new ArrayList<>();
-    ctx.resourcePermits().find(in(NODE_ID, staleNodeIds)).forEach(orphanedPermits::add);
-    DeleteResult result = ctx.resourcePermits().deleteMany(in(NODE_ID, staleNodeIds));
-    orphanedPermits.stream()
-        .map(doc -> doc.getString(RESOURCE_NAME))
-        .distinct()
-        .forEach(
-            resource -> {
-              long count =
-                  orphanedPermits.stream()
-                      .filter(doc -> resource.equals(doc.getString(RESOURCE_NAME)))
-                      .count();
-              ctx.resourceLimits().updateOne(eq(ID, resource), inc(ACTIVE_COUNT, (int) -count));
-            });
-    return (int) result.getDeletedCount();
+    try (ClientSession session = ctx.startSession()) {
+      return session.withTransaction(
+          () -> {
+            List<Document> orphanedPermits = new ArrayList<>();
+            ctx.resourcePermits()
+                .find(session, in(NODE_ID, staleNodeIds))
+                .forEach(orphanedPermits::add);
+            DeleteResult result =
+                ctx.resourcePermits().deleteMany(session, in(NODE_ID, staleNodeIds));
+            orphanedPermits.stream()
+                .map(doc -> doc.getString(RESOURCE_NAME))
+                .distinct()
+                .forEach(
+                    resource -> {
+                      long count =
+                          orphanedPermits.stream()
+                              .filter(doc -> resource.equals(doc.getString(RESOURCE_NAME)))
+                              .count();
+                      ctx.resourceLimits()
+                          .updateOne(session, eq(ID, resource), inc(ACTIVE_COUNT, (int) -count));
+                    });
+            return (int) result.getDeletedCount();
+          });
+    }
   }
 }

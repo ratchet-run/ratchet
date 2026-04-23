@@ -1,5 +1,7 @@
 package run.ratchet.store.mongodb;
 
+import com.mongodb.client.ClientSession;
+import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import run.ratchet.api.exception.RatchetTransientStoreException;
@@ -22,17 +24,31 @@ final class MongoStoreContext {
   static final List<String> ACTIVE_STATUSES = List.of("PENDING", "RUNNING", "PAUSED");
   static final List<String> TERMINAL_STATUSES = List.of("SUCCEEDED", "FAILED", "CANCELED");
 
+  private final MongoClient client;
   private final MongoDatabase database;
   private final int priorityBoostIntervalMinutes;
   private final MongoConstraintDetector constraintDetector = new MongoConstraintDetector();
 
-  MongoStoreContext(MongoDatabase database) {
-    this(database, 15);
+  MongoStoreContext(MongoClient client, MongoDatabase database) {
+    this(client, database, 15);
   }
 
-  MongoStoreContext(MongoDatabase database, int priorityBoostIntervalMinutes) {
+  MongoStoreContext(MongoClient client, MongoDatabase database, int priorityBoostIntervalMinutes) {
+    this.client = client;
     this.database = database;
     this.priorityBoostIntervalMinutes = priorityBoostIntervalMinutes;
+  }
+
+  /**
+   * Start a new session bound to this context's client. Caller is responsible for closing the
+   * session (try-with-resources). Used by compound operations that need multi-document atomicity
+   * via {@link ClientSession#withTransaction(com.mongodb.client.TransactionBody)}.
+   *
+   * <p>Requires the MongoDB deployment to be a replica set or sharded cluster; standalone mongod
+   * does not support sessions.
+   */
+  ClientSession startSession() {
+    return client.startSession();
   }
 
   static boolean isPollerExecutable(JobExecutionType jobType) {

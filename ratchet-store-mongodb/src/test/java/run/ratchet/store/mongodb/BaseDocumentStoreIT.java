@@ -48,7 +48,7 @@ public abstract class BaseDocumentStoreIT {
     client = MongoClients.create(MONGO.getConnectionString());
     database = client.getDatabase("ratchet_it_" + UUID.randomUUID().toString().substring(0, 8));
     claimExecutor = Executors.newCachedThreadPool();
-    store = new MongoJobStoreImpl(database, RatchetOptions.defaults(), claimExecutor);
+    store = new MongoJobStoreImpl(client, database, RatchetOptions.defaults(), claimExecutor);
     // Store collection initialization is @PostConstruct, which only fires inside a CDI container.
     // Plain-new instantiation in test fixtures bypasses it, so the unique indexes on
     // idempotency_key / business_key that IdempotencyIT relies on never get created. Call the

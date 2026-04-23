@@ -30,6 +30,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.TAGS;
 import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
 
+import com.mongodb.client.ClientSession;
 import com.mongodb.client.model.FindOneAndUpdateOptions;
 import com.mongodb.client.model.ReturnDocument;
 import com.mongodb.client.result.UpdateResult;
@@ -176,12 +177,36 @@ final class MongoJobLifecycleOperations {
       Long durationMs,
       Long queueWaitMs,
       long batchId) {
-    boolean jobUpdated =
-        markJobSucceeded(jobId, resultJson, resultType, start, end, durationMs, queueWaitMs);
-    if (jobUpdated) {
-      batches.incrementCompletedAtomic(batchId);
+    try (ClientSession session = ctx.startSession()) {
+      return session.withTransaction(
+          () -> {
+            try {
+              UpdateResult result =
+                  ctx.jobs()
+                      .updateOne(
+                          session,
+                          and(eq(ID, jobId), eq(STATUS, "RUNNING")),
+                          combine(
+                              set(STATUS, "SUCCEEDED"),
+                              set(JOB_RESULT, resultJson),
+                              set(RESULT_TYPE, resultType),
+                              set(EXECUTION_START_TIME, DocumentMapper.toDate(start)),
+                              set(EXECUTION_END_TIME, DocumentMapper.toDate(end)),
+                              set(EXECUTION_DURATION_MS, durationMs),
+                              set(QUEUE_WAIT_MS, queueWaitMs),
+                              set(LAST_ERROR, null),
+                              set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                              inc(VERSION, 1)));
+              if (result.getModifiedCount() == 0) {
+                return false;
+              }
+              batches.incrementCompletedAtomic(session, batchId);
+              return true;
+            } catch (RuntimeException e) {
+              throw ctx.translateTransientStoreException("mark job succeeded and update batch", e);
+            }
+          });
     }
-    return jobUpdated;
   }
 
   boolean scheduleJobRetry(long id, String error, Instant newScheduledTime, int attempts) {

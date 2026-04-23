@@ -1,5 +1,6 @@
 package run.ratchet.store.mongodb;
 
+import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoDatabase;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.RatchetOptions;
@@ -40,6 +41,7 @@ import java.util.concurrent.ExecutorService;
 @ApplicationScoped
 class MongoJobStoreImpl implements MongoJobStore {
 
+  private final MongoClient client;
   private final MongoDatabase database;
   private final RatchetOptions options;
   private final MongoStoreContext ctx;
@@ -55,27 +57,24 @@ class MongoJobStoreImpl implements MongoJobStore {
 
   @Inject
   MongoJobStoreImpl(
-      MongoDatabase database, RatchetOptions options, ExecutorProvider executorProvider) {
-    this.database = database;
-    this.options = options;
-    this.claimExecutor = executorProvider.getJobExecutor();
-    this.ctx = new MongoStoreContext(database, options.store().priorityBoostIntervalMinutes());
-    this.tags = new MongoTagOperations(ctx);
-    this.crud = new MongoJobCrudOperations(ctx);
-    this.batches = new MongoBatchOperations(ctx);
-    this.claims = new MongoJobClaimOperations(ctx, claimExecutor);
-    this.lifecycle = new MongoJobLifecycleOperations(ctx, batches);
-    this.nodeLocks = new MongoNodeLockOperations(ctx);
-    this.archives = new MongoArchiveOperations(ctx);
-    this.auxiliary = new MongoAuxiliaryOperations(ctx);
-    options.node().explicitTsidNodeId().ifPresent(TsidFactory::configureNodeId);
+      MongoClient client,
+      MongoDatabase database,
+      RatchetOptions options,
+      ExecutorProvider executorProvider) {
+    this(client, database, options, executorProvider.getJobExecutor());
   }
 
-  MongoJobStoreImpl(MongoDatabase database, RatchetOptions options, ExecutorService claimExecutor) {
+  MongoJobStoreImpl(
+      MongoClient client,
+      MongoDatabase database,
+      RatchetOptions options,
+      ExecutorService claimExecutor) {
+    this.client = client;
     this.database = database;
     this.options = options;
     this.claimExecutor = claimExecutor;
-    this.ctx = new MongoStoreContext(database, options.store().priorityBoostIntervalMinutes());
+    this.ctx =
+        new MongoStoreContext(client, database, options.store().priorityBoostIntervalMinutes());
     this.tags = new MongoTagOperations(ctx);
     this.crud = new MongoJobCrudOperations(ctx);
     this.batches = new MongoBatchOperations(ctx);

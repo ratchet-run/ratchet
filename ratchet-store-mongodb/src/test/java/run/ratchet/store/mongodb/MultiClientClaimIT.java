@@ -101,8 +101,8 @@ class MultiClientClaimIT {
     dbB = clientB.getDatabase(dbName);
     claimExecutorA = Executors.newCachedThreadPool();
     claimExecutorB = Executors.newCachedThreadPool();
-    storeA = new MongoJobStoreImpl(dbA, RatchetOptions.defaults(), claimExecutorA);
-    storeB = new MongoJobStoreImpl(dbB, RatchetOptions.defaults(), claimExecutorB);
+    storeA = new MongoJobStoreImpl(clientA, dbA, RatchetOptions.defaults(), claimExecutorA);
+    storeB = new MongoJobStoreImpl(clientB, dbB, RatchetOptions.defaults(), claimExecutorB);
     new MongoCollectionInitializer(dbA).initialize();
   }
 

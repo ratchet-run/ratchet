@@ -19,6 +19,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.SUCCESS_COUNT;
 import static run.ratchet.store.mongodb.MongoFieldNames.TOTAL_DURATION_MS;
 import static run.ratchet.store.mongodb.MongoFieldNames.TOTAL_ITEMS;
 
+import com.mongodb.client.ClientSession;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.model.FindOneAndUpdateOptions;
 import com.mongodb.client.model.ReplaceOptions;
@@ -70,12 +71,17 @@ final class MongoBatchOperations {
   }
 
   BatchProgress incrementCompletedAtomic(long batchId) {
+    return incrementCompletedAtomic(null, batchId);
+  }
+
+  BatchProgress incrementCompletedAtomic(ClientSession session, long batchId) {
+    FindOneAndUpdateOptions options =
+        new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER);
     Document doc =
-        ctx.batches()
-            .findOneAndUpdate(
-                eq(ID, batchId),
-                inc(COMPLETED_ITEMS, 1),
-                new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
+        session == null
+            ? ctx.batches().findOneAndUpdate(eq(ID, batchId), inc(COMPLETED_ITEMS, 1), options)
+            : ctx.batches()
+                .findOneAndUpdate(session, eq(ID, batchId), inc(COMPLETED_ITEMS, 1), options);
     if (doc == null) {
       throw new IllegalStateException("Batch not found: " + batchId);
     }
