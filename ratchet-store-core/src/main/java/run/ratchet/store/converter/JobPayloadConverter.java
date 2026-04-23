@@ -1,20 +1,20 @@
 package run.ratchet.store.converter;
 
 import run.ratchet.store.entity.JobPayload;
-import jakarta.json.bind.Jsonb;
-import jakarta.json.bind.JsonbBuilder;
-import jakarta.json.bind.JsonbException;
 import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Converter;
 
 /**
  * JPA {@link AttributeConverter} that converts {@link JobPayload} to/from JSON for database
  * storage.
+ *
+ * <p>Routes through {@link PayloadSerializerHolder} so the framework's {@link
+ * run.ratchet.spi.PayloadSerializer} SPI is the single JSON boundary. JPA converters are
+ * not CDI-managed beans, so the holder's static registration pattern is used instead of field
+ * injection.
  */
 @Converter
 public class JobPayloadConverter implements AttributeConverter<JobPayload, String> {
-
-  private static final Jsonb JSONB = JsonbBuilder.create();
 
   @Override
   public String convertToDatabaseColumn(JobPayload attribute) {
@@ -22,8 +22,8 @@ public class JobPayloadConverter implements AttributeConverter<JobPayload, Strin
       return null;
     }
     try {
-      return JSONB.toJson(attribute);
-    } catch (JsonbException e) {
+      return PayloadSerializerHolder.get().serialize(attribute);
+    } catch (IllegalArgumentException e) {
       throw new IllegalArgumentException("JobPayload serialization error", e);
     }
   }
@@ -34,8 +34,8 @@ public class JobPayloadConverter implements AttributeConverter<JobPayload, Strin
       return null;
     }
     try {
-      return JSONB.fromJson(dbData, JobPayload.class);
-    } catch (JsonbException e) {
+      return PayloadSerializerHolder.get().deserialize(dbData, JobPayload.class);
+    } catch (IllegalArgumentException e) {
       throw new IllegalArgumentException("JobPayload deserialization error", e);
     }
   }

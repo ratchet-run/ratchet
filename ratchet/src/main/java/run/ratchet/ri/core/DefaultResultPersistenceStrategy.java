@@ -1,10 +1,9 @@
 package run.ratchet.ri.core;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.spi.ResultPersistenceStrategy;
 import run.ratchet.spi.SerializedJobResult;
-import run.ratchet.store.util.ObjectMapperFactory;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.nio.charset.StandardCharsets;
@@ -15,17 +14,20 @@ import org.jboss.logging.Logger;
 public class DefaultResultPersistenceStrategy implements ResultPersistenceStrategy {
 
   private static final Logger log = Logger.getLogger(DefaultResultPersistenceStrategy.class);
-  private static final ObjectMapper OBJECT_MAPPER = ObjectMapperFactory.get();
 
   private final RatchetOptions options;
+  private final PayloadSerializer payloadSerializer;
 
   protected DefaultResultPersistenceStrategy() {
     this.options = null;
+    this.payloadSerializer = null;
   }
 
   @Inject
-  public DefaultResultPersistenceStrategy(RatchetOptions options) {
+  public DefaultResultPersistenceStrategy(
+      RatchetOptions options, PayloadSerializer payloadSerializer) {
     this.options = options;
+    this.payloadSerializer = payloadSerializer;
   }
 
   @Override
@@ -35,7 +37,7 @@ public class DefaultResultPersistenceStrategy implements ResultPersistenceStrate
     }
 
     try {
-      String resultJson = OBJECT_MAPPER.writeValueAsString(result);
+      String resultJson = payloadSerializer.serialize(result);
       String resultType = result.getClass().getName();
       long maxBytes = options.payload().maxResultBytes();
       int resultBytes = resultJson.getBytes(StandardCharsets.UTF_8).length;

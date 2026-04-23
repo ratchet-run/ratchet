@@ -9,12 +9,12 @@ import run.ratchet.api.JobResult;
 import run.ratchet.api.SerializablePredicate;
 import org.junit.jupiter.api.Test;
 
-class LambdaSerializerTest {
+class DefaultLambdaSerializerTest {
 
   @Test
   void applicationPredicateAllowedByClassPolicyRoundTrips() {
-    LambdaSerializer serializer =
-        new LambdaSerializer(className -> className.startsWith("com.acme.jobs."));
+    DefaultLambdaSerializer serializer =
+        new DefaultLambdaSerializer(className -> className.startsWith("com.acme.jobs."));
 
     String serialized = serializer.serialize(AcmePredicates.successPredicate());
 
@@ -27,7 +27,7 @@ class LambdaSerializerTest {
 
   @Test
   void applicationPredicateDeniedByClassPolicyIsRejected() {
-    LambdaSerializer serializer = new LambdaSerializer(className -> false);
+    DefaultLambdaSerializer serializer = new DefaultLambdaSerializer(className -> false);
 
     String serialized = serializer.serialize(AcmePredicates.successPredicate());
 

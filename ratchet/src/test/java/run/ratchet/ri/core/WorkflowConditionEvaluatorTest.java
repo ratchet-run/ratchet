@@ -10,8 +10,10 @@ import run.ratchet.api.JobResult;
 import run.ratchet.api.SerializableFunction;
 import run.ratchet.api.SerializablePredicate;
 import run.ratchet.api.WorkflowCondition;
-import run.ratchet.ri.util.LambdaSerializer;
+import run.ratchet.ri.cdi.JsonbPayloadSerializer;
 import run.ratchet.spi.ClassPolicy;
+import run.ratchet.spi.LambdaSerializer;
+import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -29,6 +31,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class WorkflowConditionEvaluatorTest {
 
   private final ClassPolicy classPolicy = className -> true;
+  private final PayloadSerializer payloadSerializer = new JsonbPayloadSerializer();
   @Mock private BatchStore batchStore;
   @Mock private LambdaSerializer lambdaSerializer;
   private WorkflowConditionEvaluator evaluator;
@@ -74,7 +77,9 @@ class WorkflowConditionEvaluatorTest {
 
   @BeforeEach
   void setUp() {
-    evaluator = new WorkflowConditionEvaluator(batchStore, lambdaSerializer, classPolicy);
+    evaluator =
+        new WorkflowConditionEvaluator(
+            batchStore, lambdaSerializer, classPolicy, payloadSerializer);
   }
 
   @Test
@@ -252,7 +257,7 @@ class WorkflowConditionEvaluatorTest {
   void resultValue_classPolicyDenied_returnsFalse() {
     ClassPolicy denyAll = className -> false;
     WorkflowConditionEvaluator restrictedEvaluator =
-        new WorkflowConditionEvaluator(batchStore, lambdaSerializer, denyAll);
+        new WorkflowConditionEvaluator(batchStore, lambdaSerializer, denyAll, payloadSerializer);
 
     JobEntity parent = parentJob(JobStatus.SUCCEEDED);
     parent.setJobResult("150");

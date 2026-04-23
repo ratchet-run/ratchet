@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.ri.cdi.JsonbPayloadSerializer;
 import run.ratchet.spi.SerializedJobResult;
 import org.junit.jupiter.api.Test;
 
@@ -13,7 +14,8 @@ class DefaultResultPersistenceStrategyTest {
   void resultLimitUsesUtf8ByteLength() {
     RatchetOptions options =
         RatchetOptions.builder().payload(payload -> payload.maxResultBytes(5)).build();
-    DefaultResultPersistenceStrategy strategy = new DefaultResultPersistenceStrategy(options);
+    DefaultResultPersistenceStrategy strategy =
+        new DefaultResultPersistenceStrategy(options, new JsonbPayloadSerializer());
 
     SerializedJobResult result = strategy.serialize(42L, "\u00e9\u00e9");
 

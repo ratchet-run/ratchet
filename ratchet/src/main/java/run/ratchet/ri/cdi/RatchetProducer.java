@@ -26,10 +26,13 @@ import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.ExecutionTuningProvider;
 import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.spi.LambdaSerializer;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.spi.PollingStrategyProvider;
 import run.ratchet.spi.ResilienceStrategy;
+import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.ExecutionStore;
 import run.ratchet.store.spi.JobBatchStatusStore;
@@ -39,7 +42,10 @@ import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobRetryStore;
 import run.ratchet.store.spi.NodeStore;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.context.Initialized;
+import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.Default;
+import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.Produces;
 import jakarta.enterprise.inject.spi.DeploymentException;
 import jakarta.inject.Inject;
@@ -292,6 +298,29 @@ public class RatchetProducer {
   @ApplicationScoped
   public ResilienceStrategy resilienceStrategy(CircuitBreakerRegistry circuitBreakerRegistry) {
     return new DefaultResilienceStrategy(circuitBreakerRegistry, circuitBreakerConfigProvider);
+  }
+
+  /**
+   * Wires the framework-resolved {@link PayloadSerializer} into {@link PayloadSerializerHolder} at
+   * application startup so JPA {@link jakarta.persistence.AttributeConverter} instances (which are
+   * instantiated by the persistence provider, not CDI) can route JSON I/O through the SPI. If a
+   * user has installed an {@code @Alternative PayloadSerializer}, this observer picks it up
+   * automatically via CDI resolution.
+   */
+  public void registerPayloadSerializer(
+      @Observes @Initialized(ApplicationScoped.class) Object init,
+      Instance<PayloadSerializer> payloadSerializers,
+      Instance<LambdaSerializer> lambdaSerializers) {
+    if (payloadSerializers.isResolvable()) {
+      PayloadSerializerHolder.set(payloadSerializers.get());
+    } else {
+      log.warn(
+          "No PayloadSerializer bean resolvable at startup; JPA converters will use fallback JSON-B.");
+    }
+    if (!lambdaSerializers.isResolvable()) {
+      log.warn(
+          "No LambdaSerializer bean resolvable at startup; workflow predicate deserialization may fail.");
+    }
   }
 
   private int defaultConcurrency(JobExecutionType type) {

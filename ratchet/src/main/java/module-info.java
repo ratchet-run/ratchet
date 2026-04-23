@@ -2,12 +2,11 @@ module run.ratchet.ri {
   requires run.ratchet.api;
   requires run.ratchet.store.core;
   requires com.cronutils;
-  requires com.fasterxml.jackson.databind;
-  requires com.fasterxml.jackson.datatype.jsr310;
   requires jakarta.annotation;
   requires jakarta.cdi;
   requires jakarta.inject;
   requires jakarta.interceptor;
+  requires jakarta.json.bind;
   requires jakarta.transaction;
   requires java.management;
   requires org.jboss.logging;

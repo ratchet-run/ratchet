@@ -10,6 +10,7 @@ import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobStartedEvent;
 import run.ratchet.api.exception.JobTimeoutException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.ri.cdi.JsonbPayloadSerializer;
 import run.ratchet.ri.resilience.ServiceUnavailableException;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
@@ -119,7 +120,8 @@ public class JobTask implements Callable<Void> {
         errorSanitizer,
         classPolicy,
         context -> new JBossLoggingJobLogger(context.jobId(), null),
-        new DefaultResultPersistenceStrategy(RatchetOptions.defaults()));
+        new DefaultResultPersistenceStrategy(
+            RatchetOptions.defaults(), new JsonbPayloadSerializer()));
   }
 
   @Inject

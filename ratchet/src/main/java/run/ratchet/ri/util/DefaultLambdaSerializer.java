@@ -5,6 +5,7 @@ import run.ratchet.api.JobResult;
 import run.ratchet.api.SerializableFunction;
 import run.ratchet.api.SerializablePredicate;
 import run.ratchet.spi.ClassPolicy;
+import run.ratchet.spi.LambdaSerializer;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.io.ByteArrayInputStream;
@@ -21,9 +22,14 @@ import java.util.Set;
 import org.jboss.logging.Logger;
 
 /**
- * Serializes and deserializes {@link SerializablePredicate} and {@link SerializableFunction}
- * instances to/from Base64. Uses an allowlist-based {@link ObjectInputStream} filter to block
- * deserialization of unauthorized classes.
+ * Default {@link LambdaSerializer} implementation. Serializes and deserializes {@link
+ * SerializablePredicate} and {@link SerializableFunction} instances to/from Base64. Uses an
+ * allowlist-based {@link ObjectInputStream} filter to block deserialization of unauthorized
+ * classes.
+ *
+ * <p>Vendor-neutral: the allowlist contains only JDK primitives, JDK collections, {@code
+ * java.time}, {@code java.math}, and the {@code SerializedLambda} carrier. Vendor and application
+ * packages are authorized exclusively through the injected {@link ClassPolicy}.
  *
  * @see SerializablePredicate
  */
@@ -34,9 +40,9 @@ import org.jboss.logging.Logger;
   // Pattern matching cannot be used with generics due to type erasure
 })
 @ApplicationScoped
-public class LambdaSerializer {
+public class DefaultLambdaSerializer implements LambdaSerializer {
 
-  private static final Logger log = Logger.getLogger(LambdaSerializer.class);
+  private static final Logger log = Logger.getLogger(DefaultLambdaSerializer.class);
   private static final long MAX_ARRAY_LENGTH = 10_000;
   private static final long MAX_DEPTH = 20;
   private static final long MAX_REFERENCES = 1_000;
@@ -59,8 +65,12 @@ public class LambdaSerializer {
           "java.lang.invoke.SerializedLambda" // Required for lambda serialization
           );
 
-  private static final Set<String> ALLOWED_CLASS_PREFIXES =
-      Set.of("run.ratchet.", "java.time.", "java.math.");
+  /**
+   * JDK-only package prefixes permitted without consulting {@link ClassPolicy}. Vendor and
+   * application packages (including any {@code run.ratchet.*} classes) MUST flow through
+   * {@link ClassPolicy#isAllowed(String)} — this set MUST NOT carry vendor entries.
+   */
+  private static final Set<String> ALLOWED_CLASS_PREFIXES = Set.of("java.time.", "java.math.");
 
   /**
    * {@code java.lang} classes accepted during deserialization. Deliberately excludes {@code
@@ -105,12 +115,12 @@ public class LambdaSerializer {
           "java.util.EnumSet");
   private final ClassPolicy classPolicy;
 
-  protected LambdaSerializer() {
+  protected DefaultLambdaSerializer() {
     this.classPolicy = className -> false;
   }
 
   @Inject
-  public LambdaSerializer(ClassPolicy classPolicy) {
+  public DefaultLambdaSerializer(ClassPolicy classPolicy) {
     this.classPolicy = Objects.requireNonNull(classPolicy, "classPolicy");
   }
 
@@ -131,12 +141,14 @@ public class LambdaSerializer {
     return null;
   }
 
+  @Override
   @SuppressWarnings("unchecked")
   public SerializablePredicate<BatchContext> deserializeBatchContextPredicate(String serialized) {
     return (SerializablePredicate<BatchContext>)
         deserialize(serialized, SerializablePredicate.class, "BatchContext predicate");
   }
 
+  @Override
   @SuppressWarnings({"unchecked", "java:S1452"})
   // Wildcard in return type is required - JobResult type is unknown at deserialization time
   public SerializablePredicate<JobResult<?>> deserializeJobResultPredicate(String serialized) {
@@ -144,12 +156,14 @@ public class LambdaSerializer {
         deserialize(serialized, SerializablePredicate.class, "JobResult predicate");
   }
 
+  @Override
   @SuppressWarnings("unchecked")
   public SerializableFunction<Object, Boolean> deserializeResultFunction(String serialized) {
     return (SerializableFunction<Object, Boolean>)
         deserialize(serialized, SerializableFunction.class, "result function");
   }
 
+  @Override
   public boolean isValidSerializedPredicate(String serialized) {
     if (serialized == null || serialized.trim().isEmpty()) {
       return false;
@@ -172,6 +186,7 @@ public class LambdaSerializer {
     }
   }
 
+  @Override
   public <T> String serialize(SerializablePredicate<T> predicate) {
     if (predicate == null) {
       return null;
@@ -264,6 +279,12 @@ public class LambdaSerializer {
       if (className.startsWith(prefix)) {
         return true;
       }
+    }
+
+    // Any non-JDK class (including vendor ratchet classes) must be authorized by ClassPolicy.
+    // ClassPolicy.isAllowed() is the single source of truth for vendor/application allowlisting.
+    if (classPolicy.isAllowed(className)) {
+      return true;
     }
 
     String policyName = objectArrayElementType(className);

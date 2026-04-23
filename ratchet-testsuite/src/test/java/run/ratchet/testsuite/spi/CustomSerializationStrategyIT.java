@@ -1,25 +1,42 @@
 package run.ratchet.testsuite.spi;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.spi.SerializationStrategy;
-import run.ratchet.testsuite.app.CountingSerializationStrategy;
+import run.ratchet.api.JobHandle;
+import run.ratchet.spi.PayloadSerializer;
+import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.testsuite.app.CountingPayloadSerializer;
+import run.ratchet.testsuite.app.SimpleJob;
 import run.ratchet.testsuite.app.TestJobService;
 import run.ratchet.testsuite.util.BaseRatchetIT;
+import run.ratchet.testsuite.util.JobAssertions;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 import jakarta.inject.Inject;
+import java.time.Duration;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-/** Validates that a custom {@link SerializationStrategy} alternative overrides the default. */
+/**
+ * Validates that a custom {@link PayloadSerializer} {@code @Alternative} overrides the default and
+ * is actually invoked by the framework during persistence — not just resolvable as a bean.
+ *
+ * <p>The /dg review flagged the original test as "architectural theater" because it injected the
+ * SPI and called it directly, proving only that the bean was producible. This rewrite schedules a
+ * real job, waits for it to reach a terminal state, and asserts that the framework drove traffic
+ * through the counting SPI during payload/result persistence.
+ */
 class CustomSerializationStrategyIT extends BaseRatchetIT {
 
-  @Inject private SerializationStrategy strategy;
+  @Inject private PayloadSerializer payloadSerializer;
 
   @Inject private TestJobService jobService;
+
+  @Inject private JobCrudStore jobCrudStore;
 
   @Deployment
   public static WebArchive createDeployment() {
@@ -28,7 +45,7 @@ class CustomSerializationStrategyIT extends BaseRatchetIT {
 
     return RatchetArchiveBuilder.create()
         .addRatchetDependencies(profile, dbType)
-        .addClasses(CountingSerializationStrategy.class, TestJobService.class)
+        .addClasses(CountingPayloadSerializer.class, SimpleJob.class, TestJobService.class)
         .addStoreInfrastructure()
         .addBeansXml()
         .build();
@@ -36,19 +53,43 @@ class CustomSerializationStrategyIT extends BaseRatchetIT {
 
   @BeforeEach
   void resetCounts() {
-    CountingSerializationStrategy.resetCounts();
+    CountingPayloadSerializer.resetCounts();
+    SimpleJob.resetCount();
   }
 
   @Test
-  void customSerializationStrategy_shouldBeUsedForPayloads() {
-    assertInstanceOf(CountingSerializationStrategy.class, strategy);
+  void customPayloadSerializer_isAlternativeAndBound() {
+    // The @Alternative @Priority(1) CountingPayloadSerializer MUST replace the default
+    // JsonbPayloadSerializer in the CDI resolution graph for this deployment.
+    assertInstanceOf(CountingPayloadSerializer.class, payloadSerializer);
+  }
 
-    String payload = "test-payload-data";
-    byte[] serialized = strategy.serialize(payload);
-    String deserialized = strategy.deserialize(serialized, String.class);
+  @Test
+  void customPayloadSerializer_isExercisedByFramework() {
+    // Schedule a job end-to-end. The framework MUST route payload persistence and result
+    // persistence through the injected PayloadSerializer. The counter increments only when
+    // the SPI is actually invoked — so a positive count proves the wiring, not the interface.
+    JobHandle handle = jobService.enqueueNow(SimpleJob::execute);
 
-    assertEquals(payload, deserialized);
-    assertEquals(1, CountingSerializationStrategy.getSerializeCount());
-    assertEquals(1, CountingSerializationStrategy.getDeserializeCount());
+    assertNotNull(handle);
+    JobAssertions.assertJobCompleted(jobCrudStore, handle);
+
+    // Give any post-execution serialization a brief window to settle.
+    await()
+        .atMost(Duration.ofSeconds(5))
+        .until(
+            () ->
+                CountingPayloadSerializer.getSerializeCount() > 0
+                    || CountingPayloadSerializer.getDeserializeCount() > 0);
+
+    assertTrue(
+        CountingPayloadSerializer.getSerializeCount()
+                + CountingPayloadSerializer.getDeserializeCount()
+            > 0,
+        "Framework MUST invoke PayloadSerializer during job persistence. "
+            + "serialize="
+            + CountingPayloadSerializer.getSerializeCount()
+            + ", deserialize="
+            + CountingPayloadSerializer.getDeserializeCount());
   }
 }

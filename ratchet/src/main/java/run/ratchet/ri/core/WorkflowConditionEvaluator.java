@@ -1,19 +1,18 @@
 package run.ratchet.ri.core;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import run.ratchet.api.BatchContext;
 import run.ratchet.api.JobResult;
 import run.ratchet.api.SerializableFunction;
 import run.ratchet.api.SerializablePredicate;
-import run.ratchet.ri.util.LambdaSerializer;
 import run.ratchet.spi.ClassPolicy;
+import run.ratchet.spi.LambdaSerializer;
+import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.BatchStore;
-import run.ratchet.store.util.ObjectMapperFactory;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.HashMap;
@@ -29,24 +28,28 @@ public class WorkflowConditionEvaluator {
 
   private static final Logger log = Logger.getLogger(WorkflowConditionEvaluator.class);
 
-  private static final ObjectMapper OBJECT_MAPPER = ObjectMapperFactory.get();
-
   private final BatchStore batchStore;
   private final LambdaSerializer lambdaSerializer;
   private final ClassPolicy classPolicy;
+  private final PayloadSerializer payloadSerializer;
 
   protected WorkflowConditionEvaluator() {
     this.batchStore = null;
     this.lambdaSerializer = null;
     this.classPolicy = null;
+    this.payloadSerializer = null;
   }
 
   @Inject
   public WorkflowConditionEvaluator(
-      BatchStore batchStore, LambdaSerializer lambdaSerializer, ClassPolicy classPolicy) {
+      BatchStore batchStore,
+      LambdaSerializer lambdaSerializer,
+      ClassPolicy classPolicy,
+      PayloadSerializer payloadSerializer) {
     this.batchStore = batchStore;
     this.lambdaSerializer = lambdaSerializer;
     this.classPolicy = classPolicy;
+    this.payloadSerializer = payloadSerializer;
   }
 
   public boolean evaluate(WorkflowConditionEntity condition, JobEntity parentJob) {
@@ -256,9 +259,9 @@ public class WorkflowConditionEvaluator {
         }
         Class<?> clazz =
             Class.forName(resultType, false, Thread.currentThread().getContextClassLoader());
-        return OBJECT_MAPPER.readValue(jobResultJson, clazz);
+        return payloadSerializer.deserialize(jobResultJson, clazz);
       } else {
-        return OBJECT_MAPPER.readValue(jobResultJson, Object.class);
+        return payloadSerializer.deserialize(jobResultJson, Object.class);
       }
     } catch (SecurityException e) {
       throw e; // propagate ClassPolicy rejections
