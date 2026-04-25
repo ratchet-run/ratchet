@@ -10,6 +10,7 @@ public final class DataSourceStrategyFactory {
     return switch (launch) {
       case "wildfly-managed" -> new WildflyDataSourceStrategy();
       case "payara-managed" -> new PayaraDataSourceStrategy();
+      case "openliberty-managed" -> new OpenLibertyDataSourceStrategy();
       default -> throw new IllegalArgumentException("No DataSourceStrategy for server: " + launch);
     };
   }

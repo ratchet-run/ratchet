@@ -200,6 +200,10 @@ public class RatchetArchiveBuilder {
     put(properties, "ratchet.poller.deep-idle-threshold-ms", "5000");
     put(properties, "ratchet.poller.deep-idle-delay-ms", "1000");
     put(properties, "ratchet.poller.max-delay-ms", "2000");
+    // Arquillian redeploys test archives rapidly; a long heartbeat cadence keeps the initial
+    // liveness row without leaving periodic managed-executor work racing application undeploy.
+    put(properties, "ratchet.node.dynamic-heartbeat-enabled", "false");
+    put(properties, "ratchet.node.heartbeat-interval-seconds", "300");
 
     StringBuilder content = new StringBuilder();
     properties.forEach(

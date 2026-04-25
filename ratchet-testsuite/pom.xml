@@ -19,6 +19,7 @@
   <properties>
     <skipITs>true</skipITs>
     <jacoco.it.argLine></jacoco.it.argLine>
+    <openliberty.server.config.dir>${project.build.directory}/openliberty/wlp/usr/servers/defaultServer</openliberty.server.config.dir>
   </properties>
 
   <dependencies>
@@ -166,6 +167,7 @@
             <ratchet.test.db.type>${ratchet.test.db.type}</ratchet.test.db.type>
             <arquillian.launch>${arquillian.launch}</arquillian.launch>
             <testsuite.profile>${testsuite.profile}</testsuite.profile>
+            <openliberty.server.config.dir>${openliberty.server.config.dir}</openliberty.server.config.dir>
           </systemPropertyVariables>
         </configuration>
         <executions>
@@ -380,6 +382,93 @@
                         file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
                         token="&lt;system-property name=&quot;HZ_LISTENER_PORT&quot; value=&quot;5900&quot;&gt;&lt;/system-property&gt;"
                         value="&lt;system-property name=&quot;HZ_LISTENER_PORT&quot; value=&quot;${payara.hazelcast.start.port}&quot;&gt;&lt;/system-property&gt;"/>
+                  </target>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <profile>
+      <id>openliberty-managed</id>
+      <properties>
+        <skipITs>false</skipITs>
+        <testsuite.profile>openliberty-managed</testsuite.profile>
+        <arquillian.launch>openliberty-managed</arquillian.launch>
+        <openliberty.home>${project.build.directory}/openliberty/wlp</openliberty.home>
+        <openliberty.server.name>defaultServer</openliberty.server.name>
+        <openliberty.server.config.dir>${openliberty.home}/usr/servers/${openliberty.server.name}</openliberty.server.config.dir>
+        <openliberty.http.port>29080</openliberty.http.port>
+        <openliberty.https.port>29443</openliberty.https.port>
+      </properties>
+      <dependencies>
+        <dependency>
+          <groupId>io.openliberty.arquillian</groupId>
+          <artifactId>arquillian-liberty-managed-jakarta-junit5</artifactId>
+          <type>pom</type>
+          <scope>test</scope>
+        </dependency>
+      </dependencies>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-dependency-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>unpack-openliberty</id>
+                <phase>pre-integration-test</phase>
+                <goals>
+                  <goal>unpack</goal>
+                </goals>
+                <configuration>
+                  <artifactItems>
+                    <artifactItem>
+                      <groupId>io.openliberty</groupId>
+                      <artifactId>openliberty-runtime</artifactId>
+                      <version>${openliberty.version}</version>
+                      <type>zip</type>
+                      <overWrite>false</overWrite>
+                      <outputDirectory>${project.build.directory}/openliberty</outputDirectory>
+                    </artifactItem>
+                  </artifactItems>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <version>3.1.0</version>
+            <executions>
+              <execution>
+                <id>prepare-openliberty-server</id>
+                <phase>pre-integration-test</phase>
+                <goals>
+                  <goal>run</goal>
+                </goals>
+                <configuration>
+                  <target>
+                    <mkdir dir="${openliberty.server.config.dir}/configDropins/defaults"/>
+                    <mkdir dir="${openliberty.server.config.dir}/jdbc"/>
+                    <delete file="${openliberty.server.config.dir}/configDropins/defaults/ratchet-datasource.xml" quiet="true"/>
+                    <echo file="${openliberty.server.config.dir}/server.xml">&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;server description="Ratchet Open Liberty Arquillian test server"&gt;
+  &lt;featureManager&gt;
+    &lt;feature&gt;webProfile-10.0&lt;/feature&gt;
+    &lt;feature&gt;localConnector-1.0&lt;/feature&gt;
+  &lt;/featureManager&gt;
+
+  &lt;httpEndpoint id="defaultHttpEndpoint"
+                host="localhost"
+                httpPort="${openliberty.http.port}"
+                httpsPort="${openliberty.https.port}"/&gt;
+
+  &lt;applicationMonitor updateTrigger="mbean"/&gt;
+&lt;/server&gt;</echo>
+                    <chmod file="${openliberty.home}/bin/server" perm="755"/>
                   </target>
                 </configuration>
               </execution>

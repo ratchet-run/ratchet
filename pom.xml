@@ -68,6 +68,8 @@
     <wildfly-arquillian.version>5.1.0.Final</wildfly-arquillian.version>
     <payara.version>6.2025.11</payara.version>
     <payara-arquillian.version>4.0.alpha4</payara-arquillian.version>
+    <openliberty.version>26.0.0.2</openliberty.version>
+    <openliberty-arquillian.version>2.1.4</openliberty-arquillian.version>
     <mysql-connector.version>8.3.0</mysql-connector.version>
     <protobuf-java.version>3.25.5</protobuf-java.version>
     <postgresql-driver.version>42.7.7</postgresql-driver.version>
@@ -276,6 +278,15 @@
         <groupId>fish.payara.arquillian</groupId>
         <artifactId>arquillian-payara-server-managed</artifactId>
         <version>${payara-arquillian.version}</version>
+        <scope>test</scope>
+      </dependency>
+
+      <!-- Open Liberty Arquillian -->
+      <dependency>
+        <groupId>io.openliberty.arquillian</groupId>
+        <artifactId>arquillian-liberty-managed-jakarta-junit5</artifactId>
+        <version>${openliberty-arquillian.version}</version>
+        <type>pom</type>
         <scope>test</scope>
       </dependency>
 
