@@ -10,6 +10,8 @@ import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.entity.JobStatus;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import org.jboss.logging.Logger;
 
 final class MysqlJobRowMapper {
@@ -128,6 +130,12 @@ final class MysqlJobRowMapper {
     }
     if (val instanceof Instant inst) {
       return inst;
+    }
+    if (val instanceof LocalDateTime ldt) {
+      return ldt.atZone(ZoneId.systemDefault()).toInstant();
+    }
+    if (val instanceof java.util.Date date) {
+      return date.toInstant();
     }
     return null;
   }

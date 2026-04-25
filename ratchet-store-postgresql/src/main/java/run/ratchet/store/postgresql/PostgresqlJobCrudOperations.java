@@ -16,7 +16,6 @@ import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.OffsetDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -67,19 +66,6 @@ final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore {
     this.tags = tags;
   }
 
-  static Instant toInstant(Object value) {
-    if (value instanceof Instant i) {
-      return i;
-    }
-    if (value instanceof Timestamp t) {
-      return t.toInstant();
-    }
-    if (value instanceof OffsetDateTime odt) {
-      return odt.toInstant();
-    }
-    return null;
-  }
-
   static String payloadToJson(JobEntity job) {
     return JOB_PAYLOAD_CONVERTER.convertToDatabaseColumn(job.getPayload());
   }
@@ -90,6 +76,24 @@ final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore {
 
   static String callbackPayloadToJson(JobPayload payload) {
     return JOB_PAYLOAD_CONVERTER.convertToDatabaseColumn(payload);
+  }
+
+  private Optional<JobEntity> findSingle(String sql, Object parameterValue) {
+    @SuppressWarnings("unchecked")
+    List<Object[]> rows =
+        ctx.em().createNativeQuery(sql).setParameter(1, parameterValue).getResultList();
+    if (rows.isEmpty()) {
+      return Optional.empty();
+    }
+    JobEntity job = PostgresqlJobRowMapper.hydrate(rows.get(0));
+    tags.hydrateTagsSingle(job);
+    return Optional.of(job);
+  }
+
+  List<JobEntity> hydrateRowsWithTags(List<Object[]> rows) {
+    List<JobEntity> jobs = PostgresqlJobRowMapper.hydrateRows(rows);
+    tags.hydrateTagsBatch(jobs);
+    return jobs;
   }
 
   @Override
@@ -115,18 +119,16 @@ final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore {
 
   @Override
   public Optional<JobEntity> findById(long id) {
-    return Optional.ofNullable(ctx.em().find(JobEntity.class, id));
+    return findSingle(
+        "SELECT "
+            + PostgresqlJobRowMapper.hydrationSelect("j")
+            + " FROM scheduler_job j WHERE j.job_id = ?",
+        id);
   }
 
   @Override
-  @SuppressWarnings("unchecked")
   public Optional<JobEntity> findByIdLatest(long id) {
-    List<JobEntity> results =
-        ctx.em()
-            .createNativeQuery("SELECT * FROM scheduler_job WHERE job_id = ?", JobEntity.class)
-            .setParameter(1, id)
-            .getResultList();
-    return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
+    return findById(id);
   }
 
   @Override
@@ -161,49 +163,74 @@ final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore {
     Query query =
         ctx.em()
             .createNativeQuery(
-                "SELECT * FROM scheduler_job WHERE job_id IN (" + placeholders + ")",
-                JobEntity.class);
+                "SELECT "
+                    + PostgresqlJobRowMapper.hydrationSelect("j")
+                    + " FROM scheduler_job j WHERE j.job_id IN ("
+                    + placeholders
+                    + ")");
     int parameter = 1;
     for (Long id : ids) {
       query.setParameter(parameter++, id);
     }
-    return query.getResultList();
+    List<JobEntity> jobs = PostgresqlJobRowMapper.hydrateRows(query.getResultList());
+    tags.hydrateTagsBatch(jobs);
+    return jobs;
   }
 
   @Override
   @SuppressWarnings("unchecked")
   public Optional<JobEntity> findActiveByBusinessKey(String businessKey) {
-    List<JobEntity> results =
+    List<Object[]> rows =
         ctx.em()
             .createNativeQuery(
-                "SELECT j.* FROM scheduler_business_key_reservation br "
+                "SELECT "
+                    + PostgresqlJobRowMapper.hydrationSelect("j")
+                    + " FROM scheduler_business_key_reservation br "
                     + "JOIN scheduler_job j ON j.job_id = br.owner_job_id "
-                    + "WHERE br.business_key = ? LIMIT 1",
-                JobEntity.class)
+                    + "WHERE br.business_key = ? LIMIT 1")
             .setParameter(1, businessKey)
             .getResultList();
-    return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
+    if (rows.isEmpty()) {
+      return Optional.empty();
+    }
+    JobEntity job = PostgresqlJobRowMapper.hydrate(rows.get(0));
+    tags.hydrateTagsSingle(job);
+    return Optional.of(job);
   }
 
   @Override
   @SuppressWarnings("unchecked")
   public Optional<JobEntity> findByIdempotencyKey(String idempotencyKey) {
-    List<JobEntity> results =
+    List<Object[]> rows =
         ctx.em()
             .createNativeQuery(
-                "SELECT * FROM scheduler_job WHERE idempotency_key = ?", JobEntity.class)
+                "SELECT "
+                    + PostgresqlJobRowMapper.hydrationSelect("j")
+                    + " FROM scheduler_job j WHERE j.idempotency_key = ?")
             .setParameter(1, idempotencyKey)
             .getResultList();
-    return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
+    if (rows.isEmpty()) {
+      return Optional.empty();
+    }
+    JobEntity job = PostgresqlJobRowMapper.hydrate(rows.get(0));
+    tags.hydrateTagsSingle(job);
+    return Optional.of(job);
   }
 
   @Override
   @SuppressWarnings("unchecked")
   public List<JobEntity> findDependants(long parentJobId) {
-    return ctx.em()
-        .createNativeQuery("SELECT * FROM scheduler_job WHERE depends_on = ?", JobEntity.class)
-        .setParameter(1, parentJobId)
-        .getResultList();
+    List<Object[]> rows =
+        ctx.em()
+            .createNativeQuery(
+                "SELECT "
+                    + PostgresqlJobRowMapper.hydrationSelect("j")
+                    + " FROM scheduler_job j WHERE j.depends_on = ?")
+            .setParameter(1, parentJobId)
+            .getResultList();
+    List<JobEntity> jobs = PostgresqlJobRowMapper.hydrateRows(rows);
+    tags.hydrateTagsBatch(jobs);
+    return jobs;
   }
 
   @Override
@@ -218,7 +245,7 @@ final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore {
     if (results.isEmpty() || results.get(0) == null) {
       return Optional.empty();
     }
-    return Optional.of(toInstant(results.get(0)));
+    return Optional.of(PostgresqlJobRowMapper.toInstant(results.get(0)));
   }
 
   @Override
@@ -347,7 +374,7 @@ final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore {
     if (results.isEmpty() || results.get(0) == null) {
       return Optional.empty();
     }
-    return Optional.of(toInstant(results.get(0)));
+    return Optional.of(PostgresqlJobRowMapper.toInstant(results.get(0)));
   }
 
   @Override
@@ -439,12 +466,8 @@ final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore {
   }
 
   JobEntity hydrateForArchive(JobEntity job) {
-    return ctx.em()
-        .createQuery(
-            "SELECT DISTINCT j FROM JobEntity j LEFT JOIN FETCH j.tags WHERE j.id = :id",
-            JobEntity.class)
-        .setParameter("id", job.getId())
-        .getSingleResult();
+    return findById(job.getId())
+        .orElseThrow(() -> new IllegalStateException("Job not found for archival: " + job.getId()));
   }
 
   private JobEntity updateJob(JobEntity job) {

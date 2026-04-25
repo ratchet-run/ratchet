@@ -38,12 +38,22 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
   }
 
   @Override
+  @SuppressWarnings("unchecked")
   public List<JobEntity> findJobsForArchiving(Instant olderThan, int limit) {
-    return ctx.em()
-        .createQuery(ArchiveHelper.FIND_JOBS_FOR_ARCHIVING_JPQL, JobEntity.class)
-        .setParameter("cutoff", olderThan)
-        .setMaxResults(limit)
-        .getResultList();
+    List<Object[]> rows =
+        ctx.em()
+            .createNativeQuery(
+                "SELECT "
+                    + PostgresqlJobRowMapper.hydrationSelect("j")
+                    + " FROM scheduler_job j "
+                    + "WHERE j.status IN ('SUCCEEDED','FAILED','CANCELED') "
+                    + "AND j.updated_at < ? "
+                    + "ORDER BY j.updated_at ASC "
+                    + "LIMIT ?")
+            .setParameter(1, Timestamp.from(olderThan))
+            .setParameter(2, limit)
+            .getResultList();
+    return jobs.hydrateRowsWithTags(rows);
   }
 
   @Override

@@ -33,7 +33,11 @@ final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
 
   @Override
   public Optional<BatchEntity> findBatchById(long batchId) {
-    return Optional.ofNullable(ctx.em().find(BatchEntity.class, batchId));
+    BatchEntity batch = ctx.em().find(BatchEntity.class, batchId);
+    if (batch != null) {
+      ctx.em().refresh(batch);
+    }
+    return Optional.ofNullable(batch);
   }
 
   @Override
@@ -41,10 +45,13 @@ final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
     if (batchIds == null || batchIds.isEmpty()) {
       return List.of();
     }
-    return ctx.em()
-        .createQuery("SELECT b FROM BatchEntity b WHERE b.id IN :ids", BatchEntity.class)
-        .setParameter("ids", batchIds)
-        .getResultList();
+    List<BatchEntity> batches =
+        ctx.em()
+            .createQuery("SELECT b FROM BatchEntity b WHERE b.id IN :ids", BatchEntity.class)
+            .setParameter("ids", batchIds)
+            .getResultList();
+    batches.forEach(ctx.em()::refresh);
+    return batches;
   }
 
   @Override

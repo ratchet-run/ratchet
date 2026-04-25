@@ -35,4 +35,17 @@
     </configuration>
   </container>
 
+  <container qualifier="payara-managed">
+    <configuration>
+      <property name="payaraHome">${payara.home}</property>
+      <property name="domain">domain1</property>
+      <property name="adminPort">4848</property>
+      <property name="allowConnectingToRunningServer">false</property>
+      <property name="outputToConsole">true</property>
+      <property name="serverSystemProperties">
+        ratchet.test.db.type=${ratchet.test.db.type}:testsuite.profile=${testsuite.profile}
+      </property>
+    </configuration>
+  </container>
+
 </arquillian>

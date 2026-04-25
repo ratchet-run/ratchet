@@ -3,6 +3,7 @@ package run.ratchet.testsuite.util;
 import run.ratchet.testsuite.app.TestCleanupStrategy;
 import jakarta.inject.Inject;
 import org.jboss.arquillian.junit5.ArquillianExtension;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 
@@ -17,6 +18,11 @@ public abstract class BaseRatchetIT {
 
   @BeforeEach
   protected void truncateAll() throws Exception {
+    cleanupStrategy.truncateAll();
+  }
+
+  @AfterEach
+  protected void cleanupAfterEach() throws Exception {
     cleanupStrategy.truncateAll();
   }
 }

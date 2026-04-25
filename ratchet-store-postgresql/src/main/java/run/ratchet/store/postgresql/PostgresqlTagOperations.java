@@ -1,8 +1,13 @@
 package run.ratchet.store.postgresql;
 
+import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.spi.TagStore;
+import jakarta.persistence.Query;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -113,5 +118,56 @@ final class PostgresqlTagOperations implements TagStore {
             .setParameter(1, tag)
             .getResultList();
     return toStringCountMap(rows);
+  }
+
+  @SuppressWarnings("unchecked")
+  void hydrateTagsSingle(JobEntity job) {
+    if (job == null || job.getId() == null) return;
+    List<String> tags =
+        ctx.em()
+            .createNativeQuery("SELECT tag FROM scheduler_job_tag WHERE job_id = ?")
+            .setParameter(1, job.getId())
+            .getResultList();
+    if (!tags.isEmpty()) {
+      job.setTags(tags);
+    }
+  }
+
+  void hydrateTagsBatch(List<JobEntity> jobs) {
+    if (jobs.isEmpty()) return;
+    List<Long> ids = new ArrayList<>(jobs.size());
+    Map<Long, JobEntity> byId = new HashMap<>();
+    for (JobEntity job : jobs) {
+      if (job.getId() != null) {
+        ids.add(job.getId());
+        byId.put(job.getId(), job);
+      }
+    }
+    if (ids.isEmpty()) return;
+    String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+    Query tagQuery =
+        ctx.em()
+            .createNativeQuery(
+                "SELECT job_id, tag FROM scheduler_job_tag WHERE job_id IN ("
+                    + placeholders
+                    + ") ORDER BY job_id");
+    int parameter = 1;
+    for (Long id : ids) {
+      tagQuery.setParameter(parameter++, id);
+    }
+    @SuppressWarnings("unchecked")
+    List<Object[]> rows = tagQuery.getResultList();
+    for (Object[] row : rows) {
+      long jobId = ((Number) row[0]).longValue();
+      String tag = (String) row[1];
+      JobEntity job = byId.get(jobId);
+      if (job == null) continue;
+      List<String> tags = job.getTags();
+      if (tags == null) {
+        tags = new ArrayList<>();
+        job.setTags(tags);
+      }
+      tags.add(tag);
+    }
   }
 }

@@ -9,6 +9,7 @@ public final class DataSourceStrategyFactory {
     String launch = System.getProperty("arquillian.launch", "wildfly-managed");
     return switch (launch) {
       case "wildfly-managed" -> new WildflyDataSourceStrategy();
+      case "payara-managed" -> new PayaraDataSourceStrategy();
       default -> throw new IllegalArgumentException("No DataSourceStrategy for server: " + launch);
     };
   }

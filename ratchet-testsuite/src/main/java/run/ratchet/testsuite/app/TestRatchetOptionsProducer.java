@@ -16,6 +16,6 @@ public class TestRatchetOptionsProducer {
   @Produces
   @ApplicationScoped
   public RatchetOptions ratchetOptions() {
-    return RatchetOptionsFactory.fromEnvironment();
+    return RatchetOptionsFactory.fromEnvironment(new TestRuntimeConfig());
   }
 }

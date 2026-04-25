@@ -1,9 +1,9 @@
 package run.ratchet.testsuite.app;
 
+import run.ratchet.store.spi.RatchetEntityManagerProvider;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
 import jakarta.transaction.UserTransaction;
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -17,12 +17,12 @@ import java.time.Instant;
 @ApplicationScoped
 public class JpaTestDataManipulator implements TestDataManipulator {
 
-  @PersistenceContext private EntityManager em;
+  @Inject private RatchetEntityManagerProvider entityManagerProvider;
 
   @Inject private UserTransaction utx;
 
   private static boolean isPostgresql() {
-    return "postgresql".equalsIgnoreCase(System.getProperty("ratchet.test.db.type", "mysql"));
+    return "postgresql".equalsIgnoreCase(TestRuntimeConfig.dbType());
   }
 
   @Override
@@ -32,7 +32,7 @@ public class JpaTestDataManipulator implements TestDataManipulator {
       Timestamp ts = Timestamp.from(updatedAt);
 
       if (isPostgresql()) {
-        em.createNativeQuery("UPDATE scheduler_job SET updated_at = ?1 WHERE job_id = ?2")
+        em().createNativeQuery("UPDATE scheduler_job SET updated_at = ?1 WHERE job_id = ?2")
             .setParameter(1, ts)
             .setParameter(2, jobId)
             .executeUpdate();
@@ -40,14 +40,14 @@ public class JpaTestDataManipulator implements TestDataManipulator {
         // Post hot/cold-split: cold has no updated_at column. Tests using this method aim the
         // time at archiving/DLQ-purge cutoffs (cold.terminated_at) or live update timestamps
         // (hot.updated_at).
-        em.createNativeQuery(
+        em().createNativeQuery(
                 "UPDATE scheduler_job SET terminated_at = ?1 "
                     + "WHERE job_id = ?2 AND terminal_status IS NOT NULL")
             .setParameter(1, ts)
             .setParameter(2, jobId)
             .executeUpdate();
         try {
-          em.createNativeQuery("UPDATE scheduler_job_queue SET updated_at = ?1 WHERE job_id = ?2")
+          em().createNativeQuery("UPDATE scheduler_job_queue SET updated_at = ?1 WHERE job_id = ?2")
               .setParameter(1, ts)
               .setParameter(2, jobId)
               .executeUpdate();
@@ -72,5 +72,9 @@ public class JpaTestDataManipulator implements TestDataManipulator {
     } catch (Exception ignored) {
       // best-effort rollback
     }
+  }
+
+  private EntityManager em() {
+    return entityManagerProvider.getEntityManager();
   }
 }

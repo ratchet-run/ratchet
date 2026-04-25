@@ -1,10 +1,10 @@
 package run.ratchet.testsuite.app;
 
+import run.ratchet.store.spi.RatchetEntityManagerProvider;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
-import jakarta.transaction.UserTransaction;
+import jakarta.transaction.Transactional;
 import java.util.List;
 import java.util.logging.Logger;
 
@@ -36,46 +36,41 @@ public class JpaTestCleanupStrategy implements TestCleanupStrategy {
           "scheduler_resource_limit",
           "scheduler_node");
 
-  @PersistenceContext private EntityManager em;
-
-  @Inject private UserTransaction utx;
+  @Inject private RatchetEntityManagerProvider entityManagerProvider;
 
   @Override
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
   public void truncateAll() {
-    String dbType = System.getProperty("ratchet.test.db.type", "mysql");
+    String dbType = TestRuntimeConfig.dbType();
 
     try {
-      utx.begin();
-      try {
-        if ("mysql".equals(dbType)) {
-          em.createNativeQuery("SET FOREIGN_KEY_CHECKS = 0").executeUpdate();
-        }
-
-        for (String table : TABLES_TO_TRUNCATE) {
-          try {
-            if ("postgresql".equals(dbType)) {
-              em.createNativeQuery("TRUNCATE TABLE " + table + " CASCADE").executeUpdate();
-            } else {
-              em.createNativeQuery("TRUNCATE TABLE " + table).executeUpdate();
-            }
-          } catch (Exception e) {
-            log.fine("Truncate skipped for " + table + ": " + e.getMessage());
-          }
-        }
-
-        if ("mysql".equals(dbType)) {
-          em.createNativeQuery("SET FOREIGN_KEY_CHECKS = 1").executeUpdate();
-        }
-
-        utx.commit();
-      } catch (Exception e) {
-        utx.rollback();
-        throw e;
+      if ("mysql".equals(dbType)) {
+        em().createNativeQuery("SET FOREIGN_KEY_CHECKS = 0").executeUpdate();
       }
-    } catch (RuntimeException e) {
-      throw e;
-    } catch (Exception e) {
-      throw new RuntimeException("Failed to truncate tables", e);
+
+      for (String table : TABLES_TO_TRUNCATE) {
+        try {
+          if ("postgresql".equals(dbType)) {
+            em().createNativeQuery("TRUNCATE TABLE " + table + " CASCADE").executeUpdate();
+          } else {
+            em().createNativeQuery("TRUNCATE TABLE " + table).executeUpdate();
+          }
+        } catch (Exception e) {
+          log.fine("Truncate skipped for " + table + ": " + e.getMessage());
+        }
+      }
+    } finally {
+      if ("mysql".equals(dbType)) {
+        try {
+          em().createNativeQuery("SET FOREIGN_KEY_CHECKS = 1").executeUpdate();
+        } catch (Exception e) {
+          log.fine("Unable to re-enable MySQL foreign key checks: " + e.getMessage());
+        }
+      }
     }
+  }
+
+  private EntityManager em() {
+    return entityManagerProvider.getEntityManager();
   }
 }

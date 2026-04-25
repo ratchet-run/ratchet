@@ -1,6 +1,5 @@
 package run.ratchet.store.postgresql;
 
-import run.ratchet.api.JobPriority;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -67,14 +66,6 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
         + returningClause;
   }
 
-  private static JobPriority safeJobPriority(int ordinal) {
-    JobPriority[] values = JobPriority.values();
-    if (ordinal < 0 || ordinal >= values.length) {
-      return JobPriority.NORMAL;
-    }
-    return values[ordinal];
-  }
-
   @Override
   @SuppressWarnings("unchecked")
   public List<JobEntity> claimNextBatch(int limit, String nodeId) {
@@ -84,15 +75,17 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
           ctx.em()
               .createNativeQuery(
                   buildClaimReturningSql(
-                      EXECUTABLE_JOB_TYPE_FILTER, "scheduled_time", boostInterval, "j.*"),
-                  JobEntity.class);
+                      EXECUTABLE_JOB_TYPE_FILTER,
+                      "scheduled_time",
+                      boostInterval,
+                      PostgresqlJobRowMapper.hydrationSelect("j")));
       int parameter = 1;
       if (boostInterval > 0) {
         claimQuery.setParameter(parameter++, boostInterval);
       }
       claimQuery.setParameter(parameter++, limit);
       claimQuery.setParameter(parameter++, nodeId);
-      return claimQuery.getResultList();
+      return PostgresqlJobRowMapper.hydrateRows(claimQuery.getResultList());
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("claim jobs", e);
     }
@@ -131,12 +124,12 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
                 ((Number) row[0]).longValue(),
                 JobStatus.RUNNING,
                 JobExecutionType.valueOf((String) row[2]),
-                safeJobPriority(((Number) row[3]).intValue()),
-                PostgresqlJobCrudOperations.toInstant(row[4]),
+                PostgresqlJobRowMapper.safeJobPriority(((Number) row[3]).intValue()),
+                PostgresqlJobRowMapper.toInstant(row[4]),
                 row[5] == null ? null : ((Number) row[5]).intValue(),
                 ((Number) row[6]).intValue(),
                 nodeId,
-                PostgresqlJobCrudOperations.toInstant(row[8]),
+                PostgresqlJobRowMapper.toInstant(row[8]),
                 (String) row[9],
                 ((Number) row[10]).intValue(),
                 ((Number) row[11]).intValue()));
@@ -156,15 +149,17 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
           ctx.em()
               .createNativeQuery(
                   buildClaimReturningSql(
-                      RECURRING_JOB_TYPE_FILTER, "next_fire", boostInterval, "j.*"),
-                  JobEntity.class);
+                      RECURRING_JOB_TYPE_FILTER,
+                      "next_fire",
+                      boostInterval,
+                      PostgresqlJobRowMapper.hydrationSelect("j")));
       int parameter = 1;
       if (boostInterval > 0) {
         claimQuery.setParameter(parameter++, boostInterval);
       }
       claimQuery.setParameter(parameter++, limit);
       claimQuery.setParameter(parameter++, nodeId);
-      return claimQuery.getResultList();
+      return PostgresqlJobRowMapper.hydrateRows(claimQuery.getResultList());
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("claim recurring jobs", e);
     }

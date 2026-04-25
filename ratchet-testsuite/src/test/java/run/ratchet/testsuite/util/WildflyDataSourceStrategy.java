@@ -18,4 +18,9 @@ public class WildflyDataSourceStrategy implements DataSourceStrategy {
     // The JDBC driver module and datasource are installed by the Maven build
     // (see wildfly-managed profile in pom.xml).
   }
+
+  @Override
+  public String jtaDataSourceName() {
+    return "java:jboss/datasources/RatchetDS";
+  }
 }

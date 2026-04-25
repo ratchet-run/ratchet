@@ -1,10 +1,10 @@
 package run.ratchet.testsuite.app;
 
 import run.ratchet.store.id.TsidFactory;
+import run.ratchet.store.spi.RatchetEntityManagerProvider;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
 import jakarta.transaction.UserTransaction;
 import java.util.List;
 import java.util.logging.Logger;
@@ -15,13 +15,13 @@ public class JpaPerformanceTestHelper implements PerformanceTestHelper {
 
   private static final Logger log = Logger.getLogger(JpaPerformanceTestHelper.class.getName());
 
-  @PersistenceContext private EntityManager em;
+  @Inject private RatchetEntityManagerProvider entityManagerProvider;
 
   @Inject private UserTransaction utx;
 
   @Override
   public void insertBackgroundRows(int count, String keyPrefix) {
-    String dbType = System.getProperty("ratchet.test.db.type", "mysql");
+    String dbType = TestRuntimeConfig.dbType();
     int chunkSize = 100_000;
 
     try {
@@ -45,9 +45,9 @@ public class JpaPerformanceTestHelper implements PerformanceTestHelper {
       // Refresh table statistics for accurate query planner estimates
       utx.begin();
       if ("postgresql".equals(dbType)) {
-        em.createNativeQuery("ANALYZE scheduler_job").executeUpdate();
+        em().createNativeQuery("ANALYZE scheduler_job").executeUpdate();
       } else {
-        em.createNativeQuery("ANALYZE TABLE scheduler_job").getResultList();
+        em().createNativeQuery("ANALYZE TABLE scheduler_job").getResultList();
       }
       utx.commit();
     } catch (RuntimeException e) {
@@ -65,7 +65,7 @@ public class JpaPerformanceTestHelper implements PerformanceTestHelper {
     try {
       utx.begin();
       List<Number> results =
-          em.createNativeQuery(
+          em().createNativeQuery(
                   "SELECT queue_wait_ms FROM scheduler_job"
                       + " WHERE target_class = :cls AND status = 'SUCCEEDED'"
                       + " AND queue_wait_ms IS NOT NULL"
@@ -88,7 +88,7 @@ public class JpaPerformanceTestHelper implements PerformanceTestHelper {
 
   @Override
   public void assertNoFullScan(String label, Runnable storeOperation) {
-    String dbType = System.getProperty("ratchet.test.db.type", "mysql");
+    String dbType = TestRuntimeConfig.dbType();
 
     try {
       if ("postgresql".equals(dbType)) {
@@ -107,7 +107,7 @@ public class JpaPerformanceTestHelper implements PerformanceTestHelper {
     utx.begin();
     Object[] before =
         (Object[])
-            em.createNativeQuery(
+            em().createNativeQuery(
                     "SELECT seq_scan, idx_scan FROM pg_stat_user_tables"
                         + " WHERE relname = 'scheduler_job'")
                 .getSingleResult();
@@ -123,7 +123,7 @@ public class JpaPerformanceTestHelper implements PerformanceTestHelper {
     utx.begin();
     Object[] after =
         (Object[])
-            em.createNativeQuery(
+            em().createNativeQuery(
                     "SELECT seq_scan, idx_scan FROM pg_stat_user_tables"
                         + " WHERE relname = 'scheduler_job'")
                 .getSingleResult();
@@ -160,7 +160,7 @@ public class JpaPerformanceTestHelper implements PerformanceTestHelper {
     // Generate TSID-like IDs: timestamp_ms shifted left 22 bits + series counter.
     // The base TSID is computed once per chunk from TsidFactory to avoid collisions.
     long baseTsid = TsidFactory.next();
-    em.createNativeQuery(
+    em().createNativeQuery(
             "INSERT INTO scheduler_job "
                 + "(job_id, status, scheduled_time, job_type, payload, idempotency_key, "
                 + "business_key, execution_start_time, execution_end_time, "
@@ -189,8 +189,8 @@ public class JpaPerformanceTestHelper implements PerformanceTestHelper {
 
   private void insertMysqlChunk(int batchCount, int offset, String keyPrefix) {
     long baseTsid = TsidFactory.next();
-    em.createNativeQuery("SET @@cte_max_recursion_depth = " + (batchCount + 1)).executeUpdate();
-    em.createNativeQuery(
+    em().createNativeQuery("SET @@cte_max_recursion_depth = " + (batchCount + 1)).executeUpdate();
+    em().createNativeQuery(
             "INSERT INTO scheduler_job "
                 + "(job_id, status, scheduled_time, job_type, payload, idempotency_key, "
                 + "business_key, execution_start_time, execution_end_time, "
@@ -216,6 +216,10 @@ public class JpaPerformanceTestHelper implements PerformanceTestHelper {
                 + "NOW(), NOW() "
                 + "FROM seq")
         .executeUpdate();
+  }
+
+  private EntityManager em() {
+    return entityManagerProvider.getEntityManager();
   }
 
   private void rollbackQuietly() {

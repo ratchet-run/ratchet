@@ -1,5 +1,6 @@
 package run.ratchet.testsuite.util;
 
+import run.ratchet.store.converter.InstantAttributeConverter;
 import run.ratchet.testsuite.app.DocumentStorePerformanceTestHelper;
 import run.ratchet.testsuite.app.DocumentStoreTestCleanupStrategy;
 import run.ratchet.testsuite.app.DocumentStoreTestDataManipulator;
@@ -9,10 +10,15 @@ import run.ratchet.testsuite.app.JpaTestDataManipulator;
 import run.ratchet.testsuite.app.PerformanceTestHelper;
 import run.ratchet.testsuite.app.TestCleanupStrategy;
 import run.ratchet.testsuite.app.TestDataManipulator;
+import run.ratchet.testsuite.app.TestEntityManagerProvider;
+import run.ratchet.testsuite.app.TestExecutorProvider;
 import run.ratchet.testsuite.app.TestMongoProducer;
 import run.ratchet.testsuite.app.TestRatchetOptionsProducer;
+import run.ratchet.testsuite.app.TestRuntimeConfig;
 import run.ratchet.testsuite.infra.JdbcContainerExtension;
 import run.ratchet.testsuite.infra.JdbcDatabaseConfig;
+import java.util.Map;
+import java.util.TreeMap;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.asset.EmptyAsset;
 import org.jboss.shrinkwrap.api.asset.StringAsset;
@@ -63,7 +69,7 @@ public class RatchetArchiveBuilder {
     return this;
   }
 
-  public RatchetArchiveBuilder addPersistenceXml(String dbType) {
+  public RatchetArchiveBuilder addPersistenceXml(String dbType, String jtaDataSourceName) {
     if (!dbType.equals("mysql") && !dbType.equals("postgresql")) {
       throw new IllegalArgumentException("Unsupported db type: " + dbType);
     }
@@ -78,7 +84,9 @@ public class RatchetArchiveBuilder {
             + "                 https://jakarta.ee/xml/ns/persistence/persistence_3_0.xsd\"\n"
             + "             version=\"3.0\">\n"
             + "  <persistence-unit name=\"ratchet-test\" transaction-type=\"JTA\">\n"
-            + "    <jta-data-source>java:jboss/datasources/RatchetDS</jta-data-source>\n"
+            + "    <jta-data-source>"
+            + jtaDataSourceName
+            + "</jta-data-source>\n"
             + "    <class>run.ratchet.store.entity.JobEntity</class>\n"
             + "    <class>run.ratchet.store.entity.JobExecutionEntity</class>\n"
             + "    <class>run.ratchet.store.entity.ResourceLimitEntity</class>\n"
@@ -91,6 +99,11 @@ public class RatchetArchiveBuilder {
             + "    <class>run.ratchet.store.entity.ResourcePermitEntity</class>\n"
             + "    <class>run.ratchet.store.entity.BatchEntity</class>\n"
             + "    <class>run.ratchet.store.entity.LockEntity</class>\n"
+            + "    <class>run.ratchet.store.converter.InstantAttributeConverter</class>\n"
+            + "    <class>run.ratchet.store.converter.JobPayloadConverter</class>\n"
+            + "    <class>run.ratchet.store.converter.JsonListConverter</class>\n"
+            + "    <class>run.ratchet.store.converter.JsonMapConverter</class>\n"
+            + "    <class>run.ratchet.store.converter.JsonObjectMapConverter</class>\n"
             + "    <exclude-unlisted-classes>true</exclude-unlisted-classes>\n"
             + "    <properties>\n"
             + "      <property name=\"hibernate.hbm2ddl.auto\" value=\"none\"/>\n"
@@ -104,9 +117,8 @@ public class RatchetArchiveBuilder {
     return this;
   }
 
-  public RatchetArchiveBuilder addDataSource() {
+  public RatchetArchiveBuilder addDataSource(DataSourceStrategy strategy) {
     JdbcDatabaseConfig config = JdbcContainerExtension.getConfig();
-    DataSourceStrategy strategy = DataSourceStrategyFactory.create();
     strategy.configureArchive(archive, config);
     return this;
   }
@@ -127,17 +139,22 @@ public class RatchetArchiveBuilder {
         TestCleanupStrategy.class,
         TestDataManipulator.class,
         PerformanceTestHelper.class,
-        TestRatchetOptionsProducer.class);
+        TestExecutorProvider.class,
+        TestRatchetOptionsProducer.class,
+        TestRuntimeConfig.class);
 
     // Store-specific classes
     switch (dbType) {
       case "mysql", "postgresql" -> {
+        DataSourceStrategy strategy = DataSourceStrategyFactory.create();
         archive.addClasses(
             JpaTestCleanupStrategy.class,
             JpaTestDataManipulator.class,
-            JpaPerformanceTestHelper.class);
-        addPersistenceXml(dbType);
-        addDataSource();
+            JpaPerformanceTestHelper.class,
+            TestEntityManagerProvider.class,
+            InstantAttributeConverter.class);
+        addPersistenceXml(dbType, strategy.jtaDataSourceName());
+        addDataSource(strategy);
       }
       case "mongodb" -> {
         archive.addClasses(
@@ -149,6 +166,7 @@ public class RatchetArchiveBuilder {
       default -> throw new IllegalArgumentException("Unsupported db type: " + dbType);
     }
 
+    addTestRuntimeConfig(dbType);
     addAwaitility();
     return this;
   }
@@ -166,5 +184,46 @@ public class RatchetArchiveBuilder {
             .resolve("org.awaitility:awaitility")
             .withTransitivity()
             .asFile());
+  }
+
+  private void addTestRuntimeConfig(String dbType) {
+    Map<String, String> properties = new TreeMap<>();
+    put(properties, "ratchet.test.db.type", dbType);
+    putIfPresent(properties, "ratchet.test.db.url");
+    putIfPresent(properties, "ratchet.test.db.username");
+    putIfPresent(properties, "ratchet.test.db.password");
+    putIfPresent(properties, "ratchet.test.db.driver");
+    putIfPresent(properties, "ratchet.test.db.driver.name");
+    putIfPresent(properties, "ratchet.test.mongo.uri");
+    putIfPresent(properties, "ratchet.test.mongo.database");
+
+    put(properties, "ratchet.poller.deep-idle-threshold-ms", "5000");
+    put(properties, "ratchet.poller.deep-idle-delay-ms", "1000");
+    put(properties, "ratchet.poller.max-delay-ms", "2000");
+
+    StringBuilder content = new StringBuilder();
+    properties.forEach(
+        (key, value) ->
+            content
+                .append(escapeProperty(key))
+                .append('=')
+                .append(escapeProperty(value))
+                .append('\n'));
+    archive.addAsResource(new StringAsset(content.toString()), "ratchet-testsuite.properties");
+  }
+
+  private static void putIfPresent(Map<String, String> properties, String key) {
+    String value = System.getProperty(key);
+    if (value != null && !value.isBlank()) {
+      put(properties, key, value);
+    }
+  }
+
+  private static void put(Map<String, String> properties, String key, String value) {
+    properties.put(key, value);
+  }
+
+  private static String escapeProperty(String value) {
+    return value.replace("\\", "\\\\").replace("\n", "\\n").replace("\r", "\\r");
   }
 }

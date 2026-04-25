@@ -3,6 +3,7 @@ package run.ratchet.store.mongodb;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.WorkflowCondition;
+import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.ArchivedJobEntity;
@@ -51,7 +52,7 @@ public final class DocumentMapper {
     doc.append("cron_expr", job.getCronExpr() == null ? "" : job.getCronExpr());
     doc.append("zone_id", job.getZoneId() == null ? "UTC" : job.getZoneId());
     doc.append("next_fire", toDate(job.getNextFire()));
-    doc.append("payload", payloadToDocument(job.getPayload()));
+    doc.append("payload", payloadToStoredValue(job.getPayload()));
     doc.append("params", paramsToDocument(job.getParams()));
     doc.append(
         "target_class",
@@ -62,8 +63,8 @@ public final class DocumentMapper {
     doc.append("business_key", job.getBusinessKey());
     doc.append("tags", job.getTags() != null ? job.getTags() : List.of());
     doc.append("resource_name", job.getResourceName());
-    doc.append("on_success_payload", payloadToDocument(job.getOnSuccessPayload()));
-    doc.append("on_failure_payload", payloadToDocument(job.getOnFailurePayload()));
+    doc.append("on_success_payload", payloadToStoredValue(job.getOnSuccessPayload()));
+    doc.append("on_failure_payload", payloadToStoredValue(job.getOnFailurePayload()));
     doc.append("depends_on", job.getDependsOn());
     doc.append("superseded_by", job.getSupersededBy());
     doc.append("picked_by", job.getPickedBy());
@@ -101,7 +102,7 @@ public final class DocumentMapper {
     job.setCronExpr(doc.getString("cron_expr"));
     job.setZoneId(doc.getString("zone_id"));
     job.setNextFire(toInstant(doc.getDate("next_fire")));
-    job.setPayload(documentToPayload(doc.get("payload", Document.class)));
+    job.setPayload(storedValueToPayload(doc.get("payload")));
     job.setParams(documentToParams(doc.get("params", Document.class)));
     job.setTargetClass(doc.getString("target_class"));
     job.setMethodName(doc.getString("method_name"));
@@ -109,8 +110,8 @@ public final class DocumentMapper {
     job.setBusinessKey(doc.getString("business_key"));
     job.setTags(doc.getList("tags", String.class));
     job.setResourceName(doc.getString("resource_name"));
-    job.setOnSuccessPayload(documentToPayload(doc.get("on_success_payload", Document.class)));
-    job.setOnFailurePayload(documentToPayload(doc.get("on_failure_payload", Document.class)));
+    job.setOnSuccessPayload(storedValueToPayload(doc.get("on_success_payload")));
+    job.setOnFailurePayload(storedValueToPayload(doc.get("on_failure_payload")));
     job.setDependsOn(doc.getLong("depends_on"));
     job.setSupersededBy(doc.getLong("superseded_by"));
     job.setPickedBy(doc.getString("picked_by"));
@@ -154,7 +155,7 @@ public final class DocumentMapper {
     doc.append("failed_items", batch.getFailedItems());
     doc.append("completion_processed", batch.getCompletionProcessed());
     doc.append("version", batch.getVersion() == null ? 0 : batch.getVersion());
-    doc.append("progress_hook", payloadToDocument(batch.getProgressHook()));
+    doc.append("progress_hook", payloadToStoredValue(batch.getProgressHook()));
     return doc;
   }
 
@@ -166,7 +167,7 @@ public final class DocumentMapper {
     batch.setFailedItems(doc.getInteger("failed_items", 0));
     batch.setCompletionProcessed(doc.getBoolean("completion_processed", false));
     batch.setVersion(doc.getInteger("version", 0));
-    batch.setProgressHook(documentToPayload(doc.get("progress_hook", Document.class)));
+    batch.setProgressHook(storedValueToPayload(doc.get("progress_hook")));
     return batch;
   }
 
@@ -176,7 +177,7 @@ public final class DocumentMapper {
         doc.getInteger("total_items", 0),
         doc.getInteger("completed_items", 0),
         doc.getInteger("failed_items", 0),
-        documentToPayload(doc.get("progress_hook", Document.class)));
+        storedValueToPayload(doc.get("progress_hook")));
   }
 
   public static Document toDocument(NodeEntity node) {
@@ -418,20 +419,29 @@ public final class DocumentMapper {
     return doc;
   }
 
-  static Document payloadToDocument(JobPayload payload) {
+  static String payloadToStoredValue(JobPayload payload) {
     if (payload == null) {
       return null;
     }
-    Document doc = new Document();
-    doc.append("target", payload.target());
-    doc.append("method", payload.method());
-    doc.append("methodDescriptor", payload.methodDescriptor());
-    doc.append("isStatic", payload.isStatic());
-    doc.append("args", payload.args());
-    return doc;
+    return PayloadSerializerHolder.get().serialize(payload);
   }
 
-  static JobPayload documentToPayload(Document doc) {
+  static JobPayload storedValueToPayload(Object value) {
+    if (value == null) {
+      return null;
+    }
+    if (value instanceof String json) {
+      return json.isEmpty()
+          ? null
+          : PayloadSerializerHolder.get().deserialize(json, JobPayload.class);
+    }
+    if (value instanceof Document doc) {
+      return documentToPayload(doc);
+    }
+    throw new IllegalArgumentException("Unsupported MongoDB job payload type: " + value.getClass());
+  }
+
+  private static JobPayload documentToPayload(Document doc) {
     if (doc == null || doc.isEmpty()) {
       return null;
     }

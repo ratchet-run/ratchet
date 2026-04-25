@@ -7,7 +7,7 @@ import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Produces;
 
-/** Produces MongoDatabase for integration tests from MongoContainerExtension system properties. */
+/** Produces MongoDB test handles from MongoContainerExtension system properties. */
 @ApplicationScoped
 public class TestMongoProducer {
 
@@ -15,9 +15,8 @@ public class TestMongoProducer {
 
   @Produces
   @ApplicationScoped
-  public MongoDatabase mongoDatabase() {
-    String uri = System.getProperty("ratchet.test.mongo.uri");
-    String dbName = System.getProperty("ratchet.test.mongo.database", "ratchet_test");
+  public MongoClient mongoClient() {
+    String uri = TestRuntimeConfig.mongoUri();
 
     if (uri == null || uri.isBlank()) {
       throw new IllegalStateException(
@@ -26,6 +25,15 @@ public class TestMongoProducer {
     }
 
     client = MongoClients.create(uri);
+    return client;
+  }
+
+  @Produces
+  @ApplicationScoped
+  public MongoDatabase mongoDatabase(MongoClient mongoClient) {
+    String dbName = TestRuntimeConfig.mongoDatabase();
+
+    client = mongoClient;
     return client.getDatabase(dbName);
   }
 

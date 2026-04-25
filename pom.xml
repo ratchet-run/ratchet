@@ -66,6 +66,8 @@
     <shrinkwrap-resolver.version>3.3.4</shrinkwrap-resolver.version>
     <wildfly.version>39.0.1.Final</wildfly.version>
     <wildfly-arquillian.version>5.1.0.Final</wildfly-arquillian.version>
+    <payara.version>6.2025.11</payara.version>
+    <payara-arquillian.version>4.0.alpha4</payara-arquillian.version>
     <mysql-connector.version>8.3.0</mysql-connector.version>
     <protobuf-java.version>3.25.5</protobuf-java.version>
     <postgresql-driver.version>42.7.7</postgresql-driver.version>
@@ -266,6 +268,14 @@
         <groupId>org.wildfly.arquillian</groupId>
         <artifactId>wildfly-arquillian-container-managed</artifactId>
         <version>${wildfly-arquillian.version}</version>
+        <scope>test</scope>
+      </dependency>
+
+      <!-- Payara Arquillian -->
+      <dependency>
+        <groupId>fish.payara.arquillian</groupId>
+        <artifactId>arquillian-payara-server-managed</artifactId>
+        <version>${payara-arquillian.version}</version>
         <scope>test</scope>
       </dependency>
 

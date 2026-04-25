@@ -18,4 +18,11 @@ public interface DataSourceStrategy {
    * @param config the database connection details
    */
   void configureArchive(WebArchive archive, JdbcDatabaseConfig config);
+
+  /**
+   * Returns the JTA datasource name that should be written into {@code persistence.xml}.
+   *
+   * @return the server-specific JTA datasource name
+   */
+  String jtaDataSourceName();
 }
