@@ -16,10 +16,16 @@ import run.ratchet.store.spi.JobStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.time.Instant;
+import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.jboss.logging.Logger;
 
@@ -49,6 +55,7 @@ public class JobExecutorService {
   private final JobLoggerFactory jobLoggerFactory;
   private final ResultPersistenceStrategy resultPersistenceStrategy;
   private final PollerScheduler pollerScheduler;
+  private final Set<TrackingFutureTask> activeFutures = ConcurrentHashMap.newKeySet();
 
   protected JobExecutorService() {
     this.threadPoolManager = null;
@@ -219,6 +226,75 @@ public class JobExecutorService {
 
   private Future<Void> submitToExecutor(Callable<Void> callable) {
     ExecutorService executor = executorProvider.getJobExecutor();
-    return executor.submit(callable);
+    TrackingFutureTask task = new TrackingFutureTask(callable);
+    activeFutures.add(task);
+    try {
+      executor.execute(task);
+      return task;
+    } catch (RejectedExecutionException e) {
+      activeFutures.remove(task);
+      throw e;
+    }
+  }
+
+  public int shutdownActiveExecutions() {
+    for (TrackingFutureTask task : activeFutures) {
+      task.cancel(true);
+    }
+
+    long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+    while (!activeFutures.isEmpty() && System.nanoTime() < deadlineNanos) {
+      long remainingNanos = deadlineNanos - System.nanoTime();
+      if (remainingNanos <= 0) {
+        break;
+      }
+      try {
+        activeFutures.iterator().next().awaitRunnerExit(Math.min(remainingNanos, 10_000_000L));
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        break;
+      }
+    }
+
+    if (!activeFutures.isEmpty()) {
+      log.warnf("Shutdown proceeding with %s active job execution(s)", activeFutures.size());
+    }
+    return activeFutures.size();
+  }
+
+  private final class TrackingFutureTask extends FutureTask<Void> {
+
+    private final AtomicBoolean runnerStarted = new AtomicBoolean(false);
+    private final CountDownLatch runnerExited = new CountDownLatch(1);
+
+    private TrackingFutureTask(Callable<Void> callable) {
+      super(callable);
+    }
+
+    @Override
+    public void run() {
+      runnerStarted.set(true);
+      try {
+        super.run();
+      } finally {
+        markRunnerExited();
+      }
+    }
+
+    @Override
+    protected void done() {
+      if (!runnerStarted.get()) {
+        markRunnerExited();
+      }
+    }
+
+    private void awaitRunnerExit(long timeoutNanos) throws InterruptedException {
+      runnerExited.await(timeoutNanos, TimeUnit.NANOSECONDS);
+    }
+
+    private void markRunnerExited() {
+      activeFutures.remove(this);
+      runnerExited.countDown();
+    }
   }
 }

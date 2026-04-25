@@ -33,6 +33,7 @@ public class RecurringScheduler {
   private static final Duration LEASE_TTL = Duration.ofMinutes(5);
 
   private final AtomicBoolean started = new AtomicBoolean();
+  private final Object scheduleLock = new Object();
   private final ExecutorProvider executorProvider;
   private final JobCrudStore jobCrudStore;
   private final SingletonLeaseService singletonLeaseService;
@@ -103,18 +104,26 @@ public class RecurringScheduler {
     if (!started.get()) {
       return;
     }
-    Future<?> current = handle;
-    if (current != null) {
-      current.cancel(false);
+    synchronized (scheduleLock) {
+      if (!started.get()) {
+        return;
+      }
+      Future<?> current = handle;
+      if (current != null) {
+        current.cancel(false);
+        handle = null;
+      }
+      scheduleNextLocked(minPollMs);
     }
-    scheduleNext(minPollMs);
     log.debug("RecurringScheduler kicked — immediate scan scheduled");
   }
 
   public void stop() {
     started.set(false);
-    if (handle != null) {
-      handle.cancel(true);
+    synchronized (scheduleLock) {
+      if (handle != null) {
+        handle.cancel(false);
+      }
       handle = null;
     }
   }
@@ -199,6 +208,12 @@ public class RecurringScheduler {
   }
 
   private void scheduleNext(long delayMs) {
+    synchronized (scheduleLock) {
+      scheduleNextLocked(delayMs);
+    }
+  }
+
+  private void scheduleNextLocked(long delayMs) {
     if (!started.get()) {
       return;
     }

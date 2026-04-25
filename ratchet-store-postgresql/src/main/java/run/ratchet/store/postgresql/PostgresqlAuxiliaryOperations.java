@@ -6,6 +6,7 @@ import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
+import run.ratchet.store.id.TsidFactory;
 import run.ratchet.store.spi.DlqAlertStore;
 import run.ratchet.store.spi.ExecutionStore;
 import run.ratchet.store.spi.JobLogStore;
@@ -90,53 +91,58 @@ final class PostgresqlAuxiliaryOperations
 
   @Override
   public WorkflowConditionEntity saveCondition(WorkflowConditionEntity condition) {
-    if (condition.getId() == null) {
-      ctx.em().persist(condition);
-      return condition;
-    }
-    return ctx.em().merge(condition);
+    prepareCondition(condition);
+    ctx.em()
+        .createNativeQuery(
+            "INSERT INTO scheduler_workflow_condition "
+                + "(id, parent_job_id, child_job_id, condition_type, condition_expression, "
+                + "condition_priority, created_at) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                + "ON CONFLICT (id) DO UPDATE SET "
+                + "parent_job_id = EXCLUDED.parent_job_id, "
+                + "child_job_id = EXCLUDED.child_job_id, "
+                + "condition_type = EXCLUDED.condition_type, "
+                + "condition_expression = EXCLUDED.condition_expression, "
+                + "condition_priority = EXCLUDED.condition_priority, "
+                + "created_at = EXCLUDED.created_at")
+        .setParameter(1, condition.getId())
+        .setParameter(2, condition.getParentJobId())
+        .setParameter(3, condition.getChildJobId())
+        .setParameter(4, condition.getConditionType().name())
+        .setParameter(5, condition.getConditionExpression())
+        .setParameter(6, condition.getConditionPriority())
+        .setParameter(7, Timestamp.from(condition.getCreatedAt()))
+        .executeUpdate();
+    WorkflowConditionEntity saved = findConditionById(condition.getId());
+    return saved == null ? condition : saved;
   }
 
   @Override
   public WorkflowConditionEntity findConditionById(long id) {
-    return ctx.em().find(WorkflowConditionEntity.class, id);
+    List<WorkflowConditionEntity> results =
+        findConditions("WHERE id = ?", List.of(id), "ORDER BY condition_priority ASC");
+    return results.isEmpty() ? null : results.get(0);
   }
 
   @Override
-  @SuppressWarnings("unchecked")
   public List<WorkflowConditionEntity> findConditionsByParentJobId(long parentJobId) {
-    return ctx.em()
-        .createNativeQuery(
-            "SELECT * FROM scheduler_workflow_condition WHERE parent_job_id = ? "
-                + "ORDER BY condition_priority ASC",
-            WorkflowConditionEntity.class)
-        .setParameter(1, parentJobId)
-        .getResultList();
+    return findConditions(
+        "WHERE parent_job_id = ?", List.of(parentJobId), "ORDER BY condition_priority ASC");
   }
 
   @Override
-  @SuppressWarnings("unchecked")
   public List<WorkflowConditionEntity> findConditionsByChildJobId(long childJobId) {
-    return ctx.em()
-        .createNativeQuery(
-            "SELECT * FROM scheduler_workflow_condition WHERE child_job_id = ?",
-            WorkflowConditionEntity.class)
-        .setParameter(1, childJobId)
-        .getResultList();
+    return findConditions(
+        "WHERE child_job_id = ?", List.of(childJobId), "ORDER BY condition_priority ASC");
   }
 
   @Override
-  @SuppressWarnings("unchecked")
   public List<WorkflowConditionEntity> findConditionsByType(
       long parentJobId, WorkflowCondition.ConditionType type) {
-    return ctx.em()
-        .createNativeQuery(
-            "SELECT * FROM scheduler_workflow_condition "
-                + "WHERE parent_job_id = ? AND condition_type = ?",
-            WorkflowConditionEntity.class)
-        .setParameter(1, parentJobId)
-        .setParameter(2, type.name())
-        .getResultList();
+    return findConditions(
+        "WHERE parent_job_id = ? AND condition_type = ?",
+        List.of(parentJobId, type.name()),
+        "ORDER BY condition_priority ASC");
   }
 
   @Override
@@ -167,6 +173,46 @@ final class PostgresqlAuxiliaryOperations
   public long countConditionsByParentJobId(long parentJobId) {
     return ctx.countByNative(
         "SELECT COUNT(*) FROM scheduler_workflow_condition WHERE parent_job_id = ?", parentJobId);
+  }
+
+  private void prepareCondition(WorkflowConditionEntity condition) {
+    if (condition.getId() == null || condition.getId() == 0L) {
+      condition.setId(TsidFactory.next());
+    }
+    if (condition.getCreatedAt() == null) {
+      condition.setCreatedAt(Instant.now());
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  private List<WorkflowConditionEntity> findConditions(
+      String whereClause, List<Object> params, String orderClause) {
+    Query query =
+        ctx.em()
+            .createNativeQuery(
+                "SELECT id, parent_job_id, child_job_id, condition_type, condition_expression, "
+                    + "condition_priority, created_at "
+                    + "FROM scheduler_workflow_condition "
+                    + whereClause
+                    + " "
+                    + orderClause);
+    for (int i = 0; i < params.size(); i++) {
+      query.setParameter(i + 1, params.get(i));
+    }
+    return ((List<Object[]>) query.getResultList())
+        .stream().map(PostgresqlAuxiliaryOperations::mapCondition).toList();
+  }
+
+  private static WorkflowConditionEntity mapCondition(Object[] row) {
+    WorkflowConditionEntity condition = new WorkflowConditionEntity();
+    condition.setId(((Number) row[0]).longValue());
+    condition.setParentJobId(((Number) row[1]).longValue());
+    condition.setChildJobId(((Number) row[2]).longValue());
+    condition.setConditionType(WorkflowCondition.ConditionType.valueOf(row[3].toString()));
+    condition.setConditionExpression(row[4] == null ? null : row[4].toString());
+    condition.setConditionPriority(((Number) row[5]).intValue());
+    condition.setCreatedAt(PostgresqlJobRowMapper.toInstant(row[6]));
+    return condition;
   }
 
   @Override

@@ -3,6 +3,7 @@ package run.ratchet.testsuite.recurring;
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.testsuite.app.TestJobService;
 import run.ratchet.testsuite.app.TestRecurringJobs;
@@ -12,6 +13,7 @@ import jakarta.inject.Inject;
 import java.time.Duration;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -24,6 +26,8 @@ class RecurringAnnotationIT extends BaseRatchetIT {
   @Inject private TestJobService jobService;
 
   @Inject private JobCrudStore jobCrudStore;
+
+  @Inject private RecurringScheduler recurringScheduler;
 
   @Deployment
   public static WebArchive createDeployment() {
@@ -41,6 +45,11 @@ class RecurringAnnotationIT extends BaseRatchetIT {
   @BeforeEach
   void resetCounts() {
     TestRecurringJobs.resetCounts();
+  }
+
+  @AfterEach
+  void stopRecurringScheduler() {
+    recurringScheduler.stop();
   }
 
   @Test

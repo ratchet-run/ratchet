@@ -13,6 +13,7 @@ import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.jboss.logging.Logger;
 
@@ -105,18 +106,19 @@ public class WorkflowScheduler extends ChainScheduler {
 
     log.infof("Evaluating %s workflow conditions for job %s", conditions.size(), parentJob.getId());
 
-    int scheduledCount = 0;
+    WorkflowConditionEntity scheduledCondition = null;
     for (WorkflowConditionEntity condition : conditions) {
       try {
         if (conditionEvaluator.evaluate(condition, parentJob)) {
           boolean scheduled = scheduleChildJob(condition, parentJob);
           if (scheduled) {
-            scheduledCount++;
+            scheduledCondition = condition;
             log.infof(
                 "Scheduled workflow branch job %s after condition evaluation (type: %s, priority: %s)",
                 condition.getChildJobId(),
                 condition.getConditionType(),
                 condition.getConditionPriority());
+            break;
           }
         }
       } catch (Exception e) {
@@ -140,20 +142,41 @@ public class WorkflowScheduler extends ChainScheduler {
       }
     }
 
-    if (scheduledCount > 0) {
+    cancelUnscheduledBranches(conditions, scheduledCondition);
+
+    if (scheduledCondition != null) {
       log.infof(
-          "Scheduled %s workflow branch jobs for parent job %s", scheduledCount, parentJob.getId());
-    } else {
-      log.infof(
-          "No workflow conditions met for job %s, checking for linear chain", parentJob.getId());
-      if (parentJob.getStatus() == JobStatus.FAILED) {
-        super.cancelChain(parentJob);
-        return false;
-      } else {
-        return super.scheduleNext(parentJob);
-      }
+          "Scheduled workflow branch job %s for parent job %s",
+          scheduledCondition.getChildJobId(), parentJob.getId());
+      return true;
     }
-    return scheduledCount > 0;
+
+    log.infof("No workflow conditions met for job %s", parentJob.getId());
+    if (parentJob.getStatus() == JobStatus.FAILED) {
+      super.cancelChain(parentJob);
+    }
+    return false;
+  }
+
+  private void cancelUnscheduledBranches(
+      List<WorkflowConditionEntity> conditions, WorkflowConditionEntity scheduledCondition) {
+    Long scheduledChildId = scheduledCondition == null ? null : scheduledCondition.getChildJobId();
+    for (WorkflowConditionEntity condition : conditions) {
+      if (Objects.equals(condition.getChildJobId(), scheduledChildId)) {
+        continue;
+      }
+      jobCrudStore
+          .findById(condition.getChildJobId())
+          .filter(job -> job.getStatus() == JobStatus.PENDING)
+          .ifPresent(
+              childJob -> {
+                if (jobTerminalStore.cancelJob(childJob.getId())) {
+                  log.infof(
+                      "Canceled unmatched workflow branch job %s for condition %s",
+                      childJob.getId(), condition.getId());
+                }
+              });
+    }
   }
 
   @SuppressWarnings("java:S1172") // parentJob reserved for future parent context logging

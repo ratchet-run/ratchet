@@ -6,6 +6,7 @@ import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
+import run.ratchet.store.id.TsidFactory;
 import run.ratchet.store.spi.DlqAlertStore;
 import run.ratchet.store.spi.ExecutionStore;
 import run.ratchet.store.spi.JobLogStore;
@@ -13,6 +14,7 @@ import run.ratchet.store.spi.ResourcePermitStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.Query;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
@@ -87,83 +89,133 @@ final class MysqlAuxiliaryOperations
 
   @Override
   public WorkflowConditionEntity saveCondition(WorkflowConditionEntity condition) {
-    if (condition.getId() == null) {
-      ctx.em().persist(condition);
-      return condition;
-    }
-    return ctx.em().merge(condition);
+    prepareCondition(condition);
+    ctx.em()
+        .createNativeQuery(
+            "INSERT INTO scheduler_workflow_condition "
+                + "(id, parent_job_id, child_job_id, condition_type, condition_expression, "
+                + "condition_priority, created_at) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                + "ON DUPLICATE KEY UPDATE "
+                + "parent_job_id = VALUES(parent_job_id), "
+                + "child_job_id = VALUES(child_job_id), "
+                + "condition_type = VALUES(condition_type), "
+                + "condition_expression = VALUES(condition_expression), "
+                + "condition_priority = VALUES(condition_priority), "
+                + "created_at = VALUES(created_at)")
+        .setParameter(1, condition.getId())
+        .setParameter(2, condition.getParentJobId())
+        .setParameter(3, condition.getChildJobId())
+        .setParameter(4, condition.getConditionType().name())
+        .setParameter(5, condition.getConditionExpression())
+        .setParameter(6, condition.getConditionPriority())
+        .setParameter(7, Timestamp.from(condition.getCreatedAt()))
+        .executeUpdate();
+    WorkflowConditionEntity saved = findConditionById(condition.getId());
+    return saved == null ? condition : saved;
   }
 
   @Override
   public WorkflowConditionEntity findConditionById(long id) {
-    return ctx.em().find(WorkflowConditionEntity.class, id);
+    List<WorkflowConditionEntity> results =
+        findConditions("WHERE id = ?", List.of(id), "ORDER BY condition_priority ASC");
+    return results.isEmpty() ? null : results.get(0);
   }
 
   @Override
   public List<WorkflowConditionEntity> findConditionsByParentJobId(long parentJobId) {
-    return ctx.em()
-        .createQuery(
-            "SELECT c FROM WorkflowConditionEntity c WHERE c.parentJobId = :pid "
-                + "ORDER BY c.conditionPriority ASC",
-            WorkflowConditionEntity.class)
-        .setParameter("pid", parentJobId)
-        .getResultList();
+    return findConditions(
+        "WHERE parent_job_id = ?", List.of(parentJobId), "ORDER BY condition_priority ASC");
   }
 
   @Override
   public List<WorkflowConditionEntity> findConditionsByChildJobId(long childJobId) {
-    return ctx.em()
-        .createQuery(
-            "SELECT c FROM WorkflowConditionEntity c WHERE c.childJobId = :cid",
-            WorkflowConditionEntity.class)
-        .setParameter("cid", childJobId)
-        .getResultList();
+    return findConditions(
+        "WHERE child_job_id = ?", List.of(childJobId), "ORDER BY condition_priority ASC");
   }
 
   @Override
   public List<WorkflowConditionEntity> findConditionsByType(
       long parentJobId, WorkflowCondition.ConditionType type) {
-    return ctx.em()
-        .createQuery(
-            "SELECT c FROM WorkflowConditionEntity c WHERE c.parentJobId = :pid "
-                + "AND c.conditionType = :type ORDER BY c.conditionPriority ASC",
-            WorkflowConditionEntity.class)
-        .setParameter("pid", parentJobId)
-        .setParameter("type", type)
-        .getResultList();
+    return findConditions(
+        "WHERE parent_job_id = ? AND condition_type = ?",
+        List.of(parentJobId, type.name()),
+        "ORDER BY condition_priority ASC");
   }
 
   @Override
   public void deleteConditionById(long id) {
-    WorkflowConditionEntity entity = ctx.em().find(WorkflowConditionEntity.class, id);
-    if (entity != null) {
-      ctx.em().remove(entity);
-    }
+    ctx.em()
+        .createNativeQuery("DELETE FROM scheduler_workflow_condition WHERE id = ?")
+        .setParameter(1, id)
+        .executeUpdate();
   }
 
   @Override
   public void deleteConditionsByParentJobId(long parentJobId) {
     ctx.em()
-        .createQuery("DELETE FROM WorkflowConditionEntity c WHERE c.parentJobId = :pid")
-        .setParameter("pid", parentJobId)
+        .createNativeQuery("DELETE FROM scheduler_workflow_condition WHERE parent_job_id = ?")
+        .setParameter(1, parentJobId)
         .executeUpdate();
   }
 
   @Override
   public void deleteConditionsByChildJobId(long childJobId) {
     ctx.em()
-        .createQuery("DELETE FROM WorkflowConditionEntity c WHERE c.childJobId = :cid")
-        .setParameter("cid", childJobId)
+        .createNativeQuery("DELETE FROM scheduler_workflow_condition WHERE child_job_id = ?")
+        .setParameter(1, childJobId)
         .executeUpdate();
   }
 
   @Override
   public long countConditionsByParentJobId(long parentJobId) {
-    return ctx.em()
-        .createQuery(
-            "SELECT COUNT(c) FROM WorkflowConditionEntity c WHERE c.parentJobId = :pid", Long.class)
-        .setParameter("pid", parentJobId)
-        .getSingleResult();
+    Object result =
+        ctx.em()
+            .createNativeQuery(
+                "SELECT COUNT(*) FROM scheduler_workflow_condition WHERE parent_job_id = ?")
+            .setParameter(1, parentJobId)
+            .getSingleResult();
+    return ((Number) result).longValue();
+  }
+
+  private void prepareCondition(WorkflowConditionEntity condition) {
+    if (condition.getId() == null || condition.getId() == 0L) {
+      condition.setId(TsidFactory.next());
+    }
+    if (condition.getCreatedAt() == null) {
+      condition.setCreatedAt(Instant.now());
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  private List<WorkflowConditionEntity> findConditions(
+      String whereClause, List<Object> params, String orderClause) {
+    Query query =
+        ctx.em()
+            .createNativeQuery(
+                "SELECT id, parent_job_id, child_job_id, condition_type, condition_expression, "
+                    + "condition_priority, created_at "
+                    + "FROM scheduler_workflow_condition "
+                    + whereClause
+                    + " "
+                    + orderClause);
+    for (int i = 0; i < params.size(); i++) {
+      query.setParameter(i + 1, params.get(i));
+    }
+    return ((List<Object[]>) query.getResultList())
+        .stream().map(MysqlAuxiliaryOperations::mapCondition).toList();
+  }
+
+  private static WorkflowConditionEntity mapCondition(Object[] row) {
+    WorkflowConditionEntity condition = new WorkflowConditionEntity();
+    condition.setId(((Number) row[0]).longValue());
+    condition.setParentJobId(((Number) row[1]).longValue());
+    condition.setChildJobId(((Number) row[2]).longValue());
+    condition.setConditionType(WorkflowCondition.ConditionType.valueOf(row[3].toString()));
+    condition.setConditionExpression(row[4] == null ? null : row[4].toString());
+    condition.setConditionPriority(((Number) row[5]).intValue());
+    condition.setCreatedAt(MysqlJobRowMapper.toInstant(row[6]));
+    return condition;
   }
 
   @Override

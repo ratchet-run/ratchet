@@ -15,21 +15,25 @@ public class JobExecutionCoordinator {
   private final JobSubmissionService jobSubmissionService;
   private final JobStateManager jobStateManager;
   private final RetryBufferDrainer retryBufferDrainer;
+  private final JobExecutorService jobExecutorService;
 
   protected JobExecutionCoordinator() {
     this.jobSubmissionService = null;
     this.jobStateManager = null;
     this.retryBufferDrainer = null;
+    this.jobExecutorService = null;
   }
 
   @Inject
   public JobExecutionCoordinator(
       JobSubmissionService jobSubmissionService,
       JobStateManager jobStateManager,
-      RetryBufferDrainer retryBufferDrainer) {
+      RetryBufferDrainer retryBufferDrainer,
+      JobExecutorService jobExecutorService) {
     this.jobSubmissionService = jobSubmissionService;
     this.jobStateManager = jobStateManager;
     this.retryBufferDrainer = retryBufferDrainer;
+    this.jobExecutorService = jobExecutorService;
   }
 
   public void submit(JobEntity job) {
@@ -46,6 +50,14 @@ public class JobExecutionCoordinator {
 
   public void shutdown() {
     retryBufferDrainer.shutdown();
+    int activeExecutions = jobExecutorService.shutdownActiveExecutions();
+    if (activeExecutions > 0) {
+      log.warnf(
+          "JobExecutionCoordinator shutdown - leaving RUNNING jobs unchanged because %s active "
+              + "execution(s) did not stop; orphan recovery will handle them",
+          activeExecutions);
+      return;
+    }
     int reset = jobStateManager.resetRunningJobsForNode();
     log.infof("JobExecutionCoordinator shutdown - reset %s RUNNING jobs to PENDING", reset);
   }

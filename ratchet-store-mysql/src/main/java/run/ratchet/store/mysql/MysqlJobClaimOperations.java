@@ -261,14 +261,13 @@ final class MysqlJobClaimOperations implements JobClaimStore {
               .createNativeQuery(
                   "SELECT job_id FROM scheduler_job_queue WHERE job_id IN ("
                       + placeholders
-                      + ") AND status = 'RUNNING' AND picked_by = ? AND picked_at = ? "
+                      + ") AND status = 'RUNNING' AND picked_by = ? "
                       + "ORDER BY job_id ASC");
       parameter = 1;
       for (Long id : jobIds) {
         selectQuery.setParameter(parameter++, id);
       }
       selectQuery.setParameter(parameter++, nodeId);
-      selectQuery.setParameter(parameter++, nowTs);
       @SuppressWarnings("unchecked")
       List<Number> claimedRows = selectQuery.getResultList();
 

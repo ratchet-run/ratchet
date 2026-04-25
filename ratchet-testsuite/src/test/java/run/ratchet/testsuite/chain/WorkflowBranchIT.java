@@ -53,18 +53,19 @@ class WorkflowBranchIT extends BaseRatchetIT {
     JobHandle handle =
         jobService
             .enqueue(SimpleJob::execute)
-            .thenOnSuccess(WorkflowBranchTracker::onSuccess)
-            .thenOnFailure(WorkflowBranchTracker::onFailure)
+            .thenOnSuccess(WorkflowBranchTracker::onSuccessScenarioSuccess)
+            .thenOnFailure(WorkflowBranchTracker::onSuccessScenarioFailure)
             .submit();
 
     JobAssertions.assertJobCompleted(jobCrudStore, handle);
 
     await()
         .atMost(Duration.ofSeconds(10))
-        .untilAsserted(() -> assertTrue(WorkflowBranchTracker.successBranchFired()));
+        .untilAsserted(() -> assertTrue(WorkflowBranchTracker.successScenarioSuccessBranchFired()));
 
     assertFalse(
-        WorkflowBranchTracker.failureBranchFired(), "Failure branch should not fire on success");
+        WorkflowBranchTracker.successScenarioFailureBranchFired(),
+        "Failure branch should not fire on success");
   }
 
   @Test
@@ -72,17 +73,18 @@ class WorkflowBranchIT extends BaseRatchetIT {
     JobHandle handle =
         jobService
             .enqueue(FailingJob::execute)
-            .thenOnSuccess(WorkflowBranchTracker::onSuccess)
-            .thenOnFailure(WorkflowBranchTracker::onFailure)
+            .thenOnSuccess(WorkflowBranchTracker::onFailureScenarioSuccess)
+            .thenOnFailure(WorkflowBranchTracker::onFailureScenarioFailure)
             .submit();
 
     JobAssertions.assertJobFailed(jobCrudStore, handle);
 
     await()
         .atMost(Duration.ofSeconds(10))
-        .untilAsserted(() -> assertTrue(WorkflowBranchTracker.failureBranchFired()));
+        .untilAsserted(() -> assertTrue(WorkflowBranchTracker.failureScenarioFailureBranchFired()));
 
     assertFalse(
-        WorkflowBranchTracker.successBranchFired(), "Success branch should not fire on failure");
+        WorkflowBranchTracker.failureScenarioSuccessBranchFired(),
+        "Success branch should not fire on failure");
   }
 }

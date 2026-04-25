@@ -4,6 +4,7 @@ import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import run.ratchet.api.JobHandle;
+import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.testsuite.app.CronTestJobs;
 import run.ratchet.testsuite.app.TestJobService;
@@ -14,6 +15,7 @@ import java.time.Duration;
 import java.time.ZoneOffset;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -23,6 +25,8 @@ class CronScheduleIT extends BaseRatchetIT {
   @Inject private TestJobService jobService;
 
   @Inject private JobCrudStore jobCrudStore;
+
+  @Inject private RecurringScheduler recurringScheduler;
 
   @Deployment
   public static WebArchive createDeployment() {
@@ -40,6 +44,11 @@ class CronScheduleIT extends BaseRatchetIT {
   @BeforeEach
   void resetTrackers() {
     CronTestJobs.reset();
+  }
+
+  @AfterEach
+  void stopRecurringScheduler() {
+    recurringScheduler.stop();
   }
 
   @Test

@@ -9,12 +9,15 @@ import run.ratchet.store.spi.JobBulkStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import jakarta.transaction.Transactional.TxType;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.jboss.logging.Logger;
 
@@ -90,14 +93,15 @@ public class JobArchivingService {
         enabled, retentionDays, batchSize);
   }
 
-  public void triggerArchiving() {
+  @Transactional(TxType.NOT_SUPPORTED)
+  public Future<?> triggerArchiving() {
     if (!enabled) {
       log.warn("Cannot trigger archiving: service is disabled");
-      return;
+      return CompletableFuture.completedFuture(null);
     }
 
     log.info("Manual archiving trigger requested");
-    executorProvider.getJobExecutor().submit(this::triggerArchivingWithLease);
+    return executorProvider.getJobExecutor().submit(this::performArchivingWithLease);
   }
 
   void run() {
@@ -124,14 +128,6 @@ public class JobArchivingService {
 
     try (SingletonLease ignored = lease.get()) {
       performArchiving();
-    }
-  }
-
-  private void triggerArchivingWithLease() {
-    try {
-      performArchivingWithLease();
-    } catch (Exception e) {
-      log.error("Job archiving failed", e);
     }
   }
 

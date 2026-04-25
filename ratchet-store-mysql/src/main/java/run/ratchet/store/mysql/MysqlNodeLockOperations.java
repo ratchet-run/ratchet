@@ -100,7 +100,16 @@ final class MysqlNodeLockOperations implements NodeStore, LockStore {
 
   @Override
   public Instant getDatabaseTime() {
-    Timestamp ts = (Timestamp) ctx.em().createNativeQuery("SELECT NOW(3)").getSingleResult();
-    return ts.toInstant();
+    Object epochMillis =
+        ctx.em()
+            .createNativeQuery(
+                "SELECT CAST(ROUND(UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000) AS SIGNED)")
+            .getSingleResult();
+    if (epochMillis instanceof Number n) {
+      return Instant.ofEpochMilli(n.longValue());
+    }
+    throw new IllegalStateException(
+        "Unexpected database epoch millis result type: "
+            + (epochMillis == null ? "null" : epochMillis.getClass().getName()));
   }
 }

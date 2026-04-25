@@ -52,6 +52,8 @@ class IdempotencyKeyIT extends BaseRatchetIT {
     assertNotNull(second);
 
     assertEquals(first.id(), second.id(), "Duplicate idempotency key should return same job ID");
+    JobAssertions.assertJobCompleted(jobCrudStore, first);
+    assertEquals(1, SimpleJob.getInvocationCount());
   }
 
   @Test

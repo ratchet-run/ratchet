@@ -36,19 +36,34 @@ final class PostgresqlBatchOperations implements BatchStore, BatchMetricsStore {
 
   @Override
   public BatchEntity saveBatch(BatchEntity batch) {
-    if (ctx.em().find(BatchEntity.class, batch.getId()) == null) {
-      ctx.em().persist(batch);
-      return batch;
-    }
-    return ctx.em().merge(batch);
+    ctx.em()
+        .createNativeQuery(
+            "INSERT INTO scheduler_batch "
+                + "(batch_id, total_items, completed_items, failed_items, "
+                + "completion_processed, progress_hook) "
+                + "VALUES (?, ?, ?, ?, ?, ?) "
+                + "ON CONFLICT (batch_id) DO UPDATE SET "
+                + "total_items = EXCLUDED.total_items, "
+                + "completed_items = EXCLUDED.completed_items, "
+                + "failed_items = EXCLUDED.failed_items, "
+                + "completion_processed = EXCLUDED.completion_processed, "
+                + "progress_hook = EXCLUDED.progress_hook, "
+                + "version = scheduler_batch.version + 1")
+        .setParameter(1, batch.getId())
+        .setParameter(2, batch.getTotalItems())
+        .setParameter(3, batch.getCompletedItems())
+        .setParameter(4, batch.getFailedItems())
+        .setParameter(5, Boolean.TRUE.equals(batch.getCompletionProcessed()))
+        .setParameter(6, progressHookJson(batch.getProgressHook()))
+        .executeUpdate();
+    ctx.em().flush();
+    return findBatchById(batch.getId()).orElse(batch);
   }
 
   @Override
   public Optional<BatchEntity> findBatchById(long batchId) {
     BatchEntity batch = ctx.em().find(BatchEntity.class, batchId);
-    if (batch != null) {
-      ctx.em().refresh(batch);
-    }
+    refreshIfManaged(batch);
     return Optional.ofNullable(batch);
   }
 
@@ -62,8 +77,18 @@ final class PostgresqlBatchOperations implements BatchStore, BatchMetricsStore {
             .createQuery("SELECT b FROM BatchEntity b WHERE b.id IN :ids", BatchEntity.class)
             .setParameter("ids", batchIds)
             .getResultList();
-    batches.forEach(ctx.em()::refresh);
+    batches.forEach(this::refreshIfManaged);
     return batches;
+  }
+
+  private void refreshIfManaged(BatchEntity batch) {
+    if (batch != null && ctx.em().contains(batch)) {
+      ctx.em().refresh(batch);
+    }
+  }
+
+  private String progressHookJson(JobPayload progressHook) {
+    return progressHook == null ? null : PayloadSerializerHolder.get().serialize(progressHook);
   }
 
   @Override

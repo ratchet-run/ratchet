@@ -5,6 +5,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Logger;
 
@@ -20,7 +21,7 @@ public class JpaTestCleanupStrategy implements TestCleanupStrategy {
 
   private static final Logger log = Logger.getLogger(JpaTestCleanupStrategy.class.getName());
 
-  private static final List<String> TABLES_TO_TRUNCATE =
+  private static final List<String> TABLES_BEFORE_HOT_STATE =
       List.of(
           "scheduler_workflow_condition",
           "scheduler_dlq_alerts",
@@ -30,7 +31,11 @@ public class JpaTestCleanupStrategy implements TestCleanupStrategy {
           "scheduler_job_tag",
           "scheduler_batch_metrics",
           "scheduler_batch",
-          "scheduler_job_archive",
+          "scheduler_job_archive");
+
+  private static final List<String> TABLES_AFTER_HOT_STATE =
+      List.of(
+          "scheduler_business_key_reservation",
           "scheduler_job",
           "scheduler_lock",
           "scheduler_resource_limit",
@@ -48,15 +53,11 @@ public class JpaTestCleanupStrategy implements TestCleanupStrategy {
         em().createNativeQuery("SET FOREIGN_KEY_CHECKS = 0").executeUpdate();
       }
 
-      for (String table : TABLES_TO_TRUNCATE) {
-        try {
-          if ("postgresql".equals(dbType)) {
-            em().createNativeQuery("TRUNCATE TABLE " + table + " CASCADE").executeUpdate();
-          } else {
-            em().createNativeQuery("TRUNCATE TABLE " + table).executeUpdate();
-          }
-        } catch (Exception e) {
-          log.fine("Truncate skipped for " + table + ": " + e.getMessage());
+      for (String table : tablesToTruncate(dbType)) {
+        if ("postgresql".equals(dbType)) {
+          em().createNativeQuery("TRUNCATE TABLE " + table + " CASCADE").executeUpdate();
+        } else {
+          em().createNativeQuery("TRUNCATE TABLE " + table).executeUpdate();
         }
       }
     } finally {
@@ -72,5 +73,14 @@ public class JpaTestCleanupStrategy implements TestCleanupStrategy {
 
   private EntityManager em() {
     return entityManagerProvider.getEntityManager();
+  }
+
+  private static List<String> tablesToTruncate(String dbType) {
+    List<String> tables = new ArrayList<>(TABLES_BEFORE_HOT_STATE);
+    if ("mysql".equals(dbType)) {
+      tables.add("scheduler_job_queue");
+    }
+    tables.addAll(TABLES_AFTER_HOT_STATE);
+    return tables;
   }
 }

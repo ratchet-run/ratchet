@@ -22,6 +22,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
@@ -57,7 +58,7 @@ class JobArchivingIT extends BaseRatchetIT {
   }
 
   @Test
-  void completedJobs_olderThanRetention_shouldBeArchived() {
+  void completedJobs_olderThanRetention_shouldBeArchived() throws Exception {
     List<JobHandle> handles = new ArrayList<>();
     for (int i = 0; i < 3; i++) {
       handles.add(jobService.enqueueNow(SimpleJob::execute));
@@ -75,7 +76,7 @@ class JobArchivingIT extends BaseRatchetIT {
 
     // Configure and trigger archiving with 1-day retention
     archivingService.init(true, 1, 100, CRON_PARSER.parse("0 0 2 * * ?"));
-    archivingService.triggerArchiving();
+    archivingService.triggerArchiving().get(30, TimeUnit.SECONDS);
 
     await()
         .atMost(Duration.ofSeconds(30))
@@ -104,7 +105,7 @@ class JobArchivingIT extends BaseRatchetIT {
   }
 
   @Test
-  void activeAndRecentJobs_shouldNotBeArchived() {
+  void activeAndRecentJobs_shouldNotBeArchived() throws Exception {
     // Submit and wait for 2 jobs — don't backdate, they're within retention
     JobHandle handle1 = jobService.enqueueNow(SimpleJob::execute);
     JobHandle handle2 = jobService.enqueueNow(SimpleJob::execute);
@@ -113,7 +114,7 @@ class JobArchivingIT extends BaseRatchetIT {
 
     // Configure and trigger archiving with 1-day retention
     archivingService.init(true, 1, 100, CRON_PARSER.parse("0 0 2 * * ?"));
-    archivingService.triggerArchiving();
+    archivingService.triggerArchiving().get(30, TimeUnit.SECONDS);
 
     // Wait sufficient time to confirm no archiving occurs
     await()
