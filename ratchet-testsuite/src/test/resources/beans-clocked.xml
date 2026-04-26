@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="https://jakarta.ee/xml/ns/jakartaee"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee
+           https://jakarta.ee/xml/ns/jakartaee/beans_4_0.xsd"
+       version="4.0"
+       bean-discovery-mode="all">
+
+  <!--
+    Per-archive activation of CDI alternatives for RiDelayedSchedulingIT. This file is
+    bundled into the IT's WebArchive as WEB-INF/beans.xml so the alternatives apply ONLY
+    to that deployment. Do NOT rely on @Priority alone; in CDI 4.0 a @Priority-only
+    alternative activates globally across all bean archives in the same classpath, which
+    would inject InMemoryJobStore and SteppingTestClock into every Ri*IT and break them.
+  -->
+  <alternatives>
+    <class>run.ratchet.testsuite.tck.clocked.InMemoryJobStore</class>
+    <class>run.ratchet.testsuite.tck.clocked.ClockedTestProducers</class>
+  </alternatives>
+</beans>
