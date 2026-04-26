@@ -3,6 +3,7 @@ package run.ratchet.tck.api;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobHandle;
 import java.time.Duration;
 import org.junit.jupiter.api.AfterEach;
@@ -32,6 +33,7 @@ public abstract class AbstractJobRetryContract {
   @AfterEach
   void clearAfterEach() {
     runtime().clear();
+    TckJobs.resetAll();
   }
 
   @Test
@@ -41,12 +43,9 @@ public abstract class AbstractJobRetryContract {
     JobHandle handle =
         runtime()
             .scheduler()
-            .enqueue(
-                () -> {
-                  throw new IllegalStateException("intentional retry-driver failure");
-                })
+            .enqueue(TckJobs::throwIntentional)
             .withMaxRetries(maxRetries)
-            .withBackoff(run.ratchet.api.BackoffPolicy.FIXED, Duration.ofMillis(100))
+            .withBackoff(BackoffPolicy.FIXED, Duration.ofMillis(100))
             .submit();
     runtime().probe().track(handle);
 
@@ -63,14 +62,7 @@ public abstract class AbstractJobRetryContract {
   @Test
   void zeroMaxRetries_invokesTaskOnceThenFails() {
     JobHandle handle =
-        runtime()
-            .scheduler()
-            .enqueue(
-                () -> {
-                  throw new IllegalStateException("intentional");
-                })
-            .withMaxRetries(0)
-            .submit();
+        runtime().scheduler().enqueue(TckJobs::throwIntentional).withMaxRetries(0).submit();
     runtime().probe().track(handle);
 
     assertTrue(

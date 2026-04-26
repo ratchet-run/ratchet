@@ -31,11 +31,12 @@ public abstract class AbstractJobLifecycleContract {
   @AfterEach
   void clearAfterEach() {
     runtime().clear();
+    TckJobs.resetAll();
   }
 
   @Test
   void submit_thenStartsAndCompletes() {
-    JobHandle handle = runtime().scheduler().enqueueNow(() -> {});
+    JobHandle handle = runtime().scheduler().enqueueNow(() -> TckJobs.noop());
     runtime().probe().track(handle);
 
     assertTrue(
@@ -55,14 +56,7 @@ public abstract class AbstractJobLifecycleContract {
   @Test
   void submit_failingTaskTransitionsToFailed() {
     JobHandle handle =
-        runtime()
-            .scheduler()
-            .enqueue(
-                () -> {
-                  throw new IllegalStateException("intentional");
-                })
-            .withMaxRetries(0)
-            .submit();
+        runtime().scheduler().enqueue(() -> TckJobs.throwIntentional()).withMaxRetries(0).submit();
     runtime().probe().track(handle);
 
     assertTrue(

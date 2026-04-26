@@ -4,6 +4,7 @@ import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.event.JobCancelledEvent;
 import run.ratchet.api.event.JobCompletedEvent;
+import run.ratchet.api.event.JobDlqEvent;
 import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobStartedEvent;
@@ -184,15 +185,23 @@ public class ListenerProbe implements RatchetTckProbe {
     if (event instanceof JobStartedEvent e) return e.getJobId();
     if (event instanceof JobCompletedEvent e) return e.getJobId();
     if (event instanceof JobFailedEvent e) return e.getJobId();
+    if (event instanceof JobDlqEvent e) return e.getJobId();
     if (event instanceof JobCancelledEvent e) return e.getJobId();
     if (event instanceof JobRetryingEvent e) return e.getJobId();
     return null;
   }
 
+  /**
+   * Maps RI-specific event types to {@link ProbeEvent.Type}. The RI never fires {@code
+   * JobFailedEvent} for terminal failures — it routes them through {@code JobDlqEvent} after
+   * exhausting retries — so {@code JobDlqEvent} is mapped to FAILED here. A future API-level
+   * implementation that fires {@code JobFailedEvent} directly will also be mapped to FAILED.
+   */
   private static ProbeEvent.Type typeOf(Object event) {
     if (event instanceof JobStartedEvent) return ProbeEvent.Type.STARTED;
     if (event instanceof JobCompletedEvent) return ProbeEvent.Type.COMPLETED;
     if (event instanceof JobFailedEvent) return ProbeEvent.Type.FAILED;
+    if (event instanceof JobDlqEvent) return ProbeEvent.Type.FAILED;
     if (event instanceof JobCancelledEvent) return ProbeEvent.Type.CANCELLED;
     if (event instanceof JobRetryingEvent) return ProbeEvent.Type.RETRYING;
     return null;

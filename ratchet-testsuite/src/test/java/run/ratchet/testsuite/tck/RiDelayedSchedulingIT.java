@@ -2,6 +2,7 @@ package run.ratchet.testsuite.tck;
 
 import run.ratchet.tck.api.AbstractDelayedSchedulingContract;
 import run.ratchet.tck.api.RatchetTckRuntime;
+import run.ratchet.tck.api.TckJobs;
 import run.ratchet.tck.util.ConcurrentTestRunner;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 import jakarta.inject.Inject;
@@ -39,7 +40,7 @@ class RiDelayedSchedulingIT extends AbstractDelayedSchedulingContract {
         .addRatchetDependencies(profile, dbType)
         .addPackage(RatchetTckRuntime.class.getPackage())
         .addPackage(ConcurrentTestRunner.class.getPackage())
-        .addClasses(RiRatchetTckRuntime.class, ListenerProbe.class)
+        .addClasses(RiRatchetTckRuntime.class, ListenerProbe.class, TckJobs.class)
         .addStoreInfrastructure()
         .addBeansXml()
         .build();

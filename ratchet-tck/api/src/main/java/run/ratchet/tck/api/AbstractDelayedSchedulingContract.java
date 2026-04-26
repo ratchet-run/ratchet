@@ -15,10 +15,6 @@ import org.junit.jupiter.api.Test;
  * Base contract for delayed scheduling. Gated on the implementation exposing a {@link TestClock}
  * via {@link RatchetTckRuntime#clock()}; wall-clock-only schedulers (the RI today) skip this whole
  * contract via {@link Assumptions#assumeTrue}.
- *
- * <p>Wall-clock timing assertions are deliberately avoided: the RI poller minimum is around 2 s and
- * small-bound assertions on real clocks are flaky on slow CI workers. When the implementation
- * supplies a {@link TestClock}, time is advanced explicitly and assertions are deterministic.
  */
 public abstract class AbstractDelayedSchedulingContract {
 
@@ -43,6 +39,7 @@ public abstract class AbstractDelayedSchedulingContract {
   @AfterEach
   void clearAfterEach() {
     runtime().clear();
+    TckJobs.resetAll();
   }
 
   @Test
@@ -50,7 +47,7 @@ public abstract class AbstractDelayedSchedulingContract {
     Duration delay = Duration.ofMinutes(5);
     Instant submittedAt = clock.now();
 
-    JobHandle handle = runtime().scheduler().schedule(delay, () -> {}).submit();
+    JobHandle handle = runtime().scheduler().schedule(delay, TckJobs::noop).submit();
     runtime().probe().track(handle);
 
     // Advance halfway through the delay; job must not have executed yet.

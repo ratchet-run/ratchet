@@ -25,17 +25,13 @@ import org.junit.jupiter.api.Test;
  * rejection <em>mechanism</em>. A conformant implementation may either:
  *
  * <ul>
- *   <li>throw an exception from {@code submit()} (the reference implementation does this — see
- *       {@code DefaultJobCreationService}: {@code IllegalStateException("Active job already exists
- *       ...")}), or
+ *   <li>throw an exception from {@code submit()} (the reference implementation does this), or
  *   <li>return a handle whose {@code id()} points to the existing active job (idempotent merge,
  *       analogous to how {@code withIdempotencyKey} permanently merges).
  * </ul>
  *
  * <p>This contract therefore enforces only the <em>observable</em> property — a duplicate active
  * business key MUST NOT cause a second execution — and tolerates either rejection mechanism.
- * Implementations whose behaviour the contract should pin tighter can override the {@code @Test}
- * methods in their concrete subclass.
  */
 public abstract class AbstractIdempotencyContract {
 
@@ -48,6 +44,7 @@ public abstract class AbstractIdempotencyContract {
   @AfterEach
   void clearAfterEach() {
     runtime().clear();
+    TckJobs.resetAll();
   }
 
   /**
@@ -58,17 +55,12 @@ public abstract class AbstractIdempotencyContract {
   @Test
   void duplicateBusinessKeyWhileActive_isRejectedOrMerged() throws InterruptedException {
     String businessKey = uniqueKey("active-dup");
-    CountDownLatch firstStarted = new CountDownLatch(1);
-    CountDownLatch release = new CountDownLatch(1);
+    CountDownLatch firstStarted = TckJobs.beginBlocking();
 
     JobHandle first =
         runtime()
             .scheduler()
-            .enqueue(
-                () -> {
-                  firstStarted.countDown();
-                  release.await();
-                })
+            .enqueue(TckJobs::blockUntilReleased)
             .withBusinessKey(businessKey)
             .submit();
     runtime().probe().track(first);
@@ -81,7 +73,7 @@ public abstract class AbstractIdempotencyContract {
     AtomicReference<Throwable> secondError = new AtomicReference<>();
     try {
       JobHandle second =
-          runtime().scheduler().enqueue(() -> {}).withBusinessKey(businessKey).submit();
+          runtime().scheduler().enqueue(TckJobs::noop).withBusinessKey(businessKey).submit();
       runtime().probe().track(second);
       secondHandle.set(second);
     } catch (RuntimeException ex) {
@@ -99,7 +91,7 @@ public abstract class AbstractIdempotencyContract {
           "Idempotent-merge implementations MUST return the existing job's id, not a new one");
     }
 
-    release.countDown();
+    TckJobs.release();
     assertTrue(
         runtime().probe().awaitCompleted(first, defaultTimeout()),
         "First job must complete after release");
@@ -118,9 +110,7 @@ public abstract class AbstractIdempotencyContract {
 
   /**
    * Concurrent variant. Two submitters race to claim the same business key. Exactly one execution
-   * must occur. Uses {@link ConcurrentTestRunner} so both submissions cross the scheduler boundary
-   * within the same scheduler tick — this exercises the active-business-key check under contention
-   * rather than as a strictly serialized check.
+   * must occur.
    */
   @Test
   void concurrentSubmitsWithSameBusinessKey_executeOnce() {
@@ -133,13 +123,21 @@ public abstract class AbstractIdempotencyContract {
             defaultTimeout().plus(Duration.ofSeconds(2)),
             () -> {
               JobHandle h =
-                  runtime().scheduler().enqueue(() -> {}).withBusinessKey(businessKey).submit();
+                  runtime()
+                      .scheduler()
+                      .enqueue(TckJobs::noop)
+                      .withBusinessKey(businessKey)
+                      .submit();
               handleA.set(h);
               runtime().probe().track(h);
             },
             () -> {
               JobHandle h =
-                  runtime().scheduler().enqueue(() -> {}).withBusinessKey(businessKey).submit();
+                  runtime()
+                      .scheduler()
+                      .enqueue(TckJobs::noop)
+                      .withBusinessKey(businessKey)
+                      .submit();
               handleB.set(h);
               runtime().probe().track(h);
             });
@@ -170,22 +168,21 @@ public abstract class AbstractIdempotencyContract {
 
   /**
    * After the first job with key K reaches a terminal state, a fresh submission with the same key
-   * must succeed and execute independently. This guards against an over-eager implementation that
-   * treats the key as permanently consumed (which would be {@link
-   * run.ratchet.api.JobBuilder#withIdempotencyKey} semantics, not business-key semantics).
+   * must succeed and execute independently.
    */
   @Test
   void businessKeyAfterCompletion_canBeReused() {
     String businessKey = uniqueKey("reuse-after-complete");
 
-    JobHandle first = runtime().scheduler().enqueue(() -> {}).withBusinessKey(businessKey).submit();
+    JobHandle first =
+        runtime().scheduler().enqueue(TckJobs::noop).withBusinessKey(businessKey).submit();
     runtime().probe().track(first);
     assertTrue(
         runtime().probe().awaitCompleted(first, defaultTimeout()),
         "First job must complete before reuse attempt");
 
     JobHandle second =
-        runtime().scheduler().enqueue(() -> {}).withBusinessKey(businessKey).submit();
+        runtime().scheduler().enqueue(TckJobs::noop).withBusinessKey(businessKey).submit();
     runtime().probe().track(second);
     assertTrue(
         runtime().probe().awaitCompleted(second, defaultTimeout()),
