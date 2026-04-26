@@ -158,8 +158,7 @@ public class DefaultJobCreationService
     job.setJobType(JobExecutionType.SINGLE);
     job.setStatus(JobStatus.PENDING);
     job.setPriority(opts.priority());
-    job.setScheduledTime(
-        (clock != null ? clock : Clock.systemUTC()).instant().plus(builder.delay()));
+    job.setScheduledTime(effective().instant().plus(builder.delay()));
     job.setPayload(payload);
     job.setIdempotencyKey(idempotencyKey);
     job.setBusinessKey(businessKey);
@@ -236,7 +235,7 @@ public class DefaultJobCreationService
       childJob.setJobType(JobExecutionType.BATCH_CHILD);
       childJob.setStatus(JobStatus.PENDING);
       childJob.setPriority(JobPriority.NORMAL);
-      childJob.setScheduledTime((clock != null ? clock : Clock.systemUTC()).instant());
+      childJob.setScheduledTime(effective().instant());
       childJob.setPayload(validate(child.payload()));
       childJob.setIdempotencyKey(UUID.randomUUID().toString());
       childJob.setDependsOn(parentId);
@@ -319,7 +318,7 @@ public class DefaultJobCreationService
     cron.validate();
 
     ExecutionTime executionTime = ExecutionTime.forCron(cron);
-    Instant base = (clock != null ? clock : Clock.systemUTC()).instant();
+    Instant base = effective().instant();
     ZonedDateTime now = base.atZone(builder.zone());
     Instant nextFire =
         executionTime
@@ -373,7 +372,7 @@ public class DefaultJobCreationService
     parent.setJobType(JobExecutionType.BATCH_PARENT);
     parent.setStatus(JobStatus.PENDING);
     parent.setPriority(JobPriority.NORMAL);
-    parent.setScheduledTime((clock != null ? clock : Clock.systemUTC()).instant());
+    parent.setScheduledTime(effective().instant());
     parent.setPayload(validate(JobPayloadFactory.noop()));
     parent.setIdempotencyKey(UUID.randomUUID().toString());
     stampCallerPrincipal(parent);
@@ -382,7 +381,7 @@ public class DefaultJobCreationService
 
   private void completeEmptyBatch(Long parentId) {
     if (jobBatchStatusStore.tryPickUpJob(parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID)) {
-      Instant now = (clock != null ? clock : Clock.systemUTC()).instant();
+      Instant now = effective().instant();
       jobTerminalStore.markJobSucceededMinimal(parentId, now, now, 0L, 0L);
     }
     batchStore.markBatchCompleteIfReady(parentId);
@@ -416,7 +415,7 @@ public class DefaultJobCreationService
       child.setJobType(JobExecutionType.BATCH_CHILD);
       child.setStatus(JobStatus.PENDING);
       child.setPriority(JobPriority.NORMAL);
-      child.setScheduledTime((clock != null ? clock : Clock.systemUTC()).instant());
+      child.setScheduledTime(effective().instant());
       child.setPayload(payload(builder.action(), List.of(item)));
       child.setIdempotencyKey(UUID.randomUUID().toString());
       child.setDependsOn(parentId);
@@ -476,5 +475,9 @@ public class DefaultJobCreationService
       return;
     }
     callerPrincipalProvider.currentPrincipal().ifPresent(job::setCallerPrincipal);
+  }
+
+  private Clock effective() {
+    return clock != null ? clock : Clock.systemUTC();
   }
 }
