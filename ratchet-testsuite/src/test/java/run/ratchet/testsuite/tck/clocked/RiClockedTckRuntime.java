@@ -5,7 +5,6 @@ import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.JobExecutorService;
 import run.ratchet.tck.api.RatchetTckProbe;
 import run.ratchet.tck.api.RatchetTckRuntime;
-import run.ratchet.tck.api.SteppingTestClock;
 import run.ratchet.tck.api.TestClock;
 import run.ratchet.testsuite.tck.ListenerProbe;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -17,15 +16,6 @@ import java.util.Optional;
  * RI-side {@link RatchetTckRuntime} variant that exposes a {@link TestClock} and reset semantics
  * for the {@code InMemoryJobStore}. Only used by {@code RiDelayedSchedulingIT} — other Ri*ITs
  * continue to use {@code RiRatchetTckRuntime} against the production MySQL store.
- *
- * <p>Wiring is identical to {@code RiRatchetTckRuntime} except:
- *
- * <ul>
- *   <li>{@link #clock()} returns the injected {@link SteppingTestClock} so {@code
- *       AbstractDelayedSchedulingContract}'s assumption check passes.
- *   <li>{@link #clear()} resets {@code InMemoryJobStore} state instead of calling the JPA cleanup
- *       strategy (which would NPE without a real EntityManager).
- * </ul>
  */
 @ApplicationScoped
 public class RiClockedTckRuntime implements RatchetTckRuntime {
@@ -36,7 +26,7 @@ public class RiClockedTckRuntime implements RatchetTckRuntime {
   @Inject private ListenerProbe probe;
   @Inject private DrainController drainController;
   @Inject private JobExecutorService executor;
-  @Inject private SteppingTestClock testClock;
+  @Inject private TestClock testClock;
   @Inject private InMemoryJobStore inMemoryJobStore;
 
   @Override

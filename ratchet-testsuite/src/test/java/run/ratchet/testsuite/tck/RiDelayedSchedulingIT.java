@@ -2,29 +2,36 @@ package run.ratchet.testsuite.tck;
 
 import run.ratchet.tck.api.AbstractDelayedSchedulingContract;
 import run.ratchet.tck.api.RatchetTckRuntime;
+import run.ratchet.tck.api.SteppingTestClock;
 import run.ratchet.tck.api.TckJobs;
 import run.ratchet.tck.util.ConcurrentTestRunner;
+import run.ratchet.testsuite.tck.clocked.ClockedTestProducers;
+import run.ratchet.testsuite.tck.clocked.InMemoryJobStore;
+import run.ratchet.testsuite.tck.clocked.RiClockedTckRuntime;
+import run.ratchet.testsuite.tck.clocked.ThrowingJobStoreBase;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 import jakarta.inject.Inject;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.junit5.ArquillianExtension;
+import org.jboss.shrinkwrap.api.asset.ClassLoaderAsset;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 /**
- * RI subclass of {@link AbstractDelayedSchedulingContract}, disabled until {@link
- * RiRatchetTckRuntime#clock()} returns a real {@link run.ratchet.tck.api.TestClock}.
+ * RI subclass of {@link AbstractDelayedSchedulingContract}, run against a {@link
+ * RiClockedTckRuntime} backed by an in-memory {@code JobStore} and a {@link SteppingTestClock}. The
+ * clocked variant is required because the contract drives both {@code scheduledTime} and the
+ * claim-eligibility filter from a single logical clock, which the production MySQL store cannot
+ * satisfy without invasive SQL changes.
  *
- * <p>The contract base class itself uses {@code Assumptions.assumeTrue} to skip when no clock is
- * present, but the {@code @Disabled} annotation here makes the skip visible in test reports rather
- * than relying on assumption-based silent-skip.
+ * <p>CDI alternatives that wire the in-memory store and the test clock are scoped to this
+ * deployment via {@code beans-clocked.xml} (bundled as {@code WEB-INF/beans.xml}). Other Ri*ITs are
+ * unaffected.
  */
-@org.junit.jupiter.api.Disabled(
-    "TestClock seam not yet wired into JobExecutorService — tracked for follow-up")
 @ExtendWith(ArquillianExtension.class)
 class RiDelayedSchedulingIT extends AbstractDelayedSchedulingContract {
 
-  @Inject private RiRatchetTckRuntime runtime;
+  @Inject private RiClockedTckRuntime runtime;
 
   @Override
   protected RatchetTckRuntime runtime() {
@@ -36,13 +43,23 @@ class RiDelayedSchedulingIT extends AbstractDelayedSchedulingContract {
     String dbType = System.getProperty("ratchet.test.db.type", "mysql");
     String profile = System.getProperty("testsuite.profile", "wildfly-managed");
 
-    return RatchetArchiveBuilder.create()
-        .addRatchetDependencies(profile, dbType)
-        .addPackage(RatchetTckRuntime.class.getPackage())
-        .addPackage(ConcurrentTestRunner.class.getPackage())
-        .addClasses(RiRatchetTckRuntime.class, ListenerProbe.class, TckJobs.class)
-        .addStoreInfrastructure()
-        .addBeansXml()
-        .build();
+    WebArchive archive =
+        RatchetArchiveBuilder.create()
+            .addRatchetDependencies(profile, dbType)
+            .addPackage(RatchetTckRuntime.class.getPackage())
+            .addPackage(ConcurrentTestRunner.class.getPackage())
+            .addClasses(
+                RiRatchetTckRuntime.class,
+                ListenerProbe.class,
+                TckJobs.class,
+                SteppingTestClock.class,
+                ThrowingJobStoreBase.class,
+                InMemoryJobStore.class,
+                RiClockedTckRuntime.class,
+                ClockedTestProducers.class)
+            .addStoreInfrastructure()
+            .build();
+    archive.addAsWebInfResource(new ClassLoaderAsset("beans-clocked.xml"), "beans.xml");
+    return archive;
   }
 }

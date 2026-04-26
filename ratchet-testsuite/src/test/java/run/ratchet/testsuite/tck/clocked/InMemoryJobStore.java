@@ -254,6 +254,93 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
     // No-op: AbstractDelayedSchedulingContract submits no tags.
   }
 
+  // ----- NodeStore (no-op heartbeat infrastructure) -----
+
+  @Override
+  public synchronized void upsertHeartbeat(String nodeId, java.time.Instant ts) {
+    // No-op: in-memory store has no node coordination needs.
+  }
+
+  @Override
+  public synchronized Optional<run.ratchet.store.entity.NodeEntity> findNodeById(
+      String nodeId) {
+    return Optional.empty();
+  }
+
+  @Override
+  public synchronized List<run.ratchet.store.entity.NodeEntity> findInactiveNodesSince(
+      java.time.Instant cutoff) {
+    return Collections.emptyList();
+  }
+
+  @Override
+  public synchronized int deleteInactiveNodesSince(java.time.Instant cutoff) {
+    return 0;
+  }
+
+  @Override
+  public synchronized java.time.Instant getDatabaseTime() {
+    return clock.instant();
+  }
+
+  // ----- JobBulkStore (no-op so background orphan-recovery loops don't trip stubs) -----
+
+  @Override
+  public synchronized int resetOrphanJobs(java.time.Duration grace) {
+    return 0;
+  }
+
+  @Override
+  public synchronized int resetOrphanJobsForNode(String nodeId) {
+    return 0;
+  }
+
+  @Override
+  public synchronized int deleteDlqOlderThan(java.time.Instant cutoff) {
+    return 0;
+  }
+
+  // ----- LockStore (no-op leases — single-test, no contention) -----
+
+  @Override
+  public synchronized boolean tryLock(String name, java.time.Duration ttl, String nodeId) {
+    return true;
+  }
+
+  @Override
+  public synchronized void unlock(String name, String nodeId) {
+    // No-op
+  }
+
+  @Override
+  public synchronized boolean renewLock(String name, java.time.Duration extension, String nodeId) {
+    return true;
+  }
+
+  // ----- JobBatchStatusStore (minimal status flips for resetRunningJobs at startup) -----
+
+  @Override
+  public synchronized int resetRunningJobs(String nodeId) {
+    return 0;
+  }
+
+  // ----- JobCrudStore (counts that may be probed by metrics/observability beans) -----
+
+  @Override
+  public synchronized long countPendingJobs() {
+    return 0L;
+  }
+
+  @Override
+  public synchronized long countActiveNodes() {
+    return 1L;
+  }
+
+  @Override
+  public synchronized Optional<java.time.Instant> findEarliestRecurringNextFire() {
+    return Optional.empty();
+  }
+
   // ----- ResourcePermitStore (no-op so production permit-check is permissive) -----
 
   @Override

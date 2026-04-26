@@ -1,8 +1,10 @@
 package run.ratchet.testsuite.tck.clocked;
 
 import run.ratchet.tck.api.SteppingTestClock;
+import run.ratchet.tck.api.TestClock;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.context.Dependent;
 import jakarta.enterprise.inject.Alternative;
 import jakarta.enterprise.inject.Produces;
 import jakarta.interceptor.Interceptor;
@@ -27,9 +29,17 @@ public class ClockedTestProducers {
     return instance;
   }
 
+  /**
+   * Producer for {@link TestClock}-typed injection points (e.g. {@link RiClockedTckRuntime#clock()}
+   * needs {@code TestClock}, not just {@link Clock}). {@link Dependent} scope avoids the Weld
+   * client proxy — an {@code @ApplicationScoped} proxy of {@code TestClock} would lose the {@code
+   * Clock} interface and vice-versa, breaking either the production-side {@code @Inject Clock} or
+   * the test-side {@code @Inject TestClock}. Returning the same singleton instance from a {@code
+   * Dependent} producer keeps both injections pointing at one underlying clock.
+   */
   @Produces
-  @ApplicationScoped
-  public SteppingTestClock testClockBean() {
+  @Dependent
+  public TestClock testClockTyped() {
     return instance;
   }
 }
