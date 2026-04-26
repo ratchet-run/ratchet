@@ -19,5 +19,6 @@
         <module>util</module>
         <module>store</module>
         <module>api</module>
+        <module>jakarta</module>
     </modules>
 </project>
