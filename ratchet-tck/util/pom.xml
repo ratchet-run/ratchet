@@ -8,15 +8,18 @@
         <groupId>run.ratchet</groupId>
         <artifactId>ratchet-parent</artifactId>
         <version>${revision}</version>
+        <relativePath>../../pom.xml</relativePath>
     </parent>
 
-    <artifactId>ratchet-tck</artifactId>
-    <packaging>pom</packaging>
-    <name>Ratchet :: TCK</name>
-    <description>Aggregator for the Ratchet Technology Compatibility Kit modules</description>
+    <artifactId>ratchet-tck-util</artifactId>
+    <name>Ratchet :: TCK :: Util</name>
+    <description>JUnit-only helpers shared across all Ratchet TCK modules</description>
 
-    <modules>
-        <module>util</module>
-        <module>store</module>
-    </modules>
+    <dependencies>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>compile</scope>
+        </dependency>
+    </dependencies>
 </project>
