@@ -30,6 +30,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import java.io.Serializable;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZonedDateTime;
@@ -56,6 +57,7 @@ public class DefaultJobCreationService
   private final JobInvocationResolver jobInvocationResolver;
   private final JobPayloadInputValidator payloadValidator;
   private final CallerPrincipalProvider callerPrincipalProvider;
+  private final Clock clock;
 
   protected DefaultJobCreationService() {
     this.jobBatchStatusStore = null;
@@ -69,6 +71,7 @@ public class DefaultJobCreationService
     this.jobInvocationResolver = null;
     this.payloadValidator = null;
     this.callerPrincipalProvider = null;
+    this.clock = null;
   }
 
   public DefaultJobCreationService(
@@ -91,7 +94,8 @@ public class DefaultJobCreationService
         recurringScheduler,
         new DefaultJobInvocationResolver(),
         new JobPayloadInputValidator(),
-        null);
+        null,
+        Clock.systemUTC());
   }
 
   @Inject
@@ -106,7 +110,8 @@ public class DefaultJobCreationService
       RecurringScheduler recurringScheduler,
       JobInvocationResolver jobInvocationResolver,
       JobPayloadInputValidator payloadValidator,
-      CallerPrincipalProvider callerPrincipalProvider) {
+      CallerPrincipalProvider callerPrincipalProvider,
+      Clock clock) {
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.jobTerminalStore = jobTerminalStore;
     this.jobCrudStore = jobCrudStore;
@@ -118,6 +123,7 @@ public class DefaultJobCreationService
     this.jobInvocationResolver = jobInvocationResolver;
     this.payloadValidator = payloadValidator;
     this.callerPrincipalProvider = callerPrincipalProvider;
+    this.clock = clock;
   }
 
   @Override
@@ -152,7 +158,8 @@ public class DefaultJobCreationService
     job.setJobType(JobExecutionType.SINGLE);
     job.setStatus(JobStatus.PENDING);
     job.setPriority(opts.priority());
-    job.setScheduledTime(Instant.now().plus(builder.delay()));
+    job.setScheduledTime(
+        (clock != null ? clock : Clock.systemUTC()).instant().plus(builder.delay()));
     job.setPayload(payload);
     job.setIdempotencyKey(idempotencyKey);
     job.setBusinessKey(businessKey);

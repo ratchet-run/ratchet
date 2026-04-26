@@ -49,6 +49,7 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.Produces;
 import jakarta.enterprise.inject.spi.DeploymentException;
 import jakarta.inject.Inject;
+import java.time.Clock;
 import java.util.EnumMap;
 import java.util.Map;
 import org.jboss.logging.Logger;
@@ -298,6 +299,19 @@ public class RatchetProducer {
   @ApplicationScoped
   public ResilienceStrategy resilienceStrategy(CircuitBreakerRegistry circuitBreakerRegistry) {
     return new DefaultResilienceStrategy(circuitBreakerRegistry, circuitBreakerConfigProvider);
+  }
+
+  /**
+   * Produces the default {@link Clock} bean used by scheduling code that computes job {@code
+   * scheduledTime}. Tests override with a deterministic clock by providing an
+   * {@code @Alternative @Priority(APPLICATION) Clock} bean (e.g., {@code SteppingTestClock} from
+   * {@code ratchet-tck-api}).
+   */
+  @Produces
+  @Default
+  @ApplicationScoped
+  public Clock systemClock() {
+    return Clock.systemUTC();
   }
 
   /**
