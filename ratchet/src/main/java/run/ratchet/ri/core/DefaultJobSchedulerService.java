@@ -8,6 +8,7 @@ import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.RecurringJobBuilder;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.StreamingBatchBuilder;
+import run.ratchet.api.event.JobCancelledEvent;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.store.entity.JobEntity;
@@ -142,10 +143,13 @@ public class DefaultJobSchedulerService
     if (jobBatchStatusStore.compareAndSwapStatus(
         jobId, JobStatus.PENDING, JobStatus.CANCELED, null)) {
       log.debugf("Canceled pending job %s", jobId);
+      publishCancelledEvent(jobId, JobStatus.PENDING);
       return true;
     }
 
-    // Try RUNNING → CANCELED (executor should check status before committing)
+    // Try RUNNING → CANCELED (the executor will publish JobCancelledEvent itself when the
+    // running task observes the status flip — see JobTask. We do NOT publish here for the
+    // RUNNING path to avoid duplicate events.)
     if (jobBatchStatusStore.compareAndSwapStatus(
         jobId, JobStatus.RUNNING, JobStatus.CANCELED, null)) {
       log.debugf("Canceled running job %s", jobId);
@@ -156,11 +160,40 @@ public class DefaultJobSchedulerService
     if (jobBatchStatusStore.compareAndSwapStatus(
         jobId, JobStatus.PAUSED, JobStatus.CANCELED, null)) {
       log.debugf("Canceled paused job %s", jobId);
+      publishCancelledEvent(jobId, JobStatus.PAUSED);
       return true;
     }
 
     log.debugf("Cannot cancel job %s — already in terminal state or not found", jobId);
     return false;
+  }
+
+  /**
+   * Publishes a {@link JobCancelledEvent} for a job that was cancelled outside the executor (i.e.,
+   * from PENDING or PAUSED state). The RUNNING path publishes its own event from within {@code
+   * JobTask} when the running task observes the status flip; we skip publication there to avoid
+   * duplicate events. Loads the entity to populate businessKey / jobType / priority / nodeId on the
+   * event so downstream observers (audit logs, monitoring) see the same shape they get for
+   * running-cancellations.
+   */
+  private void publishCancelledEvent(long jobId, JobStatus previousStatus) {
+    JobEntity job = jobCrudStore.findById(jobId).orElse(null);
+    if (job == null) {
+      // Race: job was deleted between CAS and our lookup. Fire a minimal event so observers at
+      // least know the cancellation happened.
+      eventPublisher.publish(
+          new JobCancelledEvent(jobId, null, null, null, null, previousStatus.name(), null));
+      return;
+    }
+    eventPublisher.publish(
+        new JobCancelledEvent(
+            jobId,
+            job.getBusinessKey(),
+            job.getPublicJobType(),
+            job.getPriority(),
+            job.getPickedBy(),
+            previousStatus.name(),
+            null));
   }
 
   @Override
