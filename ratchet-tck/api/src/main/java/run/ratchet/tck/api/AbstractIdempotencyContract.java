@@ -71,6 +71,7 @@ public abstract class AbstractIdempotencyContract {
                 })
             .withBusinessKey(businessKey)
             .submit();
+    runtime().probe().track(first);
 
     assertTrue(
         firstStarted.await(defaultTimeout().toMillis(), TimeUnit.MILLISECONDS),
@@ -81,6 +82,7 @@ public abstract class AbstractIdempotencyContract {
     try {
       JobHandle second =
           runtime().scheduler().enqueue(() -> {}).withBusinessKey(businessKey).submit();
+      runtime().probe().track(second);
       secondHandle.set(second);
     } catch (RuntimeException ex) {
       secondError.set(ex);
@@ -129,12 +131,18 @@ public abstract class AbstractIdempotencyContract {
     List<Throwable> outcomes =
         ConcurrentTestRunner.runAll(
             defaultTimeout().plus(Duration.ofSeconds(2)),
-            () ->
-                handleA.set(
-                    runtime().scheduler().enqueue(() -> {}).withBusinessKey(businessKey).submit()),
-            () ->
-                handleB.set(
-                    runtime().scheduler().enqueue(() -> {}).withBusinessKey(businessKey).submit()));
+            () -> {
+              JobHandle h =
+                  runtime().scheduler().enqueue(() -> {}).withBusinessKey(businessKey).submit();
+              handleA.set(h);
+              runtime().probe().track(h);
+            },
+            () -> {
+              JobHandle h =
+                  runtime().scheduler().enqueue(() -> {}).withBusinessKey(businessKey).submit();
+              handleB.set(h);
+              runtime().probe().track(h);
+            });
 
     long submitWinners = outcomes.stream().filter(t -> t == null).count();
     assertTrue(
@@ -171,12 +179,14 @@ public abstract class AbstractIdempotencyContract {
     String businessKey = uniqueKey("reuse-after-complete");
 
     JobHandle first = runtime().scheduler().enqueue(() -> {}).withBusinessKey(businessKey).submit();
+    runtime().probe().track(first);
     assertTrue(
         runtime().probe().awaitCompleted(first, defaultTimeout()),
         "First job must complete before reuse attempt");
 
     JobHandle second =
         runtime().scheduler().enqueue(() -> {}).withBusinessKey(businessKey).submit();
+    runtime().probe().track(second);
     assertTrue(
         runtime().probe().awaitCompleted(second, defaultTimeout()),
         "Second job with reused business key (after completion) must run to completion");

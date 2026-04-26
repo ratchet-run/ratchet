@@ -21,6 +21,27 @@ import java.util.List;
 public interface RatchetTckProbe {
 
   /**
+   * Registers a handle for observation. Tests MUST call this immediately after every job submission
+   * so the probe knows the handle is in-scope for the current test. The contract:
+   *
+   * <ul>
+   *   <li>Events that arrive for {@code handle.id()} <em>after</em> {@code track} is called MUST be
+   *       recorded against {@code handle}.
+   *   <li>Implementations MAY buffer events that arrive for {@code handle.id()} <em>before</em>
+   *       {@code track} is called, to cover the (small) window between {@code submit()} returning
+   *       and the test invoking {@code track}; on {@code track}, those buffered events are promoted
+   *       into the per-handle event list. Implementations choosing not to buffer MUST guarantee
+   *       that {@code submit()} is synchronous with respect to the first observable lifecycle event
+   *       (which is generally true for poll-driven schedulers).
+   *   <li>Events for IDs that are not (and were never) tracked MUST be dropped — see {@link
+   *       RatchetTckRuntime#clear() clear() rule 6} for why.
+   * </ul>
+   *
+   * <p>Calling {@code track} repeatedly for the same handle is a no-op.
+   */
+  void track(JobHandle handle);
+
+  /**
    * Blocks until the probe observes a {@link ProbeEvent.Type#STARTED} for the given handle, or
    * until {@code timeout} elapses.
    *

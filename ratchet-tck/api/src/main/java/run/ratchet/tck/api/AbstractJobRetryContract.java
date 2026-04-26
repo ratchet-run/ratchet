@@ -48,6 +48,7 @@ public abstract class AbstractJobRetryContract {
             .withMaxRetries(maxRetries)
             .withBackoff(run.ratchet.api.BackoffPolicy.FIXED, Duration.ofMillis(100))
             .submit();
+    runtime().probe().track(handle);
 
     assertTrue(
         runtime().probe().awaitFailed(handle, defaultTimeout()),
@@ -70,6 +71,7 @@ public abstract class AbstractJobRetryContract {
                 })
             .withMaxRetries(0)
             .submit();
+    runtime().probe().track(handle);
 
     assertTrue(
         runtime().probe().awaitFailed(handle, defaultTimeout()),

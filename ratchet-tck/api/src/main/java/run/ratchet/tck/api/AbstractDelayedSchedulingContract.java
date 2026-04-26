@@ -51,6 +51,7 @@ public abstract class AbstractDelayedSchedulingContract {
     Instant submittedAt = clock.now();
 
     JobHandle handle = runtime().scheduler().schedule(delay, () -> {}).submit();
+    runtime().probe().track(handle);
 
     // Advance halfway through the delay; job must not have executed yet.
     clock.advance(delay.dividedBy(2));

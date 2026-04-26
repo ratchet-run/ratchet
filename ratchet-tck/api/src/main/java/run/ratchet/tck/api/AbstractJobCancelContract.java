@@ -37,6 +37,7 @@ public abstract class AbstractJobCancelContract {
   void cancelPendingJob_neverStarts() {
     // Submit a job with a delay long enough that cancel races ahead of execution.
     JobHandle handle = runtime().scheduler().schedule(Duration.ofSeconds(30), () -> {}).submit();
+    runtime().probe().track(handle);
 
     boolean cancelled = runtime().scheduler().cancelJob(handle.id());
     assertTrue(cancelled, "cancelJob on a PENDING job should return true");
@@ -52,6 +53,7 @@ public abstract class AbstractJobCancelContract {
   @Test
   void cancelTerminalJob_returnsFalse() {
     JobHandle handle = runtime().scheduler().enqueueNow(() -> {});
+    runtime().probe().track(handle);
     assertTrue(
         runtime().probe().awaitCompleted(handle, defaultTimeout()),
         "Job must complete before terminal-cancel assertion");
@@ -74,6 +76,7 @@ public abstract class AbstractJobCancelContract {
                   release.await();
                 })
             .submit();
+    runtime().probe().track(handle);
 
     assertTrue(
         started.await(defaultTimeout().toMillis(), TimeUnit.MILLISECONDS),

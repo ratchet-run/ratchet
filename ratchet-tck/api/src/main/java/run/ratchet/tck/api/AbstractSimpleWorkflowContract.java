@@ -51,6 +51,7 @@ public abstract class AbstractSimpleWorkflowContract {
             .then(() -> EVENTS.add("step-2"))
             .then(() -> EVENTS.add("step-3"))
             .submit();
+    runtime().probe().track(handle);
 
     assertTrue(
         runtime().probe().awaitCompleted(handle, defaultTimeout()),
@@ -77,6 +78,7 @@ public abstract class AbstractSimpleWorkflowContract {
             .enqueue(() -> EVENTS.add("primary-ran"))
             .when(resultIsEven, () -> EVENTS.add("secondary-because-even"))
             .submit();
+    runtime().probe().track(handle);
 
     assertTrue(
         runtime().probe().awaitCompleted(handle, defaultTimeout()),

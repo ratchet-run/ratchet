@@ -36,6 +36,7 @@ public abstract class AbstractJobLifecycleContract {
   @Test
   void submit_thenStartsAndCompletes() {
     JobHandle handle = runtime().scheduler().enqueueNow(() -> {});
+    runtime().probe().track(handle);
 
     assertTrue(
         runtime().probe().awaitCompleted(handle, defaultTimeout()),
@@ -62,6 +63,7 @@ public abstract class AbstractJobLifecycleContract {
                 })
             .withMaxRetries(0)
             .submit();
+    runtime().probe().track(handle);
 
     assertTrue(
         runtime().probe().awaitFailed(handle, defaultTimeout()),
