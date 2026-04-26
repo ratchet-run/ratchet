@@ -32,7 +32,7 @@ Ratchet ships with two store modules:
 
 Both modules provide JPA entities and DDL scripts (`src/main/resources/ddl/`). The DDL is shipped as plain SQL files -- you apply them however you manage your schema (Flyway, Liquibase, manual scripts, etc.).
 
-**Adding a new database:** Implement the `JobStore` SPI (which is a composite of 16 sub-interfaces like `JobClaimStore`, `JobCrudStore`, `JobStatusStore`, etc.) and provide the corresponding DDL. The `ratchet-tck` module contains a Technology Compatibility Kit that validates any store implementation against the expected behavior.
+**Adding a new database:** Implement the `JobStore` SPI (which is a composite of 16 sub-interfaces like `JobClaimStore`, `JobCrudStore`, `JobStatusStore`, etc.) and provide the corresponding DDL. The `ratchet-tck-store` submodule contains contract tests that validate any store implementation against the expected behavior — passing them earns the "Ratchet Store Compatible" label.
 
 ## How Does Retry Work?
 

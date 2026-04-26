@@ -72,7 +72,9 @@ You need exactly one store module matching your database:
 | Module | Purpose | You need it when... |
 |--------|---------|---------------------|
 | `ratchet-micrometer` | Micrometer metrics adapter implementing `MetricsCollector` SPI | You want to export scheduler metrics to Prometheus, Datadog, or any Micrometer-supported backend |
-| `ratchet-tck` | Technology Compatibility Kit contracts. The current published contracts cover store SPI behavior; API and RI/runtime conformance tests live in the Ratchet testsuite and are being split into explicit tiers. | You're building or validating a compatible implementation |
+| `ratchet-tck-store` | Store SPI conformance contracts (CRUD, claiming, archiving, batches, locks). | You're validating a custom `JobStore` for "Ratchet Store Compatible". |
+| `ratchet-tck-api` | Public-API conformance contracts (submit / cancel / retry / idempotency / workflow / delayed scheduling). Container-free, pure-JVM JUnit. | You're validating a custom `JobSchedulerService` for "Ratchet API Compatible". |
+| `ratchet-tck-jakarta` | Jakarta-EE conformance contracts (CDI injection, CDI events, JTA enqueue) driven by Arquillian. | You're validating a runtime for "Ratchet Jakarta Runtime Compatible". |
 
 ## Choosing Your Modules
 

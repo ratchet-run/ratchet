@@ -52,9 +52,28 @@
                 <artifactId>ratchet-micrometer</artifactId>
                 <version>${project.version}</version>
             </dependency>
+            <!--
+              TCK submodules. The ratchet-tck aggregator (pom-packaging) is intentionally NOT in
+              the BOM — pom-packaging artifacts are not useful as managed deps for consumers.
+            -->
             <dependency>
                 <groupId>run.ratchet</groupId>
-                <artifactId>ratchet-tck</artifactId>
+                <artifactId>ratchet-tck-util</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-tck-store</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-tck-api</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-tck-jakarta</artifactId>
                 <version>${project.version}</version>
             </dependency>
         </dependencies>

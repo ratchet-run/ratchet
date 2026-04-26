@@ -317,7 +317,11 @@ scheduler.enqueue(() -> generateReport(reportId))
 | `ratchet-store-postgresql` | PostgreSQL store with partial indexes and JSONB | ratchet-store-core |
 | `ratchet-store-mongodb` | MongoDB document store implementation | ratchet-store-core |
 | `ratchet-micrometer` | Micrometer metrics adapter | ratchet-api, Micrometer |
-| `ratchet-tck` | Technology Compatibility Kit contracts; current published contracts cover store SPI behavior while API and RI/runtime conformance live in the testsuite | ratchet-store-core, JUnit 5 |
+| `ratchet-tck` | Aggregator (pom-packaging) for the four TCK submodules below | — |
+| `ratchet-tck-util` | JUnit-only helpers shared across TCK modules | JUnit 5 |
+| `ratchet-tck-store` | Store SPI conformance — CRUD, claiming, status transitions, archiving, batches, locks | ratchet-store-core, ratchet-tck-util, JUnit 5 |
+| `ratchet-tck-api` | Public-API conformance — submit / cancel / retry / idempotency / workflow / delayed scheduling. Container-free, pure-JVM JUnit | ratchet-api, ratchet-tck-util, JUnit 5 |
+| `ratchet-tck-jakarta` | Jakarta-EE conformance — CDI injection, CDI events, JTA enqueue (Arquillian-driven) | ratchet-tck-api, Jakarta CDI / Transaction API, Arquillian |
 | `ratchet-bom` | Bill of Materials for version alignment | — |
 
 ### SPI Extension Points
@@ -371,7 +375,12 @@ public class MyCustomStoreTest extends AbstractJobCrudStoreContract {
 }
 ```
 
-Ratchet uses tiered conformance. The published `ratchet-tck` module currently provides store SPI contracts covering CRUD, claiming, status transitions, archiving, execution tracking, batches, locks, and more. API and RI/runtime conformance coverage is in `ratchet-testsuite`; those tests are the seed for separate published conformance tiers.
+Ratchet uses tiered conformance. Each TCK submodule earns a distinct compatibility label:
+
+- **Ratchet Store Compatible** — passes `ratchet-tck-store` against a custom `JobStore` (CRUD, claiming, status transitions, archiving, execution tracking, batches, locks).
+- **Ratchet API Compatible** — passes `ratchet-tck-api` against a custom `JobSchedulerService` implementation. Pure-JVM JUnit, no container required. Covers submit / cancel / retry / idempotency / simple workflow; delayed-scheduling contracts skip when no `TestClock` is provided.
+- **Ratchet Jakarta Runtime Compatible** — passes `ratchet-tck-api` plus `ratchet-tck-jakarta` (CDI injection, CDI events, JTA enqueue) in a Jakarta EE container, typically via Arquillian.
+- **Ratchet RI Verified** — the project's reference-implementation tests pass on a named runtime / database matrix. This is implementation-specific and lives in `ratchet-testsuite`.
 
 ## Production Checklist
 

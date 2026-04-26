@@ -52,7 +52,11 @@ ratchet/
 ├── ratchet-store-core   Shared JPA entities (internal, not user-facing)
 ├── ratchet-store-mysql  MySQL JobStore + DDL
 ├── ratchet-store-postgresql  PostgreSQL JobStore + DDL
-├── ratchet-tck          Technology Compatibility Kit
+├── ratchet-tck          Technology Compatibility Kit aggregator (pom)
+│   ├── util               JUnit-only helpers shared across TCK modules
+│   ├── store              Store SPI conformance contracts
+│   ├── api                Public-API conformance contracts (container-free)
+│   └── jakarta            Jakarta-EE conformance contracts (Arquillian)
 ├── ratchet-testsuite    Integration tests
 └── ratchet-bom          Bill of Materials POM
 ```

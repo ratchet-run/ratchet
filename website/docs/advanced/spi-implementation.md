@@ -9,9 +9,11 @@ description: Complete guide to implementing Ratchet SPI interfaces for custom ex
 Ratchet is designed around a set of Service Provider Interfaces (SPIs) that decouple the core engine from specific implementations. Major extension points -- configuration, invocation resolution, result persistence, resilience, metrics, logging, storage, security, and cluster coordination -- are expressed as SPI interfaces that you can replace with your own implementation.
 
 This guide covers the CDI wiring pattern, the complete SPI inventory, and Ratchet conformance tiers.
-The currently published `ratchet-tck` contracts validate store SPI implementations; API and
-RI/runtime conformance coverage lives in the Ratchet testsuite and is being separated into explicit
-tiers.
+The TCK is split into four submodules: `ratchet-tck-store` (store SPI), `ratchet-tck-api`
+(public-API, container-free), `ratchet-tck-jakarta` (Jakarta-EE conformance via Arquillian), and
+`ratchet-tck-util` (shared JUnit helpers). Each earns a distinct compatibility label — see the
+[README's tiered-conformance section](https://github.com/jcputney/ratchet#custom-store-implementation)
+for the full matrix.
 
 ## The CDI @Alternative Pattern
 
@@ -826,14 +828,14 @@ The TCK includes abstract contracts for each store sub-interface:
 | `AbstractDlqAlertStoreContract` | DLQ alert lifecycle |
 | `AbstractResourcePermitStoreContract` | Permit acquire and release |
 
-Run all contract suites against your store implementation. All tests must pass before the store is considered store-compatible. API and RI/runtime compatibility are separate conformance tiers.
+Run all contract suites against your store implementation. All tests must pass before the store earns the "Ratchet Store Compatible" label. API and Jakarta-runtime compatibility are separate conformance tiers, validated by `ratchet-tck-api` and `ratchet-tck-jakarta` respectively.
 
 ### Adding the TCK Dependency
 
 ```xml
 <dependency>
     <groupId>run.ratchet</groupId>
-    <artifactId>ratchet-tck</artifactId>
+    <artifactId>ratchet-tck-store</artifactId>
     <version>${ratchet.version}</version>
     <scope>test</scope>
 </dependency>
