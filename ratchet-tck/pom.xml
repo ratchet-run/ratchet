@@ -18,5 +18,6 @@
     <modules>
         <module>util</module>
         <module>store</module>
+        <module>api</module>
     </modules>
 </project>

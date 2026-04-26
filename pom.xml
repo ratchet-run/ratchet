@@ -240,6 +240,11 @@
       </dependency>
       <dependency>
         <groupId>run.ratchet</groupId>
+        <artifactId>ratchet-tck-api</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>run.ratchet</groupId>
         <artifactId>ratchet-micrometer</artifactId>
         <version>${project.version}</version>
       </dependency>
