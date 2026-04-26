@@ -15,6 +15,7 @@ import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -235,6 +236,35 @@ public class JobExecutorService {
       activeFutures.remove(task);
       throw e;
     }
+  }
+
+  /**
+   * Non-destructive drain: blocks until all currently-executing jobs reach a terminal state, or
+   * until {@code timeout} elapses. Unlike {@link #shutdownActiveExecutions()}, does NOT cancel
+   * running tasks. Pair with {@link DrainController#setDraining(boolean) DrainController
+   * .setDraining(true)} on entry to prevent new work from arriving during the wait.
+   *
+   * <p>Primary consumer: TCK runtime adapters that need a non-destructive between-tests reset
+   * without tearing down the application-scoped scheduler bean.
+   *
+   * @return {@code true} if the executor became idle within the timeout; {@code false} otherwise
+   */
+  public boolean awaitIdle(Duration timeout) throws InterruptedException {
+    long deadlineNanos = System.nanoTime() + timeout.toNanos();
+    while (!activeFutures.isEmpty()) {
+      long remainingNanos = deadlineNanos - System.nanoTime();
+      if (remainingNanos <= 0) {
+        break;
+      }
+      TrackingFutureTask snapshot;
+      try {
+        snapshot = activeFutures.iterator().next();
+      } catch (java.util.NoSuchElementException raceLost) {
+        break;
+      }
+      snapshot.awaitRunnerExit(Math.min(remainingNanos, 50_000_000L));
+    }
+    return activeFutures.isEmpty();
   }
 
   public int shutdownActiveExecutions() {
