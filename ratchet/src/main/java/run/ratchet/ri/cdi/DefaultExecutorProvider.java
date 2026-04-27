@@ -12,8 +12,8 @@ import javax.naming.NamingException;
  *
  * <p>Resolves {@code java:comp/DefaultManagedExecutorService} and {@code
  * java:comp/DefaultManagedScheduledExecutorService} via direct JNDI lookup. These names are
- * specified by Jakarta Concurrency 3.0 and bound by every compliant Jakarta EE 10 container
- * (verified on WildFly, Payara, OpenLiberty).
+ * specified by Jakarta Concurrency 3.0+ and bound by every compliant Jakarta EE 10 (or later)
+ * container (verified on WildFly, Payara, OpenLiberty).
  *
  * <p><b>Why JNDI rather than {@code @Resource} injection.</b> Some containers (e.g. Payara) do not
  * honor {@code @Resource(lookup=...)} on CDI library beans — they try to bind {@code
@@ -73,8 +73,8 @@ public class DefaultExecutorProvider implements ExecutorProvider {
       throw new IllegalStateException(
           "DefaultExecutorProvider could not resolve "
               + jndiName
-              + " from JNDI. This name is required by Jakarta Concurrency 3.0; if you are running"
-              + " outside a Jakarta EE 10 container, provide an @Alternative ExecutorProvider bean"
+              + " from JNDI. This name is required by Jakarta Concurrency 3.0+; if you are running"
+              + " outside a Jakarta EE 10+ container, provide an @Alternative ExecutorProvider bean"
               + " (e.g., StandaloneExecutorProvider).",
           e);
     } catch (ClassCastException e) {

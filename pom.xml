@@ -43,8 +43,37 @@
     <maven.compiler.target>17</maven.compiler.target>
     <maven.compiler.release>17</maven.compiler.release>
 
-    <!-- Dependency versions -->
+    <!--
+      Jakarta EE API versions. Defaults target Jakarta EE 10. The
+      jakarta-ee11-verify profile overrides every version below to its EE 11
+      counterpart so a single `mvn -P jakarta-ee11-verify clean compile` run
+      retargets the entire API surface. We parameterize every API version
+      independently rather than importing jakarta.jakartaee-bom because the
+      platform BOM declares each API with `<exclusion>*:*</exclusion>`, which
+      strips transitive deps (e.g. cdi-api → jakarta.inject) that ratchet's
+      modular layout depends on.
+    -->
     <jakarta.ee.version>10.0.0</jakarta.ee.version>
+    <jakarta.cdi-api.version>4.0.1</jakarta.cdi-api.version>
+    <jakarta.annotation-api.version>2.1.1</jakarta.annotation-api.version>
+    <jakarta.inject-api.version>2.0.1</jakarta.inject-api.version>
+    <jakarta.interceptor-api.version>2.1.0</jakarta.interceptor-api.version>
+    <jakarta.transaction-api.version>2.0.1</jakarta.transaction-api.version>
+    <jakarta.persistence-api.version>3.1.0</jakarta.persistence-api.version>
+    <jakarta.json-api.version>2.1.0</jakarta.json-api.version>
+    <jakarta.json.bind-api.version>3.0.0</jakarta.json.bind-api.version>
+    <jakarta.security.enterprise-api.version>3.0.0</jakarta.security.enterprise-api.version>
+    <!--
+      jakarta.servlet-api and jakarta.authentication-api are not used directly
+      by ratchet code, but jakarta.security.enterprise-api 4.0.0 (EE 11)
+      uses `requires transitive` for both in its module-info, propagating the
+      module-path requirement to any module that `requires jakarta.security`.
+      Declared as provided deps so the modular compile resolves under both
+      EE 10 (where 3.0.0's non-transitive requires made these unnecessary)
+      and EE 11.
+    -->
+    <jakarta.servlet-api.version>6.0.0</jakarta.servlet-api.version>
+    <jakarta.authentication-api.version>3.0.0</jakarta.authentication-api.version>
     <junit.version>5.11.4</junit.version>
     <asm.version>9.7.1</asm.version>
     <cron-utils.version>9.2.1</cron-utils.version>
@@ -94,55 +123,67 @@
       <dependency>
         <groupId>jakarta.enterprise</groupId>
         <artifactId>jakarta.enterprise.cdi-api</artifactId>
-        <version>4.0.1</version>
+        <version>${jakarta.cdi-api.version}</version>
         <scope>provided</scope>
       </dependency>
       <dependency>
         <groupId>jakarta.annotation</groupId>
         <artifactId>jakarta.annotation-api</artifactId>
-        <version>2.1.1</version>
+        <version>${jakarta.annotation-api.version}</version>
         <scope>provided</scope>
       </dependency>
       <dependency>
         <groupId>jakarta.inject</groupId>
         <artifactId>jakarta.inject-api</artifactId>
-        <version>2.0.1</version>
+        <version>${jakarta.inject-api.version}</version>
         <scope>provided</scope>
       </dependency>
       <dependency>
         <groupId>jakarta.interceptor</groupId>
         <artifactId>jakarta.interceptor-api</artifactId>
-        <version>2.1.0</version>
+        <version>${jakarta.interceptor-api.version}</version>
         <scope>provided</scope>
       </dependency>
       <dependency>
         <groupId>jakarta.transaction</groupId>
         <artifactId>jakarta.transaction-api</artifactId>
-        <version>2.0.1</version>
+        <version>${jakarta.transaction-api.version}</version>
         <scope>provided</scope>
       </dependency>
       <dependency>
         <groupId>jakarta.persistence</groupId>
         <artifactId>jakarta.persistence-api</artifactId>
-        <version>3.1.0</version>
+        <version>${jakarta.persistence-api.version}</version>
         <scope>provided</scope>
       </dependency>
       <dependency>
         <groupId>jakarta.json</groupId>
         <artifactId>jakarta.json-api</artifactId>
-        <version>2.1.0</version>
+        <version>${jakarta.json-api.version}</version>
         <scope>provided</scope>
       </dependency>
       <dependency>
         <groupId>jakarta.json.bind</groupId>
         <artifactId>jakarta.json.bind-api</artifactId>
-        <version>3.0.0</version>
+        <version>${jakarta.json.bind-api.version}</version>
         <scope>provided</scope>
       </dependency>
       <dependency>
         <groupId>jakarta.security.enterprise</groupId>
         <artifactId>jakarta.security.enterprise-api</artifactId>
-        <version>3.0.0</version>
+        <version>${jakarta.security.enterprise-api.version}</version>
+        <scope>provided</scope>
+      </dependency>
+      <dependency>
+        <groupId>jakarta.servlet</groupId>
+        <artifactId>jakarta.servlet-api</artifactId>
+        <version>${jakarta.servlet-api.version}</version>
+        <scope>provided</scope>
+      </dependency>
+      <dependency>
+        <groupId>jakarta.authentication</groupId>
+        <artifactId>jakarta.authentication-api</artifactId>
+        <version>${jakarta.authentication-api.version}</version>
         <scope>provided</scope>
       </dependency>
 
@@ -352,6 +393,38 @@
   </dependencyManagement>
 
   <profiles>
+    <!--
+      Jakarta EE 11 API verification profile. Retargets every individual
+      Jakarta API version property to its EE 11 release (CDI 4.1,
+      persistence 3.2, security 4.0, annotation 3.0, interceptor 2.2, etc.)
+      and the umbrella jakartaee-web-api to 11.0.0. Intended for compile-time
+      verification only — runtime container version bumps (Payara 7,
+      WildFly Preview, Open Liberty webProfile-11.0) are tracked separately.
+      The default build remains EE 10 to preserve the existing managed-server
+      test matrix.
+
+      Usage: mvn -P jakarta-ee11-verify clean compile
+    -->
+    <profile>
+      <id>jakarta-ee11-verify</id>
+      <properties>
+        <jakarta.ee.version>11.0.0</jakarta.ee.version>
+        <jakarta.cdi-api.version>4.1.0</jakarta.cdi-api.version>
+        <jakarta.annotation-api.version>3.0.0</jakarta.annotation-api.version>
+        <!-- jakarta.inject-api stays at 2.0.1 in EE 11 (no spec bump). -->
+        <jakarta.inject-api.version>2.0.1</jakarta.inject-api.version>
+        <jakarta.interceptor-api.version>2.2.0</jakarta.interceptor-api.version>
+        <!-- jakarta.transaction-api stays at 2.0.1 in EE 11. -->
+        <jakarta.transaction-api.version>2.0.1</jakarta.transaction-api.version>
+        <jakarta.persistence-api.version>3.2.0</jakarta.persistence-api.version>
+        <jakarta.json-api.version>2.1.3</jakarta.json-api.version>
+        <jakarta.json.bind-api.version>3.0.1</jakarta.json.bind-api.version>
+        <jakarta.security.enterprise-api.version>4.0.0</jakarta.security.enterprise-api.version>
+        <jakarta.servlet-api.version>6.1.0</jakarta.servlet-api.version>
+        <jakarta.authentication-api.version>3.1.0</jakarta.authentication-api.version>
+      </properties>
+    </profile>
+
     <profile>
       <id>javadoc-aggregate</id>
       <build>
