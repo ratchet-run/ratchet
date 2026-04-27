@@ -115,6 +115,36 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
     return job == null ? null : job.getStatus();
   }
 
+  @Override
+  public synchronized boolean cancelJob(long id) {
+    JobEntity job = jobs.get(id);
+    if (job == null) {
+      return false;
+    }
+    JobStatus status = job.getStatus();
+    if (status != JobStatus.PENDING && status != JobStatus.RUNNING) {
+      return false;
+    }
+    job.setStatus(JobStatus.CANCELED);
+    job.setVersion(job.getVersion() == null ? 1 : job.getVersion() + 1);
+    return true;
+  }
+
+  @Override
+  public synchronized boolean compareAndSwapStatus(
+      long id, JobStatus expected, JobStatus newStatus, String error) {
+    JobEntity job = jobs.get(id);
+    if (job == null || job.getStatus() != expected) {
+      return false;
+    }
+    job.setStatus(newStatus);
+    if (error != null) {
+      job.setLastError(error);
+    }
+    job.setVersion(job.getVersion() == null ? 1 : job.getVersion() + 1);
+    return true;
+  }
+
   // ----- JobClaimStore (real bodies) -----
 
   @Override
