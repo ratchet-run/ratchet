@@ -1,6 +1,8 @@
 package run.ratchet.tck.api;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import run.ratchet.api.JobHandle;
@@ -65,5 +67,49 @@ public abstract class AbstractDelayedSchedulingContract {
     assertTrue(
         runtime().probe().awaitCompleted(handle, defaultTimeout()),
         "Scheduled job must complete once delay has elapsed");
+  }
+
+  @Test
+  void cancelledBeforeDelayElapses_neverRuns() {
+    Duration delay = Duration.ofMinutes(5);
+    Instant submittedAt = clock.now();
+
+    JobHandle handle = runtime().scheduler().schedule(delay, TckJobs::noop).submit();
+    runtime().probe().track(handle);
+
+    // Cancel while still PENDING (clock has not advanced past the schedule).
+    assertTrue(
+        runtime().scheduler().cancelJob(handle.id()),
+        "cancelJob must succeed for a PENDING delayed job");
+
+    // Advance past the deadline; cancelled job must not execute.
+    clock.advanceTo(submittedAt.plus(delay).plusSeconds(1));
+    assertFalse(
+        runtime().probe().awaitExecuted(handle, Duration.ofMillis(250)),
+        "Cancelled job must not start even after its delay has elapsed");
+    assertEquals(
+        0, runtime().probe().invocationCount(handle), "Cancelled job must have zero invocations");
+  }
+
+  @Test
+  void clockRewind_isRejected() {
+    Duration delay = Duration.ofMinutes(5);
+    Instant submittedAt = clock.now();
+
+    JobHandle handle = runtime().scheduler().schedule(delay, TckJobs::noop).submit();
+    runtime().probe().track(handle);
+
+    // Advance past the deadline so the job completes.
+    clock.advanceTo(submittedAt.plus(delay).plusSeconds(1));
+    assertTrue(
+        runtime().probe().awaitCompleted(handle, defaultTimeout()),
+        "Scheduled job must complete once delay has elapsed");
+
+    // Attempting to rewind the clock must throw — the contract requires monotonic time.
+    Instant past = submittedAt;
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> clock.advanceTo(past),
+        "TestClock.advanceTo(target) must reject targets earlier than now()");
   }
 }
