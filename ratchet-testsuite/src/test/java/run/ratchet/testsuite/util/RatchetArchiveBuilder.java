@@ -11,7 +11,6 @@ import run.ratchet.testsuite.app.PerformanceTestHelper;
 import run.ratchet.testsuite.app.TestCleanupStrategy;
 import run.ratchet.testsuite.app.TestDataManipulator;
 import run.ratchet.testsuite.app.TestEntityManagerProvider;
-import run.ratchet.testsuite.app.TestExecutorProvider;
 import run.ratchet.testsuite.app.TestMongoProducer;
 import run.ratchet.testsuite.app.TestRatchetOptionsProducer;
 import run.ratchet.testsuite.app.TestRuntimeConfig;
@@ -131,7 +130,9 @@ public class RatchetArchiveBuilder {
   public RatchetArchiveBuilder addStoreInfrastructure() {
     String dbType = System.getProperty("ratchet.test.db.type", "mysql");
 
-    // Common classes always included
+    // Common classes always included.
+    // Production DefaultExecutorProvider (JNDI inject + lookup fallback) is the only executor
+    // provider in test deployments — no test override needed.
     archive.addClasses(
         BaseRatchetIT.class,
         JobAssertions.class,
@@ -139,7 +140,6 @@ public class RatchetArchiveBuilder {
         TestCleanupStrategy.class,
         TestDataManipulator.class,
         PerformanceTestHelper.class,
-        TestExecutorProvider.class,
         TestRatchetOptionsProducer.class,
         TestRuntimeConfig.class);
 

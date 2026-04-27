@@ -10,6 +10,7 @@ module run.ratchet.ri {
   requires jakarta.security;
   requires jakarta.transaction;
   requires java.management;
+  requires java.naming;
   requires org.jboss.logging;
   requires org.objectweb.asm;
   requires org.objectweb.asm.tree;
