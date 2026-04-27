@@ -15,6 +15,7 @@ import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Set;
@@ -56,6 +57,7 @@ public class JobExecutorService {
   private final JobLoggerFactory jobLoggerFactory;
   private final ResultPersistenceStrategy resultPersistenceStrategy;
   private final PollerScheduler pollerScheduler;
+  private final Clock clock;
   private final Set<TrackingFutureTask> activeFutures = ConcurrentHashMap.newKeySet();
 
   protected JobExecutorService() {
@@ -76,6 +78,7 @@ public class JobExecutorService {
     this.jobLoggerFactory = null;
     this.resultPersistenceStrategy = null;
     this.pollerScheduler = null;
+    this.clock = null;
   }
 
   @Inject
@@ -96,7 +99,8 @@ public class JobExecutorService {
       ClassPolicy classPolicy,
       PollerScheduler pollerScheduler,
       JobLoggerFactory jobLoggerFactory,
-      ResultPersistenceStrategy resultPersistenceStrategy) {
+      ResultPersistenceStrategy resultPersistenceStrategy,
+      Clock clock) {
     this.threadPoolManager = threadPoolManager;
     this.timeoutHandler = timeoutHandler;
     this.executorProvider = executorProvider;
@@ -114,6 +118,7 @@ public class JobExecutorService {
     this.pollerScheduler = pollerScheduler;
     this.jobLoggerFactory = jobLoggerFactory;
     this.resultPersistenceStrategy = resultPersistenceStrategy;
+    this.clock = clock;
   }
 
   private static void cancelTimeoutHandles(
@@ -209,7 +214,8 @@ public class JobExecutorService {
         errorSanitizer,
         classPolicy,
         jobLoggerFactory,
-        resultPersistenceStrategy);
+        resultPersistenceStrategy,
+        clock != null ? clock : Clock.systemUTC());
   }
 
   private JobTimeoutHandler.TimeoutHandles scheduleWatchdog(

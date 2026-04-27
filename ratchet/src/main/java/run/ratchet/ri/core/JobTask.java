@@ -34,6 +34,7 @@ import jakarta.inject.Inject;
 import java.io.Serial;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -74,6 +75,7 @@ public class JobTask implements Callable<Void> {
   private final ClassPolicy classPolicy;
   private final JobLoggerFactory jobLoggerFactory;
   private final ResultPersistenceStrategy resultPersistenceStrategy;
+  private final Clock clock;
   private JobEntity job;
   private JobClaimDto claim;
   private JobExecutionEntity currentExecution;
@@ -93,6 +95,7 @@ public class JobTask implements Callable<Void> {
     this.classPolicy = null;
     this.jobLoggerFactory = null;
     this.resultPersistenceStrategy = null;
+    this.clock = null;
   }
 
   public JobTask(
@@ -121,7 +124,8 @@ public class JobTask implements Callable<Void> {
         classPolicy,
         context -> new JBossLoggingJobLogger(context.jobId(), null),
         new DefaultResultPersistenceStrategy(
-            RatchetOptions.defaults(), new JsonbPayloadSerializer()));
+            RatchetOptions.defaults(), new JsonbPayloadSerializer()),
+        Clock.systemUTC());
   }
 
   @Inject
@@ -138,7 +142,8 @@ public class JobTask implements Callable<Void> {
       ErrorSanitizer errorSanitizer,
       ClassPolicy classPolicy,
       JobLoggerFactory jobLoggerFactory,
-      ResultPersistenceStrategy resultPersistenceStrategy) {
+      ResultPersistenceStrategy resultPersistenceStrategy,
+      Clock clock) {
     this.jobStore = jobStore;
     this.resourcePermitService = resourcePermitService;
     this.lifecycleFacade = lifecycleFacade;
@@ -152,6 +157,7 @@ public class JobTask implements Callable<Void> {
     this.classPolicy = classPolicy;
     this.jobLoggerFactory = jobLoggerFactory;
     this.resultPersistenceStrategy = resultPersistenceStrategy;
+    this.clock = clock;
   }
 
   /**
@@ -243,7 +249,7 @@ public class JobTask implements Callable<Void> {
           jobEntity.getPayload().method());
     }
 
-    Instant start = Instant.now();
+    Instant start = effective().instant();
     Object jobResult;
     permitAcquired = false;
     String resilienceServiceName = resolveResilienceServiceName(jobEntity.getPayload());
@@ -370,7 +376,7 @@ public class JobTask implements Callable<Void> {
 
       if (!acquired) {
         int retryDelay = resourcePermitService.getRetryDelay(resourceName);
-        Instant newScheduledTime = Instant.now().plusMillis(retryDelay);
+        Instant newScheduledTime = effective().instant().plusMillis(retryDelay);
 
         if (currentExecution != null) {
           currentExecution.markFailed(
@@ -422,7 +428,7 @@ public class JobTask implements Callable<Void> {
    */
   private void rescheduleForCircuitBreaker(JobEntity jobEntity, String serviceName) {
     long delayMs = resilienceStrategy.getRetryDelay(serviceName).toMillis();
-    Instant newScheduledTime = Instant.now().plusMillis(delayMs);
+    Instant newScheduledTime = effective().instant().plusMillis(delayMs);
 
     if (currentExecution != null) {
       currentExecution.markFailed(
@@ -449,7 +455,7 @@ public class JobTask implements Callable<Void> {
   private void handleCanceledDuringExecution(Instant start) {
     log.infof("Job %s was canceled during execution - result discarded", job.getId());
 
-    Instant endTime = Instant.now();
+    Instant endTime = effective().instant();
     long executionMs = Duration.between(start, endTime).toMillis();
 
     job.setExecutionStartTime(start);
@@ -543,7 +549,7 @@ public class JobTask implements Callable<Void> {
   }
 
   private void handleSuccess(Instant start, Object jobResult) {
-    Instant endTime = Instant.now();
+    Instant endTime = effective().instant();
     long executionMs = Duration.between(start, endTime).toMillis();
     long queueMs =
         job.getPickedAt() != null ? Duration.between(job.getPickedAt(), start).toMillis() : 0;
@@ -916,7 +922,7 @@ public class JobTask implements Callable<Void> {
             ? BackoffPolicyHandler.computeDelay(
                 job.getBackoffPolicy(), job.getBackoffParamMs(), attempt)
             : policyDelay.toMillis();
-    Instant newScheduledTime = Instant.now().plusMillis(backoff);
+    Instant newScheduledTime = effective().instant().plusMillis(backoff);
 
     if (jobStore.scheduleJobRetry(
         job.getId(), errorSanitizer.sanitize(ex), newScheduledTime, attempt)) {
@@ -946,6 +952,10 @@ public class JobTask implements Callable<Void> {
           ex.getClass().getName(),
           ex.getMessage());
     }
+  }
+
+  private Clock effective() {
+    return clock != null ? clock : Clock.systemUTC();
   }
 
   private enum SuccessFinalizationState {

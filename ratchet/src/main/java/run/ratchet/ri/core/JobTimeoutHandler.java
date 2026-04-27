@@ -5,6 +5,7 @@ import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobRetryStore;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.Future;
@@ -29,6 +30,7 @@ public class JobTimeoutHandler {
   private final PostExecutionHandler lifecycleFacade;
   private final int softTimeoutPercent;
   private final long defaultTimeoutSeconds;
+  private final Clock clock;
 
   protected JobTimeoutHandler() {
     this.jobCrudStore = null;
@@ -37,6 +39,7 @@ public class JobTimeoutHandler {
     this.lifecycleFacade = null;
     this.softTimeoutPercent = 0;
     this.defaultTimeoutSeconds = 0;
+    this.clock = null;
   }
 
   public JobTimeoutHandler(
@@ -46,12 +49,35 @@ public class JobTimeoutHandler {
       PostExecutionHandler lifecycleFacade,
       int softTimeoutPercent,
       long defaultTimeoutSeconds) {
+    this(
+        jobCrudStore,
+        jobRetryStore,
+        jobBatchStatusStore,
+        lifecycleFacade,
+        softTimeoutPercent,
+        defaultTimeoutSeconds,
+        Clock.systemUTC());
+  }
+
+  public JobTimeoutHandler(
+      JobCrudStore jobCrudStore,
+      JobRetryStore jobRetryStore,
+      JobBatchStatusStore jobBatchStatusStore,
+      PostExecutionHandler lifecycleFacade,
+      int softTimeoutPercent,
+      long defaultTimeoutSeconds,
+      Clock clock) {
     this.jobCrudStore = jobCrudStore;
     this.jobRetryStore = jobRetryStore;
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.lifecycleFacade = lifecycleFacade;
     this.softTimeoutPercent = softTimeoutPercent;
     this.defaultTimeoutSeconds = defaultTimeoutSeconds;
+    this.clock = clock;
+  }
+
+  private Clock effective() {
+    return clock != null ? clock : Clock.systemUTC();
   }
 
   public TimeoutHandles scheduleTimeoutMonitoring(
@@ -116,7 +142,7 @@ public class JobTimeoutHandler {
 
     // Step 2: Retries remain? Try to reschedule.
     if (newAttempts <= job.getMaxRetries()) {
-      Instant retryTime = Instant.now().plusSeconds(timeoutSec);
+      Instant retryTime = effective().instant().plusSeconds(timeoutSec);
       boolean rescheduled =
           jobRetryStore.scheduleJobRetry(jobId, timeoutEx.getMessage(), retryTime, newAttempts);
       if (rescheduled) {
@@ -167,7 +193,7 @@ public class JobTimeoutHandler {
       Instant executionStartTime,
       long timeoutSec) {
     if (!future.isDone() && softTimeoutSent.compareAndSet(false, true)) {
-      Duration elapsed = Duration.between(executionStartTime, Instant.now());
+      Duration elapsed = Duration.between(executionStartTime, effective().instant());
       log.warnf(
           "Job %s approaching timeout - %d%% threshold reached. Elapsed: %s, Timeout: %ds",
           jobId, softTimeoutPercent, formatDuration(elapsed), timeoutSec);
@@ -179,7 +205,7 @@ public class JobTimeoutHandler {
     if (future.isDone()) {
       return;
     }
-    Duration elapsed = Duration.between(executionStartTime, Instant.now());
+    Duration elapsed = Duration.between(executionStartTime, effective().instant());
     log.errorf(
         "Job %s exceeded timeout of %ds. Cancelling execution. Elapsed: %s",
         jobId, timeoutSec, formatDuration(elapsed));

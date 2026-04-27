@@ -140,7 +140,7 @@ public class RatchetProducer {
 
   @Produces
   @ApplicationScoped
-  public JobTimeoutHandler jobTimeoutHandler() {
+  public JobTimeoutHandler jobTimeoutHandler(Clock clock) {
     int softTimeoutPercent = options.timeout().softTimeoutPercent();
     long defaultTimeoutSeconds = options.timeout().defaultSlaSeconds();
 
@@ -150,7 +150,8 @@ public class RatchetProducer {
         jobBatchStatusStore,
         postExecutionHandler,
         softTimeoutPercent,
-        defaultTimeoutSeconds);
+        defaultTimeoutSeconds,
+        clock);
   }
 
   @Produces
