@@ -623,18 +623,22 @@ public record LambdaDescriptor(
 
 ## Store SPI: Custom Persistence
 
-The store layer is the most complex SPI surface in Ratchet. The `JobStore` interface is a composition of 15 focused sub-interfaces, each handling a specific persistence concern:
+The store layer is the most complex SPI surface in Ratchet. The `JobStore` interface composes the focused store SPIs used by the RI, each handling a specific persistence concern:
 
 ```java
 public interface JobStore
     extends JobCrudStore,        // Basic CRUD for job entities
             JobClaimStore,       // Atomic job claiming for execution
-            JobStatusStore,      // Status transitions (CAS-based)
+            JobTerminalStore,    // Terminal success/failure/cancel transitions
+            JobRetryStore,       // Retry scheduling
+            JobPauseStore,       // Pause/resume transitions
+            JobBatchStatusStore, // Non-terminal status and batch/orphan operations
+            JobStatusStore,      // Deprecated compatibility marker
             JobBulkStore,        // Bulk operations (orphan recovery, cleanup)
             BatchStore,          // Batch progress tracking
             LockStore,           // Distributed locks
             NodeStore,           // Node registration and heartbeat
-            ArchiveStore,        // Job archiving (completed → archive table)
+            ArchiveStore,        // Job archiving (completed → archive storage)
             ExecutionStore,      // Execution history tracking
             JobLogStore,         // Per-job log persistence
             TagStore,            // Job tagging
@@ -645,27 +649,31 @@ public interface JobStore
 { }
 ```
 
-Ratchet ships with MySQL and PostgreSQL implementations. To implement a custom store (e.g., MongoDB, DynamoDB, in-memory), you implement `JobStore` (all 15 sub-interfaces) and validate it against the TCK.
+Ratchet ships with MySQL, PostgreSQL, and MongoDB implementations. To implement a custom store (for example DynamoDB, Redis, or an in-memory test backend), implement `JobStore` and validate it against the TCK.
 
 ### Store Sub-Interface Summary
 
 | Interface | Responsibility | Key Methods |
 |-----------|---------------|-------------|
-| `JobCrudStore` | Create, read, update, delete jobs | `save()`, `findById()`, `findByTag()`, `delete()` |
-| `JobClaimStore` | Atomic job claiming for execution | `claimNextPendingJobs()` |
-| `JobStatusStore` | CAS-based status transitions | `updateStatus()`, `compareAndSetStatus()` |
-| `JobBulkStore` | Bulk operations | `recoverOrphanedJobs()`, `findStaleJobs()` |
-| `BatchStore` | Batch progress tracking | `saveBatch()`, `incrementCompleted()`, `incrementFailed()` |
-| `LockStore` | Distributed locks | `tryLock()`, `releaseLock()` |
-| `NodeStore` | Node registration and heartbeat | `registerNode()`, `updateHeartbeat()`, `findDeadNodes()` |
-| `ArchiveStore` | Job archiving | `archiveJob()`, `findArchivedById()` |
-| `ExecutionStore` | Execution history | `saveExecution()`, `findExecutionsForJob()` |
-| `JobLogStore` | Per-job log persistence | `saveLogs()`, `findLogsForJob()` |
-| `TagStore` | Job tagging | `findJobsByTag()`, `getTagsForJob()` |
-| `WorkflowConditionStore` | Workflow branch conditions | `saveCondition()`, `evaluateConditions()` |
+| `JobCrudStore` | Create, read, update, delete jobs | `save()`, `findById()`, `delete()` |
+| `JobClaimStore` | Atomic job claiming for execution | `claimNextBatch()`, `claimNextBatchOptimized()` |
+| `JobTerminalStore` | Terminal success, failure, and cancellation transitions | `markJobSucceeded()`, `markJobFailedTerminal()`, `cancelJob()` |
+| `JobRetryStore` | Retry scheduling and attempt-state updates | `scheduleJobRetry()`, `incrementRetryAttempt()` |
+| `JobPauseStore` | Pause and resume transitions | `transitionToPaused()`, `transitionFromPausedAtomic()` |
+| `JobBatchStatusStore` | Non-terminal status, pickup, orphan, and recurring-cancel operations | `updateJobStatus()`, `compareAndSwapStatus()`, `resetRunningJobs()` |
+| `JobStatusStore` | Deprecated compatibility marker for the four status-focused SPIs above | Inherited methods only |
+| `JobBulkStore` | Bulk operations | `bulkInsert()`, `resetOrphanJobs()`, `deleteDlqOlderThan()` |
+| `BatchStore` | Batch progress tracking | `saveBatch()`, `incrementCompletedAtomic()`, `incrementFailedAtomic()` |
+| `LockStore` | Distributed locks | `tryLock()`, `unlock()`, `renewLock()` |
+| `NodeStore` | Node registration and heartbeat | `upsertHeartbeat()`, `findInactiveNodesSince()` |
+| `ArchiveStore` | Job archiving | `archiveJob()`, `findArchivedJobs()` |
+| `ExecutionStore` | Execution history | `saveExecution()`, `findExecutionsByJobId()` |
+| `JobLogStore` | Per-job log persistence | `appendLog()`, `purgeLogsOlderThan()` |
+| `TagStore` | Job tagging | `insertTags()`, `findJobIdsByTag()` |
+| `WorkflowConditionStore` | Workflow branch conditions | `saveCondition()`, `findConditionsByParentJobId()` |
 | `BatchMetricsStore` | Batch metrics | `saveBatchMetrics()`, `findBatchMetrics()` |
-| `DlqAlertStore` | DLQ alerting | `saveDlqAlert()`, `findUnacknowledgedAlerts()` |
-| `ResourcePermitStore` | Resource permits | `acquirePermit()`, `releasePermit()` |
+| `DlqAlertStore` | DLQ alerting | `saveDlqAlert()`, `existsRecentDlqAlert()` |
+| `ResourcePermitStore` | Resource permits | `tryAcquirePermit()`, `releasePermit()` |
 
 ### Implementing a Custom Store
 
@@ -683,7 +691,7 @@ import jakarta.interceptor.Interceptor;
 @Alternative
 @Priority(Interceptor.Priority.APPLICATION)
 @ApplicationScoped
-public class CustomMongoJobStore implements JobStore {
+public class CustomDocumentJobStore implements JobStore {
 
     @Inject
     private MongoDatabase database;
@@ -714,11 +722,11 @@ public class CustomMongoJobStore implements JobStore {
     // --- JobClaimStore ---
 
     @Override
-    public List<JobEntity> claimNextPendingJobs(String nodeId, int maxJobs) {
+    public List<JobEntity> claimNextBatch(int limit, String nodeId) {
         // Use MongoDB findOneAndUpdate with atomic status transition
         // PENDING → RUNNING, set ownedBy = nodeId
         List<JobEntity> claimed = new ArrayList<>();
-        for (int i = 0; i < maxJobs; i++) {
+        for (int i = 0; i < limit; i++) {
             Document doc = database.getCollection("ratchet_jobs")
                 .findOneAndUpdate(
                     and(eq("status", "PENDING"),
@@ -736,7 +744,7 @@ public class CustomMongoJobStore implements JobStore {
         return claimed;
     }
 
-    // ... implement remaining 13 sub-interfaces
+    // ... implement the remaining JobStore SPIs
 }
 ```
 
@@ -753,10 +761,10 @@ import run.ratchet.store.spi.JobStore;
 // 1. Implement the fixture
 public class MongoStoreFixture implements JobStoreContractFixture {
 
-    private final CustomMongoJobStore store;
+    private final CustomDocumentJobStore store;
 
     public MongoStoreFixture(MongoDatabase database) {
-        this.store = new CustomMongoJobStore(database);
+        this.store = new CustomDocumentJobStore(database);
     }
 
     @Override
@@ -814,7 +822,10 @@ The TCK includes abstract contracts for each store sub-interface:
 |-------------|-------|
 | `AbstractJobCrudStoreContract` | save, find, update, delete operations |
 | `AbstractJobClaimStoreContract` | Atomic claiming, concurrent claim safety |
-| `AbstractJobStatusStoreContract` | Status transitions, CAS operations |
+| `AbstractJobTerminalStoreContract` | Terminal success, failure, and cancellation transitions |
+| `AbstractJobRetryStoreContract` | Retry scheduling |
+| `AbstractJobPauseStoreContract` | Pause and resume transitions |
+| `AbstractJobBatchStatusStoreContract` | Non-terminal status and batch/orphan operations |
 | `AbstractJobBulkStoreContract` | Bulk recovery, stale job detection |
 | `AbstractBatchStoreContract` | Batch progress tracking |
 | `AbstractLockStoreContract` | Lock acquire, release, expiry |
@@ -827,6 +838,7 @@ The TCK includes abstract contracts for each store sub-interface:
 | `AbstractBatchMetricsStoreContract` | Batch-level metrics |
 | `AbstractDlqAlertStoreContract` | DLQ alert lifecycle |
 | `AbstractResourcePermitStoreContract` | Permit acquire and release |
+| `AbstractDualWriteInvariantContract` | Cross-store invariants for dual hot/cold write paths |
 
 Run all contract suites against your store implementation. All tests must pass before the store earns the "Ratchet Store Compatible" label. API and Jakarta-runtime compatibility are separate conformance tiers, validated by `ratchet-tck-api` and `ratchet-tck-jakarta` respectively.
 
@@ -895,4 +907,4 @@ public class MySpi implements SomeRatchetSpi {
 | `NodeIdentityProvider` | `DefaultNodeIdentityProvider` | Produced by `RatchetProducer` | ratchet |
 | `ClusterCoordinator` | `NoOpClusterCoordinator` | `@ApplicationScoped` | ratchet |
 | `ErrorSanitizer` | `DefaultErrorSanitizer` | Produced by `RatchetProducer` | ratchet |
-| `JobStore` | MySQL / PostgreSQL | `@ApplicationScoped` | ratchet-store-* |
+| `JobStore` | MySQL / PostgreSQL / MongoDB | `@ApplicationScoped` | ratchet-store-* |

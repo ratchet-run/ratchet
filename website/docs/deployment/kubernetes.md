@@ -6,7 +6,7 @@ description: Deploying Ratchet on Kubernetes with Deployments, StatefulSets, Con
 
 # Kubernetes Deployment
 
-Ratchet runs on Kubernetes as a standard Jakarta EE application. This guide covers single-replica Deployments, clustered StatefulSets, ConfigMaps for configuration, and health probe setup.
+Ratchet runs on Kubernetes as a standard Jakarta EE 10 application. This guide covers single-replica Deployments, clustered StatefulSets, ConfigMaps for configuration, and health probe setup.
 
 ## Single-Node Deployment
 
@@ -248,11 +248,11 @@ In production, use an external secret manager (AWS Secrets Manager, HashiCorp Va
 
 ## Health Probes
 
-Ratchet applications should expose MicroProfile Health endpoints. WildFly and other Jakarta EE runtimes serve these automatically when the `microprofile-health` subsystem is enabled.
+Ratchet applications should expose MicroProfile Health endpoints. WildFly and other Jakarta EE 10 runtimes serve these automatically when the `microprofile-health` subsystem is enabled.
 
 ### Startup Probe
 
-The startup probe prevents the readiness and liveness probes from running until the application has fully initialized. Jakarta EE applications can take 30-60 seconds to start, especially when connecting to databases and initializing CDI contexts.
+The startup probe prevents the readiness and liveness probes from running until the application has fully initialized. Jakarta EE 10 applications can take 30-60 seconds to start, especially when connecting to databases and initializing CDI contexts.
 
 ```yaml
 startupProbe:

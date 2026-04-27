@@ -77,7 +77,7 @@ export default function Home(): ReactNode {
   return (
     <Layout
       title="Home"
-      description="Portable, CDI-based job scheduler for Jakarta EE applications">
+      description="Portable, CDI-based job scheduler for Jakarta EE 10 applications">
       <HomepageHeader />
       <main>
         <section className="container margin-vert--xl">

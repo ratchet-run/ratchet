@@ -133,7 +133,7 @@ To provide a custom SPI implementation, create a CDI bean annotated with `@Alter
 </dependency>
 ```
 
-The `ratchet-api` module has zero runtime dependencies (aside from `jakarta.enterprise.cdi-api` for `@InterceptorBinding` support). It defines the complete public API and SPI surface.
+The `ratchet-api` module has no runtime dependencies beyond Jakarta EE 10 API types (`jakarta.enterprise.cdi-api` and `jakarta.interceptor-api`, both provided by the runtime). It defines the complete public API and SPI surface.
 
 ## See Also
 

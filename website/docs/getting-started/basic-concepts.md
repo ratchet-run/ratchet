@@ -131,10 +131,10 @@ A **store** is the persistence backend that holds jobs, execution history, locks
 | Store SPI | Responsibility |
 |-----------|---------------|
 | `JobCrudStore` | CRUD operations on jobs |
-| `JobClaimStore` | Claiming due jobs for execution (uses `SKIP LOCKED`) |
-| `JobExecutionStore` | Recording execution history |
+| `JobClaimStore` | Claiming due jobs for execution (`SKIP LOCKED` on SQL stores, atomic updates on MongoDB) |
+| `ExecutionStore` | Recording execution history |
 | `JobLogStore` | Structured log storage per job |
-| `JobArchiveStore` | Moving completed jobs to archive |
+| `ArchiveStore` | Moving completed jobs to archive |
 | `NodeStore` | Cluster node heartbeats |
 | `LockStore` | Distributed advisory locks |
 

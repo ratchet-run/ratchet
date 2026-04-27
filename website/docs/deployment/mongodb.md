@@ -6,11 +6,11 @@ description: Setting up the MongoDB store — collections, indexes, configuratio
 
 # MongoDB Deployment
 
-Ratchet on MongoDB 5.0+.
+Ratchet on MongoDB 6.0+.
 
 ## Prerequisites
 
-- MongoDB 5.0 or later (for snapshot reads and stable API)
+- MongoDB 6.0 or later
 - WiredTiger storage engine (default since MongoDB 3.2)
 
 Ratchet's MongoDB store uses atomic single-document operations for job claiming and state
@@ -41,6 +41,8 @@ operation is idempotent and safe to run on every boot.
 | Collection | Purpose |
 |-----------|---------|
 | `scheduler_job` | Main job store — status, payload, scheduling, priority |
+| `scheduler_batch` | Batch parent records and progress state |
+| `scheduler_batch_metrics` | Batch-level runtime metrics |
 | `scheduler_job_execution` | Execution history — start/end times, node, outcome |
 | `scheduler_job_log` | Optional per-job log storage if your `JobLogger` publishes log lines |
 | `scheduler_job_archive` | Archived completed/failed jobs |
@@ -48,6 +50,7 @@ operation is idempotent and safe to run on every boot.
 | `scheduler_node` | Cluster node heartbeats |
 | `scheduler_workflow_condition` | Workflow branch conditions |
 | `scheduler_dlq_alerts` | Dead-letter queue deduplication |
+| `scheduler_resource_limit` | Resource concurrency configuration |
 | `scheduler_resource_permit` | Resource permit tracking for rate limiting |
 
 ## Key Indexes
@@ -95,17 +98,9 @@ db.scheduler_job.findOneAndUpdate(
 
 This provides the same guarantee — no two nodes claim the same job — through MongoDB's document-level write lock rather than row-level `SKIP LOCKED`.
 
-### Sequential IDs
+### TSID Identifiers
 
-MongoDB uses ObjectIDs by default, but Ratchet's API uses `long` job IDs. The MongoDB store maintains a `counters` collection with atomic `$inc` to generate sequential numeric IDs:
-
-```javascript
-db.counters.findOneAndUpdate(
-  { _id: "scheduler_job" },
-  { $inc: { seq: 1 } },
-  { returnDocument: "after", upsert: true }
-)
-```
+Ratchet uses the same 64-bit TSID identifiers on MongoDB as it does for SQL stores. Those IDs are generated in the application, stored in `_id`, and remain time-sortable without a database counter collection.
 
 ### Tags
 

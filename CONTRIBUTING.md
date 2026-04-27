@@ -2,7 +2,7 @@
 
 Thanks for contributing to Ratchet.
 
-Ratchet is a CDI-based job scheduler for Jakarta EE. The project is still in alpha, so small, focused improvements are preferred over broad speculative refactors.
+Ratchet is a CDI-based job scheduler for Jakarta EE 10. The project is still in alpha, so small, focused improvements are preferred over broad speculative refactors.
 
 ## Before You Start
 
@@ -25,7 +25,7 @@ Ratchet currently expects:
 - `ratchet`: reference implementation
 - `ratchet-store-*`: store implementations
 - `ratchet-testsuite`: managed integration tests
-- `ratchet-tck`: reusable contract tests
+- `ratchet-tck`: reusable Store / API / Jakarta conformance contract tests
 - `website/`: Docusaurus docs site
 
 ## Local Validation

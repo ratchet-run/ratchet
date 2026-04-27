@@ -14,7 +14,7 @@ This guide covers problems that surface during deployment and operations. For ge
 
 **Symptom:** `Table 'scheduler_job' doesn't exist` or similar errors at startup.
 
-**Fix:** Apply the DDL for your store module. DDL files are in the module's `src/main/resources/ddl/` directory:
+**Fix:** For SQL stores, apply the DDL for your store module. DDL files are in the module's `src/main/resources/ddl/` directory:
 
 ```bash
 # PostgreSQL
@@ -26,7 +26,7 @@ mysql -u ratchet -p myapp < ratchet-store-mysql/src/main/resources/ddl/mysql-sch
 # MongoDB — collections and indexes are initialized automatically at store startup
 ```
 
-Ratchet ships plain SQL files, not migrations. Apply them however your project manages DDL (Flyway, Liquibase, manual scripts, etc.).
+SQL stores ship plain SQL files, not migrations. Apply them however your project manages DDL (Flyway, Liquibase, manual scripts, etc.).
 
 ### Missing indexes
 

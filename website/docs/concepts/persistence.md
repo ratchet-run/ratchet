@@ -1,16 +1,16 @@
 ---
 sidebar_position: 10
 title: Persistence
-description: Entity model, JobStore SPI composition, TSID identifiers, and constraint detection
+description: Entity/document model, JobStore SPI composition, TSID identifiers, and constraint detection
 ---
 
 # Persistence
 
-Ratchet persists all job state in your relational database. The persistence layer is built on JPA entities with a composable SPI interface, TSID-based identifiers, and dialect-specific constraint detection.
+Ratchet persists all job state in the selected store backend. SQL stores use JPA entities and DDL-backed tables; the MongoDB store maps the same model to documents and collections. The shared persistence layer is built around a composable SPI interface, TSID-based identifiers, and dialect-specific constraint detection where the backend needs it.
 
 ## Entity Model
 
-The core entity is `JobEntity`, which maps to the `scheduler_job` table. Supporting entities handle batches, executions, workflow conditions, locks, nodes, and archived jobs.
+The core model is `JobEntity`, which maps to the `scheduler_job` table for SQL stores and the `scheduler_job` collection for MongoDB. Supporting entities handle batches, executions, workflow conditions, locks, nodes, and archived jobs.
 
 ```
 ┌─────────────────────────────────────────┐
@@ -60,7 +60,7 @@ The core entity is `JobEntity`, which maps to the `scheduler_job` table. Support
 
 ### JobEntity
 
-The central entity with key columns:
+The central entity/document has these key fields:
 
 | Column | Type | Purpose |
 |--------|------|---------|
@@ -88,7 +88,7 @@ The central entity with key columns:
 
 ### Indexes
 
-The `scheduler_job` table includes these indexes optimized for the Poller and common queries:
+SQL stores define these `scheduler_job` indexes for the Poller and common queries. MongoDB defines analogous collection indexes in `ratchet-store-mongodb`:
 
 | Index | Columns | Purpose |
 |-------|---------|---------|
@@ -164,13 +164,17 @@ long lowerBound = TsidFactory.fromInstant(cutoffTime);
 
 ## JobStore SPI
 
-The `JobStore` interface is a marker that composes 15 focused sub-interfaces. Store implementations (MySQL, PostgreSQL) implement all of them through a single class.
+The `JobStore` interface is a marker that composes the store SPIs used by the RI. Store implementations (MySQL, PostgreSQL, MongoDB, or your own backend) implement that full surface through one CDI bean.
 
 ```java
 public interface JobStore
     extends JobCrudStore,
             JobClaimStore,
-            JobStatusStore,
+            JobTerminalStore,
+            JobRetryStore,
+            JobPauseStore,
+            JobBatchStatusStore,
+            JobStatusStore, // Deprecated compatibility marker for one alpha release
             JobBulkStore,
             BatchStore,
             LockStore,
@@ -192,13 +196,17 @@ public interface JobStore
 | Interface | Responsibility |
 |-----------|---------------|
 | `JobCrudStore` | Create, read, update, delete individual jobs |
-| `JobClaimStore` | Atomic batch claiming with `SKIP LOCKED` |
-| `JobStatusStore` | Status transitions, compare-and-swap updates |
+| `JobClaimStore` | Atomic batch claiming (`SKIP LOCKED` for SQL stores, atomic updates for MongoDB) |
+| `JobTerminalStore` | Terminal success, failure, and cancellation transitions |
+| `JobRetryStore` | Retry scheduling and attempt-state updates |
+| `JobPauseStore` | Pause and resume transitions |
+| `JobBatchStatusStore` | Non-terminal status, pickup, orphan, and recurring-cancel operations |
+| `JobStatusStore` | Deprecated compatibility marker that composes the four status-focused SPIs above |
 | `JobBulkStore` | Bulk operations (DLQ purge, batch insert) |
 | `BatchStore` | Batch parent/child management, progress tracking |
 | `LockStore` | Distributed lock acquisition and release |
 | `NodeStore` | Node registration and heartbeat |
-| `ArchiveStore` | Job archival to the archive table |
+| `ArchiveStore` | Job archival to the archive table/collection |
 | `ExecutionStore` | Execution history recording |
 | `JobLogStore` | Structured job log storage |
 | `TagStore` | Tag-based job queries |
@@ -227,7 +235,7 @@ public interface ConstraintDetector {
 }
 ```
 
-Each store module provides a dialect-specific implementation:
+Each SQL store module provides a dialect-specific implementation:
 
 - **MySQL:** Parses for "Duplicate entry" in the error message
 - **PostgreSQL:** Checks SQL state codes (23505 for unique violation, 23503 for FK violation)
@@ -236,20 +244,22 @@ This is used primarily for idempotency key enforcement -- when a duplicate key i
 
 ## DDL Schema
 
-Ratchet ships DDL as plain SQL files in each store module's `src/main/resources/ddl/` directory. The `*-schema.sql` file is the authoritative clean-install schema for that dialect, and it now reserves a `ratchet_schema_version` table for ordered upgrades.
+SQL store modules ship DDL as plain SQL files in `src/main/resources/ddl/`. The `*-schema.sql` file is the authoritative clean-install schema for that dialect, and it reserves a `ratchet_schema_version` table for ordered upgrades.
 
 Ratchet still does not run migrations automatically by default. Your application remains responsible for applying schema changes, whether through Flyway, Liquibase, or another deployment-time mechanism. When incremental Ratchet migration scripts are added, they live under `ddl/migrations/` and follow the `V###__description.sql` convention. Those ordered `V*` files must compose to the same schema shipped in the clean-install DDL.
 
-If you do not already use a migration framework, `ratchet-store-core` also exposes `SchemaMigrator`, a small optional utility that discovers ordered `V*` scripts, serializes startup with a database advisory lock, validates checksums in `ratchet_schema_version`, and applies only pending scripts. Call it from a `SchedulerLifecycleHook.beforeStart` hook so migrations finish before the poller starts claiming jobs.
+For SQL stores, if you do not already use a migration framework, `ratchet-store-core` also exposes `SchemaMigrator`, a small optional utility that discovers ordered `V*` scripts, serializes startup with a database advisory lock, validates checksums in `ratchet_schema_version`, and applies only pending scripts. Call it from a `SchedulerLifecycleHook.beforeStart` hook so migrations finish before the poller starts claiming jobs.
 
 ```
 ratchet-store-mysql/src/main/resources/ddl/mysql-schema.sql
 ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql
 ```
 
+MongoDB does not ship SQL DDL. The `ratchet-store-mongodb` module creates the required collections and indexes at startup.
+
 ## Optimistic Locking
 
-`JobEntity` uses JPA `@Version` on the `version` column. This prevents lost updates when two nodes attempt to modify the same job concurrently. The engine uses compare-and-swap patterns for critical transitions:
+SQL stores use JPA `@Version` on the `version` column, while MongoDB uses atomic filter-and-update operations. Both paths prevent lost updates when two nodes attempt to modify the same job concurrently. The engine uses compare-and-swap patterns for critical transitions:
 
 ```java
 // Atomic status transition — fails if another thread changed the status
@@ -257,11 +267,11 @@ boolean success = jobStore.compareAndSwapStatus(
     jobId, JobStatus.RUNNING, JobStatus.SUCCEEDED, null);
 ```
 
-Combined with `FOR UPDATE SKIP LOCKED` during claiming, this provides exactly-once execution guarantees.
+Combined with `FOR UPDATE SKIP LOCKED` in SQL stores or atomic document claiming in MongoDB, this ensures a ready job is claimed by only one node at a time.
 
 ## Related
 
 - [Architecture Overview](./overview.md) -- Module structure and SPI overview
-- [Execution Model](./execution-model.md) -- How SKIP LOCKED claiming works
+- [Execution Model](./execution-model.md) -- How job claiming works
 - [Clustering](./clustering.md) -- Multi-node persistence considerations
 - [Job Lifecycle](./job-lifecycle.md) -- State transitions stored in the database

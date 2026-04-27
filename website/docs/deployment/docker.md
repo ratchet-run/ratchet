@@ -15,8 +15,8 @@ Choose a base image that provides the Jakarta EE 10 services Ratchet's default R
 | Runtime | Base Image | Notes |
 |---------|-----------|-------|
 | **WildFly** | `quay.io/wildfly/wildfly:39.0.1.Final-jdk17` | Recommended for Ratchet (used in CI) |
-| **Payara Micro** | `payara/micro:6.2024.6-jdk17` | Lightweight, good for microservices |
-| **Open Liberty** | `icr.io/appcafe/open-liberty:24.0.0.3-full-java17-openj9` | Feature-based configuration |
+| **Payara Micro** | `payara/micro:6.2025.11-jdk17` | Lightweight, good for microservices |
+| **Open Liberty** | `icr.io/appcafe/open-liberty:26.0.0.2-full-java17-openj9` | Feature-based configuration |
 
 ## WildFly Dockerfile
 
@@ -27,8 +27,8 @@ FROM quay.io/wildfly/wildfly:39.0.1.Final-jdk17
 
 # Add the PostgreSQL JDBC driver
 ADD --chown=jboss:root \
-    https://jdbc.postgresql.org/download/postgresql-42.7.4.jar \
-    /opt/jboss/wildfly/standalone/deployments/postgresql-42.7.4.jar
+    https://jdbc.postgresql.org/download/postgresql-42.7.7.jar \
+    /opt/jboss/wildfly/standalone/deployments/postgresql-42.7.7.jar
 
 # Copy WildFly CLI commands for data source setup
 COPY wildfly-config.cli /opt/jboss/
@@ -53,8 +53,8 @@ embed-server --server-config=standalone.xml
 
 # Install PostgreSQL driver as a module
 module add --name=org.postgresql \
-    --resources=/opt/jboss/wildfly/standalone/deployments/postgresql-42.7.4.jar \
-    --dependencies=javax.api,javax.transaction.api
+    --resources=/opt/jboss/wildfly/standalone/deployments/postgresql-42.7.7.jar \
+    --dependencies=jakarta.api,jakarta.transaction.api
 
 # Register the JDBC driver
 /subsystem=datasources/jdbc-driver=postgresql:add( \
@@ -102,7 +102,7 @@ embed-server --server-config=standalone.xml
 
 module add --name=com.mysql \
     --resources=/opt/jboss/wildfly/standalone/deployments/mysql-connector-j-8.3.0.jar \
-    --dependencies=javax.api,javax.transaction.api
+    --dependencies=jakarta.api,jakarta.transaction.api
 
 /subsystem=datasources/jdbc-driver=mysql:add( \
     driver-name=mysql, \
@@ -132,10 +132,10 @@ MySQL defaults to `REPEATABLE READ`, which causes gap locks on `SELECT ... FOR U
 Payara Micro deploys WARs directly without a full application server install:
 
 ```dockerfile
-FROM payara/micro:6.2024.6-jdk17
+FROM payara/micro:6.2025.11-jdk17
 
 # Copy the PostgreSQL driver into the lib directory
-COPY --chown=payara:payara postgresql-42.7.4.jar /opt/payara/libs/
+COPY --chown=payara:payara postgresql-42.7.7.jar /opt/payara/libs/
 
 # Copy your application WAR
 COPY --chown=payara:payara target/myapp.war /opt/payara/deployments/
@@ -145,7 +145,7 @@ COPY --chown=payara:payara post-boot.txt /opt/payara/
 
 CMD ["--deploymentDir", "/opt/payara/deployments", \
      "--postbootcommandfile", "/opt/payara/post-boot.txt", \
-     "--addLibs", "/opt/payara/libs/postgresql-42.7.4.jar"]
+     "--addLibs", "/opt/payara/libs/postgresql-42.7.7.jar"]
 ```
 
 ```bash

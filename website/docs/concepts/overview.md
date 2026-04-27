@@ -1,16 +1,16 @@
 ---
 sidebar_position: 1
 title: Architecture Overview
-description: High-level architecture of Ratchet and how it fits into a Jakarta EE application
+description: High-level architecture of Ratchet and how it fits into a Jakarta EE 10 application
 ---
 
 # Architecture Overview
 
-Ratchet is a portable, CDI-based job scheduler for Jakarta EE applications. It provides persistent, cluster-safe background job scheduling with a fluent API -- covering batching, chaining, workflows, and transactional enqueueing out of the box.
+Ratchet is a portable, CDI-based job scheduler for Jakarta EE 10 applications. It provides persistent, cluster-safe background job scheduling with a fluent API -- covering batching, chaining, workflows, and transactional enqueueing out of the box.
 
 ## Where Ratchet Fits
 
-In a typical Jakarta EE application, Ratchet sits between your business logic and the database. You inject `JobSchedulerService`, enqueue work using lambda expressions, and Ratchet handles persistence, polling, execution, retries, and lifecycle events.
+In a typical Jakarta EE 10 application, Ratchet sits between your business logic and the database. You inject `JobSchedulerService`, enqueue work using lambda expressions, and Ratchet handles persistence, polling, execution, retries, and lifecycle events.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -34,11 +34,11 @@ In a typical Jakarta EE application, Ratchet sits between your business logic an
 │                                                         │
 ├─────────────────────────────────────────────────────────┤
 │                    JobStore SPI                          │
-│           (15 sub-interfaces, one marker)                │
+│           (composed store SPI, one marker)               │
 ├─────────────────────────────────────────────────────────┤
-│        MySQL Store    │     PostgreSQL Store             │
-│     (SKIP LOCKED)     │      (SKIP LOCKED)              │
-└───────────────────────┴─────────────────────────────────┘
+│   MySQL Store   │ PostgreSQL Store │   MongoDB Store     │
+│  (SKIP LOCKED)  │  (SKIP LOCKED)   │  (atomic updates)   │
+└─────────────────┴──────────────────┴─────────────────────┘
 ```
 
 ## Module Structure
@@ -47,11 +47,12 @@ Ratchet is organized into modules following the Jakarta EE API / RI / TCK patter
 
 ```
 ratchet/
-├── ratchet-api          Zero-dependency public API, SPIs, events, annotations
+├── ratchet-api          Public API, SPIs, events, annotations
 ├── ratchet           Reference implementation + CDI integration
 ├── ratchet-store-core   Shared JPA entities (internal, not user-facing)
 ├── ratchet-store-mysql  MySQL JobStore + DDL
 ├── ratchet-store-postgresql  PostgreSQL JobStore + DDL
+├── ratchet-store-mongodb  MongoDB JobStore + collection/index bootstrap
 ├── ratchet-tck          Technology Compatibility Kit aggregator (pom)
 │   ├── util               JUnit-only helpers shared across TCK modules
 │   ├── store              Store SPI conformance contracts
@@ -65,7 +66,7 @@ ratchet/
 
 ```
                  ┌──────────────┐
-                 │  ratchet-api │  (zero dependencies)
+                 │  ratchet-api │  (EE APIs only)
                  └──────┬───────┘
                         │
           ┌─────────────┼──────────────┐
@@ -76,15 +77,15 @@ ratchet/
    │ (engine +   │ │(internal)│  │          │
    │  CDI)       │ └────┬─────┘  └──────────┘
    └─────────────┘      │
-                   ┌────┴────┐
-                   │         │
-                   ▼         ▼
-            ┌──────────┐ ┌──────────────┐
-            │store-mysql│ │store-postgres│
-            └──────────┘ └──────────────┘
+          ┌─────────────┼──────────────┐
+          │             │              │
+          ▼             ▼              ▼
+   ┌────────────┐ ┌──────────────┐ ┌──────────────┐
+   │store-mysql │ │store-postgres│ │store-mongodb │
+   └────────────┘ └──────────────┘ └──────────────┘
 ```
 
-**Key design constraint:** `ratchet-api` has zero runtime dependencies beyond Jakarta EE APIs. Your application can depend on `ratchet-api` for event types and annotations without pulling in the engine.
+**Key design constraint:** `ratchet-api` has zero runtime dependencies beyond Jakarta EE 10 APIs. Your application can depend on `ratchet-api` for event types and annotations without pulling in the engine.
 
 ## Core Concepts
 
@@ -92,13 +93,13 @@ ratchet/
 
 Ratchet uses a **pull model** where worker threads poll the database for available jobs. This provides natural backpressure -- workers only claim new jobs when they have capacity. The [Poller](./execution-model.md) uses adaptive algorithms to balance responsiveness against database load.
 
-### Database as the Queue
+### Store as the Queue
 
-Unlike message-broker-based schedulers, Ratchet uses your existing relational database as the job queue. Jobs are stored as rows in the `scheduler_job` table and claimed atomically using `SELECT ... FOR UPDATE SKIP LOCKED`. This gives you:
+Unlike message-broker-based schedulers, Ratchet uses your selected store backend as the job queue. SQL stores keep jobs in the `scheduler_job` table and claim with `SELECT ... FOR UPDATE SKIP LOCKED`; MongoDB keeps jobs in the `scheduler_job` collection and claims with atomic document updates. This gives you:
 
-- **Transactional enqueueing** -- job creation participates in your existing transaction
+- **Transactional enqueueing** -- SQL job creation participates in your existing transaction; MongoDB uses store-level atomic writes
 - **Durability** -- jobs survive application restarts
-- **Visibility** -- query job status with standard SQL
+- **Visibility** -- query job status with standard SQL or MongoDB queries
 - **No additional infrastructure** -- no Redis, RabbitMQ, or Kafka required
 
 ### Lambda-Based API
@@ -120,7 +121,7 @@ Ratchet separates API contracts from implementation through Service Provider Int
 
 | SPI | Purpose | Default |
 |-----|---------|---------|
-| `JobStore` | Persistence (15 sub-interfaces) | MySQL / PostgreSQL modules |
+| `JobStore` | Persistence backend | MySQL / PostgreSQL / MongoDB modules |
 | `JobInvocationResolver` | Callback-to-method invocation resolution | ASM bytecode analysis |
 | `ResultPersistenceStrategy` | Job return-value persistence | JSON metadata with size cap |
 | `RatchetOptions` | Typed runtime options | Required CDI producer — see [Configuration](/docs/getting-started/configuration) |
@@ -160,7 +161,7 @@ scheduler.addEventListener(event -> {
 
 ## Minimal Setup
 
-Add Ratchet to your Jakarta EE application:
+Add Ratchet to your Jakarta EE 10 application:
 
 ```xml
 <dependencyManagement>
@@ -183,12 +184,12 @@ Add Ratchet to your Jakarta EE application:
   <dependency>
     <groupId>run.ratchet</groupId>
     <artifactId>ratchet-store-mysql</artifactId>
-    <!-- or ratchet-store-postgresql -->
+    <!-- or ratchet-store-postgresql / ratchet-store-mongodb -->
   </dependency>
 </dependencies>
 ```
 
-Apply the DDL schema from the store module's `ddl/` directory, then inject and use:
+For SQL stores, apply the DDL schema from the store module's `ddl/` directory. For MongoDB, let the store module initialize collections and indexes at startup. Then inject and use:
 
 ```java
 @Inject JobSchedulerService scheduler;

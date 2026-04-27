@@ -55,7 +55,7 @@ Ratchet is split into focused modules so you only pull in what you need. Here's 
 |--------|---------|---------------------|
 | `ratchet-api` | Public API: `JobSchedulerService`, `JobBuilder`, annotations (`@Recurring`, `@CircuitBreakerProtected`), events, and SPI interfaces | Always. This is the module you code against. |
 | `ratchet` | Reference implementation: poller, execution engine, CDI producers, retry logic, circuit breaker, lambda serialization | Always (unless you're writing your own implementation of the API). |
-| `ratchet-store-core` | Shared persistence abstractions: entity classes, 16 repository sub-interfaces composed into the `JobStore` marker interface | Always. Pulled in transitively by any store module. |
+| `ratchet-store-core` | Shared persistence abstractions: entity classes and the composed `JobStore` SPI | Always. Pulled in transitively by any store module. |
 
 ### Store Modules (Pick One)
 
@@ -156,18 +156,19 @@ Ratchet keeps its dependency footprint small. Here's what each module brings in:
 | Module | Key Dependencies |
 |--------|-----------------|
 | `ratchet-api` | `jakarta.enterprise.cdi-api` (for `@InterceptorBinding` on `@CircuitBreakerProtected`) |
-| `ratchet` | ASM 9.7 (lambda bytecode analysis), Jackson 2.19 (job-result/store JSON marshalling), cron-utils 9.2 (cron expression parsing) |
-| `ratchet-store-core` | `jakarta.persistence-api` |
-| `ratchet-store-*` | JDBC driver for the target database (provided scope -- your app server typically supplies this) |
+| `ratchet` | ASM 9.7.1 (lambda bytecode analysis), cron-utils 9.2.1 (cron expression parsing), JBoss Logging; Jakarta EE APIs are provided by the runtime |
+| `ratchet-store-core` | Jakarta Persistence / JSON APIs, ASM, JBoss Logging |
+| `ratchet-store-mysql` / `ratchet-store-postgresql` | SQL store logic; JDBC drivers are supplied by the application server or your deployment |
+| `ratchet-store-mongodb` | MongoDB sync driver |
 | `ratchet-micrometer` | Micrometer Core 1.14 |
 
-All Jakarta EE APIs (`jakarta.enterprise.cdi-api`, `jakarta.persistence-api`, `jakarta.interceptor-api`) are declared with `provided` scope, since your application server supplies these at runtime.
+Jakarta EE APIs are declared with `provided` scope, since your Jakarta EE 10 application server supplies them at runtime.
 
 ## Database Schema Setup
 
-Ratchet ships DDL as plain SQL files -- no Flyway dependency, no migration framework lock-in. You apply the schema using whatever mechanism your project already uses for DDL management.
+SQL stores ship DDL as plain SQL files -- no Flyway dependency, no migration framework lock-in. You apply the schema using whatever mechanism your project already uses for DDL management. MongoDB collections and indexes are initialized by `ratchet-store-mongodb` at startup.
 
-The SQL files are located in each store module's resources:
+The SQL files are located in each SQL store module's resources:
 
 ```
 ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql
@@ -216,9 +217,9 @@ Servers known to work:
 
 | Server | Version | Notes |
 |--------|---------|-------|
-| WildFly | 27+ | Primary test target |
-| Open Liberty | 23.0.0.3+ | Requires `cdi-4.0`, `persistence-3.1`, and managed executor support |
-| Payara | 6.2023.1+ | Jakarta EE 10 certified |
+| WildFly | Jakarta EE 10 line; CI-managed tests currently use 39.0.1.Final | Primary managed test target |
+| Open Liberty | Jakarta EE 10 `webProfile-10.0`; CI-managed tests currently use 26.0.0.2 | Requires CDI, Persistence, and managed executor support |
+| Payara | Payara 6 line; CI-managed tests currently use 6.2025.11 | Jakarta EE 10 runtime |
 
 Plain Web Profile or standalone CDI environments can opt into
 `run.ratchet.ri.cdi.StandaloneExecutorProvider` as an alternative

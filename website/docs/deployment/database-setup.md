@@ -8,7 +8,7 @@ description: Setting up MySQL, PostgreSQL, or MongoDB for Ratchet — schema app
 
 Ratchet requires a database to persist jobs, execution history, and scheduling metadata. This guide covers setup for all three supported stores.
 
-Ratchet ships DDL as plain SQL files bundled inside each store module JAR. There is no Flyway or Liquibase dependency — you apply the schema using whatever mechanism your team prefers.
+SQL stores ship DDL as plain SQL files bundled inside each SQL store module JAR. There is no Flyway or Liquibase dependency — you apply the schema using whatever mechanism your team prefers. MongoDB initializes collections and indexes at startup.
 
 ## PostgreSQL
 
@@ -60,13 +60,15 @@ liquibase update
 
 ```sql
 \dt scheduler_*
+\dt ratchet_schema_version
 ```
 
-You should see 13 tables:
+You should see these scheduler tables plus `ratchet_schema_version`:
 
 | Table | Purpose |
 |-------|---------|
 | `scheduler_job` | Job definitions, status, payload |
+| `scheduler_business_key_reservation` | Active business-key reservation guard |
 | `scheduler_job_tag` | Tags for categorization |
 | `scheduler_job_execution` | Per-attempt execution history |
 | `scheduler_job_log` | Optional per-job log entries if your `JobLogger` publishes them |
@@ -79,6 +81,7 @@ You should see 13 tables:
 | `scheduler_resource_permit` | Active resource permits |
 | `scheduler_workflow_condition` | Workflow branching conditions |
 | `scheduler_dlq_alerts` | DLQ alert tracking |
+| `ratchet_schema_version` | Applied schema migration/checksum tracking |
 
 ### DataSource Configuration
 
@@ -165,9 +168,10 @@ mysql -u ratchet -p ratchet < ddl/mysql-schema.sql
 
 ```sql
 SHOW TABLES LIKE 'scheduler_%';
+SHOW TABLES LIKE 'ratchet_schema_version';
 ```
 
-You should see the same 13 tables as PostgreSQL, with MySQL-specific column types (ENUM, JSON, GENERATED ALWAYS columns).
+You should see the same core tables as PostgreSQL plus `scheduler_job_queue`, with MySQL-specific column types (ENUM, JSON, GENERATED ALWAYS columns).
 
 ### DataSource Configuration
 
@@ -247,6 +251,7 @@ db.createCollection("scheduler_job");
 db.createCollection("scheduler_batch");
 db.createCollection("scheduler_batch_metrics");
 db.createCollection("scheduler_job_execution");
+db.createCollection("scheduler_job_log");
 db.createCollection("scheduler_job_archive");
 db.createCollection("scheduler_node");
 db.createCollection("scheduler_lock");
@@ -276,9 +281,6 @@ db.scheduler_job.createIndex({ tags: 1 }, { name: "idx_job_tags" });
 db.scheduler_job_execution.createIndex({ job_id: 1 }, { name: "idx_execution_job_id" });
 db.scheduler_node.createIndex({ heartbeat_ts: 1 }, { name: "idx_node_heartbeat" });
 db.scheduler_lock.createIndex({ expires_at: 1 }, { name: "idx_lock_ttl", expireAfterSeconds: 0 });
-
-// Only create this collection and index if you wire job-log persistence.
-db.createCollection("scheduler_job_log");
 db.scheduler_job_log.createIndex({ job_id: 1, ts: 1 }, { name: "idx_log_job_ts" });
 ```
 

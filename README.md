@@ -1,8 +1,8 @@
 # Ratchet
 
-**Portable, CDI-based job scheduler for Jakarta EE.**
+**Portable, CDI-based job scheduler for Jakarta EE 10.**
 
-Ratchet gives Jakarta EE applications a clean, annotation-driven API for background job scheduling with persistent storage, automatic retries, workflow orchestration, and built-in resilience — all without pulling in heavyweight frameworks.
+Ratchet gives Jakarta EE 10 applications a clean, annotation-driven API for background job scheduling with persistent storage, automatic retries, workflow orchestration, and built-in resilience — all without pulling in heavyweight frameworks.
 
 ---
 
@@ -84,9 +84,9 @@ public class AppClassPolicy implements ClassPolicy {
 
 For demos and tests only, you can bypass the fail-fast startup check with `RatchetOptions.builder().security(s -> s.allowEmptyClassPolicy(true))`, but the default policy still rejects every job target.
 
-### 3. Apply the Schema
+### 3. Apply or Initialize the Schema
 
-Ratchet ships DDL as plain SQL files — no Flyway dependency, no migration lock-in. Apply the schema however your project manages DDL:
+SQL stores ship DDL as plain SQL files — no Flyway dependency, no migration lock-in. Apply the schema however your project manages DDL:
 
 ```bash
 # PostgreSQL
@@ -95,6 +95,8 @@ psql -d mydb -f ratchet-store-postgresql/src/main/resources/ddl/postgresql-schem
 # MySQL
 mysql mydb < ratchet-store-mysql/src/main/resources/ddl/mysql-schema.sql
 ```
+
+For MongoDB, `ratchet-store-mongodb` creates the required collections and indexes at startup.
 
 ### 4. Schedule Your First Job
 
@@ -297,7 +299,7 @@ scheduler.enqueue(() -> generateReport(reportId))
 │                      │                                    │
 │   ┌──────────────────▼──────────────────────────┐        │
 │   │           ratchet-store-core                 │        │
-│   │  Entities, 15 SPI sub-interfaces → JobStore  │        │
+│   │  Entities, composed store SPI → JobStore      │        │
 │   └────┬─────────────┬───────────────────┬──────┘        │
 │        ▼             ▼                   ▼               │
 │   ┌─────────┐  ┌────────────┐  ┌─────────────┐          │
@@ -310,9 +312,9 @@ scheduler.enqueue(() -> generateReport(reportId))
 
 | Module | Purpose | Dependencies |
 |--------|---------|-------------|
-| `ratchet-api` | Public API, annotations, events, SPI interfaces | Jakarta CDI API only |
-| `ratchet` | Core engine — polling, execution, retry, circuit breaker, CDI wiring | ratchet-api, ASM, Jackson, cron-utils |
-| `ratchet-store-core` | Persistence abstractions — entities, 15 repository interfaces | ratchet-api, Jakarta Persistence |
+| `ratchet-api` | Public API, annotations, events, SPI interfaces | Jakarta CDI / Interceptors APIs (provided) |
+| `ratchet` | Core engine — polling, execution, retry, circuit breaker, CDI wiring | ratchet-api, ratchet-store-core, ASM, cron-utils, JBoss Logging; Jakarta EE APIs provided by the runtime |
+| `ratchet-store-core` | Persistence abstractions — entities and composed `JobStore` SPI | ratchet-api, Jakarta Persistence / JSON APIs |
 | `ratchet-store-mysql` | MySQL store implementation with optimized DDL | ratchet-store-core |
 | `ratchet-store-postgresql` | PostgreSQL store with partial indexes and JSONB | ratchet-store-core |
 | `ratchet-store-mongodb` | MongoDB document store implementation | ratchet-store-core |
@@ -354,7 +356,7 @@ Ratchet is designed to be extended. Provide a CDI `@Alternative @Priority(APPLIC
 
 ### Custom Store Implementation
 
-Implement the `JobStore` interface (a composition of 15 focused sub-interfaces) and validate your implementation using the TCK:
+Implement the `JobStore` interface and validate your implementation using the TCK:
 
 ```java
 // In your test module
@@ -371,7 +373,7 @@ public class MyCustomStoreTest extends AbstractJobCrudStoreContract {
     public JobEntity newBatchParentJob() { /* create a batch parent JobEntity */ }
 
     @Override
-    public void cleanupStore() { /* truncate tables / clear state */ }
+    public void cleanupStore() { /* clear test data */ }
 }
 ```
 
@@ -379,7 +381,7 @@ Ratchet uses tiered conformance. Each TCK submodule earns a distinct compatibili
 
 - **Ratchet Store Compatible** — passes `ratchet-tck-store` against a custom `JobStore` (CRUD, claiming, status transitions, archiving, execution tracking, batches, locks).
 - **Ratchet API Compatible** — passes `ratchet-tck-api` against a custom `JobSchedulerService` implementation. Pure-JVM JUnit, no container required. Covers submit / cancel / retry / idempotency / simple workflow; delayed-scheduling contracts skip when no `TestClock` is provided.
-- **Ratchet Jakarta Runtime Compatible** — passes `ratchet-tck-api` plus `ratchet-tck-jakarta` (CDI injection, CDI events, JTA enqueue) in a Jakarta EE container, typically via Arquillian.
+- **Ratchet Jakarta Runtime Compatible** — passes `ratchet-tck-api` plus `ratchet-tck-jakarta` (CDI injection, CDI events, JTA enqueue) in a Jakarta EE 10 container, typically via Arquillian.
 - **Ratchet RI Verified** — the project's reference-implementation tests pass on a named runtime / database matrix. This is implementation-specific and lives in `ratchet-testsuite`.
 
 ## Production Checklist
@@ -400,7 +402,7 @@ Before deploying Ratchet to a production-shaped environment, work through this c
   ```
   A hardcoded denylist (`Runtime`, `ProcessBuilder`, `javax.script`, reflection, JDK internals) blocks well-known RCE gadgets regardless of allowlist content. To opt out of the fail-fast guard for demos and tests, set `RatchetOptions.security().allowEmptyClassPolicy(true)`.
 
-- [ ] **Apply the schema.** Ratchet ships DDL as plain SQL files — no Flyway lock-in. Apply once per database before starting any node. See `ratchet-store-{mysql,postgresql}/src/main/resources/ddl/`.
+- [ ] **Apply or initialize the schema.** SQL stores ship DDL as plain SQL files — no Flyway lock-in. Apply once per database before starting any node. See `ratchet-store-{mysql,postgresql}/src/main/resources/ddl/`. MongoDB collections and indexes are initialized by `ratchet-store-mongodb` at startup.
 
 - [ ] **Verify `READ COMMITTED` isolation.** Ratchet's claim/poll path assumes statement-level snapshotting. The default on most servers is correct; verify with `SELECT @@tx_isolation` (MySQL) or `SHOW default_transaction_isolation` (Postgres).
 

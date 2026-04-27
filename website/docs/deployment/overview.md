@@ -6,7 +6,7 @@ description: What you need to deploy Ratchet — application server, database, m
 
 # Deployment Overview
 
-Ratchet is a portable, CDI-based job scheduler for Jakarta EE. It deploys as a set of JAR modules inside your application, running on Jakarta EE 10 runtimes with the services used by the reference implementation.
+Ratchet is a portable, CDI-based job scheduler for Jakarta EE 10. It deploys as a set of JAR modules inside your application, running on Jakarta EE 10 runtimes with the services used by the reference implementation.
 
 ## What You Need
 
@@ -23,7 +23,7 @@ Ratchet is a portable, CDI-based job scheduler for Jakarta EE. It deploys as a s
 A typical deployment includes three Ratchet JARs:
 
 ```
-ratchet-api          Public API, events, enums, SPI interfaces (zero runtime dependencies)
+ratchet-api          Public API, events, enums, SPI interfaces (Jakarta EE APIs only)
 ratchet           Reference implementation — core engine, CDI integration, polling
 ratchet-store-*      One of: ratchet-store-mysql, ratchet-store-postgresql, ratchet-store-mongodb
 ```
@@ -63,7 +63,7 @@ This is suitable for:
 
 ### Multi-Node (Clustered)
 
-Multiple application instances share the same database. Ratchet uses database-level locking (`SELECT ... FOR UPDATE SKIP LOCKED` on PostgreSQL, InnoDB row locking on MySQL) to ensure each job is claimed by exactly one node.
+Multiple application instances share the same database. Ratchet uses database-level claiming (`SELECT ... FOR UPDATE SKIP LOCKED` on PostgreSQL/MySQL, atomic document updates on MongoDB) to ensure each job is claimed by exactly one node.
 
 Recurring scans and destructive startup cleanup are already serialized through store-backed locks and leases. Implement `ClusterCoordinator` only if you want low-latency cross-node wakeups.
 
@@ -71,26 +71,30 @@ See [Cluster Configuration](/docs/deployment/cluster-configuration) for details.
 
 ### Containerized
 
-Ratchet runs in Docker or Kubernetes without any special configuration beyond what a standard Jakarta EE application needs. The database runs as a separate container or managed service.
+Ratchet runs in Docker or Kubernetes without any special configuration beyond what a standard Jakarta EE 10 application needs. The database runs as a separate container or managed service.
 
 See [Docker Deployment](/docs/deployment/docker) and [Kubernetes Deployment](/docs/deployment/kubernetes).
 
 ## Database Schema
 
-Ratchet ships DDL as plain SQL files — no Flyway or Liquibase dependency is required. The schema files are bundled inside each store module JAR at `ddl/`:
+Ratchet ships SQL DDL as plain files — no Flyway or Liquibase dependency is required. The schema files are bundled inside each SQL store module JAR at `ddl/`:
 
 - `ratchet-store-mysql` contains `ddl/mysql-schema.sql`
 - `ratchet-store-postgresql` contains `ddl/postgresql-schema.sql`
+- `ratchet-store-mongodb` initializes collections and indexes at startup
 
-You apply the schema using whatever mechanism your team prefers: CLI tools, migration frameworks, or application startup scripts. See [Database Setup](/docs/deployment/database-setup) for step-by-step instructions.
+For SQL stores, apply the schema using whatever mechanism your team prefers: CLI tools, migration frameworks, or application startup scripts. MongoDB bootstraps collections and indexes automatically. See [Database Setup](/docs/deployment/database-setup) for step-by-step instructions.
 
-### Core Tables
+### Core Tables and Collections
 
-The schema creates these primary tables:
+The SQL schema creates these primary tables. MongoDB uses analogous collections created by the store module.
 
 | Table | Purpose |
 |-------|---------|
+| `ratchet_schema_version` | SQL schema migration/checksum tracking |
 | `scheduler_job` | Job definitions, status, payload, scheduling metadata |
+| `scheduler_business_key_reservation` | Active business-key reservation guard |
+| `scheduler_job_queue` | MySQL-only hot queue table for executable jobs |
 | `scheduler_job_tag` | Tags for job categorization and querying |
 | `scheduler_job_execution` | Per-attempt execution history with timing and errors |
 | `scheduler_job_log` | Optional per-job log entries if your `JobLogger` publishes them |
@@ -129,7 +133,7 @@ Ratchet provides multiple monitoring integration points:
 - **Event system** — CDI events for job lifecycle (started, completed, failed, DLQ)
 - **MetricsCollector SPI** — Plug in Micrometer or any custom metrics backend
 - **MicroProfile Health** — Implement health checks against the job store
-- **Database queries** — Direct SQL queries against Ratchet tables for dashboards
+- **Store queries** — Direct SQL queries or MongoDB queries against Ratchet storage for dashboards
 
 See [Monitoring & Observability](/docs/deployment/monitoring) for integration guides.
 
@@ -137,9 +141,9 @@ See [Monitoring & Observability](/docs/deployment/monitoring) for integration gu
 
 Before going to production:
 
-1. **Apply the DDL** — Run the schema SQL for your chosen database
-2. **Configure the DataSource** — JNDI-bound, JTA-managed, with connection pooling
-3. **Set isolation level** — MySQL requires `READ COMMITTED` (not the default `REPEATABLE READ`)
+1. **Apply or initialize storage** — Run schema SQL for MySQL/PostgreSQL; let MongoDB initialize collections and indexes at startup
+2. **Configure the store resource** — JNDI-bound, JTA-managed `DataSource` for SQL stores, or a CDI-produced `MongoDatabase` for MongoDB
+3. **Set isolation level for SQL stores** — MySQL requires `READ COMMITTED` (not the default `REPEATABLE READ`)
 4. **Tune polling** — Adjust `polling.minDelayMs`, `polling.maxDelayMs`, and `polling.batchSize` for your workload
 5. **Set up retention** — Configure `maintenance.jobRetentionDays`, `maintenance.dlqPurgeDays`, and `maintenance.logRetentionDays` to prevent unbounded table growth
 6. **Enable metrics** — Wire `MetricsCollector` to your monitoring stack

@@ -4,7 +4,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 
 const config: Config = {
   title: 'Ratchet',
-  tagline: 'Portable CDI-based Job Scheduler for Jakarta EE',
+  tagline: 'Portable CDI-based Job Scheduler for Jakarta EE 10',
   favicon: 'img/favicon.ico',
 
   future: {

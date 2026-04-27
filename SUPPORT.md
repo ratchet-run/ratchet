@@ -36,7 +36,7 @@ When opening an issue, include:
 
 - Ratchet version or commit SHA
 - Java version
-- Jakarta EE runtime
+- Jakarta EE 10 runtime
 - Store backend
 - Relevant logs and stack traces
 - A minimal reproduction if possible

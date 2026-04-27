@@ -19,20 +19,21 @@ In theory, you could wire these manually without CDI, but you would need to:
 2. Provide a `BeanResolver` implementation that resolves beans without CDI
 3. Replace the CDI event bridge with your own event dispatch
 
-This is not a supported configuration. If you need a non-CDI scheduler, consider whether Ratchet is the right fit. The library is purpose-built for Jakarta EE environments with CDI.
+This is not a supported configuration. If you need a non-CDI scheduler, consider whether Ratchet is the right fit. The library is purpose-built for Jakarta EE 10 environments with CDI.
 
 ## What Databases Are Supported?
 
-Ratchet ships with two store modules:
+Ratchet ships with three store modules:
 
 | Module | Database | Minimum Version |
 |---|---|---|
 | `ratchet-store-mysql` | MySQL | 8.0+ |
-| `ratchet-store-postgresql` | PostgreSQL | 12+ |
+| `ratchet-store-postgresql` | PostgreSQL | 14+ |
+| `ratchet-store-mongodb` | MongoDB | 6.0+ |
 
-Both modules provide JPA entities and DDL scripts (`src/main/resources/ddl/`). The DDL is shipped as plain SQL files -- you apply them however you manage your schema (Flyway, Liquibase, manual scripts, etc.).
+The SQL modules provide DDL scripts (`src/main/resources/ddl/`) as plain SQL files -- you apply them however you manage your schema (Flyway, Liquibase, manual scripts, etc.). The MongoDB module initializes its collections and indexes at startup.
 
-**Adding a new database:** Implement the `JobStore` SPI (which is a composite of 16 sub-interfaces like `JobClaimStore`, `JobCrudStore`, `JobStatusStore`, etc.) and provide the corresponding DDL. The `ratchet-tck-store` submodule contains contract tests that validate any store implementation against the expected behavior — passing them earns the "Ratchet Store Compatible" label.
+**Adding a new database:** Implement the composed `JobStore` SPI and provide the corresponding schema/bootstrap logic for your backend. The `ratchet-tck-store` submodule contains contract tests that validate any store implementation against the expected behavior — passing them earns the "Ratchet Store Compatible" label.
 
 ## How Does Retry Work?
 
@@ -120,7 +121,7 @@ Ratchet and Quartz have fundamentally different architectures. Quartz uses trigg
 | `CronTrigger` | `recurring()` or `@Recurring` annotation |
 | `SimpleTrigger` with repeat | `recurring()` with cron expression |
 | `JobDataMap` | `JobBuilder.withParam()` / `JobContext.param()` |
-| `JobStore` (RAM/JDBC) | `ratchet-store-mysql` or `ratchet-store-postgresql` |
+| `JobStore` (RAM/JDBC) | `ratchet-store-mysql`, `ratchet-store-postgresql`, or `ratchet-store-mongodb` |
 | Clustering via database locks | Built-in atomic claim with optimistic locking |
 | `@PersistJobDataAfterExecution` | Job results stored in `job_result` column |
 

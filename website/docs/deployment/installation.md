@@ -64,7 +64,7 @@ Add to your `dependencies`:
 
 ## Step 2: Apply the Database Schema
 
-Ratchet ships DDL as plain SQL files. No Flyway dependency required.
+SQL stores ship DDL as plain SQL files. No Flyway dependency required.
 
 ### PostgreSQL
 

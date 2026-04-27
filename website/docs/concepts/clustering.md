@@ -53,7 +53,7 @@ LIMIT 50;
 -- Node B gets a disjoint set of jobs
 ```
 
-Both MySQL and PostgreSQL support `SKIP LOCKED`. This is the foundation of Ratchet's multi-node execution -- it requires no external coordination service.
+SQL stores use `SKIP LOCKED`, and the MongoDB store uses atomic document updates. These are the foundation of Ratchet's multi-node execution -- no external coordination service is required for ordinary job claiming.
 
 ## StartupCoordinator
 
@@ -281,6 +281,6 @@ Ratchet provides **at-least-once** delivery semantics. In rare cases (node crash
 ## Related
 
 - [Architecture Overview](./overview.md) -- Module structure and SPI overview
-- [Execution Model](./execution-model.md) -- SKIP LOCKED claiming details
+- [Execution Model](./execution-model.md) -- Store-backed claiming details
 - [Persistence](./persistence.md) -- Node table, lock table, TSID generation
 - [Scheduling](./scheduling.md) -- Recurring job scheduling and adaptive polling
