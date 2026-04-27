@@ -48,6 +48,30 @@
     </configuration>
   </container>
 
+  <container qualifier="glassfish-managed">
+    <configuration>
+      <property name="glassFishHome">${glassfish.home}</property>
+      <property name="domain">domain1</property>
+      <property name="adminPort">4848</property>
+      <property name="allowConnectingToRunningServer">false</property>
+      <property name="outputToConsole">true</property>
+      <!--
+        Neither systemProperties nor postBootCommands works in omnifish 2.1.3:
+          - systemProperties: even with newline-delimited entries, the
+            connector emits a single `<jvm-options>` element with all keys
+            joined by a space (e.g. `-Dk1=v1 k2=v2`).
+          - postBootCommands: throws UnsupportedOperationException at
+            startup AND @AfterSuite teardown (immutable-list mutation).
+
+        ratchet.test.db.type and testsuite.profile must reach the
+        in-container WAR (read by @EnabledIfSystemProperty, evaluated in
+        the deployed WAR's classloader). The pom.xml's pre-integration-test
+        antrun edits domain.xml directly via <replaceregexp> to inject
+        them as proper <jvm-options> entries.
+      -->
+    </configuration>
+  </container>
+
   <container qualifier="openliberty-managed">
     <configuration>
       <property name="wlpHome">${openliberty.home}</property>

@@ -402,6 +402,149 @@
     </profile>
 
     <profile>
+      <!--
+        Eclipse GlassFish 8 (Jakarta EE 11 reference implementation).
+        Requires JDK 21+ at runtime — enforced via maven-enforcer-plugin.
+        Pulls the Web Profile distribution (~70 MB) which already contains
+        every Jakarta API ratchet uses (CDI 4.1, JPA 3.2, Servlet 6.1,
+        Concurrency 3.1, Security 4.0, Bean Validation 3.1).
+      -->
+      <id>glassfish-managed</id>
+      <properties>
+        <skipITs>false</skipITs>
+        <testsuite.profile>glassfish-managed</testsuite.profile>
+        <arquillian.launch>glassfish-managed</arquillian.launch>
+        <!--
+          omnifish's connector expects glassFishHome to be the top-level
+          install dir (containing both bin/asadmin and the glassfish/
+          subtree), not the nested glassfish/ subdir.
+        -->
+        <glassfish.home>${project.build.directory}/glassfish8/glassfish8</glassfish.home>
+      </properties>
+      <dependencies>
+        <dependency>
+          <groupId>ee.omnifish.arquillian</groupId>
+          <artifactId>arquillian-glassfish-server-managed</artifactId>
+          <scope>test</scope>
+        </dependency>
+      </dependencies>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-enforcer-plugin</artifactId>
+            <version>3.5.0</version>
+            <executions>
+              <execution>
+                <id>enforce-jdk21-for-glassfish8</id>
+                <phase>validate</phase>
+                <goals>
+                  <goal>enforce</goal>
+                </goals>
+                <configuration>
+                  <rules>
+                    <requireJavaVersion>
+                      <version>[21,)</version>
+                      <message>
+                        Eclipse GlassFish 8 requires JDK 21 or higher at runtime.
+                        Re-run with JDK 21+ on PATH (or via JAVA_HOME).
+                      </message>
+                    </requireJavaVersion>
+                  </rules>
+                  <fail>true</fail>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-dependency-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>unpack-glassfish</id>
+                <phase>pre-integration-test</phase>
+                <goals>
+                  <goal>unpack</goal>
+                </goals>
+                <configuration>
+                  <artifactItems>
+                    <artifactItem>
+                      <groupId>org.glassfish.main.distributions</groupId>
+                      <artifactId>web</artifactId>
+                      <version>${glassfish.version}</version>
+                      <type>zip</type>
+                      <overWrite>false</overWrite>
+                      <outputDirectory>${project.build.directory}/glassfish8</outputDirectory>
+                    </artifactItem>
+                  </artifactItems>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <version>3.1.0</version>
+            <executions>
+              <execution>
+                <id>prepare-glassfish-scripts</id>
+                <phase>pre-integration-test</phase>
+                <goals>
+                  <goal>run</goal>
+                </goals>
+                <configuration>
+                  <target>
+                    <chmod file="${glassfish.home}/bin/asadmin" perm="755"/>
+                    <chmod file="${glassfish.home}/glassfish/lib/nadmin" perm="755"/>
+                    <!--
+                      Defensively stop any leftover domain from a previous
+                      aborted run. Arquillian managed mode rejects connecting
+                      to an already-running server, and a stale process from
+                      a prior abort would otherwise fail every IT.
+                    -->
+                    <exec executable="${glassfish.home}/bin/asadmin" failonerror="false">
+                      <arg value="stop-domain"/>
+                      <arg value="domain1"/>
+                    </exec>
+                    <!--
+                      Inject ratchet.test.db.type and testsuite.profile as
+                      jvm-options directly into domain.xml. Tests use
+                      @EnabledIfSystemProperty to gate JPA-only assertions,
+                      and JUnit Jupiter evaluates that annotation inside the
+                      deployed WAR, so the failsafe-side
+                      systemPropertyVariables block alone isn't enough — the
+                      GlassFish JVM also needs them.
+
+                      The connector's own systemProperties config is broken:
+                      it emits a single `<jvm-options>` with all keys joined
+                      by a space, regardless of the input delimiter. We
+                      bypass it by editing domain.xml directly.
+
+                      Scrub matching lines first so reruns don't accumulate.
+                      Then inject fresh entries before each `</java-config>`
+                      block (server-config and default-config both get them;
+                      harmless duplication).
+                    -->
+                    <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="\s*&lt;jvm-options&gt;-D(ratchet\.test\.db\.type|testsuite\.profile)=[^&lt;]*&lt;/jvm-options&gt;"
+                                   replace=""
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(\s*)&lt;/java-config&gt;"
+                                   replace="\1  &lt;jvm-options&gt;-Dratchet.test.db.type=${ratchet.test.db.type}&lt;/jvm-options&gt;\1  &lt;jvm-options&gt;-Dtestsuite.profile=${testsuite.profile}&lt;/jvm-options&gt;\1&lt;/java-config&gt;"
+                                   flags="g"
+                                   byline="true"/>
+                  </target>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <profile>
       <id>openliberty-managed</id>
       <properties>
         <skipITs>false</skipITs>
