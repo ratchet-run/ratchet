@@ -150,6 +150,57 @@ public abstract class AbstractDualWriteInvariantContract implements JobStoreCont
     assertEquals(JobStatus.SUCCEEDED, store().getJobStatus(id));
   }
 
+  /**
+   * Stronger invariant: after a terminal transition, the batch poller must not surface the job
+   * either. {@code claimNextBatch} reads only the live-state structure (e.g. {@code
+   * scheduler_job_queue} on a hot/cold split store), so a successful claim here would prove a queue
+   * row survived the terminal transition — the exact regression the split is designed to prevent.
+   */
+  @Test
+  void terminalTransition_excludedFromBatchClaim() {
+    JobEntity job = persist(newPendingJob());
+    long id = job.getId();
+    store().compareAndSwapStatus(id, JobStatus.PENDING, JobStatus.RUNNING, null);
+    assertTrue(
+        store().markJobSucceededMinimal(id, Instant.now(), Instant.now(), 0L, 0L),
+        "markJobSucceededMinimal precondition");
+
+    var claimed = store().claimNextBatch(50, "node-poller");
+    for (JobEntity c : claimed) {
+      if (c.getId() == id) {
+        fail(
+            "claimNextBatch returned terminal job "
+                + id
+                + " — live-state row still exists post-terminal");
+      }
+    }
+  }
+
+  /**
+   * Verifies that markJobFailedTerminal also leaves no claimable trace. Same invariant as the
+   * SUCCEEDED path but exercised through the failure-terminal lifecycle, which is a separate code
+   * path on split stores (DELETE-from-queue THEN UPDATE-cold rather than UPDATE-with-join THEN
+   * DELETE-from-queue).
+   */
+  @Test
+  void failTerminal_excludedFromBatchClaim() {
+    JobEntity job = persist(newPendingJob());
+    long id = job.getId();
+    store().compareAndSwapStatus(id, JobStatus.PENDING, JobStatus.RUNNING, null);
+    assertTrue(
+        store().markJobFailedTerminal(id, "permanent", 1), "markJobFailedTerminal precondition");
+
+    var claimed = store().claimNextBatch(50, "node-poller");
+    for (JobEntity c : claimed) {
+      if (c.getId() == id) {
+        fail(
+            "claimNextBatch returned FAILED-terminal job "
+                + id
+                + " — live-state row still exists post-terminal");
+      }
+    }
+  }
+
   @Test
   void cancelBeforeClaim_releasesAllOwnership() {
     String bk = uniqueBusinessKey();
