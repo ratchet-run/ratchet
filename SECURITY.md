@@ -18,7 +18,7 @@ Please do not open a public GitHub issue for an undisclosed security vulnerabili
 
 Preferred reporting paths:
 
-1. Use GitHub's private vulnerability reporting for this repository, if it is available.
+1. Use GitHub's [private vulnerability reporting](https://github.com/jcputney/ratchet/security/advisories/new) for this repository. Private reporting is enabled.
 2. Otherwise, email the maintainer at `jputney@noverant.com`.
 
 Please include:
@@ -30,14 +30,24 @@ Please include:
 - Expected impact
 - Any relevant logs, traces, or configuration details
 
-You should receive an acknowledgement within 3 business days. Status updates will be provided as the investigation progresses.
+## Response Timeline
+
+| Step | Target |
+| --- | --- |
+| Acknowledgement of receipt | 3 business days |
+| Initial assessment + severity triage | 14 calendar days |
+| Patch or mitigation — Critical (CVSS 9.0+) | 90 calendar days |
+| Patch or mitigation — High (CVSS 7.0–8.9) | 180 calendar days |
+| Public disclosure | Coordinated with reporter; default is 90 calendar days after acknowledgement, or upon patch availability, whichever is sooner |
+
+Status updates are provided at each transition. If a target slips, the reason and a revised target are communicated to the reporter.
 
 ## Disclosure Policy
 
-- We will confirm receipt of the report.
-- We will investigate and validate the issue.
-- We will work on a fix or mitigation for supported versions.
-- We will coordinate disclosure timing with the reporter when practical.
+- We confirm receipt of the report.
+- We investigate and validate the issue.
+- We work on a fix or mitigation for supported versions.
+- We coordinate disclosure timing with the reporter, defaulting to the timeline above.
 
 Please avoid public disclosure until a fix or mitigation is available and maintainers have had a reasonable opportunity to respond.
 

@@ -1,0 +1,7 @@
+# Default owner for all paths.
+*                       @jcputney
+
+# TCK changes affect the conformance contract for every store implementation;
+# call out the path so any future contributor sees that reviews here are
+# scrutinised more carefully.
+/ratchet-tck/           @jcputney

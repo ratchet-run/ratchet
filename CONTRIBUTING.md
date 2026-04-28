@@ -85,6 +85,20 @@ When opening a pull request:
 
 The pull request template in this repository is the expected format.
 
+## Sign-Off (DCO)
+
+All commits must be signed off under the [Developer Certificate of Origin 1.1](https://developercertificate.org/). The sign-off attests that you have the right to contribute the change under the project's license and is checked automatically on every pull request.
+
+Sign off a commit with `git commit -s`, which appends a trailer like:
+
+```
+Signed-off-by: Your Name <your.email@example.com>
+```
+
+If you forget, amend the latest commit with `git commit --amend -s`, or for older commits in the branch use an interactive rebase with `git rebase --signoff <base>`.
+
+If Ratchet later joins an Eclipse Foundation Working Group, contributors may additionally need to sign the [Eclipse Contributor Agreement (ECA)](https://www.eclipse.org/legal/eca/). DCO sign-offs in the existing history remain valid; ECA acceptance applies forward only. Until then, DCO is the only attestation required.
+
 ## Reporting Security Issues
 
 Do not open public issues for undisclosed security vulnerabilities.
