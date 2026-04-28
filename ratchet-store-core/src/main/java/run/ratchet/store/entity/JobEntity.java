@@ -451,7 +451,16 @@ public class JobEntity implements TsidEntityListener.TsidAssignable {
     return callerPrincipal;
   }
 
+  /**
+   * Write-once for non-null values. Once a non-null caller principal has been recorded, attempts to
+   * overwrite it with a different value (including null) are silently ignored. Idempotent re-set to
+   * the same value is allowed. Pairs with {@code @Column(updatable = false)} on the field for
+   * defense in depth: JPA blocks the column at the SQL layer; this blocks in-memory mutation.
+   */
   public void setCallerPrincipal(String callerPrincipal) {
+    if (this.callerPrincipal != null && !this.callerPrincipal.equals(callerPrincipal)) {
+      return;
+    }
     this.callerPrincipal = callerPrincipal;
   }
 
