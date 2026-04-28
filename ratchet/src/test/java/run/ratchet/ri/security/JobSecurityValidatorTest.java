@@ -5,11 +5,14 @@ import static org.junit.jupiter.api.Assertions.*;
 import run.ratchet.store.entity.JobPayload;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 class JobSecurityValidatorTest {
 
   private static final String THIS_PACKAGE = "run.ratchet.ri.security.";
+
+  static final AtomicInteger CLINIT_COUNTER = new AtomicInteger();
 
   @Test
   void allowedClassAndPublicMethodPasses() {
@@ -70,6 +73,23 @@ class JobSecurityValidatorTest {
     assertDoesNotThrow(() -> validator.validate(payload));
   }
 
+  @Test
+  void rejectionDoesNotFireStaticInitializer() {
+    JobSecurityValidator validator = validatorAllowing(THIS_PACKAGE);
+    int before = CLINIT_COUNTER.get();
+    JobPayload payload =
+        new JobPayload(
+            THIS_PACKAGE + "JobSecurityValidatorTest$SideEffectingTarget",
+            "secretMethod",
+            "()V",
+            false,
+            List.of());
+
+    assertThrows(SecurityException.class, () -> validator.validate(payload));
+    assertEquals(
+        before, CLINIT_COUNTER.get(), "<clinit> must not fire on a class whose validation fails");
+  }
+
   private JobSecurityValidator validatorAllowing(String... prefixes) {
     PackagePrefixClassPolicy policy = new PackagePrefixClassPolicy(Set.of(prefixes));
     return new JobSecurityValidator(policy);
@@ -79,6 +99,14 @@ class JobSecurityValidatorTest {
     public void doWork() {}
 
     public void doWorkWithArg(String arg) {}
+
+    private void secretMethod() {}
+  }
+
+  public static class SideEffectingTarget {
+    static {
+      JobSecurityValidatorTest.CLINIT_COUNTER.incrementAndGet();
+    }
 
     private void secretMethod() {}
   }
