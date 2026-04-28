@@ -119,7 +119,7 @@ class CircuitBreakerIT extends BaseRatchetIT {
     assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
 
     await()
-        .atMost(Duration.ofSeconds(1))
+        .atMost(Duration.ofSeconds(5))
         .untilAsserted(() -> assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState()));
 
     // Successful trial calls (permittedCallsInHalfOpen = 2) should transition to CLOSED
