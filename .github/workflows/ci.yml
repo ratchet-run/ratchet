@@ -10,12 +10,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
         with:
           java-version: '17'
           distribution: 'temurin'
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: ~/.m2/repository
           key: m2-${{ hashFiles('**/pom.xml') }}
@@ -25,12 +25,30 @@ jobs:
       - name: Unit tests
         run: mvn clean test -B
       - name: Upload unit test coverage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: unit-coverage
           path: ratchet/target/site/jacoco/
       - name: Format check
         run: mvn spotless:check -B
+
+  ee11-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - uses: actions/cache@v5
+        with:
+          path: ~/.m2/repository
+          key: m2-ee11-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            m2-ee11-
+            m2-
+      - name: Compile + unit tests under Jakarta EE 11 profile
+        run: mvn -P jakarta-ee11-verify clean test -B
 
   integration-test:
     needs: build
@@ -41,12 +59,12 @@ jobs:
         server: [wildfly-managed, payara-managed, openliberty-managed]
         database: [mysql, postgresql, mongodb]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
         with:
           java-version: '17'
           distribution: 'temurin'
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: ~/.m2/repository
           key: m2-${{ hashFiles('**/pom.xml') }}
@@ -55,7 +73,7 @@ jobs:
         run: mvn verify -P ${{ matrix.server }},${{ matrix.database }} -B -pl ratchet-testsuite,ratchet-coverage -am
       - name: Upload coverage report
         if: matrix.server == 'wildfly-managed' && matrix.database == 'mysql'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           path: ratchet-coverage/target/site/jacoco-aggregate/
