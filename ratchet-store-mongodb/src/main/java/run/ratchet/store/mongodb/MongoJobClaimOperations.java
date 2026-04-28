@@ -16,8 +16,11 @@ import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
 import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
 
-import com.mongodb.client.model.FindOneAndUpdateOptions;
-import com.mongodb.client.model.ReturnDocument;
+import com.mongodb.MongoBulkWriteException;
+import com.mongodb.bulk.BulkWriteError;
+import com.mongodb.bulk.BulkWriteResult;
+import com.mongodb.client.model.BulkWriteOptions;
+import com.mongodb.client.model.UpdateOneModel;
 import run.ratchet.api.JobPriority;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
@@ -26,9 +29,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.ExecutorService;
 import java.util.function.Function;
 import org.bson.Document;
 import org.bson.conversions.Bson;
@@ -36,22 +36,17 @@ import org.jboss.logging.Logger;
 
 /**
  * Claim pipeline: candidate planning via {@code $match → $project → $sort → $limit} with index
- * hints, followed by per-candidate atomic {@code findOneAndUpdate} executed in parallel.
- *
- * <p>The caller-owned {@link ExecutorService} is intentionally not managed here: production
- * deployments pass the Jakarta-managed executor supplied by the configured executor provider.
- * Operation classes are constructed via {@code new} so CDI does not call lifecycle hooks on them.
+ * hints, followed by a single atomic {@code bulkWrite(ordered=false)} that claims all candidates
+ * server-side, plus a single {@code find} read-back. Total round-trips per claim cycle: 2.
  */
 final class MongoJobClaimOperations {
 
   private static final Logger log = Logger.getLogger(MongoJobClaimOperations.class);
 
   private final MongoStoreContext ctx;
-  private final ExecutorService claimExecutor;
 
-  MongoJobClaimOperations(MongoStoreContext ctx, ExecutorService claimExecutor) {
+  MongoJobClaimOperations(MongoStoreContext ctx) {
     this.ctx = ctx;
-    this.claimExecutor = claimExecutor;
   }
 
   List<JobEntity> claimNextBatch(int limit, String nodeId) {
@@ -135,40 +130,67 @@ final class MongoJobClaimOperations {
     return new Document("$add", List.of(priorityExpression, boostExpression));
   }
 
+  /**
+   * Claims a set of candidate jobs in two round-trips: a single {@code bulkWrite(ordered=false)}
+   * for the conditional updates, then one {@code find} to read the claimed documents back.
+   *
+   * <p><b>Invariant required of callers:</b> no two concurrent invocations on the same node may
+   * share candidate IDs. The read-back filter is {@code _id $in ids AND picked_by = node AND status
+   * = RUNNING}; if two threads on the same node have overlapping {@code ids}, the read-back cannot
+   * tell whose claim won and may double-return a document. Current callers ({@link
+   * run.ratchet.ri.core.Poller} sequentially per disjoint job type, and the recurring
+   * executor on a disjoint type) honor this invariant.
+   *
+   * <p>Documents transitioned away by another process (e.g., orphan recovery flipping
+   * RUNNING→PENDING) between the bulk write and the read-back are dropped from the result — orphan
+   * recovery has already taken responsibility for them, so dropping is safer than potentially
+   * double-executing.
+   */
   private <T> List<T> claimByIds(List<Long> ids, String nodeId, Function<Document, T> mapper) {
-    Date nowDate = DocumentMapper.toDate(Instant.now());
-    FindOneAndUpdateOptions opts =
-        new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER);
+    if (ids.isEmpty()) {
+      return List.of();
+    }
 
-    List<CompletableFuture<Document>> futures =
-        ids.stream()
-            .map(
-                id ->
-                    CompletableFuture.supplyAsync(
-                        () ->
-                            ctx.jobs()
-                                .findOneAndUpdate(
-                                    and(eq(ID, id), eq(STATUS, "PENDING")),
-                                    combine(
-                                        set(STATUS, "RUNNING"),
-                                        set(PICKED_BY, nodeId),
-                                        set(PICKED_AT, nowDate),
-                                        set(UPDATED_AT, nowDate),
-                                        inc(VERSION, 1)),
-                                    opts),
-                        claimExecutor))
-            .toList();
+    Date nowDate = DocumentMapper.toDate(Instant.now());
+    List<UpdateOneModel<Document>> ops = new ArrayList<>(ids.size());
+    for (Long id : ids) {
+      ops.add(
+          new UpdateOneModel<>(
+              and(eq(ID, id), eq(STATUS, "PENDING")),
+              combine(
+                  set(STATUS, "RUNNING"),
+                  set(PICKED_BY, nodeId),
+                  set(PICKED_AT, nowDate),
+                  set(UPDATED_AT, nowDate),
+                  inc(VERSION, 1))));
+    }
+
+    long matched;
+    try {
+      BulkWriteResult result = ctx.jobs().bulkWrite(ops, new BulkWriteOptions().ordered(false));
+      matched = result.getMatchedCount();
+    } catch (MongoBulkWriteException e) {
+      // ordered=false: server applied every op; partial successes are durable. Log per-op
+      // failures and continue with the read-back of whatever did succeed.
+      matched = e.getWriteResult().getMatchedCount();
+      for (BulkWriteError err : e.getWriteErrors()) {
+        log.warnf("Bulk claim error at index %d: %s", err.getIndex(), err.getMessage());
+      }
+    }
+
+    if (matched == 0) {
+      return List.of();
+    }
 
     List<T> claimed = new ArrayList<>();
-    for (var future : futures) {
-      try {
-        Document doc = future.join();
-        if (doc != null) {
-          claimed.add(mapper.apply(doc));
-        }
-      } catch (CompletionException e) {
-        log.warnf("Claim error: %s", e.getCause().getMessage());
-      }
+    for (Document doc :
+        ctx.jobs()
+            .find(
+                and(
+                    new Document(ID, new Document("$in", ids)),
+                    eq(PICKED_BY, nodeId),
+                    eq(STATUS, "RUNNING")))) {
+      claimed.add(mapper.apply(doc));
     }
     return claimed;
   }

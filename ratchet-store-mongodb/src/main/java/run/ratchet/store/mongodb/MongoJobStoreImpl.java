@@ -78,7 +78,7 @@ class MongoJobStoreImpl implements MongoJobStore {
     this.tags = new MongoTagOperations(ctx);
     this.crud = new MongoJobCrudOperations(ctx);
     this.batches = new MongoBatchOperations(ctx);
-    this.claims = new MongoJobClaimOperations(ctx, claimExecutor);
+    this.claims = new MongoJobClaimOperations(ctx);
     this.lifecycle = new MongoJobLifecycleOperations(ctx, batches);
     this.nodeLocks = new MongoNodeLockOperations(ctx);
     this.archives = new MongoArchiveOperations(ctx);
