@@ -21,39 +21,29 @@ public class JpaTestDataManipulator implements TestDataManipulator {
 
   @Inject private UserTransaction utx;
 
-  private static boolean isPostgresql() {
-    return "postgresql".equalsIgnoreCase(TestRuntimeConfig.dbType());
-  }
-
   @Override
   public void setJobUpdatedAt(long jobId, Instant updatedAt) {
     try {
       utx.begin();
       Timestamp ts = Timestamp.from(updatedAt);
 
-      if (isPostgresql()) {
-        em().createNativeQuery("UPDATE scheduler_job SET updated_at = ?1 WHERE job_id = ?2")
+      // Both JPA stores are now hot/cold-split: cold scheduler_job has no updated_at; the
+      // archive/DLQ-purge cutoff lives on cold.terminated_at, and the live update timestamp
+      // lives on scheduler_job_queue.updated_at. Tests aim this method at one or the other
+      // depending on the row's lifecycle stage.
+      em().createNativeQuery(
+              "UPDATE scheduler_job SET terminated_at = ?1 "
+                  + "WHERE job_id = ?2 AND terminal_status IS NOT NULL")
+          .setParameter(1, ts)
+          .setParameter(2, jobId)
+          .executeUpdate();
+      try {
+        em().createNativeQuery("UPDATE scheduler_job_queue SET updated_at = ?1 WHERE job_id = ?2")
             .setParameter(1, ts)
             .setParameter(2, jobId)
             .executeUpdate();
-      } else {
-        // Post hot/cold-split: cold has no updated_at column. Tests using this method aim the
-        // time at archiving/DLQ-purge cutoffs (cold.terminated_at) or live update timestamps
-        // (hot.updated_at).
-        em().createNativeQuery(
-                "UPDATE scheduler_job SET terminated_at = ?1 "
-                    + "WHERE job_id = ?2 AND terminal_status IS NOT NULL")
-            .setParameter(1, ts)
-            .setParameter(2, jobId)
-            .executeUpdate();
-        try {
-          em().createNativeQuery("UPDATE scheduler_job_queue SET updated_at = ?1 WHERE job_id = ?2")
-              .setParameter(1, ts)
-              .setParameter(2, jobId)
-              .executeUpdate();
-        } catch (RuntimeException ignored) {
-          // The queue row may not exist once a job has moved to the terminal table.
-        }
+      } catch (RuntimeException ignored) {
+        // The queue row may not exist once a job has moved to the terminal table.
       }
 
       utx.commit();

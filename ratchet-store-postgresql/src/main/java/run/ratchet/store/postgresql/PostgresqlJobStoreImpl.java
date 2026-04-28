@@ -679,7 +679,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
     tags = new PostgresqlTagOperations(ctx);
     jobs = new PostgresqlJobCrudOperations(ctx, reservations, tags);
     batches = new PostgresqlBatchOperations(ctx);
-    claims = new PostgresqlJobClaimOperations(ctx);
+    claims = new PostgresqlJobClaimOperations(ctx, jobs);
     lifecycle = new PostgresqlJobLifecycleOperations(ctx, reservations, batches);
     nodeLocks = new PostgresqlNodeLockOperations(ctx);
     archives = new PostgresqlArchiveOperations(ctx, jobs);

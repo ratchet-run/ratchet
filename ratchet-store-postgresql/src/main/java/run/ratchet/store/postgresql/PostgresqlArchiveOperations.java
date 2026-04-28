@@ -64,11 +64,12 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
         ctx.em()
             .createNativeQuery(
                 "SELECT "
-                    + PostgresqlJobRowMapper.hydrationSelect("j")
-                    + " FROM scheduler_job j "
-                    + "WHERE j.status IN ('SUCCEEDED','FAILED','CANCELED') "
-                    + "AND j.updated_at < ? "
-                    + "ORDER BY j.updated_at ASC "
+                    + PostgresqlJobRowMapper.hydrationSelect()
+                    + " FROM scheduler_job c "
+                    + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
+                    + "WHERE c.terminal_status IS NOT NULL "
+                    + "AND c.terminated_at < ? "
+                    + "ORDER BY c.terminated_at ASC "
                     + "LIMIT ?")
             .setParameter(1, Timestamp.from(olderThan))
             .setParameter(2, limit)
@@ -80,7 +81,7 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
   public long countJobsForArchiving(Instant olderThan) {
     return ctx.countByNative(
         "SELECT COUNT(*) FROM scheduler_job "
-            + "WHERE status IN ('SUCCEEDED','FAILED','CANCELED') AND updated_at < ?",
+            + "WHERE terminal_status IS NOT NULL AND terminated_at < ?",
         Timestamp.from(olderThan));
   }
 

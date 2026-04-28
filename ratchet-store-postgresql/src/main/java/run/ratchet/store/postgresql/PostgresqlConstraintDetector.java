@@ -61,6 +61,19 @@ class PostgresqlConstraintDetector implements ConstraintDetector {
     return message != null && message.contains("duplicate key value violates unique constraint");
   }
 
+  /**
+   * Returns true if the exception was raised by a unique-constraint violation on {@code
+   * scheduler_business_key_reservation} (its PRIMARY KEY on {@code business_key}). Used to
+   * translate the bkres insert race to {@code DuplicateBusinessKeyException}.
+   */
+  public boolean isDuplicateBusinessKey(Exception e) {
+    if (!isDuplicateKey(e)) {
+      return false;
+    }
+    String name = constraintName(e);
+    return name != null && name.contains("scheduler_business_key_reservation");
+  }
+
   @Override
   public boolean isDeadlock(Exception e) {
     SQLException sql = findSqlException(e);

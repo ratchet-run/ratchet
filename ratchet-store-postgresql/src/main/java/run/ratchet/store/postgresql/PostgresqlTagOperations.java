@@ -77,10 +77,18 @@ final class PostgresqlTagOperations implements TagStore {
     List<Object[]> rows =
         ctx.em()
             .createNativeQuery(
-                "SELECT j.status, COUNT(*) FROM scheduler_job j "
-                    + "JOIN scheduler_job_tag t ON j.job_id = t.job_id "
-                    + "WHERE t.tag = ? GROUP BY j.status")
+                "SELECT s, SUM(c) FROM ("
+                    + "  SELECT q.status AS s, COUNT(*) AS c FROM scheduler_job_queue q "
+                    + "    JOIN scheduler_job_tag t ON t.job_id = q.job_id "
+                    + "    WHERE t.tag = ? GROUP BY q.status "
+                    + "  UNION ALL "
+                    + "  SELECT c.terminal_status AS s, COUNT(*) AS c FROM scheduler_job c "
+                    + "    JOIN scheduler_job_tag t ON t.job_id = c.job_id "
+                    + "    WHERE t.tag = ? AND c.terminal_status IS NOT NULL "
+                    + "    GROUP BY c.terminal_status"
+                    + ") u GROUP BY s")
             .setParameter(1, tag)
+            .setParameter(2, tag)
             .getResultList();
     Map<JobStatus, Long> counts = new EnumMap<>(JobStatus.class);
     for (Object[] row : rows) {
@@ -111,11 +119,25 @@ final class PostgresqlTagOperations implements TagStore {
     List<Object[]> rows =
         ctx.em()
             .createNativeQuery(
-                "SELECT j.picked_by, COUNT(*) FROM scheduler_job j "
-                    + "JOIN scheduler_job_tag t ON j.job_id = t.job_id "
-                    + "WHERE t.tag = ? AND j.picked_by IS NOT NULL AND j.picked_by <> '' "
-                    + "GROUP BY j.picked_by ORDER BY j.picked_by")
+                "SELECT node, SUM(c) FROM ("
+                    + "  SELECT q.picked_by AS node, COUNT(*) AS c "
+                    + "    FROM scheduler_job_queue q "
+                    + "    JOIN scheduler_job_tag t ON t.job_id = q.job_id "
+                    + "    WHERE t.tag = ? AND q.picked_by IS NOT NULL AND q.picked_by <> '' "
+                    + "    GROUP BY q.picked_by "
+                    + "  UNION ALL "
+                    + "  SELECT e.node_id AS node, COUNT(*) AS c "
+                    + "    FROM scheduler_job c2 "
+                    + "    JOIN scheduler_job_tag t ON t.job_id = c2.job_id "
+                    + "    JOIN scheduler_job_execution e ON e.job_id = c2.job_id "
+                    + "    WHERE t.tag = ? AND c2.terminal_status IS NOT NULL "
+                    + "      AND e.id = (SELECT MAX(e2.id) FROM scheduler_job_execution e2 "
+                    + "                  WHERE e2.job_id = c2.job_id) "
+                    + "      AND e.node_id IS NOT NULL AND e.node_id <> '' "
+                    + "    GROUP BY e.node_id"
+                    + ") u GROUP BY node ORDER BY node")
             .setParameter(1, tag)
+            .setParameter(2, tag)
             .getResultList();
     return toStringCountMap(rows);
   }
