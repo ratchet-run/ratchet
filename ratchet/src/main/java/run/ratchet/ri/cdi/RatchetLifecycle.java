@@ -23,6 +23,7 @@ import jakarta.enterprise.context.Initialized;
 import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 import org.jboss.logging.Logger;
@@ -46,7 +47,8 @@ public class RatchetLifecycle {
   private final DrainController drainController;
   private final RatchetOptions options;
   private final JobExecutionCoordinator jobExecutionCoordinator;
-  private final Iterable<SchedulerLifecycleHook> lifecycleHooks;
+  private final Instance<SchedulerLifecycleHook> lifecycleHooks;
+  private List<SchedulerLifecycleHook> resolvedHooks;
 
   protected RatchetLifecycle() {
     this.poller = null;
@@ -62,7 +64,7 @@ public class RatchetLifecycle {
     this.drainController = null;
     this.options = null;
     this.jobExecutionCoordinator = null;
-    this.lifecycleHooks = List.of();
+    this.lifecycleHooks = null;
   }
 
   public RatchetLifecycle(
@@ -93,7 +95,7 @@ public class RatchetLifecycle {
         drainController,
         options,
         jobExecutionCoordinator,
-        List.of());
+        (Instance<SchedulerLifecycleHook>) null);
   }
 
   @Inject
@@ -112,38 +114,6 @@ public class RatchetLifecycle {
       RatchetOptions options,
       JobExecutionCoordinator jobExecutionCoordinator,
       Instance<SchedulerLifecycleHook> lifecycleHooks) {
-    this(
-        poller,
-        recurringScheduler,
-        orphanRecoveryTimer,
-        batchRecoveryTimer,
-        deadLetterService,
-        jobArchivingService,
-        logPurgeTimer,
-        pollerWakeupListener,
-        executorProvider,
-        nodeIdentityProvider,
-        drainController,
-        options,
-        jobExecutionCoordinator,
-        (Iterable<SchedulerLifecycleHook>) lifecycleHooks);
-  }
-
-  private RatchetLifecycle(
-      Poller poller,
-      RecurringScheduler recurringScheduler,
-      OrphanRecoveryTimer orphanRecoveryTimer,
-      BatchRecoveryTimer batchRecoveryTimer,
-      DeadLetterService deadLetterService,
-      JobArchivingService jobArchivingService,
-      LogPurgeTimer logPurgeTimer,
-      PollerWakeupListener pollerWakeupListener,
-      ExecutorProvider executorProvider,
-      NodeIdentityProvider nodeIdentityProvider,
-      DrainController drainController,
-      RatchetOptions options,
-      JobExecutionCoordinator jobExecutionCoordinator,
-      Iterable<SchedulerLifecycleHook> lifecycleHooks) {
     this.poller = poller;
     this.recurringScheduler = recurringScheduler;
     this.orphanRecoveryTimer = orphanRecoveryTimer;
@@ -224,14 +194,45 @@ public class RatchetLifecycle {
 
     JobTask.clearCaches();
     notifyHooks("afterStop", SchedulerLifecycleHook::afterStop);
+    destroyHooks();
+  }
+
+  private List<SchedulerLifecycleHook> hooks() {
+    if (lifecycleHooks == null) {
+      return List.of();
+    }
+    if (resolvedHooks == null) {
+      List<SchedulerLifecycleHook> resolved = new ArrayList<>();
+      lifecycleHooks.forEach(resolved::add);
+      resolvedHooks = resolved;
+    }
+    return resolvedHooks;
   }
 
   private void notifyHooks(String phase, Consumer<SchedulerLifecycleHook> callback) {
-    for (SchedulerLifecycleHook hook : lifecycleHooks) {
+    for (SchedulerLifecycleHook hook : hooks()) {
       try {
         callback.accept(hook);
       } catch (Exception e) {
         log.warnf(e, "Scheduler lifecycle hook failed during %s: %s", phase, e.getMessage());
+      }
+    }
+  }
+
+  /**
+   * Releases each resolved lifecycle hook back to the CDI container so that {@code @Dependent}
+   * scoped hooks have their {@code @PreDestroy} methods invoked. For non-dependent scopes, {@link
+   * Instance#destroy(Object)} is effectively a no-op (the container manages the lifecycle).
+   */
+  private void destroyHooks() {
+    if (lifecycleHooks == null || resolvedHooks == null) {
+      return;
+    }
+    for (SchedulerLifecycleHook hook : resolvedHooks) {
+      try {
+        lifecycleHooks.destroy(hook);
+      } catch (Exception e) {
+        log.warnf(e, "Failed to destroy scheduler lifecycle hook: %s", e.getMessage());
       }
     }
   }
