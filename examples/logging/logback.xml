@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Ratchet — example Logback configuration.
+
+  Drop this file into your application's classpath as `logback.xml`
+  (Logback's default config name; Spring Boot users can also use
+  `logback-spring.xml` to enable Spring profile sections).
+
+  Why this works with Ratchet:
+
+    Ratchet's framework code logs through JBoss Logging, which is a
+    facade. When `ch.qos.logback.classic.Logger` is on the classpath,
+    JBoss Logging activates its `Slf4jLoggerProvider` and routes log
+    output through SLF4J → Logback. In that configuration, MDC entries
+    set by Ratchet via `org.jboss.logging.MDC` and entries set by your
+    application via `org.slf4j.MDC` share the *same* thread-local map.
+    Both appear together in `%X{...}` patterns and JSON encoder output.
+
+    No bridge artifact is required: jboss-logging detects Logback by
+    class presence. You can override detection with the JVM argument
+    `-Dorg.jboss.logging.provider=slf4j` if needed.
+
+  Required dependencies (your application's pom.xml):
+
+    <dependency>
+      <groupId>ch.qos.logback</groupId>
+      <artifactId>logback-classic</artifactId>
+      <version>1.5.18</version>  <!-- or newer -->
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-api</artifactId>
+      <version>2.0.16</version>
+    </dependency>
+
+  Container notes:
+
+    * OpenLiberty, Payara (non-EE deployments), and plain JVM apps:
+      this config works as-is.
+
+    * WildFly: replacing the container's JBoss LogManager with Logback
+      requires `META-INF/jboss-deployment-structure.xml` exclusions —
+      see https://docs.wildfly.org/ for the supported procedure.
+      In practice most WildFly users keep JBoss LogManager and
+      configure JSON output via the `logging` subsystem; this Logback
+      config is most useful for non-WildFly deployments.
+
+    * GlassFish 8: similar to WildFly — the container ships its own
+      log manager; consider GlassFish's native JSON formatter instead
+      of substituting Logback unless you have a specific reason.
+-->
+<configuration>
+
+  <!--
+    Console appender with structured JSON output.
+
+    Logback 1.5+ ships a built-in `JsonEncoder` (no Jackson, no
+    logstash-encoder needed). Every MDC entry is emitted as a
+    top-level JSON property automatically — including Ratchet's
+    `jobId`, `node`, `jobCreator` and any keys your application
+    sets via `org.slf4j.MDC`.
+
+    Sample output (one line, pretty-printed for readability):
+
+      {
+        "sequenceNumber": 142,
+        "timestamp": 1746029834521,
+        "nanoseconds": 521000000,
+        "level": "INFO",
+        "threadName": "ratchet-worker-3",
+        "loggerName": "com.example.OrderJob",
+        "context": { "name": "default", "birthdate": ... },
+        "mdc": {
+          "jobId": "42",
+          "node": "node-a",
+          "jobCreator": "alice@example.com",
+          "requestId": "req-7c3f"
+        },
+        "message": "Processing order"
+      }
+  -->
+  <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder class="ch.qos.logback.classic.encoder.JsonEncoder"/>
+  </appender>
+
+  <!--
+    Alternative: human-readable pattern layout for local development.
+    Uncomment this block and switch the `STDOUT` reference below if
+    you prefer text output. MDC fields render via `%X{key}`.
+  -->
+  <!--
+  <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} job=%X{jobId} node=%X{node} - %msg%n</pattern>
+    </encoder>
+  </appender>
+  -->
+
+  <!--
+    Ratchet framework category. Set to DEBUG for execution-path
+    diagnostics during development; INFO is the recommended
+    production default.
+  -->
+  <logger name="run.ratchet" level="INFO"/>
+
+  <!--
+    Hibernate is verbose by default. The store modules log SQL
+    statements and bind parameters at DEBUG, which is rarely useful
+    in production.
+  -->
+  <logger name="org.hibernate" level="WARN"/>
+  <logger name="org.hibernate.SQL" level="WARN"/>
+
+  <root level="INFO">
+    <appender-ref ref="STDOUT"/>
+  </root>
+
+</configuration>

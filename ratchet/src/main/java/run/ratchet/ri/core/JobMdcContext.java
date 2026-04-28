@@ -9,17 +9,46 @@ import org.jboss.logging.MDC;
  * Binds the per-thread {@link JobContext} for job execution and populates JBoss Logging {@link MDC}
  * keys for log correlation.
  *
- * <p>The MDC keys this class manages — {@link #MDC_JOB_ID}, {@link #MDC_NODE}, and {@link
- * #MDC_JOB_CREATOR} — are written on {@link #bindJobContext(Long, JobLogger, Map, String, String)}
- * and removed (per-key, not via {@code MDC.clear()}) on {@link #clear()}. Per-key removal is
- * deliberate: the enclosing application may have set its own MDC keys (e.g. a request-correlation
- * ID set by a Servlet filter or JAX-RS interceptor) before the job was submitted, and {@code
- * MDC.clear()} would wipe them.
+ * <h2>Stable contract</h2>
  *
- * <p>JBoss Logging propagates these keys into the active backend's MDC at log emission time. Under
- * JBoss LogManager (WildFly default) and SLF4J/Logback they are rendered via {@code %X{jobId}} etc.
- * Under bare JDK {@code java.util.logging}, MDC values are stored but not rendered by stock JUL
- * formatters.
+ * <p>The three MDC key names — {@code jobId}, {@code node}, and {@code jobCreator} — are part of
+ * the public observability surface. Downstream log pipelines, dashboards, and alerting rules may
+ * depend on them. Adding new keys is a non-breaking change; renaming or removing one of these three
+ * is a breaking change subject to the project's compatibility policy.
+ *
+ * <h2>Lifecycle</h2>
+ *
+ * <p>Keys are written on {@link #bindJobContext(Long, JobLogger, Map, String, String)} and removed
+ * (per-key, not via {@code MDC.clear()}) on {@link #clear()}. Per-key removal is deliberate: the
+ * enclosing application may have set its own MDC keys (e.g. a request-correlation ID set by a
+ * Servlet filter or JAX-RS interceptor) before the job was submitted, and {@code MDC.clear()} would
+ * wipe them.
+ *
+ * <h2>Backend rendering</h2>
+ *
+ * <p>JBoss Logging is a facade. At runtime it auto-detects an installed backend in this priority
+ * order: JBoss LogManager → Log4j 2 → Logback (when {@code ch.qos.logback.classic.Logger} is on the
+ * classpath) → JDK {@code java.util.logging}. Whichever provider activates determines whether MDC
+ * values render and whether they unify with the application's own MDC entries.
+ *
+ * <ul>
+ *   <li><b>JBoss LogManager</b> (WildFly default) — keys render via {@code %X{jobId}} etc. in
+ *       container patterns.
+ *   <li><b>Log4j 2</b> — keys render via {@code %X{jobId}} or in JSON layouts via {@code
+ *       contextMap}.
+ *   <li><b>Logback</b> — keys render via {@code %X{jobId}} or are emitted by {@code JsonEncoder}.
+ *       In this configuration, {@link MDC} entries set here and entries set by application code via
+ *       {@code org.slf4j.MDC} share the same backend MDC adapter and appear together in output.
+ *   <li><b>java.util.logging</b> — keys are stored in JBoss Logging's per-thread map but stock JUL
+ *       formatters do not render them. Application code that calls {@code org.slf4j.MDC} via the
+ *       {@code slf4j-jdk14} binding writes to a separate map and the two are <em>not</em> unified.
+ * </ul>
+ *
+ * <p>For unified MDC across application and framework code, configure Logback as the runtime
+ * backend (place {@code logback-classic} on the classpath; JBoss Logging will detect it
+ * automatically). Override the auto-detected provider by setting {@code
+ * -Dorg.jboss.logging.provider=slf4j} if the detection priority does not match deployment
+ * expectations.
  *
  * @see JobContext
  */

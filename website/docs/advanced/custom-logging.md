@@ -98,7 +98,7 @@ public class JBossLoggingJobLogger implements JobLogger {
 
 If you wire a logger like this, the dual routing means:
 
-1. **Backend log output** -- Log messages appear in the container's standard log output (console, log files), prefixed with `[Job <id>]`. The actual backend depends on what JBoss Logging detects at startup: JBoss LogManager on WildFly, the JUL fallback otherwise.
+1. **Backend log output** -- Log messages appear in the container's standard log output (console, log files), prefixed with `[Job <id>]`. The actual backend depends on what JBoss Logging detects at startup: JBoss LogManager on WildFly, Logback when `ch.qos.logback.classic.Logger` is on the classpath, Log4j 2 when its API is present, and JDK `java.util.logging` as the final fallback.
 2. **Event publishing** -- Log lines are published as `JobLogLine` events through the `InternalEventPublisher`, which routes them to the `JobLogStore` for database persistence and to any registered event listeners for real-time streaming.
 
 ### Level Mapping
@@ -346,6 +346,29 @@ Ratchet's framework code logs through JBoss Logging, which auto-detects the runt
 | Standalone JDK | JDK `java.util.logging` (fallback) |
 
 No bridge or extra dependency is required for the framework's own logs. To render the MDC keys (`jobId`, `node`, `jobCreator`) in your output, add `%X{jobId} %X{node} %X{jobCreator}` to your formatter pattern (e.g. in `standalone.xml`, `quarkus.log.console.format`, or `logback.xml`).
+
+### MDC Keys and Cross-Facade Behavior
+
+Ratchet writes three MDC keys via `org.jboss.logging.MDC` during job execution:
+
+| Key | Value | Source |
+|---|---|---|
+| `jobId` | The numeric job ID | Always populated for every job execution |
+| `node` | The cluster node identifier | Populated when a node identity is configured |
+| `jobCreator` | The Jakarta Security `CallerPrincipal` captured at enqueue | Populated when a caller principal was present |
+
+These names are part of the public observability surface. Adding new keys is non-breaking; renaming or removing one of these three is a breaking change.
+
+**Whether application MDC entries unify with Ratchet's depends on the backend:**
+
+- **Logback backend** -- Application code calling `org.slf4j.MDC.put(...)` and Ratchet calling `org.jboss.logging.MDC.put(...)` write to the *same* thread-local map. Both sets of keys appear together in `%X{...}` output and JSON encoders. This is the recommended configuration for unified MDC.
+- **JBoss LogManager backend (WildFly)** -- Both APIs delegate to the LogManager's MDC. Keys unify in container log patterns.
+- **Log4j 2 backend** -- JBoss Logging delegates to Log4j 2's `ThreadContext`. Application code using `org.slf4j.MDC` (via `log4j-slf4j2-impl`) shares the same context map.
+- **JDK `java.util.logging` fallback** -- JBoss Logging stores keys in its own per-thread map; stock JUL formatters do not render them. If application code uses `org.slf4j.MDC` via the `slf4j-jdk14` binding, the two MDC maps are *separate* and do not unify. For unified MDC in non-EE deployments, place Logback on the classpath instead of relying on the JUL fallback.
+
+To override auto-detection, set `-Dorg.jboss.logging.provider=slf4j` (or `jboss`, `log4j2`, `jdk`) on the JVM command line.
+
+A worked example showing the SLF4J + Logback + JBoss Logging triangle is in [`examples/logging/`](https://github.com/jcputney/ratchet/tree/main/examples/logging) at the repository root.
 
 ## Log Persistence
 
