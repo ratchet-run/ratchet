@@ -858,9 +858,8 @@ final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore {
     incoming.setVersion(expectedVersion + 1);
   }
 
-  private void guardAgainstHotMutation(JobEntity incoming) {
-    long id = incoming.getId();
-    @SuppressWarnings("unchecked")
+  @SuppressWarnings("unchecked")
+  private Object[] snapshotHotRow(long id) {
     List<Object[]> rows =
         ctx.em()
             .createNativeQuery(
@@ -872,10 +871,15 @@ final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore {
                     + "WHERE c.job_id = ?")
             .setParameter(1, id)
             .getResultList();
-    if (rows.isEmpty()) {
+    return rows.isEmpty() ? null : rows.get(0);
+  }
+
+  private void guardAgainstHotMutation(JobEntity incoming) {
+    long id = incoming.getId();
+    Object[] row = snapshotHotRow(id);
+    if (row == null) {
       throw new IllegalStateException("save() called on missing job id=" + id);
     }
-    Object[] row = rows.get(0);
     String qStatus = (String) row[0];
     String terminal = (String) row[8];
     String recStatus = PostgresqlJobRowMapper.stringOrNull(row[9]);
@@ -934,24 +938,12 @@ final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore {
     }
   }
 
-  @SuppressWarnings("unchecked")
   private boolean tryHotMutationDispatch(JobEntity incoming) {
     long id = incoming.getId();
-    List<Object[]> rows =
-        ctx.em()
-            .createNativeQuery(
-                "SELECT q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at, "
-                    + "q.paused_from_status, q.last_error, q.version, "
-                    + "c.terminal_status, c.rec_status "
-                    + "FROM scheduler_job c "
-                    + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
-                    + "WHERE c.job_id = ?")
-            .setParameter(1, id)
-            .getResultList();
-    if (rows.isEmpty()) {
+    Object[] row = snapshotHotRow(id);
+    if (row == null) {
       return false;
     }
-    Object[] row = rows.get(0);
     String hotStatusStr = (String) row[0];
     String terminalStr = (String) row[8];
     String recStatus = PostgresqlJobRowMapper.stringOrNull(row[9]);
