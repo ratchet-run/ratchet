@@ -37,9 +37,11 @@ import java.lang.reflect.Modifier;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeoutException;
 import org.jboss.logging.Logger;
@@ -53,10 +55,34 @@ public class JobTask implements Callable<Void> {
 
   private static final Logger log = Logger.getLogger(JobTask.class);
 
-  private static final ConcurrentHashMap<String, Method> METHOD_CACHE = new ConcurrentHashMap<>();
-  private static final ConcurrentHashMap<String, Class<?>> CLASS_CACHE = new ConcurrentHashMap<>();
-  private static final ConcurrentHashMap<String, String> SERVICE_NAME_CACHE =
-      new ConcurrentHashMap<>();
+  /**
+   * Maximum entries per reflection cache. Bounds memory use across long-running deployments where
+   * the set of distinct job target classes/methods could otherwise grow without limit. LRU
+   * (access-order) eviction keeps hot entries resident.
+   */
+  static final int CACHE_MAX_ENTRIES = 1024;
+
+  private static final Map<String, Method> METHOD_CACHE = newBoundedCache(CACHE_MAX_ENTRIES);
+  private static final Map<String, Class<?>> CLASS_CACHE = newBoundedCache(CACHE_MAX_ENTRIES);
+  private static final Map<String, String> SERVICE_NAME_CACHE = newBoundedCache(CACHE_MAX_ENTRIES);
+
+  /**
+   * Creates a thread-safe LRU map bounded to {@code maxEntries}. Access-order ({@code get()}
+   * promotes entries to the most-recently-used position) ensures hot entries survive eviction
+   * pressure. Backed by {@link Collections#synchronizedMap} since {@link LinkedHashMap} is not
+   * thread-safe and access-order mutates internal state on read.
+   */
+  static <K, V> Map<K, V> newBoundedCache(int maxEntries) {
+    return Collections.synchronizedMap(
+        new LinkedHashMap<K, V>(16, 0.75f, true) {
+          @Serial private static final long serialVersionUID = 1L;
+
+          @Override
+          protected boolean removeEldestEntry(Map.Entry<K, V> eldest) {
+            return size() > maxEntries;
+          }
+        });
+  }
 
   private static final int SUCCESS_FINALIZATION_MAX_ATTEMPTS = 5;
   private static final long[] SUCCESS_FINALIZATION_BACKOFF_MS = {25L, 50L, 100L, 200L, 400L};

@@ -11,7 +11,6 @@ import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -51,7 +50,7 @@ class JobTaskClassCacheBypassTest {
 
     Field cacheField = JobTask.class.getDeclaredField("CLASS_CACHE");
     cacheField.setAccessible(true);
-    Map<String, Class<?>> cache = (ConcurrentHashMap<String, Class<?>>) cacheField.get(null);
+    Map<String, Class<?>> cache = (Map<String, Class<?>>) cacheField.get(null);
     assertFalse(cache.containsKey("java.lang.String"));
   }
 
@@ -69,7 +68,7 @@ class JobTaskClassCacheBypassTest {
 
     Field cacheField = JobTask.class.getDeclaredField("CLASS_CACHE");
     cacheField.setAccessible(true);
-    Map<String, Class<?>> cache = (ConcurrentHashMap<String, Class<?>>) cacheField.get(null);
+    Map<String, Class<?>> cache = (Map<String, Class<?>>) cacheField.get(null);
     assertTrue(cache.containsKey("java.lang.String"), "Approved class should be cached");
   }
 
