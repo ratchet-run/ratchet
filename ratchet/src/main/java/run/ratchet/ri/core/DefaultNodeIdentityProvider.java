@@ -18,8 +18,23 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.jboss.logging.Logger;
 
 /**
- * Generates a stable node ID (JBoss node name → hostname+pid+suffix → random UUID) and maintains
- * liveness via periodic heartbeats.
+ * Generates a node ID and maintains liveness via periodic heartbeats.
+ *
+ * <p>Resolution order:
+ *
+ * <ol>
+ *   <li>An explicit value passed to the constructor (typically wired from {@link
+ *       run.ratchet.api.RatchetOptions} {@code .node().nodeId(...)}). Recommended for any
+ *       deployment where node identity must survive container/host renames or where two nodes might
+ *       otherwise hash-collide on hostname+PID.
+ *   <li>{@code hostname-PID-<8-char UUID>} — adequate for single-node and small clusters where the
+ *       hostname is durable across restarts.
+ *   <li>A random UUID — last-ditch fallback when even hostname resolution fails.
+ * </ol>
+ *
+ * <p><b>When to set an explicit node ID:</b> rolling deploys with ephemeral hostnames (Kubernetes
+ * pods, container schedulers), multi-tenant deployments where audit trails should remain stable
+ * across restarts, and any cluster &gt;~10 nodes where the hostname-PID hash space risks collision.
  *
  * @see NodeIdentityProvider
  */
