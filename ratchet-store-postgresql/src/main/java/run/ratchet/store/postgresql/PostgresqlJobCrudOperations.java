@@ -39,6 +39,7 @@ final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore {
 
   private final PostgresqlStoreContext ctx;
   private final PostgresqlJobReadOperations reads;
+  private final PostgresqlJobCountOperations counts;
   private final PostgresqlBusinessKeyReservations reservations;
   private final PostgresqlTagOperations tags;
 
@@ -49,6 +50,7 @@ final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore {
       PostgresqlTagOperations tags) {
     this.ctx = ctx;
     this.reads = reads;
+    this.counts = new PostgresqlJobCountOperations(ctx);
     this.reservations = reservations;
     this.tags = tags;
   }
@@ -136,174 +138,87 @@ final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore {
 
   @Override
   public long countPendingJobs() {
-    return countJobsByStatus(JobStatus.PENDING);
+    return counts.countPendingJobs();
   }
 
   @Override
   public long countJobsByStatus(JobStatus status) {
-    if (PostgresqlJobRowMapper.isLiveStatus(status)) {
-      return ctx.countByNative(
-          "SELECT COUNT(*) FROM scheduler_job_queue WHERE status = ?", status.name());
-    }
-    return ctx.countByNative(
-        "SELECT COUNT(*) FROM scheduler_job WHERE terminal_status = ?", status.name());
+    return counts.countJobsByStatus(status);
   }
 
   @Override
   public long countActiveJobs(JobExecutionType jobType) {
-    return ctx.countByNative(
-        "SELECT COUNT(*) FROM scheduler_job_queue "
-            + "WHERE job_type = ? AND status IN ('PENDING','RUNNING')",
-        jobType.name());
+    return counts.countActiveJobs(jobType);
   }
 
   @Override
   public long countActiveNodes() {
-    return ctx.countByNative("SELECT COUNT(*) FROM scheduler_node");
+    return counts.countActiveNodes();
   }
 
   @Override
   public long countReadyJobs(Instant now) {
-    return ctx.countByNative(
-        "SELECT COUNT(*) FROM scheduler_job_queue "
-            + "WHERE status = 'PENDING' AND scheduled_time <= ?",
-        Timestamp.from(now));
+    return counts.countReadyJobs(now);
   }
 
   @Override
   public long countStuckJobs(Instant stuckThreshold) {
-    return ctx.countByNative(
-        "SELECT COUNT(*) FROM scheduler_job_queue " + "WHERE status = 'RUNNING' AND picked_at < ?",
-        Timestamp.from(stuckThreshold));
+    return counts.countStuckJobs(stuckThreshold);
   }
 
   @Override
   public long countLongRunningJobs(Instant threshold) {
-    return ctx.countByNative(
-        "SELECT COUNT(*) FROM scheduler_job_queue " + "WHERE status = 'RUNNING' AND picked_at < ?",
-        Timestamp.from(threshold));
+    return counts.countLongRunningJobs(threshold);
   }
 
   @Override
   public long countPendingBatchChildren() {
-    return ctx.countByNative(
-        "SELECT COUNT(*) FROM scheduler_job_queue "
-            + "WHERE job_type = 'BATCH_CHILD' AND status = 'PENDING'");
+    return counts.countPendingBatchChildren();
   }
 
   @Override
   public long countPendingJobsByPriority(JobPriority priority) {
-    return ctx.countByNative(
-        "SELECT COUNT(*) FROM scheduler_job_queue " + "WHERE status = 'PENDING' AND priority = ?",
-        priority.ordinal());
+    return counts.countPendingJobsByPriority(priority);
   }
 
   @Override
   public long countPendingJobsByType(JobExecutionType jobType) {
-    return ctx.countByNative(
-        "SELECT COUNT(*) FROM scheduler_job_queue " + "WHERE status = 'PENDING' AND job_type = ?",
-        jobType.name());
+    return counts.countPendingJobsByType(jobType);
   }
 
   @Override
   public long countJobsByStatusSince(JobStatus status, Instant since) {
-    if (PostgresqlJobRowMapper.isLiveStatus(status)) {
-      return ctx.countByNative(
-          "SELECT COUNT(*) FROM scheduler_job_queue WHERE status = ? AND updated_at >= ?",
-          status.name(),
-          Timestamp.from(since));
-    }
-    return ctx.countByNative(
-        "SELECT COUNT(*) FROM scheduler_job WHERE terminal_status = ? AND terminated_at >= ?",
-        status.name(),
-        Timestamp.from(since));
+    return counts.countJobsByStatusSince(status, since);
   }
 
   @Override
   public long countJobsWithRetries() {
-    return ctx.countByNative(
-        "SELECT "
-            + "(SELECT COUNT(*) FROM scheduler_job_queue WHERE attempts > 0) "
-            + "+ (SELECT COUNT(*) FROM scheduler_job WHERE total_attempts > 0)");
+    return counts.countJobsWithRetries();
   }
 
   @Override
   public double getRetryRateStats(Instant since) {
-    Timestamp sinceTs = Timestamp.from(since);
-    Object result =
-        ctx.em()
-            .createNativeQuery(
-                "SELECT COALESCE("
-                    + "  CAST("
-                    + "    ((SELECT COUNT(*) FROM scheduler_job_queue "
-                    + "        WHERE attempts > 0 AND updated_at >= ?) "
-                    + "     + (SELECT COUNT(*) FROM scheduler_job "
-                    + "        WHERE total_attempts > 0 AND terminated_at >= ?))"
-                    + "    AS DOUBLE PRECISION) "
-                    + "  / NULLIF("
-                    + "    ((SELECT COUNT(*) FROM scheduler_job_queue WHERE updated_at >= ?) "
-                    + "     + (SELECT COUNT(*) FROM scheduler_job "
-                    + "        WHERE terminated_at >= ?)), 0), 0)")
-            .setParameter(1, sinceTs)
-            .setParameter(2, sinceTs)
-            .setParameter(3, sinceTs)
-            .setParameter(4, sinceTs)
-            .getSingleResult();
-    return result == null ? 0.0 : ((Number) result).doubleValue();
+    return counts.getRetryRateStats(since);
   }
 
   @Override
   public double getAverageProcessingTime(Instant since) {
-    Object result =
-        ctx.em()
-            .createNativeQuery(
-                "SELECT COALESCE(AVG(execution_duration_ms), 0) FROM scheduler_job "
-                    + "WHERE terminal_status = 'SUCCEEDED' AND execution_duration_ms IS NOT NULL "
-                    + "AND terminated_at >= ?")
-            .setParameter(1, Timestamp.from(since))
-            .getSingleResult();
-    return result == null ? 0.0 : ((Number) result).doubleValue();
+    return counts.getAverageProcessingTime(since);
   }
 
   @Override
   public double getAverageBatchSize(Instant since) {
-    Object result =
-        ctx.em()
-            .createNativeQuery(
-                "SELECT COALESCE(AVG(b.total_items), 0) FROM scheduler_batch b "
-                    + "JOIN scheduler_job c ON c.job_id = b.batch_id "
-                    + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
-                    + "WHERE COALESCE(q.updated_at, c.terminated_at) >= ?")
-            .setParameter(1, Timestamp.from(since))
-            .getSingleResult();
-    return result == null ? 0.0 : ((Number) result).doubleValue();
+    return counts.getAverageBatchSize(since);
   }
 
   @Override
-  @SuppressWarnings("unchecked")
   public Optional<Instant> getOldestPendingJobTime() {
-    List<Object> results =
-        ctx.em()
-            .createNativeQuery(
-                "SELECT MIN(scheduled_time) FROM scheduler_job_queue WHERE status = 'PENDING'")
-            .getResultList();
-    if (results.isEmpty() || results.get(0) == null) {
-      return Optional.empty();
-    }
-    return Optional.ofNullable(PostgresqlJobRowMapper.toInstant(results.get(0)));
+    return counts.getOldestPendingJobTime();
   }
 
   @Override
   public long getQueueWaitTimePercentile(double percentile) {
-    Object result =
-        ctx.em()
-            .createNativeQuery(
-                "SELECT COALESCE(PERCENTILE_CONT(?) WITHIN GROUP (ORDER BY queue_wait_ms), 0) "
-                    + "FROM scheduler_job WHERE queue_wait_ms IS NOT NULL "
-                    + "AND terminal_status = 'SUCCEEDED'")
-            .setParameter(1, percentile)
-            .getSingleResult();
-    return result == null ? 0L : ((Number) result).longValue();
+    return counts.getQueueWaitTimePercentile(percentile);
   }
 
   @Override
