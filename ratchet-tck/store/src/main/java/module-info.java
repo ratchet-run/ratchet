@@ -3,7 +3,9 @@ module run.ratchet.tck.store {
   requires run.ratchet.api;
   requires run.ratchet.store.core;
   requires jakarta.persistence;
+  requires java.sql;
   requires org.junit.jupiter.api;
 
   exports run.ratchet.tck.store;
+  exports run.ratchet.tck.store.schema;
 }

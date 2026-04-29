@@ -66,7 +66,7 @@ public final class PayloadMasker {
         return maskObject(root.asJsonObject()).build().toString();
       }
       // Array and scalar roots pass through unchanged: field-level masking only applies
-      // when the root is an object, matching the prior Jackson behavior.
+      // when the root is an object.
       return root.toString();
     } catch (Exception e) {
       log.warnf("Payload masking error, redacting: %s", e.getMessage());
