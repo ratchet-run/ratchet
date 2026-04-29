@@ -13,6 +13,7 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.RecurringAnnotationMaintenanceService;
 import run.ratchet.ri.core.RecurringRegistrationState;
 import run.ratchet.spi.StartupCoordinator;
+import run.ratchet.store.spi.JobBatchStatusStore;
 import jakarta.enterprise.inject.spi.BeanManager;
 import java.time.Duration;
 import java.time.Instant;
@@ -35,6 +36,7 @@ class RecurringJobProcessorLeaderGateTest {
     var processor =
         new RecurringJobProcessor(
             mock(JobSchedulerService.class),
+            mock(JobBatchStatusStore.class),
             maintenance,
             beanManager,
             mock(RecurringMethodInvoker.class),
@@ -59,6 +61,7 @@ class RecurringJobProcessorLeaderGateTest {
     var processor =
         new RecurringJobProcessor(
             mock(JobSchedulerService.class),
+            mock(JobBatchStatusStore.class),
             maintenance,
             beanManager,
             mock(RecurringMethodInvoker.class),

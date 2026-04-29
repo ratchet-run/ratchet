@@ -12,6 +12,7 @@ import run.ratchet.api.RecurringJobBuilder;
 import run.ratchet.ri.core.RecurringAnnotationMaintenanceService;
 import run.ratchet.ri.core.RecurringRegistrationState;
 import run.ratchet.spi.StartupCoordinator;
+import run.ratchet.store.spi.JobBatchStatusStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.Initialized;
 import jakarta.enterprise.event.Observes;
@@ -54,6 +55,7 @@ public class RecurringJobProcessor {
   private final Map<String, String> registeredJobIds = new ConcurrentHashMap<>();
 
   private final JobSchedulerService schedulerService;
+  private final JobBatchStatusStore jobBatchStatusStore;
   private final RecurringAnnotationMaintenanceService recurringAnnotationMaintenanceService;
   private final BeanManager beanManager;
   private final RecurringMethodInvoker methodInvoker;
@@ -63,6 +65,7 @@ public class RecurringJobProcessor {
 
   protected RecurringJobProcessor() {
     this.schedulerService = null;
+    this.jobBatchStatusStore = null;
     this.recurringAnnotationMaintenanceService = null;
     this.beanManager = null;
     this.methodInvoker = null;
@@ -74,6 +77,7 @@ public class RecurringJobProcessor {
   @Inject
   public RecurringJobProcessor(
       JobSchedulerService schedulerService,
+      JobBatchStatusStore jobBatchStatusStore,
       RecurringAnnotationMaintenanceService recurringAnnotationMaintenanceService,
       BeanManager beanManager,
       RecurringMethodInvoker methodInvoker,
@@ -81,6 +85,7 @@ public class RecurringJobProcessor {
       RecurringRegistrationState registrationState,
       RatchetOptions options) {
     this.schedulerService = schedulerService;
+    this.jobBatchStatusStore = jobBatchStatusStore;
     this.recurringAnnotationMaintenanceService = recurringAnnotationMaintenanceService;
     this.beanManager = beanManager;
     this.methodInvoker = methodInvoker;
@@ -91,6 +96,7 @@ public class RecurringJobProcessor {
 
   public RecurringJobProcessor(
       JobSchedulerService schedulerService,
+      JobBatchStatusStore jobBatchStatusStore,
       RecurringAnnotationMaintenanceService recurringAnnotationMaintenanceService,
       BeanManager beanManager,
       RecurringMethodInvoker methodInvoker,
@@ -98,6 +104,7 @@ public class RecurringJobProcessor {
       RecurringRegistrationState registrationState) {
     this(
         schedulerService,
+        jobBatchStatusStore,
         recurringAnnotationMaintenanceService,
         beanManager,
         methodInvoker,
@@ -173,7 +180,10 @@ public class RecurringJobProcessor {
   }
 
   private void cancelExistingJobs(String jobId) {
-    int canceled = schedulerService.cancelRecurringJobByBusinessKey(jobId);
+    // Calls the store SPI directly: cancellation is a pure persistence-layer state flip with no
+    // events, observers, or scheduling-side orchestration. Routing through JobSchedulerService
+    // would just re-enter the same SPI method one stack frame deeper.
+    int canceled = jobBatchStatusStore.cancelRecurringJobByBusinessKey(jobId);
     if (canceled > 0) {
       log.infof("Canceled %s existing recurring job(s) with ID: %s", canceled, jobId);
     }
