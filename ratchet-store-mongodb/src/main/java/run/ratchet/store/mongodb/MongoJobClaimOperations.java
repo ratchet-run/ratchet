@@ -28,7 +28,9 @@ import run.ratchet.store.entity.JobExecutionType;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
 import org.bson.Document;
 import org.bson.conversions.Bson;
@@ -182,7 +184,7 @@ final class MongoJobClaimOperations {
       return List.of();
     }
 
-    List<T> claimed = new ArrayList<>();
+    Map<Long, T> byId = new HashMap<>(ids.size());
     for (Document doc :
         ctx.jobs()
             .find(
@@ -190,8 +192,15 @@ final class MongoJobClaimOperations {
                     new Document(ID, new Document("$in", ids)),
                     eq(PICKED_BY, nodeId),
                     eq(STATUS, "RUNNING")))) {
-      claimed.add(mapper.apply(doc));
+      byId.put(doc.getLong(ID), mapper.apply(doc));
     }
-    return claimed;
+    List<T> ordered = new ArrayList<>(byId.size());
+    for (Long id : ids) {
+      T claim = byId.get(id);
+      if (claim != null) {
+        ordered.add(claim);
+      }
+    }
+    return ordered;
   }
 }
