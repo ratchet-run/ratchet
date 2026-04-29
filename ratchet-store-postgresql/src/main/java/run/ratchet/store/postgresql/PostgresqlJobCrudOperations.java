@@ -13,8 +13,6 @@ import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -40,6 +38,7 @@ final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore {
   private final PostgresqlStoreContext ctx;
   private final PostgresqlJobReadOperations reads;
   private final PostgresqlJobCountOperations counts;
+  private final PostgresqlJobDeleteOperations deletes;
   private final PostgresqlBusinessKeyReservations reservations;
   private final PostgresqlTagOperations tags;
 
@@ -51,6 +50,7 @@ final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore {
     this.ctx = ctx;
     this.reads = reads;
     this.counts = new PostgresqlJobCountOperations(ctx);
+    this.deletes = new PostgresqlJobDeleteOperations(ctx, reservations);
     this.reservations = reservations;
     this.tags = tags;
   }
@@ -99,11 +99,7 @@ final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore {
 
   @Override
   public void delete(long id) {
-    reservations.deleteReservationByOwner(id);
-    ctx.em()
-        .createNativeQuery("DELETE FROM scheduler_job WHERE job_id = ?")
-        .setParameter(1, id)
-        .executeUpdate();
+    deletes.delete(id);
   }
 
   @Override
@@ -284,80 +280,22 @@ final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore {
 
   @Override
   public int deleteJobsByIds(List<Long> ids) {
-    if (ids.isEmpty()) {
-      return 0;
-    }
-    reservations.deleteReservationsByOwners(ids);
-    String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
-    Query jobDelete =
-        ctx.em()
-            .createNativeQuery("DELETE FROM scheduler_job WHERE job_id IN (" + placeholders + ")");
-    int parameter = 1;
-    for (Long id : ids) {
-      jobDelete.setParameter(parameter++, id);
-    }
-    return jobDelete.executeUpdate();
+    return deletes.deleteJobsByIds(ids);
   }
 
   @Override
   public int deleteDlqOlderThan(Instant cutoff) {
-    @SuppressWarnings("unchecked")
-    List<Number> idRows =
-        ctx.em()
-            .createNativeQuery(
-                "SELECT job_id FROM scheduler_job "
-                    + "WHERE terminal_status = 'FAILED' AND total_attempts >= max_retries "
-                    + "AND terminated_at < ?")
-            .setParameter(1, Timestamp.from(cutoff))
-            .getResultList();
-    if (idRows.isEmpty()) {
-      return 0;
-    }
-    List<Long> ids = new ArrayList<>(idRows.size());
-    for (Number n : idRows) {
-      ids.add(n.longValue());
-    }
-    reservations.deleteReservationsByOwners(idRows);
-    String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
-    Query jobDelete =
-        ctx.em()
-            .createNativeQuery("DELETE FROM scheduler_job WHERE job_id IN (" + placeholders + ")");
-    int parameter = 1;
-    for (Long id : ids) {
-      jobDelete.setParameter(parameter++, id);
-    }
-    return jobDelete.executeUpdate();
+    return deletes.deleteDlqOlderThan(cutoff);
   }
 
   @Override
   public int resetOrphanJobs(Duration grace) {
-    long graceSeconds = grace.toSeconds();
-    return ctx.em()
-        .createNativeQuery(
-            "UPDATE scheduler_job_queue SET status = 'PENDING', "
-                + "picked_by = NULL, picked_at = NULL, "
-                + "updated_at = statement_timestamp() "
-                + "WHERE status = 'RUNNING' "
-                + "AND picked_by NOT IN ("
-                + "  SELECT node_id FROM scheduler_node "
-                + "  WHERE heartbeat_ts > statement_timestamp() - ? * interval '1 second'"
-                + ") "
-                + "AND extract(epoch from (statement_timestamp() - picked_at))::bigint >= ?")
-        .setParameter(1, graceSeconds)
-        .setParameter(2, graceSeconds)
-        .executeUpdate();
+    return deletes.resetOrphanJobs(grace);
   }
 
   @Override
   public int resetOrphanJobsForNode(String nodeId) {
-    return ctx.em()
-        .createNativeQuery(
-            "UPDATE scheduler_job_queue SET status = 'PENDING', "
-                + "picked_by = NULL, picked_at = NULL, "
-                + "updated_at = statement_timestamp() "
-                + "WHERE status = 'RUNNING' AND picked_by = ?")
-        .setParameter(1, nodeId)
-        .executeUpdate();
+    return deletes.resetOrphanJobsForNode(nodeId);
   }
 
   private void saveInsert(JobEntity job) {
