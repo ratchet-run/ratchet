@@ -9,9 +9,14 @@ final class MysqlBusinessKeyReservations {
 
   static final String OWNER_TABLE_QUEUE = "QUEUE";
   static final String OWNER_TABLE_RECURRING = "RECURRING";
+
+  // language=MySQL
   static final String BKRES_INSERT_SQL =
-      "INSERT INTO scheduler_business_key_reservation "
-          + "(business_key, owner_job_id, owner_table, reserved_at) VALUES (?, ?, ?, ?)";
+      """
+      INSERT INTO scheduler_business_key_reservation
+        (business_key, owner_job_id, owner_table, reserved_at)
+      VALUES (?, ?, ?, ?)
+      """;
 
   private final MysqlStoreContext ctx;
 
@@ -23,10 +28,15 @@ final class MysqlBusinessKeyReservations {
     if (businessKey == null) {
       return;
     }
+    // language=MySQL
+    String sql =
+        """
+        INSERT INTO scheduler_business_key_reservation
+          (business_key, owner_job_id, owner_table, reserved_at)
+        VALUES (?, ?, ?, NOW(3))
+        """;
     ctx.em()
-        .createNativeQuery(
-            "INSERT INTO scheduler_business_key_reservation "
-                + "(business_key, owner_job_id, owner_table, reserved_at) VALUES (?, ?, ?, NOW(3))")
+        .createNativeQuery(sql)
         .setParameter(1, businessKey)
         .setParameter(2, ownerJobId)
         .setParameter(3, ownerTable)
@@ -35,10 +45,9 @@ final class MysqlBusinessKeyReservations {
 
   @SuppressWarnings("UnusedReturnValue")
   int deleteReservationByOwner(long ownerJobId) {
-    return ctx.em()
-        .createNativeQuery("DELETE FROM scheduler_business_key_reservation WHERE owner_job_id = ?")
-        .setParameter(1, ownerJobId)
-        .executeUpdate();
+    // language=MySQL
+    String sql = "DELETE FROM scheduler_business_key_reservation WHERE owner_job_id = ?";
+    return ctx.em().createNativeQuery(sql).setParameter(1, ownerJobId).executeUpdate();
   }
 
   void bindInsert(Query q, JobEntity job, Timestamp nowTs) {

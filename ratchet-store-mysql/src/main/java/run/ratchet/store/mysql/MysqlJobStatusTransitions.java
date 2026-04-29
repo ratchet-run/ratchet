@@ -15,14 +15,18 @@ final class MysqlJobStatusTransitions {
   }
 
   boolean tryPickUpJob(long id, String nodeId) {
+    // language=MySQL
+    String sql =
+        """
+        UPDATE scheduler_job_queue
+        SET status = 'RUNNING', picked_by = ?, picked_at = NOW(3), updated_at = NOW(3)
+        WHERE job_id = ? AND status = 'PENDING'
+        """;
     return ctx.timedStoreOperation(
             "pickup_job",
             () ->
                 ctx.em()
-                    .createNativeQuery(
-                        "UPDATE scheduler_job_queue SET status = 'RUNNING', picked_by = ?, "
-                            + "picked_at = NOW(3), updated_at = NOW(3) "
-                            + "WHERE job_id = ? AND status = 'PENDING'")
+                    .createNativeQuery(sql)
                     .setParameter(1, nodeId)
                     .setParameter(2, id)
                     .executeUpdate(),
@@ -40,12 +44,16 @@ final class MysqlJobStatusTransitions {
           id, expected);
       return false;
     }
+    // language=MySQL
+    String sql =
+        """
+        UPDATE scheduler_job_queue
+        SET status = 'PAUSED', paused_from_status = ?, updated_at = NOW(3)
+        WHERE job_id = ? AND status = ?
+        """;
     int updated =
         ctx.em()
-            .createNativeQuery(
-                "UPDATE scheduler_job_queue SET status = 'PAUSED', "
-                    + "paused_from_status = ?, updated_at = NOW(3) "
-                    + "WHERE job_id = ? AND status = ?")
+            .createNativeQuery(sql)
             .setParameter(1, expected.name())
             .setParameter(2, id)
             .setParameter(3, expected.name())
@@ -58,12 +66,16 @@ final class MysqlJobStatusTransitions {
       throw new IllegalArgumentException(
           "transitionFromPaused expects a non-PAUSED live status; got " + target);
     }
+    // language=MySQL
+    String sql =
+        """
+        UPDATE scheduler_job_queue
+        SET status = ?, paused_from_status = NULL, updated_at = NOW(3)
+        WHERE job_id = ? AND status = 'PAUSED'
+        """;
     int updated =
         ctx.em()
-            .createNativeQuery(
-                "UPDATE scheduler_job_queue SET status = ?, "
-                    + "paused_from_status = NULL, updated_at = NOW(3) "
-                    + "WHERE job_id = ? AND status = 'PAUSED'")
+            .createNativeQuery(sql)
             .setParameter(1, target.name())
             .setParameter(2, id)
             .executeUpdate();
@@ -71,24 +83,29 @@ final class MysqlJobStatusTransitions {
   }
 
   JobStatus transitionFromPausedAtomic(long id) {
-    List<?> results =
-        ctx.em()
-            .createNativeQuery(
-                "SELECT paused_from_status FROM scheduler_job_queue "
-                    + "WHERE job_id = ? AND status = 'PAUSED' FOR UPDATE")
-            .setParameter(1, id)
-            .getResultList();
+    // language=MySQL
+    String selectSql =
+        """
+        SELECT paused_from_status FROM scheduler_job_queue
+        WHERE job_id = ? AND status = 'PAUSED'
+        FOR UPDATE
+        """;
+    List<?> results = ctx.em().createNativeQuery(selectSql).setParameter(1, id).getResultList();
     if (results.isEmpty()) {
       return null;
     }
     String pausedFrom = (String) results.get(0);
     JobStatus target = pausedFrom != null ? JobStatus.valueOf(pausedFrom) : JobStatus.PENDING;
+    // language=MySQL
+    String updateSql =
+        """
+        UPDATE scheduler_job_queue
+        SET status = ?, paused_from_status = NULL, updated_at = NOW(3)
+        WHERE job_id = ? AND status = 'PAUSED'
+        """;
     int updated =
         ctx.em()
-            .createNativeQuery(
-                "UPDATE scheduler_job_queue SET status = ?, "
-                    + "paused_from_status = NULL, updated_at = NOW(3) "
-                    + "WHERE job_id = ? AND status = 'PAUSED'")
+            .createNativeQuery(updateSql)
             .setParameter(1, target.name())
             .setParameter(2, id)
             .executeUpdate();

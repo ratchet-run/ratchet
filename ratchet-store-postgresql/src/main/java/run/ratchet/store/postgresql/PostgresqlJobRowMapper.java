@@ -89,16 +89,19 @@ final class PostgresqlJobRowMapper {
    * their query. The column order matches {@link #hydrate(Object[])}.
    */
   static String hydrationSelect() {
-    return "c.job_id, c.job_type, c.priority, c.max_retries, c.backoff_policy, "
-        + "c.backoff_param_ms, c.timeout_sec, c.cron_expr, c.zone_id, c.next_fire, "
-        + "c.payload::text, c.params::text, c.target_class, c.method_name, c.idempotency_key, "
-        + "c.business_key, c.resource_name, c.on_success_payload::text, "
-        + "c.on_failure_payload::text, c.depends_on, c.superseded_by, c.created_at, "
-        + "c.created_by, c.caller_principal, c.terminal_status, c.terminal_error, "
-        + "c.total_attempts, c.terminated_at, c.execution_start_time, c.execution_end_time, "
-        + "c.execution_duration_ms, c.queue_wait_ms, c.job_result::text, c.result_type, "
-        + "c.rec_status, q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at, "
-        + "q.paused_from_status, q.last_error, q.version, q.updated_at";
+    // language=PostgreSQL
+    return """
+        c.job_id, c.job_type, c.priority, c.max_retries, c.backoff_policy,
+        c.backoff_param_ms, c.timeout_sec, c.cron_expr, c.zone_id, c.next_fire,
+        c.payload::text, c.params::text, c.target_class, c.method_name, c.idempotency_key,
+        c.business_key, c.resource_name, c.on_success_payload::text,
+        c.on_failure_payload::text, c.depends_on, c.superseded_by, c.created_at,
+        c.created_by, c.caller_principal, c.terminal_status, c.terminal_error,
+        c.total_attempts, c.terminated_at, c.execution_start_time, c.execution_end_time,
+        c.execution_duration_ms, c.queue_wait_ms, c.job_result::text, c.result_type,
+        c.rec_status, q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at,
+        q.paused_from_status, q.last_error, q.version, q.updated_at\
+        """;
   }
 
   static JobEntity hydrate(Object[] row) {

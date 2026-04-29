@@ -45,10 +45,10 @@ final class PostgresqlAuxiliaryOperations
   @Override
   @SuppressWarnings("unchecked")
   public List<JobExecutionEntity> findExecutionsByJobId(long jobId) {
+    // language=PostgreSQL
+    String sql = "SELECT * FROM scheduler_job_execution WHERE job_id = ? ORDER BY attempt ASC";
     return ctx.em()
-        .createNativeQuery(
-            "SELECT * FROM scheduler_job_execution WHERE job_id = ? ORDER BY attempt ASC",
-            JobExecutionEntity.class)
+        .createNativeQuery(sql, JobExecutionEntity.class)
         .setParameter(1, jobId)
         .getResultList();
   }
@@ -56,11 +56,12 @@ final class PostgresqlAuxiliaryOperations
   @Override
   @SuppressWarnings("unchecked")
   public Optional<JobExecutionEntity> findLatestExecution(long jobId) {
+    // language=PostgreSQL
+    String sql =
+        "SELECT * FROM scheduler_job_execution WHERE job_id = ? ORDER BY attempt DESC LIMIT 1";
     List<JobExecutionEntity> results =
         ctx.em()
-            .createNativeQuery(
-                "SELECT * FROM scheduler_job_execution WHERE job_id = ? ORDER BY attempt DESC LIMIT 1",
-                JobExecutionEntity.class)
+            .createNativeQuery(sql, JobExecutionEntity.class)
             .setParameter(1, jobId)
             .getResultList();
     return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
@@ -68,11 +69,9 @@ final class PostgresqlAuxiliaryOperations
 
   @Override
   public int countExecutionAttempts(long jobId) {
-    return ((Number)
-            ctx.em()
-                .createNativeQuery("SELECT COUNT(*) FROM scheduler_job_execution WHERE job_id = ?")
-                .setParameter(1, jobId)
-                .getSingleResult())
+    // language=PostgreSQL
+    String sql = "SELECT COUNT(*) FROM scheduler_job_execution WHERE job_id = ?";
+    return ((Number) ctx.em().createNativeQuery(sql).setParameter(1, jobId).getSingleResult())
         .intValue();
   }
 
@@ -83,28 +82,31 @@ final class PostgresqlAuxiliaryOperations
 
   @Override
   public int purgeLogsOlderThan(Instant cutoff) {
-    return ctx.em()
-        .createNativeQuery("DELETE FROM scheduler_job_log WHERE ts < ?")
-        .setParameter(1, Timestamp.from(cutoff))
-        .executeUpdate();
+    // language=PostgreSQL
+    String sql = "DELETE FROM scheduler_job_log WHERE ts < ?";
+    return ctx.em().createNativeQuery(sql).setParameter(1, Timestamp.from(cutoff)).executeUpdate();
   }
 
   @Override
   public WorkflowConditionEntity saveCondition(WorkflowConditionEntity condition) {
     prepareCondition(condition);
+    // language=PostgreSQL
+    String sql =
+        """
+        INSERT INTO scheduler_workflow_condition
+          (id, parent_job_id, child_job_id, condition_type, condition_expression,
+           condition_priority, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (id) DO UPDATE SET
+          parent_job_id = EXCLUDED.parent_job_id,
+          child_job_id = EXCLUDED.child_job_id,
+          condition_type = EXCLUDED.condition_type,
+          condition_expression = EXCLUDED.condition_expression,
+          condition_priority = EXCLUDED.condition_priority,
+          created_at = EXCLUDED.created_at
+        """;
     ctx.em()
-        .createNativeQuery(
-            "INSERT INTO scheduler_workflow_condition "
-                + "(id, parent_job_id, child_job_id, condition_type, condition_expression, "
-                + "condition_priority, created_at) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?) "
-                + "ON CONFLICT (id) DO UPDATE SET "
-                + "parent_job_id = EXCLUDED.parent_job_id, "
-                + "child_job_id = EXCLUDED.child_job_id, "
-                + "condition_type = EXCLUDED.condition_type, "
-                + "condition_expression = EXCLUDED.condition_expression, "
-                + "condition_priority = EXCLUDED.condition_priority, "
-                + "created_at = EXCLUDED.created_at")
+        .createNativeQuery(sql)
         .setParameter(1, condition.getId())
         .setParameter(2, condition.getParentJobId())
         .setParameter(3, condition.getChildJobId())
@@ -147,32 +149,30 @@ final class PostgresqlAuxiliaryOperations
 
   @Override
   public void deleteConditionById(long id) {
-    ctx.em()
-        .createNativeQuery("DELETE FROM scheduler_workflow_condition WHERE id = ?")
-        .setParameter(1, id)
-        .executeUpdate();
+    // language=PostgreSQL
+    String sql = "DELETE FROM scheduler_workflow_condition WHERE id = ?";
+    ctx.em().createNativeQuery(sql).setParameter(1, id).executeUpdate();
   }
 
   @Override
   public void deleteConditionsByParentJobId(long parentJobId) {
-    ctx.em()
-        .createNativeQuery("DELETE FROM scheduler_workflow_condition WHERE parent_job_id = ?")
-        .setParameter(1, parentJobId)
-        .executeUpdate();
+    // language=PostgreSQL
+    String sql = "DELETE FROM scheduler_workflow_condition WHERE parent_job_id = ?";
+    ctx.em().createNativeQuery(sql).setParameter(1, parentJobId).executeUpdate();
   }
 
   @Override
   public void deleteConditionsByChildJobId(long childJobId) {
-    ctx.em()
-        .createNativeQuery("DELETE FROM scheduler_workflow_condition WHERE child_job_id = ?")
-        .setParameter(1, childJobId)
-        .executeUpdate();
+    // language=PostgreSQL
+    String sql = "DELETE FROM scheduler_workflow_condition WHERE child_job_id = ?";
+    ctx.em().createNativeQuery(sql).setParameter(1, childJobId).executeUpdate();
   }
 
   @Override
   public long countConditionsByParentJobId(long parentJobId) {
-    return ctx.countByNative(
-        "SELECT COUNT(*) FROM scheduler_workflow_condition WHERE parent_job_id = ?", parentJobId);
+    // language=PostgreSQL
+    String sql = "SELECT COUNT(*) FROM scheduler_workflow_condition WHERE parent_job_id = ?";
+    return ctx.countByNative(sql, parentJobId);
   }
 
   private void prepareCondition(WorkflowConditionEntity condition) {
@@ -187,15 +187,14 @@ final class PostgresqlAuxiliaryOperations
   @SuppressWarnings("unchecked")
   private List<WorkflowConditionEntity> findConditions(
       String whereClause, List<Object> params, String orderClause) {
-    Query query =
-        ctx.em()
-            .createNativeQuery(
-                "SELECT id, parent_job_id, child_job_id, condition_type, condition_expression, "
-                    + "condition_priority, created_at "
-                    + "FROM scheduler_workflow_condition "
-                    + whereClause
-                    + " "
-                    + orderClause);
+    // language=PostgreSQL
+    String sqlPrefix =
+        """
+        SELECT id, parent_job_id, child_job_id, condition_type, condition_expression,
+               condition_priority, created_at
+        FROM scheduler_workflow_condition
+        """;
+    Query query = ctx.em().createNativeQuery(sqlPrefix + whereClause + " " + orderClause);
     for (int i = 0; i < params.size(); i++) {
       query.setParameter(i + 1, params.get(i));
     }
@@ -226,36 +225,38 @@ final class PostgresqlAuxiliaryOperations
 
   @Override
   public boolean existsRecentDlqAlert(long jobId, String errorHash, Instant cutoff) {
-    long count =
-        ctx.countByNative(
-            "SELECT COUNT(*) FROM scheduler_dlq_alerts "
-                + "WHERE job_id = ? AND error_hash = ? AND alert_sent_at >= ?",
-            jobId,
-            errorHash,
-            Timestamp.from(cutoff));
+    // language=PostgreSQL
+    String sql =
+        """
+        SELECT COUNT(*) FROM scheduler_dlq_alerts
+        WHERE job_id = ? AND error_hash = ? AND alert_sent_at >= ?
+        """;
+    long count = ctx.countByNative(sql, jobId, errorHash, Timestamp.from(cutoff));
     return count > 0;
   }
 
   @Override
   public boolean tryAcquirePermit(String resource, long jobId, String nodeId) {
+    // language=PostgreSQL
+    String selectSql =
+        """
+        SELECT max_concurrent, retry_delay_ms FROM scheduler_resource_limit
+        WHERE resource_name = ?
+        FOR UPDATE
+        """;
     Object[] limitRow;
     try {
       limitRow =
           (Object[])
-              ctx.em()
-                  .createNativeQuery(
-                      "SELECT max_concurrent, retry_delay_ms FROM scheduler_resource_limit "
-                          + "WHERE resource_name = ? FOR UPDATE")
-                  .setParameter(1, resource)
-                  .getSingleResult();
+              ctx.em().createNativeQuery(selectSql).setParameter(1, resource).getSingleResult();
     } catch (NoResultException e) {
       return false;
     }
 
     int maxConcurrent = ((Number) limitRow[0]).intValue();
-    long activeCount =
-        ctx.countByNative(
-            "SELECT COUNT(*) FROM scheduler_resource_permit WHERE resource_name = ?", resource);
+    // language=PostgreSQL
+    String countSql = "SELECT COUNT(*) FROM scheduler_resource_permit WHERE resource_name = ?";
+    long activeCount = ctx.countByNative(countSql, resource);
 
     if (activeCount >= maxConcurrent) {
       return false;
@@ -268,9 +269,10 @@ final class PostgresqlAuxiliaryOperations
 
   @Override
   public void releasePermit(String resource, long jobId) {
+    // language=PostgreSQL
+    String sql = "DELETE FROM scheduler_resource_permit WHERE resource_name = ? AND job_id = ?";
     ctx.em()
-        .createNativeQuery(
-            "DELETE FROM scheduler_resource_permit WHERE resource_name = ? AND job_id = ?")
+        .createNativeQuery(sql)
         .setParameter(1, resource)
         .setParameter(2, jobId)
         .executeUpdate();
@@ -278,21 +280,17 @@ final class PostgresqlAuxiliaryOperations
 
   @Override
   public void releaseAllPermits(long jobId) {
-    ctx.em()
-        .createNativeQuery("DELETE FROM scheduler_resource_permit WHERE job_id = ?")
-        .setParameter(1, jobId)
-        .executeUpdate();
+    // language=PostgreSQL
+    String sql = "DELETE FROM scheduler_resource_permit WHERE job_id = ?";
+    ctx.em().createNativeQuery(sql).setParameter(1, jobId).executeUpdate();
   }
 
   @Override
   public int getPermitRetryDelay(String resource) {
+    // language=PostgreSQL
+    String sql = "SELECT retry_delay_ms FROM scheduler_resource_limit WHERE resource_name = ?";
     try {
-      Object result =
-          ctx.em()
-              .createNativeQuery(
-                  "SELECT retry_delay_ms FROM scheduler_resource_limit WHERE resource_name = ?")
-              .setParameter(1, resource)
-              .getSingleResult();
+      Object result = ctx.em().createNativeQuery(sql).setParameter(1, resource).getSingleResult();
       return ((Number) result).intValue();
     } catch (NoResultException e) {
       return 5000;
@@ -302,16 +300,20 @@ final class PostgresqlAuxiliaryOperations
   @Override
   public void configureResource(
       String name, int maxConcurrent, int retryDelayMs, String description) {
+    // language=PostgreSQL
+    String sql =
+        """
+        INSERT INTO scheduler_resource_limit
+          (resource_name, max_concurrent, retry_delay_ms, description, created_at, updated_at)
+        VALUES (?, ?, ?, ?, statement_timestamp(), statement_timestamp())
+        ON CONFLICT (resource_name) DO UPDATE SET
+          max_concurrent = EXCLUDED.max_concurrent,
+          retry_delay_ms = EXCLUDED.retry_delay_ms,
+          description = EXCLUDED.description,
+          updated_at = statement_timestamp()
+        """;
     ctx.em()
-        .createNativeQuery(
-            "INSERT INTO scheduler_resource_limit (resource_name, max_concurrent, retry_delay_ms, "
-                + "description, created_at, updated_at) "
-                + "VALUES (?, ?, ?, ?, statement_timestamp(), statement_timestamp()) "
-                + "ON CONFLICT (resource_name) DO UPDATE SET "
-                + "  max_concurrent = EXCLUDED.max_concurrent, "
-                + "  retry_delay_ms = EXCLUDED.retry_delay_ms, "
-                + "  description = EXCLUDED.description, "
-                + "  updated_at = statement_timestamp()")
+        .createNativeQuery(sql)
         .setParameter(1, name)
         .setParameter(2, maxConcurrent)
         .setParameter(3, retryDelayMs)
@@ -325,10 +327,9 @@ final class PostgresqlAuxiliaryOperations
       return 0;
     }
     String placeholders = String.join(",", Collections.nCopies(staleNodeIds.size(), "?"));
-    Query query =
-        ctx.em()
-            .createNativeQuery(
-                "DELETE FROM scheduler_resource_permit WHERE node_id IN (" + placeholders + ")");
+    // language=PostgreSQL
+    String sql = "DELETE FROM scheduler_resource_permit WHERE node_id IN (" + placeholders + ")";
+    Query query = ctx.em().createNativeQuery(sql);
     int parameter = 1;
     for (String nodeId : staleNodeIds) {
       query.setParameter(parameter++, nodeId);

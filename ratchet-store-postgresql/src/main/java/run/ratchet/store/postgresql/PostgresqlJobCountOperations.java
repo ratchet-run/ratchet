@@ -22,97 +22,134 @@ final class PostgresqlJobCountOperations {
 
   long countJobsByStatus(JobStatus status) {
     if (PostgresqlJobRowMapper.isLiveStatus(status)) {
-      return ctx.countByNative(
-          "SELECT COUNT(*) FROM scheduler_job_queue WHERE status = ?", status.name());
+      // language=PostgreSQL
+      String sql = "SELECT COUNT(*) FROM scheduler_job_queue WHERE status = ?";
+      return ctx.countByNative(sql, status.name());
     }
-    return ctx.countByNative(
-        "SELECT COUNT(*) FROM scheduler_job WHERE terminal_status = ?", status.name());
+    // language=PostgreSQL
+    String sql = "SELECT COUNT(*) FROM scheduler_job WHERE terminal_status = ?";
+    return ctx.countByNative(sql, status.name());
   }
 
   long countActiveJobs(JobExecutionType jobType) {
-    return ctx.countByNative(
-        "SELECT COUNT(*) FROM scheduler_job_queue "
-            + "WHERE job_type = ? AND status IN ('PENDING','RUNNING')",
-        jobType.name());
+    // language=PostgreSQL
+    String sql =
+        """
+        SELECT COUNT(*) FROM scheduler_job_queue
+        WHERE job_type = ? AND status IN ('PENDING','RUNNING')
+        """;
+    return ctx.countByNative(sql, jobType.name());
   }
 
   long countActiveNodes() {
-    return ctx.countByNative("SELECT COUNT(*) FROM scheduler_node");
+    // language=PostgreSQL
+    String sql = "SELECT COUNT(*) FROM scheduler_node";
+    return ctx.countByNative(sql);
   }
 
   long countReadyJobs(Instant now) {
-    return ctx.countByNative(
-        "SELECT COUNT(*) FROM scheduler_job_queue "
-            + "WHERE status = 'PENDING' AND scheduled_time <= ?",
-        Timestamp.from(now));
+    // language=PostgreSQL
+    String sql =
+        """
+        SELECT COUNT(*) FROM scheduler_job_queue
+        WHERE status = 'PENDING' AND scheduled_time <= ?
+        """;
+    return ctx.countByNative(sql, Timestamp.from(now));
   }
 
   long countStuckJobs(Instant stuckThreshold) {
-    return ctx.countByNative(
-        "SELECT COUNT(*) FROM scheduler_job_queue " + "WHERE status = 'RUNNING' AND picked_at < ?",
-        Timestamp.from(stuckThreshold));
+    // language=PostgreSQL
+    String sql =
+        """
+        SELECT COUNT(*) FROM scheduler_job_queue
+        WHERE status = 'RUNNING' AND picked_at < ?
+        """;
+    return ctx.countByNative(sql, Timestamp.from(stuckThreshold));
   }
 
   long countLongRunningJobs(Instant threshold) {
-    return ctx.countByNative(
-        "SELECT COUNT(*) FROM scheduler_job_queue " + "WHERE status = 'RUNNING' AND picked_at < ?",
-        Timestamp.from(threshold));
+    // language=PostgreSQL
+    String sql =
+        """
+        SELECT COUNT(*) FROM scheduler_job_queue
+        WHERE status = 'RUNNING' AND picked_at < ?
+        """;
+    return ctx.countByNative(sql, Timestamp.from(threshold));
   }
 
   long countPendingBatchChildren() {
-    return ctx.countByNative(
-        "SELECT COUNT(*) FROM scheduler_job_queue "
-            + "WHERE job_type = 'BATCH_CHILD' AND status = 'PENDING'");
+    // language=PostgreSQL
+    String sql =
+        """
+        SELECT COUNT(*) FROM scheduler_job_queue
+        WHERE job_type = 'BATCH_CHILD' AND status = 'PENDING'
+        """;
+    return ctx.countByNative(sql);
   }
 
   long countPendingJobsByPriority(JobPriority priority) {
-    return ctx.countByNative(
-        "SELECT COUNT(*) FROM scheduler_job_queue " + "WHERE status = 'PENDING' AND priority = ?",
-        priority.ordinal());
+    // language=PostgreSQL
+    String sql =
+        """
+        SELECT COUNT(*) FROM scheduler_job_queue
+        WHERE status = 'PENDING' AND priority = ?
+        """;
+    return ctx.countByNative(sql, priority.ordinal());
   }
 
   long countPendingJobsByType(JobExecutionType jobType) {
-    return ctx.countByNative(
-        "SELECT COUNT(*) FROM scheduler_job_queue " + "WHERE status = 'PENDING' AND job_type = ?",
-        jobType.name());
+    // language=PostgreSQL
+    String sql =
+        """
+        SELECT COUNT(*) FROM scheduler_job_queue
+        WHERE status = 'PENDING' AND job_type = ?
+        """;
+    return ctx.countByNative(sql, jobType.name());
   }
 
   long countJobsByStatusSince(JobStatus status, Instant since) {
     if (PostgresqlJobRowMapper.isLiveStatus(status)) {
-      return ctx.countByNative(
-          "SELECT COUNT(*) FROM scheduler_job_queue WHERE status = ? AND updated_at >= ?",
-          status.name(),
-          Timestamp.from(since));
+      // language=PostgreSQL
+      String sql = "SELECT COUNT(*) FROM scheduler_job_queue WHERE status = ? AND updated_at >= ?";
+      return ctx.countByNative(sql, status.name(), Timestamp.from(since));
     }
-    return ctx.countByNative(
-        "SELECT COUNT(*) FROM scheduler_job WHERE terminal_status = ? AND terminated_at >= ?",
-        status.name(),
-        Timestamp.from(since));
+    // language=PostgreSQL
+    String sql =
+        "SELECT COUNT(*) FROM scheduler_job WHERE terminal_status = ? AND terminated_at >= ?";
+    return ctx.countByNative(sql, status.name(), Timestamp.from(since));
   }
 
   long countJobsWithRetries() {
-    return ctx.countByNative(
-        "SELECT "
-            + "(SELECT COUNT(*) FROM scheduler_job_queue WHERE attempts > 0) "
-            + "+ (SELECT COUNT(*) FROM scheduler_job WHERE total_attempts > 0)");
+    // language=PostgreSQL
+    String sql =
+        """
+        SELECT
+          (SELECT COUNT(*) FROM scheduler_job_queue WHERE attempts > 0)
+          + (SELECT COUNT(*) FROM scheduler_job WHERE total_attempts > 0)
+        """;
+    return ctx.countByNative(sql);
   }
 
   double getRetryRateStats(Instant since) {
     Timestamp sinceTs = Timestamp.from(since);
+    // language=PostgreSQL
+    String sql =
+        """
+        SELECT COALESCE(
+          CAST(
+            ((SELECT COUNT(*) FROM scheduler_job_queue
+                WHERE attempts > 0 AND updated_at >= ?)
+             + (SELECT COUNT(*) FROM scheduler_job
+                WHERE total_attempts > 0 AND terminated_at >= ?))
+            AS DOUBLE PRECISION)
+          / NULLIF(
+            ((SELECT COUNT(*) FROM scheduler_job_queue WHERE updated_at >= ?)
+             + (SELECT COUNT(*) FROM scheduler_job
+                WHERE terminated_at >= ?)), 0), 0)
+        """;
     Object result =
         ctx.em()
-            .createNativeQuery(
-                "SELECT COALESCE("
-                    + "  CAST("
-                    + "    ((SELECT COUNT(*) FROM scheduler_job_queue "
-                    + "        WHERE attempts > 0 AND updated_at >= ?) "
-                    + "     + (SELECT COUNT(*) FROM scheduler_job "
-                    + "        WHERE total_attempts > 0 AND terminated_at >= ?))"
-                    + "    AS DOUBLE PRECISION) "
-                    + "  / NULLIF("
-                    + "    ((SELECT COUNT(*) FROM scheduler_job_queue WHERE updated_at >= ?) "
-                    + "     + (SELECT COUNT(*) FROM scheduler_job "
-                    + "        WHERE terminated_at >= ?)), 0), 0)")
+            .createNativeQuery(sql)
             .setParameter(1, sinceTs)
             .setParameter(2, sinceTs)
             .setParameter(3, sinceTs)
@@ -122,37 +159,37 @@ final class PostgresqlJobCountOperations {
   }
 
   double getAverageProcessingTime(Instant since) {
+    // language=PostgreSQL
+    String sql =
+        """
+        SELECT COALESCE(AVG(execution_duration_ms), 0) FROM scheduler_job
+        WHERE terminal_status = 'SUCCEEDED' AND execution_duration_ms IS NOT NULL
+          AND terminated_at >= ?
+        """;
     Object result =
-        ctx.em()
-            .createNativeQuery(
-                "SELECT COALESCE(AVG(execution_duration_ms), 0) FROM scheduler_job "
-                    + "WHERE terminal_status = 'SUCCEEDED' AND execution_duration_ms IS NOT NULL "
-                    + "AND terminated_at >= ?")
-            .setParameter(1, Timestamp.from(since))
-            .getSingleResult();
+        ctx.em().createNativeQuery(sql).setParameter(1, Timestamp.from(since)).getSingleResult();
     return result == null ? 0.0 : ((Number) result).doubleValue();
   }
 
   double getAverageBatchSize(Instant since) {
+    // language=PostgreSQL
+    String sql =
+        """
+        SELECT COALESCE(AVG(b.total_items), 0) FROM scheduler_batch b
+        JOIN scheduler_job c ON c.job_id = b.batch_id
+        LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
+        WHERE COALESCE(q.updated_at, c.terminated_at) >= ?
+        """;
     Object result =
-        ctx.em()
-            .createNativeQuery(
-                "SELECT COALESCE(AVG(b.total_items), 0) FROM scheduler_batch b "
-                    + "JOIN scheduler_job c ON c.job_id = b.batch_id "
-                    + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
-                    + "WHERE COALESCE(q.updated_at, c.terminated_at) >= ?")
-            .setParameter(1, Timestamp.from(since))
-            .getSingleResult();
+        ctx.em().createNativeQuery(sql).setParameter(1, Timestamp.from(since)).getSingleResult();
     return result == null ? 0.0 : ((Number) result).doubleValue();
   }
 
   @SuppressWarnings("unchecked")
   Optional<Instant> getOldestPendingJobTime() {
-    List<Object> results =
-        ctx.em()
-            .createNativeQuery(
-                "SELECT MIN(scheduled_time) FROM scheduler_job_queue WHERE status = 'PENDING'")
-            .getResultList();
+    // language=PostgreSQL
+    String sql = "SELECT MIN(scheduled_time) FROM scheduler_job_queue WHERE status = 'PENDING'";
+    List<Object> results = ctx.em().createNativeQuery(sql).getResultList();
     if (results.isEmpty() || results.get(0) == null) {
       return Optional.empty();
     }
@@ -160,14 +197,14 @@ final class PostgresqlJobCountOperations {
   }
 
   long getQueueWaitTimePercentile(double percentile) {
-    Object result =
-        ctx.em()
-            .createNativeQuery(
-                "SELECT COALESCE(PERCENTILE_CONT(?) WITHIN GROUP (ORDER BY queue_wait_ms), 0) "
-                    + "FROM scheduler_job WHERE queue_wait_ms IS NOT NULL "
-                    + "AND terminal_status = 'SUCCEEDED'")
-            .setParameter(1, percentile)
-            .getSingleResult();
+    // language=PostgreSQL
+    String sql =
+        """
+        SELECT COALESCE(PERCENTILE_CONT(?) WITHIN GROUP (ORDER BY queue_wait_ms), 0)
+        FROM scheduler_job WHERE queue_wait_ms IS NOT NULL
+          AND terminal_status = 'SUCCEEDED'
+        """;
+    Object result = ctx.em().createNativeQuery(sql).setParameter(1, percentile).getSingleResult();
     return result == null ? 0L : ((Number) result).longValue();
   }
 }

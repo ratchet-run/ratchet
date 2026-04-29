@@ -86,18 +86,21 @@ public class PerformanceReportWriter {
     // Write combined JSON report
     try {
       Path combinedFile = outputDir.resolve(dbType + "-results.json");
+      // language=JSON
+      String template =
+          """
+          {
+            "database": "%s",
+            "timestamp": "%s",
+            "results": [
+          %s
+            ]
+          }""";
       String json =
-          "{\n"
-              + "  \"database\": \""
-              + dbType
-              + "\",\n"
-              + "  \"timestamp\": \""
-              + Instant.now()
-              + "\",\n"
-              + "  \"results\": [\n"
-              + allJsonEntries.stream().map(e -> "    " + e).collect(Collectors.joining(",\n"))
-              + "\n  ]\n"
-              + "}";
+          template.formatted(
+              dbType,
+              Instant.now(),
+              allJsonEntries.stream().map(e -> "    " + e).collect(Collectors.joining(",\n")));
       Files.writeString(combinedFile, json);
       log.info(
           "Combined performance report written to "

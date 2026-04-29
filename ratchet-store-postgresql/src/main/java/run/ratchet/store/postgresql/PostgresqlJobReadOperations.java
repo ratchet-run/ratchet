@@ -14,6 +14,13 @@ final class PostgresqlJobReadOperations {
 
   private static final Logger log = Logger.getLogger(PostgresqlJobReadOperations.class);
 
+  // language=PostgreSQL
+  private static final String HYDRATION_FROM =
+      """
+      FROM scheduler_job c
+      LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
+      """;
+
   private final PostgresqlStoreContext ctx;
   private final PostgresqlTagOperations tags;
 
@@ -24,16 +31,14 @@ final class PostgresqlJobReadOperations {
 
   @SuppressWarnings("unchecked")
   Optional<JobEntity> findById(long id) {
-    List<Object[]> rows =
-        ctx.em()
-            .createNativeQuery(
-                "SELECT "
-                    + PostgresqlJobRowMapper.hydrationSelect()
-                    + " FROM scheduler_job c "
-                    + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
-                    + "WHERE c.job_id = ?")
-            .setParameter(1, id)
-            .getResultList();
+    // language=PostgreSQL
+    String sql =
+        "SELECT "
+            + PostgresqlJobRowMapper.hydrationSelect()
+            + " "
+            + HYDRATION_FROM
+            + " WHERE c.job_id = ?";
+    List<Object[]> rows = ctx.em().createNativeQuery(sql).setParameter(1, id).getResultList();
     if (rows.isEmpty()) {
       return Optional.empty();
     }
@@ -48,15 +53,15 @@ final class PostgresqlJobReadOperations {
 
   @SuppressWarnings("unchecked")
   JobStatus getJobStatus(long id) {
-    List<Object[]> results =
-        ctx.em()
-            .createNativeQuery(
-                "SELECT q.status, c.rec_status, c.terminal_status "
-                    + "FROM scheduler_job c "
-                    + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
-                    + "WHERE c.job_id = ?")
-            .setParameter(1, id)
-            .getResultList();
+    // language=PostgreSQL
+    String sql =
+        """
+        SELECT q.status, c.rec_status, c.terminal_status
+        FROM scheduler_job c
+        LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
+        WHERE c.job_id = ?
+        """;
+    List<Object[]> results = ctx.em().createNativeQuery(sql).setParameter(1, id).getResultList();
     if (results.isEmpty()) {
       return null;
     }
@@ -84,16 +89,16 @@ final class PostgresqlJobReadOperations {
       return List.of();
     }
     String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
-    Query query =
-        ctx.em()
-            .createNativeQuery(
-                "SELECT "
-                    + PostgresqlJobRowMapper.hydrationSelect()
-                    + " FROM scheduler_job c "
-                    + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
-                    + "WHERE c.job_id IN ("
-                    + placeholders
-                    + ")");
+    // language=PostgreSQL
+    String sql =
+        "SELECT "
+            + PostgresqlJobRowMapper.hydrationSelect()
+            + " "
+            + HYDRATION_FROM
+            + " WHERE c.job_id IN ("
+            + placeholders
+            + ")";
+    Query query = ctx.em().createNativeQuery(sql);
     int parameter = 1;
     for (Long id : ids) {
       query.setParameter(parameter++, id);
@@ -109,17 +114,16 @@ final class PostgresqlJobReadOperations {
 
   @SuppressWarnings("unchecked")
   Optional<JobEntity> findActiveByBusinessKey(String businessKey) {
+    // language=PostgreSQL
+    String sql =
+        "SELECT br.owner_table, "
+            + PostgresqlJobRowMapper.hydrationSelect()
+            + " FROM scheduler_business_key_reservation br "
+            + "JOIN scheduler_job c ON c.job_id = br.owner_job_id "
+            + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
+            + "WHERE br.business_key = ? LIMIT 1";
     List<Object[]> rows =
-        ctx.em()
-            .createNativeQuery(
-                "SELECT br.owner_table, "
-                    + PostgresqlJobRowMapper.hydrationSelect()
-                    + " FROM scheduler_business_key_reservation br "
-                    + "JOIN scheduler_job c ON c.job_id = br.owner_job_id "
-                    + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
-                    + "WHERE br.business_key = ? LIMIT 1")
-            .setParameter(1, businessKey)
-            .getResultList();
+        ctx.em().createNativeQuery(sql).setParameter(1, businessKey).getResultList();
     if (rows.isEmpty()) {
       return Optional.empty();
     }
@@ -141,16 +145,15 @@ final class PostgresqlJobReadOperations {
 
   @SuppressWarnings("unchecked")
   Optional<JobEntity> findByIdempotencyKey(String idempotencyKey) {
+    // language=PostgreSQL
+    String sql =
+        "SELECT "
+            + PostgresqlJobRowMapper.hydrationSelect()
+            + " "
+            + HYDRATION_FROM
+            + " WHERE c.idempotency_key = ? LIMIT 1";
     List<Object[]> rows =
-        ctx.em()
-            .createNativeQuery(
-                "SELECT "
-                    + PostgresqlJobRowMapper.hydrationSelect()
-                    + " FROM scheduler_job c "
-                    + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
-                    + "WHERE c.idempotency_key = ? LIMIT 1")
-            .setParameter(1, idempotencyKey)
-            .getResultList();
+        ctx.em().createNativeQuery(sql).setParameter(1, idempotencyKey).getResultList();
     if (rows.isEmpty()) {
       return Optional.empty();
     }
@@ -161,16 +164,15 @@ final class PostgresqlJobReadOperations {
 
   @SuppressWarnings("unchecked")
   List<JobEntity> findDependants(long parentJobId) {
+    // language=PostgreSQL
+    String sql =
+        "SELECT "
+            + PostgresqlJobRowMapper.hydrationSelect()
+            + " "
+            + HYDRATION_FROM
+            + " WHERE c.depends_on = ?";
     List<Object[]> rows =
-        ctx.em()
-            .createNativeQuery(
-                "SELECT "
-                    + PostgresqlJobRowMapper.hydrationSelect()
-                    + " FROM scheduler_job c "
-                    + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
-                    + "WHERE c.depends_on = ?")
-            .setParameter(1, parentJobId)
-            .getResultList();
+        ctx.em().createNativeQuery(sql).setParameter(1, parentJobId).getResultList();
     List<JobEntity> jobs = new ArrayList<>(rows.size());
     for (Object[] row : rows) {
       jobs.add(PostgresqlJobRowMapper.hydrate(row));
@@ -181,13 +183,14 @@ final class PostgresqlJobReadOperations {
 
   @SuppressWarnings("unchecked")
   Optional<Instant> findEarliestRecurringNextFire() {
-    List<Object> results =
-        ctx.em()
-            .createNativeQuery(
-                "SELECT MIN(next_fire) FROM scheduler_job "
-                    + "WHERE job_type = 'RECURRING' AND rec_status = 'P' "
-                    + "AND next_fire IS NOT NULL")
-            .getResultList();
+    // language=PostgreSQL
+    String sql =
+        """
+        SELECT MIN(next_fire) FROM scheduler_job
+        WHERE job_type = 'RECURRING' AND rec_status = 'P'
+          AND next_fire IS NOT NULL
+        """;
+    List<Object> results = ctx.em().createNativeQuery(sql).getResultList();
     if (results.isEmpty() || results.get(0) == null) {
       return Optional.empty();
     }

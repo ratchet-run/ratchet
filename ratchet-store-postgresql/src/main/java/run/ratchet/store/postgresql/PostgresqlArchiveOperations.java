@@ -15,18 +15,24 @@ import java.util.List;
 final class PostgresqlArchiveOperations implements ArchiveStore {
 
   private static final String ARCHIVE_COLUMNS =
-      "archive_id, original_job_id, final_status, job_type, priority, total_attempts, "
-          + "max_retries, backoff_policy, backoff_param_ms, timeout_sec, target_class, "
-          + "method_name, business_key, cron_expr, zone_id, original_scheduled_time, "
-          + "original_created_at, first_execution_time, completion_time, "
-          + "total_execution_time_ms, queue_wait_ms, archived_at, archived_by, archive_reason, "
-          + "job_result, result_type, final_error, payload_summary, depended_on, superseded_by, "
-          + "tags";
+      """
+      archive_id, original_job_id, final_status, job_type, priority, total_attempts,
+      max_retries, backoff_policy, backoff_param_ms, timeout_sec, target_class,
+      method_name, business_key, cron_expr, zone_id, original_scheduled_time,
+      original_created_at, first_execution_time, completion_time,
+      total_execution_time_ms, queue_wait_ms, archived_at, archived_by, archive_reason,
+      job_result, result_type, final_error, payload_summary, depended_on, superseded_by,
+      tags
+      """;
 
+  // language=PostgreSQL
   private static final String INSERT_ARCHIVE_SQL =
-      "INSERT INTO scheduler_job_archive ("
-          + ARCHIVE_COLUMNS
-          + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+      """
+      INSERT INTO scheduler_job_archive (%s)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      """
+          .formatted(ARCHIVE_COLUMNS);
 
   private final PostgresqlStoreContext ctx;
   private final PostgresqlJobReadOperations reads;
@@ -60,17 +66,21 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
   @Override
   @SuppressWarnings("unchecked")
   public List<JobEntity> findJobsForArchiving(Instant olderThan, int limit) {
+    // language=PostgreSQL
+    String sql =
+        """
+        SELECT %s
+        FROM scheduler_job c
+        LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
+        WHERE c.terminal_status IS NOT NULL
+          AND c.terminated_at < ?
+        ORDER BY c.terminated_at ASC
+        LIMIT ?
+        """
+            .formatted(PostgresqlJobRowMapper.hydrationSelect());
     List<Object[]> rows =
         ctx.em()
-            .createNativeQuery(
-                "SELECT "
-                    + PostgresqlJobRowMapper.hydrationSelect()
-                    + " FROM scheduler_job c "
-                    + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
-                    + "WHERE c.terminal_status IS NOT NULL "
-                    + "AND c.terminated_at < ? "
-                    + "ORDER BY c.terminated_at ASC "
-                    + "LIMIT ?")
+            .createNativeQuery(sql)
             .setParameter(1, Timestamp.from(olderThan))
             .setParameter(2, limit)
             .getResultList();
@@ -79,10 +89,13 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
 
   @Override
   public long countJobsForArchiving(Instant olderThan) {
-    return ctx.countByNative(
-        "SELECT COUNT(*) FROM scheduler_job "
-            + "WHERE terminal_status IS NOT NULL AND terminated_at < ?",
-        Timestamp.from(olderThan));
+    // language=PostgreSQL
+    String sql =
+        """
+        SELECT COUNT(*) FROM scheduler_job
+        WHERE terminal_status IS NOT NULL AND terminated_at < ?
+        """;
+    return ctx.countByNative(sql, Timestamp.from(olderThan));
   }
 
   @Override
@@ -123,8 +136,10 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
 
   @Override
   public int purgeArchivedJobs(Instant olderThan) {
+    // language=PostgreSQL
+    String sql = "DELETE FROM scheduler_job_archive WHERE archived_at < ?";
     return ctx.em()
-        .createNativeQuery("DELETE FROM scheduler_job_archive WHERE archived_at < ?")
+        .createNativeQuery(sql)
         .setParameter(1, Timestamp.from(olderThan))
         .executeUpdate();
   }

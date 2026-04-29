@@ -8,13 +8,17 @@ import java.time.Instant;
 public final class ArchiveHelper {
 
   /** JPQL for finding terminal jobs older than a cutoff, used by both JPA store implementations. */
+  // language=JPAQL
   public static final String FIND_JOBS_FOR_ARCHIVING_JPQL =
-      "SELECT DISTINCT j FROM JobEntity j LEFT JOIN FETCH j.tags WHERE j.status IN ("
-          + "run.ratchet.store.entity.JobStatus.SUCCEEDED, "
-          + "run.ratchet.store.entity.JobStatus.FAILED, "
-          + "run.ratchet.store.entity.JobStatus.CANCELED) "
-          + "AND j.updatedAt < :cutoff "
-          + "ORDER BY j.updatedAt ASC";
+      """
+      SELECT DISTINCT j FROM JobEntity j LEFT JOIN FETCH j.tags
+      WHERE j.status IN (
+        run.ratchet.store.entity.JobStatus.SUCCEEDED,
+        run.ratchet.store.entity.JobStatus.FAILED,
+        run.ratchet.store.entity.JobStatus.CANCELED)
+        AND j.updatedAt < :cutoff
+      ORDER BY j.updatedAt ASC
+      """;
 
   private ArchiveHelper() {}
 

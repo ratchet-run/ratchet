@@ -15,18 +15,24 @@ import java.util.List;
 final class MysqlArchiveOperations implements ArchiveStore {
 
   private static final String ARCHIVE_COLUMNS =
-      "archive_id, original_job_id, final_status, job_type, priority, total_attempts, "
-          + "max_retries, backoff_policy, backoff_param_ms, timeout_sec, target_class, "
-          + "method_name, business_key, cron_expr, zone_id, original_scheduled_time, "
-          + "original_created_at, first_execution_time, completion_time, "
-          + "total_execution_time_ms, queue_wait_ms, archived_at, archived_by, archive_reason, "
-          + "job_result, result_type, final_error, payload_summary, depended_on, superseded_by, "
-          + "tags";
+      """
+      archive_id, original_job_id, final_status, job_type, priority, total_attempts,
+      max_retries, backoff_policy, backoff_param_ms, timeout_sec, target_class,
+      method_name, business_key, cron_expr, zone_id, original_scheduled_time,
+      original_created_at, first_execution_time, completion_time,
+      total_execution_time_ms, queue_wait_ms, archived_at, archived_by, archive_reason,
+      job_result, result_type, final_error, payload_summary, depended_on, superseded_by,
+      tags
+      """;
 
+  // language=MySQL
   private static final String INSERT_ARCHIVE_SQL =
-      "INSERT INTO scheduler_job_archive ("
-          + ARCHIVE_COLUMNS
-          + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+      """
+      INSERT INTO scheduler_job_archive (%s)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      """
+          .formatted(ARCHIVE_COLUMNS);
 
   private final MysqlStoreContext ctx;
   private final MysqlJobRowMapper mapper;
@@ -68,16 +74,20 @@ final class MysqlArchiveOperations implements ArchiveStore {
   @Override
   @SuppressWarnings("unchecked")
   public List<JobEntity> findJobsForArchiving(Instant olderThan, int limit) {
+    // language=MySQL
+    String sql =
+        """
+        SELECT %s
+        FROM scheduler_job c
+        LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
+        WHERE c.terminal_status IS NOT NULL AND c.terminated_at < ?
+        ORDER BY c.terminated_at ASC
+        LIMIT ?
+        """
+            .formatted(MysqlJobRowMapper.HYDRATION_SELECT);
     List<Object[]> rows =
         ctx.em()
-            .createNativeQuery(
-                "SELECT "
-                    + MysqlJobRowMapper.HYDRATION_SELECT
-                    + " FROM scheduler_job c "
-                    + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
-                    + "WHERE c.terminal_status IS NOT NULL AND c.terminated_at < ? "
-                    + "ORDER BY c.terminated_at ASC "
-                    + "LIMIT ?")
+            .createNativeQuery(sql)
             .setParameter(1, Timestamp.from(olderThan))
             .setParameter(2, limit)
             .getResultList();
@@ -91,11 +101,15 @@ final class MysqlArchiveOperations implements ArchiveStore {
 
   @Override
   public long countJobsForArchiving(Instant olderThan) {
+    // language=MySQL
+    String sql =
+        """
+        SELECT COUNT(*) FROM scheduler_job
+        WHERE terminal_status IS NOT NULL AND terminated_at < ?
+        """;
     Object result =
         ctx.em()
-            .createNativeQuery(
-                "SELECT COUNT(*) FROM scheduler_job "
-                    + "WHERE terminal_status IS NOT NULL AND terminated_at < ?")
+            .createNativeQuery(sql)
             .setParameter(1, Timestamp.from(olderThan))
             .getSingleResult();
     return ((Number) result).longValue();
@@ -139,8 +153,10 @@ final class MysqlArchiveOperations implements ArchiveStore {
 
   @Override
   public int purgeArchivedJobs(Instant olderThan) {
+    // language=MySQL
+    String sql = "DELETE FROM scheduler_job_archive WHERE archived_at < ?";
     return ctx.em()
-        .createNativeQuery("DELETE FROM scheduler_job_archive WHERE archived_at < ?")
+        .createNativeQuery(sql)
         .setParameter(1, Timestamp.from(olderThan))
         .executeUpdate();
   }

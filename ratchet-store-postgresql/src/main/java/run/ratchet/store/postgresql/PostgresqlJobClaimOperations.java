@@ -44,27 +44,29 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
    * <p>Placeholder order: any placeholders in {@code typeFilter} → {@code boostInterval} (if &gt;
    * 0) → {@code limit} → {@code nodeId}.
    */
+  // language=PostgreSQL
   private static String buildQueueClaimSql(
       String typeFilter, String timeColumn, int boostInterval) {
-    return "WITH picked AS ("
-        + "  SELECT job_id FROM scheduler_job_queue"
-        + "  WHERE status = 'PENDING'"
-        + "    AND "
-        + timeColumn
-        + " <= statement_timestamp()"
-        + "    AND "
-        + typeFilter
-        + "  ORDER BY "
-        + buildBoostOrderBy(timeColumn, boostInterval)
-        + "  FOR UPDATE SKIP LOCKED"
-        + "  LIMIT ?"
-        + ") "
-        + "UPDATE scheduler_job_queue AS q SET status = 'RUNNING', picked_by = ?, "
-        + "picked_at = statement_timestamp(), updated_at = statement_timestamp(), "
-        + "version = version + 1 "
-        + "FROM picked WHERE q.job_id = picked.job_id "
-        + "RETURNING q.job_id, q.status, q.job_type, q.priority, q.scheduled_time, q.version, "
-        + "q.timeout_sec, q.picked_by, q.picked_at, q.business_key, q.attempts, q.max_retries";
+    return """
+        WITH picked AS (
+          SELECT job_id FROM scheduler_job_queue
+          WHERE status = 'PENDING'
+            AND %s <= statement_timestamp()
+            AND %s
+          ORDER BY %s
+          FOR UPDATE SKIP LOCKED
+          LIMIT ?
+        )
+        UPDATE scheduler_job_queue AS q
+        SET status = 'RUNNING', picked_by = ?,
+            picked_at = statement_timestamp(), updated_at = statement_timestamp(),
+            version = version + 1
+        FROM picked
+        WHERE q.job_id = picked.job_id
+        RETURNING q.job_id, q.status, q.job_type, q.priority, q.scheduled_time, q.version,
+                  q.timeout_sec, q.picked_by, q.picked_at, q.business_key, q.attempts, q.max_retries
+        """
+        .formatted(timeColumn, typeFilter, buildBoostOrderBy(timeColumn, boostInterval));
   }
 
   @Override
@@ -152,18 +154,19 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
     }
     try {
       int boostInterval = ctx.priorityBoostIntervalMinutes();
-      Query selectQuery =
-          ctx.em()
-              .createNativeQuery(
-                  "SELECT job_id FROM scheduler_job "
-                      + "WHERE job_type = 'RECURRING' "
-                      + "  AND rec_status = 'P' "
-                      + "  AND next_fire <= statement_timestamp() "
-                      + "ORDER BY "
-                      + buildBoostOrderBy("next_fire", boostInterval)
-                      + " "
-                      + "LIMIT ? "
-                      + "FOR UPDATE SKIP LOCKED");
+      // language=PostgreSQL
+      String sql =
+          """
+          SELECT job_id FROM scheduler_job
+          WHERE job_type = 'RECURRING'
+            AND rec_status = 'P'
+            AND next_fire <= statement_timestamp()
+          ORDER BY %s
+          LIMIT ?
+          FOR UPDATE SKIP LOCKED
+          """
+              .formatted(buildBoostOrderBy("next_fire", boostInterval));
+      Query selectQuery = ctx.em().createNativeQuery(sql);
       int parameter = 1;
       if (boostInterval > 0) {
         selectQuery.setParameter(parameter++, boostInterval);

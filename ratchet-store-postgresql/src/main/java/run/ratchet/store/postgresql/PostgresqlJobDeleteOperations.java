@@ -21,10 +21,9 @@ final class PostgresqlJobDeleteOperations {
 
   void delete(long id) {
     reservations.deleteReservationByOwner(id);
-    ctx.em()
-        .createNativeQuery("DELETE FROM scheduler_job WHERE job_id = ?")
-        .setParameter(1, id)
-        .executeUpdate();
+    // language=PostgreSQL
+    String sql = "DELETE FROM scheduler_job WHERE job_id = ?";
+    ctx.em().createNativeQuery(sql).setParameter(1, id).executeUpdate();
   }
 
   int deleteJobsByIds(List<Long> ids) {
@@ -33,9 +32,9 @@ final class PostgresqlJobDeleteOperations {
     }
     reservations.deleteReservationsByOwners(ids);
     String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
-    Query jobDelete =
-        ctx.em()
-            .createNativeQuery("DELETE FROM scheduler_job WHERE job_id IN (" + placeholders + ")");
+    // language=PostgreSQL
+    String sql = "DELETE FROM scheduler_job WHERE job_id IN (" + placeholders + ")";
+    Query jobDelete = ctx.em().createNativeQuery(sql);
     int parameter = 1;
     for (Long id : ids) {
       jobDelete.setParameter(parameter++, id);
@@ -44,13 +43,17 @@ final class PostgresqlJobDeleteOperations {
   }
 
   int deleteDlqOlderThan(Instant cutoff) {
+    // language=PostgreSQL
+    String selectSql =
+        """
+        SELECT job_id FROM scheduler_job
+        WHERE terminal_status = 'FAILED' AND total_attempts >= max_retries
+          AND terminated_at < ?
+        """;
     @SuppressWarnings("unchecked")
     List<Number> idRows =
         ctx.em()
-            .createNativeQuery(
-                "SELECT job_id FROM scheduler_job "
-                    + "WHERE terminal_status = 'FAILED' AND total_attempts >= max_retries "
-                    + "AND terminated_at < ?")
+            .createNativeQuery(selectSql)
             .setParameter(1, Timestamp.from(cutoff))
             .getResultList();
     if (idRows.isEmpty()) {
@@ -62,9 +65,9 @@ final class PostgresqlJobDeleteOperations {
     }
     reservations.deleteReservationsByOwners(idRows);
     String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
-    Query jobDelete =
-        ctx.em()
-            .createNativeQuery("DELETE FROM scheduler_job WHERE job_id IN (" + placeholders + ")");
+    // language=PostgreSQL
+    String deleteSql = "DELETE FROM scheduler_job WHERE job_id IN (" + placeholders + ")";
+    Query jobDelete = ctx.em().createNativeQuery(deleteSql);
     int parameter = 1;
     for (Long id : ids) {
       jobDelete.setParameter(parameter++, id);
@@ -74,30 +77,37 @@ final class PostgresqlJobDeleteOperations {
 
   int resetOrphanJobs(Duration grace) {
     long graceSeconds = grace.toSeconds();
+    // language=PostgreSQL
+    String sql =
+        """
+        UPDATE scheduler_job_queue
+        SET status = 'PENDING',
+            picked_by = NULL, picked_at = NULL,
+            updated_at = statement_timestamp()
+        WHERE status = 'RUNNING'
+          AND picked_by NOT IN (
+            SELECT node_id FROM scheduler_node
+            WHERE heartbeat_ts > statement_timestamp() - ? * interval '1 second'
+          )
+          AND extract(epoch from (statement_timestamp() - picked_at))::bigint >= ?
+        """;
     return ctx.em()
-        .createNativeQuery(
-            "UPDATE scheduler_job_queue SET status = 'PENDING', "
-                + "picked_by = NULL, picked_at = NULL, "
-                + "updated_at = statement_timestamp() "
-                + "WHERE status = 'RUNNING' "
-                + "AND picked_by NOT IN ("
-                + "  SELECT node_id FROM scheduler_node "
-                + "  WHERE heartbeat_ts > statement_timestamp() - ? * interval '1 second'"
-                + ") "
-                + "AND extract(epoch from (statement_timestamp() - picked_at))::bigint >= ?")
+        .createNativeQuery(sql)
         .setParameter(1, graceSeconds)
         .setParameter(2, graceSeconds)
         .executeUpdate();
   }
 
   int resetOrphanJobsForNode(String nodeId) {
-    return ctx.em()
-        .createNativeQuery(
-            "UPDATE scheduler_job_queue SET status = 'PENDING', "
-                + "picked_by = NULL, picked_at = NULL, "
-                + "updated_at = statement_timestamp() "
-                + "WHERE status = 'RUNNING' AND picked_by = ?")
-        .setParameter(1, nodeId)
-        .executeUpdate();
+    // language=PostgreSQL
+    String sql =
+        """
+        UPDATE scheduler_job_queue
+        SET status = 'PENDING',
+            picked_by = NULL, picked_at = NULL,
+            updated_at = statement_timestamp()
+        WHERE status = 'RUNNING' AND picked_by = ?
+        """;
+    return ctx.em().createNativeQuery(sql).setParameter(1, nodeId).executeUpdate();
   }
 }

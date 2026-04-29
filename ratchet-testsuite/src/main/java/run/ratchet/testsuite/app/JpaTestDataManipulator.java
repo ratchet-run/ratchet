@@ -31,17 +31,17 @@ public class JpaTestDataManipulator implements TestDataManipulator {
       // archive/DLQ-purge cutoff lives on cold.terminated_at, and the live update timestamp
       // lives on scheduler_job_queue.updated_at. Tests aim this method at one or the other
       // depending on the row's lifecycle stage.
-      em().createNativeQuery(
-              "UPDATE scheduler_job SET terminated_at = ?1 "
-                  + "WHERE job_id = ?2 AND terminal_status IS NOT NULL")
-          .setParameter(1, ts)
-          .setParameter(2, jobId)
-          .executeUpdate();
+      // language=SQL
+      String coldSql =
+          """
+          UPDATE scheduler_job SET terminated_at = ?1
+          WHERE job_id = ?2 AND terminal_status IS NOT NULL
+          """;
+      em().createNativeQuery(coldSql).setParameter(1, ts).setParameter(2, jobId).executeUpdate();
       try {
-        em().createNativeQuery("UPDATE scheduler_job_queue SET updated_at = ?1 WHERE job_id = ?2")
-            .setParameter(1, ts)
-            .setParameter(2, jobId)
-            .executeUpdate();
+        // language=SQL
+        String hotSql = "UPDATE scheduler_job_queue SET updated_at = ?1 WHERE job_id = ?2";
+        em().createNativeQuery(hotSql).setParameter(1, ts).setParameter(2, jobId).executeUpdate();
       } catch (RuntimeException ignored) {
         // The queue row may not exist once a job has moved to the terminal table.
       }

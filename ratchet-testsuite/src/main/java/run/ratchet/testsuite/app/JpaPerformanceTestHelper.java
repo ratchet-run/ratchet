@@ -45,9 +45,13 @@ public class JpaPerformanceTestHelper implements PerformanceTestHelper {
       // Refresh table statistics for accurate query planner estimates
       utx.begin();
       if ("postgresql".equals(dbType)) {
-        em().createNativeQuery("ANALYZE scheduler_job").executeUpdate();
+        // language=PostgreSQL
+        String pgAnalyze = "ANALYZE scheduler_job";
+        em().createNativeQuery(pgAnalyze).executeUpdate();
       } else {
-        em().createNativeQuery("ANALYZE TABLE scheduler_job").getResultList();
+        // language=MySQL
+        String mysqlAnalyze = "ANALYZE TABLE scheduler_job";
+        em().createNativeQuery(mysqlAnalyze).getResultList();
       }
       utx.commit();
     } catch (RuntimeException e) {
@@ -64,14 +68,16 @@ public class JpaPerformanceTestHelper implements PerformanceTestHelper {
   public long queryQueueWaitPercentileForClass(String targetClass, double percentile) {
     try {
       utx.begin();
+      // language=SQL
+      String sql =
+          """
+          SELECT queue_wait_ms FROM scheduler_job
+          WHERE target_class = :cls AND status = 'SUCCEEDED'
+            AND queue_wait_ms IS NOT NULL
+          ORDER BY queue_wait_ms
+          """;
       List<Number> results =
-          em().createNativeQuery(
-                  "SELECT queue_wait_ms FROM scheduler_job"
-                      + " WHERE target_class = :cls AND status = 'SUCCEEDED'"
-                      + " AND queue_wait_ms IS NOT NULL"
-                      + " ORDER BY queue_wait_ms")
-              .setParameter("cls", targetClass)
-              .getResultList();
+          em().createNativeQuery(sql).setParameter("cls", targetClass).getResultList();
       utx.commit();
 
       if (results.isEmpty()) {
@@ -104,13 +110,14 @@ public class JpaPerformanceTestHelper implements PerformanceTestHelper {
   }
 
   private void assertNoFullScanPostgresql(String label, Runnable storeOperation) throws Exception {
+    // language=PostgreSQL
+    String statSql =
+        """
+        SELECT seq_scan, idx_scan FROM pg_stat_user_tables
+        WHERE relname = 'scheduler_job'
+        """;
     utx.begin();
-    Object[] before =
-        (Object[])
-            em().createNativeQuery(
-                    "SELECT seq_scan, idx_scan FROM pg_stat_user_tables"
-                        + " WHERE relname = 'scheduler_job'")
-                .getSingleResult();
+    Object[] before = (Object[]) em().createNativeQuery(statSql).getSingleResult();
     utx.commit();
 
     long seqBefore = ((Number) before[0]).longValue();
@@ -121,12 +128,7 @@ public class JpaPerformanceTestHelper implements PerformanceTestHelper {
     utx.commit();
 
     utx.begin();
-    Object[] after =
-        (Object[])
-            em().createNativeQuery(
-                    "SELECT seq_scan, idx_scan FROM pg_stat_user_tables"
-                        + " WHERE relname = 'scheduler_job'")
-                .getSingleResult();
+    Object[] after = (Object[]) em().createNativeQuery(statSql).getSingleResult();
     utx.commit();
 
     long seqDelta = ((Number) after[0]).longValue() - seqBefore;
@@ -160,62 +162,58 @@ public class JpaPerformanceTestHelper implements PerformanceTestHelper {
     // Generate TSID-like IDs: timestamp_ms shifted left 22 bits + series counter.
     // The base TSID is computed once per chunk from TsidFactory to avoid collisions.
     long baseTsid = TsidFactory.next();
-    em().createNativeQuery(
-            "INSERT INTO scheduler_job "
-                + "(job_id, status, scheduled_time, job_type, payload, idempotency_key, "
-                + "business_key, execution_start_time, execution_end_time, "
-                + "created_at, updated_at) "
-                + "SELECT "
-                + baseTsid
-                + " + g, "
-                + "'SUCCEEDED', NOW() - INTERVAL '1 hour', 'SINGLE', "
-                + "'{\"target\":\"run.ratchet.testsuite.app.TimingJob\","
-                + "\"method\":\"execute\",\"descriptor\":\"()V\","
-                + "\"isStatic\":true,\"args\":[]}'::jsonb, "
-                + "gen_random_uuid()::text, "
-                + "'"
-                + keyPrefix
-                + "-' || (g + "
-                + offset
-                + "), "
-                + "NOW() - INTERVAL '1 hour', "
-                + "NOW() - INTERVAL '1 hour' + INTERVAL '10 milliseconds', "
-                + "NOW(), NOW() "
-                + "FROM generate_series(1, "
-                + batchCount
-                + ") AS g")
-        .executeUpdate();
+    // language=PostgreSQL
+    String sql =
+        """
+        INSERT INTO scheduler_job
+          (job_id, status, scheduled_time, job_type, payload, idempotency_key,
+           business_key, execution_start_time, execution_end_time,
+           created_at, updated_at)
+        SELECT %d + g,
+               'SUCCEEDED', NOW() - INTERVAL '1 hour', 'SINGLE',
+               '{"target":"run.ratchet.testsuite.app.TimingJob",\
+        "method":"execute","descriptor":"()V",\
+        "isStatic":true,"args":[]}'::jsonb,
+               gen_random_uuid()::text,
+               '%s-' || (g + %d),
+               NOW() - INTERVAL '1 hour',
+               NOW() - INTERVAL '1 hour' + INTERVAL '10 milliseconds',
+               NOW(), NOW()
+        FROM generate_series(1, %d) AS g
+        """
+            .formatted(baseTsid, keyPrefix, offset, batchCount);
+    em().createNativeQuery(sql).executeUpdate();
   }
 
   private void insertMysqlChunk(int batchCount, int offset, String keyPrefix) {
     long baseTsid = TsidFactory.next();
-    em().createNativeQuery("SET @@cte_max_recursion_depth = " + (batchCount + 1)).executeUpdate();
-    em().createNativeQuery(
-            "INSERT INTO scheduler_job "
-                + "(job_id, status, scheduled_time, job_type, payload, idempotency_key, "
-                + "business_key, execution_start_time, execution_end_time, "
-                + "created_at, updated_at) "
-                + "WITH RECURSIVE seq(n) AS ("
-                + "SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < "
-                + batchCount
-                + ") "
-                + "SELECT "
-                + baseTsid
-                + " + n, "
-                + "'SUCCEEDED', NOW() - INTERVAL 1 HOUR, 'SINGLE', "
-                + "JSON_OBJECT('target','run.ratchet.testsuite.app.TimingJob',"
-                + "'method','execute','descriptor','()V','isStatic',true,'args',JSON_ARRAY()), "
-                + "UUID(), "
-                + "CONCAT('"
-                + keyPrefix
-                + "-', n + "
-                + offset
-                + "), "
-                + "NOW() - INTERVAL 1 HOUR, "
-                + "DATE_ADD(NOW() - INTERVAL 1 HOUR, INTERVAL 10000 MICROSECOND), "
-                + "NOW(), NOW() "
-                + "FROM seq")
-        .executeUpdate();
+    // language=MySQL
+    String setDepthSql = "SET @@cte_max_recursion_depth = " + (batchCount + 1);
+    em().createNativeQuery(setDepthSql).executeUpdate();
+    // language=MySQL
+    String sql =
+        """
+        INSERT INTO scheduler_job
+          (job_id, status, scheduled_time, job_type, payload, idempotency_key,
+           business_key, execution_start_time, execution_end_time,
+           created_at, updated_at)
+        WITH RECURSIVE seq(n) AS (
+          SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < %d
+        )
+        SELECT %d + n,
+               'SUCCEEDED', NOW() - INTERVAL 1 HOUR, 'SINGLE',
+               JSON_OBJECT('target','run.ratchet.testsuite.app.TimingJob',
+                           'method','execute','descriptor','()V','isStatic',true,
+                           'args',JSON_ARRAY()),
+               UUID(),
+               CONCAT('%s-', n + %d),
+               NOW() - INTERVAL 1 HOUR,
+               DATE_ADD(NOW() - INTERVAL 1 HOUR, INTERVAL 10000 MICROSECOND),
+               NOW(), NOW()
+        FROM seq
+        """
+            .formatted(batchCount, baseTsid, keyPrefix, offset);
+    em().createNativeQuery(sql).executeUpdate();
   }
 
   private EntityManager em() {

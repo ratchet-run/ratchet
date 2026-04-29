@@ -74,33 +74,32 @@ public class OpenLibertyDataSourceStrategy implements DataSourceStrategy {
   }
 
   private static String dataSourceXml(JdbcDatabaseConfig config) {
-    return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-        + "<server>\n"
-        + "  <library id=\"RatchetJdbcDriverLib\">\n"
-        + "    <fileset dir=\"${server.config.dir}/jdbc/"
-        + xml(config.dbType())
-        + "\" includes=\"*.jar\"/>\n"
-        + "  </library>\n"
-        + "  <jdbcDriver id=\"RatchetJdbcDriver\"\n"
-        + "              libraryRef=\"RatchetJdbcDriverLib\"\n"
-        + "              javax.sql.DataSource=\""
-        + dataSourceClassName(config.dbType())
-        + "\"/>\n"
-        + "  <dataSource id=\"RatchetDS\"\n"
-        + "              jndiName=\""
-        + JTA_DATASOURCE
-        + "\"\n"
-        + "              jdbcDriverRef=\"RatchetJdbcDriver\"\n"
-        + "              transactional=\"true\">\n"
-        + "    <properties URL=\""
-        + xml(config.url())
-        + "\" user=\""
-        + xml(config.username())
-        + "\" password=\""
-        + xml(config.password())
-        + "\"/>\n"
-        + "  </dataSource>\n"
-        + "</server>\n";
+    // language=XML
+    String template =
+        """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <server>
+          <library id="RatchetJdbcDriverLib">
+            <fileset dir="${server.config.dir}/jdbc/%s" includes="*.jar"/>
+          </library>
+          <jdbcDriver id="RatchetJdbcDriver"
+                      libraryRef="RatchetJdbcDriverLib"
+                      javax.sql.DataSource="%s"/>
+          <dataSource id="RatchetDS"
+                      jndiName="%s"
+                      jdbcDriverRef="RatchetJdbcDriver"
+                      transactional="true">
+            <properties URL="%s" user="%s" password="%s"/>
+          </dataSource>
+        </server>
+        """;
+    return template.formatted(
+        xml(config.dbType()),
+        dataSourceClassName(config.dbType()),
+        JTA_DATASOURCE,
+        xml(config.url()),
+        xml(config.username()),
+        xml(config.password()));
   }
 
   private static String dataSourceClassName(String dbType) {

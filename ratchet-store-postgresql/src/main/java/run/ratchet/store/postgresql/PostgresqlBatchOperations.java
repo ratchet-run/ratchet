@@ -36,19 +36,23 @@ final class PostgresqlBatchOperations implements BatchStore, BatchMetricsStore {
 
   @Override
   public BatchEntity saveBatch(BatchEntity batch) {
+    // language=PostgreSQL
+    String sql =
+        """
+        INSERT INTO scheduler_batch
+          (batch_id, total_items, completed_items, failed_items,
+           completion_processed, progress_hook)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT (batch_id) DO UPDATE SET
+          total_items = EXCLUDED.total_items,
+          completed_items = EXCLUDED.completed_items,
+          failed_items = EXCLUDED.failed_items,
+          completion_processed = EXCLUDED.completion_processed,
+          progress_hook = EXCLUDED.progress_hook,
+          version = scheduler_batch.version + 1
+        """;
     ctx.em()
-        .createNativeQuery(
-            "INSERT INTO scheduler_batch "
-                + "(batch_id, total_items, completed_items, failed_items, "
-                + "completion_processed, progress_hook) "
-                + "VALUES (?, ?, ?, ?, ?, ?) "
-                + "ON CONFLICT (batch_id) DO UPDATE SET "
-                + "total_items = EXCLUDED.total_items, "
-                + "completed_items = EXCLUDED.completed_items, "
-                + "failed_items = EXCLUDED.failed_items, "
-                + "completion_processed = EXCLUDED.completion_processed, "
-                + "progress_hook = EXCLUDED.progress_hook, "
-                + "version = scheduler_batch.version + 1")
+        .createNativeQuery(sql)
         .setParameter(1, batch.getId())
         .setParameter(2, batch.getTotalItems())
         .setParameter(3, batch.getCompletedItems())
@@ -72,11 +76,10 @@ final class PostgresqlBatchOperations implements BatchStore, BatchMetricsStore {
     if (batchIds == null || batchIds.isEmpty()) {
       return List.of();
     }
+    // language=JPAQL
+    String jpql = "SELECT b FROM BatchEntity b WHERE b.id IN :ids";
     List<BatchEntity> batches =
-        ctx.em()
-            .createQuery("SELECT b FROM BatchEntity b WHERE b.id IN :ids", BatchEntity.class)
-            .setParameter("ids", batchIds)
-            .getResultList();
+        ctx.em().createQuery(jpql, BatchEntity.class).setParameter("ids", batchIds).getResultList();
     batches.forEach(this::refreshIfManaged);
     return batches;
   }
@@ -93,15 +96,15 @@ final class PostgresqlBatchOperations implements BatchStore, BatchMetricsStore {
 
   @Override
   public BatchProgress incrementCompletedAtomic(long batchId) {
+    // language=PostgreSQL
+    String sql =
+        """
+        UPDATE scheduler_batch SET completed_items = completed_items + 1
+        WHERE batch_id = ?
+        RETURNING completed_items, failed_items, total_items, progress_hook
+        """;
     Object[] row =
-        (Object[])
-            ctx.em()
-                .createNativeQuery(
-                    "UPDATE scheduler_batch SET completed_items = completed_items + 1 "
-                        + "WHERE batch_id = ? "
-                        + "RETURNING completed_items, failed_items, total_items, progress_hook")
-                .setParameter(1, batchId)
-                .getSingleResult();
+        (Object[]) ctx.em().createNativeQuery(sql).setParameter(1, batchId).getSingleResult();
     return new BatchProgress(
         batchId,
         ((Number) row[2]).intValue(),
@@ -112,15 +115,15 @@ final class PostgresqlBatchOperations implements BatchStore, BatchMetricsStore {
 
   @Override
   public BatchProgress incrementFailedAtomic(long batchId) {
+    // language=PostgreSQL
+    String sql =
+        """
+        UPDATE scheduler_batch SET failed_items = failed_items + 1
+        WHERE batch_id = ?
+        RETURNING completed_items, failed_items, total_items, progress_hook
+        """;
     Object[] row =
-        (Object[])
-            ctx.em()
-                .createNativeQuery(
-                    "UPDATE scheduler_batch SET failed_items = failed_items + 1 "
-                        + "WHERE batch_id = ? "
-                        + "RETURNING completed_items, failed_items, total_items, progress_hook")
-                .setParameter(1, batchId)
-                .getSingleResult();
+        (Object[]) ctx.em().createNativeQuery(sql).setParameter(1, batchId).getSingleResult();
     return new BatchProgress(
         batchId,
         ((Number) row[2]).intValue(),
@@ -131,37 +134,39 @@ final class PostgresqlBatchOperations implements BatchStore, BatchMetricsStore {
 
   @Override
   public boolean markBatchCompleteIfReady(long batchId) {
-    int updated =
-        ctx.em()
-            .createNativeQuery(
-                "UPDATE scheduler_batch SET completion_processed = TRUE "
-                    + "WHERE batch_id = ? AND completion_processed = FALSE "
-                    + "AND (completed_items + failed_items) >= total_items")
-            .setParameter(1, batchId)
-            .executeUpdate();
+    // language=PostgreSQL
+    String sql =
+        """
+        UPDATE scheduler_batch SET completion_processed = TRUE
+        WHERE batch_id = ? AND completion_processed = FALSE
+          AND (completed_items + failed_items) >= total_items
+        """;
+    int updated = ctx.em().createNativeQuery(sql).setParameter(1, batchId).executeUpdate();
     return updated > 0;
   }
 
   @Override
   @SuppressWarnings("unchecked")
   public List<Long> findRecoverableBatchIds(int limit) {
-    List<Number> results =
-        ctx.em()
-            .createNativeQuery(
-                "SELECT batch_id FROM scheduler_batch "
-                    + "WHERE completion_processed = FALSE "
-                    + "AND (completed_items + failed_items) >= total_items "
-                    + "LIMIT ?")
-            .setParameter(1, limit)
-            .getResultList();
+    // language=PostgreSQL
+    String sql =
+        """
+        SELECT batch_id FROM scheduler_batch
+        WHERE completion_processed = FALSE
+          AND (completed_items + failed_items) >= total_items
+        LIMIT ?
+        """;
+    List<Number> results = ctx.em().createNativeQuery(sql).setParameter(1, limit).getResultList();
     return results.stream().map(Number::longValue).toList();
   }
 
   @Override
   public boolean updateBatchTotalItems(long batchId, int totalItems) {
+    // language=PostgreSQL
+    String sql = "UPDATE scheduler_batch SET total_items = ? WHERE batch_id = ?";
     int updated =
         ctx.em()
-            .createNativeQuery("UPDATE scheduler_batch SET total_items = ? WHERE batch_id = ?")
+            .createNativeQuery(sql)
             .setParameter(1, totalItems)
             .setParameter(2, batchId)
             .executeUpdate();
@@ -187,12 +192,16 @@ final class PostgresqlBatchOperations implements BatchStore, BatchMetricsStore {
 
   @Override
   public void addChildExecutionTime(long batchId, long durationMs) {
+    // language=PostgreSQL
+    String sql =
+        """
+        UPDATE scheduler_batch_metrics
+        SET child_execution_ms = COALESCE(child_execution_ms, 0) + ?,
+            success_count = success_count + 1
+        WHERE batch_id = ?
+        """;
     ctx.em()
-        .createNativeQuery(
-            "UPDATE scheduler_batch_metrics SET "
-                + "child_execution_ms = COALESCE(child_execution_ms, 0) + ?, "
-                + "success_count = success_count + 1 "
-                + "WHERE batch_id = ?")
+        .createNativeQuery(sql)
         .setParameter(1, durationMs)
         .setParameter(2, batchId)
         .executeUpdate();
@@ -200,25 +209,29 @@ final class PostgresqlBatchOperations implements BatchStore, BatchMetricsStore {
 
   @Override
   public void finalizeBatchMetrics(long batchId) {
-    ctx.em()
-        .createNativeQuery(
-            "UPDATE scheduler_batch_metrics SET "
-                + "completed_at = statement_timestamp(), "
-                + "total_duration_ms = CASE WHEN started_at IS NOT NULL "
-                + "  THEN EXTRACT(EPOCH FROM (statement_timestamp() - started_at))::bigint * 1000 "
-                + "  ELSE NULL END, "
-                + "overhead_ms = CASE WHEN started_at IS NOT NULL AND child_execution_ms IS NOT NULL "
-                + "  THEN EXTRACT(EPOCH FROM (statement_timestamp() - started_at))::bigint * 1000 - child_execution_ms "
-                + "  ELSE NULL END "
-                + "WHERE batch_id = ?")
-        .setParameter(1, batchId)
-        .executeUpdate();
+    // language=PostgreSQL
+    String sql =
+        """
+        UPDATE scheduler_batch_metrics
+        SET completed_at = statement_timestamp(),
+            total_duration_ms = CASE WHEN started_at IS NOT NULL
+              THEN EXTRACT(EPOCH FROM (statement_timestamp() - started_at))::bigint * 1000
+              ELSE NULL END,
+            overhead_ms = CASE WHEN started_at IS NOT NULL AND child_execution_ms IS NOT NULL
+              THEN EXTRACT(EPOCH FROM (statement_timestamp() - started_at))::bigint * 1000
+                   - child_execution_ms
+              ELSE NULL END
+        WHERE batch_id = ?
+        """;
+    ctx.em().createNativeQuery(sql).setParameter(1, batchId).executeUpdate();
   }
 
   @Override
   public void updateBatchMetricsChildCount(long batchId, int childCount) {
+    // language=PostgreSQL
+    String sql = "UPDATE scheduler_batch_metrics SET child_count = ? WHERE batch_id = ?";
     ctx.em()
-        .createNativeQuery("UPDATE scheduler_batch_metrics SET child_count = ? WHERE batch_id = ?")
+        .createNativeQuery(sql)
         .setParameter(1, childCount)
         .setParameter(2, batchId)
         .executeUpdate();

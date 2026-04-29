@@ -13,15 +13,17 @@ public record PerformanceReport(
     long p95Ms,
     long p99Ms) {
 
+  // language=RegExp
   private static final Pattern JSON_PATTERN =
       Pattern.compile(
-          "\"scenario\":\"([^\"]+)\""
-              + ",\"jobCount\":(\\d+)"
-              + ",\"totalTimeMs\":(\\d+)"
-              + ",\"throughputJobsPerSec\":([\\d.]+)"
-              + ",\"p50Ms\":(\\d+)"
-              + ",\"p95Ms\":(\\d+)"
-              + ",\"p99Ms\":(\\d+)");
+          """
+          "scenario":"([^"]+)"\
+          ,"jobCount":(\\d+)\
+          ,"totalTimeMs":(\\d+)\
+          ,"throughputJobsPerSec":([\\d.]+)\
+          ,"p50Ms":(\\d+)\
+          ,"p95Ms":(\\d+)\
+          ,"p99Ms":(\\d+)""");
 
   public static PerformanceReport fromJson(String json) {
     if (json == null || json.isBlank()) {
@@ -48,27 +50,18 @@ public record PerformanceReport(
   }
 
   public String toJson() {
-    return "{"
-        + "\"scenario\":\""
-        + scenarioName
-        + "\","
-        + "\"jobCount\":"
-        + jobCount
-        + ","
-        + "\"totalTimeMs\":"
-        + totalTimeMs
-        + ","
-        + "\"throughputJobsPerSec\":"
-        + String.format("%.2f", throughputJobsPerSec)
-        + ","
-        + "\"p50Ms\":"
-        + p50Ms
-        + ","
-        + "\"p95Ms\":"
-        + p95Ms
-        + ","
-        + "\"p99Ms\":"
-        + p99Ms
-        + "}";
+    // language=JSON
+    String template =
+        """
+        {"scenario":"%s","jobCount":%d,"totalTimeMs":%d,"throughputJobsPerSec":%s,\
+        "p50Ms":%d,"p95Ms":%d,"p99Ms":%d}""";
+    return template.formatted(
+        scenarioName,
+        jobCount,
+        totalTimeMs,
+        String.format("%.2f", throughputJobsPerSec),
+        p50Ms,
+        p95Ms,
+        p99Ms);
   }
 }

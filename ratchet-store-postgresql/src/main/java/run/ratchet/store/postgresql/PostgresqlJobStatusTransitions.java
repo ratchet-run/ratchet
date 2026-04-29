@@ -15,15 +15,16 @@ final class PostgresqlJobStatusTransitions {
   }
 
   boolean tryPickUpJob(long id, String nodeId) {
+    // language=PostgreSQL
+    String sql =
+        """
+        UPDATE scheduler_job_queue
+        SET status = 'RUNNING', picked_by = ?, picked_at = statement_timestamp(),
+            updated_at = statement_timestamp()
+        WHERE job_id = ? AND status = 'PENDING'
+        """;
     int updated =
-        ctx.em()
-            .createNativeQuery(
-                "UPDATE scheduler_job_queue SET status = 'RUNNING', picked_by = ?, "
-                    + "picked_at = statement_timestamp(), updated_at = statement_timestamp() "
-                    + "WHERE job_id = ? AND status = 'PENDING'")
-            .setParameter(1, nodeId)
-            .setParameter(2, id)
-            .executeUpdate();
+        ctx.em().createNativeQuery(sql).setParameter(1, nodeId).setParameter(2, id).executeUpdate();
     return updated > 0;
   }
 
@@ -37,12 +38,16 @@ final class PostgresqlJobStatusTransitions {
           id, expected);
       return false;
     }
+    // language=PostgreSQL
+    String sql =
+        """
+        UPDATE scheduler_job_queue
+        SET status = 'PAUSED', paused_from_status = ?, updated_at = statement_timestamp()
+        WHERE job_id = ? AND status = ?
+        """;
     int updated =
         ctx.em()
-            .createNativeQuery(
-                "UPDATE scheduler_job_queue SET status = 'PAUSED', "
-                    + "paused_from_status = ?, updated_at = statement_timestamp() "
-                    + "WHERE job_id = ? AND status = ?")
+            .createNativeQuery(sql)
             .setParameter(1, expected.name())
             .setParameter(2, id)
             .setParameter(3, expected.name())
@@ -55,12 +60,16 @@ final class PostgresqlJobStatusTransitions {
       throw new IllegalArgumentException(
           "transitionFromPaused expects a non-PAUSED live status; got " + target);
     }
+    // language=PostgreSQL
+    String sql =
+        """
+        UPDATE scheduler_job_queue
+        SET status = ?, paused_from_status = NULL, updated_at = statement_timestamp()
+        WHERE job_id = ? AND status = 'PAUSED'
+        """;
     int updated =
         ctx.em()
-            .createNativeQuery(
-                "UPDATE scheduler_job_queue SET status = ?, "
-                    + "paused_from_status = NULL, updated_at = statement_timestamp() "
-                    + "WHERE job_id = ? AND status = 'PAUSED'")
+            .createNativeQuery(sql)
             .setParameter(1, target.name())
             .setParameter(2, id)
             .executeUpdate();
@@ -69,24 +78,29 @@ final class PostgresqlJobStatusTransitions {
 
   @SuppressWarnings("unchecked")
   JobStatus transitionFromPausedAtomic(long id) {
-    List<?> results =
-        ctx.em()
-            .createNativeQuery(
-                "SELECT paused_from_status FROM scheduler_job_queue "
-                    + "WHERE job_id = ? AND status = 'PAUSED' FOR UPDATE")
-            .setParameter(1, id)
-            .getResultList();
+    // language=PostgreSQL
+    String selectSql =
+        """
+        SELECT paused_from_status FROM scheduler_job_queue
+        WHERE job_id = ? AND status = 'PAUSED'
+        FOR UPDATE
+        """;
+    List<?> results = ctx.em().createNativeQuery(selectSql).setParameter(1, id).getResultList();
     if (results.isEmpty()) {
       return null;
     }
     String pausedFrom = (String) results.get(0);
     JobStatus target = pausedFrom != null ? JobStatus.valueOf(pausedFrom) : JobStatus.PENDING;
+    // language=PostgreSQL
+    String updateSql =
+        """
+        UPDATE scheduler_job_queue
+        SET status = ?, paused_from_status = NULL, updated_at = statement_timestamp()
+        WHERE job_id = ? AND status = 'PAUSED'
+        """;
     int updated =
         ctx.em()
-            .createNativeQuery(
-                "UPDATE scheduler_job_queue SET status = ?, "
-                    + "paused_from_status = NULL, updated_at = statement_timestamp() "
-                    + "WHERE job_id = ? AND status = 'PAUSED'")
+            .createNativeQuery(updateSql)
             .setParameter(1, target.name())
             .setParameter(2, id)
             .executeUpdate();

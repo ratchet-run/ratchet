@@ -20,10 +20,9 @@ final class MysqlJobDeleteOperations {
 
   void delete(long id) {
     reservations.deleteReservationByOwner(id);
-    ctx.em()
-        .createNativeQuery("DELETE FROM scheduler_job WHERE job_id = ?")
-        .setParameter(1, id)
-        .executeUpdate();
+    // language=MySQL
+    String sql = "DELETE FROM scheduler_job WHERE job_id = ?";
+    ctx.em().createNativeQuery(sql).setParameter(1, id).executeUpdate();
   }
 
   int deleteJobsByIds(List<Long> ids) {
@@ -31,20 +30,20 @@ final class MysqlJobDeleteOperations {
       return 0;
     }
     String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
-    Query bkresDelete =
-        ctx.em()
-            .createNativeQuery(
-                "DELETE FROM scheduler_business_key_reservation WHERE owner_job_id IN ("
-                    + placeholders
-                    + ")");
+    // language=MySQL
+    String bkresSql =
+        "DELETE FROM scheduler_business_key_reservation WHERE owner_job_id IN ("
+            + placeholders
+            + ")";
+    Query bkresDelete = ctx.em().createNativeQuery(bkresSql);
     int parameter = 1;
     for (Long id : ids) {
       bkresDelete.setParameter(parameter++, id);
     }
     bkresDelete.executeUpdate();
-    Query jobDelete =
-        ctx.em()
-            .createNativeQuery("DELETE FROM scheduler_job WHERE job_id IN (" + placeholders + ")");
+    // language=MySQL
+    String jobSql = "DELETE FROM scheduler_job WHERE job_id IN (" + placeholders + ")";
+    Query jobDelete = ctx.em().createNativeQuery(jobSql);
     parameter = 1;
     for (Long id : ids) {
       jobDelete.setParameter(parameter++, id);
@@ -53,13 +52,17 @@ final class MysqlJobDeleteOperations {
   }
 
   int deleteDlqOlderThan(Instant cutoff) {
+    // language=MySQL
+    String selectSql =
+        """
+        SELECT job_id FROM scheduler_job
+        WHERE terminal_status = 'FAILED' AND total_attempts >= max_retries
+          AND terminated_at < ?
+        """;
     @SuppressWarnings("unchecked")
     List<Number> idRows =
         ctx.em()
-            .createNativeQuery(
-                "SELECT job_id FROM scheduler_job "
-                    + "WHERE terminal_status = 'FAILED' AND total_attempts >= max_retries "
-                    + "AND terminated_at < ?")
+            .createNativeQuery(selectSql)
             .setParameter(1, Timestamp.from(cutoff))
             .getResultList();
     if (idRows.isEmpty()) {
@@ -70,20 +73,20 @@ final class MysqlJobDeleteOperations {
       ids.add(n.longValue());
     }
     String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
-    Query bkresDelete =
-        ctx.em()
-            .createNativeQuery(
-                "DELETE FROM scheduler_business_key_reservation WHERE owner_job_id IN ("
-                    + placeholders
-                    + ")");
+    // language=MySQL
+    String bkresSql =
+        "DELETE FROM scheduler_business_key_reservation WHERE owner_job_id IN ("
+            + placeholders
+            + ")";
+    Query bkresDelete = ctx.em().createNativeQuery(bkresSql);
     int parameter = 1;
     for (Long id : ids) {
       bkresDelete.setParameter(parameter++, id);
     }
     bkresDelete.executeUpdate();
-    Query jobDelete =
-        ctx.em()
-            .createNativeQuery("DELETE FROM scheduler_job WHERE job_id IN (" + placeholders + ")");
+    // language=MySQL
+    String jobSql = "DELETE FROM scheduler_job WHERE job_id IN (" + placeholders + ")";
+    Query jobDelete = ctx.em().createNativeQuery(jobSql);
     parameter = 1;
     for (Long id : ids) {
       jobDelete.setParameter(parameter++, id);
@@ -93,26 +96,33 @@ final class MysqlJobDeleteOperations {
 
   int resetOrphanJobs(Duration grace) {
     long graceSec = grace.toSeconds();
+    // language=MySQL
+    String sql =
+        """
+        UPDATE scheduler_job_queue
+        SET status = 'PENDING', picked_by = NULL, picked_at = NULL, updated_at = NOW(3)
+        WHERE status = 'RUNNING'
+          AND picked_by NOT IN (
+            SELECT node_id FROM scheduler_node
+            WHERE TIMESTAMPDIFF(SECOND, heartbeat_ts, NOW(3)) <= ?
+          )
+          AND TIMESTAMPDIFF(SECOND, picked_at, NOW(3)) >= ?
+        """;
     return ctx.em()
-        .createNativeQuery(
-            "UPDATE scheduler_job_queue SET status = 'PENDING', picked_by = NULL, "
-                + "picked_at = NULL, updated_at = NOW(3) "
-                + "WHERE status = 'RUNNING' AND picked_by NOT IN ("
-                + "  SELECT node_id FROM scheduler_node "
-                + "  WHERE TIMESTAMPDIFF(SECOND, heartbeat_ts, NOW(3)) <= ?"
-                + ") AND TIMESTAMPDIFF(SECOND, picked_at, NOW(3)) >= ?")
+        .createNativeQuery(sql)
         .setParameter(1, graceSec)
         .setParameter(2, graceSec)
         .executeUpdate();
   }
 
   int resetOrphanJobsForNode(String nodeId) {
-    return ctx.em()
-        .createNativeQuery(
-            "UPDATE scheduler_job_queue SET status = 'PENDING', picked_by = NULL, "
-                + "picked_at = NULL, updated_at = NOW(3) "
-                + "WHERE status = 'RUNNING' AND picked_by = ?")
-        .setParameter(1, nodeId)
-        .executeUpdate();
+    // language=MySQL
+    String sql =
+        """
+        UPDATE scheduler_job_queue
+        SET status = 'PENDING', picked_by = NULL, picked_at = NULL, updated_at = NOW(3)
+        WHERE status = 'RUNNING' AND picked_by = ?
+        """;
+    return ctx.em().createNativeQuery(sql).setParameter(1, nodeId).executeUpdate();
   }
 }

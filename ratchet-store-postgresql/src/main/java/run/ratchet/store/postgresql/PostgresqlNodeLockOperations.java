@@ -21,17 +21,22 @@ final class PostgresqlNodeLockOperations implements LockStore, NodeStore {
   @Override
   public boolean tryLock(String name, Duration ttl, String nodeId) {
     long ttlSeconds = ttl.toSeconds();
+    // language=PostgreSQL
+    String sql =
+        """
+        INSERT INTO scheduler_lock (lock_name, owner_node, locked_at, expires_at)
+        VALUES (?, ?, statement_timestamp(),
+                statement_timestamp() + ? * interval '1 second')
+        ON CONFLICT (lock_name) DO UPDATE SET
+          owner_node = EXCLUDED.owner_node,
+          locked_at = statement_timestamp(),
+          expires_at = statement_timestamp() + ? * interval '1 second'
+        WHERE scheduler_lock.expires_at < statement_timestamp()
+           OR scheduler_lock.owner_node = ?
+        """;
     int updated =
         ctx.em()
-            .createNativeQuery(
-                "INSERT INTO scheduler_lock (lock_name, owner_node, locked_at, expires_at) "
-                    + "VALUES (?, ?, statement_timestamp(), statement_timestamp() + ? * interval '1 second') "
-                    + "ON CONFLICT (lock_name) DO UPDATE SET "
-                    + "  owner_node = EXCLUDED.owner_node, "
-                    + "  locked_at = statement_timestamp(), "
-                    + "  expires_at = statement_timestamp() + ? * interval '1 second' "
-                    + "WHERE scheduler_lock.expires_at < statement_timestamp() "
-                    + "   OR scheduler_lock.owner_node = ?")
+            .createNativeQuery(sql)
             .setParameter(1, name)
             .setParameter(2, nodeId)
             .setParameter(3, ttlSeconds)
@@ -43,22 +48,24 @@ final class PostgresqlNodeLockOperations implements LockStore, NodeStore {
 
   @Override
   public void unlock(String name, String nodeId) {
-    ctx.em()
-        .createNativeQuery("DELETE FROM scheduler_lock WHERE lock_name = ? AND owner_node = ?")
-        .setParameter(1, name)
-        .setParameter(2, nodeId)
-        .executeUpdate();
+    // language=PostgreSQL
+    String sql = "DELETE FROM scheduler_lock WHERE lock_name = ? AND owner_node = ?";
+    ctx.em().createNativeQuery(sql).setParameter(1, name).setParameter(2, nodeId).executeUpdate();
   }
 
   @Override
   public boolean renewLock(String name, Duration extension, String nodeId) {
     long extensionSeconds = extension.toSeconds();
+    // language=PostgreSQL
+    String sql =
+        """
+        UPDATE scheduler_lock
+        SET expires_at = statement_timestamp() + ? * interval '1 second'
+        WHERE lock_name = ? AND owner_node = ?
+        """;
     int updated =
         ctx.em()
-            .createNativeQuery(
-                "UPDATE scheduler_lock SET "
-                    + "expires_at = statement_timestamp() + ? * interval '1 second' "
-                    + "WHERE lock_name = ? AND owner_node = ?")
+            .createNativeQuery(sql)
             .setParameter(1, extensionSeconds)
             .setParameter(2, name)
             .setParameter(3, nodeId)
@@ -68,11 +75,15 @@ final class PostgresqlNodeLockOperations implements LockStore, NodeStore {
 
   @Override
   public void upsertHeartbeat(String nodeId, Instant ts) {
+    // language=PostgreSQL
+    String sql =
+        """
+        INSERT INTO scheduler_node (node_id, heartbeat_ts, started_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT (node_id) DO UPDATE SET heartbeat_ts = EXCLUDED.heartbeat_ts
+        """;
     ctx.em()
-        .createNativeQuery(
-            "INSERT INTO scheduler_node (node_id, heartbeat_ts, started_at) "
-                + "VALUES (?, ?, ?) "
-                + "ON CONFLICT (node_id) DO UPDATE SET heartbeat_ts = EXCLUDED.heartbeat_ts")
+        .createNativeQuery(sql)
         .setParameter(1, nodeId)
         .setParameter(2, Timestamp.from(ts))
         .setParameter(3, Timestamp.from(ts))
@@ -87,23 +98,26 @@ final class PostgresqlNodeLockOperations implements LockStore, NodeStore {
   @Override
   @SuppressWarnings("unchecked")
   public List<NodeEntity> findInactiveNodesSince(Instant cutoff) {
+    // language=PostgreSQL
+    String sql = "SELECT * FROM scheduler_node WHERE heartbeat_ts < ?";
     return ctx.em()
-        .createNativeQuery("SELECT * FROM scheduler_node WHERE heartbeat_ts < ?", NodeEntity.class)
+        .createNativeQuery(sql, NodeEntity.class)
         .setParameter(1, Timestamp.from(cutoff))
         .getResultList();
   }
 
   @Override
   public int deleteInactiveNodesSince(Instant cutoff) {
-    return ctx.em()
-        .createNativeQuery("DELETE FROM scheduler_node WHERE heartbeat_ts < ?")
-        .setParameter(1, Timestamp.from(cutoff))
-        .executeUpdate();
+    // language=PostgreSQL
+    String sql = "DELETE FROM scheduler_node WHERE heartbeat_ts < ?";
+    return ctx.em().createNativeQuery(sql).setParameter(1, Timestamp.from(cutoff)).executeUpdate();
   }
 
   @Override
   public Instant getDatabaseTime() {
-    Object ts = ctx.em().createNativeQuery("SELECT statement_timestamp()").getSingleResult();
+    // language=PostgreSQL
+    String sql = "SELECT statement_timestamp()";
+    Object ts = ctx.em().createNativeQuery(sql).getSingleResult();
     if (ts instanceof Instant i) {
       return i;
     }

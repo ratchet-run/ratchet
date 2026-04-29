@@ -21,6 +21,13 @@ final class MysqlJobClaimOperations implements JobClaimStore {
   private static final String EXECUTABLE_JOB_TYPE_FILTER =
       "job_type IN ('SINGLE','BATCH_CHILD','CHAIN_STEP','WORKFLOW_BRANCH')";
 
+  private static final String CLAIM_SELECT_COLUMNS =
+      """
+      job_id, status, job_type, priority, scheduled_time,
+      version, timeout_sec, picked_by, picked_at, business_key,
+      attempts, max_retries
+      """;
+
   private final MysqlStoreContext ctx;
   private final MysqlJobCrudOperations jobs;
 
@@ -44,6 +51,7 @@ final class MysqlJobClaimOperations implements JobClaimStore {
     return ordered;
   }
 
+  // language=MySQL
   private static String buildClaimSql(
       String selectClause, String typeFilter, String timeColumn, int boostInterval) {
     return """
@@ -77,9 +85,7 @@ final class MysqlJobClaimOperations implements JobClaimStore {
           ctx.em()
               .createNativeQuery(
                   buildClaimSql(
-                      "job_id, status, job_type, priority, scheduled_time, "
-                          + "version, timeout_sec, picked_by, picked_at, business_key, "
-                          + "attempts, max_retries",
+                      CLAIM_SELECT_COLUMNS,
                       EXECUTABLE_JOB_TYPE_FILTER,
                       "scheduled_time",
                       boostInterval));
@@ -130,14 +136,7 @@ final class MysqlJobClaimOperations implements JobClaimStore {
           ctx.em()
               .createNativeQuery(
                   buildClaimSql(
-                      """
-                      job_id, status, job_type, priority, scheduled_time,
-                      version, timeout_sec, picked_by, picked_at, business_key,
-                      attempts, max_retries
-                      """,
-                      "job_type = ?",
-                      "scheduled_time",
-                      boostInterval));
+                      CLAIM_SELECT_COLUMNS, "job_type = ?", "scheduled_time", boostInterval));
       int parameter = 1;
       query.setParameter(parameter++, jobType.name());
       if (boostInterval > 0) {
@@ -164,19 +163,20 @@ final class MysqlJobClaimOperations implements JobClaimStore {
   public List<JobEntity> claimDueRecurring(int limit, String nodeId) {
     try {
       int boostInterval = ctx.priorityBoostIntervalMinutes();
-      var query =
-          ctx.em()
-              .createNativeQuery(
-                  "SELECT job_id, next_fire, priority, business_key "
-                      + "FROM scheduler_job "
-                      + "WHERE job_type = 'RECURRING' "
-                      + "  AND rec_status = 'P' "
-                      + "  AND next_fire <= NOW(3) "
-                      + "ORDER BY "
-                      + buildBoostedOrderBy("next_fire", boostInterval)
-                      + " "
-                      + "LIMIT ? "
-                      + "FOR UPDATE SKIP LOCKED");
+      // language=MySQL
+      String sql =
+          """
+          SELECT job_id, next_fire, priority, business_key
+          FROM scheduler_job
+          WHERE job_type = 'RECURRING'
+            AND rec_status = 'P'
+            AND next_fire <= NOW(3)
+          ORDER BY %s
+          LIMIT ?
+          FOR UPDATE SKIP LOCKED
+          """
+              .formatted(buildBoostedOrderBy("next_fire", boostInterval));
+      var query = ctx.em().createNativeQuery(sql);
       int parameter = 1;
       if (boostInterval > 0) {
         query.setParameter(parameter++, boostInterval);
@@ -239,14 +239,17 @@ final class MysqlJobClaimOperations implements JobClaimStore {
     Timestamp nowTs = Timestamp.from(now);
     try {
       String placeholders = String.join(",", Collections.nCopies(jobIds.size(), "?"));
-      Query updateQuery =
-          ctx.em()
-              .createNativeQuery(
-                  "UPDATE scheduler_job_queue SET status = 'RUNNING', picked_by = ?, "
-                      + "picked_at = ?, updated_at = ?, version = version + 1 "
-                      + "WHERE job_id IN ("
-                      + placeholders
-                      + ") AND status = 'PENDING' ORDER BY job_id ASC");
+      // language=MySQL
+      String updateSql =
+          """
+          UPDATE scheduler_job_queue
+          SET status = 'RUNNING', picked_by = ?, picked_at = ?, updated_at = ?,
+              version = version + 1
+          WHERE job_id IN (%s) AND status = 'PENDING'
+          ORDER BY job_id ASC
+          """
+              .formatted(placeholders);
+      Query updateQuery = ctx.em().createNativeQuery(updateSql);
       int parameter = 1;
       updateQuery.setParameter(parameter++, nodeId);
       updateQuery.setParameter(parameter++, nowTs);
@@ -256,13 +259,15 @@ final class MysqlJobClaimOperations implements JobClaimStore {
       }
       updateQuery.executeUpdate();
 
-      Query selectQuery =
-          ctx.em()
-              .createNativeQuery(
-                  "SELECT job_id FROM scheduler_job_queue WHERE job_id IN ("
-                      + placeholders
-                      + ") AND status = 'RUNNING' AND picked_by = ? "
-                      + "ORDER BY job_id ASC");
+      // language=MySQL
+      String selectSql =
+          """
+          SELECT job_id FROM scheduler_job_queue
+          WHERE job_id IN (%s) AND status = 'RUNNING' AND picked_by = ?
+          ORDER BY job_id ASC
+          """
+              .formatted(placeholders);
+      Query selectQuery = ctx.em().createNativeQuery(selectSql);
       parameter = 1;
       for (Long id : jobIds) {
         selectQuery.setParameter(parameter++, id);

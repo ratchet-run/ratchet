@@ -27,11 +27,15 @@ final class PostgresqlBusinessKeyReservations {
   }
 
   void insertReservation(String businessKey, long ownerJobId, String ownerTable) {
+    // language=PostgreSQL
+    String sql =
+        """
+        INSERT INTO scheduler_business_key_reservation
+          (business_key, owner_job_id, owner_table, reserved_at)
+        VALUES (?, ?, ?, statement_timestamp())
+        """;
     ctx.em()
-        .createNativeQuery(
-            "INSERT INTO scheduler_business_key_reservation "
-                + "(business_key, owner_job_id, owner_table, reserved_at) "
-                + "VALUES (?, ?, ?, statement_timestamp())")
+        .createNativeQuery(sql)
         .setParameter(1, businessKey)
         .setParameter(2, ownerJobId)
         .setParameter(3, ownerTable)
@@ -40,10 +44,9 @@ final class PostgresqlBusinessKeyReservations {
 
   @SuppressWarnings("UnusedReturnValue")
   int deleteReservationByOwner(long ownerJobId) {
-    return ctx.em()
-        .createNativeQuery("DELETE FROM scheduler_business_key_reservation WHERE owner_job_id = ?")
-        .setParameter(1, ownerJobId)
-        .executeUpdate();
+    // language=PostgreSQL
+    String sql = "DELETE FROM scheduler_business_key_reservation WHERE owner_job_id = ?";
+    return ctx.em().createNativeQuery(sql).setParameter(1, ownerJobId).executeUpdate();
   }
 
   void deleteReservationsByOwners(List<? extends Number> ownerJobIds) {
@@ -51,12 +54,12 @@ final class PostgresqlBusinessKeyReservations {
       return;
     }
     String placeholders = String.join(",", Collections.nCopies(ownerJobIds.size(), "?"));
-    Query query =
-        ctx.em()
-            .createNativeQuery(
-                "DELETE FROM scheduler_business_key_reservation WHERE owner_job_id IN ("
-                    + placeholders
-                    + ")");
+    // language=PostgreSQL
+    String sql =
+        "DELETE FROM scheduler_business_key_reservation WHERE owner_job_id IN ("
+            + placeholders
+            + ")";
+    Query query = ctx.em().createNativeQuery(sql);
     int parameter = 1;
     for (Number ownerJobId : ownerJobIds) {
       query.setParameter(parameter++, ownerJobId.longValue());
@@ -77,12 +80,11 @@ final class PostgresqlBusinessKeyReservations {
     if (!PostgresqlStoreContext.isLiveStatus(status)) {
       return;
     }
+    // language=PostgreSQL
+    String selectSql = "SELECT business_key, job_type FROM scheduler_job WHERE job_id = ?";
     @SuppressWarnings("unchecked")
     List<Object[]> rows =
-        ctx.em()
-            .createNativeQuery("SELECT business_key, job_type FROM scheduler_job WHERE job_id = ?")
-            .setParameter(1, ownerJobId)
-            .getResultList();
+        ctx.em().createNativeQuery(selectSql).setParameter(1, ownerJobId).getResultList();
     if (rows.isEmpty()) {
       return;
     }

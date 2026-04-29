@@ -33,6 +33,18 @@ final class MysqlAuxiliaryOperations
     this.ctx = ctx;
   }
 
+  private static WorkflowConditionEntity mapCondition(Object[] row) {
+    WorkflowConditionEntity condition = new WorkflowConditionEntity();
+    condition.setId(((Number) row[0]).longValue());
+    condition.setParentJobId(((Number) row[1]).longValue());
+    condition.setChildJobId(((Number) row[2]).longValue());
+    condition.setConditionType(WorkflowCondition.ConditionType.valueOf(row[3].toString()));
+    condition.setConditionExpression(row[4] == null ? null : row[4].toString());
+    condition.setConditionPriority(((Number) row[5]).intValue());
+    condition.setCreatedAt(MysqlJobRowMapper.toInstant(row[6]));
+    return condition;
+  }
+
   @Override
   public JobExecutionEntity saveExecution(JobExecutionEntity execution) {
     if (execution.getId() == null) {
@@ -44,21 +56,21 @@ final class MysqlAuxiliaryOperations
 
   @Override
   public List<JobExecutionEntity> findExecutionsByJobId(long jobId) {
+    // language=JPAQL
+    String jpql = "SELECT e FROM JobExecutionEntity e WHERE e.jobId = :jid ORDER BY e.attempt ASC";
     return ctx.em()
-        .createQuery(
-            "SELECT e FROM JobExecutionEntity e WHERE e.jobId = :jid ORDER BY e.attempt ASC",
-            JobExecutionEntity.class)
+        .createQuery(jpql, JobExecutionEntity.class)
         .setParameter("jid", jobId)
         .getResultList();
   }
 
   @Override
   public Optional<JobExecutionEntity> findLatestExecution(long jobId) {
+    // language=JPAQL
+    String jpql = "SELECT e FROM JobExecutionEntity e WHERE e.jobId = :jid ORDER BY e.attempt DESC";
     List<JobExecutionEntity> results =
         ctx.em()
-            .createQuery(
-                "SELECT e FROM JobExecutionEntity e WHERE e.jobId = :jid ORDER BY e.attempt DESC",
-                JobExecutionEntity.class)
+            .createQuery(jpql, JobExecutionEntity.class)
             .setParameter("jid", jobId)
             .setMaxResults(1)
             .getResultList();
@@ -67,8 +79,10 @@ final class MysqlAuxiliaryOperations
 
   @Override
   public int countExecutionAttempts(long jobId) {
+    // language=JPAQL
+    String jpql = "SELECT COUNT(e) FROM JobExecutionEntity e WHERE e.jobId = :jid";
     return ctx.em()
-        .createQuery("SELECT COUNT(e) FROM JobExecutionEntity e WHERE e.jobId = :jid", Long.class)
+        .createQuery(jpql, Long.class)
         .setParameter("jid", jobId)
         .getSingleResult()
         .intValue();
@@ -81,28 +95,31 @@ final class MysqlAuxiliaryOperations
 
   @Override
   public int purgeLogsOlderThan(Instant cutoff) {
-    return ctx.em()
-        .createQuery("DELETE FROM JobLogEntity l WHERE l.ts < :cutoff")
-        .setParameter("cutoff", cutoff)
-        .executeUpdate();
+    // language=JPAQL
+    String jpql = "DELETE FROM JobLogEntity l WHERE l.ts < :cutoff";
+    return ctx.em().createQuery(jpql).setParameter("cutoff", cutoff).executeUpdate();
   }
 
   @Override
   public WorkflowConditionEntity saveCondition(WorkflowConditionEntity condition) {
     prepareCondition(condition);
+    // language=MySQL
+    String sql =
+        """
+        INSERT INTO scheduler_workflow_condition
+          (id, parent_job_id, child_job_id, condition_type, condition_expression,
+           condition_priority, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+          parent_job_id = VALUES(parent_job_id),
+          child_job_id = VALUES(child_job_id),
+          condition_type = VALUES(condition_type),
+          condition_expression = VALUES(condition_expression),
+          condition_priority = VALUES(condition_priority),
+          created_at = VALUES(created_at)
+        """;
     ctx.em()
-        .createNativeQuery(
-            "INSERT INTO scheduler_workflow_condition "
-                + "(id, parent_job_id, child_job_id, condition_type, condition_expression, "
-                + "condition_priority, created_at) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?) "
-                + "ON DUPLICATE KEY UPDATE "
-                + "parent_job_id = VALUES(parent_job_id), "
-                + "child_job_id = VALUES(child_job_id), "
-                + "condition_type = VALUES(condition_type), "
-                + "condition_expression = VALUES(condition_expression), "
-                + "condition_priority = VALUES(condition_priority), "
-                + "created_at = VALUES(created_at)")
+        .createNativeQuery(sql)
         .setParameter(1, condition.getId())
         .setParameter(2, condition.getParentJobId())
         .setParameter(3, condition.getChildJobId())
@@ -178,46 +195,6 @@ final class MysqlAuxiliaryOperations
     return ((Number) result).longValue();
   }
 
-  private void prepareCondition(WorkflowConditionEntity condition) {
-    if (condition.getId() == null || condition.getId() == 0L) {
-      condition.setId(TsidFactory.next());
-    }
-    if (condition.getCreatedAt() == null) {
-      condition.setCreatedAt(Instant.now());
-    }
-  }
-
-  @SuppressWarnings("unchecked")
-  private List<WorkflowConditionEntity> findConditions(
-      String whereClause, List<Object> params, String orderClause) {
-    Query query =
-        ctx.em()
-            .createNativeQuery(
-                "SELECT id, parent_job_id, child_job_id, condition_type, condition_expression, "
-                    + "condition_priority, created_at "
-                    + "FROM scheduler_workflow_condition "
-                    + whereClause
-                    + " "
-                    + orderClause);
-    for (int i = 0; i < params.size(); i++) {
-      query.setParameter(i + 1, params.get(i));
-    }
-    return ((List<Object[]>) query.getResultList())
-        .stream().map(MysqlAuxiliaryOperations::mapCondition).toList();
-  }
-
-  private static WorkflowConditionEntity mapCondition(Object[] row) {
-    WorkflowConditionEntity condition = new WorkflowConditionEntity();
-    condition.setId(((Number) row[0]).longValue());
-    condition.setParentJobId(((Number) row[1]).longValue());
-    condition.setChildJobId(((Number) row[2]).longValue());
-    condition.setConditionType(WorkflowCondition.ConditionType.valueOf(row[3].toString()));
-    condition.setConditionExpression(row[4] == null ? null : row[4].toString());
-    condition.setConditionPriority(((Number) row[5]).intValue());
-    condition.setCreatedAt(MysqlJobRowMapper.toInstant(row[6]));
-    return condition;
-  }
-
   @Override
   public DlqAlertEntity saveDlqAlert(DlqAlertEntity alert) {
     if (alert.getId() == null) {
@@ -229,12 +206,15 @@ final class MysqlAuxiliaryOperations
 
   @Override
   public boolean existsRecentDlqAlert(long jobId, String errorHash, Instant cutoff) {
+    // language=JPAQL
+    String jpql =
+        """
+        SELECT COUNT(a) FROM DlqAlertEntity a
+        WHERE a.jobId = :jid AND a.errorHash = :hash AND a.alertSentAt >= :cutoff
+        """;
     Long count =
         ctx.em()
-            .createQuery(
-                "SELECT COUNT(a) FROM DlqAlertEntity a "
-                    + "WHERE a.jobId = :jid AND a.errorHash = :hash AND a.alertSentAt >= :cutoff",
-                Long.class)
+            .createQuery(jpql, Long.class)
             .setParameter("jid", jobId)
             .setParameter("hash", errorHash)
             .setParameter("cutoff", cutoff)
@@ -244,14 +224,19 @@ final class MysqlAuxiliaryOperations
 
   @Override
   public boolean tryAcquirePermit(String resource, long jobId, String nodeId) {
+    // language=MySQL
+    String sql =
+        """
+        SELECT max_concurrent,
+               (SELECT COUNT(*) FROM scheduler_resource_permit WHERE resource_name = ?)
+        FROM scheduler_resource_limit
+        WHERE resource_name = ?
+        FOR UPDATE
+        """;
     @SuppressWarnings("unchecked")
     List<Object[]> permitResults =
         ctx.em()
-            .createNativeQuery(
-                "SELECT max_concurrent, "
-                    + "(SELECT COUNT(*) FROM scheduler_resource_permit WHERE resource_name = ?) "
-                    + "FROM scheduler_resource_limit WHERE resource_name = ? "
-                    + "FOR UPDATE")
+            .createNativeQuery(sql)
             .setParameter(1, resource)
             .setParameter(2, resource)
             .getResultList();
@@ -275,9 +260,10 @@ final class MysqlAuxiliaryOperations
 
   @Override
   public void releasePermit(String resource, long jobId) {
+    // language=MySQL
+    String sql = "DELETE FROM scheduler_resource_permit WHERE resource_name = ? AND job_id = ?";
     ctx.em()
-        .createNativeQuery(
-            "DELETE FROM scheduler_resource_permit " + "WHERE resource_name = ? AND job_id = ?")
+        .createNativeQuery(sql)
         .setParameter(1, resource)
         .setParameter(2, jobId)
         .executeUpdate();
@@ -285,21 +271,17 @@ final class MysqlAuxiliaryOperations
 
   @Override
   public void releaseAllPermits(long jobId) {
-    ctx.em()
-        .createNativeQuery("DELETE FROM scheduler_resource_permit WHERE job_id = ?")
-        .setParameter(1, jobId)
-        .executeUpdate();
+    // language=MySQL
+    String sql = "DELETE FROM scheduler_resource_permit WHERE job_id = ?";
+    ctx.em().createNativeQuery(sql).setParameter(1, jobId).executeUpdate();
   }
 
   @Override
   public int getPermitRetryDelay(String resource) {
+    // language=MySQL
+    String sql = "SELECT retry_delay_ms FROM scheduler_resource_limit WHERE resource_name = ?";
     try {
-      return ((Number)
-              ctx.em()
-                  .createNativeQuery(
-                      "SELECT retry_delay_ms FROM scheduler_resource_limit WHERE resource_name = ?")
-                  .setParameter(1, resource)
-                  .getSingleResult())
+      return ((Number) ctx.em().createNativeQuery(sql).setParameter(1, resource).getSingleResult())
           .intValue();
     } catch (NoResultException e) {
       return 5000;
@@ -309,16 +291,20 @@ final class MysqlAuxiliaryOperations
   @Override
   public void configureResource(
       String name, int maxConcurrent, int retryDelayMs, String description) {
+    // language=MySQL
+    String sql =
+        """
+        INSERT INTO scheduler_resource_limit
+          (resource_name, max_concurrent, retry_delay_ms, description, created_at, updated_at)
+        VALUES (?, ?, ?, ?, NOW(3), NOW(3))
+        ON DUPLICATE KEY UPDATE
+          max_concurrent = VALUES(max_concurrent),
+          retry_delay_ms = VALUES(retry_delay_ms),
+          description = VALUES(description),
+          updated_at = NOW(3)
+        """;
     ctx.em()
-        .createNativeQuery(
-            "INSERT INTO scheduler_resource_limit "
-                + "(resource_name, max_concurrent, retry_delay_ms, description, created_at, updated_at) "
-                + "VALUES (?, ?, ?, ?, NOW(3), NOW(3)) "
-                + "ON DUPLICATE KEY UPDATE "
-                + "max_concurrent = VALUES(max_concurrent), "
-                + "retry_delay_ms = VALUES(retry_delay_ms), "
-                + "description = VALUES(description), "
-                + "updated_at = NOW(3)")
+        .createNativeQuery(sql)
         .setParameter(1, name)
         .setParameter(2, maxConcurrent)
         .setParameter(3, retryDelayMs)
@@ -332,14 +318,40 @@ final class MysqlAuxiliaryOperations
       return 0;
     }
     String placeholders = String.join(",", Collections.nCopies(staleNodeIds.size(), "?"));
-    Query query =
-        ctx.em()
-            .createNativeQuery(
-                "DELETE FROM scheduler_resource_permit WHERE node_id IN (" + placeholders + ")");
+    // language=MySQL
+    String sql = "DELETE FROM scheduler_resource_permit WHERE node_id IN (" + placeholders + ")";
+    Query query = ctx.em().createNativeQuery(sql);
     int parameter = 1;
     for (String nodeId : staleNodeIds) {
       query.setParameter(parameter++, nodeId);
     }
     return query.executeUpdate();
+  }
+
+  private void prepareCondition(WorkflowConditionEntity condition) {
+    if (condition.getId() == null || condition.getId() == 0L) {
+      condition.setId(TsidFactory.next());
+    }
+    if (condition.getCreatedAt() == null) {
+      condition.setCreatedAt(Instant.now());
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  private List<WorkflowConditionEntity> findConditions(
+      String whereClause, List<Object> params, String orderClause) {
+    // language=MySQL
+    String sqlPrefix =
+        """
+        SELECT id, parent_job_id, child_job_id, condition_type, condition_expression,
+               condition_priority, created_at
+        FROM scheduler_workflow_condition
+        """;
+    Query query = ctx.em().createNativeQuery(sqlPrefix + whereClause + " " + orderClause);
+    for (int i = 0; i < params.size(); i++) {
+      query.setParameter(i + 1, params.get(i));
+    }
+    return ((List<Object[]>) query.getResultList())
+        .stream().map(MysqlAuxiliaryOperations::mapCondition).toList();
   }
 }

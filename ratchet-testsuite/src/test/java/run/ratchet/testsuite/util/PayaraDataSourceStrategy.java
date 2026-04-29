@@ -34,43 +34,47 @@ public class PayaraDataSourceStrategy implements DataSourceStrategy {
   }
 
   private static String glassfishResourcesXml(JdbcDatabaseConfig config) {
-    return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-        + "<!DOCTYPE resources PUBLIC \"-//Payara.fish//DTD Payara Server 4 Resource Definitions//EN\" "
-        + "\"http://docs.payara.fish/schemas/payara-resources_1_8.dtd\">\n"
-        + "<resources>\n"
-        + "  <jdbc-connection-pool name=\"RatchetPool\"\n"
-        + "                        res-type=\"javax.sql.DataSource\"\n"
-        + "                        datasource-classname=\""
-        + dataSourceClassName(config.dbType())
-        + "\"\n"
-        + "                        transaction-isolation-level=\"read-committed\"\n"
-        + "                        is-isolation-level-guaranteed=\"true\">\n"
-        + "    <property name=\"URL\" value=\""
-        + xml(config.url())
-        + "\"/>\n"
-        + "    <property name=\"User\" value=\""
-        + xml(config.username())
-        + "\"/>\n"
-        + "    <property name=\"Password\" value=\""
-        + xml(config.password())
-        + "\"/>\n"
-        + mysqlProperties(config.dbType())
-        + "  </jdbc-connection-pool>\n"
-        + "  <jdbc-resource enabled=\"true\"\n"
-        + "                 jndi-name=\""
-        + JTA_DATASOURCE
-        + "\"\n"
-        + "                 object-type=\"user\"\n"
-        + "                 pool-name=\"RatchetPool\"/>\n"
-        + "</resources>\n";
+    // language=XML
+    String template =
+        """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE resources PUBLIC "-//Payara.fish//DTD Payara Server 4 Resource Definitions//EN" \
+        "http://docs.payara.fish/schemas/payara-resources_1_8.dtd">
+        <resources>
+          <jdbc-connection-pool name="RatchetPool"
+                                res-type="javax.sql.DataSource"
+                                datasource-classname="%s"
+                                transaction-isolation-level="read-committed"
+                                is-isolation-level-guaranteed="true">
+            <property name="URL" value="%s"/>
+            <property name="User" value="%s"/>
+            <property name="Password" value="%s"/>
+        %s\
+          </jdbc-connection-pool>
+          <jdbc-resource enabled="true"
+                         jndi-name="%s"
+                         object-type="user"
+                         pool-name="RatchetPool"/>
+        </resources>
+        """;
+    return template.formatted(
+        dataSourceClassName(config.dbType()),
+        xml(config.url()),
+        xml(config.username()),
+        xml(config.password()),
+        mysqlProperties(config.dbType()),
+        JTA_DATASOURCE);
   }
 
   private static String mysqlProperties(String dbType) {
     if (!"mysql".equals(dbType)) {
       return "";
     }
-    return "    <property name=\"sslMode\" value=\"DISABLED\"/>\n"
-        + "    <property name=\"allowPublicKeyRetrieval\" value=\"true\"/>\n";
+    // language=XML
+    return """
+            <property name="sslMode" value="DISABLED"/>
+            <property name="allowPublicKeyRetrieval" value="true"/>
+        """;
   }
 
   private static String dataSourceClassName(String dbType) {

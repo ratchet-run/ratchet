@@ -26,10 +26,15 @@ final class MysqlJobTerminalOperations {
         "update_status",
         () -> {
           if (MysqlJobRowMapper.isLiveStatus(status)) {
+            // language=MySQL
+            String sql =
+                """
+                UPDATE scheduler_job_queue
+                SET status = ?, last_error = ?, updated_at = NOW(3)
+                WHERE job_id = ?
+                """;
             return ctx.em()
-                .createNativeQuery(
-                    "UPDATE scheduler_job_queue SET status = ?, last_error = ?, "
-                        + "updated_at = NOW(3) WHERE job_id = ?")
+                .createNativeQuery(sql)
                 .setParameter(1, status.name())
                 .setParameter(2, errorMessage)
                 .setParameter(3, id)
@@ -59,10 +64,15 @@ final class MysqlJobTerminalOperations {
                   "compareAndSwapStatus expected must be a live status; got " + expected);
             }
             if (MysqlJobRowMapper.isLiveStatus(newStatus)) {
+              // language=MySQL
+              String casSql =
+                  """
+                  UPDATE scheduler_job_queue
+                  SET status = ?, last_error = ?, updated_at = NOW(3)
+                  WHERE job_id = ? AND status = ?
+                  """;
               return ctx.em()
-                      .createNativeQuery(
-                          "UPDATE scheduler_job_queue SET status = ?, last_error = ?, "
-                              + "updated_at = NOW(3) WHERE job_id = ? AND status = ?")
+                      .createNativeQuery(casSql)
                       .setParameter(1, newStatus.name())
                       .setParameter(2, error)
                       .setParameter(3, id)
@@ -71,11 +81,12 @@ final class MysqlJobTerminalOperations {
                   > 0;
             }
             if (newStatus == JobStatus.CANCELED) {
+              // language=MySQL
+              String gateSql =
+                  "SELECT COUNT(*) FROM scheduler_job_queue WHERE job_id = ? AND status = ?";
               int gateMatched =
                   ctx.em()
-                              .createNativeQuery(
-                                  "SELECT COUNT(*) FROM scheduler_job_queue "
-                                      + "WHERE job_id = ? AND status = ?")
+                              .createNativeQuery(gateSql)
                               .setParameter(1, id)
                               .setParameter(2, expected.name())
                               .getSingleResult()
@@ -99,26 +110,24 @@ final class MysqlJobTerminalOperations {
   }
 
   int incrementRetryAttempt(long id) {
+    // language=MySQL
+    String updateSql =
+        """
+        UPDATE scheduler_job_queue
+        SET attempts = attempts + 1, updated_at = NOW(3)
+        WHERE job_id = ? AND status = 'RUNNING'
+        """;
     int updated =
         ctx.timedStoreOperation(
             "increment_retry_attempt",
-            () ->
-                ctx.em()
-                    .createNativeQuery(
-                        "UPDATE scheduler_job_queue SET attempts = attempts + 1, "
-                            + "updated_at = NOW(3) "
-                            + "WHERE job_id = ? AND status = 'RUNNING'")
-                    .setParameter(1, id)
-                    .executeUpdate(),
+            () -> ctx.em().createNativeQuery(updateSql).setParameter(1, id).executeUpdate(),
             count -> count > 0 ? "updated" : "miss");
     if (updated == 0) {
       return -1;
     }
-    Object result =
-        ctx.em()
-            .createNativeQuery("SELECT attempts FROM scheduler_job_queue WHERE job_id = ?")
-            .setParameter(1, id)
-            .getSingleResult();
+    // language=MySQL
+    String selectSql = "SELECT attempts FROM scheduler_job_queue WHERE job_id = ?";
+    Object result = ctx.em().createNativeQuery(selectSql).setParameter(1, id).getSingleResult();
     return ((Number) result).intValue();
   }
 
@@ -175,15 +184,19 @@ final class MysqlJobTerminalOperations {
   }
 
   boolean scheduleJobRetry(long id, String error, Instant newScheduledTime, int attempts) {
+    // language=MySQL
+    String sql =
+        """
+        UPDATE scheduler_job_queue
+        SET status = 'PENDING', last_error = ?, scheduled_time = ?, attempts = ?,
+            picked_by = NULL, picked_at = NULL, updated_at = NOW(3)
+        WHERE job_id = ? AND status = 'RUNNING'
+        """;
     return ctx.timedStoreOperation(
             "schedule_retry",
             () ->
                 ctx.em()
-                    .createNativeQuery(
-                        "UPDATE scheduler_job_queue SET status = 'PENDING', last_error = ?, "
-                            + "scheduled_time = ?, attempts = ?, picked_by = NULL, "
-                            + "picked_at = NULL, updated_at = NOW(3) "
-                            + "WHERE job_id = ? AND status = 'RUNNING'")
+                    .createNativeQuery(sql)
                     .setParameter(1, error)
                     .setParameter(2, Timestamp.from(newScheduledTime))
                     .setParameter(3, attempts)
@@ -194,20 +207,22 @@ final class MysqlJobTerminalOperations {
   }
 
   boolean markJobFailedTerminal(long id, String terminalError, int totalAttempts) {
-    int hotDeleted =
-        ctx.em()
-            .createNativeQuery(
-                "DELETE FROM scheduler_job_queue WHERE job_id = ? AND status = 'RUNNING'")
-            .setParameter(1, id)
-            .executeUpdate();
+    // language=MySQL
+    String deleteHotSql = "DELETE FROM scheduler_job_queue WHERE job_id = ? AND status = 'RUNNING'";
+    int hotDeleted = ctx.em().createNativeQuery(deleteHotSql).setParameter(1, id).executeUpdate();
     if (hotDeleted == 0) {
       return false;
     }
+    // language=MySQL
+    String updateColdSql =
+        """
+        UPDATE scheduler_job
+        SET terminal_status = 'FAILED', terminal_error = ?, total_attempts = ?,
+            terminated_at = NOW(3), execution_end_time = NOW(3)
+        WHERE job_id = ? AND terminal_status IS NULL
+        """;
     ctx.em()
-        .createNativeQuery(
-            "UPDATE scheduler_job SET terminal_status = 'FAILED', terminal_error = ?, "
-                + "total_attempts = ?, terminated_at = NOW(3), execution_end_time = NOW(3) "
-                + "WHERE job_id = ? AND terminal_status IS NULL")
+        .createNativeQuery(updateColdSql)
         .setParameter(1, terminalError)
         .setParameter(2, totalAttempts)
         .setParameter(3, id)
@@ -217,13 +232,11 @@ final class MysqlJobTerminalOperations {
   }
 
   boolean cancelJob(long id) {
+    // language=MySQL
+    String selectSql =
+        "SELECT job_type, terminal_status, rec_status FROM scheduler_job WHERE job_id = ?";
     @SuppressWarnings("unchecked")
-    List<Object[]> rows =
-        ctx.em()
-            .createNativeQuery(
-                "SELECT job_type, terminal_status, rec_status FROM scheduler_job WHERE job_id = ?")
-            .setParameter(1, id)
-            .getResultList();
+    List<Object[]> rows = ctx.em().createNativeQuery(selectSql).setParameter(1, id).getResultList();
     if (rows.isEmpty()) {
       return false;
     }
@@ -234,47 +247,52 @@ final class MysqlJobTerminalOperations {
       return false;
     }
     if ("RECURRING".equals(jobType)) {
+      // language=MySQL
+      String cancelRecurringSql =
+          """
+          UPDATE scheduler_job
+          SET rec_status = NULL, terminal_status = 'CANCELED', terminated_at = NOW(3)
+          WHERE job_id = ? AND job_type = 'RECURRING'
+            AND rec_status IS NOT NULL AND terminal_status IS NULL
+          """;
       int updated =
-          ctx.em()
-              .createNativeQuery(
-                  "UPDATE scheduler_job SET rec_status = NULL, terminal_status = 'CANCELED', "
-                      + "terminated_at = NOW(3) "
-                      + "WHERE job_id = ? AND job_type = 'RECURRING' "
-                      + "AND rec_status IS NOT NULL AND terminal_status IS NULL")
-              .setParameter(1, id)
-              .executeUpdate();
+          ctx.em().createNativeQuery(cancelRecurringSql).setParameter(1, id).executeUpdate();
       if (updated == 0) {
         return false;
       }
       reservations.deleteReservationByOwner(id);
       return true;
     }
-    ctx.em()
-        .createNativeQuery(
-            "DELETE FROM scheduler_job_queue WHERE job_id = ? "
-                + "AND status IN ('PENDING','RUNNING','PAUSED')")
-        .setParameter(1, id)
-        .executeUpdate();
-    int coldUpdated =
-        ctx.em()
-            .createNativeQuery(
-                "UPDATE scheduler_job SET terminal_status = 'CANCELED', terminated_at = NOW(3) "
-                    + "WHERE job_id = ? AND terminal_status IS NULL")
-            .setParameter(1, id)
-            .executeUpdate();
+    // language=MySQL
+    String deleteHotSql =
+        """
+        DELETE FROM scheduler_job_queue
+        WHERE job_id = ? AND status IN ('PENDING','RUNNING','PAUSED')
+        """;
+    ctx.em().createNativeQuery(deleteHotSql).setParameter(1, id).executeUpdate();
+    // language=MySQL
+    String updateColdSql =
+        """
+        UPDATE scheduler_job
+        SET terminal_status = 'CANCELED', terminated_at = NOW(3)
+        WHERE job_id = ? AND terminal_status IS NULL
+        """;
+    int coldUpdated = ctx.em().createNativeQuery(updateColdSql).setParameter(1, id).executeUpdate();
     reservations.deleteReservationByOwner(id);
     return coldUpdated > 0;
   }
 
   boolean resetFailedToPending(long id) {
+    // language=MySQL
+    String selectSql =
+        """
+        SELECT terminal_status, job_type, priority, business_key, timeout_sec, max_retries
+        FROM scheduler_job
+        WHERE job_id = ?
+        FOR UPDATE
+        """;
     @SuppressWarnings("unchecked")
-    List<Object[]> rows =
-        ctx.em()
-            .createNativeQuery(
-                "SELECT terminal_status, job_type, priority, business_key, timeout_sec, max_retries "
-                    + "FROM scheduler_job WHERE job_id = ? FOR UPDATE")
-            .setParameter(1, id)
-            .getResultList();
+    List<Object[]> rows = ctx.em().createNativeQuery(selectSql).setParameter(1, id).getResultList();
     if (rows.isEmpty()) {
       return false;
     }
@@ -289,23 +307,29 @@ final class MysqlJobTerminalOperations {
     int timeoutSec = ((Number) row[4]).intValue();
     int maxRetries = ((Number) row[5]).intValue();
 
-    ctx.em()
-        .createNativeQuery(
-            "UPDATE scheduler_job SET terminal_status = NULL, terminal_error = NULL, "
-                + "job_result = NULL, result_type = NULL, "
-                + "execution_start_time = NULL, execution_end_time = NULL, "
-                + "execution_duration_ms = NULL, queue_wait_ms = NULL, "
-                + "total_attempts = NULL, terminated_at = NULL "
-                + "WHERE job_id = ? AND terminal_status = 'FAILED'")
-        .setParameter(1, id)
-        .executeUpdate();
+    // language=MySQL
+    String clearTerminalSql =
+        """
+        UPDATE scheduler_job
+        SET terminal_status = NULL, terminal_error = NULL,
+            job_result = NULL, result_type = NULL,
+            execution_start_time = NULL, execution_end_time = NULL,
+            execution_duration_ms = NULL, queue_wait_ms = NULL,
+            total_attempts = NULL, terminated_at = NULL
+        WHERE job_id = ? AND terminal_status = 'FAILED'
+        """;
+    ctx.em().createNativeQuery(clearTerminalSql).setParameter(1, id).executeUpdate();
 
+    // language=MySQL
+    String insertHotSql =
+        """
+        INSERT INTO scheduler_job_queue
+          (job_id, status, job_type, priority, scheduled_time, business_key,
+           timeout_sec, max_retries, attempts, version, updated_at)
+        VALUES (?, 'PENDING', ?, ?, NOW(3), ?, ?, ?, 0, 0, NOW(3))
+        """;
     ctx.em()
-        .createNativeQuery(
-            "INSERT INTO scheduler_job_queue "
-                + "(job_id, status, job_type, priority, scheduled_time, business_key, "
-                + "timeout_sec, max_retries, attempts, version, updated_at) "
-                + "VALUES (?, 'PENDING', ?, ?, NOW(3), ?, ?, ?, 0, 0, NOW(3))")
+        .createNativeQuery(insertHotSql)
         .setParameter(1, id)
         .setParameter(2, jobType)
         .setParameter(3, priority)
@@ -337,18 +361,22 @@ final class MysqlJobTerminalOperations {
       Instant end,
       Long durationMs,
       Long queueWaitMs) {
+    // language=MySQL
+    String sql =
+        """
+        UPDATE scheduler_job c
+        JOIN scheduler_job_queue q ON q.job_id = c.job_id
+        SET c.terminal_status = 'SUCCEEDED',
+            c.job_result = CAST(? AS JSON), c.result_type = ?,
+            c.execution_start_time = ?, c.execution_end_time = ?,
+            c.execution_duration_ms = ?, c.queue_wait_ms = ?,
+            c.total_attempts = q.attempts, c.terminated_at = NOW(3)
+        WHERE c.job_id = ? AND c.terminal_status IS NULL
+          AND q.status = 'RUNNING'
+        """;
     int coldUpdated =
         ctx.em()
-            .createNativeQuery(
-                "UPDATE scheduler_job c "
-                    + "JOIN scheduler_job_queue q ON q.job_id = c.job_id "
-                    + "SET c.terminal_status = 'SUCCEEDED', "
-                    + "c.job_result = CAST(? AS JSON), c.result_type = ?, "
-                    + "c.execution_start_time = ?, c.execution_end_time = ?, "
-                    + "c.execution_duration_ms = ?, c.queue_wait_ms = ?, "
-                    + "c.total_attempts = q.attempts, c.terminated_at = NOW(3) "
-                    + "WHERE c.job_id = ? AND c.terminal_status IS NULL "
-                    + "AND q.status = 'RUNNING'")
+            .createNativeQuery(sql)
             .setParameter(1, resultJson)
             .setParameter(2, resultType)
             .setParameter(3, start != null ? Timestamp.from(start) : null)
@@ -366,17 +394,21 @@ final class MysqlJobTerminalOperations {
 
   private boolean doMarkTerminalSuccessMinimal(
       long id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
+    // language=MySQL
+    String sql =
+        """
+        UPDATE scheduler_job c
+        JOIN scheduler_job_queue q ON q.job_id = c.job_id
+        SET c.terminal_status = 'SUCCEEDED',
+            c.execution_start_time = ?, c.execution_end_time = ?,
+            c.execution_duration_ms = ?, c.queue_wait_ms = ?,
+            c.total_attempts = q.attempts, c.terminated_at = NOW(3)
+        WHERE c.job_id = ? AND c.terminal_status IS NULL
+          AND q.status = 'RUNNING'
+        """;
     int coldUpdated =
         ctx.em()
-            .createNativeQuery(
-                "UPDATE scheduler_job c "
-                    + "JOIN scheduler_job_queue q ON q.job_id = c.job_id "
-                    + "SET c.terminal_status = 'SUCCEEDED', "
-                    + "c.execution_start_time = ?, c.execution_end_time = ?, "
-                    + "c.execution_duration_ms = ?, c.queue_wait_ms = ?, "
-                    + "c.total_attempts = q.attempts, c.terminated_at = NOW(3) "
-                    + "WHERE c.job_id = ? AND c.terminal_status IS NULL "
-                    + "AND q.status = 'RUNNING'")
+            .createNativeQuery(sql)
             .setParameter(1, start != null ? Timestamp.from(start) : null)
             .setParameter(2, end != null ? Timestamp.from(end) : null)
             .setParameter(3, durationMs)
@@ -391,15 +423,15 @@ final class MysqlJobTerminalOperations {
   }
 
   private void deleteHotRowAndReservationAfterSuccess(long id) {
-    int deleted =
-        ctx.em()
-            .createNativeQuery(
-                "DELETE q, br FROM scheduler_job_queue q "
-                    + "LEFT JOIN scheduler_business_key_reservation br "
-                    + "ON br.owner_job_id = q.job_id "
-                    + "WHERE q.job_id = ? AND q.status = 'RUNNING'")
-            .setParameter(1, id)
-            .executeUpdate();
+    // language=MySQL
+    String sql =
+        """
+        DELETE q, br FROM scheduler_job_queue q
+        LEFT JOIN scheduler_business_key_reservation br
+          ON br.owner_job_id = q.job_id
+        WHERE q.job_id = ? AND q.status = 'RUNNING'
+        """;
+    int deleted = ctx.em().createNativeQuery(sql).setParameter(1, id).executeUpdate();
     if (deleted == 0) {
       throw new IllegalStateException(
           "terminal success updated cold row but failed to remove hot row for job " + id);

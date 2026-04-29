@@ -75,42 +75,44 @@ public class RatchetArchiveBuilder {
     // No <provider> or hibernate.dialect pin — WildFly auto-discovers via ServiceLoader and the
     // JPA provider auto-detects the dialect from the JDBC URL exposed by RatchetDS. Remaining
     // property keys are opt-in Hibernate tuning and no-op under any other JPA provider.
+    // language=XML
     String persistenceXml =
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-            + "<persistence xmlns=\"https://jakarta.ee/xml/ns/persistence\"\n"
-            + "             xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n"
-            + "             xsi:schemaLocation=\"https://jakarta.ee/xml/ns/persistence\n"
-            + "                 https://jakarta.ee/xml/ns/persistence/persistence_3_0.xsd\"\n"
-            + "             version=\"3.0\">\n"
-            + "  <persistence-unit name=\"ratchet-test\" transaction-type=\"JTA\">\n"
-            + "    <jta-data-source>"
-            + jtaDataSourceName
-            + "</jta-data-source>\n"
-            + "    <class>run.ratchet.store.entity.JobEntity</class>\n"
-            + "    <class>run.ratchet.store.entity.JobExecutionEntity</class>\n"
-            + "    <class>run.ratchet.store.entity.ResourceLimitEntity</class>\n"
-            + "    <class>run.ratchet.store.entity.BatchMetricsEntity</class>\n"
-            + "    <class>run.ratchet.store.entity.WorkflowConditionEntity</class>\n"
-            + "    <class>run.ratchet.store.entity.ArchivedJobEntity</class>\n"
-            + "    <class>run.ratchet.store.entity.NodeEntity</class>\n"
-            + "    <class>run.ratchet.store.entity.DlqAlertEntity</class>\n"
-            + "    <class>run.ratchet.store.entity.JobLogEntity</class>\n"
-            + "    <class>run.ratchet.store.entity.ResourcePermitEntity</class>\n"
-            + "    <class>run.ratchet.store.entity.BatchEntity</class>\n"
-            + "    <class>run.ratchet.store.entity.LockEntity</class>\n"
-            + "    <class>run.ratchet.store.converter.InstantAttributeConverter</class>\n"
-            + "    <class>run.ratchet.store.converter.JobPayloadConverter</class>\n"
-            + "    <class>run.ratchet.store.converter.JsonListConverter</class>\n"
-            + "    <class>run.ratchet.store.converter.JsonMapConverter</class>\n"
-            + "    <class>run.ratchet.store.converter.JsonObjectMapConverter</class>\n"
-            + "    <exclude-unlisted-classes>true</exclude-unlisted-classes>\n"
-            + "    <properties>\n"
-            + "      <property name=\"hibernate.hbm2ddl.auto\" value=\"none\"/>\n"
-            + "      <property name=\"hibernate.show_sql\" value=\"true\"/>\n"
-            + "      <property name=\"hibernate.connection.isolation\" value=\"2\"/>\n"
-            + "    </properties>\n"
-            + "  </persistence-unit>\n"
-            + "</persistence>\n";
+        """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <persistence xmlns="https://jakarta.ee/xml/ns/persistence"
+                     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                     xsi:schemaLocation="https://jakarta.ee/xml/ns/persistence
+                         https://jakarta.ee/xml/ns/persistence/persistence_3_0.xsd"
+                     version="3.0">
+          <persistence-unit name="ratchet-test" transaction-type="JTA">
+            <jta-data-source>%s</jta-data-source>
+            <class>run.ratchet.store.entity.JobEntity</class>
+            <class>run.ratchet.store.entity.JobExecutionEntity</class>
+            <class>run.ratchet.store.entity.ResourceLimitEntity</class>
+            <class>run.ratchet.store.entity.BatchMetricsEntity</class>
+            <class>run.ratchet.store.entity.WorkflowConditionEntity</class>
+            <class>run.ratchet.store.entity.ArchivedJobEntity</class>
+            <class>run.ratchet.store.entity.NodeEntity</class>
+            <class>run.ratchet.store.entity.DlqAlertEntity</class>
+            <class>run.ratchet.store.entity.JobLogEntity</class>
+            <class>run.ratchet.store.entity.ResourcePermitEntity</class>
+            <class>run.ratchet.store.entity.BatchEntity</class>
+            <class>run.ratchet.store.entity.LockEntity</class>
+            <class>run.ratchet.store.converter.InstantAttributeConverter</class>
+            <class>run.ratchet.store.converter.JobPayloadConverter</class>
+            <class>run.ratchet.store.converter.JsonListConverter</class>
+            <class>run.ratchet.store.converter.JsonMapConverter</class>
+            <class>run.ratchet.store.converter.JsonObjectMapConverter</class>
+            <exclude-unlisted-classes>true</exclude-unlisted-classes>
+            <properties>
+              <property name="hibernate.hbm2ddl.auto" value="none"/>
+              <property name="hibernate.show_sql" value="true"/>
+              <property name="hibernate.connection.isolation" value="2"/>
+            </properties>
+          </persistence-unit>
+        </persistence>
+        """
+            .formatted(jtaDataSourceName);
 
     archive.addAsResource(new StringAsset(persistenceXml), "META-INF/persistence.xml");
     return this;

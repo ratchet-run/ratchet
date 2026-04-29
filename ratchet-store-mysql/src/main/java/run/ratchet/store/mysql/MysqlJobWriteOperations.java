@@ -14,21 +14,27 @@ import java.util.Objects;
 
 final class MysqlJobWriteOperations {
 
+  // language=MySQL
   private static final String COLD_INSERT_SQL =
-      "INSERT INTO scheduler_job ("
-          + "job_id, job_type, priority, max_retries, backoff_policy, backoff_param_ms, "
-          + "timeout_sec, cron_expr, zone_id, next_fire, payload, params, idempotency_key, "
-          + "business_key, resource_name, on_success_payload, on_failure_payload, depends_on, "
-          + "superseded_by, created_at, created_by, caller_principal, rec_status) "
-          + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, "
-          + "CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, ?, ?, ?)";
+      """
+      INSERT INTO scheduler_job (
+        job_id, job_type, priority, max_retries, backoff_policy, backoff_param_ms,
+        timeout_sec, cron_expr, zone_id, next_fire, payload, params, idempotency_key,
+        business_key, resource_name, on_success_payload, on_failure_payload, depends_on,
+        superseded_by, created_at, created_by, caller_principal, rec_status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?,
+              CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, ?, ?, ?)
+      """;
 
+  // language=MySQL
   private static final String HOT_INSERT_SQL =
-      "INSERT INTO scheduler_job_queue ("
-          + "job_id, status, job_type, priority, scheduled_time, business_key, timeout_sec, "
-          + "max_retries, attempts, picked_by, picked_at, paused_from_status, last_error, "
-          + "version, updated_at) "
-          + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+      """
+      INSERT INTO scheduler_job_queue (
+        job_id, status, job_type, priority, scheduled_time, business_key, timeout_sec,
+        max_retries, attempts, picked_by, picked_at, paused_from_status, last_error,
+        version, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      """;
 
   private final MysqlStoreContext ctx;
   private final MysqlJobRowMapper mapper;
@@ -161,11 +167,15 @@ final class MysqlJobWriteOperations {
   }
 
   private void executeColdTerminalBackfill(JobEntity job, Timestamp nowTs) {
+    // language=MySQL
+    String sql =
+        """
+        UPDATE scheduler_job
+        SET terminal_status = ?, terminal_error = ?, total_attempts = ?, terminated_at = ?
+        WHERE job_id = ?
+        """;
     ctx.em()
-        .createNativeQuery(
-            "UPDATE scheduler_job SET terminal_status = ?, terminal_error = ?, "
-                + "total_attempts = ?, terminated_at = ? "
-                + "WHERE job_id = ?")
+        .createNativeQuery(sql)
         .setParameter(1, job.getStatus().name())
         .setParameter(2, job.getLastError())
         .setParameter(3, job.getAttempts())
@@ -242,17 +252,21 @@ final class MysqlJobWriteOperations {
     }
     guardAgainstHotMutation(job);
 
+    // language=MySQL
+    String sql =
+        """
+        UPDATE scheduler_job
+        SET next_fire = ?,
+            params = CAST(? AS JSON),
+            on_success_payload = CAST(? AS JSON),
+            on_failure_payload = CAST(? AS JSON),
+            depends_on = ?,
+            superseded_by = ?,
+            resource_name = ?
+        WHERE job_id = ?
+        """;
     ctx.em()
-        .createNativeQuery(
-            "UPDATE scheduler_job SET "
-                + "next_fire = ?, "
-                + "params = CAST(? AS JSON), "
-                + "on_success_payload = CAST(? AS JSON), "
-                + "on_failure_payload = CAST(? AS JSON), "
-                + "depends_on = ?, "
-                + "superseded_by = ?, "
-                + "resource_name = ? "
-                + "WHERE job_id = ?")
+        .createNativeQuery(sql)
         .setParameter(1, job.getNextFire() != null ? Timestamp.from(job.getNextFire()) : null)
         .setParameter(2, mapper.paramsToJson(job))
         .setParameter(3, mapper.callbackPayloadToJson(job.getOnSuccessPayload()))
@@ -322,14 +336,15 @@ final class MysqlJobWriteOperations {
   @SuppressWarnings("unchecked")
   private boolean tryScheduledTimeOnlyHotUpdate(JobEntity job) {
     long id = job.getId();
-    List<Object[]> rows =
-        ctx.em()
-            .createNativeQuery(
-                "SELECT q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at, "
-                    + "q.paused_from_status, q.last_error, q.version "
-                    + "FROM scheduler_job_queue q WHERE q.job_id = ?")
-            .setParameter(1, id)
-            .getResultList();
+    // language=MySQL
+    String selectSql =
+        """
+        SELECT q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at,
+               q.paused_from_status, q.last_error, q.version
+        FROM scheduler_job_queue q
+        WHERE q.job_id = ?
+        """;
+    List<Object[]> rows = ctx.em().createNativeQuery(selectSql).setParameter(1, id).getResultList();
     if (rows.isEmpty()) {
       return false;
     }
@@ -352,10 +367,15 @@ final class MysqlJobWriteOperations {
         || !Objects.equals(((Number) row[7]).intValue(), job.getVersion())) {
       return false;
     }
+    // language=MySQL
+    String updateSql =
+        """
+        UPDATE scheduler_job_queue
+        SET scheduled_time = ?, updated_at = NOW(3)
+        WHERE job_id = ? AND status = 'PENDING'
+        """;
     ctx.em()
-        .createNativeQuery(
-            "UPDATE scheduler_job_queue SET scheduled_time = ?, updated_at = NOW(3) "
-                + "WHERE job_id = ? AND status = 'PENDING'")
+        .createNativeQuery(updateSql)
         .setParameter(1, incomingSched != null ? Timestamp.from(incomingSched) : null)
         .setParameter(2, id)
         .executeUpdate();
@@ -365,14 +385,18 @@ final class MysqlJobWriteOperations {
   private void updateHotLiveViaVersion(JobEntity incoming, int expectedVersion) {
     long id = incoming.getId();
     JobStatus status = incoming.getStatus() != null ? incoming.getStatus() : JobStatus.PENDING;
+    // language=MySQL
+    String sql =
+        """
+        UPDATE scheduler_job_queue
+        SET status = ?, scheduled_time = ?, attempts = ?, picked_by = ?, picked_at = ?,
+            paused_from_status = ?, last_error = ?, version = version + 1,
+            updated_at = NOW(3)
+        WHERE job_id = ? AND version = ?
+        """;
     int updated =
         ctx.em()
-            .createNativeQuery(
-                "UPDATE scheduler_job_queue SET "
-                    + "status = ?, scheduled_time = ?, attempts = ?, picked_by = ?, picked_at = ?, "
-                    + "paused_from_status = ?, last_error = ?, version = version + 1, "
-                    + "updated_at = NOW(3) "
-                    + "WHERE job_id = ? AND version = ?")
+            .createNativeQuery(sql)
             .setParameter(1, status.name())
             .setParameter(
                 2,
@@ -409,12 +433,17 @@ final class MysqlJobWriteOperations {
     if (deleted == 0) {
       throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
     }
+    // language=MySQL
+    String updateSql =
+        """
+        UPDATE scheduler_job
+        SET terminal_status = ?,
+            terminal_error = COALESCE(?, terminal_error),
+            terminated_at = NOW(3)
+        WHERE job_id = ? AND terminal_status IS NULL
+        """;
     ctx.em()
-        .createNativeQuery(
-            "UPDATE scheduler_job SET terminal_status = ?, "
-                + "terminal_error = COALESCE(?, terminal_error), "
-                + "terminated_at = NOW(3) "
-                + "WHERE job_id = ? AND terminal_status IS NULL")
+        .createNativeQuery(updateSql)
         .setParameter(1, incoming.getStatus().name())
         .setParameter(2, incoming.getLastError())
         .setParameter(3, id)
@@ -425,17 +454,17 @@ final class MysqlJobWriteOperations {
 
   @SuppressWarnings("unchecked")
   private Object[] snapshotHotRow(long id) {
-    List<Object[]> rows =
-        ctx.em()
-            .createNativeQuery(
-                "SELECT q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at, "
-                    + "q.paused_from_status, q.last_error, q.version, "
-                    + "c.terminal_status, c.rec_status "
-                    + "FROM scheduler_job c "
-                    + "LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id "
-                    + "WHERE c.job_id = ?")
-            .setParameter(1, id)
-            .getResultList();
+    // language=MySQL
+    String sql =
+        """
+        SELECT q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at,
+               q.paused_from_status, q.last_error, q.version,
+               c.terminal_status, c.rec_status
+        FROM scheduler_job c
+        LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
+        WHERE c.job_id = ?
+        """;
+    List<Object[]> rows = ctx.em().createNativeQuery(sql).setParameter(1, id).getResultList();
     return rows.isEmpty() ? null : rows.get(0);
   }
 
