@@ -53,7 +53,7 @@ class PostgresqlExplainPlanCaptureIT {
         EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
         WITH picked AS (
           SELECT job_id
-          FROM scheduler_job
+          FROM scheduler_job_queue
           WHERE status = 'PENDING'
             AND scheduled_time <= statement_timestamp()
             AND job_type = 'SINGLE'
@@ -64,15 +64,15 @@ class PostgresqlExplainPlanCaptureIT {
           FOR UPDATE SKIP LOCKED
           LIMIT 50
         )
-        UPDATE scheduler_job AS j
+        UPDATE scheduler_job_queue AS q
         SET status = 'RUNNING',
             picked_by = 'explain-node',
             picked_at = statement_timestamp(),
             updated_at = statement_timestamp(),
             version = version + 1
         FROM picked
-        WHERE j.job_id = picked.job_id
-        RETURNING j.job_id
+        WHERE q.job_id = picked.job_id
+        RETURNING q.job_id
         """;
     try (ResultSet rs = statement.executeQuery(sql)) {
       assertTrue(rs.next(), "EXPLAIN should return one JSON plan row");
@@ -97,7 +97,7 @@ class PostgresqlExplainPlanCaptureIT {
     try (Connection conn = connection();
         Statement statement = conn.createStatement()) {
       conn.setAutoCommit(false);
-      statement.execute("ANALYZE scheduler_job");
+      statement.execute("ANALYZE scheduler_job_queue");
       // The fixture table is intentionally small, so PostgreSQL may prefer a sequential scan on
       // cost alone. Disable seqscan locally to verify the intended claim index remains usable.
       statement.execute("SET LOCAL enable_seqscan = off");
@@ -105,8 +105,8 @@ class PostgresqlExplainPlanCaptureIT {
       writePlan("target/explain-plans/postgresql-optimized-claim.json", plan);
       conn.rollback();
 
-      assertTrue(plan.contains("\"Relation Name\": \"scheduler_job\""), plan);
-      assertTrue(plan.contains("\"Index Name\": \"idx_job_claim_cover\""), plan);
+      assertTrue(plan.contains("\"Relation Name\": \"scheduler_job_queue\""), plan);
+      assertTrue(plan.contains("\"Index Name\": \"idx_claim_executable\""), plan);
     }
   }
 }

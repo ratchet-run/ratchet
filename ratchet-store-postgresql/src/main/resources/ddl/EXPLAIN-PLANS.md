@@ -14,7 +14,7 @@ sets `enable_seqscan = off` locally to verify that the intended claim index rema
 EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
 WITH picked AS (
   SELECT job_id
-  FROM scheduler_job
+  FROM scheduler_job_queue
   WHERE status = 'PENDING'
     AND scheduled_time <= statement_timestamp()
     AND job_type = 'SINGLE'
@@ -25,15 +25,15 @@ WITH picked AS (
   FOR UPDATE SKIP LOCKED
   LIMIT 50
 )
-UPDATE scheduler_job AS j
+UPDATE scheduler_job_queue AS q
 SET status = 'RUNNING',
     picked_by = 'explain-node',
     picked_at = statement_timestamp(),
     updated_at = statement_timestamp(),
     version = version + 1
 FROM picked
-WHERE j.job_id = picked.job_id
-RETURNING j.job_id;
+WHERE q.job_id = picked.job_id
+RETURNING q.job_id;
 ```
 
 Relevant JSON excerpt:
@@ -41,7 +41,7 @@ Relevant JSON excerpt:
 ```json
 {
   "Node Type": "Bitmap Index Scan",
-  "Index Name": "idx_job_claim_cover",
+  "Index Name": "idx_claim_executable",
   "Actual Rows": 150,
   "Index Cond": "((job_type = 'SINGLE'::text) AND (scheduled_time <= statement_timestamp()))"
 }
@@ -49,4 +49,5 @@ Relevant JSON excerpt:
 
 The selected rows feed a `Sort` node on computed effective priority. That sort is expected because
 the age-boost term depends on `statement_timestamp()` and is not immutable. The index invariant is
-that the plan uses `idx_job_claim_cover` to reduce the due candidate set before sorting.
+that the plan uses `idx_claim_executable` (the partial index on `scheduler_job_queue` filtered by
+`status = 'PENDING'`) to reduce the due candidate set before sorting.
