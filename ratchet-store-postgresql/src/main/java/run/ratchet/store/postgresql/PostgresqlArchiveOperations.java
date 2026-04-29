@@ -29,16 +29,16 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
           + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
   private final PostgresqlStoreContext ctx;
-  private final PostgresqlJobCrudOperations jobs;
+  private final PostgresqlJobReadOperations reads;
 
-  PostgresqlArchiveOperations(PostgresqlStoreContext ctx, PostgresqlJobCrudOperations jobs) {
+  PostgresqlArchiveOperations(PostgresqlStoreContext ctx, PostgresqlJobReadOperations reads) {
     this.ctx = ctx;
-    this.jobs = jobs;
+    this.reads = reads;
   }
 
   @Override
   public ArchivedJobEntity archiveJob(JobEntity job, String reason, String archivedBy) {
-    JobEntity hydrated = jobs.hydrateForArchive(job);
+    JobEntity hydrated = reads.hydrateForArchive(job);
     ArchivedJobEntity archive = ArchiveHelper.buildArchive(hydrated, reason, archivedBy);
     prepareArchive(archive);
     Query query = ctx.em().createNativeQuery(INSERT_ARCHIVE_SQL);
@@ -74,7 +74,7 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
             .setParameter(1, Timestamp.from(olderThan))
             .setParameter(2, limit)
             .getResultList();
-    return jobs.hydrateRowsWithTags(rows);
+    return reads.hydrateRowsWithTags(rows);
   }
 
   @Override

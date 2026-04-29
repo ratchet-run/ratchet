@@ -677,12 +677,13 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
     ctx = new PostgresqlStoreContext(em, options.store().priorityBoostIntervalMinutes());
     reservations = new PostgresqlBusinessKeyReservations(ctx);
     tags = new PostgresqlTagOperations(ctx);
-    jobs = new PostgresqlJobCrudOperations(ctx, reservations, tags);
+    PostgresqlJobReadOperations reads = new PostgresqlJobReadOperations(ctx, tags);
+    jobs = new PostgresqlJobCrudOperations(ctx, reads, reservations, tags);
     batches = new PostgresqlBatchOperations(ctx);
     claims = new PostgresqlJobClaimOperations(ctx, jobs);
     lifecycle = new PostgresqlJobLifecycleOperations(ctx, reservations, batches);
     nodeLocks = new PostgresqlNodeLockOperations(ctx);
-    archives = new PostgresqlArchiveOperations(ctx, jobs);
+    archives = new PostgresqlArchiveOperations(ctx, reads);
     auxiliary = new PostgresqlAuxiliaryOperations(ctx);
   }
 }
