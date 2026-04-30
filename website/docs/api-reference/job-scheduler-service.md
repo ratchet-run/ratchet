@@ -59,7 +59,7 @@ Enqueues a task for immediate execution with default configuration. This is a co
 ```java
 // Fire-and-forget with default settings
 JobHandle handle = scheduler.enqueueNow(() -> auditService.log(event));
-long jobId = handle.id();
+UUID jobId = handle.id();
 ```
 
 ### schedule
@@ -172,7 +172,7 @@ scheduler.<Long>streamingBatch("Migrate Users")
 ### replace
 
 ```java
-JobHandle replace(long jobId, Duration delay,
+JobHandle replace(UUID jobId, Duration delay,
                   SerializableCheckedRunnable newTask, JobOptions opts)
 ```
 
@@ -200,7 +200,7 @@ JobHandle replacement = scheduler.replace(
 ### cancelJob
 
 ```java
-boolean cancelJob(long jobId)
+boolean cancelJob(UUID jobId)
 ```
 
 Cancels a job by its ID.
@@ -224,7 +224,7 @@ if (!canceled) {
 ### pauseJob
 
 ```java
-boolean pauseJob(long jobId)
+boolean pauseJob(UUID jobId)
 ```
 
 Pauses a job, preventing it from being picked up for execution.
@@ -248,7 +248,7 @@ scheduler.resumeJob(jobId);
 ### resumeJob
 
 ```java
-boolean resumeJob(long jobId)
+boolean resumeJob(UUID jobId)
 ```
 
 Resumes a paused job, making it eligible for execution again.
@@ -270,7 +270,7 @@ boolean resumed = scheduler.resumeJob(jobId);
 ### retryJob
 
 ```java
-boolean retryJob(long jobId)
+boolean retryJob(UUID jobId)
 ```
 
 Retries a failed job by resetting it to PENDING status. This is the primary mechanism for manual retry of jobs in the Dead Letter Queue.
@@ -385,7 +385,7 @@ scheduler.removeEventListener(listener);
 ```java
 @FunctionalInterface
 public interface JobHandle {
-    long id();
+    UUID id();
 }
 ```
 
@@ -393,7 +393,7 @@ The ID is globally unique within the scheduler and remains valid throughout the 
 
 ```java
 JobHandle handle = scheduler.enqueue(() -> processData()).submit();
-long jobId = handle.id();
+UUID jobId = handle.id();
 
 // Use the ID for lifecycle operations
 scheduler.cancelJob(jobId);

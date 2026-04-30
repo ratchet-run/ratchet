@@ -74,9 +74,9 @@ If you need different metric names, additional tags, or a non-Micrometer backend
 
 ```java
 public interface MetricsCollector {
-    void jobStarted(long jobId, JobType type, JobPriority priority);
-    void jobCompleted(long jobId, JobType type, long executionTimeMs);
-    void jobFailed(long jobId, JobType type, Throwable cause, int attempt);
+    void jobStarted(UUID jobId, JobType type, JobPriority priority);
+    void jobCompleted(UUID jobId, JobType type, long executionTimeMs);
+    void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt);
 }
 ```
 

@@ -213,9 +213,9 @@ Receives job lifecycle callbacks for monitoring.
 ```java
 @Incubating
 public interface MetricsCollector {
-    void jobStarted(long jobId, JobType type, JobPriority priority);
-    void jobCompleted(long jobId, JobType type, long executionTimeMs);
-    void jobFailed(long jobId, JobType type, Throwable cause, int attempt);
+    void jobStarted(UUID jobId, JobType type, JobPriority priority);
+    void jobCompleted(UUID jobId, JobType type, long executionTimeMs);
+    void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt);
 }
 ```
 
@@ -231,20 +231,20 @@ public class DatadogMetricsCollector implements MetricsCollector {
     private StatsDClient statsd;
 
     @Override
-    public void jobStarted(long jobId, JobType type, JobPriority priority) {
+    public void jobStarted(UUID jobId, JobType type, JobPriority priority) {
         statsd.incrementCounter("ratchet.jobs.started",
             "type:" + type, "priority:" + priority);
     }
 
     @Override
-    public void jobCompleted(long jobId, JobType type, long executionTimeMs) {
+    public void jobCompleted(UUID jobId, JobType type, long executionTimeMs) {
         statsd.incrementCounter("ratchet.jobs.completed", "type:" + type);
         statsd.recordExecutionTime("ratchet.jobs.duration", executionTimeMs,
             "type:" + type);
     }
 
     @Override
-    public void jobFailed(long jobId, JobType type, Throwable cause, int attempt) {
+    public void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt) {
         statsd.incrementCounter("ratchet.jobs.failed",
             "type:" + type, "exception:" + cause.getClass().getSimpleName());
     }
@@ -712,7 +712,7 @@ public class CustomDocumentJobStore implements JobStore {
     }
 
     @Override
-    public Optional<JobEntity> findById(long id) {
+    public Optional<JobEntity> findById(UUID id) {
         Document doc = database.getCollection("ratchet_jobs")
             .find(eq("_id", id))
             .first();

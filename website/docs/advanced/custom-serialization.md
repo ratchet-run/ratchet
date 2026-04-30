@@ -47,7 +47,7 @@ Override it to change result serialization, redact values, or disable result per
 @ApplicationScoped
 public class RedactingResultPersistence implements ResultPersistenceStrategy {
     @Override
-    public SerializedJobResult serialize(long jobId, Object result) {
+    public SerializedJobResult serialize(UUID jobId, Object result) {
         if (result == null) {
             return SerializedJobResult.empty();
         }

@@ -344,7 +344,7 @@ JobHandle handle = scheduler.enqueue(() -> longRunningImport(datasetId))
     .withTags("import", "finance")
     .submit();
 
-long jobId = handle.id();
+UUID jobId = handle.id();
 
 // Pause a pending or failed job
 scheduler.pauseJob(jobId);

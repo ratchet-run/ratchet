@@ -282,5 +282,5 @@ Ratchet provides **at-least-once** delivery semantics. In rare cases (node crash
 
 - [Architecture Overview](./overview.md) -- Module structure and SPI overview
 - [Execution Model](./execution-model.md) -- Store-backed claiming details
-- [Persistence](./persistence.md) -- Node table, lock table, TSID generation
+- [Persistence](./persistence.md) -- Node table, lock table, UUIDv7 generation
 - [Scheduling](./scheduling.md) -- Recurring job scheduling and adaptive polling

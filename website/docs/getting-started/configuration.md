@@ -102,8 +102,7 @@ public class SchedulerConfiguration {
                 .useVirtualThreads(false))
             .node(n -> n
                 .heartbeatIntervalSeconds(5)
-                .orphanGraceSeconds(30)
-                .tsidNodeId(7))
+                .orphanGraceSeconds(30))
             .maintenance(m -> m
                 .jobRetentionDays(30)
                 .logRetentionDays(14))
@@ -182,7 +181,6 @@ public class OrdersRatchetEntityManagerProvider implements RatchetEntityManagerP
 | Builder method | Default | Description |
 |---|---:|---|
 | `nodeId(String)` | generated | Stable logical node id |
-| `tsidNodeId(int)` | hash-based | Explicit 10-bit TSID node id, `0` through `1023` |
 | `heartbeatIntervalSeconds(long)` | `10` | Heartbeat interval |
 | `orphanGraceSeconds(long)` | `60` | Grace window before orphan recovery |
 | `orphanScanIntervalMinutes(long)` | `5` | Orphan recovery scan cadence |

@@ -83,7 +83,7 @@ A `JobHandle` is returned when you submit a job. It gives you the job's ID for t
 
 ```java
 JobHandle handle = scheduler.enqueueNow(() -> doWork());
-long jobId = handle.id();
+UUID jobId = handle.id();
 ```
 
 ## JobContext

@@ -277,7 +277,7 @@ Serializes job return values before storing them on the job row.
 
 ```java
 public interface ResultPersistenceStrategy {
-    SerializedJobResult serialize(long jobId, Object result);
+    SerializedJobResult serialize(UUID jobId, Object result);
 }
 ```
 
@@ -476,16 +476,16 @@ This interface is marked `@Incubating` and may change. Additional lifecycle call
 ```java
 @Incubating
 public interface MetricsCollector {
-    void jobStarted(long jobId, JobType type, JobPriority priority);
-    void jobCompleted(long jobId, JobType type, long executionTimeMs);
-    void jobFailed(long jobId, JobType type, Throwable cause, int attempt);
+    void jobStarted(UUID jobId, JobType type, JobPriority priority);
+    void jobCompleted(UUID jobId, JobType type, long executionTimeMs);
+    void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt);
 }
 ```
 
 ### jobStarted
 
 ```java
-void jobStarted(long jobId, JobType type, JobPriority priority)
+void jobStarted(UUID jobId, JobType type, JobPriority priority)
 ```
 
 Called when a job begins execution.
@@ -493,7 +493,7 @@ Called when a job begins execution.
 ### jobCompleted
 
 ```java
-void jobCompleted(long jobId, JobType type, long executionTimeMs)
+void jobCompleted(UUID jobId, JobType type, long executionTimeMs)
 ```
 
 Called when a job completes successfully.
@@ -501,7 +501,7 @@ Called when a job completes successfully.
 ### jobFailed
 
 ```java
-void jobFailed(long jobId, JobType type, Throwable cause, int attempt)
+void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt)
 ```
 
 Called when a job fails. The `attempt` parameter is 1-based and includes the failure being reported.
@@ -516,19 +516,19 @@ public class MicrometerMetricsCollector implements MetricsCollector {
     @Inject MeterRegistry registry;
 
     @Override
-    public void jobStarted(long jobId, JobType type, JobPriority priority) {
+    public void jobStarted(UUID jobId, JobType type, JobPriority priority) {
         registry.counter("ratchet.jobs.started", "type", type.name()).increment();
     }
 
     @Override
-    public void jobCompleted(long jobId, JobType type, long executionTimeMs) {
+    public void jobCompleted(UUID jobId, JobType type, long executionTimeMs) {
         registry.counter("ratchet.jobs.completed", "type", type.name()).increment();
         registry.timer("ratchet.jobs.duration", "type", type.name())
             .record(executionTimeMs, TimeUnit.MILLISECONDS);
     }
 
     @Override
-    public void jobFailed(long jobId, JobType type, Throwable cause, int attempt) {
+    public void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt) {
         registry.counter("ratchet.jobs.failed",
             "type", type.name(),
             "exception", cause.getClass().getSimpleName()).increment();

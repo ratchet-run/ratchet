@@ -1,12 +1,12 @@
 ---
 sidebar_position: 10
 title: Persistence
-description: Entity/document model, JobStore SPI composition, TSID identifiers, and constraint detection
+description: Entity/document model, JobStore SPI composition, UUIDv7 identifiers, and constraint detection
 ---
 
 # Persistence
 
-Ratchet persists all job state in the selected store backend. SQL stores use JPA entities and DDL-backed tables; the MongoDB store maps the same model to documents and collections. The shared persistence layer is built around a composable SPI interface, TSID-based identifiers, and dialect-specific constraint detection where the backend needs it.
+Ratchet persists all job state in the selected store backend. SQL stores use JPA entities and DDL-backed tables; the MongoDB store maps the same model to documents and collections. The shared persistence layer is built around a composable SPI interface, UUIDv7 identifiers, and dialect-specific constraint detection where the backend needs it.
 
 ## Entity Model
 
@@ -17,7 +17,7 @@ The core model is `JobEntity`, which maps to the `scheduler_job` table for SQL s
 │              scheduler_job              │
 │ (JobEntity - core job state)            │
 ├─────────────────────────────────────────┤
-│ job_id (TSID PK)                        │
+│ job_id (UUIDv7 PK)                      │
 │ status, priority, job_type              │
 │ scheduled_time, picked_by, picked_at    │
 │ payload, params, tags                   │
@@ -64,7 +64,7 @@ The central entity/document has these key fields:
 
 | Column | Type | Purpose |
 |--------|------|---------|
-| `job_id` | `BIGINT` (TSID) | Primary key, time-sorted |
+| `job_id` | `BINARY(16)`/`uuid` (UUIDv7) | Primary key, time-ordered |
 | `status` | `VARCHAR(16)` | Current lifecycle state (PENDING, RUNNING, etc.) |
 | `job_type` | `VARCHAR(16)` | Internal execution type (SINGLE, BATCH_CHILD, etc.) |
 | `priority` | `INT` | Priority ordinal (0=LOWEST to 4=CRITICAL) |
@@ -75,8 +75,8 @@ The central entity/document has these key fields:
 | `params` | `TEXT` (JSON) | Key-value parameters accessible via `JobContext` |
 | `idempotency_key` | `VARCHAR(36)` UNIQUE | Globally unique deduplication key |
 | `business_key` | `VARCHAR` | Active-unique key for concurrent execution prevention |
-| `depends_on` | `BIGINT` | FK to parent job for chains |
-| `superseded_by` | `BIGINT` | FK to replacement job |
+| `depends_on` | `BINARY(16)`/`uuid` | FK to parent job for chains |
+| `superseded_by` | `BINARY(16)`/`uuid` | FK to replacement job |
 | `resource_name` | `VARCHAR(100)` | Resource pool for permit acquisition |
 | `max_retries` | `INT` | Maximum retry attempts |
 | `attempts` | `INT` | Current attempt count |
@@ -103,64 +103,56 @@ SQL stores define these `scheduler_job` indexes for the Poller and common querie
 | `idx_job_business_key` | `business_key` | Business key uniqueness check |
 | `idx_job_picked_by` | `picked_by` | Orphan recovery by node |
 
-## TSID Identifiers
+## UUIDv7 Identifiers
 
-Ratchet uses **Time-Sorted IDs (TSIDs)** instead of auto-increment primary keys. TSIDs are 64-bit `long` values that are time-sorted, monotonic, and coordination-free.
+Ratchet uses **RFC 9562 §5.7 UUIDv7** for primary keys. UUIDs are 128-bit values that are time-ordered, coordination-free, and globally unique.
 
 ### Layout
 
 ```
- 63                              22  21           12  11            0
- ┌──────────────────────────────┬───────────────┬──────────────────┐
- │    42 bits: timestamp (ms)   │ 10 bits: node │ 12 bits: seq    │
- │    since 2024-01-01 epoch    │     ID        │   counter       │
- └──────────────────────────────┴───────────────┴──────────────────┘
+  0                   1                   2                   3
+  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ ┌──────────────────────────────┬─────┬──────┬──┬───────────────┐
+ │  48 bits: unix_ts_ms         │ ver │rand_a│va│   62 bits     │
+ │  Unix epoch milliseconds     │  7  │ 12bit│r │   rand_b      │
+ └──────────────────────────────┴─────┴──────┴──┴───────────────┘
 ```
 
-| Field | Bits | Range |
-|-------|------|-------|
-| Timestamp | 42 | ~139 years from custom epoch (2024-01-01) |
-| Node ID | 10 | 1,024 nodes |
-| Sequence | 12 | 4,096 IDs per millisecond per node |
+| Field | Bits | Purpose |
+|-------|------|---------|
+| `unix_ts_ms` | 48 | Wall-clock millisecond timestamp |
+| `ver` | 4 | Version constant `7` |
+| `rand_a` | 12 | Per-millisecond monotonic counter |
+| `var` | 2 | RFC 9562 variant constant `10` |
+| `rand_b` | 62 | Cryptographic random (SecureRandom) |
 
 ### Properties
 
-- **Time-sorted:** Consecutive IDs on the same node are strictly increasing. This makes range queries efficient and provides natural chronological ordering.
-- **Monotonic:** If the system clock goes backwards, the sequence counter advances to maintain ordering.
-- **Coordination-free:** Each node generates non-colliding IDs independently using its node ID bits.
-- **64-bit `long`:** Drop-in replacement for auto-increment PKs. No UUID storage overhead.
-
-### Node ID Assignment
-
-The 10-bit node ID is determined by (in priority order):
-
-1. `RatchetOptions.builder().node(n -> n.tsidNodeId(...))` (0-1023)
-2. Hash of `hostname + PID` (automatic, usually sufficient)
-3. Random fallback if hostname resolution fails
+- **Time-ordered:** The 48-bit timestamp prefix preserves B-tree locality — inserts cluster at the right edge, range scans by time work directly.
+- **Monotonic within a millisecond:** `rand_a` is used as a per-ms counter; on overflow inside a single ms, generation busy-spins via `Thread.onSpinWait` until the wall clock advances (RFC 9562 §6.2 wait-for-tick). The timestamp is never advanced past wall-clock time.
+- **Coordination-free:** 62 bits of randomness in `rand_b` make collisions vanishingly unlikely without inter-node coordination.
+- **128-bit `java.util.UUID`:** Standard Java type, no special storage adapter on PostgreSQL (native `uuid`). MySQL stores as `BINARY(16)` via `UuidByteArrayConverter`.
 
 ### Utility Methods
 
 ```java
-// Generate a new TSID
-long id = TsidFactory.next();
+// Generate a new UUIDv7
+UUID id = UuidV7Factory.create();
 
-// Extract creation timestamp from a TSID
-Instant created = TsidFactory.toInstant(id);
-
-// Create a TSID boundary for range queries
-long lowerBound = TsidFactory.fromInstant(cutoffTime);
-// "Find all jobs created after cutoffTime"
+// Extract creation timestamp (high 48 bits)
+Instant created = UuidV7Factory.timestampOf(id);
 ```
 
-### Why TSIDs Instead of Auto-Increment
+### Why UUIDv7 Instead of TSID or Auto-Increment
 
-| Concern | Auto-Increment | TSID |
-|---------|---------------|------|
-| Multi-node generation | Requires coordination (sequences, table locks) | Coordination-free |
-| Insert contention | B-tree hotspot at max value | Distributed across tree |
-| Temporal ordering | Requires separate `created_at` column | Embedded in ID |
-| Range scan by time | Requires `created_at` index | Use ID directly |
-| Migration/merge | ID conflicts between databases | Globally unique |
+| Concern | Auto-Increment | TSID (deprecated) | UUIDv7 |
+|---------|---------------|-------------------|--------|
+| Multi-node generation | Requires coordination | Manual node-id slot (10 bits = 1024 nodes) | Coordination-free |
+| Concurrent generators before collisions | n/a | ~38 (birthday paradox on 10-bit node + 12-bit seq) | Effectively unbounded (62 random bits) |
+| Insert contention | B-tree hotspot | Distributed | Distributed (timestamp prefix only) |
+| Temporal ordering | Needs `created_at` | Embedded | Embedded |
+| Range scan by time | Needs index | Use ID | Use ID |
+| Migration / merge | Conflicts | Risk if node ids reused | Globally unique |
 
 ## JobStore SPI
 

@@ -120,7 +120,7 @@ JobHandle handle = scheduler.enqueue(() -> longRunningTask())
     .withBusinessKey("quarterly-import")
     .submit();
 
-long jobId = handle.id();
+UUID jobId = handle.id();
 
 scheduler.pauseJob(jobId);     // Prevent execution
 scheduler.resumeJob(jobId);    // Return the job to its pre-pause state

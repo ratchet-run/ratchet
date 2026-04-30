@@ -98,9 +98,9 @@ db.scheduler_job.findOneAndUpdate(
 
 This provides the same guarantee — no two nodes claim the same job — through MongoDB's document-level write lock rather than row-level `SKIP LOCKED`.
 
-### TSID Identifiers
+### UUIDv7 Identifiers
 
-Ratchet uses the same 64-bit TSID identifiers on MongoDB as it does for SQL stores. Those IDs are generated in the application, stored in `_id`, and remain time-sortable without a database counter collection.
+Ratchet uses the same RFC 9562 §5.7 UUIDv7 identifiers on MongoDB as it does for SQL stores. Those IDs are generated in the application, stored in `_id` as BSON binary subtype 4 (`UuidRepresentation.STANDARD`), and remain time-ordered without a database counter collection. The `MongoClientFactory` enforces the STANDARD representation; a `@PostConstruct` probe in `MongoJobStoreImpl` fails fast if a caller-supplied client uses any other UUID encoding.
 
 ### Tags
 

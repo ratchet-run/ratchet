@@ -46,10 +46,10 @@ The codebase includes `JBossLoggingJobLogger` as the reference pattern for bridg
 ```java
 public class JBossLoggingJobLogger implements JobLogger {
 
-    private final long jobId;
+    private final UUID jobId;
     private final InternalEventPublisher eventPublisher;
 
-    public JBossLoggingJobLogger(long jobId, InternalEventPublisher eventPublisher) {
+    public JBossLoggingJobLogger(UUID jobId, InternalEventPublisher eventPublisher) {
         this.jobId = jobId;
         this.eventPublisher = eventPublisher;
     }
@@ -154,9 +154,9 @@ public class Slf4jJobLogger implements JobLogger {
 
     private static final Logger log = LoggerFactory.getLogger("ratchet.job");
 
-    private final long jobId;
+    private final UUID jobId;
 
-    public Slf4jJobLogger(long jobId) {
+    public Slf4jJobLogger(UUID jobId) {
         this.jobId = jobId;
     }
 
@@ -224,11 +224,11 @@ public class JsonJobLogger implements JobLogger {
 
     private static final Logger log = Logger.getLogger("ratchet.job.json");
 
-    private final long jobId;
+    private final UUID jobId;
     private final String jobType;
     private final String nodeName;
 
-    public JsonJobLogger(long jobId, String jobType, String nodeName) {
+    public JsonJobLogger(UUID jobId, String jobType, String nodeName) {
         this.jobId = jobId;
         this.jobType = jobType;
         this.nodeName = nodeName;
@@ -288,10 +288,10 @@ import java.util.Map;
 
 public class SilentJobLogger implements JobLogger {
 
-    private final long jobId;
+    private final UUID jobId;
     private final InternalEventPublisher eventPublisher;
 
-    public SilentJobLogger(long jobId, InternalEventPublisher eventPublisher) {
+    public SilentJobLogger(UUID jobId, InternalEventPublisher eventPublisher) {
         this.jobId = jobId;
         this.eventPublisher = eventPublisher;
     }

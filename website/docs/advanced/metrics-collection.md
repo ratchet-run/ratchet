@@ -25,7 +25,7 @@ public interface MetricsCollector {
      * @param type     the job type (SINGLE, RECURRING, BATCH, etc.)
      * @param priority the job priority level
      */
-    void jobStarted(long jobId, JobType type, JobPriority priority);
+    void jobStarted(UUID jobId, JobType type, JobPriority priority);
 
     /**
      * Notifies that a job has completed successfully.
@@ -34,7 +34,7 @@ public interface MetricsCollector {
      * @param type            the job type
      * @param executionTimeMs the execution time of the completed attempt in milliseconds
      */
-    void jobCompleted(long jobId, JobType type, long executionTimeMs);
+    void jobCompleted(UUID jobId, JobType type, long executionTimeMs);
 
     /**
      * Notifies that a job has failed.
@@ -44,12 +44,12 @@ public interface MetricsCollector {
      * @param cause   the exception that caused the failure
      * @param attempt the 1-based attempt number, including the failed attempt
      */
-    void jobFailed(long jobId, JobType type, Throwable cause, int attempt);
+    void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt);
 
     /**
      * Notifies that an onSuccess/onFailure callback threw an exception.
      */
-    default void callbackFailed(long jobId, JobType type, Throwable cause, int attempt) {
+    default void callbackFailed(UUID jobId, JobType type, Throwable cause, int attempt) {
         // No-op
     }
 }
@@ -66,17 +66,17 @@ When no monitoring integration is configured, the `NoOpMetricsCollector` satisfi
 public class NoOpMetricsCollector implements MetricsCollector {
 
     @Override
-    public void jobStarted(long jobId, JobType type, JobPriority priority) {
+    public void jobStarted(UUID jobId, JobType type, JobPriority priority) {
         // No-op
     }
 
     @Override
-    public void jobCompleted(long jobId, JobType type, long executionTimeMs) {
+    public void jobCompleted(UUID jobId, JobType type, long executionTimeMs) {
         // No-op
     }
 
     @Override
-    public void jobFailed(long jobId, JobType type, Throwable cause, int attempt) {
+    public void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt) {
         // No-op
     }
 }
@@ -233,7 +233,7 @@ public class MicroProfileMetricsCollector implements MetricsCollector {
     private MetricRegistry registry;
 
     @Override
-    public void jobStarted(long jobId, JobType type, JobPriority priority) {
+    public void jobStarted(UUID jobId, JobType type, JobPriority priority) {
         Counter counter = registry.counter("ratchet_jobs_started",
             new org.eclipse.microprofile.metrics.Tag("type", type.name()),
             new org.eclipse.microprofile.metrics.Tag("priority", priority.name()));
@@ -241,7 +241,7 @@ public class MicroProfileMetricsCollector implements MetricsCollector {
     }
 
     @Override
-    public void jobCompleted(long jobId, JobType type, long executionTimeMs) {
+    public void jobCompleted(UUID jobId, JobType type, long executionTimeMs) {
         Counter counter = registry.counter("ratchet_jobs_completed",
             new org.eclipse.microprofile.metrics.Tag("type", type.name()));
         counter.inc();
@@ -252,7 +252,7 @@ public class MicroProfileMetricsCollector implements MetricsCollector {
     }
 
     @Override
-    public void jobFailed(long jobId, JobType type, Throwable cause, int attempt) {
+    public void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt) {
         Counter counter = registry.counter("ratchet_jobs_failed",
             new org.eclipse.microprofile.metrics.Tag("type", type.name()),
             new org.eclipse.microprofile.metrics.Tag("exception",
@@ -285,21 +285,21 @@ public class LoggingMetricsCollector implements MetricsCollector {
     private static final Logger log = Logger.getLogger("ratchet.metrics");
 
     @Override
-    public void jobStarted(long jobId, JobType type, JobPriority priority) {
+    public void jobStarted(UUID jobId, JobType type, JobPriority priority) {
         log.info(String.format(
             "metric=job.started job_id=%d type=%s priority=%s",
             jobId, type, priority));
     }
 
     @Override
-    public void jobCompleted(long jobId, JobType type, long executionTimeMs) {
+    public void jobCompleted(UUID jobId, JobType type, long executionTimeMs) {
         log.info(String.format(
             "metric=job.completed job_id=%d type=%s duration_ms=%d",
             jobId, type, executionTimeMs));
     }
 
     @Override
-    public void jobFailed(long jobId, JobType type, Throwable cause, int attempt) {
+    public void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt) {
         log.warning(String.format(
             "metric=job.failed job_id=%d type=%s exception=%s attempt=%d",
             jobId, type, cause.getClass().getSimpleName(), attempt));

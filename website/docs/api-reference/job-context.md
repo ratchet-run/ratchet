@@ -41,13 +41,13 @@ Retrieves the `JobContext` bound to the current thread.
 
 ```java
 JobContext ctx = JobContext.current();
-long id = ctx.jobId();
+UUID id = ctx.jobId();
 ```
 
 ### bind
 
 ```java
-public static JobContext bind(long jobId, JobLogger logger)
+public static JobContext bind(UUID jobId, JobLogger logger)
 ```
 
 Binds a new `JobContext` to the current thread. This is called internally by the Ratchet executor. For unit testing or advanced scenarios, you can call this manually.
@@ -71,7 +71,7 @@ try {
 ### bind (with parameters)
 
 ```java
-public static JobContext bind(long jobId, JobLogger logger, Map<String, String> params)
+public static JobContext bind(UUID jobId, JobLogger logger, Map<String, String> params)
 ```
 
 Binds a new `JobContext` with parameters to the current thread.
@@ -118,7 +118,7 @@ try {
 ### jobId
 
 ```java
-public long jobId()
+public UUID jobId()
 ```
 
 Returns the unique database identifier of the currently executing job. Use this for correlation in logs, monitoring, and when referencing the job in other system components.
@@ -126,7 +126,7 @@ Returns the unique database identifier of the currently executing job. Use this 
 **Returns:** the job's unique identifier.
 
 ```java
-long id = JobContext.current().jobId();
+UUID id = JobContext.current().jobId();
 log.info("Running job {}", id);
 ```
 

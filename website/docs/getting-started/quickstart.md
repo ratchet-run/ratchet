@@ -183,7 +183,7 @@ The `enqueueNow` method is the simplest entry point. It takes a `SerializableChe
 
 ```java
 JobHandle handle = scheduler.enqueueNow(() -> doSomething());
-long jobId = handle.id();
+UUID jobId = handle.id();
 ```
 
 The `JobHandle` is a lightweight receipt containing just the job's database ID. You can use it to:
