@@ -1,8 +1,8 @@
 package run.ratchet.testsuite.app;
 
 import com.mongodb.client.MongoClient;
-import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoDatabase;
+import run.ratchet.store.mongodb.MongoClientFactory;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Produces;
@@ -24,7 +24,7 @@ public class TestMongoProducer {
               + "Ensure MongoContainerExtension is active and the mongodb profile is enabled.");
     }
 
-    client = MongoClients.create(uri);
+    client = MongoClientFactory.create(uri);
     return client;
   }
 

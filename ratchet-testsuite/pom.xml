@@ -41,6 +41,16 @@
       <groupId>org.mongodb</groupId>
       <artifactId>mongodb-driver-sync</artifactId>
     </dependency>
+    <!--
+      MongoClientFactory is the supported construction path that enforces
+      UuidRepresentation.STANDARD; pulled in unconditionally so TestMongoProducer
+      compiles regardless of which DB profile is active. Runtime use is gated by
+      the mongodb profile via the production ratchet-store-mongodb dep below.
+    -->
+    <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-store-mongodb</artifactId>
+    </dependency>
 
     <dependency>
       <groupId>jakarta.platform</groupId>
@@ -717,10 +727,7 @@
         <ratchet.test.db.driver.name>h2</ratchet.test.db.driver.name>
       </properties>
       <dependencies>
-        <dependency>
-          <groupId>run.ratchet</groupId>
-          <artifactId>ratchet-store-mongodb</artifactId>
-        </dependency>
+        <!-- ratchet-store-mongodb is declared at the default scope; runtime is gated by this profile. -->
         <dependency>
           <groupId>org.testcontainers</groupId>
           <artifactId>testcontainers-mongodb</artifactId>

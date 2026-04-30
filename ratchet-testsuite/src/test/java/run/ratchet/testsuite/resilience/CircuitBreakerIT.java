@@ -101,9 +101,11 @@ class CircuitBreakerIT extends BaseRatchetIT {
 
   @Test
   void circuitBreaker_shouldTransitionFromHalfOpenToClosedAfterSuccessfulTrials() throws Exception {
-    // Create a breaker with 1ms wait duration so OPEN → HALF_OPEN transition happens immediately
+    // Wait duration short enough to keep the test fast, long enough to survive scheduler jitter
+    // between assertion lines. 1 ms races the JVM clock and leaves the breaker in HALF_OPEN
+    // before the next assertion runs; 200 ms is well under the 5 s await() that follows.
     CircuitBreakerConfiguration fastConfig =
-        new CircuitBreakerConfiguration(50.0f, 20, 1L, 2_000L, 2, 3);
+        new CircuitBreakerConfiguration(50.0f, 20, 200L, 2_000L, 2, 3);
     CircuitBreaker breaker = new CircuitBreaker("test-fast-transition", fastConfig);
 
     // Drive to OPEN: 3 failures (minimum calls = 3, failure rate = 100% >= 50% threshold)

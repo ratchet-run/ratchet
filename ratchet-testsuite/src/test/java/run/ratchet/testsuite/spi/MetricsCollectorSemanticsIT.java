@@ -100,7 +100,7 @@ class MetricsCollectorSemanticsIT extends BaseRatchetIT {
               assertEquals(List.of(1, 2), attempts);
               assertTrue(
                   RecordingMetricsCollector.failedEvents().stream()
-                      .allMatch(metric -> metric.jobId() == handle.id()));
+                      .allMatch(metric -> handle.id().equals(metric.jobId())));
             });
   }
 }
