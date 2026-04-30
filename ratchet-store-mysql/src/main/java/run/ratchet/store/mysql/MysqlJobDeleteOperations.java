@@ -1,5 +1,6 @@
 package run.ratchet.store.mysql;
 
+import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Duration;
@@ -23,7 +24,10 @@ final class MysqlJobDeleteOperations {
     reservations.deleteReservationByOwner(id);
     // language=MySQL
     String sql = "DELETE FROM scheduler_job WHERE job_id = ?";
-    ctx.em().createNativeQuery(sql).setParameter(1, id).executeUpdate();
+    ctx.em()
+        .createNativeQuery(sql)
+        .setParameter(1, UuidByteArrayConverter.toBytes(id))
+        .executeUpdate();
   }
 
   int deleteJobsByIds(List<UUID> ids) {
@@ -39,7 +43,7 @@ final class MysqlJobDeleteOperations {
     Query bkresDelete = ctx.em().createNativeQuery(bkresSql);
     int parameter = 1;
     for (UUID id : ids) {
-      bkresDelete.setParameter(parameter++, id);
+      bkresDelete.setParameter(parameter++, UuidByteArrayConverter.toBytes(id));
     }
     bkresDelete.executeUpdate();
     // language=MySQL
@@ -47,7 +51,7 @@ final class MysqlJobDeleteOperations {
     Query jobDelete = ctx.em().createNativeQuery(jobSql);
     parameter = 1;
     for (UUID id : ids) {
-      jobDelete.setParameter(parameter++, id);
+      jobDelete.setParameter(parameter++, UuidByteArrayConverter.toBytes(id));
     }
     return jobDelete.executeUpdate();
   }
@@ -82,7 +86,7 @@ final class MysqlJobDeleteOperations {
     Query bkresDelete = ctx.em().createNativeQuery(bkresSql);
     int parameter = 1;
     for (UUID id : ids) {
-      bkresDelete.setParameter(parameter++, id);
+      bkresDelete.setParameter(parameter++, UuidByteArrayConverter.toBytes(id));
     }
     bkresDelete.executeUpdate();
     // language=MySQL
@@ -90,7 +94,7 @@ final class MysqlJobDeleteOperations {
     Query jobDelete = ctx.em().createNativeQuery(jobSql);
     parameter = 1;
     for (UUID id : ids) {
-      jobDelete.setParameter(parameter++, id);
+      jobDelete.setParameter(parameter++, UuidByteArrayConverter.toBytes(id));
     }
     return jobDelete.executeUpdate();
   }

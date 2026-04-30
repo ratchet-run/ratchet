@@ -4,6 +4,7 @@ import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobStatus;
+import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import run.ratchet.store.spi.JobClaimStore;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
@@ -256,7 +257,7 @@ final class MysqlJobClaimOperations implements JobClaimStore {
       updateQuery.setParameter(parameter++, nowTs);
       updateQuery.setParameter(parameter++, nowTs);
       for (UUID id : jobIds) {
-        updateQuery.setParameter(parameter++, id);
+        updateQuery.setParameter(parameter++, UuidByteArrayConverter.toBytes(id));
       }
       updateQuery.executeUpdate();
 
@@ -271,7 +272,7 @@ final class MysqlJobClaimOperations implements JobClaimStore {
       Query selectQuery = ctx.em().createNativeQuery(selectSql);
       parameter = 1;
       for (UUID id : jobIds) {
-        selectQuery.setParameter(parameter++, id);
+        selectQuery.setParameter(parameter++, UuidByteArrayConverter.toBytes(id));
       }
       selectQuery.setParameter(parameter++, nodeId);
       @SuppressWarnings("unchecked")

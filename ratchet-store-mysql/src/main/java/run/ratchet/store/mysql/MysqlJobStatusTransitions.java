@@ -1,6 +1,7 @@
 package run.ratchet.store.mysql;
 
 import run.ratchet.store.entity.JobStatus;
+import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import java.util.List;
 import java.util.UUID;
 import org.jboss.logging.Logger;
@@ -29,7 +30,7 @@ final class MysqlJobStatusTransitions {
                 ctx.em()
                     .createNativeQuery(sql)
                     .setParameter(1, nodeId)
-                    .setParameter(2, id)
+                    .setParameter(2, UuidByteArrayConverter.toBytes(id))
                     .executeUpdate(),
             updated -> updated > 0 ? "updated" : "miss")
         > 0;
@@ -56,7 +57,7 @@ final class MysqlJobStatusTransitions {
         ctx.em()
             .createNativeQuery(sql)
             .setParameter(1, expected.name())
-            .setParameter(2, id)
+            .setParameter(2, UuidByteArrayConverter.toBytes(id))
             .setParameter(3, expected.name())
             .executeUpdate();
     return updated > 0;
@@ -78,7 +79,7 @@ final class MysqlJobStatusTransitions {
         ctx.em()
             .createNativeQuery(sql)
             .setParameter(1, target.name())
-            .setParameter(2, id)
+            .setParameter(2, UuidByteArrayConverter.toBytes(id))
             .executeUpdate();
     return updated > 0;
   }
@@ -91,7 +92,11 @@ final class MysqlJobStatusTransitions {
         WHERE job_id = ? AND status = 'PAUSED'
         FOR UPDATE
         """;
-    List<?> results = ctx.em().createNativeQuery(selectSql).setParameter(1, id).getResultList();
+    List<?> results =
+        ctx.em()
+            .createNativeQuery(selectSql)
+            .setParameter(1, UuidByteArrayConverter.toBytes(id))
+            .getResultList();
     if (results.isEmpty()) {
       return null;
     }
@@ -108,7 +113,7 @@ final class MysqlJobStatusTransitions {
         ctx.em()
             .createNativeQuery(updateSql)
             .setParameter(1, target.name())
-            .setParameter(2, id)
+            .setParameter(2, UuidByteArrayConverter.toBytes(id))
             .executeUpdate();
     return updated > 0 ? target : null;
   }

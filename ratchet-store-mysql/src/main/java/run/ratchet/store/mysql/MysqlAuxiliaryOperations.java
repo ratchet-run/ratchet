@@ -7,6 +7,7 @@ import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7Factory;
+import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import run.ratchet.store.spi.DlqAlertStore;
 import run.ratchet.store.spi.ExecutionStore;
 import run.ratchet.store.spi.JobLogStore;
@@ -121,9 +122,9 @@ final class MysqlAuxiliaryOperations
         """;
     ctx.em()
         .createNativeQuery(sql)
-        .setParameter(1, condition.getId())
-        .setParameter(2, condition.getParentJobId())
-        .setParameter(3, condition.getChildJobId())
+        .setParameter(1, UuidByteArrayConverter.toBytes(condition.getId()))
+        .setParameter(2, UuidByteArrayConverter.toBytes(condition.getParentJobId()))
+        .setParameter(3, UuidByteArrayConverter.toBytes(condition.getChildJobId()))
         .setParameter(4, condition.getConditionType().name())
         .setParameter(5, condition.getConditionExpression())
         .setParameter(6, condition.getConditionPriority())
@@ -165,7 +166,7 @@ final class MysqlAuxiliaryOperations
   public void deleteConditionById(UUID id) {
     ctx.em()
         .createNativeQuery("DELETE FROM scheduler_workflow_condition WHERE id = ?")
-        .setParameter(1, id)
+        .setParameter(1, UuidByteArrayConverter.toBytes(id))
         .executeUpdate();
   }
 
@@ -173,7 +174,7 @@ final class MysqlAuxiliaryOperations
   public void deleteConditionsByParentJobId(UUID parentJobId) {
     ctx.em()
         .createNativeQuery("DELETE FROM scheduler_workflow_condition WHERE parent_job_id = ?")
-        .setParameter(1, parentJobId)
+        .setParameter(1, UuidByteArrayConverter.toBytes(parentJobId))
         .executeUpdate();
   }
 
@@ -181,7 +182,7 @@ final class MysqlAuxiliaryOperations
   public void deleteConditionsByChildJobId(UUID childJobId) {
     ctx.em()
         .createNativeQuery("DELETE FROM scheduler_workflow_condition WHERE child_job_id = ?")
-        .setParameter(1, childJobId)
+        .setParameter(1, UuidByteArrayConverter.toBytes(childJobId))
         .executeUpdate();
   }
 
@@ -191,7 +192,7 @@ final class MysqlAuxiliaryOperations
         ctx.em()
             .createNativeQuery(
                 "SELECT COUNT(*) FROM scheduler_workflow_condition WHERE parent_job_id = ?")
-            .setParameter(1, parentJobId)
+            .setParameter(1, UuidByteArrayConverter.toBytes(parentJobId))
             .getSingleResult();
     return ((Number) result).longValue();
   }
@@ -266,7 +267,7 @@ final class MysqlAuxiliaryOperations
     ctx.em()
         .createNativeQuery(sql)
         .setParameter(1, resource)
-        .setParameter(2, jobId)
+        .setParameter(2, UuidByteArrayConverter.toBytes(jobId))
         .executeUpdate();
   }
 
@@ -274,7 +275,10 @@ final class MysqlAuxiliaryOperations
   public void releaseAllPermits(UUID jobId) {
     // language=MySQL
     String sql = "DELETE FROM scheduler_resource_permit WHERE job_id = ?";
-    ctx.em().createNativeQuery(sql).setParameter(1, jobId).executeUpdate();
+    ctx.em()
+        .createNativeQuery(sql)
+        .setParameter(1, UuidByteArrayConverter.toBytes(jobId))
+        .executeUpdate();
   }
 
   @Override
@@ -350,7 +354,9 @@ final class MysqlAuxiliaryOperations
         """;
     Query query = ctx.em().createNativeQuery(sqlPrefix + whereClause + " " + orderClause);
     for (int i = 0; i < params.size(); i++) {
-      query.setParameter(i + 1, params.get(i));
+      Object value = params.get(i);
+      query.setParameter(
+          i + 1, value instanceof UUID uuid ? UuidByteArrayConverter.toBytes(uuid) : value);
     }
     return ((List<Object[]>) query.getResultList())
         .stream().map(MysqlAuxiliaryOperations::mapCondition).toList();

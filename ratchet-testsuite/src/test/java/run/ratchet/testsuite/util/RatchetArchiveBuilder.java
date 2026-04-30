@@ -72,6 +72,12 @@ public class RatchetArchiveBuilder {
     if (!dbType.equals("mysql") && !dbType.equals("postgresql")) {
       throw new IllegalArgumentException("Unsupported db type: " + dbType);
     }
+    // MySQL needs the orm-mysql.xml override so EclipseLink (and any other non-Hibernate JPA
+    // provider) routes UUID columns through UuidByteArrayConverter; Hibernate already produces
+    // standard-byte-order BINARY(16), so the override is idempotent there. PostgreSQL stores UUID
+    // natively and must NOT include the converter — it would re-encode native uuid as bytea.
+    String mappingFile =
+        dbType.equals("mysql") ? "<mapping-file>META-INF/orm-mysql.xml</mapping-file>" : "";
     // No <provider> or hibernate.dialect pin — WildFly auto-discovers via ServiceLoader and the
     // JPA provider auto-detects the dialect from the JDBC URL exposed by RatchetDS. Remaining
     // property keys are opt-in Hibernate tuning and no-op under any other JPA provider.
@@ -86,6 +92,7 @@ public class RatchetArchiveBuilder {
                      version="3.0">
           <persistence-unit name="ratchet-test" transaction-type="JTA">
             <jta-data-source>%s</jta-data-source>
+            %s
             <class>run.ratchet.store.entity.JobEntity</class>
             <class>run.ratchet.store.entity.JobExecutionEntity</class>
             <class>run.ratchet.store.entity.ResourceLimitEntity</class>
@@ -112,7 +119,7 @@ public class RatchetArchiveBuilder {
           </persistence-unit>
         </persistence>
         """
-            .formatted(jtaDataSourceName);
+            .formatted(jtaDataSourceName, mappingFile);
 
     archive.addAsResource(new StringAsset(persistenceXml), "META-INF/persistence.xml");
     return this;

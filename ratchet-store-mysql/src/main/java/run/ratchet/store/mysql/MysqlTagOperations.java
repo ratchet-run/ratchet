@@ -2,6 +2,7 @@ package run.ratchet.store.mysql;
 
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobStatus;
+import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import run.ratchet.store.spi.TagStore;
 import jakarta.persistence.Query;
 import java.util.ArrayList;
@@ -46,8 +47,13 @@ final class MysqlTagOperations implements TagStore {
     }
     // language=MySQL
     String sql = "INSERT IGNORE INTO scheduler_job_tag (job_id, tag) VALUES (?, ?)";
+    byte[] jobIdBytes = UuidByteArrayConverter.toBytes(jobId);
     for (String tag : tags) {
-      ctx.em().createNativeQuery(sql).setParameter(1, jobId).setParameter(2, tag).executeUpdate();
+      ctx.em()
+          .createNativeQuery(sql)
+          .setParameter(1, jobIdBytes)
+          .setParameter(2, tag)
+          .executeUpdate();
     }
   }
 
@@ -55,7 +61,10 @@ final class MysqlTagOperations implements TagStore {
   public int deleteTagsByJobId(UUID jobId) {
     // language=MySQL
     String sql = "DELETE FROM scheduler_job_tag WHERE job_id = ?";
-    return ctx.em().createNativeQuery(sql).setParameter(1, jobId).executeUpdate();
+    return ctx.em()
+        .createNativeQuery(sql)
+        .setParameter(1, UuidByteArrayConverter.toBytes(jobId))
+        .executeUpdate();
   }
 
   @Override
@@ -158,7 +167,10 @@ final class MysqlTagOperations implements TagStore {
     // language=MySQL
     String sql = "SELECT tag FROM scheduler_job_tag WHERE job_id = ?";
     List<String> tags =
-        ctx.em().createNativeQuery(sql).setParameter(1, job.getId()).getResultList();
+        ctx.em()
+            .createNativeQuery(sql)
+            .setParameter(1, UuidByteArrayConverter.toBytes(job.getId()))
+            .getResultList();
     if (!tags.isEmpty()) {
       job.setTags(tags);
     }
@@ -184,7 +196,7 @@ final class MysqlTagOperations implements TagStore {
     Query tagQuery = ctx.em().createNativeQuery(sql);
     int parameter = 1;
     for (UUID id : ids) {
-      tagQuery.setParameter(parameter++, id);
+      tagQuery.setParameter(parameter++, UuidByteArrayConverter.toBytes(id));
     }
     @SuppressWarnings("unchecked")
     List<Object[]> rows = tagQuery.getResultList();

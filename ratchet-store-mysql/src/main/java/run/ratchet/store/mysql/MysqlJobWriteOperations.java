@@ -6,6 +6,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.id.UuidV7Factory;
+import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -181,7 +182,7 @@ final class MysqlJobWriteOperations {
         .setParameter(2, job.getLastError())
         .setParameter(3, job.getAttempts())
         .setParameter(4, nowTs)
-        .setParameter(5, job.getId())
+        .setParameter(5, UuidByteArrayConverter.toBytes(job.getId()))
         .executeUpdate();
   }
 
@@ -194,7 +195,7 @@ final class MysqlJobWriteOperations {
     }
     ctx.em()
         .createNativeQuery(COLD_INSERT_SQL)
-        .setParameter(1, job.getId())
+        .setParameter(1, UuidByteArrayConverter.toBytes(job.getId()))
         .setParameter(2, job.getJobType().name())
         .setParameter(3, job.getPriority().ordinal())
         .setParameter(4, job.getMaxRetries())
@@ -211,8 +212,8 @@ final class MysqlJobWriteOperations {
         .setParameter(15, job.getResourceName())
         .setParameter(16, mapper.callbackPayloadToJson(job.getOnSuccessPayload()))
         .setParameter(17, mapper.callbackPayloadToJson(job.getOnFailurePayload()))
-        .setParameter(18, job.getDependsOn())
-        .setParameter(19, job.getSupersededBy())
+        .setParameter(18, UuidByteArrayConverter.toBytes(job.getDependsOn()))
+        .setParameter(19, UuidByteArrayConverter.toBytes(job.getSupersededBy()))
         .setParameter(20, nowTs)
         .setParameter(21, job.getCreatedBy())
         .setParameter(22, job.getCallerPrincipal())
@@ -225,7 +226,7 @@ final class MysqlJobWriteOperations {
     Instant scheduled = job.getScheduledTime();
     ctx.em()
         .createNativeQuery(HOT_INSERT_SQL)
-        .setParameter(1, job.getId())
+        .setParameter(1, UuidByteArrayConverter.toBytes(job.getId()))
         .setParameter(2, s.name())
         .setParameter(3, job.getJobType().name())
         .setParameter(4, job.getPriority().ordinal())
@@ -272,16 +273,16 @@ final class MysqlJobWriteOperations {
         .setParameter(2, mapper.paramsToJson(job))
         .setParameter(3, mapper.callbackPayloadToJson(job.getOnSuccessPayload()))
         .setParameter(4, mapper.callbackPayloadToJson(job.getOnFailurePayload()))
-        .setParameter(5, job.getDependsOn())
-        .setParameter(6, job.getSupersededBy())
+        .setParameter(5, UuidByteArrayConverter.toBytes(job.getDependsOn()))
+        .setParameter(6, UuidByteArrayConverter.toBytes(job.getSupersededBy()))
         .setParameter(7, job.getResourceName())
-        .setParameter(8, job.getId())
+        .setParameter(8, UuidByteArrayConverter.toBytes(job.getId()))
         .executeUpdate();
   }
 
   private void bindColdInsert(Query q, JobEntity job, Timestamp nowTs) {
     int i = 1;
-    q.setParameter(i++, job.getId());
+    q.setParameter(i++, UuidByteArrayConverter.toBytes(job.getId()));
     q.setParameter(i++, job.getJobType().name());
     q.setParameter(i++, job.getPriority().ordinal());
     q.setParameter(i++, job.getMaxRetries());
@@ -298,8 +299,8 @@ final class MysqlJobWriteOperations {
     q.setParameter(i++, job.getResourceName());
     q.setParameter(i++, mapper.callbackPayloadToJson(job.getOnSuccessPayload()));
     q.setParameter(i++, mapper.callbackPayloadToJson(job.getOnFailurePayload()));
-    q.setParameter(i++, job.getDependsOn());
-    q.setParameter(i++, job.getSupersededBy());
+    q.setParameter(i++, UuidByteArrayConverter.toBytes(job.getDependsOn()));
+    q.setParameter(i++, UuidByteArrayConverter.toBytes(job.getSupersededBy()));
     q.setParameter(i++, nowTs);
     q.setParameter(i++, job.getCreatedBy());
     q.setParameter(i++, job.getCallerPrincipal());
@@ -314,7 +315,7 @@ final class MysqlJobWriteOperations {
 
   private void bindHotInsert(Query q, JobEntity job, Timestamp nowTs) {
     int i = 1;
-    q.setParameter(i++, job.getId());
+    q.setParameter(i++, UuidByteArrayConverter.toBytes(job.getId()));
     JobStatus s = job.getStatus() != null ? job.getStatus() : JobStatus.PENDING;
     q.setParameter(i++, s.name());
     q.setParameter(i++, job.getJobType().name());
@@ -345,7 +346,11 @@ final class MysqlJobWriteOperations {
         FROM scheduler_job_queue q
         WHERE q.job_id = ?
         """;
-    List<Object[]> rows = ctx.em().createNativeQuery(selectSql).setParameter(1, id).getResultList();
+    List<Object[]> rows =
+        ctx.em()
+            .createNativeQuery(selectSql)
+            .setParameter(1, UuidByteArrayConverter.toBytes(id))
+            .getResultList();
     if (rows.isEmpty()) {
       return false;
     }
@@ -378,7 +383,7 @@ final class MysqlJobWriteOperations {
     ctx.em()
         .createNativeQuery(updateSql)
         .setParameter(1, incomingSched != null ? Timestamp.from(incomingSched) : null)
-        .setParameter(2, id)
+        .setParameter(2, UuidByteArrayConverter.toBytes(id))
         .executeUpdate();
     return true;
   }
@@ -414,7 +419,7 @@ final class MysqlJobWriteOperations {
                     ? incoming.getPausedFromStatus().name()
                     : null)
             .setParameter(7, incoming.getLastError())
-            .setParameter(8, id)
+            .setParameter(8, UuidByteArrayConverter.toBytes(id))
             .setParameter(9, expectedVersion)
             .executeUpdate();
     if (updated == 0) {
@@ -428,7 +433,7 @@ final class MysqlJobWriteOperations {
     int deleted =
         ctx.em()
             .createNativeQuery("DELETE FROM scheduler_job_queue WHERE job_id = ? AND version = ?")
-            .setParameter(1, id)
+            .setParameter(1, UuidByteArrayConverter.toBytes(id))
             .setParameter(2, expectedVersion)
             .executeUpdate();
     if (deleted == 0) {
@@ -447,7 +452,7 @@ final class MysqlJobWriteOperations {
         .createNativeQuery(updateSql)
         .setParameter(1, incoming.getStatus().name())
         .setParameter(2, incoming.getLastError())
-        .setParameter(3, id)
+        .setParameter(3, UuidByteArrayConverter.toBytes(id))
         .executeUpdate();
     reservations.deleteReservationByOwner(id);
     incoming.setVersion(expectedVersion + 1);
@@ -465,7 +470,11 @@ final class MysqlJobWriteOperations {
         LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
         WHERE c.job_id = ?
         """;
-    List<Object[]> rows = ctx.em().createNativeQuery(sql).setParameter(1, id).getResultList();
+    List<Object[]> rows =
+        ctx.em()
+            .createNativeQuery(sql)
+            .setParameter(1, UuidByteArrayConverter.toBytes(id))
+            .getResultList();
     return rows.isEmpty() ? null : rows.get(0);
   }
 

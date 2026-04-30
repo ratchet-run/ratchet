@@ -6,6 +6,7 @@ import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.BatchMetricsEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobPayload;
+import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import run.ratchet.store.spi.BatchMetricsStore;
 import run.ratchet.store.spi.BatchStore;
 import java.util.List;
@@ -42,7 +43,7 @@ final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
         """;
     ctx.em()
         .createNativeQuery(sql)
-        .setParameter(1, batch.getId())
+        .setParameter(1, UuidByteArrayConverter.toBytes(batch.getId()))
         .setParameter(2, batch.getTotalItems())
         .setParameter(3, batch.getCompletedItems())
         .setParameter(4, batch.getFailedItems())
@@ -94,7 +95,11 @@ final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
         FOR UPDATE
         """;
     Object[] locked =
-        (Object[]) ctx.em().createNativeQuery(selectSql).setParameter(1, batchId).getSingleResult();
+        (Object[])
+            ctx.em()
+                .createNativeQuery(selectSql)
+                .setParameter(1, UuidByteArrayConverter.toBytes(batchId))
+                .getSingleResult();
 
     int newCompleted = ((Number) locked[0]).intValue() + 1;
     // language=MySQL
@@ -102,7 +107,7 @@ final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
     ctx.em()
         .createNativeQuery(updateSql)
         .setParameter(1, newCompleted)
-        .setParameter(2, batchId)
+        .setParameter(2, UuidByteArrayConverter.toBytes(batchId))
         .executeUpdate();
 
     return new BatchProgress(
@@ -124,7 +129,11 @@ final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
         FOR UPDATE
         """;
     Object[] locked =
-        (Object[]) ctx.em().createNativeQuery(selectSql).setParameter(1, batchId).getSingleResult();
+        (Object[])
+            ctx.em()
+                .createNativeQuery(selectSql)
+                .setParameter(1, UuidByteArrayConverter.toBytes(batchId))
+                .getSingleResult();
 
     int newFailed = ((Number) locked[1]).intValue() + 1;
     // language=MySQL
@@ -132,7 +141,7 @@ final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
     ctx.em()
         .createNativeQuery(updateSql)
         .setParameter(1, newFailed)
-        .setParameter(2, batchId)
+        .setParameter(2, UuidByteArrayConverter.toBytes(batchId))
         .executeUpdate();
 
     return new BatchProgress(
@@ -152,7 +161,11 @@ final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
         WHERE batch_id = ? AND completion_processed = 0
           AND (completed_items + failed_items) >= total_items
         """;
-    int updated = ctx.em().createNativeQuery(sql).setParameter(1, batchId).executeUpdate();
+    int updated =
+        ctx.em()
+            .createNativeQuery(sql)
+            .setParameter(1, UuidByteArrayConverter.toBytes(batchId))
+            .executeUpdate();
     return updated > 0;
   }
 
@@ -179,7 +192,7 @@ final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
         ctx.em()
             .createNativeQuery(sql)
             .setParameter(1, totalItems)
-            .setParameter(2, batchId)
+            .setParameter(2, UuidByteArrayConverter.toBytes(batchId))
             .executeUpdate();
     return updated > 0;
   }
@@ -214,7 +227,7 @@ final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
     ctx.em()
         .createNativeQuery(sql)
         .setParameter(1, durationMs)
-        .setParameter(2, batchId)
+        .setParameter(2, UuidByteArrayConverter.toBytes(batchId))
         .executeUpdate();
   }
 
@@ -230,7 +243,10 @@ final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
               TIMESTAMPDIFF(MICROSECOND, started_at, NOW(3)) / 1000 - child_execution_ms, 0)
         WHERE batch_id = ?
         """;
-    ctx.em().createNativeQuery(sql).setParameter(1, batchId).executeUpdate();
+    ctx.em()
+        .createNativeQuery(sql)
+        .setParameter(1, UuidByteArrayConverter.toBytes(batchId))
+        .executeUpdate();
   }
 
   @Override
@@ -240,7 +256,7 @@ final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
     ctx.em()
         .createNativeQuery(sql)
         .setParameter(1, childCount)
-        .setParameter(2, batchId)
+        .setParameter(2, UuidByteArrayConverter.toBytes(batchId))
         .executeUpdate();
   }
 

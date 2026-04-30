@@ -2,6 +2,7 @@ package run.ratchet.store.mysql;
 
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobStatus;
+import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -42,7 +43,11 @@ final class MysqlJobReadOperations {
             + " "
             + HYDRATION_FROM
             + " WHERE c.job_id = ?";
-    List<Object[]> rows = ctx.em().createNativeQuery(sql).setParameter(1, id).getResultList();
+    List<Object[]> rows =
+        ctx.em()
+            .createNativeQuery(sql)
+            .setParameter(1, UuidByteArrayConverter.toBytes(id))
+            .getResultList();
     if (rows.isEmpty()) {
       return Optional.empty();
     }
@@ -60,7 +65,11 @@ final class MysqlJobReadOperations {
             + " "
             + HYDRATION_FROM
             + " WHERE c.job_id = ?";
-    List<Object[]> rows = ctx.em().createNativeQuery(sql).setParameter(1, id).getResultList();
+    List<Object[]> rows =
+        ctx.em()
+            .createNativeQuery(sql)
+            .setParameter(1, UuidByteArrayConverter.toBytes(id))
+            .getResultList();
     if (rows.isEmpty()) {
       return Optional.empty();
     }
@@ -79,7 +88,11 @@ final class MysqlJobReadOperations {
         LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
         WHERE c.job_id = ?
         """;
-    List<Object[]> results = ctx.em().createNativeQuery(sql).setParameter(1, id).getResultList();
+    List<Object[]> results =
+        ctx.em()
+            .createNativeQuery(sql)
+            .setParameter(1, UuidByteArrayConverter.toBytes(id))
+            .getResultList();
     if (results.isEmpty()) {
       return null;
     }
@@ -118,7 +131,7 @@ final class MysqlJobReadOperations {
     Query idsQuery = ctx.em().createNativeQuery(sql);
     int parameter = 1;
     for (UUID id : ids) {
-      idsQuery.setParameter(parameter++, id);
+      idsQuery.setParameter(parameter++, UuidByteArrayConverter.toBytes(id));
     }
     List<Object[]> rows = idsQuery.getResultList();
     List<JobEntity> jobs = new ArrayList<>(rows.size());
@@ -189,7 +202,10 @@ final class MysqlJobReadOperations {
             + HYDRATION_FROM
             + " WHERE c.depends_on = ?";
     List<Object[]> rows =
-        ctx.em().createNativeQuery(sql).setParameter(1, parentJobId).getResultList();
+        ctx.em()
+            .createNativeQuery(sql)
+            .setParameter(1, UuidByteArrayConverter.toBytes(parentJobId))
+            .getResultList();
     List<JobEntity> jobs = new ArrayList<>(rows.size());
     for (Object[] row : rows) {
       jobs.add(mapper.hydrateJobEntity(row));

@@ -1,5 +1,6 @@
 package run.ratchet.store.mysql;
 
+import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -33,7 +34,7 @@ final class MysqlJobRecurringAndResetOperations {
             () ->
                 ctx.em()
                     .createNativeQuery(sql)
-                    .setParameter(1, id)
+                    .setParameter(1, UuidByteArrayConverter.toBytes(id))
                     .setParameter(2, nodeId)
                     .executeUpdate(),
             updated -> updated > 0 ? "updated" : "miss")
@@ -116,7 +117,11 @@ final class MysqlJobRecurringAndResetOperations {
         WHERE job_id = ? AND job_type = 'RECURRING'
           AND rec_status = 'P' AND terminal_status IS NULL
         """;
-    int updated = ctx.em().createNativeQuery(sql).setParameter(1, id).executeUpdate();
+    int updated =
+        ctx.em()
+            .createNativeQuery(sql)
+            .setParameter(1, UuidByteArrayConverter.toBytes(id))
+            .executeUpdate();
     return updated > 0;
   }
 
@@ -128,7 +133,11 @@ final class MysqlJobRecurringAndResetOperations {
         WHERE job_id = ? AND job_type = 'RECURRING'
           AND rec_status = 'A' AND terminal_status IS NULL
         """;
-    int updated = ctx.em().createNativeQuery(sql).setParameter(1, id).executeUpdate();
+    int updated =
+        ctx.em()
+            .createNativeQuery(sql)
+            .setParameter(1, UuidByteArrayConverter.toBytes(id))
+            .executeUpdate();
     return updated > 0;
   }
 
@@ -147,7 +156,11 @@ final class MysqlJobRecurringAndResetOperations {
     int total = 0;
     for (Object n : idRows) {
       UUID id = MysqlJobRowMapper.uuidOrNull(n);
-      int updated = ctx.em().createNativeQuery(sql).setParameter(1, id).executeUpdate();
+      int updated =
+          ctx.em()
+              .createNativeQuery(sql)
+              .setParameter(1, UuidByteArrayConverter.toBytes(id))
+              .executeUpdate();
       if (updated > 0) {
         reservations.deleteReservationByOwner(id);
         total += updated;

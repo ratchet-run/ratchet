@@ -2,6 +2,7 @@ package run.ratchet.store.mysql;
 
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.util.UUID;
@@ -39,7 +40,7 @@ final class MysqlBusinessKeyReservations {
     ctx.em()
         .createNativeQuery(sql)
         .setParameter(1, businessKey)
-        .setParameter(2, ownerJobId)
+        .setParameter(2, UuidByteArrayConverter.toBytes(ownerJobId))
         .setParameter(3, ownerTable)
         .executeUpdate();
   }
@@ -48,12 +49,15 @@ final class MysqlBusinessKeyReservations {
   int deleteReservationByOwner(UUID ownerJobId) {
     // language=MySQL
     String sql = "DELETE FROM scheduler_business_key_reservation WHERE owner_job_id = ?";
-    return ctx.em().createNativeQuery(sql).setParameter(1, ownerJobId).executeUpdate();
+    return ctx.em()
+        .createNativeQuery(sql)
+        .setParameter(1, UuidByteArrayConverter.toBytes(ownerJobId))
+        .executeUpdate();
   }
 
   void bindInsert(Query q, JobEntity job, Timestamp nowTs) {
     q.setParameter(1, job.getBusinessKey());
-    q.setParameter(2, job.getId());
+    q.setParameter(2, UuidByteArrayConverter.toBytes(job.getId()));
     q.setParameter(
         3,
         job.getJobType() == JobExecutionType.RECURRING ? OWNER_TABLE_RECURRING : OWNER_TABLE_QUEUE);

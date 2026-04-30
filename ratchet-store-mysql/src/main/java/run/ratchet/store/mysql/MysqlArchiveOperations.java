@@ -3,6 +3,7 @@ package run.ratchet.store.mysql;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.id.UuidV7Factory;
+import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.util.ArchiveHelper;
 import run.ratchet.store.util.ArchiveRowMapper;
@@ -177,8 +178,8 @@ final class MysqlArchiveOperations implements ArchiveStore {
 
   private static void setArchiveParameters(Query query, ArchivedJobEntity archive) {
     int parameter = 1;
-    query.setParameter(parameter++, archive.getId());
-    query.setParameter(parameter++, archive.getOriginalJobId());
+    query.setParameter(parameter++, UuidByteArrayConverter.toBytes(archive.getId()));
+    query.setParameter(parameter++, UuidByteArrayConverter.toBytes(archive.getOriginalJobId()));
     query.setParameter(parameter++, archive.getFinalStatus().name());
     query.setParameter(parameter++, archive.getJobType().name());
     query.setParameter(parameter++, archive.getPriority().ordinal());
@@ -205,8 +206,8 @@ final class MysqlArchiveOperations implements ArchiveStore {
     query.setParameter(parameter++, archive.getResultType());
     query.setParameter(parameter++, archive.getFinalError());
     query.setParameter(parameter++, archive.getPayloadSummary());
-    query.setParameter(parameter++, archive.getDependedOn());
-    query.setParameter(parameter++, archive.getSupersededBy());
+    query.setParameter(parameter++, UuidByteArrayConverter.toBytes(archive.getDependedOn()));
+    query.setParameter(parameter++, UuidByteArrayConverter.toBytes(archive.getSupersededBy()));
     query.setParameter(parameter, archive.getTags());
   }
 

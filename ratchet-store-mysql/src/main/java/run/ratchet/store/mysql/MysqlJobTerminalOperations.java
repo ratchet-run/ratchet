@@ -2,6 +2,7 @@ package run.ratchet.store.mysql;
 
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.JobStatus;
+import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
@@ -38,7 +39,7 @@ final class MysqlJobTerminalOperations {
                 .createNativeQuery(sql)
                 .setParameter(1, status.name())
                 .setParameter(2, errorMessage)
-                .setParameter(3, id)
+                .setParameter(3, UuidByteArrayConverter.toBytes(id))
                 .executeUpdate();
           }
           if (status == JobStatus.CANCELED) {
@@ -76,7 +77,7 @@ final class MysqlJobTerminalOperations {
                       .createNativeQuery(casSql)
                       .setParameter(1, newStatus.name())
                       .setParameter(2, error)
-                      .setParameter(3, id)
+                      .setParameter(3, UuidByteArrayConverter.toBytes(id))
                       .setParameter(4, expected.name())
                       .executeUpdate()
                   > 0;
@@ -88,7 +89,7 @@ final class MysqlJobTerminalOperations {
               int gateMatched =
                   ctx.em()
                               .createNativeQuery(gateSql)
-                              .setParameter(1, id)
+                              .setParameter(1, UuidByteArrayConverter.toBytes(id))
                               .setParameter(2, expected.name())
                               .getSingleResult()
                           instanceof Number n
@@ -121,14 +122,22 @@ final class MysqlJobTerminalOperations {
     int updated =
         ctx.timedStoreOperation(
             "increment_retry_attempt",
-            () -> ctx.em().createNativeQuery(updateSql).setParameter(1, id).executeUpdate(),
+            () ->
+                ctx.em()
+                    .createNativeQuery(updateSql)
+                    .setParameter(1, UuidByteArrayConverter.toBytes(id))
+                    .executeUpdate(),
             count -> count > 0 ? "updated" : "miss");
     if (updated == 0) {
       return -1;
     }
     // language=MySQL
     String selectSql = "SELECT attempts FROM scheduler_job_queue WHERE job_id = ?";
-    Object result = ctx.em().createNativeQuery(selectSql).setParameter(1, id).getSingleResult();
+    Object result =
+        ctx.em()
+            .createNativeQuery(selectSql)
+            .setParameter(1, UuidByteArrayConverter.toBytes(id))
+            .getSingleResult();
     return ((Number) result).intValue();
   }
 
@@ -201,7 +210,7 @@ final class MysqlJobTerminalOperations {
                     .setParameter(1, error)
                     .setParameter(2, Timestamp.from(newScheduledTime))
                     .setParameter(3, attempts)
-                    .setParameter(4, id)
+                    .setParameter(4, UuidByteArrayConverter.toBytes(id))
                     .executeUpdate(),
             updated -> updated > 0 ? "updated" : "miss")
         > 0;
@@ -210,7 +219,11 @@ final class MysqlJobTerminalOperations {
   boolean markJobFailedTerminal(UUID id, String terminalError, int totalAttempts) {
     // language=MySQL
     String deleteHotSql = "DELETE FROM scheduler_job_queue WHERE job_id = ? AND status = 'RUNNING'";
-    int hotDeleted = ctx.em().createNativeQuery(deleteHotSql).setParameter(1, id).executeUpdate();
+    int hotDeleted =
+        ctx.em()
+            .createNativeQuery(deleteHotSql)
+            .setParameter(1, UuidByteArrayConverter.toBytes(id))
+            .executeUpdate();
     if (hotDeleted == 0) {
       return false;
     }
@@ -226,7 +239,7 @@ final class MysqlJobTerminalOperations {
         .createNativeQuery(updateColdSql)
         .setParameter(1, terminalError)
         .setParameter(2, totalAttempts)
-        .setParameter(3, id)
+        .setParameter(3, UuidByteArrayConverter.toBytes(id))
         .executeUpdate();
     reservations.deleteReservationByOwner(id);
     return true;
@@ -237,7 +250,11 @@ final class MysqlJobTerminalOperations {
     String selectSql =
         "SELECT job_type, terminal_status, rec_status FROM scheduler_job WHERE job_id = ?";
     @SuppressWarnings("unchecked")
-    List<Object[]> rows = ctx.em().createNativeQuery(selectSql).setParameter(1, id).getResultList();
+    List<Object[]> rows =
+        ctx.em()
+            .createNativeQuery(selectSql)
+            .setParameter(1, UuidByteArrayConverter.toBytes(id))
+            .getResultList();
     if (rows.isEmpty()) {
       return false;
     }
@@ -257,7 +274,10 @@ final class MysqlJobTerminalOperations {
             AND rec_status IS NOT NULL AND terminal_status IS NULL
           """;
       int updated =
-          ctx.em().createNativeQuery(cancelRecurringSql).setParameter(1, id).executeUpdate();
+          ctx.em()
+              .createNativeQuery(cancelRecurringSql)
+              .setParameter(1, UuidByteArrayConverter.toBytes(id))
+              .executeUpdate();
       if (updated == 0) {
         return false;
       }
@@ -270,7 +290,10 @@ final class MysqlJobTerminalOperations {
         DELETE FROM scheduler_job_queue
         WHERE job_id = ? AND status IN ('PENDING','RUNNING','PAUSED')
         """;
-    ctx.em().createNativeQuery(deleteHotSql).setParameter(1, id).executeUpdate();
+    ctx.em()
+        .createNativeQuery(deleteHotSql)
+        .setParameter(1, UuidByteArrayConverter.toBytes(id))
+        .executeUpdate();
     // language=MySQL
     String updateColdSql =
         """
@@ -278,7 +301,11 @@ final class MysqlJobTerminalOperations {
         SET terminal_status = 'CANCELED', terminated_at = NOW(3)
         WHERE job_id = ? AND terminal_status IS NULL
         """;
-    int coldUpdated = ctx.em().createNativeQuery(updateColdSql).setParameter(1, id).executeUpdate();
+    int coldUpdated =
+        ctx.em()
+            .createNativeQuery(updateColdSql)
+            .setParameter(1, UuidByteArrayConverter.toBytes(id))
+            .executeUpdate();
     reservations.deleteReservationByOwner(id);
     return coldUpdated > 0;
   }
@@ -293,7 +320,11 @@ final class MysqlJobTerminalOperations {
         FOR UPDATE
         """;
     @SuppressWarnings("unchecked")
-    List<Object[]> rows = ctx.em().createNativeQuery(selectSql).setParameter(1, id).getResultList();
+    List<Object[]> rows =
+        ctx.em()
+            .createNativeQuery(selectSql)
+            .setParameter(1, UuidByteArrayConverter.toBytes(id))
+            .getResultList();
     if (rows.isEmpty()) {
       return false;
     }
@@ -319,7 +350,10 @@ final class MysqlJobTerminalOperations {
             total_attempts = NULL, terminated_at = NULL
         WHERE job_id = ? AND terminal_status = 'FAILED'
         """;
-    ctx.em().createNativeQuery(clearTerminalSql).setParameter(1, id).executeUpdate();
+    ctx.em()
+        .createNativeQuery(clearTerminalSql)
+        .setParameter(1, UuidByteArrayConverter.toBytes(id))
+        .executeUpdate();
 
     // language=MySQL
     String insertHotSql =
@@ -331,7 +365,7 @@ final class MysqlJobTerminalOperations {
         """;
     ctx.em()
         .createNativeQuery(insertHotSql)
-        .setParameter(1, id)
+        .setParameter(1, UuidByteArrayConverter.toBytes(id))
         .setParameter(2, jobType)
         .setParameter(3, priority)
         .setParameter(4, businessKey)
@@ -384,7 +418,7 @@ final class MysqlJobTerminalOperations {
             .setParameter(4, end != null ? Timestamp.from(end) : null)
             .setParameter(5, durationMs)
             .setParameter(6, queueWaitMs)
-            .setParameter(7, id)
+            .setParameter(7, UuidByteArrayConverter.toBytes(id))
             .executeUpdate();
     if (coldUpdated == 0) {
       return false;
@@ -414,7 +448,7 @@ final class MysqlJobTerminalOperations {
             .setParameter(2, end != null ? Timestamp.from(end) : null)
             .setParameter(3, durationMs)
             .setParameter(4, queueWaitMs)
-            .setParameter(5, id)
+            .setParameter(5, UuidByteArrayConverter.toBytes(id))
             .executeUpdate();
     if (coldUpdated == 0) {
       return false;
@@ -432,7 +466,11 @@ final class MysqlJobTerminalOperations {
           ON br.owner_job_id = q.job_id
         WHERE q.job_id = ? AND q.status = 'RUNNING'
         """;
-    int deleted = ctx.em().createNativeQuery(sql).setParameter(1, id).executeUpdate();
+    int deleted =
+        ctx.em()
+            .createNativeQuery(sql)
+            .setParameter(1, UuidByteArrayConverter.toBytes(id))
+            .executeUpdate();
     if (deleted == 0) {
       throw new IllegalStateException(
           "terminal success updated cold row but failed to remove hot row for job " + id);

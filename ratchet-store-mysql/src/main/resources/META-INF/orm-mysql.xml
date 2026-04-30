@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  MySQL-specific JPA mapping override. Forces UUID columns to round-trip via UuidByteArrayConverter
+  so EclipseLink (and any non-Hibernate JPA provider) produces 16 raw bytes for BINARY(16) instead
+  of inserting the 36-character hyphenated form, which MySQL strict mode rejects with error 1406.
+
+  Hibernate's built-in UUID handler already produces standard-byte-order BINARY(16); applying the
+  converter is idempotent under Hibernate.
+
+  Production users wiring ratchet-store-mysql into their own persistence-unit must reference this
+  file from their persistence.xml: <mapping-file>META-INF/orm-mysql.xml</mapping-file>.
+
+  Native queries bypass AttributeConverter per JPA spec; in-store native-SQL call sites convert
+  manually via UuidByteArrayConverter.toBytes(uuid).
+
+  JPA 3.1 spec note: <convert> cannot be a child of <id>; use class-level <convert> with an
+  attribute-name attribute to apply a converter to id, basic, or relationship fields uniformly.
+-->
+<entity-mappings xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                 xmlns="https://jakarta.ee/xml/ns/persistence/orm"
+                 xsi:schemaLocation="https://jakarta.ee/xml/ns/persistence/orm
+                                     https://jakarta.ee/xml/ns/persistence/orm/orm_3_1.xsd"
+                 version="3.1">
+
+    <converter class="run.ratchet.store.mysql.converter.UuidByteArrayConverter"/>
+
+    <entity class="run.ratchet.store.entity.JobEntity">
+        <convert converter="run.ratchet.store.mysql.converter.UuidByteArrayConverter" attribute-name="id"/>
+        <convert converter="run.ratchet.store.mysql.converter.UuidByteArrayConverter" attribute-name="dependsOn"/>
+        <convert converter="run.ratchet.store.mysql.converter.UuidByteArrayConverter" attribute-name="supersededBy"/>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.ArchivedJobEntity">
+        <convert converter="run.ratchet.store.mysql.converter.UuidByteArrayConverter" attribute-name="id"/>
+        <convert converter="run.ratchet.store.mysql.converter.UuidByteArrayConverter" attribute-name="originalJobId"/>
+        <convert converter="run.ratchet.store.mysql.converter.UuidByteArrayConverter" attribute-name="dependedOn"/>
+        <convert converter="run.ratchet.store.mysql.converter.UuidByteArrayConverter" attribute-name="supersededBy"/>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.BatchEntity">
+        <convert converter="run.ratchet.store.mysql.converter.UuidByteArrayConverter" attribute-name="id"/>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.BatchMetricsEntity">
+        <convert converter="run.ratchet.store.mysql.converter.UuidByteArrayConverter" attribute-name="batchId"/>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.DlqAlertEntity">
+        <convert converter="run.ratchet.store.mysql.converter.UuidByteArrayConverter" attribute-name="id"/>
+        <convert converter="run.ratchet.store.mysql.converter.UuidByteArrayConverter" attribute-name="jobId"/>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.JobExecutionEntity">
+        <convert converter="run.ratchet.store.mysql.converter.UuidByteArrayConverter" attribute-name="id"/>
+        <convert converter="run.ratchet.store.mysql.converter.UuidByteArrayConverter" attribute-name="jobId"/>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.JobLogEntity">
+        <convert converter="run.ratchet.store.mysql.converter.UuidByteArrayConverter" attribute-name="id"/>
+        <convert converter="run.ratchet.store.mysql.converter.UuidByteArrayConverter" attribute-name="jobId"/>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.ResourcePermitEntity">
+        <convert converter="run.ratchet.store.mysql.converter.UuidByteArrayConverter" attribute-name="id"/>
+        <convert converter="run.ratchet.store.mysql.converter.UuidByteArrayConverter" attribute-name="jobId"/>
+    </entity>
+
+    <entity class="run.ratchet.store.entity.WorkflowConditionEntity">
+        <convert converter="run.ratchet.store.mysql.converter.UuidByteArrayConverter" attribute-name="id"/>
+        <convert converter="run.ratchet.store.mysql.converter.UuidByteArrayConverter" attribute-name="parentJobId"/>
+        <convert converter="run.ratchet.store.mysql.converter.UuidByteArrayConverter" attribute-name="childJobId"/>
+    </entity>
+
+</entity-mappings>
