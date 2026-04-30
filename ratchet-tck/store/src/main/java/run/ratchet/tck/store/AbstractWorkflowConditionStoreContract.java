@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import java.time.Instant;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -169,12 +170,12 @@ public abstract class AbstractWorkflowConditionStoreContract implements JobStore
 
   @Test
   void findConditionById_unknownId_returnsNull() {
-    var result = store().findConditionById(Long.MAX_VALUE);
+    var result = store().findConditionById(new UUID(0L, Long.MAX_VALUE));
 
     assertNull(result, "findConditionById with unknown ID should return null");
   }
 
-  private WorkflowConditionEntity newCondition(long parentJobId, long childJobId) {
+  private WorkflowConditionEntity newCondition(UUID parentJobId, UUID childJobId) {
     WorkflowConditionEntity condition = new WorkflowConditionEntity();
     condition.setParentJobId(parentJobId);
     condition.setChildJobId(childJobId);

@@ -32,10 +32,6 @@ public final class RatchetOptionsFactory {
                   .raw(RatchetConfigKeys.NODE_ID)
                   .filter(raw -> !raw.isBlank())
                   .ifPresent(node::nodeId);
-              int tsidNodeId = config.get(RatchetConfigKeys.TSID_NODE_ID);
-              if (tsidNodeId >= 0) {
-                node.tsidNodeId(tsidNodeId);
-              }
               node.heartbeatIntervalSeconds(
                       config.get(RatchetConfigKeys.NODE_HEARTBEAT_INTERVAL_SECONDS))
                   .orphanGraceSeconds(config.get(RatchetConfigKeys.NODE_ORPHAN_GRACE_SECONDS))

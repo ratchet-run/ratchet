@@ -5,6 +5,7 @@ import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.spi.ExecutionStore;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -86,7 +87,7 @@ public class ExecutionObserver {
     }
   }
 
-  public JobExecutionEntity startExecution(Long jobId, int attemptNumber, String nodeId) {
+  public JobExecutionEntity startExecution(UUID jobId, int attemptNumber, String nodeId) {
     JobExecutionEntity execution = JobExecutionEntity.start(jobId, attemptNumber, nodeId);
     return executionStore.saveExecution(execution);
   }

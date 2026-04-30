@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS scheduler_resource_limit
 -- no mutation path writes them in both places.
 CREATE TABLE IF NOT EXISTS scheduler_job
 (
-    job_id                BIGINT NOT NULL,
+    job_id                uuid NOT NULL,
     -- Immutable job-shape fields (duplicated on scheduler_job_queue per §duplication rule).
     job_type              TEXT        NOT NULL,
     priority              INT         NOT NULL DEFAULT 2,
@@ -76,8 +76,8 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     resource_name         VARCHAR(100),
     on_success_payload    JSONB,
     on_failure_payload    JSONB,
-    depends_on            BIGINT,
-    superseded_by         BIGINT,
+    depends_on            uuid,
+    superseded_by         uuid,
     created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_by            VARCHAR(255),
     -- Captured at creation from jakarta.security.enterprise.SecurityContext when resolvable; null
@@ -121,7 +121,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job
 -- population — they are set at enqueue and never mutated.
 CREATE TABLE IF NOT EXISTS scheduler_job_queue
 (
-    job_id             BIGINT       NOT NULL,
+    job_id             uuid         NOT NULL,
     status             TEXT         NOT NULL DEFAULT 'PENDING',
     job_type           TEXT         NOT NULL,
     priority           INT          NOT NULL DEFAULT 2,
@@ -162,7 +162,7 @@ CREATE INDEX IF NOT EXISTS idx_queue_orphan
 CREATE TABLE IF NOT EXISTS scheduler_business_key_reservation
 (
     business_key TEXT NOT NULL,
-    owner_job_id BIGINT NOT NULL,
+    owner_job_id uuid NOT NULL,
     owner_table TEXT NOT NULL,
     reserved_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT pk_scheduler_business_key_reservation PRIMARY KEY (business_key),
@@ -195,7 +195,7 @@ CREATE INDEX IF NOT EXISTS idx_job_recurring_pending
 -- 5. scheduler_job_tag
 CREATE TABLE IF NOT EXISTS scheduler_job_tag
 (
-    job_id BIGINT      NOT NULL,
+    job_id uuid        NOT NULL,
     tag    VARCHAR(64) NOT NULL,
     CONSTRAINT pk_scheduler_job_tag PRIMARY KEY (job_id, tag),
     CONSTRAINT fk_job_tag_job FOREIGN KEY (job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
@@ -207,7 +207,7 @@ CREATE INDEX IF NOT EXISTS idx_job_tag_tag_job ON scheduler_job_tag (tag, job_id
 -- 6. scheduler_batch
 CREATE TABLE IF NOT EXISTS scheduler_batch
 (
-    batch_id             BIGINT  NOT NULL,
+    batch_id             uuid    NOT NULL,
     total_items          INT     NOT NULL DEFAULT 0,
     completed_items      INT     NOT NULL DEFAULT 0,
     failed_items         INT     NOT NULL DEFAULT 0,
@@ -221,7 +221,7 @@ CREATE TABLE IF NOT EXISTS scheduler_batch
 -- 7. scheduler_batch_metrics
 CREATE TABLE IF NOT EXISTS scheduler_batch_metrics
 (
-    batch_id           BIGINT NOT NULL,
+    batch_id           uuid   NOT NULL,
     total_duration_ms  BIGINT,
     child_execution_ms BIGINT,
     overhead_ms        BIGINT,
@@ -238,8 +238,8 @@ CREATE TABLE IF NOT EXISTS scheduler_batch_metrics
 -- 8. scheduler_job_execution
 CREATE TABLE IF NOT EXISTS scheduler_job_execution
 (
-    id            BIGINT NOT NULL,
-    job_id        BIGINT      NOT NULL,
+    id            uuid        NOT NULL,
+    job_id        uuid        NOT NULL,
     attempt       INT         NOT NULL,
     node_id       VARCHAR(64) NOT NULL,
     started_at TIMESTAMPTZ(6) NOT NULL,
@@ -260,8 +260,8 @@ CREATE INDEX IF NOT EXISTS idx_job_execution_status ON scheduler_job_execution (
 -- 9. scheduler_job_log
 CREATE TABLE IF NOT EXISTS scheduler_job_log
 (
-    log_id  BIGINT NOT NULL,
-    job_id  BIGINT     NOT NULL,
+    log_id  uuid       NOT NULL,
+    job_id  uuid       NOT NULL,
     ts TIMESTAMPTZ(6) NOT NULL,
     level   VARCHAR(8) NOT NULL,
     message TEXT       NOT NULL,
@@ -277,8 +277,8 @@ CREATE INDEX IF NOT EXISTS idx_joblog_ts ON scheduler_job_log (ts);
 -- 10. scheduler_job_archive
 CREATE TABLE IF NOT EXISTS scheduler_job_archive
 (
-    archive_id              BIGINT NOT NULL,
-    original_job_id         BIGINT NOT NULL,
+    archive_id              uuid   NOT NULL,
+    original_job_id         uuid   NOT NULL,
     final_status            TEXT   NOT NULL,
     job_type                TEXT   NOT NULL,
     priority                INT    NOT NULL,
@@ -305,8 +305,8 @@ CREATE TABLE IF NOT EXISTS scheduler_job_archive
     result_type             VARCHAR(100),
     final_error             TEXT,
     payload_summary         TEXT,
-    depended_on             BIGINT,
-    superseded_by           BIGINT,
+    depended_on             uuid,
+    superseded_by           uuid,
     tags                    VARCHAR(512),
     CONSTRAINT pk_scheduler_job_archive PRIMARY KEY (archive_id),
     CONSTRAINT chk_archive_status CHECK (final_status IN ('SUCCEEDED', 'FAILED', 'CANCELED')),
@@ -330,9 +330,9 @@ CREATE INDEX IF NOT EXISTS idx_archive_priority ON scheduler_job_archive (priori
 -- 11. scheduler_workflow_condition
 CREATE TABLE IF NOT EXISTS scheduler_workflow_condition
 (
-    id                   BIGINT NOT NULL,
-    parent_job_id        BIGINT NOT NULL,
-    child_job_id         BIGINT NOT NULL,
+    id                   uuid   NOT NULL,
+    parent_job_id        uuid   NOT NULL,
+    child_job_id         uuid   NOT NULL,
     condition_type       TEXT   NOT NULL,
     condition_expression TEXT,
     condition_priority   INT    NOT NULL DEFAULT 0,
@@ -353,8 +353,8 @@ CREATE INDEX IF NOT EXISTS idx_workflow_priority ON scheduler_workflow_condition
 -- 12. scheduler_dlq_alerts
 CREATE TABLE IF NOT EXISTS scheduler_dlq_alerts
 (
-    id            BIGINT NOT NULL,
-    job_id        BIGINT      NOT NULL,
+    id            uuid        NOT NULL,
+    job_id        uuid        NOT NULL,
     error_hash    VARCHAR(64) NOT NULL,
     alert_sent_at TIMESTAMPTZ(6),
     alert_channel VARCHAR(100),
@@ -368,9 +368,9 @@ CREATE INDEX IF NOT EXISTS idx_dlq_sent_at ON scheduler_dlq_alerts (alert_sent_a
 -- 13. scheduler_resource_permit
 CREATE TABLE IF NOT EXISTS scheduler_resource_permit
 (
-    id            BIGINT NOT NULL,
+    id            uuid         NOT NULL,
     resource_name VARCHAR(100) NOT NULL,
-    job_id        BIGINT       NOT NULL,
+    job_id        uuid         NOT NULL,
     node_id       VARCHAR(64)  NOT NULL,
     acquired_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT pk_scheduler_resource_permit PRIMARY KEY (id),

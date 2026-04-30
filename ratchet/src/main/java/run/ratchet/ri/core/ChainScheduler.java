@@ -10,6 +10,7 @@ import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
+import java.util.UUID;
 import org.jboss.logging.Logger;
 
 /** Propagates success/failure through chained job dependencies. */
@@ -36,11 +37,11 @@ public class ChainScheduler {
   }
 
   public void cancelChain(JobEntity failed) {
-    Deque<Long> stack = new ArrayDeque<>();
+    Deque<UUID> stack = new ArrayDeque<>();
     stack.push(failed.getId());
 
     while (!stack.isEmpty()) {
-      long parentId = stack.pop();
+      UUID parentId = stack.pop();
       List<JobEntity> children = jobCrudStore.findDependants(parentId);
       for (JobEntity child : children) {
         if (child.getStatus() == JobStatus.PENDING) {

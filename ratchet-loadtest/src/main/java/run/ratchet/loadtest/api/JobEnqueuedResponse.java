@@ -1,11 +1,12 @@
 package run.ratchet.loadtest.api;
 
 import java.time.Instant;
+import java.util.UUID;
 
 public class JobEnqueuedResponse {
 
   public String runId;
-  public long jobId;
+  public UUID jobId;
   public int sequence;
   public String workload;
   public String acceptedNodeId;
@@ -15,7 +16,7 @@ public class JobEnqueuedResponse {
 
   public JobEnqueuedResponse(
       String runId,
-      long jobId,
+      UUID jobId,
       int sequence,
       String workload,
       String acceptedNodeId,

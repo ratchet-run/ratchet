@@ -6,7 +6,7 @@ import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
-import run.ratchet.store.id.TsidFactory;
+import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.DlqAlertStore;
 import run.ratchet.store.spi.ExecutionStore;
 import run.ratchet.store.spi.JobLogStore;
@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 final class PostgresqlAuxiliaryOperations
     implements ExecutionStore,
@@ -44,7 +45,7 @@ final class PostgresqlAuxiliaryOperations
 
   @Override
   @SuppressWarnings("unchecked")
-  public List<JobExecutionEntity> findExecutionsByJobId(long jobId) {
+  public List<JobExecutionEntity> findExecutionsByJobId(UUID jobId) {
     // language=PostgreSQL
     String sql = "SELECT * FROM scheduler_job_execution WHERE job_id = ? ORDER BY attempt ASC";
     return ctx.em()
@@ -55,7 +56,7 @@ final class PostgresqlAuxiliaryOperations
 
   @Override
   @SuppressWarnings("unchecked")
-  public Optional<JobExecutionEntity> findLatestExecution(long jobId) {
+  public Optional<JobExecutionEntity> findLatestExecution(UUID jobId) {
     // language=PostgreSQL
     String sql =
         "SELECT * FROM scheduler_job_execution WHERE job_id = ? ORDER BY attempt DESC LIMIT 1";
@@ -68,7 +69,7 @@ final class PostgresqlAuxiliaryOperations
   }
 
   @Override
-  public int countExecutionAttempts(long jobId) {
+  public int countExecutionAttempts(UUID jobId) {
     // language=PostgreSQL
     String sql = "SELECT COUNT(*) FROM scheduler_job_execution WHERE job_id = ?";
     return ((Number) ctx.em().createNativeQuery(sql).setParameter(1, jobId).getSingleResult())
@@ -120,27 +121,27 @@ final class PostgresqlAuxiliaryOperations
   }
 
   @Override
-  public WorkflowConditionEntity findConditionById(long id) {
+  public WorkflowConditionEntity findConditionById(UUID id) {
     List<WorkflowConditionEntity> results =
         findConditions("WHERE id = ?", List.of(id), "ORDER BY condition_priority ASC");
     return results.isEmpty() ? null : results.get(0);
   }
 
   @Override
-  public List<WorkflowConditionEntity> findConditionsByParentJobId(long parentJobId) {
+  public List<WorkflowConditionEntity> findConditionsByParentJobId(UUID parentJobId) {
     return findConditions(
         "WHERE parent_job_id = ?", List.of(parentJobId), "ORDER BY condition_priority ASC");
   }
 
   @Override
-  public List<WorkflowConditionEntity> findConditionsByChildJobId(long childJobId) {
+  public List<WorkflowConditionEntity> findConditionsByChildJobId(UUID childJobId) {
     return findConditions(
         "WHERE child_job_id = ?", List.of(childJobId), "ORDER BY condition_priority ASC");
   }
 
   @Override
   public List<WorkflowConditionEntity> findConditionsByType(
-      long parentJobId, WorkflowCondition.ConditionType type) {
+      UUID parentJobId, WorkflowCondition.ConditionType type) {
     return findConditions(
         "WHERE parent_job_id = ? AND condition_type = ?",
         List.of(parentJobId, type.name()),
@@ -148,36 +149,36 @@ final class PostgresqlAuxiliaryOperations
   }
 
   @Override
-  public void deleteConditionById(long id) {
+  public void deleteConditionById(UUID id) {
     // language=PostgreSQL
     String sql = "DELETE FROM scheduler_workflow_condition WHERE id = ?";
     ctx.em().createNativeQuery(sql).setParameter(1, id).executeUpdate();
   }
 
   @Override
-  public void deleteConditionsByParentJobId(long parentJobId) {
+  public void deleteConditionsByParentJobId(UUID parentJobId) {
     // language=PostgreSQL
     String sql = "DELETE FROM scheduler_workflow_condition WHERE parent_job_id = ?";
     ctx.em().createNativeQuery(sql).setParameter(1, parentJobId).executeUpdate();
   }
 
   @Override
-  public void deleteConditionsByChildJobId(long childJobId) {
+  public void deleteConditionsByChildJobId(UUID childJobId) {
     // language=PostgreSQL
     String sql = "DELETE FROM scheduler_workflow_condition WHERE child_job_id = ?";
     ctx.em().createNativeQuery(sql).setParameter(1, childJobId).executeUpdate();
   }
 
   @Override
-  public long countConditionsByParentJobId(long parentJobId) {
+  public long countConditionsByParentJobId(UUID parentJobId) {
     // language=PostgreSQL
     String sql = "SELECT COUNT(*) FROM scheduler_workflow_condition WHERE parent_job_id = ?";
     return ctx.countByNative(sql, parentJobId);
   }
 
   private void prepareCondition(WorkflowConditionEntity condition) {
-    if (condition.getId() == null || condition.getId() == 0L) {
-      condition.setId(TsidFactory.next());
+    if (condition.getId() == null) {
+      condition.setId(UuidV7Factory.create());
     }
     if (condition.getCreatedAt() == null) {
       condition.setCreatedAt(Instant.now());
@@ -204,9 +205,9 @@ final class PostgresqlAuxiliaryOperations
 
   private static WorkflowConditionEntity mapCondition(Object[] row) {
     WorkflowConditionEntity condition = new WorkflowConditionEntity();
-    condition.setId(((Number) row[0]).longValue());
-    condition.setParentJobId(((Number) row[1]).longValue());
-    condition.setChildJobId(((Number) row[2]).longValue());
+    condition.setId(PostgresqlJobRowMapper.uuidOrNull(row[0]));
+    condition.setParentJobId(PostgresqlJobRowMapper.uuidOrNull(row[1]));
+    condition.setChildJobId(PostgresqlJobRowMapper.uuidOrNull(row[2]));
     condition.setConditionType(WorkflowCondition.ConditionType.valueOf(row[3].toString()));
     condition.setConditionExpression(row[4] == null ? null : row[4].toString());
     condition.setConditionPriority(((Number) row[5]).intValue());
@@ -224,7 +225,7 @@ final class PostgresqlAuxiliaryOperations
   }
 
   @Override
-  public boolean existsRecentDlqAlert(long jobId, String errorHash, Instant cutoff) {
+  public boolean existsRecentDlqAlert(UUID jobId, String errorHash, Instant cutoff) {
     // language=PostgreSQL
     String sql =
         """
@@ -236,7 +237,7 @@ final class PostgresqlAuxiliaryOperations
   }
 
   @Override
-  public boolean tryAcquirePermit(String resource, long jobId, String nodeId) {
+  public boolean tryAcquirePermit(String resource, UUID jobId, String nodeId) {
     // language=PostgreSQL
     String selectSql =
         """
@@ -268,7 +269,7 @@ final class PostgresqlAuxiliaryOperations
   }
 
   @Override
-  public void releasePermit(String resource, long jobId) {
+  public void releasePermit(String resource, UUID jobId) {
     // language=PostgreSQL
     String sql = "DELETE FROM scheduler_resource_permit WHERE resource_name = ? AND job_id = ?";
     ctx.em()
@@ -279,7 +280,7 @@ final class PostgresqlAuxiliaryOperations
   }
 
   @Override
-  public void releaseAllPermits(long jobId) {
+  public void releaseAllPermits(UUID jobId) {
     // language=PostgreSQL
     String sql = "DELETE FROM scheduler_resource_permit WHERE job_id = ?";
     ctx.em().createNativeQuery(sql).setParameter(1, jobId).executeUpdate();

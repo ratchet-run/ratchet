@@ -19,6 +19,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
@@ -219,7 +220,7 @@ public class JobExecutorService {
   }
 
   private JobTimeoutHandler.TimeoutHandles scheduleWatchdog(
-      Long jobId, int timeoutSec, Future<?> fut, Instant executionStartTime) {
+      UUID jobId, int timeoutSec, Future<?> fut, Instant executionStartTime) {
     try {
       return timeoutHandler.scheduleTimeoutMonitoring(
           jobId, timeoutSec, fut, executorProvider.getScheduledExecutor(), executionStartTime);

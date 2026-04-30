@@ -41,6 +41,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeoutException;
@@ -209,7 +210,7 @@ public class JobTask implements Callable<Void> {
   @Override
   @SuppressWarnings("java:S1181")
   public Void call() {
-    Long jobId = getJobId();
+    UUID jobId = getJobId();
 
     JobEntity jobEntity;
     try {
@@ -386,7 +387,7 @@ public class JobTask implements Callable<Void> {
     return job;
   }
 
-  private Long getJobId() {
+  private UUID getJobId() {
     return job != null ? job.getId() : claim.id();
   }
 

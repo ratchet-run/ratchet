@@ -28,6 +28,7 @@ import run.ratchet.store.spi.JobClaimStore;
 import java.time.Instant;
 import java.util.EnumMap;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -185,7 +186,7 @@ class PollerTest {
 
   private JobClaimDto claim(long jobId, JobExecutionType jobType, String type) {
     return new JobClaimDto(
-        jobId,
+        new UUID(0L, jobId),
         JobStatus.RUNNING,
         jobType,
         JobPriority.NORMAL,

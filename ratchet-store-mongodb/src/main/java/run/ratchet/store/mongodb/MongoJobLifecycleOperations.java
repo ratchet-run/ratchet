@@ -39,6 +39,7 @@ import java.time.Instant;
 import java.util.Date;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import org.bson.Document;
 
 /**
@@ -57,7 +58,7 @@ final class MongoJobLifecycleOperations {
     this.batches = batches;
   }
 
-  void updateJobStatus(long id, JobStatus status, String errorMessage) {
+  void updateJobStatus(UUID id, JobStatus status, String errorMessage) {
     ctx.jobs()
         .updateOne(
             eq(ID, id),
@@ -68,7 +69,7 @@ final class MongoJobLifecycleOperations {
                 inc(VERSION, 1)));
   }
 
-  boolean compareAndSwapStatus(long id, JobStatus expected, JobStatus newStatus, String error) {
+  boolean compareAndSwapStatus(UUID id, JobStatus expected, JobStatus newStatus, String error) {
     try {
       UpdateResult result =
           ctx.jobs()
@@ -85,7 +86,7 @@ final class MongoJobLifecycleOperations {
     }
   }
 
-  int incrementRetryAttempt(long id) {
+  int incrementRetryAttempt(UUID id) {
     Document doc =
         ctx.jobs()
             .findOneAndUpdate(
@@ -101,7 +102,7 @@ final class MongoJobLifecycleOperations {
     return doc.getInteger(ATTEMPTS);
   }
 
-  boolean tryPickUpJob(long id, String nodeId) {
+  boolean tryPickUpJob(UUID id, String nodeId) {
     Instant now = Instant.now();
     UpdateResult result =
         ctx.jobs()
@@ -117,7 +118,7 @@ final class MongoJobLifecycleOperations {
   }
 
   boolean markJobSucceeded(
-      long id,
+      UUID id,
       String resultJson,
       String resultType,
       Instant start,
@@ -147,7 +148,7 @@ final class MongoJobLifecycleOperations {
   }
 
   boolean markJobSucceededMinimal(
-      long id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
+      UUID id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
     try {
       UpdateResult result =
           ctx.jobs()
@@ -169,14 +170,14 @@ final class MongoJobLifecycleOperations {
   }
 
   boolean markJobSucceededAndUpdateBatch(
-      long jobId,
+      UUID jobId,
       String resultJson,
       String resultType,
       Instant start,
       Instant end,
       Long durationMs,
       Long queueWaitMs,
-      long batchId) {
+      UUID batchId) {
     try (ClientSession session = ctx.startSession()) {
       return session.withTransaction(
           () -> {
@@ -209,7 +210,7 @@ final class MongoJobLifecycleOperations {
     }
   }
 
-  boolean scheduleJobRetry(long id, String error, Instant newScheduledTime, int attempts) {
+  boolean scheduleJobRetry(UUID id, String error, Instant newScheduledTime, int attempts) {
     UpdateResult result =
         ctx.jobs()
             .updateOne(
@@ -226,7 +227,7 @@ final class MongoJobLifecycleOperations {
     return result.getModifiedCount() > 0;
   }
 
-  boolean pauseRecurring(long id) {
+  boolean pauseRecurring(UUID id) {
     UpdateResult result =
         ctx.jobs()
             .updateOne(
@@ -239,7 +240,7 @@ final class MongoJobLifecycleOperations {
     return result.getModifiedCount() > 0;
   }
 
-  boolean resumeRecurring(long id) {
+  boolean resumeRecurring(UUID id) {
     UpdateResult result =
         ctx.jobs()
             .updateOne(
@@ -252,7 +253,7 @@ final class MongoJobLifecycleOperations {
     return result.getModifiedCount() > 0;
   }
 
-  boolean markJobFailedTerminal(long id, String terminalError, int totalAttempts) {
+  boolean markJobFailedTerminal(UUID id, String terminalError, int totalAttempts) {
     UpdateResult result =
         ctx.jobs()
             .updateOne(
@@ -268,7 +269,7 @@ final class MongoJobLifecycleOperations {
     return result.getModifiedCount() > 0;
   }
 
-  boolean cancelJob(long id) {
+  boolean cancelJob(UUID id) {
     UpdateResult result =
         ctx.jobs()
             .updateOne(
@@ -282,7 +283,7 @@ final class MongoJobLifecycleOperations {
     return result.getModifiedCount() > 0;
   }
 
-  boolean resetRunningJob(long id, String nodeId) {
+  boolean resetRunningJob(UUID id, String nodeId) {
     UpdateResult result =
         ctx.jobs()
             .updateOne(
@@ -360,7 +361,7 @@ final class MongoJobLifecycleOperations {
     return (int) result.getModifiedCount();
   }
 
-  boolean resetFailedToPending(long id) {
+  boolean resetFailedToPending(UUID id) {
     UpdateResult result =
         ctx.jobs()
             .updateOne(
@@ -377,7 +378,7 @@ final class MongoJobLifecycleOperations {
     return result.getModifiedCount() > 0;
   }
 
-  boolean transitionToPaused(long id, JobStatus expected) {
+  boolean transitionToPaused(UUID id, JobStatus expected) {
     UpdateResult result =
         ctx.jobs()
             .updateOne(
@@ -390,7 +391,7 @@ final class MongoJobLifecycleOperations {
     return result.getModifiedCount() > 0;
   }
 
-  boolean transitionFromPaused(long id, JobStatus target) {
+  boolean transitionFromPaused(UUID id, JobStatus target) {
     UpdateResult result =
         ctx.jobs()
             .updateOne(
@@ -403,7 +404,7 @@ final class MongoJobLifecycleOperations {
     return result.getModifiedCount() > 0;
   }
 
-  JobStatus transitionFromPausedAtomic(long id) {
+  JobStatus transitionFromPausedAtomic(UUID id) {
     Document before =
         ctx.jobs()
             .findOneAndUpdate(

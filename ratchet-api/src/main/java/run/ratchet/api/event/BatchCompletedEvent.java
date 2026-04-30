@@ -4,6 +4,7 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import java.io.Serial;
 import java.time.Instant;
+import java.util.UUID;
 
 /** Fired when all children of a batch complete. */
 public class BatchCompletedEvent extends AbstractJobSchedulerEvent {
@@ -15,7 +16,7 @@ public class BatchCompletedEvent extends AbstractJobSchedulerEvent {
   private final Integer failedItems;
 
   public BatchCompletedEvent(
-      Long jobId,
+      UUID jobId,
       String businessKey,
       JobType jobType,
       JobPriority priority,
@@ -31,7 +32,7 @@ public class BatchCompletedEvent extends AbstractJobSchedulerEvent {
   }
 
   public BatchCompletedEvent(
-      Long jobId,
+      UUID jobId,
       String businessKey,
       JobType jobType,
       JobPriority priority,

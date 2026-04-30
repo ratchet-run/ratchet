@@ -3,6 +3,7 @@ package run.ratchet.ri.core;
 import run.ratchet.store.entity.JobStatus;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Stateless validator enforcing the job lifecycle state machine. Same-state transitions are
@@ -47,10 +48,10 @@ public class JobStateValidator {
   /**
    * @throws IllegalStateException if the transition is not valid
    */
-  public void validateTransition(JobStatus from, JobStatus to, Long jobId) {
+  public void validateTransition(JobStatus from, JobStatus to, UUID jobId) {
     if (!isValidTransition(from, to)) {
       throw new IllegalStateException(
-          String.format("Invalid job state transition for job %d: %s -> %s", jobId, from, to));
+          String.format("Invalid job state transition for job %s: %s -> %s", jobId, from, to));
     }
   }
 }

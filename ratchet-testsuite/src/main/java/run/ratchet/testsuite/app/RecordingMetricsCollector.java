@@ -7,6 +7,7 @@ import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Alternative;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 /** Metrics collector that records callback payloads for integration assertions. */
@@ -39,29 +40,29 @@ public class RecordingMetricsCollector implements MetricsCollector {
   }
 
   @Override
-  public void jobStarted(long jobId, JobType type, JobPriority priority) {
+  public void jobStarted(UUID jobId, JobType type, JobPriority priority) {
     STARTED.add(new StartedMetric(jobId, type, priority));
   }
 
   @Override
-  public void jobCompleted(long jobId, JobType type, long executionTimeMs) {
+  public void jobCompleted(UUID jobId, JobType type, long executionTimeMs) {
     COMPLETED.add(new CompletedMetric(jobId, type, executionTimeMs));
   }
 
   @Override
-  public void jobFailed(long jobId, JobType type, Throwable cause, int attempt) {
+  public void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt) {
     FAILED.add(
         new FailedMetric(jobId, type, attempt, cause == null ? null : cause.getClass().getName()));
   }
 
   @Override
-  public void successFinalizationRetried(long jobId, JobType type) {}
+  public void successFinalizationRetried(UUID jobId, JobType type) {}
 
   @Override
-  public void successFinalizationMinimal(long jobId, JobType type) {}
+  public void successFinalizationMinimal(UUID jobId, JobType type) {}
 
   @Override
-  public void successFinalizationStuck(long jobId, JobType type) {}
+  public void successFinalizationStuck(UUID jobId, JobType type) {}
 
   @Override
   public void claimTransientFailure(String executionType) {}
@@ -81,9 +82,9 @@ public class RecordingMetricsCollector implements MetricsCollector {
   @Override
   public void clusterWakeupReceived(String transport, String outcome) {}
 
-  public record StartedMetric(long jobId, JobType type, JobPriority priority) {}
+  public record StartedMetric(UUID jobId, JobType type, JobPriority priority) {}
 
-  public record CompletedMetric(long jobId, JobType type, long executionTimeMs) {}
+  public record CompletedMetric(UUID jobId, JobType type, long executionTimeMs) {}
 
-  public record FailedMetric(long jobId, JobType type, int attempt, String causeType) {}
+  public record FailedMetric(UUID jobId, JobType type, int attempt, String causeType) {}
 }

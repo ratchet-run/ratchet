@@ -5,6 +5,7 @@ import run.ratchet.store.entity.JobStatus;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 final class PostgresqlJobTerminalOperations {
 
@@ -21,7 +22,7 @@ final class PostgresqlJobTerminalOperations {
     this.batches = batches;
   }
 
-  void updateJobStatus(long id, JobStatus status, String errorMessage) {
+  void updateJobStatus(UUID id, JobStatus status, String errorMessage) {
     if (PostgresqlJobRowMapper.isLiveStatus(status)) {
       // language=PostgreSQL
       String sql =
@@ -53,7 +54,7 @@ final class PostgresqlJobTerminalOperations {
     throw new IllegalArgumentException("Unsupported status target: " + status);
   }
 
-  boolean compareAndSwapStatus(long id, JobStatus expected, JobStatus newStatus, String error) {
+  boolean compareAndSwapStatus(UUID id, JobStatus expected, JobStatus newStatus, String error) {
     try {
       if (!PostgresqlJobRowMapper.isLiveStatus(expected)) {
         throw new IllegalArgumentException(
@@ -101,7 +102,7 @@ final class PostgresqlJobTerminalOperations {
     }
   }
 
-  int incrementRetryAttempt(long id) {
+  int incrementRetryAttempt(UUID id) {
     // language=PostgreSQL
     String updateSql =
         """
@@ -120,7 +121,7 @@ final class PostgresqlJobTerminalOperations {
   }
 
   boolean markJobSucceeded(
-      long id,
+      UUID id,
       String resultJson,
       String resultType,
       Instant start,
@@ -136,7 +137,7 @@ final class PostgresqlJobTerminalOperations {
   }
 
   boolean markJobSucceededMinimal(
-      long id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
+      UUID id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
     try {
       return doMarkTerminalSuccessMinimal(id, start, end, durationMs, queueWaitMs);
     } catch (RuntimeException e) {
@@ -145,14 +146,14 @@ final class PostgresqlJobTerminalOperations {
   }
 
   boolean markJobSucceededAndUpdateBatch(
-      long jobId,
+      UUID jobId,
       String resultJson,
       String resultType,
       Instant start,
       Instant end,
       Long durationMs,
       Long queueWaitMs,
-      long batchId) {
+      UUID batchId) {
     boolean succeeded =
         markJobSucceeded(jobId, resultJson, resultType, start, end, durationMs, queueWaitMs);
     if (succeeded) {
@@ -161,7 +162,7 @@ final class PostgresqlJobTerminalOperations {
     return succeeded;
   }
 
-  boolean scheduleJobRetry(long id, String error, Instant newScheduledTime, int attempts) {
+  boolean scheduleJobRetry(UUID id, String error, Instant newScheduledTime, int attempts) {
     // language=PostgreSQL
     String sql =
         """
@@ -181,7 +182,7 @@ final class PostgresqlJobTerminalOperations {
     return updated > 0;
   }
 
-  boolean markJobFailedTerminal(long id, String terminalError, int totalAttempts) {
+  boolean markJobFailedTerminal(UUID id, String terminalError, int totalAttempts) {
     // language=PostgreSQL
     String deleteHotSql = "DELETE FROM scheduler_job_queue WHERE job_id = ? AND status = 'RUNNING'";
     int hotDeleted = ctx.em().createNativeQuery(deleteHotSql).setParameter(1, id).executeUpdate();
@@ -207,7 +208,7 @@ final class PostgresqlJobTerminalOperations {
     return true;
   }
 
-  boolean cancelJob(long id) {
+  boolean cancelJob(UUID id) {
     // language=PostgreSQL
     String selectSql =
         "SELECT job_type, terminal_status, rec_status FROM scheduler_job WHERE job_id = ?";
@@ -259,7 +260,7 @@ final class PostgresqlJobTerminalOperations {
     return coldUpdated > 0;
   }
 
-  boolean resetFailedToPending(long id) {
+  boolean resetFailedToPending(UUID id) {
     // language=PostgreSQL
     String selectSql =
         """
@@ -332,7 +333,7 @@ final class PostgresqlJobTerminalOperations {
   }
 
   private boolean doMarkTerminalSuccessWithResult(
-      long id,
+      UUID id,
       String resultJson,
       String resultType,
       Instant start,
@@ -371,7 +372,7 @@ final class PostgresqlJobTerminalOperations {
   }
 
   private boolean doMarkTerminalSuccessMinimal(
-      long id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
+      UUID id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
     // language=PostgreSQL
     String sql =
         """
@@ -400,7 +401,7 @@ final class PostgresqlJobTerminalOperations {
     return true;
   }
 
-  private void deleteHotRowAndReservationAfterSuccess(long id) {
+  private void deleteHotRowAndReservationAfterSuccess(UUID id) {
     // language=PostgreSQL
     String sql = "DELETE FROM scheduler_job_queue WHERE job_id = ? AND status = 'RUNNING'";
     int deleted = ctx.em().createNativeQuery(sql).setParameter(1, id).executeUpdate();

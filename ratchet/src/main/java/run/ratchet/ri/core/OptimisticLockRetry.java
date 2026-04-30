@@ -2,6 +2,7 @@ package run.ratchet.ri.core;
 
 import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.store.entity.JobEntity;
+import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -22,10 +23,10 @@ public final class OptimisticLockRetry {
 
   /**
    * Retries an idempotent save-with-mutate operation up to {@value #DEFAULT_MAX_ATTEMPTS} times.
-   * See {@link #retryWithReload(int, long, Supplier, Consumer, Function)} for parameter semantics.
+   * See {@link #retryWithReload(int, UUID, Supplier, Consumer, Function)} for parameter semantics.
    */
   public static JobEntity retryWithReload(
-      long jobId,
+      UUID jobId,
       Supplier<JobEntity> reload,
       Consumer<JobEntity> mutate,
       Function<JobEntity, JobEntity> save) {
@@ -38,7 +39,7 @@ public final class OptimisticLockRetry {
    */
   public static JobEntity retryWithReload(
       int maxAttempts,
-      long jobId,
+      UUID jobId,
       Supplier<JobEntity> reload,
       Consumer<JobEntity> mutate,
       Function<JobEntity, JobEntity> save) {

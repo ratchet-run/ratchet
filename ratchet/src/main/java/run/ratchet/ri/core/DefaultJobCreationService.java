@@ -132,7 +132,7 @@ public class DefaultJobCreationService
     String idempotencyKey = builder.idempotencyKey();
     Optional<JobEntity> existingByKey = jobCrudStore.findByIdempotencyKey(idempotencyKey);
     if (existingByKey.isPresent()) {
-      Long existingId = existingByKey.get().getId();
+      UUID existingId = existingByKey.get().getId();
       log.debugf(
           "Duplicate idempotency key '%s', returning existing job %s", idempotencyKey, existingId);
       return () -> existingId;
@@ -176,7 +176,7 @@ public class DefaultJobCreationService
     }
 
     JobEntity saved = jobCrudStore.save(job);
-    Long jobId = saved.getId();
+    UUID jobId = saved.getId();
 
     List<String> tags = builder.tags();
     if (!tags.isEmpty()) {
@@ -210,7 +210,7 @@ public class DefaultJobCreationService
   public JobHandle submit(DefaultBatchBuilder builder) {
     JobEntity parent = newBatchParent();
     JobEntity savedParent = jobCrudStore.save(parent);
-    Long parentId = savedParent.getId();
+    UUID parentId = savedParent.getId();
 
     BatchEntity batch = new BatchEntity();
     batch.setId(parentId);
@@ -262,7 +262,7 @@ public class DefaultJobCreationService
 
     JobEntity parent = newBatchParent();
     JobEntity savedParent = jobCrudStore.save(parent);
-    Long parentId = savedParent.getId();
+    UUID parentId = savedParent.getId();
 
     int totalItems = 0;
     int chunksInserted = 0;
@@ -357,7 +357,7 @@ public class DefaultJobCreationService
         saved.getId(), builder.cronExpr(), builder.zone(), nextFire);
 
     recurringScheduler.kick();
-    return saved::getId;
+    return () -> saved.getId();
   }
 
   private void applyOptions(JobEntity job, JobOptions opts) {
@@ -379,7 +379,7 @@ public class DefaultJobCreationService
     return parent;
   }
 
-  private void completeEmptyBatch(Long parentId) {
+  private void completeEmptyBatch(UUID parentId) {
     if (jobBatchStatusStore.tryPickUpJob(parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID)) {
       Instant now = effective().instant();
       jobTerminalStore.markJobSucceededMinimal(parentId, now, now, 0L, 0L);
@@ -388,8 +388,8 @@ public class DefaultJobCreationService
   }
 
   private void createChainSteps(
-      Long predecessorId, List<SerializableCheckedRunnable> chainTasks, JobOptions opts) {
-    Long prevId = predecessorId;
+      UUID predecessorId, List<SerializableCheckedRunnable> chainTasks, JobOptions opts) {
+    UUID prevId = predecessorId;
     for (SerializableCheckedRunnable chainTask : chainTasks) {
       JobEntity step = new JobEntity();
       step.setJobType(JobExecutionType.CHAIN_STEP);
@@ -408,7 +408,7 @@ public class DefaultJobCreationService
   }
 
   private <T extends Serializable> int createStreamingChildJobs(
-      Long parentId, DefaultStreamingBatchBuilder<T> builder, List<T> items) {
+      UUID parentId, DefaultStreamingBatchBuilder<T> builder, List<T> items) {
     int count = 0;
     for (T item : items) {
       JobEntity child = new JobEntity();
@@ -426,13 +426,13 @@ public class DefaultJobCreationService
     return count;
   }
 
-  private void createWorkflowBranches(Long parentId, List<WorkflowBranch> branches) {
+  private void createWorkflowBranches(UUID parentId, List<WorkflowBranch> branches) {
     for (WorkflowBranch branch : branches) {
       createWorkflowBranch(parentId, branch);
     }
   }
 
-  private void createWorkflowBranch(Long parentId, WorkflowBranch branch) {
+  private void createWorkflowBranch(UUID parentId, WorkflowBranch branch) {
     JobEntity branchJob = new JobEntity();
     branchJob.setJobType(JobExecutionType.WORKFLOW_BRANCH);
     branchJob.setStatus(JobStatus.PENDING);

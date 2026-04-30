@@ -6,6 +6,7 @@ import run.ratchet.spi.MetricsCollector;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Alternative;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Alternative
@@ -36,28 +37,28 @@ public class CountingMetricsCollector implements MetricsCollector {
   }
 
   @Override
-  public void jobStarted(long jobId, JobType type, JobPriority priority) {
+  public void jobStarted(UUID jobId, JobType type, JobPriority priority) {
     STARTED_COUNT.incrementAndGet();
   }
 
   @Override
-  public void jobCompleted(long jobId, JobType type, long executionTimeMs) {
+  public void jobCompleted(UUID jobId, JobType type, long executionTimeMs) {
     COMPLETED_COUNT.incrementAndGet();
   }
 
   @Override
-  public void jobFailed(long jobId, JobType type, Throwable cause, int attempt) {
+  public void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt) {
     FAILED_COUNT.incrementAndGet();
   }
 
   @Override
-  public void successFinalizationRetried(long jobId, JobType type) {}
+  public void successFinalizationRetried(UUID jobId, JobType type) {}
 
   @Override
-  public void successFinalizationMinimal(long jobId, JobType type) {}
+  public void successFinalizationMinimal(UUID jobId, JobType type) {}
 
   @Override
-  public void successFinalizationStuck(long jobId, JobType type) {}
+  public void successFinalizationStuck(UUID jobId, JobType type) {}
 
   @Override
   public void claimTransientFailure(String executionType) {}

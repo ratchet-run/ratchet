@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.Map;
+import java.util.UUID;
 import org.jboss.logging.MDC;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,9 +28,10 @@ class JobMdcContextThrowableTest {
   @Test
   void clearRemovesMdcKeysAfterAssertionError() {
     // Bind via the 4-arg overload that JobTask.call() uses.
-    JobMdcContext.bindJobContext(42L, Map.of(), "node-A", "alice");
+    UUID jobId = new UUID(0L, 42L);
+    JobMdcContext.bindJobContext(jobId, Map.of(), "node-A", "alice");
 
-    assertEquals("42", MDC.get(JobMdcContext.MDC_JOB_ID));
+    assertEquals(jobId.toString(), MDC.get(JobMdcContext.MDC_JOB_ID));
     assertEquals("node-A", MDC.get(JobMdcContext.MDC_NODE));
     assertEquals("alice", MDC.get(JobMdcContext.MDC_JOB_CREATOR));
 
@@ -57,8 +59,9 @@ class JobMdcContextThrowableTest {
     // Servlet filter or JAX-RS interceptor before the job was submitted.
     MDC.put("requestId", "req-xyz");
 
-    JobMdcContext.bindJobContext(7L, Map.of(), "node-B", "bob");
-    assertEquals("7", MDC.get(JobMdcContext.MDC_JOB_ID));
+    UUID jobId = new UUID(0L, 7L);
+    JobMdcContext.bindJobContext(jobId, Map.of(), "node-B", "bob");
+    assertEquals(jobId.toString(), MDC.get(JobMdcContext.MDC_JOB_ID));
     assertEquals("req-xyz", MDC.get("requestId"));
 
     JobMdcContext.clear();
@@ -72,7 +75,7 @@ class JobMdcContextThrowableTest {
 
   @Test
   void clearIsIdempotent() {
-    JobMdcContext.bindJobContext(1L, Map.of(), "node-C", "carol");
+    JobMdcContext.bindJobContext(new UUID(0L, 1L), Map.of(), "node-C", "carol");
     JobMdcContext.clear();
     JobMdcContext.clear(); // second call should not throw
     assertNull(MDC.get(JobMdcContext.MDC_JOB_ID));

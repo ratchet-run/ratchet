@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.mongodb.client.MongoClient;
-import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoDatabase;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
@@ -58,8 +57,8 @@ class MultiClientClaimIT {
       String nodeId,
       CountDownLatch start,
       CountDownLatch done,
-      Set<Long> allClaimed,
-      List<Long> duplicates) {
+      Set<UUID> allClaimed,
+      List<UUID> duplicates) {
     try {
       start.await();
       for (int attempt = 0; attempt < 20; attempt++) {
@@ -95,8 +94,8 @@ class MultiClientClaimIT {
   @BeforeEach
   void setUp() {
     String dbName = "ratchet_multi_" + UUID.randomUUID().toString().substring(0, 8);
-    clientA = MongoClients.create(MONGO.getConnectionString());
-    clientB = MongoClients.create(MONGO.getConnectionString());
+    clientA = MongoClientFactory.create(MONGO.getConnectionString());
+    clientB = MongoClientFactory.create(MONGO.getConnectionString());
     dbA = clientA.getDatabase(dbName);
     dbB = clientB.getDatabase(dbName);
     claimExecutorA = Executors.newCachedThreadPool();
@@ -122,8 +121,8 @@ class MultiClientClaimIT {
       storeA.save(newPendingJob());
     }
 
-    Set<Long> allClaimed = ConcurrentHashMap.newKeySet();
-    List<Long> duplicates = Collections.synchronizedList(new ArrayList<>());
+    Set<UUID> allClaimed = ConcurrentHashMap.newKeySet();
+    List<UUID> duplicates = Collections.synchronizedList(new ArrayList<>());
     CountDownLatch start = new CountDownLatch(1);
     CountDownLatch done = new CountDownLatch(2);
 

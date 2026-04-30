@@ -22,6 +22,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
@@ -67,10 +68,10 @@ class JobArchivingIT extends BaseRatchetIT {
       JobAssertions.assertJobCompleted(jobCrudStore, handle);
     }
 
-    List<Long> jobIds = handles.stream().map(JobHandle::id).toList();
+    List<UUID> jobIds = handles.stream().map(JobHandle::id).toList();
 
     Instant past = Instant.now().minus(3, ChronoUnit.DAYS);
-    for (Long id : jobIds) {
+    for (UUID id : jobIds) {
       dataManipulator.setJobUpdatedAt(id, past);
     }
 
@@ -90,7 +91,7 @@ class JobArchivingIT extends BaseRatchetIT {
             });
 
     // Verify jobs removed from active table
-    for (Long id : jobIds) {
+    for (UUID id : jobIds) {
       assertTrue(
           jobCrudStore.findById(id).isEmpty(),
           "Job " + id + " should be removed from active table");
@@ -98,8 +99,8 @@ class JobArchivingIT extends BaseRatchetIT {
 
     // Verify archive entries reference original job IDs
     var archived = archiveStore.findArchivedJobs(null, null, null, null, 100);
-    List<Long> archivedOriginalIds = archived.stream().map(a -> a.getOriginalJobId()).toList();
-    for (Long id : jobIds) {
+    List<UUID> archivedOriginalIds = archived.stream().map(a -> a.getOriginalJobId()).toList();
+    for (UUID id : jobIds) {
       assertTrue(archivedOriginalIds.contains(id), "Archive should contain original job ID " + id);
     }
   }

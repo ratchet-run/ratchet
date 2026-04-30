@@ -7,6 +7,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class MongoClaimOrderingIT extends BaseDocumentStoreIT {
@@ -21,7 +22,7 @@ class MongoClaimOrderingIT extends BaseDocumentStoreIT {
     high.setScheduledTime(Instant.now().minusSeconds(5));
     high = store().save(high);
 
-    List<Long> ids =
+    List<UUID> ids =
         store().claimNextBatchOptimized(JobExecutionType.SINGLE, 10, "node-1").stream()
             .map(claim -> claim.id())
             .toList();
@@ -39,7 +40,7 @@ class MongoClaimOrderingIT extends BaseDocumentStoreIT {
     normal.setScheduledTime(Instant.now().minusSeconds(30));
     normal = store().save(normal);
 
-    List<Long> ids =
+    List<UUID> ids =
         store().claimNextBatchOptimized(JobExecutionType.SINGLE, 10, "node-1").stream()
             .map(claim -> claim.id())
             .toList();

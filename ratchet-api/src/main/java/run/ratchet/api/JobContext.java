@@ -3,21 +3,22 @@ package run.ratchet.api;
 import run.ratchet.spi.JobLogger;
 import java.util.Collections;
 import java.util.Map;
+import java.util.UUID;
 
 /** Thread-local context for the executing job. */
 public final class JobContext {
 
   private static final ThreadLocal<JobContext> TL = new ThreadLocal<>();
 
-  private final long jobId;
+  private final UUID jobId;
   private final JobLogger logger;
   private final Map<String, String> params;
 
-  private JobContext(long jobId, JobLogger logger) {
+  private JobContext(UUID jobId, JobLogger logger) {
     this(jobId, logger, Collections.emptyMap());
   }
 
-  private JobContext(long jobId, JobLogger logger, Map<String, String> params) {
+  private JobContext(UUID jobId, JobLogger logger, Map<String, String> params) {
     this.jobId = jobId;
     this.logger = logger;
     this.params = params != null ? Collections.unmodifiableMap(params) : Collections.emptyMap();
@@ -27,14 +28,14 @@ public final class JobContext {
    * Binds a new context to the current thread. Always pair with {@link #clear()} in a finally
    * block.
    */
-  public static JobContext bind(long jobId, JobLogger logger) {
+  public static JobContext bind(UUID jobId, JobLogger logger) {
     JobContext ctx = new JobContext(jobId, logger);
     TL.set(ctx);
     return ctx;
   }
 
   /** Binds a new context with parameters to the current thread. */
-  public static JobContext bind(long jobId, JobLogger logger, Map<String, String> params) {
+  public static JobContext bind(UUID jobId, JobLogger logger, Map<String, String> params) {
     JobContext ctx = new JobContext(jobId, logger, params);
     TL.set(ctx);
     return ctx;
@@ -57,7 +58,7 @@ public final class JobContext {
     return ctx;
   }
 
-  public long jobId() {
+  public UUID jobId() {
     return jobId;
   }
 

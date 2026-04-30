@@ -6,6 +6,7 @@ import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.entity.WorkflowConditionEntity;
+import run.ratchet.store.id.UuidV7Factory;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Alternative;
@@ -17,7 +18,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicLong;
+import java.util.UUID;
 
 /**
  * Single-threaded in-memory {@link run.ratchet.store.spi.JobStore} implementation that
@@ -38,10 +39,8 @@ import java.util.concurrent.atomic.AtomicLong;
 @Priority(jakarta.interceptor.Interceptor.Priority.APPLICATION + 100)
 public class InMemoryJobStore extends ThrowingJobStoreBase {
 
-  private final Map<Long, JobEntity> jobs = new HashMap<>();
-  private final Map<Long, List<JobExecutionEntity>> executions = new HashMap<>();
-  private final AtomicLong idSeq = new AtomicLong(1);
-  private final AtomicLong execIdSeq = new AtomicLong(1);
+  private final Map<UUID, JobEntity> jobs = new HashMap<>();
+  private final Map<UUID, List<JobExecutionEntity>> executions = new HashMap<>();
   private final Clock clock;
 
   protected InMemoryJobStore() {
@@ -64,7 +63,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   @Override
   public synchronized JobEntity save(JobEntity job) {
     if (job.getId() == null) {
-      job.setId(idSeq.getAndIncrement());
+      job.setId(UuidV7Factory.create());
     }
     if (job.getVersion() == null) {
       job.setVersion(0);
@@ -74,12 +73,12 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   }
 
   @Override
-  public synchronized Optional<JobEntity> findById(long id) {
+  public synchronized Optional<JobEntity> findById(UUID id) {
     return Optional.ofNullable(jobs.get(id));
   }
 
   @Override
-  public synchronized Optional<JobEntity> findByIdLatest(long id) {
+  public synchronized Optional<JobEntity> findByIdLatest(UUID id) {
     return Optional.ofNullable(jobs.get(id));
   }
 
@@ -105,18 +104,18 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   }
 
   @Override
-  public synchronized List<JobEntity> findDependants(long parentJobId) {
+  public synchronized List<JobEntity> findDependants(UUID parentJobId) {
     return Collections.emptyList();
   }
 
   @Override
-  public synchronized JobStatus getJobStatus(long id) {
+  public synchronized JobStatus getJobStatus(UUID id) {
     JobEntity job = jobs.get(id);
     return job == null ? null : job.getStatus();
   }
 
   @Override
-  public synchronized boolean cancelJob(long id) {
+  public synchronized boolean cancelJob(UUID id) {
     JobEntity job = jobs.get(id);
     if (job == null) {
       return false;
@@ -132,7 +131,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
 
   @Override
   public synchronized boolean compareAndSwapStatus(
-      long id, JobStatus expected, JobStatus newStatus, String error) {
+      UUID id, JobStatus expected, JobStatus newStatus, String error) {
     JobEntity job = jobs.get(id);
     if (job == null || job.getStatus() != expected) {
       return false;
@@ -201,7 +200,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
 
   @Override
   public synchronized boolean markJobSucceededMinimal(
-      long id, java.time.Instant start, java.time.Instant end, Long durationMs, Long queueWaitMs) {
+      UUID id, java.time.Instant start, java.time.Instant end, Long durationMs, Long queueWaitMs) {
     JobEntity job = jobs.get(id);
     if (job == null) {
       return false;
@@ -216,7 +215,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
 
   @Override
   public synchronized boolean markJobSucceeded(
-      long id,
+      UUID id,
       String resultJson,
       String resultType,
       java.time.Instant start,
@@ -231,15 +230,15 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   @Override
   public synchronized JobExecutionEntity saveExecution(JobExecutionEntity execution) {
     if (execution.getId() == null) {
-      execution.setId(execIdSeq.getAndIncrement());
+      execution.setId(UuidV7Factory.create());
     }
-    Long jobId = execution.getJobId();
+    UUID jobId = execution.getJobId();
     executions.computeIfAbsent(jobId, k -> new ArrayList<>()).add(execution);
     return execution;
   }
 
   @Override
-  public synchronized Optional<JobExecutionEntity> findLatestExecution(long jobId) {
+  public synchronized Optional<JobExecutionEntity> findLatestExecution(UUID jobId) {
     List<JobExecutionEntity> list = executions.get(jobId);
     if (list == null || list.isEmpty()) {
       return Optional.empty();
@@ -248,13 +247,13 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   }
 
   @Override
-  public synchronized List<JobExecutionEntity> findExecutionsByJobId(long jobId) {
+  public synchronized List<JobExecutionEntity> findExecutionsByJobId(UUID jobId) {
     List<JobExecutionEntity> list = executions.get(jobId);
     return list == null ? Collections.emptyList() : new ArrayList<>(list);
   }
 
   @Override
-  public synchronized int countExecutionAttempts(long jobId) {
+  public synchronized int countExecutionAttempts(UUID jobId) {
     List<JobExecutionEntity> list = executions.get(jobId);
     return list == null ? 0 : list.size();
   }
@@ -263,24 +262,24 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   // -----
 
   @Override
-  public synchronized List<WorkflowConditionEntity> findConditionsByParentJobId(long parentJobId) {
+  public synchronized List<WorkflowConditionEntity> findConditionsByParentJobId(UUID parentJobId) {
     return Collections.emptyList();
   }
 
   @Override
-  public synchronized List<WorkflowConditionEntity> findConditionsByChildJobId(long childJobId) {
+  public synchronized List<WorkflowConditionEntity> findConditionsByChildJobId(UUID childJobId) {
     return Collections.emptyList();
   }
 
   @Override
-  public synchronized long countConditionsByParentJobId(long parentJobId) {
+  public synchronized long countConditionsByParentJobId(UUID parentJobId) {
     return 0L;
   }
 
   // ----- TagStore (no-op for tagless contract) -----
 
   @Override
-  public synchronized void insertTags(long jobId, List<String> tags) {
+  public synchronized void insertTags(UUID jobId, List<String> tags) {
     // No-op: AbstractDelayedSchedulingContract submits no tags.
   }
 
@@ -374,17 +373,17 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   // ----- ResourcePermitStore (no-op so production permit-check is permissive) -----
 
   @Override
-  public synchronized boolean tryAcquirePermit(String resource, long jobId, String nodeId) {
+  public synchronized boolean tryAcquirePermit(String resource, UUID jobId, String nodeId) {
     return true;
   }
 
   @Override
-  public synchronized void releasePermit(String resource, long jobId) {
+  public synchronized void releasePermit(String resource, UUID jobId) {
     // No-op
   }
 
   @Override
-  public synchronized void releaseAllPermits(long jobId) {
+  public synchronized void releaseAllPermits(UUID jobId) {
     // No-op
   }
 

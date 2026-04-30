@@ -28,6 +28,7 @@ import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.spi.JobStore;
 import java.time.Duration;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,6 +40,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 class JobTaskTest {
+
+  private static final UUID JOB_UUID = new UUID(0L, 42L);
 
   private final ClassPolicy classPolicy = className -> true;
   @Mock private JobStore jobStore;
@@ -79,11 +82,12 @@ class JobTaskTest {
   void call_invokesResilienceStrategyExecute() throws Exception {
     JobEntity job = createTestJob();
     initJobTaskWithDefaultStubs(job);
-    when(jobStore.getJobStatus(42L)).thenReturn(JobStatus.RUNNING);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
     when(resilienceStrategy.execute(anyString(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(1)).call());
-    when(jobStore.markJobSucceeded(anyLong(), any(), any(), any(), any(), anyLong(), anyLong()))
+    when(jobStore.markJobSucceeded(
+            any(UUID.class), any(), any(), any(), any(), anyLong(), anyLong()))
         .thenReturn(true);
 
     jobTask.call();
@@ -97,11 +101,12 @@ class JobTaskTest {
   void call_passesMethodScopedServiceName() throws Exception {
     JobEntity job = createTestJob();
     initJobTaskWithDefaultStubs(job);
-    when(jobStore.getJobStatus(42L)).thenReturn(JobStatus.RUNNING);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
     when(resilienceStrategy.execute(anyString(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(1)).call());
-    when(jobStore.markJobSucceeded(anyLong(), any(), any(), any(), any(), anyLong(), anyLong()))
+    when(jobStore.markJobSucceeded(
+            any(UUID.class), any(), any(), any(), any(), anyLong(), anyLong()))
         .thenReturn(true);
 
     jobTask.call();
@@ -124,11 +129,12 @@ class JobTaskTest {
             true,
             List.of()));
     initJobTaskWithDefaultStubs(job);
-    when(jobStore.getJobStatus(42L)).thenReturn(JobStatus.RUNNING);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
     when(resilienceStrategy.execute(anyString(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(1)).call());
-    when(jobStore.markJobSucceeded(anyLong(), any(), any(), any(), any(), anyLong(), anyLong()))
+    when(jobStore.markJobSucceeded(
+            any(UUID.class), any(), any(), any(), any(), anyLong(), anyLong()))
         .thenReturn(true);
 
     jobTask.call();
@@ -140,13 +146,14 @@ class JobTaskTest {
   void call_checksServiceAvailableBeforeExecution() throws Exception {
     JobEntity job = createTestJob();
     initJobTaskWithDefaultStubs(job);
-    when(jobStore.getJobStatus(42L)).thenReturn(JobStatus.RUNNING);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(
             JobTaskTest.class.getSimpleName() + ".testJobMethod"))
         .thenReturn(true);
     when(resilienceStrategy.execute(anyString(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(1)).call());
-    when(jobStore.markJobSucceeded(anyLong(), any(), any(), any(), any(), anyLong(), anyLong()))
+    when(jobStore.markJobSucceeded(
+            any(UUID.class), any(), any(), any(), any(), anyLong(), anyLong()))
         .thenReturn(true);
 
     jobTask.call();
@@ -160,7 +167,7 @@ class JobTaskTest {
   void call_serviceUnavailable_skipsExecution() throws Exception {
     JobEntity job = createTestJob();
     initJobTaskWithDefaultStubs(job);
-    when(jobStore.getJobStatus(42L)).thenReturn(JobStatus.RUNNING);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(
             JobTaskTest.class.getSimpleName() + ".testJobMethod"))
         .thenReturn(false);
@@ -168,7 +175,7 @@ class JobTaskTest {
     jobTask.call();
 
     verify(resilienceStrategy, never()).execute(anyString(), any(Callable.class));
-    verify(jobStore).scheduleJobRetry(eq(42L), anyString(), any(), anyInt());
+    verify(jobStore).scheduleJobRetry(eq(JOB_UUID), anyString(), any(), anyInt());
   }
 
   @Test
@@ -177,16 +184,16 @@ class JobTaskTest {
     JobEntity job = createTestJob();
     job.setMaxRetries(3);
     initJobTaskWithDefaultStubs(job);
-    when(jobStore.getJobStatus(42L)).thenReturn(JobStatus.RUNNING);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
 
     RuntimeException error = new RuntimeException("boom");
     when(resilienceStrategy.execute(anyString(), any(Callable.class))).thenThrow(error);
     when(validationFacade.shouldNotRetry(error)).thenReturn(false);
-    when(jobStore.incrementRetryAttempt(42L)).thenReturn(1);
+    when(jobStore.incrementRetryAttempt(JOB_UUID)).thenReturn(1);
     when(retryPolicy.shouldRetry(1, error)).thenReturn(true);
     when(retryPolicy.getDelay(1)).thenReturn(Duration.ofSeconds(5));
-    when(jobStore.scheduleJobRetry(anyLong(), anyString(), any(), anyInt())).thenReturn(true);
+    when(jobStore.scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt())).thenReturn(true);
 
     jobTask.call();
 
@@ -199,15 +206,16 @@ class JobTaskTest {
     JobEntity job = createTestJob();
     job.setMaxRetries(3);
     initJobTaskWithDefaultStubs(job);
-    when(jobStore.getJobStatus(42L)).thenReturn(JobStatus.RUNNING);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
 
     RuntimeException error = new RuntimeException("permanent");
     when(resilienceStrategy.execute(anyString(), any(Callable.class))).thenThrow(error);
     when(validationFacade.shouldNotRetry(error)).thenReturn(false);
-    when(jobStore.incrementRetryAttempt(42L)).thenReturn(1);
+    when(jobStore.incrementRetryAttempt(JOB_UUID)).thenReturn(1);
     when(retryPolicy.shouldRetry(1, error)).thenReturn(false);
-    when(jobStore.compareAndSwapStatus(eq(42L), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any()))
+    when(jobStore.compareAndSwapStatus(
+            eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any()))
         .thenReturn(true);
 
     jobTask.call();
@@ -220,11 +228,12 @@ class JobTaskTest {
   void handleSuccess_publishesCompletedEvent() throws Exception {
     JobEntity job = createTestJob();
     initJobTaskWithDefaultStubs(job);
-    when(jobStore.getJobStatus(42L)).thenReturn(JobStatus.RUNNING);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
     when(resilienceStrategy.execute(anyString(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(1)).call());
-    when(jobStore.markJobSucceeded(anyLong(), any(), any(), any(), any(), anyLong(), anyLong()))
+    when(jobStore.markJobSucceeded(
+            any(UUID.class), any(), any(), any(), any(), anyLong(), anyLong()))
         .thenReturn(true);
 
     jobTask.call();
@@ -238,17 +247,18 @@ class JobTaskTest {
     JobEntity job = createTestJob();
     job.setResourceName("api-gateway");
     initJobTaskWithDefaultStubs(job);
-    when(jobStore.getJobStatus(42L)).thenReturn(JobStatus.RUNNING);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
-    when(resourcePermitService.tryAcquire("api-gateway", 42L, "node-1")).thenReturn(true);
+    when(resourcePermitService.tryAcquire("api-gateway", JOB_UUID, "node-1")).thenReturn(true);
     when(resilienceStrategy.execute(anyString(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(1)).call());
-    when(jobStore.markJobSucceeded(anyLong(), any(), any(), any(), any(), anyLong(), anyLong()))
+    when(jobStore.markJobSucceeded(
+            any(UUID.class), any(), any(), any(), any(), anyLong(), anyLong()))
         .thenReturn(true);
 
     jobTask.call();
 
-    verify(resourcePermitService).release("api-gateway", 42L);
+    verify(resourcePermitService).release("api-gateway", JOB_UUID);
   }
 
   @Test
@@ -256,21 +266,22 @@ class JobTaskTest {
   void handleSuccess_retriesTransientFinalizationWithoutFailingJob() throws Exception {
     JobEntity job = createTestJob();
     initJobTaskWithDefaultStubs(job);
-    when(jobStore.getJobStatus(42L)).thenReturn(JobStatus.RUNNING);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
     when(resilienceStrategy.execute(anyString(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(1)).call());
-    when(jobStore.markJobSucceeded(anyLong(), any(), any(), any(), any(), anyLong(), anyLong()))
+    when(jobStore.markJobSucceeded(
+            any(UUID.class), any(), any(), any(), any(), anyLong(), anyLong()))
         .thenThrow(new RatchetTransientStoreException("deadlock"))
         .thenReturn(true);
 
     jobTask.call();
 
     verify(jobStore, times(2))
-        .markJobSucceeded(anyLong(), any(), any(), any(), any(), anyLong(), anyLong());
+        .markJobSucceeded(any(UUID.class), any(), any(), any(), any(), anyLong(), anyLong());
     verify(jobStore, never())
-        .markJobSucceededMinimal(anyLong(), any(), any(), anyLong(), anyLong());
-    verify(jobStore, never()).incrementRetryAttempt(anyLong());
+        .markJobSucceededMinimal(any(UUID.class), any(), any(), anyLong(), anyLong());
+    verify(jobStore, never()).incrementRetryAttempt(any(UUID.class));
     verify(lifecycleFacade, never()).moveToDlq(any(), any());
     verify(observabilityFacade).recordSuccessFinalizationRetry(job);
     verify(observabilityFacade, never()).recordSuccessFinalizationMinimal(any());
@@ -284,21 +295,22 @@ class JobTaskTest {
       throws Exception {
     JobEntity job = createTestJob();
     initJobTaskWithDefaultStubs(job);
-    when(jobStore.getJobStatus(42L)).thenReturn(JobStatus.RUNNING);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
     when(resilienceStrategy.execute(anyString(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(1)).call());
-    when(jobStore.markJobSucceeded(anyLong(), any(), any(), any(), any(), anyLong(), anyLong()))
+    when(jobStore.markJobSucceeded(
+            any(UUID.class), any(), any(), any(), any(), anyLong(), anyLong()))
         .thenThrow(new RatchetTransientStoreException("deadlock"));
-    when(jobStore.markJobSucceededMinimal(anyLong(), any(), any(), anyLong(), anyLong()))
+    when(jobStore.markJobSucceededMinimal(any(UUID.class), any(), any(), anyLong(), anyLong()))
         .thenReturn(true);
 
     jobTask.call();
 
     verify(jobStore, times(5))
-        .markJobSucceeded(anyLong(), any(), any(), any(), any(), anyLong(), anyLong());
-    verify(jobStore).markJobSucceededMinimal(anyLong(), any(), any(), anyLong(), anyLong());
-    verify(jobStore, never()).incrementRetryAttempt(anyLong());
+        .markJobSucceeded(any(UUID.class), any(), any(), any(), any(), anyLong(), anyLong());
+    verify(jobStore).markJobSucceededMinimal(any(UUID.class), any(), any(), anyLong(), anyLong());
+    verify(jobStore, never()).incrementRetryAttempt(any(UUID.class));
     verify(lifecycleFacade, never()).moveToDlq(any(), any());
     verify(observabilityFacade, times(5)).recordSuccessFinalizationRetry(job);
     verify(observabilityFacade).recordSuccessFinalizationMinimal(job);
@@ -311,21 +323,22 @@ class JobTaskTest {
   void handleSuccess_stuckFinalizationDoesNotMoveSuccessfulJobToFailurePath() throws Exception {
     JobEntity job = createTestJob();
     initJobTaskWithDefaultStubs(job);
-    when(jobStore.getJobStatus(42L)).thenReturn(JobStatus.RUNNING);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
     when(resilienceStrategy.execute(anyString(), any(Callable.class)))
         .thenAnswer(inv -> ((Callable<?>) inv.getArgument(1)).call());
-    when(jobStore.markJobSucceeded(anyLong(), any(), any(), any(), any(), anyLong(), anyLong()))
+    when(jobStore.markJobSucceeded(
+            any(UUID.class), any(), any(), any(), any(), anyLong(), anyLong()))
         .thenThrow(new RatchetTransientStoreException("deadlock"));
-    when(jobStore.markJobSucceededMinimal(anyLong(), any(), any(), anyLong(), anyLong()))
+    when(jobStore.markJobSucceededMinimal(any(UUID.class), any(), any(), anyLong(), anyLong()))
         .thenThrow(new RatchetTransientStoreException("deadlock"));
 
     jobTask.call();
 
     verify(jobStore, times(5))
-        .markJobSucceeded(anyLong(), any(), any(), any(), any(), anyLong(), anyLong());
-    verify(jobStore).markJobSucceededMinimal(anyLong(), any(), any(), anyLong(), anyLong());
-    verify(jobStore, never()).incrementRetryAttempt(anyLong());
+        .markJobSucceeded(any(UUID.class), any(), any(), any(), any(), anyLong(), anyLong());
+    verify(jobStore).markJobSucceededMinimal(any(UUID.class), any(), any(), anyLong(), anyLong());
+    verify(jobStore, never()).incrementRetryAttempt(any(UUID.class));
     verify(lifecycleFacade, never()).moveToDlq(any(), any());
     verify(observabilityFacade, times(5)).recordSuccessFinalizationRetry(job);
     verify(observabilityFacade).recordSuccessFinalizationStuck(job);
@@ -335,7 +348,7 @@ class JobTaskTest {
 
   private JobEntity createTestJob() {
     JobEntity job = new JobEntity();
-    job.setId(42L);
+    job.setId(JOB_UUID);
     job.setJobType(JobExecutionType.SINGLE);
     job.setPriority(JobPriority.NORMAL);
     job.setMaxRetries(3);
@@ -348,7 +361,7 @@ class JobTaskTest {
   private void initJobTaskWithDefaultStubs(JobEntity job) {
     jobTask.init(job);
     when(nodeIdProvider.getNodeId()).thenReturn("node-1");
-    when(observabilityFacade.startExecution(anyLong(), anyInt(), anyString()))
+    when(observabilityFacade.startExecution(any(UUID.class), anyInt(), anyString()))
         .thenReturn(JobExecutionEntity.start(job.getId(), 1, "node-1"));
   }
 

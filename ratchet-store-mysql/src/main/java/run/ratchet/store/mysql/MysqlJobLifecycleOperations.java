@@ -7,6 +7,7 @@ import run.ratchet.store.spi.JobRetryStore;
 import run.ratchet.store.spi.JobTerminalStore;
 import java.time.Instant;
 import java.util.Set;
+import java.util.UUID;
 
 final class MysqlJobLifecycleOperations
     implements JobBatchStatusStore, JobRetryStore, JobTerminalStore, JobPauseStore {
@@ -25,29 +26,29 @@ final class MysqlJobLifecycleOperations
   }
 
   @Override
-  public void updateJobStatus(long id, JobStatus status, String errorMessage) {
+  public void updateJobStatus(UUID id, JobStatus status, String errorMessage) {
     terminals.updateJobStatus(id, status, errorMessage);
   }
 
   @Override
   public boolean compareAndSwapStatus(
-      long id, JobStatus expected, JobStatus newStatus, String error) {
+      UUID id, JobStatus expected, JobStatus newStatus, String error) {
     return terminals.compareAndSwapStatus(id, expected, newStatus, error);
   }
 
   @Override
-  public int incrementRetryAttempt(long id) {
+  public int incrementRetryAttempt(UUID id) {
     return terminals.incrementRetryAttempt(id);
   }
 
   @Override
-  public boolean tryPickUpJob(long id, String nodeId) {
+  public boolean tryPickUpJob(UUID id, String nodeId) {
     return transitions.tryPickUpJob(id, nodeId);
   }
 
   @Override
   public boolean markJobSucceeded(
-      long id,
+      UUID id,
       String resultJson,
       String resultType,
       Instant start,
@@ -60,41 +61,41 @@ final class MysqlJobLifecycleOperations
 
   @Override
   public boolean markJobSucceededMinimal(
-      long id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
+      UUID id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
     return terminals.markJobSucceededMinimal(id, start, end, durationMs, queueWaitMs);
   }
 
   @Override
   public boolean markJobSucceededAndUpdateBatch(
-      long jobId,
+      UUID jobId,
       String resultJson,
       String resultType,
       Instant start,
       Instant end,
       Long durationMs,
       Long queueWaitMs,
-      long batchId) {
+      UUID batchId) {
     return terminals.markJobSucceededAndUpdateBatch(
         jobId, resultJson, resultType, start, end, durationMs, queueWaitMs, batchId);
   }
 
   @Override
-  public boolean scheduleJobRetry(long id, String error, Instant newScheduledTime, int attempts) {
+  public boolean scheduleJobRetry(UUID id, String error, Instant newScheduledTime, int attempts) {
     return terminals.scheduleJobRetry(id, error, newScheduledTime, attempts);
   }
 
   @Override
-  public boolean markJobFailedTerminal(long id, String terminalError, int totalAttempts) {
+  public boolean markJobFailedTerminal(UUID id, String terminalError, int totalAttempts) {
     return terminals.markJobFailedTerminal(id, terminalError, totalAttempts);
   }
 
   @Override
-  public boolean cancelJob(long id) {
+  public boolean cancelJob(UUID id) {
     return terminals.cancelJob(id);
   }
 
   @Override
-  public boolean resetRunningJob(long id, String nodeId) {
+  public boolean resetRunningJob(UUID id, String nodeId) {
     return recurring.resetRunningJob(id, nodeId);
   }
 
@@ -120,32 +121,32 @@ final class MysqlJobLifecycleOperations
   }
 
   @Override
-  public boolean resetFailedToPending(long id) {
+  public boolean resetFailedToPending(UUID id) {
     return terminals.resetFailedToPending(id);
   }
 
   @Override
-  public boolean transitionToPaused(long id, JobStatus expected) {
+  public boolean transitionToPaused(UUID id, JobStatus expected) {
     return transitions.transitionToPaused(id, expected);
   }
 
   @Override
-  public boolean transitionFromPaused(long id, JobStatus target) {
+  public boolean transitionFromPaused(UUID id, JobStatus target) {
     return transitions.transitionFromPaused(id, target);
   }
 
   @Override
-  public boolean pauseRecurring(long id) {
+  public boolean pauseRecurring(UUID id) {
     return recurring.pauseRecurring(id);
   }
 
   @Override
-  public boolean resumeRecurring(long id) {
+  public boolean resumeRecurring(UUID id) {
     return recurring.resumeRecurring(id);
   }
 
   @Override
-  public JobStatus transitionFromPausedAtomic(long id) {
+  public JobStatus transitionFromPausedAtomic(UUID id) {
     return transitions.transitionFromPausedAtomic(id);
   }
 }

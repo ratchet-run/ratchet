@@ -16,6 +16,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import java.time.Instant;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -34,7 +35,7 @@ class RetryBufferManagerTest {
   private static JobEntity job(
       long id, JobExecutionType type, JobPriority priority, Instant scheduledTime) {
     JobEntity j = new JobEntity();
-    j.setId(id);
+    j.setId(new UUID(0L, id));
     j.setJobType(type);
     j.setPriority(priority);
     j.setScheduledTime(scheduledTime);
@@ -81,11 +82,11 @@ class RetryBufferManagerTest {
 
     RetryBufferManager.BufferedClaim first = manager.pollFromBuffer(JobExecutionType.SINGLE);
     assertNotNull(first);
-    assertEquals(2L, first.jobId());
+    assertEquals(new UUID(0L, 2L), first.jobId());
 
     RetryBufferManager.BufferedClaim second = manager.pollFromBuffer(JobExecutionType.SINGLE);
     assertNotNull(second);
-    assertEquals(1L, second.jobId());
+    assertEquals(new UUID(0L, 1L), second.jobId());
   }
 
   @Test
@@ -98,7 +99,7 @@ class RetryBufferManagerTest {
 
     RetryBufferManager.BufferedClaim first = manager.pollFromBuffer(JobExecutionType.SINGLE);
     assertNotNull(first);
-    assertEquals(2L, first.jobId(), "Earlier scheduled job should be polled first");
+    assertEquals(new UUID(0L, 2L), first.jobId(), "Earlier scheduled job should be polled first");
   }
 
   @Test
@@ -140,13 +141,13 @@ class RetryBufferManagerTest {
     manager.offer(standardJob(2L));
 
     when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
-    when(jobBatchStatusStore.resetRunningJob(1L, "node-1")).thenReturn(true);
-    when(jobBatchStatusStore.resetRunningJob(2L, "node-1")).thenReturn(true);
+    when(jobBatchStatusStore.resetRunningJob(new UUID(0L, 1L), "node-1")).thenReturn(true);
+    when(jobBatchStatusStore.resetRunningJob(new UUID(0L, 2L), "node-1")).thenReturn(true);
 
     manager.flushOnShutdown();
 
-    verify(jobBatchStatusStore).resetRunningJob(1L, "node-1");
-    verify(jobBatchStatusStore).resetRunningJob(2L, "node-1");
+    verify(jobBatchStatusStore).resetRunningJob(new UUID(0L, 1L), "node-1");
+    verify(jobBatchStatusStore).resetRunningJob(new UUID(0L, 2L), "node-1");
     assertTrue(manager.isBufferEmpty(JobExecutionType.SINGLE));
   }
 
@@ -154,12 +155,12 @@ class RetryBufferManagerTest {
   void flushOnShutdown_doesNotOverwriteTerminalJobs() {
     manager.offer(standardJob(1L));
     when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
-    when(jobBatchStatusStore.resetRunningJob(1L, "node-1")).thenReturn(false);
+    when(jobBatchStatusStore.resetRunningJob(new UUID(0L, 1L), "node-1")).thenReturn(false);
 
     manager.flushOnShutdown();
 
-    verify(jobBatchStatusStore).resetRunningJob(1L, "node-1");
-    verify(jobBatchStatusStore, never()).resetRunningJob(1L, "other-node");
+    verify(jobBatchStatusStore).resetRunningJob(new UUID(0L, 1L), "node-1");
+    verify(jobBatchStatusStore, never()).resetRunningJob(new UUID(0L, 1L), "other-node");
     assertTrue(manager.isBufferEmpty(JobExecutionType.SINGLE));
   }
 }

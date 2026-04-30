@@ -10,6 +10,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.entity.JobStatus;
+import run.ratchet.store.id.UuidV7Factory;
 import java.time.Instant;
 import java.util.List;
 import org.bson.Document;
@@ -41,7 +42,7 @@ class DocumentMapperTest {
   void storesBatchProgressHookAsSharedJsonStringAndReadsLegacyDocumentShape() {
     JobPayload payload = payload("com.example.Progress", "tick");
     BatchEntity batch = new BatchEntity();
-    batch.setId(100L);
+    batch.setId(UuidV7Factory.create());
     batch.setTotalItems(3);
     batch.setCompletedItems(1);
     batch.setFailedItems(0);
@@ -58,7 +59,7 @@ class DocumentMapperTest {
 
   private static JobEntity job(JobPayload payload) {
     JobEntity job = new JobEntity();
-    job.setId(42L);
+    job.setId(UuidV7Factory.create());
     job.setStatus(JobStatus.PENDING);
     job.setScheduledTime(Instant.parse("2026-01-01T00:00:00Z"));
     job.setJobType(JobExecutionType.SINGLE);

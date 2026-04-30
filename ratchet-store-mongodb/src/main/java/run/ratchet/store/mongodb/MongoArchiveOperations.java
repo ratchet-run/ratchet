@@ -17,7 +17,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
 import com.mongodb.client.result.DeleteResult;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.id.TsidFactory;
+import run.ratchet.store.id.UuidV7Factory;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -39,7 +39,7 @@ final class MongoArchiveOperations {
 
   ArchivedJobEntity archiveJob(JobEntity job, String reason, String archivedBy) {
     ArchivedJobEntity archive = buildArchive(job, reason, archivedBy);
-    archive.setId(TsidFactory.next());
+    archive.setId(UuidV7Factory.create());
     ctx.archives().insertOne(DocumentMapper.toDocument(archive));
     return archive;
   }
@@ -51,7 +51,7 @@ final class MongoArchiveOperations {
     List<Document> docs = new ArrayList<>(jobList.size());
     for (JobEntity job : jobList) {
       ArchivedJobEntity archive = buildArchive(job, reason, archivedBy);
-      archive.setId(TsidFactory.next());
+      archive.setId(UuidV7Factory.create());
       docs.add(DocumentMapper.toDocument(archive));
     }
     ctx.archives().insertMany(docs);

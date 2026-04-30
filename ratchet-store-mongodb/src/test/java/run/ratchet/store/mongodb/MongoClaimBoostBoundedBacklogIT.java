@@ -11,6 +11,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -32,7 +33,7 @@ class MongoClaimBoostBoundedBacklogIT extends BaseDocumentStoreIT {
 
   @Test
   void boostedLowPriorityClaimedFirst_evenWithBacklogAboveFormerCeiling() {
-    List<Long> expectedLowIds = new ArrayList<>(CLAIM_LIMIT);
+    List<UUID> expectedLowIds = new ArrayList<>(CLAIM_LIMIT);
     Instant oldEnoughToPassCritical = oldEnoughForLowestToBeatCritical();
 
     for (int i = 0; i < BACKLOG_ABOVE_FORMER_CEILING; i++) {
@@ -50,7 +51,7 @@ class MongoClaimBoostBoundedBacklogIT extends BaseDocumentStoreIT {
       store().save(high);
     }
 
-    List<Long> claimedIds =
+    List<UUID> claimedIds =
         store().claimNextBatchOptimized(JobExecutionType.SINGLE, CLAIM_LIMIT, "node-1").stream()
             .map(claim -> claim.id())
             .toList();

@@ -13,6 +13,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Queue;
 import java.util.Set;
+import java.util.UUID;
 import org.jboss.logging.Logger;
 
 /** Cascades pause/resume through job dependency trees via BFS. */
@@ -41,24 +42,24 @@ public class JobCascadeService {
    *
    * @return an array of two ints: [pausedCount, skippedCount]
    */
-  public int[] pauseChildrenIterative(Long rootId) {
+  public int[] pauseChildrenIterative(UUID rootId) {
     int pausedCount = 0;
     int skippedCount = 0;
 
-    Queue<Long> toProcess = new LinkedList<>();
-    Set<Long> visited = new HashSet<>();
+    Queue<UUID> toProcess = new LinkedList<>();
+    Set<UUID> visited = new HashSet<>();
 
     toProcess.add(rootId);
     visited.add(rootId);
 
     while (!toProcess.isEmpty()) {
-      List<Long> currentLevel = new ArrayList<>();
+      List<UUID> currentLevel = new ArrayList<>();
       while (!toProcess.isEmpty()) {
         currentLevel.add(toProcess.poll());
       }
 
       // Find all direct children of the entire level
-      for (Long parentId : currentLevel) {
+      for (UUID parentId : currentLevel) {
         List<JobEntity> children = jobCrudStore.findDependants(parentId);
         for (JobEntity child : children) {
           if (!visited.add(child.getId())) {
@@ -90,23 +91,23 @@ public class JobCascadeService {
    * @param executeImmediately if true, set scheduledTime to NOW for each resumed child
    * @return an array of two ints: [resumedCount, skippedCount]
    */
-  public int[] resumeChildrenIterative(Long rootId, boolean executeImmediately) {
+  public int[] resumeChildrenIterative(UUID rootId, boolean executeImmediately) {
     int resumedCount = 0;
     int skippedCount = 0;
 
-    Queue<Long> toProcess = new LinkedList<>();
-    Set<Long> visited = new HashSet<>();
+    Queue<UUID> toProcess = new LinkedList<>();
+    Set<UUID> visited = new HashSet<>();
 
     toProcess.add(rootId);
     visited.add(rootId);
 
     while (!toProcess.isEmpty()) {
-      List<Long> currentLevel = new ArrayList<>();
+      List<UUID> currentLevel = new ArrayList<>();
       while (!toProcess.isEmpty()) {
         currentLevel.add(toProcess.poll());
       }
 
-      for (Long parentId : currentLevel) {
+      for (UUID parentId : currentLevel) {
         List<JobEntity> children = jobCrudStore.findDependants(parentId);
         for (JobEntity child : children) {
           if (!visited.add(child.getId())) {

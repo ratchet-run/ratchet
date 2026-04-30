@@ -17,6 +17,7 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.UUID;
 import org.bson.Document;
 
 /**
@@ -32,7 +33,7 @@ final class MongoTagOperations implements TagStore {
   }
 
   @Override
-  public void insertTags(long jobId, List<String> tags) {
+  public void insertTags(UUID jobId, List<String> tags) {
     if (tags == null || tags.isEmpty()) {
       return;
     }
@@ -43,7 +44,7 @@ final class MongoTagOperations implements TagStore {
   }
 
   @Override
-  public int deleteTagsByJobId(long jobId) {
+  public int deleteTagsByJobId(UUID jobId) {
     Document before =
         ctx.jobs()
             .findOneAndUpdate(
@@ -58,8 +59,8 @@ final class MongoTagOperations implements TagStore {
   }
 
   @Override
-  public List<Long> findJobIdsByTag(String tag, int limit, int offset) {
-    List<Long> ids = new ArrayList<>();
+  public List<UUID> findJobIdsByTag(String tag, int limit, int offset) {
+    List<UUID> ids = new ArrayList<>();
     for (Document doc :
         ctx.jobs()
             .find(eq(TAGS, tag))
@@ -67,7 +68,7 @@ final class MongoTagOperations implements TagStore {
             .sort(ascending(ID))
             .skip(offset)
             .limit(limit)) {
-      ids.add(doc.getLong(ID));
+      ids.add(doc.get(ID, UUID.class));
     }
     return ids;
   }

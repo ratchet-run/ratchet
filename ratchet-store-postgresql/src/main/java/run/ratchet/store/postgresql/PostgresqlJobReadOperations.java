@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import org.jboss.logging.Logger;
 
 final class PostgresqlJobReadOperations {
@@ -30,7 +31,7 @@ final class PostgresqlJobReadOperations {
   }
 
   @SuppressWarnings("unchecked")
-  Optional<JobEntity> findById(long id) {
+  Optional<JobEntity> findById(UUID id) {
     // language=PostgreSQL
     String sql =
         "SELECT "
@@ -47,12 +48,12 @@ final class PostgresqlJobReadOperations {
     return Optional.of(job);
   }
 
-  Optional<JobEntity> findByIdLatest(long id) {
+  Optional<JobEntity> findByIdLatest(UUID id) {
     return findById(id);
   }
 
   @SuppressWarnings("unchecked")
-  JobStatus getJobStatus(long id) {
+  JobStatus getJobStatus(UUID id) {
     // language=PostgreSQL
     String sql =
         """
@@ -79,12 +80,12 @@ final class PostgresqlJobReadOperations {
     if (terminal != null) {
       return JobStatus.valueOf(terminal);
     }
-    log.errorf("Job %d has no live, recurring, or terminal status — invariant violation", id);
+    log.errorf("Job %s has no live, recurring, or terminal status — invariant violation", id);
     return null;
   }
 
   @SuppressWarnings("unchecked")
-  List<JobEntity> findByIds(List<Long> ids) {
+  List<JobEntity> findByIds(List<UUID> ids) {
     if (ids.isEmpty()) {
       return List.of();
     }
@@ -100,7 +101,7 @@ final class PostgresqlJobReadOperations {
             + ")";
     Query query = ctx.em().createNativeQuery(sql);
     int parameter = 1;
-    for (Long id : ids) {
+    for (UUID id : ids) {
       query.setParameter(parameter++, id);
     }
     List<Object[]> rows = query.getResultList();
@@ -135,7 +136,7 @@ final class PostgresqlJobReadOperations {
     if (PostgresqlBusinessKeyReservations.OWNER_TABLE_QUEUE.equals(ownerTable)
         && hydrationRow[PostgresqlJobRowMapper.IDX_Q_STATUS] == null) {
       log.errorf(
-          "bkres invariant violation: business_key=%s claims QUEUE owner job=%d but no hot row",
+          "bkres invariant violation: business_key=%s claims QUEUE owner job=%s but no hot row",
           businessKey, job.getId());
       return Optional.empty();
     }
@@ -163,7 +164,7 @@ final class PostgresqlJobReadOperations {
   }
 
   @SuppressWarnings("unchecked")
-  List<JobEntity> findDependants(long parentJobId) {
+  List<JobEntity> findDependants(UUID parentJobId) {
     // language=PostgreSQL
     String sql =
         "SELECT "

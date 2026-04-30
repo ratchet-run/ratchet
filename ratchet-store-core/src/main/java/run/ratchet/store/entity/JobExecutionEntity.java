@@ -1,6 +1,6 @@
 package run.ratchet.store.entity;
 
-import run.ratchet.store.id.TsidEntityListener;
+import run.ratchet.store.id.UuidV7EntityListener;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
@@ -10,6 +10,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.util.UUID;
 
 /**
  * Single execution attempt of a job, providing an audit trail for debugging and performance
@@ -25,13 +26,13 @@ import java.time.Instant;
       @Index(name = "idx_job_execution_node", columnList = "node_id, started_at"),
       @Index(name = "idx_job_execution_status", columnList = "status, started_at")
     })
-@EntityListeners(TsidEntityListener.class)
-public class JobExecutionEntity implements TsidEntityListener.TsidAssignable {
+@EntityListeners(UuidV7EntityListener.class)
+public class JobExecutionEntity implements UuidV7EntityListener.UuidV7Assignable {
 
-  @Id private Long id;
+  @Id private UUID id;
 
   @Column(name = "job_id", nullable = false)
-  private Long jobId;
+  private UUID jobId;
 
   @Column(name = "attempt", nullable = false)
   private int attempt;
@@ -58,7 +59,7 @@ public class JobExecutionEntity implements TsidEntityListener.TsidAssignable {
   @Column(name = "duration_ms")
   private Long durationMs;
 
-  public static JobExecutionEntity start(Long jobId, int attempt, String nodeId) {
+  public static JobExecutionEntity start(UUID jobId, int attempt, String nodeId) {
     JobExecutionEntity entity = new JobExecutionEntity();
     entity.setJobId(jobId);
     entity.setAttempt(attempt);
@@ -68,19 +69,19 @@ public class JobExecutionEntity implements TsidEntityListener.TsidAssignable {
     return entity;
   }
 
-  public Long getId() {
+  public UUID getId() {
     return id;
   }
 
-  public void setId(Long id) {
+  public void setId(UUID id) {
     this.id = id;
   }
 
-  public Long getJobId() {
+  public UUID getJobId() {
     return jobId;
   }
 
-  public void setJobId(Long jobId) {
+  public void setJobId(UUID jobId) {
     this.jobId = jobId;
   }
 

@@ -4,6 +4,7 @@ import run.ratchet.api.Incubating;
 import run.ratchet.store.entity.JobStatus;
 import java.time.Instant;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Non-terminal status operations: generic status updates, CAS transitions, pickup, and batch /
@@ -16,14 +17,14 @@ import java.util.Set;
 @Incubating
 public interface JobBatchStatusStore {
 
-  void updateJobStatus(long id, JobStatus status, String errorMessage);
+  void updateJobStatus(UUID id, JobStatus status, String errorMessage);
 
   /** Atomic compare-and-swap status transition. */
-  boolean compareAndSwapStatus(long id, JobStatus expected, JobStatus newStatus, String error);
+  boolean compareAndSwapStatus(UUID id, JobStatus expected, JobStatus newStatus, String error);
 
-  boolean tryPickUpJob(long id, String nodeId);
+  boolean tryPickUpJob(UUID id, String nodeId);
 
-  boolean resetRunningJob(long id, String nodeId);
+  boolean resetRunningJob(UUID id, String nodeId);
 
   int resetRunningJobs(String nodeId);
 

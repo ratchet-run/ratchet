@@ -10,6 +10,7 @@ import run.ratchet.tck.util.ConcurrentTestRunner;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -78,7 +79,7 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
   @Test
   void save_concurrentMutation_oneThreadObservesStaleWrite() {
     JobEntity initial = persist(newPendingJob());
-    long id = initial.getId();
+    UUID id = initial.getId();
 
     // Pre-load both snapshots BEFORE the latch release. Both hold the same version.
     JobEntity snapshotA = store().findById(id).orElseThrow();
@@ -113,7 +114,7 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
 
   @Test
   void findById_unknownId_returnsEmpty() {
-    var result = store().findById(Long.MAX_VALUE);
+    var result = store().findById(new UUID(0L, Long.MAX_VALUE));
 
     assertTrue(result.isEmpty(), "findById with unknown ID should return empty");
   }
@@ -121,7 +122,7 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
   @Test
   void delete_removesJob() {
     var saved = persist(newPendingJob());
-    long id = saved.getId();
+    UUID id = saved.getId();
 
     store().delete(id);
 

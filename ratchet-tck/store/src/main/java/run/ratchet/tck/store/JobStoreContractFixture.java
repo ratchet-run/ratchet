@@ -3,6 +3,7 @@ package run.ratchet.tck.store;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobStore;
+import java.util.UUID;
 
 /**
  * Fixture contract implemented by concrete TCK suites.
@@ -24,7 +25,7 @@ public interface JobStoreContractFixture {
     return store().save(job);
   }
 
-  default BatchEntity persistBatch(long batchId, int totalItems) {
+  default BatchEntity persistBatch(UUID batchId, int totalItems) {
     BatchEntity batch = new BatchEntity();
     batch.setId(batchId);
     batch.setTotalItems(totalItems);

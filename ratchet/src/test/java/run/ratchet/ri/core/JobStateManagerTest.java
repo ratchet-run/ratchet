@@ -12,6 +12,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import java.time.Instant;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -22,14 +23,15 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class JobStateManagerTest {
 
   private static final String NODE_ID = "node-abc";
-  private static final long JOB_ID = 42L;
+  private static final long JOB_ID_LONG = 42L;
+  private static final UUID JOB_ID = new UUID(0L, JOB_ID_LONG);
 
   @Mock private JobBatchStatusStore jobBatchStatusStore;
   @Mock private NodeIdentityProvider nodeIdentityProvider;
 
   private JobStateManager manager;
 
-  private static JobEntity runningJob(long id) {
+  private static JobEntity runningJob(UUID id) {
     JobEntity job = new JobEntity();
     job.setId(id);
     job.setStatus(JobStatus.RUNNING);
@@ -142,13 +144,14 @@ class JobStateManagerTest {
   @Test
   void resetJobToPending_entity_withDependsOn_doesNotClearIt() {
     JobEntity job = runningJob(JOB_ID);
-    job.setDependsOn(99L);
+    UUID dependency = new UUID(0L, 99L);
+    job.setDependsOn(dependency);
     when(nodeIdentityProvider.getNodeId()).thenReturn(NODE_ID);
     when(jobBatchStatusStore.resetRunningJob(JOB_ID, NODE_ID)).thenReturn(true);
 
     manager.resetJobToPending(job);
 
-    assertEquals(99L, job.getDependsOn());
+    assertEquals(dependency, job.getDependsOn());
   }
 
   @Test

@@ -1,6 +1,6 @@
 package run.ratchet.store.entity;
 
-import run.ratchet.store.id.TsidEntityListener;
+import run.ratchet.store.id.UuidV7EntityListener;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
@@ -10,6 +10,7 @@ import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.UUID;
 
 /** DLQ alert notification record, tracking alerts sent for permanently failed jobs. */
 @Entity
@@ -20,13 +21,13 @@ import java.util.Objects;
             name = "uk_job_error_hash",
             columnNames = {"job_id", "error_hash"}),
     indexes = @Index(name = "idx_dlq_sent_at", columnList = "alert_sent_at"))
-@EntityListeners(TsidEntityListener.class)
-public class DlqAlertEntity implements TsidEntityListener.TsidAssignable {
+@EntityListeners(UuidV7EntityListener.class)
+public class DlqAlertEntity implements UuidV7EntityListener.UuidV7Assignable {
 
-  @Id private Long id;
+  @Id private UUID id;
 
   @Column(name = "job_id", nullable = false)
-  private Long jobId;
+  private UUID jobId;
 
   @Column(name = "error_hash", nullable = false, length = 64)
   private String errorHash;
@@ -37,19 +38,19 @@ public class DlqAlertEntity implements TsidEntityListener.TsidAssignable {
   @Column(name = "alert_channel", length = 100)
   private String alertChannel;
 
-  public Long getId() {
+  public UUID getId() {
     return id;
   }
 
-  public void setId(Long id) {
+  public void setId(UUID id) {
     this.id = id;
   }
 
-  public Long getJobId() {
+  public UUID getJobId() {
     return jobId;
   }
 
-  public void setJobId(Long jobId) {
+  public void setJobId(UUID jobId) {
     this.jobId = jobId;
   }
 

@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Base implementation of the 18-interface {@link JobStore} marker that throws {@link
@@ -48,27 +49,27 @@ public abstract class ThrowingJobStoreBase implements JobStore {
   }
 
   @Override
-  public Optional<JobEntity> findById(long id) {
+  public Optional<JobEntity> findById(UUID id) {
     return fail("findById");
   }
 
   @Override
-  public Optional<JobEntity> findByIdLatest(long id) {
+  public Optional<JobEntity> findByIdLatest(UUID id) {
     return fail("findByIdLatest");
   }
 
   @Override
-  public void delete(long id) {
+  public void delete(UUID id) {
     fail("delete");
   }
 
   @Override
-  public JobStatus getJobStatus(long id) {
+  public JobStatus getJobStatus(UUID id) {
     return fail("getJobStatus");
   }
 
   @Override
-  public List<JobEntity> findByIds(List<Long> ids) {
+  public List<JobEntity> findByIds(List<UUID> ids) {
     return fail("findByIds");
   }
 
@@ -83,7 +84,7 @@ public abstract class ThrowingJobStoreBase implements JobStore {
   }
 
   @Override
-  public List<JobEntity> findDependants(long parentJobId) {
+  public List<JobEntity> findDependants(UUID parentJobId) {
     return fail("findDependants");
   }
 
@@ -199,7 +200,7 @@ public abstract class ThrowingJobStoreBase implements JobStore {
 
   @Override
   public boolean markJobSucceeded(
-      long id,
+      UUID id,
       String resultJson,
       String resultType,
       Instant start,
@@ -211,97 +212,97 @@ public abstract class ThrowingJobStoreBase implements JobStore {
 
   @Override
   public boolean markJobSucceededMinimal(
-      long id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
+      UUID id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
     return fail("markJobSucceededMinimal");
   }
 
   @Override
   public boolean markJobSucceededAndUpdateBatch(
-      long jobId,
+      UUID jobId,
       String resultJson,
       String resultType,
       Instant start,
       Instant end,
       Long durationMs,
       Long queueWaitMs,
-      long batchId) {
+      UUID batchId) {
     return fail("markJobSucceededAndUpdateBatch");
   }
 
   @Override
-  public boolean markJobFailedTerminal(long id, String terminalError, int totalAttempts) {
+  public boolean markJobFailedTerminal(UUID id, String terminalError, int totalAttempts) {
     return fail("markJobFailedTerminal");
   }
 
   @Override
-  public boolean cancelJob(long id) {
+  public boolean cancelJob(UUID id) {
     return fail("cancelJob");
   }
 
   // ----- JobRetryStore -----
 
   @Override
-  public int incrementRetryAttempt(long id) {
+  public int incrementRetryAttempt(UUID id) {
     return fail("incrementRetryAttempt");
   }
 
   @Override
-  public boolean scheduleJobRetry(long id, String error, Instant newScheduledTime, int attempts) {
+  public boolean scheduleJobRetry(UUID id, String error, Instant newScheduledTime, int attempts) {
     return fail("scheduleJobRetry");
   }
 
   @Override
-  public boolean resetFailedToPending(long id) {
+  public boolean resetFailedToPending(UUID id) {
     return fail("resetFailedToPending");
   }
 
   // ----- JobPauseStore -----
 
   @Override
-  public boolean transitionToPaused(long id, JobStatus expected) {
+  public boolean transitionToPaused(UUID id, JobStatus expected) {
     return fail("transitionToPaused");
   }
 
   @Override
-  public boolean transitionFromPaused(long id, JobStatus target) {
+  public boolean transitionFromPaused(UUID id, JobStatus target) {
     return fail("transitionFromPaused");
   }
 
   @Override
-  public JobStatus transitionFromPausedAtomic(long id) {
+  public JobStatus transitionFromPausedAtomic(UUID id) {
     return fail("transitionFromPausedAtomic");
   }
 
   @Override
-  public boolean pauseRecurring(long id) {
+  public boolean pauseRecurring(UUID id) {
     return fail("pauseRecurring");
   }
 
   @Override
-  public boolean resumeRecurring(long id) {
+  public boolean resumeRecurring(UUID id) {
     return fail("resumeRecurring");
   }
 
   // ----- JobBatchStatusStore -----
 
   @Override
-  public void updateJobStatus(long id, JobStatus status, String errorMessage) {
+  public void updateJobStatus(UUID id, JobStatus status, String errorMessage) {
     fail("updateJobStatus");
   }
 
   @Override
   public boolean compareAndSwapStatus(
-      long id, JobStatus expected, JobStatus newStatus, String error) {
+      UUID id, JobStatus expected, JobStatus newStatus, String error) {
     return fail("compareAndSwapStatus");
   }
 
   @Override
-  public boolean tryPickUpJob(long id, String nodeId) {
+  public boolean tryPickUpJob(UUID id, String nodeId) {
     return fail("tryPickUpJob");
   }
 
   @Override
-  public boolean resetRunningJob(long id, String nodeId) {
+  public boolean resetRunningJob(UUID id, String nodeId) {
     return fail("resetRunningJob");
   }
 
@@ -334,7 +335,7 @@ public abstract class ThrowingJobStoreBase implements JobStore {
   }
 
   @Override
-  public int deleteJobsByIds(List<Long> ids) {
+  public int deleteJobsByIds(List<UUID> ids) {
     return fail("deleteJobsByIds");
   }
 
@@ -361,37 +362,37 @@ public abstract class ThrowingJobStoreBase implements JobStore {
   }
 
   @Override
-  public Optional<BatchEntity> findBatchById(long batchId) {
+  public Optional<BatchEntity> findBatchById(UUID batchId) {
     return fail("findBatchById");
   }
 
   @Override
-  public BatchProgress incrementCompletedAtomic(long batchId) {
+  public BatchProgress incrementCompletedAtomic(UUID batchId) {
     return fail("incrementCompletedAtomic");
   }
 
   @Override
-  public BatchProgress incrementFailedAtomic(long batchId) {
+  public BatchProgress incrementFailedAtomic(UUID batchId) {
     return fail("incrementFailedAtomic");
   }
 
   @Override
-  public boolean markBatchCompleteIfReady(long batchId) {
+  public boolean markBatchCompleteIfReady(UUID batchId) {
     return fail("markBatchCompleteIfReady");
   }
 
   @Override
-  public List<Long> findRecoverableBatchIds(int limit) {
+  public List<UUID> findRecoverableBatchIds(int limit) {
     return fail("findRecoverableBatchIds");
   }
 
   @Override
-  public List<BatchEntity> findBatchesByIds(List<Long> batchIds) {
+  public List<BatchEntity> findBatchesByIds(List<UUID> batchIds) {
     return fail("findBatchesByIds");
   }
 
   @Override
-  public boolean updateBatchTotalItems(long batchId, int totalItems) {
+  public boolean updateBatchTotalItems(UUID batchId, int totalItems) {
     return fail("updateBatchTotalItems");
   }
 
@@ -480,17 +481,17 @@ public abstract class ThrowingJobStoreBase implements JobStore {
   }
 
   @Override
-  public List<JobExecutionEntity> findExecutionsByJobId(long jobId) {
+  public List<JobExecutionEntity> findExecutionsByJobId(UUID jobId) {
     return fail("findExecutionsByJobId");
   }
 
   @Override
-  public Optional<JobExecutionEntity> findLatestExecution(long jobId) {
+  public Optional<JobExecutionEntity> findLatestExecution(UUID jobId) {
     return fail("findLatestExecution");
   }
 
   @Override
-  public int countExecutionAttempts(long jobId) {
+  public int countExecutionAttempts(UUID jobId) {
     return fail("countExecutionAttempts");
   }
 
@@ -509,17 +510,17 @@ public abstract class ThrowingJobStoreBase implements JobStore {
   // ----- TagStore -----
 
   @Override
-  public void insertTags(long jobId, List<String> tags) {
+  public void insertTags(UUID jobId, List<String> tags) {
     fail("insertTags");
   }
 
   @Override
-  public int deleteTagsByJobId(long jobId) {
+  public int deleteTagsByJobId(UUID jobId) {
     return fail("deleteTagsByJobId");
   }
 
   @Override
-  public List<Long> findJobIdsByTag(String tag, int limit, int offset) {
+  public List<UUID> findJobIdsByTag(String tag, int limit, int offset) {
     return fail("findJobIdsByTag");
   }
 
@@ -546,43 +547,43 @@ public abstract class ThrowingJobStoreBase implements JobStore {
   }
 
   @Override
-  public WorkflowConditionEntity findConditionById(long id) {
+  public WorkflowConditionEntity findConditionById(UUID id) {
     return fail("findConditionById");
   }
 
   @Override
-  public List<WorkflowConditionEntity> findConditionsByParentJobId(long parentJobId) {
+  public List<WorkflowConditionEntity> findConditionsByParentJobId(UUID parentJobId) {
     return fail("findConditionsByParentJobId");
   }
 
   @Override
-  public List<WorkflowConditionEntity> findConditionsByChildJobId(long childJobId) {
+  public List<WorkflowConditionEntity> findConditionsByChildJobId(UUID childJobId) {
     return fail("findConditionsByChildJobId");
   }
 
   @Override
   public List<WorkflowConditionEntity> findConditionsByType(
-      long parentJobId, WorkflowCondition.ConditionType type) {
+      UUID parentJobId, WorkflowCondition.ConditionType type) {
     return fail("findConditionsByType");
   }
 
   @Override
-  public void deleteConditionById(long id) {
+  public void deleteConditionById(UUID id) {
     fail("deleteConditionById");
   }
 
   @Override
-  public void deleteConditionsByParentJobId(long parentJobId) {
+  public void deleteConditionsByParentJobId(UUID parentJobId) {
     fail("deleteConditionsByParentJobId");
   }
 
   @Override
-  public void deleteConditionsByChildJobId(long childJobId) {
+  public void deleteConditionsByChildJobId(UUID childJobId) {
     fail("deleteConditionsByChildJobId");
   }
 
   @Override
-  public long countConditionsByParentJobId(long parentJobId) {
+  public long countConditionsByParentJobId(UUID parentJobId) {
     return fail("countConditionsByParentJobId");
   }
 
@@ -594,22 +595,22 @@ public abstract class ThrowingJobStoreBase implements JobStore {
   }
 
   @Override
-  public Optional<BatchMetricsEntity> findBatchMetrics(long batchId) {
+  public Optional<BatchMetricsEntity> findBatchMetrics(UUID batchId) {
     return fail("findBatchMetrics");
   }
 
   @Override
-  public void addChildExecutionTime(long batchId, long durationMs) {
+  public void addChildExecutionTime(UUID batchId, long durationMs) {
     fail("addChildExecutionTime");
   }
 
   @Override
-  public void finalizeBatchMetrics(long batchId) {
+  public void finalizeBatchMetrics(UUID batchId) {
     fail("finalizeBatchMetrics");
   }
 
   @Override
-  public void updateBatchMetricsChildCount(long batchId, int childCount) {
+  public void updateBatchMetricsChildCount(UUID batchId, int childCount) {
     fail("updateBatchMetricsChildCount");
   }
 
@@ -621,24 +622,24 @@ public abstract class ThrowingJobStoreBase implements JobStore {
   }
 
   @Override
-  public boolean existsRecentDlqAlert(long jobId, String errorHash, Instant cutoff) {
+  public boolean existsRecentDlqAlert(UUID jobId, String errorHash, Instant cutoff) {
     return fail("existsRecentDlqAlert");
   }
 
   // ----- ResourcePermitStore -----
 
   @Override
-  public boolean tryAcquirePermit(String resource, long jobId, String nodeId) {
+  public boolean tryAcquirePermit(String resource, UUID jobId, String nodeId) {
     return fail("tryAcquirePermit");
   }
 
   @Override
-  public void releasePermit(String resource, long jobId) {
+  public void releasePermit(String resource, UUID jobId) {
     fail("releasePermit");
   }
 
   @Override
-  public void releaseAllPermits(long jobId) {
+  public void releaseAllPermits(UUID jobId) {
     fail("releaseAllPermits");
   }
 

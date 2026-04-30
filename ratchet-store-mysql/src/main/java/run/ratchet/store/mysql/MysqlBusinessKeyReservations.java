@@ -4,6 +4,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
+import java.util.UUID;
 
 final class MysqlBusinessKeyReservations {
 
@@ -24,7 +25,7 @@ final class MysqlBusinessKeyReservations {
     this.ctx = ctx;
   }
 
-  void insertReservation(String businessKey, long ownerJobId, String ownerTable) {
+  void insertReservation(String businessKey, UUID ownerJobId, String ownerTable) {
     if (businessKey == null) {
       return;
     }
@@ -44,7 +45,7 @@ final class MysqlBusinessKeyReservations {
   }
 
   @SuppressWarnings("UnusedReturnValue")
-  int deleteReservationByOwner(long ownerJobId) {
+  int deleteReservationByOwner(UUID ownerJobId) {
     // language=MySQL
     String sql = "DELETE FROM scheduler_business_key_reservation WHERE owner_job_id = ?";
     return ctx.em().createNativeQuery(sql).setParameter(1, ownerJobId).executeUpdate();

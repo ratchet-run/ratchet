@@ -8,15 +8,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.id.UuidV7Factory;
 import java.util.Optional;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class BatchProgressIT extends BaseDocumentStoreIT {
 
   @Test
   void batchProgressTracking_incrementsAtomically() {
+    UUID batchId = UuidV7Factory.create();
     BatchEntity batch = new BatchEntity();
-    batch.setId(1L);
+    batch.setId(batchId);
     batch.setTotalItems(3);
     store().saveBatch(batch);
 
@@ -27,31 +30,32 @@ class BatchProgressIT extends BaseDocumentStoreIT {
       store().save(newBatchChildJob());
     }
 
-    BatchProgress p1 = store().incrementCompletedAtomic(1L);
+    BatchProgress p1 = store().incrementCompletedAtomic(batchId);
     assertNotNull(p1);
     assertEquals(1, p1.completedItems());
     assertEquals(3, p1.totalItems());
 
-    BatchProgress p2 = store().incrementCompletedAtomic(1L);
+    BatchProgress p2 = store().incrementCompletedAtomic(batchId);
     assertEquals(2, p2.completedItems());
 
-    BatchProgress p3 = store().incrementCompletedAtomic(1L);
+    BatchProgress p3 = store().incrementCompletedAtomic(batchId);
     assertEquals(3, p3.completedItems());
     assertEquals(3, p3.totalItems());
   }
 
   @Test
   void batchProgress_failedItemsTracked() {
+    UUID batchId = UuidV7Factory.create();
     BatchEntity batch = new BatchEntity();
-    batch.setId(2L);
+    batch.setId(batchId);
     batch.setTotalItems(3);
     store().saveBatch(batch);
 
-    store().incrementCompletedAtomic(2L);
-    store().incrementFailedAtomic(2L);
-    store().incrementCompletedAtomic(2L);
+    store().incrementCompletedAtomic(batchId);
+    store().incrementFailedAtomic(batchId);
+    store().incrementCompletedAtomic(batchId);
 
-    Optional<BatchEntity> found = store().findBatchById(2L);
+    Optional<BatchEntity> found = store().findBatchById(batchId);
     assertTrue(found.isPresent());
     assertEquals(2, found.get().getCompletedItems());
     assertEquals(1, found.get().getFailedItems());
@@ -60,20 +64,21 @@ class BatchProgressIT extends BaseDocumentStoreIT {
 
   @Test
   void markBatchCompleteIfReady_triggersWhenAllDone() {
+    UUID batchId = UuidV7Factory.create();
     BatchEntity batch = new BatchEntity();
-    batch.setId(3L);
+    batch.setId(batchId);
     batch.setTotalItems(2);
     store().saveBatch(batch);
 
-    store().incrementCompletedAtomic(3L);
-    boolean ready1 = store().markBatchCompleteIfReady(3L);
+    store().incrementCompletedAtomic(batchId);
+    boolean ready1 = store().markBatchCompleteIfReady(batchId);
     assertFalse(ready1);
 
-    store().incrementCompletedAtomic(3L);
-    boolean ready2 = store().markBatchCompleteIfReady(3L);
+    store().incrementCompletedAtomic(batchId);
+    boolean ready2 = store().markBatchCompleteIfReady(batchId);
     assertTrue(ready2);
 
-    boolean ready3 = store().markBatchCompleteIfReady(3L);
+    boolean ready3 = store().markBatchCompleteIfReady(batchId);
     assertFalse(ready3);
   }
 }

@@ -8,6 +8,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * Batch job progress tracking.
@@ -20,7 +21,7 @@ public class BatchEntity {
 
   @Id
   @Column(name = "batch_id")
-  private Long id;
+  private UUID id;
 
   @Column(name = "total_items", nullable = false)
   private int totalItems;
@@ -42,11 +43,11 @@ public class BatchEntity {
   @Column(name = "progress_hook")
   private JobPayload progressHook;
 
-  public Long getId() {
+  public UUID getId() {
     return id;
   }
 
-  public void setId(Long id) {
+  public void setId(UUID id) {
     this.id = id;
   }
 

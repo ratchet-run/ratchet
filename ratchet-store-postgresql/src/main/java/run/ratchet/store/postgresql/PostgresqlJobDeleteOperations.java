@@ -7,6 +7,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.UUID;
 
 final class PostgresqlJobDeleteOperations {
 
@@ -19,14 +20,14 @@ final class PostgresqlJobDeleteOperations {
     this.reservations = reservations;
   }
 
-  void delete(long id) {
+  void delete(UUID id) {
     reservations.deleteReservationByOwner(id);
     // language=PostgreSQL
     String sql = "DELETE FROM scheduler_job WHERE job_id = ?";
     ctx.em().createNativeQuery(sql).setParameter(1, id).executeUpdate();
   }
 
-  int deleteJobsByIds(List<Long> ids) {
+  int deleteJobsByIds(List<UUID> ids) {
     if (ids.isEmpty()) {
       return 0;
     }
@@ -36,7 +37,7 @@ final class PostgresqlJobDeleteOperations {
     String sql = "DELETE FROM scheduler_job WHERE job_id IN (" + placeholders + ")";
     Query jobDelete = ctx.em().createNativeQuery(sql);
     int parameter = 1;
-    for (Long id : ids) {
+    for (UUID id : ids) {
       jobDelete.setParameter(parameter++, id);
     }
     return jobDelete.executeUpdate();
@@ -51,7 +52,7 @@ final class PostgresqlJobDeleteOperations {
           AND terminated_at < ?
         """;
     @SuppressWarnings("unchecked")
-    List<Number> idRows =
+    List<?> idRows =
         ctx.em()
             .createNativeQuery(selectSql)
             .setParameter(1, Timestamp.from(cutoff))
@@ -59,17 +60,17 @@ final class PostgresqlJobDeleteOperations {
     if (idRows.isEmpty()) {
       return 0;
     }
-    List<Long> ids = new ArrayList<>(idRows.size());
-    for (Number n : idRows) {
-      ids.add(n.longValue());
+    List<UUID> ids = new ArrayList<>(idRows.size());
+    for (Object n : idRows) {
+      ids.add(PostgresqlJobRowMapper.uuidOrNull(n));
     }
-    reservations.deleteReservationsByOwners(idRows);
+    reservations.deleteReservationsByOwners(ids);
     String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
     // language=PostgreSQL
     String deleteSql = "DELETE FROM scheduler_job WHERE job_id IN (" + placeholders + ")";
     Query jobDelete = ctx.em().createNativeQuery(deleteSql);
     int parameter = 1;
-    for (Long id : ids) {
+    for (UUID id : ids) {
       jobDelete.setParameter(parameter++, id);
     }
     return jobDelete.executeUpdate();

@@ -1,5 +1,7 @@
 package run.ratchet.api;
 
+import java.util.UUID;
+
 /**
  * Lightweight receipt for a submitted job, providing access to its unique identifier.
  *
@@ -11,7 +13,7 @@ package run.ratchet.api;
 public interface JobHandle {
 
   /**
-   * @return the unique job identifier assigned by the scheduler
+   * @return the unique UUIDv7 job identifier assigned by the scheduler
    */
-  long id();
+  UUID id();
 }

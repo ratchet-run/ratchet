@@ -10,6 +10,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore {
 
@@ -35,27 +36,27 @@ final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore {
   }
 
   @Override
-  public Optional<JobEntity> findById(long id) {
+  public Optional<JobEntity> findById(UUID id) {
     return reads.findById(id);
   }
 
   @Override
-  public Optional<JobEntity> findByIdLatest(long id) {
+  public Optional<JobEntity> findByIdLatest(UUID id) {
     return reads.findByIdLatest(id);
   }
 
   @Override
-  public void delete(long id) {
+  public void delete(UUID id) {
     deletes.delete(id);
   }
 
   @Override
-  public JobStatus getJobStatus(long id) {
+  public JobStatus getJobStatus(UUID id) {
     return reads.getJobStatus(id);
   }
 
   @Override
-  public List<JobEntity> findByIds(List<Long> ids) {
+  public List<JobEntity> findByIds(List<UUID> ids) {
     return reads.findByIds(ids);
   }
 
@@ -70,7 +71,7 @@ final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore {
   }
 
   @Override
-  public List<JobEntity> findDependants(long parentJobId) {
+  public List<JobEntity> findDependants(UUID parentJobId) {
     return reads.findDependants(parentJobId);
   }
 
@@ -170,7 +171,7 @@ final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore {
   }
 
   @Override
-  public int deleteJobsByIds(List<Long> ids) {
+  public int deleteJobsByIds(List<UUID> ids) {
     return deletes.deleteJobsByIds(ids);
   }
 

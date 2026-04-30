@@ -4,11 +4,12 @@ import run.ratchet.api.Incubating;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import java.util.Map;
+import java.util.UUID;
 
 /** Metadata available when creating a per-job logger. */
 @Incubating
 public record JobLoggerContext(
-    long jobId,
+    UUID jobId,
     JobType jobType,
     JobPriority priority,
     String nodeId,

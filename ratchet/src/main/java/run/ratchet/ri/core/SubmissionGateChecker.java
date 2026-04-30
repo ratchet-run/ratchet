@@ -5,6 +5,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.util.UUID;
 
 /**
  * Pre-flight gate checker: drain → permit → rate-limit. A CLEAR result holds an acquired permit.
@@ -45,7 +46,7 @@ public class SubmissionGateChecker {
   }
 
   private GateCheckResult checkInternal(
-      JobExecutionType jobType, Long jobId, boolean isFirstAttempt) {
+      JobExecutionType jobType, UUID jobId, boolean isFirstAttempt) {
     if (isFirstAttempt && drainController.isDraining()) {
       return GateCheckResult.draining(jobId);
     }

@@ -271,7 +271,6 @@ public class RatchetOptions {
 
   public record NodeOptions(
       String nodeId,
-      Integer tsidNodeId,
       long heartbeatIntervalSeconds,
       long orphanGraceSeconds,
       long orphanScanIntervalMinutes,
@@ -279,10 +278,6 @@ public class RatchetOptions {
 
     public Optional<String> explicitNodeId() {
       return nodeId == null || nodeId.isBlank() ? Optional.empty() : Optional.of(nodeId);
-    }
-
-    public Optional<Integer> explicitTsidNodeId() {
-      return Optional.ofNullable(tsidNodeId);
     }
   }
 
@@ -559,7 +554,6 @@ public class RatchetOptions {
 
   public static final class NodeBuilder {
     private String nodeId;
-    private Integer tsidNodeId;
     private long heartbeatIntervalSeconds = 10L;
     private long orphanGraceSeconds = 60L;
     private long orphanScanIntervalMinutes = 5L;
@@ -574,19 +568,6 @@ public class RatchetOptions {
 
     public NodeBuilder clearNodeId() {
       this.nodeId = null;
-      return this;
-    }
-
-    public NodeBuilder tsidNodeId(int tsidNodeId) {
-      if (tsidNodeId < 0 || tsidNodeId > 1023) {
-        throw new IllegalArgumentException("tsidNodeId must be between 0 and 1023");
-      }
-      this.tsidNodeId = tsidNodeId;
-      return this;
-    }
-
-    public NodeBuilder clearTsidNodeId() {
-      this.tsidNodeId = null;
       return this;
     }
 
@@ -615,7 +596,6 @@ public class RatchetOptions {
     private NodeOptions build() {
       return new NodeOptions(
           nodeId,
-          tsidNodeId,
           heartbeatIntervalSeconds,
           orphanGraceSeconds,
           orphanScanIntervalMinutes,

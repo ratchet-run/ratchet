@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import run.ratchet.store.entity.DlqAlertEntity;
 import java.time.Instant;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -51,7 +52,9 @@ public abstract class AbstractDlqAlertStoreContract implements JobStoreContractF
   @Test
   void existsRecentDlqAlert_returnsFalseWhenNoneExists() {
     boolean exists =
-        store().existsRecentDlqAlert(999_999L, "nonexistent", Instant.now().minusSeconds(60));
+        store()
+            .existsRecentDlqAlert(
+                new UUID(0L, 999_999L), "nonexistent", Instant.now().minusSeconds(60));
 
     assertFalse(exists, "existsRecentDlqAlert should return false when no matching alert exists");
   }

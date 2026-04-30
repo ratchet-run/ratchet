@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import run.ratchet.api.JobType;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.util.UUID;
 import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.Test;
 
@@ -17,7 +18,10 @@ class MicrometerMetricsCollectorTest {
     MicrometerMetricsCollector collector = new MicrometerMetricsCollector(registry);
 
     collector.jobFailed(
-        1L, JobType.SINGLE, new RuntimeException("wrapped", new TimeoutException()), 2);
+        new UUID(0L, 1L),
+        JobType.SINGLE,
+        new RuntimeException("wrapped", new TimeoutException()),
+        2);
 
     assertEquals(
         1.0,
@@ -40,7 +44,7 @@ class MicrometerMetricsCollectorTest {
     MicrometerMetricsCollector collector = new MicrometerMetricsCollector(registry);
 
     collector.callbackFailed(
-        2L,
+        new UUID(0L, 2L),
         JobType.BATCH,
         new RuntimeException("wrapped", new RatchetTransientStoreException("transient")),
         1);

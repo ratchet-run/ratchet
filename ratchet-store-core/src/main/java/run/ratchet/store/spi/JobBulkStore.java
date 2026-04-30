@@ -5,6 +5,7 @@ import run.ratchet.store.entity.JobEntity;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Bulk operations for jobs.
@@ -17,7 +18,7 @@ public interface JobBulkStore {
 
   void bulkInsert(List<JobEntity> jobs);
 
-  int deleteJobsByIds(List<Long> ids);
+  int deleteJobsByIds(List<UUID> ids);
 
   int deleteDlqOlderThan(Instant cutoff);
 

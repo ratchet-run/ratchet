@@ -1,7 +1,6 @@
 package run.ratchet.store.mongodb;
 
 import com.mongodb.client.MongoClient;
-import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoDatabase;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
@@ -35,7 +34,7 @@ public class MongoTestFixture implements JobStoreContractFixture {
   private final ExecutorService claimExecutor;
 
   public MongoTestFixture() {
-    this.client = MongoClients.create(MONGO.getConnectionString());
+    this.client = MongoClientFactory.create(MONGO.getConnectionString());
     this.database =
         client.getDatabase("ratchet_test_" + UUID.randomUUID().toString().substring(0, 8));
     this.claimExecutor =

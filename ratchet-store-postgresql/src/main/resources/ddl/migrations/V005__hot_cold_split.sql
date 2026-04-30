@@ -26,7 +26,7 @@
 -- 1. Hot queue table.
 CREATE TABLE IF NOT EXISTS scheduler_job_queue
 (
-    job_id             BIGINT       NOT NULL,
+    job_id             uuid         NOT NULL,
     status             TEXT         NOT NULL DEFAULT 'PENDING',
     job_type           TEXT         NOT NULL,
     priority           INT          NOT NULL DEFAULT 2,

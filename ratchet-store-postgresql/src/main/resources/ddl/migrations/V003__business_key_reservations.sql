@@ -7,7 +7,7 @@
 CREATE TABLE IF NOT EXISTS scheduler_business_key_reservation
 (
     business_key TEXT NOT NULL,
-    owner_job_id BIGINT NOT NULL,
+    owner_job_id uuid NOT NULL,
     owner_table TEXT NOT NULL,
     reserved_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT pk_scheduler_business_key_reservation PRIMARY KEY (business_key),

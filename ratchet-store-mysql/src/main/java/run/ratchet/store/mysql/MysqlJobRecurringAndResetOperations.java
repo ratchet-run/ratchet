@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 final class MysqlJobRecurringAndResetOperations {
 
@@ -19,7 +20,7 @@ final class MysqlJobRecurringAndResetOperations {
     this.reservations = reservations;
   }
 
-  boolean resetRunningJob(long id, String nodeId) {
+  boolean resetRunningJob(UUID id, String nodeId) {
     // language=MySQL
     String sql =
         """
@@ -63,7 +64,7 @@ final class MysqlJobRecurringAndResetOperations {
           AND j.rec_status IS NOT NULL AND j.terminal_status IS NULL
         """;
     @SuppressWarnings("unchecked")
-    List<Number> ids = ctx.em().createNativeQuery(sql).setParameter(1, tag).getResultList();
+    List<?> ids = ctx.em().createNativeQuery(sql).setParameter(1, tag).getResultList();
     return cancelRecurringByIds(ids);
   }
 
@@ -76,7 +77,7 @@ final class MysqlJobRecurringAndResetOperations {
           AND rec_status IS NOT NULL AND terminal_status IS NULL
         """;
     @SuppressWarnings("unchecked")
-    List<Number> ids = ctx.em().createNativeQuery(sql).setParameter(1, businessKey).getResultList();
+    List<?> ids = ctx.em().createNativeQuery(sql).setParameter(1, businessKey).getResultList();
     return cancelRecurringByIds(ids);
   }
 
@@ -103,11 +104,11 @@ final class MysqlJobRecurringAndResetOperations {
       query.setParameter(parameter++, registeredId);
     }
     @SuppressWarnings("unchecked")
-    List<Number> ids = query.getResultList();
+    List<?> ids = query.getResultList();
     return cancelRecurringByIds(ids);
   }
 
-  boolean pauseRecurring(long id) {
+  boolean pauseRecurring(UUID id) {
     // language=MySQL
     String sql =
         """
@@ -119,7 +120,7 @@ final class MysqlJobRecurringAndResetOperations {
     return updated > 0;
   }
 
-  boolean resumeRecurring(long id) {
+  boolean resumeRecurring(UUID id) {
     // language=MySQL
     String sql =
         """
@@ -131,7 +132,7 @@ final class MysqlJobRecurringAndResetOperations {
     return updated > 0;
   }
 
-  private int cancelRecurringByIds(List<Number> idRows) {
+  private int cancelRecurringByIds(List<?> idRows) {
     if (idRows.isEmpty()) {
       return 0;
     }
@@ -144,8 +145,8 @@ final class MysqlJobRecurringAndResetOperations {
           AND rec_status IS NOT NULL AND terminal_status IS NULL
         """;
     int total = 0;
-    for (Number n : idRows) {
-      long id = n.longValue();
+    for (Object n : idRows) {
+      UUID id = MysqlJobRowMapper.uuidOrNull(n);
       int updated = ctx.em().createNativeQuery(sql).setParameter(1, id).executeUpdate();
       if (updated > 0) {
         reservations.deleteReservationByOwner(id);

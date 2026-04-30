@@ -6,6 +6,7 @@ import run.ratchet.store.entity.JobStatus;
 import jakarta.persistence.Query;
 import java.util.Collections;
 import java.util.List;
+import java.util.UUID;
 
 final class PostgresqlBusinessKeyReservations {
 
@@ -26,7 +27,7 @@ final class PostgresqlBusinessKeyReservations {
     return "RECURRING".equals(jobType) ? OWNER_TABLE_RECURRING : OWNER_TABLE_QUEUE;
   }
 
-  void insertReservation(String businessKey, long ownerJobId, String ownerTable) {
+  void insertReservation(String businessKey, UUID ownerJobId, String ownerTable) {
     // language=PostgreSQL
     String sql =
         """
@@ -43,13 +44,13 @@ final class PostgresqlBusinessKeyReservations {
   }
 
   @SuppressWarnings("UnusedReturnValue")
-  int deleteReservationByOwner(long ownerJobId) {
+  int deleteReservationByOwner(UUID ownerJobId) {
     // language=PostgreSQL
     String sql = "DELETE FROM scheduler_business_key_reservation WHERE owner_job_id = ?";
     return ctx.em().createNativeQuery(sql).setParameter(1, ownerJobId).executeUpdate();
   }
 
-  void deleteReservationsByOwners(List<? extends Number> ownerJobIds) {
+  void deleteReservationsByOwners(List<UUID> ownerJobIds) {
     if (ownerJobIds.isEmpty()) {
       return;
     }
@@ -61,8 +62,8 @@ final class PostgresqlBusinessKeyReservations {
             + ")";
     Query query = ctx.em().createNativeQuery(sql);
     int parameter = 1;
-    for (Number ownerJobId : ownerJobIds) {
-      query.setParameter(parameter++, ownerJobId.longValue());
+    for (UUID ownerJobId : ownerJobIds) {
+      query.setParameter(parameter++, ownerJobId);
     }
     query.executeUpdate();
   }
@@ -75,7 +76,7 @@ final class PostgresqlBusinessKeyReservations {
     }
   }
 
-  void syncForJob(long ownerJobId, JobStatus status) {
+  void syncForJob(UUID ownerJobId, JobStatus status) {
     deleteReservationByOwner(ownerJobId);
     if (!PostgresqlStoreContext.isLiveStatus(status)) {
       return;

@@ -5,7 +5,7 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.converter.JsonMapConverter;
-import run.ratchet.store.id.TsidEntityListener;
+import run.ratchet.store.id.UuidV7EntityListener;
 import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
@@ -27,6 +27,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 
 /** Persisted record of a scheduled task. @see JobStatus @see JobExecutionType */
 @Entity
@@ -53,12 +54,12 @@ import java.util.Objects;
       @Index(name = "idx_job_created_at", columnList = "created_at"),
       @Index(name = "idx_job_updated_at", columnList = "updated_at")
     })
-@EntityListeners(TsidEntityListener.class)
-public class JobEntity implements TsidEntityListener.TsidAssignable {
+@EntityListeners(UuidV7EntityListener.class)
+public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
 
   @Id
   @Column(name = "job_id")
-  private Long id;
+  private UUID id;
 
   @Enumerated(EnumType.STRING)
   @Column(nullable = false, length = 16)
@@ -143,10 +144,10 @@ public class JobEntity implements TsidEntityListener.TsidAssignable {
   private JobPayload onFailurePayload;
 
   @Column(name = "depends_on")
-  private Long dependsOn;
+  private UUID dependsOn;
 
   @Column(name = "superseded_by")
-  private Long supersededBy;
+  private UUID supersededBy;
 
   @Column(name = "picked_by", length = 64)
   private String pickedBy;
@@ -195,11 +196,11 @@ public class JobEntity implements TsidEntityListener.TsidAssignable {
   // (PG schema does not have the column yet — added in CP3).
   @Transient private JobStatus terminalStatus;
 
-  public Long getId() {
+  public UUID getId() {
     return id;
   }
 
-  public void setId(Long id) {
+  public void setId(UUID id) {
     this.id = id;
   }
 
@@ -391,19 +392,19 @@ public class JobEntity implements TsidEntityListener.TsidAssignable {
     this.onFailurePayload = onFailurePayload;
   }
 
-  public Long getDependsOn() {
+  public UUID getDependsOn() {
     return dependsOn;
   }
 
-  public void setDependsOn(Long dependsOn) {
+  public void setDependsOn(UUID dependsOn) {
     this.dependsOn = dependsOn;
   }
 
-  public Long getSupersededBy() {
+  public UUID getSupersededBy() {
     return supersededBy;
   }
 
-  public void setSupersededBy(Long supersededBy) {
+  public void setSupersededBy(UUID supersededBy) {
     this.supersededBy = supersededBy;
   }
 

@@ -41,13 +41,14 @@ import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobStatus;
-import run.ratchet.store.id.TsidFactory;
+import run.ratchet.store.id.UuidV7Factory;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.jboss.logging.Logger;
@@ -70,7 +71,7 @@ final class MongoJobCrudOperations {
   JobEntity save(JobEntity job) {
     Instant now = Instant.now();
     if (job.getId() == null) {
-      job.setId(TsidFactory.next());
+      job.setId(UuidV7Factory.create());
       job.setCreatedAt(now);
       job.setUpdatedAt(now);
       if (job.getVersion() == null) {
@@ -106,22 +107,22 @@ final class MongoJobCrudOperations {
     return job;
   }
 
-  Optional<JobEntity> findById(long id) {
+  Optional<JobEntity> findById(UUID id) {
     Document doc = ctx.jobs().find(eq(ID, id)).first();
     return doc == null ? Optional.empty() : Optional.of(DocumentMapper.toJobEntity(doc));
   }
 
-  Optional<JobEntity> findByIdLatest(long id) {
+  Optional<JobEntity> findByIdLatest(UUID id) {
     // MongoDB has no row-level locking; findOneAndUpdate is the atomic primitive.
     // Callers MUST mutate via a version-checked update path.
     return findById(id);
   }
 
-  void delete(long id) {
+  void delete(UUID id) {
     ctx.jobs().deleteOne(eq(ID, id));
   }
 
-  JobStatus getJobStatus(long id) {
+  JobStatus getJobStatus(UUID id) {
     Document doc = ctx.jobs().find(eq(ID, id)).projection(new Document(STATUS, 1)).first();
     if (doc == null) {
       return null;
@@ -129,7 +130,7 @@ final class MongoJobCrudOperations {
     return JobStatus.valueOf(doc.getString(STATUS));
   }
 
-  List<JobEntity> findByIds(List<Long> ids) {
+  List<JobEntity> findByIds(List<UUID> ids) {
     if (ids.isEmpty()) {
       return List.of();
     }
@@ -154,7 +155,7 @@ final class MongoJobCrudOperations {
     return doc == null ? Optional.empty() : Optional.of(DocumentMapper.toJobEntity(doc));
   }
 
-  List<JobEntity> findDependants(long parentJobId) {
+  List<JobEntity> findDependants(UUID parentJobId) {
     List<JobEntity> results = new ArrayList<>();
     for (Document doc : ctx.jobs().find(eq(DEPENDS_ON, parentJobId))) {
       results.add(DocumentMapper.toJobEntity(doc));
@@ -366,7 +367,7 @@ final class MongoJobCrudOperations {
     List<Document> docs = new ArrayList<>(jobList.size());
     for (JobEntity job : jobList) {
       if (job.getId() == null) {
-        job.setId(TsidFactory.next());
+        job.setId(UuidV7Factory.create());
       }
       if (job.getCreatedAt() == null) {
         job.setCreatedAt(now);
@@ -380,7 +381,7 @@ final class MongoJobCrudOperations {
     ctx.jobs().insertMany(docs);
   }
 
-  int deleteJobsByIds(List<Long> ids) {
+  int deleteJobsByIds(List<UUID> ids) {
     if (ids.isEmpty()) {
       return 0;
     }

@@ -2,7 +2,6 @@ package run.ratchet.ri.core;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -17,6 +16,7 @@ import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobRetryStore;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -26,7 +26,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class JobTimeoutHandlerTest {
 
-  private static final long JOB_ID = 42L;
+  private static final UUID JOB_ID = new UUID(0L, 42L);
   private static final long TIMEOUT_SEC = 30L;
 
   @Mock private JobCrudStore jobCrudStore;
@@ -56,7 +56,7 @@ class JobTimeoutHandlerTest {
     verify(jobRetryStore, times(1))
         .scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1));
     verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
-    verify(jobBatchStatusStore, never()).compareAndSwapStatus(anyLong(), any(), any(), any());
+    verify(jobBatchStatusStore, never()).compareAndSwapStatus(any(UUID.class), any(), any(), any());
   }
 
   @Test
@@ -70,7 +70,7 @@ class JobTimeoutHandlerTest {
 
     handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
 
-    verify(jobRetryStore, never()).scheduleJobRetry(anyLong(), anyString(), any(), anyInt());
+    verify(jobRetryStore, never()).scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt());
     verify(jobBatchStatusStore, times(1))
         .compareAndSwapStatus(eq(JOB_ID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), anyString());
     verify(lifecycleFacade, times(1)).handlePermanentFailure(eq(job), any());
@@ -87,7 +87,7 @@ class JobTimeoutHandlerTest {
     handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
 
     verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
-    verify(jobBatchStatusStore, never()).compareAndSwapStatus(anyLong(), any(), any(), any());
+    verify(jobBatchStatusStore, never()).compareAndSwapStatus(any(UUID.class), any(), any(), any());
   }
 
   @Test
@@ -98,8 +98,8 @@ class JobTimeoutHandlerTest {
 
     handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
 
-    verify(jobRetryStore, never()).scheduleJobRetry(anyLong(), anyString(), any(), anyInt());
-    verify(jobBatchStatusStore, never()).compareAndSwapStatus(anyLong(), any(), any(), any());
+    verify(jobRetryStore, never()).scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt());
+    verify(jobBatchStatusStore, never()).compareAndSwapStatus(any(UUID.class), any(), any(), any());
     verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
   }
 
@@ -109,8 +109,8 @@ class JobTimeoutHandlerTest {
 
     handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
 
-    verify(jobRetryStore, never()).incrementRetryAttempt(anyLong());
-    verify(jobRetryStore, never()).scheduleJobRetry(anyLong(), anyString(), any(), anyInt());
+    verify(jobRetryStore, never()).incrementRetryAttempt(any(UUID.class));
+    verify(jobRetryStore, never()).scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt());
     verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
   }
 

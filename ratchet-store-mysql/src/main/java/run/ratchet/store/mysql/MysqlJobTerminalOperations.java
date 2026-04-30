@@ -5,6 +5,7 @@ import run.ratchet.store.entity.JobStatus;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 final class MysqlJobTerminalOperations {
 
@@ -21,7 +22,7 @@ final class MysqlJobTerminalOperations {
     this.batches = batches;
   }
 
-  void updateJobStatus(long id, JobStatus status, String errorMessage) {
+  void updateJobStatus(UUID id, JobStatus status, String errorMessage) {
     ctx.timedStoreOperation(
         "update_status",
         () -> {
@@ -54,7 +55,7 @@ final class MysqlJobTerminalOperations {
         updated -> updated > 0 ? "updated" : "miss");
   }
 
-  boolean compareAndSwapStatus(long id, JobStatus expected, JobStatus newStatus, String error) {
+  boolean compareAndSwapStatus(UUID id, JobStatus expected, JobStatus newStatus, String error) {
     return ctx.timedStoreOperation(
         "compare_and_swap_status",
         () -> {
@@ -109,7 +110,7 @@ final class MysqlJobTerminalOperations {
         updated -> updated ? "updated" : "miss");
   }
 
-  int incrementRetryAttempt(long id) {
+  int incrementRetryAttempt(UUID id) {
     // language=MySQL
     String updateSql =
         """
@@ -132,7 +133,7 @@ final class MysqlJobTerminalOperations {
   }
 
   boolean markJobSucceeded(
-      long id,
+      UUID id,
       String resultJson,
       String resultType,
       Instant start,
@@ -153,7 +154,7 @@ final class MysqlJobTerminalOperations {
   }
 
   boolean markJobSucceededMinimal(
-      long id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
+      UUID id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
     return ctx.timedStoreOperation(
         "mark_succeeded_minimal",
         () -> {
@@ -167,14 +168,14 @@ final class MysqlJobTerminalOperations {
   }
 
   boolean markJobSucceededAndUpdateBatch(
-      long jobId,
+      UUID jobId,
       String resultJson,
       String resultType,
       Instant start,
       Instant end,
       Long durationMs,
       Long queueWaitMs,
-      long batchId) {
+      UUID batchId) {
     boolean succeeded =
         markJobSucceeded(jobId, resultJson, resultType, start, end, durationMs, queueWaitMs);
     if (succeeded) {
@@ -183,7 +184,7 @@ final class MysqlJobTerminalOperations {
     return succeeded;
   }
 
-  boolean scheduleJobRetry(long id, String error, Instant newScheduledTime, int attempts) {
+  boolean scheduleJobRetry(UUID id, String error, Instant newScheduledTime, int attempts) {
     // language=MySQL
     String sql =
         """
@@ -206,7 +207,7 @@ final class MysqlJobTerminalOperations {
         > 0;
   }
 
-  boolean markJobFailedTerminal(long id, String terminalError, int totalAttempts) {
+  boolean markJobFailedTerminal(UUID id, String terminalError, int totalAttempts) {
     // language=MySQL
     String deleteHotSql = "DELETE FROM scheduler_job_queue WHERE job_id = ? AND status = 'RUNNING'";
     int hotDeleted = ctx.em().createNativeQuery(deleteHotSql).setParameter(1, id).executeUpdate();
@@ -231,7 +232,7 @@ final class MysqlJobTerminalOperations {
     return true;
   }
 
-  boolean cancelJob(long id) {
+  boolean cancelJob(UUID id) {
     // language=MySQL
     String selectSql =
         "SELECT job_type, terminal_status, rec_status FROM scheduler_job WHERE job_id = ?";
@@ -282,7 +283,7 @@ final class MysqlJobTerminalOperations {
     return coldUpdated > 0;
   }
 
-  boolean resetFailedToPending(long id) {
+  boolean resetFailedToPending(UUID id) {
     // language=MySQL
     String selectSql =
         """
@@ -354,7 +355,7 @@ final class MysqlJobTerminalOperations {
   }
 
   private boolean doMarkTerminalSuccessWithResult(
-      long id,
+      UUID id,
       String resultJson,
       String resultType,
       Instant start,
@@ -393,7 +394,7 @@ final class MysqlJobTerminalOperations {
   }
 
   private boolean doMarkTerminalSuccessMinimal(
-      long id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
+      UUID id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
     // language=MySQL
     String sql =
         """
@@ -422,7 +423,7 @@ final class MysqlJobTerminalOperations {
     return true;
   }
 
-  private void deleteHotRowAndReservationAfterSuccess(long id) {
+  private void deleteHotRowAndReservationAfterSuccess(UUID id) {
     // language=MySQL
     String sql =
         """

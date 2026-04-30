@@ -22,6 +22,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -63,7 +64,7 @@ class JobArchivingServiceTest {
 
   private static JobEntity jobEntity(long id) {
     JobEntity entity = new JobEntity();
-    entity.setId(id);
+    entity.setId(new UUID(0L, id));
     return entity;
   }
 
@@ -169,14 +170,14 @@ class JobArchivingServiceTest {
     when(archiveStore.findJobsForArchiving(any(), eq(batchSize))).thenReturn(batch);
     when(archiveStore.archiveJobsBatch(eq(batch), eq("retention_policy"), eq("system")))
         .thenReturn(2);
-    when(jobBulkStore.deleteJobsByIds(List.of(1L, 2L))).thenReturn(2);
+    when(jobBulkStore.deleteJobsByIds(List.of(new UUID(0L, 1L), new UUID(0L, 2L)))).thenReturn(2);
     when(archiveStore.purgeArchivedJobs(any())).thenReturn(0);
 
     service.run();
 
     verify(archiveStore).findJobsForArchiving(any(), eq(batchSize));
     verify(archiveStore).archiveJobsBatch(eq(batch), eq("retention_policy"), eq("system"));
-    verify(jobBulkStore).deleteJobsByIds(List.of(1L, 2L));
+    verify(jobBulkStore).deleteJobsByIds(List.of(new UUID(0L, 1L), new UUID(0L, 2L)));
     verify(archiveStore).purgeArchivedJobs(any());
   }
 

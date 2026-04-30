@@ -4,38 +4,39 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import java.io.Serial;
 import java.time.Instant;
+import java.util.UUID;
 
 /** Fired when all steps in a job chain complete. */
 public class ChainCompletedEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = -8140882369003276835L;
 
-  private final Long parentJobId;
+  private final UUID parentJobId;
 
   public ChainCompletedEvent(
-      Long jobId,
+      UUID jobId,
       String businessKey,
       JobType jobType,
       JobPriority priority,
       String nodeId,
       Instant timestamp,
-      Long parentJobId) {
+      UUID parentJobId) {
     super(jobId, businessKey, jobType, priority, nodeId, timestamp);
     this.parentJobId = parentJobId;
   }
 
   public ChainCompletedEvent(
-      Long jobId,
+      UUID jobId,
       String businessKey,
       JobType jobType,
       JobPriority priority,
       String nodeId,
-      Long parentJobId) {
+      UUID parentJobId) {
     super(jobId, businessKey, jobType, priority, nodeId);
     this.parentJobId = parentJobId;
   }
 
-  public Long getParentJobId() {
+  public UUID getParentJobId() {
     return parentJobId;
   }
 }

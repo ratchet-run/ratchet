@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.cdi.JsonbPayloadSerializer;
 import run.ratchet.spi.SerializedJobResult;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class DefaultResultPersistenceStrategyTest {
@@ -17,7 +18,7 @@ class DefaultResultPersistenceStrategyTest {
     DefaultResultPersistenceStrategy strategy =
         new DefaultResultPersistenceStrategy(options, new JsonbPayloadSerializer());
 
-    SerializedJobResult result = strategy.serialize(42L, "\u00e9\u00e9");
+    SerializedJobResult result = strategy.serialize(new UUID(0L, 42L), "\u00e9\u00e9");
 
     assertEquals(String.class.getName(), result.type());
     assertTrue(result.json().contains("\"_truncated\":true"));

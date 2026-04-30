@@ -7,6 +7,7 @@ import run.ratchet.store.spi.JobBatchStatusStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import java.util.UUID;
 import org.jboss.logging.Logger;
 
 /** Resets jobs to PENDING for reprocessing. */
@@ -45,7 +46,7 @@ public class JobStateManager {
     return false;
   }
 
-  public boolean resetJobToPending(Long jobId) {
+  public boolean resetJobToPending(UUID jobId) {
     try {
       boolean reset = jobBatchStatusStore.resetRunningJob(jobId, nodeIdentityProvider.getNodeId());
       if (reset) {

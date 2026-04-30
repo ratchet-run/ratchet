@@ -5,6 +5,7 @@ import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.entity.BatchEntity;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 /** Batch lifecycle and progress tracking operations. */
 @Incubating
@@ -12,22 +13,22 @@ public interface BatchStore {
 
   BatchEntity saveBatch(BatchEntity batch);
 
-  Optional<BatchEntity> findBatchById(long batchId);
+  Optional<BatchEntity> findBatchById(UUID batchId);
 
   /** Atomically increments the completed-child counter and returns the post-update snapshot. */
-  BatchProgress incrementCompletedAtomic(long batchId);
+  BatchProgress incrementCompletedAtomic(UUID batchId);
 
   /** Atomically increments the failed-child counter and returns the post-update snapshot. */
-  BatchProgress incrementFailedAtomic(long batchId);
+  BatchProgress incrementFailedAtomic(UUID batchId);
 
   /** Marks a batch as completion-processed when all children are terminal. */
-  boolean markBatchCompleteIfReady(long batchId);
+  boolean markBatchCompleteIfReady(UUID batchId);
 
   /** Finds batches that are complete but whose completion flow has not yet been processed. */
-  List<Long> findRecoverableBatchIds(int limit);
+  List<UUID> findRecoverableBatchIds(int limit);
 
-  List<BatchEntity> findBatchesByIds(List<Long> batchIds);
+  List<BatchEntity> findBatchesByIds(List<UUID> batchIds);
 
   /** Updates the total expected child count for a batch parent. */
-  boolean updateBatchTotalItems(long batchId, int totalItems);
+  boolean updateBatchTotalItems(UUID batchId, int totalItems);
 }

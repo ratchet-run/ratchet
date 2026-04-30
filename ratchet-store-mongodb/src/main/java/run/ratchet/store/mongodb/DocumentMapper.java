@@ -25,6 +25,7 @@ import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.bson.Document;
 
 /** Bidirectional mapping between Ratchet store-core entities and MongoDB BSON documents. */
@@ -86,7 +87,7 @@ public final class DocumentMapper {
 
   public static JobEntity toJobEntity(Document doc) {
     JobEntity job = new JobEntity();
-    job.setId(doc.getLong("_id"));
+    job.setId(doc.get("_id", UUID.class));
     job.setStatus(JobStatus.valueOf(doc.getString("status")));
     if (doc.getString("paused_from_status") != null) {
       job.setPausedFromStatus(JobStatus.valueOf(doc.getString("paused_from_status")));
@@ -112,8 +113,8 @@ public final class DocumentMapper {
     job.setResourceName(doc.getString("resource_name"));
     job.setOnSuccessPayload(storedValueToPayload(doc.get("on_success_payload")));
     job.setOnFailurePayload(storedValueToPayload(doc.get("on_failure_payload")));
-    job.setDependsOn(doc.getLong("depends_on"));
-    job.setSupersededBy(doc.getLong("superseded_by"));
+    job.setDependsOn(doc.get("depends_on", UUID.class));
+    job.setSupersededBy(doc.get("superseded_by", UUID.class));
     job.setPickedBy(doc.getString("picked_by"));
     job.setPickedAt(toInstant(doc.getDate("picked_at")));
     job.setLastError(doc.getString("last_error"));
@@ -133,7 +134,7 @@ public final class DocumentMapper {
 
   public static JobClaimDto toJobClaimDto(Document doc) {
     return new JobClaimDto(
-        doc.getLong("_id"),
+        doc.get("_id", UUID.class),
         JobStatus.valueOf(doc.getString("status")),
         JobExecutionType.valueOf(doc.getString("job_type")),
         safeJobPriority(doc.getInteger("priority", 2)),
@@ -161,7 +162,7 @@ public final class DocumentMapper {
 
   public static BatchEntity toBatchEntity(Document doc) {
     BatchEntity batch = new BatchEntity();
-    batch.setId(doc.getLong("_id"));
+    batch.setId(doc.get("_id", UUID.class));
     batch.setTotalItems(doc.getInteger("total_items", 0));
     batch.setCompletedItems(doc.getInteger("completed_items", 0));
     batch.setFailedItems(doc.getInteger("failed_items", 0));
@@ -171,7 +172,7 @@ public final class DocumentMapper {
     return batch;
   }
 
-  public static BatchProgress toBatchProgress(Document doc, long batchId) {
+  public static BatchProgress toBatchProgress(Document doc, UUID batchId) {
     return new BatchProgress(
         batchId,
         doc.getInteger("total_items", 0),
@@ -217,8 +218,8 @@ public final class DocumentMapper {
 
   public static JobExecutionEntity toJobExecutionEntity(Document doc) {
     JobExecutionEntity exec = new JobExecutionEntity();
-    exec.setId(doc.getLong("_id"));
-    exec.setJobId(doc.getLong("job_id"));
+    exec.setId(doc.get("_id", UUID.class));
+    exec.setJobId(doc.get("job_id", UUID.class));
     exec.setAttempt(doc.getInteger("attempt", 0));
     exec.setNodeId(doc.getString("node_id"));
     exec.setStartedAt(toInstant(doc.getDate("started_at")));
@@ -285,8 +286,8 @@ public final class DocumentMapper {
 
   public static ArchivedJobEntity toArchivedJobEntity(Document doc) {
     ArchivedJobEntity a = new ArchivedJobEntity();
-    a.setId(doc.getLong("_id"));
-    a.setOriginalJobId(doc.getLong("original_job_id"));
+    a.setId(doc.get("_id", UUID.class));
+    a.setOriginalJobId(doc.get("original_job_id", UUID.class));
     if (doc.getString("final_status") != null) {
       a.setFinalStatus(JobStatus.valueOf(doc.getString("final_status")));
     }
@@ -319,8 +320,8 @@ public final class DocumentMapper {
     a.setResultType(doc.getString("result_type"));
     a.setFinalError(doc.getString("final_error"));
     a.setPayloadSummary(doc.getString("payload_summary"));
-    a.setDependedOn(doc.getLong("depended_on"));
-    a.setSupersededBy(doc.getLong("superseded_by"));
+    a.setDependedOn(doc.get("depended_on", UUID.class));
+    a.setSupersededBy(doc.get("superseded_by", UUID.class));
     a.setTags(doc.getString("tags"));
     return a;
   }
@@ -342,9 +343,9 @@ public final class DocumentMapper {
 
   public static WorkflowConditionEntity toWorkflowConditionEntity(Document doc) {
     WorkflowConditionEntity wc = new WorkflowConditionEntity();
-    wc.setId(doc.getLong("_id"));
-    wc.setParentJobId(doc.getLong("parent_job_id"));
-    wc.setChildJobId(doc.getLong("child_job_id"));
+    wc.setId(doc.get("_id", UUID.class));
+    wc.setParentJobId(doc.get("parent_job_id", UUID.class));
+    wc.setChildJobId(doc.get("child_job_id", UUID.class));
     if (doc.getString("condition_type") != null) {
       wc.setConditionType(WorkflowCondition.ConditionType.valueOf(doc.getString("condition_type")));
     }
@@ -372,7 +373,7 @@ public final class DocumentMapper {
 
   public static BatchMetricsEntity toBatchMetricsEntity(Document doc) {
     BatchMetricsEntity bm = new BatchMetricsEntity();
-    bm.setBatchId(doc.getLong("_id"));
+    bm.setBatchId(doc.get("_id", UUID.class));
     bm.setTotalDurationMs(doc.getLong("total_duration_ms"));
     bm.setChildExecutionMs(doc.getLong("child_execution_ms"));
     bm.setOverheadMs(doc.getLong("overhead_ms"));
@@ -399,8 +400,8 @@ public final class DocumentMapper {
 
   public static DlqAlertEntity toDlqAlertEntity(Document doc) {
     DlqAlertEntity alert = new DlqAlertEntity();
-    alert.setId(doc.getLong("_id"));
-    alert.setJobId(doc.getLong("job_id"));
+    alert.setId(doc.get("_id", UUID.class));
+    alert.setJobId(doc.get("job_id", UUID.class));
     alert.setErrorHash(doc.getString("error_hash"));
     alert.setAlertSentAt(toInstant(doc.getDate("alert_sent_at")));
     alert.setAlertChannel(doc.getString("alert_channel"));

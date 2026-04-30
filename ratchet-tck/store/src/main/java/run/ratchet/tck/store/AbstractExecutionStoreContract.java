@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import run.ratchet.store.entity.JobExecutionEntity;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -59,14 +60,14 @@ public abstract class AbstractExecutionStoreContract implements JobStoreContract
 
   @Test
   void findExecutionsByJobId_unknownJob_returnsEmpty() {
-    var executions = store().findExecutionsByJobId(Long.MAX_VALUE);
+    var executions = store().findExecutionsByJobId(new UUID(0L, Long.MAX_VALUE));
 
     assertTrue(executions.isEmpty(), "findExecutionsByJobId for unknown job should return empty");
   }
 
   @Test
   void findLatestExecution_unknownJob_returnsEmpty() {
-    var latest = store().findLatestExecution(Long.MAX_VALUE);
+    var latest = store().findLatestExecution(new UUID(0L, Long.MAX_VALUE));
 
     assertTrue(latest.isEmpty(), "findLatestExecution for unknown job should return empty");
   }

@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import run.ratchet.store.entity.JobEntity;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class TagStoreIT extends BaseDocumentStoreIT {
@@ -14,7 +15,7 @@ class TagStoreIT extends BaseDocumentStoreIT {
     JobEntity job = store().save(newPendingJob());
     store().insertTags(job.getId(), List.of("priority", "batch-run-42"));
 
-    List<Long> found = store().findJobIdsByTag("priority", 100, 0);
+    List<UUID> found = store().findJobIdsByTag("priority", 100, 0);
     assertEquals(1, found.size());
     assertEquals(job.getId(), found.get(0));
 
@@ -52,10 +53,10 @@ class TagStoreIT extends BaseDocumentStoreIT {
       store().insertTags(job.getId(), List.of("shared-tag"));
     }
 
-    List<Long> page1 = store().findJobIdsByTag("shared-tag", 2, 0);
+    List<UUID> page1 = store().findJobIdsByTag("shared-tag", 2, 0);
     assertEquals(2, page1.size());
 
-    List<Long> page2 = store().findJobIdsByTag("shared-tag", 2, 2);
+    List<UUID> page2 = store().findJobIdsByTag("shared-tag", 2, 2);
     assertEquals(2, page2.size());
 
     page1.retainAll(page2);

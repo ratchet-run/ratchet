@@ -1,6 +1,7 @@
 package run.ratchet.store.dto;
 
 import run.ratchet.store.entity.JobPayload;
+import java.util.UUID;
 
 /**
  * Immutable snapshot of batch progress returned by atomic increment operations.
@@ -10,7 +11,7 @@ import run.ratchet.store.entity.JobPayload;
  * complete simultaneously.
  */
 public record BatchProgress(
-    Long batchId, int totalItems, int completedItems, int failedItems, JobPayload progressHook) {
+    UUID batchId, int totalItems, int completedItems, int failedItems, JobPayload progressHook) {
 
   /** Returns true if the batch has finished processing all items (success or failure). */
   public boolean isComplete() {

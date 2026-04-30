@@ -119,13 +119,17 @@ public class OrderService {
             .submit();
     }
 
-    public void processOrder(long orderId) {
+    public void processOrder(UUID orderId) {
         // Your business logic here
     }
 
-    public void sendReminder(long orderId) { /* ... */ }
+    public void sendReminder(UUID orderId) { /* ... */ }
 }
 ```
+
+> Job IDs are UUIDv7 values (`java.util.UUID`). The factory generates
+> time-ordered IDs without operational coordination — no node-ID knob
+> is required.
 
 ## Usage Guide
 
@@ -254,7 +258,7 @@ JobHandle handle = scheduler.enqueue(() -> longRunningTask())
     .withTags("import", "finance")
     .submit();
 
-long jobId = handle.id();
+UUID jobId = handle.id();
 
 scheduler.pauseJob(jobId);    // Pause a pending or failed job
 scheduler.resumeJob(jobId);   // Resume a paused job

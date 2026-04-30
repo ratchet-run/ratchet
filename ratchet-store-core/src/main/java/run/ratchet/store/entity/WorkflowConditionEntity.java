@@ -3,7 +3,7 @@ package run.ratchet.store.entity;
 import run.ratchet.api.SerializableFunction;
 import run.ratchet.api.SerializablePredicate;
 import run.ratchet.api.WorkflowCondition;
-import run.ratchet.store.id.TsidEntityListener;
+import run.ratchet.store.id.UuidV7EntityListener;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
@@ -24,6 +24,7 @@ import java.io.Serializable;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * Conditional dependency between jobs in a workflow.
@@ -38,18 +39,19 @@ import java.util.Objects;
       @Index(name = "idx_workflow_child", columnList = "child_job_id"),
       @Index(name = "idx_workflow_priority", columnList = "parent_job_id, condition_priority")
     })
-@EntityListeners(TsidEntityListener.class)
-public class WorkflowConditionEntity implements Serializable, TsidEntityListener.TsidAssignable {
+@EntityListeners(UuidV7EntityListener.class)
+public class WorkflowConditionEntity
+    implements Serializable, UuidV7EntityListener.UuidV7Assignable {
 
   @Serial private static final long serialVersionUID = -7889663048175841844L;
 
-  @Id private Long id;
+  @Id private UUID id;
 
   @Column(name = "parent_job_id", nullable = false)
-  private Long parentJobId;
+  private UUID parentJobId;
 
   @Column(name = "child_job_id", nullable = false)
-  private Long childJobId;
+  private UUID childJobId;
 
   @Enumerated(EnumType.STRING)
   @Column(name = "condition_type", nullable = false)
@@ -85,27 +87,27 @@ public class WorkflowConditionEntity implements Serializable, TsidEntityListener
     }
   }
 
-  public Long getId() {
+  public UUID getId() {
     return id;
   }
 
-  public void setId(Long id) {
+  public void setId(UUID id) {
     this.id = id;
   }
 
-  public Long getParentJobId() {
+  public UUID getParentJobId() {
     return parentJobId;
   }
 
-  public void setParentJobId(Long parentJobId) {
+  public void setParentJobId(UUID parentJobId) {
     this.parentJobId = parentJobId;
   }
 
-  public Long getChildJobId() {
+  public UUID getChildJobId() {
     return childJobId;
   }
 
-  public void setChildJobId(Long childJobId) {
+  public void setChildJobId(UUID childJobId) {
     this.childJobId = childJobId;
   }
 

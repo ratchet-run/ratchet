@@ -63,9 +63,6 @@ class RatchetOptionsTest {
         () -> RatchetOptions.builder().polling(polling -> polling.batchSize(0)));
     assertThrows(
         IllegalArgumentException.class,
-        () -> RatchetOptions.builder().node(node -> node.tsidNodeId(1024)));
-    assertThrows(
-        IllegalArgumentException.class,
         () -> RatchetOptions.builder().timeout(timeout -> timeout.softTimeoutPercent(100)));
     assertThrows(
         IllegalArgumentException.class,

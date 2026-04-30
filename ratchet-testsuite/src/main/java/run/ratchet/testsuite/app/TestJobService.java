@@ -12,6 +12,7 @@ import jakarta.inject.Inject;
 import java.io.Serializable;
 import java.time.Duration;
 import java.time.ZoneId;
+import java.util.UUID;
 
 @ApplicationScoped
 public class TestJobService {
@@ -30,19 +31,19 @@ public class TestJobService {
     return scheduler.schedule(delay, task);
   }
 
-  public boolean cancelJob(long jobId) {
+  public boolean cancelJob(UUID jobId) {
     return scheduler.cancelJob(jobId);
   }
 
-  public boolean pauseJob(long jobId) {
+  public boolean pauseJob(UUID jobId) {
     return scheduler.pauseJob(jobId);
   }
 
-  public boolean resumeJob(long jobId) {
+  public boolean resumeJob(UUID jobId) {
     return scheduler.resumeJob(jobId);
   }
 
-  public boolean retryJob(long jobId) {
+  public boolean retryJob(UUID jobId) {
     return scheduler.retryJob(jobId);
   }
 

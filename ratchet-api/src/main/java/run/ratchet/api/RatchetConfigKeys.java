@@ -58,8 +58,6 @@ final class RatchetConfigKeys {
 
   static final RatchetConfigKey<String> NODE_ID =
       stringKey("ratchet.node.id", "RATCHET_NODE_ID", "");
-  static final RatchetConfigKey<Integer> TSID_NODE_ID =
-      intKey("ratchet.tsid.node-id", "RATCHET_TSID_NODE_ID", -1, -1);
   static final RatchetConfigKey<Long> NODE_HEARTBEAT_INTERVAL_SECONDS =
       longKey(
           "ratchet.node.heartbeat-interval-seconds",

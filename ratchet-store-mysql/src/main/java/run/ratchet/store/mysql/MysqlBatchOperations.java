@@ -10,6 +10,7 @@ import run.ratchet.store.spi.BatchMetricsStore;
 import run.ratchet.store.spi.BatchStore;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import org.jboss.logging.Logger;
 
 final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
@@ -53,14 +54,14 @@ final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
   }
 
   @Override
-  public Optional<BatchEntity> findBatchById(long batchId) {
+  public Optional<BatchEntity> findBatchById(UUID batchId) {
     BatchEntity batch = ctx.em().find(BatchEntity.class, batchId);
     refreshIfManaged(batch);
     return Optional.ofNullable(batch);
   }
 
   @Override
-  public List<BatchEntity> findBatchesByIds(List<Long> batchIds) {
+  public List<BatchEntity> findBatchesByIds(List<UUID> batchIds) {
     if (batchIds == null || batchIds.isEmpty()) {
       return List.of();
     }
@@ -83,7 +84,7 @@ final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
   }
 
   @Override
-  public BatchProgress incrementCompletedAtomic(long batchId) {
+  public BatchProgress incrementCompletedAtomic(UUID batchId) {
     // language=MySQL
     String selectSql =
         """
@@ -113,7 +114,7 @@ final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
   }
 
   @Override
-  public BatchProgress incrementFailedAtomic(long batchId) {
+  public BatchProgress incrementFailedAtomic(UUID batchId) {
     // language=MySQL
     String selectSql =
         """
@@ -143,7 +144,7 @@ final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
   }
 
   @Override
-  public boolean markBatchCompleteIfReady(long batchId) {
+  public boolean markBatchCompleteIfReady(UUID batchId) {
     // language=MySQL
     String sql =
         """
@@ -156,7 +157,7 @@ final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
   }
 
   @Override
-  public List<Long> findRecoverableBatchIds(int limit) {
+  public List<UUID> findRecoverableBatchIds(int limit) {
     // language=MySQL
     String sql =
         """
@@ -166,12 +167,12 @@ final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
         LIMIT ?
         """;
     @SuppressWarnings("unchecked")
-    List<Number> results = ctx.em().createNativeQuery(sql).setParameter(1, limit).getResultList();
-    return results.stream().map(Number::longValue).toList();
+    List<?> results = ctx.em().createNativeQuery(sql).setParameter(1, limit).getResultList();
+    return results.stream().map(MysqlJobRowMapper::uuidOrNull).toList();
   }
 
   @Override
-  public boolean updateBatchTotalItems(long batchId, int totalItems) {
+  public boolean updateBatchTotalItems(UUID batchId, int totalItems) {
     // language=MySQL
     String sql = "UPDATE scheduler_batch SET total_items = ? WHERE batch_id = ?";
     int updated =
@@ -196,12 +197,12 @@ final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
   }
 
   @Override
-  public Optional<BatchMetricsEntity> findBatchMetrics(long batchId) {
+  public Optional<BatchMetricsEntity> findBatchMetrics(UUID batchId) {
     return Optional.ofNullable(ctx.em().find(BatchMetricsEntity.class, batchId));
   }
 
   @Override
-  public void addChildExecutionTime(long batchId, long durationMs) {
+  public void addChildExecutionTime(UUID batchId, long durationMs) {
     // language=MySQL
     String sql =
         """
@@ -218,7 +219,7 @@ final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
   }
 
   @Override
-  public void finalizeBatchMetrics(long batchId) {
+  public void finalizeBatchMetrics(UUID batchId) {
     // language=MySQL
     String sql =
         """
@@ -233,7 +234,7 @@ final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
   }
 
   @Override
-  public void updateBatchMetricsChildCount(long batchId, int childCount) {
+  public void updateBatchMetricsChildCount(UUID batchId, int childCount) {
     // language=MySQL
     String sql = "UPDATE scheduler_batch_metrics SET child_count = ? WHERE batch_id = ?";
     ctx.em()

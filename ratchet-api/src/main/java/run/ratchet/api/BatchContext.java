@@ -1,15 +1,18 @@
 package run.ratchet.api;
 
+import java.util.UUID;
+
 /**
  * Immutable snapshot of batch execution progress, passed to progress hooks and workflow conditions.
  *
+ * @param batchId UUIDv7 id of the batch parent job
  * @param totalItems total child jobs in the batch
  * @param completedItems successfully completed child jobs
  * @param failedItems failed child jobs
  * @see BatchBuilder#onProgress(SerializableConsumer)
  * @see WorkflowCondition#batchCustom(SerializablePredicate)
  */
-public record BatchContext(long batchId, int totalItems, int completedItems, int failedItems) {
+public record BatchContext(UUID batchId, int totalItems, int completedItems, int failedItems) {
 
   /**
    * @return true if all items have been processed (completed + failed >= total)

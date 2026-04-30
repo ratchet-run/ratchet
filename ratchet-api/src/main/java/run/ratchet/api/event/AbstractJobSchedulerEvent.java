@@ -5,12 +5,13 @@ import run.ratchet.api.JobType;
 import java.io.Serial;
 import java.io.Serializable;
 import java.time.Instant;
+import java.util.UUID;
 
 public abstract class AbstractJobSchedulerEvent implements Serializable {
 
   @Serial private static final long serialVersionUID = 6853988277084004625L;
 
-  private final Long jobId;
+  private final UUID jobId;
   private final String businessKey;
   private final JobType jobType;
   private final JobPriority priority;
@@ -18,7 +19,7 @@ public abstract class AbstractJobSchedulerEvent implements Serializable {
   private final Instant timestamp;
 
   protected AbstractJobSchedulerEvent(
-      Long jobId,
+      UUID jobId,
       String businessKey,
       JobType jobType,
       JobPriority priority,
@@ -33,11 +34,11 @@ public abstract class AbstractJobSchedulerEvent implements Serializable {
   }
 
   protected AbstractJobSchedulerEvent(
-      Long jobId, String businessKey, JobType jobType, JobPriority priority, String nodeId) {
+      UUID jobId, String businessKey, JobType jobType, JobPriority priority, String nodeId) {
     this(jobId, businessKey, jobType, priority, nodeId, Instant.now());
   }
 
-  public Long getJobId() {
+  public UUID getJobId() {
     return jobId;
   }
 

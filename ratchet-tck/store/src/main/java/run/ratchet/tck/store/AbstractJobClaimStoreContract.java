@@ -16,6 +16,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -134,8 +135,8 @@ public abstract class AbstractJobClaimStoreContract implements JobStoreContractF
       persist(newPendingJob());
     }
 
-    Set<Long> allClaimedIds = ConcurrentHashMap.newKeySet();
-    Set<Long> duplicates = ConcurrentHashMap.newKeySet();
+    Set<UUID> allClaimedIds = ConcurrentHashMap.newKeySet();
+    Set<UUID> duplicates = ConcurrentHashMap.newKeySet();
 
     List<Throwable> failures =
         ConcurrentTestRunner.runAll(

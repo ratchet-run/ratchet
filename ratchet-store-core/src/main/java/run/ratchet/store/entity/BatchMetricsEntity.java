@@ -11,6 +11,7 @@ import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * Performance metrics for batch job executions.
@@ -24,7 +25,7 @@ public class BatchMetricsEntity {
 
   @Id
   @Column(name = "batch_id")
-  private Long batchId;
+  private UUID batchId;
 
   // lazy fetch to avoid eagerly joining scheduler_job for columns that no longer exist on
   // cold post hot/cold-split (status, attempts, picked_*, scheduled_time, updated_at, version,
@@ -66,7 +67,7 @@ public class BatchMetricsEntity {
   public BatchMetricsEntity() {}
 
   public BatchMetricsEntity(
-      Long batchId,
+      UUID batchId,
       JobEntity batchJob,
       Long totalDurationMs,
       Long childExecutionMs,
@@ -90,11 +91,11 @@ public class BatchMetricsEntity {
     this.version = version;
   }
 
-  public Long getBatchId() {
+  public UUID getBatchId() {
     return batchId;
   }
 
-  public void setBatchId(Long batchId) {
+  public void setBatchId(UUID batchId) {
     this.batchId = batchId;
   }
 

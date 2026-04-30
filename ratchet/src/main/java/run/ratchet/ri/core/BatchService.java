@@ -25,6 +25,7 @@ import java.lang.reflect.Method;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -113,17 +114,17 @@ public class BatchService {
    * @return the number of batches recovered
    */
   public int recoverStuckBatches() {
-    List<Long> recoverableIds = batchStore.findRecoverableBatchIds(100);
+    List<UUID> recoverableIds = batchStore.findRecoverableBatchIds(100);
     if (recoverableIds.isEmpty()) {
       return 0;
     }
 
-    Map<Long, BatchEntity> batchMap =
+    Map<UUID, BatchEntity> batchMap =
         batchStore.findBatchesByIds(recoverableIds).stream()
             .collect(Collectors.toMap(BatchEntity::getId, Function.identity()));
 
     int recovered = 0;
-    for (Long batchId : recoverableIds) {
+    for (UUID batchId : recoverableIds) {
       BatchEntity batch = batchMap.get(batchId);
       if (batch == null) {
         continue;
@@ -190,7 +191,7 @@ public class BatchService {
     method.invoke(instance, ctx);
   }
 
-  private boolean processBatchCompletion(Long parentId, BatchEntity batch) {
+  private boolean processBatchCompletion(UUID parentId, BatchEntity batch) {
     return jobCrudStore
         .findById(parentId)
         .map(
@@ -230,7 +231,7 @@ public class BatchService {
 
                 log.info(
                     String.format(
-                        "Batch %d completed: %d total, %d succeeded, %d failed",
+                        "Batch %s completed: %d total, %d succeeded, %d failed",
                         parentId,
                         batch.getTotalItems(),
                         batch.getCompletedItems(),
@@ -297,7 +298,7 @@ public class BatchService {
   }
 
   private boolean update(JobEntity child, boolean jobSuccessful) {
-    Long parentId = child.getDependsOn();
+    UUID parentId = child.getDependsOn();
     if (parentId == null) {
       return false;
     }

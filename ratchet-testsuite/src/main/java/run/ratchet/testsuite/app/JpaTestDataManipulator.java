@@ -7,6 +7,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.transaction.UserTransaction;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.UUID;
 
 /**
  * JPA/SQL implementation of {@link TestDataManipulator}.
@@ -22,7 +23,7 @@ public class JpaTestDataManipulator implements TestDataManipulator {
   @Inject private UserTransaction utx;
 
   @Override
-  public void setJobUpdatedAt(long jobId, Instant updatedAt) {
+  public void setJobUpdatedAt(UUID jobId, Instant updatedAt) {
     try {
       utx.begin();
       Timestamp ts = Timestamp.from(updatedAt);

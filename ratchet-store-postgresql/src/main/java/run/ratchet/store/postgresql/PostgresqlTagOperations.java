@@ -11,6 +11,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.UUID;
 
 final class PostgresqlTagOperations implements TagStore {
 
@@ -33,7 +34,7 @@ final class PostgresqlTagOperations implements TagStore {
   }
 
   @Override
-  public void insertTags(long jobId, List<String> tags) {
+  public void insertTags(UUID jobId, List<String> tags) {
     if (tags == null || tags.isEmpty()) {
       return;
     }
@@ -49,7 +50,7 @@ final class PostgresqlTagOperations implements TagStore {
   }
 
   @Override
-  public int deleteTagsByJobId(long jobId) {
+  public int deleteTagsByJobId(UUID jobId) {
     // language=PostgreSQL
     String sql = "DELETE FROM scheduler_job_tag WHERE job_id = ?";
     return ctx.em().createNativeQuery(sql).setParameter(1, jobId).executeUpdate();
@@ -57,21 +58,21 @@ final class PostgresqlTagOperations implements TagStore {
 
   @Override
   @SuppressWarnings("unchecked")
-  public List<Long> findJobIdsByTag(String tag, int limit, int offset) {
+  public List<UUID> findJobIdsByTag(String tag, int limit, int offset) {
     // language=PostgreSQL
     String sql =
         """
         SELECT job_id FROM scheduler_job_tag WHERE tag = ?
         ORDER BY job_id LIMIT ? OFFSET ?
         """;
-    List<Number> results =
+    List<?> results =
         ctx.em()
             .createNativeQuery(sql)
             .setParameter(1, tag)
             .setParameter(2, limit)
             .setParameter(3, offset)
             .getResultList();
-    return results.stream().map(Number::longValue).toList();
+    return results.stream().map(PostgresqlJobRowMapper::uuidOrNull).toList();
   }
 
   @Override
@@ -164,8 +165,8 @@ final class PostgresqlTagOperations implements TagStore {
 
   void hydrateTagsBatch(List<JobEntity> jobs) {
     if (jobs.isEmpty()) return;
-    List<Long> ids = new ArrayList<>(jobs.size());
-    Map<Long, JobEntity> byId = new HashMap<>();
+    List<UUID> ids = new ArrayList<>(jobs.size());
+    Map<UUID, JobEntity> byId = new HashMap<>();
     for (JobEntity job : jobs) {
       if (job.getId() != null) {
         ids.add(job.getId());
@@ -181,13 +182,13 @@ final class PostgresqlTagOperations implements TagStore {
             + ") ORDER BY job_id";
     Query tagQuery = ctx.em().createNativeQuery(sql);
     int parameter = 1;
-    for (Long id : ids) {
+    for (UUID id : ids) {
       tagQuery.setParameter(parameter++, id);
     }
     @SuppressWarnings("unchecked")
     List<Object[]> rows = tagQuery.getResultList();
     for (Object[] row : rows) {
-      long jobId = ((Number) row[0]).longValue();
+      UUID jobId = PostgresqlJobRowMapper.uuidOrNull(row[0]);
       String tag = (String) row[1];
       JobEntity job = byId.get(jobId);
       if (job == null) continue;

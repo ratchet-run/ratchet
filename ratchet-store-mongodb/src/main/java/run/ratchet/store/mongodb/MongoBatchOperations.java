@@ -34,6 +34,7 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import org.bson.Document;
 
 /**
@@ -54,12 +55,12 @@ final class MongoBatchOperations {
     return batch;
   }
 
-  Optional<BatchEntity> findBatchById(long batchId) {
+  Optional<BatchEntity> findBatchById(UUID batchId) {
     Document doc = ctx.batches().find(eq(ID, batchId)).first();
     return doc == null ? Optional.empty() : Optional.of(DocumentMapper.toBatchEntity(doc));
   }
 
-  List<BatchEntity> findBatchesByIds(List<Long> batchIds) {
+  List<BatchEntity> findBatchesByIds(List<UUID> batchIds) {
     if (batchIds == null || batchIds.isEmpty()) {
       return List.of();
     }
@@ -70,11 +71,11 @@ final class MongoBatchOperations {
     return result;
   }
 
-  BatchProgress incrementCompletedAtomic(long batchId) {
+  BatchProgress incrementCompletedAtomic(UUID batchId) {
     return incrementCompletedAtomic(null, batchId);
   }
 
-  BatchProgress incrementCompletedAtomic(ClientSession session, long batchId) {
+  BatchProgress incrementCompletedAtomic(ClientSession session, UUID batchId) {
     FindOneAndUpdateOptions options =
         new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER);
     Document doc =
@@ -88,7 +89,7 @@ final class MongoBatchOperations {
     return DocumentMapper.toBatchProgress(doc, batchId);
   }
 
-  BatchProgress incrementFailedAtomic(long batchId) {
+  BatchProgress incrementFailedAtomic(UUID batchId) {
     Document doc =
         ctx.batches()
             .findOneAndUpdate(
@@ -101,7 +102,7 @@ final class MongoBatchOperations {
     return DocumentMapper.toBatchProgress(doc, batchId);
   }
 
-  boolean markBatchCompleteIfReady(long batchId) {
+  boolean markBatchCompleteIfReady(UUID batchId) {
     UpdateResult result =
         ctx.batches()
             .updateOne(
@@ -120,8 +121,8 @@ final class MongoBatchOperations {
     return result.getModifiedCount() > 0;
   }
 
-  List<Long> findRecoverableBatchIds(int limit) {
-    List<Long> ids = new ArrayList<>();
+  List<UUID> findRecoverableBatchIds(int limit) {
+    List<UUID> ids = new ArrayList<>();
     FindIterable<Document> results =
         ctx.batches()
             .find(
@@ -138,12 +139,12 @@ final class MongoBatchOperations {
             .projection(new Document(ID, 1))
             .limit(limit);
     for (Document doc : results) {
-      ids.add(doc.getLong(ID));
+      ids.add(doc.get(ID, UUID.class));
     }
     return ids;
   }
 
-  boolean updateBatchTotalItems(long batchId, int totalItems) {
+  boolean updateBatchTotalItems(UUID batchId, int totalItems) {
     UpdateResult result = ctx.batches().updateOne(eq(ID, batchId), set(TOTAL_ITEMS, totalItems));
     return result.getModifiedCount() > 0;
   }
@@ -155,18 +156,18 @@ final class MongoBatchOperations {
     return metrics;
   }
 
-  Optional<BatchMetricsEntity> findBatchMetrics(long batchId) {
+  Optional<BatchMetricsEntity> findBatchMetrics(UUID batchId) {
     Document doc = ctx.batchMetrics().find(eq(ID, batchId)).first();
     return doc == null ? Optional.empty() : Optional.of(DocumentMapper.toBatchMetricsEntity(doc));
   }
 
-  void addChildExecutionTime(long batchId, long durationMs) {
+  void addChildExecutionTime(UUID batchId, long durationMs) {
     ctx.batchMetrics()
         .updateOne(
             eq(ID, batchId), combine(inc(CHILD_EXECUTION_MS, durationMs), inc(SUCCESS_COUNT, 1)));
   }
 
-  void finalizeBatchMetrics(long batchId) {
+  void finalizeBatchMetrics(UUID batchId) {
     Document doc = ctx.batchMetrics().find(eq(ID, batchId)).first();
     if (doc == null) {
       return;
@@ -193,7 +194,7 @@ final class MongoBatchOperations {
                 set(OVERHEAD_MS, overheadMs)));
   }
 
-  void updateBatchMetricsChildCount(long batchId, int childCount) {
+  void updateBatchMetricsChildCount(UUID batchId, int childCount) {
     ctx.batchMetrics().updateOne(eq(ID, batchId), set(CHILD_COUNT, childCount));
   }
 }

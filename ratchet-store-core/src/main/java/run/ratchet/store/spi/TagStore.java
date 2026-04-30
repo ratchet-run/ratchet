@@ -4,16 +4,17 @@ import run.ratchet.api.Incubating;
 import run.ratchet.store.entity.JobStatus;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /** Job tag management operations. */
 @Incubating
 public interface TagStore {
 
-  void insertTags(long jobId, List<String> tags);
+  void insertTags(UUID jobId, List<String> tags);
 
-  int deleteTagsByJobId(long jobId);
+  int deleteTagsByJobId(UUID jobId);
 
-  List<Long> findJobIdsByTag(String tag, int limit, int offset);
+  List<UUID> findJobIdsByTag(String tag, int limit, int offset);
 
   Map<JobStatus, Long> countJobsByStatusForTag(String tag);
 

@@ -94,7 +94,7 @@ public abstract class AbstractDualWriteInvariantContract implements JobStoreCont
   void resetFailedToPending_keepsBusinessKeyReserved() {
     String bk = uniqueBusinessKey();
     JobEntity job = persist(jobWithBusinessKey(bk));
-    long id = job.getId();
+    UUID id = job.getId();
     store().compareAndSwapStatus(id, JobStatus.PENDING, JobStatus.RUNNING, null);
     store().markJobFailedTerminal(id, "transient", 1);
 
@@ -140,7 +140,7 @@ public abstract class AbstractDualWriteInvariantContract implements JobStoreCont
   @Test
   void terminalTransition_makesJobUnclaimable() {
     JobEntity job = persist(newPendingJob());
-    long id = job.getId();
+    UUID id = job.getId();
     store().compareAndSwapStatus(id, JobStatus.PENDING, JobStatus.RUNNING, null);
     store().markJobSucceededMinimal(id, Instant.now(), Instant.now(), 0L, 0L);
 
@@ -159,7 +159,7 @@ public abstract class AbstractDualWriteInvariantContract implements JobStoreCont
   @Test
   void terminalTransition_excludedFromBatchClaim() {
     JobEntity job = persist(newPendingJob());
-    long id = job.getId();
+    UUID id = job.getId();
     store().compareAndSwapStatus(id, JobStatus.PENDING, JobStatus.RUNNING, null);
     assertTrue(
         store().markJobSucceededMinimal(id, Instant.now(), Instant.now(), 0L, 0L),
@@ -185,7 +185,7 @@ public abstract class AbstractDualWriteInvariantContract implements JobStoreCont
   @Test
   void failTerminal_excludedFromBatchClaim() {
     JobEntity job = persist(newPendingJob());
-    long id = job.getId();
+    UUID id = job.getId();
     store().compareAndSwapStatus(id, JobStatus.PENDING, JobStatus.RUNNING, null);
     assertTrue(
         store().markJobFailedTerminal(id, "permanent", 1), "markJobFailedTerminal precondition");
@@ -205,7 +205,7 @@ public abstract class AbstractDualWriteInvariantContract implements JobStoreCont
   void cancelBeforeClaim_releasesAllOwnership() {
     String bk = uniqueBusinessKey();
     JobEntity job = persist(jobWithBusinessKey(bk));
-    long id = job.getId();
+    UUID id = job.getId();
 
     assertTrue(store().cancelJob(id));
 

@@ -2,6 +2,7 @@ package run.ratchet.store.postgresql;
 
 import run.ratchet.store.entity.JobStatus;
 import java.util.List;
+import java.util.UUID;
 import org.jboss.logging.Logger;
 
 final class PostgresqlJobStatusTransitions {
@@ -14,7 +15,7 @@ final class PostgresqlJobStatusTransitions {
     this.ctx = ctx;
   }
 
-  boolean tryPickUpJob(long id, String nodeId) {
+  boolean tryPickUpJob(UUID id, String nodeId) {
     // language=PostgreSQL
     String sql =
         """
@@ -28,13 +29,13 @@ final class PostgresqlJobStatusTransitions {
     return updated > 0;
   }
 
-  boolean transitionToPaused(long id, JobStatus expected) {
+  boolean transitionToPaused(UUID id, JobStatus expected) {
     if (expected == JobStatus.PAUSED) {
       throw new IllegalArgumentException("transitionToPaused expects expected != PAUSED");
     }
     if (!PostgresqlJobRowMapper.isLiveStatus(expected)) {
       log.debugf(
-          "transitionToPaused(%d, %s) is a no-op post hot/cold-split — terminal jobs cannot be paused",
+          "transitionToPaused(%s, %s) is a no-op post hot/cold-split — terminal jobs cannot be paused",
           id, expected);
       return false;
     }
@@ -55,7 +56,7 @@ final class PostgresqlJobStatusTransitions {
     return updated > 0;
   }
 
-  boolean transitionFromPaused(long id, JobStatus target) {
+  boolean transitionFromPaused(UUID id, JobStatus target) {
     if (!PostgresqlJobRowMapper.isLiveStatus(target) || target == JobStatus.PAUSED) {
       throw new IllegalArgumentException(
           "transitionFromPaused expects a non-PAUSED live status; got " + target);
@@ -77,7 +78,7 @@ final class PostgresqlJobStatusTransitions {
   }
 
   @SuppressWarnings("unchecked")
-  JobStatus transitionFromPausedAtomic(long id) {
+  JobStatus transitionFromPausedAtomic(UUID id) {
     // language=PostgreSQL
     String selectSql =
         """

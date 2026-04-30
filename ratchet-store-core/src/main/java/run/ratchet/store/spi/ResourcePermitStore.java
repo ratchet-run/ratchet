@@ -2,16 +2,17 @@ package run.ratchet.store.spi;
 
 import run.ratchet.api.Incubating;
 import java.util.List;
+import java.util.UUID;
 
 /** Resource permit management operations for concurrency limiting. */
 @Incubating
 public interface ResourcePermitStore {
 
-  boolean tryAcquirePermit(String resource, long jobId, String nodeId);
+  boolean tryAcquirePermit(String resource, UUID jobId, String nodeId);
 
-  void releasePermit(String resource, long jobId);
+  void releasePermit(String resource, UUID jobId);
 
-  void releaseAllPermits(long jobId);
+  void releaseAllPermits(UUID jobId);
 
   int getPermitRetryDelay(String resource);
 

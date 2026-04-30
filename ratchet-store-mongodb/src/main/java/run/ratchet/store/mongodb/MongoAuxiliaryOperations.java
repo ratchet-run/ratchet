@@ -43,11 +43,12 @@ import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
-import run.ratchet.store.id.TsidFactory;
+import run.ratchet.store.id.UuidV7Factory;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import org.bson.Document;
 
 /**
@@ -70,14 +71,14 @@ final class MongoAuxiliaryOperations {
 
   JobExecutionEntity saveExecution(JobExecutionEntity execution) {
     if (execution.getId() == null) {
-      execution.setId(TsidFactory.next());
+      execution.setId(UuidV7Factory.create());
     }
     Document doc = DocumentMapper.toDocument(execution);
     ctx.executions().replaceOne(eq(ID, execution.getId()), doc, new ReplaceOptions().upsert(true));
     return execution;
   }
 
-  List<JobExecutionEntity> findExecutionsByJobId(long jobId) {
+  List<JobExecutionEntity> findExecutionsByJobId(UUID jobId) {
     List<JobExecutionEntity> results = new ArrayList<>();
     for (Document doc : ctx.executions().find(eq(JOB_ID, jobId)).sort(ascending(ATTEMPT))) {
       results.add(DocumentMapper.toJobExecutionEntity(doc));
@@ -85,19 +86,19 @@ final class MongoAuxiliaryOperations {
     return results;
   }
 
-  Optional<JobExecutionEntity> findLatestExecution(long jobId) {
+  Optional<JobExecutionEntity> findLatestExecution(UUID jobId) {
     Document doc =
         ctx.executions().find(eq(JOB_ID, jobId)).sort(descending(ATTEMPT)).limit(1).first();
     return doc == null ? Optional.empty() : Optional.of(DocumentMapper.toJobExecutionEntity(doc));
   }
 
-  int countExecutionAttempts(long jobId) {
+  int countExecutionAttempts(UUID jobId) {
     return (int) ctx.executions().countDocuments(eq(JOB_ID, jobId));
   }
 
   void appendLog(JobLogEntity logEntry) {
     if (logEntry.getId() == null) {
-      logEntry.setId(TsidFactory.next());
+      logEntry.setId(UuidV7Factory.create());
     }
     ctx.jobLogs().insertOne(DocumentMapper.toDocument(logEntry));
   }
@@ -109,7 +110,7 @@ final class MongoAuxiliaryOperations {
 
   WorkflowConditionEntity saveCondition(WorkflowConditionEntity condition) {
     if (condition.getId() == null) {
-      condition.setId(TsidFactory.next());
+      condition.setId(UuidV7Factory.create());
       if (condition.getCreatedAt() == null) {
         condition.setCreatedAt(Instant.now());
       }
@@ -120,12 +121,12 @@ final class MongoAuxiliaryOperations {
     return condition;
   }
 
-  WorkflowConditionEntity findConditionById(long id) {
+  WorkflowConditionEntity findConditionById(UUID id) {
     Document doc = ctx.workflowConditions().find(eq(ID, id)).first();
     return doc == null ? null : DocumentMapper.toWorkflowConditionEntity(doc);
   }
 
-  List<WorkflowConditionEntity> findConditionsByParentJobId(long parentJobId) {
+  List<WorkflowConditionEntity> findConditionsByParentJobId(UUID parentJobId) {
     List<WorkflowConditionEntity> results = new ArrayList<>();
     for (Document doc :
         ctx.workflowConditions()
@@ -136,7 +137,7 @@ final class MongoAuxiliaryOperations {
     return results;
   }
 
-  List<WorkflowConditionEntity> findConditionsByChildJobId(long childJobId) {
+  List<WorkflowConditionEntity> findConditionsByChildJobId(UUID childJobId) {
     List<WorkflowConditionEntity> results = new ArrayList<>();
     for (Document doc : ctx.workflowConditions().find(eq(CHILD_JOB_ID, childJobId))) {
       results.add(DocumentMapper.toWorkflowConditionEntity(doc));
@@ -145,7 +146,7 @@ final class MongoAuxiliaryOperations {
   }
 
   List<WorkflowConditionEntity> findConditionsByType(
-      long parentJobId, WorkflowCondition.ConditionType type) {
+      UUID parentJobId, WorkflowCondition.ConditionType type) {
     List<WorkflowConditionEntity> results = new ArrayList<>();
     for (Document doc :
         ctx.workflowConditions()
@@ -155,32 +156,32 @@ final class MongoAuxiliaryOperations {
     return results;
   }
 
-  void deleteConditionById(long id) {
+  void deleteConditionById(UUID id) {
     ctx.workflowConditions().deleteOne(eq(ID, id));
   }
 
-  void deleteConditionsByParentJobId(long parentJobId) {
+  void deleteConditionsByParentJobId(UUID parentJobId) {
     ctx.workflowConditions().deleteMany(eq(PARENT_JOB_ID, parentJobId));
   }
 
-  void deleteConditionsByChildJobId(long childJobId) {
+  void deleteConditionsByChildJobId(UUID childJobId) {
     ctx.workflowConditions().deleteMany(eq(CHILD_JOB_ID, childJobId));
   }
 
-  long countConditionsByParentJobId(long parentJobId) {
+  long countConditionsByParentJobId(UUID parentJobId) {
     return ctx.workflowConditions().countDocuments(eq(PARENT_JOB_ID, parentJobId));
   }
 
   DlqAlertEntity saveDlqAlert(DlqAlertEntity alert) {
     if (alert.getId() == null) {
-      alert.setId(TsidFactory.next());
+      alert.setId(UuidV7Factory.create());
     }
     Document doc = DocumentMapper.toDocument(alert);
     ctx.dlqAlerts().replaceOne(eq(ID, alert.getId()), doc, new ReplaceOptions().upsert(true));
     return alert;
   }
 
-  boolean existsRecentDlqAlert(long jobId, String errorHash, Instant cutoff) {
+  boolean existsRecentDlqAlert(UUID jobId, String errorHash, Instant cutoff) {
     return ctx.dlqAlerts()
             .countDocuments(
                 and(
@@ -190,7 +191,7 @@ final class MongoAuxiliaryOperations {
         > 0;
   }
 
-  boolean tryAcquirePermit(String resource, long jobId, String nodeId) {
+  boolean tryAcquirePermit(String resource, UUID jobId, String nodeId) {
     try (ClientSession session = ctx.startSession()) {
       return session.withTransaction(
           () -> {
@@ -214,14 +215,14 @@ final class MongoAuxiliaryOperations {
             }
 
             ResourcePermitEntity permit = ResourcePermitEntity.create(resource, jobId, nodeId);
-            permit.setId(TsidFactory.next());
+            permit.setId(UuidV7Factory.create());
             ctx.resourcePermits().insertOne(session, DocumentMapper.toDocument(permit));
             return true;
           });
     }
   }
 
-  void releasePermit(String resource, long jobId) {
+  void releasePermit(String resource, UUID jobId) {
     try (ClientSession session = ctx.startSession()) {
       session.withTransaction(
           () -> {
@@ -236,7 +237,7 @@ final class MongoAuxiliaryOperations {
     }
   }
 
-  void releaseAllPermits(long jobId) {
+  void releaseAllPermits(UUID jobId) {
     try (ClientSession session = ctx.startSession()) {
       session.withTransaction(
           () -> {

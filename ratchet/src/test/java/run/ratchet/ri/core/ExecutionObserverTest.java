@@ -9,6 +9,7 @@ import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.ExecutionStore;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -28,7 +29,7 @@ class ExecutionObserverTest {
 
   private static JobEntity job(long id) {
     JobEntity job = new JobEntity();
-    job.setId(id);
+    job.setId(new UUID(0L, id));
     job.setJobType(JobExecutionType.SINGLE);
     job.setPriority(JobPriority.NORMAL);
     return job;
@@ -47,7 +48,7 @@ class ExecutionObserverTest {
 
     observer.recordJobSuccess(job, 123L);
 
-    verify(metricsCollector).jobCompleted(42L, job.getPublicJobType(), 123L);
+    verify(metricsCollector).jobCompleted(job.getId(), job.getPublicJobType(), 123L);
   }
 
   @Test
@@ -57,7 +58,7 @@ class ExecutionObserverTest {
 
     observer.recordJobFailure(job, error, 2);
 
-    verify(metricsCollector).jobFailed(42L, job.getPublicJobType(), error, 2);
+    verify(metricsCollector).jobFailed(job.getId(), job.getPublicJobType(), error, 2);
   }
 
   @Test
@@ -66,7 +67,7 @@ class ExecutionObserverTest {
 
     verify(metricsCollector, never())
         .jobCompleted(
-            ArgumentMatchers.anyLong(), ArgumentMatchers.any(), ArgumentMatchers.anyLong());
+            ArgumentMatchers.any(UUID.class), ArgumentMatchers.any(), ArgumentMatchers.anyLong());
   }
 
   @Test
@@ -75,7 +76,7 @@ class ExecutionObserverTest {
 
     observer.recordSuccessFinalizationRetry(job);
 
-    verify(metricsCollector).successFinalizationRetried(42L, job.getPublicJobType());
+    verify(metricsCollector).successFinalizationRetried(job.getId(), job.getPublicJobType());
   }
 
   @Test
@@ -84,7 +85,7 @@ class ExecutionObserverTest {
 
     observer.recordSuccessFinalizationMinimal(job);
 
-    verify(metricsCollector).successFinalizationMinimal(42L, job.getPublicJobType());
+    verify(metricsCollector).successFinalizationMinimal(job.getId(), job.getPublicJobType());
   }
 
   @Test
@@ -93,6 +94,6 @@ class ExecutionObserverTest {
 
     observer.recordSuccessFinalizationStuck(job);
 
-    verify(metricsCollector).successFinalizationStuck(42L, job.getPublicJobType());
+    verify(metricsCollector).successFinalizationStuck(job.getId(), job.getPublicJobType());
   }
 }

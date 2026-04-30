@@ -4,6 +4,7 @@ import run.ratchet.store.spi.ResourcePermitStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.List;
+import java.util.UUID;
 import org.jboss.logging.Logger;
 
 /**
@@ -44,7 +45,7 @@ public class ResourcePermitService {
    * @return true if permit was acquired, false if resource is at capacity
    * @throws IllegalArgumentException if resource is not configured
    */
-  public boolean tryAcquire(String resourceName, long jobId, String nodeId) {
+  public boolean tryAcquire(String resourceName, UUID jobId, String nodeId) {
     boolean acquired = resourcePermitStore.tryAcquirePermit(resourceName, jobId, nodeId);
     if (acquired) {
       log.debugf("Job %s acquired permit for resource %s", jobId, resourceName);
@@ -55,13 +56,13 @@ public class ResourcePermitService {
   }
 
   /** Safe to call even if the job holds no permit. */
-  public void release(String resourceName, long jobId) {
+  public void release(String resourceName, UUID jobId) {
     resourcePermitStore.releasePermit(resourceName, jobId);
     log.debugf("Job %s released permit for resource %s", jobId, resourceName);
     pollerScheduler.wakeup();
   }
 
-  public void releaseAll(long jobId) {
+  public void releaseAll(UUID jobId) {
     resourcePermitStore.releaseAllPermits(jobId);
     pollerScheduler.wakeup();
   }

@@ -32,6 +32,7 @@ final class PostgresqlDialectMapper implements DialectTypeMapper {
       // the driver version, so we accept the canonical lowercase forms case-insensitively.
       case INT32 -> Set.of("int4", "integer", "int");
       case INT64 -> Set.of("int8", "bigint");
+      case UUID -> Set.of("uuid");
       case TEXT -> Set.of("text", "varchar", "character varying", "bpchar");
       case CHAR_1 -> Set.of("bpchar", "character", "char");
       case TIMESTAMP_TZ -> Set.of("timestamptz", "timestamp with time zone");

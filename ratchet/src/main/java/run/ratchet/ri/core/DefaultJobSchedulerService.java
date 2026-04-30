@@ -30,6 +30,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.Set;
+import java.util.UUID;
 import java.util.function.Consumer;
 import org.jboss.logging.Logger;
 
@@ -138,7 +139,7 @@ public class DefaultJobSchedulerService
 
   @Override
   @Transactional
-  public boolean cancelJob(long jobId) {
+  public boolean cancelJob(UUID jobId) {
     // Try PENDING → CANCELED first (most common case)
     if (jobBatchStatusStore.compareAndSwapStatus(
         jobId, JobStatus.PENDING, JobStatus.CANCELED, null)) {
@@ -176,7 +177,7 @@ public class DefaultJobSchedulerService
    * event so downstream observers (audit logs, monitoring) see the same shape they get for
    * running-cancellations.
    */
-  private void publishCancelledEvent(long jobId, JobStatus previousStatus) {
+  private void publishCancelledEvent(UUID jobId, JobStatus previousStatus) {
     JobEntity job = jobCrudStore.findById(jobId).orElse(null);
     if (job == null) {
       // Race: job was deleted between CAS and our lookup. Fire a minimal event so observers at
@@ -240,7 +241,7 @@ public class DefaultJobSchedulerService
   @Override
   @Transactional
   public JobHandle replace(
-      long jobId, Duration delay, SerializableCheckedRunnable newTask, JobOptions opts) {
+      UUID jobId, Duration delay, SerializableCheckedRunnable newTask, JobOptions opts) {
     // Fail fast if the job doesn't exist — don't create an orphaned replacement below.
     // We intentionally discard the loaded entity: the final save() after the CAS block reloads a
     // fresh snapshot whose version is post-CAS. See the block comment on that reload for the
@@ -293,7 +294,7 @@ public class DefaultJobSchedulerService
 
   @Override
   @Transactional
-  public boolean pauseJob(long jobId) {
+  public boolean pauseJob(UUID jobId) {
     // Idempotent: already paused is a no-op success
     JobEntity job = jobCrudStore.findById(jobId).orElse(null);
     if (job == null) {
@@ -333,7 +334,7 @@ public class DefaultJobSchedulerService
 
   @Override
   @Transactional
-  public boolean resumeJob(long jobId) {
+  public boolean resumeJob(UUID jobId) {
     // Recurring masters: rec_status 'A' → 'P'.
     JobEntity job = jobCrudStore.findById(jobId).orElse(null);
     if (job == null) {
@@ -365,7 +366,7 @@ public class DefaultJobSchedulerService
 
   @Override
   @Transactional
-  public boolean retryJob(long jobId) {
+  public boolean retryJob(UUID jobId) {
     if (jobRetryStore.resetFailedToPending(jobId)) {
       log.debugf("Retried failed job %s — reset to PENDING", jobId);
       return true;

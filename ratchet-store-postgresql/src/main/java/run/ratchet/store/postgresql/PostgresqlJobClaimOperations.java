@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 final class PostgresqlJobClaimOperations implements JobClaimStore {
 
@@ -91,9 +92,9 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
       if (rows.isEmpty()) {
         return List.of();
       }
-      List<Long> ids = new ArrayList<>(rows.size());
+      List<UUID> ids = new ArrayList<>(rows.size());
       for (Object[] row : rows) {
-        ids.add(((Number) row[0]).longValue());
+        ids.add(PostgresqlJobRowMapper.uuidOrNull(row[0]));
       }
       return reorderById(jobs.findByIds(ids), ids);
     } catch (RuntimeException e) {
@@ -127,7 +128,7 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
       for (Object[] row : rows) {
         claims.add(
             new JobClaimDto(
-                ((Number) row[0]).longValue(),
+                PostgresqlJobRowMapper.uuidOrNull(row[0]),
                 JobStatus.RUNNING,
                 JobExecutionType.valueOf((String) row[2]),
                 PostgresqlJobRowMapper.safeJobPriority(((Number) row[3]).intValue()),
@@ -172,13 +173,13 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
         selectQuery.setParameter(parameter++, boostInterval);
       }
       selectQuery.setParameter(parameter, limit);
-      List<Number> idRows = selectQuery.getResultList();
+      List<?> idRows = selectQuery.getResultList();
       if (idRows.isEmpty()) {
         return List.of();
       }
-      List<Long> ids = new ArrayList<>(idRows.size());
-      for (Number n : idRows) {
-        ids.add(n.longValue());
+      List<UUID> ids = new ArrayList<>(idRows.size());
+      for (Object n : idRows) {
+        ids.add(PostgresqlJobRowMapper.uuidOrNull(n));
       }
       List<JobEntity> ordered = reorderById(jobs.findByIds(ids), ids);
       Instant now = Instant.now();
@@ -193,13 +194,13 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
     }
   }
 
-  private static List<JobEntity> reorderById(List<JobEntity> jobs, List<Long> orderedIds) {
-    Map<Long, JobEntity> byId = new HashMap<>(jobs.size());
+  private static List<JobEntity> reorderById(List<JobEntity> jobs, List<UUID> orderedIds) {
+    Map<UUID, JobEntity> byId = new HashMap<>(jobs.size());
     for (JobEntity j : jobs) {
       byId.put(j.getId(), j);
     }
     List<JobEntity> ordered = new ArrayList<>(jobs.size());
-    for (Long id : orderedIds) {
+    for (UUID id : orderedIds) {
       JobEntity j = byId.get(id);
       if (j != null) {
         ordered.add(j);

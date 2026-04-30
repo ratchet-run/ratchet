@@ -14,6 +14,7 @@ import jakarta.transaction.Transactional;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.jboss.logging.Logger;
 
@@ -160,7 +161,7 @@ public class WorkflowScheduler extends ChainScheduler {
 
   private void cancelUnscheduledBranches(
       List<WorkflowConditionEntity> conditions, WorkflowConditionEntity scheduledCondition) {
-    Long scheduledChildId = scheduledCondition == null ? null : scheduledCondition.getChildJobId();
+    UUID scheduledChildId = scheduledCondition == null ? null : scheduledCondition.getChildJobId();
     for (WorkflowConditionEntity condition : conditions) {
       if (Objects.equals(condition.getChildJobId(), scheduledChildId)) {
         continue;

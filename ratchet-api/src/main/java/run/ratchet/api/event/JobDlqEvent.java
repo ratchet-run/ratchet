@@ -4,6 +4,7 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import java.io.Serial;
 import java.time.Instant;
+import java.util.UUID;
 
 /** Fired when a job is moved to the dead letter queue. */
 public class JobDlqEvent extends AbstractJobSchedulerEvent {
@@ -14,7 +15,7 @@ public class JobDlqEvent extends AbstractJobSchedulerEvent {
   private final Integer retryAttempt;
 
   public JobDlqEvent(
-      Long jobId,
+      UUID jobId,
       String businessKey,
       JobType jobType,
       JobPriority priority,
@@ -28,7 +29,7 @@ public class JobDlqEvent extends AbstractJobSchedulerEvent {
   }
 
   public JobDlqEvent(
-      Long jobId,
+      UUID jobId,
       String businessKey,
       JobType jobType,
       JobPriority priority,

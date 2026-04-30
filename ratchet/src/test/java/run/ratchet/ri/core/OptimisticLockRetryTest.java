@@ -8,15 +8,20 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobStatus;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import org.junit.jupiter.api.Test;
 
 class OptimisticLockRetryTest {
 
+  private static UUID id(long lsb) {
+    return new UUID(0L, lsb);
+  }
+
   private static JobEntity newEntity(long id, JobStatus status, int version) {
     JobEntity e = new JobEntity();
-    e.setId(id);
+    e.setId(id(id));
     e.setStatus(status);
     e.setVersion(version);
     return e;
@@ -32,7 +37,7 @@ class OptimisticLockRetryTest {
 
     JobEntity result =
         OptimisticLockRetry.retryWithReload(
-            1L,
+            id(1L),
             () -> {
               reloadCount.incrementAndGet();
               return reloaded;
@@ -69,7 +74,7 @@ class OptimisticLockRetryTest {
 
     JobEntity result =
         OptimisticLockRetry.retryWithReload(
-            3, 2L, () -> reloaded, e -> e.setStatus(JobStatus.RUNNING), flakySave);
+            3, id(2L), () -> reloaded, e -> e.setStatus(JobStatus.RUNNING), flakySave);
 
     assertSame(saved, result);
     assertEquals(3, saveAttempt.get());
@@ -82,7 +87,7 @@ class OptimisticLockRetryTest {
             RatchetOptimisticLockException.class,
             () ->
                 OptimisticLockRetry.retryWithReload(
-                    99L,
+                    id(99L),
                     () -> null,
                     e -> {
                       throw new AssertionError("mutate should not run");
@@ -104,7 +109,7 @@ class OptimisticLockRetryTest {
             RatchetOptimisticLockException.class,
             () ->
                 OptimisticLockRetry.retryWithReload(
-                    3L,
+                    id(3L),
                     () -> canceled,
                     e -> mutateCount.incrementAndGet(),
                     e -> {
@@ -128,7 +133,7 @@ class OptimisticLockRetryTest {
             () ->
                 OptimisticLockRetry.retryWithReload(
                     3,
-                    4L,
+                    id(4L),
                     () -> reloaded,
                     e -> e.setStatus(JobStatus.RUNNING),
                     e -> {
@@ -156,7 +161,7 @@ class OptimisticLockRetryTest {
             () ->
                 OptimisticLockRetry.retryWithReload(
                     5,
-                    5L,
+                    id(5L),
                     () -> reloaded,
                     e -> Thread.currentThread().interrupt(),
                     alwaysConflict));
@@ -176,7 +181,7 @@ class OptimisticLockRetryTest {
             () ->
                 OptimisticLockRetry.retryWithReload(
                     3,
-                    6L,
+                    id(6L),
                     () -> reloaded,
                     e -> e.setStatus(JobStatus.RUNNING),
                     e -> {
@@ -194,6 +199,6 @@ class OptimisticLockRetryTest {
         IllegalArgumentException.class,
         () ->
             OptimisticLockRetry.retryWithReload(
-                0, 7L, () -> newEntity(7L, JobStatus.PENDING, 1), e -> {}, e -> e));
+                0, id(7L), () -> newEntity(7L, JobStatus.PENDING, 1), e -> {}, e -> e));
   }
 }

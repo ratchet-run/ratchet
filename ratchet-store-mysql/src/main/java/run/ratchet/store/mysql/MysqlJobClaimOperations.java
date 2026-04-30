@@ -15,6 +15,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 final class MysqlJobClaimOperations implements JobClaimStore {
 
@@ -36,13 +37,13 @@ final class MysqlJobClaimOperations implements JobClaimStore {
     this.jobs = jobs;
   }
 
-  private static List<JobEntity> reorderById(List<JobEntity> jobs, List<Long> orderedIds) {
-    Map<Long, JobEntity> byId = new HashMap<>(jobs.size());
+  private static List<JobEntity> reorderById(List<JobEntity> jobs, List<UUID> orderedIds) {
+    Map<UUID, JobEntity> byId = new HashMap<>(jobs.size());
     for (JobEntity j : jobs) {
       byId.put(j.getId(), j);
     }
     List<JobEntity> ordered = new ArrayList<>(jobs.size());
-    for (Long id : orderedIds) {
+    for (UUID id : orderedIds) {
       JobEntity j = byId.get(id);
       if (j != null) {
         ordered.add(j);
@@ -101,13 +102,13 @@ final class MysqlJobClaimOperations implements JobClaimStore {
         return List.of();
       }
 
-      List<Long> candidateIds = new ArrayList<>(candidateRows.size());
+      List<UUID> candidateIds = new ArrayList<>(candidateRows.size());
       for (Object[] row : candidateRows) {
-        candidateIds.add(((Number) row[0]).longValue());
+        candidateIds.add(MysqlJobRowMapper.uuidOrNull(row[0]));
       }
       boolean[] updated = batchClaimRowsJpa(candidateIds, nodeId, Instant.now());
 
-      List<Long> claimedIds = new ArrayList<>(candidateIds.size());
+      List<UUID> claimedIds = new ArrayList<>(candidateIds.size());
       for (int i = 0; i < candidateIds.size(); i++) {
         if (updated[i]) {
           claimedIds.add(candidateIds.get(i));
@@ -185,9 +186,9 @@ final class MysqlJobClaimOperations implements JobClaimStore {
       if (rows.isEmpty()) {
         return List.of();
       }
-      List<Long> ids = new ArrayList<>(rows.size());
+      List<UUID> ids = new ArrayList<>(rows.size());
       for (Object[] row : rows) {
-        ids.add(((Number) row[0]).longValue());
+        ids.add(MysqlJobRowMapper.uuidOrNull(row[0]));
       }
       List<JobEntity> ordered = reorderById(jobs.findByIds(ids), ids);
       for (JobEntity job : ordered) {
@@ -204,9 +205,9 @@ final class MysqlJobClaimOperations implements JobClaimStore {
         "claim_mark_running_batch",
         () -> {
           Instant now = Instant.now();
-          List<Long> jobIds = new ArrayList<>(rows.size());
+          List<UUID> jobIds = new ArrayList<>(rows.size());
           for (Object[] row : rows) {
-            jobIds.add(((Number) row[0]).longValue());
+            jobIds.add(MysqlJobRowMapper.uuidOrNull(row[0]));
           }
           boolean[] updated = batchClaimRowsJpa(jobIds, nodeId, now);
           List<JobClaimDto> claims = new ArrayList<>(rows.size());
@@ -235,7 +236,7 @@ final class MysqlJobClaimOperations implements JobClaimStore {
         claims -> claims.isEmpty() ? "miss" : "updated");
   }
 
-  private boolean[] batchClaimRowsJpa(List<Long> jobIds, String nodeId, Instant now) {
+  private boolean[] batchClaimRowsJpa(List<UUID> jobIds, String nodeId, Instant now) {
     Timestamp nowTs = Timestamp.from(now);
     try {
       String placeholders = String.join(",", Collections.nCopies(jobIds.size(), "?"));
@@ -254,7 +255,7 @@ final class MysqlJobClaimOperations implements JobClaimStore {
       updateQuery.setParameter(parameter++, nodeId);
       updateQuery.setParameter(parameter++, nowTs);
       updateQuery.setParameter(parameter++, nowTs);
-      for (Long id : jobIds) {
+      for (UUID id : jobIds) {
         updateQuery.setParameter(parameter++, id);
       }
       updateQuery.executeUpdate();
@@ -269,16 +270,16 @@ final class MysqlJobClaimOperations implements JobClaimStore {
               .formatted(placeholders);
       Query selectQuery = ctx.em().createNativeQuery(selectSql);
       parameter = 1;
-      for (Long id : jobIds) {
+      for (UUID id : jobIds) {
         selectQuery.setParameter(parameter++, id);
       }
       selectQuery.setParameter(parameter++, nodeId);
       @SuppressWarnings("unchecked")
-      List<Number> claimedRows = selectQuery.getResultList();
+      List<?> claimedRows = selectQuery.getResultList();
 
-      Set<Long> claimedIds = new HashSet<>(claimedRows.size());
-      for (Number claimedRow : claimedRows) {
-        claimedIds.add(claimedRow.longValue());
+      Set<UUID> claimedIds = new HashSet<>(claimedRows.size());
+      for (Object claimedRow : claimedRows) {
+        claimedIds.add(MysqlJobRowMapper.uuidOrNull(claimedRow));
       }
 
       boolean[] updated = new boolean[jobIds.size()];

@@ -5,6 +5,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import java.time.Duration;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
@@ -20,7 +21,7 @@ import java.util.concurrent.TimeUnit;
 @ApplicationScoped
 public class CdiEventCollector {
 
-  private final Set<Long> observedJobIds = ConcurrentHashMap.newKeySet();
+  private final Set<UUID> observedJobIds = ConcurrentHashMap.newKeySet();
   private final Object lock = new Object();
 
   void onCompleted(@Observes JobCompletedEvent event) {
@@ -36,7 +37,7 @@ public class CdiEventCollector {
    * Blocks up to {@code timeout} for {@code jobId} to be observed via the CDI {@code @Observes}
    * pathway. Returns {@code true} on observation, {@code false} on timeout.
    */
-  public boolean awaitJobId(long jobId, Duration timeout) {
+  public boolean awaitJobId(UUID jobId, Duration timeout) {
     long deadlineNanos = System.nanoTime() + timeout.toNanos();
     while (!observedJobIds.contains(jobId)) {
       long remainingNanos = deadlineNanos - System.nanoTime();

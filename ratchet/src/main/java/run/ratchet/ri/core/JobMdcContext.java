@@ -3,6 +3,7 @@ package run.ratchet.ri.core;
 import run.ratchet.api.JobContext;
 import run.ratchet.spi.JobLogger;
 import java.util.Map;
+import java.util.UUID;
 import org.jboss.logging.MDC;
 
 /**
@@ -18,7 +19,7 @@ import org.jboss.logging.MDC;
  *
  * <h2>Lifecycle</h2>
  *
- * <p>Keys are written on {@link #bindJobContext(Long, JobLogger, Map, String, String)} and removed
+ * <p>Keys are written on {@link #bindJobContext(UUID, JobLogger, Map, String, String)} and removed
  * (per-key, not via {@code MDC.clear()}) on {@link #clear()}. Per-key removal is deliberate: the
  * enclosing application may have set its own MDC keys (e.g. a request-correlation ID set by a
  * Servlet filter or JAX-RS interceptor) before the job was submitted, and {@code MDC.clear()} would
@@ -61,17 +62,17 @@ final class JobMdcContext {
   private JobMdcContext() {}
 
   // Entry point for early-load failure paths where node/creator metadata is not yet available.
-  static void bindJobContext(Long jobId, Map<String, String> params) {
+  static void bindJobContext(UUID jobId, Map<String, String> params) {
     bindJobContext(jobId, NoOpJobLogger.INSTANCE, params, null, null);
   }
 
   static void bindJobContext(
-      Long jobId, Map<String, String> params, String nodeId, String jobCreator) {
+      UUID jobId, Map<String, String> params, String nodeId, String jobCreator) {
     bindJobContext(jobId, NoOpJobLogger.INSTANCE, params, nodeId, jobCreator);
   }
 
   static void bindJobContext(
-      Long jobId, JobLogger logger, Map<String, String> params, String nodeId, String jobCreator) {
+      UUID jobId, JobLogger logger, Map<String, String> params, String nodeId, String jobCreator) {
     JobContext.bind(jobId, logger, params);
     if (jobId != null) {
       MDC.put(MDC_JOB_ID, String.valueOf(jobId));

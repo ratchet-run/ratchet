@@ -1,6 +1,5 @@
 package run.ratchet.testsuite.app;
 
-import run.ratchet.store.id.TsidFactory;
 import run.ratchet.store.spi.RatchetEntityManagerProvider;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -159,9 +158,7 @@ public class JpaPerformanceTestHelper implements PerformanceTestHelper {
   }
 
   private void insertPostgresqlChunk(int batchCount, int offset, String keyPrefix) {
-    // Generate TSID-like IDs: timestamp_ms shifted left 22 bits + series counter.
-    // The base TSID is computed once per chunk from TsidFactory to avoid collisions.
-    long baseTsid = TsidFactory.next();
+    // job_id is native uuid; gen_random_uuid() returns a fresh v4 per row.
     // language=PostgreSQL
     String sql =
         """
@@ -169,7 +166,7 @@ public class JpaPerformanceTestHelper implements PerformanceTestHelper {
           (job_id, status, scheduled_time, job_type, payload, idempotency_key,
            business_key, execution_start_time, execution_end_time,
            created_at, updated_at)
-        SELECT %d + g,
+        SELECT gen_random_uuid(),
                'SUCCEEDED', NOW() - INTERVAL '1 hour', 'SINGLE',
                '{"target":"run.ratchet.testsuite.app.TimingJob",\
         "method":"execute","descriptor":"()V",\
@@ -181,12 +178,12 @@ public class JpaPerformanceTestHelper implements PerformanceTestHelper {
                NOW(), NOW()
         FROM generate_series(1, %d) AS g
         """
-            .formatted(baseTsid, keyPrefix, offset, batchCount);
+            .formatted(keyPrefix, offset, batchCount);
     em().createNativeQuery(sql).executeUpdate();
   }
 
   private void insertMysqlChunk(int batchCount, int offset, String keyPrefix) {
-    long baseTsid = TsidFactory.next();
+    // job_id is BINARY(16); UUID_TO_BIN(UUID(), 1) produces a time-ordered 16-byte value.
     // language=MySQL
     String setDepthSql = "SET @@cte_max_recursion_depth = " + (batchCount + 1);
     em().createNativeQuery(setDepthSql).executeUpdate();
@@ -200,7 +197,7 @@ public class JpaPerformanceTestHelper implements PerformanceTestHelper {
         WITH RECURSIVE seq(n) AS (
           SELECT 1 UNION ALL SELECT n + 1 FROM seq WHERE n < %d
         )
-        SELECT %d + n,
+        SELECT UUID_TO_BIN(UUID(), 1),
                'SUCCEEDED', NOW() - INTERVAL 1 HOUR, 'SINGLE',
                JSON_OBJECT('target','run.ratchet.testsuite.app.TimingJob',
                            'method','execute','descriptor','()V','isStatic',true,
@@ -212,7 +209,7 @@ public class JpaPerformanceTestHelper implements PerformanceTestHelper {
                NOW(), NOW()
         FROM seq
         """
-            .formatted(batchCount, baseTsid, keyPrefix, offset);
+            .formatted(batchCount, keyPrefix, offset);
     em().createNativeQuery(sql).executeUpdate();
   }
 

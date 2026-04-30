@@ -31,6 +31,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.function.Function;
 import org.bson.Document;
 import org.bson.conversions.Bson;
@@ -52,7 +53,7 @@ final class MongoJobClaimOperations {
   }
 
   List<JobEntity> claimNextBatch(int limit, String nodeId) {
-    List<Long> candidateIds =
+    List<UUID> candidateIds =
         findCandidatesByBoostedPriority(
             MongoStoreContext.EXECUTABLE_JOB_TYPES, SCHEDULED_TIME, limit);
     return claimByIds(candidateIds, nodeId, DocumentMapper::toJobEntity);
@@ -62,19 +63,19 @@ final class MongoJobClaimOperations {
     if (limit <= 0 || !MongoStoreContext.isPollerExecutable(jobType)) {
       return List.of();
     }
-    List<Long> candidateIds =
+    List<UUID> candidateIds =
         findCandidatesByBoostedPriority(List.of(jobType.name()), SCHEDULED_TIME, limit);
     return claimByIds(candidateIds, nodeId, DocumentMapper::toJobClaimDto);
   }
 
   List<JobEntity> claimDueRecurring(int limit, String nodeId) {
-    List<Long> candidateIds =
+    List<UUID> candidateIds =
         findCandidatesByBoostedPriority(List.of("RECURRING"), NEXT_FIRE, limit);
     return claimByIds(candidateIds, nodeId, DocumentMapper::toJobEntity);
   }
 
   /** Finds candidate job IDs sorted by effective priority (raw priority + age-based boost). */
-  private List<Long> findCandidatesByBoostedPriority(
+  private List<UUID> findCandidatesByBoostedPriority(
       List<String> jobTypes, String timeColumn, int limit) {
     if (limit <= 0 || jobTypes.isEmpty()) {
       return List.of();
@@ -106,9 +107,9 @@ final class MongoJobClaimOperations {
       query.hintString(MongoIndexHints.JOB_CLAIM_EXEC);
     }
 
-    List<Long> ids = new ArrayList<>(limit);
+    List<UUID> ids = new ArrayList<>(limit);
     for (Document doc : query) {
-      ids.add(doc.getLong(ID));
+      ids.add(doc.get(ID, UUID.class));
     }
     return ids;
   }
@@ -148,14 +149,14 @@ final class MongoJobClaimOperations {
    * recovery has already taken responsibility for them, so dropping is safer than potentially
    * double-executing.
    */
-  private <T> List<T> claimByIds(List<Long> ids, String nodeId, Function<Document, T> mapper) {
+  private <T> List<T> claimByIds(List<UUID> ids, String nodeId, Function<Document, T> mapper) {
     if (ids.isEmpty()) {
       return List.of();
     }
 
     Date nowDate = DocumentMapper.toDate(Instant.now());
     List<UpdateOneModel<Document>> ops = new ArrayList<>(ids.size());
-    for (Long id : ids) {
+    for (UUID id : ids) {
       ops.add(
           new UpdateOneModel<>(
               and(eq(ID, id), eq(STATUS, "PENDING")),
@@ -184,7 +185,7 @@ final class MongoJobClaimOperations {
       return List.of();
     }
 
-    Map<Long, T> byId = new HashMap<>(ids.size());
+    Map<UUID, T> byId = new HashMap<>(ids.size());
     for (Document doc :
         ctx.jobs()
             .find(
@@ -192,10 +193,10 @@ final class MongoJobClaimOperations {
                     new Document(ID, new Document("$in", ids)),
                     eq(PICKED_BY, nodeId),
                     eq(STATUS, "RUNNING")))) {
-      byId.put(doc.getLong(ID), mapper.apply(doc));
+      byId.put(doc.get(ID, UUID.class), mapper.apply(doc));
     }
     List<T> ordered = new ArrayList<>(byId.size());
-    for (Long id : ids) {
+    for (UUID id : ids) {
       T claim = byId.get(id);
       if (claim != null) {
         ordered.add(claim);

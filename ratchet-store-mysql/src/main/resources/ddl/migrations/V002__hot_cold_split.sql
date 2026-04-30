@@ -9,7 +9,7 @@
 -- 1. New hot queue table. Empty at create; backfilled from scheduler_job immediately below.
 CREATE TABLE IF NOT EXISTS scheduler_job_queue
 (
-    job_id             BIGINT UNSIGNED NOT NULL,
+    job_id             BINARY(16)      NOT NULL,
     status             ENUM ('PENDING','RUNNING','PAUSED')                                                                                NOT NULL DEFAULT 'PENDING',
     job_type           ENUM ('SINGLE','RECURRING','BATCH_PARENT','BATCH_CHILD','CHAIN_STEP','DLQ_ALERT','WORKFLOW_BRANCH','WORKFLOW_JOIN') NOT NULL,
     priority           TINYINT UNSIGNED                                                                                                    NOT NULL DEFAULT 2,
@@ -38,11 +38,12 @@ CREATE TABLE IF NOT EXISTS scheduler_job_queue
 CREATE TABLE IF NOT EXISTS scheduler_business_key_reservation
 (
     business_key VARCHAR(255)                 NOT NULL,
-    owner_job_id BIGINT UNSIGNED              NOT NULL,
+    owner_job_id BINARY(16)                   NOT NULL,
     owner_table  ENUM ('QUEUE','RECURRING')   NOT NULL,
     reserved_at  DATETIME(6)                  NOT NULL,
     PRIMARY KEY (business_key),
-    INDEX idx_bk_owner (owner_job_id)
+    INDEX idx_bk_owner (owner_job_id),
+    CONSTRAINT fk_bk_owner_job FOREIGN KEY (owner_job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci;

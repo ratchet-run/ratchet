@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import run.ratchet.tck.util.ConcurrentTestRunner;
 import java.time.Duration;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -37,7 +38,7 @@ public abstract class AbstractBatchStoreContract implements JobStoreContractFixt
     store().incrementCompletedAtomic(parent.getId());
     store().incrementCompletedAtomic(parent.getId());
 
-    List<Long> recoverable = store().findRecoverableBatchIds(10);
+    List<UUID> recoverable = store().findRecoverableBatchIds(10);
 
     assertTrue(
         recoverable.contains(parent.getId()),
@@ -89,7 +90,7 @@ public abstract class AbstractBatchStoreContract implements JobStoreContractFixt
 
   @Test
   void findBatchById_unknownId_returnsEmpty() {
-    var result = store().findBatchById(Long.MAX_VALUE);
+    var result = store().findBatchById(new UUID(0L, Long.MAX_VALUE));
 
     assertTrue(result.isEmpty(), "findBatchById with unknown ID should return empty");
   }

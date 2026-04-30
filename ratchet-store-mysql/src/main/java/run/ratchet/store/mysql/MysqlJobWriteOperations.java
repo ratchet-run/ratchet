@@ -5,12 +5,13 @@ import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobStatus;
-import run.ratchet.store.id.TsidFactory;
+import run.ratchet.store.id.UuidV7Factory;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 
 final class MysqlJobWriteOperations {
 
@@ -52,7 +53,7 @@ final class MysqlJobWriteOperations {
     this.tags = tags;
   }
 
-  private static void checkHotField(long jobId, String fieldName, Object incoming, Object stored) {
+  private static void checkHotField(UUID jobId, String fieldName, Object incoming, Object stored) {
     if (Objects.equals(incoming, stored)) {
       return;
     }
@@ -69,8 +70,8 @@ final class MysqlJobWriteOperations {
   }
 
   private static void assignTsidIfMissing(JobEntity job) {
-    if (job.getId() == null || job.getId() == 0L) {
-      job.setId(TsidFactory.next());
+    if (job.getId() == null) {
+      job.setId(UuidV7Factory.create());
     }
   }
 
@@ -335,7 +336,7 @@ final class MysqlJobWriteOperations {
 
   @SuppressWarnings("unchecked")
   private boolean tryScheduledTimeOnlyHotUpdate(JobEntity job) {
-    long id = job.getId();
+    UUID id = job.getId();
     // language=MySQL
     String selectSql =
         """
@@ -383,7 +384,7 @@ final class MysqlJobWriteOperations {
   }
 
   private void updateHotLiveViaVersion(JobEntity incoming, int expectedVersion) {
-    long id = incoming.getId();
+    UUID id = incoming.getId();
     JobStatus status = incoming.getStatus() != null ? incoming.getStatus() : JobStatus.PENDING;
     // language=MySQL
     String sql =
@@ -423,7 +424,7 @@ final class MysqlJobWriteOperations {
   }
 
   private void terminalizeViaSave(JobEntity incoming, int expectedVersion) {
-    long id = incoming.getId();
+    UUID id = incoming.getId();
     int deleted =
         ctx.em()
             .createNativeQuery("DELETE FROM scheduler_job_queue WHERE job_id = ? AND version = ?")
@@ -453,7 +454,7 @@ final class MysqlJobWriteOperations {
   }
 
   @SuppressWarnings("unchecked")
-  private Object[] snapshotHotRow(long id) {
+  private Object[] snapshotHotRow(UUID id) {
     // language=MySQL
     String sql =
         """
@@ -469,7 +470,7 @@ final class MysqlJobWriteOperations {
   }
 
   private void guardAgainstHotMutation(JobEntity incoming) {
-    long id = incoming.getId();
+    UUID id = incoming.getId();
     Object[] row = snapshotHotRow(id);
     if (row == null) {
       throw new IllegalStateException("save() called on missing job id=" + id);
@@ -529,7 +530,7 @@ final class MysqlJobWriteOperations {
   }
 
   private boolean tryHotMutationDispatch(JobEntity incoming) {
-    long id = incoming.getId();
+    UUID id = incoming.getId();
     Object[] row = snapshotHotRow(id);
     if (row == null) {
       return false;

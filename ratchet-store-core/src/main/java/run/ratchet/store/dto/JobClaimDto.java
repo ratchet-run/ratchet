@@ -6,6 +6,7 @@ import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobStatus;
 import java.io.Serializable;
 import java.time.Instant;
+import java.util.UUID;
 
 /**
  * Lightweight DTO for job claiming operations.
@@ -14,7 +15,7 @@ import java.time.Instant;
  * params, jobResult, lastError) are NOT included to reduce data transfer during polling.
  */
 public record JobClaimDto(
-    Long id,
+    UUID id,
     JobStatus status,
     JobExecutionType jobType,
     JobPriority priority,

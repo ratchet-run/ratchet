@@ -4,6 +4,7 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import java.io.Serial;
 import java.time.Instant;
+import java.util.UUID;
 
 /** Fired when a job is paused. */
 public class JobPausedEvent extends AbstractJobSchedulerEvent {
@@ -11,7 +12,7 @@ public class JobPausedEvent extends AbstractJobSchedulerEvent {
   @Serial private static final long serialVersionUID = -3743348949914580646L;
 
   public JobPausedEvent(
-      Long jobId,
+      UUID jobId,
       String businessKey,
       JobType jobType,
       JobPriority priority,
@@ -21,7 +22,7 @@ public class JobPausedEvent extends AbstractJobSchedulerEvent {
   }
 
   public JobPausedEvent(
-      Long jobId, String businessKey, JobType jobType, JobPriority priority, String nodeId) {
+      UUID jobId, String businessKey, JobType jobType, JobPriority priority, String nodeId) {
     super(jobId, businessKey, jobType, priority, nodeId);
   }
 }

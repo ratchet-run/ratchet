@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import run.ratchet.api.JobPriority;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.id.TsidFactory;
+import run.ratchet.store.id.UuidV7Factory;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -31,7 +31,7 @@ class PostgresqlExplainPlanCaptureIT {
     List<JobEntity> jobs = new ArrayList<>(SEED_JOBS);
     for (int i = 0; i < SEED_JOBS; i++) {
       JobEntity job = FIXTURE.newPendingJob();
-      job.setId(TsidFactory.next());
+      job.setId(UuidV7Factory.create());
       job.setJobType(i % 4 == 0 ? JobExecutionType.SINGLE : JobExecutionType.BATCH_CHILD);
       job.setPriority(priorities[i % priorities.length]);
       job.setScheduledTime(now.minus(Duration.ofMinutes(i % 180)));

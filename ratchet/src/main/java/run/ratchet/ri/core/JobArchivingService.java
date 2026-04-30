@@ -16,6 +16,7 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -175,7 +176,7 @@ public class JobArchivingService {
             archiveStore.archiveJobsBatch(batch, ARCHIVE_REASON_RETENTION, ARCHIVED_BY_SYSTEM);
 
         if (archivedCount > 0) {
-          List<Long> jobIds = batch.stream().limit(archivedCount).map(JobEntity::getId).toList();
+          List<UUID> jobIds = batch.stream().limit(archivedCount).map(JobEntity::getId).toList();
 
           int deletedCount = jobBulkStore.deleteJobsByIds(jobIds);
 

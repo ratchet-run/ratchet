@@ -12,6 +12,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @ApplicationScoped
 public class RunStatusService {
@@ -65,11 +66,11 @@ public class RunStatusService {
     return response;
   }
 
-  public List<Long> findJobIds(String runId) {
-    List<Long> ids = new ArrayList<>();
+  public List<UUID> findJobIds(String runId) {
+    List<UUID> ids = new ArrayList<>();
     int offset = 0;
     while (true) {
-      List<Long> page = tagStore.findJobIdsByTag(Tags.run(runId), PAGE_SIZE, offset);
+      List<UUID> page = tagStore.findJobIdsByTag(Tags.run(runId), PAGE_SIZE, offset);
       if (page.isEmpty()) {
         return ids;
       }

@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -26,8 +27,8 @@ class ConcurrentClaimIT extends BaseDocumentStoreIT {
       store().save(newPendingJob());
     }
 
-    Set<Long> allClaimedIds = ConcurrentHashMap.newKeySet();
-    List<Long> duplicates = Collections.synchronizedList(new ArrayList<>());
+    Set<UUID> allClaimedIds = ConcurrentHashMap.newKeySet();
+    List<UUID> duplicates = Collections.synchronizedList(new ArrayList<>());
     CountDownLatch startLatch = new CountDownLatch(1);
     CountDownLatch doneLatch = new CountDownLatch(nodeCount);
 

@@ -13,6 +13,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import org.jboss.logging.Logger;
 
 /**
@@ -116,7 +117,7 @@ final class PostgresqlJobRowMapper {
               + row.length);
     }
     JobEntity j = new JobEntity();
-    j.setId(((Number) row[IDX_JOB_ID]).longValue());
+    j.setId(uuidOrNull(row[IDX_JOB_ID]));
     j.setJobType(JobExecutionType.valueOf((String) row[IDX_JOB_TYPE]));
     j.setPriority(safeJobPriority(((Number) row[IDX_PRIORITY]).intValue()));
     j.setMaxRetries(((Number) row[IDX_MAX_RETRIES]).intValue());
@@ -137,8 +138,8 @@ final class PostgresqlJobRowMapper {
         JOB_PAYLOAD_CONVERTER.convertToEntityAttribute(stringOrNull(row[IDX_ON_SUCCESS])));
     j.setOnFailurePayload(
         JOB_PAYLOAD_CONVERTER.convertToEntityAttribute(stringOrNull(row[IDX_ON_FAILURE])));
-    j.setDependsOn(longOrNull(row[IDX_DEPENDS_ON]));
-    j.setSupersededBy(longOrNull(row[IDX_SUPERSEDED_BY]));
+    j.setDependsOn(uuidOrNull(row[IDX_DEPENDS_ON]));
+    j.setSupersededBy(uuidOrNull(row[IDX_SUPERSEDED_BY]));
     j.setCreatedAt(toInstant(row[IDX_CREATED_AT]));
     j.setCreatedBy((String) row[IDX_CREATED_BY]);
     j.setCallerPrincipal((String) row[IDX_CALLER_PRINCIPAL]);
@@ -167,7 +168,7 @@ final class PostgresqlJobRowMapper {
       resolved = terminal;
     } else {
       log.errorf(
-          "Job %d has no live, recurring, or terminal status — possible invariant violation",
+          "Job %s has no live, recurring, or terminal status — possible invariant violation",
           j.getId());
       resolved = null;
     }
@@ -256,6 +257,28 @@ final class PostgresqlJobRowMapper {
     if (value == null) return null;
     if (value instanceof Number n) return n.longValue();
     return null;
+  }
+
+  static UUID uuidOrNull(Object value) {
+    if (value == null) return null;
+    if (value instanceof UUID uuid) return uuid;
+    if (value instanceof byte[] bytes) return uuidFromBytes(bytes);
+    return UUID.fromString(value.toString());
+  }
+
+  private static UUID uuidFromBytes(byte[] bytes) {
+    if (bytes.length != 16) {
+      throw new IllegalArgumentException("UUID byte array must be 16 bytes, got " + bytes.length);
+    }
+    long msb = 0;
+    long lsb = 0;
+    for (int i = 0; i < 8; i++) {
+      msb = (msb << 8) | (bytes[i] & 0xff);
+    }
+    for (int i = 8; i < 16; i++) {
+      lsb = (lsb << 8) | (bytes[i] & 0xff);
+    }
+    return new UUID(msb, lsb);
   }
 
   static JobPriority safeJobPriority(int ordinal) {

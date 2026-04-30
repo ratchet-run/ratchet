@@ -4,6 +4,7 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import java.io.Serial;
 import java.time.Instant;
+import java.util.UUID;
 
 /**
  * Fired when a job cancellation is initiated.
@@ -19,7 +20,7 @@ public class JobCancellingEvent extends AbstractJobSchedulerEvent {
   private final Long executionTimeMs;
 
   public JobCancellingEvent(
-      Long jobId,
+      UUID jobId,
       String businessKey,
       JobType jobType,
       JobPriority priority,
@@ -33,7 +34,7 @@ public class JobCancellingEvent extends AbstractJobSchedulerEvent {
   }
 
   public JobCancellingEvent(
-      Long jobId,
+      UUID jobId,
       String businessKey,
       JobType jobType,
       JobPriority priority,

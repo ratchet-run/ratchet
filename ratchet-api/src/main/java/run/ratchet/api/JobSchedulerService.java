@@ -3,6 +3,7 @@ package run.ratchet.api;
 import java.io.Serializable;
 import java.time.Duration;
 import java.time.ZoneId;
+import java.util.UUID;
 import java.util.function.Consumer;
 
 /**
@@ -107,9 +108,11 @@ public interface JobSchedulerService {
    *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}. The existence check, the submission of the
    * replacement, and the cancellation of the old job MUST execute within a single transaction.
+   *
+   * @param jobId UUIDv7 job id of the job to replace
    */
   JobHandle replace(
-      long jobId, Duration delay, SerializableCheckedRunnable newTask, JobOptions opts);
+      UUID jobId, Duration delay, SerializableCheckedRunnable newTask, JobOptions opts);
 
   /**
    * Cancels a job by its ID.
@@ -120,10 +123,11 @@ public interface JobSchedulerService {
    *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}.
    *
+   * @param jobId UUIDv7 job id
    * @return true if the job was successfully canceled, false if the job was not found or already in
    *     a terminal state
    */
-  boolean cancelJob(long jobId);
+  boolean cancelJob(UUID jobId);
 
   /**
    * Registers a programmatic event listener that receives all scheduler events.
@@ -177,10 +181,11 @@ public interface JobSchedulerService {
    *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}.
    *
+   * @param jobId UUIDv7 job id
    * @return true if the job was paused or was already paused, false if the job was not found or in
    *     an incompatible state (RUNNING, SUCCEEDED, CANCELED)
    */
-  boolean pauseJob(long jobId);
+  boolean pauseJob(UUID jobId);
 
   /**
    * Resumes a paused job, making it eligible for execution again.
@@ -193,9 +198,10 @@ public interface JobSchedulerService {
    *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}.
    *
+   * @param jobId UUIDv7 job id
    * @return true if the job was resumed, false if the job was not found or not in PAUSED state
    */
-  boolean resumeJob(long jobId);
+  boolean resumeJob(UUID jobId);
 
   /**
    * Retries a failed job by resetting it to PENDING status.
@@ -208,9 +214,10 @@ public interface JobSchedulerService {
    *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}.
    *
+   * @param jobId UUIDv7 job id
    * @return true if the job was successfully reset to PENDING, false if not found or not FAILED
    */
-  boolean retryJob(long jobId);
+  boolean retryJob(UUID jobId);
 
   /**
    * Cancels all recurring jobs associated with the specified tag.

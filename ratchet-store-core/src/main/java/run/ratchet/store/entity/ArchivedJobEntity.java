@@ -3,7 +3,7 @@ package run.ratchet.store.entity;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
-import run.ratchet.store.id.TsidEntityListener;
+import run.ratchet.store.id.UuidV7EntityListener;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
@@ -15,6 +15,7 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * Archived job for audit trails and analytics after reaching a terminal state.
@@ -36,15 +37,15 @@ import java.util.Objects;
       @Index(name = "idx_archive_job_type", columnList = "job_type"),
       @Index(name = "idx_archive_priority", columnList = "priority")
     })
-@EntityListeners(TsidEntityListener.class)
-public class ArchivedJobEntity implements TsidEntityListener.TsidAssignable {
+@EntityListeners(UuidV7EntityListener.class)
+public class ArchivedJobEntity implements UuidV7EntityListener.UuidV7Assignable {
 
   @Id
   @Column(name = "archive_id")
-  private Long id;
+  private UUID id;
 
   @Column(name = "original_job_id", nullable = false)
-  private Long originalJobId;
+  private UUID originalJobId;
 
   @Enumerated(EnumType.STRING)
   @Column(name = "final_status", nullable = false, length = 16)
@@ -129,27 +130,27 @@ public class ArchivedJobEntity implements TsidEntityListener.TsidAssignable {
   private String payloadSummary;
 
   @Column(name = "depended_on")
-  private Long dependedOn;
+  private UUID dependedOn;
 
   @Column(name = "superseded_by")
-  private Long supersededBy;
+  private UUID supersededBy;
 
   @Column(name = "tags", length = 512)
   private String tags;
 
-  public Long getId() {
+  public UUID getId() {
     return id;
   }
 
-  public void setId(Long id) {
+  public void setId(UUID id) {
     this.id = id;
   }
 
-  public Long getOriginalJobId() {
+  public UUID getOriginalJobId() {
     return originalJobId;
   }
 
-  public void setOriginalJobId(Long originalJobId) {
+  public void setOriginalJobId(UUID originalJobId) {
     this.originalJobId = originalJobId;
   }
 
@@ -365,19 +366,19 @@ public class ArchivedJobEntity implements TsidEntityListener.TsidAssignable {
     this.payloadSummary = payloadSummary;
   }
 
-  public Long getDependedOn() {
+  public UUID getDependedOn() {
     return dependedOn;
   }
 
-  public void setDependedOn(Long dependedOn) {
+  public void setDependedOn(UUID dependedOn) {
     this.dependedOn = dependedOn;
   }
 
-  public Long getSupersededBy() {
+  public UUID getSupersededBy() {
     return supersededBy;
   }
 
-  public void setSupersededBy(Long supersededBy) {
+  public void setSupersededBy(UUID supersededBy) {
     this.supersededBy = supersededBy;
   }
 

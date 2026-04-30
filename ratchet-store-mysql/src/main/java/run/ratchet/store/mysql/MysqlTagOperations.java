@@ -11,6 +11,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 final class MysqlTagOperations implements TagStore {
@@ -39,7 +40,7 @@ final class MysqlTagOperations implements TagStore {
   }
 
   @Override
-  public void insertTags(long jobId, List<String> tags) {
+  public void insertTags(UUID jobId, List<String> tags) {
     if (tags == null || tags.isEmpty()) {
       return;
     }
@@ -51,14 +52,14 @@ final class MysqlTagOperations implements TagStore {
   }
 
   @Override
-  public int deleteTagsByJobId(long jobId) {
+  public int deleteTagsByJobId(UUID jobId) {
     // language=MySQL
     String sql = "DELETE FROM scheduler_job_tag WHERE job_id = ?";
     return ctx.em().createNativeQuery(sql).setParameter(1, jobId).executeUpdate();
   }
 
   @Override
-  public List<Long> findJobIdsByTag(String tag, int limit, int offset) {
+  public List<UUID> findJobIdsByTag(String tag, int limit, int offset) {
     // language=MySQL
     String sql = "SELECT job_id FROM scheduler_job_tag WHERE tag = ? LIMIT ? OFFSET ?";
     List<?> rows =
@@ -68,7 +69,7 @@ final class MysqlTagOperations implements TagStore {
             .setParameter(2, limit)
             .setParameter(3, offset)
             .getResultList();
-    return rows.stream().map(r -> ((Number) r).longValue()).collect(Collectors.toList());
+    return rows.stream().map(MysqlJobRowMapper::uuidOrNull).collect(Collectors.toList());
   }
 
   @Override
@@ -165,8 +166,8 @@ final class MysqlTagOperations implements TagStore {
 
   void hydrateTagsBatch(List<JobEntity> jobs) {
     if (jobs.isEmpty()) return;
-    List<Long> ids = new ArrayList<>(jobs.size());
-    Map<Long, JobEntity> byId = new HashMap<>();
+    List<UUID> ids = new ArrayList<>(jobs.size());
+    Map<UUID, JobEntity> byId = new HashMap<>();
     for (JobEntity j : jobs) {
       if (j.getId() != null) {
         ids.add(j.getId());
@@ -182,13 +183,13 @@ final class MysqlTagOperations implements TagStore {
             + ") ORDER BY job_id";
     Query tagQuery = ctx.em().createNativeQuery(sql);
     int parameter = 1;
-    for (Long id : ids) {
+    for (UUID id : ids) {
       tagQuery.setParameter(parameter++, id);
     }
     @SuppressWarnings("unchecked")
     List<Object[]> rows = tagQuery.getResultList();
     for (Object[] row : rows) {
-      long jid = ((Number) row[0]).longValue();
+      UUID jid = MysqlJobRowMapper.uuidOrNull(row[0]);
       String tag = (String) row[1];
       JobEntity j = byId.get(jid);
       if (j == null) continue;

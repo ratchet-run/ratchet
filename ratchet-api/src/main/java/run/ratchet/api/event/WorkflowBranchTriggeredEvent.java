@@ -4,6 +4,7 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import java.io.Serial;
 import java.time.Instant;
+import java.util.UUID;
 
 /** Fired when a workflow branch condition is triggered. */
 public class WorkflowBranchTriggeredEvent extends AbstractJobSchedulerEvent {
@@ -14,7 +15,7 @@ public class WorkflowBranchTriggeredEvent extends AbstractJobSchedulerEvent {
   private final String nextJobId;
 
   public WorkflowBranchTriggeredEvent(
-      Long jobId,
+      UUID jobId,
       String businessKey,
       JobType jobType,
       JobPriority priority,
@@ -28,7 +29,7 @@ public class WorkflowBranchTriggeredEvent extends AbstractJobSchedulerEvent {
   }
 
   public WorkflowBranchTriggeredEvent(
-      Long jobId,
+      UUID jobId,
       String businessKey,
       JobType jobType,
       JobPriority priority,

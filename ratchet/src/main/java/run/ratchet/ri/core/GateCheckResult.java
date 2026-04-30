@@ -1,6 +1,7 @@
 package run.ratchet.ri.core;
 
 import run.ratchet.store.entity.JobExecutionType;
+import java.util.UUID;
 
 /**
  * Outcome of checking drain, rate-limit, and permit gates before job submission. A CLEAR result
@@ -12,26 +13,26 @@ public record GateCheckResult(GateStatus status, String reason) {
     return new GateCheckResult(GateStatus.CLEAR, null);
   }
 
-  public static GateCheckResult draining(Long jobId) {
+  public static GateCheckResult draining(UUID jobId) {
     return new GateCheckResult(
         GateStatus.DRAINING, "Node draining - returning job " + jobId + " to PENDING");
   }
 
-  public static GateCheckResult noPermits(JobExecutionType jobType, Long jobId) {
+  public static GateCheckResult noPermits(JobExecutionType jobType, UUID jobId) {
     return new GateCheckResult(
         GateStatus.NO_PERMITS,
         String.format(
-            "Executor for %s saturated - returning job %d to PENDING for other nodes",
+            "Executor for %s saturated - returning job %s to PENDING for other nodes",
             jobType, jobId));
   }
 
   public static GateCheckResult rateLimited(
-      JobExecutionType jobType, Long jobId, int currentCount, int limit) {
+      JobExecutionType jobType, UUID jobId, int currentCount, int limit) {
     return new GateCheckResult(
         GateStatus.RATE_LIMITED,
         String.format(
             "Rate limit exceeded for %s (current: %d/min, limit: %d/min) - "
-                + "returning job %d to PENDING",
+                + "returning job %s to PENDING",
             jobType, currentCount, limit, jobId));
   }
 

@@ -7,6 +7,7 @@ import run.ratchet.spi.SerializedJobResult;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 import org.jboss.logging.Logger;
 
 /** Default JSON result persistence with a configurable size cap. */
@@ -31,7 +32,7 @@ public class DefaultResultPersistenceStrategy implements ResultPersistenceStrate
   }
 
   @Override
-  public SerializedJobResult serialize(long jobId, Object result) {
+  public SerializedJobResult serialize(UUID jobId, Object result) {
     if (result == null) {
       return SerializedJobResult.empty();
     }

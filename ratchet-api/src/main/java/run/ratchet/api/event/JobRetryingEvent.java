@@ -4,6 +4,7 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import java.io.Serial;
 import java.time.Instant;
+import java.util.UUID;
 
 /** Fired when a failed job is about to be retried. */
 public class JobRetryingEvent extends AbstractJobSchedulerEvent {
@@ -15,7 +16,7 @@ public class JobRetryingEvent extends AbstractJobSchedulerEvent {
   private final Instant scheduledTime;
 
   public JobRetryingEvent(
-      Long jobId,
+      UUID jobId,
       String businessKey,
       JobType jobType,
       JobPriority priority,
@@ -31,7 +32,7 @@ public class JobRetryingEvent extends AbstractJobSchedulerEvent {
   }
 
   public JobRetryingEvent(
-      Long jobId,
+      UUID jobId,
       String businessKey,
       JobType jobType,
       JobPriority priority,

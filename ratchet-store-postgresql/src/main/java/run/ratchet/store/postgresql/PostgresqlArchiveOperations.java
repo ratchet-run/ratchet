@@ -2,7 +2,7 @@ package run.ratchet.store.postgresql;
 
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.id.TsidFactory;
+import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.util.ArchiveHelper;
 import run.ratchet.store.util.ArchiveRowMapper;
@@ -145,8 +145,8 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
   }
 
   private static void prepareArchive(ArchivedJobEntity archive) {
-    if (archive.getId() == null || archive.getId() == 0L) {
-      archive.setId(TsidFactory.next());
+    if (archive.getId() == null) {
+      archive.setId(UuidV7Factory.create());
     }
     if (archive.getArchivedAt() == null) {
       archive.setArchivedAt(Instant.now());

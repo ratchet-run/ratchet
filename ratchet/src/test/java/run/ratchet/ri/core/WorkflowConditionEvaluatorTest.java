@@ -2,7 +2,7 @@ package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 import run.ratchet.api.BatchContext;
@@ -21,6 +21,7 @@ import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.BatchStore;
 import java.util.Optional;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -38,7 +39,7 @@ class WorkflowConditionEvaluatorTest {
 
   private static JobEntity parentJob(JobStatus status) {
     JobEntity job = new JobEntity();
-    job.setId(1L);
+    job.setId(new UUID(0L, 1L));
     job.setStatus(status);
     job.setJobType(JobExecutionType.SINGLE);
     return job;
@@ -46,7 +47,7 @@ class WorkflowConditionEvaluatorTest {
 
   private static JobEntity batchParent(JobStatus status) {
     JobEntity job = new JobEntity();
-    job.setId(10L);
+    job.setId(new UUID(0L, 10L));
     job.setStatus(status);
     job.setJobType(JobExecutionType.BATCH_PARENT);
     return job;
@@ -54,7 +55,7 @@ class WorkflowConditionEvaluatorTest {
 
   private static WorkflowConditionEntity condition(WorkflowCondition.ConditionType type) {
     WorkflowConditionEntity c = new WorkflowConditionEntity();
-    c.setId(100L);
+    c.setId(new UUID(0L, 100L));
     c.setConditionType(type);
     return c;
   }
@@ -68,7 +69,7 @@ class WorkflowConditionEvaluatorTest {
 
   private static BatchEntity batch(int total, int completed, int failed) {
     BatchEntity b = new BatchEntity();
-    b.setId(10L);
+    b.setId(new UUID(0L, 10L));
     b.setTotalItems(total);
     b.setCompletedItems(completed);
     b.setFailedItems(failed);
@@ -284,7 +285,7 @@ class WorkflowConditionEvaluatorTest {
   @Test
   void evaluate_exceptionThrown_returnsFalse() {
     JobEntity parent = batchParent(JobStatus.SUCCEEDED);
-    when(batchStore.findBatchById(anyLong())).thenThrow(new RuntimeException("DB error"));
+    when(batchStore.findBatchById(any(UUID.class))).thenThrow(new RuntimeException("DB error"));
 
     assertFalse(
         evaluator.evaluate(condition(WorkflowCondition.ConditionType.BATCH_SUCCESS), parent));

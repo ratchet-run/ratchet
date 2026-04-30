@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobStatus;
+import java.util.UUID;
 import org.bson.Document;
 import org.junit.jupiter.api.Test;
 
@@ -25,7 +26,7 @@ class MongoJobStoreVersionRollbackIT extends BaseDocumentStoreIT {
   @Test
   void staleWrite_restoresEntityVersionToPrePersistValue() {
     JobEntity initial = store().save(newPendingJob());
-    long id = initial.getId();
+    UUID id = initial.getId();
     int initialVersion = initial.getVersion();
 
     // Simulate a concurrent writer by mutating the row out from under our snapshot.

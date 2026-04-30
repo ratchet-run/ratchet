@@ -4,6 +4,7 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import java.io.Serial;
 import java.time.Instant;
+import java.util.UUID;
 
 /** Fired when a job completes successfully. */
 public class JobCompletedEvent extends AbstractJobSchedulerEvent {
@@ -13,7 +14,7 @@ public class JobCompletedEvent extends AbstractJobSchedulerEvent {
   private final Long executionTimeMs;
 
   public JobCompletedEvent(
-      Long jobId,
+      UUID jobId,
       String businessKey,
       JobType jobType,
       JobPriority priority,
@@ -25,7 +26,7 @@ public class JobCompletedEvent extends AbstractJobSchedulerEvent {
   }
 
   public JobCompletedEvent(
-      Long jobId,
+      UUID jobId,
       String businessKey,
       JobType jobType,
       JobPriority priority,

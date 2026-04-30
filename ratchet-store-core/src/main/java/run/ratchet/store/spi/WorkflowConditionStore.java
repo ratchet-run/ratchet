@@ -4,6 +4,7 @@ import run.ratchet.api.Incubating;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import java.util.List;
+import java.util.UUID;
 
 /** Workflow condition persistence operations. */
 @Incubating
@@ -11,20 +12,20 @@ public interface WorkflowConditionStore {
 
   WorkflowConditionEntity saveCondition(WorkflowConditionEntity condition);
 
-  WorkflowConditionEntity findConditionById(long id);
+  WorkflowConditionEntity findConditionById(UUID id);
 
-  List<WorkflowConditionEntity> findConditionsByParentJobId(long parentJobId);
+  List<WorkflowConditionEntity> findConditionsByParentJobId(UUID parentJobId);
 
-  List<WorkflowConditionEntity> findConditionsByChildJobId(long childJobId);
+  List<WorkflowConditionEntity> findConditionsByChildJobId(UUID childJobId);
 
   List<WorkflowConditionEntity> findConditionsByType(
-      long parentJobId, WorkflowCondition.ConditionType type);
+      UUID parentJobId, WorkflowCondition.ConditionType type);
 
-  void deleteConditionById(long id);
+  void deleteConditionById(UUID id);
 
-  void deleteConditionsByParentJobId(long parentJobId);
+  void deleteConditionsByParentJobId(UUID parentJobId);
 
-  void deleteConditionsByChildJobId(long childJobId);
+  void deleteConditionsByChildJobId(UUID childJobId);
 
-  long countConditionsByParentJobId(long parentJobId);
+  long countConditionsByParentJobId(UUID parentJobId);
 }

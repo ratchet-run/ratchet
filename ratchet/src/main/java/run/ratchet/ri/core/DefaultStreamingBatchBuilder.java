@@ -13,6 +13,7 @@ import run.ratchet.api.WorkflowCondition;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 import org.jboss.logging.Logger;
@@ -113,7 +114,7 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
     return this;
   }
 
-  void invokeLocalProgressHook(Long batchId, int processedItems, int chunksInserted) {
+  void invokeLocalProgressHook(UUID batchId, int processedItems, int chunksInserted) {
     if (localProgressHook == null) {
       return;
     }

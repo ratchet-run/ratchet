@@ -6,6 +6,7 @@ import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobStatus;
 import java.time.Instant;
+import java.util.UUID;
 import java.util.function.Function;
 
 /** Maps explicit archive native-query projections into {@link ArchivedJobEntity} instances. */
@@ -19,8 +20,8 @@ public final class ArchiveRowMapper {
     assertColumnCount(row);
     ArchivedJobEntity archive = new ArchivedJobEntity();
     int column = 0;
-    archive.setId(longOrNull(row[column++]));
-    archive.setOriginalJobId(longOrNull(row[column++]));
+    archive.setId(uuidOrNull(row[column++]));
+    archive.setOriginalJobId(uuidOrNull(row[column++]));
     archive.setFinalStatus(JobStatus.valueOf(stringOrNull(row[column++])));
     archive.setJobType(JobExecutionType.valueOf(stringOrNull(row[column++])));
     archive.setPriority(JobPriority.values()[((Number) row[column++]).intValue()]);
@@ -47,8 +48,8 @@ public final class ArchiveRowMapper {
     archive.setResultType(stringOrNull(row[column++]));
     archive.setFinalError(stringOrNull(row[column++]));
     archive.setPayloadSummary(stringOrNull(row[column++]));
-    archive.setDependedOn(longOrNull(row[column++]));
-    archive.setSupersededBy(longOrNull(row[column++]));
+    archive.setDependedOn(uuidOrNull(row[column++]));
+    archive.setSupersededBy(uuidOrNull(row[column++]));
     archive.setTags(stringOrNull(row[column]));
     return archive;
   }
@@ -65,6 +66,34 @@ public final class ArchiveRowMapper {
 
   private static Long longOrNull(Object value) {
     return value == null ? null : ((Number) value).longValue();
+  }
+
+  private static UUID uuidOrNull(Object value) {
+    if (value == null) {
+      return null;
+    }
+    if (value instanceof UUID uuid) {
+      return uuid;
+    }
+    if (value instanceof byte[] bytes) {
+      return uuidFromBytes(bytes);
+    }
+    return UUID.fromString(value.toString());
+  }
+
+  private static UUID uuidFromBytes(byte[] bytes) {
+    if (bytes.length != 16) {
+      throw new IllegalArgumentException("UUID byte array must be 16 bytes, got " + bytes.length);
+    }
+    long msb = 0;
+    long lsb = 0;
+    for (int i = 0; i < 8; i++) {
+      msb = (msb << 8) | (bytes[i] & 0xff);
+    }
+    for (int i = 8; i < 16; i++) {
+      lsb = (lsb << 8) | (bytes[i] & 0xff);
+    }
+    return new UUID(msb, lsb);
   }
 
   private static String stringOrNull(Object value) {

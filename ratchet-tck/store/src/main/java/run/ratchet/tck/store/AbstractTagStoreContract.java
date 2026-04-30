@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -22,7 +23,7 @@ public abstract class AbstractTagStoreContract implements JobStoreContractFixtur
     var saved = persist(newPendingJob());
     store().insertTags(saved.getId(), List.of("tag1", "tag2"));
 
-    List<Long> ids = store().findJobIdsByTag("tag1", 10, 0);
+    List<UUID> ids = store().findJobIdsByTag("tag1", 10, 0);
 
     assertTrue(ids.contains(saved.getId()), "findJobIdsByTag should return the tagged job");
   }
@@ -53,8 +54,8 @@ public abstract class AbstractTagStoreContract implements JobStoreContractFixtur
     store().insertTags(second.getId(), List.of("shared"));
     store().insertTags(third.getId(), List.of("shared"));
 
-    List<Long> page1 = store().findJobIdsByTag("shared", 2, 0);
-    List<Long> page2 = store().findJobIdsByTag("shared", 2, 2);
+    List<UUID> page1 = store().findJobIdsByTag("shared", 2, 0);
+    List<UUID> page2 = store().findJobIdsByTag("shared", 2, 2);
 
     assertEquals(2, page1.size(), "First page should contain 2 results");
     assertEquals(1, page2.size(), "Second page should contain 1 result");
@@ -74,7 +75,7 @@ public abstract class AbstractTagStoreContract implements JobStoreContractFixtur
 
   @Test
   void findJobIdsByTag_unknownTag_returnsEmpty() {
-    List<Long> ids = store().findJobIdsByTag("nonexistent-tag", 10, 0);
+    List<UUID> ids = store().findJobIdsByTag("nonexistent-tag", 10, 0);
 
     assertTrue(ids.isEmpty(), "findJobIdsByTag with unknown tag should return empty");
   }
@@ -86,7 +87,7 @@ public abstract class AbstractTagStoreContract implements JobStoreContractFixtur
       store().insertTags(job.getId(), List.of("offset-tag"));
     }
 
-    List<Long> page = store().findJobIdsByTag("offset-tag", 10, 3);
+    List<UUID> page = store().findJobIdsByTag("offset-tag", 10, 3);
 
     assertEquals(2, page.size(), "Offset 3 with 5 total should return 2 results");
   }
@@ -125,7 +126,7 @@ public abstract class AbstractTagStoreContract implements JobStoreContractFixtur
 
   @Test
   void deleteTagsByJobId_unknownJob_returnsZero() {
-    int deleted = store().deleteTagsByJobId(Long.MAX_VALUE);
+    int deleted = store().deleteTagsByJobId(new UUID(0L, Long.MAX_VALUE));
 
     assertEquals(0, deleted, "deleteTagsByJobId for unknown job should return 0");
   }

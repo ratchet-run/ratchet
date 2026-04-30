@@ -8,6 +8,7 @@ import run.ratchet.store.spi.JobRetryStore;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.UUID;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -90,7 +91,7 @@ public class JobTimeoutHandler {
   }
 
   public TimeoutHandles scheduleTimeoutMonitoring(
-      Long jobId,
+      UUID jobId,
       int jobTimeoutSec,
       Future<?> future,
       ScheduledExecutorService scheduler,
@@ -123,7 +124,7 @@ public class JobTimeoutHandler {
   }
 
   /** Applies timeout routing: retry if attempts remain, otherwise fail permanently. */
-  void processHardTimeout(Long jobId, long timeoutSec) {
+  void processHardTimeout(UUID jobId, long timeoutSec) {
     TimeoutException timeoutEx =
         new TimeoutException("Hard timeout exceeded (" + timeoutSec + "s)");
     JobEntity job = jobCrudStore.findById(jobId).orElse(null);
@@ -187,7 +188,7 @@ public class JobTimeoutHandler {
   }
 
   private void handleSoftTimeoutById(
-      Long jobId,
+      UUID jobId,
       Future<?> future,
       AtomicBoolean softTimeoutSent,
       Instant executionStartTime,
@@ -201,7 +202,7 @@ public class JobTimeoutHandler {
   }
 
   private void handleHardTimeoutById(
-      Long jobId, Future<?> future, Instant executionStartTime, long timeoutSec) {
+      UUID jobId, Future<?> future, Instant executionStartTime, long timeoutSec) {
     if (future.isDone()) {
       return;
     }

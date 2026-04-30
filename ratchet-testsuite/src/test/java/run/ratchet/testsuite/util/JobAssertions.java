@@ -8,6 +8,7 @@ import run.ratchet.api.JobHandle;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.spi.JobCrudStore;
 import java.time.Duration;
+import java.util.UUID;
 
 /** Awaitility-based assertions that poll the store until a job reaches the expected status. */
 public final class JobAssertions {
@@ -88,11 +89,11 @@ public final class JobAssertions {
     assertJobCompleted(store, firstHandle, timeout);
 
     // Walk dependants from the first step
-    long currentId = firstHandle.id();
+    UUID currentId = firstHandle.id();
     int stepsVerified = 1;
 
     while (stepsVerified < chainLength) {
-      final long parentId = currentId;
+      final UUID parentId = currentId;
       final int step = stepsVerified;
 
       // Wait for a dependant to appear and complete

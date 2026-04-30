@@ -83,7 +83,7 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
   void findActiveByBusinessKey_failedTerminal_returnsEmpty() {
     String bk = uniqueBusinessKey();
     JobEntity saved = persist(jobWithBusinessKey(bk));
-    long id = saved.getId();
+    UUID id = saved.getId();
     store().compareAndSwapStatus(id, JobStatus.PENDING, JobStatus.RUNNING, null);
     assertTrue(
         store().markJobFailedTerminal(id, "permanent error", 3),
@@ -113,7 +113,7 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
   void pauseFromRunning_keepsBusinessKeyReserved() {
     String bk = uniqueBusinessKey();
     JobEntity saved = persist(jobWithBusinessKey(bk));
-    long id = saved.getId();
+    UUID id = saved.getId();
     store().compareAndSwapStatus(id, JobStatus.PENDING, JobStatus.RUNNING, null);
 
     assertTrue(
@@ -129,7 +129,7 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
   void pauseThenResume_keepsBusinessKeyReservedThroughout() {
     String bk = uniqueBusinessKey();
     JobEntity saved = persist(jobWithBusinessKey(bk));
-    long id = saved.getId();
+    UUID id = saved.getId();
 
     store().transitionToPaused(id, JobStatus.PENDING);
     assertTrue(store().findActiveByBusinessKey(bk).isPresent(), "BK reserved while PAUSED");
@@ -146,7 +146,7 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
   void cancelFromPaused_releasesBusinessKey() {
     String bk = uniqueBusinessKey();
     JobEntity saved = persist(jobWithBusinessKey(bk));
-    long id = saved.getId();
+    UUID id = saved.getId();
     store().transitionToPaused(id, JobStatus.PENDING);
 
     assertTrue(store().cancelJob(id), "cancelJob from PAUSED must succeed");
@@ -222,7 +222,7 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
   void terminalSucceeded_thenReenqueueSameKey_returnsReplacement() {
     String bk = uniqueBusinessKey();
     JobEntity first = persist(jobWithBusinessKey(bk));
-    long firstId = first.getId();
+    UUID firstId = first.getId();
     store().compareAndSwapStatus(firstId, JobStatus.PENDING, JobStatus.RUNNING, null);
     store().markJobSucceededMinimal(firstId, Instant.now(), Instant.now(), 0L, 0L);
 
@@ -240,7 +240,7 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
   void terminalFailed_thenReenqueueSameKey_returnsReplacement() {
     String bk = uniqueBusinessKey();
     JobEntity first = persist(jobWithBusinessKey(bk));
-    long firstId = first.getId();
+    UUID firstId = first.getId();
     store().compareAndSwapStatus(firstId, JobStatus.PENDING, JobStatus.RUNNING, null);
     store().markJobFailedTerminal(firstId, "permanent", 3);
 
@@ -258,7 +258,7 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
   void canceled_thenReenqueueSameKey_returnsReplacement() {
     String bk = uniqueBusinessKey();
     JobEntity first = persist(jobWithBusinessKey(bk));
-    long firstId = first.getId();
+    UUID firstId = first.getId();
     store().cancelJob(firstId);
 
     JobEntity replacement = persist(jobWithBusinessKey(bk));
@@ -281,7 +281,7 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
   void resetFailedToPending_thenSucceed_releasesBusinessKey() {
     String bk = uniqueBusinessKey();
     JobEntity job = persist(jobWithBusinessKey(bk));
-    long id = job.getId();
+    UUID id = job.getId();
     store().compareAndSwapStatus(id, JobStatus.PENDING, JobStatus.RUNNING, null);
     store().markJobFailedTerminal(id, "transient", 1);
     assertTrue(store().resetFailedToPending(id), "resetFailedToPending precondition");
@@ -313,7 +313,7 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
   void concurrentResetAndCancel_BKStateMatchesWinner() {
     String bk = uniqueBusinessKey();
     JobEntity job = persist(jobWithBusinessKey(bk));
-    long id = job.getId();
+    UUID id = job.getId();
     store().compareAndSwapStatus(id, JobStatus.PENDING, JobStatus.RUNNING, null);
     store().markJobFailedTerminal(id, "transient", 1);
 
@@ -369,7 +369,7 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
   void concurrentPauseAndCancel_finalStateIsConsistent() {
     String bk = uniqueBusinessKey();
     JobEntity job = persist(jobWithBusinessKey(bk));
-    long id = job.getId();
+    UUID id = job.getId();
 
     List<Throwable> failures =
         ConcurrentTestRunner.runAll(

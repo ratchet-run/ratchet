@@ -19,6 +19,7 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
+import java.util.UUID;
 import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.locks.ReentrantLock;
 import org.jboss.logging.Logger;
@@ -250,7 +251,7 @@ public class RetryBufferManager {
   }
 
   public record BufferedClaim(
-      Long jobId,
+      UUID jobId,
       JobExecutionType jobType,
       JobPriority priority,
       Instant scheduledTime,

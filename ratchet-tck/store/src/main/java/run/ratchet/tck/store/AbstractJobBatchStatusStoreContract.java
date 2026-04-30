@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.tck.util.ConcurrentTestRunner;
 import java.time.Duration;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -47,7 +48,7 @@ public abstract class AbstractJobBatchStatusStoreContract implements JobStoreCon
   @Test
   void compareAndSwapStatus_concurrent_atMostOneSucceeds() {
     var saved = persist(newPendingJob());
-    long id = saved.getId();
+    UUID id = saved.getId();
 
     AtomicInteger successCount = new AtomicInteger();
 

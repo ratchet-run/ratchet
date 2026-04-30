@@ -3,6 +3,7 @@ package run.ratchet.spi;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
+import java.util.UUID;
 
 /**
  * Receives job lifecycle events (start, success, failure) for metrics collection. Additional
@@ -12,36 +13,36 @@ import run.ratchet.api.JobType;
 public interface MetricsCollector {
 
   /** Called when a job starts execution. */
-  void jobStarted(long jobId, JobType type, JobPriority priority);
+  void jobStarted(UUID jobId, JobType type, JobPriority priority);
 
   /**
    * Called when a job completes successfully.
    *
    * @param executionTimeMs wall-clock duration of the completed attempt
    */
-  void jobCompleted(long jobId, JobType type, long executionTimeMs);
+  void jobCompleted(UUID jobId, JobType type, long executionTimeMs);
 
   /**
    * Called when a job fails.
    *
    * @param attempt the 1-based attempt number including this failure
    */
-  void jobFailed(long jobId, JobType type, Throwable cause, int attempt);
+  void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt);
 
   /** Called when a successful execution must retry a transient store finalization conflict. */
-  void successFinalizationRetried(long jobId, JobType type);
+  void successFinalizationRetried(UUID jobId, JobType type);
 
   /**
    * Called when a successful execution falls back to a minimal terminal success write after
    * exhausting full-result finalization retries.
    */
-  void successFinalizationMinimal(long jobId, JobType type);
+  void successFinalizationMinimal(UUID jobId, JobType type);
 
   /**
    * Called when a successful execution cannot persist either full or minimal success due to
    * repeated transient store conflicts and must be left RUNNING for later recovery.
    */
-  void successFinalizationStuck(long jobId, JobType type);
+  void successFinalizationStuck(UUID jobId, JobType type);
 
   /**
    * Called when the poller hits a transient store conflict while claiming work for an execution
@@ -78,7 +79,7 @@ public interface MetricsCollector {
    * Called when a lifecycle callback ({@code onSuccess}/{@code onFailure}) throws. Callback
    * failures never fail the parent job. Default is a no-op.
    */
-  default void callbackFailed(long jobId, JobType type, Throwable cause, int attempt) {
+  default void callbackFailed(UUID jobId, JobType type, Throwable cause, int attempt) {
     // default no-op
   }
 

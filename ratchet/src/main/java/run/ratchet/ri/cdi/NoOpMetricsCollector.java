@@ -4,28 +4,29 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import run.ratchet.spi.MetricsCollector;
 import jakarta.enterprise.context.ApplicationScoped;
+import java.util.UUID;
 
 /** Default no-op {@link MetricsCollector} for deployments without a monitoring integration. */
 @ApplicationScoped
 public class NoOpMetricsCollector implements MetricsCollector {
 
   @Override
-  public void jobStarted(long jobId, JobType type, JobPriority priority) {}
+  public void jobStarted(UUID jobId, JobType type, JobPriority priority) {}
 
   @Override
-  public void jobCompleted(long jobId, JobType type, long executionTimeMs) {}
+  public void jobCompleted(UUID jobId, JobType type, long executionTimeMs) {}
 
   @Override
-  public void jobFailed(long jobId, JobType type, Throwable cause, int attempt) {}
+  public void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt) {}
 
   @Override
-  public void successFinalizationRetried(long jobId, JobType type) {}
+  public void successFinalizationRetried(UUID jobId, JobType type) {}
 
   @Override
-  public void successFinalizationMinimal(long jobId, JobType type) {}
+  public void successFinalizationMinimal(UUID jobId, JobType type) {}
 
   @Override
-  public void successFinalizationStuck(long jobId, JobType type) {}
+  public void successFinalizationStuck(UUID jobId, JobType type) {}
 
   @Override
   public void claimTransientFailure(String executionType) {}

@@ -4,10 +4,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import run.ratchet.store.entity.JobStatus;
-import run.ratchet.store.id.TsidFactory;
+import run.ratchet.store.id.UuidV7Factory;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -22,11 +23,11 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
   @Test
   void bulkInsert_persistsAllJobs() {
     var job1 = newPendingJob();
-    job1.setId(TsidFactory.next());
+    job1.setId(UuidV7Factory.create());
     var job2 = newPendingJob();
-    job2.setId(TsidFactory.next());
+    job2.setId(UuidV7Factory.create());
     var job3 = newPendingJob();
-    job3.setId(TsidFactory.next());
+    job3.setId(UuidV7Factory.create());
 
     store().bulkInsert(List.of(job1, job2, job3));
 
@@ -104,7 +105,10 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
 
   @Test
   void deleteJobsByIds_unknownIds_returnsZero() {
-    int deleted = store().deleteJobsByIds(List.of(Long.MAX_VALUE, Long.MAX_VALUE - 1));
+    int deleted =
+        store()
+            .deleteJobsByIds(
+                List.of(new UUID(0L, Long.MAX_VALUE), new UUID(0L, Long.MAX_VALUE - 1)));
 
     assertEquals(0, deleted, "deleteJobsByIds with unknown IDs should return 0");
   }

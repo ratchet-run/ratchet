@@ -1,7 +1,7 @@
 package run.ratchet.store.entity;
 
 import run.ratchet.store.converter.JsonObjectMapConverter;
-import run.ratchet.store.id.TsidEntityListener;
+import run.ratchet.store.id.UuidV7EntityListener;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -14,6 +14,7 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 
 /** Immutable log entry for job execution events. */
 @Entity
@@ -23,15 +24,15 @@ import java.util.Objects;
       @Index(name = "idx_joblog_job_ts", columnList = "job_id, ts"),
       @Index(name = "idx_joblog_ts", columnList = "ts")
     })
-@EntityListeners(TsidEntityListener.class)
-public class JobLogEntity implements TsidEntityListener.TsidAssignable {
+@EntityListeners(UuidV7EntityListener.class)
+public class JobLogEntity implements UuidV7EntityListener.UuidV7Assignable {
 
   @Id
   @Column(name = "log_id")
-  private Long id;
+  private UUID id;
 
   @Column(name = "job_id", nullable = false)
-  private Long jobId;
+  private UUID jobId;
 
   @Column(name = "ts", nullable = false)
   private Instant ts;
@@ -46,19 +47,19 @@ public class JobLogEntity implements TsidEntityListener.TsidAssignable {
   @Convert(converter = JsonObjectMapConverter.class)
   private Map<String, Object> mdc;
 
-  public Long getId() {
+  public UUID getId() {
     return id;
   }
 
-  public void setId(Long id) {
+  public void setId(UUID id) {
     this.id = id;
   }
 
-  public Long getJobId() {
+  public UUID getJobId() {
     return jobId;
   }
 
-  public void setJobId(Long jobId) {
+  public void setJobId(UUID jobId) {
     this.jobId = jobId;
   }
 

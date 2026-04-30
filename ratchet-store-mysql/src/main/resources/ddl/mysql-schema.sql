@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS scheduler_resource_limit
 -- scheduler_job_queue for the claim-path DTO — no mutation path writes them in both places.
 CREATE TABLE IF NOT EXISTS scheduler_job
 (
-    job_id                BIGINT UNSIGNED NOT NULL,
+    job_id                BINARY(16)      NOT NULL,
     -- Immutable job-shape fields (duplicated on scheduler_job_queue per §duplication rule).
     job_type              ENUM ('SINGLE','RECURRING','BATCH_PARENT','BATCH_CHILD','CHAIN_STEP','DLQ_ALERT','WORKFLOW_BRANCH','WORKFLOW_JOIN') NOT NULL,
     priority              TINYINT UNSIGNED                                                                                                    NOT NULL DEFAULT 2,
@@ -85,8 +85,8 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     resource_name         VARCHAR(100)                                                                                                        NULL,
     on_success_payload    JSON                                                                                                                NULL,
     on_failure_payload    JSON                                                                                                                NULL,
-    depends_on            BIGINT UNSIGNED                                                                                                     NULL,
-    superseded_by         BIGINT UNSIGNED                                                                                                     NULL,
+    depends_on            BINARY(16)                                                                                                          NULL,
+    superseded_by         BINARY(16)                                                                                                          NULL,
     created_at            DATETIME(6)                                                                                                         NOT NULL,
     created_by            VARCHAR(255)                                                                                                        NULL,
     -- Captured at creation from jakarta.security.enterprise.SecurityContext when resolvable; null
@@ -144,7 +144,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job
 -- enqueue and never mutated.
 CREATE TABLE IF NOT EXISTS scheduler_job_queue
 (
-    job_id             BIGINT UNSIGNED NOT NULL,
+    job_id             BINARY(16)      NOT NULL,
     status             ENUM ('PENDING','RUNNING','PAUSED')                                                                                NOT NULL DEFAULT 'PENDING',
     job_type           ENUM ('SINGLE','RECURRING','BATCH_PARENT','BATCH_CHILD','CHAIN_STEP','DLQ_ALERT','WORKFLOW_BRANCH','WORKFLOW_JOIN') NOT NULL,
     priority           TINYINT UNSIGNED                                                                                                    NOT NULL DEFAULT 2,
@@ -182,11 +182,12 @@ CREATE TABLE IF NOT EXISTS scheduler_job_queue
 CREATE TABLE IF NOT EXISTS scheduler_business_key_reservation
 (
     business_key VARCHAR(255)                 NOT NULL,
-    owner_job_id BIGINT UNSIGNED              NOT NULL,
+    owner_job_id BINARY(16)                   NOT NULL,
     owner_table  ENUM ('QUEUE','RECURRING')   NOT NULL,
     reserved_at  DATETIME(6)                  NOT NULL,
     PRIMARY KEY (business_key),
-    INDEX idx_bk_owner (owner_job_id)
+    INDEX idx_bk_owner (owner_job_id),
+    CONSTRAINT fk_bk_owner_job FOREIGN KEY (owner_job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci;
@@ -194,7 +195,7 @@ CREATE TABLE IF NOT EXISTS scheduler_business_key_reservation
 -- 5. Job tags (composite PK)
 CREATE TABLE IF NOT EXISTS scheduler_job_tag
 (
-    job_id BIGINT UNSIGNED NOT NULL,
+    job_id BINARY(16)      NOT NULL,
     tag    VARCHAR(64)     NOT NULL,
     PRIMARY KEY (job_id, tag),
     INDEX idx_job_tag_tag_job (tag, job_id),
@@ -206,7 +207,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job_tag
 -- 6. Batch progress
 CREATE TABLE IF NOT EXISTS scheduler_batch
 (
-    batch_id             BIGINT UNSIGNED NOT NULL,
+    batch_id             BINARY(16)      NOT NULL,
     total_items          INT             NOT NULL DEFAULT 0,
     completed_items      INT             NOT NULL DEFAULT 0,
     failed_items         INT             NOT NULL DEFAULT 0,
@@ -222,7 +223,7 @@ CREATE TABLE IF NOT EXISTS scheduler_batch
 -- 7. Batch performance metrics
 CREATE TABLE IF NOT EXISTS scheduler_batch_metrics
 (
-    batch_id           BIGINT UNSIGNED NOT NULL,
+    batch_id           BINARY(16)      NOT NULL,
     total_duration_ms  BIGINT          NULL,
     child_execution_ms BIGINT          NULL,
     overhead_ms        BIGINT          NULL,
@@ -241,8 +242,8 @@ CREATE TABLE IF NOT EXISTS scheduler_batch_metrics
 -- 8. Execution history
 CREATE TABLE IF NOT EXISTS scheduler_job_execution
 (
-    id            BIGINT UNSIGNED NOT NULL,
-    job_id        BIGINT UNSIGNED                                  NOT NULL,
+    id            BINARY(16)      NOT NULL,
+    job_id        BINARY(16)                                       NOT NULL,
     attempt       INT                                              NOT NULL,
     node_id       VARCHAR(64)                                      NOT NULL,
     started_at    DATETIME(6)                                      NOT NULL,
@@ -263,8 +264,8 @@ CREATE TABLE IF NOT EXISTS scheduler_job_execution
 -- 9. Per-job logs
 CREATE TABLE IF NOT EXISTS scheduler_job_log
 (
-    log_id  BIGINT UNSIGNED NOT NULL,
-    job_id  BIGINT UNSIGNED                              NOT NULL,
+    log_id  BINARY(16)      NOT NULL,
+    job_id  BINARY(16)                                   NOT NULL,
     ts      DATETIME(6)                                  NOT NULL,
     level   ENUM ('TRACE','DEBUG','INFO','WARN','ERROR') NOT NULL,
     message TEXT                                         NOT NULL,
@@ -280,8 +281,8 @@ CREATE TABLE IF NOT EXISTS scheduler_job_log
 -- 10. Archived jobs
 CREATE TABLE IF NOT EXISTS scheduler_job_archive
 (
-    archive_id              BIGINT UNSIGNED NOT NULL,
-    original_job_id         BIGINT UNSIGNED                                                                                                     NOT NULL,
+    archive_id              BINARY(16)      NOT NULL,
+    original_job_id         BINARY(16)                                                                                                          NOT NULL,
     final_status            ENUM ('SUCCEEDED','FAILED','CANCELED')                                                                                 NOT NULL,
     job_type                ENUM ('SINGLE','RECURRING','BATCH_PARENT','BATCH_CHILD','CHAIN_STEP','DLQ_ALERT','WORKFLOW_BRANCH','WORKFLOW_JOIN') NOT NULL,
     priority                TINYINT UNSIGNED                                                                                                    NOT NULL,
@@ -308,8 +309,8 @@ CREATE TABLE IF NOT EXISTS scheduler_job_archive
     result_type             VARCHAR(100)                                                                                                        NULL,
     final_error             TEXT                                                                                                                NULL,
     payload_summary         TEXT                                                                                                                NULL,
-    depended_on             BIGINT UNSIGNED                                                                                                     NULL,
-    superseded_by           BIGINT UNSIGNED                                                                                                     NULL,
+    depended_on             BINARY(16)                                                                                                          NULL,
+    superseded_by           BINARY(16)                                                                                                          NULL,
     tags                    VARCHAR(512)                                                                                                        NULL,
     PRIMARY KEY (archive_id),
     CONSTRAINT chk_archive_priority CHECK (priority BETWEEN 0 AND 4),
@@ -329,9 +330,9 @@ CREATE TABLE IF NOT EXISTS scheduler_job_archive
 -- 11. Workflow conditions
 CREATE TABLE IF NOT EXISTS scheduler_workflow_condition
 (
-    id                   BIGINT UNSIGNED NOT NULL,
-    parent_job_id        BIGINT UNSIGNED NOT NULL,
-    child_job_id         BIGINT UNSIGNED NOT NULL,
+    id                   BINARY(16)      NOT NULL,
+    parent_job_id        BINARY(16)      NOT NULL,
+    child_job_id         BINARY(16)      NOT NULL,
     condition_type       VARCHAR(32)     NOT NULL,
     condition_expression TEXT            NULL,
     condition_priority   INT             NOT NULL DEFAULT 0,
@@ -353,8 +354,8 @@ CREATE TABLE IF NOT EXISTS scheduler_workflow_condition
 -- 12. DLQ alert records
 CREATE TABLE IF NOT EXISTS scheduler_dlq_alerts
 (
-    id            BIGINT UNSIGNED NOT NULL,
-    job_id        BIGINT UNSIGNED NOT NULL,
+    id            BINARY(16)      NOT NULL,
+    job_id        BINARY(16)      NOT NULL,
     error_hash    VARCHAR(64)     NOT NULL,
     alert_sent_at DATETIME(6)     NULL,
     alert_channel VARCHAR(100)    NULL,
@@ -369,9 +370,9 @@ CREATE TABLE IF NOT EXISTS scheduler_dlq_alerts
 -- 13. Active resource permits
 CREATE TABLE IF NOT EXISTS scheduler_resource_permit
 (
-    id            BIGINT UNSIGNED NOT NULL,
+    id            BINARY(16)      NOT NULL,
     resource_name VARCHAR(100)    NOT NULL,
-    job_id        BIGINT UNSIGNED NOT NULL,
+    job_id        BINARY(16)      NOT NULL,
     node_id       VARCHAR(64)     NOT NULL,
     acquired_at   DATETIME(6)     NOT NULL,
     PRIMARY KEY (id),

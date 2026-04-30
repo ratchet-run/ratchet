@@ -4,6 +4,7 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import java.io.Serial;
 import java.time.Instant;
+import java.util.UUID;
 
 /** Fired when a lifecycle callback ({@code onSuccess} / {@code onFailure}) throws an exception. */
 public class JobCallbackFailedEvent extends AbstractJobSchedulerEvent {
@@ -15,7 +16,7 @@ public class JobCallbackFailedEvent extends AbstractJobSchedulerEvent {
   private final Integer callbackAttempt;
 
   public JobCallbackFailedEvent(
-      Long jobId,
+      UUID jobId,
       String businessKey,
       JobType jobType,
       JobPriority priority,
@@ -33,7 +34,7 @@ public class JobCallbackFailedEvent extends AbstractJobSchedulerEvent {
   }
 
   public JobCallbackFailedEvent(
-      Long jobId,
+      UUID jobId,
       String businessKey,
       JobType jobType,
       JobPriority priority,

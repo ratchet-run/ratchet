@@ -8,6 +8,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.time.Instant;
 import java.util.Date;
+import java.util.UUID;
 
 /**
  * Document store implementation of {@link TestDataManipulator}.
@@ -23,7 +24,7 @@ public class DocumentStoreTestDataManipulator implements TestDataManipulator {
   @Inject private MongoDatabase mongoDb;
 
   @Override
-  public void setJobUpdatedAt(long jobId, Instant updatedAt) {
+  public void setJobUpdatedAt(UUID jobId, Instant updatedAt) {
     mongoDb
         .getCollection("scheduler_job")
         .updateOne(eq("_id", jobId), set("updated_at", Date.from(updatedAt)));

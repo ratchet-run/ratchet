@@ -9,6 +9,7 @@ import run.ratchet.store.entity.BatchMetricsEntity;
 import run.ratchet.tck.util.ConcurrentTestRunner;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -66,7 +67,7 @@ public abstract class AbstractBatchMetricsStoreContract implements JobStoreContr
 
   @Test
   void findBatchMetrics_unknownBatch_returnsEmpty() {
-    var result = store().findBatchMetrics(Long.MAX_VALUE);
+    var result = store().findBatchMetrics(new UUID(0L, Long.MAX_VALUE));
 
     assertTrue(result.isEmpty(), "findBatchMetrics for unknown batch should return empty");
   }
@@ -143,11 +144,11 @@ public abstract class AbstractBatchMetricsStoreContract implements JobStoreContr
   @Test
   void addChildExecutionTime_unknownBatch_isNoOp() {
     assertDoesNotThrow(
-        () -> store().addChildExecutionTime(Long.MAX_VALUE, 100L),
+        () -> store().addChildExecutionTime(new UUID(0L, Long.MAX_VALUE), 100L),
         "addChildExecutionTime for unknown batch should not throw");
   }
 
-  private BatchMetricsEntity newMetrics(long batchId) {
+  private BatchMetricsEntity newMetrics(UUID batchId) {
     BatchMetricsEntity metrics = new BatchMetricsEntity();
     metrics.setBatchId(batchId);
     metrics.setChildCount(0);

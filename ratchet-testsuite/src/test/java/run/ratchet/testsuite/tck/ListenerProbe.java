@@ -21,6 +21,7 @@ import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.TimeUnit;
@@ -43,9 +44,9 @@ public class ListenerProbe implements RatchetTckProbe {
    */
   private static final int PENDING_BUFFER_LIMIT = 256;
 
-  private final Map<Long, Deque<ProbeEvent>> recordedEvents = new ConcurrentHashMap<>();
-  private final Map<Long, Deque<ProbeEvent>> pendingEvents = new ConcurrentHashMap<>();
-  private final Set<Long> trackedIds = ConcurrentHashMap.newKeySet();
+  private final Map<UUID, Deque<ProbeEvent>> recordedEvents = new ConcurrentHashMap<>();
+  private final Map<UUID, Deque<ProbeEvent>> pendingEvents = new ConcurrentHashMap<>();
+  private final Set<UUID> trackedIds = ConcurrentHashMap.newKeySet();
 
   @Inject private JobSchedulerService scheduler;
 
@@ -69,7 +70,7 @@ public class ListenerProbe implements RatchetTckProbe {
 
   @Override
   public void track(JobHandle handle) {
-    Long id = handle.id();
+    UUID id = handle.id();
     if (!trackedIds.add(id)) {
       return;
     }
@@ -159,7 +160,7 @@ public class ListenerProbe implements RatchetTckProbe {
   }
 
   private void observe(Object event) {
-    Long jobId = jobIdOf(event);
+    UUID jobId = jobIdOf(event);
     ProbeEvent.Type type = typeOf(event);
     if (jobId == null || type == null) {
       return;
@@ -181,7 +182,7 @@ public class ListenerProbe implements RatchetTckProbe {
     }
   }
 
-  private static Long jobIdOf(Object event) {
+  private static UUID jobIdOf(Object event) {
     if (event instanceof JobStartedEvent e) return e.getJobId();
     if (event instanceof JobCompletedEvent e) return e.getJobId();
     if (event instanceof JobFailedEvent e) return e.getJobId();

@@ -51,7 +51,7 @@ class WorkflowConditionIT extends BaseDocumentStoreIT {
 
     List<WorkflowConditionEntity> found = store().findConditionsByChildJobId(child.getId());
     assertEquals(1, found.size());
-    assertEquals(parent.getId(), (long) found.get(0).getParentJobId());
+    assertEquals(parent.getId(), found.get(0).getParentJobId());
   }
 
   @Test

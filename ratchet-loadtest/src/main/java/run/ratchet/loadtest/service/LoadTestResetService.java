@@ -7,6 +7,7 @@ import jakarta.inject.Inject;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 @ApplicationScoped
 public class LoadTestResetService {
@@ -36,9 +37,9 @@ public class LoadTestResetService {
   }
 
   private int deleteRun(String runId) {
-    List<Long> jobIds = runStatusService.findJobIds(runId);
+    List<UUID> jobIds = runStatusService.findJobIds(runId);
     int deleted = 0;
-    for (Long jobId : jobIds) {
+    for (UUID jobId : jobIds) {
       jobStore.delete(jobId);
       deleted++;
     }

@@ -14,6 +14,7 @@ import jakarta.enterprise.inject.Alternative;
 import jakarta.inject.Inject;
 import java.time.Duration;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.jboss.logging.Logger;
@@ -63,7 +64,7 @@ public class MicrometerMetricsCollector implements MetricsCollector {
   }
 
   @Override
-  public void jobStarted(long jobId, JobType type, JobPriority priority) {
+  public void jobStarted(UUID jobId, JobType type, JobPriority priority) {
     if (registry == null) {
       return;
     }
@@ -75,7 +76,7 @@ public class MicrometerMetricsCollector implements MetricsCollector {
   }
 
   @Override
-  public void jobCompleted(long jobId, JobType type, long executionTimeMs) {
+  public void jobCompleted(UUID jobId, JobType type, long executionTimeMs) {
     if (registry == null) {
       return;
     }
@@ -91,7 +92,7 @@ public class MicrometerMetricsCollector implements MetricsCollector {
   }
 
   @Override
-  public void jobFailed(long jobId, JobType type, Throwable cause, int attempt) {
+  public void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt) {
     if (registry == null) {
       return;
     }
@@ -105,7 +106,7 @@ public class MicrometerMetricsCollector implements MetricsCollector {
   }
 
   @Override
-  public void successFinalizationRetried(long jobId, JobType type) {
+  public void successFinalizationRetried(UUID jobId, JobType type) {
     if (registry == null) {
       return;
     }
@@ -116,7 +117,7 @@ public class MicrometerMetricsCollector implements MetricsCollector {
   }
 
   @Override
-  public void successFinalizationMinimal(long jobId, JobType type) {
+  public void successFinalizationMinimal(UUID jobId, JobType type) {
     if (registry == null) {
       return;
     }
@@ -127,7 +128,7 @@ public class MicrometerMetricsCollector implements MetricsCollector {
   }
 
   @Override
-  public void successFinalizationStuck(long jobId, JobType type) {
+  public void successFinalizationStuck(UUID jobId, JobType type) {
     if (registry == null) {
       return;
     }
@@ -204,7 +205,7 @@ public class MicrometerMetricsCollector implements MetricsCollector {
   }
 
   @Override
-  public void callbackFailed(long jobId, JobType type, Throwable cause, int attempt) {
+  public void callbackFailed(UUID jobId, JobType type, Throwable cause, int attempt) {
     if (registry == null) {
       return;
     }
@@ -250,14 +251,14 @@ public class MicrometerMetricsCollector implements MetricsCollector {
 
   private void logRawFailure(
       String context,
-      long jobId,
+      UUID jobId,
       JobType type,
       Throwable cause,
       ExceptionFamily family,
       int attempt) {
     String className = cause != null ? cause.getClass().getName() : "null";
     log.warnf(
-        "%s failure recorded for job %d (type=%s, family=%s, attempt=%d, exception=%s)",
+        "%s failure recorded for job %s (type=%s, family=%s, attempt=%d, exception=%s)",
         context, jobId, type.name(), family.name(), attempt, className);
   }
 

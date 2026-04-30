@@ -8,6 +8,7 @@ import run.ratchet.store.entity.JobStatus;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 /** Core CRUD operations and query methods for jobs. */
 @Incubating
@@ -16,7 +17,7 @@ public interface JobCrudStore {
   /** Creates or updates a job row and returns the persisted entity view. */
   JobEntity save(JobEntity job);
 
-  Optional<JobEntity> findById(long id);
+  Optional<JobEntity> findById(UUID id);
 
   /**
    * Loads the latest job row by primary key. Despite the method name, no row-level lock is acquired
@@ -24,15 +25,15 @@ public interface JobCrudStore {
    * findOneAndUpdate} on Mongo, {@code WHERE version = ?} on SQL). Callers MUST use a
    * version-checked update path; this method is read-only.
    */
-  Optional<JobEntity> findByIdLatest(long id);
+  Optional<JobEntity> findByIdLatest(UUID id);
 
-  void delete(long id);
+  void delete(UUID id);
 
   /** Returns the current persisted status for a job, or store-specific null handling if absent. */
-  JobStatus getJobStatus(long id);
+  JobStatus getJobStatus(UUID id);
 
   /** Batch-loads jobs by primary key for hot-path recovery and draining flows. */
-  List<JobEntity> findByIds(List<Long> ids);
+  List<JobEntity> findByIds(List<UUID> ids);
 
   /** Finds the active job currently associated with a business key, if any. */
   Optional<JobEntity> findActiveByBusinessKey(String businessKey);
@@ -40,7 +41,7 @@ public interface JobCrudStore {
   Optional<JobEntity> findByIdempotencyKey(String idempotencyKey);
 
   /** Returns direct dependant jobs whose {@code dependsOn} points at the supplied parent. */
-  List<JobEntity> findDependants(long parentJobId);
+  List<JobEntity> findDependants(UUID parentJobId);
 
   /** Returns the next fire time of the earliest pending recurring master job. */
   Optional<Instant> findEarliestRecurringNextFire();

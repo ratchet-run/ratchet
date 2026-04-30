@@ -1,7 +1,6 @@
 package run.ratchet.store.mongodb;
 
 import com.mongodb.client.MongoClient;
-import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoDatabase;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
@@ -45,7 +44,7 @@ public abstract class BaseDocumentStoreIT {
 
   @BeforeEach
   void setUp() {
-    client = MongoClients.create(MONGO.getConnectionString());
+    client = MongoClientFactory.create(MONGO.getConnectionString());
     database = client.getDatabase("ratchet_it_" + UUID.randomUUID().toString().substring(0, 8));
     claimExecutor = Executors.newCachedThreadPool();
     store = new MongoJobStoreImpl(client, database, RatchetOptions.defaults(), claimExecutor);

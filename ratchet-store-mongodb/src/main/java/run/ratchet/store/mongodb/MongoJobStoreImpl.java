@@ -19,7 +19,6 @@ import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
-import run.ratchet.store.id.TsidFactory;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -29,14 +28,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 
 /**
  * MongoDB implementation of the {@link MongoJobStore} API.
  *
  * <p>Uses the MongoDB sync driver directly (no ODM). All state transitions use atomic {@code
- * findOneAndUpdate} operations. Tags are embedded in the job document as an array. IDs are
- * generated via {@link TsidFactory}.
+ * findOneAndUpdate} operations. Tags are embedded in the job document as an array. IDs are UUIDv7
+ * values assigned by {@link run.ratchet.store.id.UuidV7EntityListener} on persist.
  */
 @ApplicationScoped
 class MongoJobStoreImpl implements MongoJobStore {
@@ -83,7 +83,6 @@ class MongoJobStoreImpl implements MongoJobStore {
     this.nodeLocks = new MongoNodeLockOperations(ctx);
     this.archives = new MongoArchiveOperations(ctx);
     this.auxiliary = new MongoAuxiliaryOperations(ctx);
-    options.node().explicitTsidNodeId().ifPresent(TsidFactory::configureNodeId);
   }
 
   @Override
@@ -92,27 +91,27 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
-  public Optional<JobEntity> findById(long id) {
+  public Optional<JobEntity> findById(UUID id) {
     return crud.findById(id);
   }
 
   @Override
-  public Optional<JobEntity> findByIdLatest(long id) {
+  public Optional<JobEntity> findByIdLatest(UUID id) {
     return crud.findByIdLatest(id);
   }
 
   @Override
-  public void delete(long id) {
+  public void delete(UUID id) {
     crud.delete(id);
   }
 
   @Override
-  public JobStatus getJobStatus(long id) {
+  public JobStatus getJobStatus(UUID id) {
     return crud.getJobStatus(id);
   }
 
   @Override
-  public List<JobEntity> findByIds(List<Long> ids) {
+  public List<JobEntity> findByIds(List<UUID> ids) {
     return crud.findByIds(ids);
   }
 
@@ -127,7 +126,7 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
-  public List<JobEntity> findDependants(long parentJobId) {
+  public List<JobEntity> findDependants(UUID parentJobId) {
     return crud.findDependants(parentJobId);
   }
 
@@ -238,29 +237,29 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
-  public void updateJobStatus(long id, JobStatus status, String errorMessage) {
+  public void updateJobStatus(UUID id, JobStatus status, String errorMessage) {
     lifecycle.updateJobStatus(id, status, errorMessage);
   }
 
   @Override
   public boolean compareAndSwapStatus(
-      long id, JobStatus expected, JobStatus newStatus, String error) {
+      UUID id, JobStatus expected, JobStatus newStatus, String error) {
     return lifecycle.compareAndSwapStatus(id, expected, newStatus, error);
   }
 
   @Override
-  public int incrementRetryAttempt(long id) {
+  public int incrementRetryAttempt(UUID id) {
     return lifecycle.incrementRetryAttempt(id);
   }
 
   @Override
-  public boolean tryPickUpJob(long id, String nodeId) {
+  public boolean tryPickUpJob(UUID id, String nodeId) {
     return lifecycle.tryPickUpJob(id, nodeId);
   }
 
   @Override
   public boolean markJobSucceeded(
-      long id,
+      UUID id,
       String resultJson,
       String resultType,
       Instant start,
@@ -273,51 +272,51 @@ class MongoJobStoreImpl implements MongoJobStore {
 
   @Override
   public boolean markJobSucceededMinimal(
-      long id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
+      UUID id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
     return lifecycle.markJobSucceededMinimal(id, start, end, durationMs, queueWaitMs);
   }
 
   @Override
   public boolean markJobSucceededAndUpdateBatch(
-      long jobId,
+      UUID jobId,
       String resultJson,
       String resultType,
       Instant start,
       Instant end,
       Long durationMs,
       Long queueWaitMs,
-      long batchId) {
+      UUID batchId) {
     return lifecycle.markJobSucceededAndUpdateBatch(
         jobId, resultJson, resultType, start, end, durationMs, queueWaitMs, batchId);
   }
 
   @Override
-  public boolean scheduleJobRetry(long id, String error, Instant newScheduledTime, int attempts) {
+  public boolean scheduleJobRetry(UUID id, String error, Instant newScheduledTime, int attempts) {
     return lifecycle.scheduleJobRetry(id, error, newScheduledTime, attempts);
   }
 
   @Override
-  public boolean pauseRecurring(long id) {
+  public boolean pauseRecurring(UUID id) {
     return lifecycle.pauseRecurring(id);
   }
 
   @Override
-  public boolean resumeRecurring(long id) {
+  public boolean resumeRecurring(UUID id) {
     return lifecycle.resumeRecurring(id);
   }
 
   @Override
-  public boolean markJobFailedTerminal(long id, String terminalError, int totalAttempts) {
+  public boolean markJobFailedTerminal(UUID id, String terminalError, int totalAttempts) {
     return lifecycle.markJobFailedTerminal(id, terminalError, totalAttempts);
   }
 
   @Override
-  public boolean cancelJob(long id) {
+  public boolean cancelJob(UUID id) {
     return lifecycle.cancelJob(id);
   }
 
   @Override
-  public boolean resetRunningJob(long id, String nodeId) {
+  public boolean resetRunningJob(UUID id, String nodeId) {
     return lifecycle.resetRunningJob(id, nodeId);
   }
 
@@ -343,22 +342,22 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
-  public boolean resetFailedToPending(long id) {
+  public boolean resetFailedToPending(UUID id) {
     return lifecycle.resetFailedToPending(id);
   }
 
   @Override
-  public boolean transitionToPaused(long id, JobStatus expected) {
+  public boolean transitionToPaused(UUID id, JobStatus expected) {
     return lifecycle.transitionToPaused(id, expected);
   }
 
   @Override
-  public boolean transitionFromPaused(long id, JobStatus target) {
+  public boolean transitionFromPaused(UUID id, JobStatus target) {
     return lifecycle.transitionFromPaused(id, target);
   }
 
   @Override
-  public JobStatus transitionFromPausedAtomic(long id) {
+  public JobStatus transitionFromPausedAtomic(UUID id) {
     return lifecycle.transitionFromPausedAtomic(id);
   }
 
@@ -368,7 +367,7 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
-  public int deleteJobsByIds(List<Long> ids) {
+  public int deleteJobsByIds(List<UUID> ids) {
     return crud.deleteJobsByIds(ids);
   }
 
@@ -393,37 +392,37 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
-  public Optional<BatchEntity> findBatchById(long batchId) {
+  public Optional<BatchEntity> findBatchById(UUID batchId) {
     return batches.findBatchById(batchId);
   }
 
   @Override
-  public List<BatchEntity> findBatchesByIds(List<Long> batchIds) {
+  public List<BatchEntity> findBatchesByIds(List<UUID> batchIds) {
     return batches.findBatchesByIds(batchIds);
   }
 
   @Override
-  public BatchProgress incrementCompletedAtomic(long batchId) {
+  public BatchProgress incrementCompletedAtomic(UUID batchId) {
     return batches.incrementCompletedAtomic(batchId);
   }
 
   @Override
-  public BatchProgress incrementFailedAtomic(long batchId) {
+  public BatchProgress incrementFailedAtomic(UUID batchId) {
     return batches.incrementFailedAtomic(batchId);
   }
 
   @Override
-  public boolean markBatchCompleteIfReady(long batchId) {
+  public boolean markBatchCompleteIfReady(UUID batchId) {
     return batches.markBatchCompleteIfReady(batchId);
   }
 
   @Override
-  public List<Long> findRecoverableBatchIds(int limit) {
+  public List<UUID> findRecoverableBatchIds(int limit) {
     return batches.findRecoverableBatchIds(limit);
   }
 
   @Override
-  public boolean updateBatchTotalItems(long batchId, int totalItems) {
+  public boolean updateBatchTotalItems(UUID batchId, int totalItems) {
     return batches.updateBatchTotalItems(batchId, totalItems);
   }
 
@@ -504,17 +503,17 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
-  public List<JobExecutionEntity> findExecutionsByJobId(long jobId) {
+  public List<JobExecutionEntity> findExecutionsByJobId(UUID jobId) {
     return auxiliary.findExecutionsByJobId(jobId);
   }
 
   @Override
-  public Optional<JobExecutionEntity> findLatestExecution(long jobId) {
+  public Optional<JobExecutionEntity> findLatestExecution(UUID jobId) {
     return auxiliary.findLatestExecution(jobId);
   }
 
   @Override
-  public int countExecutionAttempts(long jobId) {
+  public int countExecutionAttempts(UUID jobId) {
     return auxiliary.countExecutionAttempts(jobId);
   }
 
@@ -529,17 +528,17 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
-  public void insertTags(long jobId, List<String> tagList) {
+  public void insertTags(UUID jobId, List<String> tagList) {
     tags.insertTags(jobId, tagList);
   }
 
   @Override
-  public int deleteTagsByJobId(long jobId) {
+  public int deleteTagsByJobId(UUID jobId) {
     return tags.deleteTagsByJobId(jobId);
   }
 
   @Override
-  public List<Long> findJobIdsByTag(String tag, int limit, int offset) {
+  public List<UUID> findJobIdsByTag(String tag, int limit, int offset) {
     return tags.findJobIdsByTag(tag, limit, offset);
   }
 
@@ -564,43 +563,43 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
-  public WorkflowConditionEntity findConditionById(long id) {
+  public WorkflowConditionEntity findConditionById(UUID id) {
     return auxiliary.findConditionById(id);
   }
 
   @Override
-  public List<WorkflowConditionEntity> findConditionsByParentJobId(long parentJobId) {
+  public List<WorkflowConditionEntity> findConditionsByParentJobId(UUID parentJobId) {
     return auxiliary.findConditionsByParentJobId(parentJobId);
   }
 
   @Override
-  public List<WorkflowConditionEntity> findConditionsByChildJobId(long childJobId) {
+  public List<WorkflowConditionEntity> findConditionsByChildJobId(UUID childJobId) {
     return auxiliary.findConditionsByChildJobId(childJobId);
   }
 
   @Override
   public List<WorkflowConditionEntity> findConditionsByType(
-      long parentJobId, WorkflowCondition.ConditionType type) {
+      UUID parentJobId, WorkflowCondition.ConditionType type) {
     return auxiliary.findConditionsByType(parentJobId, type);
   }
 
   @Override
-  public void deleteConditionById(long id) {
+  public void deleteConditionById(UUID id) {
     auxiliary.deleteConditionById(id);
   }
 
   @Override
-  public void deleteConditionsByParentJobId(long parentJobId) {
+  public void deleteConditionsByParentJobId(UUID parentJobId) {
     auxiliary.deleteConditionsByParentJobId(parentJobId);
   }
 
   @Override
-  public void deleteConditionsByChildJobId(long childJobId) {
+  public void deleteConditionsByChildJobId(UUID childJobId) {
     auxiliary.deleteConditionsByChildJobId(childJobId);
   }
 
   @Override
-  public long countConditionsByParentJobId(long parentJobId) {
+  public long countConditionsByParentJobId(UUID parentJobId) {
     return auxiliary.countConditionsByParentJobId(parentJobId);
   }
 
@@ -610,22 +609,22 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
-  public Optional<BatchMetricsEntity> findBatchMetrics(long batchId) {
+  public Optional<BatchMetricsEntity> findBatchMetrics(UUID batchId) {
     return batches.findBatchMetrics(batchId);
   }
 
   @Override
-  public void addChildExecutionTime(long batchId, long durationMs) {
+  public void addChildExecutionTime(UUID batchId, long durationMs) {
     batches.addChildExecutionTime(batchId, durationMs);
   }
 
   @Override
-  public void finalizeBatchMetrics(long batchId) {
+  public void finalizeBatchMetrics(UUID batchId) {
     batches.finalizeBatchMetrics(batchId);
   }
 
   @Override
-  public void updateBatchMetricsChildCount(long batchId, int childCount) {
+  public void updateBatchMetricsChildCount(UUID batchId, int childCount) {
     batches.updateBatchMetricsChildCount(batchId, childCount);
   }
 
@@ -635,22 +634,22 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
-  public boolean existsRecentDlqAlert(long jobId, String errorHash, Instant cutoff) {
+  public boolean existsRecentDlqAlert(UUID jobId, String errorHash, Instant cutoff) {
     return auxiliary.existsRecentDlqAlert(jobId, errorHash, cutoff);
   }
 
   @Override
-  public boolean tryAcquirePermit(String resource, long jobId, String nodeId) {
+  public boolean tryAcquirePermit(String resource, UUID jobId, String nodeId) {
     return auxiliary.tryAcquirePermit(resource, jobId, nodeId);
   }
 
   @Override
-  public void releasePermit(String resource, long jobId) {
+  public void releasePermit(String resource, UUID jobId) {
     auxiliary.releasePermit(resource, jobId);
   }
 
   @Override
-  public void releaseAllPermits(long jobId) {
+  public void releaseAllPermits(UUID jobId) {
     auxiliary.releaseAllPermits(jobId);
   }
 
@@ -672,6 +671,41 @@ class MongoJobStoreImpl implements MongoJobStore {
 
   @PostConstruct
   void initializeCollections() {
+    validateUuidRepresentation();
     new MongoCollectionInitializer(database).initialize();
+  }
+
+  /**
+   * Probes the codec registry by encoding a known UUID and inspecting the BSON binary subtype byte.
+   * Subtype 4 (RFC 4122 / STANDARD) passes; any other subtype indicates a non-STANDARD {@code
+   * UuidRepresentation} that would corrupt UUIDv7 round-trips and is rejected at startup.
+   */
+  private void validateUuidRepresentation() {
+    org.bson.codecs.Codec<java.util.UUID> codec =
+        database.getCodecRegistry().get(java.util.UUID.class);
+    org.bson.io.BasicOutputBuffer buffer = new org.bson.io.BasicOutputBuffer();
+    try (org.bson.BsonBinaryWriter writer = new org.bson.BsonBinaryWriter(buffer)) {
+      writer.writeStartDocument();
+      writer.writeName("u");
+      codec.encode(
+          writer, new java.util.UUID(0L, 0L), org.bson.codecs.EncoderContext.builder().build());
+      writer.writeEndDocument();
+    }
+    // BSON layout for {"u": <binary>}:
+    //   int32 totalLen | byte type=0x05 | C-string "u\0" | int32 dataLen | byte subtype | data |
+    // 0x00
+    //   indices:        4-7 totalLen, 8 type, 9-10 "u\0", 11-14 dataLen, 15 subtype
+    byte[] bytes = buffer.toByteArray();
+    int subtype = bytes[15] & 0xFF;
+    if (subtype != 4) {
+      throw new run.ratchet.store.RatchetConfigurationException(
+          "ratchet-store-mongodb requires MongoClient with UuidRepresentation.STANDARD "
+              + "(BSON binary subtype 4). Detected subtype "
+              + subtype
+              + " — likely UuidRepresentation.JAVA_LEGACY or another legacy variant. "
+              + "Construct via MongoClientFactory.create(...) or set "
+              + "MongoClientSettings.builder().uuidRepresentation(STANDARD) when supplying "
+              + "your own MongoClient.");
+    }
   }
 }

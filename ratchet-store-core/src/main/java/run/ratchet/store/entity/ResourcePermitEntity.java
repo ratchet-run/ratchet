@@ -1,6 +1,6 @@
 package run.ratchet.store.entity;
 
-import run.ratchet.store.id.TsidEntityListener;
+import run.ratchet.store.id.UuidV7EntityListener;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
@@ -8,6 +8,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.util.UUID;
 
 /** Active resource permit (JPA entity). */
 @Entity
@@ -17,16 +18,16 @@ import java.time.Instant;
       @Index(name = "idx_resource_permit_resource", columnList = "resource_name"),
       @Index(name = "idx_resource_permit_job", columnList = "job_id")
     })
-@EntityListeners(TsidEntityListener.class)
-public class ResourcePermitEntity implements TsidEntityListener.TsidAssignable {
+@EntityListeners(UuidV7EntityListener.class)
+public class ResourcePermitEntity implements UuidV7EntityListener.UuidV7Assignable {
 
-  @Id private Long id;
+  @Id private UUID id;
 
   @Column(name = "resource_name", nullable = false, length = 100)
   private String resourceName;
 
   @Column(name = "job_id", nullable = false)
-  private Long jobId;
+  private UUID jobId;
 
   @Column(name = "node_id", nullable = false, length = 64)
   private String nodeId;
@@ -34,7 +35,7 @@ public class ResourcePermitEntity implements TsidEntityListener.TsidAssignable {
   @Column(name = "acquired_at", nullable = false)
   private Instant acquiredAt;
 
-  public static ResourcePermitEntity create(String resourceName, Long jobId, String nodeId) {
+  public static ResourcePermitEntity create(String resourceName, UUID jobId, String nodeId) {
     ResourcePermitEntity entity = new ResourcePermitEntity();
     entity.setResourceName(resourceName);
     entity.setJobId(jobId);
@@ -43,11 +44,11 @@ public class ResourcePermitEntity implements TsidEntityListener.TsidAssignable {
     return entity;
   }
 
-  public Long getId() {
+  public UUID getId() {
     return id;
   }
 
-  public void setId(Long id) {
+  public void setId(UUID id) {
     this.id = id;
   }
 
@@ -59,11 +60,11 @@ public class ResourcePermitEntity implements TsidEntityListener.TsidAssignable {
     this.resourceName = resourceName;
   }
 
-  public Long getJobId() {
+  public UUID getJobId() {
     return jobId;
   }
 
-  public void setJobId(Long jobId) {
+  public void setJobId(UUID jobId) {
     this.jobId = jobId;
   }
 

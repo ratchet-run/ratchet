@@ -2,6 +2,7 @@ package run.ratchet.store.spi;
 
 import run.ratchet.api.Incubating;
 import java.time.Instant;
+import java.util.UUID;
 
 /**
  * Terminal status transitions for jobs: success / failure / cancel.
@@ -14,7 +15,7 @@ import java.time.Instant;
 public interface JobTerminalStore {
 
   boolean markJobSucceeded(
-      long id,
+      UUID id,
       String resultJson,
       String resultType,
       Instant start,
@@ -23,18 +24,18 @@ public interface JobTerminalStore {
       Long queueWaitMs);
 
   boolean markJobSucceededMinimal(
-      long id, Instant start, Instant end, Long durationMs, Long queueWaitMs);
+      UUID id, Instant start, Instant end, Long durationMs, Long queueWaitMs);
 
   /** Marks a batch child as succeeded and advances the parent batch counters atomically. */
   boolean markJobSucceededAndUpdateBatch(
-      long jobId,
+      UUID jobId,
       String resultJson,
       String resultType,
       Instant start,
       Instant end,
       Long durationMs,
       Long queueWaitMs,
-      long batchId);
+      UUID batchId);
 
   /**
    * Atomically transitions a RUNNING job to terminal FAILED state. Captures total attempts and
@@ -42,7 +43,7 @@ public interface JobTerminalStore {
    * pattern that is incompatible with the hot/cold split (hot DELETE + cold UPDATE + bkres
    * DELETE in one tx).
    */
-  boolean markJobFailedTerminal(long id, String terminalError, int totalAttempts);
+  boolean markJobFailedTerminal(UUID id, String terminalError, int totalAttempts);
 
   /**
    * Cancels a job by id. Dispatches by job_type internally: executable jobs DELETE the live queue
@@ -50,5 +51,5 @@ public interface JobTerminalStore {
    * terminal CANCELED. Single-table store implementations may treat this as an UPDATE to CANCELED.
    * Returns true iff the job transitioned to CANCELED.
    */
-  boolean cancelJob(long id);
+  boolean cancelJob(UUID id);
 }
