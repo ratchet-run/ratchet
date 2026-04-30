@@ -17,13 +17,11 @@ public class TestMongoProducer {
   @ApplicationScoped
   public MongoClient mongoClient() {
     String uri = TestRuntimeConfig.mongoUri();
-
     if (uri == null || uri.isBlank()) {
       throw new IllegalStateException(
           "ratchet.test.mongo.uri system property not set. "
               + "Ensure MongoContainerExtension is active and the mongodb profile is enabled.");
     }
-
     client = MongoClientFactory.create(uri);
     return client;
   }
@@ -32,9 +30,7 @@ public class TestMongoProducer {
   @ApplicationScoped
   public MongoDatabase mongoDatabase(MongoClient mongoClient) {
     String dbName = TestRuntimeConfig.mongoDatabase();
-
-    client = mongoClient;
-    return client.getDatabase(dbName);
+    return mongoClient.getDatabase(dbName);
   }
 
   @PreDestroy

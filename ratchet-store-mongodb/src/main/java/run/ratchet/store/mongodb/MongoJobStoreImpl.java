@@ -692,11 +692,16 @@ class MongoJobStoreImpl implements MongoJobStore {
       writer.writeEndDocument();
     }
     // BSON layout for {"u": <binary>}:
-    //   int32 totalLen | byte type=0x05 | C-string "u\0" | int32 dataLen | byte subtype | data |
-    // 0x00
-    //   indices:        4-7 totalLen, 8 type, 9-10 "u\0", 11-14 dataLen, 15 subtype
+    //   [0-3]  int32 totalSize
+    //   [4]    0x05  (binary element type)
+    //   [5]    'u'   (0x75)
+    //   [6]    0x00  (cstring terminator)
+    //   [7-10] int32 binary length (= 16)
+    //   [11]   subtype  <-- byte we care about
+    //   [12-27] 16 bytes of UUID data
+    //   [28]   0x00  (document terminator)
     byte[] bytes = buffer.toByteArray();
-    int subtype = bytes[15] & 0xFF;
+    int subtype = bytes[11] & 0xFF;
     if (subtype != 4) {
       throw new run.ratchet.store.RatchetConfigurationException(
           "ratchet-store-mongodb requires MongoClient with UuidRepresentation.STANDARD "
