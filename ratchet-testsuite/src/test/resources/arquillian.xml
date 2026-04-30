@@ -44,11 +44,14 @@
         Payara 6.x ships with admin/<empty> as the DAS credentials AND requires
         Basic-Auth on the management endpoint (sending no Authorization header
         also returns 401, even from localhost). The Arquillian-Payara adapter
-        only emits an Authorization header when authorisation=true is set;
-        defaults pin adminUser=admin, adminPassword=<empty>, so explicit
-        authorisation=true is the one missing knob.
+        only emits an Authorization header when authorisation=true is set,
+        and Validate.notNull(adminUser) trips during config validation if
+        authorisation=true is set without an explicit adminUser. Set all
+        three: authorisation flag on, user "admin", empty password.
       -->
       <property name="authorisation">true</property>
+      <property name="adminUser">admin</property>
+      <property name="adminPassword"></property>
       <property name="allowConnectingToRunningServer">false</property>
       <property name="outputToConsole">true</property>
       <property name="serverSystemProperties">
