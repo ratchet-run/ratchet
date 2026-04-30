@@ -43,13 +43,18 @@
     </dependency>
     <!--
       MongoClientFactory is the supported construction path that enforces
-      UuidRepresentation.STANDARD; pulled in unconditionally so TestMongoProducer
-      compiles regardless of which DB profile is active. Runtime use is gated by
-      the mongodb profile via the production ratchet-store-mongodb dep below.
+      UuidRepresentation.STANDARD. Declared scope=provided so TestMongoProducer
+      compiles regardless of active DB profile, but ratchet-store-mongodb does
+      NOT land in the test war's WEB-INF/lib under non-mongodb profiles —
+      otherwise both MongoJobStoreImpl and MysqlJobStoreImpl ship together and
+      Weld trips WELD-001409 on every JobCrudStore injection (Payara/strict;
+      WildFly happens to tolerate it). The mongodb profile re-declares the
+      dependency at default scope so it ships with the war when active.
     -->
     <dependency>
       <groupId>run.ratchet</groupId>
       <artifactId>ratchet-store-mongodb</artifactId>
+      <scope>provided</scope>
     </dependency>
 
     <dependency>
@@ -727,7 +732,16 @@
         <ratchet.test.db.driver.name>h2</ratchet.test.db.driver.name>
       </properties>
       <dependencies>
-        <!-- ratchet-store-mongodb is declared at the default scope; runtime is gated by this profile. -->
+        <!--
+          Override the default scope=provided so ratchet-store-mongodb ships
+          inside WEB-INF/lib under the mongodb profile only. Under mysql/postgresql
+          the provided declaration keeps MongoJobStoreImpl off the war classpath,
+          avoiding the Weld JobCrudStore ambiguity that breaks Payara CDI.
+        -->
+        <dependency>
+          <groupId>run.ratchet</groupId>
+          <artifactId>ratchet-store-mongodb</artifactId>
+        </dependency>
         <dependency>
           <groupId>org.testcontainers</groupId>
           <artifactId>testcontainers-mongodb</artifactId>
