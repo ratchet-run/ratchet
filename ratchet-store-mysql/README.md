@@ -22,7 +22,7 @@ SELECT * FROM vw_job_queue WHERE status = 'PENDING';
 SELECT * FROM vw_job_execution WHERE job_id = '01902c4e-c4f3-7b8a-9d3e-fedcba987654';
 ```
 
-The views call `BIN_TO_UUID(col, 1)` — the `, 1` argument is required for byte order to match Java's `UUID.toString()`. Without it, MySQL applies a timestamp-shift transform that does NOT round-trip with the canonical (Java/PostgreSQL) representation Hibernate writes.
+The views call `BIN_TO_UUID(col)` (no swap flag). The store writes UUIDs in standard byte order, so reading without the flag round-trips correctly with Java's `UUID.toString()`. Passing `BIN_TO_UUID(col, 1)` would apply MySQL's v1-time-reorder swap on read and produce values that do not match any stored row.
 
 Apply the views once after schema load:
 
