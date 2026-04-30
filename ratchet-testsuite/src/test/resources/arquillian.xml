@@ -40,6 +40,15 @@
       <property name="payaraHome">${payara.home}</property>
       <property name="domain">domain1</property>
       <property name="adminPort">4848</property>
+      <!--
+        Payara 6.x ships with admin/admin as the default DAS credentials, not an
+        empty password. The Arquillian-Payara adapter defaults adminUser=admin and
+        an empty adminPassword, which yields a 401 "Invalid user name or password"
+        on every deploy. Pin both explicitly so the managed adapter authenticates
+        correctly against the as-shipped admin-keyfile.
+      -->
+      <property name="adminUser">admin</property>
+      <property name="adminPassword">admin</property>
       <property name="allowConnectingToRunningServer">false</property>
       <property name="outputToConsole">true</property>
       <property name="serverSystemProperties">
