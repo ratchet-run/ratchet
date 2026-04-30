@@ -5,6 +5,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.transaction.UserTransaction;
+import java.nio.ByteBuffer;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.UUID;
@@ -38,11 +39,12 @@ public class JpaTestDataManipulator implements TestDataManipulator {
           UPDATE scheduler_job SET terminated_at = ?1
           WHERE job_id = ?2 AND terminal_status IS NOT NULL
           """;
-      em().createNativeQuery(coldSql).setParameter(1, ts).setParameter(2, jobId).executeUpdate();
+      Object idParam = jobIdParam(jobId);
+      em().createNativeQuery(coldSql).setParameter(1, ts).setParameter(2, idParam).executeUpdate();
       try {
         // language=SQL
         String hotSql = "UPDATE scheduler_job_queue SET updated_at = ?1 WHERE job_id = ?2";
-        em().createNativeQuery(hotSql).setParameter(1, ts).setParameter(2, jobId).executeUpdate();
+        em().createNativeQuery(hotSql).setParameter(1, ts).setParameter(2, idParam).executeUpdate();
       } catch (RuntimeException ignored) {
         // The queue row may not exist once a job has moved to the terminal table.
       }
@@ -67,5 +69,22 @@ public class JpaTestDataManipulator implements TestDataManipulator {
 
   private EntityManager em() {
     return entityManagerProvider.getEntityManager();
+  }
+
+  /**
+   * Native-query parameter binding for a UUID job_id. On MySQL the column is BINARY(16) and
+   * EclipseLink does not invoke @Convert for native queries, so the UUID has to be pre-converted to
+   * bytes (matching what {@code UuidByteArrayConverter} writes during JPA-managed inserts). On
+   * PostgreSQL the native {@code uuid} column type accepts the {@link UUID} directly.
+   */
+  private static Object jobIdParam(UUID jobId) {
+    String dbType = System.getProperty("ratchet.test.db.type", "mysql");
+    if (!"mysql".equals(dbType)) {
+      return jobId;
+    }
+    ByteBuffer buf = ByteBuffer.allocate(16);
+    buf.putLong(jobId.getMostSignificantBits());
+    buf.putLong(jobId.getLeastSignificantBits());
+    return buf.array();
   }
 }
