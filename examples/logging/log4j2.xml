@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Ratchet — example Log4j 2 configuration.
+
+  Drop this file into your application's classpath as `log4j2.xml`
+  (Log4j 2's default config name).
+
+  Why this works with Ratchet:
+
+    Ratchet's framework code logs through JBoss Logging, which is a
+    facade. When `org.apache.logging.log4j.Logger` is on the classpath,
+    JBoss Logging activates its `Log4j2LoggerProvider` and routes log
+    output through Log4j 2's logging system. MDC entries set by Ratchet
+    via `org.jboss.logging.MDC` land in Log4j 2's `ThreadContext`, which
+    is the same map that `%X{key}` and `JsonLayout`'s `properties="true"`
+    read from.
+
+    If your application code also uses SLF4J (`org.slf4j.MDC`), add
+    `log4j-slf4j2-impl` to your classpath — it bridges SLF4J onto Log4j 2
+    so both MDC maps share the same `ThreadContext`.
+
+    Override JBoss Logging's auto-detection with:
+      -Dorg.jboss.logging.provider=log4j2
+
+  Required dependencies (your application's pom.xml):
+
+    <dependency>
+      <groupId>org.apache.logging.log4j</groupId>
+      <artifactId>log4j-core</artifactId>
+      <version>2.24.3</version>  <!-- or newer 2.x -->
+    </dependency>
+
+    <!-- Optional: bridge SLF4J onto Log4j 2 -->
+    <dependency>
+      <groupId>org.apache.logging.log4j</groupId>
+      <artifactId>log4j-slf4j2-impl</artifactId>
+      <version>2.24.3</version>
+    </dependency>
+
+  Container notes:
+
+    * OpenLiberty, Payara (non-EE deployments), and plain JVM apps:
+      this config works as-is.
+
+    * WildFly: the container uses JBoss LogManager as its root log manager.
+      To use Log4j 2 instead, you need a `META-INF/jboss-deployment-structure.xml`
+      that excludes `org.jboss.logging` and a `log4j2.xml` on the deployment
+      classpath — or keep JBoss LogManager and configure structured JSON
+      output via the WildFly `logging` subsystem (simpler).
+
+    * GlassFish 8: similar to WildFly — the container ships its own
+      log manager; consider GlassFish's native JSON formatter unless you
+      have a specific reason to substitute Log4j 2.
+-->
+<Configuration status="WARN">
+
+  <Appenders>
+
+    <!--
+      Console appender with structured JSON output.
+
+      `JsonLayout` emits each log event as a compact JSON object (one line
+      per event via `compact="true" eventEol="true"`). Setting
+      `properties="true"` includes all ThreadContext (MDC) entries as a
+      nested `contextMap` object — Ratchet's `jobId`, `node`, `jobCreator`
+      and any keys your application sets appear there automatically.
+
+      Sample output (one line, pretty-printed for readability):
+
+        {
+          "instant": { "epochSecond": 1746029834, "nanoOfSecond": 521000000 },
+          "thread": "ratchet-worker-3",
+          "level": "INFO",
+          "loggerName": "com.example.OrderJob",
+          "message": "Processing order",
+          "contextMap": {
+            "jobId": "42",
+            "node": "node-a",
+            "jobCreator": "alice@example.com",
+            "requestId": "req-7c3f"
+          }
+        }
+    -->
+    <Console name="STDOUT" target="SYSTEM_OUT">
+      <JsonLayout compact="true" eventEol="true" properties="true" includeStacktrace="true"/>
+    </Console>
+
+    <!--
+      Alternative: human-readable pattern layout for local development.
+      Uncomment this appender and switch the root logger's AppenderRef if
+      you prefer text output during development. MDC fields render via `%X{key}`.
+    -->
+    <!--
+    <Console name="STDOUT_TEXT" target="SYSTEM_OUT">
+      <PatternLayout pattern="%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} job=%X{jobId} node=%X{node} - %msg%n"/>
+    </Console>
+    -->
+
+  </Appenders>
+
+  <Loggers>
+
+    <!--
+      Ratchet framework category. Set to DEBUG for execution-path
+      diagnostics during development; INFO is the recommended
+      production default.
+    -->
+    <Logger name="run.ratchet" level="INFO" additivity="false">
+      <AppenderRef ref="STDOUT"/>
+    </Logger>
+
+    <!--
+      Hibernate is verbose by default. The store modules log SQL
+      statements and bind parameters at DEBUG, which is rarely useful
+      in production.
+    -->
+    <Logger name="org.hibernate" level="WARN" additivity="false">
+      <AppenderRef ref="STDOUT"/>
+    </Logger>
+    <Logger name="org.hibernate.SQL" level="WARN" additivity="false">
+      <AppenderRef ref="STDOUT"/>
+    </Logger>
+
+    <Root level="INFO">
+      <AppenderRef ref="STDOUT"/>
+    </Root>
+
+  </Loggers>
+
+</Configuration>
