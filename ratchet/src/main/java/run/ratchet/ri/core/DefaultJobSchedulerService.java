@@ -22,8 +22,12 @@ import run.ratchet.store.spi.JobRetryStore;
 import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
+import jakarta.annotation.Resource;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.transaction.Status;
+import jakarta.transaction.Synchronization;
+import jakarta.transaction.TransactionSynchronizationRegistry;
 import jakarta.transaction.Transactional;
 import java.io.Serializable;
 import java.time.Duration;
@@ -54,6 +58,8 @@ public class DefaultJobSchedulerService
   private final RecurringScheduler recurringScheduler;
   private final JobInvocationResolver jobInvocationResolver;
   private final DefaultJobCreationService jobCreationService;
+
+  @Resource private TransactionSynchronizationRegistry txRegistry;
 
   protected DefaultJobSchedulerService() {
     this.eventPublisher = null;
@@ -179,22 +185,52 @@ public class DefaultJobSchedulerService
    */
   private void publishCancelledEvent(UUID jobId, JobStatus previousStatus) {
     JobEntity job = jobCrudStore.findById(jobId).orElse(null);
-    if (job == null) {
-      // Race: job was deleted between CAS and our lookup. Fire a minimal event so observers at
-      // least know the cancellation happened.
-      eventPublisher.publish(
-          new JobCancelledEvent(jobId, null, null, null, null, previousStatus.name(), null));
-      return;
+    JobCancelledEvent event =
+        job == null
+            // Race: job was deleted between CAS and our lookup. Fire a minimal event so observers
+            // at least know the cancellation happened.
+            ? new JobCancelledEvent(jobId, null, null, null, null, previousStatus.name(), null)
+            : new JobCancelledEvent(
+                jobId,
+                job.getBusinessKey(),
+                job.getPublicJobType(),
+                job.getPriority(),
+                job.getPickedBy(),
+                previousStatus.name(),
+                null);
+    // Defer publication until after the surrounding TX commits so a rollback does not produce a
+    // spurious CANCELLED event. Falls back to immediate publication when no TX is active.
+    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+      eventPublisher.publish(event);
     }
-    eventPublisher.publish(
-        new JobCancelledEvent(
-            jobId,
-            job.getBusinessKey(),
-            job.getPublicJobType(),
-            job.getPriority(),
-            job.getPickedBy(),
-            previousStatus.name(),
-            null));
+  }
+
+  private boolean registerAfterCommit(Runnable action) {
+    if (txRegistry == null) {
+      return false;
+    }
+    try {
+      if (txRegistry.getTransactionStatus() != Status.STATUS_ACTIVE) {
+        return false;
+      }
+      txRegistry.registerInterposedSynchronization(
+          new Synchronization() {
+            @Override
+            public void beforeCompletion() {}
+
+            @Override
+            public void afterCompletion(int status) {
+              if (status == Status.STATUS_COMMITTED) {
+                action.run();
+              }
+            }
+          });
+      return true;
+    } catch (Exception e) {
+      log.warnf(
+          "After-commit event registration failed; publishing immediately: %s", e.getMessage());
+      return false;
+    }
   }
 
   @Override
