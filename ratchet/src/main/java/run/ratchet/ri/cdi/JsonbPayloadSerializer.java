@@ -18,9 +18,12 @@ import jakarta.json.bind.JsonbException;
  * <p>Vendor-neutral: does not reference any specific JSON-B provider (Yasson, Johnzon, etc.). The
  * runtime-discovered provider is selected by the host application's classpath/module-path.
  *
- * <p>TODO (Jakarta spec work): configure parse limits (max depth, array length, document size) on
- * the {@code Jsonb} instance once Ratchet's broader parse-limit policy is settled. Tracked as a
- * separate /dg finding.
+ * <p><b>Parse limits:</b> JSON-B 3.0 does not standardize parse-limit configuration. Provider-
+ * specific property keys (e.g. Yasson's {@code org.eclipse.yasson.*} properties) are silently
+ * ignored on other implementations and cannot be used without sacrificing portability. Applications
+ * that require payload size enforcement should validate size at the API boundary before submission
+ * rather than inside the serializer. This will be revisited if a future JSON-B release standardizes
+ * depth and length limits.
  */
 @ApplicationScoped
 public class JsonbPayloadSerializer implements PayloadSerializer {
