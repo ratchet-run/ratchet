@@ -9,6 +9,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.entity.JobStatus;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -18,6 +19,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.testcontainers.containers.MongoDBContainer;
+import org.testcontainers.containers.wait.strategy.Wait;
 
 /**
  * Base class for MongoDB store integration tests.
@@ -28,7 +30,14 @@ import org.testcontainers.containers.MongoDBContainer;
  */
 public abstract class BaseDocumentStoreIT {
 
-  private static final MongoDBContainer MONGO = new MongoDBContainer("mongo:7.0").withReuse(true);
+  // 2-minute startup timeout absorbs replica-set bootstrap variance on busy hosts; the default
+  // 60s timeout would race the "waiting for connections" log line under contention.
+  private static final MongoDBContainer MONGO =
+      new MongoDBContainer("mongo:7.0")
+          .withReuse(true)
+          .waitingFor(
+              Wait.forLogMessage("(?i).*waiting for connections.*", 1)
+                  .withStartupTimeout(Duration.ofMinutes(2)));
 
   private MongoClient client;
   private MongoDatabase database;

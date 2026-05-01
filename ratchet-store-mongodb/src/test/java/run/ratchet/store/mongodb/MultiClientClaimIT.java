@@ -12,6 +12,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.entity.JobStatus;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -27,6 +28,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.MongoDBContainer;
+import org.testcontainers.containers.wait.strategy.Wait;
 
 /**
  * Multi-client claim race test. Unlike {@link ConcurrentClaimIT}, which races multiple threads
@@ -37,7 +39,14 @@ import org.testcontainers.containers.MongoDBContainer;
  */
 class MultiClientClaimIT {
 
-  private static final MongoDBContainer MONGO = new MongoDBContainer("mongo:7.0").withReuse(true);
+  // 2-minute startup timeout absorbs replica-set bootstrap variance on busy hosts; the default
+  // 60s timeout would race the "waiting for connections" log line under contention.
+  private static final MongoDBContainer MONGO =
+      new MongoDBContainer("mongo:7.0")
+          .withReuse(true)
+          .waitingFor(
+              Wait.forLogMessage("(?i).*waiting for connections.*", 1)
+                  .withStartupTimeout(Duration.ofMinutes(2)));
 
   static {
     MONGO.start();
