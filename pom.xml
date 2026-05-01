@@ -31,6 +31,7 @@
     <module>ratchet-testsuite-jpms</module>
     <module>ratchet-loadtest</module>
     <module>ratchet-micrometer</module>
+    <module>ratchet-otel</module>
     <module>ratchet-bom</module>
     <module>ratchet-coverage</module>
   </modules>
@@ -92,6 +93,7 @@
     <testcontainers.version>2.0.3</testcontainers.version>
     <micrometer.version>1.14.4</micrometer.version>
     <micrometer.tracing.version>1.4.4</micrometer.tracing.version>
+    <opentelemetry.version>1.48.0</opentelemetry.version>
     <mockito.version>5.14.2</mockito.version>
     <awaitility.version>4.2.2</awaitility.version>
     <shrinkwrap-resolver.version>3.3.4</shrinkwrap-resolver.version>
@@ -303,6 +305,11 @@
       <dependency>
         <groupId>run.ratchet</groupId>
         <artifactId>ratchet-micrometer</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>run.ratchet</groupId>
+        <artifactId>ratchet-otel</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>

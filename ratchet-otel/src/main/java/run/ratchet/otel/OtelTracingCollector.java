@@ -1,0 +1,171 @@
+package run.ratchet.otel;
+
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobType;
+import run.ratchet.spi.TracingCollector;
+import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.api.OpenTelemetry;
+import io.opentelemetry.api.trace.Span;
+import io.opentelemetry.api.trace.StatusCode;
+import io.opentelemetry.context.Context;
+import io.opentelemetry.context.Scope;
+import io.opentelemetry.context.propagation.TextMapGetter;
+import io.opentelemetry.context.propagation.TextMapPropagator;
+import jakarta.annotation.Priority;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Alternative;
+import jakarta.enterprise.inject.Instance;
+import jakarta.inject.Inject;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+/**
+ * OpenTelemetry-backed {@link TracingCollector}.
+ *
+ * <p>Creates one span per job execution attempt using the OTel API directly, without the
+ * Micrometer Tracing layer. The span name is {@code ratchet.job} and carries the following
+ * attributes:
+ *
+ * <ul>
+ *   <li>{@code ratchet.job.id} — UUID of the job
+ *   <li>{@code ratchet.job.type} — public job type name
+ *   <li>{@code ratchet.job.priority} — job priority at execution time
+ *   <li>{@code ratchet.outcome} — {@code success}, {@code failure}, or {@code abandoned}
+ *   <li>{@code ratchet.attempt} — attempt number (failure path only)
+ * </ul>
+ *
+ * <p>W3C {@code traceparent} context captured at enqueue time is restored as the parent span
+ * when provided.
+ *
+ * <p>{@link OpenTelemetry} is injected via CDI {@link Instance} if a bean is available;
+ * otherwise falls back to {@link GlobalOpenTelemetry#get()}, which allows framework integrations
+ * (Quarkus, Spring, etc.) that configure the global instance to work without explicit CDI wiring.
+ *
+ * <p>MDC keys {@code traceId} and {@code spanId} are populated by the OTel SDK's MDC context
+ * storage provider when a logging bridge (e.g. {@code opentelemetry-logback-appender} or
+ * {@code opentelemetry-log4j2-appender}) is on the classpath.
+ */
+@Alternative
+@Priority(1000)
+@ApplicationScoped
+public class OtelTracingCollector implements TracingCollector {
+
+  private final OpenTelemetry openTelemetry;
+
+  protected OtelTracingCollector() {
+    this.openTelemetry = null;
+  }
+
+  @Inject
+  public OtelTracingCollector(Instance<OpenTelemetry> openTelemetryInstance) {
+    this.openTelemetry =
+        openTelemetryInstance.isResolvable()
+            ? openTelemetryInstance.get()
+            : GlobalOpenTelemetry.get();
+  }
+
+  @Override
+  public Map<String, String> captureCurrentContext() {
+    if (openTelemetry == null) {
+      return Map.of();
+    }
+    Span current = Span.current();
+    if (!current.getSpanContext().isValid()) {
+      return Map.of();
+    }
+    Map<String, String> carrier = new LinkedHashMap<>();
+    openTelemetry
+        .getPropagators()
+        .getTextMapPropagator()
+        .inject(Context.current(), carrier, Map::put);
+    return Map.copyOf(carrier);
+  }
+
+  @Override
+  public ExecutionScope jobExecutionStarted(
+      UUID jobId, JobType type, JobPriority priority, Map<String, String> parentContextMap) {
+    if (openTelemetry == null) {
+      return NoOpExecutionScope.INSTANCE;
+    }
+    TextMapPropagator propagator = openTelemetry.getPropagators().getTextMapPropagator();
+    Context otelParent =
+        parentContextMap.isEmpty()
+            ? Context.current()
+            : propagator.extract(Context.current(), parentContextMap, MapGetter.INSTANCE);
+
+    Span span =
+        openTelemetry
+            .getTracer("ratchet")
+            .spanBuilder("ratchet.job")
+            .setParent(otelParent)
+            .setAttribute("ratchet.job.id", jobId.toString())
+            .setAttribute("ratchet.job.type", type.name())
+            .setAttribute("ratchet.job.priority", priority.name())
+            .startSpan();
+
+    return new OtelExecutionScope(span, span.makeCurrent());
+  }
+
+  private enum MapGetter implements TextMapGetter<Map<String, String>> {
+    INSTANCE;
+
+    @Override
+    public Iterable<String> keys(Map<String, String> carrier) {
+      return carrier.keySet();
+    }
+
+    @Override
+    public String get(Map<String, String> carrier, String key) {
+      return carrier != null ? carrier.get(key) : null;
+    }
+  }
+
+  private static final class OtelExecutionScope implements ExecutionScope {
+
+    private final Span span;
+    private final Scope scope;
+    private final AtomicBoolean closed = new AtomicBoolean();
+
+    OtelExecutionScope(Span span, Scope scope) {
+      this.span = span;
+      this.scope = scope;
+    }
+
+    @Override
+    public void success(long executionTimeMs) {
+      if (closed.compareAndSet(false, true)) {
+        span.setStatus(StatusCode.OK).setAttribute("ratchet.outcome", "success");
+        end();
+      }
+    }
+
+    @Override
+    public void failure(Throwable cause, int attempt) {
+      if (closed.compareAndSet(false, true)) {
+        span.setStatus(StatusCode.ERROR)
+            .recordException(cause)
+            .setAttribute("ratchet.outcome", "failure")
+            .setAttribute("ratchet.attempt", (long) attempt);
+        end();
+      }
+    }
+
+    @Override
+    public void close() {
+      if (closed.compareAndSet(false, true)) {
+        span.setAttribute("ratchet.outcome", "abandoned");
+        end();
+      }
+    }
+
+    private void end() {
+      try {
+        scope.close();
+      } finally {
+        span.end();
+      }
+    }
+  }
+}

@@ -42,5 +42,6 @@ module run.ratchet.api {
       run.ratchet.store.postgresql,
       run.ratchet.store.mongodb,
       run.ratchet.tck.store,
-      run.ratchet.micrometer;
+      run.ratchet.micrometer,
+      run.ratchet.otel;
 }
