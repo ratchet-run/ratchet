@@ -32,5 +32,15 @@ module run.ratchet.api {
   exports run.ratchet.api;
   exports run.ratchet.api.event;
   exports run.ratchet.api.exception;
-  exports run.ratchet.spi;
+  // Qualified export: spi is @Incubating and subject to change between minor releases.
+  // Module-path consumers that want to ship their own SPI implementations must be listed here.
+  // Classpath consumers are unaffected — the restriction applies only on the module path.
+  exports run.ratchet.spi to
+      run.ratchet.ri,
+      run.ratchet.store.core,
+      run.ratchet.store.mysql,
+      run.ratchet.store.postgresql,
+      run.ratchet.store.mongodb,
+      run.ratchet.tck.store,
+      run.ratchet.micrometer;
 }
