@@ -60,7 +60,7 @@ Binds a new `JobContext` to the current thread. This is called internally by the
 
 ```java
 // Unit testing a job that uses JobContext
-JobContext ctx = JobContext.bind(42L, new TestJobLogger());
+JobContext ctx = JobContext.bind(UUID.randomUUID(), new TestJobLogger());
 try {
     myJob.execute();
 } finally {
@@ -86,7 +86,7 @@ Binds a new `JobContext` with parameters to the current thread.
 ```java
 // Unit testing with parameters
 Map<String, String> params = Map.of("userId", "123", "action", "sync");
-JobContext ctx = JobContext.bind(42L, new TestJobLogger(), params);
+JobContext ctx = JobContext.bind(UUID.randomUUID(), new TestJobLogger(), params);
 try {
     myJob.execute();
 } finally {
@@ -105,7 +105,7 @@ Removes the `JobContext` bound to the current thread. Must be called when job ex
 This is called automatically by the Ratchet executor. You only need to call it manually if you use `bind()` directly.
 
 ```java
-JobContext.bind(42L, logger);
+JobContext.bind(UUID.randomUUID(), logger);
 try {
     // Job execution
 } finally {
@@ -267,7 +267,7 @@ scheduler.enqueue(() -> orderProcessor.processOrder(orderId))
 void testJobUsesParameters() {
     // Arrange
     Map<String, String> params = Map.of("mode", "strict");
-    JobContext.bind(1L, new NoOpJobLogger(), params);
+    JobContext.bind(UUID.randomUUID(), new NoOpJobLogger(), params);
     try {
         // Act
         myService.processWithContext();

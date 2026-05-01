@@ -107,7 +107,7 @@ public class JobDiagnosticObserver {
 
 ## Logging Configuration
 
-Ratchet uses `java.util.logging` (JUL) under the package `run.ratchet`. Most Jakarta EE 10 runtimes bridge JUL to their logging subsystem.
+Ratchet uses `java.util.logging` (JUL) under the package `run.ratchet`. Most Jakarta EE runtimes bridge JUL to their logging subsystem.
 
 ### WildFly / JBoss EAP
 
@@ -194,7 +194,7 @@ If you cannot resolve an issue using these guides:
 
 1. **Search existing issues** on the [Ratchet GitHub repository](https://github.com/jcputney/ratchet/issues)
 2. **Open a new issue** with:
-   - Ratchet version and Jakarta EE 10 runtime (WildFly, Payara, etc.)
+   - Ratchet version and Jakarta EE runtime (WildFly, Payara, GlassFish, etc.)
    - Database vendor and version
    - Relevant log output (with `run.ratchet` set to `FINE`)
    - The SQL output of `SELECT status, COUNT(*) FROM scheduler_job GROUP BY status`

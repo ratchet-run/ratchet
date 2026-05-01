@@ -133,7 +133,7 @@ A **store** is the persistence backend that holds jobs, execution history, locks
 | `JobCrudStore` | CRUD operations on jobs |
 | `JobClaimStore` | Claiming due jobs for execution (`SKIP LOCKED` on SQL stores, atomic updates on MongoDB) |
 | `ExecutionStore` | Recording execution history |
-| `JobLogStore` | Structured log storage per job |
+| `JobLogStore` | Optional structured storage for persisted `JobLogLine` events |
 | `ArchiveStore` | Moving completed jobs to archive |
 | `NodeStore` | Cluster node heartbeats |
 | `LockStore` | Distributed advisory locks |

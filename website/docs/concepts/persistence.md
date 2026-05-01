@@ -10,24 +10,41 @@ Ratchet persists all job state in the selected store backend. SQL stores use JPA
 
 ## Entity Model
 
-The core model is `JobEntity`, which maps to the `scheduler_job` table for SQL stores and the `scheduler_job` collection for MongoDB. Supporting entities handle batches, executions, workflow conditions, locks, nodes, and archived jobs.
+The core logical model is `JobEntity`. In SQL stores it is split across a cold
+metadata table (`scheduler_job`) and a hot executable queue table
+(`scheduler_job_queue`). The cold table owns immutable job shape and terminal
+history; the hot table exists only while a job is live and owns claim/poll
+state. MongoDB maps the same logical model to collections. Supporting entities
+handle batches, executions, workflow conditions, locks, nodes, and archived
+jobs.
 
 ```
 ┌─────────────────────────────────────────┐
 │              scheduler_job              │
-│ (JobEntity - core job state)            │
+│ (cold metadata + terminal state)        │
 ├─────────────────────────────────────────┤
 │ job_id (UUIDv7 PK)                      │
-│ status, priority, job_type              │
-│ scheduled_time, picked_by, picked_at    │
+│ priority, job_type                      │
 │ payload, params, tags                   │
-│ max_retries, attempts, backoff_policy   │
+│ max_retries, backoff_policy             │
 │ cron_expr, zone_id, next_fire           │
 │ idempotency_key, business_key           │
 │ depends_on, superseded_by               │
+│ caller_principal                        │
 │ resource_name                           │
-│ on_success_payload, on_failure_payload  │
-│ execution timing, result, version       │
+│ terminal status/error/timing/result     │
+└─────────────────────────────────────────┘
+         │ 1:0/1 while live
+         ▼
+┌─────────────────────────────────────────┐
+│          scheduler_job_queue            │
+│ (hot claim/poll state)                  │
+├─────────────────────────────────────────┤
+│ job_id (UUIDv7 PK/FK)                   │
+│ status, scheduled_time                  │
+│ attempts, picked_by, picked_at          │
+│ paused_from_status, last_error          │
+│ version, updated_at                     │
 └─────────────────────────────────────────┘
          │
          │ 1:N
@@ -58,50 +75,51 @@ The core model is `JobEntity`, which maps to the `scheduler_job` table for SQL s
 └──────────────────────┘  └──────────────────────────┘
 ```
 
-### JobEntity
+### SQL Job Tables
 
-The central entity/document has these key fields:
+The SQL stores denormalize a few immutable fields into `scheduler_job_queue`
+(`job_type`, `priority`, `business_key`, `timeout_sec`, `max_retries`) so the
+claim path can populate lightweight claim DTOs from one hot table.
 
 | Column | Type | Purpose |
 |--------|------|---------|
 | `job_id` | `BINARY(16)`/`uuid` (UUIDv7) | Primary key, time-ordered |
-| `status` | `VARCHAR(16)` | Current lifecycle state (PENDING, RUNNING, etc.) |
-| `job_type` | `VARCHAR(16)` | Internal execution type (SINGLE, BATCH_CHILD, etc.) |
-| `priority` | `INT` | Priority ordinal (0=LOWEST to 4=CRITICAL) |
-| `scheduled_time` | `TIMESTAMP` | When the job becomes eligible for polling |
-| `picked_by` | `VARCHAR(64)` | Node ID of the worker executing this job |
-| `picked_at` | `TIMESTAMP` | When the job was claimed |
-| `payload` | `BLOB/TEXT` | Serialized job definition (target, method, args) |
-| `params` | `TEXT` (JSON) | Key-value parameters accessible via `JobContext` |
+| `scheduler_job.job_type` | `VARCHAR(16)` | Internal execution type (SINGLE, BATCH_CHILD, etc.) |
+| `scheduler_job.priority` | `INT` | Priority ordinal (0=LOWEST to 4=CRITICAL) |
+| `scheduler_job.payload` | JSON | Serialized job definition (target, method, args) |
+| `scheduler_job.params` | JSON | Key-value parameters accessible via `JobContext` |
 | `idempotency_key` | `VARCHAR(36)` UNIQUE | Globally unique deduplication key |
 | `business_key` | `VARCHAR` | Active-unique key for concurrent execution prevention |
 | `depends_on` | `BINARY(16)`/`uuid` | FK to parent job for chains |
 | `superseded_by` | `BINARY(16)`/`uuid` | FK to replacement job |
+| `caller_principal` | `VARCHAR(255)` | Captured Jakarta Security caller principal, if available |
 | `resource_name` | `VARCHAR(100)` | Resource pool for permit acquisition |
-| `max_retries` | `INT` | Maximum retry attempts |
-| `attempts` | `INT` | Current attempt count |
-| `backoff_policy` | `VARCHAR(16)` | NONE, FIXED, or EXPONENTIAL |
-| `backoff_param_ms` | `INT` | Base delay for backoff calculation |
-| `cron_expr` | `VARCHAR(64)` | Cron expression for recurring jobs |
-| `zone_id` | `VARCHAR(32)` | Timezone for cron evaluation |
-| `version` | `INT` | Optimistic locking version |
+| `terminal_status` / `terminal_error` | `VARCHAR` / `TEXT` | Cold survivor fields set at terminal transition |
+| `scheduler_job_queue.status` | `VARCHAR(16)` | Live lifecycle state (PENDING, RUNNING, PAUSED) |
+| `scheduler_job_queue.scheduled_time` | `TIMESTAMP` | When the job becomes eligible for polling |
+| `scheduler_job_queue.attempts` | `INT` | Current attempt count while live |
+| `scheduler_job_queue.picked_by` / `picked_at` | `VARCHAR(64)` / `TIMESTAMP` | Node claim ownership and claim time |
+| `scheduler_job_queue.version` | `INT` | Optimistic locking version for live queue mutations |
+
+The `scheduler_business_key_reservation` table owns active business-key
+uniqueness. Terminal rows keep their `business_key` for audit/search, but they
+do not block a future active job from using the same key.
 
 ### Indexes
 
-SQL stores define these `scheduler_job` indexes for the Poller and common queries. MongoDB defines analogous collection indexes in `ratchet-store-mongodb`:
+SQL stores define hot queue indexes for the Poller and supporting cold-table
+indexes for traversal/search. MongoDB defines analogous collection indexes in
+`ratchet-store-mongodb`:
 
 | Index | Columns | Purpose |
 |-------|---------|---------|
-| `idx_job_claim_cover` | `job_type, scheduled_time, priority, job_id` where `status = 'PENDING'` | PostgreSQL executable claim filter |
-| `idx_claim_executable` | `status, job_type, scheduled_time, priority, job_id` | MySQL executable claim filter |
-| `idx_job_poll_composite` | `status, priority, scheduled_time` | General polling lookup |
-| `idx_job_due` | `status, scheduled_time` | Simple due-job lookup |
-| `idx_job_priority_due` | `priority, scheduled_time` | Priority-ordered queries |
-| `idx_recurring_due` | `status, next_fire` | Recurring job scheduling |
-| `idx_job_recurring_composite` | `next_fire, priority, job_id` where `status = 'PENDING'` and `job_type = 'RECURRING'` | PostgreSQL recurring claim filter |
-| `idx_job_depends_on` | `depends_on` | Chain/workflow traversal |
-| `idx_job_business_key` | `business_key` | Business key uniqueness check |
-| `idx_job_picked_by` | `picked_by` | Orphan recovery by node |
+| `idx_claim_executable` | `scheduler_job_queue(job_type, scheduled_time, priority, job_id)` for pending rows | Executable claim filter |
+| `idx_queue_orphan` | `scheduler_job_queue(status, picked_at, picked_by)` | Orphan recovery by node |
+| `pk_scheduler_business_key_reservation` | `scheduler_business_key_reservation(business_key)` | Active business-key uniqueness and lookup |
+| `idx_job_depends_on` | `scheduler_job(depends_on)` | Chain/workflow traversal |
+| `idx_job_superseded_by` | `scheduler_job(superseded_by)` | Replacement lookup |
+| `idx_job_created_at` | `scheduler_job(created_at)` | Operational search and retention |
+| `idx_job_recurring_pending` | recurring state (`job_type`, `rec_status`, `next_fire`) | Transitional recurring-master scheduling |
 
 ## UUIDv7 Identifiers
 
@@ -131,7 +149,7 @@ Ratchet uses **RFC 9562 §5.7 UUIDv7** for primary keys. UUIDs are 128-bit value
 - **Time-ordered:** The 48-bit timestamp prefix preserves B-tree locality — inserts cluster at the right edge, range scans by time work directly.
 - **Monotonic within a millisecond:** `rand_a` is used as a per-ms counter; on overflow inside a single ms, generation busy-spins via `Thread.onSpinWait` until the wall clock advances (RFC 9562 §6.2 wait-for-tick). The timestamp is never advanced past wall-clock time.
 - **Coordination-free:** 62 bits of randomness in `rand_b` make collisions vanishingly unlikely without inter-node coordination.
-- **128-bit `java.util.UUID`:** Standard Java type, no special storage adapter on PostgreSQL (native `uuid`). MySQL stores as `BINARY(16)` via `UuidByteArrayConverter`.
+- **128-bit `java.util.UUID`:** Standard Java type, no special storage adapter on PostgreSQL (native `uuid`). MySQL stores as `BINARY(16)` and uses the MySQL store's `META-INF/orm-mysql.xml` mapping plus `UuidByteArrayConverter` so non-Hibernate JPA providers bind UUID fields as 16 bytes. MongoDB stores BSON UUID subtype 4 (`UuidRepresentation.STANDARD`).
 
 ### Utility Methods
 
@@ -248,6 +266,19 @@ ratchet-store-postgresql/src/main/resources/ddl/postgresql-schema.sql
 ```
 
 MongoDB does not ship SQL DDL. The `ratchet-store-mongodb` module creates the required collections and indexes at startup.
+
+### UUID Inspection by Store
+
+- **PostgreSQL:** query UUID columns directly; `psql` renders native `uuid`
+  values as hyphenated strings.
+- **MySQL:** raw `BINARY(16)` values are not readable in CLI output. Apply the
+  optional `ddl/views/vw_jobs.sql` operator views and query those views for
+  hyphenated UUID strings. The views use `BIN_TO_UUID(col)` with no swap flag;
+  `BIN_TO_UUID(col, 1)` is for MySQL's UUIDv1 time-reorder format and does not
+  match Ratchet's Java-standard byte order.
+- **MongoDB:** use a `MongoClient` configured with `UuidRepresentation.STANDARD`
+  so BSON subtype 4 UUID values round-trip correctly; `mongosh` renders them as
+  `UUID("...")`.
 
 ## Optimistic Locking
 

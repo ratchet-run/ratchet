@@ -55,7 +55,7 @@ All job lifecycle events extend `AbstractJobSchedulerEvent`:
 
 ```java
 public abstract class AbstractJobSchedulerEvent implements Serializable {
-    public Long getJobId()
+    public UUID getJobId()
     public String getBusinessKey()
     public JobType getJobType()
     public JobPriority getPriority()
@@ -66,7 +66,7 @@ public abstract class AbstractJobSchedulerEvent implements Serializable {
 
 | Method | Return Type | Description |
 |---|---|---|
-| `getJobId()` | `Long` | Database ID of the job that triggered this event |
+| `getJobId()` | `UUID` | UUIDv7 database ID of the job that triggered this event |
 | `getBusinessKey()` | `String` | Human-readable business key (may be null) |
 | `getJobType()` | `JobType` | Job category: SINGLE, BATCH, CHAIN, WORKFLOW, RECURRING, SYSTEM |
 | `getPriority()` | `JobPriority` | Priority level of the job |
@@ -170,7 +170,15 @@ Fired when a job cancellation is initiated (before the state transition complete
 public class JobCancellingEvent extends AbstractJobSchedulerEvent
 ```
 
-No additional fields.
+```java
+public String getPreviousStatus()
+public Long getExecutionTimeMs()
+```
+
+| Method | Return Type | Description |
+|---|---|---|
+| `getPreviousStatus()` | `String` | Status before cancellation |
+| `getExecutionTimeMs()` | `Long` | Execution duration in milliseconds when known |
 
 ### JobCancelledEvent
 
@@ -180,7 +188,15 @@ Fired when a job cancellation is confirmed.
 public class JobCancelledEvent extends AbstractJobSchedulerEvent
 ```
 
-No additional fields.
+```java
+public String getPreviousStatus()
+public Long getExecutionTimeMs()
+```
+
+| Method | Return Type | Description |
+|---|---|---|
+| `getPreviousStatus()` | `String` | Status before cancellation |
+| `getExecutionTimeMs()` | `Long` | Execution duration in milliseconds when known |
 
 ```java
 public void onCancelled(@Observes JobCancelledEvent event) {
@@ -241,7 +257,17 @@ Fired when a batch is finishing (the last child job is completing).
 public class BatchCompletingEvent extends AbstractJobSchedulerEvent
 ```
 
-No additional fields beyond the base class.
+```java
+public Integer getTotalItems()
+public Integer getCompletedItems()
+public Integer getFailedItems()
+```
+
+| Method | Return Type | Description |
+|---|---|---|
+| `getTotalItems()` | `Integer` | Total child jobs in the batch |
+| `getCompletedItems()` | `Integer` | Successfully completed child jobs so far |
+| `getFailedItems()` | `Integer` | Failed child jobs so far |
 
 ### BatchCompletedEvent
 
@@ -285,13 +311,13 @@ Fired when a workflow chain begins execution.
 
 ```java
 public class ChainStartedEvent extends AbstractJobSchedulerEvent {
-    public Long getParentJobId()
+    public UUID getParentJobId()
 }
 ```
 
 | Method | Return Type | Description |
 |---|---|---|
-| `getParentJobId()` | `Long` | ID of the parent job that owns this chain |
+| `getParentJobId()` | `UUID` | UUIDv7 ID of the parent job that owns this chain |
 
 ### ChainCompletedEvent
 
@@ -299,7 +325,7 @@ Fired when a workflow chain succeeds.
 
 ```java
 public class ChainCompletedEvent extends AbstractJobSchedulerEvent {
-    public Long getParentJobId()
+    public UUID getParentJobId()
 }
 ```
 
@@ -309,7 +335,7 @@ Fired when a workflow chain fails.
 
 ```java
 public class ChainFailedEvent extends AbstractJobSchedulerEvent {
-    public Long getParentJobId()
+    public UUID getParentJobId()
     public String getErrorMessage()
 }
 ```
@@ -330,6 +356,16 @@ Fired when a workflow condition matches and a branch is triggered.
 ```java
 public class WorkflowBranchTriggeredEvent extends AbstractJobSchedulerEvent
 ```
+
+```java
+public String getBranchCondition()
+public String getNextJobId()
+```
+
+| Method | Return Type | Description |
+|---|---|---|
+| `getBranchCondition()` | `String` | Description of the branch condition that matched |
+| `getNextJobId()` | `String` | String form of the child job ID scheduled for the branch |
 
 ### PerformanceMetricsEvent
 

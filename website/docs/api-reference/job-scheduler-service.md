@@ -54,7 +54,7 @@ Enqueues a task for immediate execution with default configuration. This is a co
 **Parameters:**
 - `task` -- the job task to execute.
 
-**Returns:** a `JobHandle` containing the assigned job ID.
+**Returns:** a `JobHandle` containing the assigned UUIDv7 job ID.
 
 ```java
 // Fire-and-forget with default settings
@@ -389,7 +389,7 @@ public interface JobHandle {
 }
 ```
 
-The ID is globally unique within the scheduler and remains valid throughout the job's lifecycle.
+The ID is a `java.util.UUID` UUIDv7 value, globally unique within the scheduler, and remains valid throughout the job's lifecycle.
 
 ```java
 JobHandle handle = scheduler.enqueue(() -> processData()).submit();

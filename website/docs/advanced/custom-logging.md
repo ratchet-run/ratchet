@@ -6,7 +6,7 @@ description: Custom job-scoped logging with the JobLogger SPI
 
 # Custom Logging
 
-Ratchet provides a `JobLogger` SPI for job-scoped logging. The current reference implementation binds `JobContext.logger()` to a no-op logger by default, so applications that want per-job log output or persistence need to install their own implementation.
+Ratchet provides a `JobLogger` SPI for job-scoped logging. The reference implementation creates a per-execution `JBossLoggingJobLogger` through `DefaultJobLoggerFactory`, so `JobContext.logger()` writes to the runtime logging backend by default and publishes `JobLogLine` events for applications that want to persist or stream them.
 
 ## JobLogger SPI
 
@@ -39,9 +39,7 @@ Each job execution receives its own `JobLogger` instance, bound to that job's ID
 
 ## Reference Pattern: JBoss Logging Implementation
 
-The codebase includes `JBossLoggingJobLogger` as the reference pattern for bridging job logs to JBoss Logging (which auto-detects the runtime backend — JBoss LogManager, SLF4J, Log4j 2, or JDK JUL) and optionally publishing them as internal events for persistence.
-
-> **Note:** As of 0.2.0, `JBossLoggingJobLogger` is reserved for future per-job logger wiring and is not currently instantiated by `JobTask`. The `JobLogger` SPI is wired via a no-op implementation by default, and applications that need custom job logging can plug in their own implementation following the pattern below.
+The default `JBossLoggingJobLogger` bridges job logs to JBoss Logging (which auto-detects the runtime backend — JBoss LogManager, SLF4J, Log4j 2, or JDK JUL) and publishes each log line as an internal `JobLogLine` event. The event is delivered to programmatic listeners and CDI observers; database persistence is not automatic unless your application observes the event and calls `JobLogStore.appendLog(...)` or installs an equivalent integration.
 
 ```java
 public class JBossLoggingJobLogger implements JobLogger {
@@ -56,31 +54,31 @@ public class JBossLoggingJobLogger implements JobLogger {
 
     @Override
     public void info(String message) {
-        log.infof("[Job %d] %s", jobId, message);
+        log.infof("[Job %s] %s", jobId, message);
         publishLogLine(LogLevel.INFO, message);
     }
 
     @Override
     public void debug(String message) {
-        log.debugf("[Job %d] %s", jobId, message);
+        log.debugf("[Job %s] %s", jobId, message);
         publishLogLine(LogLevel.DEBUG, message);
     }
 
     @Override
     public void warn(String message) {
-        log.warnf("[Job %d] %s", jobId, message);
+        log.warnf("[Job %s] %s", jobId, message);
         publishLogLine(LogLevel.WARN, message);
     }
 
     @Override
     public void error(String message) {
-        log.errorf("[Job %d] %s", jobId, message);
+        log.errorf("[Job %s] %s", jobId, message);
         publishLogLine(LogLevel.ERROR, message);
     }
 
     @Override
     public void trace(String message) {
-        log.tracef("[Job %d] %s", jobId, message);
+        log.tracef("[Job %s] %s", jobId, message);
         publishLogLine(LogLevel.TRACE, message);
     }
 
@@ -99,7 +97,7 @@ public class JBossLoggingJobLogger implements JobLogger {
 If you wire a logger like this, the dual routing means:
 
 1. **Backend log output** -- Log messages appear in the container's standard log output (console, log files), prefixed with `[Job <id>]`. The actual backend depends on what JBoss Logging detects at startup: JBoss LogManager on WildFly, Logback when `ch.qos.logback.classic.Logger` is on the classpath, Log4j 2 when its API is present, and JDK `java.util.logging` as the final fallback.
-2. **Event publishing** -- Log lines are published as `JobLogLine` events through the `InternalEventPublisher`, which routes them to the `JobLogStore` for database persistence and to any registered event listeners for real-time streaming.
+2. **Event publishing** -- Log lines are published as `JobLogLine` events through the `InternalEventPublisher`, which delivers them to registered programmatic listeners and CDI observers. Persist them to `JobLogStore` only if your application wants database-backed job traces.
 
 ### Level Mapping
 
@@ -113,7 +111,7 @@ If you wire a logger like this, the dual routing means:
 
 ## Using JobLogger in Job Tasks
 
-Once you have installed a non-no-op `JobLogger`, it is available through `JobContext.current()` inside the running job:
+The default per-job logger is available through `JobContext.current()` inside the running job:
 
 ```java
 scheduler.enqueue(() -> {
@@ -332,7 +330,7 @@ public class SilentJobLogger implements JobLogger {
 
 ## Wiring a Custom JobLogger
 
-The `JobLogger` is not a global CDI bean -- each job execution gets its own instance. As of 0.2.0, the default wiring is a no-op `JobLogger`; the engine does not currently instantiate `JBossLoggingJobLogger` automatically. To plug in a custom logger, replace the no-op binding via your own producer or extension point in `JobMdcContext.bindJobContext`.
+The `JobLogger` is not a global CDI bean -- each job execution gets its own instance from `JobLoggerFactory`. To plug in a custom logger, provide an `@Alternative @Priority(APPLICATION)` implementation of `JobLoggerFactory` that creates your logger for each `JobLoggerContext`.
 
 ### Routing Backend Output
 
@@ -353,7 +351,7 @@ Ratchet writes three MDC keys via `org.jboss.logging.MDC` during job execution:
 
 | Key | Value | Source |
 |---|---|---|
-| `jobId` | The numeric job ID | Always populated for every job execution |
+| `jobId` | The UUIDv7 job ID | Always populated for every job execution |
 | `node` | The cluster node identifier | Populated when a node identity is configured |
 | `jobCreator` | The Jakarta Security `CallerPrincipal` captured at enqueue | Populated when a caller principal was present |
 
@@ -372,18 +370,18 @@ A worked example showing the SLF4J + Logback + JBoss Logging triangle is in [`ex
 
 ## Log Persistence
 
-If your custom logger publishes `JobLogLine` events through `InternalEventPublisher`, the store module persists them via the `JobLogStore` SPI. That gives you a queryable `scheduler_job_log` table or collection:
+If your application observes `JobLogLine` events and persists them through the `JobLogStore` SPI, you get a queryable `scheduler_job_log` table or collection:
 
 ```sql
 -- Find recent error logs for a specific job
 SELECT level, message, ts
 FROM scheduler_job_log
-WHERE job_id = 42
+WHERE job_id = '01902c4e-c4f3-7b8a-9d3e-fedcba987654'
   AND level = 'ERROR'
 ORDER BY ts DESC;
 ```
 
-The `LogPurgeTimer` in the RI automatically cleans up old log entries based on a configurable retention period, preventing unbounded log table growth.
+When log persistence is wired, the `LogPurgeTimer` in the RI cleans up old log entries based on the configured retention period, preventing unbounded log table growth.
 
 ## Best Practices
 

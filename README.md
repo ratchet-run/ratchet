@@ -1,8 +1,8 @@
 # Ratchet
 
-**Portable, CDI-based job scheduler for Jakarta EE 10+.**
+**Portable, CDI-based job scheduler for Jakarta EE 10/11.**
 
-Ratchet gives Jakarta EE 10+ applications a clean, annotation-driven API for background job scheduling with persistent storage, automatic retries, workflow orchestration, and built-in resilience — all without pulling in heavyweight frameworks.
+Ratchet gives Jakarta EE 10/11 applications a clean, annotation-driven API for background job scheduling with persistent storage, automatic retries, workflow orchestration, and built-in resilience — all without pulling in heavyweight frameworks.
 
 ---
 
@@ -356,7 +356,7 @@ Ratchet is designed to be extended. Provide a CDI `@Alternative @Priority(APPLIC
 | `ExecutorProvider` | Thread pool / virtual thread configuration | Jakarta Concurrency managed executors |
 | `RatchetEntityManagerProvider` | SQL store `EntityManager` binding | Unnamed `@PersistenceContext` |
 | `NodeIdentityProvider` | Node identification in clusters | Hostname-based |
-| `JobLogger` | Per-job job-scoped logging | No-op binding |
+| `JobLogger` | Per-job job-scoped logging facade | Created per execution by `JobLoggerFactory` |
 
 ### Custom Store Implementation
 
@@ -385,7 +385,7 @@ Ratchet uses tiered conformance. Each TCK submodule earns a distinct compatibili
 
 - **Ratchet Store Compatible** — passes `ratchet-tck-store` against a custom `JobStore` (CRUD, claiming, status transitions, archiving, execution tracking, batches, locks).
 - **Ratchet API Compatible** — passes `ratchet-tck-api` against a custom `JobSchedulerService` implementation. Pure-JVM JUnit, no container required. Covers submit / cancel / retry / idempotency / simple workflow; delayed-scheduling contracts skip when no `TestClock` is provided.
-- **Ratchet Jakarta Runtime Compatible** — passes `ratchet-tck-api` plus `ratchet-tck-jakarta` (CDI injection, CDI events, JTA enqueue) in a Jakarta EE 10+ container, typically via Arquillian.
+- **Ratchet Jakarta Runtime Compatible** — passes `ratchet-tck-api` plus `ratchet-tck-jakarta` (CDI injection, CDI events, JTA enqueue) in a Jakarta EE 10/11 container, typically via Arquillian.
 - **Ratchet RI Verified** — the project's reference-implementation tests pass on a named runtime / database matrix. This is implementation-specific and lives in `ratchet-testsuite`.
 
 ## Production Checklist
@@ -408,6 +408,8 @@ Before deploying Ratchet to a production-shaped environment, work through this c
 
 - [ ] **Apply or initialize the schema.** SQL stores ship DDL as plain SQL files — no Flyway lock-in. Apply once per database before starting any node. See `ratchet-store-{mysql,postgresql}/src/main/resources/ddl/`. MongoDB collections and indexes are initialized by `ratchet-store-mongodb` at startup.
 
+- [ ] **Use the store-specific UUID wiring.** PostgreSQL stores UUIDv7 IDs as native `uuid`. MySQL stores them as `BINARY(16)` and production persistence units must include `META-INF/orm-mysql.xml` from `ratchet-store-mysql` so non-Hibernate JPA providers route UUID fields through the store-local converter. MongoDB clients must use `UuidRepresentation.STANDARD`; prefer `MongoClientFactory.create(...)` or configure the supplied client explicitly.
+
 - [ ] **Verify `READ COMMITTED` isolation.** Ratchet's claim/poll path assumes statement-level snapshotting. The default on most servers is correct; verify with `SELECT @@tx_isolation` (MySQL) or `SHOW default_transaction_isolation` (Postgres).
 
 ### Multi-node deployments
@@ -429,20 +431,20 @@ Before deploying Ratchet to a production-shaped environment, work through this c
   }
   ```
 
-- [ ] **Plan `scheduler_job_log` retention if you wire job-log persistence.** Ratchet creates the table and schedules purging, but the default `JobLogger` binding is a no-op. If you publish `JobLogLine` events to the store, combine purging with your database's native partitioning strategy for high-volume installs.
+- [ ] **Plan `scheduler_job_log` retention if you wire job-log persistence.** The default logger writes through JBoss Logging and publishes `JobLogLine` events, but database persistence of those events is an application integration choice. If you persist them, combine purging with your database's native partitioning strategy for high-volume installs.
 
 - [ ] **Cap job result size if your jobs return large objects.** Default cap is 64KB (`ratchet.jobs.max-result-bytes`); larger results are truncated to a marker JSON noting the original size. Tune via `-D` or store large results out-of-band in object storage.
 
 ### Known limitations (0.1.0-alpha)
 
-- **Per-job logging is not wired by default.** Framework logs flow through JBoss Logging, but `JobContext.logger()` is currently bound to a no-op implementation unless you install a custom `JobLogger`.
+- **Per-job log persistence is not automatic.** `JobContext.logger()` is backed by JBoss Logging by default and publishes `JobLogLine` events. Persist those events only if your application wants database-backed per-job traces.
 - **`@Incubating` SPIs may evolve.** Method names, parameters, and semantics on any interface marked `@Incubating` are subject to change between alpha releases.
 
 ## Requirements
 
 - **Java**: 17+
-- **Jakarta EE**: 10+ (CDI 4.0/4.1, JPA 3.1/3.2, Interceptors 2.1/2.2, Jakarta Concurrency 3.0/3.1)
-- **Runtime**: Jakarta EE 10+ compatible server with managed executor support (WildFly, Open Liberty, Payara, GlassFish 8, etc.); plain CDI/test deployments can opt into `StandaloneExecutorProvider`
+- **Jakarta EE**: 10/11 (CDI 4.0/4.1, JPA 3.1/3.2, Interceptors 2.1/2.2, Jakarta Concurrency 3.0/3.1)
+- **Runtime**: Jakarta EE 10/11 compatible server with managed executor support (WildFly, Open Liberty, Payara, GlassFish 8, etc.); plain CDI/test deployments can opt into `StandaloneExecutorProvider`
 - **Database**: MySQL 8+, PostgreSQL 14+, or MongoDB 6+
 
 ## Building from Source

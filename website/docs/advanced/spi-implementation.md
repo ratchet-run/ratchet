@@ -259,7 +259,7 @@ See [Metrics Collection](./metrics-collection.md) for detailed guidance.
 
 **Module:** `ratchet-api`
 **Package:** `run.ratchet.spi`
-**Default:** No-op (`NoOpJobLogger.INSTANCE` in `JobMdcContext`); `JBossLoggingJobLogger` is provided as a reference implementation that bridges to JBoss Logging + internal event publisher but is not currently auto-wired.
+**Default:** Created by `DefaultJobLoggerFactory` as a per-execution `JBossLoggingJobLogger`, which bridges to JBoss Logging and publishes `JobLogLine` events through the internal event publisher.
 **Annotation:** `@Incubating`
 
 Per-job isolated logging.
@@ -681,7 +681,10 @@ Ratchet ships with MySQL, PostgreSQL, and MongoDB implementations. To implement 
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.BatchEntity;
+import run.ratchet.store.id.UuidV7Factory;
 // ... other entity imports
+
+import java.util.UUID;
 
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -701,11 +704,12 @@ public class CustomDocumentJobStore implements JobStore {
     @Override
     public JobEntity save(JobEntity job) {
         MongoCollection<Document> collection = database.getCollection("ratchet_jobs");
-        Document doc = toDocument(job);
-        if (job.getId() == 0) {
+        if (job.getId() == null) {
+            job.setId(UuidV7Factory.create());
+            Document doc = toDocument(job);
             collection.insertOne(doc);
-            job.setId(doc.getLong("_id"));
         } else {
+            Document doc = toDocument(job);
             collection.replaceOne(eq("_id", job.getId()), doc);
         }
         return job;

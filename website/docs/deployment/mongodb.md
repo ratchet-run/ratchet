@@ -44,7 +44,7 @@ operation is idempotent and safe to run on every boot.
 | `scheduler_batch` | Batch parent records and progress state |
 | `scheduler_batch_metrics` | Batch-level runtime metrics |
 | `scheduler_job_execution` | Execution history — start/end times, node, outcome |
-| `scheduler_job_log` | Optional per-job log storage if your `JobLogger` publishes log lines |
+| `scheduler_job_log` | Optional per-job log storage if your application persists `JobLogLine` events |
 | `scheduler_job_archive` | Archived completed/failed jobs |
 | `scheduler_lock` | Distributed advisory locks with TTL |
 | `scheduler_node` | Cluster node heartbeats |

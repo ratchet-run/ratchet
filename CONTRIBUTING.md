@@ -2,7 +2,7 @@
 
 Thanks for contributing to Ratchet.
 
-Ratchet is a CDI-based job scheduler for Jakarta EE 10. The project is still in alpha, so small, focused improvements are preferred over broad speculative refactors.
+Ratchet is a CDI-based job scheduler for Jakarta EE 10/11. The project is still in alpha, so small, focused improvements are preferred over broad speculative refactors.
 
 ## Before You Start
 
@@ -62,6 +62,9 @@ npm run build
 ```
 
 If your change affects public behavior, examples, configuration, startup/logging expectations, or SPIs, update the docs in the same pull request.
+
+Doc parity is part of the public surface. Behavior changes should keep the
+root docs (`README.md`, `CONTRIBUTING.md`, `SECURITY.md`), module READMEs, and the Docusaurus site consistent.
 
 ## Coding Expectations
 

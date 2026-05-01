@@ -19,7 +19,7 @@ In theory, you could wire these manually without CDI, but you would need to:
 2. Provide a `BeanResolver` implementation that resolves beans without CDI
 3. Replace the CDI event bridge with your own event dispatch
 
-This is not a supported configuration. If you need a non-CDI scheduler, consider whether Ratchet is the right fit. The library is purpose-built for Jakarta EE 10 environments with CDI.
+This is not a supported configuration. If you need a non-CDI scheduler, consider whether Ratchet is the right fit. The library is purpose-built for Jakarta EE environments with CDI.
 
 ## What Databases Are Supported?
 
@@ -206,7 +206,7 @@ When a job method returns a non-null value, Ratchet serializes it to JSON and st
 ```sql
 SELECT job_result, result_type
 FROM scheduler_job
-WHERE job_id = 12345;
+WHERE job_id = '01902c4e-c4f3-7b8a-9d3e-fedcba987654';
 ```
 
 - `job_result` contains the JSON representation

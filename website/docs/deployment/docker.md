@@ -6,11 +6,11 @@ description: Running Ratchet applications in Docker with WildFly or Payara, incl
 
 # Docker Deployment
 
-Ratchet runs on any Jakarta EE 10 runtime. This guide shows how to containerize a Ratchet application using WildFly or Payara as the runtime, with Docker Compose for local development.
+Ratchet runs on Jakarta EE 10/11 runtimes. This guide shows how to containerize a Ratchet application using WildFly or Payara as the runtime, with Docker Compose for local development.
 
 ## Base Image Selection
 
-Choose a base image that provides the Jakarta EE 10 services Ratchet's default RI runtime uses: CDI, JPA, Interceptors, and Jakarta Concurrency.
+Choose a base image that provides the Jakarta EE services Ratchet's default RI runtime uses: CDI, JPA, Interceptors, and Jakarta Concurrency.
 
 | Runtime | Base Image | Notes |
 |---------|-----------|-------|

@@ -57,7 +57,7 @@ const features = [
   },
   {
     title: 'Enterprise Ready',
-    description: 'Jakarta EE 10, Java 17+, container-managed transactions, safe multi-node job claiming, database-backed singleton recurring scans, and optional cross-node wakeups.',
+    description: 'Jakarta EE 10/11, Java 17+, container-managed transactions, safe multi-node job claiming, database-backed singleton recurring scans, and optional cross-node wakeups.',
   },
 ];
 
@@ -77,7 +77,7 @@ export default function Home(): ReactNode {
   return (
     <Layout
       title="Home"
-      description="Portable, CDI-based job scheduler for Jakarta EE 10 applications">
+      description="Portable, CDI-based job scheduler for Jakarta EE 10/11 applications">
       <HomepageHeader />
       <main>
         <section className="container margin-vert--xl">

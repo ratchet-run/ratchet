@@ -162,7 +162,7 @@ Ratchet keeps its dependency footprint small. Here's what each module brings in:
 | `ratchet-store-mongodb` | MongoDB sync driver |
 | `ratchet-micrometer` | Micrometer Core 1.14 |
 
-Jakarta EE APIs are declared with `provided` scope, since your Jakarta EE 10 application server supplies them at runtime.
+Jakarta EE APIs are declared with `provided` scope, since your Jakarta EE 10/11 application server supplies them at runtime.
 
 ## Database Schema Setup
 
@@ -203,15 +203,30 @@ Reference the DDL file as a `sqlFile` changeset in your changelog.
 This is a deliberate design decision. Other schedulers (like Quartz) bundle their own migration framework, which creates conflicts when your application already manages schema migrations with Flyway or Liquibase. By shipping raw DDL, Ratchet integrates with whatever migration strategy you've already chosen -- or none at all, if you apply schema changes manually.
 :::
 
+### Store-Specific UUID Wiring
+
+Ratchet job IDs are UUIDv7 values. PostgreSQL stores them as native `uuid`.
+MySQL stores them as `BINARY(16)` and production persistence units must include
+the MySQL mapping file:
+
+```xml
+<mapping-file>META-INF/orm-mysql.xml</mapping-file>
+```
+
+That mapping applies the MySQL store-local `UuidByteArrayConverter` for
+non-Hibernate JPA providers. PostgreSQL does not use this mapping file.
+MongoDB clients must use `UuidRepresentation.STANDARD`; prefer
+`MongoClientFactory.create(...)` when creating the client.
+
 ## Jakarta EE Server Compatibility
 
-Ratchet targets Jakarta EE 10 runtimes with the services used by the reference implementation. The
+Ratchet targets Jakarta EE 10/11 runtimes with the services used by the reference implementation. The
 default runtime requirements are:
 
-- **CDI 4.0** -- for dependency injection, bean discovery, and event observation
-- **JPA 3.1** -- for the store implementations' entity mapping
-- **Interceptors 2.1** -- for `@CircuitBreakerProtected` support
-- **Jakarta Concurrency 3.0** -- for the default managed executor provider
+- **CDI 4.0/4.1** -- for dependency injection, bean discovery, and event observation
+- **JPA 3.1/3.2** -- for the store implementations' entity mapping
+- **Interceptors 2.1/2.2** -- for `@CircuitBreakerProtected` support
+- **Jakarta Concurrency 3.0/3.1** -- for the default managed executor provider
 
 Servers known to work:
 
@@ -220,6 +235,7 @@ Servers known to work:
 | WildFly | Jakarta EE 10 line; CI-managed tests currently use 39.0.1.Final | Primary managed test target |
 | Open Liberty | Jakarta EE 10 `webProfile-10.0`; CI-managed tests currently use 26.0.0.2 | Requires CDI, Persistence, and managed executor support |
 | Payara | Payara 6 line; CI-managed tests currently use 6.2025.11 | Jakarta EE 10 runtime |
+| GlassFish | GlassFish 8 / Omnifish line | Jakarta EE 11 verification profile; currently tracked with a known upstream workaround |
 
 Plain Web Profile or standalone CDI environments can opt into
 `run.ratchet.ri.cdi.StandaloneExecutorProvider` as an alternative

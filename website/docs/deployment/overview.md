@@ -6,14 +6,14 @@ description: What you need to deploy Ratchet — application server, database, m
 
 # Deployment Overview
 
-Ratchet is a portable, CDI-based job scheduler for Jakarta EE 10. It deploys as a set of JAR modules inside your application, running on Jakarta EE 10 runtimes with the services used by the reference implementation.
+Ratchet is a portable, CDI-based job scheduler for Jakarta EE 10/11. It deploys as a set of JAR modules inside your application, running on Jakarta EE runtimes with the services used by the reference implementation.
 
 ## What You Need
 
 | Component | Requirement | Notes |
 |-----------|-------------|-------|
 | **Java** | 17 or later | Virtual threads available on 21+ |
-| **Jakarta EE Runtime** | 10 with CDI, JPA, Interceptors, and Jakarta Concurrency | WildFly, Payara, Open Liberty, etc. |
+| **Jakarta EE Runtime** | 10/11 with CDI, JPA, Interceptors, and Jakarta Concurrency | WildFly, Payara, Open Liberty, GlassFish 8, etc. |
 | **CDI** | 4.0+ | `beans.xml` with `bean-discovery-mode="all"` |
 | **Database** | MySQL 8+, PostgreSQL 14+, or MongoDB 6+ | One store module per database |
 | **Build Tool** | Maven 3.8+ | BOM import for version management |
@@ -71,7 +71,7 @@ See [Cluster Configuration](/docs/deployment/cluster-configuration) for details.
 
 ### Containerized
 
-Ratchet runs in Docker or Kubernetes without any special configuration beyond what a standard Jakarta EE 10 application needs. The database runs as a separate container or managed service.
+Ratchet runs in Docker or Kubernetes without any special configuration beyond what a standard Jakarta EE application needs. The database runs as a separate container or managed service.
 
 See [Docker Deployment](/docs/deployment/docker) and [Kubernetes Deployment](/docs/deployment/kubernetes).
 
@@ -92,12 +92,12 @@ The SQL schema creates these primary tables. MongoDB uses analogous collections 
 | Table | Purpose |
 |-------|---------|
 | `ratchet_schema_version` | SQL schema migration/checksum tracking |
-| `scheduler_job` | Job definitions, status, payload, scheduling metadata |
+| `scheduler_job` | Cold job metadata, payload, and terminal state |
 | `scheduler_business_key_reservation` | Active business-key reservation guard |
-| `scheduler_job_queue` | MySQL-only hot queue table for executable jobs |
+| `scheduler_job_queue` | Hot executable queue table for claim/poll state |
 | `scheduler_job_tag` | Tags for job categorization and querying |
 | `scheduler_job_execution` | Per-attempt execution history with timing and errors |
-| `scheduler_job_log` | Optional per-job log entries if your `JobLogger` publishes them |
+| `scheduler_job_log` | Optional per-job log entries if your application persists `JobLogLine` events |
 | `scheduler_batch` | Batch progress tracking |
 | `scheduler_batch_metrics` | Batch performance metrics |
 | `scheduler_job_archive` | Archived completed/failed jobs |

@@ -6,11 +6,11 @@ description: How to debug Ratchet jobs using event listeners, database queries, 
 
 # Debugging Guide
 
-This guide covers practical techniques for understanding what your Ratchet jobs are doing at runtime, from event tracing to database-level inspection. Per-job logging is optional: `JobContext.logger()` exists on every job, but the default binding is a no-op unless you install a custom `JobLogger`.
+This guide covers practical techniques for understanding what your Ratchet jobs are doing at runtime, from event tracing to database-level inspection. `JobContext.logger()` exists on every job and is backed by JBoss Logging by default; database persistence of those log lines is optional.
 
-## Using JobContext.logger() with a Custom JobLogger
+## Using JobContext.logger()
 
-Every job has access to a `JobContext` that provides a job-scoped logger. If you install a custom `JobLogger` that publishes log lines, those entries can be stored in `scheduler_job_log`, giving you a structured execution trace tied to each job ID.
+Every job has access to a `JobContext` that provides a job-scoped logger. The default logger writes to the runtime logging backend and publishes `JobLogLine` events. If your application observes and persists those events, the entries can be stored in `scheduler_job_log`, giving you a structured execution trace tied to each job ID.
 
 ```java
 @ApplicationScoped
@@ -38,13 +38,13 @@ public class DataImportService {
 
 ### Querying Job Logs
 
-If your custom logger persists log lines, you can retrieve them after a job runs:
+If your application persists `JobLogLine` events, you can retrieve them after a job runs:
 
 ```sql
 -- Get all log entries for a specific job, ordered chronologically
 SELECT ts, level, message
 FROM scheduler_job_log
-WHERE job_id = 12345
+WHERE job_id = '01902c4e-c4f3-7b8a-9d3e-fedcba987654'
 ORDER BY ts ASC;
 ```
 
@@ -195,7 +195,7 @@ SELECT job_id, status, job_type, priority,
        payload::jsonb ->> 'target' as target_class,
        payload::jsonb ->> 'method' as method_name
 FROM scheduler_job
-WHERE job_id = 12345;
+WHERE job_id = '01902c4e-c4f3-7b8a-9d3e-fedcba987654';
 ```
 
 ### Find Failed Jobs by Error Pattern
@@ -222,7 +222,7 @@ Each job execution attempt is recorded in `scheduler_job_execution`:
 SELECT id, attempt, node_id, started_at, ended_at, status,
        duration_ms, error_message, error_class
 FROM scheduler_job_execution
-WHERE job_id = 12345
+WHERE job_id = '01902c4e-c4f3-7b8a-9d3e-fedcba987654'
 ORDER BY attempt ASC;
 ```
 

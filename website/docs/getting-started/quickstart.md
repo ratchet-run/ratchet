@@ -12,7 +12,7 @@ This guide gets you from zero to a running background job in the shortest path p
 
 Before starting, make sure you have:
 
-1. A Jakarta EE 10 project with a running application server (WildFly, Open Liberty, Payara, etc.)
+1. A Jakarta EE 10/11 project with a running application server (WildFly, Open Liberty, Payara, GlassFish 8, etc.)
 2. A database (PostgreSQL, MySQL, or MongoDB) accessible from your application
 3. Ratchet dependencies added to your `pom.xml` (see [Installation](./installation.md))
 4. The Ratchet schema applied to your database
@@ -138,7 +138,7 @@ When you call `scheduler.enqueueNow(() -> processOrder(orderId))`, Ratchet:
 
 1. **Serializes the lambda** -- The method reference `processOrder(orderId)` is analyzed via ASM bytecode analysis, capturing the target class, method name, and argument values.
 2. **Persists the job** -- A new row is inserted into the `scheduler_job` table with status `PENDING`, the serialized payload, and an auto-generated idempotency key.
-3. **Returns immediately** -- `enqueueNow` returns a `JobHandle` with the job's database ID. Your calling code doesn't block.
+3. **Returns immediately** -- `enqueueNow` returns a `JobHandle` with the job's UUIDv7 database ID. Your calling code doesn't block.
 4. **Poller picks it up** -- The Ratchet poller (started automatically at application startup by `RatchetLifecycle`) claims the job and submits it to a worker thread.
 5. **Worker executes** -- The worker thread deserializes the payload, resolves `OrderService` via CDI, and calls `processOrder(orderId)`.
 
@@ -186,7 +186,7 @@ JobHandle handle = scheduler.enqueueNow(() -> doSomething());
 UUID jobId = handle.id();
 ```
 
-The `JobHandle` is a lightweight receipt containing just the job's database ID. You can use it to:
+The `JobHandle` is a lightweight receipt containing just the job's UUIDv7 database ID. You can use it to:
 
 - Log the job ID for correlation
 - Cancel the job later with `scheduler.cancelJob(jobId)`

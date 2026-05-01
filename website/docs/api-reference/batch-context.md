@@ -19,7 +19,7 @@ A Java record representing the state and progress of a batch operation. Passed t
 
 ```java
 public record BatchContext(
-    long batchId,
+    UUID batchId,
     int totalItems,
     int completedItems,
     int failedItems
@@ -30,7 +30,7 @@ public record BatchContext(
 
 | Component | Type | Description |
 |---|---|---|
-| `batchId` | `long` | Unique identifier of the batch parent job |
+| `batchId` | `UUID` | UUIDv7 identifier of the batch parent job |
 | `totalItems` | `int` | Total number of child jobs in the batch |
 | `completedItems` | `int` | Number of child jobs completed successfully |
 | `failedItems` | `int` | Number of child jobs that have failed |
@@ -125,7 +125,7 @@ A Java record providing progress information during the **streaming phase** -- w
 
 ```java
 public record StreamingBatchContext(
-    long batchId,
+    UUID batchId,
     int processedItems,
     int chunksInserted
 )
@@ -135,7 +135,7 @@ public record StreamingBatchContext(
 
 | Component | Type | Description |
 |---|---|---|
-| `batchId` | `long` | Unique identifier of the batch being created |
+| `batchId` | `UUID` | UUIDv7 identifier of the batch parent job being created |
 | `processedItems` | `int` | Cumulative number of items read from the stream |
 | `chunksInserted` | `int` | Number of bulk insert operations performed |
 

@@ -9,7 +9,7 @@ Getting Ratchet running in your application.
 ## Prerequisites
 
 - **Java**: 17 or later
-- **Jakarta EE**: 10 with CDI, JPA, Interceptors, and Jakarta Concurrency for the default RI runtime
+- **Jakarta EE**: 10/11 with CDI, JPA, Interceptors, and Jakarta Concurrency for the default RI runtime
 - **Database**: MySQL 8+, PostgreSQL 14+, or MongoDB 6+
 - **Maven**: 3.8+
 
@@ -87,13 +87,21 @@ flyway migrate
 mysql -u ratchet -p mydb < mysql-schema.sql
 ```
 
+MySQL stores UUIDv7 job IDs as `BINARY(16)`. Add the store-local mapping file
+to your persistence unit so non-Hibernate JPA providers bind UUID fields as
+16 bytes:
+
+```xml
+<mapping-file>META-INF/orm-mysql.xml</mapping-file>
+```
+
 :::caution
 MySQL requires `READ COMMITTED` isolation. Set `transaction-isolation=TRANSACTION_READ_COMMITTED` on your DataSource or append `?sessionVariables=transaction_isolation='READ-COMMITTED'` to the JDBC URL.
 :::
 
 ### MongoDB
 
-MongoDB collections and indexes are created automatically by the store module on startup. No manual schema application is needed.
+MongoDB collections and indexes are created automatically by the store module on startup. No manual schema application is needed. The supplied `MongoClient` must use `UuidRepresentation.STANDARD`; prefer `MongoClientFactory.create(...)` when constructing it.
 
 ## Step 3: Configure CDI Wiring
 

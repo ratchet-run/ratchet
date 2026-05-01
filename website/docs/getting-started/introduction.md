@@ -8,9 +8,9 @@ description: What is Ratchet, why use it, and how it compares to other job sched
 
 ## What is Ratchet?
 
-Ratchet is a portable, CDI-based job scheduler built for Jakarta EE 10 applications. It gives you a clean, annotation-driven API for background job scheduling with persistent storage, automatic retries, workflow orchestration, and built-in resilience -- all without pulling in heavyweight frameworks or non-standard dependencies.
+Ratchet is a portable, CDI-based job scheduler built for Jakarta EE 10/11 applications. It gives you a clean, annotation-driven API for background job scheduling with persistent storage, automatic retries, workflow orchestration, and built-in resilience -- all without pulling in heavyweight frameworks or non-standard dependencies.
 
-If you've ever needed to run a task in the background, retry it on failure, chain it with other tasks, or schedule it on a cron timer inside a Jakarta EE 10 application, Ratchet is built for exactly that.
+If you've ever needed to run a task in the background, retry it on failure, chain it with other tasks, or schedule it on a cron timer inside a Jakarta EE application, Ratchet is built for exactly that.
 
 ```java
 @Inject
@@ -31,7 +31,7 @@ Enterprise Java applications need background job processing, but the existing op
 
 **Jakarta Batch (JSR 352) / jBeret** is the standard, but it was designed for large-scale batch processing -- think ETL jobs and report generation. Its programming model (readers, processors, writers, job XML) is heavyweight for the common case of "run this method in the background and retry if it fails." It also has no built-in concept of job chaining, conditional workflows, or circuit breaker protection.
 
-**Quartz Scheduler** is widely used, but it predates CDI and Jakarta EE 10. Its `Job` interface requires a separate class per job, its trigger model is complex, and its persistence layer uses its own schema and connection management rather than integrating with your application's existing data source. Adding Quartz to a modern Jakarta EE 10 application means managing two persistence layers and wiring CDI manually.
+**Quartz Scheduler** is widely used, but it predates CDI-first Jakarta EE applications. Its `Job` interface requires a separate class per job, its trigger model is complex, and its persistence layer uses its own schema and connection management rather than integrating with your application's existing data source. Adding Quartz to a modern Jakarta EE application means managing two persistence layers and wiring CDI manually.
 
 **MicroProfile Fault Tolerance** handles retries and circuit breakers well, but it's a resilience library, not a job scheduler. It has no concept of persistent jobs, deferred execution, or cron scheduling.
 
@@ -145,21 +145,21 @@ Ratchet's internals are composed of focused SPI interfaces. The reference implem
 
 ## Target Audience
 
-Ratchet is built for **Jakarta EE developers** building applications on servers like WildFly, Open Liberty, Payara, or any Jakarta EE 10-compatible runtime. You should be comfortable with:
+Ratchet is built for **Jakarta EE developers** building applications on servers like WildFly, Open Liberty, Payara, GlassFish 8, or any Jakarta EE 10/11-compatible runtime. You should be comfortable with:
 
 - CDI injection and bean scoping
 - JPA/DataSource or MongoDB resource wiring
 - Maven dependency management
 
-If you're building a microservice on Spring Boot or Quarkus and not targeting a Jakarta EE 10 server, Ratchet may still work with explicit CDI wiring and the standalone executor fallback, but the reference implementation is primarily designed and tested against Jakarta EE 10 runtimes with managed executors.
+If you're building a microservice on Spring Boot or Quarkus and not targeting a Jakarta EE server, Ratchet may still work with explicit CDI wiring and the standalone executor fallback, but the reference implementation is primarily designed and tested against Jakarta EE 10/11 runtimes with managed executors.
 
 ## Requirements
 
 | Component | Version |
 |-----------|---------|
 | **Java** | 17+ |
-| **Jakarta EE** | 10 -- CDI 4.0, JPA 3.1, Interceptors 2.1, Jakarta Concurrency 3.0 |
-| **Runtime** | Jakarta EE 10 compatible server with managed executor support (WildFly, Open Liberty, Payara) |
+| **Jakarta EE** | 10/11 -- CDI 4.0/4.1, JPA 3.1/3.2, Interceptors 2.1/2.2, Jakarta Concurrency 3.0/3.1 |
+| **Runtime** | Jakarta EE 10/11 compatible server with managed executor support (WildFly, Open Liberty, Payara, GlassFish 8) |
 | **Database** | MySQL 8+, PostgreSQL 14+, or MongoDB 6+ |
 
 ## Project Status

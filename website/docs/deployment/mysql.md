@@ -35,7 +35,10 @@ SHOW TABLES LIKE 'scheduler_%';
 ```
 
 You should see:
+- `ratchet_schema_version`
 - `scheduler_job`
+- `scheduler_job_queue`
+- `scheduler_business_key_reservation`
 - `scheduler_job_tag`
 - `scheduler_job_execution`
 - `scheduler_job_log`
@@ -59,6 +62,7 @@ Configure your data source for MySQL:
 <!-- persistence.xml -->
 <persistence-unit name="your-application-pu" transaction-type="JTA">
   <jta-data-source>java:/RatchetDS</jta-data-source>
+  <mapping-file>META-INF/orm-mysql.xml</mapping-file>
   <class>run.ratchet.store.entity.JobEntity</class>
   <class>run.ratchet.store.entity.JobExecutionEntity</class>
   <class>run.ratchet.store.entity.ResourceLimitEntity</class>
@@ -78,6 +82,13 @@ Configure your data source for MySQL:
   </properties>
 </persistence-unit>
 ```
+
+The `mapping-file` line is required for production MySQL persistence units.
+MySQL stores UUIDv7 IDs as `BINARY(16)`, and the mapping file applies the
+store-local `UuidByteArrayConverter` so EclipseLink, OpenJPA, and other
+non-Hibernate providers bind UUID fields as 16 bytes. Hibernate's built-in UUID
+handler already uses standard-byte-order `BINARY(16)`, so the converter is
+idempotent there. PostgreSQL does not use this mapping file.
 
 The MySQL store does not require a fixed persistence-unit name. By default it uses the deployment's
 unnamed `@PersistenceContext`. If your application has multiple persistence units, provide a CDI
@@ -142,7 +153,7 @@ Ratchet does not expose MySQL-only tuning flags. Use the shared scheduler settin
 
 | Table | Purpose |
 |-------|---------|
-| `scheduler_job` | Job definitions, status, payload, scheduling metadata |
+| `scheduler_job` | Cold job metadata, payload, and terminal state |
 | `scheduler_job_execution` | Per-attempt execution history with timing and errors |
 | `scheduler_job_archive` | Archived completed/failed/canceled jobs |
 | `scheduler_batch` | Batch progress tracking |
@@ -152,9 +163,11 @@ Ratchet does not expose MySQL-only tuning flags. Use the shared scheduler settin
 The MySQL schema uses several MySQL-specific features:
 
 - **ENUM types** for `status`, `job_type`, `backoff_policy`, and `level` columns
+- **BINARY(16) UUIDv7 identifiers** for every primary and foreign key that refers to a job, batch, execution, log, archive, resource permit, or workflow row
 - **JSON columns** for `payload`, `params`, `job_result`, and `mdc`
 - **GENERATED ALWAYS AS ... STORED** columns to extract `target_class` and `method_name` from payload JSON
 - **Reservation table** for active business-key uniqueness without keeping terminal rows hot
+- **Optional operator views** in `ddl/views/vw_jobs.sql` that expose binary UUIDs as hyphenated strings via `BIN_TO_UUID(col)` without MySQL's UUIDv1 swap flag
 
 ### Key Indexes
 

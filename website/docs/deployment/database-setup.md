@@ -67,11 +67,12 @@ You should see these scheduler tables plus `ratchet_schema_version`:
 
 | Table | Purpose |
 |-------|---------|
-| `scheduler_job` | Job definitions, status, payload |
+| `scheduler_job` | Cold job metadata, payload, and terminal state |
+| `scheduler_job_queue` | Hot executable queue state |
 | `scheduler_business_key_reservation` | Active business-key reservation guard |
 | `scheduler_job_tag` | Tags for categorization |
 | `scheduler_job_execution` | Per-attempt execution history |
-| `scheduler_job_log` | Optional per-job log entries if your `JobLogger` publishes them |
+| `scheduler_job_log` | Optional per-job log entries if your application persists `JobLogLine` events |
 | `scheduler_batch` | Batch progress tracking |
 | `scheduler_batch_metrics` | Batch performance metrics |
 | `scheduler_job_archive` | Archived completed/failed jobs |
@@ -171,7 +172,7 @@ SHOW TABLES LIKE 'scheduler_%';
 SHOW TABLES LIKE 'ratchet_schema_version';
 ```
 
-You should see the same core tables as PostgreSQL plus `scheduler_job_queue`, with MySQL-specific column types (ENUM, JSON, GENERATED ALWAYS columns).
+You should see the same core tables as PostgreSQL, with MySQL-specific column types (ENUM, JSON, GENERATED ALWAYS columns).
 
 ### DataSource Configuration
 

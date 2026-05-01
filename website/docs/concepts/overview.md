@@ -1,16 +1,16 @@
 ---
 sidebar_position: 1
 title: Architecture Overview
-description: High-level architecture of Ratchet and how it fits into a Jakarta EE 10 application
+description: High-level architecture of Ratchet and how it fits into a Jakarta EE 10/11 application
 ---
 
 # Architecture Overview
 
-Ratchet is a portable, CDI-based job scheduler for Jakarta EE 10 applications. It provides persistent, cluster-safe background job scheduling with a fluent API -- covering batching, chaining, workflows, and transactional enqueueing out of the box.
+Ratchet is a portable, CDI-based job scheduler for Jakarta EE 10/11 applications. It provides persistent, cluster-safe background job scheduling with a fluent API -- covering batching, chaining, workflows, and transactional enqueueing out of the box.
 
 ## Where Ratchet Fits
 
-In a typical Jakarta EE 10 application, Ratchet sits between your business logic and the database. You inject `JobSchedulerService`, enqueue work using lambda expressions, and Ratchet handles persistence, polling, execution, retries, and lifecycle events.
+In a typical Jakarta EE application, Ratchet sits between your business logic and the database. You inject `JobSchedulerService`, enqueue work using lambda expressions, and Ratchet handles persistence, polling, execution, retries, and lifecycle events.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -18,7 +18,7 @@ In a typical Jakarta EE 10 application, Ratchet sits between your business logic
 │                                                         │
 │   @Inject JobSchedulerService scheduler;                │
 │   scheduler.enqueue(() -> orderService.process(id))     │
-│       .withRetries(3)                                   │
+│       .withMaxRetries(3)                                │
 │       .submit();                                        │
 │                                                         │
 ├─────────────────────────────────────────────────────────┤
@@ -85,7 +85,7 @@ ratchet/
    └────────────┘ └──────────────┘ └──────────────┘
 ```
 
-**Key design constraint:** `ratchet-api` has zero runtime dependencies beyond Jakarta EE 10 APIs. Your application can depend on `ratchet-api` for event types and annotations without pulling in the engine.
+**Key design constraint:** `ratchet-api` has zero runtime dependencies beyond Jakarta EE APIs supplied by the runtime. Your application can depend on `ratchet-api` for event types and annotations without pulling in the engine.
 
 ## Core Concepts
 
@@ -126,7 +126,7 @@ Ratchet separates API contracts from implementation through Service Provider Int
 | `ResultPersistenceStrategy` | Job return-value persistence | JSON metadata with size cap |
 | `RatchetOptions` | Typed runtime options | Required CDI producer — see [Configuration](/docs/getting-started/configuration) |
 | `RetryPolicy` | Custom retry decisions | Passthrough (uses job config) |
-| `ClassPolicy` | Security allowlist | Package-prefix matching |
+| `ClassPolicy` | Security allowlist | Empty package allowlist; startup fails fast until you provide one |
 | `MetricsCollector` | Observability hooks | No-op |
 | `ClusterCoordinator` | Cross-node wakeups | No-op (single-node) |
 
@@ -161,7 +161,7 @@ scheduler.addEventListener(event -> {
 
 ## Minimal Setup
 
-Add Ratchet to your Jakarta EE 10 application:
+Add Ratchet to your Jakarta EE application:
 
 ```xml
 <dependencyManagement>

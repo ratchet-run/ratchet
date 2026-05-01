@@ -34,7 +34,10 @@ flyway migrate
 ```
 
 You should see:
+- `ratchet_schema_version`
 - `scheduler_job`
+- `scheduler_job_queue`
+- `scheduler_business_key_reservation`
 - `scheduler_job_tag`
 - `scheduler_job_execution`
 - `scheduler_job_log`
