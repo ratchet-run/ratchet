@@ -4,6 +4,7 @@ module run.ratchet.micrometer {
   requires jakarta.cdi;
   requires jakarta.inject;
   requires micrometer.core;
+  requires micrometer.tracing;
   requires org.jboss.logging;
 
   exports run.ratchet.micrometer;

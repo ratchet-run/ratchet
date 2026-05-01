@@ -75,6 +75,7 @@
     <jakarta.servlet-api.version>6.0.0</jakarta.servlet-api.version>
     <jakarta.authentication-api.version>3.0.0</jakarta.authentication-api.version>
     <junit.version>5.11.4</junit.version>
+    <junit.platform.version>1.11.4</junit.platform.version>
     <asm.version>9.7.1</asm.version>
     <cron-utils.version>9.2.1</cron-utils.version>
     <arquillian.version>1.10.0.Final</arquillian.version>
@@ -90,6 +91,7 @@
     <google-java-format.version>1.25.2</google-java-format.version>
     <testcontainers.version>2.0.3</testcontainers.version>
     <micrometer.version>1.14.4</micrometer.version>
+    <micrometer.tracing.version>1.4.4</micrometer.tracing.version>
     <mockito.version>5.14.2</mockito.version>
     <awaitility.version>4.2.2</awaitility.version>
     <shrinkwrap-resolver.version>3.3.4</shrinkwrap-resolver.version>
@@ -218,6 +220,12 @@
         <groupId>org.junit.jupiter</groupId>
         <artifactId>junit-jupiter</artifactId>
         <version>${junit.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.junit.platform</groupId>
+        <artifactId>junit-platform-launcher</artifactId>
+        <version>${junit.platform.version}</version>
         <scope>test</scope>
       </dependency>
       <dependency>
