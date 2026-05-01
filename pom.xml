@@ -10,7 +10,7 @@
   <packaging>pom</packaging>
 
   <name>Ratchet</name>
-  <description>Portable, CDI-based job scheduler for Jakarta EE 10</description>
+  <description>Portable, CDI-based job scheduler for Jakarta EE 10+</description>
   <licenses>
     <license>
       <name>Apache License, Version 2.0</name>

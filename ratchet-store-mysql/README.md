@@ -51,4 +51,4 @@ PostgreSQL's `ratchet-store-postgresql` does NOT need a mapping file — Postgre
 
 ## Storage characteristics
 
-UUIDv7 PKs add ~8 bytes per row over the previous 8-byte BIGINT. At 100M rows with ~5 secondary indexes the delta is roughly **4.8 GB additional index space**. Bounded but worth budgeting for — The storage, operator-ergonomics, and portability tradeoffs drove the UUIDv7 migration decision.
+UUIDv7 PKs add ~8 bytes per row over the previous 8-byte BIGINT. At 100M rows with ~5 secondary indexes the delta is roughly **4.8 GB additional index space**. Bounded but worth budgeting for.

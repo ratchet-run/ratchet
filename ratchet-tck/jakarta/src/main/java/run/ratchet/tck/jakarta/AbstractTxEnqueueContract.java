@@ -23,7 +23,8 @@ import org.junit.jupiter.api.Test;
  *       executed.
  * </ul>
  *
- * <p>This contract is a conformance grade, not a universal hard requirement. Non-JTA stores are permitted; implementations whose store cannot participate in JTA
+ * <p>This contract is a conformance grade, not a universal hard requirement. Non-JTA stores are
+ * permitted; implementations whose store cannot participate in JTA
  * (e.g., MongoDB without a session) are not "Ratchet Jakarta Runtime Compatible" with respect to
  * transactional enqueue. Such implementations should mark their concrete subclass with
  * {@code @Disabled("Store does not participate in JTA")}.

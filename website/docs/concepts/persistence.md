@@ -145,7 +145,7 @@ Instant created = UuidV7Factory.timestampOf(id);
 
 ### Why UUIDv7 Instead of TSID or Auto-Increment
 
-| Concern | Auto-Increment | TSID (deprecated) | UUIDv7 |
+| Concern | Auto-Increment | TSID | UUIDv7 |
 |---------|---------------|-------------------|--------|
 | Multi-node generation | Requires coordination | Manual node-id slot (10 bits = 1024 nodes) | Coordination-free |
 | Concurrent generators before collisions | n/a | ~38 (birthday paradox on 10-bit node + 12-bit seq) | Effectively unbounded (62 random bits) |

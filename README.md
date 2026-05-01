@@ -1,8 +1,8 @@
 # Ratchet
 
-**Portable, CDI-based job scheduler for Jakarta EE 10.**
+**Portable, CDI-based job scheduler for Jakarta EE 10+.**
 
-Ratchet gives Jakarta EE 10 applications a clean, annotation-driven API for background job scheduling with persistent storage, automatic retries, workflow orchestration, and built-in resilience — all without pulling in heavyweight frameworks.
+Ratchet gives Jakarta EE 10+ applications a clean, annotation-driven API for background job scheduling with persistent storage, automatic retries, workflow orchestration, and built-in resilience — all without pulling in heavyweight frameworks.
 
 ---
 
@@ -385,7 +385,7 @@ Ratchet uses tiered conformance. Each TCK submodule earns a distinct compatibili
 
 - **Ratchet Store Compatible** — passes `ratchet-tck-store` against a custom `JobStore` (CRUD, claiming, status transitions, archiving, execution tracking, batches, locks).
 - **Ratchet API Compatible** — passes `ratchet-tck-api` against a custom `JobSchedulerService` implementation. Pure-JVM JUnit, no container required. Covers submit / cancel / retry / idempotency / simple workflow; delayed-scheduling contracts skip when no `TestClock` is provided.
-- **Ratchet Jakarta Runtime Compatible** — passes `ratchet-tck-api` plus `ratchet-tck-jakarta` (CDI injection, CDI events, JTA enqueue) in a Jakarta EE 10 container, typically via Arquillian.
+- **Ratchet Jakarta Runtime Compatible** — passes `ratchet-tck-api` plus `ratchet-tck-jakarta` (CDI injection, CDI events, JTA enqueue) in a Jakarta EE 10+ container, typically via Arquillian.
 - **Ratchet RI Verified** — the project's reference-implementation tests pass on a named runtime / database matrix. This is implementation-specific and lives in `ratchet-testsuite`.
 
 ## Production Checklist
@@ -441,8 +441,8 @@ Before deploying Ratchet to a production-shaped environment, work through this c
 ## Requirements
 
 - **Java**: 17+
-- **Jakarta EE**: 10 with CDI 4.0, JPA 3.1, Interceptors 2.1, and Jakarta Concurrency 3.0 for the default RI executor
-- **Runtime**: Jakarta EE 10 compatible server with managed executor support (WildFly, Open Liberty, Payara, etc.); plain CDI/test deployments can opt into `StandaloneExecutorProvider`
+- **Jakarta EE**: 10+ (CDI 4.0/4.1, JPA 3.1/3.2, Interceptors 2.1/2.2, Jakarta Concurrency 3.0/3.1)
+- **Runtime**: Jakarta EE 10+ compatible server with managed executor support (WildFly, Open Liberty, Payara, GlassFish 8, etc.); plain CDI/test deployments can opt into `StandaloneExecutorProvider`
 - **Database**: MySQL 8+, PostgreSQL 14+, or MongoDB 6+
 
 ## Building from Source
