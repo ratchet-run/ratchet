@@ -29,6 +29,7 @@ import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.LambdaSerializer;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.spi.TracingCollector;
 import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.spi.PollingStrategyProvider;
 import run.ratchet.spi.ResilienceStrategy;
@@ -69,6 +70,7 @@ public class RatchetProducer {
 
   private final ExecutorProvider executorProvider;
   private final MetricsCollector metricsCollector;
+  private final TracingCollector tracingCollector;
   private final JobCrudStore jobCrudStore;
   private final JobRetryStore jobRetryStore;
   private final JobBatchStatusStore jobBatchStatusStore;
@@ -82,6 +84,7 @@ public class RatchetProducer {
   protected RatchetProducer() {
     this.executorProvider = null;
     this.metricsCollector = null;
+    this.tracingCollector = null;
     this.jobCrudStore = null;
     this.jobRetryStore = null;
     this.jobBatchStatusStore = null;
@@ -97,6 +100,7 @@ public class RatchetProducer {
   public RatchetProducer(
       ExecutorProvider executorProvider,
       MetricsCollector metricsCollector,
+      TracingCollector tracingCollector,
       JobCrudStore jobCrudStore,
       JobRetryStore jobRetryStore,
       JobBatchStatusStore jobBatchStatusStore,
@@ -108,6 +112,7 @@ public class RatchetProducer {
       CircuitBreakerConfigProvider circuitBreakerConfigProvider) {
     this.executorProvider = executorProvider;
     this.metricsCollector = metricsCollector;
+    this.tracingCollector = tracingCollector;
     this.jobCrudStore = jobCrudStore;
     this.jobRetryStore = jobRetryStore;
     this.jobBatchStatusStore = jobBatchStatusStore;
@@ -219,7 +224,7 @@ public class RatchetProducer {
       InternalEventPublisher eventPublisher, ExecutionStore executionStore) {
     // delayedJobReadyCallback is null by default; can be wired later if needed
     return new ExecutionObserver(
-        metricsCollector, eventPublisher, executionStore, executorProvider, null);
+        metricsCollector, tracingCollector, eventPublisher, executionStore, executorProvider, null);
   }
 
   @Produces

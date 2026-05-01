@@ -2,6 +2,7 @@ package run.ratchet.ri.core;
 
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.MetricsCollector;
+import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.spi.ExecutionStore;
@@ -17,6 +18,7 @@ import java.util.concurrent.TimeUnit;
 public class ExecutionObserver {
 
   private final MetricsCollector metricsCollector;
+  private final TracingCollector tracingCollector;
   private final InternalEventPublisher eventPublisher;
   private final ExecutionStore executionStore;
   private final ExecutorProvider executorProvider;
@@ -24,6 +26,7 @@ public class ExecutionObserver {
 
   protected ExecutionObserver() {
     this.metricsCollector = null;
+    this.tracingCollector = null;
     this.eventPublisher = null;
     this.executionStore = null;
     this.executorProvider = null;
@@ -32,11 +35,13 @@ public class ExecutionObserver {
 
   public ExecutionObserver(
       MetricsCollector metricsCollector,
+      TracingCollector tracingCollector,
       InternalEventPublisher eventPublisher,
       ExecutionStore executionStore,
       ExecutorProvider executorProvider,
       Runnable delayedJobReadyCallback) {
     this.metricsCollector = metricsCollector;
+    this.tracingCollector = tracingCollector;
     this.eventPublisher = eventPublisher;
     this.executionStore = executionStore;
     this.executorProvider = executorProvider;
@@ -94,5 +99,20 @@ public class ExecutionObserver {
 
   public JobExecutionEntity saveExecution(JobExecutionEntity execution) {
     return executionStore.saveExecution(execution);
+  }
+
+  /**
+   * Starts a tracing scope for one job execution attempt. The caller must close the returned scope
+   * in a {@code finally} block regardless of outcome.
+   *
+   * <p>Parent context propagation (W3C {@code traceparent}) will be wired here once
+   * {@link TracingCollector#captureCurrentContext()} is integrated into the enqueue path.
+   */
+  public TracingCollector.ExecutionScope startExecutionScope(JobEntity job) {
+    if (tracingCollector == null) {
+      return TracingCollector.NoOpExecutionScope.INSTANCE;
+    }
+    return tracingCollector.jobExecutionStarted(
+        job.getId(), job.getPublicJobType(), job.getPriority(), java.util.Map.of());
   }
 }

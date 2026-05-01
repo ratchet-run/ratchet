@@ -20,6 +20,7 @@ import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.ResilienceStrategy;
 import run.ratchet.spi.RetryPolicy;
+import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -363,6 +364,8 @@ class JobTaskTest {
     when(nodeIdProvider.getNodeId()).thenReturn("node-1");
     when(observabilityFacade.startExecution(any(UUID.class), anyInt(), anyString()))
         .thenReturn(JobExecutionEntity.start(job.getId(), 1, "node-1"));
+    when(observabilityFacade.startExecutionScope(any(JobEntity.class)))
+        .thenReturn(TracingCollector.NoOpExecutionScope.INSTANCE);
   }
 
   public static class AnnotatedJobTarget {

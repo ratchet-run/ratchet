@@ -6,6 +6,7 @@ import static org.mockito.Mockito.verify;
 import run.ratchet.api.JobPriority;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.MetricsCollector;
+import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.ExecutionStore;
@@ -21,6 +22,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class ExecutionObserverTest {
 
   @Mock private MetricsCollector metricsCollector;
+  @Mock private TracingCollector tracingCollector;
   @Mock private InternalEventPublisher eventPublisher;
   @Mock private ExecutionStore executionStore;
   @Mock private ExecutorProvider executorProvider;
@@ -39,7 +41,7 @@ class ExecutionObserverTest {
   void setUp() {
     observer =
         new ExecutionObserver(
-            metricsCollector, eventPublisher, executionStore, executorProvider, null);
+            metricsCollector, tracingCollector, eventPublisher, executionStore, executorProvider, null);
   }
 
   @Test

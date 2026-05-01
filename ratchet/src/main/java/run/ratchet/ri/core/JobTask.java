@@ -23,6 +23,7 @@ import run.ratchet.spi.ResilienceStrategy;
 import run.ratchet.spi.ResultPersistenceStrategy;
 import run.ratchet.spi.RetryPolicy;
 import run.ratchet.spi.SerializedJobResult;
+import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
@@ -106,6 +107,7 @@ public class JobTask implements Callable<Void> {
   private JobEntity job;
   private JobClaimDto claim;
   private JobExecutionEntity currentExecution;
+  private TracingCollector.ExecutionScope currentScope = TracingCollector.NoOpExecutionScope.INSTANCE;
   private boolean permitAcquired;
 
   protected JobTask() {
@@ -281,6 +283,7 @@ public class JobTask implements Callable<Void> {
     permitAcquired = false;
     String resilienceServiceName = resolveResilienceServiceName(jobEntity.getPayload());
     try {
+      currentScope = observabilityFacade.startExecutionScope(jobEntity);
       if (wasJobCanceledDuringExecution()) {
         handleCanceledDuringExecution(start);
         return null;
@@ -338,6 +341,7 @@ public class JobTask implements Callable<Void> {
         releaseResourcePermit();
       }
       log.infof("Job %s execution complete - cleaning up context", jobId);
+      currentScope.close();
       // Must be Throwable, not Exception — Error must still clear MDC. See
       // JobMdcContextThrowableTest
       JobMdcContext.clear();
@@ -532,6 +536,7 @@ public class JobTask implements Callable<Void> {
     // Non-retryable: skip retry count increment
     if (validationFacade.shouldNotRetry(ex)) {
       observabilityFacade.recordJobFailure(job, ex, job.getAttempts());
+      currentScope.failure(ex, job.getAttempts());
       logIfTimeout(ex);
       handleNonRetryableFailure(ex, job.getAttempts());
       return;
@@ -545,6 +550,7 @@ public class JobTask implements Callable<Void> {
 
     job.setAttempts(attempt);
     observabilityFacade.recordJobFailure(job, ex, attempt);
+    currentScope.failure(ex, attempt);
     logIfTimeout(ex);
 
     if (attempt <= job.getMaxRetries() && retryPolicy.shouldRetry(attempt, ex)) {
@@ -597,6 +603,7 @@ public class JobTask implements Callable<Void> {
     }
 
     observabilityFacade.recordJobSuccess(job, executionMs);
+    currentScope.success(executionMs);
 
     if (currentExecution != null) {
       currentExecution.markSucceeded();
