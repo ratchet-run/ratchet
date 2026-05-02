@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import run.ratchet.api.JobHandle;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.testsuite.app.MdcCapturingJob;
+import run.ratchet.testsuite.app.StubCallerPrincipalProvider;
 import run.ratchet.testsuite.app.TestJobService;
 import run.ratchet.testsuite.util.BaseRatchetIT;
 import run.ratchet.testsuite.util.JobAssertions;
@@ -18,7 +19,7 @@ import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-/** Verifies that JobMdcContext populates jobId and node MDC keys during job execution. */
+/** Verifies that JobMdcContext populates the stable MDC keys during job execution. */
 class LoggingMdcIT extends BaseRatchetIT {
 
   @Inject private TestJobService jobService;
@@ -32,7 +33,7 @@ class LoggingMdcIT extends BaseRatchetIT {
 
     return RatchetArchiveBuilder.create()
         .addRatchetDependencies(profile, dbType)
-        .addClasses(MdcCapturingJob.class, TestJobService.class)
+        .addClasses(MdcCapturingJob.class, StubCallerPrincipalProvider.class, TestJobService.class)
         .addStoreInfrastructure()
         .addBeansXml()
         .build();
@@ -66,5 +67,18 @@ class LoggingMdcIT extends BaseRatchetIT {
     assertTrue(
         captured.containsKey("node") && captured.get("node") != null,
         "node MDC key missing or null during job execution. Captured: " + captured);
+
+    // jobType is populated from JobEntity.getPublicJobType().name(); single jobs = "SINGLE".
+    assertEquals(
+        "SINGLE",
+        String.valueOf(captured.get("jobType")),
+        "jobType MDC key should be SINGLE for a directly-enqueued job. Captured: " + captured);
+
+    // jobCreator is populated from CallerPrincipalProvider (callerPrincipal) at enqueue time.
+    // StubCallerPrincipalProvider is in this deployment and returns "it-caller".
+    assertEquals(
+        StubCallerPrincipalProvider.STUB_PRINCIPAL,
+        String.valueOf(captured.get("jobCreator")),
+        "jobCreator MDC key should match the CallerPrincipalProvider value. Captured: " + captured);
   }
 }
