@@ -6,6 +6,7 @@ import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.spi.ExecutionStore;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -105,14 +106,20 @@ public class ExecutionObserver {
    * Starts a tracing scope for one job execution attempt. The caller must close the returned scope
    * in a {@code finally} block regardless of outcome.
    *
-   * <p>Parent context propagation (W3C {@code traceparent}) will be wired here once
-   * {@link TracingCollector#captureCurrentContext()} is integrated into the enqueue path.
+   * <p>The {@code parentContext} passed to {@link TracingCollector#jobExecutionStarted} is the
+   * carrier map captured at enqueue time via {@link TracingCollector#captureCurrentContext()}.
+   * When no tracing is active, or no context was captured, the map is empty and the implementation
+   * creates a root span.
    */
   public TracingCollector.ExecutionScope startExecutionScope(JobEntity job) {
     if (tracingCollector == null) {
       return TracingCollector.NoOpExecutionScope.INSTANCE;
     }
+    Map<String, String> parentContext = job.getTraceContext();
     return tracingCollector.jobExecutionStarted(
-        job.getId(), job.getPublicJobType(), job.getPriority(), java.util.Map.of());
+        job.getId(),
+        job.getPublicJobType(),
+        job.getPriority(),
+        parentContext != null ? parentContext : Map.of());
   }
 }

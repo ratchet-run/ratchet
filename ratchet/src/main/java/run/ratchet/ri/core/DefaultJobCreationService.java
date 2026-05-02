@@ -14,6 +14,7 @@ import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.ri.security.JobPayloadInputValidator;
 import run.ratchet.spi.JobInvocationResolver;
+import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -35,6 +36,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZonedDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.jboss.logging.Logger;
@@ -57,6 +59,7 @@ public class DefaultJobCreationService
   private final JobInvocationResolver jobInvocationResolver;
   private final JobPayloadInputValidator payloadValidator;
   private final CallerPrincipalProvider callerPrincipalProvider;
+  private final TracingCollector tracingCollector;
   private final Clock clock;
 
   protected DefaultJobCreationService() {
@@ -71,6 +74,7 @@ public class DefaultJobCreationService
     this.jobInvocationResolver = null;
     this.payloadValidator = null;
     this.callerPrincipalProvider = null;
+    this.tracingCollector = null;
     this.clock = null;
   }
 
@@ -95,6 +99,7 @@ public class DefaultJobCreationService
         new DefaultJobInvocationResolver(),
         new JobPayloadInputValidator(),
         null,
+        null,
         Clock.systemUTC());
   }
 
@@ -111,6 +116,7 @@ public class DefaultJobCreationService
       JobInvocationResolver jobInvocationResolver,
       JobPayloadInputValidator payloadValidator,
       CallerPrincipalProvider callerPrincipalProvider,
+      TracingCollector tracingCollector,
       Clock clock) {
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.jobTerminalStore = jobTerminalStore;
@@ -123,6 +129,7 @@ public class DefaultJobCreationService
     this.jobInvocationResolver = jobInvocationResolver;
     this.payloadValidator = payloadValidator;
     this.callerPrincipalProvider = callerPrincipalProvider;
+    this.tracingCollector = tracingCollector;
     this.clock = clock;
   }
 
@@ -170,6 +177,7 @@ public class DefaultJobCreationService
       job.setOnFailurePayload(payload(builder.onFailure()));
     }
     stampCallerPrincipal(job);
+    captureTraceContext(job);
     applyOptions(job, opts);
     if (!builder.params().isEmpty()) {
       job.setParams(builder.params());
@@ -401,6 +409,7 @@ public class DefaultJobCreationService
       step.setDependsOn(prevId);
       applyOptions(step, opts);
       stampCallerPrincipal(step);
+      captureTraceContext(step);
 
       JobEntity savedStep = jobCrudStore.save(step);
       prevId = savedStep.getId();
@@ -475,6 +484,28 @@ public class DefaultJobCreationService
       return;
     }
     callerPrincipalProvider.currentPrincipal().ifPresent(job::setCallerPrincipal);
+  }
+
+  /**
+   * Captures the active trace context from the submitting thread and stores it on the job entity.
+   *
+   * <p>The stored map is passed back to {@link TracingCollector#jobExecutionStarted} at execution
+   * time so the executing span can be parented to the original caller's trace.
+   *
+   * <p>Called for single-job roots and chain steps (both created on the submitting thread, so the
+   * caller's span is still active). Batch children and recurring jobs are excluded: batch children
+   * are created in tight loops where per-item context capture adds overhead without proportional
+   * signal, and recurring jobs fire on a future cron schedule where the scheduling-time span is
+   * long-closed by execution time.
+   */
+  private void captureTraceContext(JobEntity job) {
+    if (tracingCollector == null) {
+      return;
+    }
+    Map<String, String> ctx = tracingCollector.captureCurrentContext();
+    if (!ctx.isEmpty()) {
+      job.setTraceContext(ctx);
+    }
   }
 
   private Clock effective() {

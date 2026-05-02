@@ -1,6 +1,7 @@
 package run.ratchet.ri.core;
 
 import run.ratchet.api.CircuitBreakerProtected;
+import run.ratchet.api.JobType;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.event.JobCallbackFailedEvent;
 import run.ratchet.api.event.JobCancelledEvent;
@@ -241,12 +242,18 @@ public class JobTask implements Callable<Void> {
                 jobEntity.getPublicJobType(),
                 jobEntity.getPriority(),
                 nodeId,
-                jobEntity.getCreatedBy(),
+                jobEntity.getCallerPrincipal(),
                 jobEntity.getParams()));
+    JobType jobType = jobEntity.getPublicJobType();
     JobMdcContext.bindJobContext(
-        jobId, logger, jobEntity.getParams(), nodeId, jobEntity.getCreatedBy());
+        jobId,
+        logger,
+        jobEntity.getParams(),
+        nodeId,
+        jobEntity.getCallerPrincipal(),
+        jobType != null ? jobType.name() : null);
 
-    if (jobEntity.getCreatedBy() != null) {
+    if (jobEntity.getCallerPrincipal() != null) {
       log.debugf("Job %s created by user (present)", jobId);
     } else {
       log.debugf("Job %s created by system (no user context)", jobId);

@@ -25,11 +25,13 @@ import java.util.UUID;
  *
  * <h2>MDC integration</h2>
  *
- * <p>When a scope is active, implementations should inject {@code traceId} and {@code spanId} into
- * the logging MDC so that log lines emitted during job execution carry trace coordinates. These
- * keys must be removed when the scope is closed. Removal of existing MDC keys ({@code jobId},
- * {@code node}, {@code jobCreator}) remains the responsibility of {@link
- * run.ratchet.ri.core.JobMdcContext}.
+ * <p>When a scope is active, implementations <em>must</em> inject {@code traceId} and {@code
+ * spanId} into the logging MDC so that log lines emitted during job execution carry trace
+ * coordinates alongside the four stable Ratchet MDC keys ({@code jobId}, {@code node}, {@code
+ * jobCreator}, {@code jobType}). These keys must be removed when the scope is closed — use
+ * targeted {@code MDC.remove(key)} calls, never {@code MDC.clear()}, to avoid wiping application
+ * MDC keys set by Servlet filters or JAX-RS interceptors. Removal of the four Ratchet-owned keys
+ * remains the responsibility of {@link run.ratchet.ri.core.JobMdcContext}.
  *
  * <h2>Default implementation</h2>
  *

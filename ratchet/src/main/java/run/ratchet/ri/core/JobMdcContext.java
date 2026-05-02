@@ -12,10 +12,10 @@ import org.jboss.logging.MDC;
  *
  * <h2>Stable contract</h2>
  *
- * <p>The three MDC key names — {@code jobId}, {@code node}, and {@code jobCreator} — are part of
- * the public observability surface. Downstream log pipelines, dashboards, and alerting rules may
- * depend on them. Adding new keys is a non-breaking change; renaming or removing one of these three
- * is a breaking change subject to the project's compatibility policy.
+ * <p>The four MDC key names — {@code jobId}, {@code node}, {@code jobCreator}, and {@code jobType}
+ * — are part of the public observability surface. Downstream log pipelines, dashboards, and
+ * alerting rules may depend on them. Adding new keys is a non-breaking change; renaming or removing
+ * one of these four is a breaking change subject to the project's compatibility policy.
  *
  * <h2>Lifecycle</h2>
  *
@@ -58,21 +58,27 @@ final class JobMdcContext {
   static final String MDC_JOB_ID = "jobId";
   static final String MDC_NODE = "node";
   static final String MDC_JOB_CREATOR = "jobCreator";
+  static final String MDC_JOB_TYPE = "jobType";
 
   private JobMdcContext() {}
 
   // Entry point for early-load failure paths where node/creator metadata is not yet available.
   static void bindJobContext(UUID jobId, Map<String, String> params) {
-    bindJobContext(jobId, NoOpJobLogger.INSTANCE, params, null, null);
+    bindJobContext(jobId, NoOpJobLogger.INSTANCE, params, null, null, null);
   }
 
   static void bindJobContext(
       UUID jobId, Map<String, String> params, String nodeId, String jobCreator) {
-    bindJobContext(jobId, NoOpJobLogger.INSTANCE, params, nodeId, jobCreator);
+    bindJobContext(jobId, NoOpJobLogger.INSTANCE, params, nodeId, jobCreator, null);
   }
 
   static void bindJobContext(
-      UUID jobId, JobLogger logger, Map<String, String> params, String nodeId, String jobCreator) {
+      UUID jobId,
+      JobLogger logger,
+      Map<String, String> params,
+      String nodeId,
+      String jobCreator,
+      String jobType) {
     JobContext.bind(jobId, logger, params);
     if (jobId != null) {
       MDC.put(MDC_JOB_ID, String.valueOf(jobId));
@@ -83,6 +89,9 @@ final class JobMdcContext {
     if (jobCreator != null) {
       MDC.put(MDC_JOB_CREATOR, jobCreator);
     }
+    if (jobType != null) {
+      MDC.put(MDC_JOB_TYPE, jobType);
+    }
   }
 
   static void clear() {
@@ -90,6 +99,7 @@ final class JobMdcContext {
     MDC.remove(MDC_JOB_ID);
     MDC.remove(MDC_NODE);
     MDC.remove(MDC_JOB_CREATOR);
+    MDC.remove(MDC_JOB_TYPE);
   }
 
   private enum NoOpJobLogger implements JobLogger {
