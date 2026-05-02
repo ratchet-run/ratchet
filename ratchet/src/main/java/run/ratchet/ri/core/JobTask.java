@@ -16,6 +16,7 @@ import run.ratchet.ri.resilience.ServiceUnavailableException;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.ErrorSanitizer;
+import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobLogger;
 import run.ratchet.spi.JobLoggerContext;
 import run.ratchet.spi.JobLoggerFactory;
@@ -104,11 +105,13 @@ public class JobTask implements Callable<Void> {
   private final ClassPolicy classPolicy;
   private final JobLoggerFactory jobLoggerFactory;
   private final ResultPersistenceStrategy resultPersistenceStrategy;
+  private final JobAuthorizationPolicy authorizationPolicy;
   private final Clock clock;
   private JobEntity job;
   private JobClaimDto claim;
   private JobExecutionEntity currentExecution;
-  private TracingCollector.ExecutionScope currentScope = TracingCollector.NoOpExecutionScope.INSTANCE;
+  private TracingCollector.ExecutionScope currentScope =
+      TracingCollector.NoOpExecutionScope.INSTANCE;
   private boolean permitAcquired;
 
   protected JobTask() {
@@ -125,6 +128,7 @@ public class JobTask implements Callable<Void> {
     this.classPolicy = null;
     this.jobLoggerFactory = null;
     this.resultPersistenceStrategy = null;
+    this.authorizationPolicy = null;
     this.clock = null;
   }
 
@@ -155,6 +159,7 @@ public class JobTask implements Callable<Void> {
         context -> new JBossLoggingJobLogger(context.jobId(), null),
         new DefaultResultPersistenceStrategy(
             RatchetOptions.defaults(), new JsonbPayloadSerializer()),
+        null,
         Clock.systemUTC());
   }
 
@@ -173,6 +178,7 @@ public class JobTask implements Callable<Void> {
       ClassPolicy classPolicy,
       JobLoggerFactory jobLoggerFactory,
       ResultPersistenceStrategy resultPersistenceStrategy,
+      JobAuthorizationPolicy authorizationPolicy,
       Clock clock) {
     this.jobStore = jobStore;
     this.resourcePermitService = resourcePermitService;
@@ -187,6 +193,7 @@ public class JobTask implements Callable<Void> {
     this.classPolicy = classPolicy;
     this.jobLoggerFactory = jobLoggerFactory;
     this.resultPersistenceStrategy = resultPersistenceStrategy;
+    this.authorizationPolicy = authorizationPolicy;
     this.clock = clock;
   }
 
@@ -307,6 +314,10 @@ public class JobTask implements Callable<Void> {
         return null;
       }
 
+      // Authorization check before breaker scope — denial must not trip the circuit breaker
+      if (authorizationPolicy != null) {
+        authorizationPolicy.checkExecute(jobEntity.getId(), jobEntity.getCallerPrincipal());
+      }
       // Validate before breaker scope — config errors must not trip the circuit breaker
       validationFacade.validateSecurity(jobEntity.getPayload());
 

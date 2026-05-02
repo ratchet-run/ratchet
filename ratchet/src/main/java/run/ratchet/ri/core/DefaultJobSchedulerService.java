@@ -10,6 +10,8 @@ import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.StreamingBatchBuilder;
 import run.ratchet.api.event.JobCancelledEvent;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
+import run.ratchet.ri.security.CallerPrincipalProvider;
+import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -58,6 +60,8 @@ public class DefaultJobSchedulerService
   private final RecurringScheduler recurringScheduler;
   private final JobInvocationResolver jobInvocationResolver;
   private final DefaultJobCreationService jobCreationService;
+  private final CallerPrincipalProvider callerPrincipalProvider;
+  private final JobAuthorizationPolicy authorizationPolicy;
 
   @Resource private TransactionSynchronizationRegistry txRegistry;
 
@@ -75,6 +79,8 @@ public class DefaultJobSchedulerService
     this.recurringScheduler = null;
     this.jobInvocationResolver = null;
     this.jobCreationService = null;
+    this.callerPrincipalProvider = null;
+    this.authorizationPolicy = null;
   }
 
   public DefaultJobSchedulerService(
@@ -110,7 +116,9 @@ public class DefaultJobSchedulerService
             tagStore,
             workflowConditionStore,
             wakeupService,
-            recurringScheduler));
+            recurringScheduler),
+        null,
+        null);
   }
 
   @Inject
@@ -127,7 +135,9 @@ public class DefaultJobSchedulerService
       JobWakeupService wakeupService,
       RecurringScheduler recurringScheduler,
       JobInvocationResolver jobInvocationResolver,
-      DefaultJobCreationService jobCreationService) {
+      DefaultJobCreationService jobCreationService,
+      CallerPrincipalProvider callerPrincipalProvider,
+      JobAuthorizationPolicy authorizationPolicy) {
     this.eventPublisher = eventPublisher;
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.jobPauseStore = jobPauseStore;
@@ -141,11 +151,25 @@ public class DefaultJobSchedulerService
     this.recurringScheduler = recurringScheduler;
     this.jobInvocationResolver = jobInvocationResolver;
     this.jobCreationService = jobCreationService;
+    this.callerPrincipalProvider = callerPrincipalProvider;
+    this.authorizationPolicy = authorizationPolicy;
   }
 
   @Override
   @Transactional
   public boolean cancelJob(UUID jobId) {
+    if (authorizationPolicy != null) {
+      // Pre-load to obtain ownerPrincipal. TOCTOU: if the job is deleted between this load
+      // and the CAS below, ownerPrincipal will be null — the policy must tolerate null.
+      JobEntity job = jobCrudStore.findById(jobId).orElse(null);
+      String ownerPrincipal = job != null ? job.getCallerPrincipal() : null;
+      String currentPrincipal =
+          callerPrincipalProvider != null
+              ? callerPrincipalProvider.currentPrincipal().orElse(null)
+              : null;
+      authorizationPolicy.checkCancel(jobId, ownerPrincipal, currentPrincipal);
+    }
+
     // Try PENDING → CANCELED first (most common case)
     if (jobBatchStatusStore.compareAndSwapStatus(
         jobId, JobStatus.PENDING, JobStatus.CANCELED, null)) {
@@ -279,12 +303,22 @@ public class DefaultJobSchedulerService
   public JobHandle replace(
       UUID jobId, Duration delay, SerializableCheckedRunnable newTask, JobOptions opts) {
     // Fail fast if the job doesn't exist — don't create an orphaned replacement below.
-    // We intentionally discard the loaded entity: the final save() after the CAS block reloads a
-    // fresh snapshot whose version is post-CAS. See the block comment on that reload for the
-    // stale-version rationale.
-    jobCrudStore
-        .findById(jobId)
-        .orElseThrow(() -> new IllegalArgumentException("Job not found for replacement: " + jobId));
+    // The entity is loaded here (not discarded) so we can pass ownerPrincipal to the
+    // authorization check. The final save() after the CAS block reloads a fresh snapshot
+    // whose version is post-CAS. See the block comment on that reload for the stale-version
+    // rationale.
+    JobEntity existing =
+        jobCrudStore
+            .findById(jobId)
+            .orElseThrow(
+                () -> new IllegalArgumentException("Job not found for replacement: " + jobId));
+    if (authorizationPolicy != null) {
+      String currentPrincipal =
+          callerPrincipalProvider != null
+              ? callerPrincipalProvider.currentPrincipal().orElse(null)
+              : null;
+      authorizationPolicy.checkCancel(jobId, existing.getCallerPrincipal(), currentPrincipal);
+    }
 
     JobBuilder builder = DefaultJobBuilder.create(jobCreationService, newTask, delay);
     if (opts != null) {
@@ -337,6 +371,13 @@ public class DefaultJobSchedulerService
       log.debugf("Cannot pause job %s — not found", jobId);
       return false;
     }
+    if (authorizationPolicy != null) {
+      String currentPrincipal =
+          callerPrincipalProvider != null
+              ? callerPrincipalProvider.currentPrincipal().orElse(null)
+              : null;
+      authorizationPolicy.checkPause(jobId, job.getCallerPrincipal(), currentPrincipal);
+    }
     JobStatus current = job.getStatus();
     if (current == JobStatus.PAUSED) {
       log.debugf("Job %s is already paused", jobId);
@@ -377,6 +418,13 @@ public class DefaultJobSchedulerService
       log.debugf("Cannot resume job %s — not found", jobId);
       return false;
     }
+    if (authorizationPolicy != null) {
+      String currentPrincipal =
+          callerPrincipalProvider != null
+              ? callerPrincipalProvider.currentPrincipal().orElse(null)
+              : null;
+      authorizationPolicy.checkResume(jobId, job.getCallerPrincipal(), currentPrincipal);
+    }
     if (job.getJobType() == JobExecutionType.RECURRING) {
       if (jobPauseStore.resumeRecurring(jobId)) {
         log.debugf("Resumed recurring master %s", jobId);
@@ -403,6 +451,18 @@ public class DefaultJobSchedulerService
   @Override
   @Transactional
   public boolean retryJob(UUID jobId) {
+    if (authorizationPolicy != null) {
+      // Pre-load to obtain ownerPrincipal. TOCTOU: if the job is deleted between this load
+      // and the CAS below, ownerPrincipal will be null — the policy must tolerate null.
+      JobEntity job = jobCrudStore.findById(jobId).orElse(null);
+      String ownerPrincipal = job != null ? job.getCallerPrincipal() : null;
+      String currentPrincipal =
+          callerPrincipalProvider != null
+              ? callerPrincipalProvider.currentPrincipal().orElse(null)
+              : null;
+      authorizationPolicy.checkRetry(jobId, ownerPrincipal, currentPrincipal);
+    }
+
     if (jobRetryStore.resetFailedToPending(jobId)) {
       log.debugf("Retried failed job %s — reset to PENDING", jobId);
       return true;
@@ -417,12 +477,26 @@ public class DefaultJobSchedulerService
     return false;
   }
 
+  /**
+   * {@inheritDoc}
+   *
+   * <p><strong>Authorization note:</strong> this bulk operation is not subject to per-job {@link
+   * JobAuthorizationPolicy} checks. Use {@link #cancelJob(UUID)} for authorization-gated single-job
+   * cancellation.
+   */
   @Override
   @Transactional
   public int cancelRecurringJobsByTag(String tag) {
     return jobBatchStatusStore.cancelRecurringJobsByTag(tag);
   }
 
+  /**
+   * {@inheritDoc}
+   *
+   * <p><strong>Authorization note:</strong> this bulk operation is not subject to per-job {@link
+   * JobAuthorizationPolicy} checks. Use {@link #cancelJob(UUID)} for authorization-gated single-job
+   * cancellation.
+   */
   @Override
   @Transactional
   public int cancelRecurringJobByBusinessKey(String businessKey) {

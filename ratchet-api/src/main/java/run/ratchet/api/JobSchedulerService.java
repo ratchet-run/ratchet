@@ -44,10 +44,12 @@ import java.util.function.Consumer;
  * principal MUST be immutable once set — subsequent job mutations (status transitions, retries,
  * rescheduling) MUST NOT overwrite the original capture.
  *
- * <p>No authorization enforcement is performed on job submission, cancellation, pausing,
- * resumption, or retry. The captured principal is exposed on the entity for audit and for
- * downstream consumers that wish to build their own authorization policy; this specification does
- * not prescribe one.
+ * <p>Authorization is delegated to the {@link run.ratchet.spi.JobAuthorizationPolicy} SPI.
+ * The default reference implementation ({@code PermitAllJobAuthorizationPolicy}) permits all
+ * operations. Integrators override via a CDI {@code @Alternative @Priority(APPLICATION)} bean.
+ * Note: {@code cancelRecurringJobsByTag} and {@code cancelRecurringJobByBusinessKey} are not
+ * subject to per-job authorization; use {@link #cancelJob(UUID)} for authorization-gated single-job
+ * cancellation.
  *
  * @see jakarta.transaction.Transactional
  */

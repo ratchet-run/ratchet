@@ -13,6 +13,7 @@ import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.ri.security.JobPayloadInputValidator;
+import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.entity.BatchEntity;
@@ -60,6 +61,7 @@ public class DefaultJobCreationService
   private final JobPayloadInputValidator payloadValidator;
   private final CallerPrincipalProvider callerPrincipalProvider;
   private final TracingCollector tracingCollector;
+  private final JobAuthorizationPolicy authorizationPolicy;
   private final Clock clock;
 
   protected DefaultJobCreationService() {
@@ -75,6 +77,7 @@ public class DefaultJobCreationService
     this.payloadValidator = null;
     this.callerPrincipalProvider = null;
     this.tracingCollector = null;
+    this.authorizationPolicy = null;
     this.clock = null;
   }
 
@@ -100,6 +103,7 @@ public class DefaultJobCreationService
         new JobPayloadInputValidator(),
         null,
         null,
+        null,
         Clock.systemUTC());
   }
 
@@ -117,6 +121,7 @@ public class DefaultJobCreationService
       JobPayloadInputValidator payloadValidator,
       CallerPrincipalProvider callerPrincipalProvider,
       TracingCollector tracingCollector,
+      JobAuthorizationPolicy authorizationPolicy,
       Clock clock) {
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.jobTerminalStore = jobTerminalStore;
@@ -130,6 +135,7 @@ public class DefaultJobCreationService
     this.payloadValidator = payloadValidator;
     this.callerPrincipalProvider = callerPrincipalProvider;
     this.tracingCollector = tracingCollector;
+    this.authorizationPolicy = authorizationPolicy;
     this.clock = clock;
   }
 
@@ -182,6 +188,7 @@ public class DefaultJobCreationService
     if (!builder.params().isEmpty()) {
       job.setParams(builder.params());
     }
+    checkCreateAuthorization(job);
 
     JobEntity saved = jobCrudStore.save(job);
     UUID jobId = saved.getId();
@@ -217,6 +224,7 @@ public class DefaultJobCreationService
   @Transactional
   public JobHandle submit(DefaultBatchBuilder builder) {
     JobEntity parent = newBatchParent();
+    checkCreateAuthorization(parent);
     JobEntity savedParent = jobCrudStore.save(parent);
     UUID parentId = savedParent.getId();
 
@@ -269,6 +277,7 @@ public class DefaultJobCreationService
     builder.validateReady();
 
     JobEntity parent = newBatchParent();
+    checkCreateAuthorization(parent);
     JobEntity savedParent = jobCrudStore.save(parent);
     UUID parentId = savedParent.getId();
 
@@ -353,6 +362,7 @@ public class DefaultJobCreationService
     job.setNextFire(nextFire);
     applyOptions(job, options);
     stampCallerPrincipal(job);
+    checkCreateAuthorization(job);
 
     JobEntity saved = jobCrudStore.save(job);
 
@@ -410,6 +420,7 @@ public class DefaultJobCreationService
       applyOptions(step, opts);
       stampCallerPrincipal(step);
       captureTraceContext(step);
+      checkCreateAuthorization(step);
 
       JobEntity savedStep = jobCrudStore.save(step);
       prevId = savedStep.getId();
@@ -451,6 +462,7 @@ public class DefaultJobCreationService
     branchJob.setIdempotencyKey(UUID.randomUUID().toString());
     branchJob.setDependsOn(parentId);
     stampCallerPrincipal(branchJob);
+    checkCreateAuthorization(branchJob);
     JobEntity savedBranch = jobCrudStore.save(branchJob);
 
     WorkflowConditionEntity condition = new WorkflowConditionEntity();
@@ -484,6 +496,13 @@ public class DefaultJobCreationService
       return;
     }
     callerPrincipalProvider.currentPrincipal().ifPresent(job::setCallerPrincipal);
+  }
+
+  private void checkCreateAuthorization(JobEntity job) {
+    if (authorizationPolicy == null) {
+      return;
+    }
+    authorizationPolicy.checkCreate(job.getId(), job.getCallerPrincipal());
   }
 
   /**

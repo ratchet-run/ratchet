@@ -4,6 +4,7 @@ import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobLoggerFactory;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.ResilienceStrategy;
@@ -57,6 +58,7 @@ public class JobExecutorService {
   private final ClassPolicy classPolicy;
   private final JobLoggerFactory jobLoggerFactory;
   private final ResultPersistenceStrategy resultPersistenceStrategy;
+  private final JobAuthorizationPolicy authorizationPolicy;
   private final PollerScheduler pollerScheduler;
   private final Clock clock;
   private final Set<TrackingFutureTask> activeFutures = ConcurrentHashMap.newKeySet();
@@ -78,6 +80,7 @@ public class JobExecutorService {
     this.classPolicy = null;
     this.jobLoggerFactory = null;
     this.resultPersistenceStrategy = null;
+    this.authorizationPolicy = null;
     this.pollerScheduler = null;
     this.clock = null;
   }
@@ -101,6 +104,7 @@ public class JobExecutorService {
       PollerScheduler pollerScheduler,
       JobLoggerFactory jobLoggerFactory,
       ResultPersistenceStrategy resultPersistenceStrategy,
+      JobAuthorizationPolicy authorizationPolicy,
       Clock clock) {
     this.threadPoolManager = threadPoolManager;
     this.timeoutHandler = timeoutHandler;
@@ -119,6 +123,7 @@ public class JobExecutorService {
     this.pollerScheduler = pollerScheduler;
     this.jobLoggerFactory = jobLoggerFactory;
     this.resultPersistenceStrategy = resultPersistenceStrategy;
+    this.authorizationPolicy = authorizationPolicy;
     this.clock = clock;
   }
 
@@ -216,6 +221,7 @@ public class JobExecutorService {
         classPolicy,
         jobLoggerFactory,
         resultPersistenceStrategy,
+        authorizationPolicy,
         clock != null ? clock : Clock.systemUTC());
   }
 
