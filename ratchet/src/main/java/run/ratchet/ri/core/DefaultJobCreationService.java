@@ -502,6 +502,12 @@ public class DefaultJobCreationService
     if (authorizationPolicy == null) {
       return;
     }
+    // Pre-assign a UUIDv7 so the policy receives a stable identifier. @PrePersist would
+    // normally assign it during save(); since checkCreate fires before save, we assign here.
+    // UuidV7EntityListener's null-check ensures the pre-assigned value is not overwritten.
+    if (job.getId() == null) {
+      job.setId(run.ratchet.store.id.UuidV7Factory.create());
+    }
     authorizationPolicy.checkCreate(job.getId(), job.getCallerPrincipal());
   }
 
