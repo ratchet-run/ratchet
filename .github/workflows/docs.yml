@@ -9,12 +9,17 @@ on:
       - 'src/main/javadoc/**'
       - 'pom.xml'
       - '.github/workflows/docs.yml'
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
   pages: write
   id-token: write
+  actions: read
 
 concurrency:
   group: pages
@@ -23,6 +28,8 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Skip if triggered by a failed CI run
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     steps:
       - uses: actions/checkout@v6
 
@@ -45,6 +52,80 @@ jobs:
         run: |
           mkdir -p website/static/javadoc
           cp -r target/reports/apidocs/* website/static/javadoc/
+
+      # --- Conformance reports (downloaded from CI artifacts, workflow_run only) ---
+      - name: Download TCK store conformance reports
+        if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@v4
+        with:
+          name: tck-conformance-reports
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          path: tck-reports/store/
+
+      - name: Download TCK API and Jakarta conformance reports
+        if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: tck-conformance-reports-*
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          path: tck-reports/runtime/
+          merge-multiple: false
+
+      - name: Copy store reports into Docusaurus docs
+        if: github.event_name == 'workflow_run'
+        run: |
+          for entry in "mysql:MySQL" "postgresql:PostgreSQL" "mongodb:MongoDB"; do
+            store="${entry%%:*}"
+            label="${entry##*:}"
+            src="tck-reports/store/ratchet-store-${store}/target/tck-conformance-report.md"
+            dst="website/docs/conformance/${store}.md"
+            if [ -f "$src" ]; then
+              printf -- '---\nid: %s\ntitle: %s Store Conformance\nsidebar_label: %s Store\n---\n\n' \
+                "$store" "$label" "$label" | cat - "$src" > "$dst"
+            fi
+          done
+
+      - name: Copy API and Jakarta reports into Docusaurus docs
+        if: github.event_name == 'workflow_run'
+        run: |
+          declare -A SERVER_LABELS=(
+            [wildfly-managed]="WildFly"
+            [payara-managed]="Payara"
+            [openliberty-managed]="Open Liberty"
+            [glassfish-managed]="GlassFish"
+          )
+          declare -A DB_LABELS=(
+            [mysql]="MySQL"
+            [postgresql]="PostgreSQL"
+            [mongodb]="MongoDB"
+          )
+          mkdir -p website/docs/conformance/api website/docs/conformance/jakarta
+          for dir in tck-reports/runtime/tck-conformance-reports-*/; do
+            [ -d "$dir" ] || continue
+            suffix="${dir#tck-reports/runtime/tck-conformance-reports-}"
+            suffix="${suffix%/}"
+            for db in mysql postgresql mongodb; do
+              if [[ "$suffix" == *"-${db}" ]]; then
+                server="${suffix%-${db}}"
+                database="$db"
+                break
+              fi
+            done
+            server_label="${SERVER_LABELS[$server]:-$server}"
+            db_label="${DB_LABELS[$database]:-$database}"
+            combo="${server}-${database}"
+            for tier in api jakarta; do
+              src="${dir}ratchet-testsuite/target/tck-${tier}-conformance-report.md"
+              dst="website/docs/conformance/${tier}/${combo}.md"
+              if [ -f "$src" ]; then
+                printf -- '---\nid: %s\ntitle: "%s / %s"\nsidebar_label: "%s / %s"\n---\n\n' \
+                  "$combo" "$server_label" "$db_label" "$server_label" "$db_label" \
+                  | cat - "$src" > "$dst"
+              fi
+            done
+          done
 
       # --- Docusaurus build ---
       - uses: actions/setup-node@v6

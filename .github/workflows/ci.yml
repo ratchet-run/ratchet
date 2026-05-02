@@ -29,6 +29,12 @@ jobs:
         with:
           name: unit-coverage
           path: ratchet/target/site/jacoco/
+      - name: Upload TCK conformance reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: tck-conformance-reports
+          path: ratchet-store-*/target/tck-conformance-report.md
       - name: Format check
         run: mvn spotless:check -B
 
@@ -88,3 +94,9 @@ jobs:
         with:
           name: coverage-report
           path: ratchet-coverage/target/site/jacoco-aggregate/
+      - name: Upload TCK conformance reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: tck-conformance-reports-${{ matrix.server }}-${{ matrix.database }}
+          path: ratchet-testsuite/target/tck-*-conformance-report.md
