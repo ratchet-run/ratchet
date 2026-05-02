@@ -72,7 +72,6 @@ public final class DocumentMapper {
     doc.append("picked_at", toDate(job.getPickedAt()));
     doc.append("last_error", job.getLastError());
     doc.append("created_at", toDate(job.getCreatedAt()));
-    doc.append("created_by", job.getCreatedBy());
     doc.append("caller_principal", job.getCallerPrincipal());
     doc.append("updated_at", toDate(job.getUpdatedAt()));
     doc.append("execution_start_time", toDate(job.getExecutionStartTime()));
@@ -119,7 +118,6 @@ public final class DocumentMapper {
     job.setPickedAt(toInstant(doc.getDate("picked_at")));
     job.setLastError(doc.getString("last_error"));
     job.setCreatedAt(toInstant(doc.getDate("created_at")));
-    job.setCreatedBy(doc.getString("created_by"));
     job.setCallerPrincipal(doc.getString("caller_principal"));
     job.setUpdatedAt(toInstant(doc.getDate("updated_at")));
     job.setExecutionStartTime(toInstant(doc.getDate("execution_start_time")));

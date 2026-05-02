@@ -112,6 +112,10 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   @Convert(converter = JsonMapConverter.class)
   private Map<String, String> params;
 
+  @Convert(converter = JsonMapConverter.class)
+  @Column(name = "trace_context")
+  private Map<String, String> traceContext;
+
   @Column(name = "target_class", insertable = false, updatable = false)
   private String targetClass;
 
@@ -160,9 +164,6 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
 
   @Column(name = "created_at", updatable = false)
   private Instant createdAt;
-
-  @Column(name = "created_by", updatable = false)
-  private String createdBy;
 
   @Column(name = "caller_principal", updatable = false, length = 255)
   private String callerPrincipal;
@@ -328,6 +329,14 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
     this.params = params;
   }
 
+  public Map<String, String> getTraceContext() {
+    return traceContext;
+  }
+
+  public void setTraceContext(Map<String, String> traceContext) {
+    this.traceContext = traceContext;
+  }
+
   public String getTargetClass() {
     return targetClass;
   }
@@ -438,14 +447,6 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
 
   public void setCreatedAt(Instant createdAt) {
     this.createdAt = createdAt;
-  }
-
-  public String getCreatedBy() {
-    return createdBy;
-  }
-
-  public void setCreatedBy(String createdBy) {
-    this.createdBy = createdBy;
   }
 
   public String getCallerPrincipal() {

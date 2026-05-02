@@ -34,8 +34,8 @@ final class PostgresqlJobRowMapper {
   private static final JobPayloadConverter JOB_PAYLOAD_CONVERTER = new JobPayloadConverter();
   private static final JsonMapConverter JSON_MAP_CONVERTER = new JsonMapConverter();
 
-  static final int HYDRATION_COL_COUNT = 44;
-  static final int IDX_Q_STATUS = 35;
+  static final int HYDRATION_COL_COUNT = 43;
+  static final int IDX_Q_STATUS = 34;
 
   private static final int IDX_JOB_ID = 0;
   private static final int IDX_JOB_TYPE = 1;
@@ -59,27 +59,26 @@ final class PostgresqlJobRowMapper {
   private static final int IDX_DEPENDS_ON = 19;
   private static final int IDX_SUPERSEDED_BY = 20;
   private static final int IDX_CREATED_AT = 21;
-  private static final int IDX_CREATED_BY = 22;
-  private static final int IDX_CALLER_PRINCIPAL = 23;
-  private static final int IDX_TERMINAL_STATUS = 24;
-  private static final int IDX_TERMINAL_ERROR = 25;
-  private static final int IDX_TOTAL_ATTEMPTS = 26;
-  private static final int IDX_TERMINATED_AT = 27;
-  private static final int IDX_EXEC_START = 28;
-  private static final int IDX_EXEC_END = 29;
-  private static final int IDX_EXEC_DURATION = 30;
-  private static final int IDX_QUEUE_WAIT = 31;
-  private static final int IDX_JOB_RESULT = 32;
-  private static final int IDX_RESULT_TYPE = 33;
-  private static final int IDX_REC_STATUS = 34;
-  private static final int IDX_Q_SCHEDULED_TIME = 36;
-  private static final int IDX_Q_ATTEMPTS = 37;
-  private static final int IDX_Q_PICKED_BY = 38;
-  private static final int IDX_Q_PICKED_AT = 39;
-  private static final int IDX_Q_PAUSED = 40;
-  private static final int IDX_Q_LAST_ERROR = 41;
-  private static final int IDX_Q_VERSION = 42;
-  private static final int IDX_Q_UPDATED_AT = 43;
+  private static final int IDX_CALLER_PRINCIPAL = 22;
+  private static final int IDX_TERMINAL_STATUS = 23;
+  private static final int IDX_TERMINAL_ERROR = 24;
+  private static final int IDX_TOTAL_ATTEMPTS = 25;
+  private static final int IDX_TERMINATED_AT = 26;
+  private static final int IDX_EXEC_START = 27;
+  private static final int IDX_EXEC_END = 28;
+  private static final int IDX_EXEC_DURATION = 29;
+  private static final int IDX_QUEUE_WAIT = 30;
+  private static final int IDX_JOB_RESULT = 31;
+  private static final int IDX_RESULT_TYPE = 32;
+  private static final int IDX_REC_STATUS = 33;
+  private static final int IDX_Q_SCHEDULED_TIME = 35;
+  private static final int IDX_Q_ATTEMPTS = 36;
+  private static final int IDX_Q_PICKED_BY = 37;
+  private static final int IDX_Q_PICKED_AT = 38;
+  private static final int IDX_Q_PAUSED = 39;
+  private static final int IDX_Q_LAST_ERROR = 40;
+  private static final int IDX_Q_VERSION = 41;
+  private static final int IDX_Q_UPDATED_AT = 42;
 
   private PostgresqlJobRowMapper() {}
 
@@ -97,7 +96,7 @@ final class PostgresqlJobRowMapper {
         c.payload::text, c.params::text, c.target_class, c.method_name, c.idempotency_key,
         c.business_key, c.resource_name, c.on_success_payload::text,
         c.on_failure_payload::text, c.depends_on, c.superseded_by, c.created_at,
-        c.created_by, c.caller_principal, c.terminal_status, c.terminal_error,
+        c.caller_principal, c.terminal_status, c.terminal_error,
         c.total_attempts, c.terminated_at, c.execution_start_time, c.execution_end_time,
         c.execution_duration_ms, c.queue_wait_ms, c.job_result::text, c.result_type,
         c.rec_status, q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at,
@@ -141,7 +140,6 @@ final class PostgresqlJobRowMapper {
     j.setDependsOn(uuidOrNull(row[IDX_DEPENDS_ON]));
     j.setSupersededBy(uuidOrNull(row[IDX_SUPERSEDED_BY]));
     j.setCreatedAt(toInstant(row[IDX_CREATED_AT]));
-    j.setCreatedBy((String) row[IDX_CREATED_BY]);
     j.setCallerPrincipal((String) row[IDX_CALLER_PRINCIPAL]);
 
     String terminalStr = (String) row[IDX_TERMINAL_STATUS];

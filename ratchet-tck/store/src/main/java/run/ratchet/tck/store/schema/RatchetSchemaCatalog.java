@@ -79,7 +79,6 @@ public final class RatchetSchemaCatalog {
         .column(nullable("depends_on", UUID))
         .column(nullable("superseded_by", UUID))
         .column(required("created_at", TIMESTAMP_TZ))
-        .column(nullable("created_by", TEXT))
         .column(nullable("caller_principal", TEXT))
         // V005 cold survivors / additions.
         .column(nullable("terminal_status", TEXT))

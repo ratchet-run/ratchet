@@ -22,9 +22,9 @@ final class PostgresqlJobWriteOperations {
         job_id, job_type, priority, max_retries, backoff_policy, backoff_param_ms,
         timeout_sec, cron_expr, zone_id, next_fire, payload, params, idempotency_key,
         business_key, resource_name, on_success_payload, on_failure_payload, depends_on,
-        superseded_by, created_at, created_by, caller_principal, rec_status)
+        superseded_by, created_at, caller_principal, rec_status)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), CAST(? AS jsonb), ?, ?, ?,
-              CAST(? AS jsonb), CAST(? AS jsonb), ?, ?, ?, ?, ?, ?)
+              CAST(? AS jsonb), CAST(? AS jsonb), ?, ?, ?, ?, ?)
       """;
 
   // language=PostgreSQL
@@ -238,7 +238,6 @@ final class PostgresqlJobWriteOperations {
     q.setParameter(i++, job.getDependsOn());
     q.setParameter(i++, job.getSupersededBy());
     q.setParameter(i++, job.getCreatedAt() != null ? Timestamp.from(job.getCreatedAt()) : nowTs);
-    q.setParameter(i++, job.getCreatedBy());
     q.setParameter(i++, job.getCallerPrincipal());
     String recStatus = null;
     if (job.getJobType() == JobExecutionType.RECURRING) {

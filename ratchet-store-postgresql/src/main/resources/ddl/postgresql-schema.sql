@@ -67,6 +67,9 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     -- Payload + params (insert-once; never mutated after enqueue).
     payload               JSONB NOT NULL,
     params                JSONB,
+    -- W3C TraceContext carrier captured at enqueue time; passed to TracingCollector at execution
+    -- start so distributed spans are parented to the submitting caller's trace.
+    trace_context         JSONB,
     target_class          TEXT GENERATED ALWAYS AS (payload ->> 'target') STORED,
     method_name           TEXT GENERATED ALWAYS AS (payload ->> 'method') STORED,
     idempotency_key       VARCHAR(36) NOT NULL,
@@ -79,7 +82,6 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     depends_on            uuid,
     superseded_by         uuid,
     created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    created_by            VARCHAR(255),
     -- Captured at creation from jakarta.security.enterprise.SecurityContext when resolvable; null
     -- otherwise. No enforcement performed — see JobSchedulerService Javadoc.
     caller_principal      VARCHAR(255),

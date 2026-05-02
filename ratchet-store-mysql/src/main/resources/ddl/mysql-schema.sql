@@ -76,6 +76,9 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     -- Payload + params (insert-once; never mutated after enqueue).
     payload               JSON                                                                                                                NOT NULL,
     params                JSON                                                                                                                NULL,
+    -- W3C TraceContext carrier captured at enqueue time; passed to TracingCollector at execution
+    -- start so distributed spans are parented to the submitting caller's trace.
+    trace_context         JSON                                                                                                                NULL,
     target_class          VARCHAR(255) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(payload, '$.target'))) STORED,
     method_name           VARCHAR(128) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(payload, '$.method'))) STORED,
     idempotency_key       VARCHAR(36)                                                                                                         NOT NULL,
@@ -88,7 +91,6 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     depends_on            BINARY(16)                                                                                                          NULL,
     superseded_by         BINARY(16)                                                                                                          NULL,
     created_at            DATETIME(6)                                                                                                         NOT NULL,
-    created_by            VARCHAR(255)                                                                                                        NULL,
     -- Captured at creation from jakarta.security.enterprise.SecurityContext when resolvable; null
     -- otherwise. No enforcement performed — downstream consumers read this field for audit or to
     -- build their own authorization layer. See JobSchedulerService Javadoc.

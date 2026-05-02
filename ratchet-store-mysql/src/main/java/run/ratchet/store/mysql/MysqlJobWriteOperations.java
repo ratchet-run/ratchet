@@ -23,9 +23,9 @@ final class MysqlJobWriteOperations {
         job_id, job_type, priority, max_retries, backoff_policy, backoff_param_ms,
         timeout_sec, cron_expr, zone_id, next_fire, payload, params, idempotency_key,
         business_key, resource_name, on_success_payload, on_failure_payload, depends_on,
-        superseded_by, created_at, created_by, caller_principal, rec_status)
+        superseded_by, created_at, caller_principal, rec_status)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?,
-              CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, ?, ?, ?)
+              CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, ?, ?)
       """;
 
   // language=MySQL
@@ -215,9 +215,8 @@ final class MysqlJobWriteOperations {
         .setParameter(18, UuidByteArrayConverter.toBytes(job.getDependsOn()))
         .setParameter(19, UuidByteArrayConverter.toBytes(job.getSupersededBy()))
         .setParameter(20, nowTs)
-        .setParameter(21, job.getCreatedBy())
-        .setParameter(22, job.getCallerPrincipal())
-        .setParameter(23, recStatus)
+        .setParameter(21, job.getCallerPrincipal())
+        .setParameter(22, recStatus)
         .executeUpdate();
   }
 
@@ -302,7 +301,6 @@ final class MysqlJobWriteOperations {
     q.setParameter(i++, UuidByteArrayConverter.toBytes(job.getDependsOn()));
     q.setParameter(i++, UuidByteArrayConverter.toBytes(job.getSupersededBy()));
     q.setParameter(i++, nowTs);
-    q.setParameter(i++, job.getCreatedBy());
     q.setParameter(i++, job.getCallerPrincipal());
     String recStatus = null;
     if (job.getJobType() == JobExecutionType.RECURRING) {
