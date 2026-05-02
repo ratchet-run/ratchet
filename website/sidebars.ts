@@ -68,6 +68,56 @@ const config: SidebarsConfig = {
     'troubleshooting/debugging',
     'troubleshooting/faq',
   ],
+  conformanceSidebar: [
+    'conformance/index',
+    {
+      type: 'category',
+      label: 'Store Reports',
+      items: [
+        'conformance/mysql',
+        'conformance/postgresql',
+        'conformance/mongodb',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'API Reports',
+      link: {type: 'doc', id: 'conformance/api/index'},
+      items: [
+        'conformance/api/wildfly-managed-mysql',
+        'conformance/api/wildfly-managed-postgresql',
+        'conformance/api/wildfly-managed-mongodb',
+        'conformance/api/payara-managed-mysql',
+        'conformance/api/payara-managed-postgresql',
+        'conformance/api/payara-managed-mongodb',
+        'conformance/api/openliberty-managed-mysql',
+        'conformance/api/openliberty-managed-postgresql',
+        'conformance/api/openliberty-managed-mongodb',
+        'conformance/api/glassfish-managed-mysql',
+        'conformance/api/glassfish-managed-postgresql',
+        'conformance/api/glassfish-managed-mongodb',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Jakarta Runtime Reports',
+      link: {type: 'doc', id: 'conformance/jakarta/index'},
+      items: [
+        'conformance/jakarta/wildfly-managed-mysql',
+        'conformance/jakarta/wildfly-managed-postgresql',
+        'conformance/jakarta/wildfly-managed-mongodb',
+        'conformance/jakarta/payara-managed-mysql',
+        'conformance/jakarta/payara-managed-postgresql',
+        'conformance/jakarta/payara-managed-mongodb',
+        'conformance/jakarta/openliberty-managed-mysql',
+        'conformance/jakarta/openliberty-managed-postgresql',
+        'conformance/jakarta/openliberty-managed-mongodb',
+        'conformance/jakarta/glassfish-managed-mysql',
+        'conformance/jakarta/glassfish-managed-postgresql',
+        'conformance/jakarta/glassfish-managed-mongodb',
+      ],
+    },
+  ],
 };
 
 export default config;
