@@ -4,4 +4,7 @@ module run.ratchet.tck.api {
   requires org.junit.jupiter.api;
 
   exports run.ratchet.tck.api;
+
+  provides org.junit.platform.launcher.TestExecutionListener with
+      run.ratchet.tck.api.ApiConformanceReportExtension;
 }

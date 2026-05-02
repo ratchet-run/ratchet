@@ -8,4 +8,7 @@ module run.ratchet.tck.jakarta {
   requires org.junit.jupiter.api;
 
   exports run.ratchet.tck.jakarta;
+
+  provides org.junit.platform.launcher.TestExecutionListener with
+      run.ratchet.tck.jakarta.JakartaConformanceReportExtension;
 }

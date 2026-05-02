@@ -24,10 +24,10 @@ import org.junit.jupiter.api.Test;
  * </ul>
  *
  * <p>This contract is a conformance grade, not a universal hard requirement. Non-JTA stores are
- * permitted; implementations whose store cannot participate in JTA
- * (e.g., MongoDB without a session) are not "Ratchet Jakarta Runtime Compatible" with respect to
- * transactional enqueue. Such implementations should mark their concrete subclass with
- * {@code @Disabled("Store does not participate in JTA")}.
+ * permitted; implementations whose store cannot participate in JTA (e.g., MongoDB without a
+ * session) are not "Ratchet Jakarta Runtime Compatible" with respect to transactional enqueue. Such
+ * implementations should mark their concrete subclass with {@code @Disabled("Store does not
+ * participate in JTA")}.
  *
  * <p>Subclasses provide an Arquillian {@code @Deployment} that bundles this contract package and
  * the implementation's {@link RatchetTckRuntime} adapter.

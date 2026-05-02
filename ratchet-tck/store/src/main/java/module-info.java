@@ -5,7 +5,11 @@ module run.ratchet.tck.store {
   requires jakarta.persistence;
   requires java.sql;
   requires org.junit.jupiter.api;
+  requires org.junit.platform.launcher;
 
   exports run.ratchet.tck.store;
   exports run.ratchet.tck.store.schema;
+
+  provides org.junit.platform.launcher.TestExecutionListener with
+      run.ratchet.tck.store.ConformanceReportExtension;
 }

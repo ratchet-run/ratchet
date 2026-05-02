@@ -91,6 +91,11 @@
       <scope>test</scope>
     </dependency>
     <dependency>
+      <groupId>run.ratchet</groupId>
+      <artifactId>ratchet-otel</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
       <groupId>org.jboss.arquillian.junit5</groupId>
       <artifactId>arquillian-junit5-container</artifactId>
       <scope>test</scope>
@@ -198,6 +203,7 @@
             <arquillian.launch>${arquillian.launch}</arquillian.launch>
             <testsuite.profile>${testsuite.profile}</testsuite.profile>
             <openliberty.server.config.dir>${openliberty.server.config.dir}</openliberty.server.config.dir>
+            <ratchet.tck.runtime.name>${testsuite.profile}/${ratchet.test.db.type}</ratchet.tck.runtime.name>
           </systemPropertyVariables>
         </configuration>
         <executions>
