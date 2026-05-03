@@ -121,8 +121,7 @@ class DeadLetterQueueIT extends BaseRatchetIT {
 
     JobAssertions.assertJobFailed(jobCrudStore, handle);
     assertFalse(
-        jobService.pauseJob(handle.id()),
-        "pauseJob must reject FAILED jobs in terminal state");
+        jobService.pauseJob(handle.id()), "pauseJob must reject FAILED jobs in terminal state");
     JobAssertions.assertJobStatus(jobCrudStore, handle, JobStatus.FAILED);
   }
 }

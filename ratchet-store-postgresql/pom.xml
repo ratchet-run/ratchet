@@ -110,6 +110,28 @@
 
     <build>
         <plugins>
+            <!--
+              Same qualified-export fix as ratchet-store-mysql. See that module's pom.xml for
+              the full explanation.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>default-testCompile</id>
+                        <goals>
+                            <goal>testCompile</goal>
+                        </goals>
+                        <configuration>
+                            <compilerArgs>
+                                <arg>--add-exports</arg>
+                                <arg>run.ratchet.api/run.ratchet.spi=ALL-UNNAMED</arg>
+                            </compilerArgs>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
@@ -117,11 +139,15 @@
                     <systemPropertyVariables>
                         <ratchet.tck.store.name>${project.artifactId}</ratchet.tck.store.name>
                     </systemPropertyVariables>
+                    <argLine>--add-exports run.ratchet.api/run.ratchet.spi=ALL-UNNAMED</argLine>
                 </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>
+                <configuration>
+                    <argLine>--add-exports run.ratchet.api/run.ratchet.spi=ALL-UNNAMED</argLine>
+                </configuration>
                 <executions>
                     <execution>
                         <goals>

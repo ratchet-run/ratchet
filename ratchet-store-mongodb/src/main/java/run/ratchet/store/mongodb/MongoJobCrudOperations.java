@@ -68,18 +68,24 @@ final class MongoJobCrudOperations {
     this.ctx = ctx;
   }
 
+  JobEntity create(JobEntity job) {
+    if (job.getId() == null) {
+      job.setId(UuidV7Factory.create());
+    }
+    Instant now = Instant.now();
+    job.setCreatedAt(now);
+    job.setUpdatedAt(now);
+    if (job.getVersion() == null) {
+      job.setVersion(0);
+    }
+    ctx.jobs().insertOne(DocumentMapper.toDocument(job));
+    return job;
+  }
+
   JobEntity save(JobEntity job) {
     Instant now = Instant.now();
     if (job.getId() == null) {
-      job.setId(UuidV7Factory.create());
-      job.setCreatedAt(now);
-      job.setUpdatedAt(now);
-      if (job.getVersion() == null) {
-        job.setVersion(0);
-      }
-      Document doc = DocumentMapper.toDocument(job);
-      ctx.jobs().insertOne(doc);
-      return job;
+      return create(job);
     }
     job.setUpdatedAt(now);
 

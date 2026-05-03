@@ -14,7 +14,10 @@ import java.util.UUID;
 @Incubating
 public interface JobCrudStore {
 
-  /** Creates or updates a job row and returns the persisted entity view. */
+  /** Inserts a new job row and returns the persisted entity view. */
+  JobEntity create(JobEntity job);
+
+  /** Updates an existing job row and returns the persisted entity view. */
   JobEntity save(JobEntity job);
 
   Optional<JobEntity> findById(UUID id);

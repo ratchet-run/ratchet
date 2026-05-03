@@ -18,9 +18,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * without a real tracing backend.
  *
  * <p>Call {@link #setContextToCapture(Map)} before enqueuing a job to inject a fake W3C carrier
- * map. The map returned by {@link #captureCurrentContext()} is recorded and later passed to
- * {@link #jobExecutionStarted} — tests can assert the round-trip via
- * {@link #getReceivedParentContexts()}.
+ * map. The map returned by {@link #captureCurrentContext()} is recorded and later passed to {@link
+ * #jobExecutionStarted} — tests can assert the round-trip via {@link #getReceivedParentContexts()}.
  *
  * <p>Used by {@code TracingPropagationIT}.
  */
@@ -39,8 +38,8 @@ public class RecordingTracingCollector implements TracingCollector {
   }
 
   /**
-   * Returns an unmodifiable view of the {@code parentContext} maps received by
-   * {@link #jobExecutionStarted} in call order. One entry per execution attempt.
+   * Returns an unmodifiable view of the {@code parentContext} maps received by {@link
+   * #jobExecutionStarted} in call order. One entry per execution attempt.
    */
   public static List<Map<String, String>> getReceivedParentContexts() {
     return Collections.unmodifiableList(receivedParentContexts);

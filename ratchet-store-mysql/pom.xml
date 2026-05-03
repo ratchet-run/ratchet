@@ -110,6 +110,32 @@
 
     <build>
         <plugins>
+            <!--
+              ratchet-api exports run.ratchet.spi with a qualified export to specific
+              named modules only. ratchet-tck-store is a test-scope dependency and lands on the
+              unnamed module (classpath) during test compilation. Without this export, the compiler
+              cannot resolve MetricsCollector when checking override compatibility for
+              JpaContainerFixture.createStore. The same flag is required at test runtime so
+              surefire can load the test fixture classes.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>default-testCompile</id>
+                        <goals>
+                            <goal>testCompile</goal>
+                        </goals>
+                        <configuration>
+                            <compilerArgs>
+                                <arg>--add-exports</arg>
+                                <arg>run.ratchet.api/run.ratchet.spi=ALL-UNNAMED</arg>
+                            </compilerArgs>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
@@ -117,11 +143,15 @@
                     <systemPropertyVariables>
                         <ratchet.tck.store.name>${project.artifactId}</ratchet.tck.store.name>
                     </systemPropertyVariables>
+                    <argLine>--add-exports run.ratchet.api/run.ratchet.spi=ALL-UNNAMED</argLine>
                 </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>
+                <configuration>
+                    <argLine>--add-exports run.ratchet.api/run.ratchet.spi=ALL-UNNAMED</argLine>
+                </configuration>
                 <executions>
                     <execution>
                         <goals>

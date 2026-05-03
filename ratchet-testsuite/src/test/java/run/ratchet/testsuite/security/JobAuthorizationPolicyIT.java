@@ -15,6 +15,7 @@ import run.ratchet.testsuite.util.BaseRatchetIT;
 import run.ratchet.testsuite.util.JobAssertions;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 import jakarta.inject.Inject;
+import java.util.List;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
@@ -116,9 +117,7 @@ class JobAuthorizationPolicyIT extends BaseRatchetIT {
     int batchSize = 3;
     jobService
         .enqueueBatch("test-batch")
-        .add(SimpleJob::execute)
-        .add(SimpleJob::execute)
-        .add(SimpleJob::execute)
+        .forEach(List.of("a", "b", "c"), item -> SimpleJob.execute())
         .submit();
 
     // Batch parent + 3 children = 4 checkCreate calls

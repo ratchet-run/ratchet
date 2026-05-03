@@ -24,9 +24,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * OpenTelemetry-backed {@link TracingCollector}.
  *
- * <p>Creates one span per job execution attempt using the OTel API directly, without the
- * Micrometer Tracing layer. The span name is {@code ratchet.job} and carries the following
- * attributes:
+ * <p>Creates one span per job execution attempt using the OTel API directly, without the Micrometer
+ * Tracing layer. The span name is {@code ratchet.job} and carries the following attributes:
  *
  * <ul>
  *   <li>{@code ratchet.job.id} — UUID of the job
@@ -36,16 +35,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *   <li>{@code ratchet.attempt} — attempt number (failure path only)
  * </ul>
  *
- * <p>W3C {@code traceparent} context captured at enqueue time is restored as the parent span
- * when provided.
+ * <p>W3C {@code traceparent} context captured at enqueue time is restored as the parent span when
+ * provided.
  *
- * <p>{@link OpenTelemetry} is injected via CDI {@link Instance} if a bean is available;
- * otherwise falls back to {@link GlobalOpenTelemetry#get()}, which allows framework integrations
- * (Quarkus, Spring, etc.) that configure the global instance to work without explicit CDI wiring.
+ * <p>{@link OpenTelemetry} is injected via CDI {@link Instance} if a bean is available; otherwise
+ * falls back to {@link GlobalOpenTelemetry#get()}, which allows framework integrations (Quarkus,
+ * Spring, etc.) that configure the global instance to work without explicit CDI wiring.
  *
  * <p>MDC keys {@code traceId} and {@code spanId} are populated by the OTel SDK's MDC context
- * storage provider when a logging bridge (e.g. {@code opentelemetry-logback-appender} or
- * {@code opentelemetry-log4j2-appender}) is on the classpath.
+ * storage provider when a logging bridge (e.g. {@code opentelemetry-logback-appender} or {@code
+ * opentelemetry-log4j2-appender}) is on the classpath.
  */
 @Alternative
 @Priority(1000)

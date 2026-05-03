@@ -190,7 +190,7 @@ public class DefaultJobCreationService
     }
     checkCreateAuthorization(job);
 
-    JobEntity saved = jobCrudStore.save(job);
+    JobEntity saved = jobCrudStore.create(job);
     UUID jobId = saved.getId();
 
     List<String> tags = builder.tags();
@@ -225,7 +225,7 @@ public class DefaultJobCreationService
   public JobHandle submit(DefaultBatchBuilder builder) {
     JobEntity parent = newBatchParent();
     checkCreateAuthorization(parent);
-    JobEntity savedParent = jobCrudStore.save(parent);
+    JobEntity savedParent = jobCrudStore.create(parent);
     UUID parentId = savedParent.getId();
 
     BatchEntity batch = new BatchEntity();
@@ -256,7 +256,8 @@ public class DefaultJobCreationService
       childJob.setIdempotencyKey(UUID.randomUUID().toString());
       childJob.setDependsOn(parentId);
       stampCallerPrincipal(childJob);
-      jobCrudStore.save(childJob);
+      checkCreateAuthorization(childJob);
+      jobCrudStore.create(childJob);
     }
 
     for (WorkflowBranch branch : builder.workflowBranches()) {
@@ -278,7 +279,7 @@ public class DefaultJobCreationService
 
     JobEntity parent = newBatchParent();
     checkCreateAuthorization(parent);
-    JobEntity savedParent = jobCrudStore.save(parent);
+    JobEntity savedParent = jobCrudStore.create(parent);
     UUID parentId = savedParent.getId();
 
     int totalItems = 0;
@@ -364,7 +365,7 @@ public class DefaultJobCreationService
     stampCallerPrincipal(job);
     checkCreateAuthorization(job);
 
-    JobEntity saved = jobCrudStore.save(job);
+    JobEntity saved = jobCrudStore.create(job);
 
     if (!builder.tags().isEmpty()) {
       tagStore.insertTags(saved.getId(), builder.tags());
@@ -422,7 +423,7 @@ public class DefaultJobCreationService
       captureTraceContext(step);
       checkCreateAuthorization(step);
 
-      JobEntity savedStep = jobCrudStore.save(step);
+      JobEntity savedStep = jobCrudStore.create(step);
       prevId = savedStep.getId();
     }
   }
@@ -440,7 +441,7 @@ public class DefaultJobCreationService
       child.setIdempotencyKey(UUID.randomUUID().toString());
       child.setDependsOn(parentId);
       stampCallerPrincipal(child);
-      jobCrudStore.save(child);
+      jobCrudStore.create(child);
       count++;
     }
     return count;
@@ -463,7 +464,7 @@ public class DefaultJobCreationService
     branchJob.setDependsOn(parentId);
     stampCallerPrincipal(branchJob);
     checkCreateAuthorization(branchJob);
-    JobEntity savedBranch = jobCrudStore.save(branchJob);
+    JobEntity savedBranch = jobCrudStore.create(branchJob);
 
     WorkflowConditionEntity condition = new WorkflowConditionEntity();
     condition.setParentJobId(parentId);

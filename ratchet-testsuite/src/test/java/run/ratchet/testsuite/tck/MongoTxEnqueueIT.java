@@ -16,8 +16,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
  * MongoDB subclass of {@link AbstractTxEnqueueContract}.
  *
  * <p>MongoDB does not participate in JTA. A caller's JTA rollback does not roll back a Mongo write
- * that has already been committed inside a {@code ClientSession.withTransaction} block. This implementation is explicitly exempt
- * from the commit-visible / rollback-invisible requirement.
+ * that has already been committed inside a {@code ClientSession.withTransaction} block. This
+ * implementation is explicitly exempt from the commit-visible / rollback-invisible requirement.
  *
  * <p>This class is retained as a documented contract gap. Implementations that add Mongo XA support
  * in the future should remove the {@code @Disabled} annotation and validate that the contract now

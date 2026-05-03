@@ -41,7 +41,12 @@ class ExecutionObserverTest {
   void setUp() {
     observer =
         new ExecutionObserver(
-            metricsCollector, tracingCollector, eventPublisher, executionStore, executorProvider, null);
+            metricsCollector,
+            tracingCollector,
+            eventPublisher,
+            executionStore,
+            executorProvider,
+            null);
   }
 
   @Test

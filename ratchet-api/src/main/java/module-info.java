@@ -44,5 +44,6 @@ module run.ratchet.api {
       run.ratchet.tck.store,
       run.ratchet.tck.api,
       run.ratchet.micrometer,
-      run.ratchet.otel;
+      run.ratchet.otel,
+      ratchet.testsuite.jpms;
 }

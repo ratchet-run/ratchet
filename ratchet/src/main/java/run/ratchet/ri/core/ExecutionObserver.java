@@ -107,8 +107,8 @@ public class ExecutionObserver {
    * in a {@code finally} block regardless of outcome.
    *
    * <p>The {@code parentContext} passed to {@link TracingCollector#jobExecutionStarted} is the
-   * carrier map captured at enqueue time via {@link TracingCollector#captureCurrentContext()}.
-   * When no tracing is active, or no context was captured, the map is empty and the implementation
+   * carrier map captured at enqueue time via {@link TracingCollector#captureCurrentContext()}. When
+   * no tracing is active, or no context was captured, the map is empty and the implementation
    * creates a root span.
    */
   public TracingCollector.ExecutionScope startExecutionScope(JobEntity job) {

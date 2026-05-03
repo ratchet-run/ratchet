@@ -31,6 +31,12 @@ final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore {
   }
 
   @Override
+  public JobEntity create(JobEntity job) {
+    writes.saveInsert(job);
+    return job;
+  }
+
+  @Override
   public JobEntity save(JobEntity job) {
     return writes.save(job);
   }

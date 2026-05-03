@@ -19,14 +19,13 @@ import org.junit.jupiter.api.extension.ExtendWith;
  * run.ratchet.ri.cdi.NoOpTracingCollector} when {@code ratchet-otel} is on the deployment
  * classpath.
  *
- * <p>{@code OtelTracingCollector} is annotated {@code @Alternative @Priority(1000)}, which
- * globally enables it per CDI 2.0+ spec without requiring a {@code beans.xml} entry. This test
- * confirms the CDI container honours the priority and selects the OTel implementation.
+ * <p>{@code OtelTracingCollector} is annotated {@code @Alternative @Priority(1000)}, which globally
+ * enables it per CDI 2.0+ spec without requiring a {@code beans.xml} entry. This test confirms the
+ * CDI container honours the priority and selects the OTel implementation.
  *
- * <p>When no {@code OpenTelemetry} CDI bean is available (as in this test container),
- * {@code OtelTracingCollector} falls back to {@link
- * io.opentelemetry.api.GlobalOpenTelemetry#get()}, which returns a no-op instance. The test only
- * verifies selection — not span emission.
+ * <p>When no {@code OpenTelemetry} CDI bean is available (as in this test container), {@code
+ * OtelTracingCollector} falls back to {@link io.opentelemetry.api.GlobalOpenTelemetry#get()}, which
+ * returns a no-op instance. The test only verifies selection — not span emission.
  */
 @ExtendWith(ArquillianExtension.class)
 class RiOtelTracingAlternativeIT {

@@ -23,9 +23,9 @@ final class MysqlJobWriteOperations {
         job_id, job_type, priority, max_retries, backoff_policy, backoff_param_ms,
         timeout_sec, cron_expr, zone_id, next_fire, payload, params, idempotency_key,
         business_key, resource_name, on_success_payload, on_failure_payload, depends_on,
-        superseded_by, created_at, caller_principal, rec_status)
+        superseded_by, created_at, caller_principal, rec_status, trace_context)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?,
-              CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, ?, ?)
+              CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, ?, ?, CAST(? AS JSON))
       """;
 
   // language=MySQL
@@ -123,7 +123,7 @@ final class MysqlJobWriteOperations {
     ctx.em().clear();
   }
 
-  private void saveInsert(JobEntity job) {
+  void saveInsert(JobEntity job) {
     assignTsidIfMissing(job);
     Instant now = Instant.now();
     Timestamp nowTs = Timestamp.from(now);
@@ -217,6 +217,7 @@ final class MysqlJobWriteOperations {
         .setParameter(20, nowTs)
         .setParameter(21, job.getCallerPrincipal())
         .setParameter(22, recStatus)
+        .setParameter(23, mapper.traceContextToJson(job))
         .executeUpdate();
   }
 
@@ -308,7 +309,8 @@ final class MysqlJobWriteOperations {
       String rec = MysqlJobRowMapper.recStatusForLiveStatus(s);
       recStatus = rec != null ? rec : "P";
     }
-    q.setParameter(i, recStatus);
+    q.setParameter(i++, recStatus);
+    q.setParameter(i, mapper.traceContextToJson(job));
   }
 
   private void bindHotInsert(Query q, JobEntity job, Timestamp nowTs) {

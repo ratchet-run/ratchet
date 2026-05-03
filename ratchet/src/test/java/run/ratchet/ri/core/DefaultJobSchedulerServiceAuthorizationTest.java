@@ -237,6 +237,22 @@ class DefaultJobSchedulerServiceAuthorizationTest {
         .compareAndSwapStatus(eq(JOB_ID), eq(JobStatus.PENDING), eq(JobStatus.CANCELED), any());
   }
 
+  // ---- cancelRecurringJobsByTag / cancelRecurringJobByBusinessKey ----
+
+  @Test
+  void cancelRecurringJobsByTag_doesNotCheckAuthorization() {
+    when(jobBatchStatusStore.cancelRecurringJobsByTag("tag")).thenReturn(2);
+    service.cancelRecurringJobsByTag("tag");
+    verify(authorizationPolicy, never()).checkCancel(any(), any(), any());
+  }
+
+  @Test
+  void cancelRecurringJobByBusinessKey_doesNotCheckAuthorization() {
+    when(jobBatchStatusStore.cancelRecurringJobByBusinessKey("key")).thenReturn(1);
+    service.cancelRecurringJobByBusinessKey("key");
+    verify(authorizationPolicy, never()).checkCancel(any(), any(), any());
+  }
+
   public static void noopTask() {}
 
   private static JobEntity ownerJob() {

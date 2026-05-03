@@ -28,16 +28,16 @@ import java.util.UUID;
  * <p>When a scope is active, implementations <em>must</em> inject {@code traceId} and {@code
  * spanId} into the logging MDC so that log lines emitted during job execution carry trace
  * coordinates alongside the four stable Ratchet MDC keys ({@code jobId}, {@code node}, {@code
- * jobCreator}, {@code jobType}). These keys must be removed when the scope is closed — use
- * targeted {@code MDC.remove(key)} calls, never {@code MDC.clear()}, to avoid wiping application
- * MDC keys set by Servlet filters or JAX-RS interceptors. Removal of the four Ratchet-owned keys
- * remains the responsibility of {@link run.ratchet.ri.core.JobMdcContext}.
+ * jobCreator}, {@code jobType}). These keys must be removed when the scope is closed — use targeted
+ * {@code MDC.remove(key)} calls, never {@code MDC.clear()}, to avoid wiping application MDC keys
+ * set by Servlet filters or JAX-RS interceptors. Removal of the four Ratchet-owned keys remains the
+ * responsibility of {@link run.ratchet.ri.core.JobMdcContext}.
  *
  * <h2>Default implementation</h2>
  *
- * <p>The default no-op implementation captures no context and returns a no-op scope. Opt in to
- * real tracing by placing {@code ratchet-micrometer} (Micrometer Tracing bridge) or {@code
- * ratchet-otel} (OpenTelemetry direct) on the deployment classpath.
+ * <p>The default no-op implementation captures no context and returns a no-op scope. Opt in to real
+ * tracing by placing {@code ratchet-micrometer} (Micrometer Tracing bridge) or {@code ratchet-otel}
+ * (OpenTelemetry direct) on the deployment classpath.
  */
 @Incubating
 public interface TracingCollector {
@@ -45,9 +45,9 @@ public interface TracingCollector {
   /**
    * Called at enqueue time on the submitting thread to capture the active trace context.
    *
-   * <p>The returned map is a W3C TraceContext carrier (e.g. {@code traceparent} /
-   * {@code tracestate} keys) or any implementation-defined propagation headers. It is stored with
-   * the job and passed back verbatim to {@link #jobExecutionStarted} when execution begins.
+   * <p>The returned map is a W3C TraceContext carrier (e.g. {@code traceparent} / {@code
+   * tracestate} keys) or any implementation-defined propagation headers. It is stored with the job
+   * and passed back verbatim to {@link #jobExecutionStarted} when execution begins.
    *
    * <p>Default: returns an empty map (no parent context captured; jobs start a new root trace).
    */
@@ -76,9 +76,9 @@ public interface TracingCollector {
   /**
    * Scope handle representing one active job execution attempt.
    *
-   * <p>The RI closes this in a {@code finally} block regardless of outcome. Implementations must
-   * be idempotent — {@link #close()} must be safe to call even after {@link #success} or
-   * {@link #failure} has already been invoked (treating it as a no-op second close).
+   * <p>The RI closes this in a {@code finally} block regardless of outcome. Implementations must be
+   * idempotent — {@link #close()} must be safe to call even after {@link #success} or {@link
+   * #failure} has already been invoked (treating it as a no-op second close).
    */
   interface ExecutionScope extends AutoCloseable {
 

@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -26,8 +27,11 @@ import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 import java.time.Clock;
+import java.time.Duration;
+import java.time.ZoneId;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -89,7 +93,7 @@ class DefaultJobCreationServiceAuthorizationTest {
   void checkCreate_isCalledAfterPrincipalCapture_withCorrectArgs() {
     JobEntity saved = savedEntity();
     when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
-    when(jobCrudStore.save(any(JobEntity.class))).thenReturn(saved);
+    when(jobCrudStore.create(any(JobEntity.class))).thenReturn(saved);
 
     DefaultJobBuilder builder =
         (DefaultJobBuilder)
@@ -130,7 +134,7 @@ class DefaultJobCreationServiceAuthorizationTest {
   void checkCreate_calledBeforeSave() {
     JobEntity saved = savedEntity();
     when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
-    when(jobCrudStore.save(any(JobEntity.class))).thenReturn(saved);
+    when(jobCrudStore.create(any(JobEntity.class))).thenReturn(saved);
 
     DefaultJobBuilder builder =
         (DefaultJobBuilder)
@@ -143,7 +147,7 @@ class DefaultJobCreationServiceAuthorizationTest {
 
     org.mockito.InOrder order = org.mockito.Mockito.inOrder(authorizationPolicy, jobCrudStore);
     order.verify(authorizationPolicy).checkCreate(any(UUID.class), anyString());
-    order.verify(jobCrudStore).save(any(JobEntity.class));
+    order.verify(jobCrudStore).create(any(JobEntity.class));
   }
 
   @Test
@@ -162,7 +166,7 @@ class DefaultJobCreationServiceAuthorizationTest {
 
     JobEntity saved = savedEntity();
     when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
-    when(jobCrudStore.save(any(JobEntity.class))).thenReturn(saved);
+    when(jobCrudStore.create(any(JobEntity.class))).thenReturn(saved);
 
     DefaultJobBuilder builder =
         (DefaultJobBuilder)
@@ -197,7 +201,7 @@ class DefaultJobCreationServiceAuthorizationTest {
 
     JobEntity saved = savedEntity();
     when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
-    when(jobCrudStore.save(any(JobEntity.class))).thenReturn(saved);
+    when(jobCrudStore.create(any(JobEntity.class))).thenReturn(saved);
 
     DefaultJobBuilder builder =
         (DefaultJobBuilder)
@@ -210,6 +214,81 @@ class DefaultJobCreationServiceAuthorizationTest {
 
     verify(authorizationPolicy).checkCreate(any(UUID.class), isNull());
   }
+
+  // ---- recurring job ----
+
+  @Test
+  void checkCreate_calledForRecurringJob() {
+    when(jobCrudStore.create(any())).thenReturn(savedEntity());
+
+    DefaultRecurringJobBuilder builder =
+        new DefaultRecurringJobBuilder(
+            "0 0 * * * ?",
+            ZoneId.of("UTC"),
+            DefaultJobCreationServiceAuthorizationTest::noopTask,
+            service);
+
+    service.submit(builder);
+
+    verify(authorizationPolicy).checkCreate(any(UUID.class), anyString());
+  }
+
+  // ---- streaming batch parent ----
+
+  @Test
+  void checkCreate_calledForStreamingBatchParent() {
+    when(jobCrudStore.create(any())).thenAnswer(inv -> savedEntity());
+
+    DefaultStreamingBatchBuilder<String> builder =
+        new DefaultStreamingBatchBuilder<>("test-batch", service);
+    builder.fromStream(Stream.of("item"));
+    builder.process(DefaultJobCreationServiceAuthorizationTest::consumeString);
+
+    service.submit(builder);
+
+    verify(authorizationPolicy).checkCreate(any(UUID.class), anyString());
+  }
+
+  // ---- chain steps ----
+
+  @Test
+  void checkCreate_calledForEachChainStep() {
+    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.create(any())).thenAnswer(inv -> savedEntity());
+
+    DefaultJobBuilder builder =
+        (DefaultJobBuilder)
+            DefaultJobBuilder.create(
+                    service, DefaultJobCreationServiceAuthorizationTest::noopTask, Duration.ZERO)
+                .then(DefaultJobCreationServiceAuthorizationTest::noopTask)
+                .then(DefaultJobCreationServiceAuthorizationTest::noopTask);
+
+    service.submit(builder);
+
+    // 1 parent + 2 chain steps
+    verify(authorizationPolicy, times(3)).checkCreate(any(UUID.class), anyString());
+  }
+
+  // ---- workflow branch ----
+
+  @Test
+  void checkCreate_calledForWorkflowBranch() {
+    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.create(any())).thenAnswer(inv -> savedEntity());
+
+    DefaultJobBuilder builder =
+        (DefaultJobBuilder)
+            DefaultJobBuilder.create(
+                    service, DefaultJobCreationServiceAuthorizationTest::noopTask, Duration.ZERO)
+                .thenOnSuccess(DefaultJobCreationServiceAuthorizationTest::noopTask);
+
+    service.submit(builder);
+
+    // 1 parent + 1 workflow branch
+    verify(authorizationPolicy, times(2)).checkCreate(any(UUID.class), anyString());
+  }
+
+  public static void consumeString(String s) {}
 
   private static JobEntity savedEntity() {
     JobEntity e = new JobEntity();

@@ -55,7 +55,8 @@ class TracingPropagationIT extends BaseRatchetIT {
 
   @Test
   void traceContext_propagatedToExecutionScope_forSingleJob() {
-    Map<String, String> fakeCarrier = Map.of("traceparent", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01");
+    Map<String, String> fakeCarrier =
+        Map.of("traceparent", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01");
     RecordingTracingCollector.setContextToCapture(fakeCarrier);
 
     JobHandle handle = jobService.enqueueNow(SimpleJob::execute);
@@ -73,7 +74,8 @@ class TracingPropagationIT extends BaseRatchetIT {
 
   @Test
   void traceContext_propagatedToAllChainSteps() {
-    Map<String, String> fakeCarrier = Map.of("traceparent", "00-1234567890abcdef1234567890abcdef-fedcba0987654321-01");
+    Map<String, String> fakeCarrier =
+        Map.of("traceparent", "00-1234567890abcdef1234567890abcdef-fedcba0987654321-01");
     RecordingTracingCollector.setContextToCapture(fakeCarrier);
 
     JobHandle handle =

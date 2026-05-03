@@ -22,9 +22,9 @@ final class PostgresqlJobWriteOperations {
         job_id, job_type, priority, max_retries, backoff_policy, backoff_param_ms,
         timeout_sec, cron_expr, zone_id, next_fire, payload, params, idempotency_key,
         business_key, resource_name, on_success_payload, on_failure_payload, depends_on,
-        superseded_by, created_at, caller_principal, rec_status)
+        superseded_by, created_at, caller_principal, rec_status, trace_context)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), CAST(? AS jsonb), ?, ?, ?,
-              CAST(? AS jsonb), CAST(? AS jsonb), ?, ?, ?, ?, ?)
+              CAST(? AS jsonb), CAST(? AS jsonb), ?, ?, ?, ?, ?, CAST(? AS jsonb))
       """;
 
   // language=PostgreSQL
@@ -141,7 +141,7 @@ final class PostgresqlJobWriteOperations {
     }
   }
 
-  private void saveInsert(JobEntity job) {
+  void saveInsert(JobEntity job) {
     assignTsidIfMissing(job);
     Instant now = Instant.now();
     Timestamp nowTs = Timestamp.from(now);
@@ -245,7 +245,8 @@ final class PostgresqlJobWriteOperations {
       String r = PostgresqlJobRowMapper.recStatusForLiveStatus(s);
       recStatus = r != null ? r : "P";
     }
-    q.setParameter(i, recStatus);
+    q.setParameter(i++, recStatus);
+    q.setParameter(i, PostgresqlJobRowMapper.traceContextToJson(job));
   }
 
   private void bindHotInsert(Query q, JobEntity job, Timestamp nowTs) {

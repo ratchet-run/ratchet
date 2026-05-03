@@ -27,11 +27,11 @@ final class MysqlJobRowMapper {
       c.created_at, c.caller_principal, c.terminal_status, c.terminal_error,
       c.total_attempts, c.terminated_at, c.execution_start_time, c.execution_end_time,
       c.execution_duration_ms, c.queue_wait_ms, c.job_result, c.result_type, c.rec_status,
-      q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at,
+      c.trace_context, q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at,
       q.paused_from_status, q.last_error, q.version, q.updated_at\
       """;
-  static final int HYDRATION_COL_COUNT = 43;
-  static final int IDX_Q_STATUS = 34;
+  static final int HYDRATION_COL_COUNT = 44;
+  static final int IDX_Q_STATUS = 35;
   private static final Logger log = Logger.getLogger(MysqlJobRowMapper.class);
   private static final JobPayloadConverter JOB_PAYLOAD_CONVERTER = new JobPayloadConverter();
   private static final JsonMapConverter JSON_MAP_CONVERTER = new JsonMapConverter();
@@ -69,13 +69,14 @@ final class MysqlJobRowMapper {
   private static final int IDX_JOB_RESULT = 31;
   private static final int IDX_RESULT_TYPE = 32;
   private static final int IDX_REC_STATUS = 33;
-  private static final int IDX_Q_SCHEDULED_TIME = 35;
-  private static final int IDX_Q_ATTEMPTS = 36;
-  private static final int IDX_Q_PICKED_BY = 37;
-  private static final int IDX_Q_PICKED_AT = 38;
-  private static final int IDX_Q_PAUSED = 39;
-  private static final int IDX_Q_LAST_ERROR = 40;
-  private static final int IDX_Q_VERSION = 41;
+  private static final int IDX_TRACE_CONTEXT = 34;
+  private static final int IDX_Q_SCHEDULED_TIME = 36;
+  private static final int IDX_Q_ATTEMPTS = 37;
+  private static final int IDX_Q_PICKED_BY = 38;
+  private static final int IDX_Q_PICKED_AT = 39;
+  private static final int IDX_Q_PAUSED = 40;
+  private static final int IDX_Q_LAST_ERROR = 41;
+  private static final int IDX_Q_VERSION = 42;
 
   static boolean isTerminalStatus(JobStatus s) {
     return s == JobStatus.SUCCEEDED || s == JobStatus.FAILED || s == JobStatus.CANCELED;
@@ -213,6 +214,8 @@ final class MysqlJobRowMapper {
     j.setQueueWaitMs(longOrNull(row[IDX_QUEUE_WAIT]));
     j.setJobResult(stringOrNull(row[IDX_JOB_RESULT]));
     j.setResultType((String) row[IDX_RESULT_TYPE]);
+    j.setTraceContext(
+        JSON_MAP_CONVERTER.convertToEntityAttribute(stringOrNull(row[IDX_TRACE_CONTEXT])));
 
     String recStatus = stringOrNull(row[IDX_REC_STATUS]);
     String liveStr = (String) row[IDX_Q_STATUS];
@@ -277,5 +280,9 @@ final class MysqlJobRowMapper {
 
   String callbackPayloadToJson(JobPayload payload) {
     return JOB_PAYLOAD_CONVERTER.convertToDatabaseColumn(payload);
+  }
+
+  String traceContextToJson(JobEntity job) {
+    return JSON_MAP_CONVERTER.convertToDatabaseColumn(job.getTraceContext());
   }
 }

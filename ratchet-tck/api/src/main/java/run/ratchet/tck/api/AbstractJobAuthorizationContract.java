@@ -61,7 +61,7 @@ public abstract class AbstractJobAuthorizationContract {
   }
 
   @Test
-  void denyAllPolicy_throwsJobAuthorizationExceptionOnSubmit() {
+  protected void denyAllPolicy_throwsJobAuthorizationExceptionOnSubmit() {
     Optional<JobSchedulerService> denyScheduler = schedulerWithDenyAllPolicy();
     assumeTrue(denyScheduler.isPresent(), "Deny-all policy scheduler not provided by this runtime");
 
@@ -80,7 +80,7 @@ public abstract class AbstractJobAuthorizationContract {
   }
 
   @Test
-  void denyAllPolicy_nullPrincipalIsPassedThrough() {
+  protected void denyAllPolicy_nullPrincipalIsPassedThrough() {
     Optional<JobSchedulerService> denyScheduler = schedulerWithDenyAllPolicy();
     assumeTrue(denyScheduler.isPresent(), "Deny-all policy scheduler not provided by this runtime");
 
