@@ -3,7 +3,6 @@ package run.ratchet.store.mongodb;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.tck.store.AbstractJobClaimStoreContract;
-import org.junit.jupiter.api.BeforeEach;
 
 /** MongoDB contract test for {@code JobClaimStore} operations. */
 class MongoJobClaimStoreContractTest extends AbstractJobClaimStoreContract {
@@ -23,11 +22,6 @@ class MongoJobClaimStoreContractTest extends AbstractJobClaimStoreContract {
   @Override
   public JobEntity newBatchParentJob() {
     return fixture.newBatchParentJob();
-  }
-
-  @BeforeEach
-  void cleanupBefore() {
-    fixture.cleanupStore();
   }
 
   @Override

@@ -2,6 +2,8 @@ package run.ratchet.tck.store;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import run.ratchet.store.entity.JobEntity;
@@ -188,5 +190,41 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
     long count = store().countPendingJobs();
 
     assertEquals(3L, count, "countPendingJobs should count only PENDING jobs");
+  }
+
+  @Test
+  void create_setsCreatedAt() {
+    JobEntity job = newPendingJob();
+
+    JobEntity created = store().create(job);
+
+    assertNotNull(created.getCreatedAt(), "create() must populate createdAt");
+  }
+
+  @Test
+  void create_duplicateId_throws() {
+    JobEntity job = newPendingJob();
+    store().create(job);
+
+    assertThrows(
+        RuntimeException.class,
+        () -> store().create(job),
+        "create() must reject a duplicate ID (insert-only semantics)");
+  }
+
+  @Test
+  void save_preservesCreatedAt() {
+    JobEntity job = newPendingJob();
+    JobEntity created = store().create(job);
+    Instant originalCreatedAt = created.getCreatedAt();
+    assertNotNull(originalCreatedAt, "create() must set createdAt before the save round-trip");
+
+    created.setStatus(JobStatus.RUNNING);
+    JobEntity updated = store().save(created);
+
+    assertEquals(
+        originalCreatedAt,
+        updated.getCreatedAt(),
+        "save() must not overwrite the createdAt set by create()");
   }
 }
