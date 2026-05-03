@@ -2,6 +2,7 @@ package run.ratchet.ri.cdi;
 
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.DefaultNodeIdentityProvider;
+import run.ratchet.ri.core.DefaultNodeTagAffinityProvider;
 import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.DynamicHeartbeatCalculator;
 import run.ratchet.ri.core.ExecutionObserver;
@@ -29,10 +30,11 @@ import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.LambdaSerializer;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
-import run.ratchet.spi.TracingCollector;
+import run.ratchet.spi.NodeTagAffinityProvider;
 import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.spi.PollingStrategyProvider;
 import run.ratchet.spi.ResilienceStrategy;
+import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.ExecutionStore;
@@ -201,7 +203,8 @@ public class RatchetProducer {
       ThreadPoolManager threadPoolManager,
       DrainController drainController,
       PollerScheduler pollerScheduler,
-      CircuitBreakerRegistry circuitBreakerRegistry) {
+      CircuitBreakerRegistry circuitBreakerRegistry,
+      NodeTagAffinityProvider tagAffinityProvider) {
     int batchSize = options.polling().batchSize();
     return new Poller(
         jobClaimStore,
@@ -215,6 +218,7 @@ public class RatchetProducer {
         circuitBreakerRegistry,
         circuitBreakerConfigProvider.isEnabled(),
         pollingStrategyProvider,
+        tagAffinityProvider,
         batchSize);
   }
 
@@ -318,6 +322,18 @@ public class RatchetProducer {
   @ApplicationScoped
   public Clock systemClock() {
     return Clock.systemUTC();
+  }
+
+  /**
+   * Produces the default {@link NodeTagAffinityProvider} bean. Users can override by providing
+   * their own {@code @Alternative @Priority(APPLICATION) NodeTagAffinityProvider} bean for
+   * runtime-dynamic tag affinity (e.g., based on hardware availability).
+   */
+  @Produces
+  @Default
+  @ApplicationScoped
+  public NodeTagAffinityProvider nodeTagAffinityProvider() {
+    return new DefaultNodeTagAffinityProvider(options);
   }
 
   /**

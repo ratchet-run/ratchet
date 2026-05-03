@@ -2,6 +2,7 @@ package run.ratchet.api;
 
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -274,10 +275,21 @@ public class RatchetOptions {
       long heartbeatIntervalSeconds,
       long orphanGraceSeconds,
       long orphanScanIntervalMinutes,
-      boolean dynamicHeartbeatEnabled) {
+      boolean dynamicHeartbeatEnabled,
+      List<String> requireTags,
+      List<String> excludeTags) {
+
+    public NodeOptions {
+      requireTags = List.copyOf(requireTags == null ? List.of() : requireTags);
+      excludeTags = List.copyOf(excludeTags == null ? List.of() : excludeTags);
+    }
 
     public Optional<String> explicitNodeId() {
       return nodeId == null || nodeId.isBlank() ? Optional.empty() : Optional.of(nodeId);
+    }
+
+    public NodeTagFilter tagFilter() {
+      return new NodeTagFilter(requireTags, excludeTags);
     }
   }
 
@@ -558,6 +570,8 @@ public class RatchetOptions {
     private long orphanGraceSeconds = 60L;
     private long orphanScanIntervalMinutes = 5L;
     private boolean dynamicHeartbeatEnabled = true;
+    private List<String> requireTags = List.of();
+    private List<String> excludeTags = List.of();
 
     private NodeBuilder() {}
 
@@ -593,13 +607,25 @@ public class RatchetOptions {
       return this;
     }
 
+    public NodeBuilder requireTags(String... tags) {
+      this.requireTags = List.of(tags);
+      return this;
+    }
+
+    public NodeBuilder excludeTags(String... tags) {
+      this.excludeTags = List.of(tags);
+      return this;
+    }
+
     private NodeOptions build() {
       return new NodeOptions(
           nodeId,
           heartbeatIntervalSeconds,
           orphanGraceSeconds,
           orphanScanIntervalMinutes,
-          dynamicHeartbeatEnabled);
+          dynamicHeartbeatEnabled,
+          requireTags,
+          excludeTags);
     }
   }
 

@@ -13,6 +13,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.PICKED_BY;
 import static run.ratchet.store.mongodb.MongoFieldNames.PRIORITY;
 import static run.ratchet.store.mongodb.MongoFieldNames.SCHEDULED_TIME;
 import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
+import static run.ratchet.store.mongodb.MongoFieldNames.TAGS;
 import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
 
@@ -22,6 +23,7 @@ import com.mongodb.bulk.BulkWriteResult;
 import com.mongodb.client.model.BulkWriteOptions;
 import com.mongodb.client.model.UpdateOneModel;
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.NodeTagFilter;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -52,42 +54,52 @@ final class MongoJobClaimOperations {
     this.ctx = ctx;
   }
 
-  List<JobEntity> claimNextBatch(int limit, String nodeId) {
+  List<JobEntity> claimNextBatch(int limit, String nodeId, NodeTagFilter tagFilter) {
     List<UUID> candidateIds =
         findCandidatesByBoostedPriority(
-            MongoStoreContext.EXECUTABLE_JOB_TYPES, SCHEDULED_TIME, limit);
+            MongoStoreContext.EXECUTABLE_JOB_TYPES, SCHEDULED_TIME, limit, tagFilter);
     return claimByIds(candidateIds, nodeId, DocumentMapper::toJobEntity);
   }
 
-  List<JobClaimDto> claimNextBatchOptimized(JobExecutionType jobType, int limit, String nodeId) {
+  List<JobClaimDto> claimNextBatchOptimized(
+      JobExecutionType jobType, int limit, String nodeId, NodeTagFilter tagFilter) {
     if (limit <= 0 || !MongoStoreContext.isPollerExecutable(jobType)) {
       return List.of();
     }
     List<UUID> candidateIds =
-        findCandidatesByBoostedPriority(List.of(jobType.name()), SCHEDULED_TIME, limit);
+        findCandidatesByBoostedPriority(List.of(jobType.name()), SCHEDULED_TIME, limit, tagFilter);
     return claimByIds(candidateIds, nodeId, DocumentMapper::toJobClaimDto);
   }
 
-  List<JobEntity> claimDueRecurring(int limit, String nodeId) {
+  List<JobEntity> claimDueRecurring(int limit, String nodeId, NodeTagFilter tagFilter) {
     List<UUID> candidateIds =
-        findCandidatesByBoostedPriority(List.of("RECURRING"), NEXT_FIRE, limit);
+        findCandidatesByBoostedPriority(List.of("RECURRING"), NEXT_FIRE, limit, tagFilter);
     return claimByIds(candidateIds, nodeId, DocumentMapper::toJobEntity);
   }
 
   /** Finds candidate job IDs sorted by effective priority (raw priority + age-based boost). */
   private List<UUID> findCandidatesByBoostedPriority(
-      List<String> jobTypes, String timeColumn, int limit) {
+      List<String> jobTypes, String timeColumn, int limit, NodeTagFilter tagFilter) {
     if (limit <= 0 || jobTypes.isEmpty()) {
       return List.of();
     }
 
     Date now = DocumentMapper.toDate(Instant.now());
+    // Build conditions as a list to avoid Document.append() overwriting the same key twice
+    // when both requireTags and excludeTags are set.
+    List<Bson> conditions = new ArrayList<>();
+    conditions.add(
+        new Document(STATUS, "PENDING")
+            .append(JOB_TYPE, new Document("$in", jobTypes))
+            .append(timeColumn, new Document("$lte", now)));
+    if (!tagFilter.requireTags().isEmpty()) {
+      conditions.add(new Document(TAGS, new Document("$in", tagFilter.requireTags())));
+    }
+    if (!tagFilter.excludeTags().isEmpty()) {
+      conditions.add(new Document(TAGS, new Document("$nin", tagFilter.excludeTags())));
+    }
     Bson match =
-        new Document(
-            "$match",
-            new Document(STATUS, "PENDING")
-                .append(JOB_TYPE, new Document("$in", jobTypes))
-                .append(timeColumn, new Document("$lte", now)));
+        new Document("$match", conditions.size() == 1 ? conditions.get(0) : and(conditions));
     Bson project =
         new Document(
             "$project",

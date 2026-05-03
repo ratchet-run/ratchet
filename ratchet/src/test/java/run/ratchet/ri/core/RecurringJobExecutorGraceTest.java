@@ -41,7 +41,13 @@ class RecurringJobExecutorGraceTest {
   @BeforeEach
   void setUp() {
     state = new RecurringRegistrationState();
-    executor = new RecurringJobExecutor(jobCrudStore, jobClaimStore, jobTerminalStore, state);
+    executor =
+        new RecurringJobExecutor(
+            jobCrudStore,
+            jobClaimStore,
+            jobTerminalStore,
+            state,
+            () -> run.ratchet.api.NodeTagFilter.NONE);
   }
 
   @Test
@@ -49,7 +55,7 @@ class RecurringJobExecutorGraceTest {
     state.markRegistrationComplete(Set.of("known-key"));
 
     JobEntity orphan = recurringMaster(42L, "orphan-key");
-    when(jobClaimStore.claimDueRecurring(anyInt(), anyString())).thenReturn(List.of(orphan));
+    when(jobClaimStore.claimDueRecurring(anyInt(), anyString(), any())).thenReturn(List.of(orphan));
 
     int fired = executor.process(10, "node-A");
 
@@ -67,7 +73,7 @@ class RecurringJobExecutorGraceTest {
     state.markRegistrationComplete(Set.of("known-key"));
 
     JobEntity known = recurringMaster(7L, "known-key");
-    when(jobClaimStore.claimDueRecurring(anyInt(), anyString())).thenReturn(List.of(known));
+    when(jobClaimStore.claimDueRecurring(anyInt(), anyString(), any())).thenReturn(List.of(known));
 
     int fired = executor.process(10, "node-A");
 
@@ -83,11 +89,18 @@ class RecurringJobExecutorGraceTest {
             RatchetOptions.builder()
                 .recurring(recurring -> recurring.startupGraceSeconds(0))
                 .build());
-    executor = new RecurringJobExecutor(jobCrudStore, jobClaimStore, jobTerminalStore, state);
+    executor =
+        new RecurringJobExecutor(
+            jobCrudStore,
+            jobClaimStore,
+            jobTerminalStore,
+            state,
+            () -> run.ratchet.api.NodeTagFilter.NONE);
     state.markRegistrationComplete(Set.of("known-key"));
 
     JobEntity unknown = recurringMaster(99L, "unknown-key");
-    when(jobClaimStore.claimDueRecurring(anyInt(), anyString())).thenReturn(List.of(unknown));
+    when(jobClaimStore.claimDueRecurring(anyInt(), anyString(), any()))
+        .thenReturn(List.of(unknown));
 
     int fired = executor.process(10, "node-A");
 
@@ -101,7 +114,7 @@ class RecurringJobExecutorGraceTest {
     JobEntity orphan1 = recurringMaster(1L, "orphan-1");
     JobEntity orphan2 = recurringMaster(2L, "orphan-2");
     JobEntity known = recurringMaster(3L, "known");
-    when(jobClaimStore.claimDueRecurring(anyInt(), anyString()))
+    when(jobClaimStore.claimDueRecurring(anyInt(), anyString(), any()))
         .thenReturn(List.of(orphan1, orphan2, known));
 
     int fired = executor.process(10, "node-A");
@@ -119,7 +132,8 @@ class RecurringJobExecutorGraceTest {
 
     // Programmatically-submitted recurring jobs may have null business key.
     JobEntity programmatic = recurringMaster(50L, null);
-    when(jobClaimStore.claimDueRecurring(anyInt(), anyString())).thenReturn(List.of(programmatic));
+    when(jobClaimStore.claimDueRecurring(anyInt(), anyString(), any()))
+        .thenReturn(List.of(programmatic));
 
     int fired = executor.process(10, "node-A");
 
@@ -130,7 +144,7 @@ class RecurringJobExecutorGraceTest {
   void firesAllMastersBeforeRegistrationCompletes() {
     // markRegistrationComplete never called — registration hasn't run.
     JobEntity orphan = recurringMaster(11L, "any-key");
-    when(jobClaimStore.claimDueRecurring(anyInt(), anyString())).thenReturn(List.of(orphan));
+    when(jobClaimStore.claimDueRecurring(anyInt(), anyString(), any())).thenReturn(List.of(orphan));
 
     int fired = executor.process(10, "node-A");
 
@@ -140,7 +154,7 @@ class RecurringJobExecutorGraceTest {
   @Test
   void noMastersClaimedReturnsZero() {
     state.markRegistrationComplete(Set.of("any"));
-    when(jobClaimStore.claimDueRecurring(anyInt(), anyString())).thenReturn(List.of());
+    when(jobClaimStore.claimDueRecurring(anyInt(), anyString(), any())).thenReturn(List.of());
 
     int fired = executor.process(10, "node-A");
 

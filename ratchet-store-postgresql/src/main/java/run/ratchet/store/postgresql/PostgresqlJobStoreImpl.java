@@ -1,6 +1,7 @@
 package run.ratchet.store.postgresql;
 
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.store.dto.BatchProgress;
@@ -68,6 +69,11 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
       RatchetEntityManagerProvider entityManagerProvider, RatchetOptions options) {
     this.entityManagerProvider = entityManagerProvider;
     this.options = options;
+  }
+
+  @Override
+  public JobEntity create(JobEntity job) {
+    return jobs.create(job);
   }
 
   @Override
@@ -231,19 +237,19 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   @Override
-  public List<JobEntity> claimNextBatch(int limit, String nodeId) {
-    return claims.claimNextBatch(limit, nodeId);
+  public List<JobEntity> claimNextBatch(int limit, String nodeId, NodeTagFilter tagFilter) {
+    return claims.claimNextBatch(limit, nodeId, tagFilter);
   }
 
   @Override
   public List<JobClaimDto> claimNextBatchOptimized(
-      JobExecutionType jobType, int limit, String nodeId) {
-    return claims.claimNextBatchOptimized(jobType, limit, nodeId);
+      JobExecutionType jobType, int limit, String nodeId, NodeTagFilter tagFilter) {
+    return claims.claimNextBatchOptimized(jobType, limit, nodeId, tagFilter);
   }
 
   @Override
-  public List<JobEntity> claimDueRecurring(int limit, String nodeId) {
-    return claims.claimDueRecurring(limit, nodeId);
+  public List<JobEntity> claimDueRecurring(int limit, String nodeId, NodeTagFilter tagFilter) {
+    return claims.claimDueRecurring(limit, nodeId, tagFilter);
   }
 
   @Override

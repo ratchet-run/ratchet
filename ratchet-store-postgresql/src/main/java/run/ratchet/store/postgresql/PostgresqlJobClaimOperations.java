@@ -1,5 +1,6 @@
 package run.ratchet.store.postgresql;
 
+import run.ratchet.api.NodeTagFilter;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -39,21 +40,19 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
   /**
    * Atomic claim against {@code scheduler_job_queue}: select due PENDING rows with {@code FOR
    * UPDATE SKIP LOCKED}, then UPDATE to RUNNING in a single CTE, returning the claimed columns.
-   * Hydration of the full job entity is done by a follow-up {@link
-   * PostgresqlJobCrudOperations#findByIds(List)} so the read sees fresh cold metadata.
    *
-   * <p>Placeholder order: any placeholders in {@code typeFilter} → {@code boostInterval} (if &gt;
-   * 0) → {@code limit} → {@code nodeId}.
+   * <p>Placeholder order: typeFilter params → tagFilter params → boostInterval (if &gt; 0) → limit
+   * → nodeId.
    */
   // language=PostgreSQL
   private static String buildQueueClaimSql(
-      String typeFilter, String timeColumn, int boostInterval) {
+      String typeFilter, String tagFilterSql, String timeColumn, int boostInterval) {
     return """
         WITH picked AS (
           SELECT job_id FROM scheduler_job_queue
           WHERE status = 'PENDING'
             AND %s <= statement_timestamp()
-            AND %s
+            AND %s%s
           ORDER BY %s
           FOR UPDATE SKIP LOCKED
           LIMIT ?
@@ -67,22 +66,65 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
         RETURNING q.job_id, q.status, q.job_type, q.priority, q.scheduled_time, q.version,
                   q.timeout_sec, q.picked_by, q.picked_at, q.business_key, q.attempts, q.max_retries
         """
-        .formatted(timeColumn, typeFilter, buildBoostOrderBy(timeColumn, boostInterval));
+        .formatted(
+            timeColumn, typeFilter, tagFilterSql, buildBoostOrderBy(timeColumn, boostInterval));
+  }
+
+  /**
+   * Builds a SQL fragment (empty string or starting with newline+AND) for tag affinity filtering.
+   * Guards each list independently to avoid empty {@code IN ()}.
+   */
+  private static String buildTagFilterSql(NodeTagFilter filter, String tableAlias) {
+    if (filter.isUnfiltered()) {
+      return "";
+    }
+    StringBuilder sb = new StringBuilder();
+    if (!filter.requireTags().isEmpty()) {
+      String placeholders = "?,".repeat(filter.requireTags().size());
+      sb.append("\n  AND EXISTS (SELECT 1 FROM scheduler_job_tag t WHERE t.job_id = ")
+          .append(tableAlias)
+          .append(".job_id AND t.tag IN (")
+          .append(placeholders, 0, placeholders.length() - 1)
+          .append("))");
+    }
+    if (!filter.excludeTags().isEmpty()) {
+      String placeholders = "?,".repeat(filter.excludeTags().size());
+      sb.append("\n  AND NOT EXISTS (SELECT 1 FROM scheduler_job_tag t WHERE t.job_id = ")
+          .append(tableAlias)
+          .append(".job_id AND t.tag IN (")
+          .append(placeholders, 0, placeholders.length() - 1)
+          .append("))");
+    }
+    return sb.toString();
+  }
+
+  private static int bindTagFilter(Query query, NodeTagFilter filter, int startParam) {
+    int p = startParam;
+    for (String tag : filter.requireTags()) {
+      query.setParameter(p++, tag);
+    }
+    for (String tag : filter.excludeTags()) {
+      query.setParameter(p++, tag);
+    }
+    return p;
   }
 
   @Override
   @SuppressWarnings("unchecked")
-  public List<JobEntity> claimNextBatch(int limit, String nodeId) {
+  public List<JobEntity> claimNextBatch(int limit, String nodeId, NodeTagFilter tagFilter) {
     if (limit <= 0) {
       return List.of();
     }
     try {
       int boostInterval = ctx.priorityBoostIntervalMinutes();
+      String tagSql = buildTagFilterSql(tagFilter, "scheduler_job_queue");
       Query claimQuery =
           ctx.em()
               .createNativeQuery(
-                  buildQueueClaimSql(EXECUTABLE_JOB_TYPE_FILTER, "scheduled_time", boostInterval));
+                  buildQueueClaimSql(
+                      EXECUTABLE_JOB_TYPE_FILTER, tagSql, "scheduled_time", boostInterval));
       int parameter = 1;
+      parameter = bindTagFilter(claimQuery, tagFilter, parameter);
       if (boostInterval > 0) {
         claimQuery.setParameter(parameter++, boostInterval);
       }
@@ -104,18 +146,20 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
 
   @Override
   public List<JobClaimDto> claimNextBatchOptimized(
-      JobExecutionType jobType, int limit, String nodeId) {
+      JobExecutionType jobType, int limit, String nodeId, NodeTagFilter tagFilter) {
     if (limit <= 0 || !PostgresqlStoreContext.isPollerExecutable(jobType)) {
       return List.of();
     }
     try {
       int boostInterval = ctx.priorityBoostIntervalMinutes();
+      String tagSql = buildTagFilterSql(tagFilter, "scheduler_job_queue");
       Query claimQuery =
           ctx.em()
               .createNativeQuery(
-                  buildQueueClaimSql("job_type = ?", "scheduled_time", boostInterval));
+                  buildQueueClaimSql("job_type = ?", tagSql, "scheduled_time", boostInterval));
       int parameter = 1;
       claimQuery.setParameter(parameter++, jobType.name());
+      parameter = bindTagFilter(claimQuery, tagFilter, parameter);
       if (boostInterval > 0) {
         claimQuery.setParameter(parameter++, boostInterval);
       }
@@ -149,26 +193,28 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
 
   @Override
   @SuppressWarnings("unchecked")
-  public List<JobEntity> claimDueRecurring(int limit, String nodeId) {
+  public List<JobEntity> claimDueRecurring(int limit, String nodeId, NodeTagFilter tagFilter) {
     if (limit <= 0) {
       return List.of();
     }
     try {
       int boostInterval = ctx.priorityBoostIntervalMinutes();
+      String tagSql = buildTagFilterSql(tagFilter, "scheduler_job");
       // language=PostgreSQL
       String sql =
           """
           SELECT job_id FROM scheduler_job
           WHERE job_type = 'RECURRING'
             AND rec_status = 'P'
-            AND next_fire <= statement_timestamp()
+            AND next_fire <= statement_timestamp()%s
           ORDER BY %s
           LIMIT ?
           FOR UPDATE SKIP LOCKED
           """
-              .formatted(buildBoostOrderBy("next_fire", boostInterval));
+              .formatted(tagSql, buildBoostOrderBy("next_fire", boostInterval));
       Query selectQuery = ctx.em().createNativeQuery(sql);
       int parameter = 1;
+      parameter = bindTagFilter(selectQuery, tagFilter, parameter);
       if (boostInterval > 0) {
         selectQuery.setParameter(parameter++, boostInterval);
       }

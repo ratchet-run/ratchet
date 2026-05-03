@@ -1,6 +1,7 @@
 package run.ratchet.ri.core;
 
 import run.ratchet.api.CircuitBreakerProfile;
+import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.ri.resilience.CircuitBreaker;
@@ -8,6 +9,7 @@ import run.ratchet.ri.resilience.CircuitBreakerRegistry;
 import run.ratchet.ri.resilience.ServiceUnavailableException;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.spi.NodeTagAffinityProvider;
 import run.ratchet.spi.PollingConfig;
 import run.ratchet.spi.PollingDelayStrategy;
 import run.ratchet.spi.PollingStrategyProvider;
@@ -47,6 +49,7 @@ public class Poller {
   private final RatchetOptions options;
   private final MetricsCollector metricsCollector;
   private final PollingStrategyProvider pollingStrategyProvider;
+  private final NodeTagAffinityProvider tagAffinityProvider;
   private final CircuitBreaker claimCircuitBreaker;
   private final boolean claimCircuitBreakerEnabled;
   private final int batchSize;
@@ -65,6 +68,7 @@ public class Poller {
     this.options = null;
     this.metricsCollector = null;
     this.pollingStrategyProvider = null;
+    this.tagAffinityProvider = null;
     this.claimCircuitBreaker = null;
     this.claimCircuitBreakerEnabled = false;
     this.batchSize = 0;
@@ -83,6 +87,7 @@ public class Poller {
       CircuitBreakerRegistry circuitBreakerRegistry,
       boolean claimCircuitBreakerEnabled,
       PollingStrategyProvider pollingStrategyProvider,
+      NodeTagAffinityProvider tagAffinityProvider,
       int batchSize) {
     this.jobClaimStore = jobClaimStore;
     this.jobExecutionCoordinator = jobExecutionCoordinator;
@@ -99,6 +104,7 @@ public class Poller {
                 CLAIM_BREAKER_NAME, CircuitBreakerProfile.CLAIM_PATH)
             : null;
     this.pollingStrategyProvider = pollingStrategyProvider;
+    this.tagAffinityProvider = tagAffinityProvider;
     this.batchSize = batchSize;
     this.claimHeadroomFactor = Math.max(0, options.polling().claimHeadroomFactor());
   }
@@ -225,6 +231,8 @@ public class Poller {
   }
 
   private List<JobClaimDto> claimJobsByTypeBudget() {
+    NodeTagFilter tagFilter =
+        tagAffinityProvider != null ? tagAffinityProvider.getTagFilter() : NodeTagFilter.NONE;
     List<JobClaimDto> claims = new ArrayList<>();
     String nodeId = nodeIdProvider.getNodeId();
     for (JobExecutionType jobType : POLLER_EXECUTABLE_TYPES) {
@@ -235,7 +243,7 @@ public class Poller {
       int claimLimit = computeClaimLimit(availableCapacity);
       try {
         List<JobClaimDto> claimed =
-            jobClaimStore.claimNextBatchOptimized(jobType, claimLimit, nodeId);
+            jobClaimStore.claimNextBatchOptimized(jobType, claimLimit, nodeId, tagFilter);
         if (metricsCollector != null && !claimed.isEmpty()) {
           metricsCollector.jobsClaimed(jobType.name(), claimed.size());
         }

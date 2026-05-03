@@ -89,19 +89,24 @@ class PollerTest {
     JobClaimDto singleClaim = claim(1L, JobExecutionType.SINGLE, "single");
     JobClaimDto batchClaim = claim(2L, JobExecutionType.BATCH_CHILD, "batch");
 
-    when(jobClaimStore.claimNextBatchOptimized(JobExecutionType.SINGLE, 2, "node-1"))
+    when(jobClaimStore.claimNextBatchOptimized(
+            eq(JobExecutionType.SINGLE), eq(2), eq("node-1"), any()))
         .thenReturn(List.of(singleClaim));
-    when(jobClaimStore.claimNextBatchOptimized(JobExecutionType.BATCH_CHILD, 1, "node-1"))
+    when(jobClaimStore.claimNextBatchOptimized(
+            eq(JobExecutionType.BATCH_CHILD), eq(1), eq("node-1"), any()))
         .thenReturn(List.of(batchClaim));
 
     long nextDelay = poller.tick();
 
-    verify(jobClaimStore).claimNextBatchOptimized(JobExecutionType.SINGLE, 2, "node-1");
-    verify(jobClaimStore).claimNextBatchOptimized(JobExecutionType.BATCH_CHILD, 1, "node-1");
+    verify(jobClaimStore)
+        .claimNextBatchOptimized(eq(JobExecutionType.SINGLE), eq(2), eq("node-1"), any());
+    verify(jobClaimStore)
+        .claimNextBatchOptimized(eq(JobExecutionType.BATCH_CHILD), eq(1), eq("node-1"), any());
     verify(jobClaimStore, never())
-        .claimNextBatchOptimized(eq(JobExecutionType.CHAIN_STEP), anyInt(), anyString());
+        .claimNextBatchOptimized(eq(JobExecutionType.CHAIN_STEP), anyInt(), anyString(), any());
     verify(jobClaimStore, never())
-        .claimNextBatchOptimized(eq(JobExecutionType.WORKFLOW_BRANCH), anyInt(), anyString());
+        .claimNextBatchOptimized(
+            eq(JobExecutionType.WORKFLOW_BRANCH), anyInt(), anyString(), any());
     verify(jobExecutionCoordinator).submit(singleClaim);
     verify(jobExecutionCoordinator).submit(batchClaim);
     verify(metricsCollector).jobsClaimed(JobExecutionType.SINGLE.name(), 1);
@@ -113,7 +118,8 @@ class PollerTest {
   @Test
   void tick_transientClaimFailureBacksOff() {
     when(threadPoolManager.getAvailableCapacity(JobExecutionType.SINGLE)).thenReturn(1);
-    when(jobClaimStore.claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-1"))
+    when(jobClaimStore.claimNextBatchOptimized(
+            eq(JobExecutionType.SINGLE), eq(1), eq("node-1"), any()))
         .thenThrow(new RatchetTransientStoreException("deadlock"));
 
     long nextDelay = poller.tick();
@@ -127,14 +133,16 @@ class PollerTest {
   @Test
   void tick_consecutiveTransientFailuresTripBreakerAndSkipSubsequentClaim() {
     when(threadPoolManager.getAvailableCapacity(JobExecutionType.SINGLE)).thenReturn(1);
-    when(jobClaimStore.claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-1"))
+    when(jobClaimStore.claimNextBatchOptimized(
+            eq(JobExecutionType.SINGLE), eq(1), eq("node-1"), any()))
         .thenThrow(new RatchetTransientStoreException("deadlock"));
 
     poller.tick();
     poller.tick();
     long nextDelay = poller.tick();
 
-    verify(jobClaimStore, times(2)).claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-1");
+    verify(jobClaimStore, times(2))
+        .claimNextBatchOptimized(eq(JobExecutionType.SINGLE), eq(1), eq("node-1"), any());
     verify(metricsCollector, atLeastOnce()).pollerBreakerState("store.claim", "OPEN");
     assertEquals(CircuitBreaker.State.OPEN, claimCircuitBreaker.getState());
     assertTrue(nextDelay >= 5_000L);
@@ -151,7 +159,8 @@ class PollerTest {
     poller.init();
 
     when(threadPoolManager.getAvailableCapacity(JobExecutionType.SINGLE)).thenReturn(1);
-    when(jobClaimStore.claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-1"))
+    when(jobClaimStore.claimNextBatchOptimized(
+            eq(JobExecutionType.SINGLE), eq(1), eq("node-1"), any()))
         .thenThrow(new RatchetTransientStoreException("deadlock"))
         .thenThrow(new RatchetTransientStoreException("deadlock"))
         .thenReturn(List.of(claim(3L, JobExecutionType.SINGLE, "recovered")));
@@ -160,7 +169,8 @@ class PollerTest {
     poller.tick();
     long nextDelay = poller.tick();
 
-    verify(jobClaimStore, times(3)).claimNextBatchOptimized(JobExecutionType.SINGLE, 1, "node-1");
+    verify(jobClaimStore, times(3))
+        .claimNextBatchOptimized(eq(JobExecutionType.SINGLE), eq(1), eq("node-1"), any());
     verify(jobExecutionCoordinator).submit(any(JobClaimDto.class));
     verify(metricsCollector, atLeastOnce()).pollerBreakerState("store.claim", "HALF_OPEN");
     verify(metricsCollector, atLeastOnce()).pollerBreakerState("store.claim", "CLOSED");
@@ -181,6 +191,7 @@ class PollerTest {
         circuitBreakerRegistry,
         breakerEnabled,
         new DefaultPollingStrategyProvider(),
+        () -> run.ratchet.api.NodeTagFilter.NONE,
         5);
   }
 

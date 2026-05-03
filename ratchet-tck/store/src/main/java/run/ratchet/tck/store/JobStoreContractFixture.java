@@ -3,6 +3,8 @@ package run.ratchet.tck.store;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobStore;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.UUID;
 
 /**
@@ -20,6 +22,14 @@ public interface JobStoreContractFixture {
   JobEntity newBatchParentJob();
 
   void cleanupStore();
+
+  default JobEntity newPendingJob(String... tags) {
+    JobEntity job = newPendingJob();
+    if (tags.length > 0) {
+      job.setTags(new ArrayList<>(Arrays.asList(tags)));
+    }
+    return job;
+  }
 
   default JobEntity persist(JobEntity job) {
     return store().save(job);

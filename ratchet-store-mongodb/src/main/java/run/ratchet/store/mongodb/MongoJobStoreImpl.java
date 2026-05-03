@@ -3,6 +3,7 @@ package run.ratchet.store.mongodb;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoDatabase;
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.spi.ExecutorProvider;
@@ -83,6 +84,11 @@ class MongoJobStoreImpl implements MongoJobStore {
     this.nodeLocks = new MongoNodeLockOperations(ctx);
     this.archives = new MongoArchiveOperations(ctx);
     this.auxiliary = new MongoAuxiliaryOperations(ctx);
+  }
+
+  @Override
+  public JobEntity create(JobEntity job) {
+    return crud.create(job);
   }
 
   @Override
@@ -221,19 +227,19 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
-  public List<JobEntity> claimNextBatch(int limit, String nodeId) {
-    return claims.claimNextBatch(limit, nodeId);
+  public List<JobEntity> claimNextBatch(int limit, String nodeId, NodeTagFilter tagFilter) {
+    return claims.claimNextBatch(limit, nodeId, tagFilter);
   }
 
   @Override
   public List<JobClaimDto> claimNextBatchOptimized(
-      JobExecutionType jobType, int limit, String nodeId) {
-    return claims.claimNextBatchOptimized(jobType, limit, nodeId);
+      JobExecutionType jobType, int limit, String nodeId, NodeTagFilter tagFilter) {
+    return claims.claimNextBatchOptimized(jobType, limit, nodeId, tagFilter);
   }
 
   @Override
-  public List<JobEntity> claimDueRecurring(int limit, String nodeId) {
-    return claims.claimDueRecurring(limit, nodeId);
+  public List<JobEntity> claimDueRecurring(int limit, String nodeId, NodeTagFilter tagFilter) {
+    return claims.claimDueRecurring(limit, nodeId, tagFilter);
   }
 
   @Override

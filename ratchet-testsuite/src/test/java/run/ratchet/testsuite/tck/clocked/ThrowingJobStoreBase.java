@@ -1,6 +1,7 @@
 package run.ratchet.testsuite.tck.clocked;
 
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobClaimDto;
@@ -42,6 +43,11 @@ public abstract class ThrowingJobStoreBase implements JobStore {
   }
 
   // ----- JobCrudStore -----
+
+  @Override
+  public JobEntity create(JobEntity job) {
+    return fail("create");
+  }
 
   @Override
   public JobEntity save(JobEntity job) {
@@ -181,18 +187,18 @@ public abstract class ThrowingJobStoreBase implements JobStore {
   // ----- JobClaimStore -----
 
   @Override
-  public List<JobEntity> claimNextBatch(int limit, String nodeId) {
+  public List<JobEntity> claimNextBatch(int limit, String nodeId, NodeTagFilter tagFilter) {
     return fail("claimNextBatch");
   }
 
   @Override
   public List<JobClaimDto> claimNextBatchOptimized(
-      JobExecutionType jobType, int limit, String nodeId) {
+      JobExecutionType jobType, int limit, String nodeId, NodeTagFilter tagFilter) {
     return fail("claimNextBatchOptimized");
   }
 
   @Override
-  public List<JobEntity> claimDueRecurring(int limit, String nodeId) {
+  public List<JobEntity> claimDueRecurring(int limit, String nodeId, NodeTagFilter tagFilter) {
     return fail("claimDueRecurring");
   }
 

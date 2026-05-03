@@ -1,5 +1,6 @@
 package run.ratchet.store.mysql;
 
+import run.ratchet.api.NodeTagFilter;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -55,17 +56,65 @@ final class MysqlJobClaimOperations implements JobClaimStore {
 
   // language=MySQL
   private static String buildClaimSql(
-      String selectClause, String typeFilter, String timeColumn, int boostInterval) {
+      String selectClause,
+      String typeFilter,
+      String tagFilterSql,
+      String timeColumn,
+      int boostInterval) {
     return """
         SELECT %s FROM scheduler_job_queue FORCE INDEX (idx_claim_executable)
         WHERE status = 'PENDING'
           AND %s <= NOW(3)
-          AND %s
+          AND %s%s
         ORDER BY %s
         LIMIT ?
         FOR UPDATE SKIP LOCKED"""
         .formatted(
-            selectClause, timeColumn, typeFilter, buildBoostedOrderBy(timeColumn, boostInterval));
+            selectClause,
+            timeColumn,
+            typeFilter,
+            tagFilterSql,
+            buildBoostedOrderBy(timeColumn, boostInterval));
+  }
+
+  /**
+   * Builds a SQL fragment (empty string or starting with newline+AND) for tag affinity filtering.
+   * Guards each list independently: only emits EXISTS if requireTags non-empty; only NOT EXISTS if
+   * excludeTags non-empty. Never produces an empty {@code IN ()}.
+   */
+  private static String buildTagFilterSql(NodeTagFilter filter, String tableAlias) {
+    if (filter.isUnfiltered()) {
+      return "";
+    }
+    StringBuilder sb = new StringBuilder();
+    if (!filter.requireTags().isEmpty()) {
+      String placeholders = "?,".repeat(filter.requireTags().size());
+      sb.append("\n  AND EXISTS (SELECT 1 FROM scheduler_job_tag t WHERE t.job_id = ")
+          .append(tableAlias)
+          .append(".job_id AND t.tag IN (")
+          .append(placeholders, 0, placeholders.length() - 1)
+          .append("))");
+    }
+    if (!filter.excludeTags().isEmpty()) {
+      String placeholders = "?,".repeat(filter.excludeTags().size());
+      sb.append("\n  AND NOT EXISTS (SELECT 1 FROM scheduler_job_tag t WHERE t.job_id = ")
+          .append(tableAlias)
+          .append(".job_id AND t.tag IN (")
+          .append(placeholders, 0, placeholders.length() - 1)
+          .append("))");
+    }
+    return sb.toString();
+  }
+
+  private static int bindTagFilter(Query query, NodeTagFilter filter, int startParam) {
+    int p = startParam;
+    for (String tag : filter.requireTags()) {
+      query.setParameter(p++, tag);
+    }
+    for (String tag : filter.excludeTags()) {
+      query.setParameter(p++, tag);
+    }
+    return p;
   }
 
   private static String buildBoostedOrderBy(String timeColumn, int boostInterval) {
@@ -80,18 +129,21 @@ final class MysqlJobClaimOperations implements JobClaimStore {
 
   @Override
   @SuppressWarnings("unchecked")
-  public List<JobEntity> claimNextBatch(int limit, String nodeId) {
+  public List<JobEntity> claimNextBatch(int limit, String nodeId, NodeTagFilter tagFilter) {
     try {
       int boostInterval = ctx.priorityBoostIntervalMinutes();
+      String tagSql = buildTagFilterSql(tagFilter, "scheduler_job_queue");
       var query =
           ctx.em()
               .createNativeQuery(
                   buildClaimSql(
                       CLAIM_SELECT_COLUMNS,
                       EXECUTABLE_JOB_TYPE_FILTER,
+                      tagSql,
                       "scheduled_time",
                       boostInterval));
       int parameter = 1;
+      parameter = bindTagFilter(query, tagFilter, parameter);
       if (boostInterval > 0) {
         query.setParameter(parameter++, boostInterval);
       }
@@ -127,20 +179,26 @@ final class MysqlJobClaimOperations implements JobClaimStore {
   @Override
   @SuppressWarnings("unchecked")
   public List<JobClaimDto> claimNextBatchOptimized(
-      JobExecutionType jobType, int limit, String nodeId) {
+      JobExecutionType jobType, int limit, String nodeId, NodeTagFilter tagFilter) {
     if (limit <= 0 || !MysqlJobRowMapper.isPollerExecutable(jobType)) {
       return List.of();
     }
 
     try {
       int boostInterval = ctx.priorityBoostIntervalMinutes();
+      String tagSql = buildTagFilterSql(tagFilter, "scheduler_job_queue");
       var query =
           ctx.em()
               .createNativeQuery(
                   buildClaimSql(
-                      CLAIM_SELECT_COLUMNS, "job_type = ?", "scheduled_time", boostInterval));
+                      CLAIM_SELECT_COLUMNS,
+                      "job_type = ?",
+                      tagSql,
+                      "scheduled_time",
+                      boostInterval));
       int parameter = 1;
       query.setParameter(parameter++, jobType.name());
+      parameter = bindTagFilter(query, tagFilter, parameter);
       if (boostInterval > 0) {
         query.setParameter(parameter++, boostInterval);
       }
@@ -162,9 +220,10 @@ final class MysqlJobClaimOperations implements JobClaimStore {
 
   @Override
   @SuppressWarnings("unchecked")
-  public List<JobEntity> claimDueRecurring(int limit, String nodeId) {
+  public List<JobEntity> claimDueRecurring(int limit, String nodeId, NodeTagFilter tagFilter) {
     try {
       int boostInterval = ctx.priorityBoostIntervalMinutes();
+      String tagSql = buildTagFilterSql(tagFilter, "scheduler_job");
       // language=MySQL
       String sql =
           """
@@ -172,14 +231,15 @@ final class MysqlJobClaimOperations implements JobClaimStore {
           FROM scheduler_job
           WHERE job_type = 'RECURRING'
             AND rec_status = 'P'
-            AND next_fire <= NOW(3)
+            AND next_fire <= NOW(3)%s
           ORDER BY %s
           LIMIT ?
           FOR UPDATE SKIP LOCKED
           """
-              .formatted(buildBoostedOrderBy("next_fire", boostInterval));
+              .formatted(tagSql, buildBoostedOrderBy("next_fire", boostInterval));
       var query = ctx.em().createNativeQuery(sql);
       int parameter = 1;
+      parameter = bindTagFilter(query, tagFilter, parameter);
       if (boostInterval > 0) {
         query.setParameter(parameter++, boostInterval);
       }

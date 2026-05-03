@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
@@ -249,5 +250,108 @@ public abstract class AbstractJobClaimStoreContract implements JobStoreContractF
 
     assertEquals(1, claims.size(), "optimized claim should only return the requested job type");
     assertEquals(JobExecutionType.BATCH_CHILD, claims.get(0).jobType());
+  }
+
+  @Test
+  void claimNextBatchOptimized_withRequireTags_onlyClaimsMatchingJobs() {
+    persist(newPendingJob("gpu"));
+    persist(newPendingJob());
+
+    NodeTagFilter filter = new NodeTagFilter(List.of("gpu"), List.of());
+    List<JobClaimDto> claimed =
+        store().claimNextBatchOptimized(JobExecutionType.SINGLE, 10, "node-req", filter);
+
+    assertEquals(1, claimed.size(), "requireTags should only claim job with matching tag");
+  }
+
+  @Test
+  void claimNextBatchOptimized_withExcludeTags_skipsExcludedJobs() {
+    persist(newPendingJob("gpu"));
+    persist(newPendingJob());
+
+    NodeTagFilter filter = new NodeTagFilter(List.of(), List.of("gpu"));
+    List<JobClaimDto> claimed =
+        store().claimNextBatchOptimized(JobExecutionType.SINGLE, 10, "node-exc", filter);
+
+    assertEquals(1, claimed.size(), "excludeTags should skip job tagged gpu");
+  }
+
+  @Test
+  void claimNextBatchOptimized_withBothFilters_appliesBoth() {
+    persist(newPendingJob("gpu"));
+    persist(newPendingJob("batch"));
+    persist(newPendingJob("gpu", "batch"));
+    persist(newPendingJob());
+
+    NodeTagFilter filter = new NodeTagFilter(List.of("gpu"), List.of("batch"));
+    List<JobClaimDto> claimed =
+        store().claimNextBatchOptimized(JobExecutionType.SINGLE, 10, "node-both", filter);
+
+    assertEquals(1, claimed.size(), "only job tagged gpu-but-not-batch should be claimed");
+  }
+
+  @Test
+  void claimNextBatchOptimized_withNoneFilter_claimsAll() {
+    persist(newPendingJob("gpu"));
+    persist(newPendingJob("cpu"));
+
+    List<JobClaimDto> claimed =
+        store()
+            .claimNextBatchOptimized(JobExecutionType.SINGLE, 10, "node-all", NodeTagFilter.NONE);
+
+    assertEquals(2, claimed.size(), "NodeTagFilter.NONE should claim all pending jobs");
+  }
+
+  @Test
+  void claimNextBatch_withRequireTags_onlyClaimsMatchingJobs() {
+    persist(newPendingJob("gpu"));
+    persist(newPendingJob());
+
+    NodeTagFilter filter = new NodeTagFilter(List.of("gpu"), List.of());
+    List<JobEntity> claimed = store().claimNextBatch(10, "node-nb-req", filter);
+
+    assertEquals(1, claimed.size(), "claimNextBatch requireTags should only claim matching job");
+  }
+
+  @Test
+  void claimDueRecurring_withRequireTags_skipsUntaggedRecurring() {
+    JobEntity taggedRecurring = newPendingJob("gpu");
+    taggedRecurring.setJobType(JobExecutionType.RECURRING);
+    taggedRecurring.setCronExpr("0 * * * *");
+    taggedRecurring.setNextFire(Instant.now().minusSeconds(60));
+    persist(taggedRecurring);
+
+    JobEntity untaggedRecurring = newPendingJob();
+    untaggedRecurring.setJobType(JobExecutionType.RECURRING);
+    untaggedRecurring.setCronExpr("0 * * * *");
+    untaggedRecurring.setNextFire(Instant.now().minusSeconds(60));
+    persist(untaggedRecurring);
+
+    NodeTagFilter filter = new NodeTagFilter(List.of("gpu"), List.of());
+    List<JobEntity> claimed = store().claimDueRecurring(10, "node-rec", filter);
+
+    assertEquals(1, claimed.size(), "claimDueRecurring with requireTags should skip untagged");
+    assertEquals(taggedRecurring.getId(), claimed.get(0).getId());
+  }
+
+  @Test
+  void claimDueRecurring_withExcludeTags_skipsExcludedRecurring() {
+    JobEntity gpuRecurring = newPendingJob("gpu");
+    gpuRecurring.setJobType(JobExecutionType.RECURRING);
+    gpuRecurring.setCronExpr("0 * * * *");
+    gpuRecurring.setNextFire(Instant.now().minusSeconds(60));
+    persist(gpuRecurring);
+
+    JobEntity generalRecurring = newPendingJob();
+    generalRecurring.setJobType(JobExecutionType.RECURRING);
+    generalRecurring.setCronExpr("0 * * * *");
+    generalRecurring.setNextFire(Instant.now().minusSeconds(60));
+    persist(generalRecurring);
+
+    NodeTagFilter filter = new NodeTagFilter(List.of(), List.of("gpu"));
+    List<JobEntity> claimed = store().claimDueRecurring(10, "node-rec-exc", filter);
+
+    assertEquals(1, claimed.size(), "claimDueRecurring with excludeTags should skip gpu-tagged");
+    assertEquals(generalRecurring.getId(), claimed.get(0).getId());
   }
 }

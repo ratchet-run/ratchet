@@ -2,6 +2,8 @@ package run.ratchet.ri.core;
 
 import com.cronutils.model.Cron;
 import com.cronutils.model.time.ExecutionTime;
+import run.ratchet.api.NodeTagFilter;
+import run.ratchet.spi.NodeTagAffinityProvider;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobStatus;
@@ -33,12 +35,14 @@ public class RecurringJobExecutor {
   private final JobClaimStore jobClaimStore;
   private final JobTerminalStore jobTerminalStore;
   private final RecurringRegistrationState registrationState;
+  private final NodeTagAffinityProvider tagAffinityProvider;
 
   protected RecurringJobExecutor() {
     this.jobCrudStore = null;
     this.jobClaimStore = null;
     this.jobTerminalStore = null;
     this.registrationState = null;
+    this.tagAffinityProvider = null;
   }
 
   @Inject
@@ -46,11 +50,13 @@ public class RecurringJobExecutor {
       JobCrudStore jobCrudStore,
       JobClaimStore jobClaimStore,
       JobTerminalStore jobTerminalStore,
-      RecurringRegistrationState registrationState) {
+      RecurringRegistrationState registrationState,
+      NodeTagAffinityProvider tagAffinityProvider) {
     this.jobCrudStore = jobCrudStore;
     this.jobClaimStore = jobClaimStore;
     this.jobTerminalStore = jobTerminalStore;
     this.registrationState = registrationState;
+    this.tagAffinityProvider = tagAffinityProvider;
   }
 
   void enqueueChild(JobEntity master, Instant fireTs) {
@@ -59,7 +65,9 @@ public class RecurringJobExecutor {
   }
 
   int process(int batchLimit, String nodeId) {
-    List<JobEntity> masters = jobClaimStore.claimDueRecurring(batchLimit, nodeId);
+    NodeTagFilter tagFilter =
+        tagAffinityProvider != null ? tagAffinityProvider.getTagFilter() : NodeTagFilter.NONE;
+    List<JobEntity> masters = jobClaimStore.claimDueRecurring(batchLimit, nodeId, tagFilter);
     Instant now = Instant.now();
     int firedCount = 0;
     for (JobEntity master : masters) {

@@ -1,5 +1,6 @@
 package run.ratchet.testsuite.tck.clocked;
 
+import run.ratchet.api.NodeTagFilter;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
@@ -59,6 +60,18 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   }
 
   // ----- JobCrudStore (real bodies) -----
+
+  @Override
+  public synchronized JobEntity create(JobEntity job) {
+    if (job.getId() == null) {
+      job.setId(UuidV7Factory.create());
+    }
+    if (job.getVersion() == null) {
+      job.setVersion(0);
+    }
+    jobs.put(job.getId(), job);
+    return job;
+  }
 
   @Override
   public synchronized JobEntity save(JobEntity job) {
@@ -148,7 +161,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
 
   @Override
   public synchronized List<JobClaimDto> claimNextBatchOptimized(
-      JobExecutionType jobType, int limit, String nodeId) {
+      JobExecutionType jobType, int limit, String nodeId, NodeTagFilter tagFilter) {
     var now = clock.instant();
     List<JobClaimDto> claimed = new ArrayList<>();
     for (JobEntity job : jobs.values()) {
@@ -162,6 +175,9 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
         continue;
       }
       if (job.getScheduledTime() == null || job.getScheduledTime().isAfter(now)) {
+        continue;
+      }
+      if (!matchesTagFilter(job, tagFilter)) {
         continue;
       }
       job.setStatus(JobStatus.RUNNING);
@@ -187,13 +203,35 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   }
 
   @Override
-  public synchronized List<JobEntity> claimNextBatch(int limit, String nodeId) {
+  public synchronized List<JobEntity> claimNextBatch(
+      int limit, String nodeId, NodeTagFilter tagFilter) {
     return Collections.emptyList();
   }
 
   @Override
-  public synchronized List<JobEntity> claimDueRecurring(int limit, String nodeId) {
+  public synchronized List<JobEntity> claimDueRecurring(
+      int limit, String nodeId, NodeTagFilter tagFilter) {
     return Collections.emptyList();
+  }
+
+  private static boolean matchesTagFilter(JobEntity job, NodeTagFilter filter) {
+    if (filter.isUnfiltered()) {
+      return true;
+    }
+    List<String> tags = job.getTags() == null ? List.of() : job.getTags();
+    if (!filter.requireTags().isEmpty()) {
+      boolean hasRequired = tags.stream().anyMatch(filter.requireTags()::contains);
+      if (!hasRequired) {
+        return false;
+      }
+    }
+    if (!filter.excludeTags().isEmpty()) {
+      boolean hasExcluded = tags.stream().anyMatch(filter.excludeTags()::contains);
+      if (hasExcluded) {
+        return false;
+      }
+    }
+    return true;
   }
 
   // ----- JobTerminalStore (real bodies) -----
