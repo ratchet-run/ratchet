@@ -2,6 +2,7 @@ package run.ratchet.tck.jakarta;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import run.ratchet.api.JobHandle;
 import run.ratchet.tck.api.RatchetTckRuntime;
@@ -64,7 +65,10 @@ public abstract class AbstractTxSupportsContract {
   }
 
   @Test
-  void enqueueSubmit_insideRolledBackTx_jobDoesNotExecute() throws Exception {
+  protected void enqueueSubmit_insideRolledBackTx_jobDoesNotExecute() throws Exception {
+    assumeTrue(
+        !"mongodb".equals(System.getProperty("ratchet.test.db.type", "")),
+        "MongoDB does not participate in JTA rollback");
     tx.begin();
     JobHandle handle = runtime().scheduler().enqueue(TckJobs::noop).submit();
     runtime().probe().track(handle);
@@ -89,7 +93,10 @@ public abstract class AbstractTxSupportsContract {
   }
 
   @Test
-  void scheduleSubmit_insideRolledBackTx_jobDoesNotExecute() throws Exception {
+  protected void scheduleSubmit_insideRolledBackTx_jobDoesNotExecute() throws Exception {
+    assumeTrue(
+        !"mongodb".equals(System.getProperty("ratchet.test.db.type", "")),
+        "MongoDB does not participate in JTA rollback");
     tx.begin();
     JobHandle handle =
         runtime().scheduler().schedule(Duration.ofMillis(100), TckJobs::noop).submit();

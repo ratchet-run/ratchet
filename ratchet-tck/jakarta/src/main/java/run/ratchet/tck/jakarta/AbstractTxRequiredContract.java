@@ -2,6 +2,7 @@ package run.ratchet.tck.jakarta;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import run.ratchet.api.JobHandle;
 import run.ratchet.tck.api.RatchetTckRuntime;
@@ -109,7 +110,10 @@ public abstract class AbstractTxRequiredContract {
   }
 
   @Test
-  void pauseJob_rollback_doesNotSuppressExecution() throws Exception {
+  protected void pauseJob_rollback_doesNotSuppressExecution() throws Exception {
+    assumeTrue(
+        !"mongodb".equals(System.getProperty("ratchet.test.db.type", "")),
+        "MongoDB does not participate in JTA rollback");
     // 500 ms delay: short enough that the job executes during the test window; long enough to
     // issue begin → pause → rollback before the scheduler can claim it.
     JobHandle handle =
