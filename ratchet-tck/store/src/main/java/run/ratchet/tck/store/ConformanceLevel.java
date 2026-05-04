@@ -33,7 +33,8 @@ public enum ConformanceLevel {
           "AbstractBatchStoreContract",
           "AbstractWorkflowConditionStoreContract",
           "AbstractJobBatchStatusStoreContract",
-          "AbstractBatchMetricsStoreContract")),
+          "AbstractBatchMetricsStoreContract",
+          "AbstractJobQueryStoreContract")),
 
   ADVANCED(
       "Advanced",

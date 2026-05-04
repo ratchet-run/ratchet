@@ -13,7 +13,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobLogEntity;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.JobStore;
@@ -663,5 +663,17 @@ public abstract class ThrowingJobStoreBase implements JobStore {
   @Override
   public int cleanupOrphanedPermits(List<String> staleNodeIds) {
     return fail("cleanupOrphanedPermits");
+  }
+
+  // ----- JobQueryStore -----
+
+  @Override
+  public List<JobEntity> searchJobs(run.ratchet.api.JobFilter filter, int limit, int offset) {
+    return fail("searchJobs");
+  }
+
+  @Override
+  public long countJobs(run.ratchet.api.JobFilter filter) {
+    return fail("countJobs");
   }
 }

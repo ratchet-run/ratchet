@@ -14,6 +14,7 @@ module run.ratchet.store.core {
   exports run.ratchet.store.id;
   exports run.ratchet.store.migration;
   exports run.ratchet.store.spi;
+  exports run.ratchet.store.query;
   exports run.ratchet.store.util;
 
   opens run.ratchet.store.converter;

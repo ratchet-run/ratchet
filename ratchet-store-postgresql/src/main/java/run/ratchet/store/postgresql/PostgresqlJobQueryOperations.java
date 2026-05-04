@@ -1,0 +1,495 @@
+package run.ratchet.store.postgresql;
+
+import run.ratchet.api.JobFilter;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobQuerySortField;
+import run.ratchet.api.JobStatus;
+import run.ratchet.api.JobType;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.query.JobQueryCursor;
+import jakarta.persistence.Query;
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
+/**
+ * Dashboard-oriented search and count queries over the PostgreSQL store.
+ *
+ * <p>Uses the same LEFT JOIN projection as {@link PostgresqlJobReadOperations} so that {@link
+ * PostgresqlJobRowMapper#hydrate} can reconstruct both live and terminal jobs from a single result
+ * set. WHERE clause conditions are built with a parameterized {@link StringBuilder}; no
+ * user-supplied values are concatenated into SQL strings.
+ *
+ * <p>When {@link JobFilter#includeArchived()} is true and no principal filter is active, a {@code
+ * UNION ALL} pulls matching rows from {@code scheduler_job_archive} into the same result set. See
+ * MySQL counterpart for column-mapping details; the PostgreSQL projection is identical in structure.
+ */
+final class PostgresqlJobQueryOperations {
+
+  // language=PostgreSQL
+  private static final String HYDRATION_FROM =
+      """
+      FROM scheduler_job c
+      LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
+      """;
+
+  /**
+   * Archive rows projected to match {@link PostgresqlJobRowMapper#hydrationSelect()} column
+   * positions. NULL placeholders occupy columns not present in the archive.
+   */
+  // language=PostgreSQL
+  private static final String ARCHIVE_PROJECTION =
+      """
+      a.original_job_id,
+      a.job_type,
+      a.priority,
+      a.max_retries,
+      a.backoff_policy,
+      a.backoff_param_ms,
+      a.timeout_sec,
+      a.cron_expr,
+      a.zone_id,
+      NULL,
+      NULL,
+      NULL,
+      a.target_class,
+      a.method_name,
+      NULL,
+      a.business_key,
+      NULL,
+      NULL,
+      NULL,
+      a.depended_on,
+      a.superseded_by,
+      a.original_created_at,
+      NULL,
+      a.final_status,
+      a.final_error,
+      a.total_attempts,
+      a.completion_time,
+      a.first_execution_time,
+      NULL,
+      a.total_execution_time_ms,
+      a.queue_wait_ms,
+      a.job_result,
+      a.result_type,
+      NULL,
+      NULL,
+      NULL::text,
+      a.original_scheduled_time,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      a.archived_at,
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      NULL\
+      """;
+
+  private static final int MAX_IN_CLAUSE = 1000;
+
+  // Positional column numbers (1-indexed) for UNION ORDER BY
+  private static final int POS_JOB_ID = 1;
+  private static final int POS_PRIORITY = 3;
+  private static final int POS_CREATED_AT = 22;
+  private static final int POS_TERMINAL_STATUS = 24;
+  private static final int POS_Q_SCHEDULED_TIME = 37;
+  private static final int POS_Q_UPDATED_AT = 44;
+
+  private final PostgresqlStoreContext ctx;
+  private final PostgresqlTagOperations tags;
+
+  PostgresqlJobQueryOperations(PostgresqlStoreContext ctx, PostgresqlTagOperations tags) {
+    this.ctx = ctx;
+    this.tags = tags;
+  }
+
+  @SuppressWarnings("unchecked")
+  List<JobEntity> searchJobs(JobFilter filter, int limit, int offset) {
+    boolean archive = useArchive(filter);
+    int safeLimit = Math.min(limit, MAX_IN_CLAUSE);
+    int effectiveOffset = (filter != null && filter.cursor() != null) ? 0 : offset;
+
+    List<Object> params = new ArrayList<>();
+    String sql;
+    if (archive) {
+      sql = buildUnionSearchSql(filter, params, safeLimit, effectiveOffset);
+    } else {
+      sql = "SELECT "
+          + PostgresqlJobRowMapper.hydrationSelect()
+          + " "
+          + HYDRATION_FROM
+          + buildWhere(filter, params)
+          + buildOrderBy(filter)
+          + " LIMIT " + safeLimit
+          + " OFFSET " + effectiveOffset;
+    }
+
+    Query q = ctx.em().createNativeQuery(sql);
+    bindParams(q, params);
+    List<Object[]> rows = q.getResultList();
+    List<JobEntity> result = new ArrayList<>(rows.size());
+    for (Object[] row : rows) {
+      JobEntity job = PostgresqlJobRowMapper.hydrate(row);
+      if (job != null) {
+        tags.hydrateTagsSingle(job);
+        result.add(job);
+      }
+    }
+    return result;
+  }
+
+  long countJobs(JobFilter filter) {
+    boolean archive = useArchive(filter);
+    List<Object> params = new ArrayList<>();
+    String sql;
+    if (archive) {
+      sql = "SELECT COUNT(*) FROM ("
+          + "SELECT 1 " + HYDRATION_FROM + buildWhere(filter, params)
+          + " UNION ALL "
+          + "SELECT 1 FROM scheduler_job_archive a" + buildArchiveWhere(filter, params)
+          + ") AS combined";
+    } else {
+      // language=PostgreSQL
+      sql = "SELECT COUNT(*) " + HYDRATION_FROM + buildWhere(filter, params);
+    }
+    Query q = ctx.em().createNativeQuery(sql);
+    bindParams(q, params);
+    return ((Number) q.getSingleResult()).longValue();
+  }
+
+  // ── WHERE clause builder ────────────────────────────────────────────────
+
+  private String buildWhere(JobFilter filter, List<Object> params) {
+    if (filter == null) {
+      return "";
+    }
+    StringBuilder where = new StringBuilder();
+
+    appendStatusCondition(filter, where, params);
+    appendJobTypeCondition(filter, where, params);
+    appendPriorityCondition(filter, where, params);
+    appendStringEq("c.business_key", filter.businessKey(), where, params);
+    appendStringEq("c.idempotency_key", filter.idempotencyKey(), where, params);
+    appendStringEq("c.target_class", filter.targetClass(), where, params);
+    appendStringEq("c.caller_principal", filter.callerPrincipal(), where, params);
+    appendStringEq("q.picked_by", filter.pickedBy(), where, params);
+    appendStringEq("c.resource_name", filter.resourceName(), where, params);
+    appendStringEq("c.trace_context->>'traceparent'", filter.traceCorrelationId(), where, params);
+    appendParentJobId(filter, where, params);
+    appendTagCondition(filter, where, params);
+    appendInstantGte("c.created_at", filter.createdAfter(), where, params);
+    appendInstantLt("c.created_at", filter.createdBefore(), where, params);
+    appendInstantGte(
+        "COALESCE(q.scheduled_time, c.execution_start_time)", filter.scheduledAfter(), where, params);
+    appendInstantLt(
+        "COALESCE(q.scheduled_time, c.execution_start_time)", filter.scheduledBefore(), where, params);
+    appendInstantGte(
+        "COALESCE(q.updated_at, c.terminated_at, c.created_at)", filter.updatedAfter(), where, params);
+    appendCursorCondition(filter, where, params);
+
+    if (where.length() == 0) {
+      return "";
+    }
+    return " WHERE " + where;
+  }
+
+  private String buildArchiveWhere(JobFilter filter, List<Object> params) {
+    if (filter == null) {
+      return "";
+    }
+    StringBuilder where = new StringBuilder();
+
+    appendArchiveStatusCondition(filter, where, params);
+    appendArchiveJobTypeCondition(filter, where, params);
+    appendArchivePriorityCondition(filter, where, params);
+    appendStringEq("a.business_key", filter.businessKey(), where, params);
+    appendStringEq("a.target_class", filter.targetClass(), where, params);
+    appendArchiveParentJobId(filter, where, params);
+    appendInstantGte("a.original_created_at", filter.createdAfter(), where, params);
+    appendInstantLt("a.original_created_at", filter.createdBefore(), where, params);
+    appendInstantGte("a.original_scheduled_time", filter.scheduledAfter(), where, params);
+    appendInstantLt("a.original_scheduled_time", filter.scheduledBefore(), where, params);
+    appendInstantGte("a.archived_at", filter.updatedAfter(), where, params);
+
+    return where.length() == 0 ? "" : " WHERE " + where;
+  }
+
+  private String buildUnionSearchSql(JobFilter filter, List<Object> params, int limit, int offset) {
+    List<Object> liveParams = new ArrayList<>();
+    String liveWhere = buildWhere(filter, liveParams);
+    List<Object> archiveParams = new ArrayList<>();
+    String archiveWhere = buildArchiveWhere(filter, archiveParams);
+    params.addAll(liveParams);
+    params.addAll(archiveParams);
+
+    int sortPos = unionSortColumnPosition(filter);
+    String dir = (filter != null && filter.sortAscending()) ? "ASC" : "DESC";
+
+    return "SELECT * FROM ("
+        + "SELECT " + PostgresqlJobRowMapper.hydrationSelect() + " " + HYDRATION_FROM + liveWhere
+        + " UNION ALL "
+        + "SELECT " + ARCHIVE_PROJECTION + " FROM scheduler_job_archive a" + archiveWhere
+        + ") AS combined"
+        + " ORDER BY " + sortPos + " " + dir + ", " + POS_JOB_ID + " ASC"
+        + " LIMIT " + limit
+        + " OFFSET " + offset;
+  }
+
+  private void appendStatusCondition(JobFilter filter, StringBuilder where, List<Object> params) {
+    Set<JobStatus> statuses = filter.statuses();
+    if (statuses == null || statuses.isEmpty()) {
+      return;
+    }
+    Set<JobStatus> live = EnumSet.noneOf(JobStatus.class);
+    Set<JobStatus> terminal = EnumSet.noneOf(JobStatus.class);
+    for (JobStatus s : statuses) {
+      if (PostgresqlJobRowMapper.isLiveStatus(s)) {
+        live.add(s);
+      } else {
+        terminal.add(s);
+      }
+    }
+
+    if (!live.isEmpty() && !terminal.isEmpty()) {
+      String livePh = placeholders(live.size());
+      String termPh = placeholders(terminal.size());
+      and(where,
+          "(q.status IN (" + livePh + ") OR (q.job_id IS NULL AND c.terminal_status IN (" + termPh + ")))");
+      live.stream().map(JobStatus::name).forEach(params::add);
+      terminal.stream().map(JobStatus::name).forEach(params::add);
+    } else if (!live.isEmpty()) {
+      and(where, "q.status IN (" + placeholders(live.size()) + ")");
+      live.stream().map(JobStatus::name).forEach(params::add);
+    } else {
+      and(where,
+          "(q.job_id IS NULL AND c.terminal_status IN (" + placeholders(terminal.size()) + "))");
+      terminal.stream().map(JobStatus::name).forEach(params::add);
+    }
+  }
+
+  private void appendArchiveStatusCondition(JobFilter filter, StringBuilder where, List<Object> params) {
+    Set<JobStatus> statuses = filter.statuses();
+    if (statuses == null || statuses.isEmpty()) {
+      return;
+    }
+    Set<JobStatus> terminal = statuses.stream()
+        .filter(s -> !PostgresqlJobRowMapper.isLiveStatus(s))
+        .collect(Collectors.toCollection(() -> EnumSet.noneOf(JobStatus.class)));
+    if (terminal.isEmpty()) {
+      and(where, "1 = 0");
+      return;
+    }
+    and(where, "a.final_status IN (" + placeholders(terminal.size()) + ")");
+    terminal.stream().map(JobStatus::name).forEach(params::add);
+  }
+
+  private void appendJobTypeCondition(JobFilter filter, StringBuilder where, List<Object> params) {
+    Set<JobType> types = filter.types();
+    if (types == null || types.isEmpty()) {
+      return;
+    }
+    List<String> execTypeNames =
+        Stream.of(JobExecutionType.values())
+            .filter(e -> types.contains(e.toPublicType()))
+            .map(Enum::name)
+            .collect(Collectors.toList());
+    if (execTypeNames.isEmpty()) {
+      return;
+    }
+    and(where, "c.job_type IN (" + placeholders(execTypeNames.size()) + ")");
+    params.addAll(execTypeNames);
+  }
+
+  private void appendArchiveJobTypeCondition(JobFilter filter, StringBuilder where, List<Object> params) {
+    Set<JobType> types = filter.types();
+    if (types == null || types.isEmpty()) {
+      return;
+    }
+    List<String> execTypeNames =
+        Stream.of(JobExecutionType.values())
+            .filter(e -> types.contains(e.toPublicType()))
+            .map(Enum::name)
+            .collect(Collectors.toList());
+    if (execTypeNames.isEmpty()) {
+      return;
+    }
+    and(where, "a.job_type IN (" + placeholders(execTypeNames.size()) + ")");
+    params.addAll(execTypeNames);
+  }
+
+  private void appendPriorityCondition(
+      JobFilter filter, StringBuilder where, List<Object> params) {
+    Set<JobPriority> priorities = filter.priorities();
+    if (priorities == null || priorities.isEmpty()) {
+      return;
+    }
+    and(where, "c.priority IN (" + placeholders(priorities.size()) + ")");
+    priorities.stream().map(JobPriority::ordinal).forEach(params::add);
+  }
+
+  private void appendArchivePriorityCondition(
+      JobFilter filter, StringBuilder where, List<Object> params) {
+    Set<JobPriority> priorities = filter.priorities();
+    if (priorities == null || priorities.isEmpty()) {
+      return;
+    }
+    and(where, "a.priority IN (" + placeholders(priorities.size()) + ")");
+    priorities.stream().map(JobPriority::ordinal).forEach(params::add);
+  }
+
+  private void appendParentJobId(JobFilter filter, StringBuilder where, List<Object> params) {
+    UUID parentJobId = filter.parentJobId();
+    if (parentJobId == null) {
+      return;
+    }
+    and(where, "c.depends_on = ?");
+    params.add(parentJobId);
+  }
+
+  private void appendArchiveParentJobId(JobFilter filter, StringBuilder where, List<Object> params) {
+    UUID parentJobId = filter.parentJobId();
+    if (parentJobId == null) {
+      return;
+    }
+    and(where, "a.depended_on = ?");
+    params.add(parentJobId);
+  }
+
+  private void appendTagCondition(JobFilter filter, StringBuilder where, List<Object> params) {
+    Set<String> filterTags = filter.tags();
+    if (filterTags == null || filterTags.isEmpty()) {
+      return;
+    }
+    and(where,
+        "c.job_id IN (SELECT job_id FROM scheduler_job_tag WHERE tag IN ("
+            + placeholders(filterTags.size())
+            + "))");
+    params.addAll(filterTags);
+  }
+
+  private void appendCursorCondition(JobFilter filter, StringBuilder where, List<Object> params) {
+    if (filter == null || filter.cursor() == null) {
+      return;
+    }
+    try {
+      JobQueryCursor c = JobQueryCursor.decode(filter.cursor());
+      String sortCol = sortColumn(c.sortField);
+      String op = filter.sortAscending() ? ">" : "<";
+      and(where, "(" + sortCol + " " + op + " ? OR (" + sortCol + " = ? AND c.job_id > ?))");
+      Object sortVal = parseSortValue(c);
+      params.add(sortVal);
+      params.add(sortVal);
+      params.add(c.jobId);
+    } catch (IllegalArgumentException ignored) {
+      // Malformed cursor — ignore and fall through to offset-based pagination
+    }
+  }
+
+  private static Object parseSortValue(JobQueryCursor cursor) {
+    return switch (cursor.sortField) {
+      case CREATED_AT, SCHEDULED_TIME, UPDATED_AT ->
+          Timestamp.from(Instant.parse(cursor.sortValue));
+      case PRIORITY -> Integer.parseInt(cursor.sortValue);
+      case STATUS -> cursor.sortValue;
+    };
+  }
+
+  private static void appendStringEq(
+      String col, String value, StringBuilder where, List<Object> params) {
+    if (value == null || value.isEmpty()) {
+      return;
+    }
+    and(where, col + " = ?");
+    params.add(value);
+  }
+
+  private static void appendInstantGte(
+      String col, java.time.Instant value, StringBuilder where, List<Object> params) {
+    if (value == null) {
+      return;
+    }
+    and(where, col + " >= ?");
+    params.add(Timestamp.from(value));
+  }
+
+  private static void appendInstantLt(
+      String col, java.time.Instant value, StringBuilder where, List<Object> params) {
+    if (value == null) {
+      return;
+    }
+    and(where, col + " < ?");
+    params.add(Timestamp.from(value));
+  }
+
+  // ── ORDER BY builder ────────────────────────────────────────────────────
+
+  private static String buildOrderBy(JobFilter filter) {
+    if (filter == null) {
+      return " ORDER BY c.created_at DESC, c.job_id ASC";
+    }
+    JobQuerySortField field =
+        filter.sortField() != null ? filter.sortField() : JobQuerySortField.CREATED_AT;
+    String dir = filter.sortAscending() ? "ASC" : "DESC";
+    return " ORDER BY " + sortColumn(field) + " " + dir + ", c.job_id ASC";
+  }
+
+  private static String sortColumn(JobQuerySortField field) {
+    return switch (field) {
+      case CREATED_AT -> "c.created_at";
+      case SCHEDULED_TIME -> "COALESCE(q.scheduled_time, c.execution_start_time, c.created_at)";
+      case UPDATED_AT -> "COALESCE(q.updated_at, c.terminated_at, c.created_at)";
+      case PRIORITY -> "c.priority";
+      case STATUS -> "COALESCE(q.status, c.terminal_status)";
+    };
+  }
+
+  private static int unionSortColumnPosition(JobFilter filter) {
+    JobQuerySortField field = (filter == null || filter.sortField() == null)
+        ? JobQuerySortField.CREATED_AT : filter.sortField();
+    return switch (field) {
+      case CREATED_AT -> POS_CREATED_AT;
+      case SCHEDULED_TIME -> POS_Q_SCHEDULED_TIME;
+      case UPDATED_AT -> POS_Q_UPDATED_AT;
+      case PRIORITY -> POS_PRIORITY;
+      case STATUS -> POS_TERMINAL_STATUS;
+    };
+  }
+
+  // ── Helpers ─────────────────────────────────────────────────────────────
+
+  private static boolean useArchive(JobFilter filter) {
+    return filter != null
+        && filter.includeArchived()
+        && (filter.callerPrincipal() == null || filter.callerPrincipal().isEmpty());
+  }
+
+  private static void and(StringBuilder where, String condition) {
+    if (where.length() > 0) {
+      where.append(" AND ");
+    }
+    where.append(condition);
+  }
+
+  private static String placeholders(int count) {
+    return "?,".repeat(count - 1) + "?";
+  }
+
+  private static void bindParams(Query q, List<Object> params) {
+    for (int i = 0; i < params.size(); i++) {
+      q.setParameter(i + 1, params.get(i));
+    }
+  }
+}

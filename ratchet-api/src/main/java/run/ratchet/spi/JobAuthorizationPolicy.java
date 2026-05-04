@@ -1,6 +1,7 @@
 package run.ratchet.spi;
 
 import run.ratchet.api.Incubating;
+import run.ratchet.api.JobFilter;
 import run.ratchet.api.exception.JobAuthorizationException;
 import java.util.UUID;
 
@@ -124,4 +125,50 @@ public interface JobAuthorizationPolicy {
    */
   void checkRetry(UUID jobId, String ownerPrincipal, String currentPrincipal)
       throws JobAuthorizationException;
+
+  /**
+   * Called before returning a single job's detail to the caller via {@link
+   * run.ratchet.api.JobQueryService#getJobDetail}.
+   *
+   * <p>The default implementation is a no-op (all authenticated callers may read). Override to
+   * enforce principal-scoped visibility — for example, to restrict callers to jobs they submitted.
+   *
+   * @param jobId the job being read
+   * @param callerPrincipal the principal requesting the read; {@code null} if no security context
+   *     is active
+   * @throws JobAuthorizationException if read access is denied
+   */
+  default void checkRead(UUID jobId, String callerPrincipal) throws JobAuthorizationException {}
+
+  /**
+   * Rewrites a {@link JobFilter} to enforce list-level visibility for the given principal.
+   *
+   * <p>Called by {@link run.ratchet.api.JobQueryService#findJobs} before passing the
+   * filter to the store, so that the store query itself is scoped to what the principal may see.
+   *
+   * <p>Owner-only policies should inject the principal into the filter's {@code callerPrincipal}
+   * field so the store only returns that principal's jobs. Use {@link JobFilter#toBuilder()} to
+   * preserve all other filter criteria:
+   *
+   * <pre>{@code
+   * return filter.toBuilder().callerPrincipal(callerPrincipal).build();
+   * }</pre>
+   *
+   * <p>Admin or support roles should return the filter unchanged to preserve cross-tenant
+   * visibility.
+   *
+   * <p><strong>Principal precedence:</strong> the security-context principal ({@code
+   * callerPrincipal} parameter) always takes precedence over any {@code callerPrincipal} already
+   * present in {@code filter}. Implementations MUST use the parameter, not the field, when
+   * deciding what the current caller is allowed to see.
+   *
+   * <p>The default implementation returns the filter unchanged (permit-all semantics).
+   *
+   * @param filter the original filter supplied by the caller; never {@code null}
+   * @param callerPrincipal the current principal; {@code null} if no security context is active
+   * @return the filter to use for the store query; must not be {@code null}
+   */
+  default JobFilter filterForPrincipal(JobFilter filter, String callerPrincipal) {
+    return filter;
+  }
 }
