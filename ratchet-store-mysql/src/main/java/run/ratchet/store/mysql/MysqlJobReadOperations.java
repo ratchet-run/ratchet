@@ -1,7 +1,7 @@
 package run.ratchet.store.mysql;
 
 import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;

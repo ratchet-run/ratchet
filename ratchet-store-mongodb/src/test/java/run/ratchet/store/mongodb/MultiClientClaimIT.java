@@ -11,7 +11,7 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;

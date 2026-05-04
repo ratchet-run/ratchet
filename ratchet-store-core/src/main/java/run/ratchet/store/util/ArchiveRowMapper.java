@@ -4,7 +4,7 @@ import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.function.Function;

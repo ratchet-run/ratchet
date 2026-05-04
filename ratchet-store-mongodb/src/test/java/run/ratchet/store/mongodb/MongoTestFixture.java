@@ -9,7 +9,7 @@ import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.tck.store.JobStoreContractFixture;
 import java.time.Duration;

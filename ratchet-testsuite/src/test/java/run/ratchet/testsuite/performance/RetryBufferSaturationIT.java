@@ -3,7 +3,7 @@ package run.ratchet.testsuite.performance;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import run.ratchet.api.JobHandle;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import run.ratchet.testsuite.app.ConfigurableWorkJob;
 import run.ratchet.testsuite.app.PerformanceMetricsCollector;
 import run.ratchet.testsuite.app.ProbabilisticFailingJob;

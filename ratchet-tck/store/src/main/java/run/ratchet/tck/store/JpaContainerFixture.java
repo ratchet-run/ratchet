@@ -7,7 +7,7 @@ import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.spi.JobStore;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;

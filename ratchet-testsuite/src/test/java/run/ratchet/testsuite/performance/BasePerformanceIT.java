@@ -5,7 +5,7 @@ import static org.awaitility.Awaitility.await;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.ri.core.PollerScheduler;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.spi.JobClaimStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.testsuite.app.PerformanceTestHelper;

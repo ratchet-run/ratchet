@@ -7,7 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import java.util.UUID;
 import org.bson.Document;
 import org.junit.jupiter.api.Test;

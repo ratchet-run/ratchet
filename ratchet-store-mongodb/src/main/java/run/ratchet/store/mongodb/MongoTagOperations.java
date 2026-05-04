@@ -10,7 +10,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.TAGS;
 
 import com.mongodb.client.model.FindOneAndUpdateOptions;
 import com.mongodb.client.model.ReturnDocument;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.spi.TagStore;
 import java.util.ArrayList;
 import java.util.EnumMap;

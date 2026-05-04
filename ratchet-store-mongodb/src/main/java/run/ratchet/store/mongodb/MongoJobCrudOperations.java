@@ -40,7 +40,7 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.id.UuidV7Factory;
 import java.time.Duration;
 import java.time.Instant;

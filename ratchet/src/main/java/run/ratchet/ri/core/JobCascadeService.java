@@ -1,7 +1,7 @@
 package run.ratchet.ri.core;
 
 import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobPauseStore;
 import jakarta.enterprise.context.ApplicationScoped;

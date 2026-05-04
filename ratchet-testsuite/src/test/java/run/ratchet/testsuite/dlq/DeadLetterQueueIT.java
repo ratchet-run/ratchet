@@ -9,7 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.event.JobDlqEvent;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.testsuite.app.FailOnceJob;
 import run.ratchet.testsuite.app.FailingJob;

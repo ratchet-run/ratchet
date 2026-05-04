@@ -3,7 +3,7 @@ package run.ratchet.loadtest.service;
 import run.ratchet.loadtest.api.ClusterStatusResponse;
 import run.ratchet.loadtest.api.RunStatusResponse;
 import run.ratchet.spi.NodeIdentityProvider;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.TagStore;
 import jakarta.enterprise.context.ApplicationScoped;

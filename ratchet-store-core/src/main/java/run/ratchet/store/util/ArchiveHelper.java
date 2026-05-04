@@ -13,9 +13,9 @@ public final class ArchiveHelper {
       """
       SELECT DISTINCT j FROM JobEntity j LEFT JOIN FETCH j.tags
       WHERE j.status IN (
-        run.ratchet.store.entity.JobStatus.SUCCEEDED,
-        run.ratchet.store.entity.JobStatus.FAILED,
-        run.ratchet.store.entity.JobStatus.CANCELED)
+        run.ratchet.api.JobStatus.SUCCEEDED,
+        run.ratchet.api.JobStatus.FAILED,
+        run.ratchet.api.JobStatus.CANCELED)
         AND j.updatedAt < :cutoff
       ORDER BY j.updatedAt ASC
       """;

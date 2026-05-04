@@ -7,7 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import run.ratchet.tck.util.ConcurrentTestRunner;
 import java.time.Duration;
 import java.time.Instant;

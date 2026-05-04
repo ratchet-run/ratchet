@@ -1,7 +1,7 @@
 package run.ratchet.store.spi;
 
 import run.ratchet.api.Incubating;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import java.util.UUID;
 
 /**

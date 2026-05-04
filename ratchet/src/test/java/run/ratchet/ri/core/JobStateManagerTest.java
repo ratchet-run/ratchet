@@ -9,7 +9,7 @@ import static org.mockito.Mockito.when;
 
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import java.time.Instant;
 import java.util.UUID;

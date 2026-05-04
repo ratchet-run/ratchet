@@ -8,7 +8,7 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.testsuite.app.TestDataManipulator;

@@ -3,7 +3,7 @@ package run.ratchet.store.dto;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import java.io.Serializable;
 import java.time.Instant;
 import java.util.UUID;

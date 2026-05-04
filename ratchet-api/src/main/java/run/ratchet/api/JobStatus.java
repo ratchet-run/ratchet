@@ -1,17 +1,15 @@
-package run.ratchet.store.entity;
+package run.ratchet.api;
 
 /**
  * Lifecycle states for a scheduled job.
  *
  * <pre>
- *   PENDING -> RUNNING -> SUCCEEDED
+ *   PENDING -&gt; RUNNING -&gt; SUCCEEDED
  *              |          ^
  *            FAILED ------+ (with retries)
  *              |
  *           CANCELED (terminal)
  * </pre>
- *
- * @see JobEntity#getStatus()
  */
 public enum JobStatus {
   /** Visible to polling queries when scheduled_time &lt;= now. */
@@ -33,7 +31,15 @@ public enum JobStatus {
   CANCELED,
 
   /** NOT visible to polling queries. Transitions back to PENDING when resumed. */
-  PAUSED;
+  PAUSED,
+
+  /**
+   * Blocked waiting for a named external signal. NOT visible to polling queries. Transitions to
+   * PENDING when a signal is delivered via {@code JobSchedulerService.deliverSignal()}, or to
+   * FAILED when {@code signalTimeout} elapses. WAITING jobs cannot be paused; they can be
+   * canceled.
+   */
+  WAITING;
 
   /**
    * Returns true for {@link #SUCCEEDED}, {@link #FAILED}, and {@link #CANCELED}. Used by retry and

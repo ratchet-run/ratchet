@@ -2,7 +2,7 @@ package run.ratchet.store.postgresql;
 
 import run.ratchet.api.JobPriority;
 import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;

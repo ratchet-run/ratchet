@@ -1,7 +1,7 @@
 package run.ratchet.store.postgresql;
 
 import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import jakarta.persistence.Query;
 import java.time.Instant;
 import java.util.ArrayList;
