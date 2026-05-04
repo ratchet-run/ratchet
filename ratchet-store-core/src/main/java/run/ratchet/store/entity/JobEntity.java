@@ -2,6 +2,7 @@ package run.ratchet.store.entity;
 
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
 import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.converter.JsonMapConverter;
@@ -52,7 +53,9 @@ import java.util.UUID;
       @Index(name = "idx_job_superseded_by", columnList = "superseded_by"),
       @Index(name = "idx_job_business_key", columnList = "business_key"),
       @Index(name = "idx_job_created_at", columnList = "created_at"),
-      @Index(name = "idx_job_updated_at", columnList = "updated_at")
+      @Index(name = "idx_job_updated_at", columnList = "updated_at"),
+      @Index(name = "idx_signal_key_status", columnList = "signal_key, status"),
+      @Index(name = "idx_signal_timeout_status", columnList = "status, signal_timeout")
     })
 @EntityListeners(UuidV7EntityListener.class)
 public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
@@ -192,6 +195,21 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   @Version
   @Column(name = "version")
   private Integer version;
+
+  @Column(name = "signal_key", length = 255)
+  private String signalKey;
+
+  @Column(name = "signal_timeout")
+  private Instant signalTimeout;
+
+  @Column(name = "signal_payload", columnDefinition = "TEXT")
+  private String signalPayload;
+
+  @Column(name = "signal_delivered_at")
+  private Instant signalDeliveredAt;
+
+  @Column(name = "signal_delivered_by", length = 255)
+  private String signalDeliveredBy;
 
   // populated by MysqlJobStore hydrator from cold.terminal_status; never persisted via JPA
   // (PG schema does not have the column yet — added in CP3).
@@ -528,6 +546,46 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
 
   public void setVersion(Integer version) {
     this.version = version;
+  }
+
+  public String getSignalKey() {
+    return signalKey;
+  }
+
+  public void setSignalKey(String signalKey) {
+    this.signalKey = signalKey;
+  }
+
+  public Instant getSignalTimeout() {
+    return signalTimeout;
+  }
+
+  public void setSignalTimeout(Instant signalTimeout) {
+    this.signalTimeout = signalTimeout;
+  }
+
+  public String getSignalPayload() {
+    return signalPayload;
+  }
+
+  public void setSignalPayload(String signalPayload) {
+    this.signalPayload = signalPayload;
+  }
+
+  public Instant getSignalDeliveredAt() {
+    return signalDeliveredAt;
+  }
+
+  public void setSignalDeliveredAt(Instant signalDeliveredAt) {
+    this.signalDeliveredAt = signalDeliveredAt;
+  }
+
+  public String getSignalDeliveredBy() {
+    return signalDeliveredBy;
+  }
+
+  public void setSignalDeliveredBy(String signalDeliveredBy) {
+    this.signalDeliveredBy = signalDeliveredBy;
   }
 
   public JobStatus getTerminalStatus() {

@@ -1,0 +1,137 @@
+package run.ratchet.store.mysql;
+
+import run.ratchet.api.BackoffPolicy;
+import run.ratchet.api.JobPriority;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.api.JobStatus;
+import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
+import run.ratchet.store.spi.SignalStore;
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+import org.jboss.logging.Logger;
+
+/**
+ * MySQL implementation of {@link SignalStore}.
+ *
+ * <p>All operations target {@code scheduler_job_queue} — the live-state table in the hot/cold
+ * split — because WAITING is a non-terminal status that lives there.
+ */
+final class MysqlSignalOperations implements SignalStore {
+
+  private static final Logger log = Logger.getLogger(MysqlSignalOperations.class);
+
+  private final MysqlStoreContext ctx;
+
+  MysqlSignalOperations(MysqlStoreContext ctx) {
+    this.ctx = ctx;
+  }
+
+  @Override
+  @SuppressWarnings("unchecked")
+  public List<JobEntity> findTimedOutSignalJobs(Instant now) {
+    // language=MySQL
+    String sql =
+        """
+        SELECT q.job_id, q.signal_key, q.signal_timeout, q.status,
+               c.job_type, c.priority, c.max_retries, c.business_key
+        FROM scheduler_job_queue q
+        JOIN scheduler_job c ON c.job_id = q.job_id
+        WHERE q.status = 'WAITING'
+          AND q.signal_timeout IS NOT NULL
+          AND q.signal_timeout <= ?
+        """;
+    List<Object[]> rows =
+        ctx.em()
+            .createNativeQuery(sql)
+            .setParameter(1, Timestamp.from(now))
+            .getResultList();
+
+    List<JobEntity> result = new ArrayList<>(rows.size());
+    for (Object[] row : rows) {
+      JobEntity job = new JobEntity();
+      job.setId(UuidByteArrayConverter.fromBytes((byte[]) row[0]));
+      job.setSignalKey((String) row[1]);
+      job.setSignalTimeout(toInstant(row[2]));
+      job.setStatus(JobStatus.WAITING);
+      job.setJobType(row[4] != null ? JobExecutionType.valueOf((String) row[4]) : null);
+      job.setPriority(
+          row[5] != null ? JobPriority.values()[((Number) row[5]).intValue()] : JobPriority.NORMAL);
+      job.setMaxRetries(row[6] != null ? ((Number) row[6]).intValue() : 0);
+      job.setBusinessKey((String) row[7]);
+      job.setBackoffPolicy(BackoffPolicy.NONE);
+      result.add(job);
+    }
+    return result;
+  }
+
+  @Override
+  public int deliverSignalById(
+      UUID jobId, String payload, String deliveredBy, Instant deliveredAt) {
+    // language=MySQL
+    String sql =
+        """
+        UPDATE scheduler_job_queue
+        SET status = 'PENDING',
+            signal_payload = ?,
+            signal_delivered_at = ?,
+            signal_delivered_by = ?,
+            updated_at = NOW(3)
+        WHERE job_id = ? AND status = 'WAITING'
+        """;
+    int updated =
+        ctx.em()
+            .createNativeQuery(sql)
+            .setParameter(1, payload)
+            .setParameter(2, deliveredAt != null ? Timestamp.from(deliveredAt) : null)
+            .setParameter(3, deliveredBy)
+            .setParameter(4, UuidByteArrayConverter.toBytes(jobId))
+            .executeUpdate();
+    log.debugf("deliverSignalById(%s): %s row(s) updated", jobId, updated);
+    return updated;
+  }
+
+  @Override
+  public int deliverSignalByKey(
+      String signalKey, String payload, String deliveredBy, Instant deliveredAt) {
+    // language=MySQL
+    String sql =
+        """
+        UPDATE scheduler_job_queue
+        SET status = 'PENDING',
+            signal_payload = ?,
+            signal_delivered_at = ?,
+            signal_delivered_by = ?,
+            updated_at = NOW(3)
+        WHERE signal_key = ? AND status = 'WAITING'
+        """;
+    int updated =
+        ctx.em()
+            .createNativeQuery(sql)
+            .setParameter(1, payload)
+            .setParameter(2, deliveredAt != null ? Timestamp.from(deliveredAt) : null)
+            .setParameter(3, deliveredBy)
+            .setParameter(4, signalKey)
+            .executeUpdate();
+    log.debugf("deliverSignalByKey('%s'): %s row(s) updated", signalKey, updated);
+    return updated;
+  }
+
+  private static Instant toInstant(Object value) {
+    if (value == null) {
+      return null;
+    }
+    if (value instanceof Timestamp ts) {
+      return ts.toInstant();
+    }
+    if (value instanceof LocalDateTime ldt) {
+      return ldt.atZone(ZoneId.of("UTC")).toInstant();
+    }
+    return null;
+  }
+}

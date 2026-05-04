@@ -9,6 +9,7 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobSubmitter;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.WorkflowBranch;
+import run.ratchet.api.event.JobSignalWaitingEvent;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.ri.security.CallerPrincipalProvider;
@@ -20,7 +21,7 @@ import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobBatchStatusStore;
@@ -62,6 +63,7 @@ public class DefaultJobCreationService
   private final CallerPrincipalProvider callerPrincipalProvider;
   private final TracingCollector tracingCollector;
   private final JobAuthorizationPolicy authorizationPolicy;
+  private final InternalEventPublisher eventPublisher;
   private final Clock clock;
 
   protected DefaultJobCreationService() {
@@ -78,6 +80,7 @@ public class DefaultJobCreationService
     this.callerPrincipalProvider = null;
     this.tracingCollector = null;
     this.authorizationPolicy = null;
+    this.eventPublisher = null;
     this.clock = null;
   }
 
@@ -104,6 +107,7 @@ public class DefaultJobCreationService
         null,
         null,
         null,
+        null,
         Clock.systemUTC());
   }
 
@@ -122,6 +126,7 @@ public class DefaultJobCreationService
       CallerPrincipalProvider callerPrincipalProvider,
       TracingCollector tracingCollector,
       JobAuthorizationPolicy authorizationPolicy,
+      InternalEventPublisher eventPublisher,
       Clock clock) {
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.jobTerminalStore = jobTerminalStore;
@@ -136,6 +141,7 @@ public class DefaultJobCreationService
     this.callerPrincipalProvider = callerPrincipalProvider;
     this.tracingCollector = tracingCollector;
     this.authorizationPolicy = authorizationPolicy;
+    this.eventPublisher = eventPublisher;
     this.clock = clock;
   }
 
@@ -166,13 +172,20 @@ public class DefaultJobCreationService
 
     JobPayload payload = payload(builder.task());
 
+    String signalKey = builder.awaitSignalKey();
+    boolean isSignalWaiting = signalKey != null;
+
     JobOptions opts = builder.opts();
     JobEntity job = new JobEntity();
     job.setJobType(JobExecutionType.SINGLE);
-    job.setStatus(JobStatus.PENDING);
+    job.setStatus(isSignalWaiting ? JobStatus.WAITING : JobStatus.PENDING);
     job.setPriority(opts.priority());
     job.setScheduledTime(effective().instant().plus(builder.delay()));
     job.setPayload(payload);
+    if (isSignalWaiting) {
+      job.setSignalKey(signalKey);
+      job.setSignalTimeout(builder.awaitSignalDeadline());
+    }
     job.setIdempotencyKey(idempotencyKey);
     job.setBusinessKey(businessKey);
     job.setResourceName(builder.resourceName());
@@ -192,6 +205,20 @@ public class DefaultJobCreationService
 
     JobEntity saved = jobCrudStore.create(job);
     UUID jobId = saved.getId();
+
+    if (isSignalWaiting && eventPublisher != null) {
+      eventPublisher.publish(
+          new JobSignalWaitingEvent(
+              jobId,
+              saved.getBusinessKey(),
+              saved.getPublicJobType(),
+              saved.getPriority(),
+              null,
+              signalKey,
+              builder.awaitSignalDeadline() != null
+                  ? java.time.Duration.between(effective().instant(), builder.awaitSignalDeadline())
+                  : null));
+    }
 
     List<String> tags = builder.tags();
     if (!tags.isEmpty()) {

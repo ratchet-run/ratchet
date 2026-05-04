@@ -14,7 +14,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobLogEntity;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.RatchetEntityManagerProvider;
@@ -51,12 +51,14 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   private PostgresqlBusinessKeyReservations reservations;
   private PostgresqlTagOperations tags;
   private PostgresqlJobCrudOperations jobs;
+  private PostgresqlJobQueryOperations query;
   private PostgresqlBatchOperations batches;
   private PostgresqlJobClaimOperations claims;
   private PostgresqlJobLifecycleOperations lifecycle;
   private PostgresqlNodeLockOperations nodeLocks;
   private PostgresqlArchiveOperations archives;
   private PostgresqlAuxiliaryOperations auxiliary;
+  private PostgresqlSignalOperations signals;
 
   /** No-arg constructor required by CDI normal-scope proxying. Not for direct use. */
   protected PostgresqlJobStoreImpl() {
@@ -660,6 +662,17 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
     return auxiliary.cleanupOrphanedPermits(staleNodeIds);
   }
 
+  @Override
+  public List<JobEntity> searchJobs(
+      run.ratchet.api.JobFilter filter, int limit, int offset) {
+    return query.searchJobs(filter, limit, offset);
+  }
+
+  @Override
+  public long countJobs(run.ratchet.api.JobFilter filter) {
+    return query.countJobs(filter);
+  }
+
   @PostConstruct
   void checkIsolationLevel() {
     if (em == null) {
@@ -684,11 +697,31 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
     tags = new PostgresqlTagOperations(ctx);
     PostgresqlJobReadOperations reads = new PostgresqlJobReadOperations(ctx, tags);
     jobs = new PostgresqlJobCrudOperations(ctx, reads, reservations, tags);
+    query = new PostgresqlJobQueryOperations(ctx, tags);
     batches = new PostgresqlBatchOperations(ctx);
     claims = new PostgresqlJobClaimOperations(ctx, jobs);
     lifecycle = new PostgresqlJobLifecycleOperations(ctx, reservations, batches);
     nodeLocks = new PostgresqlNodeLockOperations(ctx);
     archives = new PostgresqlArchiveOperations(ctx, reads);
     auxiliary = new PostgresqlAuxiliaryOperations(ctx);
+    signals = new PostgresqlSignalOperations(ctx);
+  }
+
+  @Override
+  public java.util.List<run.ratchet.store.entity.JobEntity> findTimedOutSignalJobs(
+      java.time.Instant now) {
+    return signals.findTimedOutSignalJobs(now);
+  }
+
+  @Override
+  public int deliverSignalById(
+      java.util.UUID jobId, String payload, String deliveredBy, java.time.Instant deliveredAt) {
+    return signals.deliverSignalById(jobId, payload, deliveredBy, deliveredAt);
+  }
+
+  @Override
+  public int deliverSignalByKey(
+      String signalKey, String payload, String deliveredBy, java.time.Instant deliveredAt) {
+    return signals.deliverSignalByKey(signalKey, payload, deliveredBy, deliveredAt);
   }
 }

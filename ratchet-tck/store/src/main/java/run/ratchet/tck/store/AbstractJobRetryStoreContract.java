@@ -3,7 +3,7 @@ package run.ratchet.tck.store;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import java.time.Instant;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -17,13 +17,13 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
   }
 
   @Test
-  void incrementRetryAttempt_requiresRunningStatus() {
+  void incrementRetryAttempt_requiresRetryableStatus() {
     var saved = persist(newPendingJob());
 
     assertEquals(
         -1,
         store().incrementRetryAttempt(saved.getId()),
-        "Retry attempts should not increment for non-running jobs");
+        "Retry attempts should not increment for non-retryable jobs");
 
     store().compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
     assertEquals(1, store().incrementRetryAttempt(saved.getId()));
@@ -38,6 +38,24 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
     boolean retried = store().scheduleJobRetry(saved.getId(), "transient error", retryTime, 1);
 
     assertTrue(retried, "scheduleJobRetry should succeed for a running job");
+    var reloaded = store().findById(saved.getId()).orElseThrow();
+    assertEquals(JobStatus.PENDING, reloaded.getStatus(), "Job should be back to PENDING");
+  }
+
+  @Test
+  void scheduleJobRetry_supportsWaitingSignalTimeouts() {
+    var waiting = newPendingJob();
+    waiting.setStatus(JobStatus.WAITING);
+    waiting.setSignalKey("approval");
+    waiting.setSignalTimeout(Instant.now().minusSeconds(1));
+    var saved = persist(waiting);
+
+    assertEquals(1, store().incrementRetryAttempt(saved.getId()));
+
+    Instant retryTime = Instant.now().plusSeconds(300);
+    boolean retried = store().scheduleJobRetry(saved.getId(), "signal timeout", retryTime, 1);
+
+    assertTrue(retried, "scheduleJobRetry should succeed for a WAITING timeout");
     var reloaded = store().findById(saved.getId()).orElseThrow();
     assertEquals(JobStatus.PENDING, reloaded.getStatus(), "Job should be back to PENDING");
   }

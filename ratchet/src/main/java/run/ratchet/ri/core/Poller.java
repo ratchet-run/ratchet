@@ -40,6 +40,7 @@ public class Poller {
   private final AtomicBoolean started = new AtomicBoolean();
   private final AtomicBoolean running = new AtomicBoolean();
 
+  private final JobTimeoutHandler timeoutHandler;
   private final JobClaimStore jobClaimStore;
   private final JobExecutionCoordinator jobExecutionCoordinator;
   private final NodeIdentityProvider nodeIdProvider;
@@ -59,6 +60,7 @@ public class Poller {
   private volatile PollingDelayStrategy strategy;
 
   protected Poller() {
+    this.timeoutHandler = null;
     this.jobClaimStore = null;
     this.jobExecutionCoordinator = null;
     this.nodeIdProvider = null;
@@ -88,7 +90,9 @@ public class Poller {
       boolean claimCircuitBreakerEnabled,
       PollingStrategyProvider pollingStrategyProvider,
       NodeTagAffinityProvider tagAffinityProvider,
-      int batchSize) {
+      int batchSize,
+      JobTimeoutHandler timeoutHandler) {
+    this.timeoutHandler = timeoutHandler;
     this.jobClaimStore = jobClaimStore;
     this.jobExecutionCoordinator = jobExecutionCoordinator;
     this.nodeIdProvider = nodeIdProvider;
@@ -213,6 +217,14 @@ public class Poller {
     }
 
     updateSystemLoadFactor();
+
+    if (timeoutHandler != null) {
+      try {
+        timeoutHandler.scanSignalTimeouts();
+      } catch (Exception e) {
+        log.warnf("Signal timeout scan failed: %s", e.getMessage());
+      }
+    }
 
     long nextDelay = strategy.recordPollResult(jobCount, pollStartTime);
 

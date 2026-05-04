@@ -1,6 +1,6 @@
 package run.ratchet.store.mysql;
 
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import java.util.List;
 import java.util.UUID;
@@ -40,6 +40,10 @@ final class MysqlJobStatusTransitions {
     if (expected == JobStatus.PAUSED) {
       throw new IllegalArgumentException("transitionToPaused expects expected != PAUSED");
     }
+    if (expected == JobStatus.WAITING) {
+      log.debugf("transitionToPaused(%s, WAITING) is a no-op — waiting jobs cannot be paused", id);
+      return false;
+    }
     if (!MysqlJobRowMapper.isLiveStatus(expected)) {
       log.debugf(
           "transitionToPaused(%s, %s) is a no-op post hot/cold-split — terminal jobs cannot be paused",
@@ -64,7 +68,9 @@ final class MysqlJobStatusTransitions {
   }
 
   boolean transitionFromPaused(UUID id, JobStatus target) {
-    if (!MysqlJobRowMapper.isLiveStatus(target) || target == JobStatus.PAUSED) {
+    if (!MysqlJobRowMapper.isLiveStatus(target)
+        || target == JobStatus.PAUSED
+        || target == JobStatus.WAITING) {
       throw new IllegalArgumentException(
           "transitionFromPaused expects a non-PAUSED live status; got " + target);
     }

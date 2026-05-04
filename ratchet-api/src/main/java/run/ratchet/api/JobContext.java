@@ -1,6 +1,7 @@
 package run.ratchet.api;
 
 import run.ratchet.spi.JobLogger;
+import java.io.Serializable;
 import java.util.Collections;
 import java.util.Map;
 import java.util.UUID;
@@ -13,15 +14,22 @@ public final class JobContext {
   private final UUID jobId;
   private final JobLogger logger;
   private final Map<String, String> params;
+  private final Serializable signalPayload;
 
   private JobContext(UUID jobId, JobLogger logger) {
-    this(jobId, logger, Collections.emptyMap());
+    this(jobId, logger, Collections.emptyMap(), null);
   }
 
   private JobContext(UUID jobId, JobLogger logger, Map<String, String> params) {
+    this(jobId, logger, params, null);
+  }
+
+  private JobContext(
+      UUID jobId, JobLogger logger, Map<String, String> params, Serializable signalPayload) {
     this.jobId = jobId;
     this.logger = logger;
     this.params = params != null ? Collections.unmodifiableMap(params) : Collections.emptyMap();
+    this.signalPayload = signalPayload;
   }
 
   /**
@@ -37,6 +45,18 @@ public final class JobContext {
   /** Binds a new context with parameters to the current thread. */
   public static JobContext bind(UUID jobId, JobLogger logger, Map<String, String> params) {
     JobContext ctx = new JobContext(jobId, logger, params);
+    TL.set(ctx);
+    return ctx;
+  }
+
+  /**
+   * Binds a new context with parameters and a pre-deserialized signal payload. Called by the job
+   * executor for signal-waiting jobs; the payload is deserialized before bind so {@code JobContext}
+   * carries no serializer dependency.
+   */
+  public static JobContext bind(
+      UUID jobId, JobLogger logger, Map<String, String> params, Serializable signalPayload) {
+    JobContext ctx = new JobContext(jobId, logger, params, signalPayload);
     TL.set(ctx);
     return ctx;
   }
@@ -83,5 +103,16 @@ public final class JobContext {
 
   public Map<String, String> params() {
     return params;
+  }
+
+  /**
+   * Returns the signal payload delivered to this job, cast to the requested type, or {@code null}
+   * if this job was not a signal-waiting job or no payload was included with the signal.
+   *
+   * @throws ClassCastException if the payload cannot be cast to {@code type}
+   */
+  @SuppressWarnings("unchecked")
+  public <T extends Serializable> T signalPayload(Class<T> type) {
+    return signalPayload == null ? null : type.cast(signalPayload);
   }
 }

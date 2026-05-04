@@ -7,6 +7,7 @@ import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobLoggerFactory;
 import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.spi.ResilienceStrategy;
 import run.ratchet.spi.ResultPersistenceStrategy;
 import run.ratchet.spi.RetryPolicy;
@@ -59,6 +60,7 @@ public class JobExecutorService {
   private final JobLoggerFactory jobLoggerFactory;
   private final ResultPersistenceStrategy resultPersistenceStrategy;
   private final JobAuthorizationPolicy authorizationPolicy;
+  private final PayloadSerializer payloadSerializer;
   private final PollerScheduler pollerScheduler;
   private final Clock clock;
   private final Set<TrackingFutureTask> activeFutures = ConcurrentHashMap.newKeySet();
@@ -81,6 +83,7 @@ public class JobExecutorService {
     this.jobLoggerFactory = null;
     this.resultPersistenceStrategy = null;
     this.authorizationPolicy = null;
+    this.payloadSerializer = null;
     this.pollerScheduler = null;
     this.clock = null;
   }
@@ -105,6 +108,7 @@ public class JobExecutorService {
       JobLoggerFactory jobLoggerFactory,
       ResultPersistenceStrategy resultPersistenceStrategy,
       JobAuthorizationPolicy authorizationPolicy,
+      PayloadSerializer payloadSerializer,
       Clock clock) {
     this.threadPoolManager = threadPoolManager;
     this.timeoutHandler = timeoutHandler;
@@ -124,6 +128,7 @@ public class JobExecutorService {
     this.jobLoggerFactory = jobLoggerFactory;
     this.resultPersistenceStrategy = resultPersistenceStrategy;
     this.authorizationPolicy = authorizationPolicy;
+    this.payloadSerializer = payloadSerializer;
     this.clock = clock;
   }
 
@@ -222,6 +227,7 @@ public class JobExecutorService {
         jobLoggerFactory,
         resultPersistenceStrategy,
         authorizationPolicy,
+        payloadSerializer,
         clock != null ? clock : Clock.systemUTC());
   }
 

@@ -1,6 +1,6 @@
 package run.ratchet.loadtest.metrics;
 
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.spi.JobCrudStore;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -46,6 +46,14 @@ public class LoadTestMetricsBinder {
           .description("Jobs by persisted status")
           .register(registry);
     }
+
+    Gauge.builder(
+            "ratchet.signal.waiting_count",
+            jobStore,
+            store -> store.countJobsByStatus(JobStatus.WAITING))
+        .description("Signal-waiting jobs currently blocked on an external signal")
+        .register(registry);
+
     bound = true;
   }
 

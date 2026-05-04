@@ -2,6 +2,7 @@ package run.ratchet.ri.core;
 
 import run.ratchet.api.JobContext;
 import run.ratchet.spi.JobLogger;
+import java.io.Serializable;
 import java.util.Map;
 import java.util.UUID;
 import org.jboss.logging.MDC;
@@ -79,7 +80,18 @@ final class JobMdcContext {
       String nodeId,
       String jobCreator,
       String jobType) {
-    JobContext.bind(jobId, logger, params);
+    bindJobContext(jobId, logger, params, nodeId, jobCreator, jobType, null);
+  }
+
+  static void bindJobContext(
+      UUID jobId,
+      JobLogger logger,
+      Map<String, String> params,
+      String nodeId,
+      String jobCreator,
+      String jobType,
+      Serializable signalPayload) {
+    JobContext.bind(jobId, logger, params, signalPayload);
     if (jobId != null) {
       MDC.put(MDC_JOB_ID, String.valueOf(jobId));
     }

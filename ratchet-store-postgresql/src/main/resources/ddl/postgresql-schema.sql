@@ -138,8 +138,13 @@ CREATE TABLE IF NOT EXISTS scheduler_job_queue
     last_error         TEXT,
     version            INT          NOT NULL DEFAULT 0,
     updated_at         TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    signal_key         VARCHAR(255),
+    signal_timeout     TIMESTAMPTZ,
+    signal_payload     TEXT,
+    signal_delivered_at TIMESTAMPTZ,
+    signal_delivered_by VARCHAR(255),
     CONSTRAINT pk_scheduler_job_queue PRIMARY KEY (job_id),
-    CONSTRAINT chk_queue_status CHECK (status IN ('PENDING', 'RUNNING', 'PAUSED')),
+    CONSTRAINT chk_queue_status CHECK (status IN ('PENDING', 'RUNNING', 'PAUSED', 'WAITING')),
     CONSTRAINT chk_queue_job_type CHECK (job_type IN
                                          ('SINGLE', 'RECURRING', 'BATCH_PARENT', 'BATCH_CHILD',
                                           'CHAIN_STEP', 'DLQ_ALERT', 'WORKFLOW_BRANCH', 'WORKFLOW_JOIN')),
@@ -157,6 +162,12 @@ CREATE INDEX IF NOT EXISTS idx_claim_executable
 -- Orphan-detection scan: status='RUNNING' AND picked_at < cutoff AND picked_by NOT IN (alive).
 CREATE INDEX IF NOT EXISTS idx_queue_orphan
     ON scheduler_job_queue (status, picked_at, picked_by);
+
+CREATE INDEX IF NOT EXISTS idx_signal_key_status
+    ON scheduler_job_queue (signal_key, status);
+
+CREATE INDEX IF NOT EXISTS idx_signal_timeout_status
+    ON scheduler_job_queue (status, signal_timeout);
 
 -- 4b. Business-key active-uniqueness reservation table.
 -- Authoritative ownership lookup for active business keys. The main scheduler_job.business_key

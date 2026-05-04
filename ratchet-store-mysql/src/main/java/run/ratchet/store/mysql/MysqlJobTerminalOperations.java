@@ -1,7 +1,7 @@
 package run.ratchet.store.mysql;
 
 import run.ratchet.api.exception.RatchetTransientStoreException;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -98,10 +98,10 @@ final class MysqlJobTerminalOperations {
               return gateMatched > 0 && cancelJob(id);
             }
             if (newStatus == JobStatus.FAILED) {
-              if (expected != JobStatus.RUNNING) {
+              if (expected != JobStatus.RUNNING && expected != JobStatus.WAITING) {
                 return false;
               }
-              return markJobFailedTerminal(id, error, 0);
+              return markJobFailedTerminalFromStatus(id, error, 0, expected);
             }
             throw new IllegalArgumentException("Unsupported CAS target newStatus: " + newStatus);
           } catch (RuntimeException e) {
@@ -117,7 +117,7 @@ final class MysqlJobTerminalOperations {
         """
         UPDATE scheduler_job_queue
         SET attempts = attempts + 1, updated_at = NOW(3)
-        WHERE job_id = ? AND status = 'RUNNING'
+        WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')
         """;
     int updated =
         ctx.timedStoreOperation(
@@ -200,7 +200,7 @@ final class MysqlJobTerminalOperations {
         UPDATE scheduler_job_queue
         SET status = 'PENDING', last_error = ?, scheduled_time = ?, attempts = ?,
             picked_by = NULL, picked_at = NULL, updated_at = NOW(3)
-        WHERE job_id = ? AND status = 'RUNNING'
+        WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')
         """;
     return ctx.timedStoreOperation(
             "schedule_retry",
@@ -217,12 +217,18 @@ final class MysqlJobTerminalOperations {
   }
 
   boolean markJobFailedTerminal(UUID id, String terminalError, int totalAttempts) {
+    return markJobFailedTerminalFromStatus(id, terminalError, totalAttempts, JobStatus.RUNNING);
+  }
+
+  private boolean markJobFailedTerminalFromStatus(
+      UUID id, String terminalError, int totalAttempts, JobStatus expectedStatus) {
     // language=MySQL
-    String deleteHotSql = "DELETE FROM scheduler_job_queue WHERE job_id = ? AND status = 'RUNNING'";
+    String deleteHotSql = "DELETE FROM scheduler_job_queue WHERE job_id = ? AND status = ?";
     int hotDeleted =
         ctx.em()
             .createNativeQuery(deleteHotSql)
             .setParameter(1, UuidByteArrayConverter.toBytes(id))
+            .setParameter(2, expectedStatus.name())
             .executeUpdate();
     if (hotDeleted == 0) {
       return false;
@@ -288,7 +294,7 @@ final class MysqlJobTerminalOperations {
     String deleteHotSql =
         """
         DELETE FROM scheduler_job_queue
-        WHERE job_id = ? AND status IN ('PENDING','RUNNING','PAUSED')
+        WHERE job_id = ? AND status IN ('PENDING','RUNNING','PAUSED','WAITING')
         """;
     ctx.em()
         .createNativeQuery(deleteHotSql)

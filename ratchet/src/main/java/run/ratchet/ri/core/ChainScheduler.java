@@ -1,7 +1,7 @@
 package run.ratchet.ri.core;
 
 import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.spi.JobCrudStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -44,7 +44,8 @@ public class ChainScheduler {
       UUID parentId = stack.pop();
       List<JobEntity> children = jobCrudStore.findDependants(parentId);
       for (JobEntity child : children) {
-        if (child.getStatus() == JobStatus.PENDING) {
+        JobStatus status = child.getStatus();
+        if (status == JobStatus.PENDING || status == JobStatus.WAITING) {
           child.setStatus(JobStatus.CANCELED);
           jobCrudStore.save(child);
           log.warnf("Chain step %s canceled (ancestor failed %s)", child.getId(), failed.getId());
@@ -66,6 +67,16 @@ public class ChainScheduler {
         c.setScheduledTime(Instant.now());
         jobCrudStore.save(c);
         log.infof("Chain step %s unlocked (prev=%s)", c.getId(), finished.getId());
+        scheduled = true;
+      } else if (c.getStatus() == JobStatus.WAITING
+          && CHAIN_LOCK_TIME.equals(c.getScheduledTime())) {
+        // Signal-waiting chain step: unlock scheduledTime so it runs once the signal arrives,
+        // but leave it WAITING — the signal delivery path sets it to PENDING independently.
+        c.setScheduledTime(Instant.now());
+        jobCrudStore.save(c);
+        log.infof(
+            "Signal-waiting chain step %s unlocked (signal still pending, prev=%s)",
+            c.getId(), finished.getId());
         scheduled = true;
       }
     }

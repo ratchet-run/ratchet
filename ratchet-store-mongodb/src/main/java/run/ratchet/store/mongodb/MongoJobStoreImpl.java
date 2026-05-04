@@ -17,7 +17,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobLogEntity;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import jakarta.annotation.PostConstruct;
@@ -54,6 +54,8 @@ class MongoJobStoreImpl implements MongoJobStore {
   private final MongoNodeLockOperations nodeLocks;
   private final MongoArchiveOperations archives;
   private final MongoAuxiliaryOperations auxiliary;
+  private final MongoJobQueryOperations query;
+  private final MongoSignalOperations signals;
   private final ExecutorService claimExecutor;
 
   @Inject
@@ -84,6 +86,8 @@ class MongoJobStoreImpl implements MongoJobStore {
     this.nodeLocks = new MongoNodeLockOperations(ctx);
     this.archives = new MongoArchiveOperations(ctx);
     this.auxiliary = new MongoAuxiliaryOperations(ctx);
+    this.query = new MongoJobQueryOperations(ctx);
+    this.signals = new MongoSignalOperations(ctx);
   }
 
   @Override
@@ -675,6 +679,17 @@ class MongoJobStoreImpl implements MongoJobStore {
     return auxiliary.cleanupOrphanedPermits(staleNodeIds);
   }
 
+  @Override
+  public List<run.ratchet.store.entity.JobEntity> searchJobs(
+      run.ratchet.api.JobFilter filter, int limit, int offset) {
+    return query.searchJobs(filter, limit, offset);
+  }
+
+  @Override
+  public long countJobs(run.ratchet.api.JobFilter filter) {
+    return query.countJobs(filter);
+  }
+
   @PostConstruct
   void initializeCollections() {
     validateUuidRepresentation();
@@ -718,5 +733,22 @@ class MongoJobStoreImpl implements MongoJobStore {
               + "MongoClientSettings.builder().uuidRepresentation(STANDARD) when supplying "
               + "your own MongoClient.");
     }
+  }
+
+  @Override
+  public java.util.List<JobEntity> findTimedOutSignalJobs(java.time.Instant now) {
+    return signals.findTimedOutSignalJobs(now);
+  }
+
+  @Override
+  public int deliverSignalById(
+      java.util.UUID jobId, String payload, String deliveredBy, java.time.Instant deliveredAt) {
+    return signals.deliverSignalById(jobId, payload, deliveredBy, deliveredAt);
+  }
+
+  @Override
+  public int deliverSignalByKey(
+      String signalKey, String payload, String deliveredBy, java.time.Instant deliveredAt) {
+    return signals.deliverSignalByKey(signalKey, payload, deliveredBy, deliveredAt);
   }
 }

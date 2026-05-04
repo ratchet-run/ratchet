@@ -23,7 +23,7 @@ import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.spi.JobClaimStore;
 import java.time.Instant;
 import java.util.EnumMap;
@@ -192,7 +192,8 @@ class PollerTest {
         breakerEnabled,
         new DefaultPollingStrategyProvider(),
         () -> run.ratchet.api.NodeTagFilter.NONE,
-        5);
+        5,
+        null);
   }
 
   private JobClaimDto claim(long jobId, JobExecutionType jobType, String type) {

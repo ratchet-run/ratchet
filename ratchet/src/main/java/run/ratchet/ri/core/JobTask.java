@@ -23,6 +23,7 @@ import run.ratchet.spi.JobLoggerFactory;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.ResilienceStrategy;
 import run.ratchet.spi.ResultPersistenceStrategy;
+import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.spi.RetryPolicy;
 import run.ratchet.spi.SerializedJobResult;
 import run.ratchet.spi.TracingCollector;
@@ -31,7 +32,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.spi.JobStore;
 import jakarta.inject.Inject;
 import java.io.Serial;
@@ -106,6 +107,7 @@ public class JobTask implements Callable<Void> {
   private final JobLoggerFactory jobLoggerFactory;
   private final ResultPersistenceStrategy resultPersistenceStrategy;
   private final JobAuthorizationPolicy authorizationPolicy;
+  private final PayloadSerializer payloadSerializer;
   private final Clock clock;
   private JobEntity job;
   private JobClaimDto claim;
@@ -129,6 +131,7 @@ public class JobTask implements Callable<Void> {
     this.jobLoggerFactory = null;
     this.resultPersistenceStrategy = null;
     this.authorizationPolicy = null;
+    this.payloadSerializer = null;
     this.clock = null;
   }
 
@@ -160,6 +163,7 @@ public class JobTask implements Callable<Void> {
         new DefaultResultPersistenceStrategy(
             RatchetOptions.defaults(), new JsonbPayloadSerializer()),
         null,
+        new JsonbPayloadSerializer(),
         Clock.systemUTC());
   }
 
@@ -179,6 +183,7 @@ public class JobTask implements Callable<Void> {
       JobLoggerFactory jobLoggerFactory,
       ResultPersistenceStrategy resultPersistenceStrategy,
       JobAuthorizationPolicy authorizationPolicy,
+      PayloadSerializer payloadSerializer,
       Clock clock) {
     this.jobStore = jobStore;
     this.resourcePermitService = resourcePermitService;
@@ -194,6 +199,7 @@ public class JobTask implements Callable<Void> {
     this.jobLoggerFactory = jobLoggerFactory;
     this.resultPersistenceStrategy = resultPersistenceStrategy;
     this.authorizationPolicy = authorizationPolicy;
+    this.payloadSerializer = payloadSerializer;
     this.clock = clock;
   }
 
@@ -252,13 +258,25 @@ public class JobTask implements Callable<Void> {
                 jobEntity.getCallerPrincipal(),
                 jobEntity.getParams()));
     JobType jobType = jobEntity.getPublicJobType();
+    java.io.Serializable deserializedSignalPayload = null;
+    String rawSignalPayload = jobEntity.getSignalPayload();
+    if (rawSignalPayload != null && payloadSerializer != null) {
+      try {
+        deserializedSignalPayload =
+            payloadSerializer.deserialize(rawSignalPayload, java.io.Serializable.class);
+      } catch (Exception e) {
+        log.warnf("Failed to deserialize signal payload for job %s: %s", jobId, e.getMessage());
+      }
+    }
+
     JobMdcContext.bindJobContext(
         jobId,
         logger,
         jobEntity.getParams(),
         nodeId,
         jobEntity.getCallerPrincipal(),
-        jobType != null ? jobType.name() : null);
+        jobType != null ? jobType.name() : null,
+        deserializedSignalPayload);
 
     if (jobEntity.getCallerPrincipal() != null) {
       log.debugf("Job %s created by user (present)", jobId);

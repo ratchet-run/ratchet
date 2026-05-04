@@ -123,6 +123,13 @@ class MongoCollectionInitializer {
     createIndex(coll, Indexes.ascending(UPDATED_AT), "idx_job_updated_at");
     createIndex(coll, Indexes.ascending(JOB_TYPE), "idx_job_type");
     createIndex(coll, Indexes.ascending(SUPERSEDED_BY), "idx_job_superseded_by");
+
+    // Dashboard query indexes (query-layer hardening)
+    createIndex(coll, Indexes.ascending(TRACE_CONTEXT + ".traceparent"), "idx_job_traceparent");
+    createIndex(coll, Indexes.ascending(CALLER_PRINCIPAL, CREATED_AT), "idx_job_principal_created");
+    createIndex(coll,
+        Indexes.compoundIndex(Indexes.ascending(STATUS), Indexes.descending(CREATED_AT)),
+        "idx_job_status_created");
   }
 
   private void createBatchIndexes() {}

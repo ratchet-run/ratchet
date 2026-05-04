@@ -86,6 +86,7 @@ class DefaultJobCreationServiceAuthorizationTest {
             principalProvider,
             tracingCollector,
             authorizationPolicy,
+            null,
             Clock.systemUTC());
   }
 
@@ -197,6 +198,7 @@ class DefaultJobCreationServiceAuthorizationTest {
             null, // no CallerPrincipalProvider
             tracingCollector,
             authorizationPolicy,
+            null,
             Clock.systemUTC());
 
     JobEntity saved = savedEntity();

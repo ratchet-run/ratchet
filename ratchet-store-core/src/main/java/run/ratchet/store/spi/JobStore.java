@@ -12,6 +12,7 @@ import run.ratchet.api.Incubating;
 // see the full method surface via the JobStore composition.
 public interface JobStore
     extends JobCrudStore,
+        JobQueryStore,
         JobClaimStore,
         JobTerminalStore,
         JobRetryStore,
@@ -29,6 +30,7 @@ public interface JobStore
         WorkflowConditionStore,
         BatchMetricsStore,
         DlqAlertStore,
-        ResourcePermitStore {
+        ResourcePermitStore,
+        SignalStore {
   // Marker interface — all methods inherited from sub-interfaces
 }

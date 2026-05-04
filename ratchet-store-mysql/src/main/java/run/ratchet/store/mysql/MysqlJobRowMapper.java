@@ -7,7 +7,7 @@ import run.ratchet.store.converter.JsonMapConverter;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -28,9 +28,11 @@ final class MysqlJobRowMapper {
       c.total_attempts, c.terminated_at, c.execution_start_time, c.execution_end_time,
       c.execution_duration_ms, c.queue_wait_ms, c.job_result, c.result_type, c.rec_status,
       c.trace_context, q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at,
-      q.paused_from_status, q.last_error, q.version, q.updated_at\
+      q.paused_from_status, q.last_error, q.version, q.updated_at,
+      q.signal_key, q.signal_timeout, q.signal_payload, q.signal_delivered_at,
+      q.signal_delivered_by\
       """;
-  static final int HYDRATION_COL_COUNT = 44;
+  static final int HYDRATION_COL_COUNT = 49;
   static final int IDX_Q_STATUS = 35;
   private static final Logger log = Logger.getLogger(MysqlJobRowMapper.class);
   private static final JobPayloadConverter JOB_PAYLOAD_CONVERTER = new JobPayloadConverter();
@@ -77,13 +79,22 @@ final class MysqlJobRowMapper {
   private static final int IDX_Q_PAUSED = 40;
   private static final int IDX_Q_LAST_ERROR = 41;
   private static final int IDX_Q_VERSION = 42;
+  private static final int IDX_Q_UPDATED_AT = 43;
+  private static final int IDX_Q_SIGNAL_KEY = 44;
+  private static final int IDX_Q_SIGNAL_TIMEOUT = 45;
+  private static final int IDX_Q_SIGNAL_PAYLOAD = 46;
+  private static final int IDX_Q_SIGNAL_DELIVERED_AT = 47;
+  private static final int IDX_Q_SIGNAL_DELIVERED_BY = 48;
 
   static boolean isTerminalStatus(JobStatus s) {
     return s == JobStatus.SUCCEEDED || s == JobStatus.FAILED || s == JobStatus.CANCELED;
   }
 
   static boolean isLiveStatus(JobStatus s) {
-    return s == JobStatus.PENDING || s == JobStatus.RUNNING || s == JobStatus.PAUSED;
+    return s == JobStatus.PENDING
+        || s == JobStatus.RUNNING
+        || s == JobStatus.PAUSED
+        || s == JobStatus.WAITING;
   }
 
   static boolean isPollerExecutable(JobExecutionType jobType) {
@@ -216,6 +227,11 @@ final class MysqlJobRowMapper {
     j.setResultType((String) row[IDX_RESULT_TYPE]);
     j.setTraceContext(
         JSON_MAP_CONVERTER.convertToEntityAttribute(stringOrNull(row[IDX_TRACE_CONTEXT])));
+    j.setSignalKey((String) row[IDX_Q_SIGNAL_KEY]);
+    j.setSignalTimeout(toInstant(row[IDX_Q_SIGNAL_TIMEOUT]));
+    j.setSignalPayload(stringOrNull(row[IDX_Q_SIGNAL_PAYLOAD]));
+    j.setSignalDeliveredAt(toInstant(row[IDX_Q_SIGNAL_DELIVERED_AT]));
+    j.setSignalDeliveredBy((String) row[IDX_Q_SIGNAL_DELIVERED_BY]);
 
     String recStatus = stringOrNull(row[IDX_REC_STATUS]);
     String liveStr = (String) row[IDX_Q_STATUS];
@@ -245,6 +261,10 @@ final class MysqlJobRowMapper {
       j.setPausedFromStatus(pausedFrom != null ? JobStatus.valueOf(pausedFrom) : null);
       j.setLastError(stringOrNull(row[IDX_Q_LAST_ERROR]));
       j.setVersion(((Number) row[IDX_Q_VERSION]).intValue());
+      Instant queueUpdatedAt = toInstant(row[IDX_Q_UPDATED_AT]);
+      if (queueUpdatedAt != null) {
+        j.setUpdatedAt(queueUpdatedAt);
+      }
     } else if (recStatus != null) {
       j.setScheduledTime(toInstant(row[IDX_NEXT_FIRE]));
       j.setAttempts(0);
@@ -261,11 +281,13 @@ final class MysqlJobRowMapper {
       j.setScheduledTime(fallbackSched);
     }
 
-    Instant updatedAt = toInstant(row[IDX_TERMINATED_AT]);
-    if (updatedAt == null) {
-      updatedAt = j.getCreatedAt();
+    if (j.getUpdatedAt() == null) {
+      Instant updatedAt = toInstant(row[IDX_TERMINATED_AT]);
+      if (updatedAt == null) {
+        updatedAt = j.getCreatedAt();
+      }
+      j.setUpdatedAt(updatedAt);
     }
-    j.setUpdatedAt(updatedAt);
 
     return j;
   }

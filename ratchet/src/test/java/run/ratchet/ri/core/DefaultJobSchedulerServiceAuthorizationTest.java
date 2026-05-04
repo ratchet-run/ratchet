@@ -16,7 +16,7 @@ import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
@@ -83,7 +83,9 @@ class DefaultJobSchedulerServiceAuthorizationTest {
             jobInvocationResolver,
             jobCreationService,
             callerProvider,
-            authorizationPolicy);
+            authorizationPolicy,
+            null,
+            null);
   }
 
   // ---- cancelJob ----

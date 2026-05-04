@@ -2,6 +2,7 @@ package run.ratchet.store.entity;
 
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
 import run.ratchet.store.id.UuidV7EntityListener;
 import jakarta.persistence.Column;

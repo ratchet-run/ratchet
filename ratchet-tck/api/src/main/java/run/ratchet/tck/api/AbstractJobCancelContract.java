@@ -84,4 +84,30 @@ public abstract class AbstractJobCancelContract {
         runtime().probe().awaitCancelled(handle, defaultTimeout()),
         "Running job cancellation must surface a CANCELLED event eventually");
   }
+
+  @Test
+  void cancelChainParent_preventsChainChildExecution() throws InterruptedException {
+    // Schedule a chain with a 30-second delay on the parent so it stays PENDING long enough
+    // to cancel. The child (recordStepA) must never execute.
+    JobHandle handle =
+        runtime()
+            .scheduler()
+            .schedule(Duration.ofSeconds(30), TckJobs::noop)
+            .then(TckJobs::recordStepA)
+            .submit();
+    runtime().probe().track(handle);
+
+    boolean cancelled = runtime().scheduler().cancelJob(handle.id());
+    assertTrue(cancelled, "cancelJob on a PENDING chain parent should return true");
+
+    assertTrue(
+        runtime().probe().awaitCancelled(handle, defaultTimeout()),
+        "Cancelled chain parent must surface a CANCELLED event");
+
+    // Allow a brief window for any spurious child execution to appear.
+    Thread.sleep(500L);
+    assertTrue(
+        TckJobs.chainEvents().isEmpty(),
+        "Chain child must not execute when the parent job was cancelled");
+  }
 }

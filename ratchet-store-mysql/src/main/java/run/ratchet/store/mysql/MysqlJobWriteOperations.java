@@ -4,7 +4,7 @@ import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import jakarta.persistence.Query;
@@ -34,8 +34,8 @@ final class MysqlJobWriteOperations {
       INSERT INTO scheduler_job_queue (
         job_id, status, job_type, priority, scheduled_time, business_key, timeout_sec,
         max_retries, attempts, picked_by, picked_at, paused_from_status, last_error,
-        version, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        version, updated_at, signal_key, signal_timeout)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       """;
 
   private final MysqlStoreContext ctx;
@@ -242,6 +242,10 @@ final class MysqlJobWriteOperations {
         .setParameter(13, job.getLastError())
         .setParameter(14, job.getVersion() != null ? job.getVersion() : 0)
         .setParameter(15, nowTs)
+        .setParameter(16, job.getSignalKey())
+        .setParameter(
+            17,
+            job.getSignalTimeout() != null ? Timestamp.from(job.getSignalTimeout()) : null)
         .executeUpdate();
   }
 
@@ -332,7 +336,10 @@ final class MysqlJobWriteOperations {
         i++, job.getPausedFromStatus() != null ? job.getPausedFromStatus().name() : null);
     q.setParameter(i++, job.getLastError());
     q.setParameter(i++, job.getVersion() != null ? job.getVersion() : 0);
-    q.setParameter(i, nowTs);
+    q.setParameter(i++, nowTs);
+    q.setParameter(i++, job.getSignalKey());
+    q.setParameter(
+        i, job.getSignalTimeout() != null ? Timestamp.from(job.getSignalTimeout()) : null);
   }
 
   @SuppressWarnings("unchecked")

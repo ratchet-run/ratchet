@@ -1,13 +1,16 @@
 package run.ratchet.ri.core;
 
+import run.ratchet.api.event.JobSignalTimedOutEvent;
 import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobRetryStore;
+import run.ratchet.store.spi.SignalStore;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
@@ -29,6 +32,9 @@ public class JobTimeoutHandler {
   private final JobRetryStore jobRetryStore;
   private final JobBatchStatusStore jobBatchStatusStore;
   private final PostExecutionHandler lifecycleFacade;
+  private final InternalEventPublisher eventPublisher;
+  private final ChainScheduler chainScheduler;
+  private final SignalStore signalStore;
   private final int softTimeoutPercent;
   private final long defaultTimeoutSeconds;
   private final Clock clock;
@@ -38,6 +44,9 @@ public class JobTimeoutHandler {
     this.jobRetryStore = null;
     this.jobBatchStatusStore = null;
     this.lifecycleFacade = null;
+    this.eventPublisher = null;
+    this.chainScheduler = null;
+    this.signalStore = null;
     this.softTimeoutPercent = 0;
     this.defaultTimeoutSeconds = 0;
     this.clock = null;
@@ -68,6 +77,30 @@ public class JobTimeoutHandler {
       int softTimeoutPercent,
       long defaultTimeoutSeconds,
       Clock clock) {
+    this(
+        jobCrudStore,
+        jobRetryStore,
+        jobBatchStatusStore,
+        lifecycleFacade,
+        softTimeoutPercent,
+        defaultTimeoutSeconds,
+        clock,
+        null,
+        null,
+        null);
+  }
+
+  public JobTimeoutHandler(
+      JobCrudStore jobCrudStore,
+      JobRetryStore jobRetryStore,
+      JobBatchStatusStore jobBatchStatusStore,
+      PostExecutionHandler lifecycleFacade,
+      int softTimeoutPercent,
+      long defaultTimeoutSeconds,
+      Clock clock,
+      InternalEventPublisher eventPublisher,
+      ChainScheduler chainScheduler,
+      SignalStore signalStore) {
     this.jobCrudStore = jobCrudStore;
     this.jobRetryStore = jobRetryStore;
     this.jobBatchStatusStore = jobBatchStatusStore;
@@ -75,6 +108,9 @@ public class JobTimeoutHandler {
     this.softTimeoutPercent = softTimeoutPercent;
     this.defaultTimeoutSeconds = defaultTimeoutSeconds;
     this.clock = clock;
+    this.eventPublisher = eventPublisher;
+    this.chainScheduler = chainScheduler;
+    this.signalStore = signalStore;
   }
 
   private Clock effective() {
@@ -171,6 +207,93 @@ public class JobTimeoutHandler {
     }
     log.infof("Job %s marked as FAILED due to hard timeout (retries exhausted)", jobId);
     lifecycleFacade.handlePermanentFailure(job, timeoutEx);
+  }
+
+  /**
+   * Scans for WAITING jobs whose signal timeout has elapsed and fails them. Should be called
+   * periodically (e.g., from the poller tick). No-op if no {@code SignalStore} was wired at
+   * construction time.
+   */
+  public void scanSignalTimeouts() {
+    if (signalStore == null) {
+      return;
+    }
+    Instant now = effective().instant();
+    List<JobEntity> timedOut = signalStore.findTimedOutSignalJobs(now);
+    for (JobEntity job : timedOut) {
+      try {
+        processSignalTimeout(job, now);
+      } catch (Exception e) {
+        log.errorf(e, "Signal timeout post-processing error for job %s", job.getId());
+      }
+    }
+  }
+
+  void processSignalTimeout(JobEntity job, Instant now) {
+    UUID jobId = job.getId();
+    String message = "Signal timeout exceeded for key: " + job.getSignalKey();
+    Exception timeoutEx = new Exception(message);
+
+    int newAttempts = jobRetryStore.incrementRetryAttempt(jobId);
+    if (newAttempts < 0) {
+      log.infof("Job %s already left WAITING when signal timeout scanner ran", jobId);
+      return;
+    }
+
+    if (newAttempts <= job.getMaxRetries()) {
+      long backoffMs =
+          job.getBackoffPolicy() != null
+              ? BackoffPolicyHandler.computeDelay(
+                  job.getBackoffPolicy(), job.getBackoffParamMs(), newAttempts)
+              : 0L;
+      Instant retryTime = now.plusMillis(backoffMs);
+      boolean rescheduled =
+          jobRetryStore.scheduleJobRetry(jobId, message, retryTime, newAttempts);
+      if (rescheduled) {
+        publishSignalTimedOutEvent(job, now);
+        log.warnf(
+            "Job %s signal timed out but has retries remaining (%s/%s) — rescheduled for %s",
+            jobId, newAttempts, job.getMaxRetries(), retryTime);
+        return;
+      }
+      log.infof(
+          "Job %s signal timed out but was already finalized by a competing path — no DLQ escalation",
+          jobId);
+      return;
+    }
+
+    boolean marked =
+        jobBatchStatusStore.compareAndSwapStatus(
+            jobId, JobStatus.WAITING, JobStatus.FAILED, message);
+    if (!marked) {
+      log.infof("Job %s already left WAITING when signal timeout scanner ran", jobId);
+      return;
+    }
+
+    log.infof("Job %s FAILED due to signal timeout (key=%s)", jobId, job.getSignalKey());
+    publishSignalTimedOutEvent(job, now);
+    lifecycleFacade.handlePermanentFailure(job, timeoutEx);
+
+    if (chainScheduler != null) {
+      chainScheduler.cancelChain(job);
+    }
+  }
+
+  private void publishSignalTimedOutEvent(JobEntity job, Instant now) {
+    if (eventPublisher == null) {
+      return;
+    }
+    Duration elapsed =
+        job.getSignalTimeout() != null ? Duration.between(job.getSignalTimeout(), now) : null;
+    eventPublisher.publish(
+        new JobSignalTimedOutEvent(
+            job.getId(),
+            job.getBusinessKey(),
+            job.getPublicJobType(),
+            job.getPriority(),
+            null,
+            job.getSignalKey(),
+            elapsed != null ? elapsed.abs() : null));
   }
 
   private String formatDuration(Duration duration) {

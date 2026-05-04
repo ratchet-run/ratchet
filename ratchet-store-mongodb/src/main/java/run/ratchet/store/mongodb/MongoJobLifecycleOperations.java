@@ -34,7 +34,7 @@ import com.mongodb.client.ClientSession;
 import com.mongodb.client.model.FindOneAndUpdateOptions;
 import com.mongodb.client.model.ReturnDocument;
 import com.mongodb.client.result.UpdateResult;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
@@ -90,7 +90,7 @@ final class MongoJobLifecycleOperations {
     Document doc =
         ctx.jobs()
             .findOneAndUpdate(
-                and(eq(ID, id), eq(STATUS, "RUNNING")),
+                and(eq(ID, id), in(STATUS, List.of("RUNNING", "WAITING"))),
                 combine(
                     inc(ATTEMPTS, 1),
                     set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
@@ -214,7 +214,7 @@ final class MongoJobLifecycleOperations {
     UpdateResult result =
         ctx.jobs()
             .updateOne(
-                and(eq(ID, id), in(STATUS, List.of("RUNNING", "FAILED"))),
+                and(eq(ID, id), in(STATUS, List.of("RUNNING", "WAITING", "FAILED"))),
                 combine(
                     set(STATUS, "PENDING"),
                     set(SCHEDULED_TIME, DocumentMapper.toDate(newScheduledTime)),
@@ -273,7 +273,7 @@ final class MongoJobLifecycleOperations {
     UpdateResult result =
         ctx.jobs()
             .updateOne(
-                and(eq(ID, id), in(STATUS, List.of("PENDING", "RUNNING", "PAUSED"))),
+                and(eq(ID, id), in(STATUS, List.of("PENDING", "RUNNING", "PAUSED", "WAITING"))),
                 combine(
                     set(STATUS, "CANCELED"),
                     set(PICKED_BY, null),

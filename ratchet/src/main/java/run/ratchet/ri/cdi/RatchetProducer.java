@@ -7,6 +7,7 @@ import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.DynamicHeartbeatCalculator;
 import run.ratchet.ri.core.ExecutionObserver;
 import run.ratchet.ri.core.InternalEventPublisher;
+import run.ratchet.ri.core.ChainScheduler;
 import run.ratchet.ri.core.JobExecutionCoordinator;
 import run.ratchet.ri.core.JobTimeoutHandler;
 import run.ratchet.ri.core.OrphanRecoveryTimer;
@@ -44,6 +45,7 @@ import run.ratchet.store.spi.JobClaimStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobRetryStore;
 import run.ratchet.store.spi.NodeStore;
+import run.ratchet.store.spi.SignalStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.Initialized;
 import jakarta.enterprise.event.Observes;
@@ -147,7 +149,11 @@ public class RatchetProducer {
 
   @Produces
   @ApplicationScoped
-  public JobTimeoutHandler jobTimeoutHandler(Clock clock) {
+  public JobTimeoutHandler jobTimeoutHandler(
+      Clock clock,
+      InternalEventPublisher eventPublisher,
+      ChainScheduler chainScheduler,
+      SignalStore signalStore) {
     int softTimeoutPercent = options.timeout().softTimeoutPercent();
     long defaultTimeoutSeconds = options.timeout().defaultSlaSeconds();
 
@@ -158,7 +164,10 @@ public class RatchetProducer {
         postExecutionHandler,
         softTimeoutPercent,
         defaultTimeoutSeconds,
-        clock);
+        clock,
+        eventPublisher,
+        chainScheduler,
+        signalStore);
   }
 
   @Produces
@@ -204,7 +213,8 @@ public class RatchetProducer {
       DrainController drainController,
       PollerScheduler pollerScheduler,
       CircuitBreakerRegistry circuitBreakerRegistry,
-      NodeTagAffinityProvider tagAffinityProvider) {
+      NodeTagAffinityProvider tagAffinityProvider,
+      JobTimeoutHandler timeoutHandler) {
     int batchSize = options.polling().batchSize();
     return new Poller(
         jobClaimStore,
@@ -219,7 +229,8 @@ public class RatchetProducer {
         circuitBreakerConfigProvider.isEnabled(),
         pollingStrategyProvider,
         tagAffinityProvider,
-        batchSize);
+        batchSize,
+        timeoutHandler);
   }
 
   @Produces

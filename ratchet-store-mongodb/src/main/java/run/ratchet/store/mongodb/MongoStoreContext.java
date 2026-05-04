@@ -6,7 +6,7 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import java.util.List;
 import org.bson.Document;
 
@@ -21,7 +21,7 @@ final class MongoStoreContext {
 
   static final List<String> EXECUTABLE_JOB_TYPES =
       List.of("SINGLE", "BATCH_CHILD", "CHAIN_STEP", "WORKFLOW_BRANCH");
-  static final List<String> ACTIVE_STATUSES = List.of("PENDING", "RUNNING", "PAUSED");
+  static final List<String> ACTIVE_STATUSES = List.of("PENDING", "RUNNING", "PAUSED", "WAITING");
   static final List<String> TERMINAL_STATUSES = List.of("SUCCEEDED", "FAILED", "CANCELED");
 
   private final MongoClient client;
@@ -59,7 +59,10 @@ final class MongoStoreContext {
   }
 
   static boolean isLiveStatus(JobStatus status) {
-    return status == JobStatus.PENDING || status == JobStatus.RUNNING || status == JobStatus.PAUSED;
+    return status == JobStatus.PENDING
+        || status == JobStatus.RUNNING
+        || status == JobStatus.PAUSED
+        || status == JobStatus.WAITING;
   }
 
   static boolean isTerminalStatus(JobStatus status) {

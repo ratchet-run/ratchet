@@ -15,7 +15,7 @@ import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.JobPayload;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
@@ -82,6 +82,11 @@ public final class DocumentMapper {
     doc.append("job_result", job.getJobResult());
     doc.append("result_type", job.getResultType());
     doc.append("version", job.getVersion() == null ? 0 : job.getVersion());
+    doc.append("signal_key", job.getSignalKey());
+    doc.append("signal_timeout", toDate(job.getSignalTimeout()));
+    doc.append("signal_payload", job.getSignalPayload());
+    doc.append("signal_delivered_at", toDate(job.getSignalDeliveredAt()));
+    doc.append("signal_delivered_by", job.getSignalDeliveredBy());
     return doc;
   }
 
@@ -131,6 +136,11 @@ public final class DocumentMapper {
     job.setJobResult(doc.getString("job_result"));
     job.setResultType(doc.getString("result_type"));
     job.setVersion(doc.getInteger("version", 0));
+    job.setSignalKey(doc.getString("signal_key"));
+    job.setSignalTimeout(toInstant(doc.getDate("signal_timeout")));
+    job.setSignalPayload(doc.getString("signal_payload"));
+    job.setSignalDeliveredAt(toInstant(doc.getDate("signal_delivered_at")));
+    job.setSignalDeliveredBy(doc.getString("signal_delivered_by"));
     return job;
   }
 
@@ -284,6 +294,53 @@ public final class DocumentMapper {
     doc.append("superseded_by", a.getSupersededBy());
     doc.append("tags", a.getTags());
     return doc;
+  }
+
+  /**
+   * Maps an archive document from {@code scheduler_job_archive} to a {@link JobEntity} suitable
+   * for inclusion in dashboard query results. Fields absent from the archive are left null or
+   * zero-valued. Uses archive-specific field names (e.g. {@code original_job_id},
+   * {@code final_status}, {@code first_execution_time}) that differ from the live collection.
+   */
+  public static JobEntity archivedDocToJobEntity(Document doc) {
+    if (doc == null) {
+      return null;
+    }
+    JobEntity e = new JobEntity();
+    e.setId(doc.get("original_job_id", UUID.class));
+    String finalStatus = doc.getString("final_status");
+    if (finalStatus != null) {
+      e.setStatus(JobStatus.valueOf(finalStatus));
+    }
+    String jobType = doc.getString("job_type");
+    if (jobType != null) {
+      e.setJobType(JobExecutionType.valueOf(jobType));
+    }
+    e.setPriority(safeJobPriority(doc.getInteger("priority", 2)));
+    e.setMaxRetries(doc.getInteger("max_retries", 0));
+    if (doc.getString("backoff_policy") != null) {
+      e.setBackoffPolicy(BackoffPolicy.valueOf(doc.getString("backoff_policy")));
+    }
+    e.setBackoffParamMs(doc.getInteger("backoff_param_ms", 0));
+    e.setTimeoutSec(doc.getInteger("timeout_sec", 0));
+    e.setTargetClass(doc.getString("target_class"));
+    e.setMethodName(doc.getString("method_name"));
+    e.setBusinessKey(doc.getString("business_key"));
+    e.setCronExpr(doc.getString("cron_expr"));
+    e.setZoneId(doc.getString("zone_id"));
+    e.setDependsOn(doc.get("depended_on", UUID.class));
+    e.setSupersededBy(doc.get("superseded_by", UUID.class));
+    e.setCreatedAt(toInstant(doc.getDate("original_created_at")));
+    e.setScheduledTime(toInstant(doc.getDate("original_scheduled_time")));
+    e.setExecutionStartTime(toInstant(doc.getDate("first_execution_time")));
+    e.setUpdatedAt(toInstant(doc.getDate("archived_at")));
+    e.setExecutionDurationMs(doc.getLong("total_execution_time_ms"));
+    e.setQueueWaitMs(doc.getLong("queue_wait_ms"));
+    e.setJobResult(doc.getString("job_result"));
+    e.setResultType(doc.getString("result_type"));
+    e.setLastError(doc.getString("final_error"));
+    e.setAttempts(doc.getInteger("total_attempts", 0));
+    return e;
   }
 
   public static ArchivedJobEntity toArchivedJobEntity(Document doc) {

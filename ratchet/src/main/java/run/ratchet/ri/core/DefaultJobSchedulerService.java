@@ -9,19 +9,22 @@ import run.ratchet.api.RecurringJobBuilder;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.StreamingBatchBuilder;
 import run.ratchet.api.event.JobCancelledEvent;
+import run.ratchet.api.event.JobSignaledEvent;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobInvocationResolver;
+import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobPauseStore;
 import run.ratchet.store.spi.JobRetryStore;
 import run.ratchet.store.spi.JobTerminalStore;
+import run.ratchet.store.spi.SignalStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 import jakarta.annotation.Resource;
@@ -62,6 +65,8 @@ public class DefaultJobSchedulerService
   private final DefaultJobCreationService jobCreationService;
   private final CallerPrincipalProvider callerPrincipalProvider;
   private final JobAuthorizationPolicy authorizationPolicy;
+  private final SignalStore signalStore;
+  private final PayloadSerializer payloadSerializer;
 
   @Resource private TransactionSynchronizationRegistry txRegistry;
 
@@ -81,6 +86,8 @@ public class DefaultJobSchedulerService
     this.jobCreationService = null;
     this.callerPrincipalProvider = null;
     this.authorizationPolicy = null;
+    this.signalStore = null;
+    this.payloadSerializer = null;
   }
 
   public DefaultJobSchedulerService(
@@ -118,6 +125,8 @@ public class DefaultJobSchedulerService
             wakeupService,
             recurringScheduler),
         null,
+        null,
+        null,
         null);
   }
 
@@ -137,7 +146,9 @@ public class DefaultJobSchedulerService
       JobInvocationResolver jobInvocationResolver,
       DefaultJobCreationService jobCreationService,
       CallerPrincipalProvider callerPrincipalProvider,
-      JobAuthorizationPolicy authorizationPolicy) {
+      JobAuthorizationPolicy authorizationPolicy,
+      SignalStore signalStore,
+      PayloadSerializer payloadSerializer) {
     this.eventPublisher = eventPublisher;
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.jobPauseStore = jobPauseStore;
@@ -153,6 +164,8 @@ public class DefaultJobSchedulerService
     this.jobCreationService = jobCreationService;
     this.callerPrincipalProvider = callerPrincipalProvider;
     this.authorizationPolicy = authorizationPolicy;
+    this.signalStore = signalStore;
+    this.payloadSerializer = payloadSerializer;
   }
 
   @Override
@@ -192,6 +205,14 @@ public class DefaultJobSchedulerService
         jobId, JobStatus.PAUSED, JobStatus.CANCELED, null)) {
       log.debugf("Canceled paused job %s", jobId);
       publishCancelledEvent(jobId, JobStatus.PAUSED);
+      return true;
+    }
+
+    // Try WAITING → CANCELED (signal-waiting jobs can be canceled)
+    if (jobBatchStatusStore.compareAndSwapStatus(
+        jobId, JobStatus.WAITING, JobStatus.CANCELED, null)) {
+      log.debugf("Canceled waiting job %s", jobId);
+      publishCancelledEvent(jobId, JobStatus.WAITING);
       return true;
     }
 
@@ -265,6 +286,73 @@ public class DefaultJobSchedulerService
   @Override
   public void removeEventListener(Consumer<Object> listener) {
     eventPublisher.removeListener(listener);
+  }
+
+  @Override
+  @Transactional
+  public int deliverSignal(UUID jobId, Serializable payload) {
+    if (signalStore == null) {
+      log.warn("deliverSignal called but no SignalStore is wired — returning 0");
+      return 0;
+    }
+    String principal =
+        callerPrincipalProvider != null
+            ? callerPrincipalProvider.currentPrincipal().orElse(null)
+            : null;
+    String serializedPayload = serializeSignalPayload(payload);
+    java.time.Instant now = java.time.Instant.now();
+
+    int unblocked = signalStore.deliverSignalById(jobId, serializedPayload, principal, now);
+    if (unblocked > 0) {
+      JobEntity job = jobCrudStore.findById(jobId).orElse(null);
+      String signalKey = job != null ? job.getSignalKey() : null;
+      JobSignaledEvent event =
+          new JobSignaledEvent(
+              jobId,
+              job != null ? job.getBusinessKey() : null,
+              job != null ? job.getPublicJobType() : null,
+              job != null ? job.getPriority() : null,
+              null,
+              signalKey,
+              principal);
+      if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+        eventPublisher.publish(event);
+      }
+      log.debugf("Signal delivered to job %s by %s", jobId, principal);
+    }
+    return unblocked;
+  }
+
+  @Override
+  @Transactional
+  public int deliverSignal(String signalKey, Serializable payload) {
+    if (signalStore == null) {
+      log.warn("deliverSignal called but no SignalStore is wired — returning 0");
+      return 0;
+    }
+    String principal =
+        callerPrincipalProvider != null
+            ? callerPrincipalProvider.currentPrincipal().orElse(null)
+            : null;
+    String serializedPayload = serializeSignalPayload(payload);
+    java.time.Instant now = java.time.Instant.now();
+
+    int unblocked = signalStore.deliverSignalByKey(signalKey, serializedPayload, principal, now);
+    if (unblocked > 0) {
+      log.debugf(
+          "Signal '%s' broadcast to %s job(s) by %s", signalKey, unblocked, principal);
+    }
+    return unblocked;
+  }
+
+  private String serializeSignalPayload(Serializable payload) {
+    if (payload == null) {
+      return null;
+    }
+    if (payloadSerializer != null) {
+      return payloadSerializer.serialize(payload);
+    }
+    return payload.toString();
   }
 
   @Override

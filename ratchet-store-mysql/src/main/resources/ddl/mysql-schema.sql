@@ -79,6 +79,9 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     -- W3C TraceContext carrier captured at enqueue time; passed to TracingCollector at execution
     -- start so distributed spans are parented to the submitting caller's trace.
     trace_context         JSON                                                                                                                NULL,
+    -- Generated column extracting the W3C traceparent header for indexed traceCorrelationId lookups.
+    -- TracingCollector SPI contract requires the key 'traceparent' in the flat-map.
+    trace_id_extracted    VARCHAR(55) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(trace_context, '$.traceparent'))) STORED NULL,
     target_class          VARCHAR(255) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(payload, '$.target'))) STORED,
     method_name           VARCHAR(128) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(payload, '$.method'))) STORED,
     idempotency_key       VARCHAR(36)                                                                                                         NOT NULL,
@@ -139,7 +142,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job
   COLLATE = utf8mb4_unicode_ci;
 
 -- 4a. Hot authoritative queue state for executable jobs.
--- Row exists iff the job is live (PENDING / RUNNING / PAUSED). DELETED at terminal. All
+-- Row exists iff the job is live (PENDING / RUNNING / PAUSED / WAITING). DELETED at terminal. All
 -- claim, pickup, retry, orphan, pause, resume reads and writes target this table. Immutable
 -- job-shape fields (job_type, priority, business_key, timeout_sec, max_retries) are
 -- denormalized from scheduler_job for single-table claim DTO population — they are set at
@@ -147,7 +150,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job
 CREATE TABLE IF NOT EXISTS scheduler_job_queue
 (
     job_id             BINARY(16)      NOT NULL,
-    status             ENUM ('PENDING','RUNNING','PAUSED')                                                                                NOT NULL DEFAULT 'PENDING',
+    status             ENUM ('PENDING','RUNNING','PAUSED','WAITING')                                                                      NOT NULL DEFAULT 'PENDING',
     job_type           ENUM ('SINGLE','RECURRING','BATCH_PARENT','BATCH_CHILD','CHAIN_STEP','DLQ_ALERT','WORKFLOW_BRANCH','WORKFLOW_JOIN') NOT NULL,
     priority           TINYINT UNSIGNED                                                                                                    NOT NULL DEFAULT 2,
     scheduled_time     DATETIME(6)                                                                                                         NOT NULL,
@@ -161,6 +164,11 @@ CREATE TABLE IF NOT EXISTS scheduler_job_queue
     last_error         TEXT                                                                                                                NULL,
     version            INT                                                                                                                 NOT NULL DEFAULT 0,
     updated_at         DATETIME(6)                                                                                                         NOT NULL,
+    signal_key         VARCHAR(255)                                                                                                        NULL,
+    signal_timeout     DATETIME(3)                                                                                                         NULL,
+    signal_payload     TEXT                                                                                                                NULL,
+    signal_delivered_at DATETIME(3)                                                                                                        NULL,
+    signal_delivered_by VARCHAR(255)                                                                                                       NULL,
     PRIMARY KEY (job_id),
     CONSTRAINT chk_queue_priority CHECK (priority BETWEEN 0 AND 4),
     CONSTRAINT chk_queue_paused_from_status CHECK (paused_from_status IS NULL OR paused_from_status IN ('PENDING','RUNNING','PAUSED')),
@@ -169,7 +177,9 @@ CREATE TABLE IF NOT EXISTS scheduler_job_queue
     -- after the index scan.
     INDEX idx_claim_executable (status, job_type, scheduled_time ASC, priority DESC, job_id ASC),
     -- Orphan scan: status='RUNNING' AND picked_at < :cutoff AND picked_by NOT IN (alive).
-    INDEX idx_queue_orphan (status, picked_at, picked_by)
+    INDEX idx_queue_orphan (status, picked_at, picked_by),
+    INDEX idx_signal_key_status (signal_key, status),
+    INDEX idx_signal_timeout_status (status, signal_timeout)
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci;

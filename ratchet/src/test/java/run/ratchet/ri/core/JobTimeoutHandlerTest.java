@@ -9,8 +9,9 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import run.ratchet.api.BackoffPolicy;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobStatus;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobRetryStore;
@@ -114,11 +115,81 @@ class JobTimeoutHandlerTest {
     verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
   }
 
+  @Test
+  void signalTimeoutRetriesRemainingReschedulesInsteadOfDlq() {
+    JobEntity job = waitingJobWithMaxRetries(3);
+    Instant now = Instant.now();
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1)))
+        .thenReturn(true);
+
+    handler.processSignalTimeout(job, now);
+
+    verify(jobRetryStore, times(1))
+        .scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1));
+    verify(jobBatchStatusStore, never()).compareAndSwapStatus(any(UUID.class), any(), any(), any());
+    verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
+  }
+
+  @Test
+  void signalTimeoutRetriesExhaustedFailsAndEscalatesDlq() {
+    JobEntity job = waitingJobWithMaxRetries(0);
+    Instant now = Instant.now();
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            eq(JOB_ID), eq(JobStatus.WAITING), eq(JobStatus.FAILED), anyString()))
+        .thenReturn(true);
+
+    handler.processSignalTimeout(job, now);
+
+    verify(jobRetryStore, never()).scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt());
+    verify(jobBatchStatusStore, times(1))
+        .compareAndSwapStatus(eq(JOB_ID), eq(JobStatus.WAITING), eq(JobStatus.FAILED), anyString());
+    verify(lifecycleFacade, times(1)).handlePermanentFailure(eq(job), any());
+  }
+
+  @Test
+  void signalTimeoutRacePathDoesNotEscalateToDlqWhenScheduleRetryLoses() {
+    JobEntity job = waitingJobWithMaxRetries(3);
+    Instant now = Instant.now();
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1)))
+        .thenReturn(false);
+
+    handler.processSignalTimeout(job, now);
+
+    verify(jobBatchStatusStore, never()).compareAndSwapStatus(any(UUID.class), any(), any(), any());
+    verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
+  }
+
+  @Test
+  void signalTimeoutIncrementRetryReturnsMinusOneExitsCleanly() {
+    JobEntity job = waitingJobWithMaxRetries(3);
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(-1);
+
+    handler.processSignalTimeout(job, Instant.now());
+
+    verify(jobRetryStore, never()).scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt());
+    verify(jobBatchStatusStore, never()).compareAndSwapStatus(any(UUID.class), any(), any(), any());
+    verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
+  }
+
   private JobEntity jobWithMaxRetries(int maxRetries) {
     JobEntity job = new JobEntity();
     job.setId(JOB_ID);
     job.setMaxRetries(maxRetries);
     job.setStatus(JobStatus.RUNNING);
+    return job;
+  }
+
+  private JobEntity waitingJobWithMaxRetries(int maxRetries) {
+    JobEntity job = new JobEntity();
+    job.setId(JOB_ID);
+    job.setMaxRetries(maxRetries);
+    job.setStatus(JobStatus.WAITING);
+    job.setSignalKey("approval");
+    job.setSignalTimeout(Instant.now().minusSeconds(1));
+    job.setBackoffPolicy(BackoffPolicy.NONE);
     return job;
   }
 }

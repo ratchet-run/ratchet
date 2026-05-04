@@ -242,6 +242,43 @@ public interface JobSchedulerService {
   boolean retryJob(UUID jobId);
 
   /**
+   * Delivers a signal to the specific WAITING job identified by {@code jobId}, transitioning it to
+   * PENDING so it can be picked up for execution.
+   *
+   * <p>Idempotent: if the job is already in a non-WAITING state (including terminal states), this
+   * method returns {@code 0} without modifying the job.
+   *
+   * <p>The signal payload is serialized and stored on the job entity; it is accessible to the
+   * executing task via {@link run.ratchet.api.JobContext#signalPayload(Class)}.
+   *
+   * <p><b>Transaction attribute:</b> {@code REQUIRED}.
+   *
+   * @param jobId UUIDv7 job id of the WAITING job
+   * @param payload optional payload to pass to the executing job; may be null
+   * @return 1 if the job was unblocked, 0 if the job was not found or not in WAITING state
+   */
+  int deliverSignal(UUID jobId, Serializable payload);
+
+  /**
+   * Delivers a signal to all WAITING jobs whose {@code signalKey} matches, transitioning each to
+   * PENDING.
+   *
+   * <p>This is an atomic bulk operation: stores MUST implement it as a single UPDATE WHERE
+   * {@code signal_key = ? AND status = 'WAITING'} (SQL) or equivalent {@code updateMany} within a
+   * session transaction (MongoDB) to prevent duplicate-delivery races.
+   *
+   * <p>Idempotent: jobs already past WAITING are not affected and do not count toward the return
+   * value.
+   *
+   * <p><b>Transaction attribute:</b> {@code REQUIRED}.
+   *
+   * @param signalKey the named signal to broadcast
+   * @param payload optional payload delivered to every unblocked job; may be null
+   * @return the number of jobs transitioned from WAITING to PENDING
+   */
+  int deliverSignal(String signalKey, Serializable payload);
+
+  /**
    * Cancels all recurring jobs associated with the specified tag.
    *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}.

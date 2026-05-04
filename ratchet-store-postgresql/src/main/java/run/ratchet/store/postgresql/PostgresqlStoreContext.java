@@ -2,7 +2,7 @@ package run.ratchet.store.postgresql;
 
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import jakarta.persistence.EntityManager;
 
 final class PostgresqlStoreContext {
@@ -29,7 +29,10 @@ final class PostgresqlStoreContext {
   }
 
   static boolean isLiveStatus(JobStatus status) {
-    return status == JobStatus.PENDING || status == JobStatus.RUNNING || status == JobStatus.PAUSED;
+    return status == JobStatus.PENDING
+        || status == JobStatus.RUNNING
+        || status == JobStatus.PAUSED
+        || status == JobStatus.WAITING;
   }
 
   static boolean isTerminalStatus(JobStatus status) {

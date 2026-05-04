@@ -1,7 +1,7 @@
 package run.ratchet.store.postgresql;
 
 import run.ratchet.api.exception.RatchetTransientStoreException;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
@@ -91,10 +91,10 @@ final class PostgresqlJobTerminalOperations {
         return gateMatched > 0 && cancelJob(id);
       }
       if (newStatus == JobStatus.FAILED) {
-        if (expected != JobStatus.RUNNING) {
+        if (expected != JobStatus.RUNNING && expected != JobStatus.WAITING) {
           return false;
         }
-        return markJobFailedTerminal(id, error, 0);
+        return markJobFailedTerminalFromStatus(id, error, 0, expected);
       }
       throw new IllegalArgumentException("Unsupported CAS target newStatus: " + newStatus);
     } catch (RuntimeException e) {
@@ -108,7 +108,7 @@ final class PostgresqlJobTerminalOperations {
         """
         UPDATE scheduler_job_queue
         SET attempts = attempts + 1, updated_at = statement_timestamp()
-        WHERE job_id = ? AND status = 'RUNNING'
+        WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')
         """;
     int updated = ctx.em().createNativeQuery(updateSql).setParameter(1, id).executeUpdate();
     if (updated == 0) {
@@ -169,7 +169,7 @@ final class PostgresqlJobTerminalOperations {
         UPDATE scheduler_job_queue
         SET status = 'PENDING', last_error = ?, scheduled_time = ?, attempts = ?,
             picked_by = NULL, picked_at = NULL, updated_at = statement_timestamp()
-        WHERE job_id = ? AND status = 'RUNNING'
+        WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')
         """;
     int updated =
         ctx.em()
@@ -183,9 +183,19 @@ final class PostgresqlJobTerminalOperations {
   }
 
   boolean markJobFailedTerminal(UUID id, String terminalError, int totalAttempts) {
+    return markJobFailedTerminalFromStatus(id, terminalError, totalAttempts, JobStatus.RUNNING);
+  }
+
+  private boolean markJobFailedTerminalFromStatus(
+      UUID id, String terminalError, int totalAttempts, JobStatus expectedStatus) {
     // language=PostgreSQL
-    String deleteHotSql = "DELETE FROM scheduler_job_queue WHERE job_id = ? AND status = 'RUNNING'";
-    int hotDeleted = ctx.em().createNativeQuery(deleteHotSql).setParameter(1, id).executeUpdate();
+    String deleteHotSql = "DELETE FROM scheduler_job_queue WHERE job_id = ? AND status = ?";
+    int hotDeleted =
+        ctx.em()
+            .createNativeQuery(deleteHotSql)
+            .setParameter(1, id)
+            .setParameter(2, expectedStatus.name())
+            .executeUpdate();
     if (hotDeleted == 0) {
       return false;
     }
@@ -245,7 +255,7 @@ final class PostgresqlJobTerminalOperations {
     String deleteHotSql =
         """
         DELETE FROM scheduler_job_queue
-        WHERE job_id = ? AND status IN ('PENDING','RUNNING','PAUSED')
+        WHERE job_id = ? AND status IN ('PENDING','RUNNING','PAUSED','WAITING')
         """;
     ctx.em().createNativeQuery(deleteHotSql).setParameter(1, id).executeUpdate();
     // language=PostgreSQL

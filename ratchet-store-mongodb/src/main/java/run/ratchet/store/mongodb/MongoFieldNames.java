@@ -100,10 +100,20 @@ final class MongoFieldNames {
   static final String ERROR_HASH = "error_hash";
   static final String ALERT_SENT_AT = "alert_sent_at";
 
+  // Observability
+  static final String TRACE_CONTEXT = "trace_context";
+
   // Resource permit / limit
   static final String RESOURCE_NAME = "resource_name";
   static final String ACTIVE_COUNT = "active_count";
   static final String MAX_CONCURRENT = "max_concurrent";
   static final String RETRY_DELAY_MS = "retry_delay_ms";
   static final String DESCRIPTION = "description";
+
+  // Signal-waiting jobs
+  static final String SIGNAL_KEY = "signal_key";
+  static final String SIGNAL_TIMEOUT = "signal_timeout";
+  static final String SIGNAL_PAYLOAD = "signal_payload";
+  static final String SIGNAL_DELIVERED_AT = "signal_delivered_at";
+  static final String SIGNAL_DELIVERED_BY = "signal_delivered_by";
 }

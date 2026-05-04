@@ -15,7 +15,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobLogEntity;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.RatchetEntityManagerProvider;
@@ -50,6 +50,7 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   private EntityManager em;
 
   private MysqlJobCrudOperations jobs;
+  private MysqlJobQueryOperations query;
   private MysqlJobClaimOperations claims;
   private MysqlJobLifecycleOperations lifecycle;
   private MysqlBatchOperations batches;
@@ -57,6 +58,7 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   private MysqlArchiveOperations archives;
   private MysqlAuxiliaryOperations auxiliary;
   private MysqlTagOperations tags;
+  private MysqlSignalOperations signals;
 
   /** No-arg constructor required by CDI normal-scope proxying. Not for direct use. */
   protected MysqlJobStoreImpl() {
@@ -664,6 +666,17 @@ class MysqlJobStoreImpl implements MysqlJobStore {
     return auxiliary.cleanupOrphanedPermits(staleNodeIds);
   }
 
+  @Override
+  public List<JobEntity> searchJobs(
+      run.ratchet.api.JobFilter filter, int limit, int offset) {
+    return query.searchJobs(filter, limit, offset);
+  }
+
+  @Override
+  public long countJobs(run.ratchet.api.JobFilter filter) {
+    return query.countJobs(filter);
+  }
+
   @PostConstruct
   void checkIsolationLevel() {
     if (em == null) {
@@ -688,11 +701,31 @@ class MysqlJobStoreImpl implements MysqlJobStore {
     MysqlBusinessKeyReservations reservations = new MysqlBusinessKeyReservations(ctx);
     tags = new MysqlTagOperations(ctx);
     jobs = new MysqlJobCrudOperations(ctx, mapper, reservations, tags);
+    query = new MysqlJobQueryOperations(ctx, mapper, tags);
     batches = new MysqlBatchOperations(ctx);
     claims = new MysqlJobClaimOperations(ctx, jobs);
     lifecycle = new MysqlJobLifecycleOperations(ctx, reservations, batches);
     nodeLocks = new MysqlNodeLockOperations(ctx);
     archives = new MysqlArchiveOperations(ctx, mapper, tags, jobs);
     auxiliary = new MysqlAuxiliaryOperations(ctx);
+    signals = new MysqlSignalOperations(ctx);
+  }
+
+  @Override
+  public java.util.List<run.ratchet.store.entity.JobEntity> findTimedOutSignalJobs(
+      java.time.Instant now) {
+    return signals.findTimedOutSignalJobs(now);
+  }
+
+  @Override
+  public int deliverSignalById(
+      java.util.UUID jobId, String payload, String deliveredBy, java.time.Instant deliveredAt) {
+    return signals.deliverSignalById(jobId, payload, deliveredBy, deliveredAt);
+  }
+
+  @Override
+  public int deliverSignalByKey(
+      String signalKey, String payload, String deliveredBy, java.time.Instant deliveredAt) {
+    return signals.deliverSignalByKey(signalKey, payload, deliveredBy, deliveredAt);
   }
 }

@@ -4,7 +4,7 @@ import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.entity.JobStatus;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.id.UuidV7Factory;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
@@ -33,8 +33,8 @@ final class PostgresqlJobWriteOperations {
       INSERT INTO scheduler_job_queue (
         job_id, status, job_type, priority, scheduled_time, business_key, timeout_sec,
         max_retries, attempts, picked_by, picked_at, paused_from_status, last_error,
-        version, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        version, updated_at, signal_key, signal_timeout)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       """;
 
   private final PostgresqlStoreContext ctx;
@@ -268,7 +268,10 @@ final class PostgresqlJobWriteOperations {
         i++, job.getPausedFromStatus() != null ? job.getPausedFromStatus().name() : null);
     q.setParameter(i++, job.getLastError());
     q.setParameter(i++, job.getVersion() != null ? job.getVersion() : 0);
-    q.setParameter(i, nowTs);
+    q.setParameter(i++, nowTs);
+    q.setParameter(i++, job.getSignalKey());
+    q.setParameter(
+        i, job.getSignalTimeout() != null ? Timestamp.from(job.getSignalTimeout()) : null);
   }
 
   private void saveColdUpdate(JobEntity job) {
