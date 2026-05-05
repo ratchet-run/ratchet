@@ -1,13 +1,13 @@
 package run.ratchet.ri.cdi;
 
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.ri.core.ChainScheduler;
 import run.ratchet.ri.core.DefaultNodeIdentityProvider;
 import run.ratchet.ri.core.DefaultNodeTagAffinityProvider;
 import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.DynamicHeartbeatCalculator;
 import run.ratchet.ri.core.ExecutionObserver;
 import run.ratchet.ri.core.InternalEventPublisher;
-import run.ratchet.ri.core.ChainScheduler;
 import run.ratchet.ri.core.JobExecutionCoordinator;
 import run.ratchet.ri.core.JobTimeoutHandler;
 import run.ratchet.ri.core.OrphanRecoveryTimer;
@@ -167,7 +167,8 @@ public class RatchetProducer {
         clock,
         eventPublisher,
         chainScheduler,
-        signalStore);
+        signalStore,
+        metricsCollector);
   }
 
   @Produces

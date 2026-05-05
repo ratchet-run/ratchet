@@ -8,8 +8,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import run.ratchet.store.entity.JobEntity;
 import run.ratchet.api.JobStatus;
+import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobCrudStore;
 import java.time.Instant;
 import java.util.List;
@@ -90,6 +90,21 @@ class ChainSchedulerTest {
   }
 
   @Test
+  void scheduleNext_waitingChildWithSentinel_unlocksScheduleAndKeepsWaiting() {
+    JobEntity finished = pendingJob();
+    JobEntity child = job(JobStatus.WAITING);
+    child.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
+
+    when(jobCrudStore.findDependants(finished.getId())).thenReturn(List.of(child));
+
+    assertTrue(scheduler.scheduleNext(finished));
+
+    verify(jobCrudStore).save(child);
+    assertEquals(JobStatus.WAITING, child.getStatus());
+    assertNotEquals(ChainScheduler.CHAIN_LOCK_TIME, child.getScheduledTime());
+  }
+
+  @Test
   void scheduleNext_mixedChildren_onlyUnlocksSentinelPendingOnes() {
     JobEntity finished = pendingJob();
     JobEntity unlockable = pendingJob();
@@ -160,6 +175,20 @@ class ChainSchedulerTest {
 
     verify(jobCrudStore, never()).save(child);
     assertEquals(JobStatus.RUNNING, child.getStatus());
+  }
+
+  @Test
+  void cancelChain_waitingChild_isCanceled() {
+    JobEntity failed = pendingJob();
+    JobEntity child = job(JobStatus.WAITING);
+
+    when(jobCrudStore.findDependants(failed.getId())).thenReturn(List.of(child));
+    when(jobCrudStore.findDependants(child.getId())).thenReturn(List.of());
+
+    scheduler.cancelChain(failed);
+
+    verify(jobCrudStore).save(child);
+    assertEquals(JobStatus.CANCELED, child.getStatus());
   }
 
   @Test

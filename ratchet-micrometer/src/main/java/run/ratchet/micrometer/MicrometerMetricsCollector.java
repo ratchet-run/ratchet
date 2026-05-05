@@ -2,6 +2,7 @@ package run.ratchet.micrometer;
 
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
+import run.ratchet.api.SignalDecision;
 import run.ratchet.spi.ExceptionFamily;
 import run.ratchet.spi.MetricsCollector;
 import io.micrometer.core.instrument.Counter;
@@ -37,6 +38,10 @@ import org.jboss.logging.Logger;
  *   <li>{@code ratchet.wakeup.cluster.publish} — counter, tagged by transport and outcome
  *   <li>{@code ratchet.wakeup.cluster.receive} — counter, tagged by transport and outcome
  *   <li>{@code ratchet.callbacks.failed} — counter, tagged by type and exception family
+ *   <li>{@code ratchet.signal.waiting} — counter, tagged by type
+ *   <li>{@code ratchet.signal.delivered} — counter, tagged by type and outcome
+ *   <li>{@code ratchet.signal.timed_out} — counter, tagged by type
+ *   <li>{@code ratchet.signal.cancelled} — counter, tagged by type
  *   <li>{@code ratchet.poller.breaker.state} — gauge, tagged by breaker
  *   <li>{@code ratchet.store.operation} — timer, tagged by store, operation, and outcome
  * </ul>
@@ -216,6 +221,52 @@ public class MicrometerMetricsCollector implements MetricsCollector {
         .register(registry)
         .increment();
     logRawFailure("callback", jobId, type, cause, family, attempt);
+  }
+
+  @Override
+  public void signalWaiting(UUID jobId, JobType type, String signalKey) {
+    if (registry == null) {
+      return;
+    }
+    Counter.builder("ratchet.signal.waiting")
+        .tag("type", type.name())
+        .register(registry)
+        .increment();
+  }
+
+  @Override
+  public void signalDelivered(
+      UUID jobId, JobType type, String signalKey, SignalDecision.Outcome outcome) {
+    if (registry == null) {
+      return;
+    }
+    Counter.builder("ratchet.signal.delivered")
+        .tag("type", type.name())
+        .tag("outcome", outcome != null ? outcome.name() : "UNKNOWN")
+        .register(registry)
+        .increment();
+  }
+
+  @Override
+  public void signalTimedOut(UUID jobId, JobType type, String signalKey) {
+    if (registry == null) {
+      return;
+    }
+    Counter.builder("ratchet.signal.timed_out")
+        .tag("type", type.name())
+        .register(registry)
+        .increment();
+  }
+
+  @Override
+  public void signalCancelled(UUID jobId, JobType type, String signalKey) {
+    if (registry == null) {
+      return;
+    }
+    Counter.builder("ratchet.signal.cancelled")
+        .tag("type", type.name())
+        .register(registry)
+        .increment();
   }
 
   @Override

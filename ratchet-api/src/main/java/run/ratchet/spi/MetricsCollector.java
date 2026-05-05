@@ -3,6 +3,7 @@ package run.ratchet.spi;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
+import run.ratchet.api.SignalDecision;
 import java.util.UUID;
 
 /**
@@ -80,6 +81,27 @@ public interface MetricsCollector {
    * failures never fail the parent job. Default is a no-op.
    */
   default void callbackFailed(UUID jobId, JobType type, Throwable cause, int attempt) {
+    // default no-op
+  }
+
+  /** Called when a job is created in WAITING status for an external signal. */
+  default void signalWaiting(UUID jobId, JobType type, String signalKey) {
+    // default no-op
+  }
+
+  /** Called after a signal delivery transitions a job from WAITING to PENDING. */
+  default void signalDelivered(
+      UUID jobId, JobType type, String signalKey, SignalDecision.Outcome outcome) {
+    // default no-op
+  }
+
+  /** Called when a signal-waiting job times out. */
+  default void signalTimedOut(UUID jobId, JobType type, String signalKey) {
+    // default no-op
+  }
+
+  /** Called when a signal-waiting job is cancelled before delivery. */
+  default void signalCancelled(UUID jobId, JobType type, String signalKey) {
     // default no-op
   }
 

@@ -11,22 +11,29 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import run.ratchet.api.CircuitBreakerProtected;
+import run.ratchet.api.JobContext;
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobStatus;
+import run.ratchet.api.SignalDecision;
 import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.ErrorSanitizer;
+import run.ratchet.spi.JobLogger;
 import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.spi.ResilienceStrategy;
+import run.ratchet.spi.ResultPersistenceStrategy;
 import run.ratchet.spi.RetryPolicy;
+import run.ratchet.spi.SerializedJobResult;
 import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
-import run.ratchet.api.JobStatus;
 import run.ratchet.store.spi.JobStore;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
@@ -43,6 +50,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class JobTaskTest {
 
   private static final UUID JOB_UUID = new UUID(0L, 42L);
+  private static volatile SignalDecision observedSignalDecision;
 
   private final ClassPolicy classPolicy = className -> true;
   @Mock private JobStore jobStore;
@@ -58,6 +66,11 @@ class JobTaskTest {
   private JobTask jobTask;
 
   public static String testJobMethod() {
+    return "done";
+  }
+
+  public static String captureSignalDecision() {
+    observedSignalDecision = JobContext.current().signalPayload(SignalDecision.class);
     return "done";
   }
 
@@ -347,6 +360,67 @@ class JobTaskTest {
     verify(observabilityFacade, never()).recordJobSuccess(any(), anyLong());
   }
 
+  @Test
+  @SuppressWarnings("unchecked")
+  void call_deserializesStructuredSignalDecisionIntoJobContext() throws Exception {
+    SignalDecision decision = SignalDecision.rejected("payload", "denied");
+    observedSignalDecision = null;
+    PayloadSerializer signalSerializer =
+        new PayloadSerializer() {
+          @Override
+          public String serialize(Object payload) {
+            return null;
+          }
+
+          @Override
+          public <T> T deserialize(String json, Class<T> type) {
+            return type.cast(decision);
+          }
+        };
+    ResultPersistenceStrategy resultPersistenceStrategy =
+        (jobId, result) -> SerializedJobResult.empty();
+    JobTask signalTask =
+        new JobTask(
+            jobStore,
+            resourcePermitService,
+            lifecycleFacade,
+            nodeIdProvider,
+            observabilityFacade,
+            validationFacade,
+            beanResolver,
+            retryPolicy,
+            resilienceStrategy,
+            errorSanitizer,
+            classPolicy,
+            context -> noopLogger(),
+            resultPersistenceStrategy,
+            null,
+            signalSerializer,
+            Clock.systemUTC());
+    JobEntity job = createTestJob();
+    job.setPayload(
+        new JobPayload(
+            JobTaskTest.class.getName(),
+            "captureSignalDecision",
+            "()Ljava/lang/String;",
+            true,
+            List.of()));
+    job.setSignalPayload("{\"outcome\":\"REJECTED\"}");
+    job.setSignalPayloadType(DefaultJobSchedulerService.SIGNAL_PAYLOAD_TYPE_DECISION);
+    initJobTaskWithDefaultStubs(signalTask, job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resilienceStrategy.execute(anyString(), any(Callable.class)))
+        .thenAnswer(inv -> ((Callable<?>) inv.getArgument(1)).call());
+    when(jobStore.markJobSucceeded(
+            any(UUID.class), any(), any(), any(), any(), anyLong(), anyLong()))
+        .thenReturn(true);
+
+    signalTask.call();
+
+    Assertions.assertSame(decision, observedSignalDecision);
+  }
+
   private JobEntity createTestJob() {
     JobEntity job = new JobEntity();
     job.setId(JOB_UUID);
@@ -360,12 +434,35 @@ class JobTaskTest {
   }
 
   private void initJobTaskWithDefaultStubs(JobEntity job) {
-    jobTask.init(job);
+    initJobTaskWithDefaultStubs(jobTask, job);
+  }
+
+  private void initJobTaskWithDefaultStubs(JobTask task, JobEntity job) {
+    task.init(job);
     when(nodeIdProvider.getNodeId()).thenReturn("node-1");
     when(observabilityFacade.startExecution(any(UUID.class), anyInt(), anyString()))
         .thenReturn(JobExecutionEntity.start(job.getId(), 1, "node-1"));
     when(observabilityFacade.startExecutionScope(any(JobEntity.class)))
         .thenReturn(TracingCollector.NoOpExecutionScope.INSTANCE);
+  }
+
+  private static JobLogger noopLogger() {
+    return new JobLogger() {
+      @Override
+      public void info(String message) {}
+
+      @Override
+      public void debug(String message) {}
+
+      @Override
+      public void warn(String message) {}
+
+      @Override
+      public void error(String message) {}
+
+      @Override
+      public void trace(String message) {}
+    };
   }
 
   public static class AnnotatedJobTarget {

@@ -6,6 +6,7 @@ import run.ratchet.api.JobBuilder;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobOptions;
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobSubmitter;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.WorkflowBranch;
@@ -16,12 +17,12 @@ import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.ri.security.JobPayloadInputValidator;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobInvocationResolver;
+import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
-import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobBatchStatusStore;
@@ -64,6 +65,7 @@ public class DefaultJobCreationService
   private final TracingCollector tracingCollector;
   private final JobAuthorizationPolicy authorizationPolicy;
   private final InternalEventPublisher eventPublisher;
+  private final MetricsCollector metricsCollector;
   private final Clock clock;
 
   protected DefaultJobCreationService() {
@@ -81,6 +83,7 @@ public class DefaultJobCreationService
     this.tracingCollector = null;
     this.authorizationPolicy = null;
     this.eventPublisher = null;
+    this.metricsCollector = null;
     this.clock = null;
   }
 
@@ -108,7 +111,43 @@ public class DefaultJobCreationService
         null,
         null,
         null,
+        null,
         Clock.systemUTC());
+  }
+
+  public DefaultJobCreationService(
+      JobBatchStatusStore jobBatchStatusStore,
+      JobTerminalStore jobTerminalStore,
+      JobCrudStore jobCrudStore,
+      BatchStore batchStore,
+      TagStore tagStore,
+      WorkflowConditionStore workflowConditionStore,
+      JobWakeupService wakeupService,
+      RecurringScheduler recurringScheduler,
+      JobInvocationResolver jobInvocationResolver,
+      JobPayloadInputValidator payloadValidator,
+      CallerPrincipalProvider callerPrincipalProvider,
+      TracingCollector tracingCollector,
+      JobAuthorizationPolicy authorizationPolicy,
+      InternalEventPublisher eventPublisher,
+      Clock clock) {
+    this(
+        jobBatchStatusStore,
+        jobTerminalStore,
+        jobCrudStore,
+        batchStore,
+        tagStore,
+        workflowConditionStore,
+        wakeupService,
+        recurringScheduler,
+        jobInvocationResolver,
+        payloadValidator,
+        callerPrincipalProvider,
+        tracingCollector,
+        authorizationPolicy,
+        eventPublisher,
+        null,
+        clock);
   }
 
   @Inject
@@ -127,6 +166,7 @@ public class DefaultJobCreationService
       TracingCollector tracingCollector,
       JobAuthorizationPolicy authorizationPolicy,
       InternalEventPublisher eventPublisher,
+      MetricsCollector metricsCollector,
       Clock clock) {
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.jobTerminalStore = jobTerminalStore;
@@ -142,6 +182,7 @@ public class DefaultJobCreationService
     this.tracingCollector = tracingCollector;
     this.authorizationPolicy = authorizationPolicy;
     this.eventPublisher = eventPublisher;
+    this.metricsCollector = metricsCollector;
     this.clock = clock;
   }
 
@@ -218,6 +259,9 @@ public class DefaultJobCreationService
               builder.awaitSignalDeadline() != null
                   ? java.time.Duration.between(effective().instant(), builder.awaitSignalDeadline())
                   : null));
+    }
+    if (isSignalWaiting && metricsCollector != null) {
+      metricsCollector.signalWaiting(jobId, saved.getPublicJobType(), signalKey);
     }
 
     List<String> tags = builder.tags();

@@ -2,6 +2,7 @@ package run.ratchet.store.mongodb;
 
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobStatus;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.store.dto.BatchProgress;
@@ -15,7 +16,6 @@ import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.JobPayload;
-import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
@@ -85,8 +85,12 @@ public final class DocumentMapper {
     doc.append("signal_key", job.getSignalKey());
     doc.append("signal_timeout", toDate(job.getSignalTimeout()));
     doc.append("signal_payload", job.getSignalPayload());
+    doc.append("signal_payload_type", job.getSignalPayloadType());
+    doc.append("signal_outcome", job.getSignalOutcome());
+    doc.append("signal_rejection_reason", job.getSignalRejectionReason());
     doc.append("signal_delivered_at", toDate(job.getSignalDeliveredAt()));
     doc.append("signal_delivered_by", job.getSignalDeliveredBy());
+    doc.append("signal_delivery_id", job.getSignalDeliveryId());
     return doc;
   }
 
@@ -139,8 +143,12 @@ public final class DocumentMapper {
     job.setSignalKey(doc.getString("signal_key"));
     job.setSignalTimeout(toInstant(doc.getDate("signal_timeout")));
     job.setSignalPayload(doc.getString("signal_payload"));
+    job.setSignalPayloadType(doc.getString("signal_payload_type"));
+    job.setSignalOutcome(doc.getString("signal_outcome"));
+    job.setSignalRejectionReason(doc.getString("signal_rejection_reason"));
     job.setSignalDeliveredAt(toInstant(doc.getDate("signal_delivered_at")));
     job.setSignalDeliveredBy(doc.getString("signal_delivered_by"));
+    job.setSignalDeliveryId(doc.getString("signal_delivery_id"));
     return job;
   }
 
@@ -297,10 +305,10 @@ public final class DocumentMapper {
   }
 
   /**
-   * Maps an archive document from {@code scheduler_job_archive} to a {@link JobEntity} suitable
-   * for inclusion in dashboard query results. Fields absent from the archive are left null or
-   * zero-valued. Uses archive-specific field names (e.g. {@code original_job_id},
-   * {@code final_status}, {@code first_execution_time}) that differ from the live collection.
+   * Maps an archive document from {@code scheduler_job_archive} to a {@link JobEntity} suitable for
+   * inclusion in dashboard query results. Fields absent from the archive are left null or
+   * zero-valued. Uses archive-specific field names (e.g. {@code original_job_id}, {@code
+   * final_status}, {@code first_execution_time}) that differ from the live collection.
    */
   public static JobEntity archivedDocToJobEntity(Document doc) {
     if (doc == null) {

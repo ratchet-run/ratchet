@@ -1,5 +1,6 @@
 package run.ratchet.ri.core;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -10,10 +11,13 @@ import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.ExecutionStore;
+import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -102,5 +106,31 @@ class ExecutionObserverTest {
     observer.recordSuccessFinalizationStuck(job);
 
     verify(metricsCollector).successFinalizationStuck(job.getId(), job.getPublicJobType());
+  }
+
+  @Test
+  void startExecutionScope_addsSignalTracingAttributes() {
+    JobEntity job = job(42L);
+    job.setSignalKey("approval");
+    job.setSignalOutcome("REJECTED");
+    job.setSignalDeliveredBy("admin");
+    job.setCreatedAt(Instant.parse("2026-01-01T00:00:00Z"));
+    job.setSignalDeliveredAt(Instant.parse("2026-01-01T00:00:02Z"));
+
+    observer.startExecutionScope(job);
+
+    @SuppressWarnings("unchecked")
+    ArgumentCaptor<Map<String, String>> attributesCaptor = ArgumentCaptor.forClass(Map.class);
+    verify(tracingCollector)
+        .jobExecutionStarted(
+            org.mockito.ArgumentMatchers.eq(job.getId()),
+            org.mockito.ArgumentMatchers.eq(job.getPublicJobType()),
+            org.mockito.ArgumentMatchers.eq(job.getPriority()),
+            org.mockito.ArgumentMatchers.eq(Map.of()),
+            attributesCaptor.capture());
+    assertEquals("approval", attributesCaptor.getValue().get("ratchet.signal.key"));
+    assertEquals("REJECTED", attributesCaptor.getValue().get("ratchet.signal.outcome"));
+    assertEquals("true", attributesCaptor.getValue().get("ratchet.signal.delivered_by.present"));
+    assertEquals("2000", attributesCaptor.getValue().get("ratchet.signal.wait_ms"));
   }
 }

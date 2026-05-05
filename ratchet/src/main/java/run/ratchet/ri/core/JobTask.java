@@ -1,8 +1,10 @@
 package run.ratchet.ri.core;
 
 import run.ratchet.api.CircuitBreakerProtected;
+import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.SignalDecision;
 import run.ratchet.api.event.JobCallbackFailedEvent;
 import run.ratchet.api.event.JobCancelledEvent;
 import run.ratchet.api.event.JobCompletedEvent;
@@ -21,9 +23,9 @@ import run.ratchet.spi.JobLogger;
 import run.ratchet.spi.JobLoggerContext;
 import run.ratchet.spi.JobLoggerFactory;
 import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.spi.ResilienceStrategy;
 import run.ratchet.spi.ResultPersistenceStrategy;
-import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.spi.RetryPolicy;
 import run.ratchet.spi.SerializedJobResult;
 import run.ratchet.spi.TracingCollector;
@@ -32,7 +34,6 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
-import run.ratchet.api.JobStatus;
 import run.ratchet.store.spi.JobStore;
 import jakarta.inject.Inject;
 import java.io.Serial;
@@ -262,8 +263,13 @@ public class JobTask implements Callable<Void> {
     String rawSignalPayload = jobEntity.getSignalPayload();
     if (rawSignalPayload != null && payloadSerializer != null) {
       try {
+        Class<? extends java.io.Serializable> signalPayloadType =
+            DefaultJobSchedulerService.SIGNAL_PAYLOAD_TYPE_DECISION.equals(
+                    jobEntity.getSignalPayloadType())
+                ? SignalDecision.class
+                : java.io.Serializable.class;
         deserializedSignalPayload =
-            payloadSerializer.deserialize(rawSignalPayload, java.io.Serializable.class);
+            payloadSerializer.deserialize(rawSignalPayload, signalPayloadType);
       } catch (Exception e) {
         log.warnf("Failed to deserialize signal payload for job %s: %s", jobId, e.getMessage());
       }

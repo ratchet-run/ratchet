@@ -77,6 +77,16 @@ public class MicrometerTracingCollector implements TracingCollector {
   @Override
   public ExecutionScope jobExecutionStarted(
       UUID jobId, JobType type, JobPriority priority, Map<String, String> parentContext) {
+    return jobExecutionStarted(jobId, type, priority, parentContext, Map.of());
+  }
+
+  @Override
+  public ExecutionScope jobExecutionStarted(
+      UUID jobId,
+      JobType type,
+      JobPriority priority,
+      Map<String, String> parentContext,
+      Map<String, String> attributes) {
     if (tracer == null || propagator == null) {
       return NoOpExecutionScope.INSTANCE;
     }
@@ -90,6 +100,9 @@ public class MicrometerTracingCollector implements TracingCollector {
         .tag("ratchet.job.id", jobId.toString())
         .tag("ratchet.job.type", type.name())
         .tag("ratchet.job.priority", priority.name());
+    if (attributes != null) {
+      attributes.forEach(span::tag);
+    }
 
     return new MicrometerExecutionScope(span, tracer.withSpan(span));
   }

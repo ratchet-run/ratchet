@@ -5,11 +5,11 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
-import run.ratchet.api.JobStatus;
 import run.ratchet.store.id.UuidV7Factory;
 import java.time.Instant;
 import java.util.List;
@@ -36,6 +36,30 @@ class DocumentMapperTest {
     doc.put("payload", legacyPayloadDocument(payload));
 
     assertEquals(payload, DocumentMapper.toJobEntity(doc).getPayload());
+  }
+
+  @Test
+  void roundTripsSignalDecisionMetadata() {
+    JobEntity job = job(payload("com.example.SignalJob", "run"));
+    job.setSignalKey("approval");
+    job.setSignalPayload("{\"outcome\":\"REJECTED\"}");
+    job.setSignalPayloadType("DECISION");
+    job.setSignalOutcome("REJECTED");
+    job.setSignalRejectionReason("policy denied");
+    job.setSignalDeliveredBy("admin");
+    job.setSignalDeliveredAt(Instant.parse("2026-01-01T00:01:00Z"));
+    job.setSignalDeliveryId("delivery-id");
+
+    JobEntity reloaded = DocumentMapper.toJobEntity(DocumentMapper.toDocument(job));
+
+    assertEquals("approval", reloaded.getSignalKey());
+    assertEquals("{\"outcome\":\"REJECTED\"}", reloaded.getSignalPayload());
+    assertEquals("DECISION", reloaded.getSignalPayloadType());
+    assertEquals("REJECTED", reloaded.getSignalOutcome());
+    assertEquals("policy denied", reloaded.getSignalRejectionReason());
+    assertEquals("admin", reloaded.getSignalDeliveredBy());
+    assertEquals(Instant.parse("2026-01-01T00:01:00Z"), reloaded.getSignalDeliveredAt());
+    assertEquals("delivery-id", reloaded.getSignalDeliveryId());
   }
 
   @Test

@@ -1,5 +1,7 @@
 package run.ratchet.tck.api;
 
+import run.ratchet.api.JobContext;
+import run.ratchet.api.SignalDecision;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
@@ -40,6 +42,8 @@ public final class TckJobs {
   private static final AtomicReference<CountDownLatch> STARTED_LATCH = new AtomicReference<>();
   private static final AtomicReference<CountDownLatch> RELEASE_LATCH = new AtomicReference<>();
   private static final ConcurrentLinkedQueue<String> CHAIN_EVENTS = new ConcurrentLinkedQueue<>();
+  private static final ConcurrentLinkedQueue<String> SIGNAL_DECISIONS =
+      new ConcurrentLinkedQueue<>();
 
   private TckJobs() {}
 
@@ -103,9 +107,27 @@ public final class TckJobs {
     CHAIN_EVENTS.add("step-C");
   }
 
+  /** Signal-waiting task body that records the delivered decision visible through JobContext. */
+  public static void recordSignalDecision() {
+    SignalDecision decision = JobContext.current().signalPayload(SignalDecision.class);
+    SIGNAL_DECISIONS.add(
+        decision == null
+            ? "null"
+            : decision.outcome()
+                + ":"
+                + decision.payload(String.class)
+                + ":"
+                + decision.rejectionReason());
+  }
+
   /** Snapshot of recorded chain events in observation order. */
   public static List<String> chainEvents() {
     return List.copyOf(CHAIN_EVENTS);
+  }
+
+  /** Snapshot of recorded signal decisions in observation order. */
+  public static List<String> signalDecisions() {
+    return List.copyOf(SIGNAL_DECISIONS);
   }
 
   /** Resets every piece of process-static state. Call from {@code @AfterEach}. */
@@ -113,5 +135,6 @@ public final class TckJobs {
     STARTED_LATCH.set(null);
     RELEASE_LATCH.set(null);
     CHAIN_EVENTS.clear();
+    SIGNAL_DECISIONS.clear();
   }
 }

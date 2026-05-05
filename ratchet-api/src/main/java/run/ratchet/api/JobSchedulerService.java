@@ -170,6 +170,8 @@ public interface JobSchedulerService {
    *   <li><b>Batch:</b> {@code BatchCompletingEvent}, {@code BatchCompletedEvent}
    *   <li><b>Chain/Workflow:</b> {@code ChainStartedEvent}, {@code ChainCompletedEvent}, {@code
    *       ChainFailedEvent}, {@code WorkflowBranchTriggeredEvent}
+   *   <li><b>Signals:</b> {@code JobSignalWaitingEvent}, {@code JobSignaledEvent}, {@code
+   *       JobSignalTimedOutEvent}
    *   <li><b>Observability:</b> {@code JobDlqEvent}, {@code PerformanceMetricsEvent}
    * </ul>
    *
@@ -260,12 +262,39 @@ public interface JobSchedulerService {
   int deliverSignal(UUID jobId, Serializable payload);
 
   /**
+   * Delivers a structured approval/rejection decision to the specific WAITING job identified by
+   * {@code jobId}, transitioning it to PENDING so job code can consume the decision through {@link
+   * JobContext#signalPayload(Class)}.
+   *
+   * <p>Idempotent: if the job is already in a non-WAITING state (including terminal states), this
+   * method returns {@code 0} without modifying the job.
+   *
+   * <p><b>Transaction attribute:</b> {@code REQUIRED}.
+   *
+   * @param jobId UUIDv7 job id of the WAITING job
+   * @param decision decision payload; must not be null
+   * @return 1 if the job was unblocked, 0 if the job was not found or not in WAITING state
+   */
+  default int deliverSignal(UUID jobId, SignalDecision decision) {
+    return deliverSignal(jobId, (Serializable) decision);
+  }
+
+  /**
+   * Convenience method for delivering a rejected decision to a specific WAITING job. Rejection
+   * still unblocks the job; the job body decides domain behavior from {@link
+   * SignalDecision#outcome()}.
+   */
+  default int rejectSignal(UUID jobId, Serializable payload, String rejectionReason) {
+    return deliverSignal(jobId, SignalDecision.rejected(payload, rejectionReason));
+  }
+
+  /**
    * Delivers a signal to all WAITING jobs whose {@code signalKey} matches, transitioning each to
    * PENDING.
    *
-   * <p>This is an atomic bulk operation: stores MUST implement it as a single UPDATE WHERE
-   * {@code signal_key = ? AND status = 'WAITING'} (SQL) or equivalent {@code updateMany} within a
-   * session transaction (MongoDB) to prevent duplicate-delivery races.
+   * <p>This is an atomic bulk operation: stores MUST implement it as a single UPDATE WHERE {@code
+   * signal_key = ? AND status = 'WAITING'} (SQL) or equivalent {@code updateMany} within a session
+   * transaction (MongoDB) to prevent duplicate-delivery races.
    *
    * <p>Idempotent: jobs already past WAITING are not affected and do not count toward the return
    * value.
@@ -277,6 +306,28 @@ public interface JobSchedulerService {
    * @return the number of jobs transitioned from WAITING to PENDING
    */
   int deliverSignal(String signalKey, Serializable payload);
+
+  /**
+   * Delivers a structured approval/rejection decision to all WAITING jobs whose {@code signalKey}
+   * matches, transitioning each to PENDING.
+   *
+   * <p><b>Transaction attribute:</b> {@code REQUIRED}.
+   *
+   * @param signalKey the named signal to broadcast
+   * @param decision decision payload; must not be null
+   * @return the number of jobs transitioned from WAITING to PENDING
+   */
+  default int deliverSignal(String signalKey, SignalDecision decision) {
+    return deliverSignal(signalKey, (Serializable) decision);
+  }
+
+  /**
+   * Convenience method for delivering a rejected decision to all WAITING jobs with the given signal
+   * key.
+   */
+  default int rejectSignal(String signalKey, Serializable payload, String rejectionReason) {
+    return deliverSignal(signalKey, SignalDecision.rejected(payload, rejectionReason));
+  }
 
   /**
    * Cancels all recurring jobs associated with the specified tag.

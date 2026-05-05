@@ -8,8 +8,12 @@ import static com.mongodb.client.model.Updates.combine;
 import static com.mongodb.client.model.Updates.set;
 import static run.ratchet.store.mongodb.MongoFieldNames.SIGNAL_DELIVERED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.SIGNAL_DELIVERED_BY;
+import static run.ratchet.store.mongodb.MongoFieldNames.SIGNAL_DELIVERY_ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.SIGNAL_KEY;
+import static run.ratchet.store.mongodb.MongoFieldNames.SIGNAL_OUTCOME;
 import static run.ratchet.store.mongodb.MongoFieldNames.SIGNAL_PAYLOAD;
+import static run.ratchet.store.mongodb.MongoFieldNames.SIGNAL_PAYLOAD_TYPE;
+import static run.ratchet.store.mongodb.MongoFieldNames.SIGNAL_REJECTION_REASON;
 import static run.ratchet.store.mongodb.MongoFieldNames.SIGNAL_TIMEOUT;
 import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
 import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
@@ -63,22 +67,31 @@ final class MongoSignalOperations implements SignalStore {
 
   @Override
   public int deliverSignalById(
-      UUID jobId, String payload, String deliveredBy, Instant deliveredAt) {
+      UUID jobId,
+      String payload,
+      String payloadType,
+      String outcome,
+      String rejectionReason,
+      String deliveredBy,
+      Instant deliveredAt,
+      String deliveryId) {
     Bson filter = and(eq("_id", jobId), eq(STATUS, JobStatus.WAITING.name()));
     Bson update =
         combine(
             set(STATUS, JobStatus.PENDING.name()),
             set(SIGNAL_PAYLOAD, payload),
+            set(SIGNAL_PAYLOAD_TYPE, payloadType),
+            set(SIGNAL_OUTCOME, outcome),
+            set(SIGNAL_REJECTION_REASON, rejectionReason),
             set(SIGNAL_DELIVERED_AT, deliveredAt != null ? Date.from(deliveredAt) : null),
             set(SIGNAL_DELIVERED_BY, deliveredBy),
+            set(SIGNAL_DELIVERY_ID, deliveryId),
             set(UPDATED_AT, Date.from(Instant.now())));
 
     Document found =
         ctx.jobs()
             .findOneAndUpdate(
-                filter,
-                update,
-                new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
+                filter, update, new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
     int updated = found != null ? 1 : 0;
     log.debugf("deliverSignalById(%s): %s", jobId, updated > 0 ? "delivered" : "miss");
     return updated;
@@ -86,14 +99,25 @@ final class MongoSignalOperations implements SignalStore {
 
   @Override
   public int deliverSignalByKey(
-      String signalKey, String payload, String deliveredBy, Instant deliveredAt) {
+      String signalKey,
+      String payload,
+      String payloadType,
+      String outcome,
+      String rejectionReason,
+      String deliveredBy,
+      Instant deliveredAt,
+      String deliveryId) {
     Bson filter = and(eq(SIGNAL_KEY, signalKey), eq(STATUS, JobStatus.WAITING.name()));
     Bson update =
         combine(
             set(STATUS, JobStatus.PENDING.name()),
             set(SIGNAL_PAYLOAD, payload),
+            set(SIGNAL_PAYLOAD_TYPE, payloadType),
+            set(SIGNAL_OUTCOME, outcome),
+            set(SIGNAL_REJECTION_REASON, rejectionReason),
             set(SIGNAL_DELIVERED_AT, deliveredAt != null ? Date.from(deliveredAt) : null),
             set(SIGNAL_DELIVERED_BY, deliveredBy),
+            set(SIGNAL_DELIVERY_ID, deliveryId),
             set(UPDATED_AT, Date.from(Instant.now())));
 
     UpdateResult result;
@@ -103,5 +127,17 @@ final class MongoSignalOperations implements SignalStore {
     int updated = (int) result.getModifiedCount();
     log.debugf("deliverSignalByKey('%s'): %s job(s) unblocked", signalKey, updated);
     return updated;
+  }
+
+  @Override
+  public List<JobEntity> findJobsBySignalDeliveryId(String deliveryId) {
+    if (deliveryId == null || deliveryId.isBlank()) {
+      return List.of();
+    }
+    List<JobEntity> result = new ArrayList<>();
+    for (Document doc : ctx.jobs().find(eq(SIGNAL_DELIVERY_ID, deliveryId))) {
+      result.add(DocumentMapper.toJobEntity(doc));
+    }
+    return result;
   }
 }

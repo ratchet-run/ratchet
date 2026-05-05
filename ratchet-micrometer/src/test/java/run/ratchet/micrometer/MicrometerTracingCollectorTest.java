@@ -125,6 +125,26 @@ class MicrometerTracingCollectorTest {
   }
 
   @Test
+  void jobExecutionStarted_tagsAdditionalAttributes() {
+    when(tracer.nextSpan()).thenReturn(span);
+    when(span.start()).thenReturn(span);
+    when(span.name(any())).thenReturn(span);
+    when(span.tag(any(), any())).thenReturn(span);
+    when(tracer.withSpan(span)).thenReturn(spanInScope);
+
+    collectorWithTracers()
+        .jobExecutionStarted(
+            UUID.randomUUID(),
+            JobType.SINGLE,
+            JobPriority.NORMAL,
+            Map.of(),
+            Map.of("ratchet.signal.outcome", "REJECTED", "ratchet.signal.key", "approval"));
+
+    verify(span).tag("ratchet.signal.outcome", "REJECTED");
+    verify(span).tag("ratchet.signal.key", "approval");
+  }
+
+  @Test
   void jobExecutionStarted_withParentContext_extractsFromCarrier() {
     Map<String, String> parentCtx = Map.of("traceparent", "00-parent-01");
     // propagator.extract() returns Span.Builder

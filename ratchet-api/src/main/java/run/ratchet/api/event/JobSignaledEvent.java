@@ -2,6 +2,7 @@ package run.ratchet.api.event;
 
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
+import run.ratchet.api.SignalDecision;
 import java.io.Serial;
 import java.util.UUID;
 
@@ -16,6 +17,8 @@ public class JobSignaledEvent extends AbstractJobSchedulerEvent {
 
   private final String signalKey;
   private final String signalDeliveredBy;
+  private final SignalDecision.Outcome outcome;
+  private final String rejectionReason;
 
   public JobSignaledEvent(
       UUID jobId,
@@ -25,9 +28,34 @@ public class JobSignaledEvent extends AbstractJobSchedulerEvent {
       String nodeId,
       String signalKey,
       String signalDeliveredBy) {
+    this(
+        jobId,
+        businessKey,
+        jobType,
+        priority,
+        nodeId,
+        signalKey,
+        signalDeliveredBy,
+        SignalDecision.Outcome.APPROVED,
+        null);
+  }
+
+  public JobSignaledEvent(
+      UUID jobId,
+      String businessKey,
+      JobType jobType,
+      JobPriority priority,
+      String nodeId,
+      String signalKey,
+      String signalDeliveredBy,
+      SignalDecision.Outcome outcome,
+      String rejectionReason) {
     super(jobId, businessKey, jobType, priority, nodeId);
     this.signalKey = signalKey;
     this.signalDeliveredBy = signalDeliveredBy;
+    this.outcome = outcome != null ? outcome : SignalDecision.Outcome.APPROVED;
+    this.rejectionReason =
+        rejectionReason == null || rejectionReason.isBlank() ? null : rejectionReason.trim();
   }
 
   public String getSignalKey() {
@@ -36,5 +64,13 @@ public class JobSignaledEvent extends AbstractJobSchedulerEvent {
 
   public String getSignalDeliveredBy() {
     return signalDeliveredBy;
+  }
+
+  public SignalDecision.Outcome getOutcome() {
+    return outcome;
+  }
+
+  public String getRejectionReason() {
+    return rejectionReason;
   }
 }

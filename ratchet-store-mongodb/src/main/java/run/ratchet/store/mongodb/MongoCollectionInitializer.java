@@ -112,7 +112,9 @@ class MongoCollectionInitializer {
             .name("idx_job_active_business_key")
             .unique(true)
             .partialFilterExpression(
-                new Document(STATUS, new Document("$in", List.of("PENDING", "RUNNING", "PAUSED")))
+                new Document(
+                        STATUS,
+                        new Document("$in", List.of("PENDING", "RUNNING", "PAUSED", "WAITING")))
                     .append(BUSINESS_KEY, new Document("$type", "string"))));
     createIndex(coll, Indexes.ascending(TAGS), "idx_job_tags");
     createIndex(coll, Indexes.ascending(PICKED_BY), "idx_job_picked_by");
@@ -127,9 +129,19 @@ class MongoCollectionInitializer {
     // Dashboard query indexes (query-layer hardening)
     createIndex(coll, Indexes.ascending(TRACE_CONTEXT + ".traceparent"), "idx_job_traceparent");
     createIndex(coll, Indexes.ascending(CALLER_PRINCIPAL, CREATED_AT), "idx_job_principal_created");
-    createIndex(coll,
+    createIndex(
+        coll,
         Indexes.compoundIndex(Indexes.ascending(STATUS), Indexes.descending(CREATED_AT)),
         "idx_job_status_created");
+    createIndex(
+        coll,
+        Indexes.compoundIndex(Indexes.ascending(SIGNAL_KEY), Indexes.ascending(STATUS)),
+        "idx_signal_key_status");
+    createIndex(
+        coll,
+        Indexes.compoundIndex(Indexes.ascending(STATUS), Indexes.ascending(SIGNAL_TIMEOUT)),
+        "idx_signal_timeout_status");
+    createIndex(coll, Indexes.ascending(SIGNAL_DELIVERY_ID), "idx_signal_delivery_id");
   }
 
   private void createBatchIndexes() {}

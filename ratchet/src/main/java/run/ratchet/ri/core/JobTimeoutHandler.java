@@ -1,8 +1,9 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.api.event.JobSignalTimedOutEvent;
-import run.ratchet.store.entity.JobEntity;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.event.JobSignalTimedOutEvent;
+import run.ratchet.spi.MetricsCollector;
+import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobRetryStore;
@@ -35,6 +36,7 @@ public class JobTimeoutHandler {
   private final InternalEventPublisher eventPublisher;
   private final ChainScheduler chainScheduler;
   private final SignalStore signalStore;
+  private final MetricsCollector metricsCollector;
   private final int softTimeoutPercent;
   private final long defaultTimeoutSeconds;
   private final Clock clock;
@@ -47,6 +49,7 @@ public class JobTimeoutHandler {
     this.eventPublisher = null;
     this.chainScheduler = null;
     this.signalStore = null;
+    this.metricsCollector = null;
     this.softTimeoutPercent = 0;
     this.defaultTimeoutSeconds = 0;
     this.clock = null;
@@ -87,6 +90,7 @@ public class JobTimeoutHandler {
         clock,
         null,
         null,
+        null,
         null);
   }
 
@@ -101,6 +105,32 @@ public class JobTimeoutHandler {
       InternalEventPublisher eventPublisher,
       ChainScheduler chainScheduler,
       SignalStore signalStore) {
+    this(
+        jobCrudStore,
+        jobRetryStore,
+        jobBatchStatusStore,
+        lifecycleFacade,
+        softTimeoutPercent,
+        defaultTimeoutSeconds,
+        clock,
+        eventPublisher,
+        chainScheduler,
+        signalStore,
+        null);
+  }
+
+  public JobTimeoutHandler(
+      JobCrudStore jobCrudStore,
+      JobRetryStore jobRetryStore,
+      JobBatchStatusStore jobBatchStatusStore,
+      PostExecutionHandler lifecycleFacade,
+      int softTimeoutPercent,
+      long defaultTimeoutSeconds,
+      Clock clock,
+      InternalEventPublisher eventPublisher,
+      ChainScheduler chainScheduler,
+      SignalStore signalStore,
+      MetricsCollector metricsCollector) {
     this.jobCrudStore = jobCrudStore;
     this.jobRetryStore = jobRetryStore;
     this.jobBatchStatusStore = jobBatchStatusStore;
@@ -111,6 +141,7 @@ public class JobTimeoutHandler {
     this.eventPublisher = eventPublisher;
     this.chainScheduler = chainScheduler;
     this.signalStore = signalStore;
+    this.metricsCollector = metricsCollector;
   }
 
   private Clock effective() {
@@ -247,8 +278,7 @@ public class JobTimeoutHandler {
                   job.getBackoffPolicy(), job.getBackoffParamMs(), newAttempts)
               : 0L;
       Instant retryTime = now.plusMillis(backoffMs);
-      boolean rescheduled =
-          jobRetryStore.scheduleJobRetry(jobId, message, retryTime, newAttempts);
+      boolean rescheduled = jobRetryStore.scheduleJobRetry(jobId, message, retryTime, newAttempts);
       if (rescheduled) {
         publishSignalTimedOutEvent(job, now);
         log.warnf(
@@ -280,6 +310,9 @@ public class JobTimeoutHandler {
   }
 
   private void publishSignalTimedOutEvent(JobEntity job, Instant now) {
+    if (metricsCollector != null) {
+      metricsCollector.signalTimedOut(job.getId(), job.getPublicJobType(), job.getSignalKey());
+    }
     if (eventPublisher == null) {
       return;
     }

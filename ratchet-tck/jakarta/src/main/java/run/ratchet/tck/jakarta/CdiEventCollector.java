@@ -1,6 +1,7 @@
 package run.ratchet.tck.jakarta;
 
 import run.ratchet.api.event.JobCompletedEvent;
+import run.ratchet.api.event.JobSignaledEvent;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import java.time.Duration;
@@ -22,6 +23,7 @@ import java.util.concurrent.TimeUnit;
 public class CdiEventCollector {
 
   private final Set<UUID> observedJobIds = ConcurrentHashMap.newKeySet();
+  private final Set<UUID> observedSignaledJobIds = ConcurrentHashMap.newKeySet();
   private final Object lock = new Object();
 
   void onCompleted(@Observes JobCompletedEvent event) {
@@ -33,13 +35,31 @@ public class CdiEventCollector {
     }
   }
 
+  void onSignaled(@Observes JobSignaledEvent event) {
+    if (event != null && event.getJobId() != null) {
+      observedSignaledJobIds.add(event.getJobId());
+      synchronized (lock) {
+        lock.notifyAll();
+      }
+    }
+  }
+
   /**
    * Blocks up to {@code timeout} for {@code jobId} to be observed via the CDI {@code @Observes}
    * pathway. Returns {@code true} on observation, {@code false} on timeout.
    */
   public boolean awaitJobId(UUID jobId, Duration timeout) {
+    return awaitObserved(observedJobIds, jobId, timeout);
+  }
+
+  /** Blocks up to {@code timeout} for {@code jobId} to be observed as signaled via CDI. */
+  public boolean awaitSignaledJobId(UUID jobId, Duration timeout) {
+    return awaitObserved(observedSignaledJobIds, jobId, timeout);
+  }
+
+  private boolean awaitObserved(Set<UUID> observedIds, UUID jobId, Duration timeout) {
     long deadlineNanos = System.nanoTime() + timeout.toNanos();
-    while (!observedJobIds.contains(jobId)) {
+    while (!observedIds.contains(jobId)) {
       long remainingNanos = deadlineNanos - System.nanoTime();
       if (remainingNanos <= 0) {
         return false;
@@ -59,5 +79,6 @@ public class CdiEventCollector {
   /** Clears all observed job ids. Call from {@code @AfterEach}. */
   public void reset() {
     observedJobIds.clear();
+    observedSignaledJobIds.clear();
   }
 }

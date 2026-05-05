@@ -70,6 +70,37 @@ public abstract class AbstractSignalContractTest implements JobStoreContractFixt
   }
 
   @Test
+  void deliverSignalById_roundTripsDecisionMetadata() {
+    JobEntity job = newWaitingJob("gate-decision", Instant.now().plusSeconds(600));
+    JobEntity saved = persist(job);
+    UUID jobId = saved.getId();
+    Instant deliveredAt = Instant.now();
+
+    int count =
+        store()
+            .deliverSignalById(
+                jobId,
+                "{\"outcome\":\"REJECTED\"}",
+                "DECISION",
+                "REJECTED",
+                "policy denied",
+                "admin",
+                deliveredAt,
+                "delivery-id-1");
+
+    assertEquals(1, count);
+    JobEntity reloaded = store().findById(jobId).orElseThrow();
+    assertEquals(JobStatus.PENDING, reloaded.getStatus());
+    assertEquals("{\"outcome\":\"REJECTED\"}", reloaded.getSignalPayload());
+    assertEquals("DECISION", reloaded.getSignalPayloadType());
+    assertEquals("REJECTED", reloaded.getSignalOutcome());
+    assertEquals("policy denied", reloaded.getSignalRejectionReason());
+    assertEquals("admin", reloaded.getSignalDeliveredBy());
+    assertNotNull(reloaded.getSignalDeliveredAt());
+    assertEquals("delivery-id-1", reloaded.getSignalDeliveryId());
+  }
+
+  @Test
   void deliverSignalById_idempotent_returnZeroOnNonWaiting() {
     JobEntity job = newWaitingJob("gate-2", Instant.now().plusSeconds(600));
     JobEntity saved = persist(job);
@@ -101,6 +132,38 @@ public abstract class AbstractSignalContractTest implements JobStoreContractFixt
     assertEquals(JobStatus.PENDING, store().findById(j1.getId()).orElseThrow().getStatus());
     assertEquals(JobStatus.PENDING, store().findById(j2.getId()).orElseThrow().getStatus());
     assertEquals(JobStatus.WAITING, store().findById(other.getId()).orElseThrow().getStatus());
+  }
+
+  @Test
+  void deliverSignalByKey_recordsSharedDeliveryIdAndFindsDeliveredJobs() {
+    String key = "approval-broadcast-decision";
+    JobEntity j1 = persist(newWaitingJob(key, Instant.now().plusSeconds(600)));
+    JobEntity j2 = persist(newWaitingJob(key, Instant.now().plusSeconds(600)));
+    persist(newWaitingJob("other-broadcast-decision", Instant.now().plusSeconds(600)));
+
+    int count =
+        store()
+            .deliverSignalByKey(
+                key,
+                "{\"approved\":true}",
+                "DECISION",
+                "APPROVED",
+                null,
+                "system",
+                Instant.now(),
+                "delivery-id-2");
+
+    assertEquals(2, count, "both jobs with matching key should be unblocked");
+
+    List<UUID> deliveredIds =
+        store().findJobsBySignalDeliveryId("delivery-id-2").stream().map(JobEntity::getId).toList();
+    assertTrue(deliveredIds.contains(j1.getId()));
+    assertTrue(deliveredIds.contains(j2.getId()));
+
+    JobEntity reloaded = store().findById(j1.getId()).orElseThrow();
+    assertEquals("DECISION", reloaded.getSignalPayloadType());
+    assertEquals("APPROVED", reloaded.getSignalOutcome());
+    assertEquals("delivery-id-2", reloaded.getSignalDeliveryId());
   }
 
   @Test

@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 import run.ratchet.api.JobType;
+import run.ratchet.api.SignalDecision;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.UUID;
@@ -69,5 +70,33 @@ class MicrometerMetricsCollectorTest {
     assertEquals(
         2.0,
         registry.get("ratchet.poller.breaker.state").tag("breaker", "store.claim").gauge().value());
+  }
+
+  @Test
+  void signalMetricsUseBoundedTypeAndOutcomeTags() {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    MicrometerMetricsCollector collector = new MicrometerMetricsCollector(registry);
+    UUID jobId = new UUID(0L, 3L);
+
+    collector.signalWaiting(jobId, JobType.SINGLE, "approval");
+    collector.signalDelivered(jobId, JobType.SINGLE, "approval", SignalDecision.Outcome.REJECTED);
+    collector.signalTimedOut(jobId, JobType.SINGLE, "approval");
+    collector.signalCancelled(jobId, JobType.SINGLE, "approval");
+
+    assertEquals(
+        1.0, registry.get("ratchet.signal.waiting").tag("type", "SINGLE").counter().count());
+    assertEquals(
+        1.0,
+        registry
+            .get("ratchet.signal.delivered")
+            .tag("type", "SINGLE")
+            .tag("outcome", "REJECTED")
+            .counter()
+            .count());
+    assertEquals(
+        1.0, registry.get("ratchet.signal.timed_out").tag("type", "SINGLE").counter().count());
+    assertEquals(
+        1.0, registry.get("ratchet.signal.cancelled").tag("type", "SINGLE").counter().count());
+    assertNull(registry.find("ratchet.signal.waiting").tag("signal_key", "approval").counter());
   }
 }

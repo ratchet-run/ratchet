@@ -205,11 +205,23 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   @Column(name = "signal_payload", columnDefinition = "TEXT")
   private String signalPayload;
 
+  @Column(name = "signal_payload_type", length = 16)
+  private String signalPayloadType;
+
+  @Column(name = "signal_outcome", length = 32)
+  private String signalOutcome;
+
+  @Column(name = "signal_rejection_reason", columnDefinition = "TEXT")
+  private String signalRejectionReason;
+
   @Column(name = "signal_delivered_at")
   private Instant signalDeliveredAt;
 
   @Column(name = "signal_delivered_by", length = 255)
   private String signalDeliveredBy;
+
+  @Column(name = "signal_delivery_id", length = 36)
+  private String signalDeliveryId;
 
   // populated by MysqlJobStore hydrator from cold.terminal_status; never persisted via JPA
   // (PG schema does not have the column yet — added in CP3).
@@ -572,6 +584,30 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
     this.signalPayload = signalPayload;
   }
 
+  public String getSignalPayloadType() {
+    return signalPayloadType;
+  }
+
+  public void setSignalPayloadType(String signalPayloadType) {
+    this.signalPayloadType = signalPayloadType;
+  }
+
+  public String getSignalOutcome() {
+    return signalOutcome;
+  }
+
+  public void setSignalOutcome(String signalOutcome) {
+    this.signalOutcome = signalOutcome;
+  }
+
+  public String getSignalRejectionReason() {
+    return signalRejectionReason;
+  }
+
+  public void setSignalRejectionReason(String signalRejectionReason) {
+    this.signalRejectionReason = signalRejectionReason;
+  }
+
   public Instant getSignalDeliveredAt() {
     return signalDeliveredAt;
   }
@@ -586,6 +622,14 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
 
   public void setSignalDeliveredBy(String signalDeliveredBy) {
     this.signalDeliveredBy = signalDeliveredBy;
+  }
+
+  public String getSignalDeliveryId() {
+    return signalDeliveryId;
+  }
+
+  public void setSignalDeliveryId(String signalDeliveryId) {
+    this.signalDeliveryId = signalDeliveryId;
   }
 
   public JobStatus getTerminalStatus() {

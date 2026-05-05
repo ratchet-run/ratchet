@@ -1,8 +1,8 @@
 package run.ratchet.ri.core;
 
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
@@ -69,7 +69,8 @@ public class WorkflowScheduler extends ChainScheduler {
     for (WorkflowConditionEntity condition : conditions) {
       jobCrudStore
           .findById(condition.getChildJobId())
-          .filter(job -> job.getStatus() == JobStatus.PENDING)
+          .filter(
+              job -> job.getStatus() == JobStatus.PENDING || job.getStatus() == JobStatus.WAITING)
           .ifPresent(
               childJob -> {
                 // Terminal CANCELED transition: cancelJob runs DELETE hot + UPDATE cold +
@@ -168,7 +169,8 @@ public class WorkflowScheduler extends ChainScheduler {
       }
       jobCrudStore
           .findById(condition.getChildJobId())
-          .filter(job -> job.getStatus() == JobStatus.PENDING)
+          .filter(
+              job -> job.getStatus() == JobStatus.PENDING || job.getStatus() == JobStatus.WAITING)
           .ifPresent(
               childJob -> {
                 if (jobTerminalStore.cancelJob(childJob.getId())) {
@@ -196,9 +198,9 @@ public class WorkflowScheduler extends ChainScheduler {
 
   @SuppressWarnings("java:S1172") // condition reserved for future context logging
   private boolean scheduleIfPending(WorkflowConditionEntity condition, JobEntity childJob) {
-    if (childJob.getStatus() != JobStatus.PENDING) {
+    if (childJob.getStatus() != JobStatus.PENDING && childJob.getStatus() != JobStatus.WAITING) {
       log.warnf(
-          "Child job %s is not in PENDING status (current: %s), cannot schedule",
+          "Child job %s is not PENDING or WAITING (current: %s), cannot schedule",
           childJob.getId(), childJob.getStatus());
       return false;
     }

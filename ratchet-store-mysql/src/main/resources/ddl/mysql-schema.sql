@@ -164,11 +164,15 @@ CREATE TABLE IF NOT EXISTS scheduler_job_queue
     last_error         TEXT                                                                                                                NULL,
     version            INT                                                                                                                 NOT NULL DEFAULT 0,
     updated_at         DATETIME(6)                                                                                                         NOT NULL,
-    signal_key         VARCHAR(255)                                                                                                        NULL,
-    signal_timeout     DATETIME(3)                                                                                                         NULL,
-    signal_payload     TEXT                                                                                                                NULL,
-    signal_delivered_at DATETIME(3)                                                                                                        NULL,
-    signal_delivered_by VARCHAR(255)                                                                                                       NULL,
+    signal_key              VARCHAR(255)                                                                                                   NULL,
+    signal_timeout          DATETIME(3)                                                                                                    NULL,
+    signal_payload          TEXT                                                                                                           NULL,
+    signal_payload_type     VARCHAR(16)                                                                                                    NULL,
+    signal_outcome          VARCHAR(32)                                                                                                    NULL,
+    signal_rejection_reason TEXT                                                                                                           NULL,
+    signal_delivered_at     DATETIME(3)                                                                                                    NULL,
+    signal_delivered_by     VARCHAR(255)                                                                                                   NULL,
+    signal_delivery_id      VARCHAR(36)                                                                                                    NULL,
     PRIMARY KEY (job_id),
     CONSTRAINT chk_queue_priority CHECK (priority BETWEEN 0 AND 4),
     CONSTRAINT chk_queue_paused_from_status CHECK (paused_from_status IS NULL OR paused_from_status IN ('PENDING','RUNNING','PAUSED')),
@@ -179,7 +183,8 @@ CREATE TABLE IF NOT EXISTS scheduler_job_queue
     -- Orphan scan: status='RUNNING' AND picked_at < :cutoff AND picked_by NOT IN (alive).
     INDEX idx_queue_orphan (status, picked_at, picked_by),
     INDEX idx_signal_key_status (signal_key, status),
-    INDEX idx_signal_timeout_status (status, signal_timeout)
+    INDEX idx_signal_timeout_status (status, signal_timeout),
+    INDEX idx_signal_delivery_id (signal_delivery_id)
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci;

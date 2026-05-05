@@ -1,6 +1,7 @@
 package run.ratchet.store.spi;
 
 import run.ratchet.api.Incubating;
+import run.ratchet.api.SignalDecision;
 import run.ratchet.store.entity.JobEntity;
 import java.time.Instant;
 import java.util.List;
@@ -32,7 +33,28 @@ public interface SignalStore {
    * @param deliveredAt timestamp of delivery
    * @return 1 if the job was transitioned from WAITING to PENDING, 0 otherwise
    */
-  int deliverSignalById(UUID jobId, String payload, String deliveredBy, Instant deliveredAt);
+  default int deliverSignalById(
+      UUID jobId, String payload, String deliveredBy, Instant deliveredAt) {
+    return deliverSignalById(
+        jobId,
+        payload,
+        null,
+        SignalDecision.Outcome.APPROVED.name(),
+        null,
+        deliveredBy,
+        deliveredAt,
+        UUID.randomUUID().toString());
+  }
+
+  int deliverSignalById(
+      UUID jobId,
+      String payload,
+      String payloadType,
+      String outcome,
+      String rejectionReason,
+      String deliveredBy,
+      Instant deliveredAt,
+      String deliveryId);
 
   /**
    * Atomically delivers a signal to ALL WAITING jobs whose {@code signalKey} matches, in a single
@@ -45,6 +67,33 @@ public interface SignalStore {
    * @param deliveredAt timestamp of delivery
    * @return the number of jobs transitioned from WAITING to PENDING
    */
+  default int deliverSignalByKey(
+      String signalKey, String payload, String deliveredBy, Instant deliveredAt) {
+    return deliverSignalByKey(
+        signalKey,
+        payload,
+        null,
+        SignalDecision.Outcome.APPROVED.name(),
+        null,
+        deliveredBy,
+        deliveredAt,
+        UUID.randomUUID().toString());
+  }
+
   int deliverSignalByKey(
-      String signalKey, String payload, String deliveredBy, Instant deliveredAt);
+      String signalKey,
+      String payload,
+      String payloadType,
+      String outcome,
+      String rejectionReason,
+      String deliveredBy,
+      Instant deliveredAt,
+      String deliveryId);
+
+  /**
+   * Returns jobs updated by a signal delivery token. Used for per-job events after bulk delivery.
+   */
+  default List<JobEntity> findJobsBySignalDeliveryId(String deliveryId) {
+    return List.of();
+  }
 }

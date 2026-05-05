@@ -114,6 +114,10 @@ final class MongoFieldNames {
   static final String SIGNAL_KEY = "signal_key";
   static final String SIGNAL_TIMEOUT = "signal_timeout";
   static final String SIGNAL_PAYLOAD = "signal_payload";
+  static final String SIGNAL_PAYLOAD_TYPE = "signal_payload_type";
+  static final String SIGNAL_OUTCOME = "signal_outcome";
+  static final String SIGNAL_REJECTION_REASON = "signal_rejection_reason";
   static final String SIGNAL_DELIVERED_AT = "signal_delivered_at";
   static final String SIGNAL_DELIVERED_BY = "signal_delivered_by";
+  static final String SIGNAL_DELIVERY_ID = "signal_delivery_id";
 }

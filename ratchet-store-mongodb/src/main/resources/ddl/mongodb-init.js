@@ -41,7 +41,7 @@ db.scheduler_job.createIndex(
     name: "idx_job_active_business_key",
     unique: true,
     partialFilterExpression: {
-      status: { $in: ["PENDING", "RUNNING", "PAUSED"] },
+      status: { $in: ["PENDING", "RUNNING", "PAUSED", "WAITING"] },
       business_key: { $type: "string" }
     }
   }
@@ -55,6 +55,15 @@ db.scheduler_job.createIndex({ created_at: 1 }, { name: "idx_job_created_at" });
 db.scheduler_job.createIndex({ updated_at: 1 }, { name: "idx_job_updated_at" });
 db.scheduler_job.createIndex({ job_type: 1 }, { name: "idx_job_type" });
 db.scheduler_job.createIndex({ superseded_by: 1 }, { name: "idx_job_superseded_by" });
+db.scheduler_job.createIndex(
+  { signal_key: 1, status: 1 },
+  { name: "idx_signal_key_status" }
+);
+db.scheduler_job.createIndex(
+  { status: 1, signal_timeout: 1 },
+  { name: "idx_signal_timeout_status" }
+);
+db.scheduler_job.createIndex({ signal_delivery_id: 1 }, { name: "idx_signal_delivery_id" });
 
 // ── scheduler_job_execution ──────────────────────────────────────────────────
 db.scheduler_job_execution.createIndex({ job_id: 1 }, { name: "idx_execution_job_id" });

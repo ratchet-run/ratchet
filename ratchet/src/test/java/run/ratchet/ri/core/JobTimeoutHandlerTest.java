@@ -10,11 +10,15 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import run.ratchet.api.BackoffPolicy;
+import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
+import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobRetryStore;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
@@ -34,6 +38,7 @@ class JobTimeoutHandlerTest {
   @Mock private JobRetryStore jobRetryStore;
   @Mock private JobBatchStatusStore jobBatchStatusStore;
   @Mock private PostExecutionHandler lifecycleFacade;
+  @Mock private MetricsCollector metricsCollector;
 
   private JobTimeoutHandler handler;
 
@@ -149,6 +154,32 @@ class JobTimeoutHandlerTest {
   }
 
   @Test
+  void signalTimeoutPublishesTimedOutMetricWhenFailureIsApplied() {
+    JobTimeoutHandler metricsHandler =
+        new JobTimeoutHandler(
+            jobCrudStore,
+            jobRetryStore,
+            jobBatchStatusStore,
+            lifecycleFacade,
+            80,
+            60L,
+            Clock.systemUTC(),
+            null,
+            null,
+            null,
+            metricsCollector);
+    JobEntity job = waitingJobWithMaxRetries(0);
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            eq(JOB_ID), eq(JobStatus.WAITING), eq(JobStatus.FAILED), anyString()))
+        .thenReturn(true);
+
+    metricsHandler.processSignalTimeout(job, Instant.now());
+
+    verify(metricsCollector).signalTimedOut(JOB_ID, job.getPublicJobType(), "approval");
+  }
+
+  @Test
   void signalTimeoutRacePathDoesNotEscalateToDlqWhenScheduleRetryLoses() {
     JobEntity job = waitingJobWithMaxRetries(3);
     Instant now = Instant.now();
@@ -179,6 +210,8 @@ class JobTimeoutHandlerTest {
     job.setId(JOB_ID);
     job.setMaxRetries(maxRetries);
     job.setStatus(JobStatus.RUNNING);
+    job.setJobType(JobExecutionType.SINGLE);
+    job.setPriority(JobPriority.NORMAL);
     return job;
   }
 
@@ -187,6 +220,8 @@ class JobTimeoutHandlerTest {
     job.setId(JOB_ID);
     job.setMaxRetries(maxRetries);
     job.setStatus(JobStatus.WAITING);
+    job.setJobType(JobExecutionType.SINGLE);
+    job.setPriority(JobPriority.NORMAL);
     job.setSignalKey("approval");
     job.setSignalTimeout(Instant.now().minusSeconds(1));
     job.setBackoffPolicy(BackoffPolicy.NONE);

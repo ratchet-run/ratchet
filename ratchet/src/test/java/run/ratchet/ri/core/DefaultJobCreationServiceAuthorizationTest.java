@@ -12,14 +12,18 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import run.ratchet.api.JobHandle;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobType;
 import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.ri.security.JobPayloadInputValidator;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobInvocationResolver;
+import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
@@ -54,6 +58,8 @@ class DefaultJobCreationServiceAuthorizationTest {
   @Mock private RecurringScheduler recurringScheduler;
   @Mock private TracingCollector tracingCollector;
   @Mock private JobAuthorizationPolicy authorizationPolicy;
+  @Mock private InternalEventPublisher eventPublisher;
+  @Mock private MetricsCollector metricsCollector;
 
   private DefaultJobCreationService service;
 
@@ -86,7 +92,8 @@ class DefaultJobCreationServiceAuthorizationTest {
             principalProvider,
             tracingCollector,
             authorizationPolicy,
-            null,
+            eventPublisher,
+            metricsCollector,
             Clock.systemUTC());
   }
 
@@ -199,6 +206,7 @@ class DefaultJobCreationServiceAuthorizationTest {
             tracingCollector,
             authorizationPolicy,
             null,
+            null,
             Clock.systemUTC());
 
     JobEntity saved = savedEntity();
@@ -215,6 +223,23 @@ class DefaultJobCreationServiceAuthorizationTest {
     systemService.submit(builder);
 
     verify(authorizationPolicy).checkCreate(any(UUID.class), isNull());
+  }
+
+  @Test
+  void signalWaitingJobPublishesMetric() {
+    JobEntity saved = savedEntity();
+    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.create(any(JobEntity.class))).thenReturn(saved);
+
+    DefaultJobBuilder builder =
+        (DefaultJobBuilder)
+            DefaultJobBuilder.create(
+                    service, DefaultJobCreationServiceAuthorizationTest::noopTask, Duration.ZERO)
+                .awaitSignal("approval", Duration.ofSeconds(30));
+
+    service.submit(builder);
+
+    verify(metricsCollector).signalWaiting(saved.getId(), JobType.SINGLE, "approval");
   }
 
   // ---- recurring job ----
@@ -295,6 +320,8 @@ class DefaultJobCreationServiceAuthorizationTest {
   private static JobEntity savedEntity() {
     JobEntity e = new JobEntity();
     e.setId(UUID.randomUUID());
+    e.setJobType(JobExecutionType.SINGLE);
+    e.setPriority(JobPriority.NORMAL);
     return e;
   }
 }

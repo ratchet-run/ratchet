@@ -13,8 +13,12 @@ ALTER TABLE scheduler_job_queue
     ADD COLUMN IF NOT EXISTS signal_key VARCHAR(255),
     ADD COLUMN IF NOT EXISTS signal_timeout TIMESTAMPTZ,
     ADD COLUMN IF NOT EXISTS signal_payload TEXT,
+    ADD COLUMN IF NOT EXISTS signal_payload_type VARCHAR(16),
+    ADD COLUMN IF NOT EXISTS signal_outcome VARCHAR(32),
+    ADD COLUMN IF NOT EXISTS signal_rejection_reason TEXT,
     ADD COLUMN IF NOT EXISTS signal_delivered_at TIMESTAMPTZ,
-    ADD COLUMN IF NOT EXISTS signal_delivered_by VARCHAR(255);
+    ADD COLUMN IF NOT EXISTS signal_delivered_by VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS signal_delivery_id VARCHAR(36);
 
 -- Extend the status constraint to include WAITING.
 ALTER TABLE scheduler_job_queue
@@ -30,5 +34,8 @@ CREATE INDEX IF NOT EXISTS idx_signal_key_status
 CREATE INDEX IF NOT EXISTS idx_signal_timeout_status
     ON scheduler_job_queue (status, signal_timeout);
 
+CREATE INDEX IF NOT EXISTS idx_signal_delivery_id
+    ON scheduler_job_queue (signal_delivery_id);
+
 INSERT INTO ratchet_schema_version (version, description)
-VALUES ('009', 'Signal-waiting job columns and indexes on scheduler_job_queue');
+VALUES ('009', 'Signal-waiting job columns, decision metadata, and indexes on scheduler_job_queue');

@@ -1,11 +1,11 @@
 package run.ratchet.testsuite.tck.clocked;
 
+import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7Factory;
 import jakarta.annotation.Priority;
@@ -13,6 +13,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Alternative;
 import jakarta.inject.Inject;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -112,7 +113,11 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
     }
     return jobs.values().stream()
         .filter(j -> businessKey.equals(j.getBusinessKey()))
-        .filter(j -> j.getStatus() == JobStatus.PENDING || j.getStatus() == JobStatus.RUNNING)
+        .filter(
+            j ->
+                j.getStatus() == JobStatus.PENDING
+                    || j.getStatus() == JobStatus.RUNNING
+                    || j.getStatus() == JobStatus.WAITING)
         .findFirst();
   }
 
@@ -134,7 +139,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
       return false;
     }
     JobStatus status = job.getStatus();
-    if (status != JobStatus.PENDING && status != JobStatus.RUNNING) {
+    if (status != JobStatus.PENDING && status != JobStatus.RUNNING && status != JobStatus.WAITING) {
       return false;
     }
     job.setStatus(JobStatus.CANCELED);
@@ -294,6 +299,90 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   public synchronized int countExecutionAttempts(UUID jobId) {
     List<JobExecutionEntity> list = executions.get(jobId);
     return list == null ? 0 : list.size();
+  }
+
+  // ----- SignalStore (real bodies for signal-aware API contracts) -----
+
+  @Override
+  public synchronized List<JobEntity> findTimedOutSignalJobs(Instant now) {
+    return jobs.values().stream()
+        .filter(j -> j.getStatus() == JobStatus.WAITING)
+        .filter(j -> j.getSignalTimeout() != null && !j.getSignalTimeout().isAfter(now))
+        .toList();
+  }
+
+  @Override
+  public synchronized int deliverSignalById(
+      UUID jobId,
+      String payload,
+      String payloadType,
+      String outcome,
+      String rejectionReason,
+      String deliveredBy,
+      Instant deliveredAt,
+      String deliveryId) {
+    JobEntity job = jobs.get(jobId);
+    if (job == null || job.getStatus() != JobStatus.WAITING) {
+      return 0;
+    }
+    applySignalDelivery(
+        job, payload, payloadType, outcome, rejectionReason, deliveredBy, deliveredAt, deliveryId);
+    return 1;
+  }
+
+  @Override
+  public synchronized int deliverSignalByKey(
+      String signalKey,
+      String payload,
+      String payloadType,
+      String outcome,
+      String rejectionReason,
+      String deliveredBy,
+      Instant deliveredAt,
+      String deliveryId) {
+    int delivered = 0;
+    for (JobEntity job : jobs.values()) {
+      if (job.getStatus() == JobStatus.WAITING && signalKey.equals(job.getSignalKey())) {
+        applySignalDelivery(
+            job,
+            payload,
+            payloadType,
+            outcome,
+            rejectionReason,
+            deliveredBy,
+            deliveredAt,
+            deliveryId);
+        delivered++;
+      }
+    }
+    return delivered;
+  }
+
+  @Override
+  public synchronized List<JobEntity> findJobsBySignalDeliveryId(String deliveryId) {
+    return jobs.values().stream()
+        .filter(j -> deliveryId != null && deliveryId.equals(j.getSignalDeliveryId()))
+        .toList();
+  }
+
+  private static void applySignalDelivery(
+      JobEntity job,
+      String payload,
+      String payloadType,
+      String outcome,
+      String rejectionReason,
+      String deliveredBy,
+      Instant deliveredAt,
+      String deliveryId) {
+    job.setStatus(JobStatus.PENDING);
+    job.setSignalPayload(payload);
+    job.setSignalPayloadType(payloadType);
+    job.setSignalOutcome(outcome);
+    job.setSignalRejectionReason(rejectionReason);
+    job.setSignalDeliveredBy(deliveredBy);
+    job.setSignalDeliveredAt(deliveredAt);
+    job.setSignalDeliveryId(deliveryId);
+    job.setVersion(job.getVersion() == null ? 1 : job.getVersion() + 1);
   }
 
   // ----- WorkflowConditionStore (real bodies — empty list is the contract for non-workflow jobs)

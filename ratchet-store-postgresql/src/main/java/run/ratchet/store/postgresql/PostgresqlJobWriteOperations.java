@@ -1,10 +1,10 @@
 package run.ratchet.store.postgresql;
 
+import run.ratchet.api.JobStatus;
 import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.api.JobStatus;
 import run.ratchet.store.id.UuidV7Factory;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
@@ -33,8 +33,10 @@ final class PostgresqlJobWriteOperations {
       INSERT INTO scheduler_job_queue (
         job_id, status, job_type, priority, scheduled_time, business_key, timeout_sec,
         max_retries, attempts, picked_by, picked_at, paused_from_status, last_error,
-        version, updated_at, signal_key, signal_timeout)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        version, updated_at, signal_key, signal_timeout, signal_payload, signal_payload_type,
+        signal_outcome, signal_rejection_reason, signal_delivered_at, signal_delivered_by,
+        signal_delivery_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       """;
 
   private final PostgresqlStoreContext ctx;
@@ -271,7 +273,16 @@ final class PostgresqlJobWriteOperations {
     q.setParameter(i++, nowTs);
     q.setParameter(i++, job.getSignalKey());
     q.setParameter(
-        i, job.getSignalTimeout() != null ? Timestamp.from(job.getSignalTimeout()) : null);
+        i++, job.getSignalTimeout() != null ? Timestamp.from(job.getSignalTimeout()) : null);
+    q.setParameter(i++, job.getSignalPayload());
+    q.setParameter(i++, job.getSignalPayloadType());
+    q.setParameter(i++, job.getSignalOutcome());
+    q.setParameter(i++, job.getSignalRejectionReason());
+    q.setParameter(
+        i++,
+        job.getSignalDeliveredAt() != null ? Timestamp.from(job.getSignalDeliveredAt()) : null);
+    q.setParameter(i++, job.getSignalDeliveredBy());
+    q.setParameter(i, job.getSignalDeliveryId());
   }
 
   private void saveColdUpdate(JobEntity job) {
@@ -325,7 +336,8 @@ final class PostgresqlJobWriteOperations {
       return false;
     }
     Object[] row = rows.get(0);
-    if (!"PENDING".equals(row[0])) {
+    String storedStatus = (String) row[0];
+    if (!"PENDING".equals(storedStatus) && !"WAITING".equals(storedStatus)) {
       return false;
     }
     Instant storedSched = PostgresqlJobRowMapper.toInstant(row[1]);
@@ -333,7 +345,7 @@ final class PostgresqlJobWriteOperations {
     if (Objects.equals(storedSched, incomingSched)) {
       return false;
     }
-    if (!Objects.equals(JobStatus.PENDING, job.getStatus())
+    if (!Objects.equals(JobStatus.valueOf(storedStatus), job.getStatus())
         || !Objects.equals(((Number) row[2]).intValue(), job.getAttempts())
         || !Objects.equals(row[3], job.getPickedBy())
         || !Objects.equals(PostgresqlJobRowMapper.toInstant(row[4]), job.getPickedAt())
@@ -348,12 +360,13 @@ final class PostgresqlJobWriteOperations {
         """
         UPDATE scheduler_job_queue
         SET scheduled_time = ?, updated_at = statement_timestamp()
-        WHERE job_id = ? AND status = 'PENDING'
+        WHERE job_id = ? AND status = ?
         """;
     ctx.em()
         .createNativeQuery(updateSql)
         .setParameter(1, incomingSched != null ? Timestamp.from(incomingSched) : null)
         .setParameter(2, id)
+        .setParameter(3, storedStatus)
         .executeUpdate();
     return true;
   }

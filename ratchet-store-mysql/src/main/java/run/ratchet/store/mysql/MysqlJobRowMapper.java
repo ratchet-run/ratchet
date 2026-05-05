@@ -2,12 +2,12 @@ package run.ratchet.store.mysql;
 
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobStatus;
 import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.converter.JsonMapConverter;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
-import run.ratchet.api.JobStatus;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -29,10 +29,11 @@ final class MysqlJobRowMapper {
       c.execution_duration_ms, c.queue_wait_ms, c.job_result, c.result_type, c.rec_status,
       c.trace_context, q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at,
       q.paused_from_status, q.last_error, q.version, q.updated_at,
-      q.signal_key, q.signal_timeout, q.signal_payload, q.signal_delivered_at,
-      q.signal_delivered_by\
+      q.signal_key, q.signal_timeout, q.signal_payload, q.signal_payload_type,
+      q.signal_outcome, q.signal_rejection_reason, q.signal_delivered_at,
+      q.signal_delivered_by, q.signal_delivery_id\
       """;
-  static final int HYDRATION_COL_COUNT = 49;
+  static final int HYDRATION_COL_COUNT = 53;
   static final int IDX_Q_STATUS = 35;
   private static final Logger log = Logger.getLogger(MysqlJobRowMapper.class);
   private static final JobPayloadConverter JOB_PAYLOAD_CONVERTER = new JobPayloadConverter();
@@ -83,8 +84,12 @@ final class MysqlJobRowMapper {
   private static final int IDX_Q_SIGNAL_KEY = 44;
   private static final int IDX_Q_SIGNAL_TIMEOUT = 45;
   private static final int IDX_Q_SIGNAL_PAYLOAD = 46;
-  private static final int IDX_Q_SIGNAL_DELIVERED_AT = 47;
-  private static final int IDX_Q_SIGNAL_DELIVERED_BY = 48;
+  private static final int IDX_Q_SIGNAL_PAYLOAD_TYPE = 47;
+  private static final int IDX_Q_SIGNAL_OUTCOME = 48;
+  private static final int IDX_Q_SIGNAL_REJECTION_REASON = 49;
+  private static final int IDX_Q_SIGNAL_DELIVERED_AT = 50;
+  private static final int IDX_Q_SIGNAL_DELIVERED_BY = 51;
+  private static final int IDX_Q_SIGNAL_DELIVERY_ID = 52;
 
   static boolean isTerminalStatus(JobStatus s) {
     return s == JobStatus.SUCCEEDED || s == JobStatus.FAILED || s == JobStatus.CANCELED;
@@ -230,8 +235,12 @@ final class MysqlJobRowMapper {
     j.setSignalKey((String) row[IDX_Q_SIGNAL_KEY]);
     j.setSignalTimeout(toInstant(row[IDX_Q_SIGNAL_TIMEOUT]));
     j.setSignalPayload(stringOrNull(row[IDX_Q_SIGNAL_PAYLOAD]));
+    j.setSignalPayloadType(stringOrNull(row[IDX_Q_SIGNAL_PAYLOAD_TYPE]));
+    j.setSignalOutcome(stringOrNull(row[IDX_Q_SIGNAL_OUTCOME]));
+    j.setSignalRejectionReason(stringOrNull(row[IDX_Q_SIGNAL_REJECTION_REASON]));
     j.setSignalDeliveredAt(toInstant(row[IDX_Q_SIGNAL_DELIVERED_AT]));
     j.setSignalDeliveredBy((String) row[IDX_Q_SIGNAL_DELIVERED_BY]);
+    j.setSignalDeliveryId(stringOrNull(row[IDX_Q_SIGNAL_DELIVERY_ID]));
 
     String recStatus = stringOrNull(row[IDX_REC_STATUS]);
     String liveStr = (String) row[IDX_Q_STATUS];

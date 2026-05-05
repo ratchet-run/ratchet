@@ -6,6 +6,8 @@ import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.spi.ExecutionStore;
+import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -120,6 +122,26 @@ public class ExecutionObserver {
         job.getId(),
         job.getPublicJobType(),
         job.getPriority(),
-        parentContext != null ? parentContext : Map.of());
+        parentContext != null ? parentContext : Map.of(),
+        signalTraceAttributes(job));
+  }
+
+  private Map<String, String> signalTraceAttributes(JobEntity job) {
+    if (job.getSignalKey() == null) {
+      return Map.of();
+    }
+    Map<String, String> attributes = new LinkedHashMap<>();
+    attributes.put("ratchet.signal.key", job.getSignalKey());
+    if (job.getSignalOutcome() != null) {
+      attributes.put("ratchet.signal.outcome", job.getSignalOutcome());
+    }
+    if (job.getSignalDeliveredBy() != null) {
+      attributes.put("ratchet.signal.delivered_by.present", "true");
+    }
+    if (job.getCreatedAt() != null && job.getSignalDeliveredAt() != null) {
+      long waitMs = Duration.between(job.getCreatedAt(), job.getSignalDeliveredAt()).toMillis();
+      attributes.put("ratchet.signal.wait_ms", Long.toString(Math.max(0L, waitMs)));
+    }
+    return Map.copyOf(attributes);
   }
 }

@@ -138,11 +138,15 @@ CREATE TABLE IF NOT EXISTS scheduler_job_queue
     last_error         TEXT,
     version            INT          NOT NULL DEFAULT 0,
     updated_at         TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    signal_key         VARCHAR(255),
-    signal_timeout     TIMESTAMPTZ,
-    signal_payload     TEXT,
-    signal_delivered_at TIMESTAMPTZ,
-    signal_delivered_by VARCHAR(255),
+    signal_key              VARCHAR(255),
+    signal_timeout          TIMESTAMPTZ,
+    signal_payload          TEXT,
+    signal_payload_type     VARCHAR(16),
+    signal_outcome          VARCHAR(32),
+    signal_rejection_reason TEXT,
+    signal_delivered_at     TIMESTAMPTZ,
+    signal_delivered_by     VARCHAR(255),
+    signal_delivery_id      VARCHAR(36),
     CONSTRAINT pk_scheduler_job_queue PRIMARY KEY (job_id),
     CONSTRAINT chk_queue_status CHECK (status IN ('PENDING', 'RUNNING', 'PAUSED', 'WAITING')),
     CONSTRAINT chk_queue_job_type CHECK (job_type IN
@@ -168,6 +172,9 @@ CREATE INDEX IF NOT EXISTS idx_signal_key_status
 
 CREATE INDEX IF NOT EXISTS idx_signal_timeout_status
     ON scheduler_job_queue (status, signal_timeout);
+
+CREATE INDEX IF NOT EXISTS idx_signal_delivery_id
+    ON scheduler_job_queue (signal_delivery_id);
 
 -- 4b. Business-key active-uniqueness reservation table.
 -- Authoritative ownership lookup for active business keys. The main scheduler_job.business_key
