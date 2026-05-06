@@ -18,7 +18,7 @@ Please do not open a public GitHub issue for an undisclosed security vulnerabili
 
 Preferred reporting paths:
 
-1. Use GitHub's [private vulnerability reporting](https://github.com/jcputney/ratchet/security/advisories/new) for this repository. Private reporting is enabled.
+1. Use GitHub's [private vulnerability reporting](https://github.com/ratchet-run/ratchet/security/advisories/new) for this repository. Private reporting is enabled.
 2. Otherwise, email the maintainer at `jputney@noverant.com`.
 
 Please include:
@@ -74,5 +74,5 @@ Please avoid public disclosure until a fix or mitigation is available and mainta
 
 For normal defects, regressions, and feature requests, use the public issue tracker:
 
-- Issues: <https://github.com/jcputney/ratchet/issues>
-- Discussions: <https://github.com/jcputney/ratchet/discussions>
+- Issues: <https://github.com/ratchet-run/ratchet/issues>
+- Discussions: <https://github.com/ratchet-run/ratchet/discussions>

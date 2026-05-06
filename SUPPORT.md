@@ -13,11 +13,11 @@ Use GitHub Discussions for:
 
 Discussion board:
 
-- <https://github.com/jcputney/ratchet/discussions>
+- <https://github.com/ratchet-run/ratchet/discussions>
 
 Documentation site:
 
-- <https://ratchet.jcputney.dev>
+- <https://ratchet.run>
 
 ## Bug Reports
 
@@ -30,7 +30,7 @@ Use GitHub Issues for:
 
 Issue tracker:
 
-- <https://github.com/jcputney/ratchet/issues>
+- <https://github.com/ratchet-run/ratchet/issues>
 
 When opening an issue, include:
 

@@ -6,8 +6,8 @@ Ratchet is a CDI-based job scheduler for Jakarta EE 10/11. The project is still 
 
 ## Before You Start
 
-- Use [GitHub Discussions](https://github.com/jcputney/ratchet/discussions) for questions, usage help, and design discussion.
-- Use [GitHub Issues](https://github.com/jcputney/ratchet/issues) for confirmed bugs, concrete feature requests, and actionable follow-up work.
+- Use [GitHub Discussions](https://github.com/ratchet-run/ratchet/discussions) for questions, usage help, and design discussion.
+- Use [GitHub Issues](https://github.com/ratchet-run/ratchet/issues) for confirmed bugs, concrete feature requests, and actionable follow-up work.
 - Open an issue or discussion before starting large changes so the direction is clear before code lands.
 
 ## Development Environment

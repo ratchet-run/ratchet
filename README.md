@@ -473,8 +473,8 @@ Ratchet is currently in **0.1.0-SNAPSHOT** — the API is stabilizing but interf
 - [Support](./SUPPORT.md)
 - [Security policy](./SECURITY.md)
 - [Code of conduct](./CODE_OF_CONDUCT.md)
-- [Issues](https://github.com/jcputney/ratchet/issues)
-- [Discussions](https://github.com/jcputney/ratchet/discussions)
+- [Issues](https://github.com/ratchet-run/ratchet/issues)
+- [Discussions](https://github.com/ratchet-run/ratchet/discussions)
 
 ## License
 

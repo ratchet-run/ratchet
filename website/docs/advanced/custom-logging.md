@@ -366,7 +366,7 @@ These names are part of the public observability surface. Adding new keys is non
 
 To override auto-detection, set `-Dorg.jboss.logging.provider=slf4j` (or `jboss`, `log4j2`, `jdk`) on the JVM command line.
 
-A worked example showing the SLF4J + Logback + JBoss Logging triangle is in [`examples/logging/`](https://github.com/jcputney/ratchet/tree/main/examples/logging) at the repository root.
+A worked example showing the SLF4J + Logback + JBoss Logging triangle is in [`examples/logging/`](https://github.com/ratchet-run/ratchet/tree/main/examples/logging) at the repository root.
 
 ## Log Persistence
 

@@ -26,10 +26,10 @@ const config: Config = {
     v4: true,
   },
 
-  url: 'https://ratchet.jcputney.dev',
+  url: 'https://ratchet.run',
   baseUrl: '/',
 
-  organizationName: 'jcputney',
+  organizationName: 'ratchet-run',
   projectName: 'ratchet',
 
   onBrokenLinks: 'warn',
@@ -46,7 +46,7 @@ const config: Config = {
         docs: {
           sidebarPath: './sidebars.ts',
           editUrl:
-            'https://github.com/jcputney/ratchet/tree/main/website/',
+            'https://github.com/ratchet-run/ratchet/tree/main/website/',
         },
         blog: false,
         theme: {
@@ -105,7 +105,7 @@ const config: Config = {
           label: 'Troubleshooting',
         },
         {
-          href: 'https://github.com/jcputney/ratchet',
+          href: 'https://github.com/ratchet-run/ratchet',
           label: 'GitHub',
           position: 'right',
         },
@@ -136,15 +136,15 @@ const config: Config = {
           items: [
             {
               label: 'GitHub',
-              href: 'https://github.com/jcputney/ratchet',
+              href: 'https://github.com/ratchet-run/ratchet',
             },
             {
               label: 'Issues',
-              href: 'https://github.com/jcputney/ratchet/issues',
+              href: 'https://github.com/ratchet-run/ratchet/issues',
             },
             {
               label: 'Discussions',
-              href: 'https://github.com/jcputney/ratchet/discussions',
+              href: 'https://github.com/ratchet-run/ratchet/discussions',
             },
           ],
         },

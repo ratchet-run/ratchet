@@ -6,7 +6,7 @@ body:
     attributes:
       value: |
         For open-ended design discussion, please consider starting in GitHub Discussions first:
-        https://github.com/jcputney/ratchet/discussions
+        https://github.com/ratchet-run/ratchet/discussions
   - type: input
     id: summary
     attributes:

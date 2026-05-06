@@ -192,7 +192,7 @@ Key diagnostic-related settings:
 
 If you cannot resolve an issue using these guides:
 
-1. **Search existing issues** on the [Ratchet GitHub repository](https://github.com/jcputney/ratchet/issues)
+1. **Search existing issues** on the [Ratchet GitHub repository](https://github.com/ratchet-run/ratchet/issues)
 2. **Open a new issue** with:
    - Ratchet version and Jakarta EE runtime (WildFly, Payara, GlassFish, etc.)
    - Database vendor and version

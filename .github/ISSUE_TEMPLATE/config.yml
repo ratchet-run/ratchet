@@ -1,11 +1,11 @@
 blank_issues_enabled: false
 contact_links:
   - name: Questions and support
-    url: https://github.com/jcputney/ratchet/discussions
+    url: https://github.com/ratchet-run/ratchet/discussions
     about: Ask usage questions, deployment questions, or start design discussion here.
   - name: Security policy
-    url: https://github.com/jcputney/ratchet/security/policy
+    url: https://github.com/ratchet-run/ratchet/security/policy
     about: Read the security reporting process before disclosing a vulnerability.
   - name: Documentation site
-    url: https://ratchet.jcputney.dev
+    url: https://ratchet.run
     about: Check the getting-started, deployment, and troubleshooting guides.

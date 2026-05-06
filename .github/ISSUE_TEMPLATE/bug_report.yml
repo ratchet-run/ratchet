@@ -8,7 +8,7 @@ body:
         Thanks for taking the time to file a bug.
 
         For usage questions or setup help, please use GitHub Discussions instead:
-        https://github.com/jcputney/ratchet/discussions
+        https://github.com/ratchet-run/ratchet/discussions
   - type: input
     id: version
     attributes:

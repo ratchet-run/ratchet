@@ -12,7 +12,7 @@ This guide covers the CDI wiring pattern, the complete SPI inventory, and Ratche
 The TCK is split into four submodules: `ratchet-tck-store` (store SPI), `ratchet-tck-api`
 (public-API, container-free), `ratchet-tck-jakarta` (Jakarta-EE conformance via Arquillian), and
 `ratchet-tck-util` (shared JUnit helpers). Each earns a distinct compatibility label — see the
-[README's tiered-conformance section](https://github.com/jcputney/ratchet#custom-store-implementation)
+[README's tiered-conformance section](https://github.com/ratchet-run/ratchet#custom-store-implementation)
 for the full matrix.
 
 ## The CDI @Alternative Pattern
