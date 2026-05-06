@@ -4,8 +4,23 @@ import type * as Preset from '@docusaurus/preset-classic';
 
 const config: Config = {
   title: 'Ratchet',
-  tagline: 'Portable CDI-based Job Scheduler for Jakarta EE 10/11',
+  tagline: 'The background job scheduler Jakarta EE has been missing.',
   favicon: 'img/favicon.ico',
+
+  headTags: [
+    {
+      tagName: 'link',
+      attributes: { rel: 'icon', type: 'image/svg+xml', href: '/img/favicon.svg' },
+    },
+    {
+      tagName: 'link',
+      attributes: { rel: 'apple-touch-icon', sizes: '180x180', href: '/img/apple-touch-icon.png' },
+    },
+    {
+      tagName: 'link',
+      attributes: { rel: 'manifest', href: '/site.webmanifest' },
+    },
+  ],
 
   future: {
     v4: true,
