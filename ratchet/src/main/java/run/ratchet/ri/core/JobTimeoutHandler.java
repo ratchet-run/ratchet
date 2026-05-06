@@ -28,9 +28,8 @@ import run.ratchet.store.spi.SignalStore;
  */
 public class JobTimeoutHandler {
 
-  private static final Logger log = Logger.getLogger(JobTimeoutHandler.class);
   static final int DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE = 500;
-
+  private static final Logger log = Logger.getLogger(JobTimeoutHandler.class);
   private final JobCrudStore jobCrudStore;
   private final JobRetryStore jobRetryStore;
   private final JobBatchStatusStore jobBatchStatusStore;
@@ -177,10 +176,6 @@ public class JobTimeoutHandler {
     this.signalTimeoutBatchSize = Math.max(1, signalTimeoutBatchSize);
   }
 
-  private Clock effective() {
-    return clock != null ? clock : Clock.systemUTC();
-  }
-
   public TimeoutHandles scheduleTimeoutMonitoring(
       JobEntity job,
       Future<?> future,
@@ -221,6 +216,26 @@ public class JobTimeoutHandler {
             TimeUnit.SECONDS);
 
     return new TimeoutHandles(soft, hard);
+  }
+
+  /**
+   * Scans for WAITING jobs whose signal timeout has elapsed and fails them. Should be called
+   * periodically (e.g., from the poller tick). No-op if no {@code SignalStore} was wired at
+   * construction time.
+   */
+  public void scanSignalTimeouts() {
+    if (signalStore == null) {
+      return;
+    }
+    Instant now = effective().instant();
+    List<JobEntity> timedOut = signalStore.findTimedOutSignalJobs(now, signalTimeoutBatchSize);
+    for (JobEntity job : timedOut) {
+      try {
+        processSignalTimeout(job, now);
+      } catch (Exception e) {
+        log.errorf(e, "Signal timeout post-processing error for job %s", job.getId());
+      }
+    }
   }
 
   /** Applies timeout routing: retry if attempts remain, otherwise fail permanently. */
@@ -273,26 +288,6 @@ public class JobTimeoutHandler {
     lifecycleFacade.handlePermanentFailure(job, timeoutEx);
   }
 
-  /**
-   * Scans for WAITING jobs whose signal timeout has elapsed and fails them. Should be called
-   * periodically (e.g., from the poller tick). No-op if no {@code SignalStore} was wired at
-   * construction time.
-   */
-  public void scanSignalTimeouts() {
-    if (signalStore == null) {
-      return;
-    }
-    Instant now = effective().instant();
-    List<JobEntity> timedOut = signalStore.findTimedOutSignalJobs(now, signalTimeoutBatchSize);
-    for (JobEntity job : timedOut) {
-      try {
-        processSignalTimeout(job, now);
-      } catch (Exception e) {
-        log.errorf(e, "Signal timeout post-processing error for job %s", job.getId());
-      }
-    }
-  }
-
   void processSignalTimeout(JobEntity job, Instant now) {
     UUID jobId = job.getId();
     String message = "Signal timeout exceeded for key: " + job.getSignalKey();
@@ -340,6 +335,10 @@ public class JobTimeoutHandler {
     if (chainScheduler != null) {
       chainScheduler.cancelChain(job);
     }
+  }
+
+  private Clock effective() {
+    return clock != null ? clock : Clock.systemUTC();
   }
 
   private void publishSignalTimedOutEvent(JobEntity job, Instant now) {

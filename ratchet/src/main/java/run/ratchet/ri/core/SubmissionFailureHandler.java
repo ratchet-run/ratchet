@@ -53,7 +53,7 @@ public class SubmissionFailureHandler {
         if (result.status() == GateCheckResult.GateStatus.NO_PERMITS) {
           log.warn(
               String.format(
-                  "Buffer for %s is full - returning job %d to PENDING",
+                  "Buffer for %s is full - returning job %s to PENDING",
                   job.getJobType(), job.getId()));
         }
       }
@@ -66,10 +66,7 @@ public class SubmissionFailureHandler {
       log.info(result.reason());
       return;
     }
-    if (jobStateManager.resetJobToPending(claim.id())) {
-      log.info(result.reason());
-      return;
-    }
+    jobStateManager.resetJobToPending(claim.id());
     log.info(result.reason());
   }
 
@@ -80,17 +77,17 @@ public class SubmissionFailureHandler {
       resetToPendingOrBuffer(job);
       log.warn(
           String.format(
-              "Executor for %s rejected job %d - returned to PENDING", jobType, job.getId()));
+              "Executor for %s rejected job %s - returned to PENDING", jobType, job.getId()));
     } else {
       if (retryBufferManager.offer(job)) {
         log.warn(
             String.format(
-                "Executor for %s rejected buffered job %d - re-buffering", jobType, job.getId()));
+                "Executor for %s rejected buffered job %s - re-buffering", jobType, job.getId()));
       } else {
         resetToPendingOrBuffer(job);
         log.warn(
             String.format(
-                "Buffer for %s is full - returning rejected job %d to PENDING",
+                "Buffer for %s is full - returning rejected job %s to PENDING",
                 jobType, job.getId()));
       }
     }
@@ -101,18 +98,18 @@ public class SubmissionFailureHandler {
 
     if (bufferClaim(claim)) {
       log.warn(
-          String.format("Executor for %s rejected job %d - buffered locally", jobType, claim.id()));
+          String.format("Executor for %s rejected job %s - buffered locally", jobType, claim.id()));
       return;
     }
     if (jobStateManager.resetJobToPending(claim.id())) {
       log.warn(
           String.format(
-              "Executor for %s rejected job %d - returned to PENDING", jobType, claim.id()));
+              "Executor for %s rejected job %s - returned to PENDING", jobType, claim.id()));
       return;
     }
     log.warn(
         String.format(
-            "Executor for %s rejected job %d - neither buffered nor reset cleanly",
+            "Executor for %s rejected job %s - neither buffered nor reset cleanly",
             jobType, claim.id()));
   }
 

@@ -20,16 +20,6 @@ import run.ratchet.api.JobHandle;
  */
 public abstract class AbstractJobRetryContract {
 
-  protected abstract RatchetTckRuntime runtime();
-
-  /**
-   * Default timeout. Generous because retries serialize through scheduler polls; subclasses may
-   * shrink for fast in-memory implementations.
-   */
-  protected Duration defaultTimeout() {
-    return Duration.ofSeconds(15);
-  }
-
   @AfterEach
   void clearAfterEach() {
     runtime().clear();
@@ -72,5 +62,15 @@ public abstract class AbstractJobRetryContract {
         1,
         runtime().probe().invocationCount(handle),
         "withMaxRetries(0) must invoke task body exactly once");
+  }
+
+  protected abstract RatchetTckRuntime runtime();
+
+  /**
+   * Default timeout. Generous because retries serialize through scheduler polls; subclasses may
+   * shrink for fast in-memory implementations.
+   */
+  protected Duration defaultTimeout() {
+    return Duration.ofSeconds(15);
   }
 }

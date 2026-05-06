@@ -23,18 +23,6 @@ final class PostgresqlBatchOperations implements BatchStore, BatchMetricsStore {
     this.ctx = ctx;
   }
 
-  private JobPayload parseProgressHook(Object jsonValue) {
-    if (jsonValue == null) {
-      return null;
-    }
-    try {
-      return PayloadSerializerHolder.get().deserialize(jsonValue.toString(), JobPayload.class);
-    } catch (IllegalArgumentException e) {
-      log.warnf("Bad progress_hook JSON: %s", e.getMessage());
-      return null;
-    }
-  }
-
   @Override
   public BatchEntity saveBatch(BatchEntity batch) {
     // language=PostgreSQL
@@ -83,16 +71,6 @@ final class PostgresqlBatchOperations implements BatchStore, BatchMetricsStore {
         ctx.em().createQuery(jpql, BatchEntity.class).setParameter("ids", batchIds).getResultList();
     batches.forEach(this::refreshIfManaged);
     return batches;
-  }
-
-  private void refreshIfManaged(BatchEntity batch) {
-    if (batch != null && ctx.em().contains(batch)) {
-      ctx.em().refresh(batch);
-    }
-  }
-
-  private String progressHookJson(JobPayload progressHook) {
-    return progressHook == null ? null : PayloadSerializerHolder.get().serialize(progressHook);
   }
 
   @Override
@@ -236,5 +214,27 @@ final class PostgresqlBatchOperations implements BatchStore, BatchMetricsStore {
         .setParameter(1, childCount)
         .setParameter(2, batchId)
         .executeUpdate();
+  }
+
+  private JobPayload parseProgressHook(Object jsonValue) {
+    if (jsonValue == null) {
+      return null;
+    }
+    try {
+      return PayloadSerializerHolder.get().deserialize(jsonValue.toString(), JobPayload.class);
+    } catch (IllegalArgumentException e) {
+      log.warnf("Bad progress_hook JSON: %s", e.getMessage());
+      return null;
+    }
+  }
+
+  private void refreshIfManaged(BatchEntity batch) {
+    if (batch != null && ctx.em().contains(batch)) {
+      ctx.em().refresh(batch);
+    }
+  }
+
+  private String progressHookJson(JobPayload progressHook) {
+    return progressHook == null ? null : PayloadSerializerHolder.get().serialize(progressHook);
   }
 }

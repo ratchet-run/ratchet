@@ -22,26 +22,6 @@ public class ConformanceReportExtension extends AbstractConformanceReportExtensi
           .map(l -> new ContractGroup(l.getLabel(), l.getDescription(), l.getRequiredContracts()))
           .toList();
 
-  @Override
-  protected String tierTitle() {
-    return "Store";
-  }
-
-  @Override
-  protected String runtimeProperty() {
-    return STORE_NAME_PROP;
-  }
-
-  @Override
-  protected Path reportPath() {
-    return Path.of("target", "tck-conformance-report.md");
-  }
-
-  @Override
-  protected List<ContractGroup> contractGroups() {
-    return GROUPS;
-  }
-
   /**
    * Walks the superclass chain of the given class name looking for a class whose simple name
    * matches a known {@link ConformanceLevel} contract. Kept as a static utility for tests and
@@ -62,5 +42,25 @@ public class ConformanceReportExtension extends AbstractConformanceReportExtensi
       // Non-fatal: skip
     }
     return null;
+  }
+
+  @Override
+  protected String tierTitle() {
+    return "Store";
+  }
+
+  @Override
+  protected String runtimeProperty() {
+    return STORE_NAME_PROP;
+  }
+
+  @Override
+  protected Path reportPath() {
+    return Path.of("target", "tck-conformance-report.md");
+  }
+
+  @Override
+  protected List<ContractGroup> contractGroups() {
+    return GROUPS;
   }
 }

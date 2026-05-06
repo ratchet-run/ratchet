@@ -13,12 +13,18 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
+import org.bson.BsonBinaryWriter;
+import org.bson.codecs.Codec;
+import org.bson.codecs.EncoderContext;
+import org.bson.io.BasicOutputBuffer;
+import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.store.RatchetConfigurationException;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.ArchivedJobEntity;
@@ -680,75 +686,29 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
-  public List<run.ratchet.store.entity.JobEntity> searchJobs(
-      run.ratchet.api.JobFilter filter, int limit, int offset) {
+  public List<JobEntity> searchJobs(JobFilter filter, int limit, int offset) {
     return query.searchJobs(filter, limit, offset);
   }
 
   @Override
-  public long countJobs(run.ratchet.api.JobFilter filter) {
+  public long countJobs(JobFilter filter) {
     return query.countJobs(filter);
   }
 
-  @PostConstruct
-  void initializeCollections() {
-    validateUuidRepresentation();
-    new MongoCollectionInitializer(database).initialize();
-  }
-
-  /**
-   * Probes the codec registry by encoding a known UUID and inspecting the BSON binary subtype byte.
-   * Subtype 4 (RFC 4122 / STANDARD) passes; any other subtype indicates a non-STANDARD {@code
-   * UuidRepresentation} that would corrupt UUIDv7 round-trips and is rejected at startup.
-   */
-  private void validateUuidRepresentation() {
-    org.bson.codecs.Codec<java.util.UUID> codec =
-        database.getCodecRegistry().get(java.util.UUID.class);
-    org.bson.io.BasicOutputBuffer buffer = new org.bson.io.BasicOutputBuffer();
-    try (org.bson.BsonBinaryWriter writer = new org.bson.BsonBinaryWriter(buffer)) {
-      writer.writeStartDocument();
-      writer.writeName("u");
-      codec.encode(
-          writer, new java.util.UUID(0L, 0L), org.bson.codecs.EncoderContext.builder().build());
-      writer.writeEndDocument();
-    }
-    // BSON layout for {"u": <binary>}:
-    //   [0-3]  int32 totalSize
-    //   [4]    0x05  (binary element type)
-    //   [5]    'u'   (0x75)
-    //   [6]    0x00  (cstring terminator)
-    //   [7-10] int32 binary length (= 16)
-    //   [11]   subtype  <-- byte we care about
-    //   [12-27] 16 bytes of UUID data
-    //   [28]   0x00  (document terminator)
-    byte[] bytes = buffer.toByteArray();
-    int subtype = bytes[11] & 0xFF;
-    if (subtype != 4) {
-      throw new run.ratchet.store.RatchetConfigurationException(
-          "ratchet-store-mongodb requires MongoClient with UuidRepresentation.STANDARD "
-              + "(BSON binary subtype 4). Detected subtype "
-              + subtype
-              + " — likely UuidRepresentation.JAVA_LEGACY or another legacy variant. "
-              + "Construct via MongoClientFactory.create(...) or set "
-              + "MongoClientSettings.builder().uuidRepresentation(STANDARD) when supplying "
-              + "your own MongoClient.");
-    }
-  }
-
   @Override
-  public java.util.List<JobEntity> findTimedOutSignalJobs(java.time.Instant now, int limit) {
+  public List<JobEntity> findTimedOutSignalJobs(Instant now, int limit) {
     return signals.findTimedOutSignalJobs(now, limit);
   }
 
   @Override
   public int deliverSignalById(
-      java.util.UUID jobId,
+      UUID jobId,
       String payload,
       String payloadType,
       String outcome,
       String rejectionReason,
       String deliveredBy,
-      java.time.Instant deliveredAt,
+      Instant deliveredAt,
       String deliveryId) {
     return signals.deliverSignalById(
         jobId,
@@ -769,7 +729,7 @@ class MongoJobStoreImpl implements MongoJobStore {
       String outcome,
       String rejectionReason,
       String deliveredBy,
-      java.time.Instant deliveredAt,
+      Instant deliveredAt,
       String deliveryId) {
     return signals.deliverSignalByKey(
         signalKey,
@@ -783,7 +743,50 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
-  public java.util.List<JobEntity> findJobsBySignalDeliveryId(String deliveryId) {
+  public List<JobEntity> findJobsBySignalDeliveryId(String deliveryId) {
     return signals.findJobsBySignalDeliveryId(deliveryId);
+  }
+
+  @PostConstruct
+  void initializeCollections() {
+    validateUuidRepresentation();
+    new MongoCollectionInitializer(database).initialize();
+  }
+
+  /**
+   * Probes the codec registry by encoding a known UUID and inspecting the BSON binary subtype byte.
+   * Subtype 4 (RFC 4122 / STANDARD) passes; any other subtype indicates a non-STANDARD {@code
+   * UuidRepresentation} that would corrupt UUIDv7 round-trips and is rejected at startup.
+   */
+  private void validateUuidRepresentation() {
+    Codec<UUID> codec = database.getCodecRegistry().get(UUID.class);
+    BasicOutputBuffer buffer = new BasicOutputBuffer();
+    try (BsonBinaryWriter writer = new BsonBinaryWriter(buffer)) {
+      writer.writeStartDocument();
+      writer.writeName("u");
+      codec.encode(writer, new UUID(0L, 0L), EncoderContext.builder().build());
+      writer.writeEndDocument();
+    }
+    // BSON layout for {"u": <binary>}:
+    //   [0-3]  int32 totalSize
+    //   [4]    0x05  (binary element type)
+    //   [5]    'u'   (0x75)
+    //   [6]    0x00  (cstring terminator)
+    //   [7-10] int32 binary length (= 16)
+    //   [11]   subtype  <-- byte we care about
+    //   [12-27] 16 bytes of UUID data
+    //   [28]   0x00  (document terminator)
+    byte[] bytes = buffer.toByteArray();
+    int subtype = bytes[11] & 0xFF;
+    if (subtype != 4) {
+      throw new RatchetConfigurationException(
+          "ratchet-store-mongodb requires MongoClient with UuidRepresentation.STANDARD "
+              + "(BSON binary subtype 4). Detected subtype "
+              + subtype
+              + " — likely UuidRepresentation.JAVA_LEGACY or another legacy variant. "
+              + "Construct via MongoClientFactory.create(...) or set "
+              + "MongoClientSettings.builder().uuidRepresentation(STANDARD) when supplying "
+              + "your own MongoClient.");
+    }
   }
 }

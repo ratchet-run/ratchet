@@ -13,7 +13,7 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
-import run.ratchet.store.spi.JobStatusStore;
+import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.testsuite.app.PerformanceMetricsCollector;
 import run.ratchet.testsuite.app.TestJobService;
 import run.ratchet.testsuite.app.TimingJob;
@@ -32,7 +32,7 @@ class StoreOperationLatencyIT extends BasePerformanceIT {
   private static final PerformanceBaseline baseline = createBaseline();
   private static final PerformanceReportWriter reportWriter = createReportWriter();
 
-  @Inject private JobStatusStore jobStatusStore;
+  @Inject private JobBatchStatusStore jobBatchStatusStore;
 
   @Deployment
   public static WebArchive createDeployment() {
@@ -133,7 +133,7 @@ class StoreOperationLatencyIT extends BasePerformanceIT {
       JobEntity saved = jobCrudStore.save(job);
 
       long start = System.nanoTime();
-      jobStatusStore.compareAndSwapStatus(
+      jobBatchStatusStore.compareAndSwapStatus(
           saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
       long elapsed = System.nanoTime() - start;
       casTimes[i] = elapsed / 1_000_000;

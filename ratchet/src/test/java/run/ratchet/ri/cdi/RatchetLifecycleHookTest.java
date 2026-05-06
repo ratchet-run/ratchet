@@ -12,6 +12,7 @@ import java.lang.annotation.Annotation;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.RatchetOptions;
@@ -112,8 +113,7 @@ class RatchetLifecycleHookTest {
 
   private ExecutorProvider executorProviderWithScheduler() {
     ExecutorProvider provider = mock(ExecutorProvider.class);
-    when(provider.getScheduledExecutor())
-        .thenReturn(mock(java.util.concurrent.ScheduledExecutorService.class));
+    when(provider.getScheduledExecutor()).thenReturn(mock(ScheduledExecutorService.class));
     return provider;
   }
 
@@ -132,8 +132,8 @@ class RatchetLifecycleHookTest {
    * container.
    */
   private static final class RecordingInstance<T> implements Instance<T> {
-    private final List<T> elements;
     final List<T> destroyed = new ArrayList<>();
+    private final List<T> elements;
     int iteratorCalls = 0;
 
     RecordingInstance(List<T> elements) {

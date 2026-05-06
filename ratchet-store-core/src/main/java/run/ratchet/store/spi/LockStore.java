@@ -43,7 +43,7 @@ import run.ratchet.api.Incubating;
  * multiple nodes and periodically re-invokes {@code renewLock} from a scheduled executor while work
  * runs under the lease.
  *
- * @see run.ratchet.api.Incubating
+ * @see Incubating
  */
 @Incubating
 public interface LockStore {

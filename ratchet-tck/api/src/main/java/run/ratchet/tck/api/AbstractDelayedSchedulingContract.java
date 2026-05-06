@@ -20,12 +20,6 @@ import run.ratchet.api.JobHandle;
  */
 public abstract class AbstractDelayedSchedulingContract {
 
-  protected abstract RatchetTckRuntime runtime();
-
-  protected Duration defaultTimeout() {
-    return Duration.ofSeconds(5);
-  }
-
   /** Resolved clock from {@link RatchetTckRuntime#clock()} after the assumption check. */
   protected TestClock clock;
 
@@ -111,5 +105,11 @@ public abstract class AbstractDelayedSchedulingContract {
         IllegalArgumentException.class,
         () -> clock.advanceTo(past),
         "TestClock.advanceTo(target) must reject targets earlier than now()");
+  }
+
+  protected abstract RatchetTckRuntime runtime();
+
+  protected Duration defaultTimeout() {
+    return Duration.ofSeconds(5);
   }
 }

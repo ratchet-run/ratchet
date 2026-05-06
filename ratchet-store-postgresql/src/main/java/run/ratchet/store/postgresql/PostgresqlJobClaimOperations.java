@@ -109,6 +109,21 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
     return p;
   }
 
+  private static List<JobEntity> reorderById(List<JobEntity> jobs, List<UUID> orderedIds) {
+    Map<UUID, JobEntity> byId = new HashMap<>(jobs.size());
+    for (JobEntity j : jobs) {
+      byId.put(j.getId(), j);
+    }
+    List<JobEntity> ordered = new ArrayList<>(jobs.size());
+    for (UUID id : orderedIds) {
+      JobEntity j = byId.get(id);
+      if (j != null) {
+        ordered.add(j);
+      }
+    }
+    return ordered;
+  }
+
   @Override
   @SuppressWarnings("unchecked")
   public List<JobEntity> claimNextBatch(int limit, String nodeId, NodeTagFilter tagFilter) {
@@ -129,7 +144,7 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
         claimQuery.setParameter(parameter++, boostInterval);
       }
       claimQuery.setParameter(parameter++, limit);
-      claimQuery.setParameter(parameter++, nodeId);
+      claimQuery.setParameter(parameter, nodeId);
       List<Object[]> rows = claimQuery.getResultList();
       if (rows.isEmpty()) {
         return List.of();
@@ -164,7 +179,7 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
         claimQuery.setParameter(parameter++, boostInterval);
       }
       claimQuery.setParameter(parameter++, limit);
-      claimQuery.setParameter(parameter++, nodeId);
+      claimQuery.setParameter(parameter, nodeId);
       @SuppressWarnings("unchecked")
       List<Object[]> rows = claimQuery.getResultList();
 
@@ -238,20 +253,5 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("claim recurring jobs", e);
     }
-  }
-
-  private static List<JobEntity> reorderById(List<JobEntity> jobs, List<UUID> orderedIds) {
-    Map<UUID, JobEntity> byId = new HashMap<>(jobs.size());
-    for (JobEntity j : jobs) {
-      byId.put(j.getId(), j);
-    }
-    List<JobEntity> ordered = new ArrayList<>(jobs.size());
-    for (UUID id : orderedIds) {
-      JobEntity j = byId.get(id);
-      if (j != null) {
-        ordered.add(j);
-      }
-    }
-    return ordered;
   }
 }

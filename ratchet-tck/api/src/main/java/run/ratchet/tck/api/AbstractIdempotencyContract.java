@@ -35,10 +35,8 @@ import run.ratchet.tck.util.ConcurrentTestRunner;
  */
 public abstract class AbstractIdempotencyContract {
 
-  protected abstract RatchetTckRuntime runtime();
-
-  protected Duration defaultTimeout() {
-    return Duration.ofSeconds(5);
+  private static String uniqueKey(String label) {
+    return label + '-' + UUID.randomUUID();
   }
 
   @AfterEach
@@ -192,7 +190,9 @@ public abstract class AbstractIdempotencyContract {
     assertEquals(1, runtime().probe().invocationCount(second), "Second job invoked exactly once");
   }
 
-  private static String uniqueKey(String label) {
-    return label + '-' + UUID.randomUUID();
+  protected abstract RatchetTckRuntime runtime();
+
+  protected Duration defaultTimeout() {
+    return Duration.ofSeconds(5);
   }
 }

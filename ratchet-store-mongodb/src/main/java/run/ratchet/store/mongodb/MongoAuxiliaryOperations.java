@@ -232,7 +232,7 @@ final class MongoAuxiliaryOperations {
             if (dr.getDeletedCount() > 0) {
               ctx.resourceLimits().updateOne(session, eq(ID, resource), inc(ACTIVE_COUNT, -1));
             }
-            return null;
+            return Boolean.TRUE;
           });
     }
   }
@@ -251,7 +251,7 @@ final class MongoAuxiliaryOperations {
                 ctx.resourceLimits().updateOne(session, eq(ID, resource), inc(ACTIVE_COUNT, -1));
               }
             }
-            return null;
+            return Boolean.TRUE;
           });
     }
   }

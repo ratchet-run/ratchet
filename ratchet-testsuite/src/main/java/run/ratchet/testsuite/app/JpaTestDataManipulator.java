@@ -23,6 +23,23 @@ public class JpaTestDataManipulator implements TestDataManipulator {
 
   @Inject private UserTransaction utx;
 
+  /**
+   * Native-query parameter binding for a UUID job_id. On MySQL the column is BINARY(16) and
+   * EclipseLink does not invoke @Convert for native queries, so the UUID has to be pre-converted to
+   * bytes (matching what {@code UuidByteArrayConverter} writes during JPA-managed inserts). On
+   * PostgreSQL the native {@code uuid} column type accepts the {@link UUID} directly.
+   */
+  private static Object jobIdParam(UUID jobId) {
+    String dbType = System.getProperty("ratchet.test.db.type", "mysql");
+    if (!"mysql".equals(dbType)) {
+      return jobId;
+    }
+    ByteBuffer buf = ByteBuffer.allocate(16);
+    buf.putLong(jobId.getMostSignificantBits());
+    buf.putLong(jobId.getLeastSignificantBits());
+    return buf.array();
+  }
+
   @Override
   public void setJobUpdatedAt(UUID jobId, Instant updatedAt) {
     try {
@@ -69,22 +86,5 @@ public class JpaTestDataManipulator implements TestDataManipulator {
 
   private EntityManager em() {
     return entityManagerProvider.getEntityManager();
-  }
-
-  /**
-   * Native-query parameter binding for a UUID job_id. On MySQL the column is BINARY(16) and
-   * EclipseLink does not invoke @Convert for native queries, so the UUID has to be pre-converted to
-   * bytes (matching what {@code UuidByteArrayConverter} writes during JPA-managed inserts). On
-   * PostgreSQL the native {@code uuid} column type accepts the {@link UUID} directly.
-   */
-  private static Object jobIdParam(UUID jobId) {
-    String dbType = System.getProperty("ratchet.test.db.type", "mysql");
-    if (!"mysql".equals(dbType)) {
-      return jobId;
-    }
-    ByteBuffer buf = ByteBuffer.allocate(16);
-    buf.putLong(jobId.getMostSignificantBits());
-    buf.putLong(jobId.getLeastSignificantBits());
-    return buf.array();
   }
 }

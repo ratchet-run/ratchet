@@ -61,18 +61,6 @@ public enum ConformanceLevel {
     this.requiredContracts = requiredContracts;
   }
 
-  public String getLabel() {
-    return label;
-  }
-
-  public String getDescription() {
-    return description;
-  }
-
-  public List<String> getRequiredContracts() {
-    return requiredContracts;
-  }
-
   /** Returns the level that owns {@code simpleClassName}, or {@code null} if unrecognized. */
   public static ConformanceLevel forContract(String simpleClassName) {
     return BY_CONTRACT.get(simpleClassName);
@@ -86,5 +74,17 @@ public enum ConformanceLevel {
       }
     }
     return index;
+  }
+
+  public String getLabel() {
+    return label;
+  }
+
+  public String getDescription() {
+    return description;
+  }
+
+  public List<String> getRequiredContracts() {
+    return requiredContracts;
   }
 }

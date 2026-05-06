@@ -20,16 +20,6 @@ import run.ratchet.api.SignalDecision;
  */
 public abstract class AbstractSignalDecisionContract {
 
-  protected abstract RatchetTckRuntime runtime();
-
-  protected Duration defaultTimeout() {
-    return Duration.ofSeconds(10);
-  }
-
-  protected Duration quietWindow() {
-    return Duration.ofMillis(300);
-  }
-
   @AfterEach
   void clearAfterEach() {
     runtime().clear();
@@ -79,5 +69,15 @@ public abstract class AbstractSignalDecisionContract {
         runtime().probe().awaitCompleted(handle, defaultTimeout()),
         "Rejected signal decision should unblock and complete the job");
     assertEquals(List.of("REJECTED:needs-review:denied"), TckJobs.signalDecisions());
+  }
+
+  protected abstract RatchetTckRuntime runtime();
+
+  protected Duration defaultTimeout() {
+    return Duration.ofSeconds(10);
+  }
+
+  protected Duration quietWindow() {
+    return Duration.ofMillis(300);
   }
 }

@@ -36,13 +36,6 @@ public abstract class AbstractCdiInjectionContract {
    */
   @Inject protected JobSchedulerService injectedScheduler;
 
-  /** Runtime under test. Subclasses typically inject and return an implementation-specific bean. */
-  protected abstract RatchetTckRuntime runtime();
-
-  protected Duration defaultTimeout() {
-    return Duration.ofSeconds(10);
-  }
-
   @AfterEach
   void clearAfterEach() {
     runtime().clear();
@@ -68,5 +61,12 @@ public abstract class AbstractCdiInjectionContract {
         "Job submitted via @Inject-ed scheduler must complete. Bare CDI resolution is not enough "
             + "— the resolved bean must be a working scheduler, not a no-op stub or a producer "
             + "for an unstarted scheduler.");
+  }
+
+  /** Runtime under test. Subclasses typically inject and return an implementation-specific bean. */
+  protected abstract RatchetTckRuntime runtime();
+
+  protected Duration defaultTimeout() {
+    return Duration.ofSeconds(10);
   }
 }

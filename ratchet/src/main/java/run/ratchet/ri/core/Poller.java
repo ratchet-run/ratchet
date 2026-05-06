@@ -244,7 +244,7 @@ public class Poller {
 
   private List<JobClaimDto> claimJobsByTypeBudget() {
     NodeTagFilter tagFilter =
-        tagAffinityProvider != null ? tagAffinityProvider.getTagFilter() : NodeTagFilter.NONE;
+        tagAffinityProvider != null ? tagAffinityProvider.tagFilter() : NodeTagFilter.NONE;
     List<JobClaimDto> claims = new ArrayList<>();
     String nodeId = nodeIdProvider.getNodeId();
     for (JobExecutionType jobType : POLLER_EXECUTABLE_TYPES) {

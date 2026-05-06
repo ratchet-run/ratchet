@@ -70,7 +70,14 @@ public class MicrometerTracingCollector implements TracingCollector {
       return Map.of();
     }
     Map<String, String> carrier = new LinkedHashMap<>();
-    propagator.inject(current.context(), carrier, Map::put);
+    propagator.inject(
+        current.context(),
+        carrier,
+        (map, key, value) -> {
+          if (map != null && key != null && value != null) {
+            map.put(key, value);
+          }
+        });
     return Map.copyOf(carrier);
   }
 

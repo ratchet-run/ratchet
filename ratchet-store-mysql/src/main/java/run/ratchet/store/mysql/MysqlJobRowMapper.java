@@ -4,6 +4,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.Date;
 import java.util.UUID;
 import org.jboss.logging.Logger;
 import run.ratchet.api.BackoffPolicy;
@@ -176,7 +177,7 @@ final class MysqlJobRowMapper {
     if (val instanceof LocalDateTime ldt) {
       return ldt.atZone(ZoneId.systemDefault()).toInstant();
     }
-    if (val instanceof java.util.Date date) {
+    if (val instanceof Date date) {
       return date.toInstant();
     }
     return null;

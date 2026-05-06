@@ -123,10 +123,10 @@ class ExecutionObserverTest {
     ArgumentCaptor<Map<String, String>> attributesCaptor = ArgumentCaptor.forClass(Map.class);
     verify(tracingCollector)
         .jobExecutionStarted(
-            org.mockito.ArgumentMatchers.eq(job.getId()),
-            org.mockito.ArgumentMatchers.eq(job.getPublicJobType()),
-            org.mockito.ArgumentMatchers.eq(job.getPriority()),
-            org.mockito.ArgumentMatchers.eq(Map.of()),
+            ArgumentMatchers.eq(job.getId()),
+            ArgumentMatchers.eq(job.getPublicJobType()),
+            ArgumentMatchers.eq(job.getPriority()),
+            ArgumentMatchers.eq(Map.of()),
             attributesCaptor.capture());
     assertEquals("approval", attributesCaptor.getValue().get("ratchet.signal.key"));
     assertEquals("REJECTED", attributesCaptor.getValue().get("ratchet.signal.outcome"));

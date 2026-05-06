@@ -42,6 +42,54 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
     this.reads = reads;
   }
 
+  private static void prepareArchive(ArchivedJobEntity archive) {
+    if (archive.getId() == null) {
+      archive.setId(UuidV7Factory.create());
+    }
+    if (archive.getArchivedAt() == null) {
+      archive.setArchivedAt(Instant.now());
+    }
+  }
+
+  private static void setArchiveParameters(Query query, ArchivedJobEntity archive) {
+    int parameter = 1;
+    query.setParameter(parameter++, archive.getId());
+    query.setParameter(parameter++, archive.getOriginalJobId());
+    query.setParameter(parameter++, archive.getFinalStatus().name());
+    query.setParameter(parameter++, archive.getJobType().name());
+    query.setParameter(parameter++, archive.getPriority().ordinal());
+    query.setParameter(parameter++, archive.getTotalAttempts());
+    query.setParameter(parameter++, archive.getMaxRetries());
+    query.setParameter(parameter++, archive.getBackoffPolicy().name());
+    query.setParameter(parameter++, archive.getBackoffParamMs());
+    query.setParameter(parameter++, archive.getTimeoutSec());
+    query.setParameter(parameter++, archive.getTargetClass());
+    query.setParameter(parameter++, archive.getMethodName());
+    query.setParameter(parameter++, archive.getBusinessKey());
+    query.setParameter(parameter++, archive.getCronExpr());
+    query.setParameter(parameter++, archive.getZoneId());
+    query.setParameter(parameter++, timestampOrNull(archive.getOriginalScheduledTime()));
+    query.setParameter(parameter++, timestampOrNull(archive.getOriginalCreatedAt()));
+    query.setParameter(parameter++, timestampOrNull(archive.getFirstExecutionTime()));
+    query.setParameter(parameter++, timestampOrNull(archive.getCompletionTime()));
+    query.setParameter(parameter++, archive.getTotalExecutionTimeMs());
+    query.setParameter(parameter++, archive.getQueueWaitMs());
+    query.setParameter(parameter++, timestampOrNull(archive.getArchivedAt()));
+    query.setParameter(parameter++, archive.getArchivedBy());
+    query.setParameter(parameter++, archive.getArchiveReason());
+    query.setParameter(parameter++, archive.getJobResult());
+    query.setParameter(parameter++, archive.getResultType());
+    query.setParameter(parameter++, archive.getFinalError());
+    query.setParameter(parameter++, archive.getPayloadSummary());
+    query.setParameter(parameter++, archive.getDependedOn());
+    query.setParameter(parameter++, archive.getSupersededBy());
+    query.setParameter(parameter, archive.getTags());
+  }
+
+  private static Timestamp timestampOrNull(Instant instant) {
+    return instant == null ? null : Timestamp.from(instant);
+  }
+
   @Override
   public ArchivedJobEntity archiveJob(JobEntity job, String reason, String archivedBy) {
     JobEntity hydrated = reads.hydrateForArchive(job);
@@ -142,53 +190,5 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
         .createNativeQuery(sql)
         .setParameter(1, Timestamp.from(olderThan))
         .executeUpdate();
-  }
-
-  private static void prepareArchive(ArchivedJobEntity archive) {
-    if (archive.getId() == null) {
-      archive.setId(UuidV7Factory.create());
-    }
-    if (archive.getArchivedAt() == null) {
-      archive.setArchivedAt(Instant.now());
-    }
-  }
-
-  private static void setArchiveParameters(Query query, ArchivedJobEntity archive) {
-    int parameter = 1;
-    query.setParameter(parameter++, archive.getId());
-    query.setParameter(parameter++, archive.getOriginalJobId());
-    query.setParameter(parameter++, archive.getFinalStatus().name());
-    query.setParameter(parameter++, archive.getJobType().name());
-    query.setParameter(parameter++, archive.getPriority().ordinal());
-    query.setParameter(parameter++, archive.getTotalAttempts());
-    query.setParameter(parameter++, archive.getMaxRetries());
-    query.setParameter(parameter++, archive.getBackoffPolicy().name());
-    query.setParameter(parameter++, archive.getBackoffParamMs());
-    query.setParameter(parameter++, archive.getTimeoutSec());
-    query.setParameter(parameter++, archive.getTargetClass());
-    query.setParameter(parameter++, archive.getMethodName());
-    query.setParameter(parameter++, archive.getBusinessKey());
-    query.setParameter(parameter++, archive.getCronExpr());
-    query.setParameter(parameter++, archive.getZoneId());
-    query.setParameter(parameter++, timestampOrNull(archive.getOriginalScheduledTime()));
-    query.setParameter(parameter++, timestampOrNull(archive.getOriginalCreatedAt()));
-    query.setParameter(parameter++, timestampOrNull(archive.getFirstExecutionTime()));
-    query.setParameter(parameter++, timestampOrNull(archive.getCompletionTime()));
-    query.setParameter(parameter++, archive.getTotalExecutionTimeMs());
-    query.setParameter(parameter++, archive.getQueueWaitMs());
-    query.setParameter(parameter++, timestampOrNull(archive.getArchivedAt()));
-    query.setParameter(parameter++, archive.getArchivedBy());
-    query.setParameter(parameter++, archive.getArchiveReason());
-    query.setParameter(parameter++, archive.getJobResult());
-    query.setParameter(parameter++, archive.getResultType());
-    query.setParameter(parameter++, archive.getFinalError());
-    query.setParameter(parameter++, archive.getPayloadSummary());
-    query.setParameter(parameter++, archive.getDependedOn());
-    query.setParameter(parameter++, archive.getSupersededBy());
-    query.setParameter(parameter, archive.getTags());
-  }
-
-  private static Timestamp timestampOrNull(Instant instant) {
-    return instant == null ? null : Timestamp.from(instant);
   }
 }

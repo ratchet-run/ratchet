@@ -29,6 +29,26 @@ final class PostgresqlSignalOperations implements SignalStore {
     this.ctx = ctx;
   }
 
+  private static UUID toUuid(Object value) {
+    if (value == null) {
+      return null;
+    }
+    if (value instanceof UUID uuid) {
+      return uuid;
+    }
+    return UUID.fromString(value.toString());
+  }
+
+  private static Instant toInstant(Object value) {
+    if (value == null) {
+      return null;
+    }
+    if (value instanceof Timestamp ts) {
+      return ts.toInstant();
+    }
+    return null;
+  }
+
   @Override
   @SuppressWarnings("unchecked")
   public List<JobEntity> findTimedOutSignalJobs(Instant now, int limit) {
@@ -177,25 +197,5 @@ final class PostgresqlSignalOperations implements SignalStore {
     List<Object[]> rows =
         ctx.em().createNativeQuery(sql).setParameter(1, deliveryId).getResultList();
     return PostgresqlJobRowMapper.hydrateRows(rows);
-  }
-
-  private static UUID toUuid(Object value) {
-    if (value == null) {
-      return null;
-    }
-    if (value instanceof UUID uuid) {
-      return uuid;
-    }
-    return UUID.fromString(value.toString());
-  }
-
-  private static Instant toInstant(Object value) {
-    if (value == null) {
-      return null;
-    }
-    if (value instanceof Timestamp ts) {
-      return ts.toInstant();
-    }
-    return null;
   }
 }

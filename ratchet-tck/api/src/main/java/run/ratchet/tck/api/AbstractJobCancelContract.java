@@ -22,12 +22,6 @@ import run.ratchet.api.JobHandle;
  */
 public abstract class AbstractJobCancelContract {
 
-  protected abstract RatchetTckRuntime runtime();
-
-  protected Duration defaultTimeout() {
-    return Duration.ofSeconds(5);
-  }
-
   @AfterEach
   void clearAfterEach() {
     runtime().clear();
@@ -109,5 +103,11 @@ public abstract class AbstractJobCancelContract {
     assertTrue(
         TckJobs.chainEvents().isEmpty(),
         "Chain child must not execute when the parent job was cancelled");
+  }
+
+  protected abstract RatchetTckRuntime runtime();
+
+  protected Duration defaultTimeout() {
+    return Duration.ofSeconds(5);
   }
 }

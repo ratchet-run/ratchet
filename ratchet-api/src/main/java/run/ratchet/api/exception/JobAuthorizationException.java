@@ -1,5 +1,6 @@
 package run.ratchet.api.exception;
 
+import java.io.Serial;
 import java.util.UUID;
 import run.ratchet.api.DoNotRetry;
 
@@ -13,7 +14,7 @@ import run.ratchet.api.DoNotRetry;
 @DoNotRetry("Authorization denial is permanent; retrying will not change the outcome")
 public class JobAuthorizationException extends RuntimeException {
 
-  private static final long serialVersionUID = 1L;
+  @Serial private static final long serialVersionUID = 1L;
 
   private final UUID jobId;
   private final String operation;

@@ -9,17 +9,17 @@ import java.util.List;
  */
 public record LogicalPredicate(String column, Op op, List<String> literals) {
 
-  public enum Op {
-    EQ,
-    NEQ,
-    IN
-  }
-
   public static LogicalPredicate eq(String column, String literal) {
     return new LogicalPredicate(column, Op.EQ, List.of(literal));
   }
 
   public static LogicalPredicate in(String column, String... literals) {
     return new LogicalPredicate(column, Op.IN, List.of(literals));
+  }
+
+  public enum Op {
+    EQ,
+    NEQ,
+    IN
   }
 }

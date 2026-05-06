@@ -9,16 +9,10 @@ import run.ratchet.spi.NodeTagAffinityProvider;
  * {@link RatchetOptions.NodeOptions} at construction time and returns the same filter on every
  * call. Produces {@link NodeTagFilter#NONE} when no tags are configured.
  */
-public class DefaultNodeTagAffinityProvider implements NodeTagAffinityProvider {
+public record DefaultNodeTagAffinityProvider(NodeTagFilter tagFilter)
+    implements NodeTagAffinityProvider {
 
-  private final NodeTagFilter tagFilter;
-
-  public DefaultNodeTagAffinityProvider(RatchetOptions options) {
-    this.tagFilter = options.node().tagFilter();
-  }
-
-  @Override
-  public NodeTagFilter getTagFilter() {
-    return tagFilter;
+  public DefaultNodeTagAffinityProvider(RatchetOptions tagFilter) {
+    this(tagFilter.node().tagFilter());
   }
 }

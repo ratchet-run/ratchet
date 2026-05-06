@@ -3,7 +3,7 @@ package run.ratchet.testsuite.infra;
 import java.util.logging.Logger;
 import org.junit.jupiter.api.extension.BeforeAllCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
-import org.testcontainers.containers.MongoDBContainer;
+import org.testcontainers.mongodb.MongoDBContainer;
 
 /**
  * JUnit 5 extension that starts a Testcontainers MongoDB instance before all tests.
@@ -36,7 +36,6 @@ public class MongoContainerExtension
     return config;
   }
 
-  @SuppressWarnings("resource")
   @Override
   public void beforeAll(ExtensionContext context) {
     String dbType = System.getProperty("ratchet.test.db.type", "mysql");

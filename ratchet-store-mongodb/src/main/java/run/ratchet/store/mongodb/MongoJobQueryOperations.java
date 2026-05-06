@@ -55,120 +55,6 @@ final class MongoJobQueryOperations {
     this.ctx = ctx;
   }
 
-  List<JobEntity> searchJobs(JobFilter filter, int limit, int offset) {
-    int safeLimit = Math.min(limit, MAX_LIMIT);
-    boolean archive = useArchive(filter);
-
-    if (!archive) {
-      return searchLive(filter, safeLimit, offset);
-    }
-
-    // Fetch from both collections and merge in memory
-    int fetchLimit = safeLimit + offset;
-    List<JobEntity> live = searchLive(filter, fetchLimit, 0);
-    List<JobEntity> archived = searchArchive(filter, fetchLimit);
-
-    List<JobEntity> merged = new ArrayList<>(live.size() + archived.size());
-    merged.addAll(live);
-    merged.addAll(archived);
-    merged.sort(mergeComparator(filter));
-    int from = Math.min(offset, merged.size());
-    int to = Math.min(from + safeLimit, merged.size());
-    return merged.subList(from, to);
-  }
-
-  long countJobs(JobFilter filter) {
-    long liveCount = ctx.jobs().countDocuments(buildFilter(filter));
-    if (!useArchive(filter)) {
-      return liveCount;
-    }
-    long archiveCount = ctx.archives().countDocuments(buildArchiveFilter(filter));
-    return liveCount + archiveCount;
-  }
-
-  // ── Live collection query ───────────────────────────────────────────────
-
-  private List<JobEntity> searchLive(JobFilter filter, int limit, int offset) {
-    Bson query = buildFilter(filter);
-    Bson sort = buildSort(filter);
-    List<JobEntity> result = new ArrayList<>(limit);
-    for (Document doc : ctx.jobs().find(query).sort(sort).skip(offset).limit(limit)) {
-      JobEntity job = DocumentMapper.toJobEntity(doc);
-      if (job != null) {
-        result.add(job);
-      }
-    }
-    return result;
-  }
-
-  // ── Archive collection query ────────────────────────────────────────────
-
-  private List<JobEntity> searchArchive(JobFilter filter, int limit) {
-    Bson query = buildArchiveFilter(filter);
-    Bson sort = buildArchiveSort(filter);
-    List<JobEntity> result = new ArrayList<>(limit);
-    for (Document doc : ctx.archives().find(query).sort(sort).limit(limit)) {
-      JobEntity job = DocumentMapper.archivedDocToJobEntity(doc);
-      if (job != null) {
-        result.add(job);
-      }
-    }
-    return result;
-  }
-
-  // ── Filter builders ─────────────────────────────────────────────────────
-
-  private Bson buildFilter(JobFilter filter) {
-    List<Bson> conditions = new ArrayList<>();
-    if (filter == null) {
-      return new Document();
-    }
-
-    appendStatusCondition(filter, conditions);
-    appendJobTypeCondition(filter, conditions);
-    appendPriorityCondition(filter, conditions);
-    appendStringEq(MongoFieldNames.BUSINESS_KEY, filter.businessKey(), conditions);
-    appendStringEq(MongoFieldNames.IDEMPOTENCY_KEY, filter.idempotencyKey(), conditions);
-    appendStringEq(MongoFieldNames.TARGET_CLASS, filter.targetClass(), conditions);
-    appendStringEq(MongoFieldNames.CALLER_PRINCIPAL, filter.callerPrincipal(), conditions);
-    appendStringEq(MongoFieldNames.PICKED_BY, filter.pickedBy(), conditions);
-    appendStringEq(MongoFieldNames.RESOURCE_NAME, filter.resourceName(), conditions);
-    appendStringEq(
-        MongoFieldNames.TRACE_CONTEXT + ".traceparent", filter.traceCorrelationId(), conditions);
-    appendParentJobId(filter, conditions);
-    appendTagCondition(filter, conditions);
-    appendInstantGte(MongoFieldNames.CREATED_AT, filter.createdAfter(), conditions);
-    appendInstantLt(MongoFieldNames.CREATED_AT, filter.createdBefore(), conditions);
-    appendInstantGte(MongoFieldNames.SCHEDULED_TIME, filter.scheduledAfter(), conditions);
-    appendInstantLt(MongoFieldNames.SCHEDULED_TIME, filter.scheduledBefore(), conditions);
-    appendInstantGte(MongoFieldNames.UPDATED_AT, filter.updatedAfter(), conditions);
-    appendCursorCondition(filter, conditions, false);
-
-    return conditions.isEmpty() ? new Document() : and(conditions);
-  }
-
-  private Bson buildArchiveFilter(JobFilter filter) {
-    List<Bson> conditions = new ArrayList<>();
-    if (filter == null) {
-      return new Document();
-    }
-
-    appendArchiveStatusCondition(filter, conditions);
-    appendArchiveJobTypeCondition(filter, conditions);
-    appendArchivePriorityCondition(filter, conditions);
-    appendStringEq(MongoFieldNames.BUSINESS_KEY, filter.businessKey(), conditions);
-    appendStringEq(MongoFieldNames.TARGET_CLASS, filter.targetClass(), conditions);
-    appendArchiveParentJobId(filter, conditions);
-    appendInstantGte(MongoFieldNames.ORIGINAL_CREATED_AT, filter.createdAfter(), conditions);
-    appendInstantLt(MongoFieldNames.ORIGINAL_CREATED_AT, filter.createdBefore(), conditions);
-    appendInstantGte(MongoFieldNames.SCHEDULED_TIME, filter.scheduledAfter(), conditions);
-    appendInstantLt(MongoFieldNames.SCHEDULED_TIME, filter.scheduledBefore(), conditions);
-    appendInstantGte(MongoFieldNames.ARCHIVED_AT, filter.updatedAfter(), conditions);
-    appendCursorCondition(filter, conditions, true);
-
-    return conditions.isEmpty() ? new Document() : and(conditions);
-  }
-
   private static void appendStatusCondition(JobFilter filter, List<Bson> conditions) {
     Set<JobStatus> statuses = filter.statuses();
     if (statuses == null || statuses.isEmpty()) {
@@ -197,6 +83,8 @@ final class MongoJobQueryOperations {
     conditions.add(in(MongoFieldNames.FINAL_STATUS, terminal));
   }
 
+  // ── Live collection query ───────────────────────────────────────────────
+
   private static void appendJobTypeCondition(JobFilter filter, List<Bson> conditions) {
     Set<JobType> types = filter.types();
     if (types == null || types.isEmpty()) {
@@ -213,9 +101,13 @@ final class MongoJobQueryOperations {
     conditions.add(in(MongoFieldNames.JOB_TYPE, execTypeNames));
   }
 
+  // ── Archive collection query ────────────────────────────────────────────
+
   private static void appendArchiveJobTypeCondition(JobFilter filter, List<Bson> conditions) {
     appendJobTypeCondition(filter, conditions); // same field name in archive
   }
+
+  // ── Filter builders ─────────────────────────────────────────────────────
 
   private static void appendPriorityCondition(JobFilter filter, List<Bson> conditions) {
     Set<JobPriority> priorities = filter.priorities();
@@ -264,16 +156,14 @@ final class MongoJobQueryOperations {
     conditions.add(eq(field, value));
   }
 
-  private static void appendInstantGte(
-      String field, java.time.Instant value, List<Bson> conditions) {
+  private static void appendInstantGte(String field, Instant value, List<Bson> conditions) {
     if (value == null) {
       return;
     }
     conditions.add(gte(field, Date.from(value)));
   }
 
-  private static void appendInstantLt(
-      String field, java.time.Instant value, List<Bson> conditions) {
+  private static void appendInstantLt(String field, Instant value, List<Bson> conditions) {
     if (value == null) {
       return;
     }
@@ -287,15 +177,15 @@ final class MongoJobQueryOperations {
     }
     try {
       JobQueryCursor c = JobQueryCursor.decode(filter.cursor());
-      String field = archive ? archiveSortField(c.sortField) : sortField(c.sortField);
+      String field = archive ? archiveSortField(c.sortField()) : sortField(c.sortField());
       Object sortVal = parseSortValue(c);
       // (field < sortVal) OR (field == sortVal AND _id > jobId)
       if (filter.sortAscending()) {
         conditions.add(
-            or(gt(field, sortVal), and(eq(field, sortVal), gt(MongoFieldNames.ID, c.jobId))));
+            or(gt(field, sortVal), and(eq(field, sortVal), gt(MongoFieldNames.ID, c.jobId()))));
       } else {
         conditions.add(
-            or(lt(field, sortVal), and(eq(field, sortVal), gt(MongoFieldNames.ID, c.jobId))));
+            or(lt(field, sortVal), and(eq(field, sortVal), gt(MongoFieldNames.ID, c.jobId()))));
       }
     } catch (IllegalArgumentException ignored) {
       // Malformed cursor — ignore
@@ -303,14 +193,12 @@ final class MongoJobQueryOperations {
   }
 
   private static Object parseSortValue(JobQueryCursor cursor) {
-    return switch (cursor.sortField) {
-      case CREATED_AT, SCHEDULED_TIME, UPDATED_AT -> Date.from(Instant.parse(cursor.sortValue));
-      case PRIORITY -> Integer.parseInt(cursor.sortValue);
-      case STATUS -> cursor.sortValue;
+    return switch (cursor.sortField()) {
+      case CREATED_AT, SCHEDULED_TIME, UPDATED_AT -> Date.from(Instant.parse(cursor.sortValue()));
+      case PRIORITY -> Integer.parseInt(cursor.sortValue());
+      case STATUS -> cursor.sortValue();
     };
   }
-
-  // ── Sort builders ────────────────────────────────────────────────────────
 
   private static Bson buildSort(JobFilter filter) {
     if (filter == null) {
@@ -388,11 +276,119 @@ final class MongoJobQueryOperations {
         JobEntity::getId, Comparator.nullsLast(Comparator.naturalOrder()));
   }
 
-  // ── Helpers ─────────────────────────────────────────────────────────────
-
   private static boolean useArchive(JobFilter filter) {
     return filter != null
         && filter.includeArchived()
         && (filter.callerPrincipal() == null || filter.callerPrincipal().isEmpty());
+  }
+
+  // ── Sort builders ────────────────────────────────────────────────────────
+
+  List<JobEntity> searchJobs(JobFilter filter, int limit, int offset) {
+    int safeLimit = Math.min(limit, MAX_LIMIT);
+    boolean archive = useArchive(filter);
+
+    if (!archive) {
+      return searchLive(filter, safeLimit, offset);
+    }
+
+    // Fetch from both collections and merge in memory
+    int fetchLimit = safeLimit + offset;
+    List<JobEntity> live = searchLive(filter, fetchLimit, 0);
+    List<JobEntity> archived = searchArchive(filter, fetchLimit);
+
+    List<JobEntity> merged = new ArrayList<>(live.size() + archived.size());
+    merged.addAll(live);
+    merged.addAll(archived);
+    merged.sort(mergeComparator(filter));
+    int from = Math.min(offset, merged.size());
+    int to = Math.min(from + safeLimit, merged.size());
+    return merged.subList(from, to);
+  }
+
+  long countJobs(JobFilter filter) {
+    long liveCount = ctx.jobs().countDocuments(buildFilter(filter));
+    if (!useArchive(filter)) {
+      return liveCount;
+    }
+    long archiveCount = ctx.archives().countDocuments(buildArchiveFilter(filter));
+    return liveCount + archiveCount;
+  }
+
+  private List<JobEntity> searchLive(JobFilter filter, int limit, int offset) {
+    Bson query = buildFilter(filter);
+    Bson sort = buildSort(filter);
+    List<JobEntity> result = new ArrayList<>(limit);
+    for (Document doc : ctx.jobs().find(query).sort(sort).skip(offset).limit(limit)) {
+      JobEntity job = DocumentMapper.toJobEntity(doc);
+      result.add(job);
+    }
+    return result;
+  }
+
+  private List<JobEntity> searchArchive(JobFilter filter, int limit) {
+    Bson query = buildArchiveFilter(filter);
+    Bson sort = buildArchiveSort(filter);
+    List<JobEntity> result = new ArrayList<>(limit);
+    for (Document doc : ctx.archives().find(query).sort(sort).limit(limit)) {
+      JobEntity job = DocumentMapper.archivedDocToJobEntity(doc);
+      if (job != null) {
+        result.add(job);
+      }
+    }
+    return result;
+  }
+
+  private Bson buildFilter(JobFilter filter) {
+    List<Bson> conditions = new ArrayList<>();
+    if (filter == null) {
+      return new Document();
+    }
+
+    appendStatusCondition(filter, conditions);
+    appendJobTypeCondition(filter, conditions);
+    appendPriorityCondition(filter, conditions);
+    appendStringEq(MongoFieldNames.BUSINESS_KEY, filter.businessKey(), conditions);
+    appendStringEq(MongoFieldNames.IDEMPOTENCY_KEY, filter.idempotencyKey(), conditions);
+    appendStringEq(MongoFieldNames.TARGET_CLASS, filter.targetClass(), conditions);
+    appendStringEq(MongoFieldNames.CALLER_PRINCIPAL, filter.callerPrincipal(), conditions);
+    appendStringEq(MongoFieldNames.PICKED_BY, filter.pickedBy(), conditions);
+    appendStringEq(MongoFieldNames.RESOURCE_NAME, filter.resourceName(), conditions);
+    appendStringEq(
+        MongoFieldNames.TRACE_CONTEXT + ".traceparent", filter.traceCorrelationId(), conditions);
+    appendParentJobId(filter, conditions);
+    appendTagCondition(filter, conditions);
+    appendInstantGte(MongoFieldNames.CREATED_AT, filter.createdAfter(), conditions);
+    appendInstantLt(MongoFieldNames.CREATED_AT, filter.createdBefore(), conditions);
+    appendInstantGte(MongoFieldNames.SCHEDULED_TIME, filter.scheduledAfter(), conditions);
+    appendInstantLt(MongoFieldNames.SCHEDULED_TIME, filter.scheduledBefore(), conditions);
+    appendInstantGte(MongoFieldNames.UPDATED_AT, filter.updatedAfter(), conditions);
+    appendCursorCondition(filter, conditions, false);
+
+    return conditions.isEmpty() ? new Document() : and(conditions);
+  }
+
+  // ── Helpers ─────────────────────────────────────────────────────────────
+
+  private Bson buildArchiveFilter(JobFilter filter) {
+    List<Bson> conditions = new ArrayList<>();
+    if (filter == null) {
+      return new Document();
+    }
+
+    appendArchiveStatusCondition(filter, conditions);
+    appendArchiveJobTypeCondition(filter, conditions);
+    appendArchivePriorityCondition(filter, conditions);
+    appendStringEq(MongoFieldNames.BUSINESS_KEY, filter.businessKey(), conditions);
+    appendStringEq(MongoFieldNames.TARGET_CLASS, filter.targetClass(), conditions);
+    appendArchiveParentJobId(filter, conditions);
+    appendInstantGte(MongoFieldNames.ORIGINAL_CREATED_AT, filter.createdAfter(), conditions);
+    appendInstantLt(MongoFieldNames.ORIGINAL_CREATED_AT, filter.createdBefore(), conditions);
+    appendInstantGte(MongoFieldNames.SCHEDULED_TIME, filter.scheduledAfter(), conditions);
+    appendInstantLt(MongoFieldNames.SCHEDULED_TIME, filter.scheduledBefore(), conditions);
+    appendInstantGte(MongoFieldNames.ARCHIVED_AT, filter.updatedAfter(), conditions);
+    appendCursorCondition(filter, conditions, true);
+
+    return conditions.isEmpty() ? new Document() : and(conditions);
   }
 }

@@ -7,9 +7,8 @@ import run.ratchet.api.JobStatus;
 /**
  * Pause / resume transitions for executable jobs and recurring masters.
  *
- * <p>Separated from {@link JobStatusStore} during the status-SPI decomposition. {@code
- * pauseRecurring} / {@code resumeRecurring} ONLY operate on recurring masters; executable pauses
- * use the {@code transition*} methods.
+ * <p>{@code pauseRecurring} / {@code resumeRecurring} ONLY operate on recurring masters; executable
+ * pauses use the {@code transition*} methods.
  */
 @Incubating
 public interface JobPauseStore {

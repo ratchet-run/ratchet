@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
@@ -663,13 +664,65 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   @Override
-  public List<JobEntity> searchJobs(run.ratchet.api.JobFilter filter, int limit, int offset) {
+  public List<JobEntity> searchJobs(JobFilter filter, int limit, int offset) {
     return query.searchJobs(filter, limit, offset);
   }
 
   @Override
-  public long countJobs(run.ratchet.api.JobFilter filter) {
+  public long countJobs(JobFilter filter) {
     return query.countJobs(filter);
+  }
+
+  @Override
+  public List<JobEntity> findTimedOutSignalJobs(Instant now, int limit) {
+    return signals.findTimedOutSignalJobs(now, limit);
+  }
+
+  @Override
+  public int deliverSignalById(
+      UUID jobId,
+      String payload,
+      String payloadType,
+      String outcome,
+      String rejectionReason,
+      String deliveredBy,
+      Instant deliveredAt,
+      String deliveryId) {
+    return signals.deliverSignalById(
+        jobId,
+        payload,
+        payloadType,
+        outcome,
+        rejectionReason,
+        deliveredBy,
+        deliveredAt,
+        deliveryId);
+  }
+
+  @Override
+  public int deliverSignalByKey(
+      String signalKey,
+      String payload,
+      String payloadType,
+      String outcome,
+      String rejectionReason,
+      String deliveredBy,
+      Instant deliveredAt,
+      String deliveryId) {
+    return signals.deliverSignalByKey(
+        signalKey,
+        payload,
+        payloadType,
+        outcome,
+        rejectionReason,
+        deliveredBy,
+        deliveredAt,
+        deliveryId);
+  }
+
+  @Override
+  public List<JobEntity> findJobsBySignalDeliveryId(String deliveryId) {
+    return signals.findJobsBySignalDeliveryId(deliveryId);
   }
 
   @PostConstruct
@@ -704,59 +757,5 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
     archives = new PostgresqlArchiveOperations(ctx, reads);
     auxiliary = new PostgresqlAuxiliaryOperations(ctx);
     signals = new PostgresqlSignalOperations(ctx);
-  }
-
-  @Override
-  public java.util.List<run.ratchet.store.entity.JobEntity> findTimedOutSignalJobs(
-      java.time.Instant now, int limit) {
-    return signals.findTimedOutSignalJobs(now, limit);
-  }
-
-  @Override
-  public int deliverSignalById(
-      java.util.UUID jobId,
-      String payload,
-      String payloadType,
-      String outcome,
-      String rejectionReason,
-      String deliveredBy,
-      java.time.Instant deliveredAt,
-      String deliveryId) {
-    return signals.deliverSignalById(
-        jobId,
-        payload,
-        payloadType,
-        outcome,
-        rejectionReason,
-        deliveredBy,
-        deliveredAt,
-        deliveryId);
-  }
-
-  @Override
-  public int deliverSignalByKey(
-      String signalKey,
-      String payload,
-      String payloadType,
-      String outcome,
-      String rejectionReason,
-      String deliveredBy,
-      java.time.Instant deliveredAt,
-      String deliveryId) {
-    return signals.deliverSignalByKey(
-        signalKey,
-        payload,
-        payloadType,
-        outcome,
-        rejectionReason,
-        deliveredBy,
-        deliveredAt,
-        deliveryId);
-  }
-
-  @Override
-  public java.util.List<run.ratchet.store.entity.JobEntity> findJobsBySignalDeliveryId(
-      String deliveryId) {
-    return signals.findJobsBySignalDeliveryId(deliveryId);
   }
 }

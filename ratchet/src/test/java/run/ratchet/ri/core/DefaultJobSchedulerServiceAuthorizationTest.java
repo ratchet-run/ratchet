@@ -9,6 +9,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Duration;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -57,6 +58,20 @@ class DefaultJobSchedulerServiceAuthorizationTest {
 
   private DefaultJobSchedulerService service;
 
+  public static void noopTask() {}
+
+  // ---- cancelJob ----
+
+  private static JobEntity ownerJob() {
+    JobEntity e = new JobEntity();
+    e.setId(JOB_ID);
+    e.setJobType(JobExecutionType.SINGLE);
+    e.setStatus(JobStatus.PENDING);
+    e.setPriority(JobPriority.NORMAL);
+    e.setCallerPrincipal(OWNER);
+    return e;
+  }
+
   @BeforeEach
   void setUp() {
     CallerPrincipalProvider callerProvider =
@@ -88,8 +103,6 @@ class DefaultJobSchedulerServiceAuthorizationTest {
             null);
   }
 
-  // ---- cancelJob ----
-
   @Test
   void cancelJob_checksAuthorizationWithOwnerAndCurrentPrincipal() {
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(ownerJob()));
@@ -101,6 +114,8 @@ class DefaultJobSchedulerServiceAuthorizationTest {
 
     verify(authorizationPolicy).checkCancel(eq(JOB_ID), eq(OWNER), eq(CALLER));
   }
+
+  // ---- pauseJob ----
 
   @Test
   void cancelJob_denial_throwsAndSkipsCas() {
@@ -123,7 +138,7 @@ class DefaultJobSchedulerServiceAuthorizationTest {
     verify(authorizationPolicy).checkCancel(eq(JOB_ID), eq(null), eq(CALLER));
   }
 
-  // ---- pauseJob ----
+  // ---- resumeJob ----
 
   @Test
   void pauseJob_checksAuthorizationBeforeTransition() {
@@ -146,7 +161,7 @@ class DefaultJobSchedulerServiceAuthorizationTest {
     verify(jobPauseStore, never()).transitionToPaused(any(), any());
   }
 
-  // ---- resumeJob ----
+  // ---- retryJob ----
 
   @Test
   void resumeJob_checksAuthorizationBeforeTransition() {
@@ -169,7 +184,7 @@ class DefaultJobSchedulerServiceAuthorizationTest {
     verify(jobPauseStore, never()).transitionFromPausedAtomic(any());
   }
 
-  // ---- retryJob ----
+  // ---- replace ----
 
   @Test
   void retryJob_checksAuthorizationWithOwnerAndCurrentPrincipal() {
@@ -180,6 +195,8 @@ class DefaultJobSchedulerServiceAuthorizationTest {
 
     verify(authorizationPolicy).checkRetry(eq(JOB_ID), eq(OWNER), eq(CALLER));
   }
+
+  // ---- null policy (no-arg constructor) ----
 
   @Test
   void retryJob_denial_throwsAndSkipsCas() {
@@ -192,7 +209,7 @@ class DefaultJobSchedulerServiceAuthorizationTest {
     verify(jobRetryStore, never()).resetFailedToPending(any());
   }
 
-  // ---- replace ----
+  // ---- cancelRecurringJobsByTag / cancelRecurringJobByBusinessKey ----
 
   @Test
   void replace_checksAuthorizationForOldJobCancellation() {
@@ -206,12 +223,10 @@ class DefaultJobSchedulerServiceAuthorizationTest {
         () ->
             service.replace(
                 JOB_ID,
-                java.time.Duration.ZERO,
+                Duration.ZERO,
                 DefaultJobSchedulerServiceAuthorizationTest::noopTask,
                 null));
   }
-
-  // ---- null policy (no-arg constructor) ----
 
   @Test
   void cancelJob_nullPolicy_skipsCheckAndProceedsNormally() {
@@ -239,8 +254,6 @@ class DefaultJobSchedulerServiceAuthorizationTest {
         .compareAndSwapStatus(eq(JOB_ID), eq(JobStatus.PENDING), eq(JobStatus.CANCELED), any());
   }
 
-  // ---- cancelRecurringJobsByTag / cancelRecurringJobByBusinessKey ----
-
   @Test
   void cancelRecurringJobsByTag_doesNotCheckAuthorization() {
     when(jobBatchStatusStore.cancelRecurringJobsByTag("tag")).thenReturn(2);
@@ -253,17 +266,5 @@ class DefaultJobSchedulerServiceAuthorizationTest {
     when(jobBatchStatusStore.cancelRecurringJobByBusinessKey("key")).thenReturn(1);
     service.cancelRecurringJobByBusinessKey("key");
     verify(authorizationPolicy, never()).checkCancel(any(), any(), any());
-  }
-
-  public static void noopTask() {}
-
-  private static JobEntity ownerJob() {
-    JobEntity e = new JobEntity();
-    e.setId(JOB_ID);
-    e.setJobType(JobExecutionType.SINGLE);
-    e.setStatus(JobStatus.PENDING);
-    e.setPriority(JobPriority.NORMAL);
-    e.setCallerPrincipal(OWNER);
-    return e;
   }
 }

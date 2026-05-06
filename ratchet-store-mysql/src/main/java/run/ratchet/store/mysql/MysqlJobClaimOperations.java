@@ -147,7 +147,7 @@ final class MysqlJobClaimOperations implements JobClaimStore {
       if (boostInterval > 0) {
         query.setParameter(parameter++, boostInterval);
       }
-      query.setParameter(parameter++, limit);
+      query.setParameter(parameter, limit);
 
       List<Object[]> candidateRows = query.getResultList();
 
@@ -202,7 +202,7 @@ final class MysqlJobClaimOperations implements JobClaimStore {
       if (boostInterval > 0) {
         query.setParameter(parameter++, boostInterval);
       }
-      query.setParameter(parameter++, limit);
+      query.setParameter(parameter, limit);
 
       List<Object[]> rows =
           ctx.timedStoreOperation(
@@ -334,7 +334,7 @@ final class MysqlJobClaimOperations implements JobClaimStore {
       for (UUID id : jobIds) {
         selectQuery.setParameter(parameter++, UuidByteArrayConverter.toBytes(id));
       }
-      selectQuery.setParameter(parameter++, nodeId);
+      selectQuery.setParameter(parameter, nodeId);
       @SuppressWarnings("unchecked")
       List<?> claimedRows = selectQuery.getResultList();
 

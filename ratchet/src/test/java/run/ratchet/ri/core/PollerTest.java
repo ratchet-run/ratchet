@@ -24,6 +24,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.CircuitBreakerProfile;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.ri.resilience.CircuitBreaker;
@@ -191,7 +192,7 @@ class PollerTest {
         circuitBreakerRegistry,
         breakerEnabled,
         new DefaultPollingStrategyProvider(),
-        () -> run.ratchet.api.NodeTagFilter.NONE,
+        () -> NodeTagFilter.NONE,
         5,
         null);
   }

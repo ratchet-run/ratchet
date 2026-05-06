@@ -62,6 +62,30 @@ public class DefaultJobQueryService implements JobQueryService {
     this.principalProvider = principalProvider;
   }
 
+  private static String extractSortValue(JobEntity last, JobQuerySortField field) {
+    return switch (field) {
+      case CREATED_AT -> toInstantString(last.getCreatedAt());
+      case SCHEDULED_TIME -> {
+        Instant t = last.getScheduledTime();
+        if (t == null) t = last.getExecutionStartTime();
+        if (t == null) t = last.getCreatedAt();
+        yield toInstantString(t);
+      }
+      case UPDATED_AT -> {
+        Instant t = last.getUpdatedAt();
+        if (t == null) t = last.getCreatedAt();
+        yield toInstantString(t);
+      }
+      case PRIORITY ->
+          String.valueOf(last.getPriority() != null ? last.getPriority().ordinal() : 0);
+      case STATUS -> last.getStatus() != null ? last.getStatus().name() : JobStatus.PENDING.name();
+    };
+  }
+
+  private static String toInstantString(Instant t) {
+    return t != null ? t.toString() : Instant.EPOCH.toString();
+  }
+
   @Override
   public JobPage<JobSummary> findJobs(JobFilter filter, int limit, int offset) {
     if (limit < 1) {
@@ -217,29 +241,5 @@ public class DefaultJobQueryService implements JobQueryService {
 
   private String currentPrincipal() {
     return principalProvider != null ? principalProvider.currentPrincipal().orElse(null) : null;
-  }
-
-  private static String extractSortValue(JobEntity last, JobQuerySortField field) {
-    return switch (field) {
-      case CREATED_AT -> toInstantString(last.getCreatedAt());
-      case SCHEDULED_TIME -> {
-        Instant t = last.getScheduledTime();
-        if (t == null) t = last.getExecutionStartTime();
-        if (t == null) t = last.getCreatedAt();
-        yield toInstantString(t);
-      }
-      case UPDATED_AT -> {
-        Instant t = last.getUpdatedAt();
-        if (t == null) t = last.getCreatedAt();
-        yield toInstantString(t);
-      }
-      case PRIORITY ->
-          String.valueOf(last.getPriority() != null ? last.getPriority().ordinal() : 0);
-      case STATUS -> last.getStatus() != null ? last.getStatus().name() : JobStatus.PENDING.name();
-    };
-  }
-
-  private static String toInstantString(Instant t) {
-    return t != null ? t.toString() : Instant.EPOCH.toString();
   }
 }

@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 import java.util.EnumMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentMatchers;
 import run.ratchet.spi.ExecutionTuningProvider;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.MetricsCollector;
@@ -31,8 +32,7 @@ class ThreadPoolManagerTest {
       limits.put(type, limitPerType);
     }
     ExecutionTuningProvider tuning = mock(ExecutionTuningProvider.class);
-    when(tuning.virtualThreadLimit(
-            org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyInt()))
+    when(tuning.virtualThreadLimit(ArgumentMatchers.any(), ArgumentMatchers.anyInt()))
         .thenReturn(limitPerType);
     return new ThreadPoolManager(
         mock(ExecutorProvider.class), mock(MetricsCollector.class), true, limits, tuning);

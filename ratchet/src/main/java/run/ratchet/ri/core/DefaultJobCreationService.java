@@ -37,6 +37,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.entity.WorkflowConditionEntity;
+import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
@@ -578,7 +579,7 @@ public class DefaultJobCreationService
     // normally assign it during save(); since checkCreate fires before save, we assign here.
     // UuidV7EntityListener's null-check ensures the pre-assigned value is not overwritten.
     if (job.getId() == null) {
-      job.setId(run.ratchet.store.id.UuidV7Factory.create());
+      job.setId(UuidV7Factory.create());
     }
     authorizationPolicy.checkCreate(job.getId(), job.getCallerPrincipal());
   }

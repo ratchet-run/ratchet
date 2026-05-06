@@ -273,9 +273,11 @@ public final class SchemaMigrator {
     try (Statement statement = connection.createStatement()) {
       switch (dialect) {
         case MYSQL -> {
-          try (ResultSet ignored =
+          try (ResultSet resultSet =
               statement.executeQuery("SELECT RELEASE_LOCK('" + LOCK_NAME + "')")) {
-            // Result value is informational; closing the connection would release the lock anyway.
+            if (!resultSet.next() || resultSet.getInt(1) != 1) {
+              throw new SQLException("Failed to release MySQL schema migration lock");
+            }
           }
         }
         case POSTGRESQL ->

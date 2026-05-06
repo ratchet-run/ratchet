@@ -32,12 +32,11 @@ public interface JobBuilder {
   /**
    * Marks this job as signal-waiting. The job is created in {@link JobStatus#WAITING} status and
    * will not execute until a signal is delivered via {@link
-   * run.ratchet.api.JobSchedulerService#deliverSignal(java.util.UUID, java.io.Serializable)
-   * deliverSignal(jobId, payload)} or {@link
-   * run.ratchet.api.JobSchedulerService#deliverSignal(String, java.io.Serializable)
+   * JobSchedulerService#deliverSignal(java.util.UUID, java.io.Serializable) deliverSignal(jobId,
+   * payload)} or {@link JobSchedulerService#deliverSignal(String, java.io.Serializable)
    * deliverSignal(signalKey, payload)}. Structured approval/rejection decisions may also be
-   * delivered with {@link run.ratchet.api.JobSchedulerService#deliverSignal(java.util.UUID,
-   * run.ratchet.api.SignalDecision) deliverSignal(jobId, decision)}.
+   * delivered with {@link JobSchedulerService#deliverSignal(java.util.UUID, SignalDecision)
+   * deliverSignal(jobId, decision)}.
    *
    * <p>If the signal is not delivered within {@code timeout}, the job transitions to FAILED with a
    * {@link SignalTimeoutException}.

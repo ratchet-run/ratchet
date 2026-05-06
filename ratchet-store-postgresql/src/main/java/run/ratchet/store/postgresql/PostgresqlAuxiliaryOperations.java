@@ -34,6 +34,18 @@ final class PostgresqlAuxiliaryOperations
     this.ctx = ctx;
   }
 
+  private static WorkflowConditionEntity mapCondition(Object[] row) {
+    WorkflowConditionEntity condition = new WorkflowConditionEntity();
+    condition.setId(PostgresqlJobRowMapper.uuidOrNull(row[0]));
+    condition.setParentJobId(PostgresqlJobRowMapper.uuidOrNull(row[1]));
+    condition.setChildJobId(PostgresqlJobRowMapper.uuidOrNull(row[2]));
+    condition.setConditionType(WorkflowCondition.ConditionType.valueOf(row[3].toString()));
+    condition.setConditionExpression(row[4] == null ? null : row[4].toString());
+    condition.setConditionPriority(((Number) row[5]).intValue());
+    condition.setCreatedAt(PostgresqlJobRowMapper.toInstant(row[6]));
+    return condition;
+  }
+
   @Override
   public JobExecutionEntity saveExecution(JobExecutionEntity execution) {
     if (execution.getId() == null) {
@@ -176,45 +188,6 @@ final class PostgresqlAuxiliaryOperations
     return ctx.countByNative(sql, parentJobId);
   }
 
-  private void prepareCondition(WorkflowConditionEntity condition) {
-    if (condition.getId() == null) {
-      condition.setId(UuidV7Factory.create());
-    }
-    if (condition.getCreatedAt() == null) {
-      condition.setCreatedAt(Instant.now());
-    }
-  }
-
-  @SuppressWarnings("unchecked")
-  private List<WorkflowConditionEntity> findConditions(
-      String whereClause, List<Object> params, String orderClause) {
-    // language=PostgreSQL
-    String sqlPrefix =
-        """
-        SELECT id, parent_job_id, child_job_id, condition_type, condition_expression,
-               condition_priority, created_at
-        FROM scheduler_workflow_condition
-        """;
-    Query query = ctx.em().createNativeQuery(sqlPrefix + whereClause + " " + orderClause);
-    for (int i = 0; i < params.size(); i++) {
-      query.setParameter(i + 1, params.get(i));
-    }
-    return ((List<Object[]>) query.getResultList())
-        .stream().map(PostgresqlAuxiliaryOperations::mapCondition).toList();
-  }
-
-  private static WorkflowConditionEntity mapCondition(Object[] row) {
-    WorkflowConditionEntity condition = new WorkflowConditionEntity();
-    condition.setId(PostgresqlJobRowMapper.uuidOrNull(row[0]));
-    condition.setParentJobId(PostgresqlJobRowMapper.uuidOrNull(row[1]));
-    condition.setChildJobId(PostgresqlJobRowMapper.uuidOrNull(row[2]));
-    condition.setConditionType(WorkflowCondition.ConditionType.valueOf(row[3].toString()));
-    condition.setConditionExpression(row[4] == null ? null : row[4].toString());
-    condition.setConditionPriority(((Number) row[5]).intValue());
-    condition.setCreatedAt(PostgresqlJobRowMapper.toInstant(row[6]));
-    return condition;
-  }
-
   @Override
   public DlqAlertEntity saveDlqAlert(DlqAlertEntity alert) {
     if (alert.getId() == null) {
@@ -336,5 +309,32 @@ final class PostgresqlAuxiliaryOperations
       query.setParameter(parameter++, nodeId);
     }
     return query.executeUpdate();
+  }
+
+  private void prepareCondition(WorkflowConditionEntity condition) {
+    if (condition.getId() == null) {
+      condition.setId(UuidV7Factory.create());
+    }
+    if (condition.getCreatedAt() == null) {
+      condition.setCreatedAt(Instant.now());
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  private List<WorkflowConditionEntity> findConditions(
+      String whereClause, List<Object> params, String orderClause) {
+    // language=PostgreSQL
+    String sqlPrefix =
+        """
+        SELECT id, parent_job_id, child_job_id, condition_type, condition_expression,
+               condition_priority, created_at
+        FROM scheduler_workflow_condition
+        """;
+    Query query = ctx.em().createNativeQuery(sqlPrefix + whereClause + " " + orderClause);
+    for (int i = 0; i < params.size(); i++) {
+      query.setParameter(i + 1, params.get(i));
+    }
+    return ((List<Object[]>) query.getResultList())
+        .stream().map(PostgresqlAuxiliaryOperations::mapCondition).toList();
   }
 }

@@ -9,11 +9,11 @@ package run.ratchet.store.mongodb;
  */
 final class MongoIndexHints {
 
-  private MongoIndexHints() {}
-
   /** Covering index for executable job claim queries sorted by {@code scheduled_time}. */
   static final String JOB_CLAIM_EXEC = "idx_job_claim_exec";
 
   /** Covering index for recurring job claim queries sorted by {@code next_fire}. */
   static final String JOB_CLAIM_RECURRING = "idx_job_claim_recurring";
+
+  private MongoIndexHints() {}
 }

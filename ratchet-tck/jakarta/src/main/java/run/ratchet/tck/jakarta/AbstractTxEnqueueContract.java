@@ -36,21 +36,6 @@ public abstract class AbstractTxEnqueueContract {
 
   @Inject protected UserTransaction tx;
 
-  protected abstract RatchetTckRuntime runtime();
-
-  protected Duration defaultTimeout() {
-    return Duration.ofSeconds(10);
-  }
-
-  /**
-   * Bound on the negative-assertion wait for the rollback case. A non-trivial wall-clock window so
-   * we give a misbehaving store time to fire COMPLETED if it's going to. Keep it short enough that
-   * a passing run doesn't drag — the absence of an event is what's being asserted.
-   */
-  protected Duration rollbackQuietWindow() {
-    return Duration.ofMillis(750);
-  }
-
   @AfterEach
   void clearAfterEach() {
     runtime().clear();
@@ -84,5 +69,20 @@ public abstract class AbstractTxEnqueueContract {
             + "handle "
             + handle.id()
             + " indicates the runtime ignored the rollback — caller atomicity is broken.");
+  }
+
+  protected abstract RatchetTckRuntime runtime();
+
+  protected Duration defaultTimeout() {
+    return Duration.ofSeconds(10);
+  }
+
+  /**
+   * Bound on the negative-assertion wait for the rollback case. A non-trivial wall-clock window so
+   * we give a misbehaving store time to fire COMPLETED if it's going to. Keep it short enough that
+   * a passing run doesn't drag — the absence of an event is what's being asserted.
+   */
+  protected Duration rollbackQuietWindow() {
+    return Duration.ofMillis(750);
   }
 }

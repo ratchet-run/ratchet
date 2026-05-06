@@ -27,6 +27,29 @@ class SubmissionGateCheckerTest {
 
   private SubmissionGateChecker gateChecker;
 
+  private static JobEntity singleJob() {
+    JobEntity job = new JobEntity();
+    job.setId(UUID.randomUUID());
+    job.setJobType(JobExecutionType.SINGLE);
+    return job;
+  }
+
+  private static JobClaimDto batchChildClaim() {
+    return new JobClaimDto(
+        UUID.randomUUID(),
+        JobStatus.RUNNING,
+        JobExecutionType.BATCH_CHILD,
+        null,
+        null,
+        0,
+        30,
+        "node-1",
+        null,
+        null,
+        0,
+        0);
+  }
+
   @BeforeEach
   void setUp() {
     gateChecker = new SubmissionGateChecker(drainController, rateLimiter, threadPoolManager);
@@ -119,28 +142,5 @@ class SubmissionGateCheckerTest {
 
     assertTrue(result.isClear());
     verify(threadPoolManager, never()).releasePermit(any());
-  }
-
-  private static JobEntity singleJob() {
-    JobEntity job = new JobEntity();
-    job.setId(UUID.randomUUID());
-    job.setJobType(JobExecutionType.SINGLE);
-    return job;
-  }
-
-  private static JobClaimDto batchChildClaim() {
-    return new JobClaimDto(
-        UUID.randomUUID(),
-        JobStatus.RUNNING,
-        JobExecutionType.BATCH_CHILD,
-        null,
-        null,
-        0,
-        30,
-        "node-1",
-        null,
-        null,
-        0,
-        0);
   }
 }

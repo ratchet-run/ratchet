@@ -10,9 +10,8 @@ import run.ratchet.store.entity.JobPayload;
 
 class JobSecurityValidatorTest {
 
-  private static final String THIS_PACKAGE = "run.ratchet.ri.security.";
-
   static final AtomicInteger CLINIT_COUNTER = new AtomicInteger();
+  private static final String THIS_PACKAGE = "run.ratchet.ri.security.";
 
   @Test
   void allowedClassAndPublicMethodPasses() {

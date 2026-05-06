@@ -24,7 +24,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobPriority;
@@ -68,6 +70,16 @@ class DefaultJobCreationServiceAuthorizationTest {
 
   public static void noopTask() {}
 
+  public static void consumeString(String s) {}
+
+  private static JobEntity savedEntity() {
+    JobEntity e = new JobEntity();
+    e.setId(UUID.randomUUID());
+    e.setJobType(JobExecutionType.SINGLE);
+    e.setPriority(JobPriority.NORMAL);
+    return e;
+  }
+
   @BeforeEach
   void setUp() {
     CallerPrincipalProvider principalProvider =
@@ -109,9 +121,7 @@ class DefaultJobCreationServiceAuthorizationTest {
     DefaultJobBuilder builder =
         (DefaultJobBuilder)
             DefaultJobBuilder.create(
-                service,
-                DefaultJobCreationServiceAuthorizationTest::noopTask,
-                java.time.Duration.ZERO);
+                service, DefaultJobCreationServiceAuthorizationTest::noopTask, Duration.ZERO);
 
     service.submit(builder);
 
@@ -133,9 +143,7 @@ class DefaultJobCreationServiceAuthorizationTest {
     DefaultJobBuilder builder =
         (DefaultJobBuilder)
             DefaultJobBuilder.create(
-                service,
-                DefaultJobCreationServiceAuthorizationTest::noopTask,
-                java.time.Duration.ZERO);
+                service, DefaultJobCreationServiceAuthorizationTest::noopTask, Duration.ZERO);
 
     assertThrows(JobAuthorizationException.class, () -> service.submit(builder));
     verify(jobCrudStore, never()).save(any());
@@ -150,13 +158,11 @@ class DefaultJobCreationServiceAuthorizationTest {
     DefaultJobBuilder builder =
         (DefaultJobBuilder)
             DefaultJobBuilder.create(
-                service,
-                DefaultJobCreationServiceAuthorizationTest::noopTask,
-                java.time.Duration.ZERO);
+                service, DefaultJobCreationServiceAuthorizationTest::noopTask, Duration.ZERO);
 
     service.submit(builder);
 
-    org.mockito.InOrder order = org.mockito.Mockito.inOrder(authorizationPolicy, jobCrudStore);
+    InOrder order = Mockito.inOrder(authorizationPolicy, jobCrudStore);
     order.verify(authorizationPolicy).checkCreate(any(UUID.class), anyString());
     order.verify(jobCrudStore).create(any(JobEntity.class));
   }
@@ -184,7 +190,7 @@ class DefaultJobCreationServiceAuthorizationTest {
             DefaultJobBuilder.create(
                 nullPolicyService,
                 DefaultJobCreationServiceAuthorizationTest::noopTask,
-                java.time.Duration.ZERO);
+                Duration.ZERO);
 
     JobHandle handle = nullPolicyService.submit(builder);
     assertNotNull(handle, "Null policy must not throw — permit-all by default");
@@ -219,14 +225,14 @@ class DefaultJobCreationServiceAuthorizationTest {
     DefaultJobBuilder builder =
         (DefaultJobBuilder)
             DefaultJobBuilder.create(
-                systemService,
-                DefaultJobCreationServiceAuthorizationTest::noopTask,
-                java.time.Duration.ZERO);
+                systemService, DefaultJobCreationServiceAuthorizationTest::noopTask, Duration.ZERO);
 
     systemService.submit(builder);
 
     verify(authorizationPolicy).checkCreate(any(UUID.class), isNull());
   }
+
+  // ---- recurring job ----
 
   @Test
   void signalWaitingJobPublishesMetric() {
@@ -244,6 +250,8 @@ class DefaultJobCreationServiceAuthorizationTest {
 
     verify(metricsCollector).signalWaiting(saved.getId(), JobType.SINGLE, "approval");
   }
+
+  // ---- streaming batch parent ----
 
   @Test
   void signalDeadlineIsComputedAtSubmitTimeWithInjectedClock() {
@@ -284,7 +292,7 @@ class DefaultJobCreationServiceAuthorizationTest {
     assertEquals(fixedNow.plusSeconds(30), jobCaptor.getValue().getSignalTimeout());
   }
 
-  // ---- recurring job ----
+  // ---- chain steps ----
 
   @Test
   void checkCreate_calledForRecurringJob() {
@@ -302,7 +310,7 @@ class DefaultJobCreationServiceAuthorizationTest {
     verify(authorizationPolicy).checkCreate(any(UUID.class), anyString());
   }
 
-  // ---- streaming batch parent ----
+  // ---- workflow branch ----
 
   @Test
   void checkCreate_calledForStreamingBatchParent() {
@@ -317,8 +325,6 @@ class DefaultJobCreationServiceAuthorizationTest {
 
     verify(authorizationPolicy).checkCreate(any(UUID.class), anyString());
   }
-
-  // ---- chain steps ----
 
   @Test
   void checkCreate_calledForEachChainStep() {
@@ -338,8 +344,6 @@ class DefaultJobCreationServiceAuthorizationTest {
     verify(authorizationPolicy, times(3)).checkCreate(any(UUID.class), anyString());
   }
 
-  // ---- workflow branch ----
-
   @Test
   void checkCreate_calledForWorkflowBranch() {
     when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
@@ -355,15 +359,5 @@ class DefaultJobCreationServiceAuthorizationTest {
 
     // 1 parent + 1 workflow branch
     verify(authorizationPolicy, times(2)).checkCreate(any(UUID.class), anyString());
-  }
-
-  public static void consumeString(String s) {}
-
-  private static JobEntity savedEntity() {
-    JobEntity e = new JobEntity();
-    e.setId(UUID.randomUUID());
-    e.setJobType(JobExecutionType.SINGLE);
-    e.setPriority(JobPriority.NORMAL);
-    return e;
   }
 }

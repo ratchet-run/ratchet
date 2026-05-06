@@ -27,11 +27,6 @@ public final class TestRuntimeConfig implements RatchetConfigSource {
         .orElseGet(() -> System.getProperty("ratchet.test.mongo.database", "ratchet_test"));
   }
 
-  @Override
-  public Optional<String> get(String propertyName, String environmentVariable) {
-    return get(propertyName).or(() -> get(environmentVariable));
-  }
-
   private static Optional<String> get(String key) {
     if (key == null || key.isBlank()) {
       return Optional.empty();
@@ -54,5 +49,10 @@ public final class TestRuntimeConfig implements RatchetConfigSource {
       throw new IllegalStateException("Unable to load " + RESOURCE, e);
     }
     return properties;
+  }
+
+  @Override
+  public Optional<String> get(String propertyName, String environmentVariable) {
+    return get(propertyName).or(() -> get(environmentVariable));
   }
 }

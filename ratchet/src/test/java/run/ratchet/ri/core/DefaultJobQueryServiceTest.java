@@ -24,6 +24,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobDetail;
@@ -55,6 +56,29 @@ class DefaultJobQueryServiceTest {
 
   private DefaultJobQueryService service;
 
+  private static boolean hasType(JobFilter filter, JobType type) {
+    return filter != null && filter.types() != null && filter.types().contains(type);
+  }
+
+  // ── findJobs ────────────────────────────────────────────────────────────
+
+  private static JobEntity minimalJob() {
+    return minimalJobWithId(UUID.randomUUID());
+  }
+
+  private static JobEntity minimalJobWithId(UUID id) {
+    JobEntity e = new JobEntity();
+    e.setId(id);
+    e.setStatus(JobStatus.PENDING);
+    e.setJobType(JobExecutionType.SINGLE);
+    e.setPriority(JobPriority.NORMAL);
+    e.setBackoffPolicy(BackoffPolicy.NONE);
+    e.setPayload(new JobPayload("com.example.TestJob", "run", "()V", false, List.of()));
+    e.setCreatedAt(Instant.now());
+    e.setScheduledTime(Instant.now());
+    return e;
+  }
+
   @BeforeEach
   void setUp() {
     service =
@@ -65,8 +89,6 @@ class DefaultJobQueryServiceTest {
         .when(authPolicy.filterForPrincipal(any(), any()))
         .thenAnswer(inv -> inv.getArgument(0));
   }
-
-  // ── findJobs ────────────────────────────────────────────────────────────
 
   @Test
   void findJobs_delegatesToQueryStore_andMapsResults() {
@@ -190,6 +212,8 @@ class DefaultJobQueryServiceTest {
     assertFalse(page.hasMore(), "hasMore should be false when fewer items than limit");
   }
 
+  // ── getJobDetail ────────────────────────────────────────────────────────
+
   @Test
   void findJobs_cursorModeUsesLimitPlusOneProbeForHasMoreEvenWhenCountAllowed() {
     JobFilter filter = JobFilter.builder().cursor("opaque-cursor").build();
@@ -225,8 +249,6 @@ class DefaultJobQueryServiceTest {
     assertNull(page.nextCursor(), "nextCursor should be null when no more results");
   }
 
-  // ── getJobDetail ────────────────────────────────────────────────────────
-
   @Test
   void getJobDetail_unknownId_returnsEmpty() {
     when(crudStore.findById(any())).thenReturn(Optional.empty());
@@ -235,6 +257,8 @@ class DefaultJobQueryServiceTest {
 
     assertTrue(result.isEmpty());
   }
+
+  // ── getQueueHealth ──────────────────────────────────────────────────────
 
   @Test
   void getJobDetail_callsCheckRead_withCallerPrincipal() throws JobAuthorizationException {
@@ -250,12 +274,14 @@ class DefaultJobQueryServiceTest {
     verify(authPolicy).checkRead(jobId, "alice");
   }
 
+  // ── getDependants ───────────────────────────────────────────────────────
+
   @Test
   void getJobDetail_checkReadThrows_returnsEmpty() throws JobAuthorizationException {
     UUID jobId = UUID.randomUUID();
     when(crudStore.findById(jobId)).thenReturn(Optional.of(minimalJobWithId(jobId)));
     when(principalProvider.currentPrincipal()).thenReturn(Optional.of("eve"));
-    org.mockito.Mockito.doThrow(new JobAuthorizationException(jobId, "read", "eve", "denied"))
+    Mockito.doThrow(new JobAuthorizationException(jobId, "read", "eve", "denied"))
         .when(authPolicy)
         .checkRead(jobId, "eve");
 
@@ -278,8 +304,6 @@ class DefaultJobQueryServiceTest {
     assertEquals(1, result.get().dependantJobIds().size());
   }
 
-  // ── getQueueHealth ──────────────────────────────────────────────────────
-
   @Test
   void getQueueHealth_aggregatesAllCountMethods() {
     when(crudStore.countJobsByStatus(any())).thenReturn(5L);
@@ -301,7 +325,7 @@ class DefaultJobQueryServiceTest {
     assertEquals(500L, snapshot.p95QueueWaitMs());
   }
 
-  // ── getDependants ───────────────────────────────────────────────────────
+  // ── helpers ─────────────────────────────────────────────────────────────
 
   @Test
   void getDependants_delegatesToCrudStore() {
@@ -347,28 +371,5 @@ class DefaultJobQueryServiceTest {
     assertEquals(2, page.items().size());
     assertEquals(3L, page.totalCount());
     assertTrue(page.hasMore());
-  }
-
-  // ── helpers ─────────────────────────────────────────────────────────────
-
-  private static boolean hasType(JobFilter filter, JobType type) {
-    return filter != null && filter.types() != null && filter.types().contains(type);
-  }
-
-  private static JobEntity minimalJob() {
-    return minimalJobWithId(UUID.randomUUID());
-  }
-
-  private static JobEntity minimalJobWithId(UUID id) {
-    JobEntity e = new JobEntity();
-    e.setId(id);
-    e.setStatus(JobStatus.PENDING);
-    e.setJobType(JobExecutionType.SINGLE);
-    e.setPriority(JobPriority.NORMAL);
-    e.setBackoffPolicy(BackoffPolicy.NONE);
-    e.setPayload(new JobPayload("com.example.TestJob", "run", "()V", false, List.of()));
-    e.setCreatedAt(Instant.now());
-    e.setScheduledTime(Instant.now());
-    return e;
   }
 }

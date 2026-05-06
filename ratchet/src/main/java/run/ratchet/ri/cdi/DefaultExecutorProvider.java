@@ -36,6 +36,23 @@ public class DefaultExecutorProvider implements ExecutorProvider {
   private volatile ExecutorService resolvedJobExecutor;
   private volatile ScheduledExecutorService resolvedScheduledExecutor;
 
+  private static <T> T lookup(String jndiName, Class<T> type) {
+    try {
+      return type.cast(new InitialContext().lookup(jndiName));
+    } catch (NamingException e) {
+      throw new IllegalStateException(
+          "DefaultExecutorProvider could not resolve "
+              + jndiName
+              + " from JNDI. This name is required by Jakarta Concurrency 3.0+; if you are running"
+              + " outside a Jakarta EE 10+ container, provide an @Alternative ExecutorProvider bean"
+              + " (e.g., StandaloneExecutorProvider).",
+          e);
+    } catch (ClassCastException e) {
+      throw new IllegalStateException(
+          "DefaultExecutorProvider expected " + jndiName + " to be a " + type.getName(), e);
+    }
+  }
+
   @Override
   public ExecutorService getJobExecutor() {
     ExecutorService executor = resolvedJobExecutor;
@@ -64,22 +81,5 @@ public class DefaultExecutorProvider implements ExecutorProvider {
       }
     }
     return executor;
-  }
-
-  private static <T> T lookup(String jndiName, Class<T> type) {
-    try {
-      return type.cast(new InitialContext().lookup(jndiName));
-    } catch (NamingException e) {
-      throw new IllegalStateException(
-          "DefaultExecutorProvider could not resolve "
-              + jndiName
-              + " from JNDI. This name is required by Jakarta Concurrency 3.0+; if you are running"
-              + " outside a Jakarta EE 10+ container, provide an @Alternative ExecutorProvider bean"
-              + " (e.g., StandaloneExecutorProvider).",
-          e);
-    } catch (ClassCastException e) {
-      throw new IllegalStateException(
-          "DefaultExecutorProvider expected " + jndiName + " to be a " + type.getName(), e);
-    }
   }
 }

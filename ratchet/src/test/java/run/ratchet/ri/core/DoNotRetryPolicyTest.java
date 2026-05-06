@@ -91,7 +91,7 @@ class DoNotRetryPolicyTest {
   @Test
   void shouldNotRetry_nullCause_doesNotLoop() {
     // Exception with explicit null cause terminates cause-chain walk immediately.
-    assertFalse(policy.shouldNotRetry(new RuntimeException("no cause", (Throwable) null)));
+    assertFalse(policy.shouldNotRetry(new RuntimeException("no cause", null)));
   }
 
   @DoNotRetry("permanent business failure")

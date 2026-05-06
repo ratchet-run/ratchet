@@ -35,20 +35,6 @@ public abstract class AbstractTxRequiredContract {
 
   @Inject protected UserTransaction tx;
 
-  protected abstract RatchetTckRuntime runtime();
-
-  protected Duration defaultTimeout() {
-    return Duration.ofSeconds(10);
-  }
-
-  /**
-   * Quiet window used for negative assertions: long enough to catch a spurious transition if the
-   * implementation is broken, short enough that a passing test suite does not drag.
-   */
-  protected Duration quietWindow() {
-    return Duration.ofMillis(750);
-  }
-
   @AfterEach
   void clearAfterEach() {
     runtime().clear();
@@ -106,6 +92,20 @@ public abstract class AbstractTxRequiredContract {
         runtime().probe().awaitCompleted(handle, quietWindow()),
         "pauseJob inside a committed TX must prevent the job from executing. A COMPLETED event "
             + "here means the pause was not persisted.");
+  }
+
+  protected abstract RatchetTckRuntime runtime();
+
+  protected Duration defaultTimeout() {
+    return Duration.ofSeconds(10);
+  }
+
+  /**
+   * Quiet window used for negative assertions: long enough to catch a spurious transition if the
+   * implementation is broken, short enough that a passing test suite does not drag.
+   */
+  protected Duration quietWindow() {
+    return Duration.ofMillis(750);
   }
 
   @Test

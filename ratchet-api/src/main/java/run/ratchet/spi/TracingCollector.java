@@ -86,6 +86,20 @@ public interface TracingCollector {
     return jobExecutionStarted(jobId, type, priority, parentContext);
   }
 
+  /** No-op scope returned by the default {@link #jobExecutionStarted} implementation. */
+  enum NoOpExecutionScope implements ExecutionScope {
+    INSTANCE;
+
+    @Override
+    public void success(long executionTimeMs) {}
+
+    @Override
+    public void failure(Throwable cause, int attempt) {}
+
+    @Override
+    public void close() {}
+  }
+
   /**
    * Scope handle representing one active job execution attempt.
    *
@@ -117,19 +131,5 @@ public interface TracingCollector {
      */
     @Override
     void close();
-  }
-
-  /** No-op scope returned by the default {@link #jobExecutionStarted} implementation. */
-  enum NoOpExecutionScope implements ExecutionScope {
-    INSTANCE;
-
-    @Override
-    public void success(long executionTimeMs) {}
-
-    @Override
-    public void failure(Throwable cause, int attempt) {}
-
-    @Override
-    public void close() {}
   }
 }

@@ -28,9 +28,9 @@ import run.ratchet.spi.TracingCollector;
 @ApplicationScoped
 public class RecordingTracingCollector implements TracingCollector {
 
-  private static volatile Map<String, String> contextToCapture = Map.of();
   private static final List<Map<String, String>> receivedParentContexts =
       new CopyOnWriteArrayList<>();
+  private static volatile Map<String, String> contextToCapture = Map.of();
 
   /** Injects the carrier map that {@link #captureCurrentContext()} will return. */
   public static void setContextToCapture(Map<String, String> context) {

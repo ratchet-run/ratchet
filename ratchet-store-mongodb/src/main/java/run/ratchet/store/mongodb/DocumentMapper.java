@@ -130,7 +130,7 @@ public final class DocumentMapper {
     job.setCreatedAt(toInstant(doc.getDate("created_at")));
     job.setCallerPrincipal(doc.getString("caller_principal"));
     @SuppressWarnings("unchecked")
-    java.util.Map<String, String> tc = (java.util.Map<String, String>) doc.get("trace_context");
+    Map<String, String> tc = (Map<String, String>) doc.get("trace_context");
     job.setTraceContext(tc);
     job.setUpdatedAt(toInstant(doc.getDate("updated_at")));
     job.setExecutionStartTime(toInstant(doc.getDate("execution_start_time")));

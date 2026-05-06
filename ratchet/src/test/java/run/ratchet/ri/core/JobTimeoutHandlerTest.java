@@ -1,6 +1,6 @@
 package run.ratchet.ri.core;
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -172,7 +172,7 @@ class JobTimeoutHandlerTest {
     handler.processSignalTimeout(job, now);
 
     verify(lifecycleFacade).handlePermanentFailure(eq(job), throwableCaptor.capture());
-    assertTrue(throwableCaptor.getValue() instanceof SignalTimeoutException);
+    assertInstanceOf(SignalTimeoutException.class, throwableCaptor.getValue());
   }
 
   @Test

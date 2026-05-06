@@ -17,17 +17,6 @@ import run.ratchet.api.JobHandle;
  */
 public abstract class AbstractJobLifecycleContract {
 
-  /** The runtime under test. Same instance is returned across calls within a single test. */
-  protected abstract RatchetTckRuntime runtime();
-
-  /**
-   * Default timeout for {@code await*} probe assertions. Override for runtimes that need more
-   * generous bounds (e.g. JTA-backed schedulers in a managed container).
-   */
-  protected Duration defaultTimeout() {
-    return Duration.ofSeconds(5);
-  }
-
   @AfterEach
   void clearAfterEach() {
     runtime().clear();
@@ -62,5 +51,16 @@ public abstract class AbstractJobLifecycleContract {
     assertTrue(
         runtime().probe().awaitFailed(handle, defaultTimeout()),
         "Failing job with no retries must reach FAILED within timeout");
+  }
+
+  /** The runtime under test. Same instance is returned across calls within a single test. */
+  protected abstract RatchetTckRuntime runtime();
+
+  /**
+   * Default timeout for {@code await*} probe assertions. Override for runtimes that need more
+   * generous bounds (e.g. JTA-backed schedulers in a managed container).
+   */
+  protected Duration defaultTimeout() {
+    return Duration.ofSeconds(5);
   }
 }

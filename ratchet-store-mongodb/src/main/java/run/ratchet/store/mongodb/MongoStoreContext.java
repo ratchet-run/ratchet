@@ -39,18 +39,6 @@ final class MongoStoreContext {
     this.priorityBoostIntervalMinutes = priorityBoostIntervalMinutes;
   }
 
-  /**
-   * Start a new session bound to this context's client. Caller is responsible for closing the
-   * session (try-with-resources). Used by compound operations that need multi-document atomicity
-   * via {@link ClientSession#withTransaction(com.mongodb.client.TransactionBody)}.
-   *
-   * <p>Requires the MongoDB deployment to be a replica set or sharded cluster; standalone mongod
-   * does not support sessions.
-   */
-  ClientSession startSession() {
-    return client.startSession();
-  }
-
   static boolean isPollerExecutable(JobExecutionType jobType) {
     return jobType == JobExecutionType.SINGLE
         || jobType == JobExecutionType.BATCH_CHILD
@@ -69,6 +57,18 @@ final class MongoStoreContext {
     return status == JobStatus.SUCCEEDED
         || status == JobStatus.FAILED
         || status == JobStatus.CANCELED;
+  }
+
+  /**
+   * Start a new session bound to this context's client. Caller is responsible for closing the
+   * session (try-with-resources). Used by compound operations that need multi-document atomicity
+   * via {@link ClientSession#withTransaction(com.mongodb.client.TransactionBody)}.
+   *
+   * <p>Requires the MongoDB deployment to be a replica set or sharded cluster; standalone mongod
+   * does not support sessions.
+   */
+  ClientSession startSession() {
+    return client.startSession();
   }
 
   MongoDatabase database() {

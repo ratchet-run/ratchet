@@ -18,6 +18,40 @@ import run.ratchet.store.id.UuidV7Factory;
 
 class DocumentMapperTest {
 
+  private static JobEntity job(JobPayload payload) {
+    JobEntity job = new JobEntity();
+    job.setId(UuidV7Factory.create());
+    job.setStatus(JobStatus.PENDING);
+    job.setScheduledTime(Instant.parse("2026-01-01T00:00:00Z"));
+    job.setJobType(JobExecutionType.SINGLE);
+    job.setPriority(JobPriority.NORMAL);
+    job.setAttempts(0);
+    job.setMaxRetries(0);
+    job.setBackoffPolicy(BackoffPolicy.NONE);
+    job.setBackoffParamMs(0);
+    job.setTimeoutSec(0);
+    job.setCronExpr("");
+    job.setZoneId("UTC");
+    job.setPayload(payload);
+    job.setTags(List.of());
+    job.setCreatedAt(Instant.parse("2026-01-01T00:00:00Z"));
+    job.setUpdatedAt(Instant.parse("2026-01-01T00:00:00Z"));
+    job.setVersion(0);
+    return job;
+  }
+
+  private static JobPayload payload(String target, String method) {
+    return new JobPayload(target, method, "()V", true, List.of());
+  }
+
+  private static Document legacyPayloadDocument(JobPayload payload) {
+    return new Document("target", payload.target())
+        .append("method", payload.method())
+        .append("methodDescriptor", payload.methodDescriptor())
+        .append("isStatic", payload.isStatic())
+        .append("args", payload.args());
+  }
+
   @Test
   void storesJobPayloadsAsSharedJsonStrings() {
     JobPayload payload = payload("com.example.Job", "run");
@@ -79,39 +113,5 @@ class DocumentMapperTest {
 
     doc.put("progress_hook", legacyPayloadDocument(payload));
     assertEquals(payload, DocumentMapper.toBatchEntity(doc).getProgressHook());
-  }
-
-  private static JobEntity job(JobPayload payload) {
-    JobEntity job = new JobEntity();
-    job.setId(UuidV7Factory.create());
-    job.setStatus(JobStatus.PENDING);
-    job.setScheduledTime(Instant.parse("2026-01-01T00:00:00Z"));
-    job.setJobType(JobExecutionType.SINGLE);
-    job.setPriority(JobPriority.NORMAL);
-    job.setAttempts(0);
-    job.setMaxRetries(0);
-    job.setBackoffPolicy(BackoffPolicy.NONE);
-    job.setBackoffParamMs(0);
-    job.setTimeoutSec(0);
-    job.setCronExpr("");
-    job.setZoneId("UTC");
-    job.setPayload(payload);
-    job.setTags(List.of());
-    job.setCreatedAt(Instant.parse("2026-01-01T00:00:00Z"));
-    job.setUpdatedAt(Instant.parse("2026-01-01T00:00:00Z"));
-    job.setVersion(0);
-    return job;
-  }
-
-  private static JobPayload payload(String target, String method) {
-    return new JobPayload(target, method, "()V", true, List.of());
-  }
-
-  private static Document legacyPayloadDocument(JobPayload payload) {
-    return new Document("target", payload.target())
-        .append("method", payload.method())
-        .append("methodDescriptor", payload.methodDescriptor())
-        .append("isStatic", payload.isStatic())
-        .append("args", payload.args());
   }
 }

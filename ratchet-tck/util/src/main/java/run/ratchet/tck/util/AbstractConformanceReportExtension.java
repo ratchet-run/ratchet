@@ -30,48 +30,19 @@ import org.junit.platform.launcher.TestPlan;
  */
 public abstract class AbstractConformanceReportExtension implements TestExecutionListener {
 
-  /**
-   * A named group of related contracts within a tier (e.g., "Core", "Behavioral"). Tiers with few
-   * contracts may use a single group.
-   */
-  public record ContractGroup(String label, String description, List<String> contracts) {}
-
-  /** Result accumulator for a single abstract contract class. */
-  public static final class ContractResult {
-    public int passed;
-    public int failed;
-    public int aborted;
-
-    public void record(TestExecutionResult.Status status) {
-      switch (status) {
-        case SUCCESSFUL -> passed++;
-        case FAILED -> failed++;
-        case ABORTED -> aborted++;
-      }
-    }
-
-    public int total() {
-      return passed + failed + aborted;
-    }
-  }
-
   private final Map<String, ContractResult> results = new LinkedHashMap<>();
   private Map<String, String> contractIndex; // simpleClassName → group label
 
-  /** Display name for this tier (e.g., "Store", "API", "Jakarta Runtime"). */
-  protected abstract String tierTitle();
-
-  /**
-   * System property name injected by the build tool to identify the runtime under test (e.g.,
-   * {@code ratchet.tck.store.name}, {@code ratchet.tck.runtime.name}).
-   */
-  protected abstract String runtimeProperty();
-
-  /** Path where the report is written (relative to CWD, typically {@code target/}). */
-  protected abstract Path reportPath();
-
-  /** Groups of contracts this tier exercises, in display order. */
-  protected abstract List<ContractGroup> contractGroups();
+  private static String resolveClassName(TestIdentifier id) {
+    return id.getSource()
+        .map(
+            source -> {
+              if (source instanceof MethodSource ms) return ms.getClassName();
+              if (source instanceof ClassSource cs) return cs.getClassName();
+              return null;
+            })
+        .orElse(null);
+  }
 
   @Override
   public void testPlanExecutionStarted(TestPlan testPlan) {
@@ -105,6 +76,38 @@ public abstract class AbstractConformanceReportExtension implements TestExecutio
       System.err.println("[ratchet-tck] Failed to write conformance report: " + e.getMessage());
     }
   }
+
+  String findContractName(String className) {
+    try {
+      ClassLoader cl = Thread.currentThread().getContextClassLoader();
+      if (cl == null) cl = getClass().getClassLoader();
+      Class<?> clazz = Class.forName(className, false, cl);
+      while (clazz != null && clazz != Object.class) {
+        if (contractIndex != null && contractIndex.containsKey(clazz.getSimpleName())) {
+          return clazz.getSimpleName();
+        }
+        clazz = clazz.getSuperclass();
+      }
+    } catch (ClassNotFoundException | NoClassDefFoundError ignored) {
+      // Non-fatal: skip this test identifier
+    }
+    return null;
+  }
+
+  /** Display name for this tier (e.g., "Store", "API", "Jakarta Runtime"). */
+  protected abstract String tierTitle();
+
+  /**
+   * System property name injected by the build tool to identify the runtime under test (e.g.,
+   * {@code ratchet.tck.store.name}, {@code ratchet.tck.runtime.name}).
+   */
+  protected abstract String runtimeProperty();
+
+  /** Path where the report is written (relative to CWD, typically {@code target/}). */
+  protected abstract Path reportPath();
+
+  /** Groups of contracts this tier exercises, in display order. */
+  protected abstract List<ContractGroup> contractGroups();
 
   private void writeReport(PrintWriter pw) {
     String runtime = System.getProperty(runtimeProperty(), "unknown");
@@ -167,31 +170,28 @@ public abstract class AbstractConformanceReportExtension implements TestExecutio
     }
   }
 
-  private static String resolveClassName(TestIdentifier id) {
-    return id.getSource()
-        .map(
-            source -> {
-              if (source instanceof MethodSource ms) return ms.getClassName();
-              if (source instanceof ClassSource cs) return cs.getClassName();
-              return null;
-            })
-        .orElse(null);
-  }
+  /**
+   * A named group of related contracts within a tier (e.g., "Core", "Behavioral"). Tiers with few
+   * contracts may use a single group.
+   */
+  public record ContractGroup(String label, String description, List<String> contracts) {}
 
-  String findContractName(String className) {
-    try {
-      ClassLoader cl = Thread.currentThread().getContextClassLoader();
-      if (cl == null) cl = getClass().getClassLoader();
-      Class<?> clazz = Class.forName(className, false, cl);
-      while (clazz != null && clazz != Object.class) {
-        if (contractIndex != null && contractIndex.containsKey(clazz.getSimpleName())) {
-          return clazz.getSimpleName();
-        }
-        clazz = clazz.getSuperclass();
+  /** Result accumulator for a single abstract contract class. */
+  public static final class ContractResult {
+    public int passed;
+    public int failed;
+    public int aborted;
+
+    public void record(TestExecutionResult.Status status) {
+      switch (status) {
+        case SUCCESSFUL -> passed++;
+        case FAILED -> failed++;
+        case ABORTED -> aborted++;
       }
-    } catch (ClassNotFoundException | NoClassDefFoundError ignored) {
-      // Non-fatal: skip this test identifier
     }
-    return null;
+
+    public int total() {
+      return passed + failed + aborted;
+    }
   }
 }

@@ -90,8 +90,7 @@ public class JobArchivingService {
     scheduleNext();
 
     log.infof(
-        "Job archiving service initialized: enabled=%s, retention=%s days, batch=%d",
-        enabled, retentionDays, batchSize);
+        "Job archiving service initialized: retention=%s days, batch=%d", retentionDays, batchSize);
   }
 
   @Transactional(TxType.NOT_SUPPORTED)

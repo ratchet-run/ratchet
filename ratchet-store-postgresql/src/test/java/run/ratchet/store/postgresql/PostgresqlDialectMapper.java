@@ -20,6 +20,15 @@ import run.ratchet.tck.store.schema.OnDeleteAction;
  */
 final class PostgresqlDialectMapper implements DialectTypeMapper {
 
+  /**
+   * Normalize whitespace + outer parens emitted by {@code pg_get_indexdef()}. The function adds an
+   * outer pair of parens around the entire predicate; we keep it because both renderPredicate() and
+   * the introspected form will carry it. Multiple spaces collapse to one.
+   */
+  private static String normalize(String raw) {
+    return raw.trim().replaceAll("\\s+", " ");
+  }
+
   @Override
   public String dialectName() {
     return "PostgreSQL";
@@ -101,14 +110,5 @@ final class PostgresqlDialectMapper implements DialectTypeMapper {
                       .collect(Collectors.joining(", "))
                   + "]))");
     };
-  }
-
-  /**
-   * Normalize whitespace + outer parens emitted by {@code pg_get_indexdef()}. The function adds an
-   * outer pair of parens around the entire predicate; we keep it because both renderPredicate() and
-   * the introspected form will carry it. Multiple spaces collapse to one.
-   */
-  private static String normalize(String raw) {
-    return raw.trim().replaceAll("\\s+", " ");
   }
 }

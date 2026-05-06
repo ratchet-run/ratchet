@@ -30,6 +30,32 @@ public class JsonbPayloadSerializer implements PayloadSerializer {
 
   private volatile Jsonb jsonb;
 
+  @Override
+  public String serialize(Object payload) {
+    if (payload == null) {
+      return null;
+    }
+    try {
+      return jsonb().toJson(payload);
+    } catch (JsonbException e) {
+      throw new IllegalArgumentException(
+          "JSON-B serialization error for " + payload.getClass().getName(), e);
+    }
+  }
+
+  @Override
+  public <T> T deserialize(String json, Class<T> type) {
+    if (json == null || json.isEmpty()) {
+      return null;
+    }
+    try {
+      return jsonb().fromJson(json, type);
+    } catch (JsonbException e) {
+      throw new IllegalArgumentException(
+          "JSON-B deserialization error for " + (type == null ? "null" : type.getName()), e);
+    }
+  }
+
   @PostConstruct
   void init() {
     // Reuse a single configured Jsonb for the lifetime of the bean. JSON-B implementations
@@ -62,31 +88,5 @@ public class JsonbPayloadSerializer implements PayloadSerializer {
       }
     }
     return instance;
-  }
-
-  @Override
-  public String serialize(Object payload) {
-    if (payload == null) {
-      return null;
-    }
-    try {
-      return jsonb().toJson(payload);
-    } catch (JsonbException e) {
-      throw new IllegalArgumentException(
-          "JSON-B serialization error for " + payload.getClass().getName(), e);
-    }
-  }
-
-  @Override
-  public <T> T deserialize(String json, Class<T> type) {
-    if (json == null || json.isEmpty()) {
-      return null;
-    }
-    try {
-      return jsonb().fromJson(json, type);
-    } catch (JsonbException e) {
-      throw new IllegalArgumentException(
-          "JSON-B deserialization error for " + (type == null ? "null" : type.getName()), e);
-    }
   }
 }

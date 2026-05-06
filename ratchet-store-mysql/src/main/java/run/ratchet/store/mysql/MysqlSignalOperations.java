@@ -32,6 +32,19 @@ final class MysqlSignalOperations implements SignalStore {
     this.ctx = ctx;
   }
 
+  private static Instant toInstant(Object value) {
+    if (value == null) {
+      return null;
+    }
+    if (value instanceof Timestamp ts) {
+      return ts.toInstant();
+    }
+    if (value instanceof LocalDateTime ldt) {
+      return ldt.atZone(ZoneId.of("UTC")).toInstant();
+    }
+    return null;
+  }
+
   @Override
   @SuppressWarnings("unchecked")
   public List<JobEntity> findTimedOutSignalJobs(Instant now, int limit) {
@@ -185,18 +198,5 @@ final class MysqlSignalOperations implements SignalStore {
       result.add(mapper.hydrateJobEntity(row));
     }
     return result;
-  }
-
-  private static Instant toInstant(Object value) {
-    if (value == null) {
-      return null;
-    }
-    if (value instanceof Timestamp ts) {
-      return ts.toInstant();
-    }
-    if (value instanceof LocalDateTime ldt) {
-      return ldt.atZone(ZoneId.of("UTC")).toInstant();
-    }
-    return null;
   }
 }

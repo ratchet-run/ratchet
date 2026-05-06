@@ -29,14 +29,11 @@ import run.ratchet.store.entity.JobPayload;
  */
 final class PostgresqlJobRowMapper {
 
-  private static final Logger log = Logger.getLogger(PostgresqlJobRowMapper.class);
-
-  private static final JobPayloadConverter JOB_PAYLOAD_CONVERTER = new JobPayloadConverter();
-  private static final JsonMapConverter JSON_MAP_CONVERTER = new JsonMapConverter();
-
   static final int HYDRATION_COL_COUNT = 53;
   static final int IDX_Q_STATUS = 35;
-
+  private static final Logger log = Logger.getLogger(PostgresqlJobRowMapper.class);
+  private static final JobPayloadConverter JOB_PAYLOAD_CONVERTER = new JobPayloadConverter();
+  private static final JsonMapConverter JSON_MAP_CONVERTER = new JsonMapConverter();
   private static final int IDX_JOB_ID = 0;
   private static final int IDX_JOB_TYPE = 1;
   private static final int IDX_PRIORITY = 2;

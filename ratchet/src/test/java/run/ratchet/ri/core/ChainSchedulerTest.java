@@ -28,12 +28,23 @@ class ChainSchedulerTest {
 
   private ChainScheduler scheduler;
 
+  private static JobEntity pendingJob() {
+    return job(JobStatus.PENDING);
+  }
+
+  // ── scheduleNext ──────────────────────────────────────────────────────────
+
+  private static JobEntity job(JobStatus status) {
+    JobEntity job = new JobEntity();
+    job.setId(UUID.randomUUID());
+    job.setStatus(status);
+    return job;
+  }
+
   @BeforeEach
   void setUp() {
     scheduler = new ChainScheduler(jobCrudStore);
   }
-
-  // ── scheduleNext ──────────────────────────────────────────────────────────
 
   @Test
   void scheduleNext_noChildren_returnsFalse() {
@@ -89,6 +100,8 @@ class ChainSchedulerTest {
     verify(jobCrudStore, never()).save(child);
   }
 
+  // ── cancelChain ───────────────────────────────────────────────────────────
+
   @Test
   void scheduleNext_waitingChildWithSentinel_unlocksScheduleAndKeepsWaiting() {
     JobEntity finished = pendingJob();
@@ -119,8 +132,6 @@ class ChainSchedulerTest {
     verify(jobCrudStore).save(unlockable);
     verify(jobCrudStore, never()).save(alreadyScheduled);
   }
-
-  // ── cancelChain ───────────────────────────────────────────────────────────
 
   @Test
   void cancelChain_noChildren_noop() {
@@ -191,6 +202,8 @@ class ChainSchedulerTest {
     assertEquals(JobStatus.CANCELED, child.getStatus());
   }
 
+  // ── helpers ───────────────────────────────────────────────────────────────
+
   @Test
   void cancelChain_multiLevel_propagatesDepthFirst() {
     // A (failed) → B (PENDING) → C (PENDING)
@@ -226,18 +239,5 @@ class ChainSchedulerTest {
     assertEquals(JobStatus.CANCELED, b.getStatus());
     assertEquals(JobStatus.RUNNING, c.getStatus());
     assertEquals(JobStatus.SUCCEEDED, d.getStatus());
-  }
-
-  // ── helpers ───────────────────────────────────────────────────────────────
-
-  private static JobEntity pendingJob() {
-    return job(JobStatus.PENDING);
-  }
-
-  private static JobEntity job(JobStatus status) {
-    JobEntity job = new JobEntity();
-    job.setId(UUID.randomUUID());
-    job.setStatus(status);
-    return job;
   }
 }

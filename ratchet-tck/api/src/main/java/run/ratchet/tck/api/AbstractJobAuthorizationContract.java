@@ -25,21 +25,6 @@ import run.ratchet.api.exception.JobAuthorizationException;
  */
 public abstract class AbstractJobAuthorizationContract {
 
-  /** The runtime under test (default scheduler, permit-all policy). */
-  protected abstract RatchetTckRuntime runtime();
-
-  /**
-   * Returns a scheduler configured with a deny-all {@link run.ratchet.spi.JobAuthorizationPolicy},
-   * or empty if the implementation cannot wire a custom policy in the test context. Subclasses
-   * backed by in-process runtimes SHOULD provide this.
-   *
-   * <p>The returned scheduler is NOT backed by {@link RatchetTckRuntime} — it is used only to
-   * verify that authorization exceptions propagate from {@code submit()}.
-   */
-  protected Optional<JobSchedulerService> schedulerWithDenyAllPolicy() {
-    return Optional.empty();
-  }
-
   @AfterEach
   void clearAfterEach() {
     runtime().clear();
@@ -57,6 +42,21 @@ public abstract class AbstractJobAuthorizationContract {
     JobHandle handle = runtime().scheduler().enqueue(() -> TckJobs.noop()).submit();
     assertNotNull(
         handle.id(), "Job submitted via builder with permit-all policy must return a non-null ID");
+  }
+
+  /** The runtime under test (default scheduler, permit-all policy). */
+  protected abstract RatchetTckRuntime runtime();
+
+  /**
+   * Returns a scheduler configured with a deny-all {@link run.ratchet.spi.JobAuthorizationPolicy},
+   * or empty if the implementation cannot wire a custom policy in the test context. Subclasses
+   * backed by in-process runtimes SHOULD provide this.
+   *
+   * <p>The returned scheduler is NOT backed by {@link RatchetTckRuntime} — it is used only to
+   * verify that authorization exceptions propagate from {@code submit()}.
+   */
+  protected Optional<JobSchedulerService> schedulerWithDenyAllPolicy() {
+    return Optional.empty();
   }
 
   @Test

@@ -2,10 +2,11 @@ package run.ratchet.tck.api;
 
 import java.time.Instant;
 import java.util.Objects;
+import run.ratchet.api.JobHandle;
 
 /**
  * Immutable record of a single observation made by a {@link RatchetTckProbe} for a particular
- * {@link run.ratchet.api.JobHandle}.
+ * {@link JobHandle}.
  *
  * <p>Probes translate scheduler events into {@code ProbeEvent}s so contracts can assert on
  * lifecycle ordering without coupling to {@code ratchet-api}'s event hierarchy. The event types
@@ -13,7 +14,23 @@ import java.util.Objects;
  * that needs a richer signal can use the dedicated {@code await*} or {@code invocationCount}
  * methods on the probe.
  */
-public final class ProbeEvent {
+public record ProbeEvent(Type type, Instant timestamp) {
+
+  public ProbeEvent(Type type, Instant timestamp) {
+    this.type = Objects.requireNonNull(type, "type");
+    this.timestamp = Objects.requireNonNull(timestamp, "timestamp");
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (!(o instanceof ProbeEvent that)) return false;
+    return type == that.type && timestamp.equals(that.timestamp);
+  }
+
+  @Override
+  public String toString() {
+    return "ProbeEvent{" + type + " @ " + timestamp + '}';
+  }
 
   /** Event types observable through the probe. */
   public enum Type {
@@ -27,37 +44,5 @@ public final class ProbeEvent {
     CANCELLED,
     /** Job is being retried. Maps to {@code JobRetryingEvent}. */
     RETRYING
-  }
-
-  private final Type type;
-  private final Instant timestamp;
-
-  public ProbeEvent(Type type, Instant timestamp) {
-    this.type = Objects.requireNonNull(type, "type");
-    this.timestamp = Objects.requireNonNull(timestamp, "timestamp");
-  }
-
-  public Type type() {
-    return type;
-  }
-
-  public Instant timestamp() {
-    return timestamp;
-  }
-
-  @Override
-  public boolean equals(Object o) {
-    if (!(o instanceof ProbeEvent that)) return false;
-    return type == that.type && timestamp.equals(that.timestamp);
-  }
-
-  @Override
-  public int hashCode() {
-    return Objects.hash(type, timestamp);
-  }
-
-  @Override
-  public String toString() {
-    return "ProbeEvent{" + type + " @ " + timestamp + '}';
   }
 }

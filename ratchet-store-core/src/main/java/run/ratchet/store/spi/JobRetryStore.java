@@ -4,11 +4,7 @@ import java.time.Instant;
 import java.util.UUID;
 import run.ratchet.api.Incubating;
 
-/**
- * Retry and backoff-scheduling operations for jobs.
- *
- * <p>Separated from {@link JobStatusStore} during the status-SPI decomposition.
- */
+/** Retry and backoff-scheduling operations for jobs. */
 @Incubating
 public interface JobRetryStore {
 

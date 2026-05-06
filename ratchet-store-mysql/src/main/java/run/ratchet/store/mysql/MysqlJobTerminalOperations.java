@@ -220,37 +220,6 @@ final class MysqlJobTerminalOperations {
     return markJobFailedTerminalFromStatus(id, terminalError, totalAttempts, JobStatus.RUNNING);
   }
 
-  private boolean markJobFailedTerminalFromStatus(
-      UUID id, String terminalError, int totalAttempts, JobStatus expectedStatus) {
-    // language=MySQL
-    String deleteHotSql = "DELETE FROM scheduler_job_queue WHERE job_id = ? AND status = ?";
-    int hotDeleted =
-        ctx.em()
-            .createNativeQuery(deleteHotSql)
-            .setParameter(1, UuidByteArrayConverter.toBytes(id))
-            .setParameter(2, expectedStatus.name())
-            .executeUpdate();
-    if (hotDeleted == 0) {
-      return false;
-    }
-    // language=MySQL
-    String updateColdSql =
-        """
-        UPDATE scheduler_job
-        SET terminal_status = 'FAILED', terminal_error = ?, total_attempts = ?,
-            terminated_at = NOW(3), execution_end_time = NOW(3)
-        WHERE job_id = ? AND terminal_status IS NULL
-        """;
-    ctx.em()
-        .createNativeQuery(updateColdSql)
-        .setParameter(1, terminalError)
-        .setParameter(2, totalAttempts)
-        .setParameter(3, UuidByteArrayConverter.toBytes(id))
-        .executeUpdate();
-    reservations.deleteReservationByOwner(id);
-    return true;
-  }
-
   boolean cancelJob(UUID id) {
     // language=MySQL
     String selectSql =
@@ -391,6 +360,37 @@ final class MysqlJobTerminalOperations {
         throw e;
       }
     }
+    return true;
+  }
+
+  private boolean markJobFailedTerminalFromStatus(
+      UUID id, String terminalError, int totalAttempts, JobStatus expectedStatus) {
+    // language=MySQL
+    String deleteHotSql = "DELETE FROM scheduler_job_queue WHERE job_id = ? AND status = ?";
+    int hotDeleted =
+        ctx.em()
+            .createNativeQuery(deleteHotSql)
+            .setParameter(1, UuidByteArrayConverter.toBytes(id))
+            .setParameter(2, expectedStatus.name())
+            .executeUpdate();
+    if (hotDeleted == 0) {
+      return false;
+    }
+    // language=MySQL
+    String updateColdSql =
+        """
+        UPDATE scheduler_job
+        SET terminal_status = 'FAILED', terminal_error = ?, total_attempts = ?,
+            terminated_at = NOW(3), execution_end_time = NOW(3)
+        WHERE job_id = ? AND terminal_status IS NULL
+        """;
+    ctx.em()
+        .createNativeQuery(updateColdSql)
+        .setParameter(1, terminalError)
+        .setParameter(2, totalAttempts)
+        .setParameter(3, UuidByteArrayConverter.toBytes(id))
+        .executeUpdate();
+    reservations.deleteReservationByOwner(id);
     return true;
   }
 

@@ -2,11 +2,15 @@ package run.ratchet.tck.store;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -91,8 +95,9 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
         ids.contains(high.getId()), "Filter by HIGH priority should return the high-priority job");
     ids.forEach(
         id ->
-            assertFalse(
-                id.equals(normal.getId()),
+            assertNotEquals(
+                id,
+                normal.getId(),
                 "Filter by HIGH priority should not return NORMAL-priority job"));
   }
 
@@ -354,7 +359,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
   void searchByTraceCorrelationId_returnsMatchingJob() {
     String traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
     JobEntity traced = newPendingJob();
-    traced.setTraceContext(java.util.Map.of("traceparent", traceparent));
+    traced.setTraceContext(Map.of("traceparent", traceparent));
     traced = persist(traced);
 
     persist(newPendingJob()); // no trace context
@@ -372,7 +377,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
   @Test
   void searchByTraceCorrelationId_excludesNonMatchingJobs() {
     JobEntity traced = newPendingJob();
-    traced.setTraceContext(java.util.Map.of("traceparent", "00-aabbcc-ddeeff-01"));
+    traced.setTraceContext(Map.of("traceparent", "00-aabbcc-ddeeff-01"));
     persist(traced);
 
     List<JobEntity> results =
@@ -396,14 +401,14 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     List<JobEntity> page1 = store().searchJobs(JobFilter.builder().build(), 3, 0);
     List<JobEntity> page2 = store().searchJobs(JobFilter.builder().build(), 3, 3);
 
-    List<UUID> allIds = new java.util.ArrayList<>();
+    List<UUID> allIds = new ArrayList<>();
     page1.forEach(j -> allIds.add(j.getId()));
     page2.forEach(j -> allIds.add(j.getId()));
 
     // No duplicates across pages — tiebreaker ensures stable ordering
     assertEquals(
         allIds.size(),
-        new java.util.HashSet<>(allIds).size(),
+        new HashSet<>(allIds).size(),
         "Consecutive pages must not contain duplicate job IDs");
   }
 

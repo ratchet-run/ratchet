@@ -1,6 +1,7 @@
 package run.ratchet.tck.store;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -9,6 +10,7 @@ import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -41,17 +43,15 @@ import run.ratchet.tck.store.schema.Table;
  */
 public abstract class AbstractSchemaConformanceContract {
 
-  /** Open a fresh JDBC connection to the conforming store under test. */
-  protected abstract Connection openConnection() throws SQLException;
-
-  /** Dialect mapper for type acceptance, FK action parsing, and partial-predicate introspection. */
-  protected abstract DialectTypeMapper mapper();
-
-  /**
-   * Default points at {@link RatchetSchemaCatalog#CURRENT}; subclasses may override for snapshots.
-   */
-  protected SchemaSpec expectedSchema() {
-    return RatchetSchemaCatalog.CURRENT;
+  private static OnDeleteAction mapJdbcDeleteRule(short rule) {
+    return switch (rule) {
+      case DatabaseMetaData.importedKeyCascade -> OnDeleteAction.CASCADE;
+      case DatabaseMetaData.importedKeyRestrict -> OnDeleteAction.RESTRICT;
+      case DatabaseMetaData.importedKeySetNull -> OnDeleteAction.SET_NULL;
+      case DatabaseMetaData.importedKeySetDefault -> OnDeleteAction.SET_DEFAULT;
+      case DatabaseMetaData.importedKeyNoAction -> OnDeleteAction.NO_ACTION;
+      default -> OnDeleteAction.NO_ACTION;
+    };
   }
 
   @Test
@@ -73,8 +73,8 @@ public abstract class AbstractSchemaConformanceContract {
         Map<String, IntrospectedColumn> introspected = introspectColumns(c, t.name());
         for (Column expected : t.columns()) {
           IntrospectedColumn actual = introspected.get(expected.name().toLowerCase(Locale.ROOT));
-          assertTrue(
-              actual != null,
+          assertNotNull(
+              actual,
               () -> mapper().dialectName() + " missing column " + t.name() + "." + expected.name());
           Set<String> accepted = mapper().acceptedTypes(expected.type());
           assertTrue(
@@ -127,8 +127,8 @@ public abstract class AbstractSchemaConformanceContract {
         for (ForeignKey expected : t.foreignKeys()) {
           IntrospectedForeignKey actual =
               introspected.get(expected.column().toLowerCase(Locale.ROOT));
-          assertTrue(
-              actual != null,
+          assertNotNull(
+              actual,
               () ->
                   mapper().dialectName() + " missing FK on " + t.name() + "." + expected.column());
           assertEquals(
@@ -156,8 +156,8 @@ public abstract class AbstractSchemaConformanceContract {
         Map<String, IntrospectedIndex> introspected = introspectIndexes(md, t.name());
         for (Index expected : t.indexes()) {
           IntrospectedIndex actual = introspected.get(expected.name().toLowerCase(Locale.ROOT));
-          assertTrue(
-              actual != null,
+          assertNotNull(
+              actual,
               () -> mapper().dialectName() + " missing index " + t.name() + "." + expected.name());
           List<String> expectedColumns =
               mapper().composeIndexColumns(expected.columns(), expected.partialPredicate());
@@ -252,11 +252,24 @@ public abstract class AbstractSchemaConformanceContract {
     }
   }
 
+  /** Open a fresh JDBC connection to the conforming store under test. */
+  protected abstract Connection openConnection() throws SQLException;
+
+  /** Dialect mapper for type acceptance, FK action parsing, and partial-predicate introspection. */
+  protected abstract DialectTypeMapper mapper();
+
   // -------- introspection helpers (JDBC standard) ----------
+
+  /**
+   * Default points at {@link RatchetSchemaCatalog#CURRENT}; subclasses may override for snapshots.
+   */
+  protected SchemaSpec expectedSchema() {
+    return RatchetSchemaCatalog.CURRENT;
+  }
 
   private Set<String> introspectTableNames(Connection c) throws SQLException {
     DatabaseMetaData md = c.getMetaData();
-    Set<String> names = new java.util.HashSet<>();
+    Set<String> names = new HashSet<>();
     try (ResultSet rs = md.getTables(c.getCatalog(), c.getSchema(), "%", new String[] {"TABLE"})) {
       while (rs.next()) {
         names.add(rs.getString("TABLE_NAME").toLowerCase(Locale.ROOT));
@@ -345,17 +358,6 @@ public abstract class AbstractSchemaConformanceContract {
           out.put(name, new IntrospectedIndex(name, cols, uniqueByIndex.getOrDefault(name, false)));
         });
     return out;
-  }
-
-  private static OnDeleteAction mapJdbcDeleteRule(short rule) {
-    return switch (rule) {
-      case DatabaseMetaData.importedKeyCascade -> OnDeleteAction.CASCADE;
-      case DatabaseMetaData.importedKeyRestrict -> OnDeleteAction.RESTRICT;
-      case DatabaseMetaData.importedKeySetNull -> OnDeleteAction.SET_NULL;
-      case DatabaseMetaData.importedKeySetDefault -> OnDeleteAction.SET_DEFAULT;
-      case DatabaseMetaData.importedKeyNoAction -> OnDeleteAction.NO_ACTION;
-      default -> OnDeleteAction.NO_ACTION;
-    };
   }
 
   // ---- introspected-state value carriers ----

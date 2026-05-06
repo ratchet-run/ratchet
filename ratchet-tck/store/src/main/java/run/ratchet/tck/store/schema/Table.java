@@ -1,5 +1,7 @@
 package run.ratchet.tck.store.schema;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -26,10 +28,10 @@ public record Table(
 
   public static final class Builder {
     private final String name;
-    private final java.util.List<Column> columns = new java.util.ArrayList<>();
-    private final java.util.List<String> primaryKey = new java.util.ArrayList<>();
-    private final java.util.List<ForeignKey> foreignKeys = new java.util.ArrayList<>();
-    private final java.util.List<Index> indexes = new java.util.ArrayList<>();
+    private final List<Column> columns = new ArrayList<>();
+    private final List<String> primaryKey = new ArrayList<>();
+    private final List<ForeignKey> foreignKeys = new ArrayList<>();
+    private final List<Index> indexes = new ArrayList<>();
 
     private Builder(String name) {
       this.name = name;
@@ -42,9 +44,7 @@ public record Table(
 
     public Builder primaryKey(String... columns) {
       primaryKey.clear();
-      for (String c : columns) {
-        primaryKey.add(c);
-      }
+      Collections.addAll(primaryKey, columns);
       return this;
     }
 

@@ -1,5 +1,7 @@
 package run.ratchet.api.exception;
 
+import java.io.Serial;
+
 /**
  * Thrown when a job exceeds its configured execution timeout.
  *
@@ -10,7 +12,7 @@ package run.ratchet.api.exception;
  */
 public class JobTimeoutException extends RuntimeException {
 
-  private static final long serialVersionUID = 1L;
+  @Serial private static final long serialVersionUID = 1L;
 
   public JobTimeoutException(String message) {
     super(message);

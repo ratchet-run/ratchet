@@ -43,6 +43,15 @@ public class JpaTestCleanupStrategy implements TestCleanupStrategy {
 
   @Inject private RatchetEntityManagerProvider entityManagerProvider;
 
+  private static List<String> tablesToTruncate(String dbType) {
+    List<String> tables = new ArrayList<>(TABLES_BEFORE_HOT_STATE);
+    if ("mysql".equals(dbType)) {
+      tables.add("scheduler_job_queue");
+    }
+    tables.addAll(TABLES_AFTER_HOT_STATE);
+    return tables;
+  }
+
   @Override
   @Transactional(Transactional.TxType.REQUIRES_NEW)
   public void truncateAll() {
@@ -73,14 +82,5 @@ public class JpaTestCleanupStrategy implements TestCleanupStrategy {
 
   private EntityManager em() {
     return entityManagerProvider.getEntityManager();
-  }
-
-  private static List<String> tablesToTruncate(String dbType) {
-    List<String> tables = new ArrayList<>(TABLES_BEFORE_HOT_STATE);
-    if ("mysql".equals(dbType)) {
-      tables.add("scheduler_job_queue");
-    }
-    tables.addAll(TABLES_AFTER_HOT_STATE);
-    return tables;
   }
 }

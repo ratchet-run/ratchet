@@ -29,12 +29,23 @@ class JobCascadeServiceTest {
 
   private JobCascadeService cascadeService;
 
+  private static JobEntity pendingJob() {
+    return job(JobStatus.PENDING);
+  }
+
+  // ── pauseChildrenIterative ─────────────────────────────────────────────────
+
+  private static JobEntity job(JobStatus status) {
+    JobEntity job = new JobEntity();
+    job.setId(UUID.randomUUID());
+    job.setStatus(status);
+    return job;
+  }
+
   @BeforeEach
   void setUp() {
     cascadeService = new JobCascadeService(jobCrudStore, jobPauseStore);
   }
-
-  // ── pauseChildrenIterative ─────────────────────────────────────────────────
 
   @Test
   void pause_noChildren_returnsZeros() {
@@ -80,6 +91,8 @@ class JobCascadeServiceTest {
     verify(jobPauseStore, never()).transitionToPaused(any(), any());
   }
 
+  // ── resumeChildrenIterative ────────────────────────────────────────────────
+
   @Test
   void pause_multiLevel_cascadesDownTree() {
     // root → A → B
@@ -118,8 +131,6 @@ class JobCascadeServiceTest {
     assertArrayEquals(new int[] {3, 0}, result);
     verify(jobPauseStore).transitionToPaused(eq(c.getId()), eq(JobStatus.PENDING));
   }
-
-  // ── resumeChildrenIterative ────────────────────────────────────────────────
 
   @Test
   void resume_noChildren_returnsZeros() {
@@ -172,6 +183,8 @@ class JobCascadeServiceTest {
     assertNotNull(child.getScheduledTime());
   }
 
+  // ── helpers ───────────────────────────────────────────────────────────────
+
   @Test
   void resume_multiLevel_cascadesDownTree() {
     // root → A (paused) → B (paused)
@@ -208,18 +221,5 @@ class JobCascadeServiceTest {
 
     assertArrayEquals(new int[] {3, 0}, result);
     verify(jobPauseStore).transitionFromPaused(eq(c.getId()), eq(JobStatus.PENDING));
-  }
-
-  // ── helpers ───────────────────────────────────────────────────────────────
-
-  private static JobEntity pendingJob() {
-    return job(JobStatus.PENDING);
-  }
-
-  private static JobEntity job(JobStatus status) {
-    JobEntity job = new JobEntity();
-    job.setId(UUID.randomUUID());
-    job.setStatus(status);
-    return job;
   }
 }

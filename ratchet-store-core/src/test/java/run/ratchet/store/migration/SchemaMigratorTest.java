@@ -75,6 +75,8 @@ class SchemaMigratorTest {
         .thenReturn(mysqlRelease);
     when(mysqlLock.next()).thenReturn(true);
     when(mysqlLock.getInt(1)).thenReturn(1);
+    when(mysqlRelease.next()).thenReturn(true);
+    when(mysqlRelease.getInt(1)).thenReturn(1);
   }
 
   @Test

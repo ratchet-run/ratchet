@@ -78,7 +78,14 @@ public class OtelTracingCollector implements TracingCollector {
     openTelemetry
         .getPropagators()
         .getTextMapPropagator()
-        .inject(Context.current(), carrier, Map::put);
+        .inject(
+            Context.current(),
+            carrier,
+            (map, key, value) -> {
+              if (map != null && key != null && value != null) {
+                map.put(key, value);
+              }
+            });
     return Map.copyOf(carrier);
   }
 
@@ -146,7 +153,7 @@ public class OtelTracingCollector implements TracingCollector {
         span.setStatus(StatusCode.ERROR)
             .recordException(cause)
             .setAttribute("ratchet.outcome", "failure")
-            .setAttribute("ratchet.attempt", (long) attempt);
+            .setAttribute("ratchet.attempt", attempt);
         end();
       }
     }

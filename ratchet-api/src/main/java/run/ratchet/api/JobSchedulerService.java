@@ -118,8 +118,7 @@ public interface JobSchedulerService {
    *
    * @see run.ratchet.tck.jakarta.AbstractTxSupportsContract
    */
-  RecurringJobBuilder scheduleRecurring(
-      String cron, ZoneId zone, SerializableCheckedRunnable task);
+  RecurringJobBuilder scheduleRecurring(String cron, ZoneId zone, SerializableCheckedRunnable task);
 
   /**
    * Convenience overload that schedules a recurring job in UTC. Equivalent to {@code
@@ -127,8 +126,7 @@ public interface JobSchedulerService {
    *
    * <p><b>Transaction attribute:</b> {@code SUPPORTS}.
    */
-  default RecurringJobBuilder scheduleRecurringUtc(
-      String cron, SerializableCheckedRunnable task) {
+  default RecurringJobBuilder scheduleRecurringUtc(String cron, SerializableCheckedRunnable task) {
     return scheduleRecurring(cron, ZoneOffset.UTC, task);
   }
 
@@ -265,7 +263,7 @@ public interface JobSchedulerService {
    * method returns {@code 0} without modifying the job.
    *
    * <p>The signal payload is serialized and stored on the job entity; it is accessible to the
-   * executing task via {@link run.ratchet.api.JobContext#signalPayload(Class)}.
+   * executing task via {@link JobContext#signalPayload(Class)}.
    *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}.
    *

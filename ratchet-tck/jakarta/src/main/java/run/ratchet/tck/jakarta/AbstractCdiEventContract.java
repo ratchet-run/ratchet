@@ -29,17 +29,6 @@ public abstract class AbstractCdiEventContract {
 
   @Inject protected CdiEventCollector collector;
 
-  protected abstract RatchetTckRuntime runtime();
-
-  protected Duration defaultTimeout() {
-    return Duration.ofSeconds(10);
-  }
-
-  /** How long to wait for the CDI observer to receive an event after the probe sees COMPLETED. */
-  protected Duration cdiObserverTimeout() {
-    return Duration.ofSeconds(2);
-  }
-
   @AfterEach
   void clearAfterEach() {
     runtime().clear();
@@ -82,5 +71,16 @@ public abstract class AbstractCdiEventContract {
     assertTrue(
         runtime().probe().awaitCompleted(handle, defaultTimeout()),
         "Signaled job should complete after the event is delivered");
+  }
+
+  protected abstract RatchetTckRuntime runtime();
+
+  protected Duration defaultTimeout() {
+    return Duration.ofSeconds(10);
+  }
+
+  /** How long to wait for the CDI observer to receive an event after the probe sees COMPLETED. */
+  protected Duration cdiObserverTimeout() {
+    return Duration.ofSeconds(2);
   }
 }

@@ -34,6 +34,23 @@ class WorkflowSchedulerTest {
 
   private WorkflowScheduler scheduler;
 
+  private static WorkflowConditionEntity condition(UUID parentId, UUID childId, int priority) {
+    WorkflowConditionEntity condition = new WorkflowConditionEntity();
+    condition.setId(new UUID(0L, 100L + priority));
+    condition.setParentJobId(parentId);
+    condition.setChildJobId(childId);
+    condition.setConditionType(WorkflowCondition.ConditionType.SUCCESS);
+    condition.setConditionPriority(priority);
+    return condition;
+  }
+
+  private static JobEntity job(UUID id, JobStatus status) {
+    JobEntity job = new JobEntity();
+    job.setId(id);
+    job.setStatus(status);
+    return job;
+  }
+
   @BeforeEach
   void setUp() {
     scheduler =
@@ -94,22 +111,5 @@ class WorkflowSchedulerTest {
     scheduler.cancelChain(parent);
 
     verify(jobTerminalStore).cancelJob(child.getId());
-  }
-
-  private static WorkflowConditionEntity condition(UUID parentId, UUID childId, int priority) {
-    WorkflowConditionEntity condition = new WorkflowConditionEntity();
-    condition.setId(new UUID(0L, 100L + priority));
-    condition.setParentJobId(parentId);
-    condition.setChildJobId(childId);
-    condition.setConditionType(WorkflowCondition.ConditionType.SUCCESS);
-    condition.setConditionPriority(priority);
-    return condition;
-  }
-
-  private static JobEntity job(UUID id, JobStatus status) {
-    JobEntity job = new JobEntity();
-    job.setId(id);
-    job.setStatus(status);
-    return job;
   }
 }

@@ -51,10 +51,9 @@ import run.ratchet.store.spi.WorkflowConditionStore;
 public class DefaultJobSchedulerService
     implements JobSchedulerService, RecurringAnnotationMaintenanceService {
 
-  private static final Logger log = Logger.getLogger(DefaultJobSchedulerService.class);
   static final String SIGNAL_PAYLOAD_TYPE_DECISION = "DECISION";
   static final String SIGNAL_PAYLOAD_TYPE_RAW = "RAW";
-
+  private static final Logger log = Logger.getLogger(DefaultJobSchedulerService.class);
   private final InternalEventPublisher eventPublisher;
   private final JobBatchStatusStore jobBatchStatusStore;
   private final JobPauseStore jobPauseStore;
@@ -319,63 +318,6 @@ public class DefaultJobSchedulerService
     return false;
   }
 
-  /**
-   * Publishes a {@link JobCancelledEvent} for a job that was cancelled outside the executor (i.e.,
-   * from PENDING or PAUSED state). The RUNNING path publishes its own event from within {@code
-   * JobTask} when the running task observes the status flip; we skip publication there to avoid
-   * duplicate events. Uses the pre-CAS entity snapshot to populate businessKey / jobType / priority
-   * / nodeId on the event so downstream observers (audit logs, monitoring) see the same shape they
-   * get for running-cancellations.
-   */
-  private void publishCancelledEvent(UUID jobId, JobStatus previousStatus, JobEntity job) {
-    JobCancelledEvent event =
-        job == null
-            // Race: job was deleted between CAS and our lookup. Fire a minimal event so observers
-            // at least know the cancellation happened.
-            ? new JobCancelledEvent(jobId, null, null, null, null, previousStatus.name(), null)
-            : new JobCancelledEvent(
-                jobId,
-                job.getBusinessKey(),
-                job.getPublicJobType(),
-                job.getPriority(),
-                job.getPickedBy(),
-                previousStatus.name(),
-                null);
-    // Defer publication until after the surrounding TX commits so a rollback does not produce a
-    // spurious CANCELLED event. Falls back to immediate publication when no TX is active.
-    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
-      eventPublisher.publish(event);
-    }
-  }
-
-  private boolean registerAfterCommit(Runnable action) {
-    if (txRegistry == null) {
-      return false;
-    }
-    try {
-      if (txRegistry.getTransactionStatus() != Status.STATUS_ACTIVE) {
-        return false;
-      }
-      txRegistry.registerInterposedSynchronization(
-          new Synchronization() {
-            @Override
-            public void beforeCompletion() {}
-
-            @Override
-            public void afterCompletion(int status) {
-              if (status == Status.STATUS_COMMITTED) {
-                action.run();
-              }
-            }
-          });
-      return true;
-    } catch (Exception e) {
-      log.warnf(
-          "After-commit event registration failed; publishing immediately: %s", e.getMessage());
-      return false;
-    }
-  }
-
   @Override
   public void addEventListener(Consumer<Object> listener) {
     eventPublisher.addListener(listener);
@@ -401,68 +343,6 @@ public class DefaultJobSchedulerService
     return deliverSignalDecision(jobId, decision);
   }
 
-  private int deliverSignalRaw(UUID jobId, Serializable payload) {
-    if (signalStore == null) {
-      log.warn("deliverSignal called but no SignalStore is wired — returning 0");
-      return 0;
-    }
-    String principal =
-        callerPrincipalProvider != null
-            ? callerPrincipalProvider.currentPrincipal().orElse(null)
-            : null;
-    String serializedPayload = serializeSignalPayload(payload);
-    Instant now = effective().instant();
-    String deliveryId = java.util.UUID.randomUUID().toString();
-
-    int unblocked =
-        signalStore.deliverSignalById(
-            jobId,
-            serializedPayload,
-            SIGNAL_PAYLOAD_TYPE_RAW,
-            SignalDecision.Outcome.APPROVED.name(),
-            null,
-            principal,
-            now,
-            deliveryId);
-    if (unblocked > 0) {
-      JobEntity job = jobCrudStore.findById(jobId).orElse(null);
-      publishSignaledEvent(jobId, job, principal, SignalDecision.Outcome.APPROVED, null);
-      log.debugf("Signal delivered to job %s by %s", jobId, principal);
-    }
-    return unblocked;
-  }
-
-  private int deliverSignalDecision(UUID jobId, SignalDecision decision) {
-    if (signalStore == null) {
-      log.warn("deliverSignal called but no SignalStore is wired — returning 0");
-      return 0;
-    }
-    String principal =
-        callerPrincipalProvider != null
-            ? callerPrincipalProvider.currentPrincipal().orElse(null)
-            : null;
-    String serializedPayload = serializeSignalPayload(decision);
-    Instant now = effective().instant();
-    String deliveryId = java.util.UUID.randomUUID().toString();
-
-    int unblocked =
-        signalStore.deliverSignalById(
-            jobId,
-            serializedPayload,
-            SIGNAL_PAYLOAD_TYPE_DECISION,
-            decision.outcome().name(),
-            decision.rejectionReason(),
-            principal,
-            now,
-            deliveryId);
-    if (unblocked > 0) {
-      JobEntity job = jobCrudStore.findById(jobId).orElse(null);
-      publishSignaledEvent(jobId, job, principal, decision.outcome(), decision.rejectionReason());
-      log.debugf("Signal decision delivered to job %s by %s", jobId, principal);
-    }
-    return unblocked;
-  }
-
   @Override
   @Transactional
   public int deliverSignal(String signalKey, Serializable payload) {
@@ -476,115 +356,6 @@ public class DefaultJobSchedulerService
       throw new IllegalArgumentException("decision must not be null");
     }
     return deliverSignalDecision(signalKey, decision);
-  }
-
-  private int deliverSignalRaw(String signalKey, Serializable payload) {
-    if (signalStore == null) {
-      log.warn("deliverSignal called but no SignalStore is wired — returning 0");
-      return 0;
-    }
-    String principal =
-        callerPrincipalProvider != null
-            ? callerPrincipalProvider.currentPrincipal().orElse(null)
-            : null;
-    String serializedPayload = serializeSignalPayload(payload);
-    Instant now = effective().instant();
-    String deliveryId = java.util.UUID.randomUUID().toString();
-
-    int unblocked =
-        signalStore.deliverSignalByKey(
-            signalKey,
-            serializedPayload,
-            SIGNAL_PAYLOAD_TYPE_RAW,
-            SignalDecision.Outcome.APPROVED.name(),
-            null,
-            principal,
-            now,
-            deliveryId);
-    if (unblocked > 0) {
-      publishBulkSignaledEvents(deliveryId, principal, SignalDecision.Outcome.APPROVED, null);
-      log.debugf("Signal '%s' broadcast to %s job(s) by %s", signalKey, unblocked, principal);
-    }
-    return unblocked;
-  }
-
-  private int deliverSignalDecision(String signalKey, SignalDecision decision) {
-    if (signalStore == null) {
-      log.warn("deliverSignal called but no SignalStore is wired — returning 0");
-      return 0;
-    }
-    String principal =
-        callerPrincipalProvider != null
-            ? callerPrincipalProvider.currentPrincipal().orElse(null)
-            : null;
-    String serializedPayload = serializeSignalPayload(decision);
-    Instant now = effective().instant();
-    String deliveryId = java.util.UUID.randomUUID().toString();
-
-    int unblocked =
-        signalStore.deliverSignalByKey(
-            signalKey,
-            serializedPayload,
-            SIGNAL_PAYLOAD_TYPE_DECISION,
-            decision.outcome().name(),
-            decision.rejectionReason(),
-            principal,
-            now,
-            deliveryId);
-    if (unblocked > 0) {
-      publishBulkSignaledEvents(
-          deliveryId, principal, decision.outcome(), decision.rejectionReason());
-      log.debugf(
-          "Signal decision '%s' broadcast to %s job(s) by %s", signalKey, unblocked, principal);
-    }
-    return unblocked;
-  }
-
-  private void publishBulkSignaledEvents(
-      String deliveryId, String principal, SignalDecision.Outcome outcome, String rejectionReason) {
-    for (JobEntity job : signalStore.findJobsBySignalDeliveryId(deliveryId)) {
-      publishSignaledEvent(job.getId(), job, principal, outcome, rejectionReason);
-    }
-  }
-
-  private void publishSignaledEvent(
-      UUID jobId,
-      JobEntity job,
-      String principal,
-      SignalDecision.Outcome outcome,
-      String rejectionReason) {
-    if (metricsCollector != null && job != null) {
-      metricsCollector.signalDelivered(jobId, job.getPublicJobType(), job.getSignalKey(), outcome);
-    }
-    JobSignaledEvent event =
-        new JobSignaledEvent(
-            jobId,
-            job != null ? job.getBusinessKey() : null,
-            job != null ? job.getPublicJobType() : null,
-            job != null ? job.getPriority() : null,
-            null,
-            job != null ? job.getSignalKey() : null,
-            principal,
-            outcome,
-            rejectionReason);
-    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
-      eventPublisher.publish(event);
-    }
-  }
-
-  private String serializeSignalPayload(Serializable payload) {
-    if (payload == null) {
-      return null;
-    }
-    if (payloadSerializer != null) {
-      return payloadSerializer.serialize(payload);
-    }
-    throw new IllegalStateException(
-        "Cannot deliver a non-null signal payload without a PayloadSerializer");
-  }
-
-  private Clock effective() {
-    return clock != null ? clock : Clock.systemUTC();
   }
 
   @Override
@@ -822,5 +593,233 @@ public class DefaultJobSchedulerService
   public int cancelOrphanedRecurringAnnotationJobs(
       Set<String> registeredIds, Instant nodeStartTime) {
     return jobBatchStatusStore.cancelOrphanedRecurringAnnotationJobs(registeredIds, nodeStartTime);
+  }
+
+  /**
+   * Publishes a {@link JobCancelledEvent} for a job that was cancelled outside the executor (i.e.,
+   * from PENDING or PAUSED state). The RUNNING path publishes its own event from within {@code
+   * JobTask} when the running task observes the status flip; we skip publication there to avoid
+   * duplicate events. Uses the pre-CAS entity snapshot to populate businessKey / jobType / priority
+   * / nodeId on the event so downstream observers (audit logs, monitoring) see the same shape they
+   * get for running-cancellations.
+   */
+  private void publishCancelledEvent(UUID jobId, JobStatus previousStatus, JobEntity job) {
+    JobCancelledEvent event =
+        job == null
+            // Race: job was deleted between CAS and our lookup. Fire a minimal event so observers
+            // at least know the cancellation happened.
+            ? new JobCancelledEvent(jobId, null, null, null, null, previousStatus.name(), null)
+            : new JobCancelledEvent(
+                jobId,
+                job.getBusinessKey(),
+                job.getPublicJobType(),
+                job.getPriority(),
+                job.getPickedBy(),
+                previousStatus.name(),
+                null);
+    // Defer publication until after the surrounding TX commits so a rollback does not produce a
+    // spurious CANCELLED event. Falls back to immediate publication when no TX is active.
+    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+      eventPublisher.publish(event);
+    }
+  }
+
+  private boolean registerAfterCommit(Runnable action) {
+    if (txRegistry == null) {
+      return false;
+    }
+    try {
+      if (txRegistry.getTransactionStatus() != Status.STATUS_ACTIVE) {
+        return false;
+      }
+      txRegistry.registerInterposedSynchronization(
+          new Synchronization() {
+            @Override
+            public void beforeCompletion() {}
+
+            @Override
+            public void afterCompletion(int status) {
+              if (status == Status.STATUS_COMMITTED) {
+                action.run();
+              }
+            }
+          });
+      return true;
+    } catch (Exception e) {
+      log.warnf(
+          "After-commit event registration failed; publishing immediately: %s", e.getMessage());
+      return false;
+    }
+  }
+
+  private int deliverSignalRaw(UUID jobId, Serializable payload) {
+    if (signalStore == null) {
+      log.warn("deliverSignal called but no SignalStore is wired — returning 0");
+      return 0;
+    }
+    String principal =
+        callerPrincipalProvider != null
+            ? callerPrincipalProvider.currentPrincipal().orElse(null)
+            : null;
+    String serializedPayload = serializeSignalPayload(payload);
+    Instant now = effective().instant();
+    String deliveryId = UUID.randomUUID().toString();
+
+    int unblocked =
+        signalStore.deliverSignalById(
+            jobId,
+            serializedPayload,
+            SIGNAL_PAYLOAD_TYPE_RAW,
+            SignalDecision.Outcome.APPROVED.name(),
+            null,
+            principal,
+            now,
+            deliveryId);
+    if (unblocked > 0) {
+      JobEntity job = jobCrudStore.findById(jobId).orElse(null);
+      publishSignaledEvent(jobId, job, principal, SignalDecision.Outcome.APPROVED, null);
+      log.debugf("Signal delivered to job %s by %s", jobId, principal);
+    }
+    return unblocked;
+  }
+
+  private int deliverSignalDecision(UUID jobId, SignalDecision decision) {
+    if (signalStore == null) {
+      log.warn("deliverSignal called but no SignalStore is wired — returning 0");
+      return 0;
+    }
+    String principal =
+        callerPrincipalProvider != null
+            ? callerPrincipalProvider.currentPrincipal().orElse(null)
+            : null;
+    String serializedPayload = serializeSignalPayload(decision);
+    Instant now = effective().instant();
+    String deliveryId = UUID.randomUUID().toString();
+
+    int unblocked =
+        signalStore.deliverSignalById(
+            jobId,
+            serializedPayload,
+            SIGNAL_PAYLOAD_TYPE_DECISION,
+            decision.outcome().name(),
+            decision.rejectionReason(),
+            principal,
+            now,
+            deliveryId);
+    if (unblocked > 0) {
+      JobEntity job = jobCrudStore.findById(jobId).orElse(null);
+      publishSignaledEvent(jobId, job, principal, decision.outcome(), decision.rejectionReason());
+      log.debugf("Signal decision delivered to job %s by %s", jobId, principal);
+    }
+    return unblocked;
+  }
+
+  private int deliverSignalRaw(String signalKey, Serializable payload) {
+    if (signalStore == null) {
+      log.warn("deliverSignal called but no SignalStore is wired — returning 0");
+      return 0;
+    }
+    String principal =
+        callerPrincipalProvider != null
+            ? callerPrincipalProvider.currentPrincipal().orElse(null)
+            : null;
+    String serializedPayload = serializeSignalPayload(payload);
+    Instant now = effective().instant();
+    String deliveryId = UUID.randomUUID().toString();
+
+    int unblocked =
+        signalStore.deliverSignalByKey(
+            signalKey,
+            serializedPayload,
+            SIGNAL_PAYLOAD_TYPE_RAW,
+            SignalDecision.Outcome.APPROVED.name(),
+            null,
+            principal,
+            now,
+            deliveryId);
+    if (unblocked > 0) {
+      publishBulkSignaledEvents(deliveryId, principal, SignalDecision.Outcome.APPROVED, null);
+      log.debugf("Signal '%s' broadcast to %s job(s) by %s", signalKey, unblocked, principal);
+    }
+    return unblocked;
+  }
+
+  private int deliverSignalDecision(String signalKey, SignalDecision decision) {
+    if (signalStore == null) {
+      log.warn("deliverSignal called but no SignalStore is wired — returning 0");
+      return 0;
+    }
+    String principal =
+        callerPrincipalProvider != null
+            ? callerPrincipalProvider.currentPrincipal().orElse(null)
+            : null;
+    String serializedPayload = serializeSignalPayload(decision);
+    Instant now = effective().instant();
+    String deliveryId = UUID.randomUUID().toString();
+
+    int unblocked =
+        signalStore.deliverSignalByKey(
+            signalKey,
+            serializedPayload,
+            SIGNAL_PAYLOAD_TYPE_DECISION,
+            decision.outcome().name(),
+            decision.rejectionReason(),
+            principal,
+            now,
+            deliveryId);
+    if (unblocked > 0) {
+      publishBulkSignaledEvents(
+          deliveryId, principal, decision.outcome(), decision.rejectionReason());
+      log.debugf(
+          "Signal decision '%s' broadcast to %s job(s) by %s", signalKey, unblocked, principal);
+    }
+    return unblocked;
+  }
+
+  private void publishBulkSignaledEvents(
+      String deliveryId, String principal, SignalDecision.Outcome outcome, String rejectionReason) {
+    for (JobEntity job : signalStore.findJobsBySignalDeliveryId(deliveryId)) {
+      publishSignaledEvent(job.getId(), job, principal, outcome, rejectionReason);
+    }
+  }
+
+  private void publishSignaledEvent(
+      UUID jobId,
+      JobEntity job,
+      String principal,
+      SignalDecision.Outcome outcome,
+      String rejectionReason) {
+    if (metricsCollector != null && job != null) {
+      metricsCollector.signalDelivered(jobId, job.getPublicJobType(), job.getSignalKey(), outcome);
+    }
+    JobSignaledEvent event =
+        new JobSignaledEvent(
+            jobId,
+            job != null ? job.getBusinessKey() : null,
+            job != null ? job.getPublicJobType() : null,
+            job != null ? job.getPriority() : null,
+            null,
+            job != null ? job.getSignalKey() : null,
+            principal,
+            outcome,
+            rejectionReason);
+    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+      eventPublisher.publish(event);
+    }
+  }
+
+  private String serializeSignalPayload(Serializable payload) {
+    if (payload == null) {
+      return null;
+    }
+    if (payloadSerializer != null) {
+      return payloadSerializer.serialize(payload);
+    }
+    throw new IllegalStateException(
+        "Cannot deliver a non-null signal payload without a PayloadSerializer");
+  }
+
+  private Clock effective() {
+    return clock != null ? clock : Clock.systemUTC();
   }
 }

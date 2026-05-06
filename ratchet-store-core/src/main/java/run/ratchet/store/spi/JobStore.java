@@ -7,9 +7,6 @@ import run.ratchet.api.Incubating;
  * thread-safe.
  */
 @Incubating
-@SuppressWarnings("deprecation") // JobStatusStore is a deprecated composed marker; kept here for
-// one release so existing implementations that declare `implements JobStatusStore` directly still
-// see the full method surface via the JobStore composition.
 public interface JobStore
     extends JobCrudStore,
         JobQueryStore,
@@ -18,7 +15,6 @@ public interface JobStore
         JobRetryStore,
         JobPauseStore,
         JobBatchStatusStore,
-        JobStatusStore,
         JobBulkStore,
         BatchStore,
         LockStore,

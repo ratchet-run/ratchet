@@ -2,6 +2,7 @@ package run.ratchet.ri.payload;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.Serial;
 import java.io.Serializable;
 import java.lang.invoke.SerializedLambda;
 import java.lang.reflect.Method;
@@ -366,7 +367,7 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
    * trusting a partial analysis.
    */
   public static final class UnsupportedLambdaBytecodeException extends IllegalStateException {
-    private static final long serialVersionUID = 1L;
+    @Serial private static final long serialVersionUID = 1L;
 
     public UnsupportedLambdaBytecodeException(String message) {
       super(message);

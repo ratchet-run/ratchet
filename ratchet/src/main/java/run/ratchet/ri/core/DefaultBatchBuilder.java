@@ -103,15 +103,6 @@ public class DefaultBatchBuilder implements BatchBuilder {
     return this;
   }
 
-  private JobPayload payload(Serializable callback) {
-    return JobPayloadFactory.fromInvocation(jobInvocationResolver.resolve(callback));
-  }
-
-  private JobPayload payload(Serializable callback, List<Object> runtimeArguments) {
-    return JobPayloadFactory.fromInvocation(
-        jobInvocationResolver.resolve(callback, runtimeArguments));
-  }
-
   String name() {
     return name;
   }
@@ -126,6 +117,15 @@ public class DefaultBatchBuilder implements BatchBuilder {
 
   SerializableConsumer<BatchContext> progressHook() {
     return progressHook;
+  }
+
+  private JobPayload payload(Serializable callback) {
+    return JobPayloadFactory.fromInvocation(jobInvocationResolver.resolve(callback));
+  }
+
+  private JobPayload payload(Serializable callback, List<Object> runtimeArguments) {
+    return JobPayloadFactory.fromInvocation(
+        jobInvocationResolver.resolve(callback, runtimeArguments));
   }
 
   record ChildSpec(JobPayload payload) {}

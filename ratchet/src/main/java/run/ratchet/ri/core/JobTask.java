@@ -2,6 +2,7 @@ package run.ratchet.ri.core;
 
 import jakarta.inject.Inject;
 import java.io.Serial;
+import java.io.Serializable;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.time.Clock;
@@ -59,8 +60,6 @@ import run.ratchet.store.spi.JobStore;
  */
 public class JobTask implements Callable<Void> {
 
-  private static final Logger log = Logger.getLogger(JobTask.class);
-
   /**
    * Maximum entries per reflection cache. Bounds memory use across long-running deployments where
    * the set of distinct job target classes/methods could otherwise grow without limit. LRU
@@ -68,32 +67,13 @@ public class JobTask implements Callable<Void> {
    */
   static final int CACHE_MAX_ENTRIES = 1024;
 
+  private static final Logger log = Logger.getLogger(JobTask.class);
   private static final Map<String, Method> METHOD_CACHE = newBoundedCache(CACHE_MAX_ENTRIES);
   private static final Map<String, Class<?>> CLASS_CACHE = newBoundedCache(CACHE_MAX_ENTRIES);
   private static final Map<String, String> SERVICE_NAME_CACHE = newBoundedCache(CACHE_MAX_ENTRIES);
-
-  /**
-   * Creates a thread-safe LRU map bounded to {@code maxEntries}. Access-order ({@code get()}
-   * promotes entries to the most-recently-used position) ensures hot entries survive eviction
-   * pressure. Backed by {@link Collections#synchronizedMap} since {@link LinkedHashMap} is not
-   * thread-safe and access-order mutates internal state on read.
-   */
-  static <K, V> Map<K, V> newBoundedCache(int maxEntries) {
-    return Collections.synchronizedMap(
-        new LinkedHashMap<K, V>(16, 0.75f, true) {
-          @Serial private static final long serialVersionUID = 1L;
-
-          @Override
-          protected boolean removeEldestEntry(Map.Entry<K, V> eldest) {
-            return size() > maxEntries;
-          }
-        });
-  }
-
   private static final int SUCCESS_FINALIZATION_MAX_ATTEMPTS = 5;
   private static final long[] SUCCESS_FINALIZATION_BACKOFF_MS = {25L, 50L, 100L, 200L, 400L};
   private static final long SUCCESS_FINALIZATION_JITTER_MAX_MS = 25L;
-
   private final JobStore jobStore;
   private final ResourcePermitService resourcePermitService;
   private final PostExecutionHandler lifecycleFacade;
@@ -205,6 +185,24 @@ public class JobTask implements Callable<Void> {
   }
 
   /**
+   * Creates a thread-safe LRU map bounded to {@code maxEntries}. Access-order ({@code get()}
+   * promotes entries to the most-recently-used position) ensures hot entries survive eviction
+   * pressure. Backed by {@link Collections#synchronizedMap} since {@link LinkedHashMap} is not
+   * thread-safe and access-order mutates internal state on read.
+   */
+  static <K, V> Map<K, V> newBoundedCache(int maxEntries) {
+    return Collections.synchronizedMap(
+        new LinkedHashMap<K, V>(16, 0.75f, true) {
+          @Serial private static final long serialVersionUID = 1L;
+
+          @Override
+          protected boolean removeEldestEntry(Map.Entry<K, V> eldest) {
+            return size() > maxEntries;
+          }
+        });
+  }
+
+  /**
    * Clears all static reflection caches. Must be called on application shutdown to release
    * classloader references and prevent memory leaks in redeployable containers (e.g., WildFly,
    * Payara).
@@ -259,15 +257,15 @@ public class JobTask implements Callable<Void> {
                 jobEntity.getCallerPrincipal(),
                 jobEntity.getParams()));
     JobType jobType = jobEntity.getPublicJobType();
-    java.io.Serializable deserializedSignalPayload = null;
+    Serializable deserializedSignalPayload = null;
     String rawSignalPayload = jobEntity.getSignalPayload();
     if (rawSignalPayload != null && payloadSerializer != null) {
       try {
-        Class<? extends java.io.Serializable> signalPayloadType =
+        Class<? extends Serializable> signalPayloadType =
             DefaultJobSchedulerService.SIGNAL_PAYLOAD_TYPE_DECISION.equals(
                     jobEntity.getSignalPayloadType())
                 ? SignalDecision.class
-                : java.io.Serializable.class;
+                : Serializable.class;
         deserializedSignalPayload =
             payloadSerializer.deserialize(rawSignalPayload, signalPayloadType);
       } catch (Exception e) {

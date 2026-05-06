@@ -31,10 +31,10 @@ import run.ratchet.store.spi.RatchetEntityManagerProvider;
 public class TestEntityManagerProvider implements RatchetEntityManagerProvider {
 
   private final Set<EntityManager> createdEntityManagers = ConcurrentHashMap.newKeySet();
-  private final ThreadLocal<EntityManager> entityManagers =
-      ThreadLocal.withInitial(this::createEntityManager);
   private final ThreadLocal<Object> transactionKeys = new ThreadLocal<>();
   private volatile EntityManagerFactory entityManagerFactory;
+  private final ThreadLocal<EntityManager> entityManagers =
+      ThreadLocal.withInitial(this::createEntityManager);
   private volatile TransactionSynchronizationRegistry transactionSynchronizationRegistry;
   private volatile boolean transactionSynchronizationRegistryLookupAttempted;
 
@@ -57,6 +57,14 @@ public class TestEntityManagerProvider implements RatchetEntityManagerProvider {
                   throw e.getCause();
                 }
               });
+
+  private static void joinTransaction(EntityManager entityManager) {
+    try {
+      entityManager.joinTransaction();
+    } catch (IllegalStateException | TransactionRequiredException ignored) {
+      // Native startup checks can run before a JTA transaction exists.
+    }
+  }
 
   @Override
   public EntityManager getEntityManager() {
@@ -90,14 +98,6 @@ public class TestEntityManagerProvider implements RatchetEntityManagerProvider {
       }
     }
     return factory;
-  }
-
-  private static void joinTransaction(EntityManager entityManager) {
-    try {
-      entityManager.joinTransaction();
-    } catch (IllegalStateException | TransactionRequiredException ignored) {
-      // Native startup checks can run before a JTA transaction exists.
-    }
   }
 
   private void clearIfTransactionChanged(EntityManager entityManager) {

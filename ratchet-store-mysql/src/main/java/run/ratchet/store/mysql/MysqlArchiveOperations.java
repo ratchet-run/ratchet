@@ -51,6 +51,54 @@ final class MysqlArchiveOperations implements ArchiveStore {
     this.jobs = jobs;
   }
 
+  private static void prepareArchive(ArchivedJobEntity archive) {
+    if (archive.getId() == null) {
+      archive.setId(UuidV7Factory.create());
+    }
+    if (archive.getArchivedAt() == null) {
+      archive.setArchivedAt(Instant.now());
+    }
+  }
+
+  private static void setArchiveParameters(Query query, ArchivedJobEntity archive) {
+    int parameter = 1;
+    query.setParameter(parameter++, UuidByteArrayConverter.toBytes(archive.getId()));
+    query.setParameter(parameter++, UuidByteArrayConverter.toBytes(archive.getOriginalJobId()));
+    query.setParameter(parameter++, archive.getFinalStatus().name());
+    query.setParameter(parameter++, archive.getJobType().name());
+    query.setParameter(parameter++, archive.getPriority().ordinal());
+    query.setParameter(parameter++, archive.getTotalAttempts());
+    query.setParameter(parameter++, archive.getMaxRetries());
+    query.setParameter(parameter++, archive.getBackoffPolicy().name());
+    query.setParameter(parameter++, archive.getBackoffParamMs());
+    query.setParameter(parameter++, archive.getTimeoutSec());
+    query.setParameter(parameter++, archive.getTargetClass());
+    query.setParameter(parameter++, archive.getMethodName());
+    query.setParameter(parameter++, archive.getBusinessKey());
+    query.setParameter(parameter++, archive.getCronExpr());
+    query.setParameter(parameter++, archive.getZoneId());
+    query.setParameter(parameter++, timestampOrNull(archive.getOriginalScheduledTime()));
+    query.setParameter(parameter++, timestampOrNull(archive.getOriginalCreatedAt()));
+    query.setParameter(parameter++, timestampOrNull(archive.getFirstExecutionTime()));
+    query.setParameter(parameter++, timestampOrNull(archive.getCompletionTime()));
+    query.setParameter(parameter++, archive.getTotalExecutionTimeMs());
+    query.setParameter(parameter++, archive.getQueueWaitMs());
+    query.setParameter(parameter++, timestampOrNull(archive.getArchivedAt()));
+    query.setParameter(parameter++, archive.getArchivedBy());
+    query.setParameter(parameter++, archive.getArchiveReason());
+    query.setParameter(parameter++, archive.getJobResult());
+    query.setParameter(parameter++, archive.getResultType());
+    query.setParameter(parameter++, archive.getFinalError());
+    query.setParameter(parameter++, archive.getPayloadSummary());
+    query.setParameter(parameter++, UuidByteArrayConverter.toBytes(archive.getDependedOn()));
+    query.setParameter(parameter++, UuidByteArrayConverter.toBytes(archive.getSupersededBy()));
+    query.setParameter(parameter, archive.getTags());
+  }
+
+  private static Timestamp timestampOrNull(Instant instant) {
+    return instant == null ? null : Timestamp.from(instant);
+  }
+
   @Override
   public ArchivedJobEntity archiveJob(JobEntity job, String reason, String archivedBy) {
     JobEntity hydrated = hydrateForArchive(job);
@@ -165,53 +213,5 @@ final class MysqlArchiveOperations implements ArchiveStore {
   private JobEntity hydrateForArchive(JobEntity job) {
     return jobs.findById(job.getId())
         .orElseThrow(() -> new IllegalStateException("Job not found for archival: " + job.getId()));
-  }
-
-  private static void prepareArchive(ArchivedJobEntity archive) {
-    if (archive.getId() == null) {
-      archive.setId(UuidV7Factory.create());
-    }
-    if (archive.getArchivedAt() == null) {
-      archive.setArchivedAt(Instant.now());
-    }
-  }
-
-  private static void setArchiveParameters(Query query, ArchivedJobEntity archive) {
-    int parameter = 1;
-    query.setParameter(parameter++, UuidByteArrayConverter.toBytes(archive.getId()));
-    query.setParameter(parameter++, UuidByteArrayConverter.toBytes(archive.getOriginalJobId()));
-    query.setParameter(parameter++, archive.getFinalStatus().name());
-    query.setParameter(parameter++, archive.getJobType().name());
-    query.setParameter(parameter++, archive.getPriority().ordinal());
-    query.setParameter(parameter++, archive.getTotalAttempts());
-    query.setParameter(parameter++, archive.getMaxRetries());
-    query.setParameter(parameter++, archive.getBackoffPolicy().name());
-    query.setParameter(parameter++, archive.getBackoffParamMs());
-    query.setParameter(parameter++, archive.getTimeoutSec());
-    query.setParameter(parameter++, archive.getTargetClass());
-    query.setParameter(parameter++, archive.getMethodName());
-    query.setParameter(parameter++, archive.getBusinessKey());
-    query.setParameter(parameter++, archive.getCronExpr());
-    query.setParameter(parameter++, archive.getZoneId());
-    query.setParameter(parameter++, timestampOrNull(archive.getOriginalScheduledTime()));
-    query.setParameter(parameter++, timestampOrNull(archive.getOriginalCreatedAt()));
-    query.setParameter(parameter++, timestampOrNull(archive.getFirstExecutionTime()));
-    query.setParameter(parameter++, timestampOrNull(archive.getCompletionTime()));
-    query.setParameter(parameter++, archive.getTotalExecutionTimeMs());
-    query.setParameter(parameter++, archive.getQueueWaitMs());
-    query.setParameter(parameter++, timestampOrNull(archive.getArchivedAt()));
-    query.setParameter(parameter++, archive.getArchivedBy());
-    query.setParameter(parameter++, archive.getArchiveReason());
-    query.setParameter(parameter++, archive.getJobResult());
-    query.setParameter(parameter++, archive.getResultType());
-    query.setParameter(parameter++, archive.getFinalError());
-    query.setParameter(parameter++, archive.getPayloadSummary());
-    query.setParameter(parameter++, UuidByteArrayConverter.toBytes(archive.getDependedOn()));
-    query.setParameter(parameter++, UuidByteArrayConverter.toBytes(archive.getSupersededBy()));
-    query.setParameter(parameter, archive.getTags());
-  }
-
-  private static Timestamp timestampOrNull(Instant instant) {
-    return instant == null ? null : Timestamp.from(instant);
   }
 }

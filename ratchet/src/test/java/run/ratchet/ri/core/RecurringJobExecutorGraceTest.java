@@ -19,6 +19,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -43,11 +44,7 @@ class RecurringJobExecutorGraceTest {
     state = new RecurringRegistrationState();
     executor =
         new RecurringJobExecutor(
-            jobCrudStore,
-            jobClaimStore,
-            jobTerminalStore,
-            state,
-            () -> run.ratchet.api.NodeTagFilter.NONE);
+            jobCrudStore, jobClaimStore, jobTerminalStore, state, () -> NodeTagFilter.NONE);
   }
 
   @Test
@@ -91,11 +88,7 @@ class RecurringJobExecutorGraceTest {
                 .build());
     executor =
         new RecurringJobExecutor(
-            jobCrudStore,
-            jobClaimStore,
-            jobTerminalStore,
-            state,
-            () -> run.ratchet.api.NodeTagFilter.NONE);
+            jobCrudStore, jobClaimStore, jobTerminalStore, state, () -> NodeTagFilter.NONE);
     state.markRegistrationComplete(Set.of("known-key"));
 
     JobEntity unknown = recurringMaster(99L, "unknown-key");

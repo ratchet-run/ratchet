@@ -14,5 +14,5 @@ import run.ratchet.api.NodeTagFilter;
 @Incubating
 public interface NodeTagAffinityProvider {
 
-  NodeTagFilter getTagFilter();
+  NodeTagFilter tagFilter();
 }

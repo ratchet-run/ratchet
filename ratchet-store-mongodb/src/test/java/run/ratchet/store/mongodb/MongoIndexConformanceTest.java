@@ -12,8 +12,8 @@ import org.bson.Document;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.testcontainers.containers.MongoDBContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
+import org.testcontainers.mongodb.MongoDBContainer;
 
 /**
  * Verifies that {@link MongoCollectionInitializer} creates the required named indexes on {@code

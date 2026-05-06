@@ -125,6 +125,102 @@ final class MysqlJobQueryOperations {
     this.tags = tags;
   }
 
+  private static Object parseSortValue(JobQueryCursor cursor) {
+    return switch (cursor.sortField()) {
+      case CREATED_AT, SCHEDULED_TIME, UPDATED_AT ->
+          Timestamp.from(Instant.parse(cursor.sortValue()));
+      case PRIORITY -> Integer.parseInt(cursor.sortValue());
+      case STATUS -> cursor.sortValue();
+    };
+  }
+
+  private static void appendStringEq(
+      String col, String value, StringBuilder where, List<Object> params) {
+    if (value == null || value.isEmpty()) {
+      return;
+    }
+    and(where, col + " = ?");
+    params.add(value);
+  }
+
+  // ── WHERE clause builder ────────────────────────────────────────────────
+
+  private static void appendInstantGte(
+      String col, Instant value, StringBuilder where, List<Object> params) {
+    if (value == null) {
+      return;
+    }
+    and(where, col + " >= ?");
+    params.add(Timestamp.from(value));
+  }
+
+  private static void appendInstantLt(
+      String col, Instant value, StringBuilder where, List<Object> params) {
+    if (value == null) {
+      return;
+    }
+    and(where, col + " < ?");
+    params.add(Timestamp.from(value));
+  }
+
+  private static String buildOrderBy(JobFilter filter) {
+    if (filter == null) {
+      return " ORDER BY c.created_at DESC, c.job_id ASC";
+    }
+    JobQuerySortField field =
+        filter.sortField() != null ? filter.sortField() : JobQuerySortField.CREATED_AT;
+    String dir = filter.sortAscending() ? "ASC" : "DESC";
+    return " ORDER BY " + sortColumn(field) + " " + dir + ", c.job_id ASC";
+  }
+
+  private static String sortColumn(JobQuerySortField field) {
+    return switch (field) {
+      case CREATED_AT -> "c.created_at";
+      case SCHEDULED_TIME -> "COALESCE(q.scheduled_time, c.execution_start_time, c.created_at)";
+      case UPDATED_AT -> "COALESCE(q.updated_at, c.terminated_at, c.created_at)";
+      case PRIORITY -> "c.priority";
+      case STATUS -> "COALESCE(q.status, c.terminal_status)";
+    };
+  }
+
+  private static int unionSortColumnPosition(JobFilter filter) {
+    JobQuerySortField field =
+        (filter == null || filter.sortField() == null)
+            ? JobQuerySortField.CREATED_AT
+            : filter.sortField();
+    return switch (field) {
+      case CREATED_AT -> POS_CREATED_AT;
+      case SCHEDULED_TIME -> POS_Q_SCHEDULED_TIME;
+      case UPDATED_AT -> POS_Q_UPDATED_AT;
+      case PRIORITY -> POS_PRIORITY;
+      case STATUS -> POS_TERMINAL_STATUS;
+    };
+  }
+
+  private static boolean useArchive(JobFilter filter) {
+    // Skip archive when principal scoping is active to prevent auth bypass
+    return filter != null
+        && filter.includeArchived()
+        && (filter.callerPrincipal() == null || filter.callerPrincipal().isEmpty());
+  }
+
+  private static void and(StringBuilder where, String condition) {
+    if (where.length() > 0) {
+      where.append(" AND ");
+    }
+    where.append(condition);
+  }
+
+  private static String placeholders(int count) {
+    return "?,".repeat(count - 1) + "?";
+  }
+
+  private static void bindParams(Query q, List<Object> params) {
+    for (int i = 0; i < params.size(); i++) {
+      q.setParameter(i + 1, params.get(i));
+    }
+  }
+
   @SuppressWarnings("unchecked")
   List<JobEntity> searchJobs(JobFilter filter, int limit, int offset) {
     boolean archive = useArchive(filter);
@@ -190,8 +286,6 @@ final class MysqlJobQueryOperations {
     bindParams(q, params);
     return ((Number) q.getSingleResult()).longValue();
   }
-
-  // ── WHERE clause builder ────────────────────────────────────────────────
 
   private String buildWhere(JobFilter filter, List<Object> params) {
     if (filter == null) {
@@ -369,6 +463,8 @@ final class MysqlJobQueryOperations {
     params.addAll(execTypeNames);
   }
 
+  // ── ORDER BY builder ────────────────────────────────────────────────────
+
   private void appendArchiveJobTypeCondition(
       JobFilter filter, StringBuilder where, List<Object> params) {
     Set<JobType> types = filter.types();
@@ -405,6 +501,8 @@ final class MysqlJobQueryOperations {
     and(where, "a.priority IN (" + placeholders(priorities.size()) + ")");
     priorities.stream().map(JobPriority::ordinal).forEach(params::add);
   }
+
+  // ── Helpers ─────────────────────────────────────────────────────────────
 
   private void appendParentJobId(JobFilter filter, StringBuilder where, List<Object> params) {
     UUID parentJobId = filter.parentJobId();
@@ -445,113 +543,15 @@ final class MysqlJobQueryOperations {
     }
     try {
       JobQueryCursor c = JobQueryCursor.decode(filter.cursor());
-      String sortCol = sortColumn(c.sortField);
+      String sortCol = sortColumn(c.sortField());
       String op = filter.sortAscending() ? ">" : "<";
       and(where, "(" + sortCol + " " + op + " ? OR (" + sortCol + " = ? AND c.job_id > ?))");
       Object sortVal = parseSortValue(c);
       params.add(sortVal);
       params.add(sortVal);
-      params.add(UuidByteArrayConverter.toBytes(c.jobId));
+      params.add(UuidByteArrayConverter.toBytes(c.jobId()));
     } catch (IllegalArgumentException ignored) {
       // Malformed cursor — ignore and fall through to offset-based pagination
-    }
-  }
-
-  private static Object parseSortValue(JobQueryCursor cursor) {
-    return switch (cursor.sortField) {
-      case CREATED_AT, SCHEDULED_TIME, UPDATED_AT ->
-          Timestamp.from(Instant.parse(cursor.sortValue));
-      case PRIORITY -> Integer.parseInt(cursor.sortValue);
-      case STATUS -> cursor.sortValue;
-    };
-  }
-
-  private static void appendStringEq(
-      String col, String value, StringBuilder where, List<Object> params) {
-    if (value == null || value.isEmpty()) {
-      return;
-    }
-    and(where, col + " = ?");
-    params.add(value);
-  }
-
-  private static void appendInstantGte(
-      String col, java.time.Instant value, StringBuilder where, List<Object> params) {
-    if (value == null) {
-      return;
-    }
-    and(where, col + " >= ?");
-    params.add(Timestamp.from(value));
-  }
-
-  private static void appendInstantLt(
-      String col, java.time.Instant value, StringBuilder where, List<Object> params) {
-    if (value == null) {
-      return;
-    }
-    and(where, col + " < ?");
-    params.add(Timestamp.from(value));
-  }
-
-  // ── ORDER BY builder ────────────────────────────────────────────────────
-
-  private static String buildOrderBy(JobFilter filter) {
-    if (filter == null) {
-      return " ORDER BY c.created_at DESC, c.job_id ASC";
-    }
-    JobQuerySortField field =
-        filter.sortField() != null ? filter.sortField() : JobQuerySortField.CREATED_AT;
-    String dir = filter.sortAscending() ? "ASC" : "DESC";
-    return " ORDER BY " + sortColumn(field) + " " + dir + ", c.job_id ASC";
-  }
-
-  private static String sortColumn(JobQuerySortField field) {
-    return switch (field) {
-      case CREATED_AT -> "c.created_at";
-      case SCHEDULED_TIME -> "COALESCE(q.scheduled_time, c.execution_start_time, c.created_at)";
-      case UPDATED_AT -> "COALESCE(q.updated_at, c.terminated_at, c.created_at)";
-      case PRIORITY -> "c.priority";
-      case STATUS -> "COALESCE(q.status, c.terminal_status)";
-    };
-  }
-
-  private static int unionSortColumnPosition(JobFilter filter) {
-    JobQuerySortField field =
-        (filter == null || filter.sortField() == null)
-            ? JobQuerySortField.CREATED_AT
-            : filter.sortField();
-    return switch (field) {
-      case CREATED_AT -> POS_CREATED_AT;
-      case SCHEDULED_TIME -> POS_Q_SCHEDULED_TIME;
-      case UPDATED_AT -> POS_Q_UPDATED_AT;
-      case PRIORITY -> POS_PRIORITY;
-      case STATUS -> POS_TERMINAL_STATUS;
-    };
-  }
-
-  // ── Helpers ─────────────────────────────────────────────────────────────
-
-  private static boolean useArchive(JobFilter filter) {
-    // Skip archive when principal scoping is active to prevent auth bypass
-    return filter != null
-        && filter.includeArchived()
-        && (filter.callerPrincipal() == null || filter.callerPrincipal().isEmpty());
-  }
-
-  private static void and(StringBuilder where, String condition) {
-    if (where.length() > 0) {
-      where.append(" AND ");
-    }
-    where.append(condition);
-  }
-
-  private static String placeholders(int count) {
-    return "?,".repeat(count - 1) + "?";
-  }
-
-  private static void bindParams(Query q, List<Object> params) {
-    for (int i = 0; i < params.size(); i++) {
-      q.setParameter(i + 1, params.get(i));
     }
   }
 }

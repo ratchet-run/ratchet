@@ -29,14 +29,8 @@ public abstract class AbstractTxNotSupportedContract {
 
   @Inject protected UserTransaction tx;
 
-  protected abstract RatchetTckRuntime runtime();
-
   /** Listener installed by the current test. Cleaned up in {@code @AfterEach} if not null. */
   private Consumer<Object> testListener;
-
-  protected Duration defaultTimeout() {
-    return Duration.ofSeconds(10);
-  }
 
   @AfterEach
   void clearAfterEach() {
@@ -94,5 +88,11 @@ public abstract class AbstractTxNotSupportedContract {
             + "is NOT_SUPPORTED — the removal must commit immediately, independent of any "
             + "surrounding TX. eventCount>0 means the implementation un-removed the listener "
             + "on rollback, which violates the NOT_SUPPORTED contract.");
+  }
+
+  protected abstract RatchetTckRuntime runtime();
+
+  protected Duration defaultTimeout() {
+    return Duration.ofSeconds(10);
   }
 }

@@ -74,6 +74,25 @@ class JobTaskTest {
     return "done";
   }
 
+  private static JobLogger noopLogger() {
+    return new JobLogger() {
+      @Override
+      public void info(String message) {}
+
+      @Override
+      public void debug(String message) {}
+
+      @Override
+      public void warn(String message) {}
+
+      @Override
+      public void error(String message) {}
+
+      @Override
+      public void trace(String message) {}
+    };
+  }
+
   @BeforeEach
   void setUp() {
     jobTask =
@@ -444,25 +463,6 @@ class JobTaskTest {
         .thenReturn(JobExecutionEntity.start(job.getId(), 1, "node-1"));
     when(observabilityFacade.startExecutionScope(any(JobEntity.class)))
         .thenReturn(TracingCollector.NoOpExecutionScope.INSTANCE);
-  }
-
-  private static JobLogger noopLogger() {
-    return new JobLogger() {
-      @Override
-      public void info(String message) {}
-
-      @Override
-      public void debug(String message) {}
-
-      @Override
-      public void warn(String message) {}
-
-      @Override
-      public void error(String message) {}
-
-      @Override
-      public void trace(String message) {}
-    };
   }
 
   public static class AnnotatedJobTarget {

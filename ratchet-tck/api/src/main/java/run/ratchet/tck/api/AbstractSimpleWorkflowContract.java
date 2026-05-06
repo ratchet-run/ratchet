@@ -19,17 +19,6 @@ import run.ratchet.api.JobHandle;
  */
 public abstract class AbstractSimpleWorkflowContract {
 
-  protected abstract RatchetTckRuntime runtime();
-
-  /**
-   * Default timeout. Generous because chained tasks execute as separate jobs and each one waits one
-   * poll cycle (~2s on the RI) before being picked up; the full chain serializes through the
-   * poller. Subclasses may shrink for fast in-memory implementations.
-   */
-  protected Duration defaultTimeout() {
-    return Duration.ofSeconds(30);
-  }
-
   @AfterEach
   void clearAfterEach() {
     runtime().clear();
@@ -59,5 +48,16 @@ public abstract class AbstractSimpleWorkflowContract {
         List.of("step-A", "step-B", "step-C"),
         TckJobs.chainEvents(),
         "Chained tasks must execute in declared order");
+  }
+
+  protected abstract RatchetTckRuntime runtime();
+
+  /**
+   * Default timeout. Generous because chained tasks execute as separate jobs and each one waits one
+   * poll cycle (~2s on the RI) before being picked up; the full chain serializes through the
+   * poller. Subclasses may shrink for fast in-memory implementations.
+   */
+  protected Duration defaultTimeout() {
+    return Duration.ofSeconds(30);
   }
 }

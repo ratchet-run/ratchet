@@ -10,9 +10,8 @@ import run.ratchet.api.JobStatus;
  * Non-terminal status operations: generic status updates, CAS transitions, pickup, and batch /
  * orphan / recurring-cancel bulk operations.
  *
- * <p>Separated from {@link JobStatusStore} during the status-SPI decomposition. Terminal
- * transitions live on {@link JobTerminalStore}; retry scheduling on {@link JobRetryStore}; pause
- * semantics on {@link JobPauseStore}.
+ * <p>Terminal transitions live on {@link JobTerminalStore}; retry scheduling on {@link
+ * JobRetryStore}; pause semantics on {@link JobPauseStore}.
  */
 @Incubating
 public interface JobBatchStatusStore {

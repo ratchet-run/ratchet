@@ -12,10 +12,11 @@ import run.ratchet.loadtest.metrics.PrometheusRegistryProducer;
 public class LoadTestWorkloadExecutor {
 
   @Inject PrometheusRegistryProducer prometheusRegistry;
+  private static volatile int payloadHashSink;
 
   private static void execute(WorkloadSpec spec, WorkloadType effective) throws Exception {
     if (spec.payload() != null && !spec.payload().isEmpty()) {
-      spec.payload().hashCode();
+      payloadHashSink = spec.payload().hashCode();
     }
 
     if (effective == WorkloadType.SLEEP) {

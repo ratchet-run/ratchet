@@ -55,9 +55,7 @@ class CronScheduleIT extends BaseRatchetIT {
   void scheduleRecurring_shouldFireAtCronRate() {
     // Fire every second (Quartz cron format: sec min hour day month day-of-week)
     JobHandle handle =
-        jobService
-            .scheduleRecurring("*/1 * * * * ?", ZoneOffset.UTC, CronTestJobs::tick)
-            .submit();
+        jobService.scheduleRecurring("*/1 * * * * ?", ZoneOffset.UTC, CronTestJobs::tick).submit();
 
     // Wait up to 5 seconds for at least 2 ticks
     await()

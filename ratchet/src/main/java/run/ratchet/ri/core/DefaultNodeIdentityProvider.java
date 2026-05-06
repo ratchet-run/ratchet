@@ -167,12 +167,13 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
   /** Shuts down the heartbeat scheduler. */
   public void shutdown() {
     initialized.set(false);
-    if (heartbeatHandle != null) {
-      heartbeatHandle.cancel(true);
-      heartbeatHandle = null;
+    ScheduledFuture<?> handle = heartbeatHandle;
+    if (handle != null) {
+      handle.cancel(true);
     }
     synchronized (heartbeatLifecycleMonitor) {
       // Wait for any in-flight heartbeat callback to observe initialized=false and exit.
+      heartbeatHandle = null;
     }
   }
 

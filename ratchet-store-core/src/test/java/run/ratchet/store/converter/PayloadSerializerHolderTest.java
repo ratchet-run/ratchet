@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
+import jakarta.json.bind.Jsonb;
+import jakarta.json.bind.JsonbBuilder;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
@@ -65,7 +67,7 @@ class PayloadSerializerHolderTest {
 
     final AtomicInteger serializeCount = new AtomicInteger();
     final AtomicInteger deserializeCount = new AtomicInteger();
-    private final jakarta.json.bind.Jsonb jsonb = jakarta.json.bind.JsonbBuilder.create();
+    private final Jsonb jsonb = JsonbBuilder.create();
 
     @Override
     public String serialize(Object payload) {

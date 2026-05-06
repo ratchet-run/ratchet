@@ -26,6 +26,25 @@ public class CdiEventCollector {
   private final Set<UUID> observedSignaledJobIds = ConcurrentHashMap.newKeySet();
   private final Object lock = new Object();
 
+  /**
+   * Blocks up to {@code timeout} for {@code jobId} to be observed via the CDI {@code @Observes}
+   * pathway. Returns {@code true} on observation, {@code false} on timeout.
+   */
+  public boolean awaitJobId(UUID jobId, Duration timeout) {
+    return awaitObserved(observedJobIds, jobId, timeout);
+  }
+
+  /** Blocks up to {@code timeout} for {@code jobId} to be observed as signaled via CDI. */
+  public boolean awaitSignaledJobId(UUID jobId, Duration timeout) {
+    return awaitObserved(observedSignaledJobIds, jobId, timeout);
+  }
+
+  /** Clears all observed job ids. Call from {@code @AfterEach}. */
+  public void reset() {
+    observedJobIds.clear();
+    observedSignaledJobIds.clear();
+  }
+
   void onCompleted(@Observes JobCompletedEvent event) {
     if (event != null && event.getJobId() != null) {
       observedJobIds.add(event.getJobId());
@@ -42,19 +61,6 @@ public class CdiEventCollector {
         lock.notifyAll();
       }
     }
-  }
-
-  /**
-   * Blocks up to {@code timeout} for {@code jobId} to be observed via the CDI {@code @Observes}
-   * pathway. Returns {@code true} on observation, {@code false} on timeout.
-   */
-  public boolean awaitJobId(UUID jobId, Duration timeout) {
-    return awaitObserved(observedJobIds, jobId, timeout);
-  }
-
-  /** Blocks up to {@code timeout} for {@code jobId} to be observed as signaled via CDI. */
-  public boolean awaitSignaledJobId(UUID jobId, Duration timeout) {
-    return awaitObserved(observedSignaledJobIds, jobId, timeout);
   }
 
   private boolean awaitObserved(Set<UUID> observedIds, UUID jobId, Duration timeout) {
@@ -74,11 +80,5 @@ public class CdiEventCollector {
       }
     }
     return true;
-  }
-
-  /** Clears all observed job ids. Call from {@code @AfterEach}. */
-  public void reset() {
-    observedJobIds.clear();
-    observedSignaledJobIds.clear();
   }
 }

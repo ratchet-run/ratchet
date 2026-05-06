@@ -52,9 +52,7 @@ class RecurringPauseResumeIT extends BaseRatchetIT {
   @Test
   void pauseRecurringJob_shouldStopFiring() {
     JobHandle handle =
-        jobService
-            .scheduleRecurring("*/1 * * * * ?", ZoneOffset.UTC, CronTestJobs::tick)
-            .submit();
+        jobService.scheduleRecurring("*/1 * * * * ?", ZoneOffset.UTC, CronTestJobs::tick).submit();
 
     await()
         .atMost(Duration.ofSeconds(5))
@@ -88,9 +86,7 @@ class RecurringPauseResumeIT extends BaseRatchetIT {
   @Test
   void resumePausedRecurringJob_shouldRestartFiring() {
     JobHandle handle =
-        jobService
-            .scheduleRecurring("*/1 * * * * ?", ZoneOffset.UTC, CronTestJobs::tick)
-            .submit();
+        jobService.scheduleRecurring("*/1 * * * * ?", ZoneOffset.UTC, CronTestJobs::tick).submit();
 
     await()
         .atMost(Duration.ofSeconds(5))

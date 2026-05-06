@@ -5,6 +5,7 @@ import jakarta.inject.Inject;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -171,6 +172,67 @@ public class JobExecutorService {
     }
   }
 
+  /**
+   * Non-destructive drain: blocks until all currently-executing jobs reach a terminal state, or
+   * until {@code timeout} elapses. Unlike {@link #shutdownActiveExecutions()}, does NOT cancel
+   * running tasks. Pair with {@link DrainController#setDraining(boolean) DrainController
+   * .setDraining(true)} on entry to prevent new work from arriving during the wait.
+   *
+   * <p>Primary consumer: TCK runtime adapters that need a non-destructive between-tests reset
+   * without tearing down the application-scoped scheduler bean.
+   *
+   * @return {@code true} if the executor became idle within the timeout; {@code false} otherwise
+   */
+  public boolean awaitIdle(Duration timeout) throws InterruptedException {
+    long deadlineNanos = System.nanoTime() + timeout.toNanos();
+    while (!activeFutures.isEmpty()) {
+      long remainingNanos = deadlineNanos - System.nanoTime();
+      if (remainingNanos <= 0) {
+        break;
+      }
+      TrackingFutureTask snapshot;
+      try {
+        snapshot = activeFutures.iterator().next();
+      } catch (NoSuchElementException raceLost) {
+        break;
+      }
+      boolean exited = snapshot.awaitRunnerExit(Math.min(remainingNanos, 50_000_000L));
+      if (!exited && System.nanoTime() >= deadlineNanos) {
+        break;
+      }
+    }
+    return activeFutures.isEmpty();
+  }
+
+  public int shutdownActiveExecutions() {
+    for (TrackingFutureTask task : activeFutures) {
+      task.cancel(true);
+    }
+
+    long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+    while (!activeFutures.isEmpty() && System.nanoTime() < deadlineNanos) {
+      long remainingNanos = deadlineNanos - System.nanoTime();
+      if (remainingNanos <= 0) {
+        break;
+      }
+      try {
+        boolean exited =
+            activeFutures.iterator().next().awaitRunnerExit(Math.min(remainingNanos, 10_000_000L));
+        if (!exited && System.nanoTime() >= deadlineNanos) {
+          break;
+        }
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        break;
+      }
+    }
+
+    if (!activeFutures.isEmpty()) {
+      log.warnf("Shutdown proceeding with %s active job execution(s)", activeFutures.size());
+    }
+    return activeFutures.size();
+  }
+
   private Callable<Void> createPermitAwareRunner(
       JobEntity job,
       JobExecutionType jobType,
@@ -257,60 +319,6 @@ public class JobExecutorService {
     }
   }
 
-  /**
-   * Non-destructive drain: blocks until all currently-executing jobs reach a terminal state, or
-   * until {@code timeout} elapses. Unlike {@link #shutdownActiveExecutions()}, does NOT cancel
-   * running tasks. Pair with {@link DrainController#setDraining(boolean) DrainController
-   * .setDraining(true)} on entry to prevent new work from arriving during the wait.
-   *
-   * <p>Primary consumer: TCK runtime adapters that need a non-destructive between-tests reset
-   * without tearing down the application-scoped scheduler bean.
-   *
-   * @return {@code true} if the executor became idle within the timeout; {@code false} otherwise
-   */
-  public boolean awaitIdle(Duration timeout) throws InterruptedException {
-    long deadlineNanos = System.nanoTime() + timeout.toNanos();
-    while (!activeFutures.isEmpty()) {
-      long remainingNanos = deadlineNanos - System.nanoTime();
-      if (remainingNanos <= 0) {
-        break;
-      }
-      TrackingFutureTask snapshot;
-      try {
-        snapshot = activeFutures.iterator().next();
-      } catch (java.util.NoSuchElementException raceLost) {
-        break;
-      }
-      snapshot.awaitRunnerExit(Math.min(remainingNanos, 50_000_000L));
-    }
-    return activeFutures.isEmpty();
-  }
-
-  public int shutdownActiveExecutions() {
-    for (TrackingFutureTask task : activeFutures) {
-      task.cancel(true);
-    }
-
-    long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
-    while (!activeFutures.isEmpty() && System.nanoTime() < deadlineNanos) {
-      long remainingNanos = deadlineNanos - System.nanoTime();
-      if (remainingNanos <= 0) {
-        break;
-      }
-      try {
-        activeFutures.iterator().next().awaitRunnerExit(Math.min(remainingNanos, 10_000_000L));
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-        break;
-      }
-    }
-
-    if (!activeFutures.isEmpty()) {
-      log.warnf("Shutdown proceeding with %s active job execution(s)", activeFutures.size());
-    }
-    return activeFutures.size();
-  }
-
   private final class TrackingFutureTask extends FutureTask<Void> {
 
     private final AtomicBoolean runnerStarted = new AtomicBoolean(false);
@@ -337,8 +345,8 @@ public class JobExecutorService {
       }
     }
 
-    private void awaitRunnerExit(long timeoutNanos) throws InterruptedException {
-      runnerExited.await(timeoutNanos, TimeUnit.NANOSECONDS);
+    private boolean awaitRunnerExit(long timeoutNanos) throws InterruptedException {
+      return runnerExited.await(timeoutNanos, TimeUnit.NANOSECONDS);
     }
 
     private void markRunnerExited() {

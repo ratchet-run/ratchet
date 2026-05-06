@@ -74,16 +74,6 @@ final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
     return batches;
   }
 
-  private void refreshIfManaged(BatchEntity batch) {
-    if (batch != null && ctx.em().contains(batch)) {
-      ctx.em().refresh(batch);
-    }
-  }
-
-  private String progressHookJson(JobPayload progressHook) {
-    return progressHook == null ? null : PayloadSerializerHolder.get().serialize(progressHook);
-  }
-
   @Override
   public BatchProgress incrementCompletedAtomic(UUID batchId) {
     // language=MySQL
@@ -258,6 +248,16 @@ final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
         .setParameter(1, childCount)
         .setParameter(2, UuidByteArrayConverter.toBytes(batchId))
         .executeUpdate();
+  }
+
+  private void refreshIfManaged(BatchEntity batch) {
+    if (batch != null && ctx.em().contains(batch)) {
+      ctx.em().refresh(batch);
+    }
+  }
+
+  private String progressHookJson(JobPayload progressHook) {
+    return progressHook == null ? null : PayloadSerializerHolder.get().serialize(progressHook);
   }
 
   private JobPayload parseProgressHook(Object jsonValue) {

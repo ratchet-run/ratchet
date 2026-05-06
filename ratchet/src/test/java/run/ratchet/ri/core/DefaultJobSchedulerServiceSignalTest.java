@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.SignalDecision;
@@ -65,40 +66,19 @@ class DefaultJobSchedulerServiceSignalTest {
 
   private DefaultJobSchedulerService service;
 
+  private static JobEntity job(UUID id, String signalKey) {
+    JobEntity job = new JobEntity();
+    job.setId(id);
+    job.setBusinessKey("business-" + id.getLeastSignificantBits());
+    job.setJobType(JobExecutionType.SINGLE);
+    job.setPriority(JobPriority.NORMAL);
+    job.setSignalKey(signalKey);
+    return job;
+  }
+
   @BeforeEach
   void setUp() {
     service = newService(payloadSerializer);
-  }
-
-  private DefaultJobSchedulerService newService(PayloadSerializer serializer) {
-    CallerPrincipalProvider callerProvider =
-        new CallerPrincipalProvider(null) {
-          @Override
-          public Optional<String> currentPrincipal() {
-            return Optional.of("bob");
-          }
-        };
-
-    return new DefaultJobSchedulerService(
-        eventPublisher,
-        jobBatchStatusStore,
-        jobPauseStore,
-        jobRetryStore,
-        jobTerminalStore,
-        jobCrudStore,
-        batchStore,
-        tagStore,
-        workflowConditionStore,
-        wakeupService,
-        recurringScheduler,
-        null,
-        jobCreationService,
-        callerProvider,
-        null,
-        signalStore,
-        serializer,
-        metricsCollector,
-        FIXED_CLOCK);
   }
 
   @Test
@@ -168,7 +148,7 @@ class DefaultJobSchedulerServiceSignalTest {
             j2.getId(), j2.getPublicJobType(), "approval-key", SignalDecision.Outcome.REJECTED);
 
     ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
-    verify(eventPublisher, org.mockito.Mockito.times(2)).publish(eventCaptor.capture());
+    verify(eventPublisher, Mockito.times(2)).publish(eventCaptor.capture());
     List<JobSignaledEvent> events =
         eventCaptor.getAllValues().stream().map(JobSignaledEvent.class::cast).toList();
     assertEquals(
@@ -188,13 +168,34 @@ class DefaultJobSchedulerServiceSignalTest {
         .deliverSignalById(eq(JOB_ID), any(), any(), any(), any(), any(), any(), any());
   }
 
-  private static JobEntity job(UUID id, String signalKey) {
-    JobEntity job = new JobEntity();
-    job.setId(id);
-    job.setBusinessKey("business-" + id.getLeastSignificantBits());
-    job.setJobType(JobExecutionType.SINGLE);
-    job.setPriority(JobPriority.NORMAL);
-    job.setSignalKey(signalKey);
-    return job;
+  private DefaultJobSchedulerService newService(PayloadSerializer serializer) {
+    CallerPrincipalProvider callerProvider =
+        new CallerPrincipalProvider(null) {
+          @Override
+          public Optional<String> currentPrincipal() {
+            return Optional.of("bob");
+          }
+        };
+
+    return new DefaultJobSchedulerService(
+        eventPublisher,
+        jobBatchStatusStore,
+        jobPauseStore,
+        jobRetryStore,
+        jobTerminalStore,
+        jobCrudStore,
+        batchStore,
+        tagStore,
+        workflowConditionStore,
+        wakeupService,
+        recurringScheduler,
+        null,
+        jobCreationService,
+        callerProvider,
+        null,
+        signalStore,
+        serializer,
+        metricsCollector,
+        FIXED_CLOCK);
   }
 }

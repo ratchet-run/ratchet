@@ -95,7 +95,7 @@ public class RatchetLifecycle {
         drainController,
         options,
         jobExecutionCoordinator,
-        (Instance<SchedulerLifecycleHook>) null);
+        null);
   }
 
   @Inject

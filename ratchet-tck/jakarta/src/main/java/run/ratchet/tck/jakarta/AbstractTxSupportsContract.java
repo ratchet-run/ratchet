@@ -36,16 +36,6 @@ public abstract class AbstractTxSupportsContract {
 
   @Inject protected UserTransaction tx;
 
-  protected abstract RatchetTckRuntime runtime();
-
-  protected Duration defaultTimeout() {
-    return Duration.ofSeconds(10);
-  }
-
-  protected Duration quietWindow() {
-    return Duration.ofMillis(750);
-  }
-
   @AfterEach
   void clearAfterEach() {
     runtime().clear();
@@ -65,6 +55,27 @@ public abstract class AbstractTxSupportsContract {
   }
 
   @Test
+  void enqueueSubmit_withoutCallerTx_jobExecutes() {
+    JobHandle handle = runtime().scheduler().enqueue(TckJobs::noop).submit();
+    runtime().probe().track(handle);
+
+    assertTrue(
+        runtime().probe().awaitCompleted(handle, defaultTimeout()),
+        "Job submitted via enqueue().submit() without a caller TX must execute. submit() must "
+            + "open its own transaction when no caller TX is active.");
+  }
+
+  protected abstract RatchetTckRuntime runtime();
+
+  protected Duration defaultTimeout() {
+    return Duration.ofSeconds(10);
+  }
+
+  protected Duration quietWindow() {
+    return Duration.ofMillis(750);
+  }
+
+  @Test
   protected void enqueueSubmit_insideRolledBackTx_jobDoesNotExecute() throws Exception {
     assumeTrue(
         !"mongodb".equals(System.getProperty("ratchet.test.db.type", "")),
@@ -79,17 +90,6 @@ public abstract class AbstractTxSupportsContract {
         "Job submitted via enqueue().submit() inside a rolled-back TX must not execute. A "
             + "COMPLETED event here means submit() opened its own TX instead of joining the "
             + "caller's, breaking caller atomicity.");
-  }
-
-  @Test
-  void enqueueSubmit_withoutCallerTx_jobExecutes() {
-    JobHandle handle = runtime().scheduler().enqueue(TckJobs::noop).submit();
-    runtime().probe().track(handle);
-
-    assertTrue(
-        runtime().probe().awaitCompleted(handle, defaultTimeout()),
-        "Job submitted via enqueue().submit() without a caller TX must execute. submit() must "
-            + "open its own transaction when no caller TX is active.");
   }
 
   @Test

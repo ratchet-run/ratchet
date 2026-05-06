@@ -7,9 +7,9 @@ import run.ratchet.api.Incubating;
 /**
  * Terminal status transitions for jobs: success / failure / cancel.
  *
- * <p>Separated from {@link JobStatusStore} during the status-SPI decomposition. Implementations are
- * expected to flip a live job to its terminal form atomically (for the hot/cold MySQL store, this
- * means hot DELETE + cold UPDATE + bkres DELETE in a single transaction).
+ * <p>Implementations are expected to flip a live job to its terminal form atomically (for the
+ * hot/cold MySQL store, this means hot DELETE + cold UPDATE + bkres DELETE in a single
+ * transaction).
  */
 @Incubating
 public interface JobTerminalStore {
