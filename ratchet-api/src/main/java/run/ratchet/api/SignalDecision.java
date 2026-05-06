@@ -11,7 +11,7 @@ import java.io.Serializable;
  * WAITING to PENDING, and the job body reads the decision from {@link
  * JobContext#signalPayload(Class)} and applies domain-specific behavior.
  */
-public record SignalDecision(Outcome outcome, Object payload, String rejectionReason)
+public record SignalDecision(Outcome outcome, Serializable payload, String rejectionReason)
     implements Serializable {
 
   @Serial private static final long serialVersionUID = 8364271059123847041L;

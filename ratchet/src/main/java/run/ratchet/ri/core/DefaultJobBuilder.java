@@ -16,7 +16,6 @@ import run.ratchet.api.SerializablePredicate;
 import run.ratchet.api.WorkflowBranch;
 import run.ratchet.api.WorkflowCondition;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -42,7 +41,7 @@ public final class DefaultJobBuilder implements JobBuilder {
   private String businessKey;
   private String resourceName;
   private String awaitSignalKey;
-  private Instant awaitSignalDeadline;
+  private Duration awaitSignalTimeout;
 
   DefaultJobBuilder(JobSubmitter submitter, SerializableCheckedRunnable task, Duration delay) {
     this.submitter = submitter;
@@ -159,7 +158,7 @@ public final class DefaultJobBuilder implements JobBuilder {
       throw new IllegalArgumentException("timeout must be positive");
     }
     this.awaitSignalKey = signalKey.trim();
-    this.awaitSignalDeadline = Instant.now().plus(timeout);
+    this.awaitSignalTimeout = timeout;
     return this;
   }
 
@@ -169,8 +168,8 @@ public final class DefaultJobBuilder implements JobBuilder {
   }
 
   @Override
-  public Instant awaitSignalDeadline() {
-    return awaitSignalDeadline;
+  public Duration awaitSignalTimeout() {
+    return awaitSignalTimeout;
   }
 
   @Override

@@ -1,7 +1,7 @@
 package run.ratchet.api;
 
+import run.ratchet.api.exception.SignalTimeoutException;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -41,7 +41,7 @@ public interface JobBuilder {
    * run.ratchet.api.SignalDecision) deliverSignal(jobId, decision)}.
    *
    * <p>If the signal is not delivered within {@code timeout}, the job transitions to FAILED with a
-   * {@code SignalTimeoutException} in {@code lastError}.
+   * {@link SignalTimeoutException}.
    *
    * @param signalKey the named signal this job waits for; used for broadcast delivery
    * @param timeout maximum wait duration before the job fails; must be positive
@@ -51,8 +51,10 @@ public interface JobBuilder {
   /** Returns the signal key set via {@link #awaitSignal}, or null if not configured. */
   String awaitSignalKey();
 
-  /** Returns the signal timeout set via {@link #awaitSignal}, or null if not configured. */
-  Instant awaitSignalDeadline();
+  /**
+   * Returns the signal timeout duration set via {@link #awaitSignal}, or null if not configured.
+   */
+  Duration awaitSignalTimeout();
 
   /** Adds a workflow branch with a human-readable description for monitoring. */
   JobBuilder branch(

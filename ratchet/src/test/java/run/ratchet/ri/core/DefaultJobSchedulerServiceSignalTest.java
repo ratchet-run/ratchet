@@ -1,9 +1,11 @@
 package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -24,7 +26,9 @@ import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.spi.SignalStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -40,6 +44,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class DefaultJobSchedulerServiceSignalTest {
 
   private static final UUID JOB_ID = new UUID(0L, 88L);
+  private static final Instant FIXED_NOW = Instant.parse("2026-05-05T12:00:00Z");
+  private static final Clock FIXED_CLOCK = Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
 
   @Mock private InternalEventPublisher eventPublisher;
   @Mock private JobBatchStatusStore jobBatchStatusStore;
@@ -61,6 +67,10 @@ class DefaultJobSchedulerServiceSignalTest {
 
   @BeforeEach
   void setUp() {
+    service = newService(payloadSerializer);
+  }
+
+  private DefaultJobSchedulerService newService(PayloadSerializer serializer) {
     CallerPrincipalProvider callerProvider =
         new CallerPrincipalProvider(null) {
           @Override
@@ -69,26 +79,26 @@ class DefaultJobSchedulerServiceSignalTest {
           }
         };
 
-    service =
-        new DefaultJobSchedulerService(
-            eventPublisher,
-            jobBatchStatusStore,
-            jobPauseStore,
-            jobRetryStore,
-            jobTerminalStore,
-            jobCrudStore,
-            batchStore,
-            tagStore,
-            workflowConditionStore,
-            wakeupService,
-            recurringScheduler,
-            null,
-            jobCreationService,
-            callerProvider,
-            null,
-            signalStore,
-            payloadSerializer,
-            metricsCollector);
+    return new DefaultJobSchedulerService(
+        eventPublisher,
+        jobBatchStatusStore,
+        jobPauseStore,
+        jobRetryStore,
+        jobTerminalStore,
+        jobCrudStore,
+        batchStore,
+        tagStore,
+        workflowConditionStore,
+        wakeupService,
+        recurringScheduler,
+        null,
+        jobCreationService,
+        callerProvider,
+        null,
+        signalStore,
+        serializer,
+        metricsCollector,
+        FIXED_CLOCK);
   }
 
   @Test
@@ -103,7 +113,7 @@ class DefaultJobSchedulerServiceSignalTest {
             eq("REJECTED"),
             eq("denied"),
             eq("bob"),
-            any(Instant.class),
+            eq(FIXED_NOW),
             anyString()))
         .thenReturn(1);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
@@ -137,7 +147,7 @@ class DefaultJobSchedulerServiceSignalTest {
             eq("REJECTED"),
             eq("nope"),
             eq("bob"),
-            any(Instant.class),
+            eq(FIXED_NOW),
             anyString()))
         .thenAnswer(
             inv -> {
@@ -166,6 +176,16 @@ class DefaultJobSchedulerServiceSignalTest {
     assertEquals(
         List.of(SignalDecision.Outcome.REJECTED, SignalDecision.Outcome.REJECTED),
         events.stream().map(JobSignaledEvent::getOutcome).toList());
+  }
+
+  @Test
+  void deliverSignalRawWithPayloadWithoutSerializerThrowsBeforeStoreUpdate() {
+    DefaultJobSchedulerService noSerializer = newService(null);
+
+    assertThrows(IllegalStateException.class, () -> noSerializer.deliverSignal(JOB_ID, "payload"));
+
+    verify(signalStore, never())
+        .deliverSignalById(eq(JOB_ID), any(), any(), any(), any(), any(), any(), any());
   }
 
   private static JobEntity job(UUID id, String signalKey) {

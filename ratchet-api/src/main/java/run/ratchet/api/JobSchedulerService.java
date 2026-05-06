@@ -257,7 +257,8 @@ public interface JobSchedulerService {
    *
    * @param jobId UUIDv7 job id of the WAITING job
    * @param payload optional payload to pass to the executing job; may be null
-   * @return 1 if the job was unblocked, 0 if the job was not found or not in WAITING state
+   * @return 1 if the job was unblocked, 0 if the job was not found, not in WAITING state, or signal
+   *     support is not configured
    */
   int deliverSignal(UUID jobId, Serializable payload);
 
@@ -273,7 +274,8 @@ public interface JobSchedulerService {
    *
    * @param jobId UUIDv7 job id of the WAITING job
    * @param decision decision payload; must not be null
-   * @return 1 if the job was unblocked, 0 if the job was not found or not in WAITING state
+   * @return 1 if the job was unblocked, 0 if the job was not found, not in WAITING state, or signal
+   *     support is not configured
    */
   default int deliverSignal(UUID jobId, SignalDecision decision) {
     return deliverSignal(jobId, (Serializable) decision);
@@ -303,7 +305,8 @@ public interface JobSchedulerService {
    *
    * @param signalKey the named signal to broadcast
    * @param payload optional payload delivered to every unblocked job; may be null
-   * @return the number of jobs transitioned from WAITING to PENDING
+   * @return the number of jobs transitioned from WAITING to PENDING, or 0 if no jobs were waiting
+   *     or signal support is not configured
    */
   int deliverSignal(String signalKey, Serializable payload);
 
@@ -315,7 +318,8 @@ public interface JobSchedulerService {
    *
    * @param signalKey the named signal to broadcast
    * @param decision decision payload; must not be null
-   * @return the number of jobs transitioned from WAITING to PENDING
+   * @return the number of jobs transitioned from WAITING to PENDING, or 0 if no jobs were waiting
+   *     or signal support is not configured
    */
   default int deliverSignal(String signalKey, SignalDecision decision) {
     return deliverSignal(signalKey, (Serializable) decision);

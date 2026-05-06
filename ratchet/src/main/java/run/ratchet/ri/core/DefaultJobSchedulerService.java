@@ -37,6 +37,7 @@ import jakarta.transaction.Synchronization;
 import jakarta.transaction.TransactionSynchronizationRegistry;
 import jakarta.transaction.Transactional;
 import java.io.Serializable;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -72,6 +73,7 @@ public class DefaultJobSchedulerService
   private final SignalStore signalStore;
   private final PayloadSerializer payloadSerializer;
   private final MetricsCollector metricsCollector;
+  private final Clock clock;
 
   @Resource private TransactionSynchronizationRegistry txRegistry;
 
@@ -94,6 +96,7 @@ public class DefaultJobSchedulerService
     this.signalStore = null;
     this.payloadSerializer = null;
     this.metricsCollector = null;
+    this.clock = null;
   }
 
   public DefaultJobSchedulerService(
@@ -133,7 +136,9 @@ public class DefaultJobSchedulerService
         null,
         null,
         null,
-        null);
+        null,
+        null,
+        Clock.systemUTC());
   }
 
   public DefaultJobSchedulerService(
@@ -172,7 +177,49 @@ public class DefaultJobSchedulerService
         authorizationPolicy,
         signalStore,
         payloadSerializer,
-        null);
+        null,
+        Clock.systemUTC());
+  }
+
+  public DefaultJobSchedulerService(
+      InternalEventPublisher eventPublisher,
+      JobBatchStatusStore jobBatchStatusStore,
+      JobPauseStore jobPauseStore,
+      JobRetryStore jobRetryStore,
+      JobTerminalStore jobTerminalStore,
+      JobCrudStore jobCrudStore,
+      BatchStore batchStore,
+      TagStore tagStore,
+      WorkflowConditionStore workflowConditionStore,
+      JobWakeupService wakeupService,
+      RecurringScheduler recurringScheduler,
+      JobInvocationResolver jobInvocationResolver,
+      DefaultJobCreationService jobCreationService,
+      CallerPrincipalProvider callerPrincipalProvider,
+      JobAuthorizationPolicy authorizationPolicy,
+      SignalStore signalStore,
+      PayloadSerializer payloadSerializer,
+      MetricsCollector metricsCollector) {
+    this(
+        eventPublisher,
+        jobBatchStatusStore,
+        jobPauseStore,
+        jobRetryStore,
+        jobTerminalStore,
+        jobCrudStore,
+        batchStore,
+        tagStore,
+        workflowConditionStore,
+        wakeupService,
+        recurringScheduler,
+        jobInvocationResolver,
+        jobCreationService,
+        callerPrincipalProvider,
+        authorizationPolicy,
+        signalStore,
+        payloadSerializer,
+        metricsCollector,
+        Clock.systemUTC());
   }
 
   @Inject
@@ -194,7 +241,8 @@ public class DefaultJobSchedulerService
       JobAuthorizationPolicy authorizationPolicy,
       SignalStore signalStore,
       PayloadSerializer payloadSerializer,
-      MetricsCollector metricsCollector) {
+      MetricsCollector metricsCollector,
+      Clock clock) {
     this.eventPublisher = eventPublisher;
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.jobPauseStore = jobPauseStore;
@@ -213,15 +261,16 @@ public class DefaultJobSchedulerService
     this.signalStore = signalStore;
     this.payloadSerializer = payloadSerializer;
     this.metricsCollector = metricsCollector;
+    this.clock = clock;
   }
 
   @Override
   @Transactional
   public boolean cancelJob(UUID jobId) {
+    JobEntity job = jobCrudStore.findById(jobId).orElse(null);
     if (authorizationPolicy != null) {
       // Pre-load to obtain ownerPrincipal. TOCTOU: if the job is deleted between this load
       // and the CAS below, ownerPrincipal will be null — the policy must tolerate null.
-      JobEntity job = jobCrudStore.findById(jobId).orElse(null);
       String ownerPrincipal = job != null ? job.getCallerPrincipal() : null;
       String currentPrincipal =
           callerPrincipalProvider != null
@@ -234,7 +283,7 @@ public class DefaultJobSchedulerService
     if (jobBatchStatusStore.compareAndSwapStatus(
         jobId, JobStatus.PENDING, JobStatus.CANCELED, null)) {
       log.debugf("Canceled pending job %s", jobId);
-      publishCancelledEvent(jobId, JobStatus.PENDING);
+      publishCancelledEvent(jobId, JobStatus.PENDING, job);
       return true;
     }
 
@@ -251,7 +300,7 @@ public class DefaultJobSchedulerService
     if (jobBatchStatusStore.compareAndSwapStatus(
         jobId, JobStatus.PAUSED, JobStatus.CANCELED, null)) {
       log.debugf("Canceled paused job %s", jobId);
-      publishCancelledEvent(jobId, JobStatus.PAUSED);
+      publishCancelledEvent(jobId, JobStatus.PAUSED, job);
       return true;
     }
 
@@ -259,11 +308,10 @@ public class DefaultJobSchedulerService
     if (jobBatchStatusStore.compareAndSwapStatus(
         jobId, JobStatus.WAITING, JobStatus.CANCELED, null)) {
       log.debugf("Canceled waiting job %s", jobId);
-      JobEntity job = jobCrudStore.findById(jobId).orElse(null);
       if (metricsCollector != null && job != null) {
         metricsCollector.signalCancelled(jobId, job.getPublicJobType(), job.getSignalKey());
       }
-      publishCancelledEvent(jobId, JobStatus.WAITING);
+      publishCancelledEvent(jobId, JobStatus.WAITING, job);
       return true;
     }
 
@@ -275,12 +323,11 @@ public class DefaultJobSchedulerService
    * Publishes a {@link JobCancelledEvent} for a job that was cancelled outside the executor (i.e.,
    * from PENDING or PAUSED state). The RUNNING path publishes its own event from within {@code
    * JobTask} when the running task observes the status flip; we skip publication there to avoid
-   * duplicate events. Loads the entity to populate businessKey / jobType / priority / nodeId on the
-   * event so downstream observers (audit logs, monitoring) see the same shape they get for
-   * running-cancellations.
+   * duplicate events. Uses the pre-CAS entity snapshot to populate businessKey / jobType / priority /
+   * nodeId on the event so downstream observers (audit logs, monitoring) see the same shape they get
+   * for running-cancellations.
    */
-  private void publishCancelledEvent(UUID jobId, JobStatus previousStatus) {
-    JobEntity job = jobCrudStore.findById(jobId).orElse(null);
+  private void publishCancelledEvent(UUID jobId, JobStatus previousStatus, JobEntity job) {
     JobCancelledEvent event =
         job == null
             // Race: job was deleted between CAS and our lookup. Fire a minimal event so observers
@@ -364,7 +411,7 @@ public class DefaultJobSchedulerService
             ? callerPrincipalProvider.currentPrincipal().orElse(null)
             : null;
     String serializedPayload = serializeSignalPayload(payload);
-    java.time.Instant now = java.time.Instant.now();
+    Instant now = effective().instant();
     String deliveryId = java.util.UUID.randomUUID().toString();
 
     int unblocked =
@@ -395,7 +442,7 @@ public class DefaultJobSchedulerService
             ? callerPrincipalProvider.currentPrincipal().orElse(null)
             : null;
     String serializedPayload = serializeSignalPayload(decision);
-    java.time.Instant now = java.time.Instant.now();
+    Instant now = effective().instant();
     String deliveryId = java.util.UUID.randomUUID().toString();
 
     int unblocked =
@@ -441,7 +488,7 @@ public class DefaultJobSchedulerService
             ? callerPrincipalProvider.currentPrincipal().orElse(null)
             : null;
     String serializedPayload = serializeSignalPayload(payload);
-    java.time.Instant now = java.time.Instant.now();
+    Instant now = effective().instant();
     String deliveryId = java.util.UUID.randomUUID().toString();
 
     int unblocked =
@@ -471,7 +518,7 @@ public class DefaultJobSchedulerService
             ? callerPrincipalProvider.currentPrincipal().orElse(null)
             : null;
     String serializedPayload = serializeSignalPayload(decision);
-    java.time.Instant now = java.time.Instant.now();
+    Instant now = effective().instant();
     String deliveryId = java.util.UUID.randomUUID().toString();
 
     int unblocked =
@@ -532,7 +579,12 @@ public class DefaultJobSchedulerService
     if (payloadSerializer != null) {
       return payloadSerializer.serialize(payload);
     }
-    return payload.toString();
+    throw new IllegalStateException(
+        "Cannot deliver a non-null signal payload without a PayloadSerializer");
+  }
+
+  private Clock effective() {
+    return clock != null ? clock : Clock.systemUTC();
   }
 
   @Override

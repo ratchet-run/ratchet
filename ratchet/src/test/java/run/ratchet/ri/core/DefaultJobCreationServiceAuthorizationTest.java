@@ -1,6 +1,7 @@
 package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -32,7 +33,9 @@ import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -240,6 +243,45 @@ class DefaultJobCreationServiceAuthorizationTest {
     service.submit(builder);
 
     verify(metricsCollector).signalWaiting(saved.getId(), JobType.SINGLE, "approval");
+  }
+
+  @Test
+  void signalDeadlineIsComputedAtSubmitTimeWithInjectedClock() {
+    Instant fixedNow = Instant.parse("2026-05-06T10:15:30Z");
+    DefaultJobCreationService fixedClockService =
+        new DefaultJobCreationService(
+            jobBatchStatusStore,
+            jobTerminalStore,
+            jobCrudStore,
+            batchStore,
+            tagStore,
+            workflowConditionStore,
+            wakeupService,
+            recurringScheduler,
+            new DefaultJobInvocationResolver(),
+            new JobPayloadInputValidator(),
+            null,
+            tracingCollector,
+            authorizationPolicy,
+            eventPublisher,
+            metricsCollector,
+            Clock.fixed(fixedNow, ZoneOffset.UTC));
+    JobEntity saved = savedEntity();
+    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.create(any(JobEntity.class))).thenReturn(saved);
+    DefaultJobBuilder builder =
+        (DefaultJobBuilder)
+            DefaultJobBuilder.create(
+                    fixedClockService,
+                    DefaultJobCreationServiceAuthorizationTest::noopTask,
+                    Duration.ZERO)
+                .awaitSignal("approval", Duration.ofSeconds(30));
+    ArgumentCaptor<JobEntity> jobCaptor = ArgumentCaptor.forClass(JobEntity.class);
+
+    fixedClockService.submit(builder);
+
+    verify(jobCrudStore).create(jobCaptor.capture());
+    assertEquals(fixedNow.plusSeconds(30), jobCaptor.getValue().getSignalTimeout());
   }
 
   // ---- recurring job ----

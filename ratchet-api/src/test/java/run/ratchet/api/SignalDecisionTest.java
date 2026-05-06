@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.Serializable;
 import org.junit.jupiter.api.Test;
 
 class SignalDecisionTest {
@@ -33,5 +34,10 @@ class SignalDecisionTest {
     SignalDecision decision = SignalDecision.rejected(null, " ");
 
     assertNull(decision.rejectionReason());
+  }
+
+  @Test
+  void payloadRecordComponentIsSerializableTyped() {
+    assertEquals(Serializable.class, SignalDecision.class.getRecordComponents()[1].getType());
   }
 }

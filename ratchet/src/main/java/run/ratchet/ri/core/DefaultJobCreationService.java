@@ -215,17 +215,19 @@ public class DefaultJobCreationService
 
     String signalKey = builder.awaitSignalKey();
     boolean isSignalWaiting = signalKey != null;
+    Duration signalTimeout = isSignalWaiting ? builder.awaitSignalTimeout() : null;
+    Instant now = effective().instant();
 
     JobOptions opts = builder.opts();
     JobEntity job = new JobEntity();
     job.setJobType(JobExecutionType.SINGLE);
     job.setStatus(isSignalWaiting ? JobStatus.WAITING : JobStatus.PENDING);
     job.setPriority(opts.priority());
-    job.setScheduledTime(effective().instant().plus(builder.delay()));
+    job.setScheduledTime(now.plus(builder.delay()));
     job.setPayload(payload);
     if (isSignalWaiting) {
       job.setSignalKey(signalKey);
-      job.setSignalTimeout(builder.awaitSignalDeadline());
+      job.setSignalTimeout(now.plus(signalTimeout));
     }
     job.setIdempotencyKey(idempotencyKey);
     job.setBusinessKey(businessKey);
@@ -256,9 +258,7 @@ public class DefaultJobCreationService
               saved.getPriority(),
               null,
               signalKey,
-              builder.awaitSignalDeadline() != null
-                  ? java.time.Duration.between(effective().instant(), builder.awaitSignalDeadline())
-                  : null));
+              signalTimeout));
     }
     if (isSignalWaiting && metricsCollector != null) {
       metricsCollector.signalWaiting(jobId, saved.getPublicJobType(), signalKey);
