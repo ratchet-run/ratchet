@@ -13,11 +13,6 @@ import com.cronutils.model.Cron;
 import com.cronutils.model.CronType;
 import com.cronutils.model.definition.CronDefinitionBuilder;
 import com.cronutils.parser.CronParser;
-import run.ratchet.spi.ExecutorProvider;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.spi.ArchiveStore;
-import run.ratchet.store.spi.JobBulkStore;
-import run.ratchet.store.spi.LockStore;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -34,6 +29,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.spi.ArchiveStore;
+import run.ratchet.store.spi.JobBulkStore;
+import run.ratchet.store.spi.LockStore;
 
 @ExtendWith(MockitoExtension.class)
 class JobArchivingServiceTest {

@@ -1,11 +1,11 @@
 package run.ratchet.store.spi;
 
-import run.ratchet.api.Incubating;
-import run.ratchet.store.entity.JobEntity;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import run.ratchet.api.Incubating;
+import run.ratchet.store.entity.JobEntity;
 
 /**
  * Bulk operations for jobs.

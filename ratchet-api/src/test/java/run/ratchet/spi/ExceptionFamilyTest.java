@@ -2,9 +2,9 @@ package run.ratchet.spi;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import run.ratchet.api.exception.RatchetTransientStoreException;
 import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 
 class ExceptionFamilyTest {
 

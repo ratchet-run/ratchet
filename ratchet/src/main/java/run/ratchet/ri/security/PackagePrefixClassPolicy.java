@@ -1,10 +1,10 @@
 package run.ratchet.ri.security;
 
-import run.ratchet.spi.ClassPolicy;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import org.jboss.logging.Logger;
+import run.ratchet.spi.ClassPolicy;
 
 /**
  * Allowlist-based {@link ClassPolicy} that permits job target classes only if their fully-qualified

@@ -1,9 +1,9 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.api.RatchetOptions;
-import run.ratchet.spi.ExecutionTuningProvider;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import run.ratchet.api.RatchetOptions;
+import run.ratchet.spi.ExecutionTuningProvider;
 
 /** Default execution tuning backed by CDI-provided Ratchet options. */
 @ApplicationScoped

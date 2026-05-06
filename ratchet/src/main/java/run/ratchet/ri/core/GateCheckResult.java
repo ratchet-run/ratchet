@@ -1,7 +1,7 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.store.entity.JobExecutionType;
 import java.util.UUID;
+import run.ratchet.store.entity.JobExecutionType;
 
 /**
  * Outcome of checking drain, rate-limit, and permit gates before job submission. A CLEAR result

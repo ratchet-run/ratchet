@@ -1,8 +1,8 @@
 package run.ratchet.store.spi;
 
+import java.util.UUID;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.JobStatus;
-import java.util.UUID;
 
 /**
  * Pause / resume transitions for executable jobs and recurring masters.

@@ -34,13 +34,13 @@ import com.mongodb.client.ClientSession;
 import com.mongodb.client.model.FindOneAndUpdateOptions;
 import com.mongodb.client.model.ReturnDocument;
 import com.mongodb.client.result.UpdateResult;
-import run.ratchet.api.JobStatus;
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import org.bson.Document;
+import run.ratchet.api.JobStatus;
 
 /**
  * Job state-transition operations. Every method targets a specific {@code (id, status)}

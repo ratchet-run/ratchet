@@ -5,6 +5,9 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.concurrent.ScheduledExecutorService;
+import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.BatchRecoveryTimer;
 import run.ratchet.ri.core.DeadLetterService;
@@ -18,9 +21,6 @@ import run.ratchet.ri.core.PollerWakeupListener;
 import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
-import java.util.concurrent.ScheduledExecutorService;
-import org.junit.jupiter.api.Test;
-import org.mockito.InOrder;
 
 // Verifies drain is engaged before poller.stop() during shutdown.
 class RatchetLifecycleShutdownTest {

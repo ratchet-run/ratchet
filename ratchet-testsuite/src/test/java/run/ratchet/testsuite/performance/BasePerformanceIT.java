@@ -2,17 +2,6 @@ package run.ratchet.testsuite.performance;
 
 import static org.awaitility.Awaitility.await;
 
-import run.ratchet.api.JobHandle;
-import run.ratchet.api.SerializableCheckedRunnable;
-import run.ratchet.ri.core.PollerScheduler;
-import run.ratchet.api.JobStatus;
-import run.ratchet.store.spi.JobClaimStore;
-import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.testsuite.app.PerformanceTestHelper;
-import run.ratchet.testsuite.app.TestJobService;
-import run.ratchet.testsuite.util.BaseRatchetIT;
-import run.ratchet.testsuite.util.PerformanceBaseline;
-import run.ratchet.testsuite.util.PerformanceReportWriter;
 import jakarta.inject.Inject;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -20,6 +9,17 @@ import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
+import run.ratchet.api.JobHandle;
+import run.ratchet.api.JobStatus;
+import run.ratchet.api.SerializableCheckedRunnable;
+import run.ratchet.ri.core.PollerScheduler;
+import run.ratchet.store.spi.JobClaimStore;
+import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.testsuite.app.PerformanceTestHelper;
+import run.ratchet.testsuite.app.TestJobService;
+import run.ratchet.testsuite.util.BaseRatchetIT;
+import run.ratchet.testsuite.util.PerformanceBaseline;
+import run.ratchet.testsuite.util.PerformanceReportWriter;
 
 /** Shared setup for performance ITs. */
 @Tag("performance")

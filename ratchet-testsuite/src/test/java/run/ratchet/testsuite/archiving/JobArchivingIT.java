@@ -6,16 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.cronutils.model.CronType;
 import com.cronutils.model.definition.CronDefinitionBuilder;
 import com.cronutils.parser.CronParser;
-import run.ratchet.api.JobHandle;
-import run.ratchet.ri.core.JobArchivingService;
-import run.ratchet.store.spi.ArchiveStore;
-import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.testsuite.app.SimpleJob;
-import run.ratchet.testsuite.app.TestDataManipulator;
-import run.ratchet.testsuite.app.TestJobService;
-import run.ratchet.testsuite.util.BaseRatchetIT;
-import run.ratchet.testsuite.util.JobAssertions;
-import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 import jakarta.inject.Inject;
 import java.time.Duration;
 import java.time.Instant;
@@ -28,6 +18,16 @@ import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobHandle;
+import run.ratchet.ri.core.JobArchivingService;
+import run.ratchet.store.spi.ArchiveStore;
+import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.testsuite.app.SimpleJob;
+import run.ratchet.testsuite.app.TestDataManipulator;
+import run.ratchet.testsuite.app.TestJobService;
+import run.ratchet.testsuite.util.BaseRatchetIT;
+import run.ratchet.testsuite.util.JobAssertions;
+import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /** Validates job archiving moves completed jobs to the archive table based on retention policy. */
 class JobArchivingIT extends BaseRatchetIT {

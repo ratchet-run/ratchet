@@ -1,20 +1,5 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.spi.BeanResolver;
-import run.ratchet.spi.ClassPolicy;
-import run.ratchet.spi.ErrorSanitizer;
-import run.ratchet.spi.ExecutorProvider;
-import run.ratchet.spi.JobAuthorizationPolicy;
-import run.ratchet.spi.JobLoggerFactory;
-import run.ratchet.spi.NodeIdentityProvider;
-import run.ratchet.spi.PayloadSerializer;
-import run.ratchet.spi.ResilienceStrategy;
-import run.ratchet.spi.ResultPersistenceStrategy;
-import run.ratchet.spi.RetryPolicy;
-import run.ratchet.store.dto.JobClaimDto;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.spi.JobStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.time.Clock;
@@ -33,6 +18,21 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.jboss.logging.Logger;
+import run.ratchet.spi.BeanResolver;
+import run.ratchet.spi.ClassPolicy;
+import run.ratchet.spi.ErrorSanitizer;
+import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.spi.JobAuthorizationPolicy;
+import run.ratchet.spi.JobLoggerFactory;
+import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.spi.PayloadSerializer;
+import run.ratchet.spi.ResilienceStrategy;
+import run.ratchet.spi.ResultPersistenceStrategy;
+import run.ratchet.spi.RetryPolicy;
+import run.ratchet.store.dto.JobClaimDto;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.JobStore;
 
 /**
  * Executes jobs on the configured executor. A permit must be acquired before calling {@link

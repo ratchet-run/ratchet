@@ -1,13 +1,13 @@
 package run.ratchet.store.mysql;
 
+import java.time.Instant;
+import java.util.Set;
+import java.util.UUID;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobPauseStore;
 import run.ratchet.store.spi.JobRetryStore;
 import run.ratchet.store.spi.JobTerminalStore;
-import java.time.Instant;
-import java.util.Set;
-import java.util.UUID;
 
 final class MysqlJobLifecycleOperations
     implements JobBatchStatusStore, JobRetryStore, JobTerminalStore, JobPauseStore {

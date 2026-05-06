@@ -3,9 +3,9 @@ package run.ratchet.ri.core;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.api.DoNotRetry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.DoNotRetry;
 
 class DoNotRetryPolicyTest {
 

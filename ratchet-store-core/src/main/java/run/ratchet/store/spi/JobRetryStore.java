@@ -1,8 +1,8 @@
 package run.ratchet.store.spi;
 
-import run.ratchet.api.Incubating;
 import java.time.Instant;
 import java.util.UUID;
+import run.ratchet.api.Incubating;
 
 /**
  * Retry and backoff-scheduling operations for jobs.

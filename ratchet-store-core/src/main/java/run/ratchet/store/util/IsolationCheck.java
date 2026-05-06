@@ -1,11 +1,11 @@
 package run.ratchet.store.util;
 
-import run.ratchet.api.RatchetOptions;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceException;
 import java.util.List;
 import java.util.Locale;
 import org.jboss.logging.Logger;
+import run.ratchet.api.RatchetOptions;
 
 /**
  * Verifies that the database session uses the {@code READ COMMITTED} isolation level required by

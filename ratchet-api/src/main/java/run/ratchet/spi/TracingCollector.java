@@ -1,10 +1,10 @@
 package run.ratchet.spi;
 
+import java.util.Map;
+import java.util.UUID;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
-import java.util.Map;
-import java.util.UUID;
 
 /**
  * Receives job execution lifecycle events for distributed tracing.

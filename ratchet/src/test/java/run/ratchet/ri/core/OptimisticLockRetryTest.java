@@ -5,13 +5,13 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.api.exception.RatchetOptimisticLockException;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.api.JobStatus;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobStatus;
+import run.ratchet.api.exception.RatchetOptimisticLockException;
+import run.ratchet.store.entity.JobEntity;
 
 class OptimisticLockRetryTest {
 

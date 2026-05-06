@@ -1,9 +1,9 @@
 package run.ratchet.testsuite.app;
 
-import run.ratchet.api.RatchetOptions;
-import run.ratchet.api.RatchetOptionsFactory;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Produces;
+import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.RatchetOptionsFactory;
 
 /**
  * Produces {@link RatchetOptions} for integration tests by reading environment variables and

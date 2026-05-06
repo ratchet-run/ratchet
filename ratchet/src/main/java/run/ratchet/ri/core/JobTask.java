@@ -1,5 +1,22 @@
 package run.ratchet.ri.core;
 
+import jakarta.inject.Inject;
+import java.io.Serial;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeoutException;
+import org.jboss.logging.Logger;
+import org.objectweb.asm.Type;
 import run.ratchet.api.CircuitBreakerProtected;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
@@ -35,23 +52,6 @@ import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.JobStore;
-import jakarta.inject.Inject;
-import java.io.Serial;
-import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
-import java.time.Clock;
-import java.time.Duration;
-import java.time.Instant;
-import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.TimeoutException;
-import org.jboss.logging.Logger;
-import org.objectweb.asm.Type;
 
 /**
  * Runs a single job via reflection, handling retries, lifecycle events, and post-execution workflow

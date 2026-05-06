@@ -1,12 +1,12 @@
 package run.ratchet.testsuite.util;
 
-import run.ratchet.testsuite.infra.JdbcDatabaseConfig;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.jboss.shrinkwrap.resolver.api.maven.Maven;
+import run.ratchet.testsuite.infra.JdbcDatabaseConfig;
 
 /**
  * Open Liberty datasource configuration strategy.

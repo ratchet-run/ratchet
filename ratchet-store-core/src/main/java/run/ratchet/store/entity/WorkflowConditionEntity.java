@@ -1,9 +1,5 @@
 package run.ratchet.store.entity;
 
-import run.ratchet.api.SerializableFunction;
-import run.ratchet.api.SerializablePredicate;
-import run.ratchet.api.WorkflowCondition;
-import run.ratchet.store.id.UuidV7EntityListener;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
@@ -25,6 +21,10 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.Objects;
 import java.util.UUID;
+import run.ratchet.api.SerializableFunction;
+import run.ratchet.api.SerializablePredicate;
+import run.ratchet.api.WorkflowCondition;
+import run.ratchet.store.id.UuidV7EntityListener;
 
 /**
  * Conditional dependency between jobs in a workflow.

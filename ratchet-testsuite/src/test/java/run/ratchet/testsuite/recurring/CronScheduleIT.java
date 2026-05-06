@@ -3,13 +3,6 @@ package run.ratchet.testsuite.recurring;
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.api.JobHandle;
-import run.ratchet.ri.core.RecurringScheduler;
-import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.testsuite.app.CronTestJobs;
-import run.ratchet.testsuite.app.TestJobService;
-import run.ratchet.testsuite.util.BaseRatchetIT;
-import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 import jakarta.inject.Inject;
 import java.time.Duration;
 import java.time.ZoneOffset;
@@ -18,6 +11,13 @@ import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobHandle;
+import run.ratchet.ri.core.RecurringScheduler;
+import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.testsuite.app.CronTestJobs;
+import run.ratchet.testsuite.app.TestJobService;
+import run.ratchet.testsuite.util.BaseRatchetIT;
+import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /** Validates programmatic recurring job scheduling via cron expression. */
 class CronScheduleIT extends BaseRatchetIT {

@@ -1,7 +1,7 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.api.JobHandle;
 import java.io.Serializable;
+import run.ratchet.api.JobHandle;
 
 interface BatchSubmitter {
 

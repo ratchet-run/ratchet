@@ -6,15 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.api.JobHandle;
-import run.ratchet.ri.cdi.DefaultExecutorProvider;
-import run.ratchet.spi.ExecutorProvider;
-import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.testsuite.app.SimpleJob;
-import run.ratchet.testsuite.app.TestJobService;
-import run.ratchet.testsuite.util.BaseRatchetIT;
-import run.ratchet.testsuite.util.JobAssertions;
-import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 import jakarta.inject.Inject;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -24,6 +15,15 @@ import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobHandle;
+import run.ratchet.ri.cdi.DefaultExecutorProvider;
+import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.testsuite.app.SimpleJob;
+import run.ratchet.testsuite.app.TestJobService;
+import run.ratchet.testsuite.util.BaseRatchetIT;
+import run.ratchet.testsuite.util.JobAssertions;
+import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /**
  * Negative-control test for the executor SPI default path.

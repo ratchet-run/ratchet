@@ -2,16 +2,16 @@ package run.ratchet.tck.jakarta;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import jakarta.inject.Inject;
+import java.time.Duration;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.SignalDecision;
 import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.api.event.JobSignaledEvent;
 import run.ratchet.tck.api.RatchetTckRuntime;
 import run.ratchet.tck.api.TckJobs;
-import jakarta.inject.Inject;
-import java.time.Duration;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Test;
 
 /**
  * Base contract: lifecycle events fired by a Jakarta-EE runtime MUST be observable via CDI

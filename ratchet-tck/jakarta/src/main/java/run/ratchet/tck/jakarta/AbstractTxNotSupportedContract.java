@@ -3,9 +3,6 @@ package run.ratchet.tck.jakarta;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.api.JobHandle;
-import run.ratchet.tck.api.RatchetTckRuntime;
-import run.ratchet.tck.api.TckJobs;
 import jakarta.inject.Inject;
 import jakarta.transaction.UserTransaction;
 import java.time.Duration;
@@ -13,12 +10,15 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobHandle;
+import run.ratchet.tck.api.RatchetTckRuntime;
+import run.ratchet.tck.api.TckJobs;
 
 /**
  * TCK contract: {@code addEventListener} and {@code removeEventListener} on {@link
- * run.ratchet.api.JobSchedulerService} carry transaction attribute {@code NOT_SUPPORTED}.
- * They MUST NOT participate in any transaction. Listener state is in-memory and MUST NOT be rolled
- * back by a surrounding transaction.
+ * run.ratchet.api.JobSchedulerService} carry transaction attribute {@code NOT_SUPPORTED}. They MUST
+ * NOT participate in any transaction. Listener state is in-memory and MUST NOT be rolled back by a
+ * surrounding transaction.
  *
  * <ul>
  *   <li>A listener registered inside a rolled-back transaction MUST still be registered.

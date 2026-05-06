@@ -1,10 +1,10 @@
 package run.ratchet.spi;
 
+import java.util.UUID;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import run.ratchet.api.SignalDecision;
-import java.util.UUID;
 
 /**
  * Receives job lifecycle events (start, success, failure) for metrics collection. Additional

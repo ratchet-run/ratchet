@@ -1,11 +1,11 @@
 package run.ratchet.store.postgresql;
 
-import run.ratchet.tck.store.AbstractSchemaConformanceContract;
-import run.ratchet.tck.store.schema.DialectTypeMapper;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import run.ratchet.tck.store.AbstractSchemaConformanceContract;
+import run.ratchet.tck.store.schema.DialectTypeMapper;
 
 /**
  * PostgreSQL conformance test for the canonical Ratchet schema. Owns its own Testcontainer (with

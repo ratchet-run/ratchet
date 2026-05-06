@@ -1,7 +1,7 @@
 package run.ratchet.api.exception;
 
-import run.ratchet.api.DoNotRetry;
 import java.util.UUID;
+import run.ratchet.api.DoNotRetry;
 
 /**
  * Thrown when a {@link run.ratchet.spi.JobAuthorizationPolicy} denies a job operation.

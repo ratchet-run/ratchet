@@ -1,10 +1,10 @@
 package run.ratchet.api.event;
 
+import java.io.Serial;
+import java.util.UUID;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import run.ratchet.api.SignalDecision;
-import java.io.Serial;
-import java.util.UUID;
 
 /**
  * Fired after a signal has been successfully delivered to a WAITING job, transitioning it to

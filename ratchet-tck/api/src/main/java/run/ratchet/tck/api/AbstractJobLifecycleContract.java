@@ -3,11 +3,11 @@ package run.ratchet.tck.api;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.api.JobHandle;
 import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobHandle;
 
 /**
  * Base contract for the happy-path lifecycle of a submitted job: submit → started → completed.

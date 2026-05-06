@@ -1,9 +1,9 @@
 package run.ratchet.store.postgresql;
 
-import run.ratchet.store.spi.RatchetEntityManagerProvider;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import run.ratchet.store.spi.RatchetEntityManagerProvider;
 
 /** Default PostgreSQL EntityManager provider using the deployment's unnamed persistence context. */
 @ApplicationScoped

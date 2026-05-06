@@ -1,9 +1,9 @@
 package run.ratchet.store.postgresql;
 
+import jakarta.persistence.EntityManager;
+import run.ratchet.api.JobStatus;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.api.JobStatus;
-import jakarta.persistence.EntityManager;
 
 final class PostgresqlStoreContext {
 

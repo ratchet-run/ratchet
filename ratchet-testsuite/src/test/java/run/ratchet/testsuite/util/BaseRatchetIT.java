@@ -1,11 +1,11 @@
 package run.ratchet.testsuite.util;
 
-import run.ratchet.testsuite.app.TestCleanupStrategy;
 import jakarta.inject.Inject;
 import org.jboss.arquillian.junit5.ArquillianExtension;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
+import run.ratchet.testsuite.app.TestCleanupStrategy;
 
 /**
  * Base class for all Ratchet integration tests. Injects TestCleanupStrategy and truncates tables

@@ -1,11 +1,11 @@
 package run.ratchet.store.spi;
 
-import run.ratchet.api.Incubating;
-import run.ratchet.store.dto.BatchProgress;
-import run.ratchet.store.entity.BatchEntity;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import run.ratchet.api.Incubating;
+import run.ratchet.store.dto.BatchProgress;
+import run.ratchet.store.entity.BatchEntity;
 
 /** Batch lifecycle and progress tracking operations. */
 @Incubating

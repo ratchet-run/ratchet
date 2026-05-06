@@ -520,6 +520,10 @@
                     ${basedir}/ratchet-api/src/main/java:${basedir}/ratchet/src/main/java:${basedir}/ratchet-store-core/src/main/java:${basedir}/ratchet-bom/src/main/java
                   </sourcepath>
                   <excludePackageNames>*.internal:*.impl:*.util</excludePackageNames>
+                  <sourceFileExcludes>
+                    <sourceFileExclude>**/module-info.java</sourceFileExclude>
+                  </sourceFileExcludes>
+                  <additionalJOption>--ignore-source-errors</additionalJOption>
                   <links>
                     <link>https://docs.oracle.com/en/java/javase/17/docs/api</link>
                     <link>https://jakarta.ee/specifications/platform/10/apidocs</link>

@@ -4,12 +4,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
-import run.ratchet.spi.PayloadSerializer;
-import run.ratchet.store.entity.JobPayload;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.spi.PayloadSerializer;
+import run.ratchet.store.entity.JobPayload;
 
 /**
  * Proves that {@link JobPayloadConverter} (JPA-instantiated, not CDI-managed) routes JSON I/O

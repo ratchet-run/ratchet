@@ -1,10 +1,5 @@
 package run.ratchet.micrometer;
 
-import run.ratchet.api.JobPriority;
-import run.ratchet.api.JobType;
-import run.ratchet.api.SignalDecision;
-import run.ratchet.spi.ExceptionFamily;
-import run.ratchet.spi.MetricsCollector;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -19,6 +14,11 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.jboss.logging.Logger;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobType;
+import run.ratchet.api.SignalDecision;
+import run.ratchet.spi.ExceptionFamily;
+import run.ratchet.spi.MetricsCollector;
 
 /**
  * Metrics published:

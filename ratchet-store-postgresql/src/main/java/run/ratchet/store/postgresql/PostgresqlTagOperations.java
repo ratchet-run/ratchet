@@ -1,8 +1,5 @@
 package run.ratchet.store.postgresql;
 
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.api.JobStatus;
-import run.ratchet.store.spi.TagStore;
 import jakarta.persistence.Query;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -12,6 +9,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
+import run.ratchet.api.JobStatus;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.spi.TagStore;
 
 final class PostgresqlTagOperations implements TagStore {
 

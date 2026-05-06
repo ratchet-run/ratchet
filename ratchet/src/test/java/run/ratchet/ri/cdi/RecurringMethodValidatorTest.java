@@ -4,9 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.api.JobContext;
 import java.lang.reflect.Method;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobContext;
 
 class RecurringMethodValidatorTest {
 

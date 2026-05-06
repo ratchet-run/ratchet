@@ -1,10 +1,10 @@
 package run.ratchet.testsuite.app;
 
-import run.ratchet.ri.security.CallerPrincipalProvider;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Alternative;
 import java.util.Optional;
+import run.ratchet.ri.security.CallerPrincipalProvider;
 
 /**
  * {@link CallerPrincipalProvider} {@code @Alternative} that returns a fixed principal without

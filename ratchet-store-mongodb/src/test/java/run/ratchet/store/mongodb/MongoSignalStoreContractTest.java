@@ -2,12 +2,12 @@ package run.ratchet.store.mongodb;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import java.time.Instant;
+import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.tck.store.AbstractSignalContractTest;
-import java.time.Instant;
-import org.junit.jupiter.api.Test;
 
 class MongoSignalStoreContractTest extends AbstractSignalContractTest {
 

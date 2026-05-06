@@ -1,8 +1,5 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.store.entity.NodeEntity;
-import run.ratchet.store.spi.JobBulkStore;
-import run.ratchet.store.spi.NodeStore;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -11,6 +8,9 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import org.jboss.logging.Logger;
+import run.ratchet.store.entity.NodeEntity;
+import run.ratchet.store.spi.JobBulkStore;
+import run.ratchet.store.spi.NodeStore;
 
 /**
  * Timer that periodically recovers orphaned jobs from crashed nodes.

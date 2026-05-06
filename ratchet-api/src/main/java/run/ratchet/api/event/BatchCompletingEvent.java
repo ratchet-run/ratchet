@@ -1,10 +1,10 @@
 package run.ratchet.api.event;
 
-import run.ratchet.api.JobPriority;
-import run.ratchet.api.JobType;
 import java.io.Serial;
 import java.time.Instant;
 import java.util.UUID;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobType;
 
 /** Fired when a batch is about to complete (before callbacks). */
 public class BatchCompletingEvent extends AbstractJobSchedulerEvent {

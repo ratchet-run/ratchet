@@ -3,12 +3,6 @@ package run.ratchet.testsuite.recurring;
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.ri.core.RecurringScheduler;
-import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.testsuite.app.TestJobService;
-import run.ratchet.testsuite.app.TestRecurringJobs;
-import run.ratchet.testsuite.util.BaseRatchetIT;
-import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 import jakarta.inject.Inject;
 import java.time.Duration;
 import org.jboss.arquillian.container.test.api.Deployment;
@@ -16,6 +10,12 @@ import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.ri.core.RecurringScheduler;
+import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.testsuite.app.TestJobService;
+import run.ratchet.testsuite.app.TestRecurringJobs;
+import run.ratchet.testsuite.util.BaseRatchetIT;
+import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /**
  * Validates that {@code @Recurring} annotated methods are discovered by the CDI extension and

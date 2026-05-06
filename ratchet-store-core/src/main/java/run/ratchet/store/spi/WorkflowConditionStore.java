@@ -1,10 +1,10 @@
 package run.ratchet.store.spi;
 
+import java.util.List;
+import java.util.UUID;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.store.entity.WorkflowConditionEntity;
-import java.util.List;
-import java.util.UUID;
 
 /** Workflow condition persistence operations. */
 @Incubating

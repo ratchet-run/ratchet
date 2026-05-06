@@ -1,9 +1,9 @@
 package run.ratchet.store.spi;
 
-import run.ratchet.api.Incubating;
-import run.ratchet.store.entity.BatchMetricsEntity;
 import java.util.Optional;
 import java.util.UUID;
+import run.ratchet.api.Incubating;
+import run.ratchet.store.entity.BatchMetricsEntity;
 
 /** Batch metrics tracking operations. */
 @Incubating

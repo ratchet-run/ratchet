@@ -4,11 +4,11 @@ import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
+import java.time.Duration;
+import java.util.UUID;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.spi.JobCrudStore;
-import java.time.Duration;
-import java.util.UUID;
 
 /** Awaitility-based assertions that poll the store until a job reaches the expected status. */
 public final class JobAssertions {

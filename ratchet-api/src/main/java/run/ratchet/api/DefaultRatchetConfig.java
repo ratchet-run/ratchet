@@ -1,11 +1,11 @@
 package run.ratchet.api;
 
-import run.ratchet.spi.RatchetConfig;
-import run.ratchet.spi.RatchetConfigKey;
-import run.ratchet.spi.RatchetConfigSource;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import run.ratchet.spi.RatchetConfig;
+import run.ratchet.spi.RatchetConfigKey;
+import run.ratchet.spi.RatchetConfigSource;
 
 /** Default typed Ratchet configuration facade over an ordered source chain. */
 final class DefaultRatchetConfig implements RatchetConfig {

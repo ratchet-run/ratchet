@@ -1,11 +1,11 @@
 package run.ratchet.ri.core;
 
+import java.util.Collections;
+import java.util.List;
 import run.ratchet.api.ExecutionHistorySummary;
 import run.ratchet.api.JobSummary;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
-import java.util.Collections;
-import java.util.List;
 
 /** Static mapping utilities from store entities to public read-model types. */
 final class JobEntityMapper {
@@ -36,8 +36,7 @@ final class JobEntityMapper {
   }
 
   static ExecutionHistorySummary toExecutionSummary(JobExecutionEntity e) {
-    boolean succeeded =
-        e.getStatus() == JobExecutionEntity.ExecutionStatus.SUCCEEDED;
+    boolean succeeded = e.getStatus() == JobExecutionEntity.ExecutionStatus.SUCCEEDED;
     return new ExecutionHistorySummary(
         e.getId(),
         e.getJobId(),

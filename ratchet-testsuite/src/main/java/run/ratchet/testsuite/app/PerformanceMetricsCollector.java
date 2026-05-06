@@ -1,8 +1,5 @@
 package run.ratchet.testsuite.app;
 
-import run.ratchet.api.JobPriority;
-import run.ratchet.api.JobType;
-import run.ratchet.spi.MetricsCollector;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Alternative;
@@ -11,6 +8,9 @@ import java.util.Arrays;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobType;
+import run.ratchet.spi.MetricsCollector;
 
 /**
  * Performance-focused {@link MetricsCollector} that records timing data for throughput and latency

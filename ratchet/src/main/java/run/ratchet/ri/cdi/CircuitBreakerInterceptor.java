@@ -1,16 +1,16 @@
 package run.ratchet.ri.cdi;
 
-import run.ratchet.api.CircuitBreakerProfile;
-import run.ratchet.api.CircuitBreakerProtected;
-import run.ratchet.ri.resilience.CircuitBreaker;
-import run.ratchet.ri.resilience.CircuitBreakerRegistry;
-import run.ratchet.spi.CircuitBreakerConfigProvider;
 import jakarta.annotation.Priority;
 import jakarta.inject.Inject;
 import jakarta.interceptor.AroundInvoke;
 import jakarta.interceptor.Interceptor;
 import jakarta.interceptor.InvocationContext;
 import java.lang.reflect.Method;
+import run.ratchet.api.CircuitBreakerProfile;
+import run.ratchet.api.CircuitBreakerProtected;
+import run.ratchet.ri.resilience.CircuitBreaker;
+import run.ratchet.ri.resilience.CircuitBreakerRegistry;
+import run.ratchet.spi.CircuitBreakerConfigProvider;
 
 /**
  * CDI interceptor that wraps methods annotated with {@link CircuitBreakerProtected} in circuit

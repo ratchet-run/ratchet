@@ -5,9 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.acme.jobs.AcmePredicates;
+import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobResult;
 import run.ratchet.api.SerializablePredicate;
-import org.junit.jupiter.api.Test;
 
 class DefaultLambdaSerializerTest {
 

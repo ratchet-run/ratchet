@@ -1,7 +1,7 @@
 package run.ratchet.tck.api;
 
-import run.ratchet.api.JobSchedulerService;
 import java.util.Optional;
+import run.ratchet.api.JobSchedulerService;
 
 /**
  * Implementation-supplied bridge between the Ratchet API TCK and a concrete Ratchet runtime. A

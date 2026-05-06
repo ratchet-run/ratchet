@@ -1,11 +1,5 @@
 package run.ratchet.store.postgresql;
 
-import run.ratchet.api.NodeTagFilter;
-import run.ratchet.store.dto.JobClaimDto;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.api.JobStatus;
-import run.ratchet.store.spi.JobClaimStore;
 import jakarta.persistence.Query;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -13,6 +7,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import run.ratchet.api.JobStatus;
+import run.ratchet.api.NodeTagFilter;
+import run.ratchet.store.dto.JobClaimDto;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.JobClaimStore;
 
 final class PostgresqlJobClaimOperations implements JobClaimStore {
 

@@ -1,5 +1,12 @@
 package run.ratchet.loadtest.service;
 
+import io.micrometer.core.instrument.Counter;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Locale;
+import java.util.UUID;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobSchedulerService;
@@ -10,13 +17,6 @@ import run.ratchet.loadtest.metrics.PrometheusRegistryProducer;
 import run.ratchet.loadtest.workload.LoadTestWorkloadExecutor;
 import run.ratchet.loadtest.workload.WorkloadType;
 import run.ratchet.spi.NodeIdentityProvider;
-import io.micrometer.core.instrument.Counter;
-import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.inject.Inject;
-import java.time.Duration;
-import java.time.Instant;
-import java.util.Locale;
-import java.util.UUID;
 
 @ApplicationScoped
 public class LoadTestRunner {

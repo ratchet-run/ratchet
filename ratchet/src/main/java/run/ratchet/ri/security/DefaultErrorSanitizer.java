@@ -1,8 +1,8 @@
 package run.ratchet.ri.security;
 
-import run.ratchet.spi.ErrorSanitizer;
 import java.util.IdentityHashMap;
 import java.util.regex.Pattern;
+import run.ratchet.spi.ErrorSanitizer;
 
 /** Strips PII (JDBC URLs, credentials, optionally emails) from exception messages. */
 public class DefaultErrorSanitizer implements ErrorSanitizer {

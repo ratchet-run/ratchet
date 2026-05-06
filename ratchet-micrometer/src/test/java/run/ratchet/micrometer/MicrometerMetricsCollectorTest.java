@@ -3,13 +3,13 @@ package run.ratchet.micrometer;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
-import run.ratchet.api.JobType;
-import run.ratchet.api.SignalDecision;
-import run.ratchet.api.exception.RatchetTransientStoreException;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.util.UUID;
 import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobType;
+import run.ratchet.api.SignalDecision;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 
 class MicrometerMetricsCollectorTest {
 

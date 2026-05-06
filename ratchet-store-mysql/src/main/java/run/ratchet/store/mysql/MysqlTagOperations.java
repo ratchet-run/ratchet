@@ -1,9 +1,5 @@
 package run.ratchet.store.mysql;
 
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.api.JobStatus;
-import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
-import run.ratchet.store.spi.TagStore;
 import jakarta.persistence.Query;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -14,6 +10,10 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import run.ratchet.api.JobStatus;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
+import run.ratchet.store.spi.TagStore;
 
 final class MysqlTagOperations implements TagStore {
 

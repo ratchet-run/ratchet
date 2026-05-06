@@ -403,7 +403,7 @@ scheduler.retryJob(jobId);
 
 ## RecurringJobBuilder
 
-Returned by `recurring()`, provides three configuration methods:
+Returned by `scheduleRecurring()`, provides three configuration methods:
 
 ### withOptions
 

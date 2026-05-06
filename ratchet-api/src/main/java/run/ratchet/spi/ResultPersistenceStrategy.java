@@ -1,7 +1,7 @@
 package run.ratchet.spi;
 
-import run.ratchet.api.Incubating;
 import java.util.UUID;
+import run.ratchet.api.Incubating;
 
 /** Serializes job return values before they are stored on the job row. */
 @Incubating

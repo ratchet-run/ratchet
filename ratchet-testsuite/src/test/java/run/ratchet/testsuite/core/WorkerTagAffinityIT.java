@@ -3,17 +3,6 @@ package run.ratchet.testsuite.core;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.api.NodeTagFilter;
-import run.ratchet.ri.payload.JobPayloadFactory;
-import run.ratchet.store.dto.JobClaimDto;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.api.JobStatus;
-import run.ratchet.store.spi.JobClaimStore;
-import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.TagStore;
-import run.ratchet.testsuite.util.BaseRatchetIT;
-import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 import jakarta.inject.Inject;
 import java.time.Instant;
 import java.util.List;
@@ -21,6 +10,17 @@ import java.util.UUID;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobStatus;
+import run.ratchet.api.NodeTagFilter;
+import run.ratchet.ri.payload.JobPayloadFactory;
+import run.ratchet.store.dto.JobClaimDto;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.JobClaimStore;
+import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.TagStore;
+import run.ratchet.testsuite.util.BaseRatchetIT;
+import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /**
  * Verifies that per-node tag affinity filters are applied correctly by the claim store. Two

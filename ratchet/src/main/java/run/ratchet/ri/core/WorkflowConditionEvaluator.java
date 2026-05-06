@@ -1,7 +1,14 @@
 package run.ratchet.ri.core;
 
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Optional;
+import org.jboss.logging.Logger;
 import run.ratchet.api.BatchContext;
 import run.ratchet.api.JobResult;
+import run.ratchet.api.JobStatus;
 import run.ratchet.api.SerializableFunction;
 import run.ratchet.api.SerializablePredicate;
 import run.ratchet.spi.ClassPolicy;
@@ -10,15 +17,8 @@ import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.BatchStore;
-import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.inject.Inject;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Optional;
-import org.jboss.logging.Logger;
 
 /**
  * Evaluates workflow conditions against parent job results to decide which child jobs to schedule.

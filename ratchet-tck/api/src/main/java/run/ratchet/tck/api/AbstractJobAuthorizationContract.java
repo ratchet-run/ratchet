@@ -5,12 +5,12 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
-import run.ratchet.api.JobHandle;
-import run.ratchet.api.JobSchedulerService;
-import run.ratchet.api.exception.JobAuthorizationException;
 import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobHandle;
+import run.ratchet.api.JobSchedulerService;
+import run.ratchet.api.exception.JobAuthorizationException;
 
 /**
  * Base contract for {@link run.ratchet.spi.JobAuthorizationPolicy} integration.
@@ -29,10 +29,9 @@ public abstract class AbstractJobAuthorizationContract {
   protected abstract RatchetTckRuntime runtime();
 
   /**
-   * Returns a scheduler configured with a deny-all {@link
-   * run.ratchet.spi.JobAuthorizationPolicy}, or empty if the implementation cannot wire a
-   * custom policy in the test context. Subclasses backed by in-process runtimes SHOULD provide
-   * this.
+   * Returns a scheduler configured with a deny-all {@link run.ratchet.spi.JobAuthorizationPolicy},
+   * or empty if the implementation cannot wire a custom policy in the test context. Subclasses
+   * backed by in-process runtimes SHOULD provide this.
    *
    * <p>The returned scheduler is NOT backed by {@link RatchetTckRuntime} — it is used only to
    * verify that authorization exceptions propagate from {@code submit()}.

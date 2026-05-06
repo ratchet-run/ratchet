@@ -1,10 +1,10 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.store.spi.LockStore;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.jboss.logging.Logger;
+import run.ratchet.store.spi.LockStore;
 
 /** Handle for an acquired cluster-wide singleton lease. */
 public final class SingletonLease implements AutoCloseable {

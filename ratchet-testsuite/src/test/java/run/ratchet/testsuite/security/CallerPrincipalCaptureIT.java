@@ -3,6 +3,10 @@ package run.ratchet.testsuite.security;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
+import jakarta.inject.Inject;
+import org.jboss.arquillian.container.test.api.Deployment;
+import org.jboss.shrinkwrap.api.spec.WebArchive;
+import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.store.entity.JobEntity;
@@ -13,10 +17,6 @@ import run.ratchet.testsuite.app.TestJobService;
 import run.ratchet.testsuite.util.BaseRatchetIT;
 import run.ratchet.testsuite.util.JobAssertions;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
-import jakarta.inject.Inject;
-import org.jboss.arquillian.container.test.api.Deployment;
-import org.jboss.shrinkwrap.api.spec.WebArchive;
-import org.junit.jupiter.api.Test;
 
 /**
  * Verifies that the framework stamps the captured caller principal onto every persisted {@link

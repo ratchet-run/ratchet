@@ -4,12 +4,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.api.JobHandle;
-import run.ratchet.api.SignalDecision;
 import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobHandle;
+import run.ratchet.api.SignalDecision;
 
 /**
  * Base contract for signal-waiting jobs with structured approval/rejection decisions.
@@ -69,7 +69,11 @@ public abstract class AbstractSignalDecisionContract {
             .submit();
     runtime().probe().track(handle);
 
-    assertEquals(1, runtime().scheduler().rejectSignal(handle.id(), "needs-review", "denied"));
+    assertEquals(
+        1,
+        runtime()
+            .scheduler()
+            .deliverSignal(handle.id(), SignalDecision.rejected("needs-review", "denied")));
 
     assertTrue(
         runtime().probe().awaitCompleted(handle, defaultTimeout()),

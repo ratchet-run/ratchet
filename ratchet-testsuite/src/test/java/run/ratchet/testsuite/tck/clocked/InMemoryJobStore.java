@@ -1,13 +1,5 @@
 package run.ratchet.testsuite.tck.clocked;
 
-import run.ratchet.api.JobStatus;
-import run.ratchet.api.NodeTagFilter;
-import run.ratchet.store.dto.JobClaimDto;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionEntity;
-import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.entity.WorkflowConditionEntity;
-import run.ratchet.store.id.UuidV7Factory;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Alternative;
@@ -21,11 +13,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import run.ratchet.api.JobStatus;
+import run.ratchet.api.NodeTagFilter;
+import run.ratchet.store.dto.JobClaimDto;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionEntity;
+import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.entity.WorkflowConditionEntity;
+import run.ratchet.store.id.UuidV7Factory;
 
 /**
- * Single-threaded in-memory {@link run.ratchet.store.spi.JobStore} implementation that
- * supports just enough of the SPI to drive {@code AbstractDelayedSchedulingContract} green: submit
- * → claim (filtered by an injectable {@link Clock}) → mark-succeeded → workflow-noop.
+ * Single-threaded in-memory {@link run.ratchet.store.spi.JobStore} implementation that supports
+ * just enough of the SPI to drive {@code AbstractDelayedSchedulingContract} green: submit → claim
+ * (filtered by an injectable {@link Clock}) → mark-succeeded → workflow-noop.
  *
  * <p>All other SPI methods inherit {@link UnsupportedOperationException} stubs from {@link
  * ThrowingJobStoreBase}. If a future contract reaches a stubbed method, the failure surfaces with
@@ -419,8 +419,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   }
 
   @Override
-  public synchronized Optional<run.ratchet.store.entity.NodeEntity> findNodeById(
-      String nodeId) {
+  public synchronized Optional<run.ratchet.store.entity.NodeEntity> findNodeById(String nodeId) {
     return Optional.empty();
   }
 

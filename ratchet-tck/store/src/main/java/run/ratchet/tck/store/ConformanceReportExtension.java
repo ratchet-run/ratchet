@@ -1,9 +1,9 @@
 package run.ratchet.tck.store;
 
-import run.ratchet.tck.util.AbstractConformanceReportExtension;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
+import run.ratchet.tck.util.AbstractConformanceReportExtension;
 
 /**
  * Store-tier conformance report listener. Extends {@link AbstractConformanceReportExtension} with

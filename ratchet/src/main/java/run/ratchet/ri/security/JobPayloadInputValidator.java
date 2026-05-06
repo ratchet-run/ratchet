@@ -1,6 +1,5 @@
 package run.ratchet.ri.security;
 
-import run.ratchet.store.entity.JobPayload;
 import jakarta.enterprise.context.ApplicationScoped;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -8,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.jboss.logging.Logger;
+import run.ratchet.store.entity.JobPayload;
 
 /**
  * Validates job payload structure and type safety at creation time (fail-fast). Checks class

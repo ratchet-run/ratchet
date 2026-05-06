@@ -10,11 +10,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import run.ratchet.api.JobPriority;
-import run.ratchet.spi.NodeIdentityProvider;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.spi.JobBatchStatusStore;
 import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,6 +17,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.api.JobPriority;
+import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.JobBatchStatusStore;
 
 @ExtendWith(MockitoExtension.class)
 class RetryBufferManagerTest {

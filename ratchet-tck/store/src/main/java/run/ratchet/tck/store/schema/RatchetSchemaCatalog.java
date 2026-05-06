@@ -11,9 +11,9 @@ import static run.ratchet.tck.store.schema.LogicalType.TEXT;
 import static run.ratchet.tck.store.schema.LogicalType.TIMESTAMP_TZ;
 import static run.ratchet.tck.store.schema.LogicalType.UUID;
 
+import java.util.List;
 import run.ratchet.tck.store.schema.DeprecatedArtifact.DroppedColumn;
 import run.ratchet.tck.store.schema.DeprecatedArtifact.DroppedIndex;
-import java.util.List;
 
 /**
  * Canonical schema definition covering every persistent table in the Ratchet scheduler schema. The

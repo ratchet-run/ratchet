@@ -1,9 +1,9 @@
 package run.ratchet.store.converter;
 
-import run.ratchet.spi.PayloadSerializer;
 import jakarta.json.bind.Jsonb;
 import jakarta.json.bind.JsonbBuilder;
 import jakarta.json.bind.JsonbException;
+import run.ratchet.spi.PayloadSerializer;
 
 /**
  * Static holder that routes JPA {@link jakarta.persistence.AttributeConverter} JSON I/O through the
@@ -17,9 +17,9 @@ import jakarta.json.bind.JsonbException;
  * serializer has been set (non-CDI environments: raw unit tests, pre-deployment schema tools), the
  * holder falls back to a locally-constructed JSON-B instance so converters remain usable.
  *
- * <p>Lives in {@code store-core} (not {@code ratchet}) because the converters themselves live
- * here, and keeping the fallback close to its consumer avoids a hard dependency from store-core on
- * the reference implementation.
+ * <p>Lives in {@code store-core} (not {@code ratchet}) because the converters themselves live here,
+ * and keeping the fallback close to its consumer avoids a hard dependency from store-core on the
+ * reference implementation.
  */
 public final class PayloadSerializerHolder {
 

@@ -1,9 +1,9 @@
 package run.ratchet.ri.core;
 
+import jakarta.enterprise.context.ApplicationScoped;
 import run.ratchet.spi.PollingConfig;
 import run.ratchet.spi.PollingDelayStrategy;
 import run.ratchet.spi.PollingStrategyProvider;
-import jakarta.enterprise.context.ApplicationScoped;
 
 /** Default provider for the RI adaptive polling strategy. */
 @ApplicationScoped

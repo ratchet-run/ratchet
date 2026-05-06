@@ -1,11 +1,11 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.store.dto.JobClaimDto;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.UUID;
+import run.ratchet.store.dto.JobClaimDto;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 
 /**
  * Pre-flight gate checker: drain → permit → rate-limit. A CLEAR result holds an acquired permit.

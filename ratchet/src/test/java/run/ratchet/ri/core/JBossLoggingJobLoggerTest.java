@@ -5,12 +5,12 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
-import run.ratchet.store.entity.JobLogEntity.LogLevel;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.store.entity.JobLogEntity.LogLevel;
 
 @ExtendWith(MockitoExtension.class)
 class JBossLoggingJobLoggerTest {

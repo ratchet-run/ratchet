@@ -1,17 +1,17 @@
 package run.ratchet.store.query;
 
-import run.ratchet.api.JobQuerySortField;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.UUID;
+import run.ratchet.api.JobQuerySortField;
 
 /**
  * Opaque keyset-pagination cursor encoding {@code (sortField, sortValue, jobId)}.
  *
  * <p>Encoded as URL-safe base64 with {@code |} delimiters so it can be passed in query parameters
  * without further escaping. Use {@link #encode()} to produce the opaque string for {@link
- * run.ratchet.api.JobPage#nextCursor()} and {@link #decode(String)} to parse it back
- * before building the store seek predicate.
+ * run.ratchet.api.JobPage#nextCursor()} and {@link #decode(String)} to parse it back before
+ * building the store seek predicate.
  *
  * <p>Sort value encoding by field type:
  *
@@ -36,7 +36,8 @@ public final class JobQueryCursor {
   public String encode() {
     // The supported sort encodings reserve '|' as the field delimiter.
     String raw = sortField.name() + "|" + sortValue + "|" + jobId;
-    return Base64.getUrlEncoder().withoutPadding()
+    return Base64.getUrlEncoder()
+        .withoutPadding()
         .encodeToString(raw.getBytes(StandardCharsets.UTF_8));
   }
 

@@ -1,12 +1,5 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.api.JobPriority;
-import run.ratchet.spi.NodeIdentityProvider;
-import run.ratchet.store.dto.JobClaimDto;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.api.JobStatus;
-import run.ratchet.store.spi.JobBatchStatusStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -23,6 +16,13 @@ import java.util.UUID;
 import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.locks.ReentrantLock;
 import org.jboss.logging.Logger;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobStatus;
+import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.store.dto.JobClaimDto;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.JobBatchStatusStore;
 
 /**
  * Priority-ordered retry buffers for claimed jobs awaiting executor capacity. Separate bounded

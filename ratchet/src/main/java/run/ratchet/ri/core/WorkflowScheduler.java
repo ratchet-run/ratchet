@@ -1,13 +1,5 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.api.JobStatus;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.entity.WorkflowConditionEntity;
-import run.ratchet.store.spi.JobBatchStatusStore;
-import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.JobTerminalStore;
-import run.ratchet.store.spi.WorkflowConditionStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -17,6 +9,14 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.jboss.logging.Logger;
+import run.ratchet.api.JobStatus;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.entity.WorkflowConditionEntity;
+import run.ratchet.store.spi.JobBatchStatusStore;
+import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobTerminalStore;
+import run.ratchet.store.spi.WorkflowConditionStore;
 
 /**
  * Extends {@link ChainScheduler} with conditional branching. Falls back to linear chaining when no

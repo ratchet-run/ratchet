@@ -1,5 +1,9 @@
 package run.ratchet.store.postgresql;
 
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import org.jboss.logging.Logger;
 import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.entity.BatchEntity;
@@ -8,10 +12,6 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.BatchMetricsStore;
 import run.ratchet.store.spi.BatchStore;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-import org.jboss.logging.Logger;
 
 final class PostgresqlBatchOperations implements BatchStore, BatchMetricsStore {
 

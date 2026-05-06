@@ -1,6 +1,5 @@
 package run.ratchet.testsuite.app;
 
-import run.ratchet.store.spi.RatchetEntityManagerProvider;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
@@ -8,6 +7,7 @@ import jakarta.transaction.Transactional;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Logger;
+import run.ratchet.store.spi.RatchetEntityManagerProvider;
 
 /**
  * JPA/SQL implementation of {@link TestCleanupStrategy}.

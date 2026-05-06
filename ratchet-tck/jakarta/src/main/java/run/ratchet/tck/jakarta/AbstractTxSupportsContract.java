@@ -4,14 +4,14 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
-import run.ratchet.api.JobHandle;
-import run.ratchet.tck.api.RatchetTckRuntime;
-import run.ratchet.tck.api.TckJobs;
 import jakarta.inject.Inject;
 import jakarta.transaction.UserTransaction;
 import java.time.Duration;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobHandle;
+import run.ratchet.tck.api.RatchetTckRuntime;
+import run.ratchet.tck.api.TckJobs;
 
 /**
  * TCK contract: builder-factory operations on {@link run.ratchet.api.JobSchedulerService}
@@ -26,8 +26,8 @@ import org.junit.jupiter.api.Test;
  * </ul>
  *
  * <p>Covers the {@link run.ratchet.api.JobSchedulerService#enqueue} and {@link
- * run.ratchet.api.JobSchedulerService#schedule} builder paths. Batch and streaming-batch
- * builders follow the same rule but are omitted here to keep the contract focused.
+ * run.ratchet.api.JobSchedulerService#schedule} builder paths. Batch and streaming-batch builders
+ * follow the same rule but are omitted here to keep the contract focused.
  *
  * <p>Implementations backed by a non-JTA store (e.g. MongoDB) should annotate their concrete
  * subclass with {@code @Disabled("Store does not participate in JTA")}.

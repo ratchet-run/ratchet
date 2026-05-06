@@ -1,9 +1,5 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.spi.ExecutorProvider;
-import run.ratchet.spi.NodeIdentityProvider;
-import run.ratchet.store.spi.JobBulkStore;
-import run.ratchet.store.spi.NodeStore;
 import java.lang.management.ManagementFactory;
 import java.net.InetAddress;
 import java.time.Duration;
@@ -16,6 +12,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.jboss.logging.Logger;
+import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.store.spi.JobBulkStore;
+import run.ratchet.store.spi.NodeStore;
 
 /**
  * Generates a node ID and maintains liveness via periodic heartbeats.

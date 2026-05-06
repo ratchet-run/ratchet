@@ -36,8 +36,7 @@ public enum JobStatus {
   /**
    * Blocked waiting for a named external signal. NOT visible to polling queries. Transitions to
    * PENDING when a signal is delivered via {@code JobSchedulerService.deliverSignal()}, or to
-   * FAILED when {@code signalTimeout} elapses. WAITING jobs cannot be paused; they can be
-   * canceled.
+   * FAILED when {@code signalTimeout} elapses. WAITING jobs cannot be paused; they can be canceled.
    */
   WAITING;
 

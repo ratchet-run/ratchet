@@ -1,11 +1,11 @@
 package run.ratchet.tck.api;
 
-import run.ratchet.api.JobContext;
-import run.ratchet.api.SignalDecision;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
+import run.ratchet.api.JobContext;
+import run.ratchet.api.SignalDecision;
 
 /**
  * Static job-body helpers used by the seed contracts. Exists so contract task bodies are <em>method

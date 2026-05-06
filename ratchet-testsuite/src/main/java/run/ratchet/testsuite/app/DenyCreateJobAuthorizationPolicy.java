@@ -1,11 +1,11 @@
 package run.ratchet.testsuite.app;
 
-import run.ratchet.api.exception.JobAuthorizationException;
-import run.ratchet.spi.JobAuthorizationPolicy;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Alternative;
 import java.util.UUID;
+import run.ratchet.api.exception.JobAuthorizationException;
+import run.ratchet.spi.JobAuthorizationPolicy;
 
 /**
  * {@link JobAuthorizationPolicy} {@code @Alternative} that denies all job creation attempts. Used

@@ -1,7 +1,7 @@
 package run.ratchet.api;
 
-import run.ratchet.spi.RatchetConfigKey;
 import java.util.Locale;
+import run.ratchet.spi.RatchetConfigKey;
 
 final class RatchetConfigKeys {
 

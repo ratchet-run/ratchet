@@ -2,9 +2,9 @@
  * Public API and SPI for Ratchet, the portable Jakarta EE-aligned job scheduler.
  *
  * <p>Many types in {@code run.ratchet.spi} are marked {@link
- * run.ratchet.api.Incubating @Incubating} — their method signatures and contracts may
- * evolve between minor releases. Module-path exports are an access-control mechanism, not a
- * stability promise. Treat {@code @Incubating} types as semver-exempt.
+ * run.ratchet.api.Incubating @Incubating} — their method signatures and contracts may evolve
+ * between minor releases. Module-path exports are an access-control mechanism, not a stability
+ * promise. Treat {@code @Incubating} types as semver-exempt.
  *
  * <p>Ratchet runtime, store, metrics, and TCK artifacts also provide explicit module descriptors.
  * Classpath consumers see no change.

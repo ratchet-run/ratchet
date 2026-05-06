@@ -1,10 +1,10 @@
 package run.ratchet.ri.payload;
 
-import run.ratchet.spi.JobInvocation;
-import run.ratchet.spi.JobInvocationResolver;
 import jakarta.enterprise.context.ApplicationScoped;
 import java.io.Serializable;
 import java.util.List;
+import run.ratchet.spi.JobInvocation;
+import run.ratchet.spi.JobInvocationResolver;
 
 /** Default resolver using Ratchet's ASM lambda analysis. */
 @ApplicationScoped

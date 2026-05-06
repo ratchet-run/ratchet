@@ -4,8 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.api.JobHandle;
-import run.ratchet.tck.util.ConcurrentTestRunner;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
@@ -14,10 +12,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobHandle;
+import run.ratchet.tck.util.ConcurrentTestRunner;
 
 /**
- * Base contract for {@link run.ratchet.api.JobBuilder#withBusinessKey(String)
- * withBusinessKey} semantics.
+ * Base contract for {@link run.ratchet.api.JobBuilder#withBusinessKey(String) withBusinessKey}
+ * semantics.
  *
  * <p>The Ratchet API javadoc on {@code withBusinessKey} states only that the call "prevents
  * concurrent execution against the same entity" and that "multiple completed jobs may share the

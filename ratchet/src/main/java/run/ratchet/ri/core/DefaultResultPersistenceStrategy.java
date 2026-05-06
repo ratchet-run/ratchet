@@ -1,14 +1,14 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.api.RatchetOptions;
-import run.ratchet.spi.PayloadSerializer;
-import run.ratchet.spi.ResultPersistenceStrategy;
-import run.ratchet.spi.SerializedJobResult;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 import org.jboss.logging.Logger;
+import run.ratchet.api.RatchetOptions;
+import run.ratchet.spi.PayloadSerializer;
+import run.ratchet.spi.ResultPersistenceStrategy;
+import run.ratchet.spi.SerializedJobResult;
 
 /** Default JSON result persistence with a configurable size cap. */
 @ApplicationScoped

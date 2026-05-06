@@ -3,11 +3,11 @@ package run.ratchet.store.mongodb;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.List;
+import org.junit.jupiter.api.Test;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
-import java.util.List;
-import org.junit.jupiter.api.Test;
 
 class WorkflowConditionIT extends BaseDocumentStoreIT {
 

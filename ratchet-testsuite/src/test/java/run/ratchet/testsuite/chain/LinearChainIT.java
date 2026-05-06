@@ -2,13 +2,6 @@ package run.ratchet.testsuite.chain;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import run.ratchet.api.JobHandle;
-import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.testsuite.app.ChainStepTracker;
-import run.ratchet.testsuite.app.TestJobService;
-import run.ratchet.testsuite.util.BaseRatchetIT;
-import run.ratchet.testsuite.util.JobAssertions;
-import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 import jakarta.inject.Inject;
 import java.time.Duration;
 import java.util.List;
@@ -16,6 +9,13 @@ import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobHandle;
+import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.testsuite.app.ChainStepTracker;
+import run.ratchet.testsuite.app.TestJobService;
+import run.ratchet.testsuite.util.BaseRatchetIT;
+import run.ratchet.testsuite.util.JobAssertions;
+import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /** Validates linear chain execution: A → B → C in order. */
 class LinearChainIT extends BaseRatchetIT {

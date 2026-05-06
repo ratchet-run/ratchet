@@ -1,6 +1,5 @@
 package run.ratchet.store.mysql;
 
-import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Duration;
@@ -9,6 +8,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
+import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 
 final class MysqlJobDeleteOperations {
 

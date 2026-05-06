@@ -1,10 +1,10 @@
 package run.ratchet.testsuite.app;
 
-import run.ratchet.spi.RatchetConfigSource;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Optional;
 import java.util.Properties;
+import run.ratchet.spi.RatchetConfigSource;
 
 /** Reads test runtime settings packaged into the Arquillian deployment. */
 public final class TestRuntimeConfig implements RatchetConfigSource {

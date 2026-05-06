@@ -3,9 +3,9 @@ package run.ratchet.tck.store;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.api.JobStatus;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobStatus;
 
 /** Base contract tests for {@code JobPauseStore}. */
 public abstract class AbstractJobPauseStoreContract implements JobStoreContractFixture {

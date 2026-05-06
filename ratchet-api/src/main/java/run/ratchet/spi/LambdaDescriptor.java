@@ -1,8 +1,8 @@
 package run.ratchet.spi;
 
-import run.ratchet.api.Incubating;
 import java.util.Arrays;
 import java.util.Objects;
+import run.ratchet.api.Incubating;
 
 /** Describes a lambda expression's target method for serialization and execution. */
 @Incubating

@@ -1,7 +1,5 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.api.RatchetOptions;
-import run.ratchet.store.entity.JobExecutionType;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.EnumMap;
@@ -9,6 +7,8 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.jboss.logging.Logger;
+import run.ratchet.api.RatchetOptions;
+import run.ratchet.store.entity.JobExecutionType;
 
 /** Per-type rate limiter using a one-minute sliding window. A value of 0 means unlimited. */
 @ApplicationScoped

@@ -12,19 +12,6 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import run.ratchet.api.CircuitBreakerProfile;
-import run.ratchet.api.JobPriority;
-import run.ratchet.api.RatchetOptions;
-import run.ratchet.api.exception.RatchetTransientStoreException;
-import run.ratchet.ri.resilience.CircuitBreaker;
-import run.ratchet.ri.resilience.CircuitBreakerConfiguration;
-import run.ratchet.ri.resilience.CircuitBreakerRegistry;
-import run.ratchet.spi.MetricsCollector;
-import run.ratchet.spi.NodeIdentityProvider;
-import run.ratchet.store.dto.JobClaimDto;
-import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.api.JobStatus;
-import run.ratchet.store.spi.JobClaimStore;
 import java.time.Instant;
 import java.util.EnumMap;
 import java.util.List;
@@ -34,6 +21,19 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.api.CircuitBreakerProfile;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobStatus;
+import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.ri.resilience.CircuitBreaker;
+import run.ratchet.ri.resilience.CircuitBreakerConfiguration;
+import run.ratchet.ri.resilience.CircuitBreakerRegistry;
+import run.ratchet.spi.MetricsCollector;
+import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.store.dto.JobClaimDto;
+import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.JobClaimStore;
 
 @ExtendWith(MockitoExtension.class)
 class PollerTest {

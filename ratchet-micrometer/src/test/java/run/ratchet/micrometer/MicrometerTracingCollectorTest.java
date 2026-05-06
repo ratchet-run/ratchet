@@ -11,9 +11,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import run.ratchet.api.JobPriority;
-import run.ratchet.api.JobType;
-import run.ratchet.spi.TracingCollector.ExecutionScope;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.TraceContext;
 import io.micrometer.tracing.Tracer;
@@ -25,6 +22,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobType;
+import run.ratchet.spi.TracingCollector.ExecutionScope;
 
 @ExtendWith(MockitoExtension.class)
 class MicrometerTracingCollectorTest {

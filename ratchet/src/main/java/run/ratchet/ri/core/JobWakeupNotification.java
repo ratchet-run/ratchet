@@ -1,8 +1,8 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.api.JobPriority;
 import java.io.Serializable;
 import java.time.Instant;
+import run.ratchet.api.JobPriority;
 
 /**
  * Published to the cluster when a high-priority job is created, causing all pollers to wake

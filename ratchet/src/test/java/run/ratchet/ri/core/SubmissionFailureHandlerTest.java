@@ -3,17 +3,17 @@ package run.ratchet.ri.core;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import run.ratchet.spi.MetricsCollector;
-import run.ratchet.store.dto.JobClaimDto;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.api.JobStatus;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.api.JobStatus;
+import run.ratchet.spi.MetricsCollector;
+import run.ratchet.store.dto.JobClaimDto;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 
 @ExtendWith(MockitoExtension.class)
 class SubmissionFailureHandlerTest {

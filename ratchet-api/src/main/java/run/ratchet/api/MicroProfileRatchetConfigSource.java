@@ -1,9 +1,9 @@
 package run.ratchet.api;
 
-import run.ratchet.spi.RatchetConfigSource;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Optional;
+import run.ratchet.spi.RatchetConfigSource;
 
 /** Optional MicroProfile Config adapter loaded reflectively when MP Config is present. */
 final class MicroProfileRatchetConfigSource implements RatchetConfigSource {

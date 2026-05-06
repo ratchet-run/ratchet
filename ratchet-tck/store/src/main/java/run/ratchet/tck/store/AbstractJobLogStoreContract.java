@@ -3,11 +3,11 @@ package run.ratchet.tck.store;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import run.ratchet.store.entity.JobLogEntity;
 import java.time.Instant;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.store.entity.JobLogEntity;
 
 /** Base contract tests for {@code JobLogStore}. */
 public abstract class AbstractJobLogStoreContract implements JobStoreContractFixture {

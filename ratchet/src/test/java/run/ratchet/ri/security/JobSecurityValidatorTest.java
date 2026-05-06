@@ -2,11 +2,11 @@ package run.ratchet.ri.security;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import run.ratchet.store.entity.JobPayload;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import run.ratchet.store.entity.JobPayload;
 
 class JobSecurityValidatorTest {
 

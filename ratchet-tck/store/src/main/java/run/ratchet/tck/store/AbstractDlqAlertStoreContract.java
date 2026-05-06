@@ -3,11 +3,11 @@ package run.ratchet.tck.store;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.store.entity.DlqAlertEntity;
 import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.store.entity.DlqAlertEntity;
 
 /** Base contract tests for {@code DlqAlertStore}. */
 public abstract class AbstractDlqAlertStoreContract implements JobStoreContractFixture {

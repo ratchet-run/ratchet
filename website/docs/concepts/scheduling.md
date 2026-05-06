@@ -148,7 +148,7 @@ If no timezone is specified, UTC is used.
 | `enqueue(task)` | None (immediate) | No | `JobBuilder` |
 | `enqueueNow(task)` | None (immediate) | No | `JobHandle` (no further config) |
 | `schedule(delay, task)` | Specified duration | No | `JobBuilder` |
-| `recurring(cron, zone, task)` | Cron-based | Yes | `RecurringJobBuilder` |
+| `scheduleRecurring(cron, zone, task)` | Cron-based | Yes | `RecurringJobBuilder` |
 | `enqueueBatch(name)` | None | No | `BatchBuilder` |
 | `streamingBatch(name)` | None | No | `StreamingBatchBuilder` |
 

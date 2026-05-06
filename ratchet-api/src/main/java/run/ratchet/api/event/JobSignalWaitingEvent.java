@@ -1,10 +1,10 @@
 package run.ratchet.api.event;
 
-import run.ratchet.api.JobPriority;
-import run.ratchet.api.JobType;
 import java.io.Serial;
 import java.time.Duration;
 import java.util.UUID;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobType;
 
 /** Fired when a job has been created in WAITING state, blocked on a named signal. */
 public class JobSignalWaitingEvent extends AbstractJobSchedulerEvent {

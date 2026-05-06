@@ -1,11 +1,11 @@
 package run.ratchet.store.mysql;
 
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.util.UUID;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 
 final class MysqlBusinessKeyReservations {
 

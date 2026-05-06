@@ -3,14 +3,6 @@ package run.ratchet.testsuite.resource;
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.api.JobHandle;
-import run.ratchet.ri.core.ResourcePermitService;
-import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.testsuite.app.ResourceTestJob;
-import run.ratchet.testsuite.app.TestJobService;
-import run.ratchet.testsuite.util.BaseRatchetIT;
-import run.ratchet.testsuite.util.JobAssertions;
-import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 import jakarta.inject.Inject;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -19,6 +11,14 @@ import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobHandle;
+import run.ratchet.ri.core.ResourcePermitService;
+import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.testsuite.app.ResourceTestJob;
+import run.ratchet.testsuite.app.TestJobService;
+import run.ratchet.testsuite.util.BaseRatchetIT;
+import run.ratchet.testsuite.util.JobAssertions;
+import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /** Validates resource permit concurrency limiting for jobs tagged with a shared resource. */
 class ResourcePermitIT extends BaseRatchetIT {

@@ -1,11 +1,11 @@
 package run.ratchet.api.event;
 
-import run.ratchet.api.JobPriority;
-import run.ratchet.api.JobType;
 import java.io.Serial;
 import java.io.Serializable;
 import java.time.Instant;
 import java.util.UUID;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobType;
 
 public abstract class AbstractJobSchedulerEvent implements Serializable {
 

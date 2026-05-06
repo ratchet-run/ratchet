@@ -1,6 +1,5 @@
 package run.ratchet.ri.cdi;
 
-import run.ratchet.spi.ExecutorProvider;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Alternative;
@@ -10,6 +9,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import run.ratchet.spi.ExecutorProvider;
 
 /**
  * Opt-in unmanaged executor provider for plain CDI, demos, and tests.

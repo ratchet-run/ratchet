@@ -6,9 +6,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import run.ratchet.api.JobPriority;
-import run.ratchet.spi.ClusterCoordinator;
-import run.ratchet.spi.MetricsCollector;
 import jakarta.enterprise.inject.Instance;
 import jakarta.transaction.Status;
 import jakarta.transaction.Synchronization;
@@ -21,6 +18,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.api.JobPriority;
+import run.ratchet.spi.ClusterCoordinator;
+import run.ratchet.spi.MetricsCollector;
 
 @ExtendWith(MockitoExtension.class)
 class JobWakeupServiceTest {

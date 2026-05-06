@@ -3,16 +3,16 @@ package run.ratchet.store.mongodb;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
-import run.ratchet.api.JobPriority;
-import run.ratchet.api.RatchetOptions;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.RatchetOptions;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 
 /**
  * Pins exact effective-priority ordering even when the pending backlog is larger than the former

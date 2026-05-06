@@ -1,9 +1,9 @@
 package run.ratchet.ri.security;
 
-import run.ratchet.api.exception.JobAuthorizationException;
-import run.ratchet.spi.JobAuthorizationPolicy;
 import jakarta.enterprise.context.ApplicationScoped;
 import java.util.UUID;
+import run.ratchet.api.exception.JobAuthorizationException;
+import run.ratchet.spi.JobAuthorizationPolicy;
 
 /**
  * Default {@link JobAuthorizationPolicy} that permits every operation. Provides full

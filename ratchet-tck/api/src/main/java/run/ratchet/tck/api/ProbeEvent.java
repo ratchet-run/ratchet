@@ -9,9 +9,9 @@ import java.util.Objects;
  *
  * <p>Probes translate scheduler events into {@code ProbeEvent}s so contracts can assert on
  * lifecycle ordering without coupling to {@code ratchet-api}'s event hierarchy. The event types
- * here are intentionally narrower than the full set in {@code run.ratchet.api.event}; a
- * contract that needs a richer signal can use the dedicated {@code await*} or {@code
- * invocationCount} methods on the probe.
+ * here are intentionally narrower than the full set in {@code run.ratchet.api.event}; a contract
+ * that needs a richer signal can use the dedicated {@code await*} or {@code invocationCount}
+ * methods on the probe.
  */
 public final class ProbeEvent {
 

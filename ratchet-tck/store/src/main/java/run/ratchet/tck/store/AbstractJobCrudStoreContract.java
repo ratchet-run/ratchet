@@ -6,15 +6,15 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.api.JobStatus;
-import run.ratchet.tck.util.ConcurrentTestRunner;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobStatus;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.tck.util.ConcurrentTestRunner;
 
 /** Base contract tests for {@code JobCrudStore}. */
 public abstract class AbstractJobCrudStoreContract implements JobStoreContractFixture {

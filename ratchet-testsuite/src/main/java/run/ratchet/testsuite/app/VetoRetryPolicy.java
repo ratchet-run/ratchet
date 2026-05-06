@@ -1,11 +1,11 @@
 package run.ratchet.testsuite.app;
 
-import run.ratchet.spi.RetryPolicy;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Alternative;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicInteger;
+import run.ratchet.spi.RetryPolicy;
 
 @Alternative
 @Priority(1)

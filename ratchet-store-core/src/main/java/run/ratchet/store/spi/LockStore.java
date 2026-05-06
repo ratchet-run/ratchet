@@ -1,7 +1,7 @@
 package run.ratchet.store.spi;
 
-import run.ratchet.api.Incubating;
 import java.time.Duration;
+import run.ratchet.api.Incubating;
 
 /**
  * Expiring store-backed lease operations for cluster-wide coordination.

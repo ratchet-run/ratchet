@@ -1,11 +1,11 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.api.JobContext;
-import run.ratchet.spi.JobLogger;
 import java.io.Serializable;
 import java.util.Map;
 import java.util.UUID;
 import org.jboss.logging.MDC;
+import run.ratchet.api.JobContext;
+import run.ratchet.spi.JobLogger;
 
 /**
  * Binds the per-thread {@link JobContext} for job execution and populates JBoss Logging {@link MDC}

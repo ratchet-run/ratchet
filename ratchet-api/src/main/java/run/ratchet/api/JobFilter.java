@@ -52,9 +52,9 @@ public record JobFilter(
 
   /**
    * Returns a {@link Builder} pre-populated with every field of this filter. Safe to use in {@link
-   * run.ratchet.spi.JobAuthorizationPolicy#filterForPrincipal} implementations so that
-   * injecting a single field (e.g. {@code callerPrincipal}) does not silently discard the caller's
-   * original filter criteria:
+   * run.ratchet.spi.JobAuthorizationPolicy#filterForPrincipal} implementations so that injecting a
+   * single field (e.g. {@code callerPrincipal}) does not silently discard the caller's original
+   * filter criteria:
    *
    * <pre>{@code
    * return filter.toBuilder().callerPrincipal(principal).build();

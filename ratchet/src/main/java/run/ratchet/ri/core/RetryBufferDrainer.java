@@ -1,9 +1,5 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.api.RatchetOptions;
-import run.ratchet.ri.core.RetryBufferManager.BufferedClaim;
-import run.ratchet.spi.ExecutorProvider;
-import run.ratchet.store.entity.JobExecutionType;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.List;
@@ -11,6 +7,10 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.jboss.logging.Logger;
+import run.ratchet.api.RatchetOptions;
+import run.ratchet.ri.core.RetryBufferManager.BufferedClaim;
+import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.store.entity.JobExecutionType;
 
 /**
  * Periodically drains retry buffers by resubmitting jobs when executor capacity becomes available.

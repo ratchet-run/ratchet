@@ -1,5 +1,17 @@
 package run.ratchet.store.mysql;
 
+import jakarta.annotation.PostConstruct;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
+import jakarta.persistence.EntityManager;
+import jakarta.transaction.Transactional;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
@@ -20,18 +32,6 @@ import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.RatchetEntityManagerProvider;
 import run.ratchet.store.util.IsolationCheck;
-import jakarta.annotation.PostConstruct;
-import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.inject.Inject;
-import jakarta.persistence.EntityManager;
-import jakarta.transaction.Transactional;
-import java.time.Duration;
-import java.time.Instant;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
-import java.util.UUID;
 
 /**
  * Package-private MySQL CDI implementation behind the public {@link MysqlJobStore} type.
@@ -667,8 +667,7 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   }
 
   @Override
-  public List<JobEntity> searchJobs(
-      run.ratchet.api.JobFilter filter, int limit, int offset) {
+  public List<JobEntity> searchJobs(run.ratchet.api.JobFilter filter, int limit, int offset) {
     return query.searchJobs(filter, limit, offset);
   }
 

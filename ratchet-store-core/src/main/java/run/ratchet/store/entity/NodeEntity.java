@@ -1,6 +1,5 @@
 package run.ratchet.store.entity;
 
-import run.ratchet.store.converter.JsonObjectMapConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -10,6 +9,7 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
+import run.ratchet.store.converter.JsonObjectMapConverter;
 
 /** Active scheduler node in the distributed cluster. */
 @Entity

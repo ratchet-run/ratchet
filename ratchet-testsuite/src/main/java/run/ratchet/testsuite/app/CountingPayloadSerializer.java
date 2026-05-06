@@ -1,12 +1,12 @@
 package run.ratchet.testsuite.app;
 
-import run.ratchet.spi.PayloadSerializer;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Alternative;
 import jakarta.json.bind.Jsonb;
 import jakarta.json.bind.JsonbBuilder;
 import java.util.concurrent.atomic.AtomicInteger;
+import run.ratchet.spi.PayloadSerializer;
 
 /**
  * CDI {@link Alternative} {@link PayloadSerializer} that counts every framework invocation and

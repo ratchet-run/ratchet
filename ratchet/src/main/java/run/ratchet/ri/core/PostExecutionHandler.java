@@ -1,10 +1,10 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.store.entity.JobEntity;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.transaction.Transactional.TxType;
+import run.ratchet.store.entity.JobEntity;
 
 /**
  * Routes post-execution lifecycle events (batch progress, workflow scheduling, DLQ) on behalf of

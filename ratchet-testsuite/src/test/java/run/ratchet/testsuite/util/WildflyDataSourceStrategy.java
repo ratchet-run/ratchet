@@ -1,7 +1,7 @@
 package run.ratchet.testsuite.util;
 
-import run.ratchet.testsuite.infra.JdbcDatabaseConfig;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
+import run.ratchet.testsuite.infra.JdbcDatabaseConfig;
 
 /**
  * WildFly-specific datasource configuration strategy.

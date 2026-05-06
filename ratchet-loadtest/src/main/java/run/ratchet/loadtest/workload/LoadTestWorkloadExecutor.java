@@ -1,12 +1,12 @@
 package run.ratchet.loadtest.workload;
 
-import run.ratchet.loadtest.metrics.PrometheusRegistryProducer;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.Random;
+import run.ratchet.loadtest.metrics.PrometheusRegistryProducer;
 
 @ApplicationScoped
 public class LoadTestWorkloadExecutor {

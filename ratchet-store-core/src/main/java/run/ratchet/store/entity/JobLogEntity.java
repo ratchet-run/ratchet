@@ -1,7 +1,5 @@
 package run.ratchet.store.entity;
 
-import run.ratchet.store.converter.JsonObjectMapConverter;
-import run.ratchet.store.id.UuidV7EntityListener;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -15,6 +13,8 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import run.ratchet.store.converter.JsonObjectMapConverter;
+import run.ratchet.store.id.UuidV7EntityListener;
 
 /** Immutable log entry for job execution events. */
 @Entity

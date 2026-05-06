@@ -1,5 +1,14 @@
 package run.ratchet.ri.core;
 
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
+import java.time.Instant;
+import java.util.EnumMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.stream.Collectors;
 import run.ratchet.api.ExecutionHistorySummary;
 import run.ratchet.api.JobDetail;
 import run.ratchet.api.JobFilter;
@@ -20,15 +29,6 @@ import run.ratchet.store.query.JobQueryCursor;
 import run.ratchet.store.spi.ExecutionStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobQueryStore;
-import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.inject.Inject;
-import java.time.Instant;
-import java.util.EnumMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.UUID;
-import java.util.stream.Collectors;
 
 /** Default {@link JobQueryService} implementation backed by the store SPI. */
 @ApplicationScoped

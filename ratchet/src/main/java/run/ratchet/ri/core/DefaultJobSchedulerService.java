@@ -1,5 +1,21 @@
 package run.ratchet.ri.core;
 
+import jakarta.annotation.Resource;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
+import jakarta.transaction.Status;
+import jakarta.transaction.Synchronization;
+import jakarta.transaction.TransactionSynchronizationRegistry;
+import jakarta.transaction.Transactional;
+import java.io.Serializable;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.util.Set;
+import java.util.UUID;
+import java.util.function.Consumer;
+import org.jboss.logging.Logger;
 import run.ratchet.api.BatchBuilder;
 import run.ratchet.api.JobBuilder;
 import run.ratchet.api.JobHandle;
@@ -29,22 +45,6 @@ import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.spi.SignalStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
-import jakarta.annotation.Resource;
-import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.inject.Inject;
-import jakarta.transaction.Status;
-import jakarta.transaction.Synchronization;
-import jakarta.transaction.TransactionSynchronizationRegistry;
-import jakarta.transaction.Transactional;
-import java.io.Serializable;
-import java.time.Clock;
-import java.time.Duration;
-import java.time.Instant;
-import java.time.ZoneId;
-import java.util.Set;
-import java.util.UUID;
-import java.util.function.Consumer;
-import org.jboss.logging.Logger;
 
 /** Core scheduling API implementation. Delegates builder persistence to a CDI-managed service. */
 @ApplicationScoped
@@ -323,9 +323,9 @@ public class DefaultJobSchedulerService
    * Publishes a {@link JobCancelledEvent} for a job that was cancelled outside the executor (i.e.,
    * from PENDING or PAUSED state). The RUNNING path publishes its own event from within {@code
    * JobTask} when the running task observes the status flip; we skip publication there to avoid
-   * duplicate events. Uses the pre-CAS entity snapshot to populate businessKey / jobType / priority /
-   * nodeId on the event so downstream observers (audit logs, monitoring) see the same shape they get
-   * for running-cancellations.
+   * duplicate events. Uses the pre-CAS entity snapshot to populate businessKey / jobType / priority
+   * / nodeId on the event so downstream observers (audit logs, monitoring) see the same shape they
+   * get for running-cancellations.
    */
   private void publishCancelledEvent(UUID jobId, JobStatus previousStatus, JobEntity job) {
     JobCancelledEvent event =
@@ -590,11 +590,6 @@ public class DefaultJobSchedulerService
   @Override
   public JobBuilder enqueue(SerializableCheckedRunnable task) {
     return DefaultJobBuilder.create(jobCreationService, task, Duration.ZERO);
-  }
-
-  @Override
-  public JobHandle enqueueNow(SerializableCheckedRunnable task) {
-    return DefaultJobBuilder.create(jobCreationService, task, Duration.ZERO).immediate().submit();
   }
 
   @Override

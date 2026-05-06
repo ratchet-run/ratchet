@@ -1,12 +1,12 @@
 package run.ratchet.ri.cdi;
 
-import run.ratchet.spi.PayloadSerializer;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.json.bind.Jsonb;
 import jakarta.json.bind.JsonbBuilder;
 import jakarta.json.bind.JsonbException;
+import run.ratchet.spi.PayloadSerializer;
 
 /**
  * Default {@link PayloadSerializer} backed by Jakarta JSON Binding (JSON-B).

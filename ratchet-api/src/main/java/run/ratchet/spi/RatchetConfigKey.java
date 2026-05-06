@@ -1,10 +1,10 @@
 package run.ratchet.spi;
 
-import run.ratchet.api.Incubating;
 import java.util.Objects;
 import java.util.function.Function;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import run.ratchet.api.Incubating;
 
 /**
  * Typed configuration key used by {@link RatchetConfig}.

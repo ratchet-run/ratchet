@@ -1,8 +1,8 @@
 package run.ratchet.tck.jakarta;
 
-import run.ratchet.tck.util.AbstractConformanceReportExtension;
 import java.nio.file.Path;
 import java.util.List;
+import run.ratchet.tck.util.AbstractConformanceReportExtension;
 
 /**
  * Jakarta-Runtime-tier conformance report listener. Writes {@code

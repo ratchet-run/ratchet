@@ -1,6 +1,5 @@
 package run.ratchet.testsuite.app;
 
-import run.ratchet.store.spi.RatchetEntityManagerProvider;
 import jakarta.annotation.PreDestroy;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -17,6 +16,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.naming.InitialContext;
 import javax.naming.NamingException;
+import run.ratchet.store.spi.RatchetEntityManagerProvider;
 
 /**
  * Test deployment override for store modules' unnamed persistence-context providers.

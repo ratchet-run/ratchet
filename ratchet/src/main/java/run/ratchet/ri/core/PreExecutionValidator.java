@@ -1,8 +1,8 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.store.entity.JobPayload;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import run.ratchet.store.entity.JobPayload;
 
 @ApplicationScoped
 public class PreExecutionValidator {

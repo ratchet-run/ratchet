@@ -2,16 +2,6 @@ package run.ratchet.store.mongodb;
 
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoDatabase;
-import run.ratchet.api.BackoffPolicy;
-import run.ratchet.api.JobPriority;
-import run.ratchet.api.RatchetOptions;
-import run.ratchet.api.exception.RatchetOptimisticLockException;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.entity.JobPayload;
-import run.ratchet.api.JobStatus;
-import run.ratchet.store.spi.JobStore;
-import run.ratchet.tck.store.JobStoreContractFixture;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -20,6 +10,16 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.testcontainers.containers.MongoDBContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
+import run.ratchet.api.BackoffPolicy;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobStatus;
+import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.exception.RatchetOptimisticLockException;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.entity.JobPayload;
+import run.ratchet.store.spi.JobStore;
+import run.ratchet.tck.store.JobStoreContractFixture;
 
 /** Shared Testcontainers-based fixture for MongoDB TCK tests. */
 public class MongoTestFixture implements JobStoreContractFixture {

@@ -1,9 +1,5 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.api.JobPriority;
-import run.ratchet.spi.ClusterCoordinator;
-import run.ratchet.spi.MetricsCollector;
-import run.ratchet.store.entity.JobExecutionType;
 import jakarta.annotation.Resource;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
@@ -13,6 +9,10 @@ import jakarta.transaction.Synchronization;
 import jakarta.transaction.TransactionSynchronizationRegistry;
 import java.time.Duration;
 import org.jboss.logging.Logger;
+import run.ratchet.api.JobPriority;
+import run.ratchet.spi.ClusterCoordinator;
+import run.ratchet.spi.MetricsCollector;
+import run.ratchet.store.entity.JobExecutionType;
 
 /**
  * Publishes cluster-wide wakeup notifications when jobs requiring immediate processing are created.

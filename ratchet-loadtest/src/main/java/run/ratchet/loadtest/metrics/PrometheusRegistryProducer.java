@@ -1,6 +1,5 @@
 package run.ratchet.loadtest.metrics;
 
-import run.ratchet.micrometer.MicrometerMeterRegistryProducer;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.config.MeterFilter;
@@ -12,6 +11,7 @@ import jakarta.enterprise.context.Dependent;
 import jakarta.enterprise.inject.Default;
 import jakarta.enterprise.inject.Produces;
 import jakarta.enterprise.inject.Specializes;
+import run.ratchet.micrometer.MicrometerMeterRegistryProducer;
 
 @ApplicationScoped
 @Specializes

@@ -10,8 +10,6 @@ import static run.ratchet.store.mongodb.MongoFieldNames.TAGS;
 
 import com.mongodb.client.model.FindOneAndUpdateOptions;
 import com.mongodb.client.model.ReturnDocument;
-import run.ratchet.api.JobStatus;
-import run.ratchet.store.spi.TagStore;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
@@ -19,6 +17,8 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
 import org.bson.Document;
+import run.ratchet.api.JobStatus;
+import run.ratchet.store.spi.TagStore;
 
 /**
  * Tag operations. Thin because tags are embedded directly in the job document as a BSON array

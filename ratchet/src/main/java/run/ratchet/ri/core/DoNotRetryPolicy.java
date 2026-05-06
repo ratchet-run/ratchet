@@ -1,9 +1,9 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.api.DoNotRetry;
 import jakarta.enterprise.context.ApplicationScoped;
 import java.util.Set;
 import org.jboss.logging.Logger;
+import run.ratchet.api.DoNotRetry;
 
 /**
  * Determines whether a failed job should be retried based on its exception type. Checks a built-in

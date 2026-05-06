@@ -20,8 +20,8 @@ import run.ratchet.api.SerializablePredicate;
  *
  * <p><b>Security contract:</b> implementations MUST reject classes not explicitly allowlisted or
  * admitted by {@link ClassPolicy#isAllowed(String)}. Implementations MUST NOT hardcode vendor
- * package prefixes (including {@code run.ratchet}); vendor-package allowlisting MUST flow
- * through {@link ClassPolicy}. Implementations MUST apply stream-level limits (depth, array length,
+ * package prefixes (including {@code run.ratchet}); vendor-package allowlisting MUST flow through
+ * {@link ClassPolicy}. Implementations MUST apply stream-level limits (depth, array length,
  * reference count, stream bytes) sufficient to block resource-exhaustion attacks.
  *
  * <p><b>Default implementation:</b> the reference implementation provides a default bean with an

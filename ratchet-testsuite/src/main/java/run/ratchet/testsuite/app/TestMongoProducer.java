@@ -2,10 +2,10 @@ package run.ratchet.testsuite.app;
 
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoDatabase;
-import run.ratchet.store.mongodb.MongoClientFactory;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Produces;
+import run.ratchet.store.mongodb.MongoClientFactory;
 
 /** Produces MongoDB test handles from MongoContainerExtension system properties. */
 @ApplicationScoped

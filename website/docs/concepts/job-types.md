@@ -15,7 +15,7 @@ The `JobType` enum appears in events, SPIs, and monitoring. It represents the us
 | Type | Description | Created By |
 |------|-------------|------------|
 | `SINGLE` | One-time execution at a scheduled time | `enqueue()`, `schedule()` |
-| `RECURRING` | Automatically rescheduled on a cron expression | `recurring()`, `@Recurring` |
+| `RECURRING` | Automatically rescheduled on a cron expression | `scheduleRecurring()`, `@Recurring` |
 | `BATCH` | Coordinated parallel execution of many items | `enqueueBatch()`, `streamingBatch()` |
 | `CHAIN` | Sequential multi-step pipeline | `then()` on JobBuilder |
 | `WORKFLOW` | Conditional branching based on job results | `thenOnSuccess()`, `when()`, `branch()` |

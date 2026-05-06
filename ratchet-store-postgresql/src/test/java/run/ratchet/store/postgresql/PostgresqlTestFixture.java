@@ -1,14 +1,14 @@
 package run.ratchet.store.postgresql;
 
+import jakarta.persistence.EntityManager;
+import java.util.Map;
+import org.testcontainers.containers.JdbcDatabaseContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.tck.store.JpaContainerFixture;
-import jakarta.persistence.EntityManager;
-import java.util.Map;
-import org.testcontainers.containers.JdbcDatabaseContainer;
-import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
  * Shared Testcontainers + Hibernate fixture for PostgreSQL TCK tests.

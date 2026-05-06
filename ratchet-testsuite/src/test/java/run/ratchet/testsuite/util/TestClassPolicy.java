@@ -1,11 +1,11 @@
 package run.ratchet.testsuite.util;
 
-import run.ratchet.ri.security.PackagePrefixClassPolicy;
-import run.ratchet.spi.ClassPolicy;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Alternative;
 import java.util.Set;
+import run.ratchet.ri.security.PackagePrefixClassPolicy;
+import run.ratchet.spi.ClassPolicy;
 
 /**
  * Test-scoped {@link ClassPolicy} that allows all Ratchet classes to be executed as job targets.

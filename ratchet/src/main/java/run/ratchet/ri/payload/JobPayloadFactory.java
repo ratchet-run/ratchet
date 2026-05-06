@@ -1,8 +1,5 @@
 package run.ratchet.ri.payload;
 
-import run.ratchet.ri.payload.AsmLambdaAnalyzer.InvocationStep;
-import run.ratchet.spi.JobInvocation;
-import run.ratchet.store.entity.JobPayload;
 import java.io.Serializable;
 import java.lang.invoke.SerializedLambda;
 import java.lang.reflect.Method;
@@ -13,6 +10,9 @@ import java.util.List;
 import java.util.Objects;
 import org.jboss.logging.Logger;
 import org.objectweb.asm.Type;
+import run.ratchet.ri.payload.AsmLambdaAnalyzer.InvocationStep;
+import run.ratchet.spi.JobInvocation;
+import run.ratchet.store.entity.JobPayload;
 
 /**
  * Creates {@link JobPayload} instances from lambda expressions by analyzing their bytecode.
@@ -27,8 +27,7 @@ public final class JobPayloadFactory {
   private static final Logger log = Logger.getLogger(JobPayloadFactory.class);
 
   private static final JobPayload NOOP =
-      new JobPayload(
-          "run.ratchet.ri.util.JobPlaceholders", "noop", "()V", true, List.of());
+      new JobPayload("run.ratchet.ri.util.JobPlaceholders", "noop", "()V", true, List.of());
 
   /**
    * Maximum depth for unwrapping nested functional-interface adapter lambdas (e.g. a {@code

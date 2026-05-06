@@ -2,10 +2,6 @@ package run.ratchet.store.postgresql;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.api.JobPriority;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.id.UuidV7Factory;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -19,6 +15,10 @@ import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobPriority;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.id.UuidV7Factory;
 
 class PostgresqlExplainPlanCaptureIT {
 

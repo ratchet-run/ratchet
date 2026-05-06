@@ -1,7 +1,7 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.store.spi.JobCrudStore;
 import org.jboss.logging.Logger;
+import run.ratchet.store.spi.JobCrudStore;
 
 /**
  * Adaptive heartbeat and polling interval calculator. Heartbeat interval = Base x Node-Factor x

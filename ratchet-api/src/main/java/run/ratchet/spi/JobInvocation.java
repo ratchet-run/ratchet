@@ -1,7 +1,7 @@
 package run.ratchet.spi;
 
-import run.ratchet.api.Incubating;
 import java.util.List;
+import run.ratchet.api.Incubating;
 
 /** Serializable description of the target method Ratchet should invoke for a job. */
 @Incubating

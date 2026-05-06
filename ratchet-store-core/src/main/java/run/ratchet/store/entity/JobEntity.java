@@ -1,12 +1,5 @@
 package run.ratchet.store.entity;
 
-import run.ratchet.api.BackoffPolicy;
-import run.ratchet.api.JobPriority;
-import run.ratchet.api.JobStatus;
-import run.ratchet.api.JobType;
-import run.ratchet.store.converter.JobPayloadConverter;
-import run.ratchet.store.converter.JsonMapConverter;
-import run.ratchet.store.id.UuidV7EntityListener;
 import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
@@ -29,6 +22,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import run.ratchet.api.BackoffPolicy;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobStatus;
+import run.ratchet.api.JobType;
+import run.ratchet.store.converter.JobPayloadConverter;
+import run.ratchet.store.converter.JsonMapConverter;
+import run.ratchet.store.id.UuidV7EntityListener;
 
 /** Persisted record of a scheduled task. @see JobStatus @see JobExecutionType */
 @Entity

@@ -1,10 +1,10 @@
 package run.ratchet.store.mysql;
 
-import run.ratchet.api.exception.RatchetTransientStoreException;
-import run.ratchet.spi.MetricsCollector;
 import jakarta.persistence.EntityManager;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.spi.MetricsCollector;
 
 final class MysqlStoreContext {
 

@@ -36,12 +36,6 @@ import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
 import com.mongodb.client.model.ReplaceOptions;
 import com.mongodb.client.result.DeleteResult;
 import com.mongodb.client.result.UpdateResult;
-import run.ratchet.api.JobPriority;
-import run.ratchet.api.exception.RatchetOptimisticLockException;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.api.JobStatus;
-import run.ratchet.store.id.UuidV7Factory;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -52,6 +46,12 @@ import java.util.UUID;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.jboss.logging.Logger;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobStatus;
+import run.ratchet.api.exception.RatchetOptimisticLockException;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.id.UuidV7Factory;
 
 /**
  * Core CRUD + read-side stats for the {@code scheduler_job} collection. The longest op class

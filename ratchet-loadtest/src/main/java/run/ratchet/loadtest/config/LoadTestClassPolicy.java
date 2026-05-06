@@ -1,10 +1,10 @@
 package run.ratchet.loadtest.config;
 
-import run.ratchet.ri.security.PackagePrefixClassPolicy;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Alternative;
 import java.util.Set;
+import run.ratchet.ri.security.PackagePrefixClassPolicy;
 
 @Alternative
 @Priority(2000)

@@ -1,5 +1,12 @@
 package run.ratchet.ri.core;
 
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+import java.util.function.Consumer;
+import java.util.stream.Stream;
+import org.jboss.logging.Logger;
 import run.ratchet.api.BatchContext;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.SerializableCheckedConsumer;
@@ -10,13 +17,6 @@ import run.ratchet.api.StreamingBatchBuilder;
 import run.ratchet.api.StreamingBatchContext;
 import run.ratchet.api.WorkflowBranch;
 import run.ratchet.api.WorkflowCondition;
-import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
-import java.util.function.Consumer;
-import java.util.stream.Stream;
-import org.jboss.logging.Logger;
 
 /** {@inheritDoc} */
 @SuppressWarnings("unchecked")

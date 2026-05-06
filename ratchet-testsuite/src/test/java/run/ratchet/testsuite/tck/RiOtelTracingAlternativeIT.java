@@ -2,9 +2,6 @@ package run.ratchet.testsuite.tck;
 
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
-import run.ratchet.otel.OtelTracingCollector;
-import run.ratchet.spi.TracingCollector;
-import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 import jakarta.inject.Inject;
 import java.io.File;
 import org.jboss.arquillian.container.test.api.Deployment;
@@ -13,6 +10,9 @@ import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.jboss.shrinkwrap.resolver.api.maven.Maven;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import run.ratchet.otel.OtelTracingCollector;
+import run.ratchet.spi.TracingCollector;
+import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /**
  * Verifies that {@link OtelTracingCollector} is selected over {@link

@@ -1,8 +1,8 @@
 package run.ratchet.ri.cdi;
 
-import run.ratchet.api.JobContext;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import run.ratchet.api.JobContext;
 
 /**
  * Validates method signatures for {@code @Recurring} annotation compatibility.

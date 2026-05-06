@@ -1,10 +1,10 @@
 package run.ratchet.api.event;
 
-import run.ratchet.api.JobPriority;
-import run.ratchet.api.JobType;
 import java.io.Serial;
 import java.time.Instant;
 import java.util.UUID;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobType;
 
 /** Fired when a lifecycle callback ({@code onSuccess} / {@code onFailure}) throws an exception. */
 public class JobCallbackFailedEvent extends AbstractJobSchedulerEvent {

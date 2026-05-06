@@ -1,11 +1,11 @@
 package run.ratchet.store.mysql;
 
-import run.ratchet.tck.store.AbstractSchemaConformanceContract;
-import run.ratchet.tck.store.schema.DialectTypeMapper;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import org.testcontainers.mysql.MySQLContainer;
+import run.ratchet.tck.store.AbstractSchemaConformanceContract;
+import run.ratchet.tck.store.schema.DialectTypeMapper;
 
 /**
  * MySQL conformance test for the canonical Ratchet schema. Owns its own Testcontainer so the

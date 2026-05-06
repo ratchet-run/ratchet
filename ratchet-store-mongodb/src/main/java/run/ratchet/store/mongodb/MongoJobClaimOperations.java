@@ -22,11 +22,6 @@ import com.mongodb.bulk.BulkWriteError;
 import com.mongodb.bulk.BulkWriteResult;
 import com.mongodb.client.model.BulkWriteOptions;
 import com.mongodb.client.model.UpdateOneModel;
-import run.ratchet.api.JobPriority;
-import run.ratchet.api.NodeTagFilter;
-import run.ratchet.store.dto.JobClaimDto;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
@@ -38,6 +33,11 @@ import java.util.function.Function;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.jboss.logging.Logger;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.NodeTagFilter;
+import run.ratchet.store.dto.JobClaimDto;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 
 /**
  * Claim pipeline: candidate planning via {@code $match → $project → $sort → $limit} with index
@@ -153,8 +153,8 @@ final class MongoJobClaimOperations {
    * share candidate IDs. The read-back filter is {@code _id $in ids AND picked_by = node AND status
    * = RUNNING}; if two threads on the same node have overlapping {@code ids}, the read-back cannot
    * tell whose claim won and may double-return a document. Current callers ({@link
-   * run.ratchet.ri.core.Poller} sequentially per disjoint job type, and the recurring
-   * executor on a disjoint type) honor this invariant.
+   * run.ratchet.ri.core.Poller} sequentially per disjoint job type, and the recurring executor on a
+   * disjoint type) honor this invariant.
    *
    * <p>Documents transitioned away by another process (e.g., orphan recovery flipping
    * RUNNING→PENDING) between the bulk write and the read-back are dropped from the result — orphan

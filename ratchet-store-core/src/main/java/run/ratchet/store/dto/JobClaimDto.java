@@ -1,12 +1,12 @@
 package run.ratchet.store.dto;
 
-import run.ratchet.api.JobPriority;
-import run.ratchet.api.JobType;
-import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.api.JobStatus;
 import java.io.Serializable;
 import java.time.Instant;
 import java.util.UUID;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobStatus;
+import run.ratchet.api.JobType;
+import run.ratchet.store.entity.JobExecutionType;
 
 /**
  * Lightweight DTO for job claiming operations.

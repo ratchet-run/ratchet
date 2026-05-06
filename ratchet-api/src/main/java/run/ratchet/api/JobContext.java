@@ -1,10 +1,10 @@
 package run.ratchet.api;
 
-import run.ratchet.spi.JobLogger;
 import java.io.Serializable;
 import java.util.Collections;
 import java.util.Map;
 import java.util.UUID;
+import run.ratchet.spi.JobLogger;
 
 /** Thread-local context for the executing job. */
 public final class JobContext {

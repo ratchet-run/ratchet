@@ -1,8 +1,8 @@
 package run.ratchet.tck.api;
 
-import run.ratchet.api.JobHandle;
 import java.time.Duration;
 import java.util.List;
+import run.ratchet.api.JobHandle;
 
 /**
  * Observation surface for TCK contracts. Translates scheduler events into {@link ProbeEvent}s keyed

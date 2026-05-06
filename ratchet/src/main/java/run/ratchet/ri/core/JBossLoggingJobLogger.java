@@ -1,13 +1,13 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.spi.JobLogger;
-import run.ratchet.store.entity.JobLogEntity.LogLevel;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import org.jboss.logging.Logger;
 import org.jboss.logging.MDC;
+import run.ratchet.spi.JobLogger;
+import run.ratchet.store.entity.JobLogEntity.LogLevel;
 
 /**
  * Per-job {@link JobLogger} backed by JBoss Logging, with log lines published through {@link

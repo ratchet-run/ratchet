@@ -1,10 +1,5 @@
 package run.ratchet.store.entity;
 
-import run.ratchet.api.BackoffPolicy;
-import run.ratchet.api.JobPriority;
-import run.ratchet.api.JobStatus;
-import run.ratchet.api.JobType;
-import run.ratchet.store.id.UuidV7EntityListener;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
@@ -17,6 +12,11 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
+import run.ratchet.api.BackoffPolicy;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobStatus;
+import run.ratchet.api.JobType;
+import run.ratchet.store.id.UuidV7EntityListener;
 
 /**
  * Archived job for audit trails and analytics after reaching a terminal state.

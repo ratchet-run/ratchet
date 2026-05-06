@@ -1,14 +1,14 @@
 package run.ratchet.store.mysql;
 
+import jakarta.persistence.EntityManager;
+import java.util.Map;
+import org.testcontainers.containers.JdbcDatabaseContainer;
+import org.testcontainers.mysql.MySQLContainer;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.RatchetOptimisticLockException;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.tck.store.JpaContainerFixture;
-import jakarta.persistence.EntityManager;
-import java.util.Map;
-import org.testcontainers.containers.JdbcDatabaseContainer;
-import org.testcontainers.mysql.MySQLContainer;
 
 /** Shared Testcontainers + Hibernate fixture for MySQL TCK tests. */
 public class MysqlTestFixture extends JpaContainerFixture {

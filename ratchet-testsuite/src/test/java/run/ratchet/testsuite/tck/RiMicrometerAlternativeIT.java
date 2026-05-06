@@ -2,13 +2,6 @@ package run.ratchet.testsuite.tck;
 
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
-import run.ratchet.micrometer.MicrometerMetricsCollector;
-import run.ratchet.spi.MetricsCollector;
-import run.ratchet.tck.api.RatchetTckRuntime;
-import run.ratchet.tck.api.TckJobs;
-import run.ratchet.tck.jakarta.AbstractTxEnqueueContract;
-import run.ratchet.tck.util.ConcurrentTestRunner;
-import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 import jakarta.inject.Inject;
 import java.io.File;
 import org.jboss.arquillian.container.test.api.Deployment;
@@ -17,11 +10,18 @@ import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.jboss.shrinkwrap.resolver.api.maven.Maven;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import run.ratchet.micrometer.MicrometerMetricsCollector;
+import run.ratchet.spi.MetricsCollector;
+import run.ratchet.tck.api.RatchetTckRuntime;
+import run.ratchet.tck.api.TckJobs;
+import run.ratchet.tck.jakarta.AbstractTxEnqueueContract;
+import run.ratchet.tck.util.ConcurrentTestRunner;
+import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /**
  * Verifies that {@link MicrometerMetricsCollector} is selected over {@link
- * run.ratchet.ri.cdi.NoOpMetricsCollector} when {@code ratchet-micrometer} is on the
- * deployment classpath.
+ * run.ratchet.ri.cdi.NoOpMetricsCollector} when {@code ratchet-micrometer} is on the deployment
+ * classpath.
  *
  * <p>{@code MicrometerMetricsCollector} is annotated {@code @Alternative @Priority(1000)}, which
  * globally enables it per CDI 2.0+ spec without requiring a {@code beans.xml} entry. This test

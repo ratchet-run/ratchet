@@ -1,11 +1,11 @@
 package run.ratchet.ri.cdi;
 
-import run.ratchet.spi.BeanResolver;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.Dependent;
 import jakarta.enterprise.inject.Any;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
+import run.ratchet.spi.BeanResolver;
 
 /**
  * Resolves CDI beans by type via {@link Instance}. Throws {@link IllegalStateException} if no bean

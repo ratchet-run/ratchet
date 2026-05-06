@@ -4,9 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import org.junit.jupiter.api.Test;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.store.entity.JobExecutionType;
-import org.junit.jupiter.api.Test;
 
 class JobTypeRateLimiterTest {
 

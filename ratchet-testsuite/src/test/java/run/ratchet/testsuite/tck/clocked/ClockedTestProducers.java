@@ -1,7 +1,5 @@
 package run.ratchet.testsuite.tck.clocked;
 
-import run.ratchet.tck.api.SteppingTestClock;
-import run.ratchet.tck.api.TestClock;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.Dependent;
@@ -9,6 +7,8 @@ import jakarta.enterprise.inject.Alternative;
 import jakarta.enterprise.inject.Produces;
 import jakarta.interceptor.Interceptor;
 import java.time.Clock;
+import run.ratchet.tck.api.SteppingTestClock;
+import run.ratchet.tck.api.TestClock;
 
 /**
  * CDI producers that override the production {@link Clock} (from {@code RatchetProducer}) with a

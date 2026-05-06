@@ -3,14 +3,14 @@ package run.ratchet.tck.store;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.api.JobStatus;
-import run.ratchet.store.id.UuidV7Factory;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobStatus;
+import run.ratchet.store.id.UuidV7Factory;
 
 /** Base contract tests for {@code JobBulkStore}. */
 public abstract class AbstractJobBulkStoreContract implements JobStoreContractFixture {

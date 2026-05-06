@@ -3,11 +3,11 @@ package run.ratchet.tck.api;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.api.BackoffPolicy;
-import run.ratchet.api.JobHandle;
 import java.time.Duration;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.BackoffPolicy;
+import run.ratchet.api.JobHandle;
 
 /**
  * Base contract for retry semantics on {@link run.ratchet.api.JobBuilder#withMaxRetries

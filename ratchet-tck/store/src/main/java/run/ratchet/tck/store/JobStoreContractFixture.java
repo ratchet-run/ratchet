@@ -1,11 +1,11 @@
 package run.ratchet.tck.store;
 
-import run.ratchet.store.entity.BatchEntity;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.spi.JobStore;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.UUID;
+import run.ratchet.store.entity.BatchEntity;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.spi.JobStore;
 
 /**
  * Fixture contract implemented by concrete TCK suites.

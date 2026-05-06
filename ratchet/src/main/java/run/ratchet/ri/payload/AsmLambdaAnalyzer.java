@@ -1,7 +1,5 @@
 package run.ratchet.ri.payload;
 
-import run.ratchet.spi.LambdaAnalyzer;
-import run.ratchet.spi.LambdaDescriptor;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Serializable;
@@ -24,6 +22,8 @@ import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.TypeInsnNode;
 import org.objectweb.asm.tree.VarInsnNode;
+import run.ratchet.spi.LambdaAnalyzer;
+import run.ratchet.spi.LambdaDescriptor;
 
 /**
  * Bytecode analyzer that inspects Java lambda expressions to extract method invocation details. For

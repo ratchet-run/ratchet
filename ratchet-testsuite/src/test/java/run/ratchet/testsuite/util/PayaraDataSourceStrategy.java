@@ -1,9 +1,9 @@
 package run.ratchet.testsuite.util;
 
-import run.ratchet.testsuite.infra.JdbcDatabaseConfig;
 import org.jboss.shrinkwrap.api.asset.StringAsset;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.jboss.shrinkwrap.resolver.api.maven.Maven;
+import run.ratchet.testsuite.infra.JdbcDatabaseConfig;
 
 /**
  * Payara-specific datasource configuration strategy.

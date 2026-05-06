@@ -3,7 +3,6 @@ package run.ratchet.store.mongodb;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.store.entity.JobEntity;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -15,6 +14,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
+import run.ratchet.store.entity.JobEntity;
 
 class ConcurrentClaimIT extends BaseDocumentStoreIT {
 

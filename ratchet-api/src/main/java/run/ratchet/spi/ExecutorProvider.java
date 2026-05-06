@@ -1,8 +1,8 @@
 package run.ratchet.spi;
 
-import run.ratchet.api.Incubating;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
+import run.ratchet.api.Incubating;
 
 /** Supplies the thread pools used for job execution and scheduling. */
 @Incubating

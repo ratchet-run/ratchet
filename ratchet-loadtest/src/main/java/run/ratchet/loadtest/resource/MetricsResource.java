@@ -1,13 +1,13 @@
 package run.ratchet.loadtest.resource;
 
-import run.ratchet.loadtest.metrics.LoadTestMetricsBinder;
-import run.ratchet.loadtest.metrics.PrometheusRegistryProducer;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
+import run.ratchet.loadtest.metrics.LoadTestMetricsBinder;
+import run.ratchet.loadtest.metrics.PrometheusRegistryProducer;
 
 @Path("/metrics")
 @ApplicationScoped

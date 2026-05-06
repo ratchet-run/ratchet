@@ -1,8 +1,8 @@
 package run.ratchet.store.spi;
 
-import run.ratchet.api.Incubating;
 import java.time.Instant;
 import java.util.UUID;
+import run.ratchet.api.Incubating;
 
 /**
  * Terminal status transitions for jobs: success / failure / cancel.

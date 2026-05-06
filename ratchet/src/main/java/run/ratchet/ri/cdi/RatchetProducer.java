@@ -1,5 +1,17 @@
 package run.ratchet.ri.cdi;
 
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.context.Initialized;
+import jakarta.enterprise.event.Observes;
+import jakarta.enterprise.inject.Default;
+import jakarta.enterprise.inject.Instance;
+import jakarta.enterprise.inject.Produces;
+import jakarta.enterprise.inject.spi.DeploymentException;
+import jakarta.inject.Inject;
+import java.time.Clock;
+import java.util.EnumMap;
+import java.util.Map;
+import org.jboss.logging.Logger;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.ChainScheduler;
 import run.ratchet.ri.core.DefaultNodeIdentityProvider;
@@ -46,18 +58,6 @@ import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobRetryStore;
 import run.ratchet.store.spi.NodeStore;
 import run.ratchet.store.spi.SignalStore;
-import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.enterprise.context.Initialized;
-import jakarta.enterprise.event.Observes;
-import jakarta.enterprise.inject.Default;
-import jakarta.enterprise.inject.Instance;
-import jakarta.enterprise.inject.Produces;
-import jakarta.enterprise.inject.spi.DeploymentException;
-import jakarta.inject.Inject;
-import java.time.Clock;
-import java.util.EnumMap;
-import java.util.Map;
-import org.jboss.logging.Logger;
 
 /**
  * CDI producer for Ratchet beans that require configuration values mixed with injectable

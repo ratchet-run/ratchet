@@ -1,5 +1,12 @@
 package run.ratchet.testsuite.performance;
 
+import java.time.Instant;
+import java.util.List;
+import java.util.logging.Logger;
+import org.jboss.arquillian.container.test.api.Deployment;
+import org.jboss.shrinkwrap.api.spec.WebArchive;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.testsuite.app.ConfigurableWorkJob;
@@ -11,13 +18,6 @@ import run.ratchet.testsuite.util.PerformanceBaseline;
 import run.ratchet.testsuite.util.PerformanceReport;
 import run.ratchet.testsuite.util.PerformanceReportWriter;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
-import java.time.Instant;
-import java.util.List;
-import java.util.logging.Logger;
-import org.jboss.arquillian.container.test.api.Deployment;
-import org.jboss.shrinkwrap.api.spec.WebArchive;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Test;
 
 /**
  * Measures end-to-end throughput degradation as the scheduler_job table grows with completed rows.

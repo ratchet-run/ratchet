@@ -1,12 +1,12 @@
 package run.ratchet.testsuite.app;
 
-import run.ratchet.api.exception.JobAuthorizationException;
-import run.ratchet.spi.JobAuthorizationPolicy;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Alternative;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import run.ratchet.api.exception.JobAuthorizationException;
+import run.ratchet.spi.JobAuthorizationPolicy;
 
 /**
  * {@link JobAuthorizationPolicy} {@code @Alternative} that permits every operation and tracks

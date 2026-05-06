@@ -4,19 +4,18 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
-import run.ratchet.api.JobHandle;
-import run.ratchet.tck.api.RatchetTckRuntime;
-import run.ratchet.tck.api.TckJobs;
 import jakarta.inject.Inject;
 import jakarta.transaction.UserTransaction;
 import java.time.Duration;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobHandle;
+import run.ratchet.tck.api.RatchetTckRuntime;
+import run.ratchet.tck.api.TckJobs;
 
 /**
- * TCK contract: mutation operations on {@link run.ratchet.api.JobSchedulerService}
- * documented as transaction attribute {@code REQUIRED} MUST participate in the caller's JTA
- * transaction.
+ * TCK contract: mutation operations on {@link run.ratchet.api.JobSchedulerService} documented as
+ * transaction attribute {@code REQUIRED} MUST participate in the caller's JTA transaction.
  *
  * <ul>
  *   <li>When the surrounding transaction commits, the mutation MUST be durably visible.

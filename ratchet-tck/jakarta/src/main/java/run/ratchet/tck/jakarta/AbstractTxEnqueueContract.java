@@ -3,14 +3,14 @@ package run.ratchet.tck.jakarta;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.api.JobHandle;
-import run.ratchet.tck.api.RatchetTckRuntime;
-import run.ratchet.tck.api.TckJobs;
 import jakarta.inject.Inject;
 import jakarta.transaction.UserTransaction;
 import java.time.Duration;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobHandle;
+import run.ratchet.tck.api.RatchetTckRuntime;
+import run.ratchet.tck.api.TckJobs;
 
 /**
  * Base contract: a Jakarta-EE-compliant Ratchet runtime backed by a JTA-aware store MUST honor the

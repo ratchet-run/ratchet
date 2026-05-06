@@ -11,14 +11,6 @@ import static com.mongodb.client.model.Sorts.ascending;
 import static com.mongodb.client.model.Sorts.descending;
 import static com.mongodb.client.model.Sorts.orderBy;
 
-import run.ratchet.api.JobFilter;
-import run.ratchet.api.JobPriority;
-import run.ratchet.api.JobQuerySortField;
-import run.ratchet.api.JobStatus;
-import run.ratchet.api.JobType;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.query.JobQueryCursor;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -30,6 +22,14 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.bson.Document;
 import org.bson.conversions.Bson;
+import run.ratchet.api.JobFilter;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobQuerySortField;
+import run.ratchet.api.JobStatus;
+import run.ratchet.api.JobType;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.query.JobQueryCursor;
 
 /**
  * Dashboard-oriented search and count queries over the MongoDB job store.
@@ -133,7 +133,8 @@ final class MongoJobQueryOperations {
     appendStringEq(MongoFieldNames.CALLER_PRINCIPAL, filter.callerPrincipal(), conditions);
     appendStringEq(MongoFieldNames.PICKED_BY, filter.pickedBy(), conditions);
     appendStringEq(MongoFieldNames.RESOURCE_NAME, filter.resourceName(), conditions);
-    appendStringEq(MongoFieldNames.TRACE_CONTEXT + ".traceparent", filter.traceCorrelationId(), conditions);
+    appendStringEq(
+        MongoFieldNames.TRACE_CONTEXT + ".traceparent", filter.traceCorrelationId(), conditions);
     appendParentJobId(filter, conditions);
     appendTagCondition(filter, conditions);
     appendInstantGte(MongoFieldNames.CREATED_AT, filter.createdAfter(), conditions);
@@ -183,10 +184,12 @@ final class MongoJobQueryOperations {
       return;
     }
     // Archive only holds terminal statuses; filter to terminal subset
-    List<String> terminal = statuses.stream()
-        .filter(s -> s == JobStatus.SUCCEEDED || s == JobStatus.FAILED || s == JobStatus.CANCELED)
-        .map(JobStatus::name)
-        .collect(Collectors.toList());
+    List<String> terminal =
+        statuses.stream()
+            .filter(
+                s -> s == JobStatus.SUCCEEDED || s == JobStatus.FAILED || s == JobStatus.CANCELED)
+            .map(JobStatus::name)
+            .collect(Collectors.toList());
     if (terminal.isEmpty()) {
       conditions.add(eq("_impossible_field_", true));
       return;
@@ -288,9 +291,11 @@ final class MongoJobQueryOperations {
       Object sortVal = parseSortValue(c);
       // (field < sortVal) OR (field == sortVal AND _id > jobId)
       if (filter.sortAscending()) {
-        conditions.add(or(gt(field, sortVal), and(eq(field, sortVal), gt(MongoFieldNames.ID, c.jobId))));
+        conditions.add(
+            or(gt(field, sortVal), and(eq(field, sortVal), gt(MongoFieldNames.ID, c.jobId))));
       } else {
-        conditions.add(or(lt(field, sortVal), and(eq(field, sortVal), gt(MongoFieldNames.ID, c.jobId))));
+        conditions.add(
+            or(lt(field, sortVal), and(eq(field, sortVal), gt(MongoFieldNames.ID, c.jobId))));
       }
     } catch (IllegalArgumentException ignored) {
       // Malformed cursor — ignore
@@ -320,7 +325,8 @@ final class MongoJobQueryOperations {
 
   private static Bson buildArchiveSort(JobFilter filter) {
     if (filter == null) {
-      return orderBy(descending(MongoFieldNames.ORIGINAL_CREATED_AT), ascending(MongoFieldNames.ID));
+      return orderBy(
+          descending(MongoFieldNames.ORIGINAL_CREATED_AT), ascending(MongoFieldNames.ID));
     }
     JobQuerySortField field =
         filter.sortField() != null ? filter.sortField() : JobQuerySortField.CREATED_AT;
@@ -350,24 +356,36 @@ final class MongoJobQueryOperations {
   }
 
   private static Comparator<JobEntity> mergeComparator(JobFilter filter) {
-    JobQuerySortField field = (filter == null || filter.sortField() == null)
-        ? JobQuerySortField.CREATED_AT : filter.sortField();
+    JobQuerySortField field =
+        (filter == null || filter.sortField() == null)
+            ? JobQuerySortField.CREATED_AT
+            : filter.sortField();
     boolean asc = filter != null && filter.sortAscending();
 
-    Comparator<JobEntity> cmp = switch (field) {
-      case CREATED_AT -> Comparator.comparing(JobEntity::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder()));
-      case SCHEDULED_TIME -> Comparator.comparing(JobEntity::getScheduledTime, Comparator.nullsLast(Comparator.naturalOrder()));
-      case UPDATED_AT -> Comparator.comparing(JobEntity::getUpdatedAt, Comparator.nullsLast(Comparator.naturalOrder()));
-      case PRIORITY -> Comparator.comparing(e -> e.getPriority() != null ? e.getPriority().ordinal() : 0);
-      case STATUS -> Comparator.comparing(e -> e.getStatus() != null ? e.getStatus().name() : "");
-    };
+    Comparator<JobEntity> cmp =
+        switch (field) {
+          case CREATED_AT ->
+              Comparator.comparing(
+                  JobEntity::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder()));
+          case SCHEDULED_TIME ->
+              Comparator.comparing(
+                  JobEntity::getScheduledTime, Comparator.nullsLast(Comparator.naturalOrder()));
+          case UPDATED_AT ->
+              Comparator.comparing(
+                  JobEntity::getUpdatedAt, Comparator.nullsLast(Comparator.naturalOrder()));
+          case PRIORITY ->
+              Comparator.comparing(e -> e.getPriority() != null ? e.getPriority().ordinal() : 0);
+          case STATUS ->
+              Comparator.comparing(e -> e.getStatus() != null ? e.getStatus().name() : "");
+        };
 
     if (!asc) {
       cmp = cmp.reversed();
     }
     // UUID tiebreaker: UUIDv7 is monotonically increasing so natural UUID comparison is correct
     Comparator<JobEntity> finalCmp = cmp;
-    return finalCmp.thenComparing(JobEntity::getId, Comparator.nullsLast(Comparator.naturalOrder()));
+    return finalCmp.thenComparing(
+        JobEntity::getId, Comparator.nullsLast(Comparator.naturalOrder()));
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────────

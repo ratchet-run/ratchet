@@ -23,5 +23,11 @@ public interface RecurringJobBuilder {
    */
   RecurringJobBuilder withBusinessKey(String key);
 
+  /**
+   * Persists the recurring job and returns a handle to it.
+   *
+   * <p><b>Transaction attribute:</b> {@code REQUIRED}. Non-terminal builder methods are in-memory
+   * only and do not participate in a transaction.
+   */
   JobHandle submit();
 }

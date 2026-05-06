@@ -1,5 +1,9 @@
 package run.ratchet.testsuite.tck;
 
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
+import java.time.Duration;
+import java.util.Optional;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.JobExecutorService;
@@ -7,10 +11,6 @@ import run.ratchet.tck.api.RatchetTckProbe;
 import run.ratchet.tck.api.RatchetTckRuntime;
 import run.ratchet.tck.api.TestClock;
 import run.ratchet.testsuite.app.TestCleanupStrategy;
-import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.inject.Inject;
-import java.time.Duration;
-import java.util.Optional;
 
 /**
  * Reference-implementation bridge for the public-API TCK. Wires:
@@ -20,9 +20,9 @@ import java.util.Optional;
  *   <li>{@code probe()} → {@link ListenerProbe}, which subscribes via {@code
  *       addEventListener(Consumer&lt;Object&gt;)}.
  *   <li>{@code clock()} → {@link Optional#empty()}; the RI is wall-clock-driven today, so {@link
- *       run.ratchet.tck.api.AbstractDelayedSchedulingContract} skips via JUnit assumption.
- *       The RI subclass also carries an explicit {@code @Disabled} so the skip is visible in test
- *       reports rather than silently swallowed.
+ *       run.ratchet.tck.api.AbstractDelayedSchedulingContract} skips via JUnit assumption. The RI
+ *       subclass also carries an explicit {@code @Disabled} so the skip is visible in test reports
+ *       rather than silently swallowed.
  *   <li>{@code clear()} → drain-controller-pause + non-destructive {@link
  *       JobExecutorService#awaitIdle(Duration)} + store truncate via {@link TestCleanupStrategy} +
  *       probe reset + drain-controller-resume.

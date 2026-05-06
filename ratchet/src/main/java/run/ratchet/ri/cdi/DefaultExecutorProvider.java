@@ -1,11 +1,11 @@
 package run.ratchet.ri.cdi;
 
-import run.ratchet.spi.ExecutorProvider;
 import jakarta.enterprise.context.ApplicationScoped;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import javax.naming.InitialContext;
 import javax.naming.NamingException;
+import run.ratchet.spi.ExecutorProvider;
 
 /**
  * Default {@link ExecutorProvider} that delegates to the container's managed executor services.

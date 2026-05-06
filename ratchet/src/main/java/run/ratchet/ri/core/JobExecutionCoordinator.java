@@ -1,10 +1,10 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.store.dto.JobClaimDto;
-import run.ratchet.store.entity.JobEntity;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
+import run.ratchet.store.dto.JobClaimDto;
+import run.ratchet.store.entity.JobEntity;
 
 /** Coordinates job submission, retry-buffer draining, and shutdown reset. */
 @ApplicationScoped

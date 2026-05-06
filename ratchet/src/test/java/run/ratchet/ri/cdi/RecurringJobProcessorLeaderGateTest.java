@@ -8,18 +8,18 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import run.ratchet.api.JobSchedulerService;
-import run.ratchet.api.RatchetOptions;
-import run.ratchet.ri.core.RecurringAnnotationMaintenanceService;
-import run.ratchet.ri.core.RecurringRegistrationState;
-import run.ratchet.spi.StartupCoordinator;
-import run.ratchet.store.spi.JobBatchStatusStore;
 import jakarta.enterprise.inject.spi.BeanManager;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import run.ratchet.api.JobSchedulerService;
+import run.ratchet.api.RatchetOptions;
+import run.ratchet.ri.core.RecurringAnnotationMaintenanceService;
+import run.ratchet.ri.core.RecurringRegistrationState;
+import run.ratchet.spi.StartupCoordinator;
+import run.ratchet.store.spi.JobBatchStatusStore;
 
 // Verifies startup-lease-gated cleanup and convergence window in RecurringJobProcessor.
 class RecurringJobProcessorLeaderGateTest {

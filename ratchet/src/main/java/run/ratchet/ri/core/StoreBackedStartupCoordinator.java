@@ -1,12 +1,12 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.spi.NodeIdentityProvider;
-import run.ratchet.spi.StartupCoordinator;
-import run.ratchet.store.spi.LockStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.time.Duration;
 import java.util.Objects;
+import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.spi.StartupCoordinator;
+import run.ratchet.store.spi.LockStore;
 
 /** Default {@link StartupCoordinator} backed by the store's distributed lock/lease mechanism. */
 @ApplicationScoped

@@ -1,10 +1,10 @@
 package run.ratchet.api.event;
 
-import run.ratchet.api.JobPriority;
-import run.ratchet.api.JobType;
 import java.io.Serial;
 import java.time.Instant;
 import java.util.UUID;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobType;
 
 /** Fired when all steps in a job chain complete. */
 public class ChainCompletedEvent extends AbstractJobSchedulerEvent {

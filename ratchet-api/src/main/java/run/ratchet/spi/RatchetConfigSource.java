@@ -1,7 +1,7 @@
 package run.ratchet.spi;
 
-import run.ratchet.api.Incubating;
 import java.util.Optional;
+import run.ratchet.api.Incubating;
 
 /** Raw configuration source used by {@link RatchetConfig}. */
 @Incubating

@@ -1,14 +1,5 @@
 package run.ratchet.store.mysql;
 
-import run.ratchet.api.JobFilter;
-import run.ratchet.api.JobPriority;
-import run.ratchet.api.JobQuerySortField;
-import run.ratchet.api.JobStatus;
-import run.ratchet.api.JobType;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
-import run.ratchet.store.query.JobQueryCursor;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -19,6 +10,15 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import run.ratchet.api.JobFilter;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobQuerySortField;
+import run.ratchet.api.JobStatus;
+import run.ratchet.api.JobType;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
+import run.ratchet.store.query.JobQueryCursor;
 
 /**
  * Dashboard-oriented search and count queries over the MySQL hot/cold store.
@@ -28,14 +28,14 @@ import java.util.stream.Stream;
  * result set. WHERE clause conditions are built with a parameterized {@link StringBuilder}; no
  * user-supplied values are concatenated into SQL strings.
  *
- * <p>When {@link JobFilter#includeArchived()} is true and no principal filter is active,
- * a {@code UNION ALL} pulls matching rows from {@code scheduler_job_archive} into the same result
- * set. The archive projection maps its columns to the same positions as the live hydration SELECT
- * so that the existing row mapper reconstructs archived jobs correctly (with NULL queue fields).
- * Note: tag filtering and traceCorrelationId filtering are not applied to archived rows since those
- * columns are not present in the archive table. The caller-principal check is intentionally skipped
- * for archived rows — callers that require strict per-principal scoping should keep
- * {@code includeArchived=false} (the default).
+ * <p>When {@link JobFilter#includeArchived()} is true and no principal filter is active, a {@code
+ * UNION ALL} pulls matching rows from {@code scheduler_job_archive} into the same result set. The
+ * archive projection maps its columns to the same positions as the live hydration SELECT so that
+ * the existing row mapper reconstructs archived jobs correctly (with NULL queue fields). Note: tag
+ * filtering and traceCorrelationId filtering are not applied to archived rows since those columns
+ * are not present in the archive table. The caller-principal check is intentionally skipped for
+ * archived rows — callers that require strict per-principal scoping should keep {@code
+ * includeArchived=false} (the default).
  */
 final class MysqlJobQueryOperations {
 
@@ -118,7 +118,8 @@ final class MysqlJobQueryOperations {
   private final MysqlJobRowMapper mapper;
   private final MysqlTagOperations tags;
 
-  MysqlJobQueryOperations(MysqlStoreContext ctx, MysqlJobRowMapper mapper, MysqlTagOperations tags) {
+  MysqlJobQueryOperations(
+      MysqlStoreContext ctx, MysqlJobRowMapper mapper, MysqlTagOperations tags) {
     this.ctx = ctx;
     this.mapper = mapper;
     this.tags = tags;
@@ -135,14 +136,17 @@ final class MysqlJobQueryOperations {
     if (archive) {
       sql = buildUnionSearchSql(filter, params, safeLimit, effectiveOffset);
     } else {
-      sql = "SELECT "
-          + MysqlJobRowMapper.HYDRATION_SELECT
-          + " "
-          + HYDRATION_FROM
-          + buildWhere(filter, params)
-          + buildOrderBy(filter)
-          + " LIMIT " + safeLimit
-          + " OFFSET " + effectiveOffset;
+      sql =
+          "SELECT "
+              + MysqlJobRowMapper.HYDRATION_SELECT
+              + " "
+              + HYDRATION_FROM
+              + buildWhere(filter, params)
+              + buildOrderBy(filter)
+              + " LIMIT "
+              + safeLimit
+              + " OFFSET "
+              + effectiveOffset;
     }
 
     Query q = ctx.em().createNativeQuery(sql);
@@ -169,11 +173,15 @@ final class MysqlJobQueryOperations {
     List<Object> params = new ArrayList<>();
     String sql;
     if (archive) {
-      sql = "SELECT COUNT(*) FROM ("
-          + "SELECT 1 " + HYDRATION_FROM + buildWhere(filter, params)
-          + " UNION ALL "
-          + "SELECT 1 FROM scheduler_job_archive a" + buildArchiveWhere(filter, params)
-          + ") AS combined";
+      sql =
+          "SELECT COUNT(*) FROM ("
+              + "SELECT 1 "
+              + HYDRATION_FROM
+              + buildWhere(filter, params)
+              + " UNION ALL "
+              + "SELECT 1 FROM scheduler_job_archive a"
+              + buildArchiveWhere(filter, params)
+              + ") AS combined";
     } else {
       // language=MySQL
       sql = "SELECT COUNT(*) " + HYDRATION_FROM + buildWhere(filter, params);
@@ -205,9 +213,21 @@ final class MysqlJobQueryOperations {
     appendTagCondition(filter, where, params);
     appendInstantGte("c.created_at", filter.createdAfter(), where, params);
     appendInstantLt("c.created_at", filter.createdBefore(), where, params);
-    appendInstantGte("COALESCE(q.scheduled_time, c.execution_start_time)", filter.scheduledAfter(), where, params);
-    appendInstantLt("COALESCE(q.scheduled_time, c.execution_start_time)", filter.scheduledBefore(), where, params);
-    appendInstantGte("COALESCE(q.updated_at, c.terminated_at, c.created_at)", filter.updatedAfter(), where, params);
+    appendInstantGte(
+        "COALESCE(q.scheduled_time, c.execution_start_time)",
+        filter.scheduledAfter(),
+        where,
+        params);
+    appendInstantLt(
+        "COALESCE(q.scheduled_time, c.execution_start_time)",
+        filter.scheduledBefore(),
+        where,
+        params);
+    appendInstantGte(
+        "COALESCE(q.updated_at, c.terminated_at, c.created_at)",
+        filter.updatedAfter(),
+        where,
+        params);
     appendCursorCondition(filter, where, params);
 
     if (where.length() == 0) {
@@ -250,13 +270,28 @@ final class MysqlJobQueryOperations {
     String dir = (filter != null && filter.sortAscending()) ? "ASC" : "DESC";
 
     return "SELECT * FROM ("
-        + "SELECT " + MysqlJobRowMapper.HYDRATION_SELECT + " " + HYDRATION_FROM + liveWhere
+        + "SELECT "
+        + MysqlJobRowMapper.HYDRATION_SELECT
+        + " "
+        + HYDRATION_FROM
+        + liveWhere
         + " UNION ALL "
-        + "SELECT " + ARCHIVE_PROJECTION + " FROM scheduler_job_archive a" + archiveWhere
+        + "SELECT "
+        + ARCHIVE_PROJECTION
+        + " FROM scheduler_job_archive a"
+        + archiveWhere
         + ") AS combined"
-        + " ORDER BY " + sortPos + " " + dir + ", " + POS_JOB_ID + " ASC"
-        + " LIMIT " + limit
-        + " OFFSET " + offset;
+        + " ORDER BY "
+        + sortPos
+        + " "
+        + dir
+        + ", "
+        + POS_JOB_ID
+        + " ASC"
+        + " LIMIT "
+        + limit
+        + " OFFSET "
+        + offset;
   }
 
   private void appendStatusCondition(JobFilter filter, StringBuilder where, List<Object> params) {
@@ -277,28 +312,37 @@ final class MysqlJobQueryOperations {
     if (!live.isEmpty() && !terminal.isEmpty()) {
       String livePh = placeholders(live.size());
       String termPh = placeholders(terminal.size());
-      and(where,
-          "(q.status IN (" + livePh + ") OR (q.job_id IS NULL AND c.terminal_status IN (" + termPh + ")))");
+      and(
+          where,
+          "(q.status IN ("
+              + livePh
+              + ") OR (q.job_id IS NULL AND c.terminal_status IN ("
+              + termPh
+              + ")))");
       live.stream().map(JobStatus::name).forEach(params::add);
       terminal.stream().map(JobStatus::name).forEach(params::add);
     } else if (!live.isEmpty()) {
       and(where, "q.status IN (" + placeholders(live.size()) + ")");
       live.stream().map(JobStatus::name).forEach(params::add);
     } else {
-      and(where, "(q.job_id IS NULL AND c.terminal_status IN (" + placeholders(terminal.size()) + "))");
+      and(
+          where,
+          "(q.job_id IS NULL AND c.terminal_status IN (" + placeholders(terminal.size()) + "))");
       terminal.stream().map(JobStatus::name).forEach(params::add);
     }
   }
 
-  private void appendArchiveStatusCondition(JobFilter filter, StringBuilder where, List<Object> params) {
+  private void appendArchiveStatusCondition(
+      JobFilter filter, StringBuilder where, List<Object> params) {
     Set<JobStatus> statuses = filter.statuses();
     if (statuses == null || statuses.isEmpty()) {
       return;
     }
     // Archive only contains terminal statuses; filter to the terminal subset
-    Set<JobStatus> terminal = statuses.stream()
-        .filter(s -> !MysqlJobRowMapper.isLiveStatus(s))
-        .collect(Collectors.toCollection(() -> EnumSet.noneOf(JobStatus.class)));
+    Set<JobStatus> terminal =
+        statuses.stream()
+            .filter(s -> !MysqlJobRowMapper.isLiveStatus(s))
+            .collect(Collectors.toCollection(() -> EnumSet.noneOf(JobStatus.class)));
     if (terminal.isEmpty()) {
       // Caller wants only live statuses; exclude all archive rows
       and(where, "1 = 0");
@@ -313,10 +357,11 @@ final class MysqlJobQueryOperations {
     if (types == null || types.isEmpty()) {
       return;
     }
-    List<String> execTypeNames = Stream.of(JobExecutionType.values())
-        .filter(e -> types.contains(e.toPublicType()))
-        .map(Enum::name)
-        .collect(Collectors.toList());
+    List<String> execTypeNames =
+        Stream.of(JobExecutionType.values())
+            .filter(e -> types.contains(e.toPublicType()))
+            .map(Enum::name)
+            .collect(Collectors.toList());
     if (execTypeNames.isEmpty()) {
       return;
     }
@@ -324,15 +369,17 @@ final class MysqlJobQueryOperations {
     params.addAll(execTypeNames);
   }
 
-  private void appendArchiveJobTypeCondition(JobFilter filter, StringBuilder where, List<Object> params) {
+  private void appendArchiveJobTypeCondition(
+      JobFilter filter, StringBuilder where, List<Object> params) {
     Set<JobType> types = filter.types();
     if (types == null || types.isEmpty()) {
       return;
     }
-    List<String> execTypeNames = Stream.of(JobExecutionType.values())
-        .filter(e -> types.contains(e.toPublicType()))
-        .map(Enum::name)
-        .collect(Collectors.toList());
+    List<String> execTypeNames =
+        Stream.of(JobExecutionType.values())
+            .filter(e -> types.contains(e.toPublicType()))
+            .map(Enum::name)
+            .collect(Collectors.toList());
     if (execTypeNames.isEmpty()) {
       return;
     }
@@ -349,7 +396,8 @@ final class MysqlJobQueryOperations {
     priorities.stream().map(JobPriority::ordinal).forEach(params::add);
   }
 
-  private void appendArchivePriorityCondition(JobFilter filter, StringBuilder where, List<Object> params) {
+  private void appendArchivePriorityCondition(
+      JobFilter filter, StringBuilder where, List<Object> params) {
     Set<JobPriority> priorities = filter.priorities();
     if (priorities == null || priorities.isEmpty()) {
       return;
@@ -367,7 +415,8 @@ final class MysqlJobQueryOperations {
     params.add(UuidByteArrayConverter.toBytes(parentJobId));
   }
 
-  private void appendArchiveParentJobId(JobFilter filter, StringBuilder where, List<Object> params) {
+  private void appendArchiveParentJobId(
+      JobFilter filter, StringBuilder where, List<Object> params) {
     UUID parentJobId = filter.parentJobId();
     if (parentJobId == null) {
       return;
@@ -382,8 +431,11 @@ final class MysqlJobQueryOperations {
       return;
     }
     // ANY-of match: job must have at least one of the specified tags
-    and(where, "c.job_id IN (SELECT job_id FROM scheduler_job_tag WHERE tag IN ("
-        + placeholders(filterTags.size()) + "))");
+    and(
+        where,
+        "c.job_id IN (SELECT job_id FROM scheduler_job_tag WHERE tag IN ("
+            + placeholders(filterTags.size())
+            + "))");
     params.addAll(filterTags);
   }
 
@@ -464,8 +516,10 @@ final class MysqlJobQueryOperations {
   }
 
   private static int unionSortColumnPosition(JobFilter filter) {
-    JobQuerySortField field = (filter == null || filter.sortField() == null)
-        ? JobQuerySortField.CREATED_AT : filter.sortField();
+    JobQuerySortField field =
+        (filter == null || filter.sortField() == null)
+            ? JobQuerySortField.CREATED_AT
+            : filter.sortField();
     return switch (field) {
       case CREATED_AT -> POS_CREATED_AT;
       case SCHEDULED_TIME -> POS_Q_SCHEDULED_TIME;

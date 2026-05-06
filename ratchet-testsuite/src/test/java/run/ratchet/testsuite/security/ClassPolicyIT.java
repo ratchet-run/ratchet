@@ -7,6 +7,12 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import jakarta.inject.Inject;
+import java.util.List;
+import java.util.Set;
+import org.jboss.arquillian.container.test.api.Deployment;
+import org.jboss.shrinkwrap.api.spec.WebArchive;
+import org.junit.jupiter.api.Test;
 import run.ratchet.ri.security.JobSecurityValidator;
 import run.ratchet.ri.security.PackagePrefixClassPolicy;
 import run.ratchet.spi.ClassPolicy;
@@ -15,12 +21,6 @@ import run.ratchet.testsuite.app.SimpleJob;
 import run.ratchet.testsuite.util.BaseRatchetIT;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 import run.ratchet.testsuite.util.TestClassPolicy;
-import jakarta.inject.Inject;
-import java.util.List;
-import java.util.Set;
-import org.jboss.arquillian.container.test.api.Deployment;
-import org.jboss.shrinkwrap.api.spec.WebArchive;
-import org.junit.jupiter.api.Test;
 
 /**
  * Validates that ClassPolicy CDI wiring works correctly: the default policy is produced by

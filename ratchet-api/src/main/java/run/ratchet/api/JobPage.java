@@ -14,9 +14,4 @@ import java.util.List;
  * @param hasMore true if there are additional items beyond this page
  */
 public record JobPage<T>(
-    List<T> items,
-    long totalCount,
-    int limit,
-    int offset,
-    boolean hasMore,
-    String nextCursor) {}
+    List<T> items, long totalCount, int limit, int offset, boolean hasMore, String nextCursor) {}

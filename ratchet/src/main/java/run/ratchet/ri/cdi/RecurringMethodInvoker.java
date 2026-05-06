@@ -1,7 +1,5 @@
 package run.ratchet.ri.cdi;
 
-import run.ratchet.api.JobContext;
-import run.ratchet.spi.ClassPolicy;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Any;
@@ -10,6 +8,8 @@ import jakarta.inject.Inject;
 import java.lang.reflect.Method;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import run.ratchet.api.JobContext;
+import run.ratchet.spi.ClassPolicy;
 
 /** Invokes @Recurring methods on their CDI beans. */
 @ApplicationScoped

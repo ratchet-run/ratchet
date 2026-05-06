@@ -1,5 +1,11 @@
 package run.ratchet.testsuite.app;
 
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
+import java.io.Serializable;
+import java.time.Duration;
+import java.time.ZoneId;
+import java.util.UUID;
 import run.ratchet.api.BatchBuilder;
 import run.ratchet.api.JobBuilder;
 import run.ratchet.api.JobHandle;
@@ -7,12 +13,6 @@ import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.RecurringJobBuilder;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.StreamingBatchBuilder;
-import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.inject.Inject;
-import java.io.Serializable;
-import java.time.Duration;
-import java.time.ZoneId;
-import java.util.UUID;
 
 @ApplicationScoped
 public class TestJobService {

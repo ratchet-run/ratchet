@@ -1,11 +1,11 @@
 package run.ratchet.testsuite.app;
 
-import run.ratchet.spi.ResilienceStrategy;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Alternative;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicInteger;
+import run.ratchet.spi.ResilienceStrategy;
 
 @Alternative
 @Priority(1000)

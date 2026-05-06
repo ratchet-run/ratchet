@@ -1,6 +1,5 @@
 package run.ratchet.testsuite.observer;
 
-import run.ratchet.api.event.AbstractJobSchedulerEvent;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import java.time.Duration;
@@ -8,6 +7,7 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import run.ratchet.api.event.AbstractJobSchedulerEvent;
 
 /**
  * CDI event observer that captures all scheduler events for test verification.

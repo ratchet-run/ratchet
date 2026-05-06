@@ -1,9 +1,9 @@
 package run.ratchet.testsuite.app;
 
-import run.ratchet.api.CircuitBreakerProfile;
-import run.ratchet.api.CircuitBreakerProtected;
 import jakarta.enterprise.context.ApplicationScoped;
 import java.util.concurrent.atomic.AtomicInteger;
+import run.ratchet.api.CircuitBreakerProfile;
+import run.ratchet.api.CircuitBreakerProtected;
 
 /** FAST profile: 3 min calls, 10s wait, 2 half-open. */
 @ApplicationScoped

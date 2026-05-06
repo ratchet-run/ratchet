@@ -6,9 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.api.JobStatus;
-import run.ratchet.tck.util.ConcurrentTestRunner;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -16,6 +13,9 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobStatus;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.tck.util.ConcurrentTestRunner;
 
 /**
  * Pins the read-side semantics of {@code findActiveByBusinessKey} across the full job lifecycle.

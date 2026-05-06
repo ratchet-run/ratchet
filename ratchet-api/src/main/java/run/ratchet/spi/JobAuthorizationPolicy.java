@@ -1,9 +1,9 @@
 package run.ratchet.spi;
 
+import java.util.UUID;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.exception.JobAuthorizationException;
-import java.util.UUID;
 
 /**
  * SPI for authorizing job operations.
@@ -143,8 +143,8 @@ public interface JobAuthorizationPolicy {
   /**
    * Rewrites a {@link JobFilter} to enforce list-level visibility for the given principal.
    *
-   * <p>Called by {@link run.ratchet.api.JobQueryService#findJobs} before passing the
-   * filter to the store, so that the store query itself is scoped to what the principal may see.
+   * <p>Called by {@link run.ratchet.api.JobQueryService#findJobs} before passing the filter to the
+   * store, so that the store query itself is scoped to what the principal may see.
    *
    * <p>Owner-only policies should inject the principal into the filter's {@code callerPrincipal}
    * field so the store only returns that principal's jobs. Use {@link JobFilter#toBuilder()} to
@@ -159,8 +159,8 @@ public interface JobAuthorizationPolicy {
    *
    * <p><strong>Principal precedence:</strong> the security-context principal ({@code
    * callerPrincipal} parameter) always takes precedence over any {@code callerPrincipal} already
-   * present in {@code filter}. Implementations MUST use the parameter, not the field, when
-   * deciding what the current caller is allowed to see.
+   * present in {@code filter}. Implementations MUST use the parameter, not the field, when deciding
+   * what the current caller is allowed to see.
    *
    * <p>The default implementation returns the filter unchanged (permit-all semantics).
    *

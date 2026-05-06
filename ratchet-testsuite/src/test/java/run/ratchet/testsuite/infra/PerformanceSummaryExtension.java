@@ -1,9 +1,9 @@
 package run.ratchet.testsuite.infra;
 
-import run.ratchet.testsuite.util.PerformanceReportWriter;
 import java.util.logging.Logger;
 import org.junit.jupiter.api.extension.BeforeAllCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
+import run.ratchet.testsuite.util.PerformanceReportWriter;
 
 /**
  * Client-side JUnit 5 extension that prints a consolidated performance summary table and writes the

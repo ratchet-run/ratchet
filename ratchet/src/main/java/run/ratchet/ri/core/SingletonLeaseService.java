@@ -1,12 +1,12 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.spi.NodeIdentityProvider;
-import run.ratchet.store.spi.LockStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.Optional;
+import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.store.spi.LockStore;
 
 /** Acquires expiring cluster-wide leases for work that must run on at most one node at a time. */
 @ApplicationScoped

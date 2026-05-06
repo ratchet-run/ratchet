@@ -2,13 +2,6 @@ package run.ratchet.store.mongodb;
 
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoDatabase;
-import run.ratchet.api.BackoffPolicy;
-import run.ratchet.api.JobPriority;
-import run.ratchet.api.RatchetOptions;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.entity.JobPayload;
-import run.ratchet.api.JobStatus;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -20,6 +13,13 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.testcontainers.containers.MongoDBContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
+import run.ratchet.api.BackoffPolicy;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobStatus;
+import run.ratchet.api.RatchetOptions;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.entity.JobPayload;
 
 /**
  * Base class for MongoDB store integration tests.

@@ -1,7 +1,7 @@
 package run.ratchet.spi;
 
-import run.ratchet.api.Incubating;
 import java.time.Duration;
+import run.ratchet.api.Incubating;
 
 /** Controls whether and when a failed job should be retried. */
 @Incubating

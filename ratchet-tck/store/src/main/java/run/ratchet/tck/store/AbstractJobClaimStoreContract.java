@@ -5,14 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
-import run.ratchet.api.JobPriority;
-import run.ratchet.api.NodeTagFilter;
-import run.ratchet.api.RatchetOptions;
-import run.ratchet.store.dto.JobClaimDto;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.api.JobStatus;
-import run.ratchet.tck.util.ConcurrentTestRunner;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -21,6 +13,14 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobStatus;
+import run.ratchet.api.NodeTagFilter;
+import run.ratchet.api.RatchetOptions;
+import run.ratchet.store.dto.JobClaimDto;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.tck.util.ConcurrentTestRunner;
 
 /** Base contract tests for {@code JobClaimStore}. */
 public abstract class AbstractJobClaimStoreContract implements JobStoreContractFixture {

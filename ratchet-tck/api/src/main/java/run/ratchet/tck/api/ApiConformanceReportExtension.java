@@ -1,8 +1,8 @@
 package run.ratchet.tck.api;
 
-import run.ratchet.tck.util.AbstractConformanceReportExtension;
 import java.nio.file.Path;
 import java.util.List;
+import run.ratchet.tck.util.AbstractConformanceReportExtension;
 
 /**
  * API-tier conformance report listener. Writes {@code target/tck-api-conformance-report.md} after

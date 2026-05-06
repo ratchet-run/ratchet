@@ -1,13 +1,13 @@
 package run.ratchet.store.postgresql;
 
+import java.time.Instant;
+import java.util.Set;
+import java.util.UUID;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.spi.JobPauseStore;
 import run.ratchet.store.spi.JobRetryStore;
 import run.ratchet.store.spi.JobStatusStore;
 import run.ratchet.store.spi.JobTerminalStore;
-import java.time.Instant;
-import java.util.Set;
-import java.util.UUID;
 
 final class PostgresqlJobLifecycleOperations
     implements JobStatusStore, JobTerminalStore, JobRetryStore, JobPauseStore {

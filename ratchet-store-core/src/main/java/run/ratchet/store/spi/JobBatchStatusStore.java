@@ -1,10 +1,10 @@
 package run.ratchet.store.spi;
 
-import run.ratchet.api.Incubating;
-import run.ratchet.api.JobStatus;
 import java.time.Instant;
 import java.util.Set;
 import java.util.UUID;
+import run.ratchet.api.Incubating;
+import run.ratchet.api.JobStatus;
 
 /**
  * Non-terminal status operations: generic status updates, CAS transitions, pickup, and batch /

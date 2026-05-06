@@ -1,7 +1,5 @@
 package run.ratchet.tck.jakarta;
 
-import run.ratchet.api.event.JobCompletedEvent;
-import run.ratchet.api.event.JobSignaledEvent;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.event.Observes;
 import java.time.Duration;
@@ -9,6 +7,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import run.ratchet.api.event.JobCompletedEvent;
+import run.ratchet.api.event.JobSignaledEvent;
 
 /**
  * CDI bean that collects {@link JobCompletedEvent}s observed via {@code @Observes} for use by

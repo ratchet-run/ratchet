@@ -3,6 +3,7 @@ package run.ratchet.api;
 import java.io.Serializable;
 import java.time.Duration;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.UUID;
 import java.util.function.Consumer;
 
@@ -44,8 +45,8 @@ import java.util.function.Consumer;
  * principal MUST be immutable once set — subsequent job mutations (status transitions, retries,
  * rescheduling) MUST NOT overwrite the original capture.
  *
- * <p>Authorization is delegated to the {@link run.ratchet.spi.JobAuthorizationPolicy} SPI.
- * The default reference implementation ({@code PermitAllJobAuthorizationPolicy}) permits all
+ * <p>Authorization is delegated to the {@link run.ratchet.spi.JobAuthorizationPolicy} SPI. The
+ * default reference implementation ({@code PermitAllJobAuthorizationPolicy}) permits all
  * operations. Integrators override via a CDI {@code @Alternative @Priority(APPLICATION)} bean.
  * Note: {@code cancelRecurringJobsByTag} and {@code cancelRecurringJobByBusinessKey} are not
  * subject to per-job authorization; use {@link #cancelJob(UUID)} for authorization-gated single-job
@@ -67,14 +68,17 @@ public interface JobSchedulerService {
   JobBuilder enqueue(SerializableCheckedRunnable task);
 
   /**
-   * Submits a job for immediate execution and returns its handle.
+   * Submits a job for immediate execution and returns its handle. Equivalent to {@code
+   * enqueue(task).immediate().submit()}.
    *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}. Implementations MUST persist the job within
    * a transaction.
    *
    * @see run.ratchet.tck.jakarta.AbstractTxEnqueueContract
    */
-  JobHandle enqueueNow(SerializableCheckedRunnable task);
+  default JobHandle enqueueNow(SerializableCheckedRunnable task) {
+    return enqueue(task).immediate().submit();
+  }
 
   /**
    * Starts a fluent builder for a job to execute after the specified delay. The returned builder is
@@ -116,6 +120,17 @@ public interface JobSchedulerService {
    */
   RecurringJobBuilder scheduleRecurring(
       String cron, ZoneId zone, SerializableCheckedRunnable task);
+
+  /**
+   * Convenience overload that schedules a recurring job in UTC. Equivalent to {@code
+   * scheduleRecurring(cron, ZoneOffset.UTC, task)}.
+   *
+   * <p><b>Transaction attribute:</b> {@code SUPPORTS}.
+   */
+  default RecurringJobBuilder scheduleRecurringUtc(
+      String cron, SerializableCheckedRunnable task) {
+    return scheduleRecurring(cron, ZoneOffset.UTC, task);
+  }
 
   /**
    * Replaces an existing job with a new one.
@@ -160,8 +175,7 @@ public interface JobSchedulerService {
    * {@code @ObservesAsync} when the observer does not need to participate in the source
    * transaction.
    *
-   * <p>Event types delivered (all extend {@link
-   * run.ratchet.api.event.AbstractJobSchedulerEvent}):
+   * <p>Event types delivered (all extend {@link run.ratchet.api.event.AbstractJobSchedulerEvent}):
    *
    * <ul>
    *   <li><b>Job lifecycle:</b> {@code JobStartedEvent}, {@code JobCompletedEvent}, {@code
@@ -277,18 +291,7 @@ public interface JobSchedulerService {
    * @return 1 if the job was unblocked, 0 if the job was not found, not in WAITING state, or signal
    *     support is not configured
    */
-  default int deliverSignal(UUID jobId, SignalDecision decision) {
-    return deliverSignal(jobId, (Serializable) decision);
-  }
-
-  /**
-   * Convenience method for delivering a rejected decision to a specific WAITING job. Rejection
-   * still unblocks the job; the job body decides domain behavior from {@link
-   * SignalDecision#outcome()}.
-   */
-  default int rejectSignal(UUID jobId, Serializable payload, String rejectionReason) {
-    return deliverSignal(jobId, SignalDecision.rejected(payload, rejectionReason));
-  }
+  int deliverSignal(UUID jobId, SignalDecision decision);
 
   /**
    * Delivers a signal to all WAITING jobs whose {@code signalKey} matches, transitioning each to
@@ -321,17 +324,7 @@ public interface JobSchedulerService {
    * @return the number of jobs transitioned from WAITING to PENDING, or 0 if no jobs were waiting
    *     or signal support is not configured
    */
-  default int deliverSignal(String signalKey, SignalDecision decision) {
-    return deliverSignal(signalKey, (Serializable) decision);
-  }
-
-  /**
-   * Convenience method for delivering a rejected decision to all WAITING jobs with the given signal
-   * key.
-   */
-  default int rejectSignal(String signalKey, Serializable payload, String rejectionReason) {
-    return deliverSignal(signalKey, SignalDecision.rejected(payload, rejectionReason));
-  }
+  int deliverSignal(String signalKey, SignalDecision decision);
 
   /**
    * Cancels all recurring jobs associated with the specified tag.

@@ -1,10 +1,10 @@
 package run.ratchet.ri.core;
 
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import run.ratchet.spi.JobLogger;
 import run.ratchet.spi.JobLoggerContext;
 import run.ratchet.spi.JobLoggerFactory;
-import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.inject.Inject;
 
 /** Default per-job logger factory backed by JBoss Logging and Ratchet log events. */
 @ApplicationScoped

@@ -1,10 +1,10 @@
 package run.ratchet.api.event;
 
-import run.ratchet.api.JobPriority;
-import run.ratchet.api.JobType;
 import java.io.Serial;
 import java.time.Duration;
 import java.util.UUID;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobType;
 
 /** Fired when a WAITING job's signal timeout elapses and it is transitioned to FAILED. */
 public class JobSignalTimedOutEvent extends AbstractJobSchedulerEvent {

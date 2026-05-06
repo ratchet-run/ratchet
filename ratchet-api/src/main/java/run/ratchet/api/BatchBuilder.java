@@ -16,7 +16,12 @@ public interface BatchBuilder {
   /** Registers a hook invoked after each child job completes with current batch progress. */
   BatchBuilder onProgress(SerializableConsumer<BatchContext> hook);
 
-  /** Submits the batch job and returns a handle to it. */
+  /**
+   * Persists the batch job and returns a handle to it.
+   *
+   * <p><b>Transaction attribute:</b> {@code REQUIRED}. Non-terminal builder methods are in-memory
+   * only and do not participate in a transaction.
+   */
   JobHandle submit();
 
   /** Adds a conditional workflow branch with a description for debugging. */

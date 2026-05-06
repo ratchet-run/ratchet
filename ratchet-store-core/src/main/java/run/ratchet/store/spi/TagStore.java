@@ -1,10 +1,10 @@
 package run.ratchet.store.spi;
 
-import run.ratchet.api.Incubating;
-import run.ratchet.api.JobStatus;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import run.ratchet.api.Incubating;
+import run.ratchet.api.JobStatus;
 
 /** Job tag management operations. */
 @Incubating

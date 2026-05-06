@@ -1,8 +1,8 @@
 package run.ratchet.spi;
 
-import run.ratchet.api.Incubating;
 import java.io.Serializable;
 import java.util.List;
+import run.ratchet.api.Incubating;
 
 /** Converts user-submitted serializable callbacks into Ratchet job invocations. */
 @Incubating

@@ -1,8 +1,5 @@
 package run.ratchet.otel;
 
-import run.ratchet.api.JobPriority;
-import run.ratchet.api.JobType;
-import run.ratchet.spi.TracingCollector;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.trace.Span;
@@ -20,6 +17,9 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobType;
+import run.ratchet.spi.TracingCollector;
 
 /**
  * OpenTelemetry-backed {@link TracingCollector}.

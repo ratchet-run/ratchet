@@ -1,17 +1,5 @@
 package run.ratchet.testsuite.performance;
 
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.entity.JobPayload;
-import run.ratchet.api.JobStatus;
-import run.ratchet.store.spi.JobStatusStore;
-import run.ratchet.testsuite.app.PerformanceMetricsCollector;
-import run.ratchet.testsuite.app.TestJobService;
-import run.ratchet.testsuite.app.TimingJob;
-import run.ratchet.testsuite.util.PerformanceBaseline;
-import run.ratchet.testsuite.util.PerformanceReport;
-import run.ratchet.testsuite.util.PerformanceReportWriter;
-import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 import jakarta.inject.Inject;
 import java.time.Instant;
 import java.util.List;
@@ -21,6 +9,18 @@ import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobStatus;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.entity.JobPayload;
+import run.ratchet.store.spi.JobStatusStore;
+import run.ratchet.testsuite.app.PerformanceMetricsCollector;
+import run.ratchet.testsuite.app.TestJobService;
+import run.ratchet.testsuite.app.TimingJob;
+import run.ratchet.testsuite.util.PerformanceBaseline;
+import run.ratchet.testsuite.util.PerformanceReport;
+import run.ratchet.testsuite.util.PerformanceReportWriter;
+import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /**
  * Benchmarks store SPI operations directly, bypassing the scheduler engine. Measures the raw

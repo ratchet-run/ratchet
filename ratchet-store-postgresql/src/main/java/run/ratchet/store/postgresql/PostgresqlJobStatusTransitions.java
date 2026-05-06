@@ -1,9 +1,9 @@
 package run.ratchet.store.postgresql;
 
-import run.ratchet.api.JobStatus;
 import java.util.List;
 import java.util.UUID;
 import org.jboss.logging.Logger;
+import run.ratchet.api.JobStatus;
 
 final class PostgresqlJobStatusTransitions {
 

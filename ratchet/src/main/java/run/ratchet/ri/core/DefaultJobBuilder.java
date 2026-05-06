@@ -1,5 +1,12 @@
 package run.ratchet.ri.core;
 
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobBuilder;
 import run.ratchet.api.JobContext;
@@ -15,13 +22,6 @@ import run.ratchet.api.SerializableFunction;
 import run.ratchet.api.SerializablePredicate;
 import run.ratchet.api.WorkflowBranch;
 import run.ratchet.api.WorkflowCondition;
-import java.time.Duration;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
 
 /** Default {@link JobBuilder} implementation. */
 public final class DefaultJobBuilder implements JobBuilder {

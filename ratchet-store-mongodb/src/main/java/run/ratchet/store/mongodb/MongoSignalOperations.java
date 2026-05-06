@@ -23,9 +23,6 @@ import com.mongodb.client.ClientSession;
 import com.mongodb.client.model.FindOneAndUpdateOptions;
 import com.mongodb.client.model.ReturnDocument;
 import com.mongodb.client.result.UpdateResult;
-import run.ratchet.api.JobStatus;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.spi.SignalStore;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
@@ -34,6 +31,9 @@ import java.util.UUID;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.jboss.logging.Logger;
+import run.ratchet.api.JobStatus;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.spi.SignalStore;
 
 /**
  * MongoDB implementation of {@link SignalStore}.
@@ -60,7 +60,8 @@ final class MongoSignalOperations implements SignalStore {
             lte(SIGNAL_TIMEOUT, Date.from(now)));
 
     List<JobEntity> result = new ArrayList<>();
-    for (Document doc : ctx.jobs().find(filter).sort(ascending(SIGNAL_TIMEOUT, "_id")).limit(Math.max(1, limit))) {
+    for (Document doc :
+        ctx.jobs().find(filter).sort(ascending(SIGNAL_TIMEOUT, "_id")).limit(Math.max(1, limit))) {
       result.add(DocumentMapper.toJobEntity(doc));
     }
     return result;

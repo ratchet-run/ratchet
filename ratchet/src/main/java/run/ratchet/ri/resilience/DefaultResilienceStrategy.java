@@ -1,11 +1,11 @@
 package run.ratchet.ri.resilience;
 
-import run.ratchet.api.RatchetOptions;
-import run.ratchet.spi.CircuitBreakerConfigProvider;
-import run.ratchet.spi.ResilienceStrategy;
 import java.time.Duration;
 import java.util.concurrent.Callable;
 import org.jboss.logging.Logger;
+import run.ratchet.api.RatchetOptions;
+import run.ratchet.spi.CircuitBreakerConfigProvider;
+import run.ratchet.spi.ResilienceStrategy;
 
 /**
  * Default {@link ResilienceStrategy} using the built-in {@link CircuitBreaker}; produced by {@code

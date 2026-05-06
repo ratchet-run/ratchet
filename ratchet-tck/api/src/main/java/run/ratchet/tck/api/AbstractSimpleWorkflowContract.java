@@ -2,11 +2,11 @@ package run.ratchet.tck.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-import run.ratchet.api.JobHandle;
 import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobHandle;
 
 /**
  * Base contract for chain ordering on {@link run.ratchet.api.JobBuilder#then

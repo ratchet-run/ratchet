@@ -3,8 +3,8 @@ package run.ratchet.ri.core;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.api.BackoffPolicy;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.BackoffPolicy;
 
 class BackoffPolicyHandlerTest {
 

@@ -1,6 +1,5 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.api.RatchetOptions;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.time.Duration;
@@ -9,6 +8,7 @@ import java.util.Collections;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import org.jboss.logging.Logger;
+import run.ratchet.api.RatchetOptions;
 
 /**
  * Tracks {@code @Recurring} annotation keys this node discovered at startup. During a configurable

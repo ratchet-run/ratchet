@@ -1,12 +1,12 @@
 package run.ratchet.store.mysql;
 
-import run.ratchet.api.JobPriority;
-import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.api.JobStatus;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobStatus;
+import run.ratchet.store.entity.JobExecutionType;
 
 final class MysqlJobCountOperations {
 

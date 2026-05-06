@@ -1,16 +1,16 @@
 package run.ratchet.store.postgresql;
 
-import run.ratchet.api.JobPriority;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.api.JobStatus;
-import run.ratchet.store.spi.JobBulkStore;
-import run.ratchet.store.spi.JobCrudStore;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobStatus;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.JobBulkStore;
+import run.ratchet.store.spi.JobCrudStore;
 
 final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore {
 

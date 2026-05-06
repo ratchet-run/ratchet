@@ -1,8 +1,8 @@
 package run.ratchet.store.util;
 
+import java.time.Instant;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.JobEntity;
-import java.time.Instant;
 
 /** Shared utilities for archiving jobs across JPA-based store implementations. */
 public final class ArchiveHelper {

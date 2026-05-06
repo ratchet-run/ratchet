@@ -1,5 +1,12 @@
 package run.ratchet.testsuite.util;
 
+import java.util.Map;
+import java.util.TreeMap;
+import org.jboss.shrinkwrap.api.ShrinkWrap;
+import org.jboss.shrinkwrap.api.asset.EmptyAsset;
+import org.jboss.shrinkwrap.api.asset.StringAsset;
+import org.jboss.shrinkwrap.api.spec.WebArchive;
+import org.jboss.shrinkwrap.resolver.api.maven.Maven;
 import run.ratchet.store.converter.InstantAttributeConverter;
 import run.ratchet.testsuite.app.DocumentStorePerformanceTestHelper;
 import run.ratchet.testsuite.app.DocumentStoreTestCleanupStrategy;
@@ -16,13 +23,6 @@ import run.ratchet.testsuite.app.TestRatchetOptionsProducer;
 import run.ratchet.testsuite.app.TestRuntimeConfig;
 import run.ratchet.testsuite.infra.JdbcContainerExtension;
 import run.ratchet.testsuite.infra.JdbcDatabaseConfig;
-import java.util.Map;
-import java.util.TreeMap;
-import org.jboss.shrinkwrap.api.ShrinkWrap;
-import org.jboss.shrinkwrap.api.asset.EmptyAsset;
-import org.jboss.shrinkwrap.api.asset.StringAsset;
-import org.jboss.shrinkwrap.api.spec.WebArchive;
-import org.jboss.shrinkwrap.resolver.api.maven.Maven;
 
 /**
  * Fluent ShrinkWrap builder for Ratchet integration test deployments.

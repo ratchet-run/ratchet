@@ -2,14 +2,6 @@ package run.ratchet.ri.core;
 
 import com.cronutils.model.Cron;
 import com.cronutils.model.time.ExecutionTime;
-import run.ratchet.spi.ErrorSanitizer;
-import run.ratchet.spi.ExecutorProvider;
-import run.ratchet.store.entity.DlqAlertEntity;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.spi.DlqAlertStore;
-import run.ratchet.store.spi.JobBulkStore;
-import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.JobTerminalStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -23,6 +15,14 @@ import java.util.HexFormat;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import org.jboss.logging.Logger;
+import run.ratchet.spi.ErrorSanitizer;
+import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.store.entity.DlqAlertEntity;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.spi.DlqAlertStore;
+import run.ratchet.store.spi.JobBulkStore;
+import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobTerminalStore;
 
 /**
  * Manages the Dead Letter Queue (DLQ): moves permanently failed jobs there and purges old entries

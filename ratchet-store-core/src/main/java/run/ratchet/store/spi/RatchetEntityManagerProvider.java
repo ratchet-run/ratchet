@@ -1,7 +1,7 @@
 package run.ratchet.store.spi;
 
-import run.ratchet.api.Incubating;
 import jakarta.persistence.EntityManager;
+import run.ratchet.api.Incubating;
 
 /**
  * Provides the {@link EntityManager} used by SQL store implementations.

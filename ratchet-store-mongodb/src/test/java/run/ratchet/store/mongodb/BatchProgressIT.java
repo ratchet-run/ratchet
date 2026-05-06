@@ -5,13 +5,13 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.Optional;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.id.UuidV7Factory;
-import java.util.Optional;
-import java.util.UUID;
-import org.junit.jupiter.api.Test;
 
 class BatchProgressIT extends BaseDocumentStoreIT {
 

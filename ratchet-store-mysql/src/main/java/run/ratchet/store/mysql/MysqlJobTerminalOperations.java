@@ -1,12 +1,12 @@
 package run.ratchet.store.mysql;
 
-import run.ratchet.api.exception.RatchetTransientStoreException;
-import run.ratchet.api.JobStatus;
-import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import run.ratchet.api.JobStatus;
+import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 
 final class MysqlJobTerminalOperations {
 

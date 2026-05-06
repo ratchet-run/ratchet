@@ -1,6 +1,5 @@
 package run.ratchet.store.entity;
 
-import run.ratchet.store.converter.JobPayloadConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -9,6 +8,7 @@ import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.util.Objects;
 import java.util.UUID;
+import run.ratchet.store.converter.JobPayloadConverter;
 
 /**
  * Batch job progress tracking.

@@ -35,11 +35,11 @@ public record SignalDecision(Outcome outcome, Serializable payload, String rejec
     return new SignalDecision(Outcome.REJECTED, payload, rejectionReason);
   }
 
-  public boolean approved() {
+  public boolean isApproved() {
     return outcome == Outcome.APPROVED;
   }
 
-  public boolean rejected() {
+  public boolean isRejected() {
     return outcome == Outcome.REJECTED;
   }
 

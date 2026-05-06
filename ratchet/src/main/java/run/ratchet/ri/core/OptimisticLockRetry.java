@@ -1,12 +1,12 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.api.exception.RatchetOptimisticLockException;
-import run.ratchet.store.entity.JobEntity;
 import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import org.jboss.logging.Logger;
+import run.ratchet.api.exception.RatchetOptimisticLockException;
+import run.ratchet.store.entity.JobEntity;
 
 /**
  * Reload-mutate-save retry loop for idempotent optimistic-lock races ({@value

@@ -7,8 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import run.ratchet.spi.NodeIdentityProvider;
-import run.ratchet.store.spi.LockStore;
 import java.time.Duration;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -16,6 +14,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.store.spi.LockStore;
 
 @ExtendWith(MockitoExtension.class)
 class SingletonLeaseServiceTest {

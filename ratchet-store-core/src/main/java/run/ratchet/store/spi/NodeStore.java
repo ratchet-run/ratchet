@@ -1,10 +1,10 @@
 package run.ratchet.store.spi;
 
-import run.ratchet.api.Incubating;
-import run.ratchet.store.entity.NodeEntity;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import run.ratchet.api.Incubating;
+import run.ratchet.store.entity.NodeEntity;
 
 /** Cluster node registration and health monitoring operations. */
 @Incubating

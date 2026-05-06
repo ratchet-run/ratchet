@@ -5,12 +5,12 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.api.WorkflowCondition;
-import run.ratchet.store.entity.WorkflowConditionEntity;
 import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.WorkflowCondition;
+import run.ratchet.store.entity.WorkflowConditionEntity;
 
 /** Base contract tests for {@code WorkflowConditionStore}. */
 public abstract class AbstractWorkflowConditionStoreContract implements JobStoreContractFixture {

@@ -1,5 +1,9 @@
 package run.ratchet.ri.core;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.jboss.logging.Logger;
 import run.ratchet.api.CircuitBreakerProfile;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.RatchetOptions;
@@ -16,10 +20,6 @@ import run.ratchet.spi.PollingStrategyProvider;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobClaimStore;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
-import org.jboss.logging.Logger;
 
 /**
  * Claims pending jobs from the store in batches and submits them to {@link

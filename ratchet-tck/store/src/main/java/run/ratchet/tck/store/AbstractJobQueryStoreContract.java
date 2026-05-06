@@ -4,23 +4,22 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.api.JobFilter;
-import run.ratchet.api.JobPriority;
-import run.ratchet.api.JobQuerySortField;
-import run.ratchet.api.JobStatus;
-import run.ratchet.api.JobType;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobFilter;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobQuerySortField;
+import run.ratchet.api.JobStatus;
+import run.ratchet.api.JobType;
+import run.ratchet.store.entity.JobEntity;
 
 /**
- * Base contract tests for {@link run.ratchet.store.spi.JobQueryStore} — dashboard-oriented
- * search and filter semantics.
+ * Base contract tests for {@link run.ratchet.store.spi.JobQueryStore} — dashboard-oriented search
+ * and filter semantics.
  */
 public abstract class AbstractJobQueryStoreContract implements JobStoreContractFixture {
 
@@ -42,8 +41,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     assertFalse(results.isEmpty(), "searchByStatus(PENDING) should return results");
     results.forEach(
         j ->
-            assertEquals(
-                JobStatus.PENDING, j.getStatus(), "All results must have status PENDING"));
+            assertEquals(JobStatus.PENDING, j.getStatus(), "All results must have status PENDING"));
   }
 
   @Test
@@ -53,7 +51,9 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     List<JobEntity> results =
         store().searchJobs(JobFilter.builder().statuses(JobStatus.CANCELED).build(), 100, 0);
 
-    assertTrue(results.isEmpty(), "searchByStatus(CANCELED) should return empty when no jobs are canceled");
+    assertTrue(
+        results.isEmpty(),
+        "searchByStatus(CANCELED) should return empty when no jobs are canceled");
   }
 
   @Test
@@ -64,9 +64,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     List<JobEntity> results =
         store()
             .searchJobs(
-                JobFilter.builder().statuses(JobStatus.PENDING, JobStatus.RUNNING).build(),
-                100,
-                0);
+                JobFilter.builder().statuses(JobStatus.PENDING, JobStatus.RUNNING).build(), 100, 0);
 
     List<UUID> ids = results.stream().map(JobEntity::getId).toList();
     assertTrue(ids.contains(a.getId()), "Multi-status filter should include PENDING job");
@@ -89,7 +87,8 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
         store().searchJobs(JobFilter.builder().priorities(JobPriority.HIGH).build(), 100, 0);
 
     List<UUID> ids = results.stream().map(JobEntity::getId).toList();
-    assertTrue(ids.contains(high.getId()), "Filter by HIGH priority should return the high-priority job");
+    assertTrue(
+        ids.contains(high.getId()), "Filter by HIGH priority should return the high-priority job");
     ids.forEach(
         id ->
             assertFalse(
@@ -120,7 +119,9 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     List<JobEntity> results =
         store().searchJobs(JobFilter.builder().types(JobType.WORKFLOW).build(), 100, 0);
 
-    assertTrue(results.isEmpty(), "Filter by WORKFLOW type should return empty when no workflow jobs exist");
+    assertTrue(
+        results.isEmpty(),
+        "Filter by WORKFLOW type should return empty when no workflow jobs exist");
   }
 
   // ── Business key filtering ─────────────────────────────────────────────
@@ -139,7 +140,8 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
         store().searchJobs(JobFilter.builder().businessKey("order-42").build(), 100, 0);
 
     assertEquals(1, results.size(), "Business key filter should return exactly one match");
-    assertEquals(a.getId(), results.get(0).getId(), "Returned job should match the given business key");
+    assertEquals(
+        a.getId(), results.get(0).getId(), "Returned job should match the given business key");
   }
 
   @Test
@@ -210,7 +212,8 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
         store().searchJobs(JobFilter.builder().createdAfter(cutoff).build(), 100, 0);
 
     List<UUID> ids = results.stream().map(JobEntity::getId).toList();
-    assertTrue(ids.contains(recent.getId()), "createdAfter filter should include recently created job");
+    assertTrue(
+        ids.contains(recent.getId()), "createdAfter filter should include recently created job");
   }
 
   @Test
@@ -221,7 +224,9 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     List<JobEntity> results =
         store().searchJobs(JobFilter.builder().createdBefore(pastCutoff).build(), 100, 0);
 
-    assertTrue(results.isEmpty(), "createdBefore(yesterday) should return empty for jobs created just now");
+    assertTrue(
+        results.isEmpty(),
+        "createdBefore(yesterday) should return empty for jobs created just now");
   }
 
   // ── Pagination ─────────────────────────────────────────────────────────
@@ -280,7 +285,8 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
   @Test
   void searchWithNoMatchingFilter_returnsEmpty() {
     List<JobEntity> results =
-        store().searchJobs(JobFilter.builder().businessKey("absolutely-nonexistent").build(), 100, 0);
+        store()
+            .searchJobs(JobFilter.builder().businessKey("absolutely-nonexistent").build(), 100, 0);
 
     assertTrue(results.isEmpty(), "Filter matching nothing should return empty list");
   }
@@ -302,10 +308,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
       persist(newPendingJob());
     }
     JobFilter filter =
-        JobFilter.builder()
-            .sortField(JobQuerySortField.CREATED_AT)
-            .sortAscending(true)
-            .build();
+        JobFilter.builder().sortField(JobQuerySortField.CREATED_AT).sortAscending(true).build();
 
     List<JobEntity> results = store().searchJobs(filter, 100, 0);
 
@@ -330,10 +333,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     persist(high);
 
     JobFilter filter =
-        JobFilter.builder()
-            .sortField(JobQuerySortField.PRIORITY)
-            .sortAscending(false)
-            .build();
+        JobFilter.builder().sortField(JobQuerySortField.PRIORITY).sortAscending(false).build();
 
     List<JobEntity> results = store().searchJobs(filter, 100, 0);
 
@@ -342,7 +342,8 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
       JobPriority prev = results.get(i - 1).getPriority();
       JobPriority curr = results.get(i).getPriority();
       if (prev != null && curr != null) {
-        assertTrue(prev.ordinal() >= curr.ordinal(), "Results must be in descending priority order");
+        assertTrue(
+            prev.ordinal() >= curr.ordinal(), "Results must be in descending priority order");
       }
     }
   }
@@ -359,12 +360,13 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     persist(newPendingJob()); // no trace context
 
     List<JobEntity> results =
-        store().searchJobs(
-            JobFilter.builder().traceCorrelationId(traceparent).build(), 100, 0);
+        store().searchJobs(JobFilter.builder().traceCorrelationId(traceparent).build(), 100, 0);
 
     assertFalse(results.isEmpty(), "traceCorrelationId filter should return the traced job");
     List<UUID> ids = results.stream().map(JobEntity::getId).toList();
-    assertTrue(ids.contains(traced.getId()), "traceCorrelationId filter should include the job with matching traceparent");
+    assertTrue(
+        ids.contains(traced.getId()),
+        "traceCorrelationId filter should include the job with matching traceparent");
   }
 
   @Test
@@ -374,10 +376,13 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     persist(traced);
 
     List<JobEntity> results =
-        store().searchJobs(
-            JobFilter.builder().traceCorrelationId("00-xxxxxx-yyyyyy-01").build(), 100, 0);
+        store()
+            .searchJobs(
+                JobFilter.builder().traceCorrelationId("00-xxxxxx-yyyyyy-01").build(), 100, 0);
 
-    assertTrue(results.isEmpty(), "traceCorrelationId filter should not match jobs with a different traceparent");
+    assertTrue(
+        results.isEmpty(),
+        "traceCorrelationId filter should not match jobs with a different traceparent");
   }
 
   // ── Sort tiebreaker determinism ────────────────────────────────────────
@@ -396,7 +401,9 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     page2.forEach(j -> allIds.add(j.getId()));
 
     // No duplicates across pages — tiebreaker ensures stable ordering
-    assertEquals(allIds.size(), new java.util.HashSet<>(allIds).size(),
+    assertEquals(
+        allIds.size(),
+        new java.util.HashSet<>(allIds).size(),
         "Consecutive pages must not contain duplicate job IDs");
   }
 

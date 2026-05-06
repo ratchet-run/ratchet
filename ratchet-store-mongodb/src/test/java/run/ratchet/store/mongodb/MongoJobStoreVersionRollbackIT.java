@@ -5,12 +5,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import run.ratchet.api.exception.RatchetOptimisticLockException;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.api.JobStatus;
 import java.util.UUID;
 import org.bson.Document;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobStatus;
+import run.ratchet.api.exception.RatchetOptimisticLockException;
+import run.ratchet.store.entity.JobEntity;
 
 /**
  * Regression guard for the in-memory version rollback on stale-write in {@link MongoJobStore}.

@@ -1,7 +1,7 @@
 package run.ratchet.spi;
 
-import run.ratchet.api.Incubating;
 import java.io.Serializable;
+import run.ratchet.api.Incubating;
 
 /**
  * Extracts target-method metadata from serializable lambda expressions.

@@ -3,16 +3,6 @@ package run.ratchet.ri.cdi;
 import com.cronutils.model.CronType;
 import com.cronutils.model.definition.CronDefinitionBuilder;
 import com.cronutils.parser.CronParser;
-import run.ratchet.api.JobHandle;
-import run.ratchet.api.JobOptions;
-import run.ratchet.api.JobSchedulerService;
-import run.ratchet.api.RatchetOptions;
-import run.ratchet.api.Recurring;
-import run.ratchet.api.RecurringJobBuilder;
-import run.ratchet.ri.core.RecurringAnnotationMaintenanceService;
-import run.ratchet.ri.core.RecurringRegistrationState;
-import run.ratchet.spi.StartupCoordinator;
-import run.ratchet.store.spi.JobBatchStatusStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.Initialized;
 import jakarta.enterprise.event.Observes;
@@ -32,6 +22,16 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import org.jboss.logging.Logger;
+import run.ratchet.api.JobHandle;
+import run.ratchet.api.JobOptions;
+import run.ratchet.api.JobSchedulerService;
+import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.Recurring;
+import run.ratchet.api.RecurringJobBuilder;
+import run.ratchet.ri.core.RecurringAnnotationMaintenanceService;
+import run.ratchet.ri.core.RecurringRegistrationState;
+import run.ratchet.spi.StartupCoordinator;
+import run.ratchet.store.spi.JobBatchStatusStore;
 
 /**
  * Scans CDI beans for {@link Recurring}-annotated methods and registers them as recurring jobs at

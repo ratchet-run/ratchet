@@ -1,7 +1,7 @@
 package run.ratchet.loadtest.service;
 
-import run.ratchet.loadtest.workload.WorkloadType;
 import java.util.Locale;
+import run.ratchet.loadtest.workload.WorkloadType;
 
 public final class Tags {
 

@@ -118,8 +118,8 @@ Ratchet and Quartz have fundamentally different architectures. Quartz uses trigg
 |---|---|
 | `Job` interface + `execute(JobExecutionContext)` | Any CDI bean with public methods |
 | `@DisallowConcurrentExecution` | Resource permits (`withResource()`) |
-| `CronTrigger` | `recurring()` or `@Recurring` annotation |
-| `SimpleTrigger` with repeat | `recurring()` with cron expression |
+| `CronTrigger` | `scheduleRecurring()` or `@Recurring` annotation |
+| `SimpleTrigger` with repeat | `scheduleRecurring()` with cron expression |
 | `JobDataMap` | `JobBuilder.withParam()` / `JobContext.param()` |
 | `JobStore` (RAM/JDBC) | `ratchet-store-mysql`, `ratchet-store-postgresql`, or `ratchet-store-mongodb` |
 | Clustering via database locks | Built-in atomic claim with optimistic locking |
@@ -128,7 +128,7 @@ Ratchet and Quartz have fundamentally different architectures. Quartz uses trigg
 **Migration steps:**
 
 1. Replace `Job` implementations with CDI beans containing public methods
-2. Replace `CronTrigger` definitions with `@Recurring` annotations or `recurring()` calls
+2. Replace `CronTrigger` definitions with `@Recurring` annotations or `scheduleRecurring()` calls
 3. Replace `JobDataMap` usage with `withParam()` at submission and `JobContext.param()` at execution
 4. Replace Quartz tables with Ratchet DDL (the schemas are incompatible)
 5. Configure your `ClassPolicy` to allow your application packages

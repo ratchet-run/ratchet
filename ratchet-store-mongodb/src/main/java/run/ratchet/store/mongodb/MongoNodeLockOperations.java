@@ -19,7 +19,6 @@ import com.mongodb.client.model.ReturnDocument;
 import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.result.DeleteResult;
 import com.mongodb.client.result.UpdateResult;
-import run.ratchet.store.entity.NodeEntity;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -27,6 +26,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 import org.bson.Document;
+import run.ratchet.store.entity.NodeEntity;
 
 /**
  * Distributed locks (scheduler_lock) + node heartbeats (scheduler_node) + a server-clock probe.

@@ -2,10 +2,6 @@ package run.ratchet.testsuite.lifecycle;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.ri.cdi.RatchetLifecycle;
-import run.ratchet.spi.SchedulerLifecycleHook;
-import run.ratchet.testsuite.util.BaseRatchetIT;
-import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.Dependent;
 import jakarta.inject.Inject;
@@ -15,6 +11,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.Test;
+import run.ratchet.ri.cdi.RatchetLifecycle;
+import run.ratchet.spi.SchedulerLifecycleHook;
+import run.ratchet.testsuite.util.BaseRatchetIT;
+import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /**
  * Verifies that {@link RatchetLifecycle} releases each resolved {@link SchedulerLifecycleHook} via

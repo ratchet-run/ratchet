@@ -2,12 +2,12 @@ package run.ratchet.ri.resilience;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import run.ratchet.api.CircuitBreakerProfile;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.spi.CircuitBreakerConfig;
 import run.ratchet.spi.CircuitBreakerConfigProvider;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
 
 class DefaultResilienceStrategyTest {
 

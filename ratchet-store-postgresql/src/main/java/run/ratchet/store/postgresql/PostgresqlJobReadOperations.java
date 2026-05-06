@@ -1,7 +1,5 @@
 package run.ratchet.store.postgresql;
 
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.api.JobStatus;
 import jakarta.persistence.Query;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -10,6 +8,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.jboss.logging.Logger;
+import run.ratchet.api.JobStatus;
+import run.ratchet.store.entity.JobEntity;
 
 final class PostgresqlJobReadOperations {
 

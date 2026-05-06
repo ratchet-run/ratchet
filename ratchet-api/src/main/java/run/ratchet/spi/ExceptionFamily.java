@@ -1,10 +1,10 @@
 package run.ratchet.spi;
 
-import run.ratchet.api.exception.RatchetTransientStoreException;
 import java.net.SocketTimeoutException;
 import java.nio.channels.InterruptedByTimeoutException;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Predicate;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 
 /** Bounded exception families for metrics tags. */
 public enum ExceptionFamily {

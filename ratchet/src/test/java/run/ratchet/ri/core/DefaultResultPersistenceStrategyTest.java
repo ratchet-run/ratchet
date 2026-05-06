@@ -3,11 +3,11 @@ package run.ratchet.ri.core;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.cdi.JsonbPayloadSerializer;
 import run.ratchet.spi.SerializedJobResult;
-import java.util.UUID;
-import org.junit.jupiter.api.Test;
 
 class DefaultResultPersistenceStrategyTest {
 

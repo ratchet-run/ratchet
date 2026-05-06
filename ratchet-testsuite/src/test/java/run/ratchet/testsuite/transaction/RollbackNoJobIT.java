@@ -3,12 +3,6 @@ package run.ratchet.testsuite.transaction;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.api.JobHandle;
-import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.testsuite.app.SimpleJob;
-import run.ratchet.testsuite.app.TestJobService;
-import run.ratchet.testsuite.util.BaseRatchetIT;
-import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 import jakarta.inject.Inject;
 import jakarta.transaction.UserTransaction;
 import org.jboss.arquillian.container.test.api.Deployment;
@@ -16,6 +10,12 @@ import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
+import run.ratchet.api.JobHandle;
+import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.testsuite.app.SimpleJob;
+import run.ratchet.testsuite.app.TestJobService;
+import run.ratchet.testsuite.util.BaseRatchetIT;
+import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /** JPA-only: exercises JTA transaction semantics not applicable to document stores. */
 @EnabledIfSystemProperty(named = "ratchet.test.db.type", matches = "mysql|postgresql")

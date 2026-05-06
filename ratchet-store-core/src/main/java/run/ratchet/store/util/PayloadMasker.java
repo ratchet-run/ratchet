@@ -1,6 +1,5 @@
 package run.ratchet.store.util;
 
-import run.ratchet.store.converter.PayloadSerializerHolder;
 import jakarta.json.Json;
 import jakarta.json.JsonArray;
 import jakarta.json.JsonArrayBuilder;
@@ -11,6 +10,7 @@ import jakarta.json.JsonValue;
 import java.io.StringReader;
 import java.util.Set;
 import org.jboss.logging.Logger;
+import run.ratchet.store.converter.PayloadSerializerHolder;
 
 /** Utility for masking sensitive fields in serialized payload JSON. */
 public final class PayloadMasker {

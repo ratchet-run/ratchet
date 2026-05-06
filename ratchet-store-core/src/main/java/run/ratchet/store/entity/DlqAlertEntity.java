@@ -1,6 +1,5 @@
 package run.ratchet.store.entity;
 
-import run.ratchet.store.id.UuidV7EntityListener;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
@@ -11,6 +10,7 @@ import jakarta.persistence.UniqueConstraint;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
+import run.ratchet.store.id.UuidV7EntityListener;
 
 /** DLQ alert notification record, tracking alerts sent for permanently failed jobs. */
 @Entity

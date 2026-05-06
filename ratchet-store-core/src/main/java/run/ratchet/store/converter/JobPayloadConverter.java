@@ -1,16 +1,16 @@
 package run.ratchet.store.converter;
 
-import run.ratchet.store.entity.JobPayload;
 import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Converter;
+import run.ratchet.store.entity.JobPayload;
 
 /**
  * JPA {@link AttributeConverter} that converts {@link JobPayload} to/from JSON for database
  * storage.
  *
  * <p>Routes through {@link PayloadSerializerHolder} so the framework's {@link
- * run.ratchet.spi.PayloadSerializer} SPI is the single JSON boundary. JPA converters are
- * not CDI-managed beans, so the holder's static registration pattern is used instead of field
+ * run.ratchet.spi.PayloadSerializer} SPI is the single JSON boundary. JPA converters are not
+ * CDI-managed beans, so the holder's static registration pattern is used instead of field
  * injection.
  */
 @Converter

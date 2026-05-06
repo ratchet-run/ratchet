@@ -4,12 +4,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.tck.util.ConcurrentTestRunner;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.tck.util.ConcurrentTestRunner;
 
 /** Base contract tests for {@code ResourcePermitStore}. */
 public abstract class AbstractResourcePermitStoreContract implements JobStoreContractFixture {

@@ -6,13 +6,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import java.util.EnumMap;
+import java.util.Map;
+import org.junit.jupiter.api.Test;
 import run.ratchet.spi.ExecutionTuningProvider;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobExecutionType;
-import java.util.EnumMap;
-import java.util.Map;
-import org.junit.jupiter.api.Test;
 
 class ThreadPoolManagerTest {
 

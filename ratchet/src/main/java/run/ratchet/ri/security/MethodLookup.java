@@ -1,8 +1,8 @@
 package run.ratchet.ri.security;
 
-import run.ratchet.store.entity.JobPayload;
 import java.lang.reflect.Method;
 import org.objectweb.asm.Type;
+import run.ratchet.store.entity.JobPayload;
 
 /** Shared helpers for locating methods by name and descriptor on a class. */
 class MethodLookup {

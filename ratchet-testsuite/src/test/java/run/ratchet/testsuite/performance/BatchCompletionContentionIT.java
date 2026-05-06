@@ -1,5 +1,13 @@
 package run.ratchet.testsuite.performance;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.logging.Logger;
+import org.jboss.arquillian.container.test.api.Deployment;
+import org.jboss.shrinkwrap.api.spec.WebArchive;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
 import run.ratchet.testsuite.app.ConfigurableWorkJob;
 import run.ratchet.testsuite.app.PerformanceMetricsCollector;
@@ -11,14 +19,6 @@ import run.ratchet.testsuite.util.PerformanceBaseline;
 import run.ratchet.testsuite.util.PerformanceReport;
 import run.ratchet.testsuite.util.PerformanceReportWriter;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.logging.Logger;
-import org.jboss.arquillian.container.test.api.Deployment;
-import org.jboss.shrinkwrap.api.spec.WebArchive;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
 
 /**
  * Tests batch completion contention by measuring per-child overhead at different batch sizes. When

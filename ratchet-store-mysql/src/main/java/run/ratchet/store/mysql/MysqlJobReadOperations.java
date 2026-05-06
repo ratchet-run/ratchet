@@ -1,8 +1,5 @@
 package run.ratchet.store.mysql;
 
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.api.JobStatus;
-import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -12,6 +9,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.jboss.logging.Logger;
+import run.ratchet.api.JobStatus;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 
 final class MysqlJobReadOperations {
 

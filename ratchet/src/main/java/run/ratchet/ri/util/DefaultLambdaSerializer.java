@@ -1,11 +1,5 @@
 package run.ratchet.ri.util;
 
-import run.ratchet.api.BatchContext;
-import run.ratchet.api.JobResult;
-import run.ratchet.api.SerializableFunction;
-import run.ratchet.api.SerializablePredicate;
-import run.ratchet.spi.ClassPolicy;
-import run.ratchet.spi.LambdaSerializer;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.io.ByteArrayInputStream;
@@ -20,6 +14,12 @@ import java.util.Base64;
 import java.util.Objects;
 import java.util.Set;
 import org.jboss.logging.Logger;
+import run.ratchet.api.BatchContext;
+import run.ratchet.api.JobResult;
+import run.ratchet.api.SerializableFunction;
+import run.ratchet.api.SerializablePredicate;
+import run.ratchet.spi.ClassPolicy;
+import run.ratchet.spi.LambdaSerializer;
 
 /**
  * Default {@link LambdaSerializer} implementation. Serializes and deserializes {@link
@@ -67,8 +67,8 @@ public class DefaultLambdaSerializer implements LambdaSerializer {
 
   /**
    * JDK-only package prefixes permitted without consulting {@link ClassPolicy}. Vendor and
-   * application packages (including any {@code run.ratchet.*} classes) MUST flow through
-   * {@link ClassPolicy#isAllowed(String)} — this set MUST NOT carry vendor entries.
+   * application packages (including any {@code run.ratchet.*} classes) MUST flow through {@link
+   * ClassPolicy#isAllowed(String)} — this set MUST NOT carry vendor entries.
    */
   private static final Set<String> ALLOWED_CLASS_PREFIXES = Set.of("java.time.", "java.math.");
 

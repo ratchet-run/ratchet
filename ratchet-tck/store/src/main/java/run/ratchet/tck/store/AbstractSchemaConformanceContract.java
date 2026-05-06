@@ -4,15 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
-import run.ratchet.tck.store.schema.Column;
-import run.ratchet.tck.store.schema.DeprecatedArtifact;
-import run.ratchet.tck.store.schema.DialectTypeMapper;
-import run.ratchet.tck.store.schema.ForeignKey;
-import run.ratchet.tck.store.schema.Index;
-import run.ratchet.tck.store.schema.OnDeleteAction;
-import run.ratchet.tck.store.schema.RatchetSchemaCatalog;
-import run.ratchet.tck.store.schema.SchemaSpec;
-import run.ratchet.tck.store.schema.Table;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
@@ -27,6 +18,15 @@ import java.util.Set;
 import java.util.TreeMap;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
+import run.ratchet.tck.store.schema.Column;
+import run.ratchet.tck.store.schema.DeprecatedArtifact;
+import run.ratchet.tck.store.schema.DialectTypeMapper;
+import run.ratchet.tck.store.schema.ForeignKey;
+import run.ratchet.tck.store.schema.Index;
+import run.ratchet.tck.store.schema.OnDeleteAction;
+import run.ratchet.tck.store.schema.RatchetSchemaCatalog;
+import run.ratchet.tck.store.schema.SchemaSpec;
+import run.ratchet.tck.store.schema.Table;
 
 /**
  * Schema conformance contract. Verifies that a conforming store's introspected schema satisfies the

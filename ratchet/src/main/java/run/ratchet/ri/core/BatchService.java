@@ -1,22 +1,5 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.api.BatchContext;
-import run.ratchet.api.JobPriority;
-import run.ratchet.api.JobType;
-import run.ratchet.api.event.BatchCompletingEvent;
-import run.ratchet.spi.BeanResolver;
-import run.ratchet.spi.ClassPolicy;
-import run.ratchet.spi.MetricsCollector;
-import run.ratchet.store.dto.BatchProgress;
-import run.ratchet.store.entity.BatchEntity;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobPayload;
-import run.ratchet.api.JobStatus;
-import run.ratchet.store.spi.BatchMetricsStore;
-import run.ratchet.store.spi.BatchStore;
-import run.ratchet.store.spi.JobBatchStatusStore;
-import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.JobTerminalStore;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -31,6 +14,23 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.jboss.logging.Logger;
 import org.objectweb.asm.Type;
+import run.ratchet.api.BatchContext;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobStatus;
+import run.ratchet.api.JobType;
+import run.ratchet.api.event.BatchCompletingEvent;
+import run.ratchet.spi.BeanResolver;
+import run.ratchet.spi.ClassPolicy;
+import run.ratchet.spi.MetricsCollector;
+import run.ratchet.store.dto.BatchProgress;
+import run.ratchet.store.entity.BatchEntity;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobPayload;
+import run.ratchet.store.spi.BatchMetricsStore;
+import run.ratchet.store.spi.BatchStore;
+import run.ratchet.store.spi.JobBatchStatusStore;
+import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobTerminalStore;
 
 /**
  * Tracks batch progress, executes progress hooks, and handles batch completion. Uses atomic

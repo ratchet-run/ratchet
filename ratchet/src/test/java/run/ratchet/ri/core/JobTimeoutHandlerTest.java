@@ -10,17 +10,6 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import run.ratchet.api.BackoffPolicy;
-import run.ratchet.api.JobPriority;
-import run.ratchet.api.JobStatus;
-import run.ratchet.api.exception.SignalTimeoutException;
-import run.ratchet.spi.MetricsCollector;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.spi.JobBatchStatusStore;
-import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.JobRetryStore;
-import run.ratchet.store.spi.SignalStore;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
@@ -32,6 +21,17 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.api.BackoffPolicy;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobStatus;
+import run.ratchet.api.exception.SignalTimeoutException;
+import run.ratchet.spi.MetricsCollector;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.JobBatchStatusStore;
+import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobRetryStore;
+import run.ratchet.store.spi.SignalStore;
 
 @ExtendWith(MockitoExtension.class)
 class JobTimeoutHandlerTest {

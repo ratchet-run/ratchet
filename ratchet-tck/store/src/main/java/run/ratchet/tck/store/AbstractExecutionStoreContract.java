@@ -3,10 +3,10 @@ package run.ratchet.tck.store;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.store.entity.JobExecutionEntity;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.store.entity.JobExecutionEntity;
 
 /** Base contract tests for {@code ExecutionStore}. */
 public abstract class AbstractExecutionStoreContract implements JobStoreContractFixture {

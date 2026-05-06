@@ -1,5 +1,9 @@
 package run.ratchet.ri.core;
 
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 import run.ratchet.api.BatchBuilder;
 import run.ratchet.api.BatchContext;
 import run.ratchet.api.JobHandle;
@@ -12,10 +16,6 @@ import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.store.entity.JobPayload;
-import java.io.Serializable;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
 
 /** {@inheritDoc} */
 public class DefaultBatchBuilder implements BatchBuilder {

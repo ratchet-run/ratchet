@@ -1,12 +1,5 @@
 package run.ratchet.store.mysql;
 
-import run.ratchet.api.BackoffPolicy;
-import run.ratchet.api.JobPriority;
-import run.ratchet.api.JobStatus;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
-import run.ratchet.store.spi.SignalStore;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -15,6 +8,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.jboss.logging.Logger;
+import run.ratchet.api.BackoffPolicy;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobStatus;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
+import run.ratchet.store.spi.SignalStore;
 
 /**
  * MySQL implementation of {@link SignalStore}.

@@ -1,7 +1,5 @@
 package run.ratchet.loadtest.metrics;
 
-import run.ratchet.api.JobStatus;
-import run.ratchet.store.spi.JobCrudStore;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
@@ -9,6 +7,8 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.lang.management.ManagementFactory;
 import java.time.Instant;
+import run.ratchet.api.JobStatus;
+import run.ratchet.store.spi.JobCrudStore;
 
 @ApplicationScoped
 public class LoadTestMetricsBinder {

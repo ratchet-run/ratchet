@@ -1,9 +1,9 @@
 package run.ratchet.api;
 
-import run.ratchet.spi.RatchetConfigKey;
-import run.ratchet.spi.RatchetConfigSource;
 import java.util.ArrayList;
 import java.util.List;
+import run.ratchet.spi.RatchetConfigKey;
+import run.ratchet.spi.RatchetConfigSource;
 
 /** Builds immutable {@link RatchetOptions} from typed configuration keys. */
 public final class RatchetOptionsFactory {

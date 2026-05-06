@@ -1,13 +1,13 @@
 package run.ratchet.ri.resilience;
 
-import run.ratchet.api.CircuitBreakerProfile;
-import run.ratchet.api.RatchetOptions;
-import run.ratchet.spi.CircuitBreakerConfigProvider;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import org.jboss.logging.Logger;
+import run.ratchet.api.CircuitBreakerProfile;
+import run.ratchet.api.RatchetOptions;
+import run.ratchet.spi.CircuitBreakerConfigProvider;
 
 /**
  * Registry for managing circuit breaker instances by service name.

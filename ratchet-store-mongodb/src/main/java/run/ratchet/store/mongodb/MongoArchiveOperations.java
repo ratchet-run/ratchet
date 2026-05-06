@@ -15,14 +15,14 @@ import static run.ratchet.store.mongodb.MongoFieldNames.TARGET_CLASS;
 import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
 
 import com.mongodb.client.result.DeleteResult;
-import run.ratchet.store.entity.ArchivedJobEntity;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.id.UuidV7Factory;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import org.bson.Document;
 import org.bson.conversions.Bson;
+import run.ratchet.store.entity.ArchivedJobEntity;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.id.UuidV7Factory;
 
 /**
  * Archive operations over {@code scheduler_job_archive}. Terminal-state jobs matching the retention

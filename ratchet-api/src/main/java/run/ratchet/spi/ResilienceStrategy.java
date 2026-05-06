@@ -1,8 +1,8 @@
 package run.ratchet.spi;
 
-import run.ratchet.api.Incubating;
 import java.time.Duration;
 import java.util.concurrent.Callable;
+import run.ratchet.api.Incubating;
 
 /**
  * Strategy for wrapping job execution with resilience patterns such as circuit breakers. The

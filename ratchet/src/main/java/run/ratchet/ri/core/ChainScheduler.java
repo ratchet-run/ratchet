@@ -1,8 +1,5 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.api.JobStatus;
-import run.ratchet.store.spi.JobCrudStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -12,6 +9,9 @@ import java.util.Deque;
 import java.util.List;
 import java.util.UUID;
 import org.jboss.logging.Logger;
+import run.ratchet.api.JobStatus;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.spi.JobCrudStore;
 
 /** Propagates success/failure through chained job dependencies. */
 @ApplicationScoped

@@ -1,7 +1,7 @@
 package run.ratchet.api;
 
-import run.ratchet.spi.RatchetConfigSource;
 import java.util.Optional;
+import run.ratchet.spi.RatchetConfigSource;
 
 /** Last-resort configuration source: environment variables first, then system properties. */
 final class EnvironmentRatchetConfigSource implements RatchetConfigSource {

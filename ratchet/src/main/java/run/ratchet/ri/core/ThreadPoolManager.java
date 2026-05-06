@@ -1,15 +1,15 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.spi.ExecutionTuningProvider;
-import run.ratchet.spi.ExecutorProvider;
-import run.ratchet.spi.MetricsCollector;
-import run.ratchet.store.entity.JobExecutionType;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.jboss.logging.Logger;
+import run.ratchet.spi.ExecutionTuningProvider;
+import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.spi.MetricsCollector;
+import run.ratchet.store.entity.JobExecutionType;
 
 /** Manages per-{@link JobExecutionType} concurrency limits before work reaches the executor. */
 public class ThreadPoolManager {

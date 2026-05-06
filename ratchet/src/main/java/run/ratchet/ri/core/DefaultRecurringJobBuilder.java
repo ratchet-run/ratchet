@@ -1,12 +1,12 @@
 package run.ratchet.ri.core;
 
+import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.List;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobOptions;
 import run.ratchet.api.RecurringJobBuilder;
 import run.ratchet.api.SerializableCheckedRunnable;
-import java.time.ZoneId;
-import java.util.ArrayList;
-import java.util.List;
 
 /** {@inheritDoc} */
 public class DefaultRecurringJobBuilder implements RecurringJobBuilder {

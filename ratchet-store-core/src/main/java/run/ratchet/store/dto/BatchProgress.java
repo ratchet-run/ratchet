@@ -1,7 +1,7 @@
 package run.ratchet.store.dto;
 
-import run.ratchet.store.entity.JobPayload;
 import java.util.UUID;
+import run.ratchet.store.entity.JobPayload;
 
 /**
  * Immutable snapshot of batch progress returned by atomic increment operations.

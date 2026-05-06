@@ -1,6 +1,16 @@
 package run.ratchet.ri.cdi;
 
 import com.cronutils.model.Cron;
+import jakarta.annotation.PreDestroy;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.context.Initialized;
+import jakarta.enterprise.event.Observes;
+import jakarta.enterprise.inject.Instance;
+import jakarta.inject.Inject;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Consumer;
+import org.jboss.logging.Logger;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.BatchRecoveryTimer;
 import run.ratchet.ri.core.DeadLetterService;
@@ -17,16 +27,6 @@ import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.SchedulerLifecycleHook;
-import jakarta.annotation.PreDestroy;
-import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.enterprise.context.Initialized;
-import jakarta.enterprise.event.Observes;
-import jakarta.enterprise.inject.Instance;
-import jakarta.inject.Inject;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.function.Consumer;
-import org.jboss.logging.Logger;
 
 /** CDI lifecycle observer that initializes and shuts down the Ratchet job scheduler subsystem. */
 @ApplicationScoped

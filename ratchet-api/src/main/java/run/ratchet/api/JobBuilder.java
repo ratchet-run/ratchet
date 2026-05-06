@@ -1,9 +1,9 @@
 package run.ratchet.api;
 
-import run.ratchet.api.exception.SignalTimeoutException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import run.ratchet.api.exception.SignalTimeoutException;
 
 /**
  * Fluent builder for configuring and submitting individual jobs. Supports chaining, conditional
@@ -32,12 +32,11 @@ public interface JobBuilder {
   /**
    * Marks this job as signal-waiting. The job is created in {@link JobStatus#WAITING} status and
    * will not execute until a signal is delivered via {@link
-   * run.ratchet.api.JobSchedulerService#deliverSignal(java.util.UUID,
-   * java.io.Serializable) deliverSignal(jobId, payload)} or {@link
+   * run.ratchet.api.JobSchedulerService#deliverSignal(java.util.UUID, java.io.Serializable)
+   * deliverSignal(jobId, payload)} or {@link
    * run.ratchet.api.JobSchedulerService#deliverSignal(String, java.io.Serializable)
    * deliverSignal(signalKey, payload)}. Structured approval/rejection decisions may also be
-   * delivered with {@link
-   * run.ratchet.api.JobSchedulerService#deliverSignal(java.util.UUID,
+   * delivered with {@link run.ratchet.api.JobSchedulerService#deliverSignal(java.util.UUID,
    * run.ratchet.api.SignalDecision) deliverSignal(jobId, decision)}.
    *
    * <p>If the signal is not delivered within {@code timeout}, the job transitions to FAILED with a
@@ -71,7 +70,12 @@ public interface JobBuilder {
 
   JobBuilder onSuccess(SerializableConsumer<JobContext> s);
 
-  /** Submits the job and returns a handle to it. */
+  /**
+   * Persists the job and returns a handle to it.
+   *
+   * <p><b>Transaction attribute:</b> {@code REQUIRED}. Non-terminal builder methods are in-memory
+   * only and do not participate in a transaction.
+   */
   JobHandle submit();
 
   /** Appends a task to the execution chain. */

@@ -13,9 +13,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import run.ratchet.spi.ExecutorProvider;
-import run.ratchet.store.spi.JobBulkStore;
-import run.ratchet.store.spi.NodeStore;
 import java.time.Instant;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
@@ -28,6 +25,9 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.store.spi.JobBulkStore;
+import run.ratchet.store.spi.NodeStore;
 
 @ExtendWith(MockitoExtension.class)
 class DefaultNodeIdentityProviderTest {

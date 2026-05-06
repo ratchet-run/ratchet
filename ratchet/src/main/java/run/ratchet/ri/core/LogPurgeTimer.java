@@ -2,8 +2,6 @@ package run.ratchet.ri.core;
 
 import com.cronutils.model.Cron;
 import com.cronutils.model.time.ExecutionTime;
-import run.ratchet.spi.ExecutorProvider;
-import run.ratchet.store.spi.JobLogStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.time.Duration;
@@ -13,6 +11,8 @@ import java.time.ZonedDateTime;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import org.jboss.logging.Logger;
+import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.store.spi.JobLogStore;
 
 /**
  * Periodically purges old job execution logs to prevent unbounded table growth. Uses a singleton

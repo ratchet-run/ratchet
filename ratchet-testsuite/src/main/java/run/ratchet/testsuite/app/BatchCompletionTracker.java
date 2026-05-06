@@ -1,9 +1,9 @@
 package run.ratchet.testsuite.app;
 
-import run.ratchet.api.BatchContext;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
+import run.ratchet.api.BatchContext;
 
 /** Tracks batch progress callbacks and completion status for integration tests. */
 public class BatchCompletionTracker {

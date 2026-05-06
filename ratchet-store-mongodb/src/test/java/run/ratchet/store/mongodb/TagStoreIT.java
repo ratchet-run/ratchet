@@ -3,10 +3,10 @@ package run.ratchet.store.mongodb;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.store.entity.JobEntity;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import run.ratchet.store.entity.JobEntity;
 
 class TagStoreIT extends BaseDocumentStoreIT {
 

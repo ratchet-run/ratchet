@@ -25,9 +25,6 @@ import com.mongodb.client.model.FindOneAndUpdateOptions;
 import com.mongodb.client.model.ReplaceOptions;
 import com.mongodb.client.model.ReturnDocument;
 import com.mongodb.client.result.UpdateResult;
-import run.ratchet.store.dto.BatchProgress;
-import run.ratchet.store.entity.BatchEntity;
-import run.ratchet.store.entity.BatchMetricsEntity;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -36,6 +33,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.bson.Document;
+import run.ratchet.store.dto.BatchProgress;
+import run.ratchet.store.entity.BatchEntity;
+import run.ratchet.store.entity.BatchMetricsEntity;
 
 /**
  * Batch and batch-metrics collection operations. Batches drive fan-out/fan-in accounting for {@code

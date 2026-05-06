@@ -1,16 +1,5 @@
 package run.ratchet.loadtest.resource;
 
-import run.ratchet.loadtest.api.EnqueueJobRequest;
-import run.ratchet.loadtest.api.JobEnqueuedResponse;
-import run.ratchet.loadtest.api.NodeResponse;
-import run.ratchet.loadtest.api.ResetRequest;
-import run.ratchet.loadtest.api.RunStartedResponse;
-import run.ratchet.loadtest.api.StartRunRequest;
-import run.ratchet.loadtest.service.LoadTestResetService;
-import run.ratchet.loadtest.service.LoadTestRunner;
-import run.ratchet.loadtest.service.RunMetadata;
-import run.ratchet.loadtest.service.RunStatusService;
-import run.ratchet.spi.NodeIdentityProvider;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
@@ -23,6 +12,17 @@ import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.time.Instant;
+import run.ratchet.loadtest.api.EnqueueJobRequest;
+import run.ratchet.loadtest.api.JobEnqueuedResponse;
+import run.ratchet.loadtest.api.NodeResponse;
+import run.ratchet.loadtest.api.ResetRequest;
+import run.ratchet.loadtest.api.RunStartedResponse;
+import run.ratchet.loadtest.api.StartRunRequest;
+import run.ratchet.loadtest.service.LoadTestResetService;
+import run.ratchet.loadtest.service.LoadTestRunner;
+import run.ratchet.loadtest.service.RunMetadata;
+import run.ratchet.loadtest.service.RunStatusService;
+import run.ratchet.spi.NodeIdentityProvider;
 
 @Path("/api")
 @ApplicationScoped

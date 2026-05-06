@@ -22,8 +22,8 @@ class SignalDecisionTest {
   void rejectedDecisionTrimsReasonAndExposesOutcomeHelpers() {
     SignalDecision decision = SignalDecision.rejected("payload", " denied ");
 
-    assertFalse(decision.approved());
-    assertTrue(decision.rejected());
+    assertFalse(decision.isApproved());
+    assertTrue(decision.isRejected());
     assertEquals(SignalDecision.Outcome.REJECTED, decision.outcome());
     assertEquals("payload", decision.payload(String.class));
     assertEquals("denied", decision.rejectionReason());

@@ -4,12 +4,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.store.entity.ArchivedJobEntity;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.api.JobStatus;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobStatus;
+import run.ratchet.store.entity.ArchivedJobEntity;
+import run.ratchet.store.entity.JobEntity;
 
 class ArchiveStoreIT extends BaseDocumentStoreIT {
 

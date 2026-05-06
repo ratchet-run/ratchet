@@ -1,6 +1,5 @@
 package run.ratchet.store.entity;
 
-import run.ratchet.store.id.UuidV7EntityListener;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EntityListeners;
@@ -9,6 +8,7 @@ import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.UUID;
+import run.ratchet.store.id.UuidV7EntityListener;
 
 /** Active resource permit (JPA entity). */
 @Entity

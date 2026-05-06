@@ -3,10 +3,10 @@ package run.ratchet.api;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.spi.RatchetConfigSource;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import run.ratchet.spi.RatchetConfigSource;
 
 class RatchetOptionsFactoryTest {
 

@@ -1,15 +1,5 @@
 package run.ratchet.testsuite.tck;
 
-import run.ratchet.api.JobHandle;
-import run.ratchet.api.JobSchedulerService;
-import run.ratchet.api.event.JobCancelledEvent;
-import run.ratchet.api.event.JobCompletedEvent;
-import run.ratchet.api.event.JobDlqEvent;
-import run.ratchet.api.event.JobFailedEvent;
-import run.ratchet.api.event.JobRetryingEvent;
-import run.ratchet.api.event.JobStartedEvent;
-import run.ratchet.tck.api.ProbeEvent;
-import run.ratchet.tck.api.RatchetTckProbe;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -26,6 +16,16 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import run.ratchet.api.JobHandle;
+import run.ratchet.api.JobSchedulerService;
+import run.ratchet.api.event.JobCancelledEvent;
+import run.ratchet.api.event.JobCompletedEvent;
+import run.ratchet.api.event.JobDlqEvent;
+import run.ratchet.api.event.JobFailedEvent;
+import run.ratchet.api.event.JobRetryingEvent;
+import run.ratchet.api.event.JobStartedEvent;
+import run.ratchet.tck.api.ProbeEvent;
+import run.ratchet.tck.api.RatchetTckProbe;
 
 /**
  * RI-side {@link RatchetTckProbe} implementation.

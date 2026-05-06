@@ -1,6 +1,5 @@
 package run.ratchet.testsuite.app;
 
-import run.ratchet.store.spi.RatchetEntityManagerProvider;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
@@ -9,6 +8,7 @@ import java.nio.ByteBuffer;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.UUID;
+import run.ratchet.store.spi.RatchetEntityManagerProvider;
 
 /**
  * JPA/SQL implementation of {@link TestDataManipulator}.

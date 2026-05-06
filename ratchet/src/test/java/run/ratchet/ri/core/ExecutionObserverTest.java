@@ -4,13 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
-import run.ratchet.api.JobPriority;
-import run.ratchet.spi.ExecutorProvider;
-import run.ratchet.spi.MetricsCollector;
-import run.ratchet.spi.TracingCollector;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.spi.ExecutionStore;
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
@@ -21,6 +14,13 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatchers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.api.JobPriority;
+import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.spi.MetricsCollector;
+import run.ratchet.spi.TracingCollector;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.ExecutionStore;
 
 @ExtendWith(MockitoExtension.class)
 class ExecutionObserverTest {

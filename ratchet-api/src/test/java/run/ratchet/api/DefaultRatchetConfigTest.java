@@ -4,11 +4,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import run.ratchet.spi.RatchetConfig;
-import run.ratchet.spi.RatchetConfigKey;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.spi.RatchetConfig;
+import run.ratchet.spi.RatchetConfigKey;
 
 class DefaultRatchetConfigTest {
 

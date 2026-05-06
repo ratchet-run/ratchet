@@ -1,8 +1,8 @@
 package run.ratchet.testsuite.app;
 
-import run.ratchet.api.Recurring;
 import jakarta.enterprise.context.ApplicationScoped;
 import java.util.concurrent.atomic.AtomicInteger;
+import run.ratchet.api.Recurring;
 
 /**
  * CDI bean with {@code @Recurring} annotated methods for testing recurring job discovery and

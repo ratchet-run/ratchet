@@ -1,9 +1,9 @@
 package run.ratchet.store.spi;
 
+import java.util.List;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.JobFilter;
 import run.ratchet.store.entity.JobEntity;
-import java.util.List;
 
 /**
  * Read-only search and filter operations for dashboard and admin queries.

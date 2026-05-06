@@ -1,10 +1,10 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.spi.ClusterCoordinator;
-import run.ratchet.spi.MetricsCollector;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
+import run.ratchet.spi.ClusterCoordinator;
+import run.ratchet.spi.MetricsCollector;
 
 /**
  * Registers with {@link ClusterCoordinator} to receive wakeup notifications and forwards them to

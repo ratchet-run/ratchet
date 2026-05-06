@@ -1,12 +1,12 @@
 package run.ratchet.ri.security;
 
-import run.ratchet.spi.ClassPolicy;
-import run.ratchet.store.entity.JobPayload;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import org.jboss.logging.Logger;
+import run.ratchet.spi.ClassPolicy;
+import run.ratchet.store.entity.JobPayload;
 
 /**
  * Primary security gate for job execution. Enforces class-policy allowlisting, method visibility

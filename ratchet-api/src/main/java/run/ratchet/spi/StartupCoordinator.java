@@ -1,7 +1,7 @@
 package run.ratchet.spi;
 
-import run.ratchet.api.Incubating;
 import java.time.Duration;
+import run.ratchet.api.Incubating;
 
 /**
  * Coordinates one-time or destructive startup actions across nodes.

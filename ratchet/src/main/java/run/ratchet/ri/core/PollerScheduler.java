@@ -1,6 +1,5 @@
 package run.ratchet.ri.core;
 
-import run.ratchet.spi.ExecutorProvider;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.concurrent.Future;
@@ -8,6 +7,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.jboss.logging.Logger;
+import run.ratchet.spi.ExecutorProvider;
 
 /**
  * Owns the scheduling infrastructure for the job poller: executor lifecycle, dynamic poll delays,
