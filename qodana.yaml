@@ -1,0 +1,50 @@
+# yaml-language-server: $schema=https://www.schemastore.org/qodana
+version: "1.0"
+
+# These exclusions are intentionally scoped to framework seams where Qodana cannot infer
+# container-managed lifecycle or trusted internal SQL construction. Keep bug-prone inspections
+# such as MalformedFormatString and IgnoreResultOfCall enabled globally.
+exclude:
+  - name: AutoCloseableResource
+    paths:
+      # EntityManager is injected and container-managed by Jakarta Persistence.
+      - ratchet-store-mysql/src/main/java
+      - ratchet-store-postgresql/src/main/java
+      - ratchet-testsuite/src/main/java/run/ratchet/testsuite/app
+      - ratchet-store-core/src/main/java/run/ratchet/store/converter
+      # ExecutorService is used as a test resource
+      - ratchet-tck/util/src/main/java/run/ratchet/tck/util/ConcurrentTestRunner.java
+      # Jsonb is held as an application-scoped serializer and closed in @PreDestroy.
+      - ratchet/src/main/java/run/ratchet/ri/cdi/JsonbPayloadSerializer.java
+
+  - name: DataFlowIssue
+    paths:
+      # CDI/Jakarta beans use protected no-arg constructors for proxying; injected constructor paths
+      # initialize these final collaborators before application use.
+      - ratchet/src/main/java/run/ratchet/ri/cdi
+      - ratchet/src/main/java/run/ratchet/ri/core
+      - ratchet/src/main/java/run/ratchet/ri/resilience
+      - ratchet/src/main/java/run/ratchet/ri/security
+      - ratchet-store-mysql/src/main/java/run/ratchet/store/mysql/MysqlJobStoreImpl.java
+      - ratchet-store-postgresql/src/main/java/run/ratchet/store/postgresql/PostgresqlJobStoreImpl.java
+
+  - name: SqlSourceToSinkFlow
+    paths:
+      # SQL text here is assembled from bundled migrations, fixed dialect templates, or enum-backed
+      # query-builder fragments; runtime values are still bound through parameters.
+      - ratchet-store-core/src/main/java/run/ratchet/store/migration/SchemaMigrator.java
+      - ratchet-store-core/src/main/java/run/ratchet/store/util/IsolationCheck.java
+      - ratchet-store-mysql/src/main/java/run/ratchet/store/mysql/MysqlJobQueryOperations.java
+      - ratchet-store-postgresql/src/main/java/run/ratchet/store/postgresql/PostgresqlJobQueryOperations.java
+      - ratchet-store-postgresql/src/main/java/run/ratchet/store/postgresql/PostgresqlStoreContext.java
+      - ratchet-tck/store/src/main/java/run/ratchet/tck/store/JpaContainerFixture.java
+
+  - name: BusyWait
+    paths:
+      # The TCK polls a public observable effect because chained child handles are not returned.
+      - ratchet-tck/api/src/main/java/run/ratchet/tck/api/AbstractSimpleWorkflowContract.java
+
+  - name: OptionalUsedAsFieldOrParameterType
+    paths:
+      # Schema DSL parameter object; Optional makes absence explicit at the call boundary.
+      - ratchet-tck/store/src/main/java/run/ratchet/tck/store/schema/DialectTypeMapper.java
