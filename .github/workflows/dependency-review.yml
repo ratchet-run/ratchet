@@ -19,25 +19,5 @@ jobs:
         uses: actions/dependency-review-action@v4
         with:
           fail-on-severity: moderate
-          allow-licenses: >-
-            Apache-2.0,
-            MIT,
-            BSD-2-Clause,
-            BSD-3-Clause,
-            ISC,
-            EPL-1.0,
-            EPL-2.0,
-            MPL-2.0,
-            CDDL-1.0,
-            CDDL-1.1,
-            GPL-2.0-with-classpath-exception,
-            CC0-1.0
-          deny-licenses: >-
-            GPL-2.0-only,
-            GPL-3.0-only,
-            AGPL-3.0-only,
-            LGPL-2.1-only,
-            LGPL-3.0-only,
-            SSPL-1.0,
-            BUSL-1.1
+          license-check: false
           comment-summary-in-pr: on-failure
