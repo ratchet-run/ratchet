@@ -40,9 +40,8 @@ updates:
       - /ratchet-bom
       - /ratchet-coverage
     schedule:
-      interval: weekly
-      day: monday
-    open-pull-requests-limit: 10
+      interval: daily
+    open-pull-requests-limit: 20
     groups:
       minor-and-patch:
         update-types:
@@ -55,8 +54,7 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
-      day: monday
+      interval: daily
     open-pull-requests-limit: 5
     groups:
       actions-minor-and-patch:
