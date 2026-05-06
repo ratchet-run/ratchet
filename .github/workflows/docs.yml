@@ -56,7 +56,7 @@ jobs:
       # --- Conformance reports (downloaded from CI artifacts, workflow_run only) ---
       - name: Download TCK store conformance reports
         if: github.event_name == 'workflow_run'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: tck-conformance-reports
           run-id: ${{ github.event.workflow_run.id }}
@@ -65,7 +65,7 @@ jobs:
 
       - name: Download TCK API and Jakarta conformance reports
         if: github.event_name == 'workflow_run'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: tck-conformance-reports-*
           run-id: ${{ github.event.workflow_run.id }}
