@@ -1,5 +1,6 @@
 package run.ratchet.ri.core;
 
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -12,19 +13,23 @@ import static org.mockito.Mockito.when;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.exception.SignalTimeoutException;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobRetryStore;
+import run.ratchet.store.spi.SignalStore;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -39,6 +44,7 @@ class JobTimeoutHandlerTest {
   @Mock private JobBatchStatusStore jobBatchStatusStore;
   @Mock private PostExecutionHandler lifecycleFacade;
   @Mock private MetricsCollector metricsCollector;
+  @Mock private SignalStore signalStore;
 
   private JobTimeoutHandler handler;
 
@@ -151,6 +157,45 @@ class JobTimeoutHandlerTest {
     verify(jobBatchStatusStore, times(1))
         .compareAndSwapStatus(eq(JOB_ID), eq(JobStatus.WAITING), eq(JobStatus.FAILED), anyString());
     verify(lifecycleFacade, times(1)).handlePermanentFailure(eq(job), any());
+  }
+
+  @Test
+  void signalTimeoutPermanentFailureUsesSignalTimeoutException() {
+    JobEntity job = waitingJobWithMaxRetries(0);
+    Instant now = Instant.now();
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            eq(JOB_ID), eq(JobStatus.WAITING), eq(JobStatus.FAILED), anyString()))
+        .thenReturn(true);
+    ArgumentCaptor<Throwable> throwableCaptor = ArgumentCaptor.forClass(Throwable.class);
+
+    handler.processSignalTimeout(job, now);
+
+    verify(lifecycleFacade).handlePermanentFailure(eq(job), throwableCaptor.capture());
+    assertTrue(throwableCaptor.getValue() instanceof SignalTimeoutException);
+  }
+
+  @Test
+  void scanSignalTimeoutsUsesConfiguredBatchLimit() {
+    JobTimeoutHandler limitedHandler =
+        new JobTimeoutHandler(
+            jobCrudStore,
+            jobRetryStore,
+            jobBatchStatusStore,
+            lifecycleFacade,
+            80,
+            60L,
+            Clock.systemUTC(),
+            null,
+            null,
+            signalStore,
+            metricsCollector,
+            17);
+    when(signalStore.findTimedOutSignalJobs(any(Instant.class), eq(17))).thenReturn(List.of());
+
+    limitedHandler.scanSignalTimeouts();
+
+    verify(signalStore).findTimedOutSignalJobs(any(Instant.class), eq(17));
   }
 
   @Test

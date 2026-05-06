@@ -736,8 +736,8 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
-  public java.util.List<JobEntity> findTimedOutSignalJobs(java.time.Instant now) {
-    return signals.findTimedOutSignalJobs(now);
+  public java.util.List<JobEntity> findTimedOutSignalJobs(java.time.Instant now, int limit) {
+    return signals.findTimedOutSignalJobs(now, limit);
   }
 
   @Override

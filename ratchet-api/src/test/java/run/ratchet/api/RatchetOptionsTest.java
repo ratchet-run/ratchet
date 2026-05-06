@@ -18,6 +18,7 @@ class RatchetOptionsTest {
     assertEquals(5, options.execution().maxConcurrency("RECURRING", -1));
     assertFalse(options.execution().useVirtualThreads());
     assertEquals(60L, options.recurring().startupGraceSeconds());
+    assertEquals(500, options.timeout().signalTimeoutBatchSize());
     assertEquals(RatchetOptions.IsolationCheckMode.FAIL, options.store().isolationCheckMode());
     assertTrue(options.security().redactEmails());
   }
@@ -35,6 +36,7 @@ class RatchetOptionsTest {
                         .virtualThreadLimit("workflow-join", 19)
                         .rateLimitPerMinute("single", 50))
             .recurring(recurring -> recurring.batchLimit(40))
+            .timeout(timeout -> timeout.signalTimeoutBatchSize(25))
             .security(security -> security.allowEmptyClassPolicy(true).redactEmails(false))
             .store(
                 store ->
@@ -50,6 +52,7 @@ class RatchetOptionsTest {
     assertEquals(19, options.execution().virtualThreadLimit("WORKFLOW_JOIN", -1));
     assertEquals(50, options.execution().rateLimitPerMinute("SINGLE"));
     assertEquals(40, options.recurring().batchLimit());
+    assertEquals(25, options.timeout().signalTimeoutBatchSize());
     assertTrue(options.security().allowEmptyClassPolicy());
     assertFalse(options.security().redactEmails());
     assertEquals(RatchetOptions.IsolationCheckMode.WARN, options.store().isolationCheckMode());
@@ -64,6 +67,9 @@ class RatchetOptionsTest {
     assertThrows(
         IllegalArgumentException.class,
         () -> RatchetOptions.builder().timeout(timeout -> timeout.softTimeoutPercent(100)));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> RatchetOptions.builder().timeout(timeout -> timeout.signalTimeoutBatchSize(0)));
     assertThrows(
         IllegalArgumentException.class,
         () ->

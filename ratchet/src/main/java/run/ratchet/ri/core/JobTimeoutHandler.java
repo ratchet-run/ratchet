@@ -2,6 +2,7 @@ package run.ratchet.ri.core;
 
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.event.JobSignalTimedOutEvent;
+import run.ratchet.api.exception.SignalTimeoutException;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobBatchStatusStore;
@@ -28,6 +29,7 @@ import org.jboss.logging.Logger;
 public class JobTimeoutHandler {
 
   private static final Logger log = Logger.getLogger(JobTimeoutHandler.class);
+  static final int DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE = 500;
 
   private final JobCrudStore jobCrudStore;
   private final JobRetryStore jobRetryStore;
@@ -40,6 +42,7 @@ public class JobTimeoutHandler {
   private final int softTimeoutPercent;
   private final long defaultTimeoutSeconds;
   private final Clock clock;
+  private final int signalTimeoutBatchSize;
 
   protected JobTimeoutHandler() {
     this.jobCrudStore = null;
@@ -53,6 +56,7 @@ public class JobTimeoutHandler {
     this.softTimeoutPercent = 0;
     this.defaultTimeoutSeconds = 0;
     this.clock = null;
+    this.signalTimeoutBatchSize = 0;
   }
 
   public JobTimeoutHandler(
@@ -131,6 +135,34 @@ public class JobTimeoutHandler {
       ChainScheduler chainScheduler,
       SignalStore signalStore,
       MetricsCollector metricsCollector) {
+    this(
+        jobCrudStore,
+        jobRetryStore,
+        jobBatchStatusStore,
+        lifecycleFacade,
+        softTimeoutPercent,
+        defaultTimeoutSeconds,
+        clock,
+        eventPublisher,
+        chainScheduler,
+        signalStore,
+        metricsCollector,
+        DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE);
+  }
+
+  public JobTimeoutHandler(
+      JobCrudStore jobCrudStore,
+      JobRetryStore jobRetryStore,
+      JobBatchStatusStore jobBatchStatusStore,
+      PostExecutionHandler lifecycleFacade,
+      int softTimeoutPercent,
+      long defaultTimeoutSeconds,
+      Clock clock,
+      InternalEventPublisher eventPublisher,
+      ChainScheduler chainScheduler,
+      SignalStore signalStore,
+      MetricsCollector metricsCollector,
+      int signalTimeoutBatchSize) {
     this.jobCrudStore = jobCrudStore;
     this.jobRetryStore = jobRetryStore;
     this.jobBatchStatusStore = jobBatchStatusStore;
@@ -142,6 +174,7 @@ public class JobTimeoutHandler {
     this.chainScheduler = chainScheduler;
     this.signalStore = signalStore;
     this.metricsCollector = metricsCollector;
+    this.signalTimeoutBatchSize = Math.max(1, signalTimeoutBatchSize);
   }
 
   private Clock effective() {
@@ -250,7 +283,7 @@ public class JobTimeoutHandler {
       return;
     }
     Instant now = effective().instant();
-    List<JobEntity> timedOut = signalStore.findTimedOutSignalJobs(now);
+    List<JobEntity> timedOut = signalStore.findTimedOutSignalJobs(now, signalTimeoutBatchSize);
     for (JobEntity job : timedOut) {
       try {
         processSignalTimeout(job, now);
@@ -263,7 +296,7 @@ public class JobTimeoutHandler {
   void processSignalTimeout(JobEntity job, Instant now) {
     UUID jobId = job.getId();
     String message = "Signal timeout exceeded for key: " + job.getSignalKey();
-    Exception timeoutEx = new Exception(message);
+    SignalTimeoutException timeoutEx = new SignalTimeoutException(message);
 
     int newAttempts = jobRetryStore.incrementRetryAttempt(jobId);
     if (newAttempts < 0) {

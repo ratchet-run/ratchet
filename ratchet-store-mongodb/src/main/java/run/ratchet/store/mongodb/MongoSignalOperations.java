@@ -4,6 +4,7 @@ import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.lte;
 import static com.mongodb.client.model.Filters.ne;
+import static com.mongodb.client.model.Sorts.ascending;
 import static com.mongodb.client.model.Updates.combine;
 import static com.mongodb.client.model.Updates.set;
 import static run.ratchet.store.mongodb.MongoFieldNames.SIGNAL_DELIVERED_AT;
@@ -51,7 +52,7 @@ final class MongoSignalOperations implements SignalStore {
   }
 
   @Override
-  public List<JobEntity> findTimedOutSignalJobs(Instant now) {
+  public List<JobEntity> findTimedOutSignalJobs(Instant now, int limit) {
     Bson filter =
         and(
             eq(STATUS, JobStatus.WAITING.name()),
@@ -59,7 +60,7 @@ final class MongoSignalOperations implements SignalStore {
             lte(SIGNAL_TIMEOUT, Date.from(now)));
 
     List<JobEntity> result = new ArrayList<>();
-    for (Document doc : ctx.jobs().find(filter)) {
+    for (Document doc : ctx.jobs().find(filter).sort(ascending(SIGNAL_TIMEOUT, "_id")).limit(Math.max(1, limit))) {
       result.add(DocumentMapper.toJobEntity(doc));
     }
     return result;
@@ -76,6 +77,7 @@ final class MongoSignalOperations implements SignalStore {
       Instant deliveredAt,
       String deliveryId) {
     Bson filter = and(eq("_id", jobId), eq(STATUS, JobStatus.WAITING.name()));
+    Date updatedAt = Date.from(deliveredAt != null ? deliveredAt : Instant.now());
     Bson update =
         combine(
             set(STATUS, JobStatus.PENDING.name()),
@@ -86,7 +88,7 @@ final class MongoSignalOperations implements SignalStore {
             set(SIGNAL_DELIVERED_AT, deliveredAt != null ? Date.from(deliveredAt) : null),
             set(SIGNAL_DELIVERED_BY, deliveredBy),
             set(SIGNAL_DELIVERY_ID, deliveryId),
-            set(UPDATED_AT, Date.from(Instant.now())));
+            set(UPDATED_AT, updatedAt));
 
     Document found =
         ctx.jobs()
@@ -108,6 +110,7 @@ final class MongoSignalOperations implements SignalStore {
       Instant deliveredAt,
       String deliveryId) {
     Bson filter = and(eq(SIGNAL_KEY, signalKey), eq(STATUS, JobStatus.WAITING.name()));
+    Date updatedAt = Date.from(deliveredAt != null ? deliveredAt : Instant.now());
     Bson update =
         combine(
             set(STATUS, JobStatus.PENDING.name()),
@@ -118,7 +121,7 @@ final class MongoSignalOperations implements SignalStore {
             set(SIGNAL_DELIVERED_AT, deliveredAt != null ? Date.from(deliveredAt) : null),
             set(SIGNAL_DELIVERED_BY, deliveredBy),
             set(SIGNAL_DELIVERY_ID, deliveryId),
-            set(UPDATED_AT, Date.from(Instant.now())));
+            set(UPDATED_AT, updatedAt));
 
     UpdateResult result;
     try (ClientSession session = ctx.startSession()) {

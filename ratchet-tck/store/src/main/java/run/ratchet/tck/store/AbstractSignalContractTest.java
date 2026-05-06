@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
 import java.time.Instant;
@@ -188,6 +189,34 @@ public abstract class AbstractSignalContractTest implements JobStoreContractFixt
     assertFalse(
         timedOut.stream().anyMatch(j -> j.getStatus() != JobStatus.WAITING),
         "only WAITING jobs should be returned");
+  }
+
+  @Test
+  void findTimedOutSignalJobs_honorsLimit() {
+    persist(newWaitingJob("expired-limit-1", Instant.now().minusSeconds(30)));
+    persist(newWaitingJob("expired-limit-2", Instant.now().minusSeconds(20)));
+    persist(newWaitingJob("expired-limit-3", Instant.now().minusSeconds(10)));
+
+    List<JobEntity> timedOut = store().findTimedOutSignalJobs(Instant.now(), 2);
+
+    assertEquals(2, timedOut.size(), "timeout scan must honor the requested batch limit");
+  }
+
+  @Test
+  void findTimedOutSignalJobs_hydratesRetryBackoffMetadata() {
+    JobEntity expired = newWaitingJob("expired-backoff", Instant.now().minusSeconds(10));
+    expired.setBackoffPolicy(BackoffPolicy.FIXED);
+    expired.setBackoffParamMs(1234);
+    JobEntity saved = persist(expired);
+
+    JobEntity timedOut =
+        store().findTimedOutSignalJobs(Instant.now()).stream()
+            .filter(j -> j.getId().equals(saved.getId()))
+            .findFirst()
+            .orElseThrow();
+
+    assertEquals(BackoffPolicy.FIXED, timedOut.getBackoffPolicy());
+    assertEquals(1234, timedOut.getBackoffParamMs());
   }
 
   @Test

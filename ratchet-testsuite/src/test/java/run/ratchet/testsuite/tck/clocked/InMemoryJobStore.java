@@ -304,10 +304,11 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   // ----- SignalStore (real bodies for signal-aware API contracts) -----
 
   @Override
-  public synchronized List<JobEntity> findTimedOutSignalJobs(Instant now) {
+  public synchronized List<JobEntity> findTimedOutSignalJobs(Instant now, int limit) {
     return jobs.values().stream()
         .filter(j -> j.getStatus() == JobStatus.WAITING)
         .filter(j -> j.getSignalTimeout() != null && !j.getSignalTimeout().isAfter(now))
+        .limit(Math.max(1, limit))
         .toList();
   }
 

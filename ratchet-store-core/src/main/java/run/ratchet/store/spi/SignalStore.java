@@ -21,7 +21,20 @@ public interface SignalStore {
    * Returns all WAITING jobs whose {@code signalTimeout} is at or before {@code now}. Used by the
    * timeout scanner to transition expired jobs to FAILED.
    */
-  List<JobEntity> findTimedOutSignalJobs(Instant now);
+  default List<JobEntity> findTimedOutSignalJobs(Instant now) {
+    return findTimedOutSignalJobs(now, Integer.MAX_VALUE);
+  }
+
+  /**
+   * Returns at most {@code limit} WAITING jobs whose {@code signalTimeout} is at or before {@code
+   * now}. Implementations should return a deterministic oldest-first slice when the store can order
+   * efficiently.
+   *
+   * @param now current time used for deadline comparison
+   * @param limit maximum number of jobs to return; must be positive
+   * @return expired WAITING jobs, never null
+   */
+  List<JobEntity> findTimedOutSignalJobs(Instant now, int limit);
 
   /**
    * Atomically delivers a signal to the specific WAITING job identified by {@code jobId},
@@ -92,8 +105,8 @@ public interface SignalStore {
 
   /**
    * Returns jobs updated by a signal delivery token. Used for per-job events after bulk delivery.
+   *
+   * @return an empty list if {@code deliveryId} is unknown; never null
    */
-  default List<JobEntity> findJobsBySignalDeliveryId(String deliveryId) {
-    return List.of();
-  }
+  List<JobEntity> findJobsBySignalDeliveryId(String deliveryId);
 }

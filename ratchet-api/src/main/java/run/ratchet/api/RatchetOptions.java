@@ -302,7 +302,8 @@ public class RatchetOptions {
 
   public record RetryBufferOptions(long drainIntervalMs) {}
 
-  public record TimeoutOptions(int softTimeoutPercent, long defaultSlaSeconds) {}
+  public record TimeoutOptions(
+      int softTimeoutPercent, long defaultSlaSeconds, int signalTimeoutBatchSize) {}
 
   public record MaintenanceOptions(
       boolean dlqPurgeEnabled,
@@ -688,6 +689,7 @@ public class RatchetOptions {
   public static final class TimeoutBuilder {
     private int softTimeoutPercent = 80;
     private long defaultSlaSeconds = 1800L;
+    private int signalTimeoutBatchSize = 500;
 
     private TimeoutBuilder() {}
 
@@ -704,8 +706,13 @@ public class RatchetOptions {
       return this;
     }
 
+    public TimeoutBuilder signalTimeoutBatchSize(int signalTimeoutBatchSize) {
+      this.signalTimeoutBatchSize = atLeast("signalTimeoutBatchSize", signalTimeoutBatchSize, 1);
+      return this;
+    }
+
     private TimeoutOptions build() {
-      return new TimeoutOptions(softTimeoutPercent, defaultSlaSeconds);
+      return new TimeoutOptions(softTimeoutPercent, defaultSlaSeconds, signalTimeoutBatchSize);
     }
   }
 

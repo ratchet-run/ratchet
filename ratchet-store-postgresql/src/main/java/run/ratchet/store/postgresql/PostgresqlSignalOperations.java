@@ -31,12 +31,14 @@ final class PostgresqlSignalOperations implements SignalStore {
 
   @Override
   @SuppressWarnings("unchecked")
-  public List<JobEntity> findTimedOutSignalJobs(Instant now) {
+  public List<JobEntity> findTimedOutSignalJobs(Instant now, int limit) {
+    int safeLimit = Math.max(1, limit);
     // language=PostgreSQL
     String sql =
         """
         SELECT q.job_id, q.signal_key, q.signal_timeout, q.status,
                c.job_type, c.priority, c.max_retries, c.business_key,
+               c.backoff_policy, c.backoff_param_ms,
                q.signal_payload, q.signal_payload_type, q.signal_outcome,
                q.signal_rejection_reason, q.signal_delivered_at,
                q.signal_delivered_by, q.signal_delivery_id
@@ -45,7 +47,10 @@ final class PostgresqlSignalOperations implements SignalStore {
         WHERE q.status = 'WAITING'
           AND q.signal_timeout IS NOT NULL
           AND q.signal_timeout <= ?
-        """;
+        ORDER BY q.signal_timeout ASC, q.job_id ASC
+        LIMIT """
+            + " "
+            + safeLimit;
     List<Object[]> rows =
         ctx.em().createNativeQuery(sql).setParameter(1, Timestamp.from(now)).getResultList();
 
@@ -61,14 +66,16 @@ final class PostgresqlSignalOperations implements SignalStore {
           row[5] != null ? JobPriority.values()[((Number) row[5]).intValue()] : JobPriority.NORMAL);
       job.setMaxRetries(row[6] != null ? ((Number) row[6]).intValue() : 0);
       job.setBusinessKey((String) row[7]);
-      job.setSignalPayload((String) row[8]);
-      job.setSignalPayloadType((String) row[9]);
-      job.setSignalOutcome((String) row[10]);
-      job.setSignalRejectionReason((String) row[11]);
-      job.setSignalDeliveredAt(toInstant(row[12]));
-      job.setSignalDeliveredBy((String) row[13]);
-      job.setSignalDeliveryId((String) row[14]);
-      job.setBackoffPolicy(BackoffPolicy.NONE);
+      job.setBackoffPolicy(
+          row[8] != null ? BackoffPolicy.valueOf((String) row[8]) : BackoffPolicy.NONE);
+      job.setBackoffParamMs(row[9] != null ? ((Number) row[9]).intValue() : 0);
+      job.setSignalPayload((String) row[10]);
+      job.setSignalPayloadType((String) row[11]);
+      job.setSignalOutcome((String) row[12]);
+      job.setSignalRejectionReason((String) row[13]);
+      job.setSignalDeliveredAt(toInstant(row[14]));
+      job.setSignalDeliveredBy((String) row[15]);
+      job.setSignalDeliveryId((String) row[16]);
       result.add(job);
     }
     return result;

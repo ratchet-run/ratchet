@@ -713,8 +713,8 @@ class MysqlJobStoreImpl implements MysqlJobStore {
 
   @Override
   public java.util.List<run.ratchet.store.entity.JobEntity> findTimedOutSignalJobs(
-      java.time.Instant now) {
-    return signals.findTimedOutSignalJobs(now);
+      java.time.Instant now, int limit) {
+    return signals.findTimedOutSignalJobs(now, limit);
   }
 
   @Override

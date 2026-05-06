@@ -57,7 +57,9 @@ public final class RatchetOptionsFactory {
             timeout ->
                 timeout
                     .softTimeoutPercent(config.get(RatchetConfigKeys.SOFT_TIMEOUT_PERCENT))
-                    .defaultSlaSeconds(config.get(RatchetConfigKeys.WORKER_DEFAULT_SLA)))
+                    .defaultSlaSeconds(config.get(RatchetConfigKeys.WORKER_DEFAULT_SLA))
+                    .signalTimeoutBatchSize(
+                        config.get(RatchetConfigKeys.SIGNAL_TIMEOUT_BATCH_SIZE)))
         .maintenance(
             maintenance ->
                 maintenance

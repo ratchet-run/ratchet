@@ -156,6 +156,7 @@ public class RatchetProducer {
       SignalStore signalStore) {
     int softTimeoutPercent = options.timeout().softTimeoutPercent();
     long defaultTimeoutSeconds = options.timeout().defaultSlaSeconds();
+    int signalTimeoutBatchSize = options.timeout().signalTimeoutBatchSize();
 
     return new JobTimeoutHandler(
         jobCrudStore,
@@ -168,7 +169,8 @@ public class RatchetProducer {
         eventPublisher,
         chainScheduler,
         signalStore,
-        metricsCollector);
+        metricsCollector,
+        signalTimeoutBatchSize);
   }
 
   @Produces
