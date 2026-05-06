@@ -74,7 +74,7 @@ public class MicrometerTracingCollector implements TracingCollector {
         current.context(),
         carrier,
         (map, key, value) -> {
-          if (map != null && key != null && value != null) {
+          if (map != null) {
             map.put(key, value);
           }
         });
