@@ -25,7 +25,7 @@ class MongoIndexConformanceTest {
 
   private static final MongoDBContainer MONGO =
       new MongoDBContainer("mongo:7.0")
-          .withReuse(true)
+          .withReplicaSet()
           .waitingFor(
               Wait.forLogMessage("(?i).*waiting for connections.*", 1)
                   .withStartupTimeout(Duration.ofMinutes(2)));

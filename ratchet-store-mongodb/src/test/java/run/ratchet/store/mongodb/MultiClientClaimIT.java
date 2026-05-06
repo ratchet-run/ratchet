@@ -43,7 +43,7 @@ class MultiClientClaimIT {
   // 60s timeout would race the "waiting for connections" log line under contention.
   private static final MongoDBContainer MONGO =
       new MongoDBContainer("mongo:7.0")
-          .withReuse(true)
+          .withReplicaSet()
           .waitingFor(
               Wait.forLogMessage("(?i).*waiting for connections.*", 1)
                   .withStartupTimeout(Duration.ofMinutes(2)));

@@ -50,6 +50,7 @@ jobs:
           -DfailBuildOnCVSS=7
           -DnvdApiKey="$NVD_API_KEY"
           -Dformats=HTML,SARIF
+          -DsuppressionFile=owasp-suppressions.xml
 
       - name: Upload Dependency-Check report
         if: always()

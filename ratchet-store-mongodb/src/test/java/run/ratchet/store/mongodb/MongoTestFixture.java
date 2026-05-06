@@ -24,11 +24,12 @@ import run.ratchet.tck.store.JobStoreContractFixture;
 /** Shared Testcontainers-based fixture for MongoDB TCK tests. */
 public class MongoTestFixture implements JobStoreContractFixture {
 
-  // 2-minute startup timeout absorbs replica-set bootstrap variance on busy hosts; the default
-  // 60s timeout would race the "waiting for connections" log line under contention.
+  // Replica-set mode is required for multi-document transactions (signal delivery, permit
+  // acquisition) and retryable writes. 2-minute timeout absorbs RS bootstrap variance on busy
+  // hosts; the default 60s would race the "waiting for connections" log line under contention.
   private static final MongoDBContainer MONGO =
       new MongoDBContainer("mongo:7.0")
-          .withReuse(true)
+          .withReplicaSet()
           .waitingFor(
               Wait.forLogMessage("(?i).*waiting for connections.*", 1)
                   .withStartupTimeout(Duration.ofMinutes(2)));
@@ -96,10 +97,6 @@ public class MongoTestFixture implements JobStoreContractFixture {
     database.drop();
   }
 
-  /**
-   * Mongo Testcontainers use a standalone {@code mongod}, which does not expose client sessions, so
-   * multi-document transactions (and therefore rollback-based test patterns) are unavailable.
-   */
   @Override
   public boolean supportsTransactionalRollback() {
     return false;
