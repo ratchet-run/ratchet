@@ -23,7 +23,6 @@ import run.ratchet.store.spi.JobQueryStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -34,8 +33,6 @@ import java.util.stream.Collectors;
 /** Default {@link JobQueryService} implementation backed by the store SPI. */
 @ApplicationScoped
 public class DefaultJobQueryService implements JobQueryService {
-
-  private static final int BATCH_MAX = 10_000;
 
   private final JobQueryStore queryStore;
   private final JobCrudStore crudStore;
@@ -67,16 +64,20 @@ public class DefaultJobQueryService implements JobQueryService {
 
   @Override
   public JobPage<JobSummary> findJobs(JobFilter filter, int limit, int offset) {
-    String caller = principalProvider.currentPrincipal().orElse(null);
-    JobFilter scoped = authPolicy.filterForPrincipal(filter != null ? filter : JobFilter.builder().build(), caller);
+    if (limit < 1) {
+      throw new IllegalArgumentException("limit must be at least 1");
+    }
 
-    // Fetch limit+1 when skipping count so we can detect hasMore without a separate count query
-    int fetchLimit = scoped.skipCount() ? limit + 1 : limit;
+    JobFilter scoped = scopeFilter(filter);
+
+    boolean cursorMode = scoped.cursor() != null && !scoped.cursor().isBlank();
+    boolean probeMode = scoped.skipCount() || cursorMode;
+    int fetchLimit = probeMode ? limit + 1 : limit;
     List<JobEntity> rows = queryStore.searchJobs(scoped, fetchLimit, offset);
 
     long total;
     boolean hasMore;
-    if (scoped.skipCount()) {
+    if (probeMode) {
       hasMore = rows.size() > limit;
       total = -1L;
       if (hasMore) {
@@ -93,8 +94,10 @@ public class DefaultJobQueryService implements JobQueryService {
     String nextCursor = null;
     if (hasMore && !rows.isEmpty()) {
       JobEntity last = rows.get(rows.size() - 1);
-      JobQuerySortField sortField = scoped.sortField() != null ? scoped.sortField() : JobQuerySortField.CREATED_AT;
-      nextCursor = new JobQueryCursor(sortField, extractSortValue(last, sortField), last.getId()).encode();
+      JobQuerySortField sortField =
+          scoped.sortField() != null ? scoped.sortField() : JobQuerySortField.CREATED_AT;
+      nextCursor =
+          new JobQueryCursor(sortField, extractSortValue(last, sortField), last.getId()).encode();
     }
 
     return new JobPage<>(items, total, limit, offset, hasMore, nextCursor);
@@ -107,11 +110,12 @@ public class DefaultJobQueryService implements JobQueryService {
       return Optional.empty();
     }
     JobEntity e = opt.get();
-    String caller = principalProvider.currentPrincipal().orElse(null);
-    try {
-      authPolicy.checkRead(jobId, caller);
-    } catch (JobAuthorizationException ex) {
-      return Optional.empty();
+    if (authPolicy != null) {
+      try {
+        authPolicy.checkRead(jobId, currentPrincipal());
+      } catch (JobAuthorizationException ex) {
+        return Optional.empty();
+      }
     }
 
     List<ExecutionHistorySummary> history =
@@ -120,9 +124,7 @@ public class DefaultJobQueryService implements JobQueryService {
             .collect(Collectors.toList());
 
     List<UUID> dependantIds =
-        crudStore.findDependants(jobId).stream()
-            .map(JobEntity::getId)
-            .collect(Collectors.toList());
+        crudStore.findDependants(jobId).stream().map(JobEntity::getId).collect(Collectors.toList());
 
     JobDetail detail =
         new JobDetail(
@@ -181,7 +183,7 @@ public class DefaultJobQueryService implements JobQueryService {
         crudStore.getRetryRateStats(since),
         crudStore.getAverageProcessingTime(since),
         crudStore.getQueueWaitTimePercentile(0.95),
-        crudStore.getOldestPendingJobTime(),
+        crudStore.getOldestPendingJobTime().orElse(null),
         pendingByType,
         pendingByPriority);
   }
@@ -194,29 +196,27 @@ public class DefaultJobQueryService implements JobQueryService {
   }
 
   @Override
-  public List<JobSummary> getBatchChildren(UUID batchParentId) {
-    String caller = principalProvider.currentPrincipal().orElse(null);
-    JobFilter filter = authPolicy.filterForPrincipal(
-        JobFilter.builder().parentJobId(batchParentId).types(JobType.BATCH).build(), caller);
-    List<JobEntity> rows = queryStore.searchJobs(filter, BATCH_MAX, 0);
-    List<JobSummary> result = new ArrayList<>(rows.size());
-    for (JobEntity e : rows) {
-      result.add(JobEntityMapper.toSummary(e));
-    }
-    return result;
+  public JobPage<JobSummary> getBatchChildren(UUID batchParentId, int limit, int offset) {
+    return findJobs(
+        JobFilter.builder().parentJobId(batchParentId).types(JobType.BATCH).build(), limit, offset);
   }
 
   @Override
-  public List<JobSummary> getRecurringMasters() {
-    String caller = principalProvider.currentPrincipal().orElse(null);
-    JobFilter filter = authPolicy.filterForPrincipal(
-        JobFilter.builder().types(JobType.RECURRING).build(), caller);
-    List<JobEntity> rows = queryStore.searchJobs(filter, BATCH_MAX, 0);
-    List<JobSummary> result = new ArrayList<>(rows.size());
-    for (JobEntity e : rows) {
-      result.add(JobEntityMapper.toSummary(e));
+  public JobPage<JobSummary> getRecurringMasters(int limit, int offset) {
+    return findJobs(JobFilter.builder().types(JobType.RECURRING).build(), limit, offset);
+  }
+
+  private JobFilter scopeFilter(JobFilter filter) {
+    JobFilter original = filter != null ? filter : JobFilter.builder().build();
+    if (authPolicy == null) {
+      return original;
     }
-    return result;
+    JobFilter scoped = authPolicy.filterForPrincipal(original, currentPrincipal());
+    return scoped != null ? scoped : original;
+  }
+
+  private String currentPrincipal() {
+    return principalProvider != null ? principalProvider.currentPrincipal().orElse(null) : null;
   }
 
   private static String extractSortValue(JobEntity last, JobQuerySortField field) {
@@ -233,7 +233,8 @@ public class DefaultJobQueryService implements JobQueryService {
         if (t == null) t = last.getCreatedAt();
         yield toInstantString(t);
       }
-      case PRIORITY -> String.valueOf(last.getPriority() != null ? last.getPriority().ordinal() : 0);
+      case PRIORITY ->
+          String.valueOf(last.getPriority() != null ? last.getPriority().ordinal() : 0);
       case STATUS -> last.getStatus() != null ? last.getStatus().name() : JobStatus.PENDING.name();
     };
   }

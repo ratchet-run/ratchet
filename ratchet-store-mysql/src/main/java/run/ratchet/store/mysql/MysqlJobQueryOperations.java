@@ -149,16 +149,18 @@ final class MysqlJobQueryOperations {
     bindParams(q, params);
     List<Object[]> rows = q.getResultList();
     List<JobEntity> result = new ArrayList<>(rows.size());
+    List<JobEntity> jobsToHydrate = new ArrayList<>(rows.size());
     for (Object[] row : rows) {
       JobEntity job = mapper.hydrateJobEntity(row);
       if (job != null) {
         // Skip tag hydration for archive rows (null q.status marks terminal-only rows from archive)
         if (!archive || row[MysqlJobRowMapper.IDX_Q_STATUS] != null) {
-          tags.hydrateTagsSingle(job);
+          jobsToHydrate.add(job);
         }
         result.add(job);
       }
     }
+    tags.hydrateTagsBatch(jobsToHydrate);
     return result;
   }
 

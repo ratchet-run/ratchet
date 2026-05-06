@@ -7,8 +7,8 @@ import java.util.UUID;
 /**
  * Read-only query API for job scheduler state, intended for dashboards, CLIs, and admin tooling.
  *
- * <p>This interface is separate from {@link JobSchedulerService}, which is write-only. Callers
- * that only need to observe job state should depend only on this interface.
+ * <p>This interface is separate from {@link JobSchedulerService}, which is write-only. Callers that
+ * only need to observe job state should depend only on this interface.
  *
  * <p>Authorization: implementations apply the configured {@code JobAuthorizationPolicy} on
  * single-job lookups. For list queries, the caller's principal is available to filter or redact
@@ -16,6 +16,8 @@ import java.util.UUID;
  */
 @Incubating
 public interface JobQueryService {
+
+  int DEFAULT_PAGE_LIMIT = 100;
 
   /**
    * Returns a paginated list of jobs matching the given filter.
@@ -46,8 +48,8 @@ public interface JobQueryService {
   /**
    * Returns a point-in-time snapshot of queue health metrics.
    *
-   * <p>The snapshot aggregates counts from the backing store in a single read pass. Counts are
-   * best-effort and not transactionally consistent across all fields.
+   * <p>The snapshot aggregates counts from the backing store as best-effort reads and is not
+   * transactionally consistent across all fields.
    */
   QueueHealthSnapshot getQueueHealth();
 
@@ -60,17 +62,40 @@ public interface JobQueryService {
   List<JobSummary> getDependants(UUID jobId);
 
   /**
-   * Returns all child jobs for the given batch parent.
+   * Returns the first page of child jobs for the given batch parent.
    *
    * @param batchParentId the batch parent job id
-   * @return batch children; empty list if none or if the job is not a batch parent
+   * @return batch children page; empty if none or if the job is not a batch parent
    */
-  List<JobSummary> getBatchChildren(UUID batchParentId);
+  default JobPage<JobSummary> getBatchChildren(UUID batchParentId) {
+    return getBatchChildren(batchParentId, DEFAULT_PAGE_LIMIT, 0);
+  }
 
   /**
-   * Returns all active recurring job master records.
+   * Returns a page of child jobs for the given batch parent.
    *
-   * @return recurring masters; empty list if none are scheduled
+   * @param batchParentId the batch parent job id
+   * @param limit maximum number of results to return
+   * @param offset zero-based index of the first result
+   * @return batch children page; empty if none or if the job is not a batch parent
    */
-  List<JobSummary> getRecurringMasters();
+  JobPage<JobSummary> getBatchChildren(UUID batchParentId, int limit, int offset);
+
+  /**
+   * Returns the first page of active recurring job master records.
+   *
+   * @return recurring masters page; empty if none are scheduled
+   */
+  default JobPage<JobSummary> getRecurringMasters() {
+    return getRecurringMasters(DEFAULT_PAGE_LIMIT, 0);
+  }
+
+  /**
+   * Returns a page of active recurring job master records.
+   *
+   * @param limit maximum number of results to return
+   * @param offset zero-based index of the first result
+   * @return recurring masters page; empty if none are scheduled
+   */
+  JobPage<JobSummary> getRecurringMasters(int limit, int offset);
 }

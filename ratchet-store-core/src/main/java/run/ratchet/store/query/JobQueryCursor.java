@@ -34,6 +34,7 @@ public final class JobQueryCursor {
   }
 
   public String encode() {
+    // The supported sort encodings reserve '|' as the field delimiter.
     String raw = sortField.name() + "|" + sortValue + "|" + jobId;
     return Base64.getUrlEncoder().withoutPadding()
         .encodeToString(raw.getBytes(StandardCharsets.UTF_8));

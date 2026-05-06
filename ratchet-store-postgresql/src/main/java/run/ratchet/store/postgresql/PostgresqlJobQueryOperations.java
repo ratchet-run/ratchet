@@ -144,10 +144,10 @@ final class PostgresqlJobQueryOperations {
     for (Object[] row : rows) {
       JobEntity job = PostgresqlJobRowMapper.hydrate(row);
       if (job != null) {
-        tags.hydrateTagsSingle(job);
         result.add(job);
       }
     }
+    tags.hydrateTagsBatch(result);
     return result;
   }
 

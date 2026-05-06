@@ -22,6 +22,7 @@ import run.ratchet.api.JobPage;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobSummary;
+import run.ratchet.api.JobType;
 import run.ratchet.api.QueueHealthSnapshot;
 import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.ri.security.CallerPrincipalProvider;
@@ -56,9 +57,13 @@ class DefaultJobQueryServiceTest {
 
   @BeforeEach
   void setUp() {
-    service = new DefaultJobQueryService(queryStore, crudStore, executionStore, authPolicy, principalProvider);
+    service =
+        new DefaultJobQueryService(
+            queryStore, crudStore, executionStore, authPolicy, principalProvider);
     lenient().when(principalProvider.currentPrincipal()).thenReturn(Optional.empty());
-    lenient().when(authPolicy.filterForPrincipal(any(), any())).thenAnswer(inv -> inv.getArgument(0));
+    lenient()
+        .when(authPolicy.filterForPrincipal(any(), any()))
+        .thenAnswer(inv -> inv.getArgument(0));
   }
 
   // ── findJobs ────────────────────────────────────────────────────────────
@@ -90,8 +95,19 @@ class DefaultJobQueryServiceTest {
   }
 
   @Test
+  void findJobs_rejectsLimitLessThanOne() {
+    assertThrows(
+        IllegalArgumentException.class, () -> service.findJobs(JobFilter.builder().build(), 0, 0));
+    assertThrows(
+        IllegalArgumentException.class, () -> service.findJobs(JobFilter.builder().build(), -1, 0));
+
+    verify(queryStore, never()).searchJobs(any(), anyInt(), anyInt());
+  }
+
+  @Test
   void findJobs_hasMore_whenMoreResultsExist() {
-    when(queryStore.searchJobs(any(), eq(2), eq(0))).thenReturn(List.of(minimalJob(), minimalJob()));
+    when(queryStore.searchJobs(any(), eq(2), eq(0)))
+        .thenReturn(List.of(minimalJob(), minimalJob()));
     when(queryStore.countJobs(any())).thenReturn(5L);
 
     JobPage<JobSummary> page = service.findJobs(JobFilter.builder().build(), 2, 0);
@@ -112,6 +128,20 @@ class DefaultJobQueryServiceTest {
 
     verify(authPolicy).filterForPrincipal(original, "alice");
     verify(queryStore).searchJobs(eq(scoped), eq(10), eq(0));
+  }
+
+  @Test
+  void findJobs_withoutAuthOrPrincipalUsesOriginalFilter() {
+    DefaultJobQueryService permissive =
+        new DefaultJobQueryService(queryStore, crudStore, executionStore, null, null);
+    JobFilter filter = JobFilter.builder().businessKey("bk-1").build();
+    when(queryStore.searchJobs(eq(filter), eq(10), eq(0))).thenReturn(Collections.emptyList());
+    when(queryStore.countJobs(eq(filter))).thenReturn(0L);
+
+    JobPage<JobSummary> page = permissive.findJobs(filter, 10, 0);
+
+    assertTrue(page.items().isEmpty());
+    verify(queryStore).searchJobs(eq(filter), eq(10), eq(0));
   }
 
   @Test
@@ -161,8 +191,23 @@ class DefaultJobQueryServiceTest {
   }
 
   @Test
+  void findJobs_cursorModeUsesLimitPlusOneProbeForHasMoreEvenWhenCountAllowed() {
+    JobFilter filter = JobFilter.builder().cursor("opaque-cursor").build();
+    List<JobEntity> overFull = List.of(minimalJob(), minimalJob(), minimalJob());
+    when(queryStore.searchJobs(eq(filter), eq(3), eq(0))).thenReturn(overFull);
+
+    JobPage<JobSummary> page = service.findJobs(filter, 2, 0);
+
+    verify(queryStore, never()).countJobs(any());
+    assertEquals(-1L, page.totalCount());
+    assertTrue(page.hasMore(), "cursor pages should use the limit+1 probe row for hasMore");
+    assertEquals(2, page.items().size(), "cursor page should trim the probe row");
+  }
+
+  @Test
   void findJobs_nextCursor_setWhenHasMore() {
-    when(queryStore.searchJobs(any(), eq(2), eq(0))).thenReturn(List.of(minimalJob(), minimalJob()));
+    when(queryStore.searchJobs(any(), eq(2), eq(0)))
+        .thenReturn(List.of(minimalJob(), minimalJob()));
     when(queryStore.countJobs(any())).thenReturn(5L);
 
     JobPage<JobSummary> page = service.findJobs(JobFilter.builder().build(), 2, 0);
@@ -210,8 +255,7 @@ class DefaultJobQueryServiceTest {
     UUID jobId = UUID.randomUUID();
     when(crudStore.findById(jobId)).thenReturn(Optional.of(minimalJobWithId(jobId)));
     when(principalProvider.currentPrincipal()).thenReturn(Optional.of("eve"));
-    org.mockito.Mockito.doThrow(
-            new JobAuthorizationException(jobId, "read", "eve", "denied"))
+    org.mockito.Mockito.doThrow(new JobAuthorizationException(jobId, "read", "eve", "denied"))
         .when(authPolicy)
         .checkRead(jobId, "eve");
 
@@ -271,7 +315,45 @@ class DefaultJobQueryServiceTest {
     assertEquals(child.getId(), result.get(0).id());
   }
 
+  @Test
+  void getBatchChildren_returnsPaginatedPage() {
+    UUID parentId = UUID.randomUUID();
+    JobEntity child = minimalJob();
+    when(queryStore.searchJobs(
+            argThat(
+                filter -> parentId.equals(filter.parentJobId()) && hasType(filter, JobType.BATCH)),
+            eq(2),
+            eq(4)))
+        .thenReturn(List.of(child));
+    when(queryStore.countJobs(any())).thenReturn(5L);
+
+    JobPage<JobSummary> page = service.getBatchChildren(parentId, 2, 4);
+
+    assertEquals(1, page.items().size());
+    assertEquals(child.getId(), page.items().get(0).id());
+    assertEquals(5L, page.totalCount());
+    assertFalse(page.hasMore());
+  }
+
+  @Test
+  void getRecurringMasters_returnsPaginatedPage() {
+    List<JobEntity> masters = List.of(minimalJob(), minimalJob());
+    when(queryStore.searchJobs(argThat(filter -> hasType(filter, JobType.RECURRING)), eq(2), eq(0)))
+        .thenReturn(masters);
+    when(queryStore.countJobs(any())).thenReturn(3L);
+
+    JobPage<JobSummary> page = service.getRecurringMasters(2, 0);
+
+    assertEquals(2, page.items().size());
+    assertEquals(3L, page.totalCount());
+    assertTrue(page.hasMore());
+  }
+
   // ── helpers ─────────────────────────────────────────────────────────────
+
+  private static boolean hasType(JobFilter filter, JobType type) {
+    return filter != null && filter.types() != null && filter.types().contains(type);
+  }
 
   private static JobEntity minimalJob() {
     return minimalJobWithId(UUID.randomUUID());

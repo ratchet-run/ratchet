@@ -2,7 +2,6 @@ package run.ratchet.api;
 
 import java.time.Instant;
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * Point-in-time snapshot of queue health metrics for monitoring dashboards.
@@ -21,7 +20,7 @@ import java.util.Optional;
  * @param retryRate fraction of recently updated jobs that have retried at least once (0.0–1.0)
  * @param avgProcessingTimeMs average execution duration for recently succeeded jobs, in ms
  * @param p95QueueWaitMs 95th-percentile queue wait time for recently succeeded jobs, in ms
- * @param oldestPendingJobTime scheduled time of the oldest pending job, if any
+ * @param oldestPendingJobTime scheduled time of the oldest pending job, or null if no pending jobs
  * @param pendingByType pending job count keyed by public job type
  * @param pendingByPriority pending job count keyed by priority
  */
@@ -37,6 +36,6 @@ public record QueueHealthSnapshot(
     double retryRate,
     double avgProcessingTimeMs,
     long p95QueueWaitMs,
-    Optional<Instant> oldestPendingJobTime,
+    @Nullable Instant oldestPendingJobTime,
     Map<JobType, Long> pendingByType,
     Map<JobPriority, Long> pendingByPriority) {}

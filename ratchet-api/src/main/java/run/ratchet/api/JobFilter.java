@@ -51,10 +51,10 @@ public record JobFilter(
   }
 
   /**
-   * Returns a {@link Builder} pre-populated with every field of this filter. Safe to use in
-   * {@link run.ratchet.spi.JobAuthorizationPolicy#filterForPrincipal} implementations so
-   * that injecting a single field (e.g. {@code callerPrincipal}) does not silently discard the
-   * caller's original filter criteria:
+   * Returns a {@link Builder} pre-populated with every field of this filter. Safe to use in {@link
+   * run.ratchet.spi.JobAuthorizationPolicy#filterForPrincipal} implementations so that
+   * injecting a single field (e.g. {@code callerPrincipal}) does not silently discard the caller's
+   * original filter criteria:
    *
    * <pre>{@code
    * return filter.toBuilder().callerPrincipal(principal).build();
@@ -115,6 +115,9 @@ public record JobFilter(
     private Builder() {}
 
     public Builder statuses(JobStatus... values) {
+      if (values.length == 0) {
+        return this;
+      }
       this.statuses = Collections.unmodifiableSet(EnumSet.copyOf(Set.of(values)));
       return this;
     }
@@ -125,6 +128,9 @@ public record JobFilter(
     }
 
     public Builder types(JobType... values) {
+      if (values.length == 0) {
+        return this;
+      }
       this.types = Collections.unmodifiableSet(EnumSet.copyOf(Set.of(values)));
       return this;
     }
@@ -135,6 +141,9 @@ public record JobFilter(
     }
 
     public Builder priorities(JobPriority... values) {
+      if (values.length == 0) {
+        return this;
+      }
       this.priorities = Collections.unmodifiableSet(EnumSet.copyOf(Set.of(values)));
       return this;
     }
