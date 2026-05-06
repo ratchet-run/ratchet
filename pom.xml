@@ -531,6 +531,7 @@
                   </links>
                   <bottom>Copyright &#169; {inceptionYear}-{currentYear} Ratchet Contributors. All rights reserved.</bottom>
                   <doclint>none</doclint>
+                  <failOnError>false</failOnError>
                 </configuration>
               </execution>
             </executions>

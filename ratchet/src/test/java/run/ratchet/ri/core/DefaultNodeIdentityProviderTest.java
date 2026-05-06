@@ -86,11 +86,15 @@ class DefaultNodeIdentityProviderTest {
     Runnable scheduledHeartbeat = runnableCaptor.getValue();
 
     CountDownLatch heartbeatEntered = new CountDownLatch(1);
-    CountDownLatch releaseHeartbeat = new CountDownLatch(1);
     doAnswer(
             invocation -> {
               heartbeatEntered.countDown();
-              assertTrue(releaseHeartbeat.await(5, TimeUnit.SECONDS));
+              // Spin until shutdown sets initialized=false before throwing, guaranteeing the
+              // catch block observes the shutdown state without a release-before-signal race.
+              long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+              while (provider.initialized.get() && System.nanoTime() < deadline) {
+                Thread.onSpinWait();
+              }
               throw new IllegalStateException("container stopping");
             })
         .when(nodeStore)
@@ -104,7 +108,6 @@ class DefaultNodeIdentityProviderTest {
 
     Thread shutdownThread = new Thread(provider::shutdown, "heartbeat-shutdown");
     shutdownThread.start();
-    releaseHeartbeat.countDown();
 
     shutdownThread.join(TimeUnit.SECONDS.toMillis(5));
     heartbeatThread.join(TimeUnit.SECONDS.toMillis(5));

@@ -44,7 +44,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
   private static final List<String> CONTAINER_SHUTDOWN_ERROR_MARKERS =
       List.of("WELD-000229", "WELD-001303", "after container", "No active contexts for scope type");
 
-  private final AtomicBoolean initialized = new AtomicBoolean();
+  final AtomicBoolean initialized = new AtomicBoolean();
   private final NodeStore nodeStore;
   private final JobBulkStore jobBulkStore;
   private final DynamicHeartbeatCalculator heartbeatCalculator;
