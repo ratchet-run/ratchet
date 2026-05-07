@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-java@v5
         with:
-          java-version: '17'
+          java-version: '25'
           distribution: 'temurin'
       - uses: actions/cache@v5
         with:
@@ -64,17 +64,14 @@ jobs:
       matrix:
         server: [wildfly-managed, payara-managed, openliberty-managed]
         database: [mysql, postgresql, mongodb]
-        java-version: ['17']
+        java-version: ['25']
         include:
           - server: glassfish-managed
             database: mysql
-            java-version: '21'
           - server: glassfish-managed
             database: postgresql
-            java-version: '21'
           - server: glassfish-managed
             database: mongodb
-            java-version: '21'
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-java@v5
