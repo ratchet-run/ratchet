@@ -64,7 +64,7 @@ jobs:
       matrix:
         server: [wildfly-managed, payara-managed, openliberty-managed]
         database: [mysql, postgresql, mongodb]
-        java-version: ['21']
+        java-version: ['17']
         include:
           - server: glassfish-managed
             database: mysql
