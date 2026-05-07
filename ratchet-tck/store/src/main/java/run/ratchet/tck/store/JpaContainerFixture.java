@@ -63,6 +63,11 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
   private final EntityManager emProxy;
   private final JobStore storeProxy;
 
+  private static Instant dueScheduledTime() {
+    // DB-backed claim paths compare scheduled_time to the database clock, not the JVM clock.
+    return Instant.now().minusSeconds(1);
+  }
+
   protected JpaContainerFixture() {
     Object container = container();
     if (!containerBoolean(container, "isRunning")) {
@@ -115,7 +120,7 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
   public JobEntity newPendingJob() {
     JobEntity job = new JobEntity();
     job.setStatus(JobStatus.PENDING);
-    job.setScheduledTime(Instant.now());
+    job.setScheduledTime(dueScheduledTime());
     job.setJobType(JobExecutionType.SINGLE);
     job.setPriority(JobPriority.NORMAL);
     job.setBackoffPolicy(BackoffPolicy.NONE);
@@ -128,7 +133,7 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
   public JobEntity newBatchParentJob() {
     JobEntity job = new JobEntity();
     job.setStatus(JobStatus.PENDING);
-    job.setScheduledTime(Instant.now());
+    job.setScheduledTime(dueScheduledTime());
     job.setJobType(JobExecutionType.BATCH_PARENT);
     job.setPriority(JobPriority.NORMAL);
     job.setBackoffPolicy(BackoffPolicy.NONE);

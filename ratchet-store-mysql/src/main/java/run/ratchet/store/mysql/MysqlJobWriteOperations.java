@@ -145,6 +145,7 @@ final class MysqlJobWriteOperations {
       executeColdInsert(job, nowTs);
       if (bornTerminal) {
         executeColdTerminalBackfill(job, nowTs);
+        job.setTerminalStatus(job.getStatus());
       } else {
         if (!recurring) {
           executeHotInsert(job, nowTs);
@@ -484,6 +485,7 @@ final class MysqlJobWriteOperations {
         .executeUpdate();
     reservations.deleteReservationByOwner(id);
     incoming.setVersion(expectedVersion + 1);
+    incoming.setTerminalStatus(incoming.getStatus());
   }
 
   @SuppressWarnings("unchecked")
@@ -535,8 +537,12 @@ final class MysqlJobWriteOperations {
     }
 
     if (terminal != null) {
+      JobStatus storedTerminal = JobStatus.valueOf(terminal);
+      if (incoming.getTerminalStatus() != storedTerminal) {
+        throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
+      }
       JobStatus incomingStatus = incoming.getStatus();
-      if (incomingStatus != null && incomingStatus != JobStatus.valueOf(terminal)) {
+      if (incomingStatus != null && incomingStatus != storedTerminal) {
         throw new IllegalStateException(
             "save() rejected: cannot mutate terminal job id="
                 + id

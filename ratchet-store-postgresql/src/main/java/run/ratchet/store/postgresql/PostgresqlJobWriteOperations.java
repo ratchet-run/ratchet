@@ -122,6 +122,7 @@ final class PostgresqlJobWriteOperations {
       for (JobEntity job : jobs) {
         if (job.getStatus() != null && PostgresqlJobRowMapper.isTerminalStatus(job.getStatus())) {
           executeColdTerminalBackfill(job, nowTs);
+          job.setTerminalStatus(job.getStatus());
           continue;
         }
         if (job.getBusinessKey() == null) {
@@ -163,6 +164,7 @@ final class PostgresqlJobWriteOperations {
       executeColdInsert(job, nowTs);
       if (bornTerminal) {
         executeColdTerminalBackfill(job, nowTs);
+        job.setTerminalStatus(job.getStatus());
       } else {
         if (!recurring) {
           executeHotInsert(job, nowTs);
@@ -439,6 +441,7 @@ final class PostgresqlJobWriteOperations {
         .executeUpdate();
     reservations.deleteReservationByOwner(id);
     incoming.setVersion(expectedVersion + 1);
+    incoming.setTerminalStatus(incoming.getStatus());
   }
 
   @SuppressWarnings("unchecked")
@@ -490,8 +493,12 @@ final class PostgresqlJobWriteOperations {
     }
 
     if (terminal != null) {
+      JobStatus storedTerminal = JobStatus.valueOf(terminal);
+      if (incoming.getTerminalStatus() != storedTerminal) {
+        throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
+      }
       JobStatus incomingStatus = incoming.getStatus();
-      if (incomingStatus != null && incomingStatus != JobStatus.valueOf(terminal)) {
+      if (incomingStatus != null && incomingStatus != storedTerminal) {
         throw new IllegalStateException(
             "save() rejected: cannot mutate terminal job id="
                 + id

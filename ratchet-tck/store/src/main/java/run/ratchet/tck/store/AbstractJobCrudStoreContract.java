@@ -117,6 +117,27 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
   }
 
   @Test
+  void save_staleLiveSnapshotAfterTerminalization_reportsStaleWrite() {
+    JobEntity initial = persist(newPendingJob());
+    UUID id = initial.getId();
+
+    JobEntity staleLiveSnapshot = store().findById(id).orElseThrow();
+    JobEntity terminalizingSnapshot = store().findById(id).orElseThrow();
+
+    terminalizingSnapshot.setStatus(JobStatus.CANCELED);
+    store().save(terminalizingSnapshot);
+
+    staleLiveSnapshot.setStatus(JobStatus.RUNNING);
+    RuntimeException failure =
+        assertThrows(RuntimeException.class, () -> store().save(staleLiveSnapshot));
+
+    assertTrue(
+        isStaleWriteException(failure),
+        "a pre-terminal live snapshot must fail as a stale write after terminalization; got "
+            + failure);
+  }
+
+  @Test
   void findById_unknownId_returnsEmpty() {
     var result = store().findById(new UUID(0L, Long.MAX_VALUE));
 
