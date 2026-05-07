@@ -7,7 +7,7 @@ import run.ratchet.tck.store.AbstractDlqAlertStoreContract;
 /** MongoDB contract test for {@code DlqAlertStore} operations. */
 class MongoDlqAlertStoreContractTest extends AbstractDlqAlertStoreContract {
 
-  private final MongoTestFixture fixture = new MongoTestFixture();
+  private static final MongoTestFixture fixture = new MongoTestFixture();
 
   @Override
   public JobStore store() {

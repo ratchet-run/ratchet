@@ -7,7 +7,7 @@ import run.ratchet.tck.store.AbstractResourcePermitStoreContract;
 /** MongoDB contract test for {@code ResourcePermitStore} operations. */
 class MongoResourcePermitStoreContractTest extends AbstractResourcePermitStoreContract {
 
-  private final MongoTestFixture fixture = new MongoTestFixture();
+  private static final MongoTestFixture fixture = new MongoTestFixture();
 
   @Override
   public JobStore store() {

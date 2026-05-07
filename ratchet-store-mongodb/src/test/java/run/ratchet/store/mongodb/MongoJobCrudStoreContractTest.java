@@ -7,7 +7,7 @@ import run.ratchet.tck.store.AbstractJobCrudStoreContract;
 /** MongoDB contract test for {@code JobCrudStore} operations. */
 class MongoJobCrudStoreContractTest extends AbstractJobCrudStoreContract {
 
-  private final MongoTestFixture fixture = new MongoTestFixture();
+  private static final MongoTestFixture fixture = new MongoTestFixture();
 
   @Override
   public JobStore store() {

@@ -12,7 +12,7 @@ import run.ratchet.tck.store.AbstractDualWriteInvariantContract;
  */
 class MongoDualWriteInvariantContractTest extends AbstractDualWriteInvariantContract {
 
-  private final MongoTestFixture fixture = new MongoTestFixture();
+  private static final MongoTestFixture fixture = new MongoTestFixture();
 
   @Override
   public JobStore store() {

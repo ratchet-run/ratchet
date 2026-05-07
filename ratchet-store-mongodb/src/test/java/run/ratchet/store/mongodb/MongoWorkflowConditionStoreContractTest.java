@@ -7,7 +7,7 @@ import run.ratchet.tck.store.AbstractWorkflowConditionStoreContract;
 /** MongoDB contract test for {@code WorkflowConditionStore} operations. */
 class MongoWorkflowConditionStoreContractTest extends AbstractWorkflowConditionStoreContract {
 
-  private final MongoTestFixture fixture = new MongoTestFixture();
+  private static final MongoTestFixture fixture = new MongoTestFixture();
 
   @Override
   public JobStore store() {

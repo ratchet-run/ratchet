@@ -6,7 +6,7 @@ import run.ratchet.tck.store.AbstractActiveBusinessKeyContract;
 
 class MongoActiveBusinessKeyContractTest extends AbstractActiveBusinessKeyContract {
 
-  private final MongoTestFixture fixture = new MongoTestFixture();
+  private static final MongoTestFixture fixture = new MongoTestFixture();
 
   @Override
   public JobStore store() {

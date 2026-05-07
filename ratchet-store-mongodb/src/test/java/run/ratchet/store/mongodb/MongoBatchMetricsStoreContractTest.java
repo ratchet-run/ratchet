@@ -7,7 +7,7 @@ import run.ratchet.tck.store.AbstractBatchMetricsStoreContract;
 /** MongoDB contract test for {@code BatchMetricsStore} operations. */
 class MongoBatchMetricsStoreContractTest extends AbstractBatchMetricsStoreContract {
 
-  private final MongoTestFixture fixture = new MongoTestFixture();
+  private static final MongoTestFixture fixture = new MongoTestFixture();
 
   @Override
   public JobStore store() {

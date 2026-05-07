@@ -11,7 +11,7 @@ import run.ratchet.tck.store.AbstractSignalContractTest;
 
 class MongoSignalStoreContractTest extends AbstractSignalContractTest {
 
-  private final MongoTestFixture fixture = new MongoTestFixture();
+  private static final MongoTestFixture fixture = new MongoTestFixture();
 
   @Override
   public JobStore store() {
