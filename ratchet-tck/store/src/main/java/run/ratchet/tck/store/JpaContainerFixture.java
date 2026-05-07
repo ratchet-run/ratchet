@@ -166,10 +166,12 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
       work.run();
       if (owner) {
         tx.commit();
+        em.clear();
       }
     } catch (RuntimeException e) {
       if (owner && tx.isActive()) {
         tx.rollback();
+        em.clear();
       }
       throw e;
     }
