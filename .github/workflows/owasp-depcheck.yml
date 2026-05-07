@@ -52,10 +52,9 @@ jobs:
           format: 'HTML,SARIF'
           out: 'target'
           args: >
-            --failBuildOnCVSS 7
-            --failBuildOnError false
+            --failOnCVSS 7
             --nvdApiKey ${{ secrets.NVD_API_KEY }}
-            --suppressionFile owasp-suppressions.xml
+            --suppression owasp-suppressions.xml
 
       - name: Upload Dependency-Check report
         if: always()
