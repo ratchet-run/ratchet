@@ -3,10 +3,12 @@ package run.ratchet.ri.cdi;
 import com.cronutils.model.CronType;
 import com.cronutils.model.definition.CronDefinitionBuilder;
 import com.cronutils.parser.CronParser;
+import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.Initialized;
 import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.Any;
+import jakarta.interceptor.Interceptor;
 import jakarta.enterprise.inject.spi.Bean;
 import jakarta.enterprise.inject.spi.BeanManager;
 import jakarta.inject.Inject;
@@ -113,7 +115,9 @@ public class RecurringJobProcessor {
         RatchetOptions.defaults());
   }
 
-  void onStartup(@Observes @Initialized(ApplicationScoped.class) Object init) {
+  void onStartup(
+      @Observes @Priority(Interceptor.Priority.APPLICATION) @Initialized(ApplicationScoped.class)
+          Object init) {
     registerRecurringJobs();
   }
 

@@ -56,7 +56,7 @@ public class MongoContainerExtension
 
       log.info("Starting Testcontainers MongoDB");
 
-      container = new MongoDBContainer("mongo:7.0");
+      container = new MongoDBContainer("mongo:7.0").withReplicaSet();
       container.start();
 
       config = new MongoStoreConfig(container.getConnectionString(), "ratchet_test");

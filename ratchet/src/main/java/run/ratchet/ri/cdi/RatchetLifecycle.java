@@ -2,9 +2,11 @@ package run.ratchet.ri.cdi;
 
 import com.cronutils.model.Cron;
 import jakarta.annotation.PreDestroy;
+import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.Initialized;
 import jakarta.enterprise.event.Observes;
+import jakarta.interceptor.Interceptor;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import java.util.ArrayList;
@@ -130,7 +132,11 @@ public class RatchetLifecycle {
     this.lifecycleHooks = lifecycleHooks;
   }
 
-  void onStartup(@Observes @Initialized(ApplicationScoped.class) Object init) {
+  void onStartup(
+      @Observes
+          @Priority(Interceptor.Priority.APPLICATION + 500)
+          @Initialized(ApplicationScoped.class)
+          Object init) {
     log.info("Ratchet starting");
     notifyHooks("beforeStart", SchedulerLifecycleHook::beforeStart);
 
