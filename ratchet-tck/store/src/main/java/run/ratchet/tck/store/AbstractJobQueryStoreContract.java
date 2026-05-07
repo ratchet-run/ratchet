@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobPriority;
@@ -27,6 +28,7 @@ import run.ratchet.store.entity.JobEntity;
  */
 public abstract class AbstractJobQueryStoreContract implements JobStoreContractFixture {
 
+  @BeforeEach
   @AfterEach
   void cleanupQueryFixture() {
     cleanupStore();

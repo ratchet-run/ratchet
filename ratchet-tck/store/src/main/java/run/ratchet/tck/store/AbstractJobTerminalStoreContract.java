@@ -7,12 +7,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
 
 /** Base contract tests for {@code JobTerminalStore}. */
 public abstract class AbstractJobTerminalStoreContract implements JobStoreContractFixture {
 
+  @BeforeEach
   @AfterEach
   void cleanupTerminalFixture() {
     cleanupStore();

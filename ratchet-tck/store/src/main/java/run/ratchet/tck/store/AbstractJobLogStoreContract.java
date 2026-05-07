@@ -6,12 +6,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import java.time.Instant;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.store.entity.JobLogEntity;
 
 /** Base contract tests for {@code JobLogStore}. */
 public abstract class AbstractJobLogStoreContract implements JobStoreContractFixture {
 
+  @BeforeEach
   @AfterEach
   void cleanupLogFixture() {
     cleanupStore();

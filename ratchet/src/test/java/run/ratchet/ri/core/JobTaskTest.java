@@ -392,8 +392,10 @@ class JobTaskTest {
           }
 
           @Override
+          @SuppressWarnings("unchecked")
           public <T> T deserialize(String json, Class<T> type) {
-            return type.cast(decision);
+            // Inner payload is deserialized as Object; return the String value
+            return (T) "payload";
           }
         };
     ResultPersistenceStrategy resultPersistenceStrategy =
@@ -424,8 +426,10 @@ class JobTaskTest {
             "()Ljava/lang/String;",
             true,
             List.of()));
-    job.setSignalPayload("{\"outcome\":\"REJECTED\"}");
+    job.setSignalPayload("\"payload\"");
     job.setSignalPayloadType(DefaultJobSchedulerService.SIGNAL_PAYLOAD_TYPE_DECISION);
+    job.setSignalOutcome("REJECTED");
+    job.setSignalRejectionReason("denied");
     initJobTaskWithDefaultStubs(signalTask, job);
     when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
     when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
@@ -437,7 +441,7 @@ class JobTaskTest {
 
     signalTask.call();
 
-    Assertions.assertSame(decision, observedSignalDecision);
+    Assertions.assertEquals(decision, observedSignalDecision);
   }
 
   private JobEntity createTestJob() {

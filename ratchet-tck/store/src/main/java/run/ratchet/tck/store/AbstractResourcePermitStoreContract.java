@@ -8,12 +8,14 @@ import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.tck.util.ConcurrentTestRunner;
 
 /** Base contract tests for {@code ResourcePermitStore}. */
 public abstract class AbstractResourcePermitStoreContract implements JobStoreContractFixture {
 
+  @BeforeEach
   @AfterEach
   void cleanupResourcePermitFixture() {
     cleanupStore();

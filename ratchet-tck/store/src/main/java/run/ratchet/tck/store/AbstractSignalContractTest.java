@@ -9,6 +9,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobStatus;
@@ -23,6 +24,7 @@ import run.ratchet.store.entity.JobEntity;
  */
 public abstract class AbstractSignalContractTest implements JobStoreContractFixture {
 
+  @BeforeEach
   @AfterEach
   void cleanup() {
     cleanupStore();

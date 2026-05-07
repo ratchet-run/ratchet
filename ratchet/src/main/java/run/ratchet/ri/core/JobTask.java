@@ -259,15 +259,30 @@ public class JobTask implements Callable<Void> {
     JobType jobType = jobEntity.getPublicJobType();
     Serializable deserializedSignalPayload = null;
     String rawSignalPayload = jobEntity.getSignalPayload();
-    if (rawSignalPayload != null && payloadSerializer != null) {
-      try {
-        Class<? extends Serializable> signalPayloadType =
-            DefaultJobSchedulerService.SIGNAL_PAYLOAD_TYPE_DECISION.equals(
-                    jobEntity.getSignalPayloadType())
-                ? SignalDecision.class
-                : Serializable.class;
+    if (DefaultJobSchedulerService.SIGNAL_PAYLOAD_TYPE_DECISION.equals(
+        jobEntity.getSignalPayloadType())) {
+      Serializable innerPayload = null;
+      if (rawSignalPayload != null && payloadSerializer != null) {
+        try {
+          Object obj = payloadSerializer.deserialize(rawSignalPayload, Object.class);
+          if (obj instanceof Serializable s) {
+            innerPayload = s;
+          }
+        } catch (Exception e) {
+          log.warnf(
+              "Failed to deserialize signal inner payload for job %s: %s", jobId, e.getMessage());
+        }
+      }
+      String outcomeStr = jobEntity.getSignalOutcome();
+      if (outcomeStr != null) {
+        SignalDecision.Outcome outcome = SignalDecision.Outcome.valueOf(outcomeStr);
         deserializedSignalPayload =
-            payloadSerializer.deserialize(rawSignalPayload, signalPayloadType);
+            new SignalDecision(outcome, innerPayload, jobEntity.getSignalRejectionReason());
+      }
+    } else if (rawSignalPayload != null && payloadSerializer != null) {
+      try {
+        deserializedSignalPayload =
+            payloadSerializer.deserialize(rawSignalPayload, Serializable.class);
       } catch (Exception e) {
         log.warnf("Failed to deserialize signal payload for job %s: %s", jobId, e.getMessage());
       }

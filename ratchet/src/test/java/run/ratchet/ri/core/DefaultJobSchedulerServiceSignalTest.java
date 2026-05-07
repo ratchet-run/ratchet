@@ -85,10 +85,10 @@ class DefaultJobSchedulerServiceSignalTest {
   void deliverSignalDecisionByIdPersistsDecisionMetadataAndPublishesEvent() {
     SignalDecision decision = SignalDecision.rejected("needs-review", "denied");
     JobEntity job = job(JOB_ID, "approval-key");
-    when(payloadSerializer.serialize(decision)).thenReturn("serialized-decision");
+    when(payloadSerializer.serialize("needs-review")).thenReturn("serialized-payload");
     when(signalStore.deliverSignalById(
             eq(JOB_ID),
-            eq("serialized-decision"),
+            eq("serialized-payload"),
             eq(DefaultJobSchedulerService.SIGNAL_PAYLOAD_TYPE_DECISION),
             eq("REJECTED"),
             eq("denied"),
@@ -119,10 +119,10 @@ class DefaultJobSchedulerServiceSignalTest {
     JobEntity j1 = job(new UUID(0L, 1L), "approval-key");
     JobEntity j2 = job(new UUID(0L, 2L), "approval-key");
     AtomicReference<String> deliveryId = new AtomicReference<>();
-    when(payloadSerializer.serialize(decision)).thenReturn("serialized-decision");
+    when(payloadSerializer.serialize("needs-review")).thenReturn("serialized-payload");
     when(signalStore.deliverSignalByKey(
             eq("approval-key"),
-            eq("serialized-decision"),
+            eq("serialized-payload"),
             eq(DefaultJobSchedulerService.SIGNAL_PAYLOAD_TYPE_DECISION),
             eq("REJECTED"),
             eq("nope"),

@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
@@ -32,6 +33,7 @@ public abstract class AbstractDualWriteInvariantContract implements JobStoreCont
     return "dual-write-" + UUID.randomUUID();
   }
 
+  @BeforeEach
   @AfterEach
   void cleanupDualWriteFixture() {
     cleanupStore();

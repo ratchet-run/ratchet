@@ -692,7 +692,7 @@ public class DefaultJobSchedulerService
         callerPrincipalProvider != null
             ? callerPrincipalProvider.currentPrincipal().orElse(null)
             : null;
-    String serializedPayload = serializeSignalPayload(decision);
+    String serializedPayload = serializeSignalPayload(decision.payload());
     Instant now = effective().instant();
     String deliveryId = UUID.randomUUID().toString();
 
@@ -753,7 +753,7 @@ public class DefaultJobSchedulerService
         callerPrincipalProvider != null
             ? callerPrincipalProvider.currentPrincipal().orElse(null)
             : null;
-    String serializedPayload = serializeSignalPayload(decision);
+    String serializedPayload = serializeSignalPayload(decision.payload());
     Instant now = effective().instant();
     String deliveryId = UUID.randomUUID().toString();
 

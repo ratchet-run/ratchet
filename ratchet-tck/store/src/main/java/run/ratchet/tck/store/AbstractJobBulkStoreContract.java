@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.id.UuidV7Factory;
@@ -15,6 +16,7 @@ import run.ratchet.store.id.UuidV7Factory;
 /** Base contract tests for {@code JobBulkStore}. */
 public abstract class AbstractJobBulkStoreContract implements JobStoreContractFixture {
 
+  @BeforeEach
   @AfterEach
   void cleanupBulkFixture() {
     cleanupStore();

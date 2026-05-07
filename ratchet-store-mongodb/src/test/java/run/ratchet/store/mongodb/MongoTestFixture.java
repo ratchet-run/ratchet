@@ -95,6 +95,7 @@ public class MongoTestFixture implements JobStoreContractFixture {
   @Override
   public void cleanupStore() {
     database.drop();
+    new MongoCollectionInitializer(database).initialize();
   }
 
   @Override

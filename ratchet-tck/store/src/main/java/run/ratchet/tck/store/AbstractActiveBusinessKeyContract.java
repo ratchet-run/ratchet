@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
@@ -42,6 +43,7 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
     return "abk-" + UUID.randomUUID();
   }
 
+  @BeforeEach
   @AfterEach
   void cleanupActiveBusinessKeyFixture() {
     cleanupStore();

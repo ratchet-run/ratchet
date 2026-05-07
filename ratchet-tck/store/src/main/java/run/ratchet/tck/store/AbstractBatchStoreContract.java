@@ -8,12 +8,14 @@ import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.tck.util.ConcurrentTestRunner;
 
 /** Base contract tests for {@code BatchStore}. */
 public abstract class AbstractBatchStoreContract implements JobStoreContractFixture {
 
+  @BeforeEach
   @AfterEach
   void cleanupBatchFixture() {
     cleanupStore();

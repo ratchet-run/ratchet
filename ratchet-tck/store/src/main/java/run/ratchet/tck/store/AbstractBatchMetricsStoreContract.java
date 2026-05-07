@@ -9,6 +9,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.store.entity.BatchMetricsEntity;
 import run.ratchet.tck.util.ConcurrentTestRunner;
@@ -16,6 +17,7 @@ import run.ratchet.tck.util.ConcurrentTestRunner;
 /** Base contract tests for {@code BatchMetricsStore}. */
 public abstract class AbstractBatchMetricsStoreContract implements JobStoreContractFixture {
 
+  @BeforeEach
   @AfterEach
   void cleanupBatchMetricsFixture() {
     cleanupStore();

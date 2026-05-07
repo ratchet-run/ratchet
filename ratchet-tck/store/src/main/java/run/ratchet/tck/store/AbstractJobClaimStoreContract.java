@@ -12,6 +12,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
@@ -33,6 +34,7 @@ public abstract class AbstractJobClaimStoreContract implements JobStoreContractF
         .minusSeconds(1);
   }
 
+  @BeforeEach
   @AfterEach
   void cleanupClaimFixture() {
     cleanupStore();
