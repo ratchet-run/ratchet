@@ -10,6 +10,7 @@ on:
 permissions:
   contents: read
   security-events: write
+  actions: read
 
 jobs:
   owasp:
@@ -55,9 +56,8 @@ jobs:
             --format SARIF
             --failOnCVSS 7
             --nvdApiKey ${{ secrets.NVD_API_KEY }}
-            --exclude "website/**"
-            --exclude "**/website/**"
-            --suppression owasp-suppressions.xml
+            --exclude /github/workspace/website
+            --suppression /github/workspace/owasp-suppressions.xml
 
       - name: Upload Dependency-Check report
         if: always()

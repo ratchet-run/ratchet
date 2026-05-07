@@ -11,7 +11,7 @@
         CPE because the artifact name is also "postgresql".
         ]]></notes>
         <packageUrl regex="true">^pkg:maven/org\.postgresql/postgresql@.*$</packageUrl>
-        <cpe regex="true">^cpe:2\.3:a:postgresql:postgresql:.*$</cpe>
+        <cpe>cpe:/a:postgresql:postgresql</cpe>
     </suppress>
 
     <suppress>
@@ -21,7 +21,7 @@
         Maven artifact.
         ]]></notes>
         <packageUrl regex="true">^pkg:maven/run\.ratchet/ratchet-store-postgresql@.*$</packageUrl>
-        <cpe regex="true">^cpe:2\.3:a:postgresql:postgresql:.*$</cpe>
+        <cpe>cpe:/a:postgresql:postgresql</cpe>
     </suppress>
 
     <suppress>
@@ -30,7 +30,7 @@
         package and google.protobuf.json_format.ParseDict(). This project only
         receives the Java runtime jar through mysql-connector-j.
         ]]></notes>
-        <packageUrl regex="true">^pkg:maven/com\.google\.protobuf/protobuf-java@.*$</packageUrl>
+        <filePath regex="true">.*/protobuf-java-[^/]+\.jar$</filePath>
         <cve>CVE-2026-0994</cve>
     </suppress>
 
