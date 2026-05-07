@@ -49,7 +49,7 @@ jobs:
         with:
           project: 'ratchet'
           path: '.'
-          format: 'HTML,SARIF'
+          format: 'HTML SARIF'
           out: 'target'
           args: >
             --failOnCVSS 7
