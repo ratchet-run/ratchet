@@ -8,10 +8,10 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.Initialized;
 import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.Any;
-import jakarta.interceptor.Interceptor;
 import jakarta.enterprise.inject.spi.Bean;
 import jakarta.enterprise.inject.spi.BeanManager;
 import jakarta.inject.Inject;
+import jakarta.interceptor.Interceptor;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -116,8 +116,7 @@ public class RecurringJobProcessor {
   }
 
   void onStartup(
-      @Observes @Priority(Interceptor.Priority.APPLICATION) @Initialized(ApplicationScoped.class)
-          Object init) {
+      @Observes @Priority(Interceptor.Priority.APPLICATION) @Initialized(ApplicationScoped.class) Object init) {
     registerRecurringJobs();
   }
 

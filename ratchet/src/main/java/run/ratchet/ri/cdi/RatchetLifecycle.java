@@ -6,9 +6,9 @@ import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.Initialized;
 import jakarta.enterprise.event.Observes;
-import jakarta.interceptor.Interceptor;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
+import jakarta.interceptor.Interceptor;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
@@ -135,8 +135,7 @@ public class RatchetLifecycle {
   void onStartup(
       @Observes
           @Priority(Interceptor.Priority.APPLICATION + 500)
-          @Initialized(ApplicationScoped.class)
-          Object init) {
+          @Initialized(ApplicationScoped.class) Object init) {
     log.info("Ratchet starting");
     notifyHooks("beforeStart", SchedulerLifecycleHook::beforeStart);
 
