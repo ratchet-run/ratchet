@@ -94,6 +94,20 @@ try {
 }
 ```
 
+### bind (with parameters and signal payload)
+
+```java
+public static JobContext bind(
+    UUID jobId,
+    JobLogger logger,
+    Map<String, String> params,
+    Serializable signalPayload)
+```
+
+Binds a context with both job parameters and a pre-deserialized signal payload. Ratchet calls this overload internally when executing a job that was released from `WAITING` status by `deliverSignal()`.
+
+Most application code should not call this directly except in unit tests for signal-aware job methods.
+
 ### clear
 
 ```java
@@ -204,6 +218,28 @@ Map<String, String> allParams = ctx.params();
 allParams.forEach((k, v) -> ctx.logger().debug("Param: " + k + "=" + v));
 ```
 
+### signalPayload
+
+```java
+public <T extends Serializable> T signalPayload(Class<T> type)
+```
+
+Returns the payload delivered to a signal-waiting job, cast to the requested type. Returns `null` when the current job was not created with [`awaitSignal()`](./job-builder#awaitsignal) or when the delivered signal did not include a payload.
+
+```java
+SignalDecision decision = JobContext.current().signalPayload(SignalDecision.class);
+
+if (decision != null && decision.isApproved()) {
+    audit.recordApproval(decision.payload(String.class));
+}
+```
+
+For simple payloads delivered with `deliverSignal(jobId, payload)`, request the payload type directly:
+
+```java
+String reviewer = JobContext.current().signalPayload(String.class);
+```
+
 ## Thread-Local Lifecycle
 
 `JobContext` uses `ThreadLocal` storage. The lifecycle is:
@@ -283,5 +319,6 @@ void testJobUsesParameters() {
 ## See Also
 
 - [JobBuilder Parameters](./job-builder#withparam)
+- [Signal-Waiting Jobs](./job-builder#awaitsignal)
 - [JobLogger SPI](./spi-interfaces#joblogger)
 - [JobSchedulerService Reference](./job-scheduler-service)

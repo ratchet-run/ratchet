@@ -179,12 +179,12 @@ The `JobStore` interface is a marker that composes the store SPIs used by the RI
 ```java
 public interface JobStore
     extends JobCrudStore,
+            JobQueryStore,
             JobClaimStore,
             JobTerminalStore,
             JobRetryStore,
             JobPauseStore,
             JobBatchStatusStore,
-            JobStatusStore, // Deprecated compatibility marker for one alpha release
             JobBulkStore,
             BatchStore,
             LockStore,
@@ -196,7 +196,8 @@ public interface JobStore
             WorkflowConditionStore,
             BatchMetricsStore,
             DlqAlertStore,
-            ResourcePermitStore {
+            ResourcePermitStore,
+            SignalStore {
     // Marker interface — all methods inherited from sub-interfaces
 }
 ```
@@ -206,12 +207,12 @@ public interface JobStore
 | Interface | Responsibility |
 |-----------|---------------|
 | `JobCrudStore` | Create, read, update, delete individual jobs |
+| `JobQueryStore` | Read-only list/detail/history/queue-health queries |
 | `JobClaimStore` | Atomic batch claiming (`SKIP LOCKED` for SQL stores, atomic updates for MongoDB) |
 | `JobTerminalStore` | Terminal success, failure, and cancellation transitions |
 | `JobRetryStore` | Retry scheduling and attempt-state updates |
 | `JobPauseStore` | Pause and resume transitions |
 | `JobBatchStatusStore` | Non-terminal status, pickup, orphan, and recurring-cancel operations |
-| `JobStatusStore` | Deprecated compatibility marker that composes the four status-focused SPIs above |
 | `JobBulkStore` | Bulk operations (DLQ purge, batch insert) |
 | `BatchStore` | Batch parent/child management, progress tracking |
 | `LockStore` | Distributed lock acquisition and release |
@@ -224,6 +225,7 @@ public interface JobStore
 | `BatchMetricsStore` | Batch-level metrics and progress |
 | `DlqAlertStore` | DLQ alert audit trail and deduplication |
 | `ResourcePermitStore` | Resource permit acquisition and release |
+| `SignalStore` | Atomic signal delivery, signal-timeout scans, and signal-event lookup |
 
 ### Why Sub-Interfaces?
 

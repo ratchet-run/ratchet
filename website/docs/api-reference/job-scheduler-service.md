@@ -49,7 +49,7 @@ JobHandle handle = scheduler.enqueue(() -> emailService.send(userId))
 JobHandle enqueueNow(SerializableCheckedRunnable task)
 ```
 
-Enqueues a task for immediate execution with default configuration. This is a convenience method equivalent to `enqueue(task).submit()`.
+Enqueues a task for immediate execution with default configuration. This is a convenience method equivalent to `enqueue(task).immediate().submit()`.
 
 **Parameters:**
 - `task` -- the job task to execute.
@@ -84,7 +84,7 @@ scheduler.schedule(Duration.ofHours(24), () -> reminderService.send(orderId))
     .submit();
 ```
 
-### recurring
+### scheduleRecurring
 
 ```java
 RecurringJobBuilder scheduleRecurring(
@@ -290,6 +290,59 @@ Retries a failed job by resetting it to PENDING status. This is the primary mech
 boolean retried = scheduler.retryJob(failedJobId);
 if (retried) {
     log.info("Job {} re-queued for execution", failedJobId);
+}
+```
+
+## Signal Delivery Methods
+
+Signal-waiting jobs are created through [`JobBuilder.awaitSignal()`](./job-builder#awaitsignal). They remain in `WAITING` status until a matching signal is delivered, or until their signal timeout fails the job.
+
+### deliverSignal by job ID
+
+```java
+int deliverSignal(UUID jobId, Serializable payload)
+int deliverSignal(UUID jobId, SignalDecision decision)
+```
+
+Delivers a signal to a specific `WAITING` job. The job transitions to `PENDING`, and the payload is made available through [`JobContext.signalPayload()`](./job-context#signalpayload).
+
+**Returns:** `1` when a waiting job was unblocked, `0` when the job was not found, was not waiting, or signal support is not configured.
+
+```java
+JobHandle approval = scheduler.enqueue(() -> approvalJob.continueOrder(orderId))
+    .awaitSignal("order:" + orderId + ":approved", Duration.ofHours(24))
+    .submit();
+
+int delivered = scheduler.deliverSignal(
+    approval.id(),
+    SignalDecision.approved("approved-by-manager"));
+```
+
+### deliverSignal by signal key
+
+```java
+int deliverSignal(String signalKey, Serializable payload)
+int deliverSignal(String signalKey, SignalDecision decision)
+```
+
+Delivers a signal to every `WAITING` job with the matching signal key. Store implementations perform this as an atomic bulk update so already-unblocked jobs are not counted twice.
+
+```java
+int unblocked = scheduler.deliverSignal(
+    "billing-cycle-2026-05-ready",
+    SignalDecision.approved("ledger-closed"));
+
+log.info("Released {} waiting billing jobs", unblocked);
+```
+
+`SignalDecision` is scheduler-visible metadata for audit, metrics, and events. A rejected decision still unblocks the job; the job code decides how to handle it:
+
+```java
+SignalDecision decision =
+    JobContext.current().signalPayload(SignalDecision.class);
+
+if (decision != null && decision.isRejected()) {
+    throw new RejectedOrderException(decision.rejectionReason());
 }
 ```
 

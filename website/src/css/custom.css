@@ -4,13 +4,13 @@
 
 /* Docusaurus variables */
 :root {
-  --ifm-color-primary: #2563eb;
-  --ifm-color-primary-dark: #1d4ed8;
-  --ifm-color-primary-darker: #1e40af;
-  --ifm-color-primary-darkest: #1e3a8a;
-  --ifm-color-primary-light: #3b82f6;
-  --ifm-color-primary-lighter: #60a5fa;
-  --ifm-color-primary-lightest: #93c5fd;
+  --ifm-color-primary: #b45309;
+  --ifm-color-primary-dark: #92400e;
+  --ifm-color-primary-darker: #78350f;
+  --ifm-color-primary-darkest: #5f2a0c;
+  --ifm-color-primary-light: #d97706;
+  --ifm-color-primary-lighter: #f59e0b;
+  --ifm-color-primary-lightest: #fcd34d;
   --ifm-code-font-size: 95%;
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
 }
@@ -19,13 +19,13 @@
    dark colorscheme. Setting to `auto` will respect the prefers-color-scheme preference,
    using light colors light mode and dark colors for dark mode. */
 [data-theme='dark'] {
-  --ifm-color-primary: #60a5fa;
-  --ifm-color-primary-dark: #3b82f6;
-  --ifm-color-primary-darker: #2563eb;
-  --ifm-color-primary-darkest: #1d4ed8;
-  --ifm-color-primary-light: #93c5fd;
-  --ifm-color-primary-lighter: #bfdbfe;
-  --ifm-color-primary-lightest: #dbeafe;
+  --ifm-color-primary: #fbbf24;
+  --ifm-color-primary-dark: #f59e0b;
+  --ifm-color-primary-darker: #d97706;
+  --ifm-color-primary-darkest: #b45309;
+  --ifm-color-primary-light: #fcd34d;
+  --ifm-color-primary-lighter: #fde68a;
+  --ifm-color-primary-lightest: #fef3c7;
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
 }
 
@@ -91,7 +91,13 @@ pre {
   overflow-x: auto;
 }
 
-code {
+pre code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+}
+
+:not(pre) > code {
   font-family: 'Courier New', monospace;
   background-color: var(--ifm-code-background);
   padding: 0.1rem 0.3rem;
@@ -99,12 +105,12 @@ code {
 }
 
 /* Links */
-a {
+a:not(.button) {
   color: var(--ifm-color-primary);
   text-decoration: none;
 }
 
-a:hover {
+a:not(.button):hover {
   text-decoration: underline;
 }
 

@@ -57,7 +57,7 @@ const config: Config = {
   ],
 
   themeConfig: {
-    image: 'img/ratchet-social-card.jpg',
+    image: 'img/logo.svg',
     colorMode: {
       respectPrefersColorScheme: true,
     },
@@ -88,21 +88,15 @@ const config: Config = {
         },
         {
           type: 'docSidebar',
-          sidebarId: 'advancedSidebar',
-          position: 'left',
-          label: 'Advanced',
-        },
-        {
-          type: 'docSidebar',
           sidebarId: 'deploymentSidebar',
           position: 'left',
           label: 'Deployment',
         },
         {
           type: 'docSidebar',
-          sidebarId: 'troubleshootingSidebar',
+          sidebarId: 'conformanceSidebar',
           position: 'left',
-          label: 'Troubleshooting',
+          label: 'Conformance',
         },
         {
           href: 'https://github.com/ratchet-run/ratchet',
@@ -128,6 +122,18 @@ const config: Config = {
             {
               label: 'Deployment',
               to: '/docs/deployment/overview',
+            },
+            {
+              label: 'Conformance',
+              to: '/docs/conformance',
+            },
+            {
+              label: 'Advanced',
+              to: '/docs/advanced/customization-platform',
+            },
+            {
+              label: 'Troubleshooting',
+              to: '/docs/troubleshooting/overview',
             },
           ],
         },

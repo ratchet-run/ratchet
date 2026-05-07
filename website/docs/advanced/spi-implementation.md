@@ -628,12 +628,12 @@ The store layer is the most complex SPI surface in Ratchet. The `JobStore` inter
 ```java
 public interface JobStore
     extends JobCrudStore,        // Basic CRUD for job entities
+            JobQueryStore,       // Read-only query projections
             JobClaimStore,       // Atomic job claiming for execution
             JobTerminalStore,    // Terminal success/failure/cancel transitions
             JobRetryStore,       // Retry scheduling
             JobPauseStore,       // Pause/resume transitions
             JobBatchStatusStore, // Non-terminal status and batch/orphan operations
-            JobStatusStore,      // Deprecated compatibility marker
             JobBulkStore,        // Bulk operations (orphan recovery, cleanup)
             BatchStore,          // Batch progress tracking
             LockStore,           // Distributed locks
@@ -645,7 +645,8 @@ public interface JobStore
             WorkflowConditionStore, // Workflow branch conditions
             BatchMetricsStore,   // Batch-level metrics
             DlqAlertStore,       // Dead letter queue alerting
-            ResourcePermitStore  // Resource permit management
+            ResourcePermitStore, // Resource permit management
+            SignalStore          // Signal-waiting delivery and timeout operations
 { }
 ```
 
@@ -656,12 +657,12 @@ Ratchet ships with MySQL, PostgreSQL, and MongoDB implementations. To implement 
 | Interface | Responsibility | Key Methods |
 |-----------|---------------|-------------|
 | `JobCrudStore` | Create, read, update, delete jobs | `save()`, `findById()`, `delete()` |
+| `JobQueryStore` | Read-only admin/query projections | `searchJobs()`, `countJobs()` |
 | `JobClaimStore` | Atomic job claiming for execution | `claimNextBatch()`, `claimNextBatchOptimized()` |
 | `JobTerminalStore` | Terminal success, failure, and cancellation transitions | `markJobSucceeded()`, `markJobFailedTerminal()`, `cancelJob()` |
 | `JobRetryStore` | Retry scheduling and attempt-state updates | `scheduleJobRetry()`, `incrementRetryAttempt()` |
 | `JobPauseStore` | Pause and resume transitions | `transitionToPaused()`, `transitionFromPausedAtomic()` |
 | `JobBatchStatusStore` | Non-terminal status, pickup, orphan, and recurring-cancel operations | `updateJobStatus()`, `compareAndSwapStatus()`, `resetRunningJobs()` |
-| `JobStatusStore` | Deprecated compatibility marker for the four status-focused SPIs above | Inherited methods only |
 | `JobBulkStore` | Bulk operations | `bulkInsert()`, `resetOrphanJobs()`, `deleteDlqOlderThan()` |
 | `BatchStore` | Batch progress tracking | `saveBatch()`, `incrementCompletedAtomic()`, `incrementFailedAtomic()` |
 | `LockStore` | Distributed locks | `tryLock()`, `unlock()`, `renewLock()` |
@@ -674,6 +675,7 @@ Ratchet ships with MySQL, PostgreSQL, and MongoDB implementations. To implement 
 | `BatchMetricsStore` | Batch metrics | `saveBatchMetrics()`, `findBatchMetrics()` |
 | `DlqAlertStore` | DLQ alerting | `saveDlqAlert()`, `existsRecentDlqAlert()` |
 | `ResourcePermitStore` | Resource permits | `tryAcquirePermit()`, `releasePermit()` |
+| `SignalStore` | Signal-waiting jobs | `deliverSignalById()`, `deliverSignalByKey()`, `findTimedOutSignalJobs()` |
 
 ### Implementing a Custom Store
 

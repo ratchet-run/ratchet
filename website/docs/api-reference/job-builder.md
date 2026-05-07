@@ -214,6 +214,42 @@ scheduler.enqueue(() -> urgentService.handle(alert))
     .submit();
 ```
 
+### awaitSignal
+
+```java
+JobBuilder awaitSignal(String signalKey, Duration timeout)
+```
+
+Creates the job in `WAITING` status instead of making it immediately eligible for execution. The job stays blocked until a matching signal is delivered through [`JobSchedulerService.deliverSignal()`](./job-scheduler-service#signal-delivery-methods). If the signal is not delivered before `timeout`, Ratchet fails the job with `SignalTimeoutException`.
+
+**Parameters:**
+- `signalKey` -- named signal used for broadcast delivery. Use stable domain keys such as `order:123:approved`.
+- `timeout` -- maximum time to wait for the signal. Must be positive.
+
+```java
+scheduler.enqueue(() -> approvalService.continueOrder(orderId))
+    .awaitSignal("order:" + orderId + ":approved", Duration.ofHours(24))
+    .withTags("approval", "orders")
+    .submit();
+
+// Later, from an admin action or another workflow:
+scheduler.deliverSignal(
+    "order:" + orderId + ":approved",
+    SignalDecision.approved("approved-by-manager"));
+```
+
+Inside the waiting job, read the payload through [`JobContext.signalPayload()`](./job-context#signalpayload):
+
+```java
+public void continueOrder(UUID orderId) {
+    SignalDecision decision = JobContext.current().signalPayload(SignalDecision.class);
+    if (decision != null && decision.isRejected()) {
+        throw new OrderRejectedException(decision.rejectionReason());
+    }
+    fulfillment.start(orderId);
+}
+```
+
 ## Callback Methods
 
 ### onSuccess
@@ -442,6 +478,8 @@ These methods allow reading the configured state of a builder. They are primaril
 | `businessKey()` | `String` | Business key, or null if not set |
 | `resourceName()` | `String` | Resource name, or null if not set |
 | `isImmediate()` | `boolean` | Whether immediate wakeup is requested |
+| `awaitSignalKey()` | `String` | Signal key for a waiting job, or null |
+| `awaitSignalTimeout()` | `Duration` | Signal wait timeout, or null |
 | `onSuccess()` | `SerializableConsumer<JobContext>` | Success callback, or null |
 | `onFailure()` | `SerializableBiConsumer<JobContext, Throwable>` | Failure callback, or null |
 

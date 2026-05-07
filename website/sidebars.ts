@@ -1,4 +1,4 @@
-import type {SidebarsConfig} from '@docusaurus/types';
+import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
 
 const config: SidebarsConfig = {
   gettingStartedSidebar: [
@@ -25,6 +25,7 @@ const config: SidebarsConfig = {
   apiReferenceSidebar: [
     'api-reference/overview',
     'api-reference/job-scheduler-service',
+    'api-reference/job-query-service',
     'api-reference/job-builder',
     'api-reference/job-options',
     'api-reference/batch-builder',

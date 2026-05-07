@@ -17,14 +17,19 @@ Classes and interfaces you use directly when scheduling jobs, building workflows
 | Class / Interface | Kind | Purpose |
 |---|---|---|
 | [`JobSchedulerService`](./job-scheduler-service) | Interface | Primary entry point for scheduling, canceling, pausing, and retrying jobs |
+| [`JobQueryService`](./job-query-service) | Interface | Read-only dashboards/admin API for job lists, detail views, history, and queue health |
 | [`JobBuilder`](./job-builder) | Interface | Fluent builder for configuring individual jobs before submission |
-| [`RecurringJobBuilder`](./job-scheduler-service#schedulerecurrently) | Interface | Builder for configuring recurring (cron-based) jobs |
+| [`RecurringJobBuilder`](./job-scheduler-service#schedulerecurring) | Interface | Builder for configuring recurring (cron-based) jobs |
 | [`BatchBuilder`](./batch-builder) | Interface | Builder for in-memory batch processing of collections |
 | [`StreamingBatchBuilder`](./batch-builder#streamingbatchbuilder) | Interface | Builder for memory-efficient streaming batch processing |
 | [`JobContext`](./job-context) | Final class | Thread-local access to job ID, job-scoped logger binding, and parameters during execution |
+| `SignalDecision` | Record | Structured approval/rejection payload for signal-waiting jobs |
 | [`JobResult<T>`](./job-result) | Class | Captures execution outcome: success/failure, return value, timing, metadata |
 | [`JobHandle`](./job-scheduler-service#jobhandle) | Interface | Lightweight receipt returned after job submission, provides the job ID |
 | [`JobOptions`](./job-options) | Record | Immutable configuration for priority, retries, backoff, and timeout |
+| `JobFilter` | Record | Immutable query criteria for list/search operations |
+| `JobPage<T>` | Record | Page metadata and cursor returned by query operations |
+| `JobSummary` / `JobDetail` | Records | Lightweight and full read-only job projections |
 | [`WorkflowCondition`](./workflow-condition) | Record | Defines conditions for workflow branching (success, failure, custom, batch) |
 | [`WorkflowBranch`](./workflow-condition#workflowbranch) | Record | Pairs a condition with a task and optional description |
 | [`BatchContext`](./batch-context) | Record | Progress snapshot for batch jobs (total, completed, failed items) |
@@ -67,6 +72,9 @@ Classes and interfaces you use directly when scheduling jobs, building workflows
 | [`JobPausedEvent`](./event-system#jobpausedevent) | Job paused |
 | [`JobResumedEvent`](./event-system#jobresumedevent) | Job resumed |
 | [`JobDlqEvent`](./event-system#jobdlqevent) | Job moved to dead letter queue |
+| `JobSignalWaitingEvent` | Job created in `WAITING` state for a named signal |
+| `JobSignaledEvent` | Signal delivered to a waiting job |
+| `JobSignalTimedOutEvent` | Waiting job exceeded its signal timeout |
 | [`BatchCompletingEvent`](./event-system#batchcompletingevent) | Batch is finishing |
 | [`BatchCompletedEvent`](./event-system#batchcompletedevent) | Batch fully complete |
 | [`ChainStartedEvent`](./event-system#chainevent-types) | Workflow chain begins |
@@ -98,12 +106,14 @@ Classes and interfaces you use directly when scheduling jobs, building workflows
 
 ### Entry Point
 
-Start with [`JobSchedulerService`](./job-scheduler-service) -- it is the only interface you inject and use directly. Every scheduling operation begins here:
+Start with [`JobSchedulerService`](./job-scheduler-service) -- it is the write-side interface you inject for scheduling and lifecycle operations. Every scheduling operation begins here:
 
 ```java
 @Inject
 JobSchedulerService scheduler;
 ```
+
+For dashboards, admin tools, and support workflows, inject [`JobQueryService`](./job-query-service) separately. Keeping the query API separate lets applications grant read-only access without exposing mutation methods.
 
 ### Building Jobs
 
