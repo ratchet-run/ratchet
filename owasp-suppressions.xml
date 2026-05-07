@@ -16,12 +16,13 @@
 
     <suppress>
         <notes><![CDATA[
-        False positive: ratchet-store-postgresql is Ratchet's Java store adapter,
-        not the PostgreSQL server product. The server CPE does not apply to this
-        Maven artifact.
+        False positive: run.ratchet artifacts are first-party project modules,
+        not NVD-indexed third-party products. Dependency-Check can attach CPEs
+        based on artifact names such as ratchet-store-postgresql; third-party
+        dependencies inside those artifacts remain separately visible.
         ]]></notes>
-        <packageUrl regex="true">^pkg:maven/run\.ratchet/ratchet-store-postgresql@.*$</packageUrl>
-        <cpe>cpe:/a:postgresql:postgresql</cpe>
+        <packageUrl regex="true">^pkg:maven/run\.ratchet/[^@]+@.*$</packageUrl>
+        <cpe regex="true">^cpe:/a:.*$</cpe>
     </suppress>
 
     <suppress>

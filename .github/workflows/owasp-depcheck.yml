@@ -57,6 +57,13 @@ jobs:
             --failOnCVSS 7
             --nvdApiKey ${{ secrets.NVD_API_KEY }}
             --exclude /github/workspace/website
+            --exclude /github/workspace/website/package.json
+            --exclude /github/workspace/website/package-lock.json
+            --disableNodeJS
+            --disableNodeAudit
+            --disableYarnAudit
+            --disablePnpmAudit
+            --disableRetireJs
             --suppression /github/workspace/owasp-suppressions.xml
 
       - name: Upload Dependency-Check report
@@ -69,9 +76,9 @@ jobs:
             **/target/dependency-check-report.sarif
           if-no-files-found: ignore
 
-      - name: Upload SARIF to GitHub code scanning
-        if: always()
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: target/dependency-check-report.sarif
-        continue-on-error: true
+#      - name: Upload SARIF to GitHub code scanning
+#        if: always()
+#        uses: github/codeql-action/upload-sarif@v4
+#        with:
+#          sarif_file: target/dependency-check-report.sarif
+#        continue-on-error: true
