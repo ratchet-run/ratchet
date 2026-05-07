@@ -1,6 +1,5 @@
 package run.ratchet.ri.core;
 
-import jakarta.annotation.Resource;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Status;
@@ -15,6 +14,8 @@ import java.time.ZoneId;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
+import javax.naming.InitialContext;
+import javax.naming.NamingException;
 import org.jboss.logging.Logger;
 import run.ratchet.api.BatchBuilder;
 import run.ratchet.api.JobBuilder;
@@ -74,7 +75,9 @@ public class DefaultJobSchedulerService
   private final MetricsCollector metricsCollector;
   private final Clock clock;
 
-  @Resource private TransactionSynchronizationRegistry txRegistry;
+  // Resolved lazily on first use from a Jakarta EE component thread. @Resource field injection
+  // fails on Payara when CDI startup observers run on the admin thread (no java:comp/env context).
+  private volatile TransactionSynchronizationRegistry txRegistry;
 
   protected DefaultJobSchedulerService() {
     this.eventPublisher = null;
@@ -624,15 +627,29 @@ public class DefaultJobSchedulerService
     }
   }
 
+  private TransactionSynchronizationRegistry resolveTxRegistry() {
+    TransactionSynchronizationRegistry reg = txRegistry;
+    if (reg == null) {
+      try {
+        reg = InitialContext.doLookup("java:comp/TransactionSynchronizationRegistry");
+        txRegistry = reg;
+      } catch (NamingException ignored) {
+        // No component context on this thread (e.g. CDI startup observers on Payara admin thread)
+      }
+    }
+    return reg;
+  }
+
   private boolean registerAfterCommit(Runnable action) {
-    if (txRegistry == null) {
+    TransactionSynchronizationRegistry reg = resolveTxRegistry();
+    if (reg == null) {
       return false;
     }
     try {
-      if (txRegistry.getTransactionStatus() != Status.STATUS_ACTIVE) {
+      if (reg.getTransactionStatus() != Status.STATUS_ACTIVE) {
         return false;
       }
-      txRegistry.registerInterposedSynchronization(
+      reg.registerInterposedSynchronization(
           new Synchronization() {
             @Override
             public void beforeCompletion() {}
