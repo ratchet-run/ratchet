@@ -30,7 +30,6 @@ public class WorkflowScheduler extends ChainScheduler {
 
   private final WorkflowConditionStore conditionStore;
   private final WorkflowConditionEvaluator conditionEvaluator;
-  private final JobCrudStore jobCrudStore;
   private final JobBatchStatusStore jobBatchStatusStore;
   private final JobTerminalStore jobTerminalStore;
 
@@ -38,7 +37,6 @@ public class WorkflowScheduler extends ChainScheduler {
     super();
     this.conditionStore = null;
     this.conditionEvaluator = null;
-    this.jobCrudStore = null;
     this.jobBatchStatusStore = null;
     this.jobTerminalStore = null;
   }
@@ -51,7 +49,6 @@ public class WorkflowScheduler extends ChainScheduler {
       WorkflowConditionStore conditionStore,
       WorkflowConditionEvaluator conditionEvaluator) {
     super(jobCrudStore);
-    this.jobCrudStore = jobCrudStore;
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.jobTerminalStore = jobTerminalStore;
     this.conditionStore = conditionStore;

@@ -1,7 +1,5 @@
 package run.ratchet.ri.core;
 
-import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import java.time.Instant;
 import java.util.ArrayDeque;
@@ -14,7 +12,6 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobCrudStore;
 
 /** Propagates success/failure through chained job dependencies. */
-@ApplicationScoped
 @Transactional
 public class ChainScheduler {
 
@@ -25,13 +22,12 @@ public class ChainScheduler {
 
   private static final Logger log = Logger.getLogger(ChainScheduler.class);
 
-  private final JobCrudStore jobCrudStore;
+  protected final JobCrudStore jobCrudStore;
 
   protected ChainScheduler() {
     this.jobCrudStore = null;
   }
 
-  @Inject
   public ChainScheduler(JobCrudStore jobCrudStore) {
     this.jobCrudStore = jobCrudStore;
   }

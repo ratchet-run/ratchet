@@ -13,7 +13,6 @@ import java.util.EnumMap;
 import java.util.Map;
 import org.jboss.logging.Logger;
 import run.ratchet.api.RatchetOptions;
-import run.ratchet.ri.core.ChainScheduler;
 import run.ratchet.ri.core.DefaultNodeIdentityProvider;
 import run.ratchet.ri.core.DefaultNodeTagAffinityProvider;
 import run.ratchet.ri.core.DrainController;
@@ -30,6 +29,7 @@ import run.ratchet.ri.core.PreExecutionValidator;
 import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.ri.core.SingletonLeaseService;
 import run.ratchet.ri.core.ThreadPoolManager;
+import run.ratchet.ri.core.WorkflowScheduler;
 import run.ratchet.ri.resilience.CircuitBreakerRegistry;
 import run.ratchet.ri.resilience.DefaultResilienceStrategy;
 import run.ratchet.ri.security.DefaultErrorSanitizer;
@@ -152,7 +152,7 @@ public class RatchetProducer {
   public JobTimeoutHandler jobTimeoutHandler(
       Clock clock,
       InternalEventPublisher eventPublisher,
-      ChainScheduler chainScheduler,
+      WorkflowScheduler workflowScheduler,
       SignalStore signalStore) {
     int softTimeoutPercent = options.timeout().softTimeoutPercent();
     long defaultTimeoutSeconds = options.timeout().defaultSlaSeconds();
@@ -167,7 +167,7 @@ public class RatchetProducer {
         defaultTimeoutSeconds,
         clock,
         eventPublisher,
-        chainScheduler,
+        workflowScheduler,
         signalStore,
         metricsCollector,
         signalTimeoutBatchSize);
