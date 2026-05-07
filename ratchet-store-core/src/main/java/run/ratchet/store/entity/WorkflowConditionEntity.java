@@ -12,17 +12,11 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.ObjectOutputStream;
 import java.io.Serial;
 import java.io.Serializable;
 import java.time.Instant;
-import java.util.Base64;
 import java.util.Objects;
 import java.util.UUID;
-import run.ratchet.api.SerializableFunction;
-import run.ratchet.api.SerializablePredicate;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.store.id.UuidV7EntityListener;
 
@@ -75,17 +69,6 @@ public class WorkflowConditionEntity
   private transient JobEntity childJob;
 
   public WorkflowConditionEntity() {}
-
-  private static String serializeExpression(Serializable expression) {
-    try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        ObjectOutputStream oos = new ObjectOutputStream(baos)) {
-      oos.writeObject(expression);
-      oos.flush();
-      return Base64.getEncoder().encodeToString(baos.toByteArray());
-    } catch (IOException e) {
-      throw new IllegalArgumentException("Condition expression serialization error", e);
-    }
-  }
 
   public UUID getId() {
     return id;
@@ -157,23 +140,6 @@ public class WorkflowConditionEntity
 
   public void setChildJob(JobEntity childJob) {
     this.childJob = childJob;
-  }
-
-  /** Returns the raw condition expression string; deserialization is handled by the RI module. */
-  public Serializable getConditionExpressionDeserialized() {
-    return conditionExpression;
-  }
-
-  /** Stores the serialized form of the expression; lambda serialization is handled by the RI. */
-  public void setConditionExpressionSerialized(Serializable expression) {
-    if (expression == null) {
-      this.conditionExpression = null;
-    } else if (expression instanceof SerializablePredicate<?>
-        || expression instanceof SerializableFunction<?, ?>) {
-      this.conditionExpression = serializeExpression(expression);
-    } else {
-      this.conditionExpression = expression.toString();
-    }
   }
 
   @Override

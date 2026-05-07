@@ -16,11 +16,11 @@ import java.io.Serializable;
  * <h2>Serialization contract</h2>
  *
  * <p>{@code WorkflowCondition} is {@link Serializable} so conditions can be persisted with jobs.
- * The {@code expression} field is declared as a raw {@code Serializable} to accept {@link
- * SerializablePredicate} and {@link SerializableFunction} instances, but deserialization is
- * filtered through an allowlist (see {@code LambdaSerializer} in the reference implementation).
- * Callers MUST NOT rely on arbitrary third-party {@code Serializable} types reaching this field at
- * runtime — values outside the allowlist are rejected on read.
+ * The {@code expression} field accepts {@link SerializablePredicate} and {@link
+ * SerializableFunction} instances. The reference implementation analyzes predicate lambdas via ASM
+ * at scheduling time and stores them as {@code JobPayload} JSON (class name, method name,
+ * descriptor, arguments) — the same format used for job task lambdas. Predicate lambdas must
+ * resolve to a single public method call.
  *
  * <p>This record is marked {@link Incubating}: its binary wire format (including the fixed {@link
  * Serial serialVersionUID} on line 29) may change before the 1.0 release. Callers persisting these

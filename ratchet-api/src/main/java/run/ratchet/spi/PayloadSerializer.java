@@ -17,10 +17,8 @@ import run.ratchet.api.Incubating;
  * polymorphic type handling, or custom adapter chains can install their own implementation via a
  * CDI {@code @Alternative} bean.
  *
- * <p><b>Scope:</b> this SPI is deliberately scoped to JSON persistence of payloads and results. It
- * is <em>not</em> the surface governing JDK-serialization of captured lambdas and method references
- * — that security-sensitive surface lives in {@link LambdaSerializer}. Implementations of {@code
- * PayloadSerializer} MUST NOT enable polymorphic type handling that would allow attacker-controlled
+ * <p><b>Scope:</b> this SPI is deliberately scoped to JSON persistence of payloads and results.
+ * Implementations MUST NOT enable polymorphic type handling that would allow attacker-controlled
  * JSON to name arbitrary classes for deserialization (the classic Jackson "default typing"
  * gadget-chain vulnerability).
  *
@@ -32,8 +30,6 @@ import run.ratchet.api.Incubating;
  * <p><b>Error handling:</b> implementations MUST throw {@link IllegalArgumentException} (or a
  * subclass) when serialization or deserialization fails. Callers expect this contract and convert
  * it to framework-level error events.
- *
- * @see LambdaSerializer
  */
 @Incubating
 public interface PayloadSerializer {

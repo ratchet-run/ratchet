@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
+import java.io.Serializable;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,12 +16,12 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.BatchContext;
 import run.ratchet.api.JobResult;
 import run.ratchet.api.JobStatus;
-import run.ratchet.api.SerializableFunction;
 import run.ratchet.api.SerializablePredicate;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.ri.cdi.JsonbPayloadSerializer;
+import run.ratchet.ri.payload.JobPayloadFactory;
+import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
-import run.ratchet.spi.LambdaSerializer;
 import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
@@ -31,10 +32,21 @@ import run.ratchet.store.spi.BatchStore;
 @ExtendWith(MockitoExtension.class)
 class WorkflowConditionEvaluatorTest {
 
+  /** Static predicate methods used as method references in tests — avoids CDI bean lookup. */
+  public static final class TestConditions {
+    public static boolean batchHasOneFailure(BatchContext ctx) {
+      return ctx.failedItems() == 1;
+    }
+
+    public static boolean isHighValue(Object value) {
+      return ((Number) value).intValue() > 100;
+    }
+  }
+
   private final ClassPolicy classPolicy = className -> true;
   private final PayloadSerializer payloadSerializer = new JsonbPayloadSerializer();
   @Mock private BatchStore batchStore;
-  @Mock private LambdaSerializer lambdaSerializer;
+  @Mock private BeanResolver beanResolver;
   private WorkflowConditionEvaluator evaluator;
 
   private static JobEntity parentJob(JobStatus status) {
@@ -76,11 +88,14 @@ class WorkflowConditionEvaluatorTest {
     return b;
   }
 
+  private String serializeCondition(Serializable predicate) {
+    return payloadSerializer.serialize(JobPayloadFactory.fromLambda(predicate));
+  }
+
   @BeforeEach
   void setUp() {
     evaluator =
-        new WorkflowConditionEvaluator(
-            batchStore, lambdaSerializer, classPolicy, payloadSerializer);
+        new WorkflowConditionEvaluator(batchStore, beanResolver, classPolicy, payloadSerializer);
   }
 
   @Test
@@ -131,7 +146,6 @@ class WorkflowConditionEvaluatorTest {
 
   @Test
   void batchSuccess_notBatchParent_returnsFalse() {
-    // Standard job type — getBatchForParent returns empty
     assertFalse(
         evaluator.evaluate(
             condition(WorkflowCondition.ConditionType.BATCH_SUCCESS),
@@ -201,56 +215,37 @@ class WorkflowConditionEvaluatorTest {
   }
 
   @Test
-  void customCondition_deserializedPredicate_returnsPredicateResult() {
+  void customCondition_methodRefOnContext_evaluates() {
+    // JobResult::isSuccess — instance method called on the JobResult context arg; no CDI bean
+    // needed
     JobEntity parent = parentJob(JobStatus.SUCCEEDED);
-    SerializablePredicate<JobResult<?>> predicate = JobResult::isSuccess;
-    when(lambdaSerializer.deserializeJobResultPredicate("serialized-predicate"))
-        .thenReturn(predicate);
+    String expression =
+        serializeCondition((SerializablePredicate<JobResult<?>>) JobResult::isSuccess);
 
     assertTrue(
         evaluator.evaluate(
-            conditionWithExpression(WorkflowCondition.ConditionType.CUSTOM, "serialized-predicate"),
-            parent));
+            conditionWithExpression(WorkflowCondition.ConditionType.CUSTOM, expression), parent));
   }
 
   @Test
-  void customCondition_deserializationFailure_returnsFalseWithoutHeuristicFallback() {
-    JobEntity parent = parentJob(JobStatus.SUCCEEDED);
-    parent.setExecutionDurationMs(10L);
-    when(lambdaSerializer.deserializeJobResultPredicate("executionTime > 1")).thenReturn(null);
-
+  void customCondition_nullExpression_returnsFalse() {
     assertFalse(
         evaluator.evaluate(
-            conditionWithExpression(WorkflowCondition.ConditionType.CUSTOM, "executionTime > 1"),
-            parent));
+            condition(WorkflowCondition.ConditionType.CUSTOM), parentJob(JobStatus.SUCCEEDED)));
   }
 
   @Test
-  void resultValue_deserializedFunction_returnsFunctionResult() {
+  void resultValue_staticMethodRef_evaluates() {
+    // TestConditions::isHighValue — static method reference; no CDI bean needed
     JobEntity parent = parentJob(JobStatus.SUCCEEDED);
     parent.setJobResult("150");
-    SerializableFunction<Object, Boolean> function = value -> ((Number) value).intValue() > 100;
-    when(lambdaSerializer.deserializeResultFunction("serialized-function")).thenReturn(function);
+    parent.setResultType("java.lang.Integer");
+    String expression =
+        serializeCondition((SerializablePredicate<Object>) TestConditions::isHighValue);
 
     assertTrue(
         evaluator.evaluate(
-            conditionWithExpression(
-                WorkflowCondition.ConditionType.RESULT_VALUE, "serialized-function"),
-            parent));
-  }
-
-  @Test
-  void batchCustom_deserializedPredicate_returnsPredicateResult() {
-    JobEntity parent = batchParent(JobStatus.SUCCEEDED);
-    when(batchStore.findBatchById(parent.getId())).thenReturn(Optional.of(batch(10, 9, 1)));
-    SerializablePredicate<BatchContext> predicate = context -> context.failedItems() == 1;
-    when(lambdaSerializer.deserializeBatchContextPredicate("serialized-batch-predicate"))
-        .thenReturn(predicate);
-
-    assertTrue(
-        evaluator.evaluate(
-            conditionWithExpression(
-                WorkflowCondition.ConditionType.BATCH_CUSTOM, "serialized-batch-predicate"),
+            conditionWithExpression(WorkflowCondition.ConditionType.RESULT_VALUE, expression),
             parent));
   }
 
@@ -258,16 +253,30 @@ class WorkflowConditionEvaluatorTest {
   void resultValue_classPolicyDenied_returnsFalse() {
     ClassPolicy denyAll = className -> false;
     WorkflowConditionEvaluator restrictedEvaluator =
-        new WorkflowConditionEvaluator(batchStore, lambdaSerializer, denyAll, payloadSerializer);
+        new WorkflowConditionEvaluator(batchStore, beanResolver, denyAll, payloadSerializer);
 
     JobEntity parent = parentJob(JobStatus.SUCCEEDED);
     parent.setJobResult("150");
     parent.setResultType("java.lang.Integer");
 
+    // ClassPolicy blocks result-type deserialization before the expression is evaluated
     assertFalse(
         restrictedEvaluator.evaluate(
-            conditionWithExpression(
-                WorkflowCondition.ConditionType.RESULT_VALUE, "serialized-function"),
+            condition(WorkflowCondition.ConditionType.RESULT_VALUE), parent));
+  }
+
+  @Test
+  void batchCustom_staticMethodRef_evaluates() {
+    // TestConditions::batchHasOneFailure — static method reference; no CDI bean needed
+    JobEntity parent = batchParent(JobStatus.SUCCEEDED);
+    when(batchStore.findBatchById(parent.getId())).thenReturn(Optional.of(batch(10, 9, 1)));
+    String expression =
+        serializeCondition(
+            (SerializablePredicate<BatchContext>) TestConditions::batchHasOneFailure);
+
+    assertTrue(
+        evaluator.evaluate(
+            conditionWithExpression(WorkflowCondition.ConditionType.BATCH_CUSTOM, expression),
             parent));
   }
 

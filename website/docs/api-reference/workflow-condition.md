@@ -92,9 +92,17 @@ Creates a custom condition evaluated against the full [`JobResult`](./job-result
 - `T` -- the type of the job's return value.
 
 ```java
-// Trigger alert on slow successful jobs
+// Define condition logic in a CDI bean or static utility class
+@ApplicationScoped
+public class JobConditions {
+    public boolean isSlowSuccess(JobResult<?> result) {
+        return result.isSuccess() && result.getExecutionTimeMsOrZero() > 30_000;
+    }
+}
+
+// Reference the method — do NOT use an inline multi-step lambda
 WorkflowCondition slowJob = WorkflowCondition.custom(
-    result -> result.isSuccess() && result.getExecutionTimeMsOrZero() > 30000);
+    result -> jobConditions.isSlowSuccess(result));
 
 scheduler.enqueue(() -> processData())
     .branch(slowJob, () -> alertSlowExecution(), "Alert when job takes >30s")
@@ -111,9 +119,15 @@ public static <T> WorkflowCondition custom(
 Same as `custom()` but with an explicit evaluation priority. Lower values are evaluated first.
 
 ```java
-// High-priority condition evaluated first
+// In your CDI bean or static utility:
+public static boolean isCriticalFailure(JobResult<?> result) {
+    return result.isFailure() && result.getError() != null
+        && result.getError().contains("CRITICAL");
+}
+
+// Priority -1 — evaluated before default branches
 WorkflowCondition critical = WorkflowCondition.custom(
-    result -> result.isFailure() && result.getError().contains("CRITICAL"), -1);
+    JobConditions::isCriticalFailure, -1);
 ```
 
 ### result
@@ -128,13 +142,17 @@ Creates a condition based on the job's **return value** only. The function recei
 - `T` -- the type of the job's return value.
 
 ```java
-// Branch on inventory count
-WorkflowCondition highStock = WorkflowCondition.result(
-    (Integer stock) -> stock > 100);
+// Define result checks as static methods — comparison operators require a method boundary
+public class InventoryConditions {
+    public static boolean isHighStock(Object stock) { return ((Integer) stock) > 100; }
+    public static boolean isOutOfStock(Object stock) { return ((Integer) stock) == 0; }
+}
+
+WorkflowCondition highStock = WorkflowCondition.result(InventoryConditions::isHighStock);
 
 scheduler.enqueue(() -> inventoryService.checkStock(itemId))
-    .whenResult(stock -> stock > 100, () -> placeOrder(itemId))
-    .whenResult(stock -> stock == 0, () -> markOutOfStock(itemId))
+    .whenResult(InventoryConditions::isHighStock, () -> placeOrder(itemId))
+    .whenResult(InventoryConditions::isOutOfStock, () -> markOutOfStock(itemId))
     .submit();
 ```
 
@@ -217,8 +235,15 @@ public static WorkflowCondition batchCustom(SerializablePredicate<BatchContext> 
 Creates a custom batch condition evaluated against the [`BatchContext`](./batch-context).
 
 ```java
+// Multi-step predicates must live in a method — comparison + boolean logic won't analyze inline
+public class BatchConditions {
+    public static boolean hasCriticalFailures(BatchContext ctx) {
+        return ctx.failedItems() > 10 && ctx.isComplete();
+    }
+}
+
 WorkflowCondition criticalBatch = WorkflowCondition.batchCustom(
-    ctx -> ctx.failedItems() > 10 && ctx.isComplete());
+    BatchConditions::hasCriticalFailures);
 
 scheduler.enqueueBatch("Critical Process")
     .forEach(items, item -> processItem(item))
@@ -236,8 +261,14 @@ public static WorkflowCondition batchCustom(
 Same as `batchCustom()` but with an explicit evaluation priority.
 
 ```java
+public class BatchConditions {
+    public static boolean hasExcessiveFailures(BatchContext ctx) {
+        return ctx.failedItems() > 5;
+    }
+}
+
 WorkflowCondition earlyWarning = WorkflowCondition.batchCustom(
-    ctx -> ctx.failedItems() > 5, -1); // evaluated first
+    BatchConditions::hasExcessiveFailures, -1); // evaluated first
 ```
 
 ## Priority System
@@ -245,15 +276,23 @@ WorkflowCondition earlyWarning = WorkflowCondition.batchCustom(
 When multiple workflow branches have conditions that evaluate to `true`, they are executed in priority order (lower values first). Branches with the same priority execute in definition order.
 
 ```java
+// Conditions with multi-step logic live in a helper — the framework stores method refs as JSON
+public class JobConditions {
+    public static boolean isSlowSuccess(JobResult<?> r) {
+        return r.isSuccess() && r.getExecutionTimeMsOrZero() > 30_000;
+    }
+    public static boolean isCriticalFailure(JobResult<?> r) {
+        return r.isFailure() && r.getError() != null && r.getError().contains("CRITICAL");
+    }
+}
+
 scheduler.enqueue(() -> processData())
-    // Priority 0 (default) -- evaluated first if tied
-    .when(result -> result.isSuccess(), () -> archiveResults())
-    // Priority 1 -- evaluated after default
-    .when(result -> result.isSuccess() && result.getExecutionTimeMsOrZero() > 30000,
-          () -> logSlowExecution(), 1)
-    // Priority -1 -- evaluated before default
-    .when(result -> result.isFailure() && result.getError().contains("CRITICAL"),
-          () -> escalateCritical(), -1)
+    // Priority 0 (default) — single method ref on context, no helper needed
+    .when(JobResult::isSuccess, () -> archiveResults())
+    // Priority 1 — evaluated after default
+    .when(JobConditions::isSlowSuccess, () -> logSlowExecution(), 1)
+    // Priority -1 — evaluated before default
+    .when(JobConditions::isCriticalFailure, () -> escalateCritical(), -1)
     .submit();
 ```
 
@@ -319,6 +358,46 @@ scheduler.enqueue(() -> processData())
 // Access branches via the builder (advanced):
 List<WorkflowBranch> branches = builder.workflowBranches();
 ```
+
+## Predicate Serialization Contract
+
+Custom predicates (`CUSTOM`, `BATCH_CUSTOM`, `RESULT_VALUE`) are stored in the database as `JobPayload` JSON — the same Class/Method/Args format used for job task lambdas. The predicate is analyzed at **scheduling time** using ASM bytecode inspection and must resolve to a **single public method call**.
+
+### Supported shapes
+
+**Method reference on the context argument:**
+```java
+// JobResult::isSuccess — isSuccess() called on the JobResult passed at evaluation time
+WorkflowCondition.custom(JobResult::isSuccess)
+```
+
+**Static method reference:**
+```java
+// MyConditions.check(BatchContext) — static method, no CDI bean needed
+WorkflowCondition.batchCustom(MyConditions::allSucceeded)
+```
+
+**Instance method reference on a CDI bean:**
+```java
+// myService is injected; evaluate(JobResult) is called on the CDI-resolved instance
+WorkflowCondition.custom(result -> myService.evaluate(result))
+```
+
+### Constraint: single method call
+
+Predicates must contain exactly one method invocation. Multi-step inline logic fails at scheduling time with an `IllegalArgumentException`:
+
+```java
+// FAILS at scheduling — two operations (isSuccess + getValue) not reducible to one call
+WorkflowCondition.custom(result -> result.isSuccess() && result.getValue() != null)
+
+// FIX — wrap in a CDI bean method or a static helper
+WorkflowCondition.custom(result -> myConditions.isSuccessAndNonNull(result))
+```
+
+### Why this matters
+
+Because predicates are stored as JSON, they are stable across recompilations and deployments. Unlike JDK-serialized lambda blobs (which break when class files change), a stored `JobPayload` like `{"target":"com.example.MyConditions","method":"allSucceeded",...}` remains valid as long as the method exists with the same signature.
 
 ## See Also
 

@@ -22,6 +22,8 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobSubmitter;
 import run.ratchet.api.SerializableCheckedRunnable;
+import run.ratchet.api.SerializableFunction;
+import run.ratchet.api.SerializablePredicate;
 import run.ratchet.api.WorkflowBranch;
 import run.ratchet.api.event.JobSignalWaitingEvent;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
@@ -32,6 +34,7 @@ import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.TracingCollector;
+import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -544,7 +547,13 @@ public class DefaultJobCreationService
     condition.setConditionType(branch.condition().type());
     condition.setConditionPriority(branch.condition().priority());
     if (branch.condition().expression() != null) {
-      condition.setConditionExpressionSerialized(branch.condition().expression());
+      Serializable expr = branch.condition().expression();
+      if (expr instanceof SerializablePredicate<?> || expr instanceof SerializableFunction<?, ?>) {
+        JobPayload p = JobPayloadFactory.fromLambda(expr);
+        condition.setConditionExpression(PayloadSerializerHolder.get().serialize(p));
+      } else {
+        condition.setConditionExpression(expr.toString());
+      }
     }
     workflowConditionStore.saveCondition(condition);
   }

@@ -2,21 +2,23 @@ package run.ratchet.ri.core;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.lang.reflect.Method;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.jboss.logging.Logger;
+import org.objectweb.asm.Type;
 import run.ratchet.api.BatchContext;
 import run.ratchet.api.JobResult;
 import run.ratchet.api.JobStatus;
-import run.ratchet.api.SerializableFunction;
-import run.ratchet.api.SerializablePredicate;
+import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
-import run.ratchet.spi.LambdaSerializer;
 import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.BatchStore;
 
@@ -29,13 +31,13 @@ public class WorkflowConditionEvaluator {
   private static final Logger log = Logger.getLogger(WorkflowConditionEvaluator.class);
 
   private final BatchStore batchStore;
-  private final LambdaSerializer lambdaSerializer;
+  private final BeanResolver beanResolver;
   private final ClassPolicy classPolicy;
   private final PayloadSerializer payloadSerializer;
 
   protected WorkflowConditionEvaluator() {
     this.batchStore = null;
-    this.lambdaSerializer = null;
+    this.beanResolver = null;
     this.classPolicy = null;
     this.payloadSerializer = null;
   }
@@ -43,11 +45,11 @@ public class WorkflowConditionEvaluator {
   @Inject
   public WorkflowConditionEvaluator(
       BatchStore batchStore,
-      LambdaSerializer lambdaSerializer,
+      BeanResolver beanResolver,
       ClassPolicy classPolicy,
       PayloadSerializer payloadSerializer) {
     this.batchStore = batchStore;
-    this.lambdaSerializer = lambdaSerializer;
+    this.beanResolver = beanResolver;
     this.classPolicy = classPolicy;
     this.payloadSerializer = payloadSerializer;
   }
@@ -106,39 +108,17 @@ public class WorkflowConditionEvaluator {
 
   private boolean evaluateBatchCustom(WorkflowConditionEntity condition, JobEntity parentJob) {
     return getBatchForParent(parentJob)
-        .map(batch -> evaluateBatchCustomPredicate(condition, batch))
+        .map(
+            batch -> {
+              BatchContext context =
+                  new BatchContext(
+                      batch.getId(),
+                      batch.getTotalItems(),
+                      batch.getCompletedItems(),
+                      batch.getFailedItems());
+              return invokePredicatePayload(condition.getConditionExpression(), context);
+            })
         .orElse(false);
-  }
-
-  private boolean evaluateBatchCustomPredicate(
-      WorkflowConditionEntity condition, BatchEntity batch) {
-    try {
-      BatchContext context =
-          new BatchContext(
-              batch.getId(),
-              batch.getTotalItems(),
-              batch.getCompletedItems(),
-              batch.getFailedItems());
-
-      String expression = condition.getConditionExpression();
-
-      SerializablePredicate<BatchContext> predicate =
-          lambdaSerializer.deserializeBatchContextPredicate(expression);
-
-      if (predicate != null) {
-        return predicate.test(context);
-      }
-
-      log.warnf(
-          "Simple string-based batch condition expressions are not supported. "
-              + "Expression: '%s'. Use SerializablePredicate<BatchContext> instead.",
-          expression);
-      return false;
-
-    } catch (Exception e) {
-      log.error("Custom batch condition error", e);
-      return false;
-    }
   }
 
   private boolean evaluateBatchFailure(JobEntity parentJob) {
@@ -191,28 +171,7 @@ public class WorkflowConditionEvaluator {
   }
 
   private boolean evaluateCustomCondition(WorkflowConditionEntity condition, JobEntity parentJob) {
-    try {
-      JobResult<?> result = createJobResult(parentJob);
-      String expression = condition.getConditionExpression();
-
-      if (expression == null) {
-        return false;
-      }
-
-      SerializablePredicate<JobResult<?>> predicate =
-          lambdaSerializer.deserializeJobResultPredicate(expression);
-
-      if (predicate != null) {
-        return predicate.test(result);
-      }
-
-      log.warn("Predicate deserialization failed; condition rejected");
-      return false;
-
-    } catch (Exception e) {
-      log.error("Custom condition error", e);
-      return false;
-    }
+    return invokePredicatePayload(condition.getConditionExpression(), createJobResult(parentJob));
   }
 
   private boolean evaluateFailure(JobEntity parentJob) {
@@ -220,37 +179,97 @@ public class WorkflowConditionEvaluator {
   }
 
   private boolean evaluateResultCondition(WorkflowConditionEntity condition, JobEntity parentJob) {
-    try {
-      if (parentJob.getJobResult() == null) {
-        return false;
-      }
-
-      String expression = condition.getConditionExpression();
-      Object jobResult = parseJobResult(parentJob.getJobResult(), parentJob.getResultType());
-
-      SerializableFunction<Object, Boolean> function =
-          lambdaSerializer.deserializeResultFunction(expression);
-
-      if (function != null && jobResult != null) {
-        return Boolean.TRUE.equals(function.apply(jobResult));
-      }
-
-      return false;
-    } catch (Exception e) {
-      log.error("Result condition error", e);
+    if (parentJob.getJobResult() == null) {
       return false;
     }
+    Object jobResult = parseJobResult(parentJob.getJobResult(), parentJob.getResultType());
+    if (jobResult == null) {
+      return false;
+    }
+    return invokePredicatePayload(condition.getConditionExpression(), jobResult);
   }
 
   private boolean evaluateSuccess(JobEntity parentJob) {
     return parentJob.getStatus() == JobStatus.SUCCEEDED;
   }
 
+  /**
+   * Deserializes a {@link JobPayload} from {@code expression} and reflectively invokes the
+   * described method, passing {@code contextArg} as the runtime argument. Four invocation shapes
+   * are supported:
+   *
+   * <ul>
+   *   <li><b>Static method reference</b> ({@code args} empty, {@code parameterTypes} non-empty) —
+   *       the SAM parameter maps to the method's first parameter; {@code contextArg} is passed
+   *       directly.
+   *   <li><b>Static inline lambda</b> ({@code args} non-empty) — null slots in stored args are
+   *       filled with {@code contextArg}.
+   *   <li><b>Instance method on context</b> ({@code args} empty, {@code !isStatic}) — {@code
+   *       contextArg} is the receiver (e.g. {@code JobResult::isSuccess}).
+   *   <li><b>Instance method via CDI bean</b> ({@code args} non-empty, {@code !isStatic}) — CDI
+   *       bean is the receiver; null slots are filled with {@code contextArg}.
+   * </ul>
+   */
+  private boolean invokePredicatePayload(String expression, Object contextArg) {
+    if (expression == null) {
+      return false;
+    }
+    try {
+      JobPayload payload = payloadSerializer.deserialize(expression, JobPayload.class);
+      if (payload == null) {
+        return false;
+      }
+      Class<?> cls =
+          Class.forName(payload.target(), false, Thread.currentThread().getContextClassLoader());
+      Method method = findMethod(cls, payload);
+      Object target;
+      Object[] args;
+      if (payload.isStatic()) {
+        target = null;
+        if (payload.args().isEmpty()) {
+          // Static method reference: SAM parameter maps to the method's first parameter
+          args = payload.parameterTypes().length > 0 ? new Object[] {contextArg} : new Object[0];
+        } else {
+          args = fillArgs(payload.args(), contextArg);
+        }
+      } else if (payload.args().isEmpty()) {
+        // Instance method reference where the SAM parameter is the receiver (e.g. Result::isOk)
+        target = contextArg;
+        args = new Object[0];
+      } else {
+        target = beanResolver.resolve(cls);
+        args = fillArgs(payload.args(), contextArg);
+      }
+      Object result = method.invoke(target, args);
+      return Boolean.TRUE.equals(result);
+    } catch (Exception e) {
+      log.errorf(e, "Condition expression evaluation failed: %s", e.getMessage());
+      return false;
+    }
+  }
+
+  private static Object[] fillArgs(List<Object> stored, Object contextArg) {
+    Object[] result = new Object[stored.size()];
+    for (int i = 0; i < stored.size(); i++) {
+      result[i] = stored.get(i) != null ? stored.get(i) : contextArg;
+    }
+    return result;
+  }
+
+  private static Method findMethod(Class<?> cls, JobPayload payload) throws NoSuchMethodException {
+    for (Method m : cls.getMethods()) {
+      if (m.getName().equals(payload.method())
+          && Type.getMethodDescriptor(m).equals(payload.methodDescriptor())) {
+        return m;
+      }
+    }
+    throw new NoSuchMethodException(payload.method() + " not found in " + cls.getName());
+  }
+
   private Object parseJobResult(String jobResultJson, String resultType) {
     if (jobResultJson == null) {
       return null;
     }
-
     try {
       if (resultType != null) {
         if (classPolicy != null && !classPolicy.isAllowed(resultType)) {
@@ -264,10 +283,10 @@ public class WorkflowConditionEvaluator {
         return payloadSerializer.deserialize(jobResultJson, Object.class);
       }
     } catch (SecurityException e) {
-      throw e; // propagate ClassPolicy rejections
+      throw e;
     } catch (Exception e) {
       log.warnf("Job result JSON parse error: %s", e.getMessage());
-      return jobResultJson; // Return as string if parsing fails
+      return jobResultJson;
     }
   }
 }

@@ -40,7 +40,6 @@ import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.ErrorSanitizer;
 import run.ratchet.spi.ExecutionTuningProvider;
 import run.ratchet.spi.ExecutorProvider;
-import run.ratchet.spi.LambdaSerializer;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.NodeTagAffinityProvider;
@@ -359,17 +358,12 @@ public class RatchetProducer {
    */
   public void registerPayloadSerializer(
       @Observes @Initialized(ApplicationScoped.class) Object init,
-      Instance<PayloadSerializer> payloadSerializers,
-      Instance<LambdaSerializer> lambdaSerializers) {
+      Instance<PayloadSerializer> payloadSerializers) {
     if (payloadSerializers.isResolvable()) {
       PayloadSerializerHolder.set(payloadSerializers.get());
     } else {
       log.warn(
           "No PayloadSerializer bean resolvable at startup; JPA converters will use fallback JSON-B.");
-    }
-    if (!lambdaSerializers.isResolvable()) {
-      log.warn(
-          "No LambdaSerializer bean resolvable at startup; workflow predicate deserialization may fail.");
     }
   }
 
