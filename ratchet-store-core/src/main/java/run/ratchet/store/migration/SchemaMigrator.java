@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
+import java.sql.DatabaseMetaData;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -46,6 +47,7 @@ public final class SchemaMigrator {
   private static final Pattern SCRIPT_NAME = Pattern.compile("V(\\d+)__(.+)\\.sql");
   private static final String LOCK_NAME = "ratchet_schema_migration";
   private static final long POSTGRESQL_LOCK_KEY = 0x52617463686574L;
+  private static final String BASELINE_PROBE_TABLE = "scheduler_job_queue";
 
   private final DataSource dataSource;
   private final Dialect dialect;
@@ -72,6 +74,42 @@ public final class SchemaMigrator {
     this.dialect = Dialect.from(dialect);
     this.classpathPrefix = normalizePrefix(classpathPrefix);
     this.classLoader = Objects.requireNonNull(classLoader, "classLoader");
+  }
+
+  /**
+   * Resolves the migration dialect string ({@code "mysql"} or {@code "postgresql"}) from a JDBC
+   * connection's product name.
+   *
+   * <p>Whitelist only — auto-detection is intentionally narrow because look-alike products such as
+   * CockroachDB report a PostgreSQL wire protocol but lack {@code pg_advisory_lock}, and MariaDB
+   * variants beyond the explicit allow-list have not been verified. Operators running on an
+   * unsupported product must set {@code RATCHET_SCHEMA_MIGRATION_DIALECT} explicitly.
+   *
+   * @throws SchemaInitializationException if the product is not on the whitelist
+   */
+  public static String dialectFromMetadata(Connection connection) throws SQLException {
+    DatabaseMetaData metaData = connection.getMetaData();
+    String product = metaData.getDatabaseProductName();
+    if (product == null) {
+      throw new SchemaInitializationException(
+          "JDBC driver did not report a database product name; set the migration dialect"
+              + " explicitly via ratchet.schema.migration-dialect"
+              + " (RATCHET_SCHEMA_MIGRATION_DIALECT)");
+    }
+    String normalized = product.trim().toLowerCase(Locale.ROOT);
+    if (normalized.equals("mysql") || normalized.equals("mariadb")) {
+      return "mysql";
+    }
+    if (normalized.equals("postgresql")) {
+      return "postgresql";
+    }
+    throw new SchemaInitializationException(
+        "Unsupported database product '"
+            + product
+            + "' for Ratchet schema auto-migration. Supported: MySQL, MariaDB, PostgreSQL."
+            + " Override via ratchet.schema.migration-dialect"
+            + " (RATCHET_SCHEMA_MIGRATION_DIALECT) if your driver reports a non-standard name,"
+            + " or apply the bundled DDL externally and leave ratchet.schema.auto-migrate=false.");
   }
 
   private static String normalizePrefix(String prefix) {
@@ -193,6 +231,7 @@ public final class SchemaMigrator {
       acquireLock(connection);
       try {
         ensureSchemaVersionTable(connection);
+        verifyBaselineCompatible(connection);
         for (MigrationScript script : scripts) {
           String existingChecksum = existingChecksum(connection, script.version());
           if (existingChecksum != null) {
@@ -292,6 +331,55 @@ public final class SchemaMigrator {
     }
   }
 
+  /**
+   * Refuses to baseline a pre-existing Ratchet schema implicitly. A populated set of {@code
+   * scheduler_*} tables coupled with an empty {@code ratchet_schema_version} table would silently
+   * skip every migration on first run, leaving column-level upgrades (V005 hot/cold split, V006
+   * trace_context, V007/V008 query indexes) unapplied.
+   */
+  private void verifyBaselineCompatible(Connection connection) throws SQLException {
+    if (!isVersionTableEmpty(connection)) {
+      return;
+    }
+    if (!coreTableExists(connection)) {
+      return;
+    }
+    throw new SchemaInitializationException(
+        "Detected existing Ratchet tables ("
+            + BASELINE_PROBE_TABLE
+            + " is present) but ratchet_schema_version is empty."
+            + " Auto-migration would skip the upgrade history and leave the schema stale."
+            + " To enable auto-migration on this database, seed ratchet_schema_version manually"
+            + " with the highest applied version (one row per V### already applied; see"
+            + " docs/deployment/database-setup.md), or drop and recreate the schema. To keep"
+            + " managing the schema externally, set ratchet.schema.auto-migrate=false.");
+  }
+
+  private boolean isVersionTableEmpty(Connection connection) throws SQLException {
+    try (Statement statement = connection.createStatement();
+        ResultSet rs = statement.executeQuery("SELECT 1 FROM ratchet_schema_version")) {
+      return !rs.next();
+    }
+  }
+
+  private boolean coreTableExists(Connection connection) throws SQLException {
+    DatabaseMetaData metaData = connection.getMetaData();
+    String[] candidates =
+        new String[] {
+          BASELINE_PROBE_TABLE,
+          BASELINE_PROBE_TABLE.toUpperCase(Locale.ROOT),
+          BASELINE_PROBE_TABLE.toLowerCase(Locale.ROOT)
+        };
+    for (String candidate : candidates) {
+      try (ResultSet rs = metaData.getTables(null, null, candidate, new String[] {"TABLE"})) {
+        if (rs.next()) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   private String existingChecksum(Connection connection, String version) throws SQLException {
     try (PreparedStatement statement =
         connection.prepareStatement(
@@ -320,9 +408,9 @@ public final class SchemaMigrator {
           statement.execute(sql);
         }
       }
-      try (PreparedStatement statement =
-          connection.prepareStatement(
-              "INSERT INTO ratchet_schema_version (version, description, checksum) VALUES (?, ?, ?)")) {
+      // Upsert so the migrator authoritatively owns the checksum even when scripts self-record
+      // (e.g., via `INSERT INTO ratchet_schema_version` from manual `psql -f` workflows).
+      try (PreparedStatement statement = connection.prepareStatement(dialect.recordVersionSql())) {
         statement.setString(1, script.version());
         statement.setString(2, script.description());
         statement.setString(3, script.checksum());
@@ -364,23 +452,25 @@ public final class SchemaMigrator {
   }
 
   private List<String> jarResourceNames(URL root) throws IOException {
+    // Do NOT close the JarFile returned by JarURLConnection — it is a process-wide cached handle
+    // (see JarURLConnection.getJarFile()), and closing it sabotages concurrent callers reading the
+    // same JAR (e.g., two parallel SchemaMigrator instances during clustered startup).
     JarURLConnection connection = (JarURLConnection) root.openConnection();
-    try (JarFile jarFile = connection.getJarFile()) {
-      List<String> names = new ArrayList<>();
-      Enumeration<JarEntry> entries = jarFile.entries();
-      while (entries.hasMoreElements()) {
-        JarEntry entry = entries.nextElement();
-        String name = entry.getName();
-        if (entry.isDirectory()
-            || !name.startsWith(classpathPrefix + "/")
-            || name.substring(classpathPrefix.length() + 1).contains("/")
-            || !isMigrationResource(name)) {
-          continue;
-        }
-        names.add(name);
+    JarFile jarFile = connection.getJarFile();
+    List<String> names = new ArrayList<>();
+    Enumeration<JarEntry> entries = jarFile.entries();
+    while (entries.hasMoreElements()) {
+      JarEntry entry = entries.nextElement();
+      String name = entry.getName();
+      if (entry.isDirectory()
+          || !name.startsWith(classpathPrefix + "/")
+          || name.substring(classpathPrefix.length() + 1).contains("/")
+          || !isMigrationResource(name)) {
+        continue;
       }
-      return names;
+      names.add(name);
     }
+    return names;
   }
 
   private boolean isMigrationResource(String resourceName) {
@@ -447,6 +537,19 @@ public final class SchemaMigrator {
                 CONSTRAINT pk_ratchet_schema_version PRIMARY KEY (version)
             )\
             """;
+      };
+    }
+
+    private String recordVersionSql() {
+      return switch (this) {
+        case MYSQL ->
+            "INSERT INTO ratchet_schema_version (version, description, checksum) VALUES (?, ?, ?)"
+                + " ON DUPLICATE KEY UPDATE description = VALUES(description),"
+                + " checksum = VALUES(checksum)";
+        case POSTGRESQL ->
+            "INSERT INTO ratchet_schema_version (version, description, checksum) VALUES (?, ?, ?)"
+                + " ON CONFLICT (version) DO UPDATE SET description = EXCLUDED.description,"
+                + " checksum = EXCLUDED.checksum";
       };
     }
   }

@@ -5,12 +5,18 @@ import java.io.Serializable;
 
 /**
  * Decision criteria for workflow branching after job execution. Conditions are evaluated in {@code
- * priority} order (lower = first); the first match wins.
+ * priority} order (lower = first); each matching branch is scheduled.
  *
  * <pre>{@code
- * WorkflowCondition onSuccess  = WorkflowCondition.success();
- * WorkflowCondition highScore  = WorkflowCondition.result(score -> score > 90);
- * WorkflowCondition goodBatch  = WorkflowCondition.successRate(0.95);
+ * public final class ScoreConditions {
+ *   public static boolean isHighScore(Integer score) {
+ *     return score > 90;
+ *   }
+ * }
+ *
+ * WorkflowCondition onSuccess = WorkflowCondition.success();
+ * WorkflowCondition highScore = WorkflowCondition.result(ScoreConditions::isHighScore);
+ * WorkflowCondition goodBatch = WorkflowCondition.successRate(0.95);
  * }</pre>
  *
  * <h2>Serialization contract</h2>

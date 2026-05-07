@@ -1,6 +1,8 @@
 module run.ratchet.store.core {
   requires transitive run.ratchet.api;
   requires transitive jakarta.persistence;
+  requires jakarta.cdi;
+  requires jakarta.inject;
   requires jakarta.json;
   requires jakarta.json.bind;
   requires java.sql;
@@ -20,4 +22,5 @@ module run.ratchet.store.core {
   opens run.ratchet.store.converter;
   opens run.ratchet.store.entity;
   opens run.ratchet.store.id;
+  opens run.ratchet.store.migration;
 }

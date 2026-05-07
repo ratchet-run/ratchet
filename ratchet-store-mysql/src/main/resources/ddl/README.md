@@ -1,9 +1,7 @@
 # Ratchet MySQL DDL
 
 - `mysql-schema.sql` is the authoritative clean-install schema.
-- `ratchet_schema_version` is reserved for ordered upgrades tracked by external migration tooling or the opt-in `SchemaMigrator` utility.
-- Incremental scripts live under `ddl/migrations/` and use the `V###__description.sql` naming convention. Current set:
-  - `V001__initial_schema.sql` — initial schema.
-  - `V002__hot_cold_split.sql` — introduces `scheduler_job_queue` + `scheduler_business_key_reservation` and moves live state off `scheduler_job`.
-  - `V003__claim_due_index_alignment.sql` — realigns the executable claim index for due-time filtering under computed priority boosting.
+- `ratchet_schema_version` is populated by the env-var-driven `SchemaMigrationLifecycleHook` (`RATCHET_SCHEMA_AUTO_MIGRATE=true`) or by external migration tooling that records each applied `V###`.
+- Auto-migration supports MySQL ≥ 8 and MariaDB. Other products (including CockroachDB) are unsupported.
+- Incremental scripts live under `ddl/migrations/` and use the `V###__description.sql` naming convention.
 - The ordered `V*` scripts must compose to the same schema shipped in `mysql-schema.sql`.

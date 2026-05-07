@@ -3,6 +3,7 @@ package run.ratchet.store.migration;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.mock;
@@ -12,6 +13,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.sql.Connection;
+import java.sql.DatabaseMetaData;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
@@ -30,6 +32,9 @@ class SchemaMigratorTest {
   private PreparedStatement insertVersion;
   private ResultSet mysqlLock;
   private ResultSet mysqlRelease;
+  private ResultSet baselineProbe;
+  private DatabaseMetaData metaData;
+  private ResultSet metaDataTables;
 
   private static ResultSet missingVersion() throws Exception {
     ResultSet resultSet = mock(ResultSet.class);
@@ -62,9 +67,13 @@ class SchemaMigratorTest {
     insertVersion = mock(PreparedStatement.class);
     mysqlLock = mock(ResultSet.class);
     mysqlRelease = mock(ResultSet.class);
+    baselineProbe = mock(ResultSet.class);
+    metaData = mock(DatabaseMetaData.class);
+    metaDataTables = mock(ResultSet.class);
 
     when(dataSource.getConnection()).thenReturn(connection);
     when(connection.createStatement()).thenReturn(statement);
+    when(connection.getMetaData()).thenReturn(metaData);
     when(connection.getAutoCommit()).thenReturn(true);
     when(connection.prepareStatement(startsWith("SELECT checksum"))).thenReturn(selectVersion);
     when(connection.prepareStatement(startsWith("INSERT INTO ratchet_schema_version")))
@@ -73,6 +82,10 @@ class SchemaMigratorTest {
         .thenReturn(mysqlLock);
     when(statement.executeQuery("SELECT RELEASE_LOCK('ratchet_schema_migration')"))
         .thenReturn(mysqlRelease);
+    when(statement.executeQuery("SELECT 1 FROM ratchet_schema_version")).thenReturn(baselineProbe);
+    when(baselineProbe.next()).thenReturn(false);
+    when(metaData.getTables(any(), any(), any(), any())).thenReturn(metaDataTables);
+    when(metaDataTables.next()).thenReturn(false);
     when(mysqlLock.next()).thenReturn(true);
     when(mysqlLock.getInt(1)).thenReturn(1);
     when(mysqlRelease.next()).thenReturn(true);
@@ -146,5 +159,55 @@ class SchemaMigratorTest {
     assertEquals(0, result.skippedCount());
     verify(statement).execute(startsWith("SELECT pg_advisory_lock("));
     verify(statement).execute(startsWith("SELECT pg_advisory_unlock("));
+  }
+
+  @Test
+  void failsWhenLegacySchemaPresentWithoutVersionRows() throws Exception {
+    // Empty version table + scheduler_job_queue exists in metadata = legacy install.
+    when(metaDataTables.next()).thenReturn(true);
+
+    SchemaInitializationException ex =
+        assertThrows(
+            SchemaInitializationException.class,
+            () -> new SchemaMigrator(dataSource, "mysql", "schema-migrator").migrate());
+    assertTrue(ex.getMessage().contains("ratchet_schema_version is empty"));
+    assertTrue(ex.getMessage().contains("scheduler_job_queue"));
+    verify(insertVersion, never()).executeUpdate();
+  }
+
+  @Test
+  void dialectFromMetadataMapsKnownProducts() throws Exception {
+    DatabaseMetaData mysqlMeta = mock(DatabaseMetaData.class);
+    when(mysqlMeta.getDatabaseProductName()).thenReturn("MySQL");
+    Connection mysqlConn = mock(Connection.class);
+    when(mysqlConn.getMetaData()).thenReturn(mysqlMeta);
+    assertEquals("mysql", SchemaMigrator.dialectFromMetadata(mysqlConn));
+
+    DatabaseMetaData mariaMeta = mock(DatabaseMetaData.class);
+    when(mariaMeta.getDatabaseProductName()).thenReturn("MariaDB");
+    Connection mariaConn = mock(Connection.class);
+    when(mariaConn.getMetaData()).thenReturn(mariaMeta);
+    assertEquals("mysql", SchemaMigrator.dialectFromMetadata(mariaConn));
+
+    DatabaseMetaData pgMeta = mock(DatabaseMetaData.class);
+    when(pgMeta.getDatabaseProductName()).thenReturn("PostgreSQL");
+    Connection pgConn = mock(Connection.class);
+    when(pgConn.getMetaData()).thenReturn(pgMeta);
+    assertEquals("postgresql", SchemaMigrator.dialectFromMetadata(pgConn));
+  }
+
+  @Test
+  void dialectFromMetadataRejectsLookalikes() throws Exception {
+    DatabaseMetaData crdbMeta = mock(DatabaseMetaData.class);
+    when(crdbMeta.getDatabaseProductName()).thenReturn("CockroachDB");
+    Connection crdbConn = mock(Connection.class);
+    when(crdbConn.getMetaData()).thenReturn(crdbMeta);
+
+    SchemaInitializationException ex =
+        assertThrows(
+            SchemaInitializationException.class,
+            () -> SchemaMigrator.dialectFromMetadata(crdbConn));
+    assertTrue(ex.getMessage().contains("CockroachDB"));
+    assertTrue(ex.getMessage().contains("Supported"));
   }
 }

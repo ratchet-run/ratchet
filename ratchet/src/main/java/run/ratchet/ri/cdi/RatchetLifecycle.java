@@ -29,6 +29,7 @@ import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.SchedulerLifecycleHook;
+import run.ratchet.store.migration.SchemaInitializationException;
 
 /** CDI lifecycle observer that initializes and shuts down the Ratchet job scheduler subsystem. */
 @ApplicationScoped
@@ -218,6 +219,11 @@ public class RatchetLifecycle {
     for (SchedulerLifecycleHook hook : hooks()) {
       try {
         callback.accept(hook);
+      } catch (SchemaInitializationException e) {
+        // Schema initialization failures must abort startup so the scheduler does not begin
+        // claiming jobs against an unmigrated or incompatible schema.
+        log.errorf(e, "Scheduler lifecycle hook failed during %s: %s", phase, e.getMessage());
+        throw e;
       } catch (Exception e) {
         log.warnf(e, "Scheduler lifecycle hook failed during %s: %s", phase, e.getMessage());
       }
