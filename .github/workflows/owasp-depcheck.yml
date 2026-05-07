@@ -49,11 +49,14 @@ jobs:
         with:
           project: 'ratchet'
           path: '.'
-          format: 'HTML SARIF'
+          format: 'HTML'
           out: 'target'
           args: >
+            --format SARIF
             --failOnCVSS 7
             --nvdApiKey ${{ secrets.NVD_API_KEY }}
+            --exclude "website/**"
+            --exclude "**/website/**"
             --suppression owasp-suppressions.xml
 
       - name: Upload Dependency-Check report
