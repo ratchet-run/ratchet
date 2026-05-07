@@ -12,78 +12,248 @@ Ratchet is a portable, CDI-based job scheduler for Jakarta EE 10/11 applications
 
 In a typical Jakarta EE application, Ratchet sits between your business logic and the database. You inject `JobSchedulerService`, enqueue work using lambda expressions, and Ratchet handles persistence, polling, execution, retries, and lifecycle events.
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Your Application                     │
-│                                                         │
-│   @Inject JobSchedulerService scheduler;                │
-│   scheduler.enqueue(() -> orderService.process(id))     │
-│       .withMaxRetries(3)                                │
-│       .submit();                                        │
-│                                                         │
-├─────────────────────────────────────────────────────────┤
-│                     Ratchet Engine                       │
-│                                                         │
-│  ┌──────────┐  ┌────────┐  ┌──────────┐  ┌──────────┐  │
-│  │ Poller   │  │JobTask │  │ Workflow │  │  Batch   │  │
-│  │          │──│        │──│Scheduler │──│ Service  │  │
-│  │ Adaptive │  │Executor│  │          │  │          │  │
-│  │ Polling  │  │        │  │ Chains + │  │ Parent/  │  │
-│  │          │  │ Retry  │  │Conditions│  │ Child    │  │
-│  └──────────┘  └────────┘  └──────────┘  └──────────┘  │
-│                                                         │
-├─────────────────────────────────────────────────────────┤
-│                    JobStore SPI                          │
-│           (composed store SPI, one marker)               │
-├─────────────────────────────────────────────────────────┤
-│   MySQL Store   │ PostgreSQL Store │   MongoDB Store     │
-│  (SKIP LOCKED)  │  (SKIP LOCKED)   │  (atomic updates)   │
-└─────────────────┴──────────────────┴─────────────────────┘
-```
+<div className="ratchet-fit-diagram" role="img" aria-label="Ratchet architecture: application code submits jobs through JobSchedulerService into the Ratchet engine, which persists through the JobStore SPI backed by MySQL, PostgreSQL, or MongoDB.">
+  <div className="fit-layer fit-layer-app">
+    <div>
+      <span className="fit-kicker">Your Jakarta EE Application</span>
+      <strong>Business services submit durable work</strong>
+      <code>scheduler.enqueue(() -&gt; orderService.process(id)).withMaxRetries(3).submit();</code>
+    </div>
+  </div>
+
+  <div className="fit-connector">
+    <span>JobSchedulerService</span>
+  </div>
+
+  <div className="fit-layer fit-layer-engine">
+    <div className="fit-layer-header">
+      <span className="fit-kicker">Ratchet Engine</span>
+      <strong>Persist, claim, execute, retry, observe</strong>
+    </div>
+    <div className="fit-engine-grid">
+      <div className="fit-node">
+        <span>Poller</span>
+        <small>Adaptive polling</small>
+      </div>
+      <div className="fit-node">
+        <span>JobTask</span>
+        <small>Execution + retry</small>
+      </div>
+      <div className="fit-node">
+        <span>Workflow</span>
+        <small>Chains + conditions</small>
+      </div>
+      <div className="fit-node">
+        <span>Batch</span>
+        <small>Parent + child jobs</small>
+      </div>
+      <div className="fit-node">
+        <span>Events</span>
+        <small>CDI + listeners</small>
+      </div>
+    </div>
+  </div>
+
+  <div className="fit-connector">
+    <span>JobStore SPI</span>
+  </div>
+
+  <div className="fit-store-grid">
+    <div className="fit-store">
+      <span>MySQL Store</span>
+      <small>SKIP LOCKED claiming</small>
+    </div>
+    <div className="fit-store">
+      <span>PostgreSQL Store</span>
+      <small>SKIP LOCKED claiming</small>
+    </div>
+    <div className="fit-store">
+      <span>MongoDB Store</span>
+      <small>Atomic document updates</small>
+    </div>
+  </div>
+</div>
 
 ## Module Structure
 
 Ratchet is organized into modules following the Jakarta EE API / RI / TCK pattern:
 
-```
-ratchet/
-├── ratchet-api          Public API, SPIs, events, annotations
-├── ratchet           Reference implementation + CDI integration
-├── ratchet-store-core   Shared JPA entities (internal, not user-facing)
-├── ratchet-store-mysql  MySQL JobStore + DDL
-├── ratchet-store-postgresql  PostgreSQL JobStore + DDL
-├── ratchet-store-mongodb  MongoDB JobStore + collection/index bootstrap
-├── ratchet-tck          Technology Compatibility Kit aggregator (pom)
-│   ├── util               JUnit-only helpers shared across TCK modules
-│   ├── store              Store SPI conformance contracts
-│   ├── api                Public-API conformance contracts (container-free)
-│   └── jakarta            Jakarta-EE conformance contracts (Arquillian)
-├── ratchet-testsuite    Integration tests
-└── ratchet-bom          Bill of Materials POM
-```
+<div className="module-inventory" role="list" aria-label="Ratchet Maven modules">
+  <section className="module-section module-section-api" role="listitem">
+    <div className="module-section-header">
+      <span className="fit-kicker">Public Contracts</span>
+      <strong>Depend on this from applications and integrations</strong>
+    </div>
+    <div className="module-chip-grid">
+      <div className="module-chip">
+        <code>ratchet-api</code>
+        <p>Public API, SPIs, lifecycle events, annotations, and Jakarta EE-facing contracts.</p>
+      </div>
+    </div>
+  </section>
+
+  <section className="module-section module-section-runtime" role="listitem">
+    <div className="module-section-header">
+      <span className="fit-kicker">Runtime</span>
+      <strong>Engine and store implementations used in production</strong>
+    </div>
+    <div className="module-chip-grid">
+      <div className="module-chip">
+        <code>ratchet</code>
+        <p>Reference implementation, CDI integration, scheduler engine, poller, and executors.</p>
+      </div>
+      <div className="module-chip">
+        <code>ratchet-store-core</code>
+        <p>Shared persistence entities and internal store support used by store adapters.</p>
+      </div>
+      <div className="module-chip">
+        <code>ratchet-store-mysql</code>
+        <p>MySQL JobStore implementation and DDL.</p>
+      </div>
+      <div className="module-chip">
+        <code>ratchet-store-postgresql</code>
+        <p>PostgreSQL JobStore implementation and DDL.</p>
+      </div>
+      <div className="module-chip">
+        <code>ratchet-store-mongodb</code>
+        <p>MongoDB JobStore implementation with collection and index bootstrap.</p>
+      </div>
+    </div>
+  </section>
+
+  <section className="module-section module-section-observability" role="listitem">
+    <div className="module-section-header">
+      <span className="fit-kicker">Observability</span>
+      <strong>Optional adapters for metrics and traces</strong>
+    </div>
+    <div className="module-chip-grid">
+      <div className="module-chip">
+        <code>ratchet-micrometer</code>
+        <p>Micrometer metrics integration built on the public API.</p>
+      </div>
+      <div className="module-chip">
+        <code>ratchet-otel</code>
+        <p>OpenTelemetry integration built on the public API.</p>
+      </div>
+    </div>
+  </section>
+
+  <section className="module-section module-section-validation" role="listitem">
+    <div className="module-section-header">
+      <span className="fit-kicker">Validation</span>
+      <strong>Conformance, integration, load, JPMS, and coverage modules</strong>
+    </div>
+    <div className="module-chip-grid">
+      <div className="module-chip">
+        <code>ratchet-tck</code>
+        <p>Technology Compatibility Kit aggregator.</p>
+        <div className="module-tags">
+          <span>util</span>
+          <span>store</span>
+          <span>api</span>
+          <span>jakarta</span>
+        </div>
+      </div>
+      <div className="module-chip">
+        <code>ratchet-testsuite</code>
+        <p>Container and store integration tests.</p>
+      </div>
+      <div className="module-chip">
+        <code>ratchet-testsuite-jpms</code>
+        <p>JPMS/module-system integration tests.</p>
+      </div>
+      <div className="module-chip">
+        <code>ratchet-loadtest</code>
+        <p>Load and stress-test harness.</p>
+      </div>
+      <div className="module-chip">
+        <code>ratchet-coverage</code>
+        <p>Aggregate coverage module for reactor reporting.</p>
+      </div>
+    </div>
+  </section>
+
+  <section className="module-section module-section-distribution" role="listitem">
+    <div className="module-section-header">
+      <span className="fit-kicker">Distribution</span>
+      <strong>Version alignment for consumers</strong>
+    </div>
+    <div className="module-chip-grid">
+      <div className="module-chip">
+        <code>ratchet-bom</code>
+        <p>Bill of Materials POM for importing consistent Ratchet dependency versions.</p>
+      </div>
+    </div>
+  </section>
+</div>
 
 ### Module Dependency Graph
 
-```
-                 ┌──────────────┐
-                 │  ratchet-api │  (EE APIs only)
-                 └──────┬───────┘
-                        │
-          ┌─────────────┼──────────────┐
-          │             │              │
-          ▼             ▼              ▼
-   ┌─────────────┐ ┌──────────┐  ┌──────────┐
-   │ ratchet  │ │store-core│  │   tck    │
-   │ (engine +   │ │(internal)│  │          │
-   │  CDI)       │ └────┬─────┘  └──────────┘
-   └─────────────┘      │
-          ┌─────────────┼──────────────┐
-          │             │              │
-          ▼             ▼              ▼
-   ┌────────────┐ ┌──────────────┐ ┌──────────────┐
-   │store-mysql │ │store-postgres│ │store-mongodb │
-   └────────────┘ └──────────────┘ └──────────────┘
-```
+<div className="module-dependency-diagram" role="img" aria-label="Ratchet module dependency graph. ratchet-api has only Jakarta EE API dependencies. The engine, store core, TCK, tests, observability modules, and BOM build on the API. Store implementations build on store core.">
+  <div className="dependency-layer">
+    <span className="dependency-layer-label">Public API</span>
+    <div className="dependency-node dependency-node-api">
+      <strong>ratchet-api</strong>
+      <small>Jakarta EE APIs only</small>
+    </div>
+  </div>
+
+  <div className="dependency-bridge">
+    <span>runtime, observability, tests, and distribution build from the public contracts</span>
+  </div>
+
+  <div className="dependency-layer">
+    <span className="dependency-layer-label">API Consumers</span>
+    <div className="dependency-node-grid">
+      <div className="dependency-node">
+        <strong>ratchet</strong>
+        <small>Engine + CDI integration</small>
+      </div>
+      <div className="dependency-node">
+        <strong>ratchet-store-core</strong>
+        <small>Internal shared store layer</small>
+      </div>
+      <div className="dependency-node">
+        <strong>ratchet-tck</strong>
+        <small>Conformance modules</small>
+      </div>
+      <div className="dependency-node">
+        <strong>ratchet-micrometer</strong>
+        <small>Metrics adapter</small>
+      </div>
+      <div className="dependency-node">
+        <strong>ratchet-otel</strong>
+        <small>Tracing adapter</small>
+      </div>
+      <div className="dependency-node">
+        <strong>ratchet-bom</strong>
+        <small>Version alignment</small>
+      </div>
+    </div>
+  </div>
+
+  <div className="dependency-bridge dependency-bridge-store">
+    <span>store adapters share the internal store core</span>
+  </div>
+
+  <div className="dependency-layer">
+    <span className="dependency-layer-label">Stores</span>
+    <div className="dependency-node-grid dependency-store-grid">
+      <div className="dependency-node dependency-node-store">
+        <strong>ratchet-store-mysql</strong>
+        <small>MySQL + DDL</small>
+      </div>
+      <div className="dependency-node dependency-node-store">
+        <strong>ratchet-store-postgresql</strong>
+        <small>PostgreSQL + DDL</small>
+      </div>
+      <div className="dependency-node dependency-node-store">
+        <strong>ratchet-store-mongodb</strong>
+        <small>MongoDB collections + indexes</small>
+      </div>
+    </div>
+  </div>
+</div>
 
 **Key design constraint:** `ratchet-api` has zero runtime dependencies beyond Jakarta EE APIs supplied by the runtime. Your application can depend on `ratchet-api` for event types and annotations without pulling in the engine.
 

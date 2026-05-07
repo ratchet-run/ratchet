@@ -10,40 +10,57 @@ When a job throws an exception, Ratchet's error handling pipeline determines whe
 
 ## Error Handling Pipeline
 
-```
-  Job throws exception
-         │
-         ▼
-  ┌──────────────────┐
-  │ Increment attempt│
-  │ counter          │
-  └────────┬─────────┘
-           │
-           ▼
-  ┌──────────────────┐     Yes     ┌──────────────┐
-  │ @DoNotRetry on   │────────────▶│ Move to DLQ  │
-  │ exception class? │             │ (permanent)  │
-  └────────┬─────────┘             └──────────────┘
-           │ No
-           ▼
-  ┌──────────────────┐     No      ┌──────────────┐
-  │ RetryPolicy      │────────────▶│ Move to DLQ  │
-  │ .shouldRetry()?  │             │ (permanent)  │
-  └────────┬─────────┘             └──────────────┘
-           │ Yes
-           ▼
-  ┌──────────────────┐     No      ┌──────────────┐
-  │ attempt <=       │────────────▶│ Move to DLQ  │
-  │ maxRetries?      │             │ (permanent)  │
-  └────────┬─────────┘             └──────────────┘
-           │ Yes
-           ▼
-  ┌──────────────────┐
-  │ Calculate backoff│
-  │ Schedule retry   │
-  │ (PENDING)        │
-  └──────────────────┘
-```
+<div className="docs-diagram docs-decision-grid" role="img" aria-label="Error handling decision tree: increment attempts, check DoNotRetry, consult RetryPolicy, compare attempt count, then either route to DLQ or schedule a retry.">
+  <div className="docs-diagram-card docs-diagram-card--danger">
+    <strong>Job throws exception</strong>
+    <small>The engine increments the attempt counter before making retry/DLQ decisions.</small>
+  </div>
+
+  <div className="docs-decision-row">
+    <div className="docs-diagram-card">
+      <strong>`@DoNotRetry` on exception?</strong>
+      <small>Checked first across the exception class hierarchy.</small>
+    </div>
+    <div className="docs-diagram-card docs-diagram-card--danger">
+      <strong>Yes</strong>
+      <small>Move directly to DLQ.</small>
+    </div>
+    <div className="docs-diagram-card docs-diagram-card--active">
+      <strong>No</strong>
+      <small>Continue to policy evaluation.</small>
+    </div>
+  </div>
+
+  <div className="docs-decision-row">
+    <div className="docs-diagram-card">
+      <strong>`RetryPolicy.shouldRetry()`?</strong>
+      <small>Custom SPI can reject retries by exception type, attempt, or external state.</small>
+    </div>
+    <div className="docs-diagram-card docs-diagram-card--danger">
+      <strong>No</strong>
+      <small>Move to DLQ.</small>
+    </div>
+    <div className="docs-diagram-card docs-diagram-card--active">
+      <strong>Yes</strong>
+      <small>Check the job's retry budget.</small>
+    </div>
+  </div>
+
+  <div className="docs-decision-row">
+    <div className="docs-diagram-card">
+      <strong>`attempt <= maxRetries`?</strong>
+      <small>The job's configured retry budget is the final gate.</small>
+    </div>
+    <div className="docs-diagram-card docs-diagram-card--danger">
+      <strong>No</strong>
+      <small>Move to DLQ.</small>
+    </div>
+    <div className="docs-diagram-card docs-diagram-card--success">
+      <strong>Yes</strong>
+      <small>Calculate backoff and reschedule as PENDING.</small>
+    </div>
+  </div>
+</div>
 
 ## Retry vs DLQ Decision
 

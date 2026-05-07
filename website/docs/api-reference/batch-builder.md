@@ -118,14 +118,26 @@ Schedules a job when a custom condition on the `BatchContext` is met.
 - `next` -- the task to execute when the condition is true.
 
 ```java
+public final class BatchWorkflowConditions {
+    public static boolean isCompleteWithoutFailures(BatchContext ctx) {
+        return ctx.failedItems() == 0 && ctx.isComplete();
+    }
+
+    public static boolean shouldRollback(BatchContext ctx) {
+        return ctx.failedItems() > ctx.totalItems() / 2;
+    }
+}
+
 scheduler.enqueueBatch("Process Items")
     .forEach(items, item -> processItem(item))
-    .thenWhenBatch(ctx -> ctx.failedItems() == 0 && ctx.isComplete(),
+    .thenWhenBatch(BatchWorkflowConditions::isCompleteWithoutFailures,
                    () -> archiveResults())
-    .thenWhenBatch(ctx -> ctx.failedItems() > ctx.totalItems() / 2,
+    .thenWhenBatch(BatchWorkflowConditions::shouldRollback,
                    () -> rollbackProcessing())
     .submit();
 ```
+
+Custom batch predicates are analyzed into `JobPayload` JSON at submission time. Put compound logic in a public helper or CDI bean method, then pass a method reference.
 
 ### thenWhenSuccessRate
 
@@ -182,10 +194,16 @@ Adds a workflow branch with an explicit `WorkflowCondition` and description.
 - `description` -- human-readable description for monitoring.
 
 ```java
+public final class BatchWorkflowConditions {
+    public static boolean hasMoreThanFiveFailures(BatchContext ctx) {
+        return ctx.failedItems() > 5 && ctx.isComplete();
+    }
+}
+
 scheduler.enqueueBatch("Complex Batch")
     .forEach(items, item -> processItem(item))
     .thenBranch(
-        WorkflowCondition.batchCustom(ctx -> ctx.failedItems() > 5 && ctx.isComplete()),
+        WorkflowCondition.batchCustom(BatchWorkflowConditions::hasMoreThanFiveFailures),
         () -> escalateToOps(),
         "Escalate when more than 5 items fail")
     .submit();

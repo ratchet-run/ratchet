@@ -324,11 +324,21 @@ scheduler.enqueue(() -> assessCreditRisk(applicationId))
 Or branch on the actual return value:
 
 ```java
+public final class RiskScoreConditions {
+    public static boolean shouldAutoApprove(Integer score) {
+        return score < 50;
+    }
+
+    public static boolean requiresManualReview(Integer score) {
+        return score >= 50;
+    }
+}
+
 scheduler.enqueue(() -> calculateRiskScore(applicationId))
-    .when(result -> result.isSuccess() && result.getValue() < 50,
-          () -> autoApprove(applicationId))
-    .when(result -> result.isSuccess() && result.getValue() >= 50,
-          () -> manualReview(applicationId))
+    .whenResult(RiskScoreConditions::shouldAutoApprove,
+                () -> autoApprove(applicationId))
+    .whenResult(RiskScoreConditions::requiresManualReview,
+                () -> manualReview(applicationId))
     .thenOnFailure(() -> escalateToManager(applicationId))
     .submit();
 ```

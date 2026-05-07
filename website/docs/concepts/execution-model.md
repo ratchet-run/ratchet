@@ -10,18 +10,30 @@ This page explains how Ratchet moves a job from "sitting in the database" to "ru
 
 ## Execution Pipeline
 
-```
-┌─────────┐     ┌──────────────────┐     ┌─────────┐     ┌──────────┐
-│ Database │────▶│ Poller           │────▶│Execution│────▶│ JobTask  │
-│          │     │ (claim batch)    │     │Coordinator    │ (worker) │
-│scheduler_│     │                  │     │ (dispatch)    │          │
-│  job     │     │ SKIP LOCKED      │     │          │     │ validate │
-│          │     │ query            │     │ submit to│     │ execute  │
-│          │◀────│                  │     │ pool     │     │ handle   │
-│          │     └──────────────────┘     └─────────┘     │ result   │
-│          │                                              └──────────┘
-└─────────┘
-```
+<div className="docs-diagram" role="img" aria-label="Ratchet execution pipeline from the hot queue table through the Poller, coordinator, worker task, and post-processing.">
+  <div className="docs-diagram-flow">
+    <div className="docs-diagram-card docs-diagram-card--store">
+      <strong>Hot Queue</strong>
+      <small>`scheduler_job_queue` stores live PENDING/RUNNING/PAUSED/WAITING state.</small>
+    </div>
+    <div className="docs-diagram-card docs-diagram-card--primary">
+      <strong>Poller</strong>
+      <small>Claims due PENDING rows with `FOR UPDATE SKIP LOCKED`.</small>
+    </div>
+    <div className="docs-diagram-card docs-diagram-card--active">
+      <strong>JobExecutionCoordinator</strong>
+      <small>Dispatches lightweight claim DTOs to the configured executor.</small>
+    </div>
+    <div className="docs-diagram-card docs-diagram-card--active">
+      <strong>JobTask</strong>
+      <small>Loads the full job, validates policy, executes, and records the outcome.</small>
+    </div>
+    <div className="docs-diagram-card docs-diagram-card--muted">
+      <strong>Post-processing</strong>
+      <small>Triggers chains, workflow branches, batch updates, events, and archival paths.</small>
+    </div>
+  </div>
+</div>
 
 The flow for each poll cycle:
 
@@ -41,7 +53,7 @@ The core query selects PENDING jobs whose scheduled time has passed, ordered by 
 and due time:
 
 ```sql
-SELECT * FROM scheduler_job
+SELECT job_id FROM scheduler_job_queue
 WHERE status = 'PENDING'
   AND scheduled_time <= CURRENT_TIMESTAMP
 ORDER BY (priority + age_boost) DESC, scheduled_time ASC
@@ -110,43 +122,56 @@ For efficiency, the Poller passes lightweight `JobClaimDto` objects (containing 
 
 ### Execution Steps
 
-```
-  ┌─────────────────────────────────┐
-  │ 1. Setup MDC context            │
-  │    (job ID, node ID)            │
-  ├─────────────────────────────────┤
-  │ 2. Load JobEntity from DB       │
-  │    (lazy from JobClaimDto)      │
-  ├─────────────────────────────────┤
-  │ 3. Bind JobContext to thread    │
-  │    (logger, params)             │
-  ├─────────────────────────────────┤
-  │ 4. Check cancellation           │
-  │    (status == CANCELED?)        │
-  ├─────────────────────────────────┤
-  │ 5. Circuit breaker gate         │
-  │    (is service available?)      │
-  ├─────────────────────────────────┤
-  │ 6. Resource permit acquisition  │
-  │    (if resource configured)     │
-  ├─────────────────────────────────┤
-  │ 7. Security validation          │
-  │    (ClassPolicy check)          │
-  ├─────────────────────────────────┤
-  │ 8. Resolve target bean + method │
-  │    (CDI lookup + reflection)    │
-  ├─────────────────────────────────┤
-  │ 9. Execute via ResilienceStrategy│
-  │    (circuit breaker wrapping)   │
-  ├─────────────────────────────────┤
-  │ 10. Handle result               │
-  │     success → handleSuccess()   │
-  │     failure → handleFailure()   │
-  ├─────────────────────────────────┤
-  │ 11. Release resource permit     │
-  │ 12. Clear MDC + JobContext      │
-  └─────────────────────────────────┘
-```
+<div className="docs-diagram docs-step-list" role="list" aria-label="JobTask execution steps">
+  <div className="docs-diagram-step" role="listitem">
+    <strong>Setup MDC context</strong>
+    <small>Adds job ID and node ID so logs can be correlated.</small>
+  </div>
+  <div className="docs-diagram-step" role="listitem">
+    <strong>Load `JobEntity`</strong>
+    <small>Loads the full entity lazily from the lightweight `JobClaimDto`.</small>
+  </div>
+  <div className="docs-diagram-step" role="listitem">
+    <strong>Bind `JobContext`</strong>
+    <small>Attaches logger, params, and any delivered signal payload to the worker thread.</small>
+  </div>
+  <div className="docs-diagram-step" role="listitem">
+    <strong>Check cancellation</strong>
+    <small>Re-reads status and exits cleanly if the job was canceled after claim.</small>
+  </div>
+  <div className="docs-diagram-step" role="listitem">
+    <strong>Check circuit breaker</strong>
+    <small>Asks `ResilienceStrategy` whether the target service is available.</small>
+  </div>
+  <div className="docs-diagram-step" role="listitem">
+    <strong>Acquire resource permit</strong>
+    <small>Reschedules without consuming a retry if the configured resource is saturated.</small>
+  </div>
+  <div className="docs-diagram-step" role="listitem">
+    <strong>Validate class policy</strong>
+    <small>Applies `ClassPolicy` before resolving the target invocation.</small>
+  </div>
+  <div className="docs-diagram-step" role="listitem">
+    <strong>Resolve bean and method</strong>
+    <small>Uses CDI lookup and reflection from the persisted payload.</small>
+  </div>
+  <div className="docs-diagram-step" role="listitem">
+    <strong>Execute target</strong>
+    <small>Runs through `ResilienceStrategy`, including circuit-breaker wrapping.</small>
+  </div>
+  <div className="docs-diagram-step" role="listitem">
+    <strong>Handle result</strong>
+    <small>Routes success to `handleSuccess()` or failure to `handleFailure()`.</small>
+  </div>
+  <div className="docs-diagram-step" role="listitem">
+    <strong>Release resource permit</strong>
+    <small>Frees capacity for other queued work.</small>
+  </div>
+  <div className="docs-diagram-step" role="listitem">
+    <strong>Clear MDC and context</strong>
+    <small>Removes thread-local state before the worker returns to the pool.</small>
+  </div>
+</div>
 
 ### Step Details
 

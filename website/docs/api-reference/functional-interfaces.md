@@ -6,7 +6,7 @@ description: Reference for all serializable functional interfaces used in job de
 
 # Functional Interfaces
 
-Ratchet defines six serializable functional interfaces for job tasks, callbacks, and workflow conditions. All extend both their `java.util.function` counterpart (where applicable) and `Serializable`, enabling lambda expressions to be persisted in the job store.
+Ratchet defines six serializable functional interfaces for job tasks, callbacks, and workflow conditions. All extend both their `java.util.function` counterpart (where applicable) and `Serializable`, so Ratchet can analyze and persist job definitions in the job store.
 
 **Package:** `run.ratchet.api`
 
@@ -18,10 +18,10 @@ Ratchet persists job definitions in a database. When you write:
 scheduler.enqueue(() -> orderService.process(orderId)).submit();
 ```
 
-The lambda `() -> orderService.process(orderId)` must be serialized so it can be stored, deserialized on another node, and executed later. All functional interfaces in Ratchet extend `Serializable` to make this possible.
+The lambda `() -> orderService.process(orderId)` must be serializable so Ratchet can inspect it, store a portable payload, and execute it later on another node. All functional interfaces in Ratchet extend `Serializable` to make this possible.
 
 :::warning Method Reference Constraint
-All job lambdas must contain **exactly one method invocation** (a single method reference or method call). Multi-statement lambdas fail at submission time with `IllegalArgumentException`. This constraint applies to `SerializableCheckedRunnable` and `SerializableCheckedConsumer` -- the task-defining interfaces.
+Job tasks and workflow condition predicates must contain **exactly one method invocation** (a single method reference or method call). Multi-statement lambdas and inline boolean logic fail at submission time with `IllegalArgumentException`. This constraint applies to task-defining interfaces and to condition interfaces used by `when()`, `whenResult()`, and `thenWhenBatch()`.
 
 For complex logic, create a dedicated method in a CDI bean and reference it.
 :::
@@ -187,15 +187,29 @@ public interface SerializableFunction<T, R> extends Function<T, R>, Serializable
 ### Examples
 
 ```java
+public final class ScoreConditions {
+    public static boolean isHighPriority(Double score) {
+        return score > 0.8;
+    }
+
+    public static boolean isLowPriority(Double score) {
+        return score <= 0.5;
+    }
+
+    public static boolean hasGoldSubscription(UserData user) {
+        return user.getSubscription() == Premium.GOLD;
+    }
+}
+
 // Value-based workflow branching
 scheduler.enqueue(() -> analyzeData())
-    .whenResult(score -> score > 0.8, () -> triggerHighPriority())
-    .whenResult(score -> score <= 0.5, () -> triggerLowPriority())
+    .whenResult(ScoreConditions::isHighPriority, () -> triggerHighPriority())
+    .whenResult(ScoreConditions::isLowPriority, () -> triggerLowPriority())
     .submit();
 
 // Complex value-based condition
 scheduler.enqueue(() -> fetchUserData())
-    .whenResult(user -> user.getSubscription() == Premium.GOLD,
+    .whenResult(ScoreConditions::hasGoldSubscription,
                 () -> sendPremiumFeatures())
     .submit();
 
@@ -204,7 +218,7 @@ scheduler.enqueue(() -> checkInventory())
     .whenResult(this::isLowStock, () -> reorder())
     .submit();
 
-private Boolean isLowStock(Integer stockLevel) {
+public Boolean isLowStock(Integer stockLevel) {
     return stockLevel < 10;
 }
 ```
@@ -225,24 +239,50 @@ public interface SerializablePredicate<T> extends Predicate<T>, Serializable {
 ### Examples
 
 ```java
+public final class WorkflowPredicates {
+    public static boolean isFastSuccess(JobResult<?> result) {
+        return result.isSuccess()
+            && result.getExecutionTimeMsOrZero() < 5_000;
+    }
+
+    public static boolean isTimeoutFailure(JobResult<?> result) {
+        String error = result.getError();
+        return result.isFailure()
+            && error != null
+            && error.contains("timeout");
+    }
+
+    public static boolean allSucceeded(BatchContext ctx) {
+        return ctx.failedItems() == 0;
+    }
+
+    public static boolean needsRollback(BatchContext ctx) {
+        return ctx.successRate() < 0.5;
+    }
+
+    public static boolean isCriticalBatch(BatchContext ctx) {
+        return ctx.failedItems() > 10 || ctx.successRate() < 0.5;
+    }
+}
+
 // Job result condition
 scheduler.enqueue(() -> processData())
-    .when(result -> result.isSuccess() && result.getExecutionTimeMsOrZero() < 5000,
+    .when(WorkflowPredicates::isFastSuccess,
           () -> log.info("Fast execution"))
-    .when(result -> result.isFailure() && result.getError().contains("timeout"),
+    .when(WorkflowPredicates::isTimeoutFailure,
           () -> increaseTimeoutAndRetry())
     .submit();
 
 // Batch context condition
 scheduler.enqueueBatch("Import")
     .forEach(records, r -> importRecord(r))
-    .thenWhenBatch(ctx -> ctx.failedItems() == 0, () -> markComplete())
-    .thenWhenBatch(ctx -> ctx.successRate() < 0.5, () -> rollback())
+    .thenWhenBatch(WorkflowPredicates::allSucceeded, () -> markComplete())
+    .thenWhenBatch(WorkflowPredicates::needsRollback, () -> rollback())
     .submit();
 
 // Combining conditions
 SerializablePredicate<BatchContext> criticalCondition =
-    ctx -> ctx.failedItems() > 10 || ctx.successRate() < 0.5;
+    WorkflowPredicates::isCriticalBatch;
 
 scheduler.enqueueBatch("Critical Process")
     .forEach(items, item -> processItem(item))

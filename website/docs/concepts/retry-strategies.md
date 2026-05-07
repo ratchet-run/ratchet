@@ -238,24 +238,50 @@ jobStore.scheduleJobRetry(job.getId(), errorMessage, newScheduledTime, attempt);
 
 The `@DoNotRetry` annotation is checked **before** the `RetryPolicy` SPI. If the exception class is annotated with `@DoNotRetry`, the job moves directly to the DLQ regardless of retry configuration or policy:
 
-```
-Exception thrown
-     │
-     ▼
-@DoNotRetry? ──Yes──▶ DLQ (immediate)
-     │
-     No
-     ▼
-RetryPolicy.shouldRetry()? ──No──▶ DLQ
-     │
-     Yes
-     ▼
-attempt <= maxRetries? ──No──▶ DLQ
-     │
-     Yes
-     ▼
-Calculate delay, reschedule
-```
+<div className="docs-diagram docs-decision-grid" role="img" aria-label="Retry decision order: DoNotRetry first, RetryPolicy second, maxRetries third, then calculate delay and reschedule.">
+  <div className="docs-decision-row">
+    <div className="docs-diagram-card">
+      <strong>1. `@DoNotRetry`?</strong>
+      <small>Annotation wins over all retry settings.</small>
+    </div>
+    <div className="docs-diagram-card docs-diagram-card--danger">
+      <strong>Yes</strong>
+      <small>DLQ immediately.</small>
+    </div>
+    <div className="docs-diagram-card docs-diagram-card--active">
+      <strong>No</strong>
+      <small>Consult retry policy.</small>
+    </div>
+  </div>
+  <div className="docs-decision-row">
+    <div className="docs-diagram-card">
+      <strong>2. `RetryPolicy.shouldRetry()`?</strong>
+      <small>Custom global retry rules can stop the retry.</small>
+    </div>
+    <div className="docs-diagram-card docs-diagram-card--danger">
+      <strong>No</strong>
+      <small>Move to DLQ.</small>
+    </div>
+    <div className="docs-diagram-card docs-diagram-card--active">
+      <strong>Yes</strong>
+      <small>Check the job budget.</small>
+    </div>
+  </div>
+  <div className="docs-decision-row">
+    <div className="docs-diagram-card">
+      <strong>3. `attempt <= maxRetries`?</strong>
+      <small>Per-job configuration is the last gate.</small>
+    </div>
+    <div className="docs-diagram-card docs-diagram-card--danger">
+      <strong>No</strong>
+      <small>Move to DLQ.</small>
+    </div>
+    <div className="docs-diagram-card docs-diagram-card--success">
+      <strong>Yes</strong>
+      <small>Calculate delay and reschedule.</small>
+    </div>
+  </div>
+</div>
 
 ## Related
 

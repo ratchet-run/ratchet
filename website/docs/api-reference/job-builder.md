@@ -362,13 +362,22 @@ Schedules a job to execute when a custom condition is met. The condition receive
 - `next` -- the task to execute when the condition is true.
 
 ```java
+public final class DataAnalysisConditions {
+    public static boolean isSlowSuccess(JobResult<?> result) {
+        return result.isSuccess()
+            && result.getExecutionTimeMsOrZero() > 60_000;
+    }
+}
+
 scheduler.enqueue(() -> analyzeData())
-    .when(result -> result.isSuccess() && result.getExecutionTimeMs() > 60000,
+    .when(DataAnalysisConditions::isSlowSuccess,
           () -> alertSlowExecution())
-    .when(result -> result.isFailure(),
+    .when(JobResult::isFailure,
           () -> notifyAdmins())
     .submit();
 ```
+
+Custom workflow predicates are analyzed at submission time and stored as `JobPayload` JSON. Put compound logic in a public helper method or CDI bean method, then pass a method reference or a single-call lambda.
 
 ### when (with priority)
 
@@ -388,8 +397,8 @@ Same as `when()` but with an explicit evaluation priority. Lower priority number
 
 ```java
 scheduler.enqueue(() -> processOrder())
-    .when(result -> result.isSuccess(), () -> confirmOrder(), 0)    // evaluated first
-    .when(result -> result.isFailure(), () -> cancelOrder(), 1)     // evaluated second
+    .when(JobResult::isSuccess, () -> confirmOrder(), 0)    // evaluated first
+    .when(JobResult::isFailure, () -> cancelOrder(), 1)     // evaluated second
     .submit();
 ```
 
@@ -411,10 +420,24 @@ Schedules a job based on the **return value** of the current job. The condition 
 - `next` -- the task to execute when the condition returns true.
 
 ```java
+public final class StockConditions {
+    public static boolean isHighStock(Integer stock) {
+        return stock > 100;
+    }
+
+    public static boolean isLowStock(Integer stock) {
+        return stock > 0 && stock <= 100;
+    }
+
+    public static boolean isOutOfStock(Integer stock) {
+        return stock == 0;
+    }
+}
+
 scheduler.enqueue(() -> inventoryService.checkStock(itemId))
-    .whenResult(stock -> stock > 100, () -> placeOrder(itemId))
-    .whenResult(stock -> stock > 0 && stock <= 100, () -> alertLowStock(itemId))
-    .whenResult(stock -> stock == 0, () -> markOutOfStock(itemId))
+    .whenResult(StockConditions::isHighStock, () -> placeOrder(itemId))
+    .whenResult(StockConditions::isLowStock, () -> alertLowStock(itemId))
+    .whenResult(StockConditions::isOutOfStock, () -> markOutOfStock(itemId))
     .submit();
 ```
 
@@ -434,8 +457,14 @@ Adds a workflow branch with an explicit [`WorkflowCondition`](./workflow-conditi
 - `description` -- human-readable description for logs and dashboards.
 
 ```java
+public final class MetricsConditions {
+    public static boolean isSlowJob(JobResult<?> result) {
+        return result.getExecutionTimeMsOrZero() > 30_000;
+    }
+}
+
 scheduler.enqueue(() -> analyzeMetrics())
-    .branch(WorkflowCondition.custom(r -> r.getExecutionTimeMs() > 30000),
+    .branch(WorkflowCondition.custom(MetricsConditions::isSlowJob),
             () -> alertSlowJob(),
             "Alert ops when analysis takes over 30 seconds")
     .submit();

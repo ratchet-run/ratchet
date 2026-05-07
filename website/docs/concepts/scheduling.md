@@ -174,7 +174,7 @@ scheduler.enqueue(() -> syncUser(userId))
     .submit();
 ```
 
-Business keys are enforced as unique only among active jobs (PENDING, RUNNING, PAUSED). Once a job reaches a terminal state, the key is freed for reuse.
+Business keys are enforced as unique only among active jobs (PENDING, RUNNING, PAUSED, WAITING). Once a job reaches a terminal state, the key is freed for reuse.
 
 | Mechanism | Scope | Lifetime | Use Case |
 |-----------|-------|----------|----------|
@@ -230,30 +230,26 @@ The old job is marked as superseded (`superseded_by` column points to the new jo
 
 The engine doesn't poll at a fixed interval. The `PollingStrategy` dynamically adjusts the polling delay based on job availability patterns:
 
-```
-                    Wakeup Signal
-                         │
-                         ▼
-    ┌───────────────────────────────────────┐
-    │            BURST MODE                 │
-    │   Delay: 500ms (aggressive)           │
-    │   Exits after idle threshold          │
-    └───────────────┬───────────────────────┘
-                    │ No jobs found
-                    ▼
-    ┌───────────────────────────────────────┐
-    │           NORMAL MODE                 │
-    │   Delay: 2-30 seconds (adaptive)      │
-    │   Based on rolling job count average  │
-    └───────────────┬───────────────────────┘
-                    │ No jobs for 5+ minutes
-                    ▼
-    ┌───────────────────────────────────────┐
-    │           DEEP IDLE                   │
-    │   Delay: 60 seconds                   │
-    │   Exits on wakeup signal              │
-    └───────────────────────────────────────┘
-```
+<div className="docs-diagram" role="img" aria-label="Adaptive polling modes: wakeup signal enters burst mode, idle polls settle into normal mode, and sustained idleness enters deep idle until another wakeup signal.">
+  <div className="docs-diagram-flow">
+    <div className="docs-diagram-card docs-diagram-card--primary">
+      <strong>Wakeup signal</strong>
+      <small>Local submission or `ClusterCoordinator.notifyNewWork()` tells the poller to check immediately.</small>
+    </div>
+    <div className="docs-diagram-card docs-diagram-card--active">
+      <strong>Burst mode</strong>
+      <small>500ms delay, aggressive polling, exits after idle threshold.</small>
+    </div>
+    <div className="docs-diagram-card docs-diagram-card--muted">
+      <strong>Normal mode</strong>
+      <small>2-30 second adaptive delay based on rolling job counts and load.</small>
+    </div>
+    <div className="docs-diagram-card docs-diagram-card--store">
+      <strong>Deep idle</strong>
+      <small>60 second delay after 5+ idle minutes; exits immediately on wakeup.</small>
+    </div>
+  </div>
+</div>
 
 The strategy considers multiple factors:
 

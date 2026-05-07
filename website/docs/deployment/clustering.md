@@ -10,29 +10,41 @@ Ratchet can run on multiple nodes against the same store. Ordinary job claiming 
 
 ## Architecture
 
-```
-     ┌──────────┐     ┌──────────┐     ┌──────────┐
-     │  Node A  │     │  Node B  │     │  Node C  │
-     │          │     │          │     │          │
-     │ Poller   │     │ Poller   │     │ Poller   │
-     │ Workers  │     │ Workers  │     │ Workers  │
-     └────┬─────┘     └────┬─────┘     └────┬─────┘
-          │                │                │
-          │  SKIP LOCKED   │  SKIP LOCKED   │  SKIP LOCKED
-          │                │                │
-          └────────────────┼────────────────┘
-                           │
-                    ┌──────┴──────┐
-                    │   Database  │
-                    │             │
-                    │ scheduler_  │
-                    │   job       │
-                    │ scheduler_  │
-                    │   node      │
-                    │ scheduler_  │
-                    │   lock      │
-                    └─────────────┘
-```
+<div className="docs-diagram" role="img" aria-label="Ratchet multi-node deployment: every node runs a local poller and worker pool, and all nodes coordinate through the shared store using SKIP LOCKED, node heartbeats, and scheduler locks.">
+  <div className="docs-diagram-row">
+    <div className="docs-diagram-card docs-diagram-card--active">
+      <strong>Node A</strong>
+      <small>Local poller and worker pool.</small>
+    </div>
+    <div className="docs-diagram-card docs-diagram-card--active">
+      <strong>Node B</strong>
+      <small>Claims a different subset of work.</small>
+    </div>
+    <div className="docs-diagram-card docs-diagram-card--active">
+      <strong>Node C</strong>
+      <small>No master/coordinator node required.</small>
+    </div>
+  </div>
+
+  <div className="docs-diagram-connector">
+    <span>`SKIP LOCKED` prevents duplicate claims while keeping nodes non-blocking</span>
+  </div>
+
+  <div className="docs-diagram-row">
+    <div className="docs-diagram-card docs-diagram-card--store">
+      <strong>scheduler_job_queue</strong>
+      <small>Live claim state for pending, running, paused, and waiting jobs.</small>
+    </div>
+    <div className="docs-diagram-card docs-diagram-card--store">
+      <strong>scheduler_node</strong>
+      <small>Heartbeats and failure detection.</small>
+    </div>
+    <div className="docs-diagram-card docs-diagram-card--store">
+      <strong>scheduler_lock</strong>
+      <small>Store-backed leases for singleton maintenance paths.</small>
+    </div>
+  </div>
+</div>
 
 Every node runs its own poller and workers. For ordinary job claiming, no node is special — the database is the single source of truth.
 
@@ -41,7 +53,7 @@ Every node runs its own poller and workers. For ordinary job claiming, no node i
 When a node's poller fires, it runs a `SELECT ... FOR UPDATE SKIP LOCKED` query:
 
 ```sql
-SELECT * FROM scheduler_job
+SELECT job_id FROM scheduler_job_queue
 WHERE status = 'PENDING'
   AND scheduled_time <= NOW()
 ORDER BY (priority + age_boost) DESC, scheduled_time ASC

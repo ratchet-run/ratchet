@@ -16,10 +16,24 @@ Comprehensive result object capturing all aspects of a job execution. `JobResult
 `JobResult` is created internally by the Ratchet executor after each job execution. You interact with it primarily through workflow conditions:
 
 ```java
+public final class AnalysisConditions {
+    private static final int HIGH_VALUE_THRESHOLD = 100;
+
+    public static boolean isHighValue(JobResult<Integer> result) {
+        return result.isSuccess()
+            && result.hasValue()
+            && result.getValue() > HIGH_VALUE_THRESHOLD;
+    }
+
+    public static boolean isSlow(JobResult<?> result) {
+        return result.getExecutionTimeMsOrZero() > 60_000;
+    }
+}
+
 scheduler.enqueue(() -> analyzeData())
-    .when(result -> result.isSuccess() && result.getValue() > threshold,
+    .when(AnalysisConditions::isHighValue,
           () -> handleHighValue())
-    .when(result -> result.getExecutionTimeMsOrZero() > 60000,
+    .when(AnalysisConditions::isSlow,
           () -> alertSlowExecution())
     .thenOnFailure(() -> notifyAdmins())
     .submit();
@@ -329,21 +343,41 @@ scheduler.enqueue(() -> processPayment(orderId))
 ### Value-Based Branching
 
 ```java
+public final class StockConditions {
+    public static boolean isHighStock(Integer stock) {
+        return stock > 100;
+    }
+
+    public static boolean isOutOfStock(Integer stock) {
+        return stock == 0;
+    }
+}
+
 scheduler.enqueue(() -> inventoryService.checkStock(itemId))
-    .whenResult(stock -> stock > 100, () -> placeOrder(itemId))
-    .whenResult(stock -> stock == 0, () -> notifyOutOfStock(itemId))
+    .whenResult(StockConditions::isHighStock, () -> placeOrder(itemId))
+    .whenResult(StockConditions::isOutOfStock, () -> notifyOutOfStock(itemId))
     .submit();
 ```
 
 ### Complex Condition Branching
 
 ```java
+public final class AnalysisConditions {
+    public static boolean isSlowSuccess(JobResult<?> result) {
+        return result.isSuccess()
+            && result.getExecutionTimeMsOrZero() > 30_000;
+    }
+
+    public static boolean isCritical(JobResult<?> result) {
+        return result.isSuccess()
+            && "critical".equals(result.getMetadata("severity"));
+    }
+}
+
 scheduler.enqueue(() -> analyzeData())
-    .when(result -> result.isSuccess()
-              && result.getExecutionTimeMsOrZero() > 30000,
+    .when(AnalysisConditions::isSlowSuccess,
           () -> alertSlowJob())
-    .when(result -> result.isSuccess()
-              && "critical".equals(result.getMetadata("severity")),
+    .when(AnalysisConditions::isCritical,
           () -> escalateToOps())
     .submit();
 ```

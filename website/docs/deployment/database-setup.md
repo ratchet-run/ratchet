@@ -8,7 +8,7 @@ description: Setting up MySQL, PostgreSQL, or MongoDB for Ratchet — schema app
 
 Ratchet requires a database to persist jobs, execution history, and scheduling metadata. This guide covers setup for all three supported stores.
 
-SQL stores ship DDL as plain SQL files bundled inside each SQL store module JAR. There is no Flyway or Liquibase dependency — you apply the schema using whatever mechanism your team prefers. MongoDB initializes collections and indexes at startup.
+SQL stores ship DDL as plain SQL files bundled inside each SQL store module JAR. There is no Flyway or Liquibase dependency — you apply the schema using whatever mechanism your team prefers, **or** opt in to Ratchet's built-in startup migrator (see [Auto-migration](#auto-migration) below). MongoDB initializes collections and indexes at startup unconditionally — its named indexes are referenced by claim queries, so initialization is correctness-critical, not optional.
 
 ## PostgreSQL
 
@@ -355,28 +355,71 @@ For schema changes between Ratchet versions:
 3. Apply any migration SQL provided in the release
 4. Re-run the full schema DDL to create any new tables/indexes
 
-Since Ratchet does not bundle a migration framework, you are free to manage schema changes using whatever tool your team already uses (Flyway, Liquibase, manual scripts, etc.).
+Since Ratchet does not bundle a Flyway/Liquibase runtime dependency, you are free to manage schema changes using whatever tool your team already uses (Flyway, Liquibase, manual scripts, container init scripts, etc.).
 
-If you want Ratchet to run its own packaged `ddl/migrations/V###__description.sql` files at startup, wire the optional `SchemaMigrator` utility from a lifecycle hook:
+## Auto-migration
+
+For dev, CI, and embedded deployments where running DBA-grade migration tooling is overkill, Ratchet ships a built-in startup migrator that applies `ddl/migrations/V###__description.sql` from the SQL store JARs. **It is OFF by default.** Production deployments typically keep the default and run migrations through their existing pipelines; dev/CI flips a single env var and gets a "just-works" bootstrap.
+
+### Enable
+
+```bash
+RATCHET_SCHEMA_AUTO_MIGRATE=true
+```
+
+Or via configuration:
+
+```properties
+ratchet.schema.auto-migrate=true
+```
+
+When enabled, `SchemaMigrationLifecycleHook` runs during scheduler startup (before the poller is initialized), acquires an advisory lock (`GET_LOCK` on MySQL, `pg_advisory_lock` on PostgreSQL), records each applied script in `ratchet_schema_version`, and verifies SHA-256 checksums on subsequent runs. Concurrent startups converge — exactly one node applies migrations while the others wait on the lock.
+
+### DataSource binding
+
+Auto-migration requires a CDI-discoverable `javax.sql.DataSource`. Most application servers expose this automatically; if yours doesn't, produce one explicitly:
 
 ```java
 @ApplicationScoped
-class RatchetSchemaMigrationHook implements SchedulerLifecycleHook {
-  @Inject DataSource dataSource;
-  @Inject RatchetOptions options;
+class RatchetDataSourceProducer {
+  @Resource(lookup = "java:/RatchetDS")
+  private DataSource dataSource;
 
-  @Override
-  public void beforeStart() throws Exception {
-    if (options.schema().autoMigrate()) {
-      new SchemaMigrator(
-              dataSource, options.schema().migrationDialect(), options.schema().migrationPrefix())
-          .migrate();
-    }
+  @Produces
+  @ApplicationScoped
+  DataSource dataSource() {
+    return dataSource;
   }
 }
 ```
 
-`SchemaMigrator` currently supports `mysql` and `postgresql`, uses `ratchet_schema_version` for checksum tracking, and must run before `Poller.init()`. The built-in `RatchetLifecycle` invokes `SchedulerLifecycleHook.beforeStart` before scheduler startup, so this hook is the safe integration point.
+If no `DataSource` bean is available when `auto-migrate=true`, deployment fails fast with a clear error.
+
+### Supported dialects
+
+| Database | `ratchet.schema.migration-dialect` value | Auto-detected? |
+|----------|------------------------------------------|----------------|
+| MySQL ≥ 8 | `mysql` | yes |
+| MariaDB | `mysql` | yes |
+| PostgreSQL | `postgresql` | yes |
+| Anything else (incl. CockroachDB) | unsupported | no |
+
+The dialect is auto-detected from `DatabaseMetaData.getDatabaseProductName()`. Look-alike products such as **CockroachDB** report a PostgreSQL wire protocol but lack `pg_advisory_lock`, so they are explicitly rejected even though the wire is compatible. Override the auto-detected value with `RATCHET_SCHEMA_MIGRATION_DIALECT=mysql` (or `postgresql`) only if you have verified your driver-product combination.
+
+### Pre-existing schemas (legacy installs)
+
+If `ratchet_schema_version` is empty but `scheduler_*` tables already exist (an install that pre-dates auto-migration), the migrator refuses to baseline implicitly — silently skipping migrations would leave column-level upgrades unapplied. Either:
+
+- Seed `ratchet_schema_version` manually with one row per `V###` already applied (look at `mysql-schema.sql` / `postgresql-schema.sql` to see what's in the bundled clean install), then start with `auto-migrate=true`; **or**
+- Keep `auto-migrate=false` and continue applying upgrades via your external tooling.
+
+### `CREATE INDEX CONCURRENTLY`
+
+PostgreSQL rejects `CREATE INDEX CONCURRENTLY` inside a transaction block, and the auto-migrator wraps each script in a JDBC transaction. The bundled migrations therefore use plain `CREATE INDEX`. Operators who need to avoid the brief table lock during a large-table reindex can apply the migration script manually with `CONCURRENTLY` before flipping `auto-migrate=true` — `ratchet_schema_version` records the version regardless of how the DDL ran.
+
+### MongoDB
+
+MongoDB does not participate in `auto-migrate` — its collections and named indexes are created unconditionally during store startup. The `auto-migrate` flag is JDBC-only by contract.
 
 ## Backup Strategy
 

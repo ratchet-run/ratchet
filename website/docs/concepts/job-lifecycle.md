@@ -10,51 +10,75 @@ Every job in Ratchet follows a well-defined state machine from creation to termi
 
 ## State Machine
 
-```
-                    ┌──────────┐
-             ┌─────│ PENDING  │◄────────────────────┐
-             │     └────┬─────┘                     │
-             │          │                           │
-        pauseJob()      │ Poller claims job    scheduleRetry()
-             │          │ (SKIP LOCKED)        (retries remain)
-             │          ▼                           │
-             │     ┌──────────┐                     │
-             │     │ RUNNING  │─────────────────────┤
-             │     └──┬───┬───┘                     │
-             │        │   │                         │
-             │   success  failure                   │
-             │        │   │                         │
-             │        ▼   ▼                         │
-             │  ┌─────────┐  ┌────────┐             │
-             │  │SUCCEEDED│  │ FAILED │─────────────┘
-             │  └─────────┘  └────┬───┘
-             │                    │
-             │               retryJob()
-             │               (manual reset)
-             │                    │
-             ▼                    ▼
-        ┌──────────┐        Back to PENDING
-        │  PAUSED  │
-        └──────────┘
-             │
-        resumeJob()
-             │
-             ▼
-        Original state
-        (PENDING or FAILED)
+<div className="docs-diagram" role="img" aria-label="Ratchet job state machine: PENDING jobs can run, pause, cancel, or retry; RUNNING jobs succeed, fail, or cancel; WAITING jobs unblock to PENDING when a signal arrives or fail on timeout.">
+  <div className="docs-diagram-row docs-diagram-row--tight">
+    <div className="docs-diagram-state docs-diagram-state--primary">
+      <strong>PENDING</strong>
+      <small>Queued and eligible when `scheduled_time <= now`.</small>
+    </div>
+    <div className="docs-diagram-state docs-diagram-state--active">
+      <strong>RUNNING</strong>
+      <small>Claimed by one node and executing on a worker.</small>
+    </div>
+    <div className="docs-diagram-state docs-diagram-state--warning">
+      <strong>WAITING</strong>
+      <small>Blocked for an external signal; hidden from polling.</small>
+    </div>
+    <div className="docs-diagram-state docs-diagram-state--muted">
+      <strong>PAUSED</strong>
+      <small>Temporarily hidden; resumes to the stored previous state.</small>
+    </div>
+    <div className="docs-diagram-state docs-diagram-state--success">
+      <strong>SUCCEEDED</strong>
+      <small>Terminal success; eligible for archival after retention.</small>
+    </div>
+    <div className="docs-diagram-state docs-diagram-state--danger">
+      <strong>FAILED</strong>
+      <small>Terminal when retries are exhausted; otherwise retried.</small>
+    </div>
+    <div className="docs-diagram-state docs-diagram-state--danger">
+      <strong>CANCELED</strong>
+      <small>Terminal cancellation from queued, running, paused, or waiting work.</small>
+    </div>
+  </div>
 
-   cancelJob() can reach CANCELED from PENDING or RUNNING:
+  <div className="docs-diagram-connector">
+    <span>Main transitions</span>
+  </div>
 
-        ┌──────────┐
-        │ CANCELED │  (terminal)
-        └──────────┘
-```
+  <div className="docs-diagram-row">
+    <div className="docs-diagram-card">
+      <strong>PENDING -> RUNNING</strong>
+      <small>Poller claims the row atomically with `SKIP LOCKED`.</small>
+    </div>
+    <div className="docs-diagram-card">
+      <strong>RUNNING -> SUCCEEDED</strong>
+      <small>The task completes and result handling succeeds.</small>
+    </div>
+    <div className="docs-diagram-card">
+      <strong>RUNNING -> FAILED</strong>
+      <small>The task throws, times out, or exhausts retry handling.</small>
+    </div>
+    <div className="docs-diagram-card">
+      <strong>FAILED -> PENDING</strong>
+      <small>Automatic retry with backoff, or manual `retryJob()` reset.</small>
+    </div>
+    <div className="docs-diagram-card">
+      <strong>PENDING/FAILED -> PAUSED</strong>
+      <small>`pauseJob()` records `paused_from_status` for accurate resume.</small>
+    </div>
+    <div className="docs-diagram-card">
+      <strong>WAITING -> PENDING</strong>
+      <small>`deliverSignal()` unblocks the job and attaches the signal payload.</small>
+    </div>
+  </div>
+</div>
 
 ## States
 
 ### PENDING
 
-The job is queued and waiting for execution. A PENDING job becomes visible to the Poller when its `scheduled_time <= now`. Jobs start in this state when submitted.
+The job is queued and waiting for execution. A PENDING job becomes visible to the Poller when its `scheduled_time <= now`. Most jobs start in this state when submitted.
 
 - **Visible to Poller:** Yes, when scheduled time has passed
 - **Transitions to:** RUNNING (claimed by worker), PAUSED (via `pauseJob()`), CANCELED (via `cancelJob()`)
@@ -94,6 +118,14 @@ The job is temporarily suspended and invisible to the Poller. The `paused_from_s
 - **Transitions to:** Previous state via `resumeJob()` -- restores PENDING or FAILED
 - **Idempotent:** Pausing an already-paused job returns `true` without error
 
+### WAITING
+
+The job is blocked until an external signal is delivered. WAITING jobs are not visible to the Poller. Signal delivery transitions the job to PENDING and stores the payload for `JobContext.signalPayload()`.
+
+- **Visible to Poller:** No
+- **Transitions to:** PENDING via `deliverSignal()`, FAILED on signal timeout, CANCELED via `cancelJob()`
+- **Guard:** WAITING jobs cannot be paused
+
 ### CANCELED
 
 The job was explicitly canceled and will not execute. This is a terminal state. Canceling a RUNNING job sets the status; the executor checks status mid-flight and discards results.
@@ -126,7 +158,7 @@ JobHandle handle = scheduler.enqueue(() -> service.process(id))
 The Poller executes a query like:
 
 ```sql
-SELECT * FROM scheduler_job
+SELECT job_id FROM scheduler_job_queue
 WHERE status = 'PENDING'
   AND scheduled_time <= NOW()
 ORDER BY (priority + age_boost) DESC, scheduled_time ASC
@@ -217,6 +249,7 @@ scheduler.cancelJob(jobId);
 Behavior depends on current state:
 - **PENDING:** Immediately transitions to CANCELED
 - **RUNNING:** Sets status to CANCELED. The executor periodically checks `wasJobCanceledDuringExecution()` and discards results if true
+- **WAITING:** Cancels the signal wait and prevents future delivery from releasing the job
 - **Terminal states:** Returns `false` (cannot cancel completed jobs)
 
 For chain steps, cancellation cascades to all downstream dependents using depth-first traversal.

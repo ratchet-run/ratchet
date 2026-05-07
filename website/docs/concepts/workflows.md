@@ -24,13 +24,26 @@ scheduler.enqueue(() -> validateOrder(orderId))
 
 When you call `.then()`, the engine creates multiple jobs linked by `depends_on`:
 
-```
-  ┌──────────────┐  depends_on  ┌──────────────┐  depends_on  ┌──────────────┐
-  │ validateOrder│◄─────────────│chargePayment │◄─────────────│ fulfillOrder │
-  │ scheduled_time│              │ scheduled_time│              │ scheduled_time│
-  │ = now        │              │ = 9999-12-31 │              │ = 9999-12-31 │
-  └──────────────┘              └──────────────┘              └──────────────┘
-```
+<div className="docs-diagram" role="img" aria-label="Chain dependency flow: all steps are persisted immediately, but downstream steps stay hidden until the prior step succeeds.">
+  <div className="docs-diagram-flow">
+    <div className="docs-diagram-card docs-diagram-card--primary">
+      <strong>`validateOrder`</strong>
+      <small>`scheduled_time = now`; visible to the Poller first.</small>
+    </div>
+    <div className="docs-diagram-card docs-diagram-card--muted">
+      <strong>`chargePayment`</strong>
+      <small>`depends_on = validateOrder`; hidden with the sentinel scheduled time.</small>
+    </div>
+    <div className="docs-diagram-card docs-diagram-card--muted">
+      <strong>`fulfillOrder`</strong>
+      <small>`depends_on = chargePayment`; released only after payment succeeds.</small>
+    </div>
+    <div className="docs-diagram-card docs-diagram-card--muted">
+      <strong>`sendConfirmation`</strong>
+      <small>Final dependent step in the chain.</small>
+    </div>
+  </div>
+</div>
 
 All chain steps are persisted at submission time. Steps 2-N use a sentinel `scheduled_time` of `9999-12-31T23:59:59Z`, making them invisible to the Poller. When step 1 succeeds, the `ChainScheduler` sets step 2's `scheduled_time = now`, releasing it for polling. This pattern continues until the chain completes.
 
@@ -87,25 +100,55 @@ Both `thenOnSuccess` and `thenOnFailure` create `WorkflowBranch` objects with `W
 Branch based on the actual return value of a job:
 
 ```java
+public final class ApplicantScoreConditions {
+    public static boolean qualifiesForAutoApproval(Integer score) {
+        return score > 750;
+    }
+
+    public static boolean requiresAutoReject(Integer score) {
+        return score < 500;
+    }
+
+    public static boolean requiresManualReview(Integer score) {
+        return score >= 500 && score <= 750;
+    }
+}
+
 scheduler.enqueue(() -> scoringService.calculateScore(applicantId))
-    .whenResult(score -> score > 750, () -> autoApprove(applicantId))
-    .whenResult(score -> score < 500, () -> autoReject(applicantId))
-    .whenResult(score -> score >= 500 && score <= 750,
+    .whenResult(ApplicantScoreConditions::qualifiesForAutoApproval,
+                () -> autoApprove(applicantId))
+    .whenResult(ApplicantScoreConditions::requiresAutoReject,
+                () -> autoReject(applicantId))
+    .whenResult(ApplicantScoreConditions::requiresManualReview,
                 () -> manualReview(applicantId))
     .submit();
 ```
 
-The `whenResult` method creates a `RESULT_VALUE` condition. The predicate function receives the job's return value (not the full `JobResult`).
+The `whenResult` method creates a `RESULT_VALUE` condition. The method reference receives the job's return value (not the full `JobResult`) and must resolve to a single public method call.
 
 ### Custom Conditions on JobResult
 
 For more complex conditions that need access to execution metadata:
 
 ```java
+public final class EtlWorkflowConditions {
+    public static boolean isSlowSuccess(JobResult<?> result) {
+        return result.isSuccess()
+            && result.getExecutionTimeMsOrZero() > 30_000;
+    }
+
+    public static boolean isTimeoutFailure(JobResult<?> result) {
+        String error = result.getError();
+        return result.isFailure()
+            && error != null
+            && error.contains("timeout");
+    }
+}
+
 scheduler.enqueue(() -> etlService.processFile(fileId))
-    .when(result -> result.isSuccess() && result.getExecutionTimeMs() > 30000,
+    .when(EtlWorkflowConditions::isSlowSuccess,
           () -> performanceService.flagSlowJob(fileId))
-    .when(result -> result.isFailure() && result.getError().contains("timeout"),
+    .when(EtlWorkflowConditions::isTimeoutFailure,
           () -> retryWithLargerTimeout(fileId))
     .submit();
 ```
@@ -118,7 +161,7 @@ The predicate receives the full `JobResult<T>` object with:
 | `getValue()` | Return value (generic typed) |
 | `getError()` | Error message |
 | `getException()` | Full exception |
-| `getExecutionTimeMs()` | Execution duration |
+| `getExecutionTimeMs()` / `getExecutionTimeMsOrZero()` | Execution duration |
 | `getStartTime()` / `getEndTime()` | Timing data |
 | `getMetadata(key)` | Custom key-value pairs |
 
@@ -127,12 +170,18 @@ The predicate receives the full `JobResult<T>` object with:
 When multiple conditions might match, priority controls evaluation order:
 
 ```java
+public final class DocumentWorkflowConditions {
+    public static boolean isUrgent(JobResult<String> result) {
+        return "URGENT".equals(result.getValue());
+    }
+}
+
 scheduler.enqueue(() -> classifyDocument(docId))
     // Priority 0 (default) -- evaluated first
-    .when(result -> result.getValue().equals("URGENT"),
+    .when(DocumentWorkflowConditions::isUrgent,
           () -> escalateToManager(docId))
     // Priority 1 -- evaluated second
-    .when(result -> result.isSuccess(),
+    .when(JobResult::isSuccess,
           () -> archiveDocument(docId),
           1)
     .submit();
@@ -168,11 +217,16 @@ The `WorkflowCondition` record supports these condition types:
 For full control, use the `branch()` method with a `WorkflowCondition`:
 
 ```java
+public final class BatchProcessingConditions {
+    public static boolean isFastSuccess(JobResult<?> result) {
+        return result.isSuccess()
+            && result.getExecutionTimeMsOrZero() < 5_000;
+    }
+}
+
 scheduler.enqueue(() -> processBatch(batchId))
     .branch(
-        WorkflowCondition.custom(
-            result -> result.isSuccess() &&
-                      result.getExecutionTimeMsOrZero() < 5000),
+        WorkflowCondition.custom(BatchProcessingConditions::isFastSuccess),
         () -> fastPathService.optimize(batchId),
         "Optimize if processing was fast")
     .branch(
@@ -187,6 +241,18 @@ scheduler.enqueue(() -> processBatch(batchId))
 Batch-level conditions are used on `BatchBuilder` and `StreamingBatchBuilder`:
 
 ```java
+public final class MigrationBatchConditions {
+    public static boolean needsPartialRecovery(BatchContext ctx) {
+        return ctx.isComplete()
+            && ctx.failedItems() > 0
+            && ctx.successRate() > 0.9;
+    }
+
+    public static boolean isLargeMigration(BatchContext ctx) {
+        return ctx.completedItems() > 10_000;
+    }
+}
+
 scheduler.enqueueBatch("Migration")
     .forEach(records, record -> migrate(record))
 
@@ -197,12 +263,12 @@ scheduler.enqueueBatch("Migration")
     .thenWhenFailureCount(100, () -> escalate())
 
     .thenWhenBatch(
-        ctx -> ctx.isComplete() && ctx.failedItems() > 0 && ctx.successRate() > 0.9,
+        MigrationBatchConditions::needsPartialRecovery,
         () -> partialRecovery())
 
     .thenBranch(
         WorkflowCondition.batchCustom(
-            ctx -> ctx.completedItems() > 10000, 1),
+            MigrationBatchConditions::isLargeMigration, 1),
         () -> analyticsService.recordLargeBatch(),
         "Track large migrations")
 
@@ -215,23 +281,29 @@ When a job completes, the `WorkflowScheduler`:
 
 1. Loads all `WorkflowConditionEntity` rows linked to the job
 2. Sorts conditions by priority (lower first)
-3. Evaluates each condition against the job's result
+3. Evaluates each condition against the job's result or batch context
 4. For each matching condition, creates a new WORKFLOW_BRANCH job
 5. If no conditions match and the job has chain dependents, falls back to linear chain scheduling
 
-The `WorkflowConditionEvaluator` handles the actual evaluation, deserializing the condition expression and applying it to the appropriate context (JobResult or BatchContext).
+The `WorkflowConditionEvaluator` handles the actual evaluation by loading the stored predicate payload and invoking it with the appropriate context (`JobResult`, return value, or `BatchContext`).
 
 ### Serialization of Conditions
 
-All condition expressions must be `Serializable` because they are persisted in the database as part of the `WorkflowConditionEntity`. When you write:
+All condition expressions must be `Serializable` because Ratchet analyzes them at submission time and stores a portable `JobPayload` descriptor in the `WorkflowConditionEntity`. The expression must reduce to one public method call:
 
 ```java
-.whenResult(score -> score > 0.8, () -> handleHighScore())
+public final class ScoreConditions {
+    public static boolean isHighScore(Double score) {
+        return score > 0.8;
+    }
+}
+
+.whenResult(ScoreConditions::isHighScore, () -> handleHighScore())
 ```
 
-Both the predicate (`score -> score > 0.8`) and the task (`() -> handleHighScore()`) are serialized using Java serialization and stored in the database. They are deserialized at evaluation time.
+The predicate is stored as JSON describing the target class, method, signature, and captured arguments. The branch task is stored using the same job-payload mechanism used for normal scheduled work.
 
-This is why the API uses `SerializablePredicate` and `SerializableFunction` rather than plain Java functional interfaces.
+This is why the API uses `SerializablePredicate` and `SerializableFunction` rather than plain Java functional interfaces. Put comparison logic, compound boolean expressions, and null checks inside a public helper method or CDI bean method, then pass that method reference or a single-call lambda.
 
 ## Combining Chains and Workflows
 
@@ -257,11 +329,17 @@ In this case:
 ### Error Recovery Pipeline
 
 ```java
+public final class ImportWorkflowConditions {
+    public static boolean hasWarnings(JobResult<?> result) {
+        return result.isSuccess()
+            && result.getMetadata("warnings", 0) > 0;
+    }
+}
+
 scheduler.enqueue(() -> importService.importData(source))
     .thenOnSuccess(() -> validationService.validate(source))
     .thenOnFailure(() -> cleanupService.rollback(source))
-    .when(result -> result.isSuccess() &&
-                    result.getMetadata("warnings", 0) > 0,
+    .when(ImportWorkflowConditions::hasWarnings,
           () -> reviewService.flagForReview(source))
     .submit();
 ```

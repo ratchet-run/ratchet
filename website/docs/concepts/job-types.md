@@ -170,10 +170,16 @@ scheduler.enqueue(() -> validateData())
 Workflows extend chains with conditional branching. Instead of always executing the next step, the engine evaluates `WorkflowCondition` predicates against the job's result to decide which branches fire.
 
 ```java
+public final class ScoreConditions {
+    public static boolean isHighScore(Double score) {
+        return score > 0.8;
+    }
+}
+
 scheduler.enqueue(() -> analyzeData())
     .thenOnSuccess(() -> archiveResults())
     .thenOnFailure(() -> notifyAdmins())
-    .whenResult(score -> score > 0.8, () -> triggerHighScoreWorkflow())
+    .whenResult(ScoreConditions::isHighScore, () -> triggerHighScoreWorkflow())
     .submit();
 ```
 

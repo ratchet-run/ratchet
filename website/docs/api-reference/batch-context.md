@@ -105,16 +105,30 @@ scheduler.enqueueBatch("Process Orders")
 ### Usage in Workflow Conditions
 
 ```java
+public final class ImportBatchConditions {
+    public static boolean isPerfectBatch(BatchContext ctx) {
+        return ctx.failedItems() == 0 && ctx.isComplete();
+    }
+
+    public static boolean hasAcceptableSuccessRate(BatchContext ctx) {
+        return ctx.successRate() >= 0.95 && ctx.isComplete();
+    }
+
+    public static boolean hasMajorityFailures(BatchContext ctx) {
+        return ctx.failedItems() > ctx.totalItems() / 2;
+    }
+}
+
 scheduler.enqueueBatch("Data Import")
     .forEach(rows, row -> importRow(row))
     // Perfect batch -- zero failures
-    .thenWhenBatch(ctx -> ctx.failedItems() == 0 && ctx.isComplete(),
+    .thenWhenBatch(ImportBatchConditions::isPerfectBatch,
                    () -> markImportComplete())
     // Acceptable -- at least 95% success
-    .thenWhenBatch(ctx -> ctx.successRate() >= 0.95 && ctx.isComplete(),
+    .thenWhenBatch(ImportBatchConditions::hasAcceptableSuccessRate,
                    () -> acceptWithWarnings())
     // Unacceptable -- more than half failed
-    .thenWhenBatch(ctx -> ctx.failedItems() > ctx.totalItems() / 2,
+    .thenWhenBatch(ImportBatchConditions::hasMajorityFailures,
                    () -> rollbackImport())
     .submit();
 ```

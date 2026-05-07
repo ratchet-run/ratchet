@@ -10,29 +10,41 @@ Ratchet is designed to run on multiple nodes without additional coordination inf
 
 ## Multi-Node Architecture
 
-```
-     ┌──────────┐     ┌──────────┐     ┌──────────┐
-     │  Node A  │     │  Node B  │     │  Node C  │
-     │          │     │          │     │          │
-     │ Poller   │     │ Poller   │     │ Poller   │
-     │ Workers  │     │ Workers  │     │ Workers  │
-     └────┬─────┘     └────┬─────┘     └────┬─────┘
-          │                │                │
-          │  SKIP LOCKED   │  SKIP LOCKED   │  SKIP LOCKED
-          │                │                │
-          └────────────────┼────────────────┘
-                           │
-                    ┌──────┴──────┐
-                    │   Database  │
-                    │             │
-                    │ scheduler_  │
-                    │   job       │
-                    │ scheduler_  │
-                    │   node      │
-                    │ scheduler_  │
-                    │   lock      │
-                    └─────────────┘
-```
+<div className="docs-diagram" role="img" aria-label="Ratchet multi-node architecture: each application node runs its own poller and workers, and all nodes coordinate through the shared store using SKIP LOCKED, node heartbeats, and scheduler locks.">
+  <div className="docs-diagram-row">
+    <div className="docs-diagram-card docs-diagram-card--active">
+      <strong>Node A</strong>
+      <small>Poller + workers claim their own jobs.</small>
+    </div>
+    <div className="docs-diagram-card docs-diagram-card--active">
+      <strong>Node B</strong>
+      <small>Runs independently; no master node.</small>
+    </div>
+    <div className="docs-diagram-card docs-diagram-card--active">
+      <strong>Node C</strong>
+      <small>Uses the same store-backed coordination rules.</small>
+    </div>
+  </div>
+
+  <div className="docs-diagram-connector">
+    <span>`SELECT ... FOR UPDATE SKIP LOCKED` gives each node a disjoint claim set</span>
+  </div>
+
+  <div className="docs-diagram-row">
+    <div className="docs-diagram-card docs-diagram-card--store">
+      <strong>scheduler_job_queue</strong>
+      <small>Hot PENDING/RUNNING/PAUSED/WAITING state and claim ownership.</small>
+    </div>
+    <div className="docs-diagram-card docs-diagram-card--store">
+      <strong>scheduler_node</strong>
+      <small>Node registration and heartbeat timestamps.</small>
+    </div>
+    <div className="docs-diagram-card docs-diagram-card--store">
+      <strong>scheduler_lock</strong>
+      <small>Leases for singleton recurring scans and startup cleanup.</small>
+    </div>
+  </div>
+</div>
 
 Each node runs its own Poller, claims its own subset of jobs, and executes them independently. No node is special -- there is no "master" or "coordinator" node. The database is the single source of truth.
 
@@ -42,7 +54,7 @@ The core guarantee: **no two nodes will claim the same job**. This is enforced a
 
 ```sql
 -- Node A runs:
-SELECT * FROM scheduler_job
+SELECT job_id FROM scheduler_job_queue
 WHERE status = 'PENDING' AND scheduled_time <= NOW()
 ORDER BY (priority + age_boost) DESC, scheduled_time ASC
 FOR UPDATE SKIP LOCKED
@@ -181,14 +193,11 @@ The node ID must be:
 
 Nodes register themselves in the `scheduler_node` table on startup and update their `heartbeat_ts` timestamp periodically via heartbeats. The `DynamicHeartbeatCalculator` adjusts the heartbeat interval based on system load.
 
-```
-scheduler_node:
-  node_id   │ heartbeat_ts         │ started_at
-  ──────────┼──────────────────────┼──────────────────────
-  node-a    │ 2024-03-15 10:00:05  │ 2024-03-15 09:58:00
-  node-b    │ 2024-03-15 10:00:03  │ 2024-03-15 09:58:30
-  node-c    │ 2024-03-15 09:55:00  │ 2024-03-15 09:40:00
-```
+| `node_id` | `heartbeat_ts` | `started_at` |
+|-----------|----------------|--------------|
+| `node-a` | `2024-03-15 10:00:05` | `2024-03-15 09:58:00` |
+| `node-b` | `2024-03-15 10:00:03` | `2024-03-15 09:58:30` |
+| `node-c` | `2024-03-15 09:55:00` | `2024-03-15 09:40:00` |
 
 ## Orphan Recovery
 

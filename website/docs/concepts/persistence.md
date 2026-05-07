@@ -15,65 +15,111 @@ metadata table (`scheduler_job`) and a hot executable queue table
 (`scheduler_job_queue`). The cold table owns immutable job shape and terminal
 history; the hot table exists only while a job is live and owns claim/poll
 state. MongoDB maps the same logical model to collections. Supporting entities
-handle batches, executions, workflow conditions, locks, nodes, and archived
-jobs.
+handle batches, executions, workflow conditions, locks, nodes, structured logs,
+resource limits, DLQ alerts, and archived jobs.
 
-```
-┌─────────────────────────────────────────┐
-│              scheduler_job              │
-│ (cold metadata + terminal state)        │
-├─────────────────────────────────────────┤
-│ job_id (UUIDv7 PK)                      │
-│ priority, job_type                      │
-│ payload, params, tags                   │
-│ max_retries, backoff_policy             │
-│ cron_expr, zone_id, next_fire           │
-│ idempotency_key, business_key           │
-│ depends_on, superseded_by               │
-│ caller_principal                        │
-│ resource_name                           │
-│ terminal status/error/timing/result     │
-└─────────────────────────────────────────┘
-         │ 1:0/1 while live
-         ▼
-┌─────────────────────────────────────────┐
-│          scheduler_job_queue            │
-│ (hot claim/poll state)                  │
-├─────────────────────────────────────────┤
-│ job_id (UUIDv7 PK/FK)                   │
-│ status, scheduled_time                  │
-│ attempts, picked_by, picked_at          │
-│ paused_from_status, last_error          │
-│ version, updated_at                     │
-└─────────────────────────────────────────┘
-         │
-         │ 1:N
-         ▼
-┌─────────────────────┐  ┌─────────────────────────┐
-│ scheduler_job_tag   │  │ scheduler_job_execution  │
-│ (tags per job)      │  │ (JobExecutionEntity)     │
-└─────────────────────┘  └─────────────────────────┘
+<div className="docs-diagram persistence-model-diagram" role="img" aria-label="Ratchet persistence model with scheduler_job as cold metadata, scheduler_job_queue as hot live state, and supporting tables for tags, executions, batches, workflow conditions, locks, nodes, logs, resources, alerts, and archive rows.">
+  <div className="docs-diagram-table docs-diagram-card--primary">
+    <div className="docs-diagram-table-header">
+      <strong>scheduler_job</strong>
+      <small>Cold metadata, immutable job shape, and terminal survivor fields.</small>
+    </div>
+    <div className="docs-diagram-fields">
+      <span>job_id UUIDv7 PK</span>
+      <span>priority + job_type</span>
+      <span>payload + params</span>
+      <span>max_retries + backoff</span>
+      <span>cron_expr + zone_id</span>
+      <span>idempotency_key</span>
+      <span>business_key</span>
+      <span>depends_on</span>
+      <span>superseded_by</span>
+      <span>caller_principal</span>
+      <span>resource_name</span>
+      <span>terminal status/error/result</span>
+    </div>
+  </div>
 
-┌─────────────────────┐  ┌─────────────────────────┐
-│ scheduler_batch     │  │ scheduler_batch_metrics  │
-│ (BatchEntity)       │  │ (BatchMetricsEntity)     │
-└─────────────────────┘  └─────────────────────────┘
+  <div className="docs-diagram-connector">
+    <span>1:0/1 while live</span>
+  </div>
 
-┌─────────────────────────────┐  ┌─────────────────────┐
-│ scheduler_workflow_condition│  │ scheduler_lock       │
-│ (WorkflowConditionEntity)  │  │ (LockEntity)         │
-└─────────────────────────────┘  └─────────────────────┘
+  <div className="docs-diagram-table docs-diagram-card--active">
+    <div className="docs-diagram-table-header">
+      <strong>scheduler_job_queue</strong>
+      <small>Hot claim/poll state. SQL claim, pickup, retry, pause, resume, and signal operations target this table.</small>
+    </div>
+    <div className="docs-diagram-fields">
+      <span>job_id PK/FK</span>
+      <span>status: PENDING, RUNNING, PAUSED, WAITING</span>
+      <span>scheduled_time</span>
+      <span>attempts</span>
+      <span>picked_by + picked_at</span>
+      <span>paused_from_status</span>
+      <span>last_error</span>
+      <span>version + updated_at</span>
+      <span>signal_key</span>
+      <span>signal_timeout</span>
+      <span>signal_payload</span>
+      <span>signal_delivery_id</span>
+    </div>
+  </div>
 
-┌─────────────────────┐  ┌─────────────────────────┐
-│ scheduler_node      │  │ scheduler_job_archive    │
-│ (NodeEntity)        │  │ (ArchivedJobEntity)      │
-└─────────────────────┘  └─────────────────────────┘
+  <div className="docs-diagram-connector">
+    <span>Supporting tables</span>
+  </div>
 
-┌──────────────────────┐  ┌──────────────────────────┐
-│ scheduler_resource_  │  │ scheduler_dlq_alert      │
-│ limit / permit       │  │ (DlqAlertEntity)         │
-└──────────────────────┘  └──────────────────────────┘
-```
+  <div className="docs-diagram-row docs-diagram-row--tight">
+    <div className="docs-diagram-card">
+      <strong>scheduler_job_tag</strong>
+      <small>Tags per job for search and affinity filters.</small>
+    </div>
+    <div className="docs-diagram-card">
+      <strong>scheduler_job_execution</strong>
+      <small>Execution attempts and history.</small>
+    </div>
+    <div className="docs-diagram-card">
+      <strong>scheduler_batch</strong>
+      <small>Batch parent metadata.</small>
+    </div>
+    <div className="docs-diagram-card">
+      <strong>scheduler_batch_metrics</strong>
+      <small>Batch progress counters.</small>
+    </div>
+    <div className="docs-diagram-card">
+      <strong>scheduler_workflow_condition</strong>
+      <small>Workflow branch predicates and conditions.</small>
+    </div>
+    <div className="docs-diagram-card">
+      <strong>scheduler_lock</strong>
+      <small>Store-backed leases for singleton operations.</small>
+    </div>
+    <div className="docs-diagram-card">
+      <strong>scheduler_node</strong>
+      <small>Node registration and heartbeats.</small>
+    </div>
+    <div className="docs-diagram-card">
+      <strong>scheduler_job_log</strong>
+      <small>Structured job logs.</small>
+    </div>
+    <div className="docs-diagram-card">
+      <strong>scheduler_resource_limit / permit</strong>
+      <small>Resource capacity and active permits.</small>
+    </div>
+    <div className="docs-diagram-card">
+      <strong>scheduler_dlq_alerts</strong>
+      <small>DLQ alert audit and deduplication.</small>
+    </div>
+    <div className="docs-diagram-card">
+      <strong>scheduler_job_archive</strong>
+      <small>Archived terminal jobs.</small>
+    </div>
+    <div className="docs-diagram-card">
+      <strong>scheduler_business_key_reservation</strong>
+      <small>Active business-key uniqueness.</small>
+    </div>
+  </div>
+</div>
 
 ### SQL Job Tables
 
@@ -95,11 +141,13 @@ claim path can populate lightweight claim DTOs from one hot table.
 | `caller_principal` | `VARCHAR(255)` | Captured Jakarta Security caller principal, if available |
 | `resource_name` | `VARCHAR(100)` | Resource pool for permit acquisition |
 | `terminal_status` / `terminal_error` | `VARCHAR` / `TEXT` | Cold survivor fields set at terminal transition |
-| `scheduler_job_queue.status` | `VARCHAR(16)` | Live lifecycle state (PENDING, RUNNING, PAUSED) |
+| `scheduler_job_queue.status` | `VARCHAR(16)` | Live lifecycle state (PENDING, RUNNING, PAUSED, WAITING) |
 | `scheduler_job_queue.scheduled_time` | `TIMESTAMP` | When the job becomes eligible for polling |
 | `scheduler_job_queue.attempts` | `INT` | Current attempt count while live |
 | `scheduler_job_queue.picked_by` / `picked_at` | `VARCHAR(64)` / `TIMESTAMP` | Node claim ownership and claim time |
 | `scheduler_job_queue.version` | `INT` | Optimistic locking version for live queue mutations |
+| `scheduler_job_queue.signal_key` / `signal_timeout` | `VARCHAR` / `TIMESTAMP` | Signal-wait key and timeout for WAITING jobs |
+| `scheduler_job_queue.signal_payload` / metadata | `TEXT` / `VARCHAR` | Delivered signal payload, decision metadata, and delivery id |
 
 The `scheduler_business_key_reservation` table owns active business-key
 uniqueness. Terminal rows keep their `business_key` for audit/search, but they
@@ -120,6 +168,9 @@ indexes for traversal/search. MongoDB defines analogous collection indexes in
 | `idx_job_superseded_by` | `scheduler_job(superseded_by)` | Replacement lookup |
 | `idx_job_created_at` | `scheduler_job(created_at)` | Operational search and retention |
 | `idx_job_recurring_pending` | recurring state (`job_type`, `rec_status`, `next_fire`) | Transitional recurring-master scheduling |
+| `idx_signal_key_status` | `scheduler_job_queue(signal_key, status)` | Atomic signal delivery by key |
+| `idx_signal_timeout_status` | `scheduler_job_queue(status, signal_timeout)` | Signal timeout scans |
+| `idx_signal_delivery_id` | `scheduler_job_queue(signal_delivery_id)` | Signal delivery event lookup |
 
 ## UUIDv7 Identifiers
 
@@ -127,14 +178,31 @@ Ratchet uses **RFC 9562 §5.7 UUIDv7** for primary keys. UUIDs are 128-bit value
 
 ### Layout
 
-```
-  0                   1                   2                   3
-  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
- ┌──────────────────────────────┬─────┬──────┬──┬───────────────┐
- │  48 bits: unix_ts_ms         │ ver │rand_a│va│   62 bits     │
- │  Unix epoch milliseconds     │  7  │ 12bit│r │   rand_b      │
- └──────────────────────────────┴─────┴──────┴──┴───────────────┘
-```
+<div className="docs-diagram" role="img" aria-label="UUIDv7 layout: 48 bits timestamp, 4 bits version, 12 bits rand_a, 2 bits variant, and 62 bits rand_b.">
+  <span className="fit-kicker">128-bit UUIDv7 layout</span>
+  <div className="uuid-strip">
+    <div className="uuid-segment docs-diagram-card--primary">
+      <strong>unix_ts_ms</strong>
+      <small>48 bits</small>
+    </div>
+    <div className="uuid-segment">
+      <strong>ver</strong>
+      <small>4 bits</small>
+    </div>
+    <div className="uuid-segment docs-diagram-card--active">
+      <strong>rand_a</strong>
+      <small>12 bits</small>
+    </div>
+    <div className="uuid-segment">
+      <strong>var</strong>
+      <small>2 bits</small>
+    </div>
+    <div className="uuid-segment docs-diagram-card--store">
+      <strong>rand_b</strong>
+      <small>62 bits</small>
+    </div>
+  </div>
+</div>
 
 | Field | Bits | Purpose |
 |-------|------|---------|
