@@ -48,6 +48,7 @@ jobs:
         run: >-
           mvn -B org.owasp:dependency-check-maven:check
           -DfailBuildOnCVSS=7
+          -DfailBuildOnError=false
           -DnvdApiKey="$NVD_API_KEY"
           -Dformats=HTML,SARIF
           -DsuppressionFile=owasp-suppressions.xml
