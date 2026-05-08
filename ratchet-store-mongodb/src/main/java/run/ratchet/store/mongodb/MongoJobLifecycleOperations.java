@@ -332,6 +332,25 @@ final class MongoJobLifecycleOperations
   }
 
   @Override
+  public int cancelJobsByTag(String tag) {
+    // Explicit 3-status filter — do NOT reuse ACTIVE_STATUSES (it includes RUNNING).
+    UpdateResult result =
+        ctx.jobs()
+            .updateMany(
+                and(
+                    eq(TAGS, tag),
+                    ne(JOB_TYPE, "RECURRING"),
+                    in(STATUS, List.of("PENDING", "PAUSED", "WAITING"))),
+                combine(
+                    set(STATUS, "CANCELED"),
+                    set(PICKED_BY, null),
+                    set(PICKED_AT, null),
+                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                    inc(VERSION, 1)));
+    return (int) result.getModifiedCount();
+  }
+
+  @Override
   public int cancelRecurringJobsByTag(String tag) {
     UpdateResult result =
         ctx.jobs()

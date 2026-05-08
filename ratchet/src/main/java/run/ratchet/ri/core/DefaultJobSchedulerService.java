@@ -29,6 +29,7 @@ import run.ratchet.api.SignalDecision;
 import run.ratchet.api.StreamingBatchBuilder;
 import run.ratchet.api.event.JobCancelledEvent;
 import run.ratchet.api.event.JobSignaledEvent;
+import run.ratchet.api.event.JobsBulkCancelledEvent;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.spi.JobAuthorizationPolicy;
@@ -575,8 +576,29 @@ public class DefaultJobSchedulerService
    */
   @Override
   @Transactional
+  public int cancelJobsByTag(String tag) {
+    int count = jobBatchStatusStore.cancelJobsByTag(tag);
+    if (count > 0) {
+      publishBulkCancelledEvent(tag, count);
+    }
+    return count;
+  }
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p><strong>Authorization note:</strong> this bulk operation is not subject to per-job {@link
+   * JobAuthorizationPolicy} checks. Use {@link #cancelJob(UUID)} for authorization-gated single-job
+   * cancellation.
+   */
+  @Override
+  @Transactional
   public int cancelRecurringJobsByTag(String tag) {
-    return jobBatchStatusStore.cancelRecurringJobsByTag(tag);
+    int count = jobBatchStatusStore.cancelRecurringJobsByTag(tag);
+    if (count > 0) {
+      publishBulkCancelledEvent(tag, count);
+    }
+    return count;
   }
 
   /**
@@ -596,6 +618,18 @@ public class DefaultJobSchedulerService
   public int cancelOrphanedRecurringAnnotationJobs(
       Set<String> registeredIds, Instant nodeStartTime) {
     return jobBatchStatusStore.cancelOrphanedRecurringAnnotationJobs(registeredIds, nodeStartTime);
+  }
+
+  /**
+   * Publishes a single {@link JobsBulkCancelledEvent} after the surrounding transaction commits.
+   * Bulk-cancel methods produce one event per call; per-job {@link JobCancelledEvent}s are not
+   * fired for jobs cancelled by these methods.
+   */
+  private void publishBulkCancelledEvent(String tag, int count) {
+    JobsBulkCancelledEvent event = new JobsBulkCancelledEvent(tag, count, Instant.now());
+    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+      eventPublisher.publish(event);
+    }
   }
 
   /**

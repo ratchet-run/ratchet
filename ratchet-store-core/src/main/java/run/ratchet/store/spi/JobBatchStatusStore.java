@@ -27,6 +27,16 @@ public interface JobBatchStatusStore {
 
   int resetRunningJobs(String nodeId);
 
+  /**
+   * Cancels all active non-recurring jobs with the given tag in a single bulk operation.
+   *
+   * <p>Affects only jobs in PENDING, PAUSED, or WAITING. Skips RUNNING and recurring jobs.
+   * Implementations MUST execute as a bulk statement, not a per-row loop.
+   *
+   * @return the number of non-recurring jobs transitioned to CANCELED
+   */
+  int cancelJobsByTag(String tag);
+
   int cancelRecurringJobsByTag(String tag);
 
   int cancelRecurringJobByBusinessKey(String businessKey);

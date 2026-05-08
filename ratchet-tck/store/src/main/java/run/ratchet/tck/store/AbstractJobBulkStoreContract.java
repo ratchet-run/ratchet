@@ -11,6 +11,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.id.UuidV7Factory;
 
 /** Base contract tests for {@code JobBulkStore}. */
@@ -160,6 +162,90 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
     int reset = store().resetOrphanJobsForNode("node-self");
     assertEquals(0, reset);
     assertEquals(JobStatus.PENDING, store().findById(pending.getId()).orElseThrow().getStatus());
+  }
+
+  @Test
+  void cancelJobsByTag_cancelsActiveOneShotJobsWithMatchingTag() {
+    String tag = "axon-deadline";
+
+    var pending1 = persist(newPendingJob(tag));
+    var pending2 = persist(newPendingJob(tag));
+    var pending3 = persist(newPendingJob(tag));
+
+    var paused = persist(newPendingJob(tag));
+    store().transitionToPaused(paused.getId(), JobStatus.PENDING);
+
+    JobEntity waiting = newPendingJob(tag);
+    waiting.setStatus(JobStatus.WAITING);
+    waiting = persist(waiting);
+    UUID waitingId = waiting.getId();
+
+    var running = persist(newPendingJob(tag));
+    store().tryPickUpJob(running.getId(), "node-1");
+
+    var untagged = persist(newPendingJob());
+
+    JobEntity recurring = newPendingJob(tag);
+    recurring.setJobType(JobExecutionType.RECURRING);
+    recurring = persist(recurring);
+    UUID recurringId = recurring.getId();
+
+    int count = store().cancelJobsByTag(tag);
+
+    assertEquals(5, count, "Should cancel 3 PENDING + 1 PAUSED + 1 WAITING tagged one-shot jobs");
+    assertEquals(JobStatus.CANCELED, store().getJobStatus(pending1.getId()));
+    assertEquals(JobStatus.CANCELED, store().getJobStatus(pending2.getId()));
+    assertEquals(JobStatus.CANCELED, store().getJobStatus(pending3.getId()));
+    assertEquals(JobStatus.CANCELED, store().getJobStatus(paused.getId()));
+    assertEquals(JobStatus.CANCELED, store().getJobStatus(waitingId));
+    assertEquals(
+        JobStatus.RUNNING,
+        store().getJobStatus(running.getId()),
+        "RUNNING jobs are not affected — executor observes their natural termination");
+    assertEquals(
+        JobStatus.PENDING,
+        store().getJobStatus(untagged.getId()),
+        "Untagged jobs are not affected");
+    assertEquals(
+        JobStatus.PENDING,
+        store().getJobStatus(recurringId),
+        "Recurring jobs are not affected by cancelJobsByTag");
+  }
+
+  @Test
+  void cancelJobsByTag_returnsZeroWhenNoMatchingJobs() {
+    persist(newPendingJob("other-tag"));
+
+    int count = store().cancelJobsByTag("nonexistent");
+
+    assertEquals(0, count, "No matching tag should produce zero cancellations");
+  }
+
+  @Test
+  void cancelRecurringJobsByTag_bulkUpdate() {
+    String tag = "recurring-tag";
+
+    JobEntity rec1 = newPendingJob(tag);
+    rec1.setJobType(JobExecutionType.RECURRING);
+    rec1 = persist(rec1);
+
+    JobEntity rec2 = newPendingJob(tag);
+    rec2.setJobType(JobExecutionType.RECURRING);
+    rec2 = persist(rec2);
+
+    JobEntity untaggedRecurring = newPendingJob();
+    untaggedRecurring.setJobType(JobExecutionType.RECURRING);
+    untaggedRecurring = persist(untaggedRecurring);
+
+    int count = store().cancelRecurringJobsByTag(tag);
+
+    assertEquals(2, count, "Should cancel both tagged recurring jobs in a single bulk operation");
+    assertEquals(JobStatus.CANCELED, store().getJobStatus(rec1.getId()));
+    assertEquals(JobStatus.CANCELED, store().getJobStatus(rec2.getId()));
+    assertEquals(
+        JobStatus.PENDING,
+        store().getJobStatus(untaggedRecurring.getId()),
+        "Untagged recurring job remains active");
   }
 
   @Test

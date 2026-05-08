@@ -344,6 +344,11 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   }
 
   @Override
+  public int cancelJobsByTag(String tag) {
+    return lifecycle.cancelJobsByTag(tag);
+  }
+
+  @Override
   public int cancelRecurringJobsByTag(String tag) {
     return lifecycle.cancelRecurringJobsByTag(tag);
   }

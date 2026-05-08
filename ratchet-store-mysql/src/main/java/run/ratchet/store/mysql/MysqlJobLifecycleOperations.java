@@ -105,6 +105,11 @@ final class MysqlJobLifecycleOperations
   }
 
   @Override
+  public int cancelJobsByTag(String tag) {
+    return recurring.cancelJobsByTag(tag);
+  }
+
+  @Override
   public int cancelRecurringJobsByTag(String tag) {
     return recurring.cancelRecurringJobsByTag(tag);
   }

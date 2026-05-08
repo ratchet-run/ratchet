@@ -57,16 +57,97 @@ final class MysqlJobRecurringAndResetOperations {
 
   int cancelRecurringJobsByTag(String tag) {
     // language=MySQL
-    String sql =
+    String coldSql =
         """
-        SELECT j.job_id FROM scheduler_job j
-        JOIN scheduler_job_tag t ON j.job_id = t.job_id
-        WHERE t.tag = ? AND j.job_type = 'RECURRING'
-          AND j.rec_status IS NOT NULL AND j.terminal_status IS NULL
+        UPDATE scheduler_job j
+          JOIN scheduler_job_tag t ON t.job_id = j.job_id
+        SET j.rec_status = NULL,
+            j.terminal_status = 'CANCELED',
+            j.terminated_at = NOW(3)
+        WHERE t.tag = ?
+          AND j.job_type = 'RECURRING'
+          AND j.rec_status IS NOT NULL
+          AND j.terminal_status IS NULL
         """;
-    @SuppressWarnings("unchecked")
-    List<?> ids = ctx.em().createNativeQuery(sql).setParameter(1, tag).getResultList();
-    return cancelRecurringByIds(ids);
+    int cancelled =
+        ctx.timedStoreOperation(
+            "cancel_recurring_by_tag",
+            () -> ctx.em().createNativeQuery(coldSql).setParameter(1, tag).executeUpdate(),
+            updated -> updated > 0 ? "updated" : "miss");
+    if (cancelled == 0) {
+      return 0;
+    }
+    // language=MySQL
+    String reservationsSql =
+        """
+        DELETE r FROM scheduler_business_key_reservation r
+        WHERE r.owner_job_id IN (
+          SELECT j.job_id FROM scheduler_job j
+            JOIN scheduler_job_tag t ON t.job_id = j.job_id
+          WHERE t.tag = ?
+            AND j.job_type = 'RECURRING'
+            AND j.terminal_status = 'CANCELED'
+        )
+        """;
+    ctx.em().createNativeQuery(reservationsSql).setParameter(1, tag).executeUpdate();
+    return cancelled;
+  }
+
+  int cancelJobsByTag(String tag) {
+    // Cold UPDATE drives off the hot row's status so RUNNING jobs are skipped (their cold row is
+    // not flipped to terminal until the executor finishes them). Rowcount is the return value.
+    // language=MySQL
+    String coldSql =
+        """
+        UPDATE scheduler_job j
+          JOIN scheduler_job_tag t ON t.job_id = j.job_id
+          JOIN scheduler_job_queue q ON q.job_id = j.job_id
+        SET j.terminal_status = 'CANCELED',
+            j.terminated_at = NOW(3)
+        WHERE t.tag = ?
+          AND j.job_type <> 'RECURRING'
+          AND j.terminal_status IS NULL
+          AND q.status IN ('PENDING','PAUSED','WAITING')
+        """;
+    int cancelled =
+        ctx.timedStoreOperation(
+            "cancel_jobs_by_tag",
+            () -> ctx.em().createNativeQuery(coldSql).setParameter(1, tag).executeUpdate(),
+            updated -> updated > 0 ? "updated" : "miss");
+    if (cancelled == 0) {
+      return 0;
+    }
+    // Hot DELETE drives off the cold rows we just flipped — this guarantees the hot housekeeping
+    // matches exactly what the cold UPDATE counted, even under concurrent writers.
+    // language=MySQL
+    String hotSql =
+        """
+        DELETE q FROM scheduler_job_queue q
+        WHERE q.status IN ('PENDING','PAUSED','WAITING')
+          AND q.job_id IN (
+            SELECT j.job_id FROM scheduler_job j
+              JOIN scheduler_job_tag t ON t.job_id = j.job_id
+            WHERE t.tag = ?
+              AND j.job_type <> 'RECURRING'
+              AND j.terminal_status = 'CANCELED'
+          )
+        """;
+    ctx.em().createNativeQuery(hotSql).setParameter(1, tag).executeUpdate();
+    // Reservations housekeeping.
+    // language=MySQL
+    String reservationsSql =
+        """
+        DELETE r FROM scheduler_business_key_reservation r
+        WHERE r.owner_job_id IN (
+          SELECT j.job_id FROM scheduler_job j
+            JOIN scheduler_job_tag t ON t.job_id = j.job_id
+          WHERE t.tag = ?
+            AND j.job_type <> 'RECURRING'
+            AND j.terminal_status = 'CANCELED'
+        )
+        """;
+    ctx.em().createNativeQuery(reservationsSql).setParameter(1, tag).executeUpdate();
+    return cancelled;
   }
 
   int cancelRecurringJobByBusinessKey(String businessKey) {

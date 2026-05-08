@@ -46,18 +46,90 @@ final class PostgresqlJobRecurringAndResetOperations {
     return ctx.em().createNativeQuery(sql).setParameter(1, nodeId).executeUpdate();
   }
 
-  @SuppressWarnings("unchecked")
   int cancelRecurringJobsByTag(String tag) {
     // language=PostgreSQL
-    String sql =
+    String coldSql =
         """
-        SELECT j.job_id FROM scheduler_job j
-        JOIN scheduler_job_tag t ON j.job_id = t.job_id
-        WHERE t.tag = ? AND j.job_type = 'RECURRING'
-          AND j.rec_status IS NOT NULL AND j.terminal_status IS NULL
+        UPDATE scheduler_job j
+        SET rec_status = NULL,
+            terminal_status = 'CANCELED',
+            terminated_at = statement_timestamp()
+        FROM scheduler_job_tag t
+        WHERE t.job_id = j.job_id
+          AND t.tag = ?
+          AND j.job_type = 'RECURRING'
+          AND j.rec_status IS NOT NULL
+          AND j.terminal_status IS NULL
         """;
-    List<?> ids = ctx.em().createNativeQuery(sql).setParameter(1, tag).getResultList();
-    return cancelRecurringByIds(ids);
+    int cancelled = ctx.em().createNativeQuery(coldSql).setParameter(1, tag).executeUpdate();
+    if (cancelled == 0) {
+      return 0;
+    }
+    // language=PostgreSQL
+    String reservationsSql =
+        """
+        DELETE FROM scheduler_business_key_reservation r
+        USING scheduler_job j, scheduler_job_tag t
+        WHERE r.owner_job_id = j.job_id
+          AND t.job_id = j.job_id
+          AND t.tag = ?
+          AND j.job_type = 'RECURRING'
+          AND j.terminal_status = 'CANCELED'
+        """;
+    ctx.em().createNativeQuery(reservationsSql).setParameter(1, tag).executeUpdate();
+    return cancelled;
+  }
+
+  int cancelJobsByTag(String tag) {
+    // Cold UPDATE drives off the hot row's status so RUNNING jobs are skipped (their cold row is
+    // not flipped to terminal until the executor finishes them). Rowcount is the return value.
+    // language=PostgreSQL
+    String coldSql =
+        """
+        UPDATE scheduler_job j
+        SET terminal_status = 'CANCELED',
+            terminated_at = statement_timestamp()
+        FROM scheduler_job_tag t, scheduler_job_queue q
+        WHERE t.job_id = j.job_id
+          AND q.job_id = j.job_id
+          AND t.tag = ?
+          AND j.job_type <> 'RECURRING'
+          AND j.terminal_status IS NULL
+          AND q.status IN ('PENDING','PAUSED','WAITING')
+        """;
+    int cancelled = ctx.em().createNativeQuery(coldSql).setParameter(1, tag).executeUpdate();
+    if (cancelled == 0) {
+      return 0;
+    }
+    // Hot DELETE drives off the cold rows we just flipped — guarantees the hot housekeeping
+    // matches exactly what the cold UPDATE counted.
+    // language=PostgreSQL
+    String hotSql =
+        """
+        DELETE FROM scheduler_job_queue q
+        USING scheduler_job j, scheduler_job_tag t
+        WHERE q.job_id = j.job_id
+          AND t.job_id = j.job_id
+          AND t.tag = ?
+          AND j.job_type <> 'RECURRING'
+          AND j.terminal_status = 'CANCELED'
+          AND q.status IN ('PENDING','PAUSED','WAITING')
+        """;
+    ctx.em().createNativeQuery(hotSql).setParameter(1, tag).executeUpdate();
+    // Reservations housekeeping.
+    // language=PostgreSQL
+    String reservationsSql =
+        """
+        DELETE FROM scheduler_business_key_reservation r
+        USING scheduler_job j, scheduler_job_tag t
+        WHERE r.owner_job_id = j.job_id
+          AND t.job_id = j.job_id
+          AND t.tag = ?
+          AND j.job_type <> 'RECURRING'
+          AND j.terminal_status = 'CANCELED'
+        """;
+    ctx.em().createNativeQuery(reservationsSql).setParameter(1, tag).executeUpdate();
+    return cancelled;
   }
 
   @SuppressWarnings("unchecked")

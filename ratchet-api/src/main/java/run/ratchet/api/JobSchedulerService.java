@@ -48,9 +48,9 @@ import java.util.function.Consumer;
  * <p>Authorization is delegated to the {@link run.ratchet.spi.JobAuthorizationPolicy} SPI. The
  * default reference implementation ({@code PermitAllJobAuthorizationPolicy}) permits all
  * operations. Integrators override via a CDI {@code @Alternative @Priority(APPLICATION)} bean.
- * Note: {@code cancelRecurringJobsByTag} and {@code cancelRecurringJobByBusinessKey} are not
- * subject to per-job authorization; use {@link #cancelJob(UUID)} for authorization-gated single-job
- * cancellation.
+ * Note: {@code cancelJobsByTag}, {@code cancelRecurringJobsByTag}, and {@code
+ * cancelRecurringJobByBusinessKey} are not subject to per-job authorization; use {@link
+ * #cancelJob(UUID)} for authorization-gated single-job cancellation.
  *
  * <p>The RI verifies these contracts through its Jakarta transaction TCK tests.
  */
@@ -164,7 +164,8 @@ public interface JobSchedulerService {
    * <ul>
    *   <li><b>Job lifecycle:</b> {@code JobStartedEvent}, {@code JobCompletedEvent}, {@code
    *       JobFailedEvent}, {@code JobCancellingEvent}, {@code JobCancelledEvent}, {@code
-   *       JobPausedEvent}, {@code JobResumedEvent}, {@code JobRetryingEvent}
+   *       JobsBulkCancelledEvent}, {@code JobPausedEvent}, {@code JobResumedEvent}, {@code
+   *       JobRetryingEvent}
    *   <li><b>Batch:</b> {@code BatchCompletingEvent}, {@code BatchCompletedEvent}
    *   <li><b>Chain/Workflow:</b> {@code ChainStartedEvent}, {@code ChainCompletedEvent}, {@code
    *       ChainFailedEvent}, {@code WorkflowBranchTriggeredEvent}
@@ -305,7 +306,40 @@ public interface JobSchedulerService {
   int deliverSignal(String signalKey, SignalDecision decision);
 
   /**
+   * Cancels all active non-recurring jobs associated with the specified tag.
+   *
+   * <p>Affects only jobs in {@link JobStatus#PENDING}, {@link JobStatus#PAUSED}, and {@link
+   * JobStatus#WAITING} states. Jobs in {@link JobStatus#RUNNING} state are not affected; the
+   * executor observes their natural termination. Recurring jobs are not affected — use {@link
+   * #cancelRecurringJobsByTag(String)} for that.
+   *
+   * <p>This is a coordination primitive (kill-switch / batch teardown) rather than preemption.
+   * Implementations MUST execute as a single bulk operation per call (one statement per affected
+   * table on SQL stores, {@code updateMany} on document stores) — not as a per-row loop.
+   *
+   * <p>Implementations MUST publish exactly one {@link
+   * run.ratchet.api.event.JobsBulkCancelledEvent} per call when the returned count is greater than
+   * zero, with the matching {@code (tag, count)}. No per-job {@code JobCancelledEvent} is fired for
+   * jobs cancelled by this method.
+   *
+   * <p>Not subject to per-job {@link run.ratchet.spi.JobAuthorizationPolicy} authorization; use
+   * {@link #cancelJob(UUID)} for authorization-gated single-job cancellation.
+   *
+   * <p><b>Transaction attribute:</b> {@code REQUIRED}.
+   *
+   * @param tag the tag identifying jobs to cancel
+   * @return the number of jobs cancelled
+   */
+  int cancelJobsByTag(String tag);
+
+  /**
    * Cancels all recurring jobs associated with the specified tag.
+   *
+   * <p>Implementations MUST execute as a single bulk operation per call.
+   *
+   * <p>Implementations MUST publish exactly one {@link
+   * run.ratchet.api.event.JobsBulkCancelledEvent} per call when the returned count is greater than
+   * zero, with the matching {@code (tag, count)}.
    *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}.
    *

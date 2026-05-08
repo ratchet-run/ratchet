@@ -318,6 +318,11 @@ public abstract class ThrowingJobStoreBase implements JobStore {
   }
 
   @Override
+  public int cancelJobsByTag(String tag) {
+    return fail("cancelJobsByTag");
+  }
+
+  @Override
   public int cancelRecurringJobsByTag(String tag) {
     return fail("cancelRecurringJobsByTag");
   }
