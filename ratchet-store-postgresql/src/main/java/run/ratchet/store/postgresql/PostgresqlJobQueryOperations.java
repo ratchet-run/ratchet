@@ -34,6 +34,13 @@ import run.ratchet.store.query.JobQueryCursor;
  */
 final class PostgresqlJobQueryOperations {
 
+  /*
+   * Keep this builder dialect-local. It mirrors the MySQL builder in shape, but the common-looking
+   * clauses sit next to PostgreSQL-specific hydration columns, trace JSON extraction, archive UNION
+   * positions, and native UUID binding. Limit future sharing to small pure helpers with contract
+   * tests.
+   */
+
   // language=PostgreSQL
   private static final String HYDRATION_FROM =
       """
