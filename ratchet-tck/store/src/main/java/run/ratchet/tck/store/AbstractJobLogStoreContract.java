@@ -24,7 +24,8 @@ public abstract class AbstractJobLogStoreContract implements JobStoreContractFix
     var saved = persist(newPendingJob());
 
     JobLogEntity log =
-        new JobLogEntity(saved.getId(), Instant.now(), JobLogEntity.LogLevel.INFO, "test log message");
+        new JobLogEntity(
+            saved.getId(), Instant.now(), JobLogEntity.LogLevel.INFO, "test log message");
 
     assertDoesNotThrow(() -> store().appendLog(log), "appendLog should not throw");
   }
