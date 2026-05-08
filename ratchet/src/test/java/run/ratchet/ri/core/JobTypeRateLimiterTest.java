@@ -46,21 +46,19 @@ class JobTypeRateLimiterTest {
   }
 
   @Test
-  void getCurrentCount_incrementsBeforeCheck_includesRejectedAttempts() {
-    // The RateWindow increments count BEFORE the limit check, so rejected calls also inflate it.
-    // This test documents the known semantic: getCurrentCount() counts attempts, not successes.
+  void getCurrentCount_excludesRejectedAttempts() {
     RatchetOptions options =
         RatchetOptions.builder().execution(e -> e.rateLimitPerMinute("SINGLE", 2)).build();
     JobTypeRateLimiter limiter = new JobTypeRateLimiter(options);
 
-    limiter.tryAcquire(JobExecutionType.SINGLE); // count → 1, allowed
-    limiter.tryAcquire(JobExecutionType.SINGLE); // count → 2, allowed
-    limiter.tryAcquire(JobExecutionType.SINGLE); // count → 3, rejected
+    assertTrue(limiter.tryAcquire(JobExecutionType.SINGLE));
+    assertTrue(limiter.tryAcquire(JobExecutionType.SINGLE));
+    assertFalse(limiter.tryAcquire(JobExecutionType.SINGLE));
 
     assertEquals(
-        3,
+        2,
         limiter.getCurrentCount(JobExecutionType.SINGLE),
-        "getCurrentCount includes the rejected call because increment precedes the check");
+        "rejected calls must not consume rate-limit capacity");
   }
 
   @Test

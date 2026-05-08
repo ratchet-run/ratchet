@@ -95,7 +95,7 @@ public class PollingStrategy implements PollingDelayStrategy {
         System.currentTimeMillis() - lastJobFoundTime,
         inDeepIdle,
         inBurstMode,
-        minDelayMs);
+        deepIdleThresholdMs);
   }
 
   public synchronized void onWakeup() {

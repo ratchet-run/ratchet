@@ -144,15 +144,15 @@ public class ThreadPoolManager {
     if (useVirtualThreads) {
       AtomicInteger counter = virtualThreadCounts.get(jobType);
       if (counter != null) {
-        counter.decrementAndGet();
+        decrementIfPositive(counter);
       }
       return;
     }
 
     Semaphore semaphore = concurrencyLimits.get(jobType);
-    if (semaphore != null) {
+    AtomicInteger activeCount = activeCounts.get(jobType);
+    if (semaphore != null && activeCount != null && decrementIfPositive(activeCount)) {
       semaphore.release();
-      activeCounts.get(jobType).decrementAndGet();
     }
   }
 
@@ -258,7 +258,22 @@ public class ThreadPoolManager {
   }
 
   private int getMaxConcurrency(JobExecutionType jobType) {
+    if (maxConcurrencyMap == null) {
+      return 10;
+    }
     return maxConcurrencyMap.getOrDefault(jobType, 10);
+  }
+
+  private static boolean decrementIfPositive(AtomicInteger counter) {
+    while (true) {
+      int current = counter.get();
+      if (current <= 0) {
+        return false;
+      }
+      if (counter.compareAndSet(current, current - 1)) {
+        return true;
+      }
+    }
   }
 
   /** Health snapshot for a single thread pool. */

@@ -66,6 +66,16 @@ class ThreadPoolManagerTest {
   }
 
   @Test
+  void releasePermit_withoutAcquire_doesNotIncreaseCapacity() {
+    ThreadPoolManager manager = semaphoreManager(1);
+
+    manager.releasePermit(JobExecutionType.SINGLE);
+
+    assertEquals(1, manager.getAvailableCapacity(JobExecutionType.SINGLE));
+    assertEquals(0, manager.getActiveThreadCount());
+  }
+
+  @Test
   void getAvailableCapacity_reflectsAcquireAndRelease() {
     ThreadPoolManager manager = semaphoreManager(3);
 
@@ -132,6 +142,16 @@ class ThreadPoolManagerTest {
     assertTrue(
         manager.tryAcquirePermit(JobExecutionType.SINGLE),
         "counter decremented on release, slot available again");
+  }
+
+  @Test
+  void virtualThreads_releaseWithoutAcquire_doesNotGoNegative() {
+    ThreadPoolManager manager = virtualThreadManager(1);
+
+    manager.releasePermit(JobExecutionType.SINGLE);
+
+    assertEquals(1, manager.getAvailableCapacity(JobExecutionType.SINGLE));
+    assertEquals(0, manager.getActiveThreadCount());
   }
 
   @Test

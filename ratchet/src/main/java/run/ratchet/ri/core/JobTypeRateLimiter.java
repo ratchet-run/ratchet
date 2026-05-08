@@ -104,8 +104,11 @@ public class JobTypeRateLimiter {
         return 1 <= maxPerMinute;
       }
 
-      int current = count.incrementAndGet();
-      return current <= maxPerMinute;
+      if (count.get() >= maxPerMinute) {
+        return false;
+      }
+      count.incrementAndGet();
+      return true;
     }
   }
 }

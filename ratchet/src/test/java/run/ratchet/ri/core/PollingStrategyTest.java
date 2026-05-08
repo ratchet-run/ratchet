@@ -247,6 +247,17 @@ class PollingStrategyTest {
   }
 
   @Test
+  void getStats_usesConfiguredDeepIdleThresholdForIdleStatus() {
+    long belowThreshold = System.currentTimeMillis() + DEEP_IDLE_THRESHOLD - 1;
+
+    strategy.recordPollResult(0, belowThreshold);
+
+    assertFalse(
+        strategy.getStats().isIdle(),
+        "stats should not report idle before the configured deep-idle threshold");
+  }
+
+  @Test
   void statsIdleUsesConfiguredThreshold() {
     PollingStrategy.PollingStats active =
         new PollingStrategy.PollingStats(0, 0, 0, 1.0, 0.0, MIN_DELAY, false, false, MIN_DELAY);
