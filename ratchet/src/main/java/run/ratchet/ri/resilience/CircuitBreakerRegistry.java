@@ -21,7 +21,7 @@ public class CircuitBreakerRegistry {
 
   private static final Logger log = Logger.getLogger(CircuitBreakerRegistry.class);
 
-  private final Map<String, CircuitBreaker> breakers = new ConcurrentHashMap<>();
+  private final Map<CircuitBreakerKey, CircuitBreaker> breakers = new ConcurrentHashMap<>();
   private final Map<String, CircuitBreakerConfiguration> configs = new ConcurrentHashMap<>();
   private final CircuitBreakerConfigProvider configProvider;
 
@@ -40,7 +40,7 @@ public class CircuitBreakerRegistry {
   }
 
   public CircuitBreaker getBreaker(String serviceName, CircuitBreakerProfile profile) {
-    String key = serviceName + ":" + profile.name();
+    CircuitBreakerKey key = new CircuitBreakerKey(serviceName, profile);
     return breakers.computeIfAbsent(
         key,
         k -> {
@@ -58,7 +58,7 @@ public class CircuitBreakerRegistry {
   }
 
   public CircuitBreaker.State getBreakerState(String serviceName, CircuitBreakerProfile profile) {
-    CircuitBreaker breaker = breakers.get(serviceName + ":" + profile.name());
+    CircuitBreaker breaker = breakers.get(new CircuitBreakerKey(serviceName, profile));
     return breaker != null ? breaker.getState() : null;
   }
 
@@ -67,7 +67,7 @@ public class CircuitBreakerRegistry {
   }
 
   public void openBreaker(String serviceName, CircuitBreakerProfile profile) {
-    CircuitBreaker breaker = breakers.get(serviceName + ":" + profile.name());
+    CircuitBreaker breaker = breakers.get(new CircuitBreakerKey(serviceName, profile));
     if (breaker != null) {
       breaker.transitionToOpen();
       log.warnf("Manually opened circuit breaker for service: %s", serviceName);
@@ -79,7 +79,7 @@ public class CircuitBreakerRegistry {
   }
 
   public void resetBreaker(String serviceName, CircuitBreakerProfile profile) {
-    CircuitBreaker breaker = breakers.get(serviceName + ":" + profile.name());
+    CircuitBreaker breaker = breakers.get(new CircuitBreakerKey(serviceName, profile));
     if (breaker != null) {
       breaker.reset();
       log.infof("Reset circuit breaker for service: %s", serviceName);
@@ -104,4 +104,6 @@ public class CircuitBreakerRegistry {
           CircuitBreakerConfiguration.fromSpi(configProvider.configFor(profile)));
     }
   }
+
+  private record CircuitBreakerKey(String serviceName, CircuitBreakerProfile profile) {}
 }
