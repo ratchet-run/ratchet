@@ -7,9 +7,11 @@ import io.micrometer.core.instrument.Timer;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Alternative;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import java.time.Duration;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -52,8 +54,11 @@ import run.ratchet.spi.MetricsCollector;
 public class MicrometerMetricsCollector implements MetricsCollector {
 
   private static final Logger log = Logger.getLogger(MicrometerMetricsCollector.class);
+  private static final MicrometerMetricTagPolicy DEFAULT_TAG_POLICY =
+      MicrometerMetricTagPolicy.defaultPolicy();
 
   private final MeterRegistry registry;
+  private final MicrometerMetricTagPolicy tagPolicy;
   private final Map<String, AtomicInteger> pollerBreakerStates = new ConcurrentHashMap<>();
 
   // Required by CDI proxy. The CDI proxy never invokes business methods on this instance —
@@ -61,11 +66,25 @@ public class MicrometerMetricsCollector implements MetricsCollector {
   // so a misconfigured deployment doesn't NPE on first use; instead it logs and no-ops.
   protected MicrometerMetricsCollector() {
     this.registry = null;
+    this.tagPolicy = DEFAULT_TAG_POLICY;
   }
 
   @Inject
+  public MicrometerMetricsCollector(
+      MeterRegistry registry, Instance<MicrometerMetricTagPolicy> tagPolicy) {
+    this(
+        registry,
+        tagPolicy.isResolvable() ? DEFAULT_TAG_POLICY.and(tagPolicy.get()) : DEFAULT_TAG_POLICY);
+  }
+
   public MicrometerMetricsCollector(MeterRegistry registry) {
+    this(registry, DEFAULT_TAG_POLICY);
+  }
+
+  public MicrometerMetricsCollector(MeterRegistry registry, MicrometerMetricTagPolicy tagPolicy) {
     this.registry = registry;
+    this.tagPolicy =
+        DEFAULT_TAG_POLICY.and(Objects.requireNonNull(tagPolicy, "tagPolicy must not be null"));
   }
 
   @Override
@@ -149,7 +168,7 @@ public class MicrometerMetricsCollector implements MetricsCollector {
       return;
     }
     Counter.builder("ratchet.store.claim.transient_failures")
-        .tag("execution_type", executionType)
+        .tag("execution_type", tag("execution_type", executionType))
         .register(registry)
         .increment();
   }
@@ -160,7 +179,7 @@ public class MicrometerMetricsCollector implements MetricsCollector {
       return;
     }
     Counter.builder("ratchet.poller.claimed.jobs")
-        .tag("execution_type", executionType)
+        .tag("execution_type", tag("execution_type", executionType))
         .register(registry)
         .increment(claimedCount);
   }
@@ -171,8 +190,8 @@ public class MicrometerMetricsCollector implements MetricsCollector {
       return;
     }
     Counter.builder("ratchet.submission.gate.rejections")
-        .tag("execution_type", executionType)
-        .tag("gate_status", gateStatus)
+        .tag("execution_type", tag("execution_type", executionType))
+        .tag("gate_status", tag("gate_status", gateStatus))
         .register(registry)
         .increment();
   }
@@ -182,7 +201,10 @@ public class MicrometerMetricsCollector implements MetricsCollector {
     if (registry == null) {
       return;
     }
-    Counter.builder("ratchet.wakeup.local").tag("source", source).register(registry).increment();
+    Counter.builder("ratchet.wakeup.local")
+        .tag("source", tag("source", source))
+        .register(registry)
+        .increment();
   }
 
   @Override
@@ -191,8 +213,8 @@ public class MicrometerMetricsCollector implements MetricsCollector {
       return;
     }
     Counter.builder("ratchet.wakeup.cluster.publish")
-        .tag("transport", transport)
-        .tag("outcome", outcome)
+        .tag("transport", tag("transport", transport))
+        .tag("outcome", tag("outcome", outcome))
         .register(registry)
         .increment();
   }
@@ -203,8 +225,8 @@ public class MicrometerMetricsCollector implements MetricsCollector {
       return;
     }
     Counter.builder("ratchet.wakeup.cluster.receive")
-        .tag("transport", transport)
-        .tag("outcome", outcome)
+        .tag("transport", tag("transport", transport))
+        .tag("outcome", tag("outcome", outcome))
         .register(registry)
         .increment();
   }
@@ -275,9 +297,9 @@ public class MicrometerMetricsCollector implements MetricsCollector {
       return;
     }
     Timer.builder("ratchet.store.operation")
-        .tag("store", store)
-        .tag("operation", operation)
-        .tag("outcome", outcome)
+        .tag("store", tag("store", store))
+        .tag("operation", tag("operation", operation))
+        .tag("outcome", tag("outcome", outcome))
         .register(registry)
         .record(Duration.ofNanos(durationNanos));
   }
@@ -293,7 +315,7 @@ public class MicrometerMetricsCollector implements MetricsCollector {
             key -> {
               AtomicInteger stateValue = new AtomicInteger();
               Gauge.builder("ratchet.poller.breaker.state", stateValue, AtomicInteger::get)
-                  .tag("breaker", key)
+                  .tag("breaker", tag("breaker", key))
                   .register(registry);
               return stateValue;
             });
@@ -321,5 +343,9 @@ public class MicrometerMetricsCollector implements MetricsCollector {
       return 1;
     }
     return 0;
+  }
+
+  private String tag(String tagName, String value) {
+    return tagPolicy.metricTagValue(tagName, value);
   }
 }

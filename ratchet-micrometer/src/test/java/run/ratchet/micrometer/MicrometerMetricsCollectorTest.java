@@ -99,4 +99,65 @@ class MicrometerMetricsCollectorTest {
         1.0, registry.get("ratchet.signal.cancelled").tag("type", "SINGLE").counter().count());
     assertNull(registry.find("ratchet.signal.waiting").tag("signal_key", "approval").counter());
   }
+
+  @Test
+  void stringTagsCollapseUnknownValuesByDefault() {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    MicrometerMetricsCollector collector = new MicrometerMetricsCollector(registry);
+
+    collector.localWakeup("tenant-123");
+    collector.storeOperation("mysql", "customer_123_lookup", "success", 1_000L);
+
+    assertEquals(
+        1.0, registry.get("ratchet.wakeup.local").tag("source", "OTHER").counter().count());
+    assertNull(registry.find("ratchet.wakeup.local").tag("source", "tenant-123").counter());
+    assertEquals(
+        1.0,
+        registry
+            .get("ratchet.store.operation")
+            .tag("store", "mysql")
+            .tag("operation", "OTHER")
+            .tag("outcome", "success")
+            .timer()
+            .count());
+    assertNull(
+        registry.find("ratchet.store.operation").tag("operation", "customer_123_lookup").timer());
+  }
+
+  @Test
+  void customStringMetricTagsRequireExplicitOptIn() {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    MicrometerMetricTagPolicy tagPolicy =
+        MicrometerMetricTagPolicy.builder()
+            .allowValue("source", "tenant-tier-gold")
+            .allowValue("operation", "tenant_tier_lookup")
+            .allowValue("store", "mysql")
+            .allowValue("outcome", "success")
+            .build();
+    MicrometerMetricsCollector collector = new MicrometerMetricsCollector(registry, tagPolicy);
+
+    collector.localWakeup("tenant-tier-gold");
+    collector.storeOperation("mysql", "tenant_tier_lookup", "success", 1_000L);
+    collector.jobsClaimed("SINGLE", 1);
+
+    assertEquals(
+        1.0,
+        registry.get("ratchet.wakeup.local").tag("source", "tenant-tier-gold").counter().count());
+    assertEquals(
+        1.0,
+        registry
+            .get("ratchet.store.operation")
+            .tag("store", "mysql")
+            .tag("operation", "tenant_tier_lookup")
+            .tag("outcome", "success")
+            .timer()
+            .count());
+    assertEquals(
+        1.0,
+        registry
+            .get("ratchet.poller.claimed.jobs")
+            .tag("execution_type", "SINGLE")
+            .counter()
+            .count());
+  }
 }
