@@ -259,8 +259,7 @@ class JobTaskTest {
 
   @Test
   @SuppressWarnings("unchecked")
-  void handleFailure_nonRetryable_movesToFailedWithoutIncrementingRetryAttempt()
-      throws Exception {
+  void handleFailure_nonRetryable_movesToFailedWithoutIncrementingRetryAttempt() throws Exception {
     JobEntity job = createTestJob();
     job.setAttempts(2);
     job.setMaxRetries(3);

@@ -35,7 +35,8 @@ class StoreBackedStartupCoordinatorTest {
             "startup:recurring-annotation-orphan-cleanup", Duration.ofMinutes(5), "node-1"))
         .thenReturn(true);
 
-    assertTrue(coordinator.tryAcquire("recurring-annotation-orphan-cleanup", Duration.ofMinutes(5)));
+    assertTrue(
+        coordinator.tryAcquire("recurring-annotation-orphan-cleanup", Duration.ofMinutes(5)));
 
     verify(lockStore)
         .tryLock("startup:recurring-annotation-orphan-cleanup", Duration.ofMinutes(5), "node-1");
@@ -48,7 +49,8 @@ class StoreBackedStartupCoordinatorTest {
             "startup:recurring-annotation-orphan-cleanup", Duration.ofMinutes(5), "node-1"))
         .thenReturn(false);
 
-    assertFalse(coordinator.tryAcquire("recurring-annotation-orphan-cleanup", Duration.ofMinutes(5)));
+    assertFalse(
+        coordinator.tryAcquire("recurring-annotation-orphan-cleanup", Duration.ofMinutes(5)));
   }
 
   @Test

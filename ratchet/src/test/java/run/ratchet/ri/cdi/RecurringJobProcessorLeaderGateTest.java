@@ -60,8 +60,7 @@ class RecurringJobProcessorLeaderGateTest {
 
     processor.registerRecurringJobs();
 
-    verify(schedulerService)
-        .scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
+    verify(schedulerService).scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
     verify(recurringJobBuilder).withBusinessKey("leader-gate-job");
     verify(recurringJobBuilder).submit();
     assertTrue(registrationState.shouldFire("leader-gate-job"));
