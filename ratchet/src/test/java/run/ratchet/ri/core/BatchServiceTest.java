@@ -2,6 +2,7 @@ package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -133,7 +134,7 @@ class BatchServiceTest {
     batchService.markChildSucceeded(child);
 
     verify(jobTerminalStore, never()).markJobSucceededMinimal(any(), any(), any(), any(), any());
-    verify(jobTerminalStore, never()).markJobFailedTerminal(any(), any(), any());
+    verify(jobTerminalStore, never()).markJobFailedTerminal(any(), any(), anyInt());
     verify(metricsStore, never()).finalizeBatchMetrics(any());
     verify(eventPublisher, never()).publish(any());
     verify(workflowScheduler, never()).scheduleNext(any());
