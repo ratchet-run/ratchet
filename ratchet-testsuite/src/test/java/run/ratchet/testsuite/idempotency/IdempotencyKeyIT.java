@@ -4,12 +4,16 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import jakarta.inject.Inject;
+import java.time.Duration;
+import java.util.UUID;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
+import run.ratchet.api.JobPriority;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.testsuite.app.FailingJob;
 import run.ratchet.testsuite.app.SimpleJob;
 import run.ratchet.testsuite.app.TestJobService;
 import run.ratchet.testsuite.util.BaseRatchetIT;
@@ -29,7 +33,7 @@ class IdempotencyKeyIT extends BaseRatchetIT {
 
     return RatchetArchiveBuilder.create()
         .addRatchetDependencies(profile, dbType)
-        .addClasses(SimpleJob.class, TestJobService.class)
+        .addClasses(SimpleJob.class, FailingJob.class, TestJobService.class)
         .addStoreInfrastructure()
         .addBeansXml()
         .build();
@@ -38,6 +42,7 @@ class IdempotencyKeyIT extends BaseRatchetIT {
   @BeforeEach
   void resetJobs() {
     SimpleJob.resetCount();
+    FailingJob.resetCount();
   }
 
   @Test
@@ -54,6 +59,48 @@ class IdempotencyKeyIT extends BaseRatchetIT {
     assertEquals(first.id(), second.id(), "Duplicate idempotency key should return same job ID");
     JobAssertions.assertJobCompleted(jobCrudStore, first);
     assertEquals(1, SimpleJob.getInvocationCount());
+  }
+
+  @Test
+  void idempotencyKey_afterCompletion_shouldReturnExistingHandle() {
+    String key = UUID.randomUUID().toString();
+
+    JobHandle first = jobService.enqueue(SimpleJob::execute).withIdempotencyKey(key).submit();
+    JobAssertions.assertJobCompleted(jobCrudStore, first);
+
+    JobHandle second = jobService.enqueue(SimpleJob::execute).withIdempotencyKey(key).submit();
+
+    assertNotNull(second);
+    assertEquals(
+        first.id(),
+        second.id(),
+        "Completed jobs permanently reserve their idempotency key and return the original job");
+    assertEquals(1, SimpleJob.getInvocationCount());
+  }
+
+  @Test
+  void duplicateIdempotencyKey_afterCompletionWithDifferentTask_shouldReturnExistingHandle() {
+    String key = UUID.randomUUID().toString();
+
+    JobHandle first = jobService.enqueue(SimpleJob::execute).withIdempotencyKey(key).submit();
+    JobAssertions.assertJobCompleted(jobCrudStore, first);
+
+    JobHandle second =
+        jobService
+            .enqueue(FailingJob::execute)
+            .withIdempotencyKey(key)
+            .withPriority(JobPriority.CRITICAL)
+            .withTimeout(Duration.ofSeconds(1))
+            .withParam("payload", "changed")
+            .submit();
+
+    assertNotNull(second);
+    assertEquals(
+        first.id(),
+        second.id(),
+        "Duplicate idempotency key must return the original job even when task/config changes");
+    assertEquals(1, SimpleJob.getInvocationCount());
+    assertEquals(0, FailingJob.getAttemptCount(), "Changed duplicate task must not execute");
   }
 
   @Test
