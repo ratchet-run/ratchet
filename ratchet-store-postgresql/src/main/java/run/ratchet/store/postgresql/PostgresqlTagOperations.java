@@ -140,8 +140,8 @@ final class PostgresqlTagOperations implements TagStore {
             JOIN scheduler_job_tag t ON t.job_id = c2.job_id
             JOIN scheduler_job_execution e ON e.job_id = c2.job_id
             WHERE t.tag = ? AND c2.terminal_status IS NOT NULL
-              AND e.id = (SELECT MAX(e2.id) FROM scheduler_job_execution e2
-                          WHERE e2.job_id = c2.job_id)
+              AND e.id::text = (SELECT MAX(e2.id::text) FROM scheduler_job_execution e2
+                                WHERE e2.job_id = c2.job_id)
               AND e.node_id IS NOT NULL AND e.node_id <> ''
             GROUP BY e.node_id
         ) u GROUP BY node ORDER BY node
