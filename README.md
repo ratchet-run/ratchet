@@ -287,36 +287,29 @@ scheduler.enqueue(() -> generateReport(reportId))
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                     Your Application                     │
-│                                                          │
-│   @Inject JobSchedulerService    @Recurring methods      │
-│            │                          │                   │
-├────────────┼──────────────────────────┼───────────────────┤
-│            ▼                          ▼                   │
-│   ┌─────────────────────────────────────────────┐        │
-│   │              ratchet-api                     │        │
-│   │  JobSchedulerService, JobBuilder, Events,   │        │
-│   │  Annotations, SPI interfaces                │        │
-│   └──────────────────┬──────────────────────────┘        │
-│                      │                                    │
-│   ┌──────────────────▼──────────────────────────┐        │
-│   │              ratchet                      │        │
-│   │  DefaultJobSchedulerService, Poller,         │        │
-│   │  JobTask, CircuitBreaker, RetryEngine,       │        │
-│   │  RecurringScheduler, CDI wiring              │        │
-│   └──────────────────┬──────────────────────────┘        │
-│                      │                                    │
-│   ┌──────────────────▼──────────────────────────┐        │
-│   │           ratchet-store-core                 │        │
-│   │  Entities, composed store SPI → JobStore      │        │
-│   └────┬─────────────┬───────────────────┬──────┘        │
-│        ▼             ▼                   ▼               │
-│   ┌─────────┐  ┌────────────┐  ┌─────────────┐          │
-│   │  MySQL  │  │ PostgreSQL │  │   MongoDB   │          │
-│   └─────────┘  └────────────┘  └─────────────┘          │
-└─────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+  app["Your Application"]
+  inject["@Inject JobSchedulerService"]
+  recurring["@Recurring methods"]
+
+  api["ratchet-api<br/>JobSchedulerService, JobBuilder, events,<br/>annotations, SPI interfaces"]
+  ri["ratchet<br/>DefaultJobSchedulerService, Poller, JobTask,<br/>CircuitBreaker, RetryEngine, RecurringScheduler, CDI wiring"]
+  store["ratchet-store-core<br/>Entities and composed store SPI -> JobStore"]
+
+  mysql["ratchet-store-mysql<br/>MySQL"]
+  postgres["ratchet-store-postgresql<br/>PostgreSQL"]
+  mongo["ratchet-store-mongodb<br/>MongoDB"]
+
+  app --> inject
+  app --> recurring
+  inject --> api
+  recurring --> api
+  api --> ri
+  ri --> store
+  store --> mysql
+  store --> postgres
+  store --> mongo
 ```
 
 ### Module Overview
