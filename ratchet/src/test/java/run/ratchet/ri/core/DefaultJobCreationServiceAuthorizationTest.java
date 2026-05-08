@@ -129,12 +129,14 @@ class DefaultJobCreationServiceAuthorizationTest {
     ArgumentCaptor<String> principalCaptor = ArgumentCaptor.forClass(String.class);
     verify(authorizationPolicy).checkCreate(idCaptor.capture(), principalCaptor.capture());
     assertNotNull(idCaptor.getValue(), "checkCreate must receive a non-null job ID");
-    assert CAPTURED_PRINCIPAL.equals(principalCaptor.getValue())
-        : "checkCreate must receive the stamped caller principal";
+    assertEquals(
+        CAPTURED_PRINCIPAL,
+        principalCaptor.getValue(),
+        "checkCreate must receive the stamped caller principal");
   }
 
   @Test
-  void checkCreate_denial_preventsSave() {
+  void checkCreate_denial_preventsCreate() {
     when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
     doThrow(new JobAuthorizationException(null, "create", CAPTURED_PRINCIPAL, "denied"))
         .when(authorizationPolicy)
@@ -146,7 +148,7 @@ class DefaultJobCreationServiceAuthorizationTest {
                 service, DefaultJobCreationServiceAuthorizationTest::noopTask, Duration.ZERO);
 
     assertThrows(JobAuthorizationException.class, () -> service.submit(builder));
-    verify(jobCrudStore, never()).save(any());
+    verify(jobCrudStore, never()).create(any());
   }
 
   @Test
