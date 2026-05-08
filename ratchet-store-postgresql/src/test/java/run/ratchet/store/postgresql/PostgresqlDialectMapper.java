@@ -29,6 +29,10 @@ final class PostgresqlDialectMapper implements DialectTypeMapper {
     return raw.trim().replaceAll("\\s+", " ");
   }
 
+  private static String textLiteral(String literal) {
+    return "'" + literal.replace("'", "''") + "'::text";
+  }
+
   @Override
   public String dialectName() {
     return "PostgreSQL";
@@ -96,17 +100,18 @@ final class PostgresqlDialectMapper implements DialectTypeMapper {
   public Optional<String> renderPredicate(LogicalPredicate predicate) {
     return switch (predicate.op()) {
       case EQ ->
-          Optional.of("(" + predicate.column() + " = '" + predicate.literals().get(0) + "'::text)");
+          Optional.of(
+              "(" + predicate.column() + " = " + textLiteral(predicate.literals().get(0)) + ")");
       case NEQ ->
           Optional.of(
-              "(" + predicate.column() + " <> '" + predicate.literals().get(0) + "'::text)");
+              "(" + predicate.column() + " <> " + textLiteral(predicate.literals().get(0)) + ")");
       case IN ->
           Optional.of(
               "("
                   + predicate.column()
                   + " = ANY (ARRAY["
                   + predicate.literals().stream()
-                      .map(s -> "'" + s + "'::text")
+                      .map(PostgresqlDialectMapper::textLiteral)
                       .collect(Collectors.joining(", "))
                   + "]))");
     };
