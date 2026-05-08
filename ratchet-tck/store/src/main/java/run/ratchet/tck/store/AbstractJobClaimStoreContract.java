@@ -106,6 +106,52 @@ public abstract class AbstractJobClaimStoreContract implements JobStoreContractF
   }
 
   @Test
+  void claimNextBatchOptimized_returnsBatchInPriorityOrder() {
+    Instant due = Instant.now().minusSeconds(5);
+
+    JobEntity low = newPendingJob();
+    low.setPriority(JobPriority.LOW);
+    low.setScheduledTime(due);
+    low = persist(low);
+
+    JobEntity high = newPendingJob();
+    high.setPriority(JobPriority.HIGH);
+    high.setScheduledTime(due);
+    high = persist(high);
+
+    List<JobClaimDto> claims = store().claimNextBatchOptimized(JobExecutionType.SINGLE, 10, "node");
+
+    assertEquals(
+        List.of(high.getId(), low.getId()),
+        claims.stream().map(JobClaimDto::id).toList(),
+        "optimized claim should return jobs in effective-priority order even when the batch fits"
+            + " within the limit");
+  }
+
+  @Test
+  void claimNextBatch_returnsBatchInPriorityOrder() {
+    Instant due = Instant.now().minusSeconds(5);
+
+    JobEntity low = newPendingJob();
+    low.setPriority(JobPriority.LOW);
+    low.setScheduledTime(due);
+    low = persist(low);
+
+    JobEntity high = newPendingJob();
+    high.setPriority(JobPriority.HIGH);
+    high.setScheduledTime(due);
+    high = persist(high);
+
+    List<JobEntity> claimed = store().claimNextBatch(10, "node");
+
+    assertEquals(
+        List.of(high.getId(), low.getId()),
+        claimed.stream().map(JobEntity::getId).toList(),
+        "claimNextBatch should return jobs in effective-priority order even when the batch fits"
+            + " within the limit");
+  }
+
+  @Test
   void claimNextBatch_skipsNonPendingJobs() {
     var running = persist(newPendingJob());
     store().compareAndSwapStatus(running.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);

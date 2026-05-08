@@ -1,8 +1,10 @@
 package run.ratchet.store.postgresql;
 
 import jakarta.persistence.Query;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -18,6 +20,10 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
 
   static final String EXECUTABLE_JOB_TYPE_FILTER =
       "job_type IN ('SINGLE','BATCH_CHILD','CHAIN_STEP','WORKFLOW_BRANCH')";
+
+  private static final String CLAIM_SELECT_COLUMNS =
+      "job_id, status, job_type, priority, scheduled_time, version, "
+          + "timeout_sec, picked_by, picked_at, business_key, attempts, max_retries";
 
   private final PostgresqlStoreContext ctx;
   private final PostgresqlJobCrudOperations jobs;
@@ -38,36 +44,36 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
   }
 
   /**
-   * Atomic claim against {@code scheduler_job_queue}: select due PENDING rows with {@code FOR
-   * UPDATE SKIP LOCKED}, then UPDATE to RUNNING in a single CTE, returning the claimed columns.
+   * Selects due PENDING rows in effective-priority order with {@code FOR UPDATE SKIP LOCKED}. The
+   * caller transitions the locked rows to RUNNING via a separate UPDATE; the priority ordering
+   * established here is preserved through that UPDATE because the caller iterates the SELECT rows
+   * directly. {@code UPDATE…RETURNING} from a CTE would emit rows in heap order instead.
    *
-   * <p>Placeholder order: typeFilter params → tagFilter params → boostInterval (if &gt; 0) → limit
-   * → nodeId.
+   * <p>Placeholder order: typeFilter params → tagFilter params → boostInterval (if &gt; 0) → limit.
    */
   // language=PostgreSQL
-  private static String buildQueueClaimSql(
-      String typeFilter, String tagFilterSql, String timeColumn, int boostInterval) {
+  private static String buildQueueSelectSql(
+      String selectColumns,
+      String typeFilter,
+      String tagFilterSql,
+      String timeColumn,
+      int boostInterval) {
     return """
-        WITH picked AS (
-          SELECT job_id FROM scheduler_job_queue
-          WHERE status = 'PENDING'
-            AND %s <= statement_timestamp()
-            AND %s%s
-          ORDER BY %s
-          FOR UPDATE SKIP LOCKED
-          LIMIT ?
-        )
-        UPDATE scheduler_job_queue AS q
-        SET status = 'RUNNING', picked_by = ?,
-            picked_at = statement_timestamp(), updated_at = statement_timestamp(),
-            version = version + 1
-        FROM picked
-        WHERE q.job_id = picked.job_id
-        RETURNING q.job_id, q.status, q.job_type, q.priority, q.scheduled_time, q.version,
-                  q.timeout_sec, q.picked_by, q.picked_at, q.business_key, q.attempts, q.max_retries
+        SELECT %s
+        FROM scheduler_job_queue
+        WHERE status = 'PENDING'
+          AND %s <= statement_timestamp()
+          AND %s%s
+        ORDER BY %s
+        LIMIT ?
+        FOR UPDATE SKIP LOCKED
         """
         .formatted(
-            timeColumn, typeFilter, tagFilterSql, buildBoostOrderBy(timeColumn, boostInterval));
+            selectColumns,
+            timeColumn,
+            typeFilter,
+            tagFilterSql,
+            buildBoostOrderBy(timeColumn, boostInterval));
   }
 
   /**
@@ -125,7 +131,6 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
   }
 
   @Override
-  @SuppressWarnings("unchecked")
   public List<JobEntity> claimNextBatch(int limit, String nodeId, NodeTagFilter tagFilter) {
     if (limit <= 0) {
       return List.of();
@@ -133,26 +138,31 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
     try {
       int boostInterval = ctx.priorityBoostIntervalMinutes();
       String tagSql = buildTagFilterSql(tagFilter, "scheduler_job_queue");
-      Query claimQuery =
+      Query selectQuery =
           ctx.em()
               .createNativeQuery(
-                  buildQueueClaimSql(
-                      EXECUTABLE_JOB_TYPE_FILTER, tagSql, "scheduled_time", boostInterval));
+                  buildQueueSelectSql(
+                      "job_id",
+                      EXECUTABLE_JOB_TYPE_FILTER,
+                      tagSql,
+                      "scheduled_time",
+                      boostInterval));
       int parameter = 1;
-      parameter = bindTagFilter(claimQuery, tagFilter, parameter);
+      parameter = bindTagFilter(selectQuery, tagFilter, parameter);
       if (boostInterval > 0) {
-        claimQuery.setParameter(parameter++, boostInterval);
+        selectQuery.setParameter(parameter++, boostInterval);
       }
-      claimQuery.setParameter(parameter++, limit);
-      claimQuery.setParameter(parameter, nodeId);
-      List<Object[]> rows = claimQuery.getResultList();
-      if (rows.isEmpty()) {
+      selectQuery.setParameter(parameter, limit);
+      @SuppressWarnings("unchecked")
+      List<?> idRows = selectQuery.getResultList();
+      if (idRows.isEmpty()) {
         return List.of();
       }
-      List<UUID> ids = new ArrayList<>(rows.size());
-      for (Object[] row : rows) {
-        ids.add(PostgresqlJobRowMapper.uuidOrNull(row[0]));
+      List<UUID> ids = new ArrayList<>(idRows.size());
+      for (Object idRow : idRows) {
+        ids.add(PostgresqlJobRowMapper.uuidOrNull(idRow));
       }
+      markPendingClaimsRunning(ids, nodeId, Instant.now());
       return reorderById(jobs.findByIds(ids), ids);
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("claim jobs", e);
@@ -168,26 +178,41 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
     try {
       int boostInterval = ctx.priorityBoostIntervalMinutes();
       String tagSql = buildTagFilterSql(tagFilter, "scheduler_job_queue");
-      Query claimQuery =
+      Query selectQuery =
           ctx.em()
               .createNativeQuery(
-                  buildQueueClaimSql("job_type = ?", tagSql, "scheduled_time", boostInterval));
+                  buildQueueSelectSql(
+                      CLAIM_SELECT_COLUMNS,
+                      "job_type = ?",
+                      tagSql,
+                      "scheduled_time",
+                      boostInterval));
       int parameter = 1;
-      claimQuery.setParameter(parameter++, jobType.name());
-      parameter = bindTagFilter(claimQuery, tagFilter, parameter);
+      selectQuery.setParameter(parameter++, jobType.name());
+      parameter = bindTagFilter(selectQuery, tagFilter, parameter);
       if (boostInterval > 0) {
-        claimQuery.setParameter(parameter++, boostInterval);
+        selectQuery.setParameter(parameter++, boostInterval);
       }
-      claimQuery.setParameter(parameter++, limit);
-      claimQuery.setParameter(parameter, nodeId);
+      selectQuery.setParameter(parameter, limit);
       @SuppressWarnings("unchecked")
-      List<Object[]> rows = claimQuery.getResultList();
+      List<Object[]> rows = selectQuery.getResultList();
+      if (rows.isEmpty()) {
+        return List.of();
+      }
+
+      List<UUID> ids = new ArrayList<>(rows.size());
+      for (Object[] row : rows) {
+        ids.add(PostgresqlJobRowMapper.uuidOrNull(row[0]));
+      }
+      Instant now = Instant.now();
+      markPendingClaimsRunning(ids, nodeId, now);
 
       List<JobClaimDto> claims = new ArrayList<>(rows.size());
-      for (Object[] row : rows) {
+      for (int i = 0; i < rows.size(); i++) {
+        Object[] row = rows.get(i);
         claims.add(
             new JobClaimDto(
-                PostgresqlJobRowMapper.uuidOrNull(row[0]),
+                ids.get(i),
                 JobStatus.RUNNING,
                 JobExecutionType.valueOf((String) row[2]),
                 PostgresqlJobRowMapper.safeJobPriority(((Number) row[3]).intValue()),
@@ -195,7 +220,7 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
                 row[5] == null ? null : ((Number) row[5]).intValue(),
                 ((Number) row[6]).intValue(),
                 nodeId,
-                PostgresqlJobRowMapper.toInstant(row[8]),
+                now,
                 (String) row[9],
                 ((Number) row[10]).intValue(),
                 ((Number) row[11]).intValue()));
@@ -204,6 +229,32 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("optimized claim", e);
     }
+  }
+
+  private void markPendingClaimsRunning(List<UUID> ids, String nodeId, Instant now) {
+    String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+    // language=PostgreSQL
+    String sql =
+        """
+        UPDATE scheduler_job_queue
+        SET status = 'RUNNING',
+            picked_by = ?,
+            picked_at = ?,
+            updated_at = ?,
+            version = version + 1
+        WHERE job_id IN (%s) AND status = 'PENDING'
+        """
+            .formatted(placeholders);
+    Query query = ctx.em().createNativeQuery(sql);
+    Timestamp nowTs = Timestamp.from(now);
+    int p = 1;
+    query.setParameter(p++, nodeId);
+    query.setParameter(p++, nowTs);
+    query.setParameter(p++, nowTs);
+    for (UUID id : ids) {
+      query.setParameter(p++, id);
+    }
+    query.executeUpdate();
   }
 
   @Override

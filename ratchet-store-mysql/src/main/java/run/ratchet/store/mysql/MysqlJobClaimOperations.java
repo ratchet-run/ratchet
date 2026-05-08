@@ -169,7 +169,7 @@ final class MysqlJobClaimOperations implements JobClaimStore {
       if (claimedIds.isEmpty()) {
         return List.of();
       }
-      return jobs.findByIds(claimedIds);
+      return reorderById(jobs.findByIds(claimedIds), claimedIds);
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("claim jobs", e);
     }
