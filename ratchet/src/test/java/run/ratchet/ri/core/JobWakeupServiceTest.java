@@ -3,7 +3,9 @@ package run.ratchet.ri.core;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import jakarta.enterprise.inject.Instance;
@@ -11,6 +13,7 @@ import jakarta.transaction.Status;
 import jakarta.transaction.Synchronization;
 import jakarta.transaction.TransactionSynchronizationRegistry;
 import java.lang.reflect.Field;
+import java.time.Duration;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,6 +24,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobPriority;
 import run.ratchet.spi.ClusterCoordinator;
 import run.ratchet.spi.MetricsCollector;
+import run.ratchet.store.entity.JobExecutionType;
 
 @ExtendWith(MockitoExtension.class)
 class JobWakeupServiceTest {
@@ -103,6 +107,55 @@ class JobWakeupServiceTest {
     verify(metricsCollector).localWakeup("job_submit");
     verify(pollerScheduler).wakeup();
     verify(clusterCoordinator).notifyNewWork(JobPriority.HIGH);
+  }
+
+  @Test
+  void notifyIfNeeded_publishesCriticalPriorityEvenWhenDelayedBatchChild() {
+    when(pollerSchedulerInstance.isResolvable()).thenReturn(true);
+    when(pollerSchedulerInstance.get()).thenReturn(pollerScheduler);
+
+    wakeupService.notifyIfNeeded(
+        JobExecutionType.BATCH_CHILD, JobPriority.CRITICAL, Duration.ofMinutes(5));
+
+    verify(metricsCollector).localWakeup("job_submit");
+    verify(pollerScheduler).wakeup();
+    verify(clusterCoordinator).notifyNewWork(JobPriority.CRITICAL);
+  }
+
+  @Test
+  void notifyIfNeeded_publishesSingleJobsWithZeroOrNullDelay() {
+    when(pollerSchedulerInstance.isResolvable()).thenReturn(true);
+    when(pollerSchedulerInstance.get()).thenReturn(pollerScheduler);
+
+    wakeupService.notifyIfNeeded(JobExecutionType.SINGLE, JobPriority.NORMAL, Duration.ZERO);
+    wakeupService.notifyIfNeeded(JobExecutionType.SINGLE, JobPriority.LOW, null);
+
+    verify(metricsCollector, times(2)).localWakeup("job_submit");
+    verify(pollerScheduler, times(2)).wakeup();
+    verify(clusterCoordinator).notifyNewWork(JobPriority.NORMAL);
+    verify(clusterCoordinator).notifyNewWork(JobPriority.LOW);
+  }
+
+  @Test
+  void notifyIfNeeded_publishesBatchParentRegardlessOfDelay() {
+    when(pollerSchedulerInstance.isResolvable()).thenReturn(true);
+    when(pollerSchedulerInstance.get()).thenReturn(pollerScheduler);
+
+    wakeupService.notifyIfNeeded(
+        JobExecutionType.BATCH_PARENT, JobPriority.LOWEST, Duration.ofHours(1));
+
+    verify(metricsCollector).localWakeup("job_submit");
+    verify(pollerScheduler).wakeup();
+    verify(clusterCoordinator).notifyNewWork(JobPriority.LOWEST);
+  }
+
+  @Test
+  void notifyIfNeeded_skipsDelayedSingleAndBatchChildWhenNotCritical() {
+    wakeupService.notifyIfNeeded(JobExecutionType.SINGLE, JobPriority.NORMAL, Duration.ofMillis(1));
+    wakeupService.notifyIfNeeded(JobExecutionType.BATCH_CHILD, JobPriority.HIGH, Duration.ZERO);
+
+    verifyNoInteractions(
+        clusterCoordinator, pollerSchedulerInstance, pollerScheduler, metricsCollector);
   }
 
   private void injectTxRegistry(TransactionSynchronizationRegistry registry) throws Exception {
