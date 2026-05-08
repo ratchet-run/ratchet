@@ -17,7 +17,6 @@
     <class>run.ratchet.store.entity.JobLogEntity</class>
     <class>run.ratchet.store.entity.ResourcePermitEntity</class>
     <class>run.ratchet.store.entity.BatchEntity</class>
-    <class>run.ratchet.store.entity.LockEntity</class>
     <exclude-unlisted-classes>true</exclude-unlisted-classes>
   </persistence-unit>
 </persistence>

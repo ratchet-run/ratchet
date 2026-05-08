@@ -104,7 +104,6 @@ public class RatchetArchiveBuilder {
             <class>run.ratchet.store.entity.JobLogEntity</class>
             <class>run.ratchet.store.entity.ResourcePermitEntity</class>
             <class>run.ratchet.store.entity.BatchEntity</class>
-            <class>run.ratchet.store.entity.LockEntity</class>
             <class>run.ratchet.store.converter.InstantAttributeConverter</class>
             <class>run.ratchet.store.converter.JobPayloadConverter</class>
             <class>run.ratchet.store.converter.JsonListConverter</class>

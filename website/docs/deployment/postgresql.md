@@ -72,7 +72,6 @@ Configure your data source for PostgreSQL:
   <class>run.ratchet.store.entity.JobLogEntity</class>
   <class>run.ratchet.store.entity.ResourcePermitEntity</class>
   <class>run.ratchet.store.entity.BatchEntity</class>
-  <class>run.ratchet.store.entity.LockEntity</class>
   <exclude-unlisted-classes>true</exclude-unlisted-classes>
   <properties>
     <property name="hibernate.dialect" value="org.hibernate.dialect.PostgreSQL14Dialect" />

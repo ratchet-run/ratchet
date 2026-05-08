@@ -9,7 +9,6 @@
     <entity class="run.ratchet.store.entity.BatchEntity"/>
     <entity class="run.ratchet.store.entity.JobExecutionEntity"/>
     <entity class="run.ratchet.store.entity.JobLogEntity"/>
-    <entity class="run.ratchet.store.entity.LockEntity"/>
     <entity class="run.ratchet.store.entity.NodeEntity"/>
     <entity class="run.ratchet.store.entity.ResourceLimitEntity"/>
     <entity class="run.ratchet.store.entity.ResourcePermitEntity"/>

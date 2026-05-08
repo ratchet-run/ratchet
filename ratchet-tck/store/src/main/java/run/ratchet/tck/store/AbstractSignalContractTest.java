@@ -48,7 +48,7 @@ public abstract class AbstractSignalContractTest implements JobStoreContractFixt
     JobEntity saved = persist(job);
     UUID jobId = saved.getId();
 
-    int count = store().deliverSignalById(jobId, "{\"approved\":true}", "admin", Instant.now());
+    int count = deliverSignalById(jobId, "{\"approved\":true}", "admin", Instant.now());
 
     assertEquals(1, count, "exactly one job should be unblocked");
     JobEntity reloaded = store().findById(jobId).orElseThrow();
@@ -62,7 +62,7 @@ public abstract class AbstractSignalContractTest implements JobStoreContractFixt
     UUID jobId = saved.getId();
     Instant deliveredAt = Instant.now();
 
-    int count = store().deliverSignalById(jobId, "{\"approved\":true}", "admin", deliveredAt);
+    int count = deliverSignalById(jobId, "{\"approved\":true}", "admin", deliveredAt);
 
     assertEquals(1, count);
     JobEntity reloaded = store().findById(jobId).orElseThrow();
@@ -109,15 +109,15 @@ public abstract class AbstractSignalContractTest implements JobStoreContractFixt
     JobEntity saved = persist(job);
     UUID jobId = saved.getId();
 
-    store().deliverSignalById(jobId, null, null, Instant.now());
-    int second = store().deliverSignalById(jobId, null, null, Instant.now());
+    deliverSignalById(jobId, null, null, Instant.now());
+    int second = deliverSignalById(jobId, null, null, Instant.now());
 
     assertEquals(0, second, "second delivery to a non-WAITING job must return 0");
   }
 
   @Test
   void deliverSignalById_missingJob_returnsZero() {
-    int count = store().deliverSignalById(UUID.randomUUID(), null, null, Instant.now());
+    int count = deliverSignalById(UUID.randomUUID(), null, null, Instant.now());
     assertEquals(0, count);
   }
 
@@ -128,7 +128,7 @@ public abstract class AbstractSignalContractTest implements JobStoreContractFixt
     JobEntity j2 = persist(newWaitingJob(key, Instant.now().plusSeconds(600)));
     JobEntity other = persist(newWaitingJob("other-key", Instant.now().plusSeconds(600)));
 
-    int count = store().deliverSignalByKey(key, "{\"ok\":true}", "system", Instant.now());
+    int count = deliverSignalByKey(key, "{\"ok\":true}", "system", Instant.now());
 
     assertEquals(2, count, "both jobs with matching key should be unblocked");
 
@@ -171,7 +171,7 @@ public abstract class AbstractSignalContractTest implements JobStoreContractFixt
 
   @Test
   void deliverSignalByKey_noMatch_returnsZero() {
-    int count = store().deliverSignalByKey("no-such-key", null, null, Instant.now());
+    int count = deliverSignalByKey("no-such-key", null, null, Instant.now());
     assertEquals(0, count);
   }
 
@@ -237,7 +237,7 @@ public abstract class AbstractSignalContractTest implements JobStoreContractFixt
   void findTimedOutSignalJobs_excludesDeliveredJobs() {
     Instant pastDeadline = Instant.now().minusSeconds(10);
     JobEntity job = persist(newWaitingJob("delivered", pastDeadline));
-    store().deliverSignalById(job.getId(), null, null, Instant.now());
+    deliverSignalById(job.getId(), null, null, Instant.now());
 
     List<JobEntity> timedOut = store().findTimedOutSignalJobs(Instant.now());
 
@@ -276,5 +276,33 @@ public abstract class AbstractSignalContractTest implements JobStoreContractFixt
     job.setSignalKey(signalKey);
     job.setSignalTimeout(signalTimeout);
     return job;
+  }
+
+  private int deliverSignalById(
+      UUID jobId, String payload, String deliveredBy, Instant deliveredAt) {
+    return store()
+        .deliverSignalById(
+            jobId,
+            payload,
+            null,
+            "APPROVED",
+            null,
+            deliveredBy,
+            deliveredAt,
+            UUID.randomUUID().toString());
+  }
+
+  private int deliverSignalByKey(
+      String signalKey, String payload, String deliveredBy, Instant deliveredAt) {
+    return store()
+        .deliverSignalByKey(
+            signalKey,
+            payload,
+            null,
+            "APPROVED",
+            null,
+            deliveredBy,
+            deliveredAt,
+            UUID.randomUUID().toString());
   }
 }
