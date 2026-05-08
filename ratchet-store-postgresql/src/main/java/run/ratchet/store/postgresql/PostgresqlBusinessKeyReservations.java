@@ -7,11 +7,12 @@ import java.util.UUID;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.util.BusinessKeyReservations;
 
 final class PostgresqlBusinessKeyReservations {
 
-  static final String OWNER_TABLE_QUEUE = "QUEUE";
-  static final String OWNER_TABLE_RECURRING = "RECURRING";
+  static final String OWNER_TABLE_QUEUE = BusinessKeyReservations.OWNER_TABLE_QUEUE;
+  static final String OWNER_TABLE_RECURRING = BusinessKeyReservations.OWNER_TABLE_RECURRING;
 
   private final PostgresqlStoreContext ctx;
 
@@ -20,14 +21,15 @@ final class PostgresqlBusinessKeyReservations {
   }
 
   static String ownerTableFor(JobExecutionType jobType) {
-    return jobType == JobExecutionType.RECURRING ? OWNER_TABLE_RECURRING : OWNER_TABLE_QUEUE;
+    return BusinessKeyReservations.ownerTableFor(jobType);
   }
 
   static String ownerTableFor(String jobType) {
-    return "RECURRING".equals(jobType) ? OWNER_TABLE_RECURRING : OWNER_TABLE_QUEUE;
+    return BusinessKeyReservations.ownerTableFor(jobType);
   }
 
   void insertReservation(String businessKey, UUID ownerJobId, String ownerTable) {
+    // Keep DML local: PostgreSQL binds UUID values directly and owns its timestamp expression.
     // language=PostgreSQL
     String sql =
         """

@@ -4,13 +4,13 @@ import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.util.UUID;
 import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
+import run.ratchet.store.util.BusinessKeyReservations;
 
 final class MysqlBusinessKeyReservations {
 
-  static final String OWNER_TABLE_QUEUE = "QUEUE";
-  static final String OWNER_TABLE_RECURRING = "RECURRING";
+  static final String OWNER_TABLE_QUEUE = BusinessKeyReservations.OWNER_TABLE_QUEUE;
+  static final String OWNER_TABLE_RECURRING = BusinessKeyReservations.OWNER_TABLE_RECURRING;
 
   // language=MySQL
   static final String BKRES_INSERT_SQL =
@@ -30,6 +30,7 @@ final class MysqlBusinessKeyReservations {
     if (businessKey == null) {
       return;
     }
+    // Keep DML local: MySQL stores UUIDs as binary values and uses dialect-specific timestamps.
     // language=MySQL
     String sql =
         """
@@ -58,9 +59,7 @@ final class MysqlBusinessKeyReservations {
   void bindInsert(Query q, JobEntity job, Timestamp nowTs) {
     q.setParameter(1, job.getBusinessKey());
     q.setParameter(2, UuidByteArrayConverter.toBytes(job.getId()));
-    q.setParameter(
-        3,
-        job.getJobType() == JobExecutionType.RECURRING ? OWNER_TABLE_RECURRING : OWNER_TABLE_QUEUE);
+    q.setParameter(3, BusinessKeyReservations.ownerTableFor(job.getJobType()));
     q.setParameter(4, nowTs);
   }
 }
