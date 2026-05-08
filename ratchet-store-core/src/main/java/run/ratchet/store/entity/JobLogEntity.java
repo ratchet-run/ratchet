@@ -10,6 +10,8 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -47,6 +49,21 @@ public class JobLogEntity implements UuidV7EntityListener.UuidV7Assignable {
   @Convert(converter = JsonObjectMapConverter.class)
   private Map<String, Object> mdc;
 
+  protected JobLogEntity() {}
+
+  public JobLogEntity(UUID jobId, Instant ts, LogLevel level, String message) {
+    this(jobId, ts, level, message, null);
+  }
+
+  public JobLogEntity(
+      UUID jobId, Instant ts, LogLevel level, String message, Map<String, Object> mdc) {
+    this.jobId = Objects.requireNonNull(jobId, "jobId");
+    this.ts = Objects.requireNonNull(ts, "ts");
+    this.level = Objects.requireNonNull(level, "level");
+    this.message = Objects.requireNonNull(message, "message");
+    this.mdc = copyMdc(mdc);
+  }
+
   public UUID getId() {
     return id;
   }
@@ -59,40 +76,20 @@ public class JobLogEntity implements UuidV7EntityListener.UuidV7Assignable {
     return jobId;
   }
 
-  public void setJobId(UUID jobId) {
-    this.jobId = jobId;
-  }
-
   public Instant getTs() {
     return ts;
-  }
-
-  public void setTs(Instant ts) {
-    this.ts = ts;
   }
 
   public LogLevel getLevel() {
     return level;
   }
 
-  public void setLevel(LogLevel level) {
-    this.level = level;
-  }
-
   public String getMessage() {
     return message;
   }
 
-  public void setMessage(String message) {
-    this.message = message;
-  }
-
   public Map<String, Object> getMdc() {
-    return mdc;
-  }
-
-  public void setMdc(Map<String, Object> mdc) {
-    this.mdc = mdc;
+    return copyMdc(mdc);
   }
 
   @Override
@@ -119,5 +116,12 @@ public class JobLogEntity implements UuidV7EntityListener.UuidV7Assignable {
     INFO,
     WARN,
     ERROR
+  }
+
+  private static Map<String, Object> copyMdc(Map<String, Object> mdc) {
+    if (mdc == null) {
+      return null;
+    }
+    return Collections.unmodifiableMap(new LinkedHashMap<>(mdc));
   }
 }
