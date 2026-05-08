@@ -68,10 +68,10 @@ class StreamingBatchIT extends BaseRatchetIT {
         3, progressSnapshots.size(), "Should report one streaming progress event per chunk");
     assertEquals(
         List.of(2, 4, 6),
-        progressSnapshots.stream().map(StreamingBatchContext::itemsStreamed).toList());
+        progressSnapshots.stream().map(StreamingBatchContext::processedItems).toList());
     assertEquals(
         List.of(1, 2, 3),
-        progressSnapshots.stream().map(StreamingBatchContext::insertOperations).toList());
+        progressSnapshots.stream().map(StreamingBatchContext::chunksInserted).toList());
   }
 
   @Test

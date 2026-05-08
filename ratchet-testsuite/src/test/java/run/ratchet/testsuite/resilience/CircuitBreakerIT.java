@@ -104,8 +104,7 @@ class CircuitBreakerIT extends BaseRatchetIT {
     // Wait duration short enough to keep the test fast, long enough to survive scheduler jitter
     // between assertion lines. 1 ms races the JVM clock and leaves the breaker in HALF_OPEN
     // before the next assertion runs; 200 ms is well under the 5 s await() that follows.
-    CircuitBreakerConfiguration fastConfig =
-        new CircuitBreakerConfiguration(50.0f, 20, 200L, 2_000L, 2, 3);
+    CircuitBreakerConfiguration fastConfig = new CircuitBreakerConfiguration(50.0f, 20, 200L, 2, 3);
     CircuitBreaker breaker = new CircuitBreaker("test-fast-transition", fastConfig);
 
     // Drive to OPEN: 3 failures (minimum calls = 3, failure rate = 100% >= 50% threshold)
