@@ -124,6 +124,12 @@ public class JobPayloadInputValidator {
 
       Class<?>[] paramTypes = payload.parameterTypes();
       Class<?>[] methodParamTypes = method.getParameterTypes();
+      List<Object> args = payload.args();
+
+      if (args == null) {
+        errors.add("Arguments cannot be null");
+        return;
+      }
 
       if (paramTypes.length != methodParamTypes.length) {
         errors.add(
@@ -134,7 +140,6 @@ public class JobPayloadInputValidator {
         return;
       }
 
-      List<Object> args = payload.args();
       for (int i = 0; i < paramTypes.length; i++) {
         Class<?> expectedType = methodParamTypes[i];
         Class<?> providedType = paramTypes[i];

@@ -54,6 +54,15 @@ class JobPayloadInputValidatorTest {
   }
 
   @Test
+  void nullArgsReportsClearValidationError() {
+    JobPayload payload =
+        new JobPayload(Target.class.getName(), "greet", "(Ljava/lang/String;)V", false, null);
+    IllegalArgumentException ex =
+        assertThrows(IllegalArgumentException.class, () -> validator.validateAtCreation(payload));
+    assertTrue(ex.getMessage().contains("Arguments cannot be null"));
+  }
+
+  @Test
   void nonExistentClassReportsError() {
     JobPayload payload =
         new JobPayload("com.nonexistent.NoSuchClass", "run", "()V", false, List.of());
