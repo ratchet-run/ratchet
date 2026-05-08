@@ -3,6 +3,7 @@ package run.ratchet.ri.core;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -64,9 +65,10 @@ public class OrphanRecoveryTimer {
       ResourcePermitService resourcePermitService,
       SingletonLeaseService singletonLeaseService,
       long orphanGraceSeconds) {
-    this.jobBulkStore = jobBulkStore;
-    this.nodeStore = nodeStore;
-    this.resourcePermitService = resourcePermitService;
+    this.jobBulkStore = Objects.requireNonNull(jobBulkStore, "jobBulkStore must not be null");
+    this.nodeStore = Objects.requireNonNull(nodeStore, "nodeStore must not be null");
+    this.resourcePermitService =
+        Objects.requireNonNull(resourcePermitService, "resourcePermitService must not be null");
     this.singletonLeaseService = singletonLeaseService;
     this.orphanGraceSeconds = orphanGraceSeconds;
   }
@@ -110,6 +112,10 @@ public class OrphanRecoveryTimer {
   }
 
   private void recoverOrphansWithLease() {
+    if (jobBulkStore == null || nodeStore == null || resourcePermitService == null) {
+      throw new IllegalStateException("OrphanRecoveryTimer dependencies are not initialized");
+    }
+
     int resetJobs = jobBulkStore.resetOrphanJobs(Duration.ofSeconds(orphanGraceSeconds));
 
     Instant cutoff = Instant.now().minusSeconds(orphanGraceSeconds);
