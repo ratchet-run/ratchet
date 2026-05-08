@@ -94,7 +94,7 @@ public class ThreadPoolManager {
   }
 
   public ExecutorService getExecutor(JobExecutionType jobType) {
-    return executorProvider.getJobExecutor();
+    return requireExecutorProvider().getJobExecutor();
   }
 
   public double getOverallUtilization() {
@@ -246,6 +246,15 @@ public class ThreadPoolManager {
           jobType.name(), DEFAULT_VIRTUAL_THREAD_LIMIT);
     }
     return DEFAULT_VIRTUAL_THREAD_LIMIT;
+  }
+
+  private ExecutorProvider requireExecutorProvider() {
+    if (executorProvider == null) {
+      throw new IllegalStateException(
+          "ThreadPoolManager was constructed without an ExecutorProvider; use the CDI producer "
+              + "or public constructor before requesting an executor.");
+    }
+    return executorProvider;
   }
 
   private int getMaxConcurrency(JobExecutionType jobType) {

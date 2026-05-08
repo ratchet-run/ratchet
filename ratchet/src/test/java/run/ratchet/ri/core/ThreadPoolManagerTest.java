@@ -2,6 +2,7 @@ package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -131,5 +132,16 @@ class ThreadPoolManagerTest {
     assertTrue(
         manager.tryAcquirePermit(JobExecutionType.SINGLE),
         "counter decremented on release, slot available again");
+  }
+
+  @Test
+  void getExecutor_whenNoArgConstructed_throwsClearError() {
+    ThreadPoolManager manager = new ThreadPoolManager();
+
+    IllegalStateException error =
+        assertThrows(
+            IllegalStateException.class, () -> manager.getExecutor(JobExecutionType.SINGLE));
+
+    assertTrue(error.getMessage().contains("ExecutorProvider"));
   }
 }
