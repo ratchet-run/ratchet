@@ -27,6 +27,7 @@ import run.ratchet.api.JobContext;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.SignalDecision;
+import run.ratchet.api.event.JobCancelledEvent;
 import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.spi.BeanResolver;
@@ -254,6 +255,56 @@ class JobTaskTest {
     jobTask.call();
 
     verify(lifecycleFacade).moveToDlq(eq(job), eq(error));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void handleFailure_nonRetryable_movesToFailedWithoutIncrementingRetryAttempt()
+      throws Exception {
+    JobEntity job = createTestJob();
+    job.setAttempts(2);
+    job.setMaxRetries(3);
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+
+    RuntimeException error = new RuntimeException("do not retry");
+    when(resilienceStrategy.execute(anyString(), any(Callable.class))).thenThrow(error);
+    when(validationFacade.shouldNotRetry(error)).thenReturn(true);
+    when(jobStore.compareAndSwapStatus(
+            eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any()))
+        .thenReturn(true);
+
+    jobTask.call();
+
+    verify(jobStore, never()).incrementRetryAttempt(any(UUID.class));
+    verify(retryPolicy, never()).shouldRetry(anyInt(), any());
+    verify(jobStore, never()).scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt());
+    verify(observabilityFacade).recordJobFailure(job, error, 2);
+    verify(lifecycleFacade).moveToDlq(eq(job), eq(error));
+    verify(lifecycleFacade).scheduleNext(job);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void handleSuccess_jobCanceledDuringExecution_discardsResultAndPublishesCancellation()
+      throws Exception {
+    JobEntity job = createTestJob();
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING, JobStatus.CANCELED);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resilienceStrategy.execute(anyString(), any(Callable.class)))
+        .thenAnswer(inv -> ((Callable<?>) inv.getArgument(1)).call());
+
+    jobTask.call();
+
+    verify(jobStore, never())
+        .markJobSucceeded(any(UUID.class), any(), any(), any(), any(), anyLong(), anyLong());
+    verify(observabilityFacade).recordJobCancellation(job);
+    verify(observabilityFacade).publishEvent(any(JobCancelledEvent.class));
+    verify(observabilityFacade, never()).publishEvent(any(JobCompletedEvent.class));
+    verify(observabilityFacade, never()).recordJobSuccess(any(), anyLong());
+    verify(lifecycleFacade).cancelChain(job);
   }
 
   @Test
