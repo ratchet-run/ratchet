@@ -1,6 +1,8 @@
 package run.ratchet.testsuite.recurring;
 
 import static org.awaitility.Awaitility.await;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.inject.Inject;
@@ -12,7 +14,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
+import run.ratchet.api.JobStatus;
 import run.ratchet.ri.core.RecurringScheduler;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.testsuite.app.CronTestJobs;
 import run.ratchet.testsuite.app.TestJobService;
@@ -66,5 +70,10 @@ class CronScheduleIT extends BaseRatchetIT {
                 assertTrue(
                     CronTestJobs.tickCount() >= 2,
                     "Expected at least 2 ticks but got " + CronTestJobs.tickCount()));
+
+    var recurringJob = jobCrudStore.findById(handle.id()).orElseThrow();
+    assertEquals(JobExecutionType.RECURRING, recurringJob.getJobType());
+    assertEquals(JobStatus.PENDING, recurringJob.getStatus());
+    assertNotNull(recurringJob.getNextFire());
   }
 }
