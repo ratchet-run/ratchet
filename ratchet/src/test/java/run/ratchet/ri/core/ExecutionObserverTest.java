@@ -54,6 +54,15 @@ class ExecutionObserverTest {
   }
 
   @Test
+  void recordJobStart_forwardsJobIdentityTypeAndPriorityToMetricsCollector() {
+    JobEntity job = job(42L);
+
+    observer.recordJobStart(job);
+
+    verify(metricsCollector).jobStarted(job.getId(), job.getPublicJobType(), job.getPriority());
+  }
+
+  @Test
   void recordJobSuccess_passesExecutionDurationToMetricsCollector() {
     JobEntity job = job(42L);
 
@@ -70,6 +79,16 @@ class ExecutionObserverTest {
     observer.recordJobFailure(job, error, 2);
 
     verify(metricsCollector).jobFailed(job.getId(), job.getPublicJobType(), error, 2);
+  }
+
+  @Test
+  void recordCallbackFailure_passesProvidedAttemptNumber() {
+    JobEntity job = job(42L);
+    RuntimeException error = new RuntimeException("callback boom");
+
+    observer.recordCallbackFailure(job, error, 3);
+
+    verify(metricsCollector).callbackFailed(job.getId(), job.getPublicJobType(), error, 3);
   }
 
   @Test
