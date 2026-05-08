@@ -169,7 +169,7 @@ public abstract class AbstractDualWriteInvariantContract implements JobStoreCont
 
     var claimed = store().claimNextBatch(50, "node-poller");
     for (JobEntity c : claimed) {
-      if (c.getId() == id) {
+      if (id.equals(c.getId())) {
         fail(
             "claimNextBatch returned terminal job "
                 + id
@@ -194,7 +194,7 @@ public abstract class AbstractDualWriteInvariantContract implements JobStoreCont
 
     var claimed = store().claimNextBatch(50, "node-poller");
     for (JobEntity c : claimed) {
-      if (c.getId() == id) {
+      if (id.equals(c.getId())) {
         fail(
             "claimNextBatch returned FAILED-terminal job "
                 + id

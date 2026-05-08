@@ -61,10 +61,10 @@ class CronScheduleIT extends BaseRatchetIT {
     JobHandle handle =
         jobService.scheduleRecurring("*/1 * * * * ?", ZoneOffset.UTC, CronTestJobs::tick).submit();
 
-    // Wait up to 5 seconds for at least 2 ticks
+    // Wait up to 8 seconds for at least 2 ticks
     await()
         .atMost(Duration.ofSeconds(8))
-        .pollInterval(Duration.ofMillis(500))
+        .pollInterval(Duration.ofMillis(200))
         .untilAsserted(
             () ->
                 assertTrue(

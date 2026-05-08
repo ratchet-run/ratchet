@@ -83,6 +83,6 @@ class CustomResilienceStrategyIT extends BaseRatchetIT {
     int expectedAttempts = 1 + maxRetries;
     assertEquals(expectedAttempts, FailingJob.getAttemptCount());
 
-    assertTrue(NoOpResilienceStrategy.getExecuteCount() >= expectedAttempts);
+    assertEquals(expectedAttempts, NoOpResilienceStrategy.getExecuteCount());
   }
 }

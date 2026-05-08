@@ -21,6 +21,28 @@ class PerformanceBaselineTest {
     }
   }
 
+  @Test
+  void throughputComparisonRejectsNanAndInfinity() {
+    PerformanceBaseline baseline = new PerformanceBaseline("missing", 0.10, "perf-baselines");
+
+    assertThrows(
+        AssertionError.class, () -> baseline.assertWithinTolerance("jobsPerSecond", Double.NaN));
+    assertThrows(
+        AssertionError.class,
+        () -> baseline.assertWithinTolerance("jobsPerSecond", Double.POSITIVE_INFINITY));
+  }
+
+  @Test
+  void latencyComparisonRejectsNanAndInfinity() {
+    PerformanceBaseline baseline = new PerformanceBaseline("missing", 0.10, "perf-baselines");
+
+    assertThrows(
+        AssertionError.class, () -> baseline.assertLatencyWithinTolerance("p95", Double.NaN));
+    assertThrows(
+        AssertionError.class,
+        () -> baseline.assertLatencyWithinTolerance("p95", Double.NEGATIVE_INFINITY));
+  }
+
   private static final class UnreadableBaselineClassLoader extends ClassLoader {
 
     private UnreadableBaselineClassLoader(ClassLoader parent) {
@@ -29,7 +51,7 @@ class PerformanceBaselineTest {
 
     @Override
     public InputStream getResourceAsStream(String name) {
-      if ("perf-baselines/mysql-baselines.properties".equals(name)) {
+      if ("unused/mysql-baselines.properties".equals(name)) {
         return new InputStream() {
           @Override
           public int read() throws IOException {

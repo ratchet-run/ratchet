@@ -65,7 +65,7 @@ public class MongoContainerExtension
       System.setProperty("ratchet.test.mongo.database", config.databaseName());
 
       started = true;
-      log.info("MongoDB container ready: " + config.connectionString());
+      log.info("MongoDB container ready for database " + config.databaseName());
     }
   }
 

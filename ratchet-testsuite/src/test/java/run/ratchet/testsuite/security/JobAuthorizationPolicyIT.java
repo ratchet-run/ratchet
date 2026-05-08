@@ -193,8 +193,9 @@ class JobAuthorizationPolicyIT extends BaseRatchetIT {
         .submit();
 
     // Batch parent + 3 children = 4 checkCreate calls
-    assertTrue(
-        StubJobAuthorizationPolicy.getCreateCount() >= batchSize,
+    assertEquals(
+        batchSize + 1,
+        StubJobAuthorizationPolicy.getCreateCount(),
         "checkCreate must be called for the batch parent and each child job");
   }
 }

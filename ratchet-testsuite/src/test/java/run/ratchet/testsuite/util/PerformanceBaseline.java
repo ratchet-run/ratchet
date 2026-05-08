@@ -37,7 +37,7 @@ public class PerformanceBaseline {
     this.outputDir =
         Path.of(System.getProperty("project.build.directory", "target"), "perf-baselines");
 
-    String resourcePath = "perf-baselines/" + dbType + "-baselines.properties";
+    String resourcePath = resourcePath(baselineDir, dbType);
     try (InputStream in =
         Thread.currentThread().getContextClassLoader().getResourceAsStream(resourcePath)) {
       if (in != null) {
@@ -52,6 +52,7 @@ public class PerformanceBaseline {
   }
 
   public void assertWithinTolerance(String metric, double actual) {
+    requireFinite(metric, actual);
     recorded.put(metric, actual);
 
     String baselineStr = baselines.getProperty(metric);
@@ -78,6 +79,7 @@ public class PerformanceBaseline {
   }
 
   public void assertLatencyWithinTolerance(String metric, double actualMs) {
+    requireFinite(metric, actualMs);
     recorded.put(metric, actualMs);
 
     String baselineStr = baselines.getProperty(metric);
@@ -129,6 +131,22 @@ public class PerformanceBaseline {
       log.info("[BASELINE] Recorded baselines written to " + outputFile);
     } catch (IOException e) {
       log.warning("Baseline file not written: " + e.getMessage());
+    }
+  }
+
+  private static String resourcePath(String baselineDir, String dbType) {
+    Path path = Path.of(baselineDir, dbType + "-baselines.properties");
+    String resourcePath = path.toString().replace('\\', '/');
+    String testResourcesPrefix = "src/test/resources/";
+    if (resourcePath.startsWith(testResourcesPrefix)) {
+      return resourcePath.substring(testResourcesPrefix.length());
+    }
+    return resourcePath;
+  }
+
+  private static void requireFinite(String metric, double actual) {
+    if (!Double.isFinite(actual)) {
+      fail("Invalid performance value for " + metric + ": " + actual);
     }
   }
 }
