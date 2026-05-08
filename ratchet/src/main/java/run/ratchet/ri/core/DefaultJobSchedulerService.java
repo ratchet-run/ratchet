@@ -429,8 +429,8 @@ public class DefaultJobSchedulerService
                 jobId, JobStatus.PAUSED, JobStatus.CANCELED, null);
 
     // Reload after CAS: compareAndSwapStatus bumps the optimistic-lock version; writing the
-    // pre-CAS entity would throw. Not routed through OptimisticLockRetry because the intent is
-    // to annotate a terminal CANCELED row with supersededBy as an audit trail.
+    // pre-CAS entity would throw. The intent is to annotate a terminal CANCELED row with
+    // supersededBy as an audit trail.
     JobEntity fresh =
         jobCrudStore
             .findById(jobId)
