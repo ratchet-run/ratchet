@@ -97,7 +97,7 @@ public class JobLogEntity implements UuidV7EntityListener.UuidV7Assignable {
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(id);
+    return Objects.hash(jobId, ts, level, message);
   }
 
   @Override
