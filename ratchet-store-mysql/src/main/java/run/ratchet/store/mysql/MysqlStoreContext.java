@@ -46,6 +46,23 @@ final class MysqlStoreContext {
     return e;
   }
 
+  long countByNative(String sql, Object... params) {
+    var query = em.createNativeQuery(sql);
+    for (int i = 0; i < params.length; i++) {
+      query.setParameter(i + 1, params[i]);
+    }
+    return ((Number) query.getSingleResult()).longValue();
+  }
+
+  double doubleByNativeOrZero(String sql, Object... params) {
+    var query = em.createNativeQuery(sql);
+    for (int i = 0; i < params.length; i++) {
+      query.setParameter(i + 1, params[i]);
+    }
+    Object result = query.getSingleResult();
+    return result == null ? 0.0 : ((Number) result).doubleValue();
+  }
+
   <T> T timedStoreOperation(
       String operation, Supplier<T> action, Function<T, String> outcomeFunction) {
     long startNanos = System.nanoTime();

@@ -24,15 +24,11 @@ final class MysqlJobCountOperations {
     if (MysqlJobRowMapper.isLiveStatus(status)) {
       // language=MySQL
       String sql = "SELECT COUNT(*) FROM scheduler_job_queue WHERE status = ?";
-      Object result =
-          ctx.em().createNativeQuery(sql).setParameter(1, status.name()).getSingleResult();
-      return ((Number) result).longValue();
+      return ctx.countByNative(sql, status.name());
     }
     // language=MySQL
     String sql = "SELECT COUNT(*) FROM scheduler_job WHERE terminal_status = ?";
-    Object result =
-        ctx.em().createNativeQuery(sql).setParameter(1, status.name()).getSingleResult();
-    return ((Number) result).longValue();
+    return ctx.countByNative(sql, status.name());
   }
 
   long countActiveJobs(JobExecutionType jobType) {
@@ -42,9 +38,7 @@ final class MysqlJobCountOperations {
         SELECT COUNT(*) FROM scheduler_job_queue
         WHERE job_type = ? AND status IN ('PENDING','RUNNING')
         """;
-    Object result =
-        ctx.em().createNativeQuery(sql).setParameter(1, jobType.name()).getSingleResult();
-    return ((Number) result).longValue();
+    return ctx.countByNative(sql, jobType.name());
   }
 
   long countActiveNodes() {
@@ -60,9 +54,7 @@ final class MysqlJobCountOperations {
         SELECT COUNT(*) FROM scheduler_job_queue
         WHERE status = 'PENDING' AND scheduled_time <= ?
         """;
-    Object result =
-        ctx.em().createNativeQuery(sql).setParameter(1, Timestamp.from(now)).getSingleResult();
-    return ((Number) result).longValue();
+    return ctx.countByNative(sql, Timestamp.from(now));
   }
 
   long countStuckJobs(Instant stuckThreshold) {
@@ -72,12 +64,7 @@ final class MysqlJobCountOperations {
         SELECT COUNT(*) FROM scheduler_job_queue
         WHERE status = 'RUNNING' AND picked_at < ?
         """;
-    Object result =
-        ctx.em()
-            .createNativeQuery(sql)
-            .setParameter(1, Timestamp.from(stuckThreshold))
-            .getSingleResult();
-    return ((Number) result).longValue();
+    return ctx.countByNative(sql, Timestamp.from(stuckThreshold));
   }
 
   long countLongRunningJobs(Instant threshold) {
@@ -87,12 +74,7 @@ final class MysqlJobCountOperations {
         SELECT COUNT(*) FROM scheduler_job_queue
         WHERE status = 'RUNNING' AND picked_at < ?
         """;
-    Object result =
-        ctx.em()
-            .createNativeQuery(sql)
-            .setParameter(1, Timestamp.from(threshold))
-            .getSingleResult();
-    return ((Number) result).longValue();
+    return ctx.countByNative(sql, Timestamp.from(threshold));
   }
 
   long countPendingBatchChildren() {
@@ -102,8 +84,7 @@ final class MysqlJobCountOperations {
         SELECT COUNT(*) FROM scheduler_job_queue
         WHERE job_type = 'BATCH_CHILD' AND status = 'PENDING'
         """;
-    Object result = ctx.em().createNativeQuery(sql).getSingleResult();
-    return ((Number) result).longValue();
+    return ctx.countByNative(sql);
   }
 
   long countPendingJobsByPriority(JobPriority priority) {
@@ -113,9 +94,7 @@ final class MysqlJobCountOperations {
         SELECT COUNT(*) FROM scheduler_job_queue
         WHERE status = 'PENDING' AND priority = ?
         """;
-    Object result =
-        ctx.em().createNativeQuery(sql).setParameter(1, priority.ordinal()).getSingleResult();
-    return ((Number) result).longValue();
+    return ctx.countByNative(sql, priority.ordinal());
   }
 
   long countPendingJobsByType(JobExecutionType jobType) {
@@ -125,9 +104,7 @@ final class MysqlJobCountOperations {
         SELECT COUNT(*) FROM scheduler_job_queue
         WHERE status = 'PENDING' AND job_type = ?
         """;
-    Object result =
-        ctx.em().createNativeQuery(sql).setParameter(1, jobType.name()).getSingleResult();
-    return ((Number) result).longValue();
+    return ctx.countByNative(sql, jobType.name());
   }
 
   long countJobsByStatusSince(JobStatus status, Instant since) {
@@ -138,13 +115,7 @@ final class MysqlJobCountOperations {
           SELECT COUNT(*) FROM scheduler_job_queue
           WHERE status = ? AND updated_at >= ?
           """;
-      Object result =
-          ctx.em()
-              .createNativeQuery(sql)
-              .setParameter(1, status.name())
-              .setParameter(2, Timestamp.from(since))
-              .getSingleResult();
-      return ((Number) result).longValue();
+      return ctx.countByNative(sql, status.name(), Timestamp.from(since));
     }
     // language=MySQL
     String sql =
@@ -152,13 +123,7 @@ final class MysqlJobCountOperations {
         SELECT COUNT(*) FROM scheduler_job
         WHERE terminal_status = ? AND terminated_at >= ?
         """;
-    Object result =
-        ctx.em()
-            .createNativeQuery(sql)
-            .setParameter(1, status.name())
-            .setParameter(2, Timestamp.from(since))
-            .getSingleResult();
-    return ((Number) result).longValue();
+    return ctx.countByNative(sql, status.name(), Timestamp.from(since));
   }
 
   long countJobsWithRetries() {
@@ -169,8 +134,7 @@ final class MysqlJobCountOperations {
           (SELECT COUNT(*) FROM scheduler_job_queue WHERE attempts > 0)
           + (SELECT COUNT(*) FROM scheduler_job WHERE total_attempts > 0)
         """;
-    Object result = ctx.em().createNativeQuery(sql).getSingleResult();
-    return ((Number) result).longValue();
+    return ctx.countByNative(sql);
   }
 
   double getRetryRateStats(Instant since) {
@@ -188,15 +152,7 @@ final class MysqlJobCountOperations {
              + (SELECT COUNT(*) FROM scheduler_job
                 WHERE terminated_at >= ?)), 0), 0)
         """;
-    Object result =
-        ctx.em()
-            .createNativeQuery(sql)
-            .setParameter(1, sinceTs)
-            .setParameter(2, sinceTs)
-            .setParameter(3, sinceTs)
-            .setParameter(4, sinceTs)
-            .getSingleResult();
-    return ((Number) result).doubleValue();
+    return ctx.doubleByNativeOrZero(sql, sinceTs, sinceTs, sinceTs, sinceTs);
   }
 
   double getAverageProcessingTime(Instant since) {
@@ -207,9 +163,7 @@ final class MysqlJobCountOperations {
         WHERE terminal_status = 'SUCCEEDED' AND execution_duration_ms IS NOT NULL
           AND terminated_at >= ?
         """;
-    Object result =
-        ctx.em().createNativeQuery(sql).setParameter(1, Timestamp.from(since)).getSingleResult();
-    return ((Number) result).doubleValue();
+    return ctx.doubleByNativeOrZero(sql, Timestamp.from(since));
   }
 
   double getAverageBatchSize(Instant since) {
@@ -221,9 +175,7 @@ final class MysqlJobCountOperations {
         LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
         WHERE COALESCE(q.updated_at, c.terminated_at) >= ?
         """;
-    Object result =
-        ctx.em().createNativeQuery(sql).setParameter(1, Timestamp.from(since)).getSingleResult();
-    return ((Number) result).doubleValue();
+    return ctx.doubleByNativeOrZero(sql, Timestamp.from(since));
   }
 
   Optional<Instant> getOldestPendingJobTime() {

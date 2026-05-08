@@ -4,13 +4,17 @@ import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.store.dto.JobClaimDto;
@@ -24,12 +28,7 @@ final class MysqlJobClaimOperations implements JobClaimStore {
   private static final String EXECUTABLE_JOB_TYPE_FILTER =
       "job_type IN ('SINGLE','BATCH_CHILD','CHAIN_STEP','WORKFLOW_BRANCH')";
 
-  private static final String CLAIM_SELECT_COLUMNS =
-      """
-      job_id, status, job_type, priority, scheduled_time,
-      version, timeout_sec, picked_by, picked_at, business_key,
-      attempts, max_retries
-      """;
+  private static final String CLAIM_SELECT_COLUMNS = ClaimColumn.selectClause();
 
   private final MysqlStoreContext ctx;
   private final MysqlJobCrudOperations jobs;
@@ -157,7 +156,7 @@ final class MysqlJobClaimOperations implements JobClaimStore {
 
       List<UUID> candidateIds = new ArrayList<>(candidateRows.size());
       for (Object[] row : candidateRows) {
-        candidateIds.add(MysqlJobRowMapper.uuidOrNull(row[0]));
+        candidateIds.add(new ClaimRow(row).jobId());
       }
       boolean[] updated = batchClaimRowsJpa(candidateIds, nodeId, Instant.now());
 
@@ -268,7 +267,7 @@ final class MysqlJobClaimOperations implements JobClaimStore {
           Instant now = Instant.now();
           List<UUID> jobIds = new ArrayList<>(rows.size());
           for (Object[] row : rows) {
-            jobIds.add(MysqlJobRowMapper.uuidOrNull(row[0]));
+            jobIds.add(new ClaimRow(row).jobId());
           }
           boolean[] updated = batchClaimRowsJpa(jobIds, nodeId, now);
           List<JobClaimDto> claims = new ArrayList<>(rows.size());
@@ -276,25 +275,124 @@ final class MysqlJobClaimOperations implements JobClaimStore {
             if (!updated[i]) {
               continue;
             }
-            Object[] row = rows.get(i);
+            ClaimRow row = new ClaimRow(rows.get(i));
             claims.add(
                 new JobClaimDto(
                     jobIds.get(i),
                     JobStatus.RUNNING,
-                    JobExecutionType.valueOf((String) row[2]),
-                    MysqlJobRowMapper.safeJobPriority(((Number) row[3]).intValue()),
-                    MysqlJobRowMapper.toInstant(row[4]),
-                    ((Number) row[5]).intValue(),
-                    ((Number) row[6]).intValue(),
+                    row.jobType(),
+                    row.priority(),
+                    row.scheduledTime(),
+                    row.version(),
+                    row.timeoutSeconds(),
                     nodeId,
                     now,
-                    (String) row[9],
-                    ((Number) row[10]).intValue(),
-                    ((Number) row[11]).intValue()));
+                    row.businessKey(),
+                    row.attempts(),
+                    row.maxRetries()));
           }
           return claims;
         },
         claims -> claims.isEmpty() ? "miss" : "updated");
+  }
+
+  static List<String> claimSelectColumnNames() {
+    return ClaimColumn.names();
+  }
+
+  static Map<String, Integer> claimSelectColumnIndexes() {
+    return ClaimColumn.indexesByName();
+  }
+
+  private enum ClaimColumn {
+    JOB_ID("job_id"),
+    STATUS("status"),
+    JOB_TYPE("job_type"),
+    PRIORITY("priority"),
+    SCHEDULED_TIME("scheduled_time"),
+    VERSION("version"),
+    TIMEOUT_SEC("timeout_sec"),
+    PICKED_BY("picked_by"),
+    PICKED_AT("picked_at"),
+    BUSINESS_KEY("business_key"),
+    ATTEMPTS("attempts"),
+    MAX_RETRIES("max_retries");
+
+    private final String sqlName;
+
+    ClaimColumn(String sqlName) {
+      this.sqlName = sqlName;
+    }
+
+    static String selectClause() {
+      return Arrays.stream(values()).map(ClaimColumn::sqlName).collect(Collectors.joining(", "));
+    }
+
+    static List<String> names() {
+      return Arrays.stream(values()).map(ClaimColumn::sqlName).toList();
+    }
+
+    static Map<String, Integer> indexesByName() {
+      Map<String, Integer> indexes = new HashMap<>(values().length);
+      for (ClaimColumn column : values()) {
+        indexes.put(column.sqlName(), column.ordinal());
+      }
+      return Map.copyOf(indexes);
+    }
+
+    String sqlName() {
+      return sqlName;
+    }
+  }
+
+  private record ClaimRow(Object[] values) {
+    ClaimRow {
+      Objects.requireNonNull(values, "values");
+    }
+
+    UUID jobId() {
+      return MysqlJobRowMapper.uuidOrNull(value(ClaimColumn.JOB_ID));
+    }
+
+    JobExecutionType jobType() {
+      return JobExecutionType.valueOf((String) value(ClaimColumn.JOB_TYPE));
+    }
+
+    JobPriority priority() {
+      return MysqlJobRowMapper.safeJobPriority(number(ClaimColumn.PRIORITY).intValue());
+    }
+
+    Instant scheduledTime() {
+      return MysqlJobRowMapper.toInstant(value(ClaimColumn.SCHEDULED_TIME));
+    }
+
+    int version() {
+      return number(ClaimColumn.VERSION).intValue();
+    }
+
+    int timeoutSeconds() {
+      return number(ClaimColumn.TIMEOUT_SEC).intValue();
+    }
+
+    String businessKey() {
+      return (String) value(ClaimColumn.BUSINESS_KEY);
+    }
+
+    int attempts() {
+      return number(ClaimColumn.ATTEMPTS).intValue();
+    }
+
+    int maxRetries() {
+      return number(ClaimColumn.MAX_RETRIES).intValue();
+    }
+
+    private Number number(ClaimColumn column) {
+      return (Number) value(column);
+    }
+
+    private Object value(ClaimColumn column) {
+      return values[column.ordinal()];
+    }
   }
 
   private boolean[] batchClaimRowsJpa(List<UUID> jobIds, String nodeId, Instant now) {

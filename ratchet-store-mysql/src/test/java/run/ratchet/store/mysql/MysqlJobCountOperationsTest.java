@@ -1,0 +1,51 @@
+package run.ratchet.store.mysql;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.Query;
+import java.lang.reflect.Proxy;
+import java.time.Instant;
+import org.junit.jupiter.api.Test;
+
+class MysqlJobCountOperationsTest {
+
+  @Test
+  void doubleStatsReturnZeroWhenNativeAggregateReturnsNull() {
+    MysqlJobCountOperations counts =
+        new MysqlJobCountOperations(new MysqlStoreContext(entityManagerReturningNull(), null));
+    Instant since = Instant.parse("2026-01-01T00:00:00Z");
+
+    assertEquals(0.0, counts.getRetryRateStats(since));
+    assertEquals(0.0, counts.getAverageProcessingTime(since));
+    assertEquals(0.0, counts.getAverageBatchSize(since));
+  }
+
+  private static EntityManager entityManagerReturningNull() {
+    Query query =
+        (Query)
+            Proxy.newProxyInstance(
+                Query.class.getClassLoader(),
+                new Class<?>[] {Query.class},
+                (proxy, method, args) -> {
+                  if (method.getName().equals("setParameter")) {
+                    return proxy;
+                  }
+                  if (method.getName().equals("getSingleResult")) {
+                    return null;
+                  }
+                  throw new UnsupportedOperationException(method.getName());
+                });
+
+    return (EntityManager)
+        Proxy.newProxyInstance(
+            EntityManager.class.getClassLoader(),
+            new Class<?>[] {EntityManager.class},
+            (proxy, method, args) -> {
+              if (method.getName().equals("createNativeQuery")) {
+                return query;
+              }
+              throw new UnsupportedOperationException(method.getName());
+            });
+  }
+}
