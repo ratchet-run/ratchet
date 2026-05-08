@@ -10,6 +10,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobStatus;
 
 /** Base contract tests for {@code TagStore}. */
 public abstract class AbstractTagStoreContract implements JobStoreContractFixture {
@@ -115,6 +116,64 @@ public abstract class AbstractTagStoreContract implements JobStoreContractFixtur
 
     assertEquals(2L, counts.get("node-a"));
     assertEquals(1L, counts.get("node-b"));
+  }
+
+  @Test
+  void countJobsByStatusForTag_groupsOnlyTaggedJobs() {
+    var pending = newPendingJob();
+    pending.setStatus(JobStatus.PENDING);
+    pending = persist(pending);
+    store().insertTags(pending.getId(), List.of("run-tag"));
+
+    var running = newPendingJob();
+    running.setStatus(JobStatus.RUNNING);
+    running = persist(running);
+    store().insertTags(running.getId(), List.of("run-tag"));
+
+    var secondRunning = newPendingJob();
+    secondRunning.setStatus(JobStatus.RUNNING);
+    secondRunning = persist(secondRunning);
+    store().insertTags(secondRunning.getId(), List.of("run-tag"));
+
+    var otherTag = newPendingJob();
+    otherTag.setStatus(JobStatus.FAILED);
+    otherTag = persist(otherTag);
+    store().insertTags(otherTag.getId(), List.of("other-tag"));
+
+    Map<JobStatus, Long> counts = store().countJobsByStatusForTag("run-tag");
+
+    assertEquals(Map.of(JobStatus.PENDING, 1L, JobStatus.RUNNING, 2L), counts);
+  }
+
+  @Test
+  void countJobsByExecutionNodeForTag_groupsOnlyTaggedJobsWithNodes() {
+    var first = newPendingJob();
+    first.setPickedBy("node-a");
+    first = persist(first);
+    store().insertTags(first.getId(), List.of("run-tag"));
+
+    var second = newPendingJob();
+    second.setPickedBy("node-a");
+    second = persist(second);
+    store().insertTags(second.getId(), List.of("run-tag"));
+
+    var third = newPendingJob();
+    third.setPickedBy("node-b");
+    third = persist(third);
+    store().insertTags(third.getId(), List.of("run-tag"));
+
+    var unassigned = newPendingJob();
+    unassigned = persist(unassigned);
+    store().insertTags(unassigned.getId(), List.of("run-tag"));
+
+    var otherTag = newPendingJob();
+    otherTag.setPickedBy("node-c");
+    otherTag = persist(otherTag);
+    store().insertTags(otherTag.getId(), List.of("other-tag"));
+
+    Map<String, Long> counts = store().countJobsByExecutionNodeForTag("run-tag");
+
+    assertEquals(Map.of("node-a", 2L, "node-b", 1L), counts);
   }
 
   @Test
