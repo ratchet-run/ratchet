@@ -8,6 +8,11 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 
+/*
+ * Keep terminal transitions dialect-local until a shared helper can preserve each backend's
+ * SQL shape explicitly. These methods mirror PostgreSQL conceptually, but MySQL binds UUIDs as
+ * binary values, uses NOW(3), JSON casts, and multi-table deletes differently.
+ */
 final class MysqlJobTerminalOperations {
 
   private final MysqlStoreContext ctx;

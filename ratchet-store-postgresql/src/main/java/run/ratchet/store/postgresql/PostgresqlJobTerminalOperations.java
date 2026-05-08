@@ -7,6 +7,11 @@ import java.util.UUID;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 
+/*
+ * Keep terminal transitions dialect-local until a shared helper can preserve each backend's
+ * SQL shape explicitly. These methods mirror MySQL conceptually, but PostgreSQL binds UUIDs
+ * natively and uses statement_timestamp(), jsonb casts, and UPDATE ... FROM semantics.
+ */
 final class PostgresqlJobTerminalOperations {
 
   private final PostgresqlStoreContext ctx;
