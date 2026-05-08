@@ -1,5 +1,6 @@
 package run.ratchet.store.mongodb;
 
+import org.junit.jupiter.api.AfterAll;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobStore;
 import run.ratchet.tck.store.AbstractJobQueryStoreContract;
@@ -8,6 +9,11 @@ import run.ratchet.tck.store.AbstractJobQueryStoreContract;
 class MongoJobQueryStoreContractTest extends AbstractJobQueryStoreContract {
 
   private static final MongoTestFixture fixture = new MongoTestFixture();
+
+  @AfterAll
+  static void closeFixture() {
+    fixture.close();
+  }
 
   @Override
   public JobStore store() {

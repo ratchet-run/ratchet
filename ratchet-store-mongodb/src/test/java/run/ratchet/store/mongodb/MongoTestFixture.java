@@ -8,6 +8,8 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.mongodb.MongoDBContainer;
 import run.ratchet.api.BackoffPolicy;
@@ -22,7 +24,7 @@ import run.ratchet.store.spi.JobStore;
 import run.ratchet.tck.store.JobStoreContractFixture;
 
 /** Shared Testcontainers-based fixture for MongoDB TCK tests. */
-public class MongoTestFixture implements JobStoreContractFixture {
+public class MongoTestFixture implements JobStoreContractFixture, AutoCloseable {
 
   // Replica-set mode is required for multi-document transactions (signal delivery, permit
   // acquisition) and retryable writes. 2-minute timeout absorbs RS bootstrap variance on busy
@@ -42,6 +44,7 @@ public class MongoTestFixture implements JobStoreContractFixture {
   private final MongoDatabase database;
   private final MongoJobStore store;
   private final ExecutorService claimExecutor;
+  private final AtomicBoolean closed = new AtomicBoolean();
 
   public MongoTestFixture() {
     this.client = MongoClientFactory.create(MONGO.getConnectionString());
@@ -111,5 +114,23 @@ public class MongoTestFixture implements JobStoreContractFixture {
   @Override
   public boolean isStaleWriteException(Throwable t) {
     return t instanceof RatchetOptimisticLockException;
+  }
+
+  @Override
+  public void close() {
+    if (!closed.compareAndSet(false, true)) {
+      return;
+    }
+    try {
+      claimExecutor.shutdownNow();
+      if (!claimExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+        throw new IllegalStateException("Timed out shutting down Mongo claim executor");
+      }
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException("Interrupted shutting down Mongo claim executor", e);
+    } finally {
+      client.close();
+    }
   }
 }
