@@ -61,6 +61,18 @@ class CallerPrincipalProviderTest {
   }
 
   @Test
+  void currentPrincipal_securityContextLookupFailure_returnsEmpty() {
+    @SuppressWarnings("unchecked")
+    Instance<SecurityContext> instance = mock(Instance.class);
+    when(instance.isResolvable()).thenReturn(true);
+    when(instance.get()).thenThrow(new IllegalStateException("container is shutting down"));
+
+    Optional<String> result = new CallerPrincipalProvider(instance).currentPrincipal();
+
+    assertTrue(result.isEmpty(), "SecurityContext failures should not block job creation");
+  }
+
+  @Test
   void currentPrincipal_unmanagedNoArgConstruction_throws() {
     IllegalStateException exception =
         assertThrows(

@@ -5,7 +5,6 @@ import java.io.InputStream;
 import java.io.Serial;
 import java.io.Serializable;
 import java.lang.invoke.SerializedLambda;
-import java.lang.reflect.Method;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -48,12 +47,12 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
    * @throws IllegalStateException if no method invocations are found or the synthetic method is
    *     missing from bytecode
    */
-  public static JobInvocation inspect(SerializedLambda serializedLambda) {
+  static InspectionResult inspect(SerializedLambda serializedLambda) {
     Objects.requireNonNull(serializedLambda, "SerializedLambda must not be null");
 
     // Method reference
     if (!serializedLambda.getImplMethodName().startsWith("lambda$")) {
-      return new JobInvocation(List.of(handleMethodReference(serializedLambda)));
+      return new InspectionResult(List.of(handleMethodReference(serializedLambda)));
     }
 
     // Inline lambda
@@ -113,7 +112,7 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
   }
 
   @SuppressWarnings({"java:S3776", "java:S6541"})
-  private static JobInvocation handleInlineLambda(SerializedLambda serializedLambda) {
+  private static InspectionResult handleInlineLambda(SerializedLambda serializedLambda) {
     ClassNode lambdaClass = readClassNode(serializedLambda.getImplClass());
 
     MethodNode lambdaMethod =
@@ -248,7 +247,7 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
           "Lambda body contained no method calls that could be inspected");
     }
 
-    return new JobInvocation(List.copyOf(invocationList));
+    return new InspectionResult(List.copyOf(invocationList));
   }
 
   private static InvocationStep handleMethodReference(SerializedLambda serializedLambda) {
@@ -304,24 +303,16 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
     return null;
   }
 
-  @SuppressWarnings("java:S3011")
-  // setAccessible is required for lambda serialization - accessing compiler-generated writeReplace
   private static SerializedLambda toSerializedLambda(Serializable lambda) {
-    try {
-      Method m = lambda.getClass().getDeclaredMethod("writeReplace");
-      m.setAccessible(true);
-      return (SerializedLambda) m.invoke(lambda);
-    } catch (ReflectiveOperationException e) {
-      throw new IllegalStateException("Lambda is not Serializable", e);
-    }
+    return LambdaSerialization.toSerializedLambda(lambda, "Lambda is not Serializable");
   }
 
   @Override
   public LambdaDescriptor analyze(Serializable lambda) {
     Objects.requireNonNull(lambda, "Lambda must not be null");
     SerializedLambda sl = toSerializedLambda(lambda);
-    JobInvocation joi = inspect(sl);
-    InvocationStep step = joi.last();
+    InspectionResult inspection = inspect(sl);
+    InvocationStep step = inspection.last();
     return new LambdaDescriptor(
         step.ownerInternalName().replace('/', '.'),
         step.methodName(),
@@ -337,7 +328,7 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
   private sealed interface Value
       permits ConstantValue, CapturedValue, NewInstanceMarker, UnknownValue {}
 
-  public record InvocationStep(
+  record InvocationStep(
       String ownerInternalName,
       String methodName,
       String methodDescriptor,
@@ -345,7 +336,7 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
       List<Object> arguments,
       Object receiver) {}
 
-  public record JobInvocation(List<InvocationStep> steps) {
+  record InspectionResult(List<InvocationStep> steps) {
 
     public InvocationStep last() {
       if (steps.isEmpty()) {

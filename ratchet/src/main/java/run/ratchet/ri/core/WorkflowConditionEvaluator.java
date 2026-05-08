@@ -8,10 +8,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.jboss.logging.Logger;
-import org.objectweb.asm.Type;
 import run.ratchet.api.BatchContext;
 import run.ratchet.api.JobResult;
 import run.ratchet.api.JobStatus;
+import run.ratchet.ri.security.MethodLookup;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.PayloadSerializer;
@@ -270,11 +270,9 @@ public class WorkflowConditionEvaluator {
   }
 
   private static Method findMethod(Class<?> cls, JobPayload payload) throws NoSuchMethodException {
-    for (Method m : cls.getMethods()) {
-      if (m.getName().equals(payload.method())
-          && Type.getMethodDescriptor(m).equals(payload.methodDescriptor())) {
-        return m;
-      }
+    Method method = MethodLookup.findMethod(cls, payload);
+    if (method != null) {
+      return method;
     }
     throw new NoSuchMethodException(payload.method() + " not found in " + cls.getName());
   }

@@ -44,10 +44,10 @@ public class CallerPrincipalProvider {
     if (securityContexts == null) {
       throw new IllegalStateException("SecurityContext Instance was not injected");
     }
-    if (!securityContexts.isResolvable()) {
-      return Optional.empty();
-    }
     try {
+      if (!securityContexts.isResolvable()) {
+        return Optional.empty();
+      }
       Principal principal = securityContexts.get().getCallerPrincipal();
       if (principal == null) {
         return Optional.empty();
@@ -55,7 +55,7 @@ public class CallerPrincipalProvider {
       String name = principal.getName();
       return (name == null || name.isEmpty()) ? Optional.empty() : Optional.of(name);
     } catch (RuntimeException e) {
-      log.debugf("SecurityContext lookup failed; capturing null caller principal: %s", e);
+      log.warnf(e, "SecurityContext lookup failed; capturing null caller principal");
       return Optional.empty();
     }
   }

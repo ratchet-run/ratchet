@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Objects;
 import org.jboss.logging.Logger;
 import org.objectweb.asm.Type;
+import run.ratchet.ri.payload.AsmLambdaAnalyzer.InspectionResult;
 import run.ratchet.ri.payload.AsmLambdaAnalyzer.InvocationStep;
 import run.ratchet.spi.JobInvocation;
 import run.ratchet.store.entity.JobPayload;
@@ -55,15 +56,23 @@ public final class JobPayloadFactory {
   public static JobInvocation toInvocation(Serializable lambda, List<Object> runtimeArgs) {
     Objects.requireNonNull(lambda, "Lambda must not be null");
     Objects.requireNonNull(runtimeArgs, "Runtime args must not be null");
+    return toInvocationInternal(lambda, runtimeArgs);
+  }
 
+  public static JobInvocation toInvocation(Serializable lambda) {
+    Objects.requireNonNull(lambda, "Lambda must not be null");
+    return toInvocationInternal(lambda, List.of());
+  }
+
+  private static JobInvocation toInvocationInternal(Serializable lambda, List<Object> runtimeArgs) {
     SerializedLambda sl = toSerializedLambda(lambda);
-    AsmLambdaAnalyzer.JobInvocation joi = AsmLambdaAnalyzer.inspect(sl);
+    InspectionResult inspection = AsmLambdaAnalyzer.inspect(sl);
 
-    if (joi.steps().size() != 1) {
-      throw new IllegalArgumentException(singleInvocationError(lambda, joi.steps().size()));
+    if (inspection.steps().size() != 1) {
+      throw new IllegalArgumentException(singleInvocationError(lambda, inspection.steps().size()));
     }
 
-    InvocationStep step = resolveNestedFunctionalInvocation(joi.last());
+    InvocationStep step = resolveNestedFunctionalInvocation(inspection.last());
     rejectNonPublicMethod(step);
     List<Object> args = mergeInvocationArguments(step, runtimeArgs);
 
@@ -73,27 +82,6 @@ public final class JobPayloadFactory {
         step.methodDescriptor(),
         step.isStatic(),
         args);
-  }
-
-  public static JobInvocation toInvocation(Serializable lambda) {
-    Objects.requireNonNull(lambda, "Lambda must not be null");
-
-    SerializedLambda sl = toSerializedLambda(lambda);
-    AsmLambdaAnalyzer.JobInvocation joi = AsmLambdaAnalyzer.inspect(sl);
-
-    if (joi.steps().size() != 1) {
-      throw new IllegalArgumentException(singleInvocationError(lambda, joi.steps().size()));
-    }
-
-    InvocationStep step = resolveNestedFunctionalInvocation(joi.last());
-    rejectNonPublicMethod(step);
-
-    return new JobInvocation(
-        internalNameToFqcn(step.ownerInternalName()),
-        step.methodName(),
-        step.methodDescriptor(),
-        step.isStatic(),
-        step.arguments());
   }
 
   public static JobPayload fromInvocation(JobInvocation invocation) {
@@ -193,8 +181,7 @@ public final class JobPayloadFactory {
       return null;
     }
 
-    AsmLambdaAnalyzer.JobInvocation nestedInvocation =
-        AsmLambdaAnalyzer.inspect(nestedSerializedLambda);
+    InspectionResult nestedInvocation = AsmLambdaAnalyzer.inspect(nestedSerializedLambda);
     if (nestedInvocation.steps().size() != 1) {
       return null;
     }
@@ -279,16 +266,8 @@ public final class JobPayloadFactory {
     }
   }
 
-  @SuppressWarnings("java:S3011")
-  // setAccessible is required for lambda serialization - accessing compiler-generated writeReplace
   private static SerializedLambda toSerializedLambda(Serializable lambda) {
-    try {
-      Method m = lambda.getClass().getDeclaredMethod("writeReplace");
-      m.setAccessible(true);
-      return (SerializedLambda) m.invoke(lambda);
-    } catch (ReflectiveOperationException e) {
-      throw new IllegalStateException(
-          "Unable to serialise lambda -- did you forget to make it Serializable?", e);
-    }
+    return LambdaSerialization.toSerializedLambda(
+        lambda, "Unable to serialise lambda -- did you forget to make it Serializable?");
   }
 }
