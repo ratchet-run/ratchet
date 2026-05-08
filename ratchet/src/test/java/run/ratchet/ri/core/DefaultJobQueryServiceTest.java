@@ -27,6 +27,7 @@ import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.BackoffPolicy;
+import run.ratchet.api.ExecutionHistorySummary;
 import run.ratchet.api.JobDetail;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobPage;
@@ -39,6 +40,7 @@ import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.ExecutionStore;
@@ -302,6 +304,41 @@ class DefaultJobQueryServiceTest {
 
     assertTrue(result.isPresent());
     assertEquals(1, result.get().dependantJobIds().size());
+  }
+
+  @Test
+  void getExecutionHistory_delegatesToExecutionStore_andMapsResults() {
+    UUID jobId = UUID.randomUUID();
+    UUID executionId = UUID.randomUUID();
+    Instant startedAt = Instant.parse("2026-05-07T12:00:00Z");
+    Instant endedAt = Instant.parse("2026-05-07T12:00:42Z");
+    JobExecutionEntity execution = new JobExecutionEntity();
+    execution.setId(executionId);
+    execution.setJobId(jobId);
+    execution.setAttempt(2);
+    execution.setNodeId("node-1");
+    execution.setStartedAt(startedAt);
+    execution.setEndedAt(endedAt);
+    execution.setDurationMs(42_000L);
+    execution.setStatus(JobExecutionEntity.ExecutionStatus.SUCCEEDED);
+
+    when(executionStore.findExecutionsByJobId(jobId)).thenReturn(List.of(execution));
+
+    List<ExecutionHistorySummary> history = service.getExecutionHistory(jobId);
+
+    assertEquals(1, history.size());
+    ExecutionHistorySummary summary = history.get(0);
+    assertEquals(executionId, summary.id());
+    assertEquals(jobId, summary.jobId());
+    assertEquals(2, summary.attempt());
+    assertEquals("node-1", summary.nodeId());
+    assertEquals(startedAt, summary.startedAt());
+    assertEquals(endedAt, summary.endedAt());
+    assertEquals(42_000L, summary.durationMs());
+    assertTrue(summary.succeeded());
+    assertNull(summary.errorMessage());
+    assertNull(summary.errorClass());
+    verify(executionStore).findExecutionsByJobId(jobId);
   }
 
   @Test
