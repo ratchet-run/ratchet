@@ -262,7 +262,7 @@ int canceled = scheduler.cancelRecurringJobByBusinessKey("hourly-report");
 
 ## Graceful Shutdown
 
-The `SchedulerLifecycleManager` and `DrainController` coordinate graceful shutdown:
+`RatchetLifecycle` and `DrainController` coordinate graceful shutdown:
 
 1. **Drain mode:** The `DrainController` signals the Poller to stop claiming new jobs
 2. **In-flight completion:** Already-running jobs are allowed to finish within a timeout
