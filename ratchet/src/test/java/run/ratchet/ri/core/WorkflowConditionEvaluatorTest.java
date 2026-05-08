@@ -1,11 +1,13 @@
 package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 import java.io.Serializable;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,6 +28,7 @@ import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.BatchStore;
 
@@ -232,6 +235,34 @@ class WorkflowConditionEvaluatorTest {
     assertFalse(
         evaluator.evaluate(
             condition(WorkflowCondition.ConditionType.CUSTOM), parentJob(JobStatus.SUCCEEDED)));
+  }
+
+  @Test
+  void customCondition_unknownTargetClass_failsHard() {
+    String expression =
+        payloadSerializer.serialize(
+            new JobPayload("com.example.DoesNotExist", "test", "()Z", true, List.of()));
+
+    assertThrows(
+        IllegalStateException.class,
+        () ->
+            evaluator.evaluate(
+                conditionWithExpression(WorkflowCondition.ConditionType.CUSTOM, expression),
+                parentJob(JobStatus.SUCCEEDED)));
+  }
+
+  @Test
+  void customCondition_unknownMethod_failsHard() {
+    String expression =
+        payloadSerializer.serialize(
+            new JobPayload(TestConditions.class.getName(), "doesNotExist", "()Z", true, List.of()));
+
+    assertThrows(
+        IllegalStateException.class,
+        () ->
+            evaluator.evaluate(
+                conditionWithExpression(WorkflowCondition.ConditionType.CUSTOM, expression),
+                parentJob(JobStatus.SUCCEEDED)));
   }
 
   @Test

@@ -15,9 +15,7 @@ import java.util.stream.Collectors;
 import org.jboss.logging.Logger;
 import org.objectweb.asm.Type;
 import run.ratchet.api.BatchContext;
-import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
-import run.ratchet.api.JobType;
 import run.ratchet.api.event.BatchCompletingEvent;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
@@ -227,7 +225,7 @@ public class BatchService {
                             metricsCollector.jobCompleted(
                                 parentId, parent.getPublicJobType(), metrics.getTotalDurationMs()));
 
-                publishBatchEvent(batch);
+                publishBatchEvent(batch, parent);
 
                 log.info(
                     String.format(
@@ -244,14 +242,14 @@ public class BatchService {
         .orElse(false);
   }
 
-  private void publishBatchEvent(BatchEntity batch) {
+  private void publishBatchEvent(BatchEntity batch, JobEntity parent) {
     eventPublisher.publish(
         new BatchCompletingEvent(
             batch.getId(),
-            null, // businessKey
-            JobType.BATCH,
-            JobPriority.NORMAL,
-            "system",
+            parent.getBusinessKey(),
+            parent.getPublicJobType(),
+            parent.getPriority(),
+            parent.getPickedBy(),
             batch.getTotalItems(),
             batch.getCompletedItems(),
             batch.getFailedItems()));

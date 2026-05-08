@@ -67,6 +67,8 @@ public class WorkflowConditionEvaluator {
         case BATCH_FAILURE_COUNT -> evaluateBatchFailureCount(condition, parentJob);
         case BATCH_CUSTOM -> evaluateBatchCustom(condition, parentJob);
       };
+    } catch (WorkflowConditionConfigurationException e) {
+      throw e;
     } catch (Exception e) {
       log.errorf(
           e,
@@ -242,6 +244,17 @@ public class WorkflowConditionEvaluator {
       }
       Object result = method.invoke(target, args);
       return Boolean.TRUE.equals(result);
+    } catch (ClassNotFoundException | NoSuchMethodException | IllegalAccessException e) {
+      throw new WorkflowConditionConfigurationException(
+          "Invalid workflow condition expression metadata: " + e.getMessage(), e);
+    } catch (IllegalArgumentException e) {
+      throw new WorkflowConditionConfigurationException(
+          "Workflow condition expression cannot be invoked with the stored metadata: "
+              + e.getMessage(),
+          e);
+    } catch (RuntimeException e) {
+      throw new WorkflowConditionConfigurationException(
+          "Workflow condition expression metadata could not be loaded: " + e.getMessage(), e);
     } catch (Exception e) {
       log.errorf(e, "Condition expression evaluation failed: %s", e.getMessage());
       return false;
@@ -287,6 +300,12 @@ public class WorkflowConditionEvaluator {
     } catch (Exception e) {
       log.warnf("Job result JSON parse error: %s", e.getMessage());
       return jobResultJson;
+    }
+  }
+
+  private static final class WorkflowConditionConfigurationException extends IllegalStateException {
+    private WorkflowConditionConfigurationException(String message, Throwable cause) {
+      super(message, cause);
     }
   }
 }

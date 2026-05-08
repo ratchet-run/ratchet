@@ -35,6 +35,13 @@ class CircuitBreakerRegistryTest {
         registry.getBreakerState("payments:DEFAULT", CircuitBreakerProfile.FAST));
   }
 
+  @Test
+  void getBreakerState_createsMissingBreaker() {
+    CircuitBreakerRegistry registry = new CircuitBreakerRegistry();
+
+    assertEquals(CircuitBreaker.State.CLOSED, registry.getBreakerState("shipping"));
+  }
+
   @SuppressWarnings("unchecked")
   private static Map<Object, CircuitBreaker> registryKeyMap(CircuitBreakerRegistry registry)
       throws NoSuchFieldException, IllegalAccessException {

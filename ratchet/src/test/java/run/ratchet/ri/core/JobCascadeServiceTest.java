@@ -1,14 +1,12 @@
 package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -137,7 +135,7 @@ class JobCascadeServiceTest {
     UUID rootId = UUID.randomUUID();
     when(jobCrudStore.findDependants(rootId)).thenReturn(List.of());
 
-    assertArrayEquals(new int[] {0, 0}, cascadeService.resumeChildrenIterative(rootId, false));
+    assertArrayEquals(new int[] {0, 0}, cascadeService.resumeChildrenIterative(rootId));
   }
 
   @Test
@@ -149,7 +147,7 @@ class JobCascadeServiceTest {
     when(jobCrudStore.findDependants(child.getId())).thenReturn(List.of());
     when(jobPauseStore.transitionFromPaused(child.getId(), JobStatus.PENDING)).thenReturn(true);
 
-    assertArrayEquals(new int[] {1, 0}, cascadeService.resumeChildrenIterative(rootId, false));
+    assertArrayEquals(new int[] {1, 0}, cascadeService.resumeChildrenIterative(rootId));
   }
 
   @Test
@@ -160,30 +158,9 @@ class JobCascadeServiceTest {
     when(jobCrudStore.findDependants(rootId)).thenReturn(List.of(child));
     when(jobCrudStore.findDependants(child.getId())).thenReturn(List.of());
 
-    assertArrayEquals(new int[] {0, 1}, cascadeService.resumeChildrenIterative(rootId, false));
+    assertArrayEquals(new int[] {0, 1}, cascadeService.resumeChildrenIterative(rootId));
     verify(jobPauseStore, never()).transitionFromPaused(any(), any());
   }
-
-  @Test
-  void resume_executeImmediately_scheduledTimeUnchanged() {
-    // executeImmediately is documented as a no-op via the post-split hot transition SPI.
-    // Resumed children keep their original scheduledTime regardless of the flag.
-    UUID rootId = UUID.randomUUID();
-    JobEntity child = job(JobStatus.PAUSED);
-    Instant originalTime = Instant.parse("2025-06-01T10:00:00Z");
-    child.setScheduledTime(originalTime);
-
-    when(jobCrudStore.findDependants(rootId)).thenReturn(List.of(child));
-    when(jobCrudStore.findDependants(child.getId())).thenReturn(List.of());
-    when(jobPauseStore.transitionFromPaused(child.getId(), JobStatus.PENDING)).thenReturn(true);
-
-    cascadeService.resumeChildrenIterative(rootId, true);
-
-    // scheduledTime must be unchanged — the flag is ignored
-    assertNotNull(child.getScheduledTime());
-  }
-
-  // ── helpers ───────────────────────────────────────────────────────────────
 
   @Test
   void resume_multiLevel_cascadesDownTree() {
@@ -198,7 +175,7 @@ class JobCascadeServiceTest {
     when(jobPauseStore.transitionFromPaused(a.getId(), JobStatus.PENDING)).thenReturn(true);
     when(jobPauseStore.transitionFromPaused(b.getId(), JobStatus.PENDING)).thenReturn(true);
 
-    assertArrayEquals(new int[] {2, 0}, cascadeService.resumeChildrenIterative(rootId, false));
+    assertArrayEquals(new int[] {2, 0}, cascadeService.resumeChildrenIterative(rootId));
   }
 
   @Test
@@ -217,7 +194,7 @@ class JobCascadeServiceTest {
     when(jobPauseStore.transitionFromPaused(b.getId(), JobStatus.PENDING)).thenReturn(true);
     when(jobPauseStore.transitionFromPaused(c.getId(), JobStatus.PENDING)).thenReturn(true);
 
-    int[] result = cascadeService.resumeChildrenIterative(rootId, false);
+    int[] result = cascadeService.resumeChildrenIterative(rootId);
 
     assertArrayEquals(new int[] {3, 0}, result);
     verify(jobPauseStore).transitionFromPaused(eq(c.getId()), eq(JobStatus.PENDING));

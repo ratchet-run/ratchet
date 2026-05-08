@@ -39,12 +39,9 @@ public final class JobPayloadFactory {
 
   private JobPayloadFactory() {}
 
-  /**
-   * Creates a {@link JobPayload} from a lambda; delegates to {@link #fromLambda(Serializable,
-   * boolean)} with versioning disabled.
-   */
+  /** Creates a {@link JobPayload} from a lambda. */
   public static JobPayload fromLambda(Serializable lambda) {
-    return fromLambda(lambda, false);
+    return fromInvocation(toInvocation(lambda));
   }
 
   /**
@@ -76,12 +73,6 @@ public final class JobPayloadFactory {
         step.methodDescriptor(),
         step.isStatic(),
         args);
-  }
-
-  @SuppressWarnings("java:S1172")
-  // versioned parameter reserved for future payload versioning support
-  public static JobPayload fromLambda(Serializable lambda, boolean versioned) {
-    return fromInvocation(toInvocation(lambda));
   }
 
   public static JobInvocation toInvocation(Serializable lambda) {

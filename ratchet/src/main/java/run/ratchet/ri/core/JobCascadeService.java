@@ -88,10 +88,9 @@ public class JobCascadeService {
   /**
    * Iteratively resumes all PAUSED children of the given root job using BFS.
    *
-   * @param executeImmediately if true, set scheduledTime to NOW for each resumed child
    * @return an array of two ints: [resumedCount, skippedCount]
    */
-  public int[] resumeChildrenIterative(UUID rootId, boolean executeImmediately) {
+  public int[] resumeChildrenIterative(UUID rootId) {
     int resumedCount = 0;
     int skippedCount = 0;
 
@@ -116,14 +115,6 @@ public class JobCascadeService {
 
           if (child.getStatus() == JobStatus.PAUSED
               && jobPauseStore.transitionFromPaused(child.getId(), JobStatus.PENDING)) {
-            // executeImmediately scheduled_time bump isn't expressible through the post-split
-            // hot transition SPI; resumed children keep their original scheduled_time. Logging
-            // the gap so callers can opt into the future explicit reschedule API.
-            if (executeImmediately) {
-              log.debugf(
-                  "executeImmediately ignored for resumed child %s — scheduled_time unchanged",
-                  child.getId());
-            }
             resumedCount++;
           } else {
             skippedCount++;

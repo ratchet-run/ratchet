@@ -58,8 +58,7 @@ public class CircuitBreakerRegistry {
   }
 
   public CircuitBreaker.State getBreakerState(String serviceName, CircuitBreakerProfile profile) {
-    CircuitBreaker breaker = breakers.get(new CircuitBreakerKey(serviceName, profile));
-    return breaker != null ? breaker.getState() : null;
+    return getBreaker(serviceName, profile).getState();
   }
 
   public void openBreaker(String serviceName) {
