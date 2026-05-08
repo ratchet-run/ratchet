@@ -151,6 +151,35 @@ class SchemaMigratorTest {
   }
 
   @Test
+  void failsWhenRecordedChecksumIsMissing() throws Exception {
+    ResultSet missingChecksum = existingVersion(" ");
+    when(selectVersion.executeQuery()).thenReturn(missingChecksum);
+
+    SchemaMigrationException ex =
+        assertThrows(
+            SchemaMigrationException.class,
+            () -> new SchemaMigrator(dataSource, "mysql", "schema-migrator").migrate());
+
+    assertTrue(ex.getMessage().contains("already recorded without a checksum"));
+    verify(insertVersion, never()).executeUpdate();
+    verify(connection, never()).commit();
+  }
+
+  @Test
+  void failsWhenMysqlAdvisoryLockCannotBeAcquired() throws Exception {
+    when(mysqlLock.getInt(1)).thenReturn(0);
+
+    SchemaMigrationException ex =
+        assertThrows(
+            SchemaMigrationException.class,
+            () -> new SchemaMigrator(dataSource, "mysql", "schema-migrator").migrate());
+
+    assertTrue(ex.getMessage().contains("Timed out acquiring MySQL schema migration lock"));
+    verify(statement, never()).execute(startsWith("CREATE TABLE IF NOT EXISTS"));
+    verify(statement, never()).executeQuery("SELECT RELEASE_LOCK('ratchet_schema_migration')");
+  }
+
+  @Test
   void postgresqlDialectUsesAdvisoryLock() throws Exception {
     SchemaMigrator.MigrationResult result =
         new SchemaMigrator(dataSource, "postgresql", "schema-migrator-empty").migrate();

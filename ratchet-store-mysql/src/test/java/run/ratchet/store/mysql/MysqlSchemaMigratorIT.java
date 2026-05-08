@@ -1,10 +1,12 @@
 package run.ratchet.store.mysql;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -21,6 +23,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.mysql.MySQLContainer;
+import run.ratchet.store.migration.SchemaMigrationException;
 import run.ratchet.store.migration.SchemaMigrator;
 import run.ratchet.tck.store.JdbcDriverDataSource;
 
@@ -65,6 +68,17 @@ class MysqlSchemaMigratorIT {
     }
   }
 
+  private static void corruptRecordedChecksum(String version) throws SQLException {
+    try (Connection c = newJdbcConnection();
+        PreparedStatement s =
+            c.prepareStatement(
+                "UPDATE ratchet_schema_version SET checksum = ? WHERE version = ?")) {
+      s.setString(1, "not-the-current-checksum");
+      s.setString(2, version);
+      s.executeUpdate();
+    }
+  }
+
   private static boolean tableExists(String name) throws SQLException {
     try (Connection c = newJdbcConnection();
         ResultSet rs = c.getMetaData().getTables(null, null, name, new String[] {"TABLE"})) {
@@ -101,6 +115,24 @@ class MysqlSchemaMigratorIT {
     assertEquals(0, second.appliedCount());
     assertEquals(rowsAfterFirst, second.skippedCount());
     assertEquals(rowsAfterFirst, countSchemaVersionRows());
+  }
+
+  @Test
+  void rejectsPreviouslyAppliedMigrationWithDifferentChecksum() throws Exception {
+    resetDatabase();
+
+    SchemaMigrator.MigrationResult first = new SchemaMigrator(dataSource(), "mysql").migrate();
+    assertTrue(first.appliedCount() > 0, "expected at least one migration applied");
+
+    String firstVersion = first.applied().get(0).version();
+    corruptRecordedChecksum(firstVersion);
+
+    SchemaMigrationException ex =
+        assertThrows(
+            SchemaMigrationException.class,
+            () -> new SchemaMigrator(dataSource(), "mysql").migrate());
+    assertTrue(ex.getMessage().contains("Checksum mismatch"), () -> "got: " + ex.getMessage());
+    assertTrue(ex.getMessage().contains(firstVersion), () -> "got: " + ex.getMessage());
   }
 
   @Test
