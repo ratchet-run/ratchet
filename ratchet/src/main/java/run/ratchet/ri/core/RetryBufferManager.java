@@ -29,7 +29,6 @@ import run.ratchet.store.spi.JobBatchStatusStore;
  * buffer per {@link JobExecutionType}, drained by {@link RetryBufferDrainer}.
  */
 @ApplicationScoped
-@Transactional
 public class RetryBufferManager {
 
   static final int MAX_BUFFER_SIZE_PER_TYPE = 1000;
@@ -177,6 +176,11 @@ public class RetryBufferManager {
     return total;
   }
 
+  /**
+   * Runs in a transaction because shutdown flush repairs persistent claims for jobs held only in
+   * memory by this node.
+   */
+  @Transactional
   public void flushOnShutdown() {
     int flushed = 0;
     String nodeId = nodeIdentityProvider.getNodeId();
