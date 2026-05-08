@@ -12,7 +12,6 @@ import run.ratchet.api.WorkflowCondition;
 import run.ratchet.store.entity.DlqAlertEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobLogEntity;
-import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.DlqAlertStore;
@@ -212,33 +211,45 @@ final class PostgresqlAuxiliaryOperations
   @Override
   public boolean tryAcquirePermit(String resource, UUID jobId, String nodeId) {
     // language=PostgreSQL
-    String selectSql =
+    String lockSql =
         """
-        SELECT max_concurrent, retry_delay_ms FROM scheduler_resource_limit
+        SELECT resource_name FROM scheduler_resource_limit
         WHERE resource_name = ?
         FOR UPDATE
         """;
-    Object[] limitRow;
-    try {
-      limitRow =
-          (Object[])
-              ctx.em().createNativeQuery(selectSql).setParameter(1, resource).getSingleResult();
-    } catch (NoResultException e) {
+    @SuppressWarnings("unchecked")
+    List<Object> lockedLimits =
+        ctx.em().createNativeQuery(lockSql).setParameter(1, resource).getResultList();
+    if (lockedLimits.isEmpty()) {
       return false;
     }
 
-    int maxConcurrent = ((Number) limitRow[0]).intValue();
+    // PostgreSQL uses one statement snapshot even after waiting on FOR UPDATE. Keep the lock
+    // acquisition as its own statement, then count and insert together with a fresh snapshot.
     // language=PostgreSQL
-    String countSql = "SELECT COUNT(*) FROM scheduler_resource_permit WHERE resource_name = ?";
-    long activeCount = ctx.countByNative(countSql, resource);
-
-    if (activeCount >= maxConcurrent) {
-      return false;
-    }
-
-    ResourcePermitEntity permit = ResourcePermitEntity.create(resource, jobId, nodeId);
-    ctx.em().persist(permit);
-    return true;
+    String insertSql =
+        """
+        INSERT INTO scheduler_resource_permit
+          (id, resource_name, job_id, node_id, acquired_at)
+        SELECT ?, resource_name, ?, ?, ?
+        FROM scheduler_resource_limit
+        WHERE resource_name = ?
+          AND (
+            SELECT COUNT(*) FROM scheduler_resource_permit
+            WHERE resource_name = ?
+          ) < max_concurrent
+        """;
+    int inserted =
+        ctx.em()
+            .createNativeQuery(insertSql)
+            .setParameter(1, UuidV7Factory.create())
+            .setParameter(2, jobId)
+            .setParameter(3, nodeId)
+            .setParameter(4, Timestamp.from(Instant.now()))
+            .setParameter(5, resource)
+            .setParameter(6, resource)
+            .executeUpdate();
+    return inserted > 0;
   }
 
   @Override
