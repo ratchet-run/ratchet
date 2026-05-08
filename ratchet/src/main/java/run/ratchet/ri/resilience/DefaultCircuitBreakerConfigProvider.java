@@ -2,6 +2,7 @@ package run.ratchet.ri.resilience;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.util.Objects;
 import run.ratchet.api.CircuitBreakerProfile;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.spi.CircuitBreakerConfig;
@@ -19,19 +20,19 @@ public class DefaultCircuitBreakerConfigProvider implements CircuitBreakerConfig
 
   @Inject
   public DefaultCircuitBreakerConfigProvider(RatchetOptions options) {
-    this.options = options;
+    this.options = Objects.requireNonNull(options, "options must not be null");
   }
 
   @Override
   public boolean isEnabled() {
-    return options.circuitBreaker().enabled();
+    return options().circuitBreaker().enabled();
   }
 
   @Override
   public CircuitBreakerConfig configFor(CircuitBreakerProfile profile) {
     CircuitBreakerConfiguration defaults = CircuitBreakerConfiguration.forProfile(profile);
     RatchetOptions.CircuitBreakerProfileOptions profileOptions =
-        options.circuitBreaker().profile(profile);
+        options().circuitBreaker().profile(profile);
     if (profileOptions == null) {
       return new CircuitBreakerConfig(
           defaults.failureRateThreshold(),
@@ -49,5 +50,12 @@ public class DefaultCircuitBreakerConfigProvider implements CircuitBreakerConfig
         profileOptions.slowCallThresholdMs(),
         profileOptions.permittedCallsInHalfOpen(),
         profileOptions.minimumCalls());
+  }
+
+  private RatchetOptions options() {
+    if (options == null) {
+      throw new IllegalStateException("RatchetOptions were not injected");
+    }
+    return options;
   }
 }

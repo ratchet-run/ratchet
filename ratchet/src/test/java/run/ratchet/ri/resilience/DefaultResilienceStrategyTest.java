@@ -114,6 +114,16 @@ class DefaultResilienceStrategyTest {
     assertEquals(3, config.minimumCalls());
   }
 
+  @Test
+  void defaultCircuitBreakerConfigProviderProtectedConstructorFailsClearlyWhenUsedWithoutInjection() {
+    DefaultCircuitBreakerConfigProvider provider = new DefaultCircuitBreakerConfigProvider();
+
+    IllegalStateException thrown =
+        assertThrows(IllegalStateException.class, provider::isEnabled);
+
+    assertEquals("RatchetOptions were not injected", thrown.getMessage());
+  }
+
   private static final class TestCircuitBreakerConfigProvider
       implements CircuitBreakerConfigProvider {
 
