@@ -141,6 +141,9 @@ jobs:
       - name: Build Docusaurus site
         working-directory: website
         run: npm run build
+        env:
+          UMAMI_HOST: ${{ secrets.UMAMI_HOST }}
+          UMAMI_SITE_ID: ${{ secrets.UMAMI_SITE_ID }}
 
       # --- Deploy ---
       - name: Upload Pages artifact

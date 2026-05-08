@@ -156,11 +156,9 @@ scheduler.enqueue(() -> validatePayment(orderId))
 Advanced workflows can branch on the result of previous steps:
 
 ```java
-scheduler.enqueue(() -> assessRisk(applicationId))
-    .when(result -> result.isSuccess() && result.getValue() < 50,
-          () -> autoApprove(applicationId))
-    .when(result -> result.isSuccess() && result.getValue() >= 50,
-          () -> manualReview(applicationId))
+scheduler.enqueue(() -> riskService.assessRisk(applicationId))
+    .whenResult(RiskConditions::isLowRisk, () -> autoApprove(applicationId))
+    .whenResult(RiskConditions::isHighRisk, () -> manualReview(applicationId))
     .thenOnFailure(() -> escalateToManager(applicationId))
     .submit();
 ```

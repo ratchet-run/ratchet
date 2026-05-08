@@ -42,21 +42,25 @@ const docs = [
     title: 'Install Ratchet',
     href: '/docs/getting-started/installation',
     description: 'Import the BOM, choose a store, apply schema, and produce runtime options.',
+    eventTarget: 'installation',
   },
   {
     title: 'Run a first job',
     href: '/docs/getting-started/quickstart',
     description: 'A short path from CDI injection to an executed persisted job.',
+    eventTarget: 'quickstart',
   },
   {
     title: 'Check the API',
     href: '/docs/api-reference/overview',
     description: 'Current public API, SPI, events, query service, and builder references.',
+    eventTarget: 'api-reference',
   },
   {
     title: 'Review conformance',
     href: '/docs/conformance',
     description: 'Store, API, and Jakarta runtime compatibility reports.',
+    eventTarget: 'conformance',
   },
 ];
 
@@ -69,9 +73,24 @@ function Highlight({title, description}: {title: string; description: string}) {
   );
 }
 
-function DocLink({title, href, description}: {title: string; href: string; description: string}) {
+function DocLink({
+  title,
+  href,
+  description,
+  eventTarget,
+}: {
+  title: string;
+  href: string;
+  description: string;
+  eventTarget: string;
+}) {
   return (
-    <Link className={styles.docLink} to={href}>
+    <Link
+      className={styles.docLink}
+      to={href}
+      data-umami-event="cta-click"
+      data-umami-event-location="docs-grid"
+      data-umami-event-target={eventTarget}>
       <span>{title}</span>
       <small>{description}</small>
     </Link>
@@ -96,12 +115,18 @@ export default function Home(): ReactNode {
             <div className={styles.actions}>
               <Link
                 className={`button button--primary button--lg ${styles.primaryCta}`}
-                to="/docs/getting-started/introduction">
+                to="/docs/getting-started/introduction"
+                data-umami-event="cta-click"
+                data-umami-event-location="hero"
+                data-umami-event-target="get-started">
                 Get Started
               </Link>
               <Link
                 className={`button button--outline button--secondary button--lg ${styles.secondaryCta}`}
-                to="/docs/api-reference/overview">
+                to="/docs/api-reference/overview"
+                data-umami-event="cta-click"
+                data-umami-event-location="hero"
+                data-umami-event-target="api-reference">
                 API Reference
               </Link>
             </div>

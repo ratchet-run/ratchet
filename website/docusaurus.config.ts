@@ -2,6 +2,11 @@ import {themes as prismThemes} from 'prism-react-renderer';
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 
+const umamiHost = process.env.UMAMI_HOST;
+const umamiSiteId = process.env.UMAMI_SITE_ID;
+const umamiEnabled =
+  process.env.NODE_ENV === 'production' && !!umamiHost && !!umamiSiteId;
+
 const config: Config = {
   title: 'Ratchet',
   tagline: 'The background job scheduler Jakarta EE has been missing.',
@@ -20,6 +25,18 @@ const config: Config = {
       tagName: 'link',
       attributes: { rel: 'manifest', href: '/site.webmanifest' },
     },
+    ...(umamiEnabled
+      ? [
+          {
+            tagName: 'script',
+            attributes: {
+              src: `${umamiHost}/script.js`,
+              'data-website-id': umamiSiteId!,
+              defer: 'true',
+            },
+          },
+        ]
+      : []),
   ],
 
   future: {
@@ -33,6 +50,8 @@ const config: Config = {
   projectName: 'ratchet',
 
   onBrokenLinks: 'warn',
+
+  clientModules: [require.resolve('./src/clientModules/umamiTracking.ts')],
 
   i18n: {
     defaultLocale: 'en',
