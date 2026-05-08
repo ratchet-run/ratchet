@@ -82,6 +82,17 @@ public abstract class AbstractLockStoreContract implements JobStoreContractFixtu
   }
 
   @Test
+  void unlock_byNonOwner_doesNotReleaseHeldLock() {
+    store().tryLock("lock1", Duration.ofMinutes(5), "node-A");
+
+    store().unlock("lock1", "node-B");
+
+    assertFalse(
+        store().tryLock("lock1", Duration.ofMinutes(5), "node-B"),
+        "Lock held by node-A must survive an unlock attempt by node-B");
+  }
+
+  @Test
   void tryLock_concurrent_atMostOneSucceeds() {
     AtomicInteger successCount = new AtomicInteger();
 
