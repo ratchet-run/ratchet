@@ -52,7 +52,7 @@ import java.util.function.Consumer;
  * subject to per-job authorization; use {@link #cancelJob(UUID)} for authorization-gated single-job
  * cancellation.
  *
- * @see jakarta.transaction.Transactional
+ * <p>The RI verifies these contracts through its Jakarta transaction TCK tests.
  */
 public interface JobSchedulerService {
 
@@ -62,8 +62,6 @@ public interface JobSchedulerService {
    *
    * <p><b>Transaction attribute:</b> {@code SUPPORTS}. Implementations MUST NOT open a transaction
    * on the builder-creation call. The builder's terminal {@code submit()} call is {@code REQUIRED}.
-   *
-   * @see run.ratchet.tck.jakarta.AbstractTxSupportsContract
    */
   JobBuilder enqueue(SerializableCheckedRunnable task);
 
@@ -73,8 +71,6 @@ public interface JobSchedulerService {
    *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}. Implementations MUST persist the job within
    * a transaction.
-   *
-   * @see run.ratchet.tck.jakarta.AbstractTxEnqueueContract
    */
   default JobHandle enqueueNow(SerializableCheckedRunnable task) {
     return enqueue(task).immediate().submit();
@@ -85,8 +81,6 @@ public interface JobSchedulerService {
    * a factory; no persistence occurs until {@code submit()} is invoked on the builder.
    *
    * <p><b>Transaction attribute:</b> {@code SUPPORTS}.
-   *
-   * @see run.ratchet.tck.jakarta.AbstractTxSupportsContract
    */
   JobBuilder schedule(Duration delay, SerializableCheckedRunnable task);
 
@@ -95,8 +89,6 @@ public interface JobSchedulerService {
    * submit()} is invoked on the builder.
    *
    * <p><b>Transaction attribute:</b> {@code SUPPORTS}.
-   *
-   * @see run.ratchet.tck.jakarta.AbstractTxSupportsContract
    */
   BatchBuilder enqueueBatch(String name);
 
@@ -105,8 +97,6 @@ public interface JobSchedulerService {
    * invoked on the builder.
    *
    * <p><b>Transaction attribute:</b> {@code SUPPORTS}.
-   *
-   * @see run.ratchet.tck.jakarta.AbstractTxSupportsContract
    */
   <T extends Serializable> StreamingBatchBuilder<T> streamingBatch(String name);
 
@@ -115,8 +105,6 @@ public interface JobSchedulerService {
    * invoked on the builder.
    *
    * <p><b>Transaction attribute:</b> {@code SUPPORTS}.
-   *
-   * @see run.ratchet.tck.jakarta.AbstractTxSupportsContract
    */
   RecurringJobBuilder scheduleRecurring(String cron, ZoneId zone, SerializableCheckedRunnable task);
 
@@ -137,7 +125,6 @@ public interface JobSchedulerService {
    * replacement, and the cancellation of the old job MUST execute within a single transaction.
    *
    * @param jobId UUIDv7 job id of the job to replace
-   * @see run.ratchet.tck.jakarta.AbstractTxRequiredContract
    */
   JobHandle replace(
       UUID jobId, Duration delay, SerializableCheckedRunnable newTask, JobOptions opts);
@@ -154,7 +141,6 @@ public interface JobSchedulerService {
    * @param jobId UUIDv7 job id
    * @return true if the job was successfully canceled, false if the job was not found or already in
    *     a terminal state
-   * @see run.ratchet.tck.jakarta.AbstractTxRequiredContract
    */
   boolean cancelJob(UUID jobId);
 
@@ -191,7 +177,6 @@ public interface JobSchedulerService {
    * operation and MUST NOT participate in a transaction.
    *
    * @param listener a consumer that receives all scheduler events
-   * @see run.ratchet.tck.jakarta.AbstractTxNotSupportedContract
    */
   void addEventListener(Consumer<Object> listener);
 
@@ -199,8 +184,6 @@ public interface JobSchedulerService {
    * Removes a previously registered event listener.
    *
    * <p><b>Transaction attribute:</b> {@code NOT_SUPPORTED}.
-   *
-   * @see run.ratchet.tck.jakarta.AbstractTxNotSupportedContract
    */
   void removeEventListener(Consumer<Object> listener);
 
@@ -217,7 +200,6 @@ public interface JobSchedulerService {
    * @param jobId UUIDv7 job id
    * @return true if the job was paused or was already paused, false if the job was not found or in
    *     an incompatible state (RUNNING, SUCCEEDED, CANCELED)
-   * @see run.ratchet.tck.jakarta.AbstractTxRequiredContract
    */
   boolean pauseJob(UUID jobId);
 
@@ -234,7 +216,6 @@ public interface JobSchedulerService {
    *
    * @param jobId UUIDv7 job id
    * @return true if the job was resumed, false if the job was not found or not in PAUSED state
-   * @see run.ratchet.tck.jakarta.AbstractTxRequiredContract
    */
   boolean resumeJob(UUID jobId);
 
@@ -251,7 +232,6 @@ public interface JobSchedulerService {
    *
    * @param jobId UUIDv7 job id
    * @return true if the job was successfully reset to PENDING, false if not found or not FAILED
-   * @see run.ratchet.tck.jakarta.AbstractTxRequiredContract
    */
   boolean retryJob(UUID jobId);
 
@@ -330,7 +310,6 @@ public interface JobSchedulerService {
    * <p><b>Transaction attribute:</b> {@code REQUIRED}.
    *
    * @return the number of jobs canceled
-   * @see run.ratchet.tck.jakarta.AbstractTxRequiredContract
    */
   int cancelRecurringJobsByTag(String tag);
 
@@ -344,7 +323,6 @@ public interface JobSchedulerService {
    * <p><b>Transaction attribute:</b> {@code REQUIRED}.
    *
    * @return the number of jobs canceled (0 or 1, since business keys are active-unique)
-   * @see run.ratchet.tck.jakarta.AbstractTxRequiredContract
    */
   int cancelRecurringJobByBusinessKey(String businessKey);
 }

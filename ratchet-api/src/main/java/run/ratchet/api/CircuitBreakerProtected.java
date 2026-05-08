@@ -14,7 +14,7 @@ import java.lang.annotation.Target;
  * <p>When the RI encounters this annotation on a target method's class or method, it wraps
  * invocation through the configured {@link run.ratchet.spi.ResilienceStrategy}.
  *
- * <h3>Usage</h3>
+ * <h2>Usage</h2>
  *
  * <pre>{@code
  * @CircuitBreakerProtected(service = "payment-gateway", profile = CircuitBreakerProfile.EXTERNAL_API)

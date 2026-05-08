@@ -31,7 +31,7 @@ import run.ratchet.api.JobType;
  * jobCreator}, {@code jobType}). These keys must be removed when the scope is closed — use targeted
  * {@code MDC.remove(key)} calls, never {@code MDC.clear()}, to avoid wiping application MDC keys
  * set by Servlet filters or JAX-RS interceptors. Removal of the four Ratchet-owned keys remains the
- * responsibility of {@link run.ratchet.ri.core.JobMdcContext}.
+ * responsibility of the RI job MDC context.
  *
  * <h2>Default implementation</h2>
  *

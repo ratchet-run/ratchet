@@ -10,7 +10,7 @@ import java.io.Serializable;
  * must contain exactly one method invocation. Multi-statement lambdas will fail at submission time
  * with an {@code IllegalArgumentException}.
  *
- * <h3>Correct:</h3>
+ * <h2>Correct</h2>
  *
  * <pre>{@code
  * scheduler.enqueue(MyService::processData).submit();
@@ -18,7 +18,7 @@ import java.io.Serializable;
  * scheduler.enqueue(() -> myService.process(userId)).submit();
  * }</pre>
  *
- * <h3>Incorrect (multi-statement):</h3>
+ * <h2>Incorrect multi-statement lambda</h2>
  *
  * <pre>{@code
  * // WRONG - Will throw IllegalArgumentException
