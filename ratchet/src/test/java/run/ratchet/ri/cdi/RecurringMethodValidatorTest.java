@@ -32,6 +32,15 @@ class RecurringMethodValidatorTest {
   }
 
   @Test
+  void validate_staticMethod_throws() throws Exception {
+    Method method = InvalidBean.class.getDeclaredMethod("staticMethod");
+    IllegalArgumentException ex =
+        assertThrows(
+            IllegalArgumentException.class, () -> RecurringMethodValidator.validate(method));
+    assertTrue(ex.getMessage().contains("must not be static"));
+  }
+
+  @Test
   void validate_tooManyParams_throws() throws Exception {
     Method method =
         InvalidBean.class.getDeclaredMethod("tooManyParams", JobContext.class, String.class);
@@ -64,5 +73,7 @@ class RecurringMethodValidatorTest {
     public void wrongParamType(String notContext) {}
 
     private void privateMethod() {}
+
+    public static void staticMethod() {}
   }
 }

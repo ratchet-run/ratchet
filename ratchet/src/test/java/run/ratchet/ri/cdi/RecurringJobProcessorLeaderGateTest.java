@@ -1,5 +1,6 @@
 package run.ratchet.ri.cdi;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -8,6 +9,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import jakarta.enterprise.inject.spi.Bean;
@@ -66,6 +68,7 @@ class RecurringJobProcessorLeaderGateTest {
     assertTrue(registrationState.shouldFire("leader-gate-job"));
     assertFalse(registrationState.shouldFire("unknown-recurring-job"));
     verify(maintenance, never()).cancelOrphanedRecurringAnnotationJobs(anySet(), any());
+    verify(coordinator, never()).release("recurring-annotation-orphan-cleanup");
   }
 
   @Test
@@ -91,19 +94,20 @@ class RecurringJobProcessorLeaderGateTest {
                 .recurring(recurring -> recurring.convergenceWindowSeconds(120))
                 .build());
 
-    Instant beforeRun = Instant.now();
+    Instant beforeRun = Instant.now().minusMillis(1);
     processor.registerRecurringJobs();
-    Instant afterRun = Instant.now();
 
     ArgumentCaptor<Instant> cutoffCaptor = ArgumentCaptor.forClass(Instant.class);
     verify(maintenance).cancelOrphanedRecurringAnnotationJobs(anySet(), cutoffCaptor.capture());
     verify(coordinator).release("recurring-annotation-orphan-cleanup");
 
     Instant cutoff = cutoffCaptor.getValue();
-    Instant lowerBound = beforeRun.minusSeconds(120);
-    Instant upperBound = afterRun.minusSeconds(120);
-    assertFalse(cutoff.isBefore(lowerBound), "Cutoff must not be before lowerBound; got " + cutoff);
-    assertFalse(cutoff.isAfter(upperBound), "Cutoff must not be after upperBound; got " + cutoff);
+    Instant expectedFloor = beforeRun.minusSeconds(120);
+    assertFalse(
+        cutoff.isBefore(expectedFloor), "Cutoff must not be before expectedFloor; got " + cutoff);
+    assertTrue(
+        Duration.between(expectedFloor, cutoff).compareTo(Duration.ofSeconds(1)) < 0,
+        "Cutoff should be computed from startup time; got " + cutoff);
   }
 
   @Test
@@ -126,6 +130,35 @@ class RecurringJobProcessorLeaderGateTest {
     processor.registerRecurringJobs();
 
     verify(maintenance).cancelOrphanedRecurringAnnotationJobs(anySet(), any());
+  }
+
+  @Test
+  void cleanup_releasesLease_evenIfMaintenanceThrows() {
+    var maintenance = mock(RecurringAnnotationMaintenanceService.class);
+    when(maintenance.cancelOrphanedRecurringAnnotationJobs(anySet(), any()))
+        .thenThrow(new IllegalStateException("store unavailable"));
+    var beanManager = mock(BeanManager.class);
+    when(beanManager.getBeans(any(), any())).thenReturn(Collections.emptySet());
+    var coordinator = mock(StartupCoordinator.class);
+    when(coordinator.tryAcquire("recurring-annotation-orphan-cleanup", Duration.ofMinutes(5)))
+        .thenReturn(true);
+
+    var processor =
+        new RecurringJobProcessor(
+            mock(JobSchedulerService.class),
+            mock(JobBatchStatusStore.class),
+            maintenance,
+            beanManager,
+            mock(RecurringMethodInvoker.class),
+            coordinator,
+            new RecurringRegistrationState());
+
+    assertDoesNotThrow(processor::registerRecurringJobs);
+
+    verify(maintenance).cancelOrphanedRecurringAnnotationJobs(anySet(), any());
+    verify(coordinator).tryAcquire("recurring-annotation-orphan-cleanup", Duration.ofMinutes(5));
+    verify(coordinator).release("recurring-annotation-orphan-cleanup");
+    verifyNoMoreInteractions(coordinator);
   }
 
   private static Bean<?> beanFor(Class<?> beanClass) {

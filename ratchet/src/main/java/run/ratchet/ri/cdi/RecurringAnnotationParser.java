@@ -31,6 +31,10 @@ final class RecurringAnnotationParser {
    * HIGH, 9-10 CRITICAL.
    */
   static JobPriority mapPriority(int priority) {
+    if (priority < 1 || priority > 10) {
+      throw new IllegalArgumentException(
+          "@Recurring priority must be between 1 and 10: " + priority);
+    }
     if (priority <= 2) {
       return JobPriority.LOWEST;
     } else if (priority <= 4) {

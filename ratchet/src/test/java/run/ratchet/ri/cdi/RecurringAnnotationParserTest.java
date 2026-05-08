@@ -2,6 +2,7 @@ package run.ratchet.ri.cdi;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.annotation.Annotation;
@@ -196,5 +197,17 @@ class RecurringAnnotationParserTest {
   void mapPriority_criticalRange() {
     assertEquals(JobPriority.CRITICAL, RecurringAnnotationParser.mapPriority(9));
     assertEquals(JobPriority.CRITICAL, RecurringAnnotationParser.mapPriority(10));
+  }
+
+  @Test
+  void mapPriority_rejectsValuesBelowDocumentedRange() {
+    assertThrows(IllegalArgumentException.class, () -> RecurringAnnotationParser.mapPriority(0));
+    assertThrows(IllegalArgumentException.class, () -> RecurringAnnotationParser.mapPriority(-5));
+  }
+
+  @Test
+  void mapPriority_rejectsValuesAboveDocumentedRange() {
+    assertThrows(IllegalArgumentException.class, () -> RecurringAnnotationParser.mapPriority(11));
+    assertThrows(IllegalArgumentException.class, () -> RecurringAnnotationParser.mapPriority(100));
   }
 }
