@@ -139,17 +139,17 @@ final class RatchetConfigKeys {
   static final RatchetConfigKey<Long> LOG_RETENTION_DAYS =
       longKey("ratchet.logs.retention-days", "RATCHET_LOG_RETENTION_DAYS", 30L, 0L);
 
-  static final RatchetConfigKey<Boolean> SLACK_NOTIFICATIONS_ENABLED =
-      boolKey("ratchet.notifications.slack-enabled", "RATCHET_SLACK_NOTIFICATIONS_ENABLED", true);
-  static final RatchetConfigKey<String> SLACK_DLQ_CHANNEL =
+  static final RatchetConfigKey<Boolean> NOTIFICATIONS_ENABLED =
+      boolKey("ratchet.notifications.enabled", "RATCHET_NOTIFICATIONS_ENABLED", true);
+  static final RatchetConfigKey<String> DLQ_ALERT_CHANNEL =
       stringKey(
-          "ratchet.notifications.slack-dlq-channel",
-          "RATCHET_SLACK_DLQ_CHANNEL",
+          "ratchet.notifications.dlq-alert-channel",
+          "RATCHET_DLQ_ALERT_CHANNEL",
           "#job-scheduler-dlq");
-  static final RatchetConfigKey<String> SLACK_TIMEOUT_CHANNEL =
+  static final RatchetConfigKey<String> TIMEOUT_ALERT_CHANNEL =
       stringKey(
-          "ratchet.notifications.slack-timeout-channel",
-          "RATCHET_SLACK_TIMEOUT_CHANNEL",
+          "ratchet.notifications.timeout-alert-channel",
+          "RATCHET_TIMEOUT_ALERT_CHANNEL",
           "#ops-alerts");
 
   static final RatchetConfigKey<Boolean> SCHEMA_AUTO_MIGRATE =
@@ -229,15 +229,6 @@ final class RatchetConfigKeys {
     return longKey(
         "ratchet.circuit-breaker." + propertySegment(profile) + ".wait-ms",
         "RATCHET_CB_" + segment + "_WAIT_MS",
-        defaultValue,
-        0L);
-  }
-
-  static RatchetConfigKey<Long> circuitBreakerSlowCallMs(String profile, long defaultValue) {
-    String segment = profileSegment(profile);
-    return longKey(
-        "ratchet.circuit-breaker." + propertySegment(profile) + ".slow-call-ms",
-        "RATCHET_CB_" + segment + "_SLOW_CALL_MS",
         defaultValue,
         0L);
   }

@@ -34,6 +34,11 @@ class JobOptionsTest {
   }
 
   @Test
+  void withMaxRetries_rejectsNegativeRetries() {
+    assertThrows(IllegalArgumentException.class, () -> JobOptions.defaults().withMaxRetries(-1));
+  }
+
+  @Test
   void withPriority_returnsNewInstancePreservingOtherFields() {
     JobOptions original = JobOptions.defaults().withMaxRetries(3);
     JobOptions updated = original.withPriority(JobPriority.HIGH);
@@ -64,6 +69,36 @@ class JobOptionsTest {
     JobOptions opts = JobOptions.defaults().withTimeout(Duration.ZERO);
 
     assertEquals(0, opts.timeoutSec());
+  }
+
+  @Test
+  void withTimeout_rejectsNegativeDuration() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> JobOptions.defaults().withTimeout(Duration.ofSeconds(-1)));
+  }
+
+  @Test
+  void withTimeout_rejectsDurationsOutsideIntegerRange() {
+    assertThrows(
+        ArithmeticException.class,
+        () -> JobOptions.defaults().withTimeout(Duration.ofSeconds((long) Integer.MAX_VALUE + 1L)));
+  }
+
+  @Test
+  void constructorRejectsInvalidValues() {
+    assertThrows(
+        NullPointerException.class,
+        () -> new JobOptions(null, 0, BackoffPolicy.NONE, Duration.ZERO, 0));
+    assertThrows(
+        NullPointerException.class,
+        () -> new JobOptions(JobPriority.NORMAL, 0, null, Duration.ZERO, 0));
+    assertThrows(
+        NullPointerException.class,
+        () -> new JobOptions(JobPriority.NORMAL, 0, BackoffPolicy.NONE, null, 0));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new JobOptions(JobPriority.NORMAL, 0, BackoffPolicy.NONE, Duration.ZERO, -1));
   }
 
   @Test

@@ -76,10 +76,9 @@ public final class RatchetOptionsFactory {
         .notifications(
             notifications ->
                 notifications
-                    .slackNotificationsEnabled(
-                        config.get(RatchetConfigKeys.SLACK_NOTIFICATIONS_ENABLED))
-                    .slackDlqChannel(config.get(RatchetConfigKeys.SLACK_DLQ_CHANNEL))
-                    .slackTimeoutChannel(config.get(RatchetConfigKeys.SLACK_TIMEOUT_CHANNEL)))
+                    .enabled(config.get(RatchetConfigKeys.NOTIFICATIONS_ENABLED))
+                    .dlqAlertChannel(config.get(RatchetConfigKeys.DLQ_ALERT_CHANNEL))
+                    .timeoutAlertChannel(config.get(RatchetConfigKeys.TIMEOUT_ALERT_CHANNEL)))
         .schema(
             schema ->
                 schema
@@ -208,10 +207,6 @@ public final class RatchetOptionsFactory {
                         RatchetConfigKeys.circuitBreakerWindowSize(
                             profileName, defaults.slidingWindowSize())))
                 .waitDurationMs(waitDurationMs(config, profileName, defaults.waitDurationMs()))
-                .slowCallThresholdMs(
-                    config.get(
-                        RatchetConfigKeys.circuitBreakerSlowCallMs(
-                            profileName, defaults.slowCallThresholdMs())))
                 .permittedCallsInHalfOpen(
                     config.get(
                         RatchetConfigKeys.circuitBreakerHalfOpenCalls(

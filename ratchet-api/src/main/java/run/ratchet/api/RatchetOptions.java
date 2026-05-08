@@ -99,6 +99,8 @@ public class RatchetOptions {
 
   private static Map<String, Integer> defaultConcurrency() {
     Map<String, Integer> defaults = new HashMap<>();
+    // Keys are JobExecutionType.name() values, but ratchet-api intentionally does not depend on
+    // the store module that owns that enum.
     defaults.put("SINGLE", 20);
     defaults.put("RECURRING", 5);
     defaults.put("BATCH_CHILD", 30);
@@ -114,15 +116,12 @@ public class RatchetOptions {
       defaultCircuitBreakerProfiles() {
     Map<CircuitBreakerProfile, CircuitBreakerProfileBuilder> profiles =
         new EnumMap<>(CircuitBreakerProfile.class);
+    profiles.put(CircuitBreakerProfile.DEFAULT, circuitBreakerProfile(50.0f, 100, 30000L, 3, 5));
+    profiles.put(CircuitBreakerProfile.FAST, circuitBreakerProfile(50.0f, 20, 10000L, 2, 3));
+    profiles.put(CircuitBreakerProfile.CRITICAL, circuitBreakerProfile(75.0f, 200, 60000L, 5, 10));
     profiles.put(
-        CircuitBreakerProfile.DEFAULT, circuitBreakerProfile(50.0f, 100, 30000L, 10000L, 3, 5));
-    profiles.put(CircuitBreakerProfile.FAST, circuitBreakerProfile(50.0f, 20, 10000L, 2000L, 2, 3));
-    profiles.put(
-        CircuitBreakerProfile.CRITICAL, circuitBreakerProfile(75.0f, 200, 60000L, 30000L, 5, 10));
-    profiles.put(
-        CircuitBreakerProfile.EXTERNAL_API, circuitBreakerProfile(60.0f, 50, 60000L, 5000L, 3, 5));
-    profiles.put(
-        CircuitBreakerProfile.CLAIM_PATH, circuitBreakerProfile(50.0f, 20, 5000L, 2000L, 1, 5));
+        CircuitBreakerProfile.EXTERNAL_API, circuitBreakerProfile(60.0f, 50, 60000L, 3, 5));
+    profiles.put(CircuitBreakerProfile.CLAIM_PATH, circuitBreakerProfile(50.0f, 20, 5000L, 1, 5));
     return profiles;
   }
 
@@ -130,14 +129,12 @@ public class RatchetOptions {
       float failureRateThreshold,
       int slidingWindowSize,
       long waitDurationMs,
-      long slowCallThresholdMs,
       int permittedCallsInHalfOpen,
       int minimumCalls) {
     CircuitBreakerProfileBuilder builder = new CircuitBreakerProfileBuilder();
     builder.failureRateThreshold(failureRateThreshold);
     builder.slidingWindowSize(slidingWindowSize);
     builder.waitDurationMs(waitDurationMs);
-    builder.slowCallThresholdMs(slowCallThresholdMs);
     builder.permittedCallsInHalfOpen(permittedCallsInHalfOpen);
     builder.minimumCalls(minimumCalls);
     return builder;
@@ -318,7 +315,7 @@ public class RatchetOptions {
       long logRetentionDays) {}
 
   public record NotificationOptions(
-      boolean slackNotificationsEnabled, String slackDlqChannel, String slackTimeoutChannel) {}
+      boolean enabled, String dlqAlertChannel, String timeoutAlertChannel) {}
 
   public record SchemaOptions(
       boolean autoMigrate, String migrationDialect, String migrationPrefix) {}
@@ -348,7 +345,6 @@ public class RatchetOptions {
       float failureRateThreshold,
       int slidingWindowSize,
       long waitDurationMs,
-      long slowCallThresholdMs,
       int permittedCallsInHalfOpen,
       int minimumCalls) {}
 
@@ -796,30 +792,29 @@ public class RatchetOptions {
   }
 
   public static final class NotificationBuilder {
-    private boolean slackNotificationsEnabled = true;
-    private String slackDlqChannel = "#job-scheduler-dlq";
-    private String slackTimeoutChannel = "#ops-alerts";
+    private boolean enabled = true;
+    private String dlqAlertChannel = "#job-scheduler-dlq";
+    private String timeoutAlertChannel = "#ops-alerts";
 
     private NotificationBuilder() {}
 
-    public NotificationBuilder slackNotificationsEnabled(boolean slackNotificationsEnabled) {
-      this.slackNotificationsEnabled = slackNotificationsEnabled;
+    public NotificationBuilder enabled(boolean enabled) {
+      this.enabled = enabled;
       return this;
     }
 
-    public NotificationBuilder slackDlqChannel(String slackDlqChannel) {
-      this.slackDlqChannel = requireText("slackDlqChannel", slackDlqChannel);
+    public NotificationBuilder dlqAlertChannel(String dlqAlertChannel) {
+      this.dlqAlertChannel = requireText("dlqAlertChannel", dlqAlertChannel);
       return this;
     }
 
-    public NotificationBuilder slackTimeoutChannel(String slackTimeoutChannel) {
-      this.slackTimeoutChannel = requireText("slackTimeoutChannel", slackTimeoutChannel);
+    public NotificationBuilder timeoutAlertChannel(String timeoutAlertChannel) {
+      this.timeoutAlertChannel = requireText("timeoutAlertChannel", timeoutAlertChannel);
       return this;
     }
 
     private NotificationOptions build() {
-      return new NotificationOptions(
-          slackNotificationsEnabled, slackDlqChannel, slackTimeoutChannel);
+      return new NotificationOptions(enabled, dlqAlertChannel, timeoutAlertChannel);
     }
   }
 
@@ -967,7 +962,6 @@ public class RatchetOptions {
     private float failureRateThreshold = 50.0f;
     private int slidingWindowSize = 100;
     private long waitDurationMs = 30000L;
-    private long slowCallThresholdMs = 10000L;
     private int permittedCallsInHalfOpen = 3;
     private int minimumCalls = 5;
 
@@ -994,11 +988,6 @@ public class RatchetOptions {
       return this;
     }
 
-    public CircuitBreakerProfileBuilder slowCallThresholdMs(long slowCallThresholdMs) {
-      this.slowCallThresholdMs = atLeast("slowCallThresholdMs", slowCallThresholdMs, 0L);
-      return this;
-    }
-
     public CircuitBreakerProfileBuilder permittedCallsInHalfOpen(int permittedCallsInHalfOpen) {
       this.permittedCallsInHalfOpen =
           atLeast("permittedCallsInHalfOpen", permittedCallsInHalfOpen, 1);
@@ -1015,7 +1004,6 @@ public class RatchetOptions {
           failureRateThreshold,
           slidingWindowSize,
           waitDurationMs,
-          slowCallThresholdMs,
           permittedCallsInHalfOpen,
           minimumCalls);
     }

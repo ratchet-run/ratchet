@@ -14,8 +14,7 @@ class CircuitBreakerTest {
   @BeforeEach
   void setUp() {
     breaker =
-        new CircuitBreaker(
-            "test-service", new CircuitBreakerConfiguration(50.0f, 4, 100L, 5000L, 2, 2));
+        new CircuitBreaker("test-service", new CircuitBreakerConfiguration(50.0f, 4, 100L, 2, 2));
   }
 
   @Test
@@ -133,24 +132,20 @@ class CircuitBreakerTest {
   void configurationRejectsInvalidValues() {
     assertThrows(
         IllegalArgumentException.class,
-        () -> new CircuitBreakerConfiguration(-1.0f, 4, 100L, 5000L, 2, 2));
+        () -> new CircuitBreakerConfiguration(-1.0f, 4, 100L, 2, 2));
     assertThrows(
         IllegalArgumentException.class,
-        () -> new CircuitBreakerConfiguration(101.0f, 4, 100L, 5000L, 2, 2));
+        () -> new CircuitBreakerConfiguration(101.0f, 4, 100L, 2, 2));
     assertThrows(
         IllegalArgumentException.class,
-        () -> new CircuitBreakerConfiguration(50.0f, 0, 100L, 5000L, 2, 2));
+        () -> new CircuitBreakerConfiguration(50.0f, 0, 100L, 2, 2));
+    assertThrows(
+        IllegalArgumentException.class, () -> new CircuitBreakerConfiguration(50.0f, 4, -1L, 2, 2));
     assertThrows(
         IllegalArgumentException.class,
-        () -> new CircuitBreakerConfiguration(50.0f, 4, -1L, 5000L, 2, 2));
+        () -> new CircuitBreakerConfiguration(50.0f, 4, 100L, 0, 2));
     assertThrows(
         IllegalArgumentException.class,
-        () -> new CircuitBreakerConfiguration(50.0f, 4, 100L, -1L, 2, 2));
-    assertThrows(
-        IllegalArgumentException.class,
-        () -> new CircuitBreakerConfiguration(50.0f, 4, 100L, 5000L, 0, 2));
-    assertThrows(
-        IllegalArgumentException.class,
-        () -> new CircuitBreakerConfiguration(50.0f, 4, 100L, 5000L, 2, 0));
+        () -> new CircuitBreakerConfiguration(50.0f, 4, 100L, 2, 0));
   }
 }

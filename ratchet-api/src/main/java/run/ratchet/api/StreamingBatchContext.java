@@ -13,15 +13,4 @@ import java.util.UUID;
  * @see BatchContext
  * @see StreamingBatchBuilder#onProgress(java.util.function.Consumer)
  */
-public record StreamingBatchContext(UUID batchId, int processedItems, int chunksInserted) {
-
-  /** Alias for {@link #chunksInserted()}. */
-  public int insertOperations() {
-    return chunksInserted;
-  }
-
-  /** Alias for {@link #processedItems()}. */
-  public int itemsStreamed() {
-    return processedItems;
-  }
-}
+public record StreamingBatchContext(UUID batchId, int processedItems, int chunksInserted) {}

@@ -8,6 +8,5 @@ public record CircuitBreakerConfig(
     float failureRateThreshold,
     int slidingWindowSize,
     long waitDurationMs,
-    long slowCallThresholdMs,
     int permittedCallsInHalfOpen,
     int minimumCalls) {}

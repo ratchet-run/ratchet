@@ -71,8 +71,7 @@ class PollerTest {
     when(nodeIdProvider.getNodeId()).thenReturn("node-1");
     when(drainController.isDraining()).thenReturn(false);
     claimCircuitBreaker =
-        new CircuitBreaker(
-            "store.claim", new CircuitBreakerConfiguration(50.0f, 2, 5_000L, 2_000L, 1, 2));
+        new CircuitBreaker("store.claim", new CircuitBreakerConfiguration(50.0f, 2, 5_000L, 1, 2));
     when(circuitBreakerRegistry.getBreaker("store.claim", CircuitBreakerProfile.CLAIM_PATH))
         .thenReturn(claimCircuitBreaker);
 
@@ -152,8 +151,7 @@ class PollerTest {
   @Test
   void tick_halfOpenProbeRecoversAfterOpenWait() {
     claimCircuitBreaker =
-        new CircuitBreaker(
-            "store.claim", new CircuitBreakerConfiguration(50.0f, 2, 0L, 2_000L, 1, 2));
+        new CircuitBreaker("store.claim", new CircuitBreakerConfiguration(50.0f, 2, 0L, 1, 2));
     when(circuitBreakerRegistry.getBreaker("store.claim", CircuitBreakerProfile.CLAIM_PATH))
         .thenReturn(claimCircuitBreaker);
     poller = newPoller(true);

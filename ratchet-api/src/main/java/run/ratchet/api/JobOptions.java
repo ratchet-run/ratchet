@@ -1,6 +1,7 @@
 package run.ratchet.api;
 
 import java.time.Duration;
+import java.util.Objects;
 
 /**
  * Immutable configuration for job execution: priority, retry behavior, backoff strategy, and
@@ -17,6 +18,18 @@ public record JobOptions(
     BackoffPolicy backoffPolicy,
     Duration backoffParam,
     int timeoutSec) {
+
+  public JobOptions {
+    priority = Objects.requireNonNull(priority, "priority must not be null");
+    backoffPolicy = Objects.requireNonNull(backoffPolicy, "backoffPolicy must not be null");
+    backoffParam = Objects.requireNonNull(backoffParam, "backoffParam must not be null");
+    if (maxRetries < 0) {
+      throw new IllegalArgumentException("maxRetries must be >= 0");
+    }
+    if (timeoutSec < 0) {
+      throw new IllegalArgumentException("timeoutSec must be >= 0");
+    }
+  }
 
   /** Returns a JobOptions with NORMAL priority, no retries, no backoff, and no timeout. */
   public static JobOptions defaults() {
@@ -43,6 +56,11 @@ public record JobOptions(
    * timeout enforcement.
    */
   public JobOptions withTimeout(Duration t) {
-    return new JobOptions(priority, maxRetries, backoffPolicy, backoffParam, (int) t.toSeconds());
+    return new JobOptions(
+        priority,
+        maxRetries,
+        backoffPolicy,
+        backoffParam,
+        Math.toIntExact(Objects.requireNonNull(t, "timeout must not be null").toSeconds()));
   }
 }

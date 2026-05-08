@@ -38,7 +38,6 @@ public class DefaultCircuitBreakerConfigProvider implements CircuitBreakerConfig
           defaults.failureRateThreshold(),
           defaults.slidingWindowSize(),
           defaults.waitDurationMs(),
-          defaults.slowCallThresholdMs(),
           defaults.permittedCallsInHalfOpen(),
           defaults.minimumCalls());
     }
@@ -47,7 +46,6 @@ public class DefaultCircuitBreakerConfigProvider implements CircuitBreakerConfig
         profileOptions.failureRateThreshold(),
         profileOptions.slidingWindowSize(),
         profileOptions.waitDurationMs(),
-        profileOptions.slowCallThresholdMs(),
         profileOptions.permittedCallsInHalfOpen(),
         profileOptions.minimumCalls());
   }

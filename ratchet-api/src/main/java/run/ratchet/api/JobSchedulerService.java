@@ -163,9 +163,8 @@ public interface JobSchedulerService {
    *
    * <ul>
    *   <li><b>Job lifecycle:</b> {@code JobStartedEvent}, {@code JobCompletedEvent}, {@code
-   *       JobFailedEvent}, {@code JobCancellingEvent}, {@code JobCancelledEvent}, {@code
-   *       JobsBulkCancelledEvent}, {@code JobPausedEvent}, {@code JobResumedEvent}, {@code
-   *       JobRetryingEvent}
+   *       JobFailedEvent}, {@code JobCancelledEvent}, {@code JobsBulkCancelledEvent}, {@code
+   *       JobPausedEvent}, {@code JobResumedEvent}, {@code JobRetryingEvent}
    *   <li><b>Batch:</b> {@code BatchCompletingEvent}, {@code BatchCompletedEvent}
    *   <li><b>Chain/Workflow:</b> {@code ChainStartedEvent}, {@code ChainCompletedEvent}, {@code
    *       ChainFailedEvent}, {@code WorkflowBranchTriggeredEvent}

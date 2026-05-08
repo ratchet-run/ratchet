@@ -2,7 +2,6 @@ package run.ratchet.api.event;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import java.time.Instant;
@@ -15,24 +14,6 @@ class JobCancellationEventTest {
 
   private static final UUID JOB_ID = UUID.fromString("018f0000-0000-7000-8000-000000000001");
   private static final Instant TIMESTAMP = Instant.parse("2026-05-07T12:34:56Z");
-
-  @Test
-  void cancellingEventPreservesExplicitConstructorValues() {
-    JobCancellingEvent event =
-        new JobCancellingEvent(
-            JOB_ID,
-            "business-key",
-            JobType.SINGLE,
-            JobPriority.HIGH,
-            "node-a",
-            TIMESTAMP,
-            "RUNNING",
-            123L);
-
-    assertCancellationValues(event);
-    assertInstanceOf(AbstractJobCancellationEvent.class, event);
-    assertInstanceOf(AbstractJobSchedulerEvent.class, event);
-  }
 
   @Test
   void cancelledEventPreservesExplicitConstructorValues() {
@@ -48,19 +29,6 @@ class JobCancellationEventTest {
             123L);
 
     assertCancellationValues(event);
-    assertInstanceOf(AbstractJobCancellationEvent.class, event);
-    assertInstanceOf(AbstractJobSchedulerEvent.class, event);
-  }
-
-  @Test
-  void cancellingDefaultTimestampConstructorStillInitializesSharedCancellationValues() {
-    Instant before = Instant.now();
-    JobCancellingEvent event =
-        new JobCancellingEvent(
-            JOB_ID, "business-key", JobType.SINGLE, JobPriority.HIGH, "node-a", "PENDING", 7L);
-    Instant after = Instant.now();
-
-    assertDefaultTimestampConstructorValues(event, before, after);
   }
 
   @Test

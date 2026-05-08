@@ -79,7 +79,7 @@ class DefaultResilienceStrategyTest {
   @Test
   void registryUsesInjectedCircuitBreakerConfiguration() {
     TestCircuitBreakerConfigProvider provider = new TestCircuitBreakerConfigProvider(true);
-    provider.config = new CircuitBreakerConfig(75.0f, 7, 1234L, 4321L, 2, 3);
+    provider.config = new CircuitBreakerConfig(75.0f, 7, 1234L, 2, 3);
 
     CircuitBreakerRegistry registry = new CircuitBreakerRegistry(provider);
 
@@ -99,7 +99,6 @@ class DefaultResilienceStrategyTest {
                                 .failureRateThreshold(75.0f)
                                 .slidingWindowSize(7)
                                 .waitDurationMs(1234L)
-                                .slowCallThresholdMs(4321L)
                                 .permittedCallsInHalfOpen(2)
                                 .minimumCalls(3)))
             .build();
@@ -109,7 +108,6 @@ class DefaultResilienceStrategyTest {
     assertEquals(75.0f, config.failureRateThreshold());
     assertEquals(7, config.slidingWindowSize());
     assertEquals(1234L, config.waitDurationMs());
-    assertEquals(4321L, config.slowCallThresholdMs());
     assertEquals(2, config.permittedCallsInHalfOpen());
     assertEquals(3, config.minimumCalls());
   }
@@ -128,7 +126,7 @@ class DefaultResilienceStrategyTest {
       implements CircuitBreakerConfigProvider {
 
     private final boolean enabled;
-    private CircuitBreakerConfig config = new CircuitBreakerConfig(50.0f, 4, 100L, 5000L, 2, 2);
+    private CircuitBreakerConfig config = new CircuitBreakerConfig(50.0f, 4, 100L, 2, 2);
 
     private TestCircuitBreakerConfigProvider(boolean enabled) {
       this.enabled = enabled;
