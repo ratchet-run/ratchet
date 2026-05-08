@@ -28,6 +28,11 @@ public record ProbeEvent(Type type, Instant timestamp) {
   }
 
   @Override
+  public int hashCode() {
+    return Objects.hash(type, timestamp);
+  }
+
+  @Override
   public String toString() {
     return "ProbeEvent{" + type + " @ " + timestamp + '}';
   }
