@@ -261,7 +261,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
         executorProvider
             .getScheduledExecutor()
             .schedule(
-                () -> runHeartbeat("Heartbeat failed", heartbeatIntervalSeconds, true),
+                () -> runHeartbeat("Heartbeat failed", intervalSeconds, true),
                 intervalSeconds,
                 TimeUnit.SECONDS);
   }

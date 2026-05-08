@@ -138,4 +138,33 @@ class DefaultNodeIdentityProviderTest {
     verify(scheduledExecutor, never())
         .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.SECONDS));
   }
+
+  @Test
+  void dynamicHeartbeatFailure_retriesFromDynamicInterval() {
+    when(heartbeatCalculator.calculateHeartbeatInterval()).thenReturn(11L);
+    provider =
+        new DefaultNodeIdentityProvider(
+            nodeStore,
+            jobBulkStore,
+            heartbeatCalculator,
+            executorProvider,
+            5,
+            30,
+            true,
+            "test-node");
+
+    provider.init();
+    Runnable scheduledHeartbeat = runnableCaptor.getValue();
+
+    verify(scheduledExecutor).schedule(any(Runnable.class), eq(11L), eq(TimeUnit.SECONDS));
+
+    clearInvocations(nodeStore, scheduledExecutor, scheduledFuture);
+    doThrow(new IllegalStateException("store unavailable"))
+        .when(nodeStore)
+        .upsertHeartbeat(any(), any(Instant.class));
+
+    scheduledHeartbeat.run();
+
+    verify(scheduledExecutor).schedule(any(Runnable.class), eq(22L), eq(TimeUnit.SECONDS));
+  }
 }
