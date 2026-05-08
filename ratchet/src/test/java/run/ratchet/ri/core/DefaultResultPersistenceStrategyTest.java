@@ -28,6 +28,32 @@ class DefaultResultPersistenceStrategyTest {
   }
 
   @Test
+  void resultAtByteLimitIsPersistedWithoutTruncation() {
+    RatchetOptions options =
+        RatchetOptions.builder().payload(payload -> payload.maxResultBytes(6)).build();
+    DefaultResultPersistenceStrategy strategy =
+        new DefaultResultPersistenceStrategy(options, new JsonbPayloadSerializer());
+
+    SerializedJobResult result = strategy.serialize(new UUID(0L, 41L), "\u00e9\u00e9");
+
+    assertEquals(String.class.getName(), result.type());
+    assertEquals("\"\u00e9\u00e9\"", result.json());
+  }
+
+  @Test
+  void zeroResultLimitPersistsLargeResults() {
+    RatchetOptions options =
+        RatchetOptions.builder().payload(payload -> payload.maxResultBytes(0)).build();
+    DefaultResultPersistenceStrategy strategy =
+        new DefaultResultPersistenceStrategy(options, new JsonbPayloadSerializer());
+
+    SerializedJobResult result = strategy.serialize(new UUID(0L, 45L), "larger than five bytes");
+
+    assertEquals(String.class.getName(), result.type());
+    assertEquals("\"larger than five bytes\"", result.json());
+  }
+
+  @Test
   void nullResultPersistsAsEmptyResult() {
     DefaultResultPersistenceStrategy strategy =
         new DefaultResultPersistenceStrategy(defaultOptions(), new JsonbPayloadSerializer());

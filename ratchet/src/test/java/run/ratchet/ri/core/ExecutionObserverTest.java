@@ -1,12 +1,18 @@
 package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -19,6 +25,7 @@ import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.ExecutionStore;
 
@@ -128,6 +135,59 @@ class ExecutionObserverTest {
   }
 
   @Test
+  void startExecution_delegatesToExecutionStoreWithAttemptAndNode() {
+    UUID jobId = new UUID(0L, 46L);
+    JobExecutionEntity saved = JobExecutionEntity.start(jobId, 4, "node-a");
+    when(executionStore.saveExecution(ArgumentMatchers.any(JobExecutionEntity.class)))
+        .thenReturn(saved);
+
+    JobExecutionEntity result = observer.startExecution(jobId, 4, "node-a");
+
+    assertSame(saved, result);
+    ArgumentCaptor<JobExecutionEntity> executionCaptor =
+        ArgumentCaptor.forClass(JobExecutionEntity.class);
+    verify(executionStore).saveExecution(executionCaptor.capture());
+    assertEquals(jobId, executionCaptor.getValue().getJobId());
+    assertEquals(4, executionCaptor.getValue().getAttempt());
+    assertEquals("node-a", executionCaptor.getValue().getNodeId());
+  }
+
+  @Test
+  void saveExecution_returnsStoreResult() {
+    JobExecutionEntity execution = JobExecutionEntity.start(new UUID(0L, 47L), 1, "node-a");
+    JobExecutionEntity saved = JobExecutionEntity.start(new UUID(0L, 47L), 1, "node-a");
+    when(executionStore.saveExecution(execution)).thenReturn(saved);
+
+    assertSame(saved, observer.saveExecution(execution));
+  }
+
+  @Test
+  void scheduleDelayedJobReadyCallback_schedulesCallbackOnExecutor() {
+    Runnable callback = () -> {};
+    ScheduledExecutorService scheduledExecutor = mock(ScheduledExecutorService.class);
+    observer =
+        new ExecutionObserver(
+            metricsCollector,
+            tracingCollector,
+            eventPublisher,
+            executionStore,
+            executorProvider,
+            callback);
+    when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
+
+    observer.scheduleDelayedJobReadyCallback(250L);
+
+    verify(scheduledExecutor).schedule(callback, 250L, TimeUnit.MILLISECONDS);
+  }
+
+  @Test
+  void scheduleDelayedJobReadyCallback_doesNothingWhenCallbackIsMissing() {
+    observer.scheduleDelayedJobReadyCallback(250L);
+
+    verifyNoInteractions(executorProvider);
+  }
+
+  @Test
   void startExecutionScope_addsSignalTracingAttributes() {
     JobEntity job = job(42L);
     job.setSignalKey("approval");
@@ -151,5 +211,16 @@ class ExecutionObserverTest {
     assertEquals("REJECTED", attributesCaptor.getValue().get("ratchet.signal.outcome"));
     assertEquals("true", attributesCaptor.getValue().get("ratchet.signal.delivered_by.present"));
     assertEquals("2000", attributesCaptor.getValue().get("ratchet.signal.wait_ms"));
+  }
+
+  @Test
+  void startExecutionScope_withoutTracingCollectorReturnsNoOpScope() {
+    observer =
+        new ExecutionObserver(
+            metricsCollector, null, eventPublisher, executionStore, executorProvider, null);
+
+    TracingCollector.ExecutionScope scope = observer.startExecutionScope(job(48L));
+
+    assertSame(TracingCollector.NoOpExecutionScope.INSTANCE, scope);
   }
 }

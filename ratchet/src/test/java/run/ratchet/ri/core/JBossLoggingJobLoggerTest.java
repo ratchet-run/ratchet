@@ -6,6 +6,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import java.util.UUID;
+import org.jboss.logging.MDC;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -16,6 +18,11 @@ import run.ratchet.store.entity.JobLogEntity.LogLevel;
 class JBossLoggingJobLoggerTest {
 
   @Mock private InternalEventPublisher eventPublisher;
+
+  @AfterEach
+  void clearMdc() {
+    MDC.clear();
+  }
 
   @Test
   void info_publishesInfoLogLine() {
@@ -114,6 +121,26 @@ class JBossLoggingJobLoggerTest {
     logger.info("timestamped");
 
     verify(eventPublisher).publish(argThat(line -> ((JobLogLine) line).timestamp() != null));
+  }
+
+  @Test
+  void publishedLine_includesMdcSnapshot() {
+    JBossLoggingJobLogger logger = new JBossLoggingJobLogger(UUID.randomUUID(), eventPublisher);
+    MDC.put("traceId", "trace-123");
+
+    logger.info("with mdc");
+
+    verify(eventPublisher)
+        .publish(argThat(line -> "trace-123".equals(((JobLogLine) line).mdc().get("traceId"))));
+  }
+
+  @Test
+  void publishedLine_usesEmptyMdcWhenNoContextExists() {
+    JBossLoggingJobLogger logger = new JBossLoggingJobLogger(UUID.randomUUID(), eventPublisher);
+
+    logger.info("without mdc");
+
+    verify(eventPublisher).publish(argThat(line -> ((JobLogLine) line).mdc().isEmpty()));
   }
 
   @Test
