@@ -19,27 +19,46 @@ final class MysqlNodeLockOperations implements NodeStore, LockStore {
 
   @Override
   public boolean tryLock(String name, Duration ttl, String nodeId) {
+    long ttlSeconds = ttl.toSeconds();
     // language=MySQL
-    String upsertSql =
+    String updateSql =
         """
-        INSERT INTO scheduler_lock (lock_name, owner_node, locked_at, expires_at)
-        VALUES (?, ?, NOW(3), DATE_ADD(NOW(3), INTERVAL ? SECOND))
-        ON DUPLICATE KEY UPDATE
-          owner_node = IF(expires_at < NOW(3), VALUES(owner_node), owner_node),
-          locked_at = IF(expires_at < NOW(3), NOW(3), locked_at),
-          expires_at = IF(expires_at < NOW(3), VALUES(expires_at), expires_at)
+        UPDATE scheduler_lock
+        SET owner_node = ?,
+            locked_at = CASE
+              WHEN locked_at = NOW(6) THEN locked_at + INTERVAL 1 MICROSECOND
+              ELSE NOW(6)
+            END,
+            expires_at = DATE_ADD(NOW(6), INTERVAL ? SECOND)
+        WHERE lock_name = ?
+          AND (expires_at < NOW(6) OR owner_node = ?)
         """;
-    ctx.em()
-        .createNativeQuery(upsertSql)
-        .setParameter(1, name)
-        .setParameter(2, nodeId)
-        .setParameter(3, ttl.toSeconds())
-        .executeUpdate();
+    int updated =
+        ctx.em()
+            .createNativeQuery(updateSql)
+            .setParameter(1, nodeId)
+            .setParameter(2, ttlSeconds)
+            .setParameter(3, name)
+            .setParameter(4, nodeId)
+            .executeUpdate();
+    if (updated > 0) {
+      return true;
+    }
 
     // language=MySQL
-    String selectSql = "SELECT owner_node FROM scheduler_lock WHERE lock_name = ?";
-    Object owner = ctx.em().createNativeQuery(selectSql).setParameter(1, name).getSingleResult();
-    return nodeId.equals(owner);
+    String insertSql =
+        """
+        INSERT IGNORE INTO scheduler_lock (lock_name, owner_node, locked_at, expires_at)
+        VALUES (?, ?, NOW(6), DATE_ADD(NOW(6), INTERVAL ? SECOND))
+        """;
+    int inserted =
+        ctx.em()
+            .createNativeQuery(insertSql)
+            .setParameter(1, name)
+            .setParameter(2, nodeId)
+            .setParameter(3, ttlSeconds)
+            .executeUpdate();
+    return inserted > 0;
   }
 
   @Override
