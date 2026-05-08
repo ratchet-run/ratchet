@@ -1,12 +1,14 @@
 package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.cdi.JsonbPayloadSerializer;
+import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.spi.SerializedJobResult;
 
 class DefaultResultPersistenceStrategyTest {
@@ -23,5 +25,44 @@ class DefaultResultPersistenceStrategyTest {
     assertEquals(String.class.getName(), result.type());
     assertTrue(result.json().contains("\"_truncated\":true"));
     assertTrue(result.json().contains("\"_originalSize\":6"));
+  }
+
+  @Test
+  void nullResultPersistsAsEmptyResult() {
+    DefaultResultPersistenceStrategy strategy =
+        new DefaultResultPersistenceStrategy(defaultOptions(), new JsonbPayloadSerializer());
+
+    SerializedJobResult result = strategy.serialize(new UUID(0L, 43L), null);
+
+    assertNull(result.json());
+    assertNull(result.type());
+  }
+
+  @Test
+  void serializationFailureFallsBackToEmptyResult() {
+    DefaultResultPersistenceStrategy strategy =
+        new DefaultResultPersistenceStrategy(defaultOptions(), new ThrowingPayloadSerializer());
+
+    SerializedJobResult result = strategy.serialize(new UUID(0L, 44L), "unserializable");
+
+    assertNull(result.json());
+    assertNull(result.type());
+  }
+
+  private static RatchetOptions defaultOptions() {
+    return RatchetOptions.builder().build();
+  }
+
+  private static final class ThrowingPayloadSerializer implements PayloadSerializer {
+
+    @Override
+    public String serialize(Object payload) {
+      throw new IllegalArgumentException("cannot serialize");
+    }
+
+    @Override
+    public <T> T deserialize(String json, Class<T> type) {
+      throw new UnsupportedOperationException("not used");
+    }
   }
 }
