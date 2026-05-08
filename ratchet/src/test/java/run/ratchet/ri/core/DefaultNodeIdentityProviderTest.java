@@ -1,5 +1,6 @@
 package run.ratchet.ri.core;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -18,6 +19,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -34,7 +36,6 @@ class DefaultNodeIdentityProviderTest {
 
   @Mock private NodeStore nodeStore;
   @Mock private JobBulkStore jobBulkStore;
-  @Mock private DynamicHeartbeatCalculator heartbeatCalculator;
   @Mock private ExecutorProvider executorProvider;
   @Mock private ScheduledExecutorService scheduledExecutor;
   @Mock private ScheduledFuture<Object> scheduledFuture;
@@ -42,9 +43,30 @@ class DefaultNodeIdentityProviderTest {
   @Captor private ArgumentCaptor<Runnable> runnableCaptor;
 
   private DefaultNodeIdentityProvider provider;
+  private TestHeartbeatCalculator heartbeatCalculator;
+
+  private static class TestHeartbeatCalculator extends DynamicHeartbeatCalculator {
+    private final AtomicInteger calls = new AtomicInteger();
+    private long intervalSeconds = 5L;
+
+    void intervalSeconds(long intervalSeconds) {
+      this.intervalSeconds = intervalSeconds;
+    }
+
+    int calls() {
+      return calls.get();
+    }
+
+    @Override
+    public long calculateHeartbeatInterval() {
+      calls.incrementAndGet();
+      return intervalSeconds;
+    }
+  }
 
   @BeforeEach
   void setUp() {
+    heartbeatCalculator = new TestHeartbeatCalculator();
     when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
     doReturn(scheduledFuture)
         .when(scheduledExecutor)
@@ -72,12 +94,26 @@ class DefaultNodeIdentityProviderTest {
     clearInvocations(nodeStore, scheduledExecutor, scheduledFuture);
 
     provider.shutdown();
+    assertFalse(provider.initialized.get(), "shutdown must lower the heartbeat guard");
     scheduledHeartbeat.run();
 
     verify(scheduledFuture).cancel(true);
     verify(nodeStore, never()).upsertHeartbeat(any(), any(Instant.class));
     verify(scheduledExecutor, never())
         .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.SECONDS));
+  }
+
+  @Test
+  void scheduledHeartbeatRunsAndReschedulesWhileInitialized() {
+    provider.init();
+    Runnable scheduledHeartbeat = runnableCaptor.getValue();
+
+    clearInvocations(nodeStore, scheduledExecutor, scheduledFuture);
+
+    scheduledHeartbeat.run();
+
+    verify(nodeStore).upsertHeartbeat(eq("test-node"), any(Instant.class));
+    verify(scheduledExecutor).schedule(any(Runnable.class), eq(5L), eq(TimeUnit.SECONDS));
   }
 
   @Test
@@ -141,7 +177,7 @@ class DefaultNodeIdentityProviderTest {
 
   @Test
   void dynamicHeartbeatFailure_retriesFromDynamicInterval() {
-    when(heartbeatCalculator.calculateHeartbeatInterval()).thenReturn(11L);
+    heartbeatCalculator.intervalSeconds(11L);
     provider =
         new DefaultNodeIdentityProvider(
             nodeStore,
@@ -166,5 +202,27 @@ class DefaultNodeIdentityProviderTest {
     scheduledHeartbeat.run();
 
     verify(scheduledExecutor).schedule(any(Runnable.class), eq(22L), eq(TimeUnit.SECONDS));
+  }
+
+  @Test
+  void dynamicHeartbeatEnabledUsesCalculatorForInitialSchedule() {
+    heartbeatCalculator.intervalSeconds(13L);
+    provider =
+        new DefaultNodeIdentityProvider(
+            nodeStore,
+            jobBulkStore,
+            heartbeatCalculator,
+            executorProvider,
+            5,
+            30,
+            true,
+            "test-node");
+
+    clearInvocations(scheduledExecutor);
+
+    provider.init();
+
+    assertEquals(1, heartbeatCalculator.calls());
+    verify(scheduledExecutor).schedule(any(Runnable.class), eq(13L), eq(TimeUnit.SECONDS));
   }
 }

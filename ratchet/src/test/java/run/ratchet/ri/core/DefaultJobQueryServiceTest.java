@@ -18,6 +18,7 @@ import static org.mockito.Mockito.when;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -116,6 +117,26 @@ class DefaultJobQueryServiceTest {
     assertEquals(0L, page.totalCount());
     assertFalse(page.hasMore());
     assertNull(page.nextCursor());
+  }
+
+  @Test
+  void findJobs_nullFilterUsesEmptyFilter() {
+    when(queryStore.searchJobs(any(), eq(10), eq(0))).thenReturn(Collections.emptyList());
+    when(queryStore.countJobs(any())).thenReturn(0L);
+
+    JobPage<JobSummary> page = service.findJobs(null, 10, 0);
+
+    assertTrue(page.items().isEmpty());
+    verify(queryStore)
+        .searchJobs(
+            argThat(
+                filter ->
+                    filter != null
+                        && filter.businessKey() == null
+                        && filter.statuses() == null
+                        && filter.types() == null),
+            eq(10),
+            eq(0));
   }
 
   @Test
@@ -307,6 +328,22 @@ class DefaultJobQueryServiceTest {
   }
 
   @Test
+  void getJobDetail_withoutAuthOrPrincipalReturnsDetail() {
+    DefaultJobQueryService permissive =
+        new DefaultJobQueryService(queryStore, crudStore, executionStore, null, null);
+    UUID jobId = UUID.randomUUID();
+    when(crudStore.findById(jobId)).thenReturn(Optional.of(minimalJobWithId(jobId)));
+    when(executionStore.findExecutionsByJobId(jobId)).thenReturn(Collections.emptyList());
+    when(crudStore.findDependants(jobId)).thenReturn(Collections.emptyList());
+
+    Optional<JobDetail> result = permissive.getJobDetail(jobId);
+
+    assertTrue(result.isPresent());
+    assertEquals(jobId, result.get().summary().id());
+    verify(authPolicy, never()).checkRead(any(), any());
+  }
+
+  @Test
   void getExecutionHistory_delegatesToExecutionStore_andMapsResults() {
     UUID jobId = UUID.randomUUID();
     UUID executionId = UUID.randomUUID();
@@ -343,23 +380,53 @@ class DefaultJobQueryServiceTest {
 
   @Test
   void getQueueHealth_aggregatesAllCountMethods() {
-    when(crudStore.countJobsByStatus(any())).thenReturn(5L);
+    Instant oldestPending = Instant.parse("2026-05-07T10:15:30Z");
+    when(crudStore.countJobsByStatus(JobStatus.PENDING)).thenReturn(5L);
+    when(crudStore.countJobsByStatus(JobStatus.RUNNING)).thenReturn(4L);
+    when(crudStore.countJobsByStatus(JobStatus.FAILED)).thenReturn(3L);
+    when(crudStore.countJobsByStatus(JobStatus.SUCCEEDED)).thenReturn(2L);
+    when(crudStore.countJobsByStatus(JobStatus.CANCELED)).thenReturn(1L);
+    when(crudStore.countJobsByStatus(JobStatus.PAUSED)).thenReturn(6L);
     when(crudStore.countStuckJobs(any())).thenReturn(1L);
     when(crudStore.countReadyJobs(any())).thenReturn(3L);
     when(crudStore.getRetryRateStats(any())).thenReturn(0.1);
     when(crudStore.getAverageProcessingTime(any())).thenReturn(250.0);
     when(crudStore.getQueueWaitTimePercentile(0.95)).thenReturn(500L);
-    when(crudStore.getOldestPendingJobTime()).thenReturn(Optional.empty());
-    when(crudStore.countPendingJobsByType(any())).thenReturn(0L);
-    when(crudStore.countPendingJobsByPriority(any())).thenReturn(0L);
+    when(crudStore.getOldestPendingJobTime()).thenReturn(Optional.of(oldestPending));
+    when(crudStore.countPendingJobsByType(any()))
+        .thenAnswer(
+            inv ->
+                switch (inv.getArgument(0, JobExecutionType.class)) {
+                  case SINGLE -> 2L;
+                  case BATCH_CHILD -> 3L;
+                  default -> 0L;
+                });
+    when(crudStore.countPendingJobsByPriority(any()))
+        .thenAnswer(
+            inv ->
+                switch (inv.getArgument(0, JobPriority.class)) {
+                  case HIGH -> 7L;
+                  case CRITICAL -> 8L;
+                  default -> 0L;
+                });
 
     QueueHealthSnapshot snapshot = service.getQueueHealth();
 
     assertEquals(5L, snapshot.pendingCount());
+    assertEquals(4L, snapshot.runningCount());
+    assertEquals(3L, snapshot.failedCount());
+    assertEquals(2L, snapshot.succeededCount());
+    assertEquals(1L, snapshot.canceledCount());
+    assertEquals(6L, snapshot.pausedCount());
     assertEquals(1L, snapshot.stuckCount());
     assertEquals(3L, snapshot.readyCount());
     assertEquals(0.1, snapshot.retryRate());
+    assertEquals(250.0, snapshot.avgProcessingTimeMs());
     assertEquals(500L, snapshot.p95QueueWaitMs());
+    assertEquals(oldestPending, snapshot.oldestPendingJobTime());
+    assertEquals(Map.of(JobType.SINGLE, 2L, JobType.BATCH, 3L), snapshot.pendingByType());
+    assertEquals(
+        Map.of(JobPriority.HIGH, 7L, JobPriority.CRITICAL, 8L), snapshot.pendingByPriority());
   }
 
   // ── helpers ─────────────────────────────────────────────────────────────
