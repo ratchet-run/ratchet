@@ -1,6 +1,8 @@
 package run.ratchet.ri.core;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -29,11 +31,24 @@ class StoreBackedStartupCoordinatorTest {
   @Test
   void tryAcquire_usesStoreBackedLeaseWithStartupPrefix() {
     when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
+    when(lockStore.tryLock(
+            "startup:recurring-annotation-orphan-cleanup", Duration.ofMinutes(5), "node-1"))
+        .thenReturn(true);
 
-    coordinator.tryAcquire("recurring-annotation-orphan-cleanup", Duration.ofMinutes(5));
+    assertTrue(coordinator.tryAcquire("recurring-annotation-orphan-cleanup", Duration.ofMinutes(5)));
 
     verify(lockStore)
         .tryLock("startup:recurring-annotation-orphan-cleanup", Duration.ofMinutes(5), "node-1");
+  }
+
+  @Test
+  void tryAcquire_returnsFalseWhenStoreLeaseIsUnavailable() {
+    when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
+    when(lockStore.tryLock(
+            "startup:recurring-annotation-orphan-cleanup", Duration.ofMinutes(5), "node-1"))
+        .thenReturn(false);
+
+    assertFalse(coordinator.tryAcquire("recurring-annotation-orphan-cleanup", Duration.ofMinutes(5)));
   }
 
   @Test
