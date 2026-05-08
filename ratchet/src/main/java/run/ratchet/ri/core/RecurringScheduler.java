@@ -5,6 +5,7 @@ import com.cronutils.model.definition.CronDefinitionBuilder;
 import com.cronutils.parser.CronParser;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
@@ -40,6 +41,7 @@ public class RecurringScheduler {
   private final NodeIdentityProvider nodeIdentityProvider;
   private final RecurringJobExecutor recurringJobExecutor;
   private final PollerScheduler pollerScheduler;
+  private final Clock clock;
 
   private volatile int batchLimit = 20;
   private volatile long minPollMs = 1000;
@@ -59,6 +61,7 @@ public class RecurringScheduler {
     this.nodeIdentityProvider = null;
     this.recurringJobExecutor = null;
     this.pollerScheduler = null;
+    this.clock = null;
   }
 
   @Inject
@@ -68,13 +71,15 @@ public class RecurringScheduler {
       SingletonLeaseService singletonLeaseService,
       NodeIdentityProvider nodeIdentityProvider,
       RecurringJobExecutor recurringJobExecutor,
-      PollerScheduler pollerScheduler) {
+      PollerScheduler pollerScheduler,
+      Clock clock) {
     this.executorProvider = executorProvider;
     this.jobCrudStore = jobCrudStore;
     this.singletonLeaseService = singletonLeaseService;
     this.nodeIdentityProvider = nodeIdentityProvider;
     this.recurringJobExecutor = recurringJobExecutor;
     this.pollerScheduler = pollerScheduler;
+    this.clock = clock;
   }
 
   public long getCurrentDelayMs() {
@@ -191,10 +196,15 @@ public class RecurringScheduler {
       return maxPollMs;
     }
 
-    long msUntilNextFire = Duration.between(Instant.now(), earliestNextFire.get()).toMillis();
+    long msUntilNextFire =
+        Duration.between(Instant.now(effective()), earliestNextFire.get()).toMillis();
 
     long targetDelay = Math.max(msUntilNextFire - 500, minPollMs);
     return Math.min(targetDelay, maxPollMs);
+  }
+
+  private Clock effective() {
+    return clock != null ? clock : Clock.systemUTC();
   }
 
   private void renewLease(SingletonLease lease) {
