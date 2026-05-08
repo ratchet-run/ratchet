@@ -41,7 +41,10 @@ public class CallerPrincipalProvider {
    * reports no principal (unauthenticated request, or non-EE runtime).
    */
   public Optional<String> currentPrincipal() {
-    if (securityContexts == null || !securityContexts.isResolvable()) {
+    if (securityContexts == null) {
+      throw new IllegalStateException("SecurityContext Instance was not injected");
+    }
+    if (!securityContexts.isResolvable()) {
       return Optional.empty();
     }
     try {

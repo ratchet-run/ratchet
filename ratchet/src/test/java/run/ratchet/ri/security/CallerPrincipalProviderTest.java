@@ -1,6 +1,7 @@
 package run.ratchet.ri.security;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -12,6 +13,8 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 class CallerPrincipalProviderTest {
+
+  private static final class UnmanagedCallerPrincipalProvider extends CallerPrincipalProvider {}
 
   @Test
   void currentPrincipal_resolvableAuthenticated_returnsName() {
@@ -55,6 +58,16 @@ class CallerPrincipalProviderTest {
     Optional<String> result = new CallerPrincipalProvider(instance).currentPrincipal();
 
     assertTrue(result.isEmpty(), "Unresolvable SecurityContext should yield empty");
+  }
+
+  @Test
+  void currentPrincipal_unmanagedNoArgConstruction_throws() {
+    IllegalStateException exception =
+        assertThrows(
+            IllegalStateException.class,
+            () -> new UnmanagedCallerPrincipalProvider().currentPrincipal());
+
+    assertEquals("SecurityContext Instance was not injected", exception.getMessage());
   }
 
   @Test
