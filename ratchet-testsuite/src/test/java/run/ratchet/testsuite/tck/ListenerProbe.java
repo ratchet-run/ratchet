@@ -1,6 +1,7 @@
 package run.ratchet.testsuite.tck;
 
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.time.Duration;
@@ -56,6 +57,14 @@ public class ListenerProbe implements RatchetTckProbe {
   void registerListener() {
     listener = this::observe;
     scheduler.addEventListener(listener);
+  }
+
+  @PreDestroy
+  void unregisterListener() {
+    if (listener != null) {
+      scheduler.removeEventListener(listener);
+      listener = null;
+    }
   }
 
   /**

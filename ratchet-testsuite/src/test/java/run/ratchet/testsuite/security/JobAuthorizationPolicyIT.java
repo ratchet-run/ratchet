@@ -6,14 +6,19 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.inject.Inject;
+import java.time.Duration;
 import java.util.List;
+import java.util.UUID;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobHandle;
+import run.ratchet.api.JobQueryService;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.testsuite.app.FailOnceJob;
 import run.ratchet.testsuite.app.SimpleJob;
 import run.ratchet.testsuite.app.StubJobAuthorizationPolicy;
 import run.ratchet.testsuite.app.TestJobService;
@@ -33,6 +38,7 @@ class JobAuthorizationPolicyIT extends BaseRatchetIT {
 
   @Inject private TestJobService jobService;
   @Inject private JobCrudStore jobCrudStore;
+  @Inject private JobQueryService jobQueryService;
   @Inject private JobAuthorizationPolicy authorizationPolicy;
 
   @Deployment
@@ -42,7 +48,11 @@ class JobAuthorizationPolicyIT extends BaseRatchetIT {
 
     return RatchetArchiveBuilder.create()
         .addRatchetDependencies(profile, dbType)
-        .addClasses(StubJobAuthorizationPolicy.class, SimpleJob.class, TestJobService.class)
+        .addClasses(
+            StubJobAuthorizationPolicy.class,
+            FailOnceJob.class,
+            SimpleJob.class,
+            TestJobService.class)
         .addStoreInfrastructure()
         .addBeansXml()
         .build();
@@ -51,6 +61,7 @@ class JobAuthorizationPolicyIT extends BaseRatchetIT {
   @BeforeEach
   void resetCounts() {
     StubJobAuthorizationPolicy.resetAll();
+    FailOnceJob.reset();
     SimpleJob.resetCount();
   }
 
@@ -110,6 +121,67 @@ class JobAuthorizationPolicyIT extends BaseRatchetIT {
         1,
         StubJobAuthorizationPolicy.getCancelCount(),
         "checkCancel must be called when cancelJob is invoked");
+  }
+
+  @Test
+  void checkPause_isCalledWhenJobIsPaused() {
+    JobHandle handle = jobService.schedule(Duration.ofMinutes(5), SimpleJob::execute).submit();
+
+    assertTrue(jobService.pauseJob(handle.id()), "pauseJob should pause a pending job");
+
+    assertEquals(
+        1,
+        StubJobAuthorizationPolicy.getPauseCount(),
+        "checkPause must be called when pauseJob is invoked");
+  }
+
+  @Test
+  void checkResume_isCalledWhenJobIsResumed() {
+    JobHandle handle = jobService.schedule(Duration.ofMinutes(5), SimpleJob::execute).submit();
+    assertTrue(jobService.pauseJob(handle.id()), "pauseJob should prepare a paused job");
+    StubJobAuthorizationPolicy.resetAll();
+
+    assertTrue(jobService.resumeJob(handle.id()), "resumeJob should resume a paused job");
+
+    assertEquals(
+        1,
+        StubJobAuthorizationPolicy.getResumeCount(),
+        "checkResume must be called when resumeJob is invoked");
+  }
+
+  @Test
+  void checkRetry_isCalledWhenRetryIsRequested() {
+    assertEquals(
+        0, StubJobAuthorizationPolicy.getRetryCount(), "Pre-condition: no retry calls yet");
+
+    jobService.retryJob(UUID.randomUUID());
+
+    assertEquals(
+        1,
+        StubJobAuthorizationPolicy.getRetryCount(),
+        "checkRetry must be called before retryJob evaluates job state");
+  }
+
+  @Test
+  void checkRead_isCalledForSingleJobDetail() {
+    JobHandle handle = jobService.schedule(Duration.ofMinutes(5), SimpleJob::execute).submit();
+
+    assertTrue(jobQueryService.getJobDetail(handle.id()).isPresent());
+
+    assertEquals(
+        1, StubJobAuthorizationPolicy.getReadCount(), "checkRead must be called for getJobDetail");
+  }
+
+  @Test
+  void filterForPrincipal_isCalledForJobListQueries() {
+    jobService.schedule(Duration.ofMinutes(5), SimpleJob::execute).submit();
+
+    jobQueryService.findJobs(JobFilter.builder().build(), 10, 0);
+
+    assertEquals(
+        1,
+        StubJobAuthorizationPolicy.getFilterCount(),
+        "filterForPrincipal must be called for findJobs");
   }
 
   @Test

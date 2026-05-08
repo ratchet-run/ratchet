@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.fail;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -46,7 +47,7 @@ public class PerformanceBaseline {
         log.info("[BASELINE] No baseline file found at " + resourcePath + " — recording mode");
       }
     } catch (IOException e) {
-      log.warning("Baseline file unreadable: " + e.getMessage());
+      throw new UncheckedIOException("Baseline file unreadable: " + resourcePath, e);
     }
   }
 

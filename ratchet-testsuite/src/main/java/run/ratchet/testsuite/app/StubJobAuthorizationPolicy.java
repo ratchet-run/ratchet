@@ -5,6 +5,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Alternative;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import run.ratchet.api.JobFilter;
 import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.spi.JobAuthorizationPolicy;
 
@@ -24,6 +25,8 @@ public class StubJobAuthorizationPolicy implements JobAuthorizationPolicy {
   private static final AtomicInteger PAUSE_COUNT = new AtomicInteger(0);
   private static final AtomicInteger RESUME_COUNT = new AtomicInteger(0);
   private static final AtomicInteger RETRY_COUNT = new AtomicInteger(0);
+  private static final AtomicInteger READ_COUNT = new AtomicInteger(0);
+  private static final AtomicInteger FILTER_COUNT = new AtomicInteger(0);
 
   public static int getCreateCount() {
     return CREATE_COUNT.get();
@@ -49,6 +52,14 @@ public class StubJobAuthorizationPolicy implements JobAuthorizationPolicy {
     return RETRY_COUNT.get();
   }
 
+  public static int getReadCount() {
+    return READ_COUNT.get();
+  }
+
+  public static int getFilterCount() {
+    return FILTER_COUNT.get();
+  }
+
   public static void resetAll() {
     CREATE_COUNT.set(0);
     EXECUTE_COUNT.set(0);
@@ -56,6 +67,8 @@ public class StubJobAuthorizationPolicy implements JobAuthorizationPolicy {
     PAUSE_COUNT.set(0);
     RESUME_COUNT.set(0);
     RETRY_COUNT.set(0);
+    READ_COUNT.set(0);
+    FILTER_COUNT.set(0);
   }
 
   @Override
@@ -90,5 +103,16 @@ public class StubJobAuthorizationPolicy implements JobAuthorizationPolicy {
   public void checkRetry(UUID jobId, String ownerPrincipal, String currentPrincipal)
       throws JobAuthorizationException {
     RETRY_COUNT.incrementAndGet();
+  }
+
+  @Override
+  public void checkRead(UUID jobId, String callerPrincipal) throws JobAuthorizationException {
+    READ_COUNT.incrementAndGet();
+  }
+
+  @Override
+  public JobFilter filterForPrincipal(JobFilter filter, String callerPrincipal) {
+    FILTER_COUNT.incrementAndGet();
+    return filter;
   }
 }
