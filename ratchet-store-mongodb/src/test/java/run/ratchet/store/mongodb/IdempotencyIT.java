@@ -9,6 +9,7 @@ import com.mongodb.MongoWriteException;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.JobEntity;
 
 class IdempotencyIT extends BaseDocumentStoreIT {
@@ -38,7 +39,7 @@ class IdempotencyIT extends BaseDocumentStoreIT {
     JobEntity job2 = newPendingJob();
     job2.setBusinessKey(bizKey);
 
-    assertThrows(MongoWriteException.class, () -> store().save(job2));
+    assertThrows(RatchetTransientStoreException.class, () -> store().save(job2));
   }
 
   @Test
