@@ -3,7 +3,6 @@ package run.ratchet.store.mysql;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import org.jboss.logging.Logger;
 import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.entity.BatchEntity;
@@ -15,8 +14,6 @@ import run.ratchet.store.spi.BatchMetricsStore;
 import run.ratchet.store.spi.BatchStore;
 
 final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
-
-  private static final Logger log = Logger.getLogger(MysqlBatchOperations.class);
 
   private final MysqlStoreContext ctx;
 
@@ -267,8 +264,7 @@ final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
     try {
       return PayloadSerializerHolder.get().deserialize(jsonValue.toString(), JobPayload.class);
     } catch (IllegalArgumentException e) {
-      log.warnf("Bad progress_hook JSON: %s", e.getMessage());
-      return null;
+      throw new IllegalArgumentException("JobPayload deserialization error", e);
     }
   }
 }
