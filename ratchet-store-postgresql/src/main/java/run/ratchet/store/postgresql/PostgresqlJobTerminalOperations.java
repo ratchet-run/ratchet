@@ -1,5 +1,6 @@
 package run.ratchet.store.postgresql;
 
+import jakarta.persistence.NoResultException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
@@ -109,20 +110,19 @@ final class PostgresqlJobTerminalOperations {
 
   int incrementRetryAttempt(UUID id) {
     // language=PostgreSQL
-    String updateSql =
+    String sql =
         """
         UPDATE scheduler_job_queue
         SET attempts = attempts + 1, updated_at = statement_timestamp()
         WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')
+        RETURNING attempts
         """;
-    int updated = ctx.em().createNativeQuery(updateSql).setParameter(1, id).executeUpdate();
-    if (updated == 0) {
+    try {
+      Object result = ctx.em().createNativeQuery(sql).setParameter(1, id).getSingleResult();
+      return ((Number) result).intValue();
+    } catch (NoResultException e) {
       return -1;
     }
-    // language=PostgreSQL
-    String selectSql = "SELECT attempts FROM scheduler_job_queue WHERE job_id = ?";
-    Object result = ctx.em().createNativeQuery(selectSql).setParameter(1, id).getSingleResult();
-    return ((Number) result).intValue();
   }
 
   boolean markJobSucceeded(
