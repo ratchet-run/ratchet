@@ -3,6 +3,7 @@ package run.ratchet.store.mysql;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
 import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.entity.BatchEntity;
@@ -12,6 +13,7 @@ import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import run.ratchet.store.spi.BatchMetricsStore;
 import run.ratchet.store.spi.BatchStore;
+import run.ratchet.store.util.BatchProgressRows;
 
 final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
 
@@ -73,40 +75,15 @@ final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
 
   @Override
   public BatchProgress incrementCompletedAtomic(UUID batchId) {
-    // language=MySQL
-    String selectSql =
-        """
-        SELECT completed_items, failed_items, total_items, progress_hook
-        FROM scheduler_batch
-        WHERE batch_id = ?
-        FOR UPDATE
-        """;
-    Object[] locked =
-        (Object[])
-            ctx.em()
-                .createNativeQuery(selectSql)
-                .setParameter(1, UuidByteArrayConverter.toBytes(batchId))
-                .getSingleResult();
-
-    int newCompleted = ((Number) locked[0]).intValue() + 1;
-    // language=MySQL
-    String updateSql = "UPDATE scheduler_batch SET completed_items = ? WHERE batch_id = ?";
-    ctx.em()
-        .createNativeQuery(updateSql)
-        .setParameter(1, newCompleted)
-        .setParameter(2, UuidByteArrayConverter.toBytes(batchId))
-        .executeUpdate();
-
-    return new BatchProgress(
-        batchId,
-        ((Number) locked[2]).intValue(),
-        newCompleted,
-        ((Number) locked[1]).intValue(),
-        parseProgressHook(locked[3]));
+    return incrementAtomic(batchId, BatchCounter.COMPLETED);
   }
 
   @Override
   public BatchProgress incrementFailedAtomic(UUID batchId) {
+    return incrementAtomic(batchId, BatchCounter.FAILED);
+  }
+
+  private BatchProgress incrementAtomic(UUID batchId, BatchCounter counter) {
     // language=MySQL
     String selectSql =
         """
@@ -122,21 +99,17 @@ final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
                 .setParameter(1, UuidByteArrayConverter.toBytes(batchId))
                 .getSingleResult();
 
-    int newFailed = ((Number) locked[1]).intValue() + 1;
+    int newValue = counter.nextValue(locked);
     // language=MySQL
-    String updateSql = "UPDATE scheduler_batch SET failed_items = ? WHERE batch_id = ?";
+    String updateSql =
+        "UPDATE scheduler_batch SET " + counter.columnName + " = ? WHERE batch_id = ?";
     ctx.em()
         .createNativeQuery(updateSql)
-        .setParameter(1, newFailed)
+        .setParameter(1, newValue)
         .setParameter(2, UuidByteArrayConverter.toBytes(batchId))
         .executeUpdate();
 
-    return new BatchProgress(
-        batchId,
-        ((Number) locked[2]).intValue(),
-        ((Number) locked[0]).intValue(),
-        newFailed,
-        parseProgressHook(locked[3]));
+    return counter.progressAfterIncrement(batchId, locked, this::parseProgressHook);
   }
 
   @Override
@@ -266,5 +239,43 @@ final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
     } catch (IllegalArgumentException e) {
       throw new IllegalArgumentException("JobPayload deserialization error", e);
     }
+  }
+
+  private enum BatchCounter {
+    COMPLETED("completed_items") {
+      @Override
+      int nextValue(Object[] row) {
+        return BatchProgressRows.completedItems(row) + 1;
+      }
+
+      @Override
+      BatchProgress progressAfterIncrement(
+          UUID batchId, Object[] row, Function<Object, JobPayload> progressHookParser) {
+        return BatchProgressRows.afterCompletedIncrement(batchId, row, progressHookParser);
+      }
+    },
+    FAILED("failed_items") {
+      @Override
+      int nextValue(Object[] row) {
+        return BatchProgressRows.failedItems(row) + 1;
+      }
+
+      @Override
+      BatchProgress progressAfterIncrement(
+          UUID batchId, Object[] row, Function<Object, JobPayload> progressHookParser) {
+        return BatchProgressRows.afterFailedIncrement(batchId, row, progressHookParser);
+      }
+    };
+
+    private final String columnName;
+
+    BatchCounter(String columnName) {
+      this.columnName = columnName;
+    }
+
+    abstract int nextValue(Object[] row);
+
+    abstract BatchProgress progressAfterIncrement(
+        UUID batchId, Object[] row, Function<Object, JobPayload> progressHookParser);
   }
 }

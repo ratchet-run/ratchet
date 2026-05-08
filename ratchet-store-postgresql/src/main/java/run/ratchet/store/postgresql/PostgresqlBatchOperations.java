@@ -12,6 +12,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.BatchMetricsStore;
 import run.ratchet.store.spi.BatchStore;
+import run.ratchet.store.util.BatchProgressRows;
 
 final class PostgresqlBatchOperations implements BatchStore, BatchMetricsStore {
 
@@ -75,40 +76,27 @@ final class PostgresqlBatchOperations implements BatchStore, BatchMetricsStore {
 
   @Override
   public BatchProgress incrementCompletedAtomic(UUID batchId) {
-    // language=PostgreSQL
-    String sql =
-        """
-        UPDATE scheduler_batch SET completed_items = completed_items + 1
-        WHERE batch_id = ?
-        RETURNING completed_items, failed_items, total_items, progress_hook
-        """;
-    Object[] row =
-        (Object[]) ctx.em().createNativeQuery(sql).setParameter(1, batchId).getSingleResult();
-    return new BatchProgress(
-        batchId,
-        ((Number) row[2]).intValue(),
-        ((Number) row[0]).intValue(),
-        ((Number) row[1]).intValue(),
-        parseProgressHook(row[3]));
+    return incrementAtomic(batchId, BatchCounter.COMPLETED);
   }
 
   @Override
   public BatchProgress incrementFailedAtomic(UUID batchId) {
+    return incrementAtomic(batchId, BatchCounter.FAILED);
+  }
+
+  private BatchProgress incrementAtomic(UUID batchId, BatchCounter counter) {
     // language=PostgreSQL
     String sql =
-        """
-        UPDATE scheduler_batch SET failed_items = failed_items + 1
+        String.format(
+            """
+        UPDATE scheduler_batch SET %1$s = %1$s + 1
         WHERE batch_id = ?
         RETURNING completed_items, failed_items, total_items, progress_hook
-        """;
+        """,
+            counter.columnName);
     Object[] row =
         (Object[]) ctx.em().createNativeQuery(sql).setParameter(1, batchId).getSingleResult();
-    return new BatchProgress(
-        batchId,
-        ((Number) row[2]).intValue(),
-        ((Number) row[0]).intValue(),
-        ((Number) row[1]).intValue(),
-        parseProgressHook(row[3]));
+    return BatchProgressRows.fromCurrentRow(batchId, row, this::parseProgressHook);
   }
 
   @Override
@@ -236,5 +224,16 @@ final class PostgresqlBatchOperations implements BatchStore, BatchMetricsStore {
 
   private String progressHookJson(JobPayload progressHook) {
     return progressHook == null ? null : PayloadSerializerHolder.get().serialize(progressHook);
+  }
+
+  private enum BatchCounter {
+    COMPLETED("completed_items"),
+    FAILED("failed_items");
+
+    private final String columnName;
+
+    BatchCounter(String columnName) {
+      this.columnName = columnName;
+    }
   }
 }
