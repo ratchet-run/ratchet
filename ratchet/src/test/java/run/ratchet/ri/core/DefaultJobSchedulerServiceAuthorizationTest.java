@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -226,6 +227,27 @@ class DefaultJobSchedulerServiceAuthorizationTest {
                 Duration.ZERO,
                 DefaultJobSchedulerServiceAuthorizationTest::noopTask,
                 null));
+  }
+
+  @Test
+  void replace_cancelsWaitingJobBeforeRecordingReplacement() {
+    JobEntity waiting = ownerJob();
+    waiting.setStatus(JobStatus.WAITING);
+    UUID replacementId = new UUID(0L, 88L);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(waiting));
+    when(jobCreationService.submit(any(DefaultJobBuilder.class))).thenReturn(() -> replacementId);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            eq(JOB_ID), any(JobStatus.class), eq(JobStatus.CANCELED), eq(null)))
+        .thenAnswer(inv -> inv.getArgument(1) == JobStatus.WAITING);
+    when(jobCrudStore.save(any(JobEntity.class))).thenReturn(waiting);
+
+    service.replace(
+        JOB_ID, Duration.ZERO, DefaultJobSchedulerServiceAuthorizationTest::noopTask, null);
+
+    verify(jobBatchStatusStore)
+        .compareAndSwapStatus(eq(JOB_ID), eq(JobStatus.WAITING), eq(JobStatus.CANCELED), eq(null));
+    verify(jobBatchStatusStore, times(4))
+        .compareAndSwapStatus(eq(JOB_ID), any(), eq(JobStatus.CANCELED), eq(null));
   }
 
   @Test

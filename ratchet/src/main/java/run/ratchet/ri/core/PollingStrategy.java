@@ -94,7 +94,8 @@ public class PollingStrategy implements PollingDelayStrategy {
         avgRecentJobs,
         System.currentTimeMillis() - lastJobFoundTime,
         inDeepIdle,
-        inBurstMode);
+        inBurstMode,
+        minDelayMs);
   }
 
   public synchronized void onWakeup() {
@@ -218,7 +219,8 @@ public class PollingStrategy implements PollingDelayStrategy {
       double avgRecentJobs,
       long timeSinceLastJobMs,
       boolean inDeepIdle,
-      boolean inBurstMode) {
+      boolean inBurstMode,
+      long idleThresholdMs) {
 
     /**
      * @return one of {@code "HIGH"}, {@code "BURST"}, {@code "DEEP_IDLE"}, {@code "IDLE"}, {@code
@@ -245,7 +247,7 @@ public class PollingStrategy implements PollingDelayStrategy {
     }
 
     public boolean isIdle() {
-      return timeSinceLastJobMs > 10000;
+      return timeSinceLastJobMs > idleThresholdMs;
     }
   }
 }

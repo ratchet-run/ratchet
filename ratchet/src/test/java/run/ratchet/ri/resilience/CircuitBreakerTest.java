@@ -128,4 +128,29 @@ class CircuitBreakerTest {
   void nameIsPreserved() {
     assertEquals("test-service", breaker.getName());
   }
+
+  @Test
+  void configurationRejectsInvalidValues() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new CircuitBreakerConfiguration(-1.0f, 4, 100L, 5000L, 2, 2));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new CircuitBreakerConfiguration(101.0f, 4, 100L, 5000L, 2, 2));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new CircuitBreakerConfiguration(50.0f, 0, 100L, 5000L, 2, 2));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new CircuitBreakerConfiguration(50.0f, 4, -1L, 5000L, 2, 2));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new CircuitBreakerConfiguration(50.0f, 4, 100L, -1L, 2, 2));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new CircuitBreakerConfiguration(50.0f, 4, 100L, 5000L, 0, 2));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new CircuitBreakerConfiguration(50.0f, 4, 100L, 5000L, 2, 0));
+  }
 }

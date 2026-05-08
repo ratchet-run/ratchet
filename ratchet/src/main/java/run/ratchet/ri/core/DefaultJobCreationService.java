@@ -516,6 +516,7 @@ public class DefaultJobCreationService
       child.setIdempotencyKey(UUID.randomUUID().toString());
       child.setDependsOn(parentId);
       stampCallerPrincipal(child);
+      checkCreateAuthorization(child);
       jobCrudStore.create(child);
       count++;
     }

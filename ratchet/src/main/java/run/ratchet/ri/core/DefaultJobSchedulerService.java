@@ -427,7 +427,9 @@ public class DefaultJobSchedulerService
             || jobBatchStatusStore.compareAndSwapStatus(
                 jobId, JobStatus.RUNNING, JobStatus.CANCELED, null)
             || jobBatchStatusStore.compareAndSwapStatus(
-                jobId, JobStatus.PAUSED, JobStatus.CANCELED, null);
+                jobId, JobStatus.PAUSED, JobStatus.CANCELED, null)
+            || jobBatchStatusStore.compareAndSwapStatus(
+                jobId, JobStatus.WAITING, JobStatus.CANCELED, null);
 
     // Reload after CAS: compareAndSwapStatus bumps the optimistic-lock version; writing the
     // pre-CAS entity would throw. The intent is to annotate a terminal CANCELED row with

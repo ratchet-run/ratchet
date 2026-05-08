@@ -325,7 +325,7 @@ class DefaultJobCreationServiceAuthorizationTest {
 
     service.submit(builder);
 
-    verify(authorizationPolicy).checkCreate(any(UUID.class), anyString());
+    verify(authorizationPolicy, times(2)).checkCreate(any(UUID.class), anyString());
   }
 
   @Test

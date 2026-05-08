@@ -245,4 +245,15 @@ class PollingStrategyTest {
     assertFalse(stats.inDeepIdle());
     assertFalse(stats.inBurstMode());
   }
+
+  @Test
+  void statsIdleUsesConfiguredThreshold() {
+    PollingStrategy.PollingStats active =
+        new PollingStrategy.PollingStats(0, 0, 0, 1.0, 0.0, MIN_DELAY, false, false, MIN_DELAY);
+    PollingStrategy.PollingStats idle =
+        new PollingStrategy.PollingStats(0, 0, 0, 1.0, 0.0, MIN_DELAY + 1, false, false, MIN_DELAY);
+
+    assertFalse(active.isIdle());
+    assertTrue(idle.isIdle());
+  }
 }

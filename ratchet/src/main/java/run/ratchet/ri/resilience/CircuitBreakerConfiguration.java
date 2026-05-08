@@ -22,6 +22,27 @@ public record CircuitBreakerConfiguration(
     int permittedCallsInHalfOpen,
     int minimumCalls) {
 
+  public CircuitBreakerConfiguration {
+    if (failureRateThreshold < 0.0f || failureRateThreshold > 100.0f) {
+      throw new IllegalArgumentException("failureRateThreshold must be between 0 and 100");
+    }
+    if (slidingWindowSize <= 0) {
+      throw new IllegalArgumentException("slidingWindowSize must be greater than zero");
+    }
+    if (waitDurationMs < 0) {
+      throw new IllegalArgumentException("waitDurationMs must not be negative");
+    }
+    if (slowCallThresholdMs < 0) {
+      throw new IllegalArgumentException("slowCallThresholdMs must not be negative");
+    }
+    if (permittedCallsInHalfOpen <= 0) {
+      throw new IllegalArgumentException("permittedCallsInHalfOpen must be greater than zero");
+    }
+    if (minimumCalls <= 0) {
+      throw new IllegalArgumentException("minimumCalls must be greater than zero");
+    }
+  }
+
   public static final CircuitBreakerConfiguration DEFAULT =
       new CircuitBreakerConfiguration(50.0f, 100, 30_000L, 10_000L, 3, 5);
 
