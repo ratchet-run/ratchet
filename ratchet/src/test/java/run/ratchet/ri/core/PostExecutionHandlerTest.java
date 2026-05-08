@@ -64,4 +64,69 @@ class PostExecutionHandlerTest {
 
     verify(pollerScheduler, never()).wakeup();
   }
+
+  @Test
+  void handlePermanentFailure_batchChildWithoutCompletedBatch_doesNotWakePollerOrDlq() {
+    JobEntity job = job(JobExecutionType.BATCH_CHILD);
+    RuntimeException failure = new RuntimeException("boom");
+    when(batchService.markChildFailed(job)).thenReturn(false);
+
+    handler.handlePermanentFailure(job, failure);
+
+    verify(batchService).markChildFailed(job);
+    verify(deadLetterService, never()).moveToDlq(job, failure);
+    verify(workflowScheduler, never()).scheduleNext(job);
+    verify(pollerScheduler, never()).wakeup();
+  }
+
+  @Test
+  void handlePermanentFailure_batchChildCompletesBatch_wakesPoller() {
+    JobEntity job = job(JobExecutionType.BATCH_CHILD);
+    RuntimeException failure = new RuntimeException("boom");
+    when(batchService.markChildFailed(job)).thenReturn(true);
+
+    handler.handlePermanentFailure(job, failure);
+
+    verify(batchService).markChildFailed(job);
+    verify(deadLetterService, never()).moveToDlq(job, failure);
+    verify(pollerScheduler).wakeup();
+  }
+
+  @Test
+  void handlePermanentFailure_singleMovesToDlqAndWithoutDownstreamWorkDoesNotWakePoller() {
+    JobEntity job = job(JobExecutionType.SINGLE);
+    RuntimeException failure = new RuntimeException("boom");
+    when(workflowScheduler.scheduleNext(job)).thenReturn(false);
+
+    handler.handlePermanentFailure(job, failure);
+
+    verify(deadLetterService).moveToDlq(job, failure);
+    verify(workflowScheduler).scheduleNext(job);
+    verify(pollerScheduler, never()).wakeup();
+  }
+
+  @Test
+  void handlePermanentFailure_chainStepMovesToDlqAndWithDownstreamWorkWakesPoller() {
+    JobEntity job = job(JobExecutionType.CHAIN_STEP);
+    RuntimeException failure = new RuntimeException("boom");
+    when(workflowScheduler.scheduleNext(job)).thenReturn(true);
+
+    handler.handlePermanentFailure(job, failure);
+
+    verify(deadLetterService).moveToDlq(job, failure);
+    verify(workflowScheduler).scheduleNext(job);
+    verify(pollerScheduler).wakeup();
+  }
+
+  @Test
+  void handlePermanentFailure_recurringMovesToDlqWithoutSchedulingNext() {
+    JobEntity job = job(JobExecutionType.RECURRING);
+    RuntimeException failure = new RuntimeException("boom");
+
+    handler.handlePermanentFailure(job, failure);
+
+    verify(deadLetterService).moveToDlq(job, failure);
+    verify(workflowScheduler, never()).scheduleNext(job);
+    verify(pollerScheduler, never()).wakeup();
+  }
 }
