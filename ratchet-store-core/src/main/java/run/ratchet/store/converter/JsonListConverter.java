@@ -3,7 +3,6 @@ package run.ratchet.store.converter;
 import jakarta.json.bind.Jsonb;
 import jakarta.json.bind.JsonbBuilder;
 import jakarta.json.bind.JsonbException;
-import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Converter;
 import java.util.List;
 
@@ -12,32 +11,33 @@ import java.util.List;
  * storage.
  */
 @Converter
-public class JsonListConverter implements AttributeConverter<List<Object>, String> {
+public class JsonListConverter extends AbstractJsonAttributeConverter<List<Object>> {
 
   private static final Jsonb JSONB = JsonbBuilder.create();
 
   @Override
-  public String convertToDatabaseColumn(List<Object> attribute) {
-    if (attribute == null) {
-      return null;
-    }
-    try {
-      return JSONB.toJson(attribute);
-    } catch (JsonbException e) {
-      throw new IllegalArgumentException("JSON list serialization error", e);
-    }
+  protected String serialize(List<Object> attribute) {
+    return JSONB.toJson(attribute);
   }
 
   @SuppressWarnings("unchecked")
   @Override
-  public List<Object> convertToEntityAttribute(String dbData) {
-    if (dbData == null || dbData.isEmpty()) {
-      return null;
-    }
-    try {
-      return (List<Object>) JSONB.fromJson(dbData, List.class);
-    } catch (JsonbException e) {
-      throw new IllegalArgumentException("JSON list deserialization error", e);
-    }
+  protected List<Object> deserialize(String dbData) {
+    return (List<Object>) JSONB.fromJson(dbData, List.class);
+  }
+
+  @Override
+  protected Class<? extends RuntimeException> conversionExceptionType() {
+    return JsonbException.class;
+  }
+
+  @Override
+  protected String serializationErrorMessage() {
+    return "JSON list serialization error";
+  }
+
+  @Override
+  protected String deserializationErrorMessage() {
+    return "JSON list deserialization error";
   }
 }

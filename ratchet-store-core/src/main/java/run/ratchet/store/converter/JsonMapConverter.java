@@ -1,6 +1,5 @@
 package run.ratchet.store.converter;
 
-import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Converter;
 import java.util.Map;
 
@@ -9,30 +8,31 @@ import java.util.Map;
  * database storage.
  */
 @Converter
-public class JsonMapConverter implements AttributeConverter<Map<String, String>, String> {
+public class JsonMapConverter extends AbstractJsonAttributeConverter<Map<String, String>> {
 
   @Override
-  public String convertToDatabaseColumn(Map<String, String> attribute) {
-    if (attribute == null) {
-      return null;
-    }
-    try {
-      return PayloadSerializerHolder.get().serialize(attribute);
-    } catch (IllegalArgumentException e) {
-      throw new IllegalArgumentException("JSON map serialization error", e);
-    }
+  protected String serialize(Map<String, String> attribute) {
+    return PayloadSerializerHolder.get().serialize(attribute);
   }
 
   @SuppressWarnings("unchecked")
   @Override
-  public Map<String, String> convertToEntityAttribute(String dbData) {
-    if (dbData == null || dbData.isEmpty()) {
-      return null;
-    }
-    try {
-      return (Map<String, String>) PayloadSerializerHolder.get().deserialize(dbData, Map.class);
-    } catch (IllegalArgumentException e) {
-      throw new IllegalArgumentException("JSON map deserialization error", e);
-    }
+  protected Map<String, String> deserialize(String dbData) {
+    return (Map<String, String>) PayloadSerializerHolder.get().deserialize(dbData, Map.class);
+  }
+
+  @Override
+  protected Class<? extends RuntimeException> conversionExceptionType() {
+    return IllegalArgumentException.class;
+  }
+
+  @Override
+  protected String serializationErrorMessage() {
+    return "JSON map serialization error";
+  }
+
+  @Override
+  protected String deserializationErrorMessage() {
+    return "JSON map deserialization error";
   }
 }

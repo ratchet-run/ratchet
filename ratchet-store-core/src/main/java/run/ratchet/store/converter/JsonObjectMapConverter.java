@@ -3,7 +3,6 @@ package run.ratchet.store.converter;
 import jakarta.json.bind.Jsonb;
 import jakarta.json.bind.JsonbBuilder;
 import jakarta.json.bind.JsonbException;
-import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Converter;
 import java.util.Map;
 
@@ -12,32 +11,33 @@ import java.util.Map;
  * database storage.
  */
 @Converter
-public class JsonObjectMapConverter implements AttributeConverter<Map<String, Object>, String> {
+public class JsonObjectMapConverter extends AbstractJsonAttributeConverter<Map<String, Object>> {
 
   private static final Jsonb JSONB = JsonbBuilder.create();
 
   @Override
-  public String convertToDatabaseColumn(Map<String, Object> attribute) {
-    if (attribute == null) {
-      return null;
-    }
-    try {
-      return JSONB.toJson(attribute);
-    } catch (JsonbException e) {
-      throw new IllegalArgumentException("JSON object-map serialization error", e);
-    }
+  protected String serialize(Map<String, Object> attribute) {
+    return JSONB.toJson(attribute);
   }
 
   @SuppressWarnings("unchecked")
   @Override
-  public Map<String, Object> convertToEntityAttribute(String dbData) {
-    if (dbData == null || dbData.isEmpty()) {
-      return null;
-    }
-    try {
-      return (Map<String, Object>) JSONB.fromJson(dbData, Map.class);
-    } catch (JsonbException e) {
-      throw new IllegalArgumentException("JSON object-map deserialization error", e);
-    }
+  protected Map<String, Object> deserialize(String dbData) {
+    return (Map<String, Object>) JSONB.fromJson(dbData, Map.class);
+  }
+
+  @Override
+  protected Class<? extends RuntimeException> conversionExceptionType() {
+    return JsonbException.class;
+  }
+
+  @Override
+  protected String serializationErrorMessage() {
+    return "JSON object-map serialization error";
+  }
+
+  @Override
+  protected String deserializationErrorMessage() {
+    return "JSON object-map deserialization error";
   }
 }

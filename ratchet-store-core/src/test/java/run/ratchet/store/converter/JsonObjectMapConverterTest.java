@@ -6,11 +6,18 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.math.BigDecimal;
 import java.util.Map;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.spi.PayloadSerializer;
 
 class JsonObjectMapConverterTest {
 
   private final JsonObjectMapConverter converter = new JsonObjectMapConverter();
+
+  @AfterEach
+  void reset() {
+    PayloadSerializerHolder.set(null);
+  }
 
   @Test
   void roundtrip_preservesMixedTypes() {
@@ -42,5 +49,28 @@ class JsonObjectMapConverterTest {
   void malformedJson_throwsException() {
     assertThrows(
         IllegalArgumentException.class, () -> converter.convertToEntityAttribute("not json"));
+  }
+
+  @Test
+  void ignoresInstalledPayloadSerializer() {
+    PayloadSerializerHolder.set(new ThrowingSerializer());
+
+    String json = converter.convertToDatabaseColumn(Map.of("name", "Alice"));
+    Map<String, Object> restored = converter.convertToEntityAttribute(json);
+
+    assertEquals("Alice", restored.get("name"));
+  }
+
+  static final class ThrowingSerializer implements PayloadSerializer {
+
+    @Override
+    public String serialize(Object payload) {
+      throw new IllegalArgumentException("holder should not be used");
+    }
+
+    @Override
+    public <T> T deserialize(String json, Class<T> type) {
+      throw new IllegalArgumentException("holder should not be used");
+    }
   }
 }
