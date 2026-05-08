@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Pre-commit hook: run spotless:apply on staged Java files and re-stage them.
+#
+# Enable with:
+#   git config core.hooksPath .githooks
+set -euo pipefail
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.java$' || true)
+if [ -z "$staged" ]; then
+  exit 0
+fi
+
+echo "[pre-commit] spotless:apply on staged Java files"
+
+# Build a regex matching the staged files. Escape regex specials so paths
+# like Foo$Bar.java aren't treated as regex.
+escape() {
+  printf '%s' "$1" | sed -e 's/[][\\.*^$|()+?{}]/\\&/g'
+}
+
+regex=""
+while IFS= read -r file; do
+  esc=$(escape "$file")
+  if [ -z "$regex" ]; then
+    regex="$esc"
+  else
+    regex="$regex|$esc"
+  fi
+done <<< "$staged"
+
+mvn -q spotless:apply -DspotlessFiles=".*/($regex)$"
+
+# Re-stage any files that spotless reformatted.
+echo "$staged" | xargs git add
+
+exit 0
