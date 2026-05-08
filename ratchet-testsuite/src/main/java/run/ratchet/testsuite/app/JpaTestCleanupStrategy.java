@@ -12,8 +12,8 @@ import run.ratchet.store.spi.RatchetEntityManagerProvider;
 /**
  * JPA/SQL implementation of {@link TestCleanupStrategy}.
  *
- * <p>Truncates all scheduler tables using native SQL within a JTA transaction. Foreign key checks
- * are temporarily disabled for MySQL. Only packaged in the WAR when a JPA store profile (mysql,
+ * <p>Clears all scheduler tables using native SQL within a JTA transaction. Foreign key checks are
+ * temporarily disabled for MySQL. Only packaged in the WAR when a JPA store profile (mysql,
  * postgresql) is active.
  */
 @ApplicationScoped
@@ -36,6 +36,7 @@ public class JpaTestCleanupStrategy implements TestCleanupStrategy {
   private static final List<String> TABLES_AFTER_HOT_STATE =
       List.of(
           "scheduler_business_key_reservation",
+          "scheduler_job_queue",
           "scheduler_job",
           "scheduler_lock",
           "scheduler_resource_limit",
@@ -43,11 +44,8 @@ public class JpaTestCleanupStrategy implements TestCleanupStrategy {
 
   @Inject private RatchetEntityManagerProvider entityManagerProvider;
 
-  private static List<String> tablesToTruncate(String dbType) {
+  private static List<String> tablesToClear() {
     List<String> tables = new ArrayList<>(TABLES_BEFORE_HOT_STATE);
-    if ("mysql".equals(dbType)) {
-      tables.add("scheduler_job_queue");
-    }
     tables.addAll(TABLES_AFTER_HOT_STATE);
     return tables;
   }
@@ -62,9 +60,9 @@ public class JpaTestCleanupStrategy implements TestCleanupStrategy {
         em().createNativeQuery("SET FOREIGN_KEY_CHECKS = 0").executeUpdate();
       }
 
-      for (String table : tablesToTruncate(dbType)) {
+      for (String table : tablesToClear()) {
         if ("postgresql".equals(dbType)) {
-          em().createNativeQuery("TRUNCATE TABLE " + table + " CASCADE").executeUpdate();
+          em().createNativeQuery("DELETE FROM " + table).executeUpdate();
         } else {
           em().createNativeQuery("TRUNCATE TABLE " + table).executeUpdate();
         }
