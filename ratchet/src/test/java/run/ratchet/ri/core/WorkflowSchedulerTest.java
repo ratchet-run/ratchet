@@ -1,7 +1,10 @@
 package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -96,6 +99,159 @@ class WorkflowSchedulerTest {
     scheduler.scheduleNext(parent);
 
     verify(jobTerminalStore).cancelJob(unmatched.getId());
+  }
+
+  @Test
+  void scheduleNext_noConditionsFallsBackToLinearChain() {
+    JobEntity parent = job(new UUID(0L, 30L), JobStatus.SUCCEEDED);
+    JobEntity child = job(new UUID(0L, 31L), JobStatus.PENDING);
+    child.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
+    when(conditionStore.findConditionsByParentJobId(parent.getId())).thenReturn(List.of());
+    when(jobCrudStore.findDependants(parent.getId())).thenReturn(List.of(child));
+
+    assertTrue(scheduler.scheduleNext(parent));
+
+    verify(jobCrudStore).save(child);
+    assertNotNull(child.getScheduledTime());
+  }
+
+  @Test
+  void scheduleNext_failedParentWithNoConditionsFallsBackToCancelChain() {
+    JobEntity parent = job(new UUID(0L, 32L), JobStatus.FAILED);
+    JobEntity child = job(new UUID(0L, 33L), JobStatus.PENDING);
+    when(conditionStore.findConditionsByParentJobId(parent.getId())).thenReturn(List.of());
+    when(jobCrudStore.findDependants(parent.getId())).thenReturn(List.of(child));
+    when(jobCrudStore.findDependants(child.getId())).thenReturn(List.of());
+
+    assertFalse(scheduler.scheduleNext(parent));
+
+    verify(jobCrudStore).save(child);
+    assertEquals(JobStatus.CANCELED, child.getStatus());
+  }
+
+  @Test
+  void scheduleNext_multipleConditionsSchedulesFirstMatchingBranchAndCancelsRest() {
+    JobEntity parent = job(new UUID(0L, 40L), JobStatus.SUCCEEDED);
+    JobEntity firstChild = job(new UUID(0L, 41L), JobStatus.PENDING);
+    JobEntity secondChild = job(new UUID(0L, 42L), JobStatus.PENDING);
+    JobEntity thirdChild = job(new UUID(0L, 43L), JobStatus.WAITING);
+    WorkflowConditionEntity first = condition(parent.getId(), firstChild.getId(), 0);
+    WorkflowConditionEntity second = condition(parent.getId(), secondChild.getId(), 1);
+    WorkflowConditionEntity third = condition(parent.getId(), thirdChild.getId(), 2);
+    when(conditionStore.findConditionsByParentJobId(parent.getId()))
+        .thenReturn(List.of(first, second, third));
+    when(conditionEvaluator.evaluate(first, parent)).thenReturn(false);
+    when(conditionEvaluator.evaluate(second, parent)).thenReturn(true);
+    when(jobCrudStore.findById(secondChild.getId())).thenReturn(Optional.of(secondChild));
+    when(jobCrudStore.findById(firstChild.getId())).thenReturn(Optional.of(firstChild));
+    when(jobCrudStore.findById(thirdChild.getId())).thenReturn(Optional.of(thirdChild));
+    when(jobTerminalStore.cancelJob(firstChild.getId())).thenReturn(true);
+    when(jobTerminalStore.cancelJob(thirdChild.getId())).thenReturn(true);
+
+    assertTrue(scheduler.scheduleNext(parent));
+
+    verify(jobCrudStore).save(secondChild);
+    verify(conditionEvaluator, never()).evaluate(third, parent);
+    verify(jobTerminalStore).cancelJob(firstChild.getId());
+    verify(jobTerminalStore).cancelJob(thirdChild.getId());
+  }
+
+  @Test
+  void scheduleNext_matchingConditionWithMissingChildContinuesToNextCondition() {
+    JobEntity parent = job(new UUID(0L, 50L), JobStatus.SUCCEEDED);
+    JobEntity existingChild = job(new UUID(0L, 52L), JobStatus.PENDING);
+    UUID missingChildId = new UUID(0L, 51L);
+    WorkflowConditionEntity missing = condition(parent.getId(), missingChildId, 0);
+    WorkflowConditionEntity existing = condition(parent.getId(), existingChild.getId(), 1);
+    when(conditionStore.findConditionsByParentJobId(parent.getId()))
+        .thenReturn(List.of(missing, existing));
+    when(conditionEvaluator.evaluate(missing, parent)).thenReturn(true);
+    when(conditionEvaluator.evaluate(existing, parent)).thenReturn(true);
+    when(jobCrudStore.findById(missingChildId)).thenReturn(Optional.empty());
+    when(jobCrudStore.findById(existingChild.getId())).thenReturn(Optional.of(existingChild));
+
+    assertTrue(scheduler.scheduleNext(parent));
+
+    verify(jobCrudStore).save(existingChild);
+    verify(jobTerminalStore, never()).cancelJob(missingChildId);
+  }
+
+  @Test
+  void scheduleNext_conditionEvaluatorExceptionMarksParentFailedAndCancelsBranches() {
+    JobEntity parent = job(new UUID(0L, 60L), JobStatus.PENDING);
+    parent.setAttempts(2);
+    JobEntity child = job(new UUID(0L, 61L), JobStatus.WAITING);
+    WorkflowConditionEntity condition = condition(parent.getId(), child.getId(), 0);
+    RuntimeException failure = new RuntimeException("predicate exploded");
+    when(conditionStore.findConditionsByParentJobId(parent.getId())).thenReturn(List.of(condition));
+    when(conditionEvaluator.evaluate(condition, parent)).thenThrow(failure);
+    when(jobBatchStatusStore.tryPickUpJob(
+            parent.getId(), DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID))
+        .thenReturn(true);
+    when(jobCrudStore.findDependants(parent.getId())).thenReturn(List.of());
+    when(jobCrudStore.findById(child.getId())).thenReturn(Optional.of(child));
+    when(jobTerminalStore.cancelJob(child.getId())).thenReturn(true);
+
+    assertFalse(scheduler.scheduleNext(parent));
+
+    assertEquals(JobStatus.FAILED, parent.getStatus());
+    assertEquals("Workflow condition evaluation failed: predicate exploded", parent.getLastError());
+    verify(jobTerminalStore)
+        .markJobFailedTerminal(parent.getId(), parent.getLastError(), parent.getAttempts());
+    verify(jobTerminalStore).cancelJob(child.getId());
+  }
+
+  @Test
+  void cancelChain_noConditionalBranchesOnlyCancelsLinearDependants() {
+    JobEntity parent = job(new UUID(0L, 70L), JobStatus.FAILED);
+    JobEntity child = job(new UUID(0L, 71L), JobStatus.PENDING);
+    when(jobCrudStore.findDependants(parent.getId())).thenReturn(List.of(child));
+    when(jobCrudStore.findDependants(child.getId())).thenReturn(List.of());
+    when(conditionStore.findConditionsByParentJobId(parent.getId())).thenReturn(List.of());
+
+    scheduler.cancelChain(parent);
+
+    verify(jobCrudStore).save(child);
+    assertEquals(JobStatus.CANCELED, child.getStatus());
+  }
+
+  @Test
+  void cancelChain_multipleConditionalBranchesCancelsOnlyPendingOrWaitingChildren() {
+    JobEntity parent = job(new UUID(0L, 80L), JobStatus.FAILED);
+    JobEntity pending = job(new UUID(0L, 81L), JobStatus.PENDING);
+    JobEntity waiting = job(new UUID(0L, 82L), JobStatus.WAITING);
+    JobEntity running = job(new UUID(0L, 83L), JobStatus.RUNNING);
+    WorkflowConditionEntity first = condition(parent.getId(), pending.getId(), 0);
+    WorkflowConditionEntity second = condition(parent.getId(), waiting.getId(), 1);
+    WorkflowConditionEntity third = condition(parent.getId(), running.getId(), 2);
+    when(jobCrudStore.findDependants(parent.getId())).thenReturn(List.of());
+    when(conditionStore.findConditionsByParentJobId(parent.getId()))
+        .thenReturn(List.of(first, second, third));
+    when(jobCrudStore.findById(pending.getId())).thenReturn(Optional.of(pending));
+    when(jobCrudStore.findById(waiting.getId())).thenReturn(Optional.of(waiting));
+    when(jobCrudStore.findById(running.getId())).thenReturn(Optional.of(running));
+    when(jobTerminalStore.cancelJob(pending.getId())).thenReturn(true);
+    when(jobTerminalStore.cancelJob(waiting.getId())).thenReturn(true);
+
+    scheduler.cancelChain(parent);
+
+    verify(jobTerminalStore).cancelJob(pending.getId());
+    verify(jobTerminalStore).cancelJob(waiting.getId());
+    verify(jobTerminalStore, never()).cancelJob(running.getId());
+  }
+
+  @Test
+  void cancelChain_missingConditionalChildDoesNotCancelAnythingForThatCondition() {
+    JobEntity parent = job(new UUID(0L, 90L), JobStatus.FAILED);
+    UUID missingChildId = new UUID(0L, 91L);
+    WorkflowConditionEntity condition = condition(parent.getId(), missingChildId, 0);
+    when(jobCrudStore.findDependants(parent.getId())).thenReturn(List.of());
+    when(conditionStore.findConditionsByParentJobId(parent.getId())).thenReturn(List.of(condition));
+    when(jobCrudStore.findById(missingChildId)).thenReturn(Optional.empty());
+
+    scheduler.cancelChain(parent);
+
+    verify(jobTerminalStore, never()).cancelJob(missingChildId);
   }
 
   @Test
