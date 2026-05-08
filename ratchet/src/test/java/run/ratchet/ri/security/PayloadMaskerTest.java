@@ -1,6 +1,7 @@
 package run.ratchet.ri.security;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -51,6 +52,76 @@ class PayloadMaskerTest {
 
     assertTrue(masked.contains("\"apiKey\":\"***REDACTED***\""));
     assertTrue(masked.contains("\"endpoint\":\"https://example.com\""));
+  }
+
+  @Test
+  void maskPayload_compoundSensitiveFieldPatterns_masked() {
+    String json =
+        """
+        {
+          "databasePassword": "db-secret",
+          "oauthAuthorizationHeader": "Bearer abc123",
+          "privateKeyPem": "-----BEGIN PRIVATE KEY-----",
+          "safeValue": "visible"
+        }
+        """;
+
+    String masked = PayloadMasker.maskPayload(json);
+
+    assertTrue(masked.contains("\"databasePassword\":\"***REDACTED***\""));
+    assertTrue(masked.contains("\"oauthAuthorizationHeader\":\"***REDACTED***\""));
+    assertTrue(masked.contains("\"privateKeyPem\":\"***REDACTED***\""));
+    assertTrue(masked.contains("\"safeValue\":\"visible\""));
+    assertFalse(masked.contains("db-secret"));
+    assertFalse(masked.contains("Bearer abc123"));
+    assertFalse(masked.contains("-----BEGIN PRIVATE KEY-----"));
+  }
+
+  @Test
+  void maskPayload_threePlusLevelNestedSensitiveFields_masked() {
+    String json =
+        """
+        {
+          "tenant": {
+            "region": {
+              "service": {
+                "accessToken": "token-123",
+                "endpoint": "https://example.com"
+              }
+            }
+          }
+        }
+        """;
+
+    String masked = PayloadMasker.maskPayload(json);
+
+    assertTrue(masked.contains("\"accessToken\":\"***REDACTED***\""));
+    assertTrue(masked.contains("\"endpoint\":\"https://example.com\""));
+    assertFalse(masked.contains("token-123"));
+  }
+
+  @Test
+  void maskPayload_arraysInsideObjects_maskObjectElements() {
+    String json =
+        """
+        {
+          "accounts": [
+            {"username": "alice", "refreshToken": "refresh-123"},
+            {"username": "bob", "metadata": {"apiSecret": "api-secret"}}
+          ],
+          "status": "active"
+        }
+        """;
+
+    String masked = PayloadMasker.maskPayload(json);
+
+    assertTrue(masked.contains("\"username\":\"alice\""));
+    assertTrue(masked.contains("\"refreshToken\":\"***REDACTED***\""));
+    assertTrue(masked.contains("\"username\":\"bob\""));
+    assertTrue(masked.contains("\"apiSecret\":\"***REDACTED***\""));
+    assertTrue(masked.contains("\"status\":\"active\""));
+    assertFalse(masked.contains("refresh-123"));
+    assertFalse(masked.contains("api-secret"));
   }
 
   @Test
