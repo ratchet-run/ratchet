@@ -5,7 +5,7 @@ import jakarta.persistence.AttributeConverter;
 abstract class AbstractJsonAttributeConverter<T> implements AttributeConverter<T, String> {
 
   @Override
-  public final String convertToDatabaseColumn(T attribute) {
+  public String convertToDatabaseColumn(T attribute) {
     if (attribute == null) {
       return null;
     }
@@ -17,7 +17,7 @@ abstract class AbstractJsonAttributeConverter<T> implements AttributeConverter<T
   }
 
   @Override
-  public final T convertToEntityAttribute(String dbData) {
+  public T convertToEntityAttribute(String dbData) {
     if (dbData == null || dbData.isEmpty()) {
       return null;
     }

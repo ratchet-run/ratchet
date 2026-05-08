@@ -15,6 +15,10 @@ public class JsonListConverter extends AbstractJsonAttributeConverter<List<Objec
 
   private static final Jsonb JSONB = JsonbBuilder.create();
 
+  public String convertToDatabaseColumn(List<Object> attribute) {
+    return super.convertToDatabaseColumn(attribute);
+  }
+
   @Override
   protected String serialize(List<Object> attribute) {
     return JSONB.toJson(attribute);

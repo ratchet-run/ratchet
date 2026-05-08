@@ -10,6 +10,10 @@ import java.util.Map;
 @Converter
 public class JsonMapConverter extends AbstractJsonAttributeConverter<Map<String, String>> {
 
+  public String convertToDatabaseColumn(Map<String, String> attribute) {
+    return super.convertToDatabaseColumn(attribute);
+  }
+
   @Override
   protected String serialize(Map<String, String> attribute) {
     return PayloadSerializerHolder.get().serialize(attribute);

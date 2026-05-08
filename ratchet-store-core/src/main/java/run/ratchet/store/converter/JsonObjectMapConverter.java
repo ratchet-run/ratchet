@@ -15,6 +15,10 @@ public class JsonObjectMapConverter extends AbstractJsonAttributeConverter<Map<S
 
   private static final Jsonb JSONB = JsonbBuilder.create();
 
+  public String convertToDatabaseColumn(Map<String, Object> attribute) {
+    return super.convertToDatabaseColumn(attribute);
+  }
+
   @Override
   protected String serialize(Map<String, Object> attribute) {
     return JSONB.toJson(attribute);
