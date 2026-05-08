@@ -17,7 +17,7 @@ public enum BackoffPolicy {
   FIXED,
 
   /**
-   * Delay doubles with each attempt, starting from {@code backoffParamMs}, capped at ~5 minutes.
+   * Delay doubles with each attempt, starting from {@code backoffParamMs}, capped at 24 hours.
    *
    * <p>Example (backoffParamMs = 1000): immediate, +1 s, +2 s, +4 s, +8 s, …
    */
