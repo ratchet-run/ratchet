@@ -1,8 +1,5 @@
 package run.ratchet.store.converter;
 
-import jakarta.json.bind.Jsonb;
-import jakarta.json.bind.JsonbBuilder;
-import jakarta.json.bind.JsonbException;
 import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Converter;
 import java.util.Map;
@@ -14,16 +11,14 @@ import java.util.Map;
 @Converter
 public class JsonMapConverter implements AttributeConverter<Map<String, String>, String> {
 
-  private static final Jsonb JSONB = JsonbBuilder.create();
-
   @Override
   public String convertToDatabaseColumn(Map<String, String> attribute) {
     if (attribute == null) {
       return null;
     }
     try {
-      return JSONB.toJson(attribute);
-    } catch (JsonbException e) {
+      return PayloadSerializerHolder.get().serialize(attribute);
+    } catch (IllegalArgumentException e) {
       throw new IllegalArgumentException("JSON map serialization error", e);
     }
   }
@@ -35,8 +30,8 @@ public class JsonMapConverter implements AttributeConverter<Map<String, String>,
       return null;
     }
     try {
-      return (Map<String, String>) JSONB.fromJson(dbData, Map.class);
-    } catch (JsonbException e) {
+      return (Map<String, String>) PayloadSerializerHolder.get().deserialize(dbData, Map.class);
+    } catch (IllegalArgumentException e) {
       throw new IllegalArgumentException("JSON map deserialization error", e);
     }
   }
