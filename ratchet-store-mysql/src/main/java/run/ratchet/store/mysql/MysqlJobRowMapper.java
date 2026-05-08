@@ -15,6 +15,7 @@ import run.ratchet.store.converter.JsonMapConverter;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
+import run.ratchet.store.util.StatusClassifier;
 
 final class MysqlJobRowMapper {
 
@@ -93,21 +94,15 @@ final class MysqlJobRowMapper {
   private static final int IDX_Q_SIGNAL_DELIVERY_ID = 52;
 
   static boolean isTerminalStatus(JobStatus s) {
-    return s == JobStatus.SUCCEEDED || s == JobStatus.FAILED || s == JobStatus.CANCELED;
+    return StatusClassifier.isTerminalStatus(s);
   }
 
   static boolean isLiveStatus(JobStatus s) {
-    return s == JobStatus.PENDING
-        || s == JobStatus.RUNNING
-        || s == JobStatus.PAUSED
-        || s == JobStatus.WAITING;
+    return StatusClassifier.isLiveStatus(s);
   }
 
   static boolean isPollerExecutable(JobExecutionType jobType) {
-    return jobType == JobExecutionType.SINGLE
-        || jobType == JobExecutionType.BATCH_CHILD
-        || jobType == JobExecutionType.CHAIN_STEP
-        || jobType == JobExecutionType.WORKFLOW_BRANCH;
+    return StatusClassifier.isPollerExecutable(jobType);
   }
 
   static JobPriority safeJobPriority(int ordinal) {

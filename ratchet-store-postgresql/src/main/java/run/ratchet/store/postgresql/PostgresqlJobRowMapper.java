@@ -15,6 +15,7 @@ import run.ratchet.store.converter.JsonMapConverter;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
+import run.ratchet.store.util.StatusClassifier;
 
 /**
  * Hydrates {@link JobEntity} from the post-V005 split schema:
@@ -246,14 +247,11 @@ final class PostgresqlJobRowMapper {
   }
 
   static boolean isLiveStatus(JobStatus s) {
-    return s == JobStatus.PENDING
-        || s == JobStatus.RUNNING
-        || s == JobStatus.PAUSED
-        || s == JobStatus.WAITING;
+    return StatusClassifier.isLiveStatus(s);
   }
 
   static boolean isTerminalStatus(JobStatus s) {
-    return s == JobStatus.SUCCEEDED || s == JobStatus.FAILED || s == JobStatus.CANCELED;
+    return StatusClassifier.isTerminalStatus(s);
   }
 
   static Instant toInstant(Object value) {

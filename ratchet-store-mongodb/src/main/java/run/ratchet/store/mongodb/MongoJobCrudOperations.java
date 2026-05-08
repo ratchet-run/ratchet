@@ -49,6 +49,7 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.exception.RatchetOptimisticLockException;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.id.UuidV7Factory;
@@ -78,7 +79,15 @@ final class MongoJobCrudOperations {
     if (job.getVersion() == null) {
       job.setVersion(0);
     }
-    ctx.jobs().insertOne(DocumentMapper.toDocument(job));
+    try {
+      ctx.jobs().insertOne(DocumentMapper.toDocument(job));
+    } catch (RuntimeException e) {
+      if (ctx.constraintDetector().isDuplicateBusinessKey(e)) {
+        throw new RatchetTransientStoreException(
+            "Active business key in use for job " + job.getId(), e);
+      }
+      throw e;
+    }
     return job;
   }
 
@@ -95,12 +104,22 @@ final class MongoJobCrudOperations {
     Integer expectedVersion = job.getVersion() != null ? job.getVersion() : 0;
     job.setVersion(expectedVersion + 1);
     Document doc = DocumentMapper.toDocument(job);
-    UpdateResult result =
-        ctx.jobs()
-            .replaceOne(
-                and(eq(ID, job.getId()), eq(VERSION, expectedVersion)),
-                doc,
-                new ReplaceOptions().upsert(false));
+    UpdateResult result;
+    try {
+      result =
+          ctx.jobs()
+              .replaceOne(
+                  and(eq(ID, job.getId()), eq(VERSION, expectedVersion)),
+                  doc,
+                  new ReplaceOptions().upsert(false));
+    } catch (RuntimeException e) {
+      if (ctx.constraintDetector().isDuplicateBusinessKey(e)) {
+        job.setVersion(expectedVersion);
+        throw new RatchetTransientStoreException(
+            "Active business key in use for job " + job.getId(), e);
+      }
+      throw e;
+    }
     if (result.getMatchedCount() == 0) {
       job.setVersion(expectedVersion);
       throw new RatchetOptimisticLockException(

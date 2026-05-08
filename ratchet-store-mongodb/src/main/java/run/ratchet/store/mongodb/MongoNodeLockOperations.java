@@ -27,6 +27,8 @@ import java.util.List;
 import java.util.Optional;
 import org.bson.Document;
 import run.ratchet.store.entity.NodeEntity;
+import run.ratchet.store.spi.LockStore;
+import run.ratchet.store.spi.NodeStore;
 
 /**
  * Distributed locks (scheduler_lock) + node heartbeats (scheduler_node) + a server-clock probe.
@@ -35,7 +37,7 @@ import run.ratchet.store.entity.NodeEntity;
  * be overwritten atomically; a live one triggers the duplicate-key path. Heartbeat upsert ensures a
  * node row exists with {@code started_at} set on first write only.
  */
-final class MongoNodeLockOperations {
+final class MongoNodeLockOperations implements LockStore, NodeStore {
 
   private static final int DUPLICATE_KEY_ERROR_CODE = 11000;
 
@@ -45,7 +47,8 @@ final class MongoNodeLockOperations {
     this.ctx = ctx;
   }
 
-  boolean tryLock(String name, Duration ttl, String nodeId) {
+  @Override
+  public boolean tryLock(String name, Duration ttl, String nodeId) {
     Date now = DocumentMapper.toDate(Instant.now());
     Date expiresAt = DocumentMapper.toDate(Instant.now().plus(ttl));
 
@@ -69,11 +72,13 @@ final class MongoNodeLockOperations {
     }
   }
 
-  void unlock(String name, String nodeId) {
+  @Override
+  public void unlock(String name, String nodeId) {
     ctx.locks().deleteOne(and(eq(ID, name), eq(OWNER_NODE, nodeId)));
   }
 
-  boolean renewLock(String name, Duration extension, String nodeId) {
+  @Override
+  public boolean renewLock(String name, Duration extension, String nodeId) {
     Date newExpiry = DocumentMapper.toDate(Instant.now().plus(extension));
     UpdateResult result =
         ctx.locks()
@@ -81,7 +86,8 @@ final class MongoNodeLockOperations {
     return result.getModifiedCount() > 0;
   }
 
-  void upsertHeartbeat(String nodeId, Instant ts) {
+  @Override
+  public void upsertHeartbeat(String nodeId, Instant ts) {
     Date tsDate = DocumentMapper.toDate(ts);
     ctx.nodes()
         .updateOne(
@@ -90,12 +96,14 @@ final class MongoNodeLockOperations {
             new UpdateOptions().upsert(true));
   }
 
-  Optional<NodeEntity> findNodeById(String nodeId) {
+  @Override
+  public Optional<NodeEntity> findNodeById(String nodeId) {
     Document doc = ctx.nodes().find(eq(ID, nodeId)).first();
     return doc == null ? Optional.empty() : Optional.of(DocumentMapper.toNodeEntity(doc));
   }
 
-  List<NodeEntity> findInactiveNodesSince(Instant cutoff) {
+  @Override
+  public List<NodeEntity> findInactiveNodesSince(Instant cutoff) {
     List<NodeEntity> results = new ArrayList<>();
     for (Document doc : ctx.nodes().find(lt(HEARTBEAT_TS, DocumentMapper.toDate(cutoff)))) {
       results.add(DocumentMapper.toNodeEntity(doc));
@@ -103,12 +111,14 @@ final class MongoNodeLockOperations {
     return results;
   }
 
-  int deleteInactiveNodesSince(Instant cutoff) {
+  @Override
+  public int deleteInactiveNodesSince(Instant cutoff) {
     DeleteResult result = ctx.nodes().deleteMany(lt(HEARTBEAT_TS, DocumentMapper.toDate(cutoff)));
     return (int) result.getDeletedCount();
   }
 
-  Instant getDatabaseTime() {
+  @Override
+  public Instant getDatabaseTime() {
     Document result =
         ctx.database().runCommand(new Document("serverStatus", 1).append("localTime", 1));
     Date localTime = result.getDate("localTime");

@@ -29,9 +29,16 @@ final class PostgresqlJobRecurringAndResetOperations {
             updated_at = statement_timestamp()
         WHERE job_id = ? AND status = 'RUNNING' AND picked_by = ?
         """;
-    int updated =
-        ctx.em().createNativeQuery(sql).setParameter(1, id).setParameter(2, nodeId).executeUpdate();
-    return updated > 0;
+    return ctx.timedStoreOperation(
+            "reset_running_job",
+            () ->
+                ctx.em()
+                    .createNativeQuery(sql)
+                    .setParameter(1, id)
+                    .setParameter(2, nodeId)
+                    .executeUpdate(),
+            updated -> updated > 0 ? "updated" : "miss")
+        > 0;
   }
 
   int resetRunningJobs(String nodeId) {
@@ -43,7 +50,10 @@ final class PostgresqlJobRecurringAndResetOperations {
             updated_at = statement_timestamp()
         WHERE status = 'RUNNING' AND picked_by = ?
         """;
-    return ctx.em().createNativeQuery(sql).setParameter(1, nodeId).executeUpdate();
+    return ctx.timedStoreOperation(
+        "reset_running_jobs",
+        () -> ctx.em().createNativeQuery(sql).setParameter(1, nodeId).executeUpdate(),
+        updated -> updated > 0 ? "updated" : "miss");
   }
 
   int cancelRecurringJobsByTag(String tag) {
@@ -61,7 +71,11 @@ final class PostgresqlJobRecurringAndResetOperations {
           AND j.rec_status IS NOT NULL
           AND j.terminal_status IS NULL
         """;
-    int cancelled = ctx.em().createNativeQuery(coldSql).setParameter(1, tag).executeUpdate();
+    int cancelled =
+        ctx.timedStoreOperation(
+            "cancel_recurring_by_tag",
+            () -> ctx.em().createNativeQuery(coldSql).setParameter(1, tag).executeUpdate(),
+            updated -> updated > 0 ? "updated" : "miss");
     if (cancelled == 0) {
       return 0;
     }
@@ -97,7 +111,11 @@ final class PostgresqlJobRecurringAndResetOperations {
           AND j.terminal_status IS NULL
           AND q.status IN ('PENDING','PAUSED','WAITING')
         """;
-    int cancelled = ctx.em().createNativeQuery(coldSql).setParameter(1, tag).executeUpdate();
+    int cancelled =
+        ctx.timedStoreOperation(
+            "cancel_jobs_by_tag",
+            () -> ctx.em().createNativeQuery(coldSql).setParameter(1, tag).executeUpdate(),
+            updated -> updated > 0 ? "updated" : "miss");
     if (cancelled == 0) {
       return 0;
     }
@@ -180,8 +198,11 @@ final class PostgresqlJobRecurringAndResetOperations {
         WHERE job_id = ? AND job_type = 'RECURRING'
           AND rec_status = 'P' AND terminal_status IS NULL
         """;
-    int updated = ctx.em().createNativeQuery(sql).setParameter(1, id).executeUpdate();
-    return updated > 0;
+    return ctx.timedStoreOperation(
+            "pause_recurring",
+            () -> ctx.em().createNativeQuery(sql).setParameter(1, id).executeUpdate(),
+            updated -> updated > 0 ? "updated" : "miss")
+        > 0;
   }
 
   boolean resumeRecurring(UUID id) {
@@ -192,8 +213,11 @@ final class PostgresqlJobRecurringAndResetOperations {
         WHERE job_id = ? AND job_type = 'RECURRING'
           AND rec_status = 'A' AND terminal_status IS NULL
         """;
-    int updated = ctx.em().createNativeQuery(sql).setParameter(1, id).executeUpdate();
-    return updated > 0;
+    return ctx.timedStoreOperation(
+            "resume_recurring",
+            () -> ctx.em().createNativeQuery(sql).setParameter(1, id).executeUpdate(),
+            updated -> updated > 0 ? "updated" : "miss")
+        > 0;
   }
 
   private int cancelRecurringByIds(List<?> idRows) {

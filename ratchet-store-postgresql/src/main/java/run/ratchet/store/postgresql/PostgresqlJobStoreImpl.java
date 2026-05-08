@@ -18,6 +18,7 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.WorkflowCondition;
+import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.ArchivedJobEntity;
@@ -45,6 +46,7 @@ import run.ratchet.store.util.IsolationCheck;
 class PostgresqlJobStoreImpl implements PostgresqlJobStore {
 
   private final RatchetEntityManagerProvider entityManagerProvider;
+  private final MetricsCollector metricsCollector;
   private final RatchetOptions options;
   private EntityManager em;
 
@@ -64,13 +66,17 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   /** No-arg constructor required by CDI normal-scope proxying. Not for direct use. */
   protected PostgresqlJobStoreImpl() {
     this.entityManagerProvider = null;
+    this.metricsCollector = null;
     this.options = null;
   }
 
   @Inject
   PostgresqlJobStoreImpl(
-      RatchetEntityManagerProvider entityManagerProvider, RatchetOptions options) {
+      RatchetEntityManagerProvider entityManagerProvider,
+      MetricsCollector metricsCollector,
+      RatchetOptions options) {
     this.entityManagerProvider = entityManagerProvider;
+    this.metricsCollector = metricsCollector;
     this.options = options;
   }
 
@@ -749,7 +755,9 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   private void initDelegates() {
-    ctx = new PostgresqlStoreContext(em, options.store().priorityBoostIntervalMinutes());
+    ctx =
+        new PostgresqlStoreContext(
+            em, metricsCollector, options.store().priorityBoostIntervalMinutes());
     reservations = new PostgresqlBusinessKeyReservations(ctx);
     tags = new PostgresqlTagOperations(ctx);
     PostgresqlJobReadOperations reads = new PostgresqlJobReadOperations(ctx, tags);

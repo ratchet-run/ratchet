@@ -11,6 +11,7 @@ import run.ratchet.store.ConstraintDetector;
 /** MongoDB-specific constraint violation detector. */
 class MongoConstraintDetector implements ConstraintDetector {
 
+  private static final String ACTIVE_BUSINESS_KEY_INDEX = "idx_job_active_business_key";
   private static final int DUPLICATE_KEY_CODE = 11000;
   private static final int WRITE_CONFLICT_CODE = 112;
 
@@ -37,15 +38,13 @@ class MongoConstraintDetector implements ConstraintDetector {
   @Override
   public String constraintName(Exception e) {
     MongoWriteException mwe = findWriteException(e);
-    if (mwe == null) {
+    MongoCommandException mce = mwe == null ? findCommandException(e) : null;
+    String message = mwe != null ? mwe.getMessage() : mce == null ? null : mce.getMessage();
+    if (message == null) {
       return null;
     }
     // MongoDB error message format: "...dup key: { <index_name>: ... }" or
     // "E11000 duplicate key error collection: db.coll index: <index_name> dup key: ..."
-    String message = mwe.getMessage();
-    if (message == null) {
-      return null;
-    }
     int idx = message.indexOf("index: ");
     if (idx >= 0) {
       int start = idx + "index: ".length();
@@ -66,6 +65,18 @@ class MongoConstraintDetector implements ConstraintDetector {
     }
     MongoCommandException mce = findCommandException(e);
     return mce != null && mce.getCode() == DUPLICATE_KEY_CODE;
+  }
+
+  /**
+   * Returns true if the exception was raised by MongoDB's active business-key unique index. Used to
+   * translate concurrent active-key writes to the same retryable store exception as SQL stores.
+   */
+  public boolean isDuplicateBusinessKey(Exception e) {
+    if (!isDuplicateKey(e)) {
+      return false;
+    }
+    String name = constraintName(e);
+    return ACTIVE_BUSINESS_KEY_INDEX.equals(name);
   }
 
   @Override

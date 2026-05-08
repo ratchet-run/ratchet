@@ -6,7 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.mongodb.MongoException;
 import com.mongodb.MongoNodeIsRecoveringException;
 import com.mongodb.MongoSocketOpenException;
+import com.mongodb.MongoWriteException;
 import com.mongodb.ServerAddress;
+import com.mongodb.WriteError;
 import org.bson.BsonDocument;
 import org.bson.BsonInt32;
 import org.junit.jupiter.api.Test;
@@ -46,5 +48,39 @@ class MongoConstraintDetectorTest {
   @Test
   void ignoresNonRetryableMongoExceptions() {
     assertFalse(detector.isTransientConnectionFailure(new MongoException("plain")));
+  }
+
+  @Test
+  void detectsDuplicateBusinessKeyIndex() {
+    Exception wrapped =
+        new RuntimeException(
+            "mongo",
+            new MongoWriteException(
+                new WriteError(
+                    11000,
+                    "E11000 duplicate key error collection: ratchet.scheduler_job index:"
+                        + " idx_job_active_business_key dup key: { business_key: \"order-1\" }",
+                    new BsonDocument()),
+                SERVER_ADDRESS));
+
+    assertTrue(detector.isDuplicateKey(wrapped));
+    assertTrue(detector.isDuplicateBusinessKey(wrapped));
+  }
+
+  @Test
+  void ignoresOtherDuplicateIndexesForBusinessKey() {
+    Exception wrapped =
+        new RuntimeException(
+            "mongo",
+            new MongoWriteException(
+                new WriteError(
+                    11000,
+                    "E11000 duplicate key error collection: ratchet.scheduler_job index:"
+                        + " idx_job_idempotency_key dup key: { idempotency_key: \"same\" }",
+                    new BsonDocument()),
+                SERVER_ADDRESS));
+
+    assertTrue(detector.isDuplicateKey(wrapped));
+    assertFalse(detector.isDuplicateBusinessKey(wrapped));
   }
 }

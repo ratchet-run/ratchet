@@ -9,6 +9,7 @@ import org.bson.Document;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.util.StatusClassifier;
 
 /**
  * Shared context passed into every Mongo operation class.
@@ -40,23 +41,15 @@ final class MongoStoreContext {
   }
 
   static boolean isPollerExecutable(JobExecutionType jobType) {
-    return jobType == JobExecutionType.SINGLE
-        || jobType == JobExecutionType.BATCH_CHILD
-        || jobType == JobExecutionType.CHAIN_STEP
-        || jobType == JobExecutionType.WORKFLOW_BRANCH;
+    return StatusClassifier.isPollerExecutable(jobType);
   }
 
   static boolean isLiveStatus(JobStatus status) {
-    return status == JobStatus.PENDING
-        || status == JobStatus.RUNNING
-        || status == JobStatus.PAUSED
-        || status == JobStatus.WAITING;
+    return StatusClassifier.isLiveStatus(status);
   }
 
   static boolean isTerminalStatus(JobStatus status) {
-    return status == JobStatus.SUCCEEDED
-        || status == JobStatus.FAILED
-        || status == JobStatus.CANCELED;
+    return StatusClassifier.isTerminalStatus(status);
   }
 
   /**
