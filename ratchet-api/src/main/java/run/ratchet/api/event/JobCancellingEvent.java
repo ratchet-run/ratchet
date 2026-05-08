@@ -12,12 +12,9 @@ import run.ratchet.api.JobType;
  * <p>Fired on the requesting thread before the job record is updated; the executor thread may still
  * be running.
  */
-public class JobCancellingEvent extends AbstractJobSchedulerEvent {
+public class JobCancellingEvent extends AbstractJobCancellationEvent {
 
   @Serial private static final long serialVersionUID = -1807471708143349083L;
-
-  private final String previousStatus;
-  private final Long executionTimeMs;
 
   public JobCancellingEvent(
       UUID jobId,
@@ -28,9 +25,8 @@ public class JobCancellingEvent extends AbstractJobSchedulerEvent {
       Instant timestamp,
       String previousStatus,
       Long executionTimeMs) {
-    super(jobId, businessKey, jobType, priority, nodeId, timestamp);
-    this.previousStatus = previousStatus;
-    this.executionTimeMs = executionTimeMs;
+    super(
+        jobId, businessKey, jobType, priority, nodeId, timestamp, previousStatus, executionTimeMs);
   }
 
   public JobCancellingEvent(
@@ -41,16 +37,6 @@ public class JobCancellingEvent extends AbstractJobSchedulerEvent {
       String nodeId,
       String previousStatus,
       Long executionTimeMs) {
-    super(jobId, businessKey, jobType, priority, nodeId);
-    this.previousStatus = previousStatus;
-    this.executionTimeMs = executionTimeMs;
-  }
-
-  public String getPreviousStatus() {
-    return previousStatus;
-  }
-
-  public Long getExecutionTimeMs() {
-    return executionTimeMs;
+    super(jobId, businessKey, jobType, priority, nodeId, previousStatus, executionTimeMs);
   }
 }

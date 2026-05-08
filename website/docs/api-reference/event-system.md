@@ -167,7 +167,7 @@ public void onRetrying(@Observes JobRetryingEvent event) {
 Fired when a job cancellation is initiated (before the state transition completes).
 
 ```java
-public class JobCancellingEvent extends AbstractJobSchedulerEvent
+public class JobCancellingEvent extends AbstractJobCancellationEvent
 ```
 
 ```java
@@ -185,7 +185,7 @@ public Long getExecutionTimeMs()
 Fired when a job cancellation is confirmed.
 
 ```java
-public class JobCancelledEvent extends AbstractJobSchedulerEvent
+public class JobCancelledEvent extends AbstractJobCancellationEvent
 ```
 
 ```java

@@ -11,12 +11,9 @@ import run.ratchet.api.JobType;
  *
  * <p>Fired after the job record reaches CANCELED state.
  */
-public class JobCancelledEvent extends AbstractJobSchedulerEvent {
+public class JobCancelledEvent extends AbstractJobCancellationEvent {
 
   @Serial private static final long serialVersionUID = -3714116971496582534L;
-
-  private final String previousStatus;
-  private final Long executionTimeMs;
 
   public JobCancelledEvent(
       UUID jobId,
@@ -27,9 +24,8 @@ public class JobCancelledEvent extends AbstractJobSchedulerEvent {
       Instant timestamp,
       String previousStatus,
       Long executionTimeMs) {
-    super(jobId, businessKey, jobType, priority, nodeId, timestamp);
-    this.previousStatus = previousStatus;
-    this.executionTimeMs = executionTimeMs;
+    super(
+        jobId, businessKey, jobType, priority, nodeId, timestamp, previousStatus, executionTimeMs);
   }
 
   public JobCancelledEvent(
@@ -40,16 +36,6 @@ public class JobCancelledEvent extends AbstractJobSchedulerEvent {
       String nodeId,
       String previousStatus,
       Long executionTimeMs) {
-    super(jobId, businessKey, jobType, priority, nodeId);
-    this.previousStatus = previousStatus;
-    this.executionTimeMs = executionTimeMs;
-  }
-
-  public String getPreviousStatus() {
-    return previousStatus;
-  }
-
-  public Long getExecutionTimeMs() {
-    return executionTimeMs;
+    super(jobId, businessKey, jobType, priority, nodeId, previousStatus, executionTimeMs);
   }
 }
