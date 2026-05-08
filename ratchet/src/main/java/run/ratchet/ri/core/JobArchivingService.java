@@ -192,6 +192,7 @@ public class JobArchivingService {
 
       } catch (Exception e) {
         log.errorf(e, "Failed to process archiving batch %s", batchCount);
+        break;
       }
     }
 

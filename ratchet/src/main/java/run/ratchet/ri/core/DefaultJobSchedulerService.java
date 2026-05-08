@@ -628,7 +628,7 @@ public class DefaultJobSchedulerService
    * fired for jobs cancelled by these methods.
    */
   private void publishBulkCancelledEvent(String tag, int count) {
-    JobsBulkCancelledEvent event = new JobsBulkCancelledEvent(tag, count, Instant.now());
+    JobsBulkCancelledEvent event = new JobsBulkCancelledEvent(tag, count, effective().instant());
     if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
       eventPublisher.publish(event);
     }

@@ -199,20 +199,22 @@ public class BatchService {
                 // save() can't mutate the hot row's status; the equivalent is a synthetic pickup
                 // followed by mark-terminal so the hot DELETE + cold UPDATE + bkres DELETE all
                 // run atomically through the store.
-                boolean succeeded = batch.getFailedItems() == 0;
-                if (jobBatchStatusStore.tryPickUpJob(
+                if (!jobBatchStatusStore.tryPickUpJob(
                     parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID)) {
-                  Instant nowTs = Instant.now();
-                  if (succeeded) {
-                    jobTerminalStore.markJobSucceededMinimal(parentId, nowTs, nowTs, 0L, 0L);
-                    parent.setStatus(JobStatus.SUCCEEDED);
-                  } else {
-                    jobTerminalStore.markJobFailedTerminal(
-                        parentId,
-                        "Batch completed with " + batch.getFailedItems() + " failed children",
-                        0);
-                    parent.setStatus(JobStatus.FAILED);
-                  }
+                  return false;
+                }
+
+                boolean succeeded = batch.getFailedItems() == 0;
+                Instant nowTs = Instant.now();
+                if (succeeded) {
+                  jobTerminalStore.markJobSucceededMinimal(parentId, nowTs, nowTs, 0L, 0L);
+                  parent.setStatus(JobStatus.SUCCEEDED);
+                } else {
+                  jobTerminalStore.markJobFailedTerminal(
+                      parentId,
+                      "Batch completed with " + batch.getFailedItems() + " failed children",
+                      0);
+                  parent.setStatus(JobStatus.FAILED);
                 }
 
                 metricsStore.finalizeBatchMetrics(parentId);

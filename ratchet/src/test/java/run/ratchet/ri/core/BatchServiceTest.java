@@ -2,6 +2,7 @@ package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -102,5 +103,39 @@ class BatchServiceTest {
     assertEquals(JobType.BATCH, completingEvent.getJobType());
     assertEquals(JobPriority.HIGH, completingEvent.getPriority());
     assertEquals("batch-node-1", completingEvent.getNodeId());
+  }
+
+  @Test
+  void completedBatchDoesNotFinalizeOrPublishWhenSyntheticPickupLosesRace() {
+    UUID parentId = UUID.randomUUID();
+    JobEntity child = new JobEntity();
+    child.setDependsOn(parentId);
+
+    BatchProgress progress = new BatchProgress(parentId, 1, 1, 0, null);
+    BatchEntity batch = new BatchEntity();
+    batch.setId(parentId);
+    batch.setTotalItems(1);
+    batch.setCompletedItems(1);
+    batch.setFailedItems(0);
+
+    JobEntity parent = new JobEntity();
+    parent.setId(parentId);
+    parent.setStatus(JobStatus.PENDING);
+    parent.setJobType(JobExecutionType.BATCH_PARENT);
+
+    when(batchStore.incrementCompletedAtomic(parentId)).thenReturn(progress);
+    when(batchStore.markBatchCompleteIfReady(parentId)).thenReturn(true);
+    when(batchStore.findBatchById(parentId)).thenReturn(Optional.of(batch));
+    when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent));
+    when(jobBatchStatusStore.tryPickUpJob(parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID))
+        .thenReturn(false);
+
+    batchService.markChildSucceeded(child);
+
+    verify(jobTerminalStore, never()).markJobSucceededMinimal(any(), any(), any(), any(), any());
+    verify(jobTerminalStore, never()).markJobFailedTerminal(any(), any(), any());
+    verify(metricsStore, never()).finalizeBatchMetrics(any());
+    verify(eventPublisher, never()).publish(any());
+    verify(workflowScheduler, never()).scheduleNext(any());
   }
 }

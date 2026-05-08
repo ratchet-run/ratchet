@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -19,6 +20,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -124,8 +126,9 @@ class JobArchivingServiceTest {
   void triggerArchiving_doesNotSubmitWork_whenDisabled() {
     service.init(false, 7, 100, parsedCron());
 
-    service.triggerArchiving();
+    Future<?> result = service.triggerArchiving();
 
+    Assertions.assertTrue(result.isDone());
     verify(executorProvider, never()).getJobExecutor();
   }
 
@@ -199,7 +202,50 @@ class JobArchivingServiceTest {
 
     service.run();
 
-    verify(archiveStore).findJobsForArchiving(any(), eq(batchSize));
+    verify(archiveStore, times(1)).findJobsForArchiving(any(), eq(batchSize));
+  }
+
+  @Test
+  void run_queriesAgainAfterFullBatchUntilNoMoreJobs() {
+    int batchSize = 2;
+    service.init(true, 7, batchSize, parsedCron());
+
+    when(singletonLeaseService.tryAcquire(anyString(), any(Duration.class)))
+        .thenReturn(acquiredLease());
+
+    List<JobEntity> fullBatch = List.of(jobEntity(20L), jobEntity(21L));
+    when(archiveStore.countJobsForArchiving(any())).thenReturn(2L);
+    when(archiveStore.findJobsForArchiving(any(), eq(batchSize)))
+        .thenReturn(fullBatch)
+        .thenReturn(List.of());
+    when(archiveStore.archiveJobsBatch(eq(fullBatch), anyString(), anyString())).thenReturn(2);
+    when(jobBulkStore.deleteJobsByIds(any())).thenReturn(2);
+    when(archiveStore.purgeArchivedJobs(any())).thenReturn(0);
+
+    service.run();
+
+    verify(archiveStore, times(2)).findJobsForArchiving(any(), eq(batchSize));
+    verify(archiveStore, times(1)).archiveJobsBatch(eq(fullBatch), anyString(), anyString());
+  }
+
+  @Test
+  void run_deletesOnlyArchivedRowsWhenStoreArchivesPartialBatch() {
+    int batchSize = 50;
+    service.init(true, 7, batchSize, parsedCron());
+
+    when(singletonLeaseService.tryAcquire(anyString(), any(Duration.class)))
+        .thenReturn(acquiredLease());
+
+    List<JobEntity> batch = List.of(jobEntity(30L), jobEntity(31L), jobEntity(32L));
+    when(archiveStore.countJobsForArchiving(any())).thenReturn(3L);
+    when(archiveStore.findJobsForArchiving(any(), eq(batchSize))).thenReturn(batch);
+    when(archiveStore.archiveJobsBatch(eq(batch), anyString(), anyString())).thenReturn(2);
+    when(jobBulkStore.deleteJobsByIds(any())).thenReturn(2);
+    when(archiveStore.purgeArchivedJobs(any())).thenReturn(0);
+
+    service.run();
+
+    verify(jobBulkStore).deleteJobsByIds(List.of(new UUID(0L, 30L), new UUID(0L, 31L)));
   }
 
   @Test
@@ -220,6 +266,28 @@ class JobArchivingServiceTest {
     service.run();
 
     verify(archiveStore).purgeArchivedJobs(any());
+  }
+
+  @Test
+  void run_doesNotDeleteRows_whenBatchArchiveFails() {
+    int batchSize = 2;
+    service.init(true, 7, batchSize, parsedCron());
+
+    when(singletonLeaseService.tryAcquire(anyString(), any(Duration.class)))
+        .thenReturn(acquiredLease());
+
+    List<JobEntity> batch = List.of(jobEntity(1L), jobEntity(2L));
+    when(archiveStore.countJobsForArchiving(any())).thenReturn(2L);
+    when(archiveStore.findJobsForArchiving(any(), eq(batchSize)))
+        .thenReturn(batch)
+        .thenReturn(List.of());
+    when(archiveStore.archiveJobsBatch(eq(batch), anyString(), anyString()))
+        .thenThrow(new IllegalStateException("archive failed"));
+    when(archiveStore.purgeArchivedJobs(any())).thenReturn(0);
+
+    service.run();
+
+    verify(jobBulkStore, never()).deleteJobsByIds(any());
   }
 
   @Test
@@ -248,6 +316,20 @@ class JobArchivingServiceTest {
     Instant expectedMax = Instant.now().minus(Duration.ofDays((long) retentionDays * 3 - 1));
 
     Assertions.assertTrue(cutoff.isAfter(expectedMin) && cutoff.isBefore(expectedMax));
+  }
+
+  @Test
+  void stopPreventsRunFromSchedulingNextExecution() {
+    service.init(true, 7, 100, parsedCron());
+    service.stop();
+
+    when(singletonLeaseService.tryAcquire(eq("jobArchiver"), any(Duration.class)))
+        .thenReturn(Optional.empty());
+
+    service.run();
+
+    verify(scheduledExecutor, times(1))
+        .schedule(any(Runnable.class), any(Long.class), any(TimeUnit.class));
   }
 
   private Optional<SingletonLease> acquiredLease() {

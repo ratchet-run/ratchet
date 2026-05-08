@@ -10,7 +10,6 @@ import java.util.List;
 import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
-import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobCrudStore;
@@ -20,8 +19,6 @@ import run.ratchet.store.spi.JobPauseStore;
 @ApplicationScoped
 @Transactional
 public class JobCascadeService {
-
-  private static final Logger log = Logger.getLogger(JobCascadeService.class);
 
   private final JobCrudStore jobCrudStore;
   private final JobPauseStore jobPauseStore;
@@ -38,7 +35,7 @@ public class JobCascadeService {
   }
 
   /**
-   * Iteratively pauses all PENDING/FAILED children of the given root job using BFS.
+   * Iteratively pauses all PENDING children of the given root job using BFS.
    *
    * @return an array of two ints: [pausedCount, skippedCount]
    */

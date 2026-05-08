@@ -1,6 +1,7 @@
 package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
@@ -30,6 +31,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.SignalDecision;
 import run.ratchet.api.event.JobSignaledEvent;
+import run.ratchet.api.event.JobsBulkCancelledEvent;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.PayloadSerializer;
@@ -113,7 +115,7 @@ class DefaultJobSchedulerServiceSignalTest {
             JOB_ID, job.getPublicJobType(), "approval-key", SignalDecision.Outcome.APPROVED);
     ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
     verify(eventPublisher).publish(eventCaptor.capture());
-    JobSignaledEvent event = (JobSignaledEvent) eventCaptor.getValue();
+    JobSignaledEvent event = assertInstanceOf(JobSignaledEvent.class, eventCaptor.getValue());
     assertEquals(JOB_ID, event.getJobId());
     assertEquals("approval-key", event.getSignalKey());
     assertEquals("bob", event.getSignalDeliveredBy());
@@ -254,7 +256,60 @@ class DefaultJobSchedulerServiceSignalTest {
         .deliverSignalById(eq(JOB_ID), any(), any(), any(), any(), any(), any(), any());
   }
 
+  @Test
+  void deliverSignalRawByKeyWithoutSerializerThrowsBeforeStoreUpdate() {
+    DefaultJobSchedulerService noSerializer = newService(null);
+
+    assertThrows(
+        IllegalStateException.class, () -> noSerializer.deliverSignal("approval-key", "payload"));
+
+    verify(signalStore, never())
+        .deliverSignalByKey(eq("approval-key"), any(), any(), any(), any(), any(), any(), any());
+  }
+
+  @Test
+  void deliverSignalWithoutMetricsCollectorStillPublishesEvent() {
+    DefaultJobSchedulerService noMetrics = newService(payloadSerializer, null);
+    SignalDecision decision = SignalDecision.approved("approved-payload");
+    JobEntity job = job(JOB_ID, "approval-key");
+    when(payloadSerializer.serialize("approved-payload")).thenReturn("serialized-payload");
+    when(signalStore.deliverSignalById(
+            eq(JOB_ID),
+            eq("serialized-payload"),
+            eq(DefaultJobSchedulerService.SIGNAL_PAYLOAD_TYPE_DECISION),
+            eq("APPROVED"),
+            isNull(),
+            eq("bob"),
+            eq(FIXED_NOW),
+            anyString()))
+        .thenReturn(1);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+
+    assertEquals(1, noMetrics.deliverSignal(JOB_ID, decision));
+
+    verify(eventPublisher).publish(any(JobSignaledEvent.class));
+  }
+
+  @Test
+  void cancelJobsByTagPublishesBulkEventUsingInjectedClock() {
+    when(jobBatchStatusStore.cancelJobsByTag("stale")).thenReturn(3);
+
+    assertEquals(3, service.cancelJobsByTag("stale"));
+
+    ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
+    verify(eventPublisher).publish(eventCaptor.capture());
+    JobsBulkCancelledEvent event = (JobsBulkCancelledEvent) eventCaptor.getValue();
+    assertEquals("stale", event.getTag());
+    assertEquals(3, event.getCount());
+    assertEquals(FIXED_NOW, event.getCancelledAt());
+  }
+
   private DefaultJobSchedulerService newService(PayloadSerializer serializer) {
+    return newService(serializer, metricsCollector);
+  }
+
+  private DefaultJobSchedulerService newService(
+      PayloadSerializer serializer, MetricsCollector signalMetricsCollector) {
     CallerPrincipalProvider callerProvider =
         new CallerPrincipalProvider(null) {
           @Override
@@ -281,7 +336,7 @@ class DefaultJobSchedulerServiceSignalTest {
         null,
         signalStore,
         serializer,
-        metricsCollector,
+        signalMetricsCollector,
         FIXED_CLOCK);
   }
 }
