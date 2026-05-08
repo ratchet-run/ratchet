@@ -1,14 +1,18 @@
 package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.io.Serial;
+import java.io.Serializable;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -66,6 +70,10 @@ class DefaultJobSchedulerServiceSignalTest {
 
   private DefaultJobSchedulerService service;
 
+  private record RawSignalPayload(String status, int score) implements Serializable {
+    @Serial private static final long serialVersionUID = 1L;
+  }
+
   private static JobEntity job(UUID id, String signalKey) {
     JobEntity job = new JobEntity();
     job.setId(id);
@@ -79,6 +87,38 @@ class DefaultJobSchedulerServiceSignalTest {
   @BeforeEach
   void setUp() {
     service = newService(payloadSerializer);
+  }
+
+  @Test
+  void deliverSignalApprovedDecisionByIdPersistsNullRejectionReasonAndPublishesEvent() {
+    SignalDecision decision = SignalDecision.approved("approved-payload");
+    JobEntity job = job(JOB_ID, "approval-key");
+    when(payloadSerializer.serialize("approved-payload")).thenReturn("serialized-payload");
+    when(signalStore.deliverSignalById(
+            eq(JOB_ID),
+            eq("serialized-payload"),
+            eq(DefaultJobSchedulerService.SIGNAL_PAYLOAD_TYPE_DECISION),
+            eq("APPROVED"),
+            isNull(),
+            eq("bob"),
+            eq(FIXED_NOW),
+            anyString()))
+        .thenReturn(1);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+
+    assertEquals(1, service.deliverSignal(JOB_ID, decision));
+
+    verify(metricsCollector)
+        .signalDelivered(
+            JOB_ID, job.getPublicJobType(), "approval-key", SignalDecision.Outcome.APPROVED);
+    ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
+    verify(eventPublisher).publish(eventCaptor.capture());
+    JobSignaledEvent event = (JobSignaledEvent) eventCaptor.getValue();
+    assertEquals(JOB_ID, event.getJobId());
+    assertEquals("approval-key", event.getSignalKey());
+    assertEquals("bob", event.getSignalDeliveredBy());
+    assertEquals(SignalDecision.Outcome.APPROVED, event.getOutcome());
+    assertNull(event.getRejectionReason());
   }
 
   @Test
@@ -111,6 +151,52 @@ class DefaultJobSchedulerServiceSignalTest {
     assertEquals("bob", event.getSignalDeliveredBy());
     assertEquals(SignalDecision.Outcome.REJECTED, event.getOutcome());
     assertEquals("denied", event.getRejectionReason());
+  }
+
+  @Test
+  void deliverSignalRawPayloadByKeyPersistsRawMetadataAndPublishesPerJobEvents() {
+    RawSignalPayload payload = new RawSignalPayload("ready", 7);
+    JobEntity j1 = job(new UUID(0L, 3L), "approval-key");
+    JobEntity j2 = job(new UUID(0L, 4L), "approval-key");
+    AtomicReference<String> deliveryId = new AtomicReference<>();
+    when(payloadSerializer.serialize(payload)).thenReturn("serialized-raw-payload");
+    when(signalStore.deliverSignalByKey(
+            eq("approval-key"),
+            eq("serialized-raw-payload"),
+            eq(DefaultJobSchedulerService.SIGNAL_PAYLOAD_TYPE_RAW),
+            eq("APPROVED"),
+            isNull(),
+            eq("bob"),
+            eq(FIXED_NOW),
+            anyString()))
+        .thenAnswer(
+            inv -> {
+              deliveryId.set(inv.getArgument(7, String.class));
+              when(signalStore.findJobsBySignalDeliveryId(deliveryId.get()))
+                  .thenReturn(List.of(j1, j2));
+              return 2;
+            });
+
+    assertEquals(2, service.deliverSignal("approval-key", payload));
+
+    verify(signalStore).findJobsBySignalDeliveryId(deliveryId.get());
+    verify(metricsCollector)
+        .signalDelivered(
+            j1.getId(), j1.getPublicJobType(), "approval-key", SignalDecision.Outcome.APPROVED);
+    verify(metricsCollector)
+        .signalDelivered(
+            j2.getId(), j2.getPublicJobType(), "approval-key", SignalDecision.Outcome.APPROVED);
+
+    ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
+    verify(eventPublisher, Mockito.times(2)).publish(eventCaptor.capture());
+    List<JobSignaledEvent> events =
+        eventCaptor.getAllValues().stream().map(JobSignaledEvent.class::cast).toList();
+    assertEquals(
+        List.of(j1.getId(), j2.getId()), events.stream().map(JobSignaledEvent::getJobId).toList());
+    assertEquals(
+        List.of(SignalDecision.Outcome.APPROVED, SignalDecision.Outcome.APPROVED),
+        events.stream().map(JobSignaledEvent::getOutcome).toList());
+    events.forEach(event -> assertNull(event.getRejectionReason()));
   }
 
   @Test
