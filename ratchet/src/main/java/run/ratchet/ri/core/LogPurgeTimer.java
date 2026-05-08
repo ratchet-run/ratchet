@@ -8,6 +8,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import org.jboss.logging.Logger;
@@ -32,6 +33,7 @@ public class LogPurgeTimer {
   private Duration retentionPeriod;
   private Cron cron;
   private ZoneId zone;
+  private volatile boolean initialized;
 
   protected LogPurgeTimer() {
     this.jobLogStore = null;
@@ -50,9 +52,14 @@ public class LogPurgeTimer {
   }
 
   public void init(long retentionDays, Cron cronExpression) {
+    if (jobLogStore == null || singletonLeaseService == null || executorProvider == null) {
+      throw new IllegalStateException("LogPurgeTimer dependencies are not initialized");
+    }
+
     this.retentionPeriod = Duration.ofDays(retentionDays);
-    this.cron = cronExpression;
+    this.cron = Objects.requireNonNull(cronExpression, "cronExpression");
     this.zone = ZoneId.systemDefault();
+    this.initialized = true;
 
     scheduleNext();
 
@@ -64,6 +71,11 @@ public class LogPurgeTimer {
   }
 
   void run() {
+    if (!initialized) {
+      log.debug("Log purge timer is not initialized, skipping run");
+      return;
+    }
+
     try {
       purge();
     } finally {
@@ -92,6 +104,10 @@ public class LogPurgeTimer {
   }
 
   private void scheduleNext() {
+    if (!initialized) {
+      return;
+    }
+
     Instant now = Instant.now();
     Optional<Instant> next =
         ExecutionTime.forCron(cron).nextExecution(now.atZone(zone)).map(ZonedDateTime::toInstant);
