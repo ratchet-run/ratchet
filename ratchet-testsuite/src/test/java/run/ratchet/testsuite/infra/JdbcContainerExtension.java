@@ -55,7 +55,7 @@ public class JdbcContainerExtension
 
   @Override
   public void beforeAll(ExtensionContext context) {
-    String dbType = System.getProperty("ratchet.test.db.type", "mysql");
+    String dbType = System.getProperty("ratchet.test.db.type");
     if (!"mysql".equals(dbType) && !"postgresql".equals(dbType)) {
       return;
     }
