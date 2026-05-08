@@ -22,12 +22,12 @@ public final class ArchiveRowMapper {
     int column = 0;
     archive.setId(uuidOrNull(row[column++]));
     archive.setOriginalJobId(uuidOrNull(row[column++]));
-    archive.setFinalStatus(JobStatus.valueOf(stringOrNull(row[column++])));
-    archive.setJobType(JobExecutionType.valueOf(stringOrNull(row[column++])));
-    archive.setPriority(JobPriority.values()[((Number) row[column++]).intValue()]);
+    archive.setFinalStatus(enumValue(row[column++], "final_status", JobStatus.class));
+    archive.setJobType(enumValue(row[column++], "job_type", JobExecutionType.class));
+    archive.setPriority(priorityValue(row[column++], "priority"));
     archive.setTotalAttempts(((Number) row[column++]).intValue());
     archive.setMaxRetries(((Number) row[column++]).intValue());
-    archive.setBackoffPolicy(BackoffPolicy.valueOf(stringOrNull(row[column++])));
+    archive.setBackoffPolicy(enumValue(row[column++], "backoff_policy", BackoffPolicy.class));
     archive.setBackoffParamMs(((Number) row[column++]).intValue());
     archive.setTimeoutSec(((Number) row[column++]).intValue());
     archive.setTargetClass(stringOrNull(row[column++]));
@@ -66,6 +66,44 @@ public final class ArchiveRowMapper {
 
   private static Long longOrNull(Object value) {
     return value == null ? null : ((Number) value).longValue();
+  }
+
+  private static <E extends Enum<E>> E enumValue(
+      Object value, String columnName, Class<E> enumType) {
+    if (value == null) {
+      throw new IllegalStateException("Archive row column " + columnName + " must not be null");
+    }
+    String name = value.toString();
+    try {
+      return Enum.valueOf(enumType, name);
+    } catch (IllegalArgumentException e) {
+      throw new IllegalStateException(
+          "Archive row column "
+              + columnName
+              + " has invalid "
+              + enumType.getSimpleName()
+              + " value: "
+              + name,
+          e);
+    }
+  }
+
+  private static JobPriority priorityValue(Object value, String columnName) {
+    if (value == null) {
+      throw new IllegalStateException("Archive row column " + columnName + " must not be null");
+    }
+    int ordinal = ((Number) value).intValue();
+    JobPriority[] priorities = JobPriority.values();
+    if (ordinal < 0 || ordinal >= priorities.length) {
+      throw new IllegalStateException(
+          "Archive row column "
+              + columnName
+              + " has invalid JobPriority ordinal "
+              + ordinal
+              + "; expected 0.."
+              + (priorities.length - 1));
+    }
+    return priorities[ordinal];
   }
 
   private static UUID uuidOrNull(Object value) {
