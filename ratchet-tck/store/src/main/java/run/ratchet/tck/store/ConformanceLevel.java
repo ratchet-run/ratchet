@@ -27,6 +27,7 @@ public enum ConformanceLevel {
           + " orchestration.",
       List.of(
           "AbstractExecutionStoreContract",
+          "AbstractJobLogStoreContract",
           "AbstractJobRetryStoreContract",
           "AbstractJobPauseStoreContract",
           "AbstractJobTerminalStoreContract",

@@ -3,6 +3,9 @@ package run.ratchet.tck.store;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class ConformanceReportExtensionTest {
@@ -82,6 +85,28 @@ class ConformanceReportExtensionTest {
     assertEquals(
         ConformanceLevel.CORE, ConformanceLevel.forContract("AbstractJobCrudStoreContract"));
     assertEquals(ConformanceLevel.CORE, ConformanceLevel.forContract("AbstractLockStoreContract"));
+  }
+
+  @Test
+  void conformanceLevel_allAbstractContractsAreRegistered() throws Exception {
+    String packagePath = ConformanceLevel.class.getPackageName().replace('.', '/');
+    var resource = Thread.currentThread().getContextClassLoader().getResource(packagePath);
+    var packageDir = Paths.get(resource.toURI());
+
+    List<String> unregisteredContracts;
+    try (var classes = Files.list(packageDir)) {
+      unregisteredContracts =
+          classes
+              .map(path -> path.getFileName().toString())
+              .filter(name -> name.startsWith("Abstract"))
+              .filter(name -> name.endsWith("Contract.class"))
+              .map(name -> name.substring(0, name.length() - ".class".length()))
+              .filter(name -> ConformanceLevel.forContract(name) == null)
+              .sorted()
+              .toList();
+    }
+
+    assertEquals(List.of(), unregisteredContracts, "all Abstract*Contract classes are registered");
   }
 
   @Test
