@@ -1,7 +1,7 @@
 package run.ratchet.store.postgresql;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -27,14 +27,16 @@ class PostgresqlConstraintDetectorTest {
 
   @Test
   void returnsNullWhenConstraintNameIsAbsent() {
-    Exception wrapped = new RuntimeException("hibernate", new SQLException("duplicate key", "23505"));
+    Exception wrapped =
+        new RuntimeException("hibernate", new SQLException("duplicate key", "23505"));
 
     assertNull(detector.constraintName(wrapped));
   }
 
   @Test
   void detectsDuplicateKeyBySqlStateThroughWrappers() {
-    Exception wrapped = new RuntimeException("hibernate", new SQLException("duplicate key", "23505"));
+    Exception wrapped =
+        new RuntimeException("hibernate", new SQLException("duplicate key", "23505"));
 
     assertTrue(detector.isDuplicateKey(wrapped));
   }
