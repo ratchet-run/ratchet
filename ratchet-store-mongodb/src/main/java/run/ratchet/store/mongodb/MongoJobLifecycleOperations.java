@@ -41,6 +41,10 @@ import java.util.Set;
 import java.util.UUID;
 import org.bson.Document;
 import run.ratchet.api.JobStatus;
+import run.ratchet.store.spi.JobBatchStatusStore;
+import run.ratchet.store.spi.JobPauseStore;
+import run.ratchet.store.spi.JobRetryStore;
+import run.ratchet.store.spi.JobTerminalStore;
 
 /**
  * Job state-transition operations. Every method targets a specific {@code (id, status)}
@@ -48,7 +52,8 @@ import run.ratchet.api.JobStatus;
  * transactional. Cross-job side effects (e.g. bumping batch counters on success) are delegated back
  * into {@link MongoBatchOperations}.
  */
-final class MongoJobLifecycleOperations {
+final class MongoJobLifecycleOperations
+    implements JobBatchStatusStore, JobPauseStore, JobRetryStore, JobTerminalStore {
 
   private final MongoStoreContext ctx;
   private final MongoBatchOperations batches;
@@ -58,7 +63,8 @@ final class MongoJobLifecycleOperations {
     this.batches = batches;
   }
 
-  void updateJobStatus(UUID id, JobStatus status, String errorMessage) {
+  @Override
+  public void updateJobStatus(UUID id, JobStatus status, String errorMessage) {
     ctx.jobs()
         .updateOne(
             eq(ID, id),
@@ -69,7 +75,9 @@ final class MongoJobLifecycleOperations {
                 inc(VERSION, 1)));
   }
 
-  boolean compareAndSwapStatus(UUID id, JobStatus expected, JobStatus newStatus, String error) {
+  @Override
+  public boolean compareAndSwapStatus(
+      UUID id, JobStatus expected, JobStatus newStatus, String error) {
     try {
       UpdateResult result =
           ctx.jobs()
@@ -86,7 +94,8 @@ final class MongoJobLifecycleOperations {
     }
   }
 
-  int incrementRetryAttempt(UUID id) {
+  @Override
+  public int incrementRetryAttempt(UUID id) {
     Document doc =
         ctx.jobs()
             .findOneAndUpdate(
@@ -102,7 +111,8 @@ final class MongoJobLifecycleOperations {
     return doc.getInteger(ATTEMPTS);
   }
 
-  boolean tryPickUpJob(UUID id, String nodeId) {
+  @Override
+  public boolean tryPickUpJob(UUID id, String nodeId) {
     Instant now = Instant.now();
     UpdateResult result =
         ctx.jobs()
@@ -117,7 +127,8 @@ final class MongoJobLifecycleOperations {
     return result.getModifiedCount() > 0;
   }
 
-  boolean markJobSucceeded(
+  @Override
+  public boolean markJobSucceeded(
       UUID id,
       String resultJson,
       String resultType,
@@ -147,7 +158,8 @@ final class MongoJobLifecycleOperations {
     }
   }
 
-  boolean markJobSucceededMinimal(
+  @Override
+  public boolean markJobSucceededMinimal(
       UUID id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
     try {
       UpdateResult result =
@@ -169,7 +181,8 @@ final class MongoJobLifecycleOperations {
     }
   }
 
-  boolean markJobSucceededAndUpdateBatch(
+  @Override
+  public boolean markJobSucceededAndUpdateBatch(
       UUID jobId,
       String resultJson,
       String resultType,
@@ -210,7 +223,8 @@ final class MongoJobLifecycleOperations {
     }
   }
 
-  boolean scheduleJobRetry(UUID id, String error, Instant newScheduledTime, int attempts) {
+  @Override
+  public boolean scheduleJobRetry(UUID id, String error, Instant newScheduledTime, int attempts) {
     UpdateResult result =
         ctx.jobs()
             .updateOne(
@@ -227,7 +241,8 @@ final class MongoJobLifecycleOperations {
     return result.getModifiedCount() > 0;
   }
 
-  boolean pauseRecurring(UUID id) {
+  @Override
+  public boolean pauseRecurring(UUID id) {
     UpdateResult result =
         ctx.jobs()
             .updateOne(
@@ -240,7 +255,8 @@ final class MongoJobLifecycleOperations {
     return result.getModifiedCount() > 0;
   }
 
-  boolean resumeRecurring(UUID id) {
+  @Override
+  public boolean resumeRecurring(UUID id) {
     UpdateResult result =
         ctx.jobs()
             .updateOne(
@@ -253,7 +269,8 @@ final class MongoJobLifecycleOperations {
     return result.getModifiedCount() > 0;
   }
 
-  boolean markJobFailedTerminal(UUID id, String terminalError, int totalAttempts) {
+  @Override
+  public boolean markJobFailedTerminal(UUID id, String terminalError, int totalAttempts) {
     UpdateResult result =
         ctx.jobs()
             .updateOne(
@@ -269,7 +286,8 @@ final class MongoJobLifecycleOperations {
     return result.getModifiedCount() > 0;
   }
 
-  boolean cancelJob(UUID id) {
+  @Override
+  public boolean cancelJob(UUID id) {
     UpdateResult result =
         ctx.jobs()
             .updateOne(
@@ -283,7 +301,8 @@ final class MongoJobLifecycleOperations {
     return result.getModifiedCount() > 0;
   }
 
-  boolean resetRunningJob(UUID id, String nodeId) {
+  @Override
+  public boolean resetRunningJob(UUID id, String nodeId) {
     UpdateResult result =
         ctx.jobs()
             .updateOne(
@@ -297,7 +316,8 @@ final class MongoJobLifecycleOperations {
     return result.getModifiedCount() > 0;
   }
 
-  int resetRunningJobs(String nodeId) {
+  @Override
+  public int resetRunningJobs(String nodeId) {
     UpdateResult result =
         ctx.jobs()
             .updateMany(
@@ -311,7 +331,8 @@ final class MongoJobLifecycleOperations {
     return (int) result.getModifiedCount();
   }
 
-  int cancelRecurringJobsByTag(String tag) {
+  @Override
+  public int cancelRecurringJobsByTag(String tag) {
     UpdateResult result =
         ctx.jobs()
             .updateMany(
@@ -326,7 +347,8 @@ final class MongoJobLifecycleOperations {
     return (int) result.getModifiedCount();
   }
 
-  int cancelRecurringJobByBusinessKey(String businessKey) {
+  @Override
+  public int cancelRecurringJobByBusinessKey(String businessKey) {
     UpdateResult result =
         ctx.jobs()
             .updateMany(
@@ -341,7 +363,9 @@ final class MongoJobLifecycleOperations {
     return (int) result.getModifiedCount();
   }
 
-  int cancelOrphanedRecurringAnnotationJobs(Set<String> registeredIds, Instant nodeStartTime) {
+  @Override
+  public int cancelOrphanedRecurringAnnotationJobs(
+      Set<String> registeredIds, Instant nodeStartTime) {
     if (registeredIds.isEmpty()) {
       return 0;
     }
@@ -361,7 +385,8 @@ final class MongoJobLifecycleOperations {
     return (int) result.getModifiedCount();
   }
 
-  boolean resetFailedToPending(UUID id) {
+  @Override
+  public boolean resetFailedToPending(UUID id) {
     UpdateResult result =
         ctx.jobs()
             .updateOne(
@@ -378,7 +403,8 @@ final class MongoJobLifecycleOperations {
     return result.getModifiedCount() > 0;
   }
 
-  boolean transitionToPaused(UUID id, JobStatus expected) {
+  @Override
+  public boolean transitionToPaused(UUID id, JobStatus expected) {
     UpdateResult result =
         ctx.jobs()
             .updateOne(
@@ -391,7 +417,8 @@ final class MongoJobLifecycleOperations {
     return result.getModifiedCount() > 0;
   }
 
-  boolean transitionFromPaused(UUID id, JobStatus target) {
+  @Override
+  public boolean transitionFromPaused(UUID id, JobStatus target) {
     UpdateResult result =
         ctx.jobs()
             .updateOne(
@@ -404,7 +431,8 @@ final class MongoJobLifecycleOperations {
     return result.getModifiedCount() > 0;
   }
 
-  JobStatus transitionFromPausedAtomic(UUID id) {
+  @Override
+  public JobStatus transitionFromPausedAtomic(UUID id) {
     Document before =
         ctx.jobs()
             .findOneAndUpdate(
