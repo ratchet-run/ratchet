@@ -50,6 +50,7 @@ public class MongoTestFixture implements JobStoreContractFixture, AutoCloseable 
 
   // Shared async executor for MongoJobStoreImpl claim work — daemon threads, JVM-lifetime.
   private static final ExecutorService CLAIM_EXECUTOR;
+  private static final AtomicBoolean SHARED_CLOSED = new AtomicBoolean();
 
   static {
     MONGO.start();
@@ -68,6 +69,9 @@ public class MongoTestFixture implements JobStoreContractFixture, AutoCloseable 
               t.setDaemon(true);
               return t;
             });
+    Runtime.getRuntime()
+        .addShutdownHook(
+            new Thread(MongoTestFixture::closeSharedResources, "ratchet-mongo-test-shutdown"));
   }
 
   private final MongoDatabase database;
@@ -149,5 +153,23 @@ public class MongoTestFixture implements JobStoreContractFixture, AutoCloseable 
     // shared CLIENT and CLAIM_EXECUTOR live for the JVM lifetime — closing them here would
     // break every contract class that runs after this one.
     database.drop();
+  }
+
+  private static void closeSharedResources() {
+    if (!SHARED_CLOSED.compareAndSet(false, true)) {
+      return;
+    }
+    try {
+      CLIENT.close();
+    } finally {
+      try {
+        CLAIM_EXECUTOR.shutdownNow();
+        CLAIM_EXECUTOR.awaitTermination(5, TimeUnit.SECONDS);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      } finally {
+        MONGO.close();
+      }
+    }
   }
 }
