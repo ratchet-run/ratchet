@@ -6,12 +6,11 @@ import io.micrometer.core.instrument.Timer;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.Random;
-import run.ratchet.loadtest.metrics.PrometheusRegistryProducer;
 
 @ApplicationScoped
 public class LoadTestWorkloadExecutor {
 
-  @Inject PrometheusRegistryProducer prometheusRegistry;
+  @Inject MeterRegistry registry;
   private static volatile int payloadHashSink;
 
   private static void execute(WorkloadSpec spec, WorkloadType effective) throws Exception {
@@ -168,7 +167,6 @@ public class LoadTestWorkloadExecutor {
 
   public void execute(WorkloadSpec spec) throws Exception {
     WorkloadType effective = effectiveWorkload(spec);
-    MeterRegistry registry = prometheusRegistry.meterRegistry();
     Timer.Sample sample = Timer.start(registry);
     String outcome = "succeeded";
     try {

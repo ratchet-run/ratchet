@@ -1,6 +1,7 @@
 package run.ratchet.loadtest.service;
 
 import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.time.Duration;
@@ -13,7 +14,6 @@ import run.ratchet.api.JobSchedulerService;
 import run.ratchet.loadtest.api.EnqueueJobRequest;
 import run.ratchet.loadtest.api.JobEnqueuedResponse;
 import run.ratchet.loadtest.api.StartRunRequest;
-import run.ratchet.loadtest.metrics.PrometheusRegistryProducer;
 import run.ratchet.loadtest.workload.LoadTestWorkloadExecutor;
 import run.ratchet.loadtest.workload.WorkloadType;
 import run.ratchet.spi.NodeIdentityProvider;
@@ -26,7 +26,7 @@ public class LoadTestRunner {
 
   @Inject JobSchedulerService scheduler;
   @Inject LoadTestWorkloadExecutor workloadExecutor;
-  @Inject PrometheusRegistryProducer prometheusRegistry;
+  @Inject MeterRegistry registry;
   @Inject RunRegistry runRegistry;
   @Inject NodeIdentityProvider nodeIdentityProvider;
 
@@ -152,7 +152,7 @@ public class LoadTestRunner {
         .description("Load-test jobs submitted")
         .tag("workload", workloadName)
         .tag("source", source)
-        .register(prometheusRegistry.meterRegistry())
+        .register(registry)
         .increment(jobs);
   }
 

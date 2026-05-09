@@ -14,7 +14,7 @@ import run.ratchet.store.spi.JobCrudStore;
 public class LoadTestMetricsBinder {
 
   @Inject JobCrudStore jobStore;
-  @Inject PrometheusRegistryProducer prometheusRegistry;
+  @Inject MeterRegistry registry;
 
   private boolean bound;
 
@@ -22,8 +22,6 @@ public class LoadTestMetricsBinder {
     if (bound) {
       return;
     }
-    MeterRegistry registry = prometheusRegistry.meterRegistry();
-
     Gauge.builder("ratchet.store.nodes.active", jobStore, JobCrudStore::countActiveNodes)
         .description("Registered Ratchet scheduler nodes")
         .register(registry);

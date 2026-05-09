@@ -32,10 +32,6 @@ public class PrometheusRegistryProducer extends MicrometerMeterRegistryProducer 
     return registry;
   }
 
-  public MeterRegistry meterRegistry() {
-    return registry;
-  }
-
   public String scrape() {
     return registry.scrape();
   }

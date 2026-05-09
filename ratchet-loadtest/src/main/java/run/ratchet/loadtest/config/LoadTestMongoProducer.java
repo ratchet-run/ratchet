@@ -19,11 +19,17 @@ public class LoadTestMongoProducer {
 
   @Produces
   @ApplicationScoped
-  public MongoDatabase mongoDatabase() {
+  public MongoClient mongoClient() {
     String uri = envOrDefault("MONGO_URI", "mongodb://mongo:27017");
-    String database = envOrDefault("MONGO_DATABASE", "ratchet");
     client = MongoClients.create(uri);
-    return client.getDatabase(database);
+    return client;
+  }
+
+  @Produces
+  @ApplicationScoped
+  public MongoDatabase mongoDatabase(MongoClient mongoClient) {
+    String database = envOrDefault("MONGO_DATABASE", "ratchet");
+    return mongoClient.getDatabase(database);
   }
 
   @PreDestroy
