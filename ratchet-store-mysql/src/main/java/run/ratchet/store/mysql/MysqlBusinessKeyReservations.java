@@ -2,6 +2,8 @@ package run.ratchet.store.mysql;
 
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
+import java.util.Collections;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import run.ratchet.store.entity.JobEntity;
@@ -53,6 +55,24 @@ final class MysqlBusinessKeyReservations {
         .createNativeQuery(sql)
         .setParameter(1, UuidByteArrayConverter.toBytes(ownerJobId))
         .executeUpdate();
+  }
+
+  void deleteReservationsByOwners(List<UUID> ownerJobIds) {
+    if (ownerJobIds.isEmpty()) {
+      return;
+    }
+    String placeholders = String.join(",", Collections.nCopies(ownerJobIds.size(), "?"));
+    // language=MySQL
+    String sql =
+        "DELETE FROM scheduler_business_key_reservation WHERE owner_job_id IN ("
+            + placeholders
+            + ")";
+    Query query = ctx.em().createNativeQuery(sql);
+    int parameter = 1;
+    for (UUID ownerJobId : ownerJobIds) {
+      query.setParameter(parameter++, UuidByteArrayConverter.toBytes(ownerJobId));
+    }
+    query.executeUpdate();
   }
 
   void bindInsert(Query q, JobEntity job, Timestamp nowTs) {

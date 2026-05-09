@@ -34,25 +34,12 @@ final class MysqlJobDeleteOperations {
     if (ids.isEmpty()) {
       return 0;
     }
+    reservations.deleteReservationsByOwners(ids);
     String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
-    // language=MySQL
-    String bkresSql =
-        "DELETE FROM scheduler_business_key_reservation WHERE owner_job_id IN ("
-            + placeholders
-            + ")";
-    Query bkresDelete = ctx.em().createNativeQuery(bkresSql);
-    int parameter = 1;
-    for (UUID id : ids) {
-      bkresDelete.setParameter(parameter++, UuidByteArrayConverter.toBytes(id));
-    }
-    bkresDelete.executeUpdate();
     // language=MySQL
     String jobSql = "DELETE FROM scheduler_job WHERE job_id IN (" + placeholders + ")";
     Query jobDelete = ctx.em().createNativeQuery(jobSql);
-    parameter = 1;
-    for (UUID id : ids) {
-      jobDelete.setParameter(parameter++, UuidByteArrayConverter.toBytes(id));
-    }
+    bindUuidList(jobDelete, ids, 1);
     return jobDelete.executeUpdate();
   }
 
@@ -77,26 +64,20 @@ final class MysqlJobDeleteOperations {
     for (Object n : idRows) {
       ids.add(MysqlJobRowMapper.uuidOrNull(n));
     }
+    reservations.deleteReservationsByOwners(ids);
     String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
-    // language=MySQL
-    String bkresSql =
-        "DELETE FROM scheduler_business_key_reservation WHERE owner_job_id IN ("
-            + placeholders
-            + ")";
-    Query bkresDelete = ctx.em().createNativeQuery(bkresSql);
-    int parameter = 1;
-    for (UUID id : ids) {
-      bkresDelete.setParameter(parameter++, UuidByteArrayConverter.toBytes(id));
-    }
-    bkresDelete.executeUpdate();
     // language=MySQL
     String jobSql = "DELETE FROM scheduler_job WHERE job_id IN (" + placeholders + ")";
     Query jobDelete = ctx.em().createNativeQuery(jobSql);
-    parameter = 1;
-    for (UUID id : ids) {
-      jobDelete.setParameter(parameter++, UuidByteArrayConverter.toBytes(id));
-    }
+    bindUuidList(jobDelete, ids, 1);
     return jobDelete.executeUpdate();
+  }
+
+  private static void bindUuidList(Query query, List<UUID> ids, int startParam) {
+    int parameter = startParam;
+    for (UUID id : ids) {
+      query.setParameter(parameter++, UuidByteArrayConverter.toBytes(id));
+    }
   }
 
   int resetOrphanJobs(Duration grace) {
