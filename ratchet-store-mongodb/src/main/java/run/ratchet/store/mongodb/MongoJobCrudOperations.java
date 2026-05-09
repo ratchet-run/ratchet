@@ -33,6 +33,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.TOTAL_ITEMS;
 import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
 
+import com.mongodb.client.MongoCollection;
 import com.mongodb.client.model.ReplaceOptions;
 import com.mongodb.client.result.DeleteResult;
 import com.mongodb.client.result.UpdateResult;
@@ -62,6 +63,12 @@ import run.ratchet.store.id.UuidV7Factory;
 final class MongoJobCrudOperations {
 
   private static final Logger log = Logger.getLogger(MongoJobCrudOperations.class);
+  private static final String STATUS_PENDING = JobStatus.PENDING.name();
+  private static final String STATUS_RUNNING = JobStatus.RUNNING.name();
+  private static final String STATUS_SUCCEEDED = JobStatus.SUCCEEDED.name();
+  private static final String STATUS_FAILED = JobStatus.FAILED.name();
+  private static final String TYPE_BATCH_CHILD = JobExecutionType.BATCH_CHILD.name();
+  private static final String TYPE_RECURRING = JobExecutionType.RECURRING.name();
 
   private final MongoStoreContext ctx;
 
@@ -191,7 +198,8 @@ final class MongoJobCrudOperations {
   Optional<Instant> findEarliestRecurringNextFire() {
     Document doc =
         ctx.jobs()
-            .find(and(eq(JOB_TYPE, "RECURRING"), eq(STATUS, "PENDING"), ne(NEXT_FIRE, null)))
+            .find(
+                and(eq(JOB_TYPE, TYPE_RECURRING), eq(STATUS, STATUS_PENDING), ne(NEXT_FIRE, null)))
             .sort(ascending(NEXT_FIRE))
             .projection(new Document(NEXT_FIRE, 1))
             .limit(1)
@@ -203,7 +211,7 @@ final class MongoJobCrudOperations {
   }
 
   long countPendingJobs() {
-    return ctx.jobs().countDocuments(eq(STATUS, "PENDING"));
+    return ctx.jobs().countDocuments(eq(STATUS, STATUS_PENDING));
   }
 
   long countJobsByStatus(JobStatus status) {
@@ -213,7 +221,7 @@ final class MongoJobCrudOperations {
   long countActiveJobs(JobExecutionType jobType) {
     return ctx.jobs()
         .countDocuments(
-            and(eq(JOB_TYPE, jobType.name()), in(STATUS, List.of("PENDING", "RUNNING"))));
+            and(eq(JOB_TYPE, jobType.name()), in(STATUS, List.of(STATUS_PENDING, STATUS_RUNNING))));
   }
 
   long countActiveNodes() {
@@ -223,31 +231,35 @@ final class MongoJobCrudOperations {
   long countReadyJobs(Instant now) {
     return ctx.jobs()
         .countDocuments(
-            and(eq(STATUS, "PENDING"), lte(SCHEDULED_TIME, DocumentMapper.toDate(now))));
+            and(eq(STATUS, STATUS_PENDING), lte(SCHEDULED_TIME, DocumentMapper.toDate(now))));
   }
 
   long countStuckJobs(Instant stuckThreshold) {
     return ctx.jobs()
         .countDocuments(
-            and(eq(STATUS, "RUNNING"), lt(PICKED_AT, DocumentMapper.toDate(stuckThreshold))));
+            and(eq(STATUS, STATUS_RUNNING), lt(PICKED_AT, DocumentMapper.toDate(stuckThreshold))));
   }
 
   long countLongRunningJobs(Instant threshold) {
     return ctx.jobs()
         .countDocuments(
-            and(eq(STATUS, "RUNNING"), lt(EXECUTION_START_TIME, DocumentMapper.toDate(threshold))));
+            and(
+                eq(STATUS, STATUS_RUNNING),
+                lt(EXECUTION_START_TIME, DocumentMapper.toDate(threshold))));
   }
 
   long countPendingBatchChildren() {
-    return ctx.jobs().countDocuments(and(eq(JOB_TYPE, "BATCH_CHILD"), eq(STATUS, "PENDING")));
+    return ctx.jobs()
+        .countDocuments(and(eq(JOB_TYPE, TYPE_BATCH_CHILD), eq(STATUS, STATUS_PENDING)));
   }
 
   long countPendingJobsByPriority(JobPriority priority) {
-    return ctx.jobs().countDocuments(and(eq(STATUS, "PENDING"), eq(PRIORITY, priority.ordinal())));
+    return ctx.jobs()
+        .countDocuments(and(eq(STATUS, STATUS_PENDING), eq(PRIORITY, priority.ordinal())));
   }
 
   long countPendingJobsByType(JobExecutionType jobType) {
-    return ctx.jobs().countDocuments(and(eq(STATUS, "PENDING"), eq(JOB_TYPE, jobType.name())));
+    return ctx.jobs().countDocuments(and(eq(STATUS, STATUS_PENDING), eq(JOB_TYPE, jobType.name())));
   }
 
   long countJobsByStatusSince(JobStatus status, Instant since) {
@@ -278,10 +290,7 @@ final class MongoJobCrudOperations {
                                 "$cond",
                                 List.of(new Document("$gt", List.of("$" + ATTEMPTS, 0)), 1, 0))))));
     Document result = ctx.jobs().aggregate(pipeline).first();
-    if (result == null || result.getInteger("total", 0) == 0) {
-      return 0.0;
-    }
-    return result.getInteger("retried", 0) / (double) result.getInteger("total");
+    return ratioFromAggregate(result, "retried", "total");
   }
 
   double getAverageProcessingTime(Instant since) {
@@ -289,17 +298,13 @@ final class MongoJobCrudOperations {
         List.of(
             new Document(
                 "$match",
-                new Document(STATUS, "SUCCEEDED")
+                new Document(STATUS, STATUS_SUCCEEDED)
                     .append(UPDATED_AT, new Document("$gte", DocumentMapper.toDate(since)))),
             new Document(
                 "$group",
                 new Document(ID, null)
                     .append("avg", new Document("$avg", "$" + EXECUTION_DURATION_MS))));
-    Document result = ctx.jobs().aggregate(pipeline).first();
-    if (result == null || result.get("avg") == null) {
-      return 0.0;
-    }
-    return ((Number) result.get("avg")).doubleValue();
+    return aggregateDouble(ctx.jobs(), pipeline, "avg");
   }
 
   double getAverageBatchSize(Instant since) {
@@ -318,17 +323,13 @@ final class MongoJobCrudOperations {
             new Document(
                 "$group",
                 new Document(ID, null).append("avg", new Document("$avg", "$" + TOTAL_ITEMS))));
-    Document result = ctx.batches().aggregate(pipeline).first();
-    if (result == null || result.get("avg") == null) {
-      return 0.0;
-    }
-    return ((Number) result.get("avg")).doubleValue();
+    return aggregateDouble(ctx.batches(), pipeline, "avg");
   }
 
   Optional<Instant> getOldestPendingJobTime() {
     Document doc =
         ctx.jobs()
-            .find(eq(STATUS, "PENDING"))
+            .find(eq(STATUS, STATUS_PENDING))
             .sort(ascending(SCHEDULED_TIME))
             .projection(new Document(SCHEDULED_TIME, 1))
             .limit(1)
@@ -345,7 +346,8 @@ final class MongoJobCrudOperations {
         List.of(
             new Document(
                 "$match",
-                new Document(QUEUE_WAIT_MS, new Document("$ne", null)).append(STATUS, "SUCCEEDED")),
+                new Document(QUEUE_WAIT_MS, new Document("$ne", null))
+                    .append(STATUS, STATUS_SUCCEEDED)),
             new Document(
                 "$group",
                 new Document(ID, null)
@@ -357,31 +359,64 @@ final class MongoJobCrudOperations {
                                 .append("p", List.of(percentile))
                                 .append("method", "approximate")))));
     try {
-      Document result = ctx.jobs().aggregate(pipeline).first();
-      if (result != null && result.get("p") != null) {
-        @SuppressWarnings("unchecked")
-        List<Number> pValues = (List<Number>) result.get("p");
-        if (!pValues.isEmpty()) {
-          return pValues.get(0).longValue();
-        }
+      Optional<Long> percentileValue = aggregateFirstNumberListValue(ctx.jobs(), pipeline, "p");
+      if (percentileValue.isPresent()) {
+        return percentileValue.get();
       }
     } catch (Exception e) {
       log.debug("$percentile aggregation not available, using sort+skip approximation");
     }
-    long total = ctx.jobs().countDocuments(and(ne(QUEUE_WAIT_MS, null), eq(STATUS, "SUCCEEDED")));
+    long total =
+        ctx.jobs().countDocuments(and(ne(QUEUE_WAIT_MS, null), eq(STATUS, STATUS_SUCCEEDED)));
     if (total == 0) {
       return 0;
     }
     long skipCount = (long) (total * percentile);
     Document doc =
         ctx.jobs()
-            .find(and(ne(QUEUE_WAIT_MS, null), eq(STATUS, "SUCCEEDED")))
+            .find(and(ne(QUEUE_WAIT_MS, null), eq(STATUS, STATUS_SUCCEEDED)))
             .sort(ascending(QUEUE_WAIT_MS))
             .skip((int) Math.min(skipCount, Integer.MAX_VALUE))
             .limit(1)
             .projection(new Document(QUEUE_WAIT_MS, 1))
             .first();
     return doc == null || doc.getLong(QUEUE_WAIT_MS) == null ? 0 : doc.getLong(QUEUE_WAIT_MS);
+  }
+
+  private static double aggregateDouble(
+      MongoCollection<Document> collection, List<? extends Bson> pipeline, String field) {
+    Number value = numberField(collection.aggregate(pipeline).first(), field);
+    return value == null ? 0.0 : value.doubleValue();
+  }
+
+  private static Optional<Long> aggregateFirstNumberListValue(
+      MongoCollection<Document> collection, List<? extends Bson> pipeline, String field) {
+    Object value = fieldValue(collection.aggregate(pipeline).first(), field);
+    if (!(value instanceof List<?> values)
+        || values.isEmpty()
+        || !(values.get(0) instanceof Number number)) {
+      return Optional.empty();
+    }
+    return Optional.of(number.longValue());
+  }
+
+  private static double ratioFromAggregate(
+      Document aggregateResult, String numeratorField, String denominatorField) {
+    Number denominator = numberField(aggregateResult, denominatorField);
+    if (denominator == null || denominator.doubleValue() == 0.0) {
+      return 0.0;
+    }
+    Number numerator = numberField(aggregateResult, numeratorField);
+    return numerator == null ? 0.0 : numerator.doubleValue() / denominator.doubleValue();
+  }
+
+  private static Number numberField(Document document, String field) {
+    Object value = fieldValue(document, field);
+    return value instanceof Number number ? number : null;
+  }
+
+  private static Object fieldValue(Document document, String field) {
+    return document == null ? null : document.get(field);
   }
 
   void bulkInsert(List<JobEntity> jobList) {
@@ -419,7 +454,7 @@ final class MongoJobCrudOperations {
         ctx.jobs()
             .deleteMany(
                 and(
-                    eq(STATUS, "FAILED"),
+                    eq(STATUS, STATUS_FAILED),
                     new Document(
                         "$expr", new Document("$gte", List.of("$" + ATTEMPTS, "$" + MAX_RETRIES))),
                     lt(UPDATED_AT, DocumentMapper.toDate(cutoff))));
@@ -437,9 +472,10 @@ final class MongoJobCrudOperations {
 
     Bson filter;
     if (activeNodeIds.isEmpty()) {
-      filter = and(eq(STATUS, "RUNNING"), lt(PICKED_AT, cutoff));
+      filter = and(eq(STATUS, STATUS_RUNNING), lt(PICKED_AT, cutoff));
     } else {
-      filter = and(eq(STATUS, "RUNNING"), nin(PICKED_BY, activeNodeIds), lt(PICKED_AT, cutoff));
+      filter =
+          and(eq(STATUS, STATUS_RUNNING), nin(PICKED_BY, activeNodeIds), lt(PICKED_AT, cutoff));
     }
 
     UpdateResult result =
@@ -447,7 +483,7 @@ final class MongoJobCrudOperations {
             .updateMany(
                 filter,
                 combine(
-                    set(STATUS, "PENDING"),
+                    set(STATUS, STATUS_PENDING),
                     set(PICKED_BY, null),
                     set(PICKED_AT, null),
                     set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
@@ -459,9 +495,9 @@ final class MongoJobCrudOperations {
     UpdateResult result =
         ctx.jobs()
             .updateMany(
-                and(eq(STATUS, "RUNNING"), eq(PICKED_BY, nodeId)),
+                and(eq(STATUS, STATUS_RUNNING), eq(PICKED_BY, nodeId)),
                 combine(
-                    set(STATUS, "PENDING"),
+                    set(STATUS, STATUS_PENDING),
                     set(PICKED_BY, null),
                     set(PICKED_AT, null),
                     set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
