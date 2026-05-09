@@ -43,6 +43,16 @@ class JobSecurityValidatorTest {
   }
 
   @Test
+  void emptyTargetClassThrowsSecurityException() {
+    JobSecurityValidator validator = validatorAllowing(THIS_PACKAGE);
+    JobPayload payload = new JobPayload("", "doWork", "()V", false, List.of());
+
+    SecurityException ex = assertThrows(SecurityException.class, () -> validator.validate(payload));
+
+    assertTrue(ex.getMessage().contains("target class cannot be null or empty"));
+  }
+
+  @Test
   void nonPublicMethodThrowsSecurityException() {
     JobSecurityValidator validator = validatorAllowing(THIS_PACKAGE);
     JobPayload payload =
@@ -87,6 +97,23 @@ class JobSecurityValidatorTest {
     assertThrows(SecurityException.class, () -> validator.validate(payload));
     assertEquals(
         before, CLINIT_COUNTER.get(), "<clinit> must not fire on a class whose validation fails");
+  }
+
+  @Test
+  void allowedClassWithNonPublicMethodDoesNotFireStaticInitializer() {
+    JobSecurityValidator validator = validatorAllowing(THIS_PACKAGE);
+    int before = CLINIT_COUNTER.get();
+    JobPayload payload =
+        new JobPayload(
+            SideEffectingTarget.class.getName(), "secretMethod", "()V", false, List.of());
+
+    SecurityException ex = assertThrows(SecurityException.class, () -> validator.validate(payload));
+
+    assertTrue(ex.getMessage().contains("private"));
+    assertEquals(
+        before,
+        CLINIT_COUNTER.get(),
+        "<clinit> must not fire when an allowed class fails method visibility validation");
   }
 
   private JobSecurityValidator validatorAllowing(String... prefixes) {

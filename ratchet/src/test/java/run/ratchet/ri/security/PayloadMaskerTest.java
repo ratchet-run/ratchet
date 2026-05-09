@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class PayloadMaskerTest {
@@ -24,9 +26,8 @@ class PayloadMaskerTest {
     String json = "{\"username\":\"alice\",\"password\":\"s3cret\",\"data\":\"public\"}";
     String masked = PayloadMasker.maskPayload(json);
 
-    assertTrue(masked.contains("\"username\":\"alice\""));
-    assertTrue(masked.contains("\"password\":\"***REDACTED***\""));
-    assertTrue(masked.contains("\"data\":\"public\""));
+    assertEquals(
+        "{\"username\":\"alice\",\"password\":\"***REDACTED***\",\"data\":\"public\"}", masked);
   }
 
   @Test
@@ -43,6 +44,22 @@ class PayloadMaskerTest {
     // A plain string serializes to JSON as "simple-string" which isn't an object node,
     // so it passes through without field-level masking
     assertEquals("\"simple-string\"", result);
+  }
+
+  @Test
+  void maskPayload_objectOverload_serializationFailure_returnsMaskedValue() {
+    String result = PayloadMasker.maskPayload(new ThrowingPayload());
+
+    assertEquals("***REDACTED***", result);
+  }
+
+  @Test
+  void maskPayload_objectOverload_masksSerializedObjects() {
+    String result = PayloadMasker.maskPayload(Map.of("password", "secret", "username", "alice"));
+
+    assertFalse(result.contains("secret"));
+    assertTrue(result.contains("\"password\":\"***REDACTED***\""));
+    assertTrue(result.contains("\"username\":\"alice\""));
   }
 
   @Test
@@ -75,6 +92,29 @@ class PayloadMaskerTest {
     assertFalse(masked.contains("db-secret"));
     assertFalse(masked.contains("Bearer abc123"));
     assertFalse(masked.contains("-----BEGIN PRIVATE KEY-----"));
+  }
+
+  @Test
+  void maskPayload_sensitiveFieldDetectionIsCaseInsensitive() {
+    String json =
+        """
+        {
+          "PASSWORD": "upper-secret",
+          "PaSsWoRd": "mixed-secret",
+          "Api_Key": "api-secret",
+          "visible": "public"
+        }
+        """;
+
+    String masked = PayloadMasker.maskPayload(json);
+
+    assertTrue(masked.contains("\"PASSWORD\":\"***REDACTED***\""));
+    assertTrue(masked.contains("\"PaSsWoRd\":\"***REDACTED***\""));
+    assertTrue(masked.contains("\"Api_Key\":\"***REDACTED***\""));
+    assertTrue(masked.contains("\"visible\":\"public\""));
+    assertFalse(masked.contains("upper-secret"));
+    assertFalse(masked.contains("mixed-secret"));
+    assertFalse(masked.contains("api-secret"));
   }
 
   @Test
@@ -130,5 +170,11 @@ class PayloadMaskerTest {
     // rather than silently collapse to ***REDACTED***.
     assertEquals("[{\"password\":\"x\"}]", PayloadMasker.maskPayload("[{\"password\":\"x\"}]"));
     assertEquals("42", PayloadMasker.maskPayload("42"));
+  }
+
+  public static class ThrowingPayload {
+    public String getValue() throws IOException {
+      throw new IOException("cannot serialize");
+    }
   }
 }

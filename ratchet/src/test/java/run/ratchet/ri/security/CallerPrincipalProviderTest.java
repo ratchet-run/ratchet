@@ -73,6 +73,21 @@ class CallerPrincipalProviderTest {
   }
 
   @Test
+  void currentPrincipal_getCallerPrincipalFailure_returnsEmpty() {
+    SecurityContext context = mock(SecurityContext.class);
+    when(context.getCallerPrincipal()).thenThrow(new RuntimeException("security context failed"));
+
+    @SuppressWarnings("unchecked")
+    Instance<SecurityContext> instance = mock(Instance.class);
+    when(instance.isResolvable()).thenReturn(true);
+    when(instance.get()).thenReturn(context);
+
+    Optional<String> result = new CallerPrincipalProvider(instance).currentPrincipal();
+
+    assertTrue(result.isEmpty(), "Principal lookup failures should not block job creation");
+  }
+
+  @Test
   void currentPrincipal_unmanagedNoArgConstruction_throws() {
     IllegalStateException exception =
         assertThrows(

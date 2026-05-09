@@ -54,6 +54,19 @@ class JobPayloadInputValidatorTest {
   }
 
   @Test
+  void argumentTypeMismatchReportsError() {
+    JobPayload payload =
+        new JobPayload(Target.class.getName(), "add", "(II)V", false, List.of(1, "two"));
+
+    IllegalArgumentException ex =
+        assertThrows(IllegalArgumentException.class, () -> validator.validateAtCreation(payload));
+
+    assertTrue(ex.getMessage().contains("Argument value at position 1"));
+    assertTrue(ex.getMessage().contains(String.class.getName()));
+    assertTrue(ex.getMessage().contains("int"));
+  }
+
+  @Test
   void nullArgsReportsClearValidationError() {
     JobPayload payload =
         new JobPayload(Target.class.getName(), "greet", "(Ljava/lang/String;)V", false, null);
