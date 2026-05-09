@@ -12,7 +12,6 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.transaction.Status;
 import jakarta.transaction.Synchronization;
 import jakarta.transaction.TransactionSynchronizationRegistry;
-import java.lang.reflect.Field;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
@@ -56,7 +55,7 @@ class JobWakeupServiceTest {
   }
 
   @Test
-  void notify_registersAfterCommitWhenTransactionActive() throws Exception {
+  void notify_registersAfterCommitWhenTransactionActive() {
     when(pollerSchedulerInstance.isResolvable()).thenReturn(true);
     when(pollerSchedulerInstance.get()).thenReturn(pollerScheduler);
 
@@ -69,7 +68,9 @@ class JobWakeupServiceTest {
             })
         .when(txRegistry)
         .registerInterposedSynchronization(ArgumentMatchers.any());
-    injectTxRegistry(txRegistry);
+    wakeupService =
+        new JobWakeupService(
+            clusterCoordinator, pollerSchedulerInstance, metricsCollector, txRegistry);
 
     wakeupService.notify(JobPriority.CRITICAL, true);
 
@@ -92,7 +93,7 @@ class JobWakeupServiceTest {
   }
 
   @Test
-  void notify_fallsBackToImmediateWhenAfterCommitRegistrationFails() throws Exception {
+  void notify_fallsBackToImmediateWhenAfterCommitRegistrationFails() {
     when(pollerSchedulerInstance.isResolvable()).thenReturn(true);
     when(pollerSchedulerInstance.get()).thenReturn(pollerScheduler);
 
@@ -100,7 +101,9 @@ class JobWakeupServiceTest {
     doThrow(new IllegalStateException("boom"))
         .when(txRegistry)
         .registerInterposedSynchronization(ArgumentMatchers.any());
-    injectTxRegistry(txRegistry);
+    wakeupService =
+        new JobWakeupService(
+            clusterCoordinator, pollerSchedulerInstance, metricsCollector, txRegistry);
 
     wakeupService.notify(JobPriority.HIGH, true);
 
@@ -156,11 +159,5 @@ class JobWakeupServiceTest {
 
     verifyNoInteractions(
         clusterCoordinator, pollerSchedulerInstance, pollerScheduler, metricsCollector);
-  }
-
-  private void injectTxRegistry(TransactionSynchronizationRegistry registry) throws Exception {
-    Field field = JobWakeupService.class.getDeclaredField("txRegistry");
-    field.setAccessible(true);
-    field.set(wakeupService, registry);
   }
 }

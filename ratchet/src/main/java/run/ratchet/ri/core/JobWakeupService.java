@@ -47,6 +47,15 @@ public class JobWakeupService {
     this.metricsCollector = metricsCollector;
   }
 
+  JobWakeupService(
+      ClusterCoordinator clusterCoordinator,
+      Instance<PollerScheduler> pollerSchedulerInstance,
+      MetricsCollector metricsCollector,
+      TransactionSynchronizationRegistry txRegistry) {
+    this(clusterCoordinator, pollerSchedulerInstance, metricsCollector);
+    this.txRegistry = txRegistry;
+  }
+
   public void notify(JobPriority priority, boolean immediate) {
     if (immediate) {
       publishNotification(priority);
