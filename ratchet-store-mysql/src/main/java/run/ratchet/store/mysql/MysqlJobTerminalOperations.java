@@ -12,6 +12,10 @@ import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
  * Keep terminal transitions dialect-local until a shared helper can preserve each backend's
  * SQL shape explicitly. These methods mirror PostgreSQL conceptually, but MySQL binds UUIDs as
  * binary values, uses NOW(3), JSON casts, and multi-table deletes differently.
+ *
+ * MySQL also keeps timing labels on terminal operations because these paths do more than one SQL
+ * statement for hot/cold row moves and business-key cleanup. The labels make slow terminal
+ * transitions distinguishable from ordinary write latency in store metrics.
  */
 final class MysqlJobTerminalOperations {
 
@@ -88,19 +92,7 @@ final class MysqlJobTerminalOperations {
                   > 0;
             }
             if (newStatus == JobStatus.CANCELED) {
-              // language=MySQL
-              String gateSql =
-                  "SELECT COUNT(*) FROM scheduler_job_queue WHERE job_id = ? AND status = ?";
-              int gateMatched =
-                  ctx.em()
-                              .createNativeQuery(gateSql)
-                              .setParameter(1, UuidByteArrayConverter.toBytes(id))
-                              .setParameter(2, expected.name())
-                              .getSingleResult()
-                          instanceof Number n
-                      ? n.intValue()
-                      : 0;
-              return gateMatched > 0 && cancelJob(id);
+              return lockExpectedQueueStatusForTerminalCas(id, expected) && cancelJob(id);
             }
             if (newStatus == JobStatus.FAILED) {
               if (expected != JobStatus.RUNNING && expected != JobStatus.WAITING) {
@@ -223,6 +215,28 @@ final class MysqlJobTerminalOperations {
 
   boolean markJobFailedTerminal(UUID id, String terminalError, int totalAttempts) {
     return markJobFailedTerminalFromStatus(id, terminalError, totalAttempts, JobStatus.RUNNING);
+  }
+
+  private boolean lockExpectedQueueStatusForTerminalCas(UUID id, JobStatus expected) {
+    // The terminal cancel path deletes any live queue row after updating the cold row. Lock the
+    // expected hot row first so this multi-statement path preserves CAS semantics inside the
+    // method transaction: either this caller owns the expected status, or it reports a miss.
+    // language=MySQL
+    String gateSql =
+        """
+        SELECT job_id
+        FROM scheduler_job_queue
+        WHERE job_id = ? AND status = ?
+        FOR UPDATE
+        """;
+    @SuppressWarnings("unchecked")
+    List<Object> rows =
+        ctx.em()
+            .createNativeQuery(gateSql)
+            .setParameter(1, UuidByteArrayConverter.toBytes(id))
+            .setParameter(2, expected.name())
+            .getResultList();
+    return !rows.isEmpty();
   }
 
   boolean cancelJob(UUID id) {
