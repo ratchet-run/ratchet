@@ -1,25 +1,36 @@
 package run.ratchet.testsuite.resilience;
 
 import static org.awaitility.Awaitility.await;
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import jakarta.inject.Inject;
+import jakarta.enterprise.inject.Vetoed;
+import jakarta.enterprise.inject.spi.CDI;
 import java.time.Duration;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.jboss.arquillian.container.test.api.Deployment;
+import org.jboss.arquillian.junit5.ArquillianExtension;
+import org.jboss.shrinkwrap.api.ShrinkWrap;
+import org.jboss.shrinkwrap.api.asset.StringAsset;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import run.ratchet.api.CircuitBreakerProfile;
+import run.ratchet.api.CircuitBreakerProtected;
+import run.ratchet.ri.cdi.CircuitBreakerInterceptor;
 import run.ratchet.ri.resilience.CircuitBreaker;
 import run.ratchet.ri.resilience.CircuitBreakerConfiguration;
 import run.ratchet.ri.resilience.CircuitBreakerRegistry;
 import run.ratchet.ri.resilience.ServiceUnavailableException;
+import run.ratchet.spi.CircuitBreakerConfig;
+import run.ratchet.spi.CircuitBreakerConfigProvider;
 import run.ratchet.testsuite.app.CircuitBreakerTestService;
-import run.ratchet.testsuite.app.TestJobService;
-import run.ratchet.testsuite.util.BaseRatchetIT;
-import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /**
  * Validates the {@code @CircuitBreakerProtected} CDI interceptor integration.
@@ -27,32 +38,54 @@ import run.ratchet.testsuite.util.RatchetArchiveBuilder;
  * <p>Uses the FAST profile: 50% failure threshold, 20-call sliding window, 3 minimum calls, 10s
  * wait duration, 2 permitted calls in half-open.
  */
-class CircuitBreakerIT extends BaseRatchetIT {
+@ExtendWith(ArquillianExtension.class)
+@Vetoed
+public class CircuitBreakerIT {
 
-  @Inject private CircuitBreakerTestService service;
+  private static final String TEST_SERVICE = "test-service";
+  private static final String BEANS_XML =
+      """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <beans xmlns="https://jakarta.ee/xml/ns/jakartaee"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee
+                 https://jakarta.ee/xml/ns/jakartaee/beans_4_0.xsd"
+             version="4.0"
+             bean-discovery-mode="annotated"/>
+      """;
+  private static final CircuitBreakerConfiguration TEST_FAST_CONFIG =
+      new CircuitBreakerConfiguration(50.0f, 20, 100L, 2, 3);
 
-  @Inject private CircuitBreakerRegistry registry;
+  private CircuitBreakerTestService service;
 
-  @Inject private TestJobService jobService;
+  private CircuitBreakerRegistry registry;
 
   @Deployment
   public static WebArchive createDeployment() {
-    String dbType = System.getProperty("ratchet.test.db.type", "mysql");
-    String profile = System.getProperty("testsuite.profile", "wildfly-managed");
-
-    return RatchetArchiveBuilder.create()
-        .addRatchetDependencies(profile, dbType)
-        .addClasses(CircuitBreakerTestService.class, TestJobService.class)
-        .addStoreInfrastructure()
-        .addBeansXml()
-        .build();
+    return ShrinkWrap.create(WebArchive.class, "circuit-breaker-it.war")
+        .addPackage(CircuitBreakerProtected.class.getPackage())
+        .addClasses(
+            CircuitBreakerIT.class,
+            CircuitBreakerTestService.class,
+            CircuitBreakerTestService.TestCircuitBreakerConfigProvider.class,
+            CircuitBreakerConfig.class,
+            CircuitBreakerConfigProvider.class,
+            CircuitBreakerInterceptor.class,
+            CircuitBreaker.class,
+            CircuitBreakerConfiguration.class,
+            CircuitBreakerRegistry.class,
+            ServiceUnavailableException.class)
+        .addAsWebInfResource(new StringAsset(BEANS_XML), "beans.xml");
   }
 
   @BeforeEach
   void resetState() {
+    service = CDI.current().select(CircuitBreakerTestService.class).get();
+    registry = CDI.current().select(CircuitBreakerRegistry.class).get();
     CircuitBreakerTestService.reset();
+    registry.registerConfig("fast", TEST_FAST_CONFIG);
     // Reset the circuit breaker for our test service (must match interceptor key)
-    registry.resetBreaker("test-service", CircuitBreakerProfile.FAST);
+    registry.resetBreaker(TEST_SERVICE, CircuitBreakerProfile.FAST);
   }
 
   @Test
@@ -67,9 +100,13 @@ class CircuitBreakerIT extends BaseRatchetIT {
 
     // Circuit should now be OPEN — next call should throw ServiceUnavailableException
     assertThrows(ServiceUnavailableException.class, () -> service.callService());
+    assertEquals(
+        3,
+        CircuitBreakerTestService.getCallCount(),
+        "OPEN circuit should reject before invoking the CDI target method");
 
     // Verify the breaker state
-    CircuitBreaker breaker = registry.getBreaker("test-service", CircuitBreakerProfile.FAST);
+    CircuitBreaker breaker = registry.getBreaker(TEST_SERVICE, CircuitBreakerProfile.FAST);
     // After ServiceUnavailableException, state is either OPEN or transitioning
     assertEquals(
         CircuitBreaker.State.OPEN,
@@ -78,7 +115,7 @@ class CircuitBreakerIT extends BaseRatchetIT {
   }
 
   @Test
-  void circuitBreaker_shouldHalfOpenAfterTimeout() {
+  void circuitBreaker_shouldHalfOpenAfterTimeout() throws Exception {
     // Trip the breaker
     CircuitBreakerTestService.setShouldFail(true);
     for (int i = 0; i < 3; i++) {
@@ -86,37 +123,28 @@ class CircuitBreakerIT extends BaseRatchetIT {
     }
 
     // Verify it's OPEN
-    CircuitBreaker breaker = registry.getBreaker("test-service", CircuitBreakerProfile.FAST);
+    CircuitBreaker breaker = registry.getBreaker(TEST_SERVICE, CircuitBreakerProfile.FAST);
     assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
 
-    // Manually reset to simulate timeout (FAST profile wait is 10s — too long for unit test)
-    breaker.reset();
-    assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+    await()
+        .atMost(Duration.ofSeconds(2))
+        .untilAsserted(() -> assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState()));
 
-    // Now calls should succeed again
     CircuitBreakerTestService.setShouldFail(false);
     String result = service.callService();
     assertEquals("success", result);
+    assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
   }
 
   @Test
   void circuitBreaker_shouldTransitionFromHalfOpenToClosedAfterSuccessfulTrials() throws Exception {
-    // Wait duration short enough to keep the test fast, long enough to survive scheduler jitter
-    // between assertion lines. 1 ms races the JVM clock and leaves the breaker in HALF_OPEN
-    // before the next assertion runs; 200 ms is well under the 5 s await() that follows.
-    CircuitBreakerConfiguration fastConfig = new CircuitBreakerConfiguration(50.0f, 20, 200L, 2, 3);
-    CircuitBreaker breaker = new CircuitBreaker("test-fast-transition", fastConfig);
-
     // Drive to OPEN: 3 failures (minimum calls = 3, failure rate = 100% >= 50% threshold)
+    CircuitBreakerTestService.setShouldFail(true);
     for (int i = 0; i < 3; i++) {
-      assertThrows(
-          RuntimeException.class,
-          () ->
-              breaker.execute(
-                  () -> {
-                    throw new RuntimeException("fail");
-                  }));
+      assertThrows(RuntimeException.class, () -> service.callService());
     }
+
+    CircuitBreaker breaker = registry.getBreaker(TEST_SERVICE, CircuitBreakerProfile.FAST);
     assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
 
     await()
@@ -124,8 +152,63 @@ class CircuitBreakerIT extends BaseRatchetIT {
         .untilAsserted(() -> assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState()));
 
     // Successful trial calls (permittedCallsInHalfOpen = 2) should transition to CLOSED
-    assertDoesNotThrow(() -> breaker.execute(() -> "ok"));
-    assertDoesNotThrow(() -> breaker.execute(() -> "ok"));
+    CircuitBreakerTestService.setShouldFail(false);
+    assertEquals("success", service.callService());
+    assertEquals("success", service.callService());
     assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+  }
+
+  @Test
+  void circuitBreaker_shouldRejectCallsExceedingHalfOpenTrials() throws Exception {
+    CircuitBreakerTestService.setShouldFail(true);
+    for (int i = 0; i < 3; i++) {
+      assertThrows(RuntimeException.class, () -> service.callService());
+    }
+
+    CircuitBreaker breaker = registry.getBreaker(TEST_SERVICE, CircuitBreakerProfile.FAST);
+    await()
+        .atMost(Duration.ofSeconds(2))
+        .untilAsserted(() -> assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState()));
+
+    CircuitBreakerTestService.setShouldFail(false);
+    CountDownLatch started = new CountDownLatch(2);
+    CountDownLatch release = new CountDownLatch(1);
+    CircuitBreakerTestService.blockCalls(started, release);
+
+    ExecutorService executor = Executors.newFixedThreadPool(2);
+    try {
+      Future<String> first = executor.submit(() -> service.callService());
+      Future<String> second = executor.submit(() -> service.callService());
+      assertTrue(started.await(1, TimeUnit.SECONDS), "Expected both trial calls to start");
+
+      ServiceUnavailableException thrown =
+          assertThrows(ServiceUnavailableException.class, () -> service.callService());
+      assertTrue(thrown.getMessage().contains("HALF_OPEN"));
+
+      release.countDown();
+      assertEquals("success", first.get());
+      assertEquals("success", second.get());
+      assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+    } finally {
+      release.countDown();
+      executor.shutdownNow();
+      CircuitBreakerTestService.reset();
+    }
+  }
+
+  @Test
+  void circuitBreaker_shouldReopenOnHalfOpenFailure() {
+    CircuitBreakerTestService.setShouldFail(true);
+    for (int i = 0; i < 3; i++) {
+      assertThrows(RuntimeException.class, () -> service.callService());
+    }
+
+    CircuitBreaker breaker = registry.getBreaker(TEST_SERVICE, CircuitBreakerProfile.FAST);
+    await()
+        .atMost(Duration.ofSeconds(2))
+        .untilAsserted(() -> assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState()));
+
+    assertThrows(RuntimeException.class, () -> service.callService());
+    assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
   }
 }
