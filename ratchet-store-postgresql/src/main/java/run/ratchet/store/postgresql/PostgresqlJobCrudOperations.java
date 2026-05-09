@@ -20,14 +20,14 @@ final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore {
   private final PostgresqlJobWriteOperations writes;
 
   PostgresqlJobCrudOperations(
-      PostgresqlStoreContext ctx,
       PostgresqlJobReadOperations reads,
-      PostgresqlBusinessKeyReservations reservations,
-      PostgresqlTagOperations tags) {
+      PostgresqlJobCountOperations counts,
+      PostgresqlJobDeleteOperations deletes,
+      PostgresqlJobWriteOperations writes) {
     this.reads = reads;
-    this.counts = new PostgresqlJobCountOperations(ctx);
-    this.deletes = new PostgresqlJobDeleteOperations(ctx, reservations);
-    this.writes = new PostgresqlJobWriteOperations(ctx, reservations, tags);
+    this.counts = counts;
+    this.deletes = deletes;
+    this.writes = writes;
   }
 
   @Override

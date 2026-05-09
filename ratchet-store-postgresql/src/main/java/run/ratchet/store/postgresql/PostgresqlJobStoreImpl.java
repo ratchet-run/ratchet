@@ -761,7 +761,12 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
     reservations = new PostgresqlBusinessKeyReservations(ctx);
     tags = new PostgresqlTagOperations(ctx);
     PostgresqlJobReadOperations reads = new PostgresqlJobReadOperations(ctx, tags);
-    jobs = new PostgresqlJobCrudOperations(ctx, reads, reservations, tags);
+    jobs =
+        new PostgresqlJobCrudOperations(
+            reads,
+            new PostgresqlJobCountOperations(ctx),
+            new PostgresqlJobDeleteOperations(ctx, reservations),
+            new PostgresqlJobWriteOperations(ctx, reservations, tags));
     query = new PostgresqlJobQueryOperations(ctx, tags);
     batches = new PostgresqlBatchOperations(ctx);
     claims = new PostgresqlJobClaimOperations(ctx, jobs);
