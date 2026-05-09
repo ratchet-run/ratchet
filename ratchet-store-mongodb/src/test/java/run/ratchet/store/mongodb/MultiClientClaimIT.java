@@ -36,7 +36,6 @@ class MultiClientClaimIT extends BaseDocumentStoreIT {
   private MongoClient clientB;
   private MongoDatabase dbB;
   private MongoJobStore storeB;
-  private ExecutorService claimExecutorB;
 
   private static void race(
       MongoJobStore store,
@@ -100,17 +99,13 @@ class MultiClientClaimIT extends BaseDocumentStoreIT {
   void setUpSecondClient() {
     clientB = MongoClientFactory.create(mongoConnectionString());
     dbB = clientB.getDatabase(database().getName());
-    claimExecutorB = Executors.newCachedThreadPool();
-    storeB = new MongoJobStoreImpl(clientB, dbB, RatchetOptions.defaults(), claimExecutorB);
+    storeB = new MongoJobStoreImpl(clientB, dbB, RatchetOptions.defaults());
   }
 
   @AfterEach
   void tearDownSecondClient() {
     if (clientB != null) {
       clientB.close();
-    }
-    if (claimExecutorB != null) {
-      claimExecutorB.shutdownNow();
     }
   }
 

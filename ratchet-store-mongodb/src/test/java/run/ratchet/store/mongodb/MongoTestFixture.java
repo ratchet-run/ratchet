@@ -10,8 +10,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.bson.Document;
@@ -49,8 +47,6 @@ public class MongoTestFixture implements JobStoreContractFixture, AutoCloseable 
   // instead of a 10-minute deadlock.
   private static final MongoClient CLIENT;
 
-  // Shared async executor for MongoJobStoreImpl claim work — daemon threads, JVM-lifetime.
-  private static final ExecutorService CLAIM_EXECUTOR;
   private static final AtomicBoolean SHARED_CLOSED = new AtomicBoolean();
 
   static {
@@ -63,13 +59,6 @@ public class MongoTestFixture implements JobStoreContractFixture, AutoCloseable 
             .applyToSocketSettings(b -> b.connectTimeout(10, TimeUnit.SECONDS))
             .build();
     CLIENT = MongoClients.create(settings);
-    CLAIM_EXECUTOR =
-        Executors.newCachedThreadPool(
-            r -> {
-              Thread t = new Thread(r, "ratchet-mongo-test-claim");
-              t.setDaemon(true);
-              return t;
-            });
     Runtime.getRuntime()
         .addShutdownHook(
             new Thread(MongoTestFixture::closeSharedResources, "ratchet-mongo-test-shutdown"));
@@ -82,7 +71,7 @@ public class MongoTestFixture implements JobStoreContractFixture, AutoCloseable 
   public MongoTestFixture() {
     this.database =
         CLIENT.getDatabase("ratchet_test_" + UUID.randomUUID().toString().substring(0, 8));
-    this.store = new MongoJobStoreImpl(CLIENT, database, RatchetOptions.defaults(), CLAIM_EXECUTOR);
+    this.store = new MongoJobStoreImpl(CLIENT, database, RatchetOptions.defaults());
     // @PostConstruct is CDI-only; instantiation here bypasses it, leaving collections without
     // their unique indexes. Initialize explicitly so contract tests see the same schema as a
     // production deployment.
@@ -158,8 +147,8 @@ public class MongoTestFixture implements JobStoreContractFixture, AutoCloseable 
       return;
     }
     // Drop the per-class database so the shared container does not accumulate state. The
-    // shared CLIENT and CLAIM_EXECUTOR live for the JVM lifetime — closing them here would
-    // break every contract class that runs after this one.
+    // shared CLIENT lives for the JVM lifetime; closing it here would break every contract class
+    // that runs after this one.
     database.drop();
   }
 
@@ -170,14 +159,7 @@ public class MongoTestFixture implements JobStoreContractFixture, AutoCloseable 
     try {
       CLIENT.close();
     } finally {
-      try {
-        CLAIM_EXECUTOR.shutdownNow();
-        CLAIM_EXECUTOR.awaitTermination(5, TimeUnit.SECONDS);
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-      } finally {
-        MONGO.close();
-      }
+      MONGO.close();
     }
   }
 }

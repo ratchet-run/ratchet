@@ -12,7 +12,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.ExecutorService;
 import org.bson.BsonBinaryWriter;
 import org.bson.codecs.Codec;
 import org.bson.codecs.EncoderContext;
@@ -23,7 +22,6 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.WorkflowCondition;
-import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.store.RatchetConfigurationException;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobClaimDto;
@@ -48,9 +46,7 @@ import run.ratchet.store.entity.WorkflowConditionEntity;
 @ApplicationScoped
 class MongoJobStoreImpl implements MongoJobStore {
 
-  private final MongoClient client;
   private final MongoDatabase database;
-  private final RatchetOptions options;
   private final MongoStoreContext ctx;
   private final MongoTagOperations tags;
   private final MongoJobCrudOperations crud;
@@ -62,26 +58,12 @@ class MongoJobStoreImpl implements MongoJobStore {
   private final MongoAuxiliaryOperations auxiliary;
   private final MongoJobQueryOperations query;
   private final MongoSignalOperations signals;
-  private final ExecutorService claimExecutor;
 
   @Inject
-  MongoJobStoreImpl(
-      MongoClient client,
-      MongoDatabase database,
-      RatchetOptions options,
-      ExecutorProvider executorProvider) {
-    this(client, database, options, executorProvider.getJobExecutor());
-  }
-
-  MongoJobStoreImpl(
-      MongoClient client,
-      MongoDatabase database,
-      RatchetOptions options,
-      ExecutorService claimExecutor) {
-    this.client = client;
+  MongoJobStoreImpl(MongoClient client, MongoDatabase database, RatchetOptions options) {
     this.database = database;
-    this.options = options;
-    this.claimExecutor = claimExecutor;
+    // Mongo operation delegates are pure synchronous wrappers around the injected client/database.
+    // Startup validation and index creation remain in @PostConstruct because they touch the server.
     this.ctx =
         new MongoStoreContext(client, database, options.store().priorityBoostIntervalMinutes());
     this.tags = new MongoTagOperations(ctx);
