@@ -15,9 +15,11 @@ import static run.ratchet.store.mongodb.MongoFieldNames.TARGET_CLASS;
 import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
 
 import com.mongodb.client.result.DeleteResult;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import run.ratchet.store.entity.ArchivedJobEntity;
@@ -32,9 +34,15 @@ import run.ratchet.store.id.UuidV7Factory;
 final class MongoArchiveOperations {
 
   private final MongoStoreContext ctx;
+  private final Clock clock;
 
   MongoArchiveOperations(MongoStoreContext ctx) {
+    this(ctx, Clock.systemUTC());
+  }
+
+  MongoArchiveOperations(MongoStoreContext ctx, Clock clock) {
     this.ctx = ctx;
+    this.clock = Objects.requireNonNull(clock, "clock");
   }
 
   ArchivedJobEntity archiveJob(JobEntity job, String reason, String archivedBy) {
@@ -133,7 +141,7 @@ final class MongoArchiveOperations {
     a.setCompletionTime(job.getExecutionEndTime());
     a.setTotalExecutionTimeMs(job.getExecutionDurationMs());
     a.setQueueWaitMs(job.getQueueWaitMs());
-    a.setArchivedAt(Instant.now());
+    a.setArchivedAt(Instant.now(clock));
     a.setArchivedBy(archivedBy);
     a.setArchiveReason(reason);
     a.setJobResult(job.getJobResult());

@@ -5,6 +5,7 @@ import com.mongodb.MongoClientSettings;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoDatabase;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -86,6 +87,13 @@ public class MongoTestFixture implements JobStoreContractFixture, AutoCloseable 
     // their unique indexes. Initialize explicitly so contract tests see the same schema as a
     // production deployment.
     new MongoCollectionInitializer(database).initialize();
+  }
+
+  MongoArchiveOperations archiveOperations(Clock clock) {
+    MongoStoreContext ctx =
+        new MongoStoreContext(
+            CLIENT, database, RatchetOptions.defaults().store().priorityBoostIntervalMinutes());
+    return new MongoArchiveOperations(ctx, clock);
   }
 
   @Override
