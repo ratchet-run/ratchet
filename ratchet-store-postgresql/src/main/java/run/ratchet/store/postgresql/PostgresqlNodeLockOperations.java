@@ -3,7 +3,6 @@ package run.ratchet.store.postgresql;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -139,19 +138,13 @@ final class PostgresqlNodeLockOperations implements LockStore, NodeStore {
   @Override
   public Instant getDatabaseTime() {
     // language=PostgreSQL
-    String sql = "SELECT statement_timestamp()";
-    Object ts = ctx.em().createNativeQuery(sql).getSingleResult();
-    if (ts instanceof Instant i) {
-      return i;
-    }
-    if (ts instanceof OffsetDateTime odt) {
-      return odt.toInstant();
-    }
-    if (ts instanceof Timestamp t) {
-      return t.toInstant();
+    String sql = "SELECT (EXTRACT(EPOCH FROM statement_timestamp()) * 1000)::bigint";
+    Object epochMillis = ctx.em().createNativeQuery(sql).getSingleResult();
+    if (epochMillis instanceof Number n) {
+      return Instant.ofEpochMilli(n.longValue());
     }
     throw new IllegalStateException(
-        "Unexpected statement_timestamp() result type: "
-            + (ts == null ? "null" : ts.getClass().getName()));
+        "Unexpected database epoch millis result type: "
+            + (epochMillis == null ? "null" : epochMillis.getClass().getName()));
   }
 }
