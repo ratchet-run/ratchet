@@ -1,8 +1,14 @@
 package run.ratchet.ri.cdi;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
 class StandaloneExecutorProviderTest {
@@ -18,5 +24,60 @@ class StandaloneExecutorProviderTest {
 
     assertTrue(provider.getJobExecutor().isShutdown());
     assertTrue(provider.getScheduledExecutor().isShutdown());
+  }
+
+  @Test
+  void shutdownLetsSubmittedJobExecutorWorkFinish() throws Exception {
+    StandaloneExecutorProvider provider = new StandaloneExecutorProvider();
+    CountDownLatch started = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    Future<?> work =
+        provider
+            .getJobExecutor()
+            .submit(
+                () -> {
+                  started.countDown();
+                  try {
+                    assertTrue(release.await(1, TimeUnit.SECONDS));
+                  } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(e);
+                  }
+                });
+
+    assertTrue(started.await(1, TimeUnit.SECONDS));
+    release.countDown();
+
+    provider.shutdown();
+
+    assertTrue(work.isDone());
+    assertFalse(work.isCancelled());
+  }
+
+  @Test
+  void shutdownNowInterruptsWorkThatDoesNotFinishWithinGracePeriod() throws Exception {
+    StandaloneExecutorProvider provider = new StandaloneExecutorProvider();
+    CountDownLatch started = new CountDownLatch(1);
+    Future<?> work =
+        provider
+            .getJobExecutor()
+            .submit(
+                () -> {
+                  started.countDown();
+                  try {
+                    Thread.sleep(TimeUnit.SECONDS.toMillis(30));
+                  } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(e);
+                  }
+                });
+
+    assertTrue(started.await(1, TimeUnit.SECONDS));
+
+    provider.shutdown();
+
+    ExecutionException thrown =
+        assertThrows(ExecutionException.class, () -> work.get(1, TimeUnit.SECONDS));
+    assertInstanceOf(AssertionError.class, thrown.getCause());
   }
 }
