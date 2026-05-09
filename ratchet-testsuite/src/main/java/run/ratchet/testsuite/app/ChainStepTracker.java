@@ -15,6 +15,11 @@ public class ChainStepTracker {
     EXECUTION_ORDER.add("B");
   }
 
+  public static void stepBThenFail() {
+    EXECUTION_ORDER.add("B");
+    throw new RuntimeException("Intentional chain step failure");
+  }
+
   public static void stepC() {
     EXECUTION_ORDER.add("C");
   }
