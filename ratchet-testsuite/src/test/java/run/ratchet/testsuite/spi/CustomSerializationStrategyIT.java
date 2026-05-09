@@ -66,30 +66,32 @@ class CustomSerializationStrategyIT extends BaseRatchetIT {
 
   @Test
   void customPayloadSerializer_isExercisedByFramework() {
-    // Schedule a job end-to-end. The framework MUST route payload persistence and result
-    // persistence through the injected PayloadSerializer. The counter increments only when
-    // the SPI is actually invoked — so a positive count proves the wiring, not the interface.
     JobHandle handle = jobService.enqueueNow(SimpleJob::execute);
 
     assertNotNull(handle);
     JobAssertions.assertJobCompleted(jobCrudStore, handle);
 
-    // Give any post-execution serialization a brief window to settle.
     await()
         .atMost(Duration.ofSeconds(5))
         .until(
             () ->
                 CountingPayloadSerializer.getSerializeCount() > 0
-                    || CountingPayloadSerializer.getDeserializeCount() > 0);
+                    && CountingPayloadSerializer.getDeserializeCount() > 0);
 
     assertTrue(
-        CountingPayloadSerializer.getSerializeCount()
-                + CountingPayloadSerializer.getDeserializeCount()
-            > 0,
-        "Framework MUST invoke PayloadSerializer during job persistence. "
+        CountingPayloadSerializer.getSerializeCount() > 0,
+        "Framework MUST invoke PayloadSerializer.serialize during job persistence. "
             + "serialize="
             + CountingPayloadSerializer.getSerializeCount()
             + ", deserialize="
             + CountingPayloadSerializer.getDeserializeCount());
+    assertTrue(
+        CountingPayloadSerializer.getDeserializeCount() > 0,
+        "Framework MUST invoke PayloadSerializer.deserialize during job execution. "
+            + "serialize="
+            + CountingPayloadSerializer.getSerializeCount()
+            + ", deserialize="
+            + CountingPayloadSerializer.getDeserializeCount());
+    assertTrue(SimpleJob.getInvocationCount() > 0);
   }
 }

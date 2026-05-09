@@ -3,10 +3,13 @@ package run.ratchet.testsuite.spi;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import jakarta.annotation.Priority;
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Alternative;
 import jakarta.inject.Inject;
 import java.time.Duration;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,7 +20,6 @@ import run.ratchet.spi.RetryPolicy;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.testsuite.app.FailingJob;
 import run.ratchet.testsuite.app.TestJobService;
-import run.ratchet.testsuite.app.VetoRetryPolicy;
 import run.ratchet.testsuite.util.BaseRatchetIT;
 import run.ratchet.testsuite.util.JobAssertions;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
@@ -38,7 +40,7 @@ class CustomRetryPolicyIT extends BaseRatchetIT {
 
     return RatchetArchiveBuilder.create()
         .addRatchetDependencies(profile, dbType)
-        .addClasses(VetoRetryPolicy.class, FailingJob.class, TestJobService.class)
+        .addClasses(FastRetryPolicy.class, FailingJob.class, TestJobService.class)
         .addStoreInfrastructure()
         .addBeansXml()
         .build();
@@ -46,34 +48,64 @@ class CustomRetryPolicyIT extends BaseRatchetIT {
 
   @BeforeEach
   void resetCounts() {
-    VetoRetryPolicy.resetCounts();
+    FastRetryPolicy.resetCounts();
     FailingJob.resetCount();
   }
 
   @Test
   void customRetryPolicy_shouldOverrideDefaultBackoff() {
-    assertInstanceOf(VetoRetryPolicy.class, retryPolicy);
+    assertInstanceOf(FastRetryPolicy.class, retryPolicy);
 
     JobHandle handle =
         jobService
             .enqueue(FailingJob::execute)
             .withMaxRetries(3)
-            .withBackoff(BackoffPolicy.FIXED, Duration.ofMillis(100))
+            .withBackoff(BackoffPolicy.FIXED, Duration.ofMinutes(5))
             .submit();
 
     assertNotNull(handle);
-    JobAssertions.assertJobFailed(jobCrudStore, handle);
+    JobAssertions.assertJobFailed(jobCrudStore, handle, Duration.ofSeconds(10));
 
-    // VetoRetryPolicy should have been consulted (at least once)
-    assertTrue(
-        VetoRetryPolicy.getShouldRetryCount() >= 1,
-        "Expected VetoRetryPolicy.shouldRetry to be called but count was "
-            + VetoRetryPolicy.getShouldRetryCount());
-
-    // Job should have been attempted only once (no retries due to veto)
+    assertEquals(3, FastRetryPolicy.getShouldRetryCount());
+    assertEquals(3, FastRetryPolicy.getDelayCount());
     assertEquals(
-        1,
+        4,
         FailingJob.getAttemptCount(),
-        "Expected exactly 1 attempt (no retries) but got " + FailingJob.getAttemptCount());
+        "Expected the policy-provided delay to allow fast retries instead of waiting for "
+            + "the job-level five-minute backoff");
+  }
+
+  @Alternative
+  @Priority(1)
+  @ApplicationScoped
+  public static class FastRetryPolicy implements RetryPolicy {
+
+    private static final AtomicInteger SHOULD_RETRY_COUNT = new AtomicInteger();
+    private static final AtomicInteger DELAY_COUNT = new AtomicInteger();
+
+    static int getShouldRetryCount() {
+      return SHOULD_RETRY_COUNT.get();
+    }
+
+    static int getDelayCount() {
+      return DELAY_COUNT.get();
+    }
+
+    static void resetCounts() {
+      SHOULD_RETRY_COUNT.set(0);
+      DELAY_COUNT.set(0);
+    }
+
+    @Override
+    public boolean shouldRetry(int attempt, Throwable cause) {
+      SHOULD_RETRY_COUNT.incrementAndGet();
+      return true;
+    }
+
+    @Override
+    public Duration getDelay(int attempt) {
+      DELAY_COUNT.incrementAndGet();
+      return Duration.ofMillis(10);
+    }
   }
 }

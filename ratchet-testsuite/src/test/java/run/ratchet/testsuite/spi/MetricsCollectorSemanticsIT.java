@@ -14,6 +14,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobHandle;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobType;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.testsuite.app.ConfigurableWorkJob;
@@ -24,7 +26,12 @@ import run.ratchet.testsuite.util.BaseRatchetIT;
 import run.ratchet.testsuite.util.JobAssertions;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
-/** Verifies that the public MetricsCollector SPI receives correct lifecycle payloads. */
+/**
+ * Verifies that the public MetricsCollector SPI receives correct core job lifecycle payloads.
+ *
+ * <p>needs_input: signal callbacks and success-finalization telemetry need dedicated deterministic
+ * scenarios; they are intentionally not folded into this narrow lifecycle IT.
+ */
 class MetricsCollectorSemanticsIT extends BaseRatchetIT {
 
   @Inject private TestJobService jobService;
@@ -69,9 +76,16 @@ class MetricsCollectorSemanticsIT extends BaseRatchetIT {
         .untilAsserted(
             () -> {
               assertInstanceOf(RecordingMetricsCollector.class, metricsCollector);
+              assertEquals(1, RecordingMetricsCollector.startedEvents().size());
+              var started = RecordingMetricsCollector.startedEvents().get(0);
+              assertEquals(handle.id(), started.jobId());
+              assertEquals(JobType.SINGLE, started.type());
+              assertEquals(JobPriority.NORMAL, started.priority());
+
               assertEquals(1, RecordingMetricsCollector.completedEvents().size());
               var completed = RecordingMetricsCollector.completedEvents().get(0);
               assertEquals(handle.id(), completed.jobId());
+              assertEquals(JobType.SINGLE, completed.type());
               assertTrue(
                   completed.executionTimeMs() >= 50,
                   "Expected a real execution duration but got " + completed.executionTimeMs());
@@ -98,9 +112,14 @@ class MetricsCollectorSemanticsIT extends BaseRatchetIT {
                       .map(RecordingMetricsCollector.FailedMetric::attempt)
                       .toList();
               assertEquals(List.of(1, 2), attempts);
+              assertEquals(2, RecordingMetricsCollector.failedEvents().size());
               assertTrue(
                   RecordingMetricsCollector.failedEvents().stream()
-                      .allMatch(metric -> handle.id().equals(metric.jobId())));
+                      .allMatch(
+                          metric ->
+                              handle.id().equals(metric.jobId())
+                                  && metric.type() == JobType.SINGLE
+                                  && RuntimeException.class.getName().equals(metric.causeType())));
             });
   }
 }
