@@ -49,20 +49,44 @@ class SubmissionFailureHandlerTest {
 
   @Test
   void handleGateFailure_jobRecordsGateMetric() {
-    UUID jobId = new UUID(0L, 42L);
-    JobEntity job = new JobEntity();
-    job.setId(jobId);
-    job.setJobType(JobExecutionType.SINGLE);
-    job.setStatus(JobStatus.RUNNING);
-    job.setPickedBy("node-1");
-    job.setPickedAt(Instant.parse("2026-05-07T00:00:00Z"));
+    JobEntity job = runningSingleJob(42L);
     when(jobStateManager.resetJobToPending(job)).thenReturn(true);
 
-    handler.handleGateFailure(job, GateCheckResult.noPermits(JobExecutionType.SINGLE, jobId), true);
+    handler.handleGateFailure(
+        job, GateCheckResult.noPermits(JobExecutionType.SINGLE, job.getId()), true);
 
     verify(metricsCollector).gateRejected(JobExecutionType.SINGLE.name(), "NO_PERMITS");
     verify(jobStateManager).resetJobToPending(job);
     verify(retryBufferManager, never()).forceOffer(job);
+  }
+
+  @Test
+  void handleGateFailure_bufferedRetryDoesNotResetJob() {
+    JobEntity job = runningSingleJob(50L);
+    when(retryBufferManager.offer(job)).thenReturn(true);
+
+    handler.handleGateFailure(
+        job, GateCheckResult.noPermits(JobExecutionType.SINGLE, job.getId()), false);
+
+    verify(metricsCollector).gateRejected(JobExecutionType.SINGLE.name(), "NO_PERMITS");
+    verify(retryBufferManager).offer(job);
+    verify(jobStateManager, never()).resetJobToPending(job);
+    verify(retryBufferManager, never()).forceOffer(job);
+  }
+
+  @Test
+  void handleGateFailure_unblockedOrMissingMetricsCollectorDoesNotRecordMetric() {
+    JobEntity job = runningSingleJob(51L);
+    SubmissionFailureHandler handlerWithoutMetrics =
+        new SubmissionFailureHandler(
+            jobStateManager, retryBufferManager, threadPoolManager, pollerScheduler, null);
+    when(jobStateManager.resetJobToPending(job)).thenReturn(true);
+
+    handler.handleGateFailure(job, GateCheckResult.clear(), true);
+    handlerWithoutMetrics.handleGateFailure(
+        job, GateCheckResult.noPermits(JobExecutionType.SINGLE, job.getId()), true);
+
+    verifyNoInteractions(metricsCollector);
   }
 
   @Test
@@ -94,54 +118,71 @@ class SubmissionFailureHandlerTest {
 
   @Test
   void handleGateFailure_jobResetUpdatesEntityState() {
-    UUID jobId = new UUID(0L, 46L);
-    JobEntity job = new JobEntity();
-    job.setId(jobId);
-    job.setJobType(JobExecutionType.SINGLE);
-    job.setStatus(JobStatus.RUNNING);
-    job.setPickedBy("node-1");
-    job.setPickedAt(Instant.parse("2026-05-07T00:00:00Z"));
+    JobEntity job = runningSingleJob(46L);
     SubmissionFailureHandler realStateHandler = handlerWithRealStateManager();
     when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
-    when(jobBatchStatusStore.resetRunningJob(jobId, "node-1")).thenReturn(true);
+    when(jobBatchStatusStore.resetRunningJob(job.getId(), "node-1")).thenReturn(true);
 
     realStateHandler.handleGateFailure(
-        job, GateCheckResult.noPermits(JobExecutionType.SINGLE, jobId), true);
+        job, GateCheckResult.noPermits(JobExecutionType.SINGLE, job.getId()), true);
 
     assertSame(JobStatus.PENDING, job.getStatus());
     assertNull(job.getPickedBy());
     assertNull(job.getPickedAt());
-    verify(jobBatchStatusStore).resetRunningJob(jobId, "node-1");
+    verify(jobBatchStatusStore).resetRunningJob(job.getId(), "node-1");
     verify(retryBufferManager, never()).forceOffer(job);
   }
 
   @Test
   void handleGateFailure_uuidJobIdFormatsSafely() {
-    UUID jobId = new UUID(0L, 43L);
-    JobEntity job = new JobEntity();
-    job.setId(jobId);
-    job.setJobType(JobExecutionType.SINGLE);
+    JobEntity job = runningSingleJob(43L);
     when(retryBufferManager.offer(job)).thenReturn(false);
     when(jobStateManager.resetJobToPending(job)).thenReturn(true);
 
     assertDoesNotThrow(
         () ->
             handler.handleGateFailure(
-                job, GateCheckResult.noPermits(JobExecutionType.SINGLE, jobId), false));
+                job, GateCheckResult.noPermits(JobExecutionType.SINGLE, job.getId()), false));
   }
 
   @Test
-  void handleRejection_uuidJobIdFormatsSafely() {
-    UUID jobId = new UUID(0L, 44L);
-    JobEntity job = new JobEntity();
-    job.setId(jobId);
-    job.setJobType(JobExecutionType.SINGLE);
+  void handleRejection_firstAttemptReleasesPermitWakesPollerAndResets() {
+    JobEntity job = runningSingleJob(44L);
     when(jobStateManager.resetJobToPending(job)).thenReturn(true);
-    when(retryBufferManager.offer(job)).thenReturn(true, false);
 
-    assertDoesNotThrow(() -> handler.handleRejection(job, JobExecutionType.SINGLE, true));
-    assertDoesNotThrow(() -> handler.handleRejection(job, JobExecutionType.SINGLE, false));
-    assertDoesNotThrow(() -> handler.handleRejection(job, JobExecutionType.SINGLE, false));
+    handler.handleRejection(job, JobExecutionType.SINGLE, true);
+
+    verify(threadPoolManager).releasePermit(JobExecutionType.SINGLE);
+    verify(pollerScheduler).wakeup();
+    verify(jobStateManager).resetJobToPending(job);
+    verify(retryBufferManager, never()).offer(job);
+  }
+
+  @Test
+  void handleRejection_bufferedRetryRebuffersWithoutReset() {
+    JobEntity job = runningSingleJob(52L);
+    when(retryBufferManager.offer(job)).thenReturn(true);
+
+    handler.handleRejection(job, JobExecutionType.SINGLE, false);
+
+    verify(threadPoolManager).releasePermit(JobExecutionType.SINGLE);
+    verify(pollerScheduler).wakeup();
+    verify(retryBufferManager).offer(job);
+    verify(jobStateManager, never()).resetJobToPending(job);
+  }
+
+  @Test
+  void handleRejection_bufferFullRetryResetsJob() {
+    JobEntity job = runningSingleJob(53L);
+    when(retryBufferManager.offer(job)).thenReturn(false);
+    when(jobStateManager.resetJobToPending(job)).thenReturn(true);
+
+    handler.handleRejection(job, JobExecutionType.SINGLE, false);
+
+    verify(threadPoolManager).releasePermit(JobExecutionType.SINGLE);
+    verify(pollerScheduler).wakeup();
+    verify(retryBufferManager).offer(job);
+    verify(jobStateManager).resetJobToPending(job);
   }
 
   @Test
@@ -171,16 +212,10 @@ class SubmissionFailureHandlerTest {
 
   @Test
   void handleUnexpectedException_firstAttemptJobReleasesPermitWakesPollerAndResetsEntityState() {
-    UUID jobId = new UUID(0L, 47L);
-    JobEntity job = new JobEntity();
-    job.setId(jobId);
-    job.setJobType(JobExecutionType.SINGLE);
-    job.setStatus(JobStatus.RUNNING);
-    job.setPickedBy("node-1");
-    job.setPickedAt(Instant.parse("2026-05-07T00:00:00Z"));
+    JobEntity job = runningSingleJob(47L);
     SubmissionFailureHandler realStateHandler = handlerWithRealStateManager();
     when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
-    when(jobBatchStatusStore.resetRunningJob(jobId, "node-1")).thenReturn(true);
+    when(jobBatchStatusStore.resetRunningJob(job.getId(), "node-1")).thenReturn(true);
 
     realStateHandler.handleUnexpectedException(
         job, JobExecutionType.SINGLE, true, new IllegalStateException("boom"));
@@ -190,18 +225,14 @@ class SubmissionFailureHandlerTest {
     assertNull(job.getPickedAt());
     verify(threadPoolManager).releasePermit(JobExecutionType.SINGLE);
     verify(pollerScheduler).wakeup();
-    verify(jobBatchStatusStore).resetRunningJob(jobId, "node-1");
+    verify(jobBatchStatusStore).resetRunningJob(job.getId(), "node-1");
     verify(retryBufferManager, never()).offer(job);
     verify(retryBufferManager, never()).forceOffer(job);
   }
 
   @Test
   void handleUnexpectedException_bufferedJobRebuffersWithoutPersistentReset() {
-    UUID jobId = new UUID(0L, 48L);
-    JobEntity job = new JobEntity();
-    job.setId(jobId);
-    job.setJobType(JobExecutionType.SINGLE);
-    job.setStatus(JobStatus.RUNNING);
+    JobEntity job = runningSingleJob(48L);
     SubmissionFailureHandler realStateHandler = handlerWithRealStateManager();
     when(retryBufferManager.offer(job)).thenReturn(true);
 
@@ -253,5 +284,15 @@ class SubmissionFailureHandlerTest {
         threadPoolManager,
         pollerScheduler,
         metricsCollector);
+  }
+
+  private static JobEntity runningSingleJob(long leastSignificantBits) {
+    JobEntity job = new JobEntity();
+    job.setId(new UUID(0L, leastSignificantBits));
+    job.setJobType(JobExecutionType.SINGLE);
+    job.setStatus(JobStatus.RUNNING);
+    job.setPickedBy("node-1");
+    job.setPickedAt(Instant.parse("2026-05-07T00:00:00Z"));
+    return job;
   }
 }

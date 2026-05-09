@@ -76,6 +76,9 @@ class SubmissionGateCheckerTest {
     GateCheckResult result = gateChecker.check(singleJob(), false);
 
     assertTrue(result.isClear(), "retry should bypass the drain gate");
+    verify(drainController, never()).isDraining();
+    verify(threadPoolManager).tryAcquirePermit(JobExecutionType.SINGLE);
+    verify(rateLimiter).tryAcquire(JobExecutionType.SINGLE);
   }
 
   @Test
