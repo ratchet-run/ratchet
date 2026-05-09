@@ -24,6 +24,10 @@ import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 /** Validates batch progress callbacks fire with increasing completion counts. */
 class BatchProgressIT extends BaseRatchetIT {
 
+  private static final List<String> PROGRESS_BATCH_ITEMS =
+      List.of("item1", "item2", "item3", "item4", "item5");
+  private static final List<Integer> EXPECTED_COMPLETED_COUNTS = List.of(1, 2, 3, 4, 5);
+
   @Inject private TestJobService jobService;
 
   @Inject private JobCrudStore jobCrudStore;
@@ -49,12 +53,10 @@ class BatchProgressIT extends BaseRatchetIT {
 
   @Test
   void batchWithProgressHook_shouldReceiveProgressCallbacks() {
-    List<String> items = List.of("item1", "item2", "item3", "item4", "item5");
-
     JobHandle handle =
         jobService
             .enqueueBatch("progress-batch")
-            .forEach(items, BatchItemProcessor::process)
+            .forEach(PROGRESS_BATCH_ITEMS, BatchItemProcessor::process)
             .onProgress(BatchCompletionTracker::onProgress)
             .submit();
 
@@ -62,18 +64,24 @@ class BatchProgressIT extends BaseRatchetIT {
 
     List<BatchContext> snapshots = BatchCompletionTracker.progressSnapshots();
     assertFalse(snapshots.isEmpty(), "Should have received at least one progress callback");
-    assertEquals(items.size(), snapshots.size(), "Should receive one progress callback per item");
+    assertEquals(
+        PROGRESS_BATCH_ITEMS.size(),
+        snapshots.size(),
+        "Should receive one progress callback per item");
 
     for (BatchContext snapshot : snapshots) {
       assertEquals(handle.id(), snapshot.batchId(), "Progress snapshot should belong to batch");
       assertEquals(
-          items.size(), snapshot.totalItems(), "Progress snapshot should keep batch total");
+          PROGRESS_BATCH_ITEMS.size(),
+          snapshot.totalItems(),
+          "Progress snapshot should keep batch total");
       assertEquals(0, snapshot.failedItems(), "Successful batch should not report failed items");
       assertTrue(
-          snapshot.completedItems() >= 1 && snapshot.completedItems() <= items.size(),
+          snapshot.completedItems() >= 1
+              && snapshot.completedItems() <= PROGRESS_BATCH_ITEMS.size(),
           "completedItems should be a post-increment count within the batch size");
       assertEquals(
-          snapshot.completedItems() == items.size(),
+          snapshot.completedItems() == PROGRESS_BATCH_ITEMS.size(),
           snapshot.isComplete(),
           "Only the final successful progress snapshot should be complete");
     }
@@ -83,6 +91,6 @@ class BatchProgressIT extends BaseRatchetIT {
     // post-increment snapshot from 1 through totalItems.
     List<Integer> completedCounts =
         snapshots.stream().map(BatchContext::completedItems).sorted().toList();
-    assertEquals(List.of(1, 2, 3, 4, 5), completedCounts);
+    assertEquals(EXPECTED_COMPLETED_COUNTS, completedCounts);
   }
 }

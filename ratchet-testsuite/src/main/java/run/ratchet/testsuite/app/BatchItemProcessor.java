@@ -28,6 +28,13 @@ public class BatchItemProcessor {
     }
   }
 
+  public static void failOnBatchFailureItem(String item) {
+    if ("fail".equals(item)) {
+      FailingJob.execute();
+    }
+    process(item);
+  }
+
   public static Set<String> processedItems() {
     return Set.copyOf(PROCESSED_ITEMS);
   }

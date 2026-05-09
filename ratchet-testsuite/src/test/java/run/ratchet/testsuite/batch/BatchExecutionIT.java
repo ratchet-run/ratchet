@@ -7,13 +7,16 @@ import jakarta.inject.Inject;
 import java.time.Duration;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.BatchContext;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.testsuite.app.BatchCompletionTracker;
 import run.ratchet.testsuite.app.BatchItemProcessor;
 import run.ratchet.testsuite.app.FailingJob;
 import run.ratchet.testsuite.app.TestJobService;
@@ -35,7 +38,11 @@ class BatchExecutionIT extends BaseRatchetIT {
 
     return RatchetArchiveBuilder.create()
         .addRatchetDependencies(profile, dbType)
-        .addClasses(BatchItemProcessor.class, FailingJob.class, TestJobService.class)
+        .addClasses(
+            BatchItemProcessor.class,
+            BatchCompletionTracker.class,
+            FailingJob.class,
+            TestJobService.class)
         .addStoreInfrastructure()
         .addBeansXml()
         .build();
@@ -44,6 +51,7 @@ class BatchExecutionIT extends BaseRatchetIT {
   @BeforeEach
   void resetTrackers() {
     BatchItemProcessor.reset();
+    BatchCompletionTracker.reset();
     FailingJob.resetCount();
   }
 
@@ -88,5 +96,36 @@ class BatchExecutionIT extends BaseRatchetIT {
 
     JobAssertions.assertBatchTerminated(jobCrudStore, handle, Duration.ofSeconds(30));
     assertEquals(JobStatus.FAILED, jobCrudStore.getJobStatus(handle.id()));
+  }
+
+  @Test
+  void batchWithMixedItemResults_shouldFailParentAfterTrackingPartialProgress() {
+    List<String> items = List.of("ok-1", "fail", "ok-2");
+
+    JobHandle handle =
+        jobService
+            .enqueueBatch("partially-failing-batch")
+            .forEach(items, BatchItemProcessor::failOnBatchFailureItem)
+            .onProgress(BatchCompletionTracker::onProgress)
+            .submit();
+
+    JobAssertions.assertBatchTerminated(jobCrudStore, handle, Duration.ofSeconds(30));
+
+    assertEquals(JobStatus.FAILED, jobCrudStore.getJobStatus(handle.id()));
+    assertEquals(Set.of("ok-1", "ok-2"), BatchItemProcessor.processedItems());
+    assertEquals(1, FailingJob.getAttemptCount());
+
+    BatchContext finalSnapshot = finalProgressSnapshot(handle.id());
+    assertEquals(items.size(), finalSnapshot.totalItems());
+    assertEquals(2, finalSnapshot.completedItems());
+    assertEquals(1, finalSnapshot.failedItems());
+  }
+
+  private static BatchContext finalProgressSnapshot(UUID batchId) {
+    return BatchCompletionTracker.progressSnapshots().stream()
+        .filter(snapshot -> batchId.equals(snapshot.batchId()))
+        .filter(BatchContext::isComplete)
+        .findFirst()
+        .orElseThrow(() -> new AssertionError("Expected complete progress snapshot for batch"));
   }
 }
