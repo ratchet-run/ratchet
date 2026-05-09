@@ -20,7 +20,7 @@ public record PerformanceReport(
           "scenario":"([^"]+)"\
           ,"jobCount":(\\d+)\
           ,"totalTimeMs":(\\d+)\
-          ,"throughputJobsPerSec":([\\d.]+)\
+          ,"throughputJobsPerSec":(\\d+(?:\\.\\d+)?(?:[Ee][+-]?\\d+)?)\
           ,"p50Ms":(\\d+)\
           ,"p95Ms":(\\d+)\
           ,"p99Ms":(\\d+)""");
@@ -33,14 +33,18 @@ public record PerformanceReport(
     if (!m.find()) {
       return null;
     }
-    return new PerformanceReport(
-        m.group(1),
-        Integer.parseInt(m.group(2)),
-        Long.parseLong(m.group(3)),
-        Double.parseDouble(m.group(4)),
-        Long.parseLong(m.group(5)),
-        Long.parseLong(m.group(6)),
-        Long.parseLong(m.group(7)));
+    try {
+      return new PerformanceReport(
+          m.group(1),
+          Integer.parseInt(m.group(2)),
+          Long.parseLong(m.group(3)),
+          Double.parseDouble(m.group(4)),
+          Long.parseLong(m.group(5)),
+          Long.parseLong(m.group(6)),
+          Long.parseLong(m.group(7)));
+    } catch (NumberFormatException e) {
+      return null;
+    }
   }
 
   public String toSummaryLine() {

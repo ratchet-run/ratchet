@@ -13,8 +13,9 @@ import java.util.stream.Stream;
 
 /**
  * Accumulates {@link PerformanceReport} instances and writes them as fragment files per test class.
- * A separate aggregation step reads all fragments and produces the final combined JSON report and
- * summary table.
+ * Writer instances own only their in-memory class-local reports. The static aggregation step owns
+ * the process-wide merge because it is invoked after all performance classes have written their
+ * fragments.
  *
  * <p>Fragment files are written to {@code target/performance-results/} with the naming convention
  * {@code {dbType}-{className}.json}. The aggregated report is written to {@code
@@ -43,7 +44,7 @@ public class PerformanceReportWriter {
       return;
     }
 
-    List<String> allJsonEntries = new ArrayList<>();
+    List<PerformanceReport> allReports = new ArrayList<>();
     try (Stream<Path> fragments =
         Files.list(outputDir)
             .filter(p -> p.getFileName().toString().startsWith(dbType + "-"))
@@ -52,14 +53,21 @@ public class PerformanceReportWriter {
             .sorted()) {
       for (Path fragment : fragments.toList()) {
         List<String> lines = Files.readAllLines(fragment);
-        allJsonEntries.addAll(lines.stream().filter(l -> !l.isBlank()).toList());
+        for (String line : lines.stream().filter(l -> !l.isBlank()).toList()) {
+          PerformanceReport report = PerformanceReport.fromJson(line);
+          if (report == null) {
+            log.warning("Skipping malformed performance fragment entry in " + fragment);
+          } else {
+            allReports.add(report);
+          }
+        }
       }
     } catch (IOException e) {
       log.warning("Performance fragment read error: " + e.getMessage());
       return;
     }
 
-    if (allJsonEntries.isEmpty()) {
+    if (allReports.isEmpty()) {
       return;
     }
 
@@ -72,11 +80,8 @@ public class PerformanceReportWriter {
     System.out.println(
         "═══════════════════════════════════════════════════════════"
             + "═══════════════════════════════════════════");
-    for (String entry : allJsonEntries) {
-      PerformanceReport report = PerformanceReport.fromJson(entry);
-      if (report != null) {
-        System.out.println("  " + report.toSummaryLine());
-      }
+    for (PerformanceReport report : allReports) {
+      System.out.println("  " + report.toSummaryLine());
     }
     System.out.println(
         "═══════════════════════════════════════════════════════════"
@@ -100,13 +105,16 @@ public class PerformanceReportWriter {
           template.formatted(
               dbType,
               Instant.now(),
-              allJsonEntries.stream().map(e -> "    " + e).collect(Collectors.joining(",\n")));
+              allReports.stream()
+                  .map(PerformanceReport::toJson)
+                  .map(e -> "    " + e)
+                  .collect(Collectors.joining(",\n")));
       Files.writeString(combinedFile, json);
       log.info(
           "Combined performance report written to "
               + combinedFile
               + " ("
-              + allJsonEntries.size()
+              + allReports.size()
               + " results)");
     } catch (IOException e) {
       log.warning("Combined report write error: " + e.getMessage());

@@ -52,58 +52,11 @@ public class PerformanceBaseline {
   }
 
   public void assertWithinTolerance(String metric, double actual) {
-    requireFinite(metric, actual);
-    recorded.put(metric, actual);
-
-    String baselineStr = baselines.getProperty(metric);
-    if (baselineStr == null) {
-      log.info(String.format("[BASELINE] No baseline for %s, recording: %.2f", metric, actual));
-      return;
-    }
-
-    double baseline = Double.parseDouble(baselineStr);
-    double lowerBound = baseline * (1.0 - tolerance);
-
-    if (actual < lowerBound) {
-      fail(
-          String.format(
-              "Performance regression for %s: baseline=%.2f, actual=%.2f, "
-                  + "tolerance=%.0f%%, lower bound=%.2f",
-              metric, baseline, actual, tolerance * 100, lowerBound));
-    }
-
-    log.info(
-        String.format(
-            "[BASELINE] %s: actual=%.2f, baseline=%.2f (within %.0f%% tolerance)",
-            metric, actual, baseline, tolerance * 100));
+    assertBaseline(metric, actual, false);
   }
 
   public void assertLatencyWithinTolerance(String metric, double actualMs) {
-    requireFinite(metric, actualMs);
-    recorded.put(metric, actualMs);
-
-    String baselineStr = baselines.getProperty(metric);
-    if (baselineStr == null) {
-      log.info(
-          String.format("[BASELINE] No baseline for %s, recording: %.2f ms", metric, actualMs));
-      return;
-    }
-
-    double baseline = Double.parseDouble(baselineStr);
-    double upperBound = baseline * (1.0 + tolerance);
-
-    if (actualMs > upperBound) {
-      fail(
-          String.format(
-              "Latency regression for %s: baseline=%.2f ms, actual=%.2f ms, "
-                  + "tolerance=%.0f%%, upper bound=%.2f ms",
-              metric, baseline, actualMs, tolerance * 100, upperBound));
-    }
-
-    log.info(
-        String.format(
-            "[BASELINE] %s: actual=%.2f ms, baseline=%.2f ms (within %.0f%% tolerance)",
-            metric, actualMs, baseline, tolerance * 100));
+    assertBaseline(metric, actualMs, true);
   }
 
   public void writeRecordedBaselines() {
@@ -142,6 +95,46 @@ public class PerformanceBaseline {
       return resourcePath.substring(testResourcesPrefix.length());
     }
     return resourcePath;
+  }
+
+  private void assertBaseline(String metric, double actual, boolean higherIsRegression) {
+    requireFinite(metric, actual);
+    recorded.put(metric, actual);
+
+    String baselineStr = baselines.getProperty(metric);
+    String unit = higherIsRegression ? " ms" : "";
+    if (baselineStr == null) {
+      log.info(
+          String.format("[BASELINE] No baseline for %s, recording: %.2f%s", metric, actual, unit));
+      return;
+    }
+
+    double baseline = Double.parseDouble(baselineStr);
+    double bound = baseline * (1.0 + (higherIsRegression ? tolerance : -tolerance));
+    boolean outsideTolerance = higherIsRegression ? actual > bound : actual < bound;
+    if (outsideTolerance) {
+      String regressionType = higherIsRegression ? "Latency" : "Performance";
+      String boundName = higherIsRegression ? "upper" : "lower";
+      fail(
+          String.format(
+              "%s regression for %s: baseline=%.2f%s, actual=%.2f%s, "
+                  + "tolerance=%.0f%%, %s bound=%.2f%s",
+              regressionType,
+              metric,
+              baseline,
+              unit,
+              actual,
+              unit,
+              tolerance * 100,
+              boundName,
+              bound,
+              unit));
+    }
+
+    log.info(
+        String.format(
+            "[BASELINE] %s: actual=%.2f%s, baseline=%.2f%s (within %.0f%% tolerance)",
+            metric, actual, unit, baseline, unit, tolerance * 100));
   }
 
   private static void requireFinite(String metric, double actual) {
