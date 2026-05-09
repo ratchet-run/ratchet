@@ -55,35 +55,36 @@ final class PostgresqlAuxiliaryOperations
   }
 
   @Override
-  @SuppressWarnings("unchecked")
   public List<JobExecutionEntity> findExecutionsByJobId(UUID jobId) {
-    // language=PostgreSQL
-    String sql = "SELECT * FROM scheduler_job_execution WHERE job_id = ? ORDER BY attempt ASC";
+    // language=JPAQL
+    String jpql = "SELECT e FROM JobExecutionEntity e WHERE e.jobId = :jid ORDER BY e.attempt ASC";
     return ctx.em()
-        .createNativeQuery(sql, JobExecutionEntity.class)
-        .setParameter(1, jobId)
+        .createQuery(jpql, JobExecutionEntity.class)
+        .setParameter("jid", jobId)
         .getResultList();
   }
 
   @Override
-  @SuppressWarnings("unchecked")
   public Optional<JobExecutionEntity> findLatestExecution(UUID jobId) {
-    // language=PostgreSQL
-    String sql =
-        "SELECT * FROM scheduler_job_execution WHERE job_id = ? ORDER BY attempt DESC LIMIT 1";
+    // language=JPAQL
+    String jpql = "SELECT e FROM JobExecutionEntity e WHERE e.jobId = :jid ORDER BY e.attempt DESC";
     List<JobExecutionEntity> results =
         ctx.em()
-            .createNativeQuery(sql, JobExecutionEntity.class)
-            .setParameter(1, jobId)
+            .createQuery(jpql, JobExecutionEntity.class)
+            .setParameter("jid", jobId)
+            .setMaxResults(1)
             .getResultList();
     return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
   }
 
   @Override
   public int countExecutionAttempts(UUID jobId) {
-    // language=PostgreSQL
-    String sql = "SELECT COUNT(*) FROM scheduler_job_execution WHERE job_id = ?";
-    return ((Number) ctx.em().createNativeQuery(sql).setParameter(1, jobId).getSingleResult())
+    // language=JPAQL
+    String jpql = "SELECT COUNT(e) FROM JobExecutionEntity e WHERE e.jobId = :jid";
+    return ctx.em()
+        .createQuery(jpql, Long.class)
+        .setParameter("jid", jobId)
+        .getSingleResult()
         .intValue();
   }
 
@@ -94,9 +95,9 @@ final class PostgresqlAuxiliaryOperations
 
   @Override
   public int purgeLogsOlderThan(Instant cutoff) {
-    // language=PostgreSQL
-    String sql = "DELETE FROM scheduler_job_log WHERE ts < ?";
-    return ctx.em().createNativeQuery(sql).setParameter(1, Timestamp.from(cutoff)).executeUpdate();
+    // language=JPAQL
+    String jpql = "DELETE FROM JobLogEntity l WHERE l.ts < :cutoff";
+    return ctx.em().createQuery(jpql).setParameter("cutoff", cutoff).executeUpdate();
   }
 
   @Override
@@ -198,13 +199,19 @@ final class PostgresqlAuxiliaryOperations
 
   @Override
   public boolean existsRecentDlqAlert(UUID jobId, String errorHash, Instant cutoff) {
-    // language=PostgreSQL
-    String sql =
+    // language=JPAQL
+    String jpql =
         """
-        SELECT COUNT(*) FROM scheduler_dlq_alerts
-        WHERE job_id = ? AND error_hash = ? AND alert_sent_at >= ?
+        SELECT COUNT(a) FROM DlqAlertEntity a
+        WHERE a.jobId = :jid AND a.errorHash = :hash AND a.alertSentAt >= :cutoff
         """;
-    long count = ctx.countByNative(sql, jobId, errorHash, Timestamp.from(cutoff));
+    Long count =
+        ctx.em()
+            .createQuery(jpql, Long.class)
+            .setParameter("jid", jobId)
+            .setParameter("hash", errorHash)
+            .setParameter("cutoff", cutoff)
+            .getSingleResult();
     return count > 0;
   }
 
