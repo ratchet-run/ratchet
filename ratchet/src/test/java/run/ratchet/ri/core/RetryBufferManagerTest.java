@@ -4,9 +4,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -14,6 +16,8 @@ import static org.mockito.Mockito.when;
 import jakarta.transaction.Transactional;
 import java.lang.reflect.Method;
 import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -114,6 +118,49 @@ class RetryBufferManagerTest {
   }
 
   @Test
+  void pollBatchFromBuffer_respectsLimitAndPriorityOrder() {
+    Instant now = Instant.parse("2025-01-01T00:00:00Z");
+    manager.offer(job(1L, JobExecutionType.SINGLE, JobPriority.NORMAL, now.plusSeconds(20)));
+    manager.offer(job(2L, JobExecutionType.SINGLE, JobPriority.HIGH, now.plusSeconds(30)));
+    manager.offer(job(3L, JobExecutionType.SINGLE, JobPriority.HIGH, now.plusSeconds(10)));
+
+    List<RetryBufferManager.BufferedClaim> claims =
+        manager.pollBatchFromBuffer(JobExecutionType.SINGLE, 2);
+
+    assertEquals(2, claims.size());
+    assertEquals(new UUID(0L, 3L), claims.get(0).jobId());
+    assertEquals(new UUID(0L, 2L), claims.get(1).jobId());
+    assertEquals(1, manager.totalSize());
+  }
+
+  @Test
+  void pollBatchFromBuffer_nonPositiveLimitReturnsEmptyList() {
+    manager.offer(standardJob(1L));
+
+    assertTrue(manager.pollBatchFromBuffer(JobExecutionType.SINGLE, 0).isEmpty());
+    assertTrue(manager.pollBatchFromBuffer(JobExecutionType.SINGLE, -10).isEmpty());
+    assertEquals(1, manager.totalSize());
+  }
+
+  @Test
+  void getBuffer_returnsUnmodifiableViewOfExistingBuffer() {
+    manager.offer(standardJob(1L));
+
+    Collection<RetryBufferManager.BufferedClaim> buffer =
+        manager.getBuffer(JobExecutionType.SINGLE);
+
+    assertEquals(1, buffer.size());
+    assertThrows(
+        UnsupportedOperationException.class,
+        () -> buffer.add(RetryBufferManager.BufferedClaim.from(standardJob(2L))));
+  }
+
+  @Test
+  void getBuffer_unknownTypeReturnsEmptyCollection() {
+    assertTrue(manager.getBuffer(null).isEmpty());
+  }
+
+  @Test
   void isBufferEmpty_emptyBuffer_returnsTrue() {
     assertTrue(manager.isBufferEmpty(JobExecutionType.SINGLE));
   }
@@ -172,6 +219,23 @@ class RetryBufferManagerTest {
 
     verify(jobBatchStatusStore).resetRunningJob(new UUID(0L, 1L), "node-1");
     verify(jobBatchStatusStore, never()).resetRunningJob(new UUID(0L, 1L), "other-node");
+    assertTrue(manager.isBufferEmpty(JobExecutionType.SINGLE));
+  }
+
+  @Test
+  void flushOnShutdown_resetExceptionIsSwallowedAndBufferIsCleared() {
+    manager.offer(standardJob(1L));
+    manager.offer(standardJob(2L));
+    when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
+    doThrow(new RuntimeException("store unavailable"))
+        .when(jobBatchStatusStore)
+        .resetRunningJob(new UUID(0L, 1L), "node-1");
+    when(jobBatchStatusStore.resetRunningJob(new UUID(0L, 2L), "node-1")).thenReturn(true);
+
+    manager.flushOnShutdown();
+
+    verify(jobBatchStatusStore).resetRunningJob(new UUID(0L, 1L), "node-1");
+    verify(jobBatchStatusStore).resetRunningJob(new UUID(0L, 2L), "node-1");
     assertTrue(manager.isBufferEmpty(JobExecutionType.SINGLE));
   }
 }
