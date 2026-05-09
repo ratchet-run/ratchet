@@ -8,6 +8,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
@@ -51,6 +56,7 @@ class JobLifecycleIT extends BaseDocumentStoreIT {
     Optional<JobEntity> failed = store().findById(job.getId());
     assertTrue(failed.isPresent());
     assertEquals(JobStatus.FAILED, failed.get().getStatus());
+    assertEquals("Something went wrong", failed.get().getLastError());
   }
 
   @Test
@@ -88,6 +94,65 @@ class JobLifecycleIT extends BaseDocumentStoreIT {
     Optional<JobEntity> current = store().findById(job.getId());
     assertTrue(current.isPresent());
     assertEquals(JobStatus.RUNNING, current.get().getStatus());
+  }
+
+  @Test
+  void concurrentCas_allowsOnlyOneTerminalTransition() throws Exception {
+    JobEntity job = store().save(newPendingJob());
+    store().claimNextBatch(1, "node-1");
+
+    CountDownLatch start = new CountDownLatch(1);
+    ExecutorService executor = Executors.newFixedThreadPool(2);
+    try {
+      Future<Boolean> succeeded =
+          executor.submit(
+              () -> {
+                assertTrue(start.await(5, TimeUnit.SECONDS));
+                return store()
+                    .compareAndSwapStatus(
+                        job.getId(), JobStatus.RUNNING, JobStatus.SUCCEEDED, null);
+              });
+      Future<Boolean> failed =
+          executor.submit(
+              () -> {
+                assertTrue(start.await(5, TimeUnit.SECONDS));
+                return store()
+                    .compareAndSwapStatus(
+                        job.getId(), JobStatus.RUNNING, JobStatus.FAILED, "race loser");
+              });
+
+      start.countDown();
+
+      int successfulTransitions =
+          (succeeded.get(5, TimeUnit.SECONDS) ? 1 : 0) + (failed.get(5, TimeUnit.SECONDS) ? 1 : 0);
+      assertEquals(1, successfulTransitions);
+
+      Optional<JobEntity> current = store().findById(job.getId());
+      assertTrue(current.isPresent());
+      assertTrue(
+          current.get().getStatus() == JobStatus.SUCCEEDED
+              || current.get().getStatus() == JobStatus.FAILED);
+    } finally {
+      executor.shutdownNow();
+    }
+  }
+
+  @Test
+  void terminalFailure_persistsMaxRetryAttemptAndError() {
+    JobEntity job = newPendingJob();
+    job.setMaxRetries(2);
+    job = store().save(job);
+    store().claimNextBatch(1, "node-1");
+
+    assertTrue(
+        store().markJobFailedTerminal(job.getId(), "retries exhausted", job.getMaxRetries()));
+
+    Optional<JobEntity> terminal = store().findById(job.getId());
+    assertTrue(terminal.isPresent());
+    assertEquals(JobStatus.FAILED, terminal.get().getStatus());
+    assertEquals("retries exhausted", terminal.get().getLastError());
+    assertEquals(2, terminal.get().getAttempts());
+    assertEquals(2, terminal.get().getMaxRetries());
   }
 
   @Test
