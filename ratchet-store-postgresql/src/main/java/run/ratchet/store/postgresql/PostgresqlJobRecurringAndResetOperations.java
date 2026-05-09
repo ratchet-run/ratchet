@@ -224,23 +224,45 @@ final class PostgresqlJobRecurringAndResetOperations {
     if (idRows.isEmpty()) {
       return 0;
     }
+    List<UUID> ids = new ArrayList<>(idRows.size());
+    for (Object row : idRows) {
+      UUID id = PostgresqlJobRowMapper.uuidOrNull(row);
+      if (id != null) {
+        ids.add(id);
+      }
+    }
+    if (ids.isEmpty()) {
+      return 0;
+    }
+    String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
     // language=PostgreSQL
     String sql =
         """
         UPDATE scheduler_job SET rec_status = NULL, terminal_status = 'CANCELED',
             terminated_at = statement_timestamp()
-        WHERE job_id = ? AND job_type = 'RECURRING'
+        WHERE job_id IN (%s) AND job_type = 'RECURRING'
           AND rec_status IS NOT NULL AND terminal_status IS NULL
-        """;
-    int total = 0;
-    for (Object n : idRows) {
-      UUID id = PostgresqlJobRowMapper.uuidOrNull(n);
-      int updated = ctx.em().createNativeQuery(sql).setParameter(1, id).executeUpdate();
-      if (updated > 0) {
-        reservations.deleteReservationByOwner(id);
-        total += updated;
+        RETURNING job_id
+        """
+            .formatted(placeholders);
+    Query query = ctx.em().createNativeQuery(sql);
+    int parameter = 1;
+    for (UUID id : ids) {
+      query.setParameter(parameter++, id);
+    }
+    @SuppressWarnings("unchecked")
+    List<?> cancelledRows = query.getResultList();
+    if (cancelledRows.isEmpty()) {
+      return 0;
+    }
+    List<UUID> cancelledIds = new ArrayList<>(cancelledRows.size());
+    for (Object row : cancelledRows) {
+      UUID id = PostgresqlJobRowMapper.uuidOrNull(row);
+      if (id != null) {
+        cancelledIds.add(id);
       }
     }
-    return total;
+    reservations.deleteReservationsByOwners(cancelledIds);
+    return cancelledIds.size();
   }
 }
