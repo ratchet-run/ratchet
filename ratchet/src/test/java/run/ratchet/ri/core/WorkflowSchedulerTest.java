@@ -102,6 +102,47 @@ class WorkflowSchedulerTest {
   }
 
   @Test
+  void scheduleNext_allConditionsUnmatchedCancelsEveryPendingOrWaitingBranch() {
+    JobEntity parent = job(new UUID(0L, 13L), JobStatus.SUCCEEDED);
+    JobEntity pending = job(new UUID(0L, 14L), JobStatus.PENDING);
+    JobEntity waiting = job(new UUID(0L, 15L), JobStatus.WAITING);
+    WorkflowConditionEntity first = condition(parent.getId(), pending.getId(), 0);
+    WorkflowConditionEntity second = condition(parent.getId(), waiting.getId(), 1);
+    when(conditionStore.findConditionsByParentJobId(parent.getId()))
+        .thenReturn(List.of(first, second));
+    when(conditionEvaluator.evaluate(first, parent)).thenReturn(false);
+    when(conditionEvaluator.evaluate(second, parent)).thenReturn(false);
+    when(jobCrudStore.findById(pending.getId())).thenReturn(Optional.of(pending));
+    when(jobCrudStore.findById(waiting.getId())).thenReturn(Optional.of(waiting));
+    when(jobTerminalStore.cancelJob(pending.getId())).thenReturn(true);
+    when(jobTerminalStore.cancelJob(waiting.getId())).thenReturn(true);
+
+    assertFalse(scheduler.scheduleNext(parent));
+
+    verify(jobTerminalStore).cancelJob(pending.getId());
+    verify(jobTerminalStore).cancelJob(waiting.getId());
+    verify(jobCrudStore, never()).save(pending);
+    verify(jobCrudStore, never()).save(waiting);
+  }
+
+  @Test
+  void scheduleNext_matchedPendingBranchKeepsPendingStatusAndSetsWorkflowType() {
+    JobEntity parent = job(new UUID(0L, 16L), JobStatus.SUCCEEDED);
+    JobEntity child = job(new UUID(0L, 17L), JobStatus.PENDING);
+    WorkflowConditionEntity condition = condition(parent.getId(), child.getId(), 0);
+    when(conditionStore.findConditionsByParentJobId(parent.getId())).thenReturn(List.of(condition));
+    when(conditionEvaluator.evaluate(condition, parent)).thenReturn(true);
+    when(jobCrudStore.findById(child.getId())).thenReturn(Optional.of(child));
+
+    assertTrue(scheduler.scheduleNext(parent));
+
+    verify(jobCrudStore).save(child);
+    assertEquals(JobStatus.PENDING, child.getStatus());
+    assertEquals(JobExecutionType.WORKFLOW_BRANCH, child.getJobType());
+    assertNotNull(child.getScheduledTime());
+  }
+
+  @Test
   void scheduleNext_noConditionsFallsBackToLinearChain() {
     JobEntity parent = job(new UUID(0L, 30L), JobStatus.SUCCEEDED);
     JobEntity child = job(new UUID(0L, 31L), JobStatus.PENDING);
@@ -127,6 +168,26 @@ class WorkflowSchedulerTest {
 
     verify(jobCrudStore).save(child);
     assertEquals(JobStatus.CANCELED, child.getStatus());
+  }
+
+  @Test
+  void scheduleNext_failedParentWithConditionsAndNoMatchCancelsBranchesAndLinearChain() {
+    JobEntity parent = job(new UUID(0L, 34L), JobStatus.FAILED);
+    JobEntity branch = job(new UUID(0L, 35L), JobStatus.WAITING);
+    JobEntity linearChild = job(new UUID(0L, 36L), JobStatus.PENDING);
+    WorkflowConditionEntity condition = condition(parent.getId(), branch.getId(), 0);
+    when(conditionStore.findConditionsByParentJobId(parent.getId())).thenReturn(List.of(condition));
+    when(conditionEvaluator.evaluate(condition, parent)).thenReturn(false);
+    when(jobCrudStore.findById(branch.getId())).thenReturn(Optional.of(branch));
+    when(jobTerminalStore.cancelJob(branch.getId())).thenReturn(true);
+    when(jobCrudStore.findDependants(parent.getId())).thenReturn(List.of(linearChild));
+    when(jobCrudStore.findDependants(linearChild.getId())).thenReturn(List.of());
+
+    assertFalse(scheduler.scheduleNext(parent));
+
+    verify(jobTerminalStore).cancelJob(branch.getId());
+    verify(jobCrudStore).save(linearChild);
+    assertEquals(JobStatus.CANCELED, linearChild.getStatus());
   }
 
   @Test
