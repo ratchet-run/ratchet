@@ -64,6 +64,22 @@ class CustomResilienceStrategyIT extends BaseRatchetIT {
     assertTrue(
         resilienceStrategy.isServiceAvailable("any-service"),
         "NoOpResilienceStrategy should always report service as available");
+    assertEquals(
+        1,
+        NoOpResilienceStrategy.getAvailabilityCheckCount(),
+        "Direct availability probe must be routed through the custom strategy");
+    assertEquals(
+        "any-service",
+        NoOpResilienceStrategy.checkedServices().get(0),
+        "Custom strategy must receive the service name supplied by callers");
+  }
+
+  @Test
+  void customResilienceStrategy_usesDefaultRetryDelayWhenNotOverridden() {
+    assertEquals(
+        Duration.ofSeconds(30),
+        resilienceStrategy.getRetryDelay("any-service"),
+        "Custom strategies that do not override getRetryDelay must retain the SPI default");
   }
 
   @Test
@@ -84,5 +100,20 @@ class CustomResilienceStrategyIT extends BaseRatchetIT {
     assertEquals(expectedAttempts, FailingJob.getAttemptCount());
 
     assertEquals(expectedAttempts, NoOpResilienceStrategy.getExecuteCount());
+    assertEquals(
+        expectedAttempts,
+        NoOpResilienceStrategy.executedServices().stream()
+            .filter("FailingJob.execute"::equals)
+            .count(),
+        "Every retry attempt must execute through the custom strategy with the resolved service");
+    assertEquals(
+        expectedAttempts,
+        NoOpResilienceStrategy.checkedServices().stream()
+            .filter("FailingJob.execute"::equals)
+            .count(),
+        "Every retry attempt must ask the custom strategy whether the service is available");
+    assertTrue(
+        resilienceStrategy.isServiceAvailable("FailingJob.execute"),
+        "Custom no-op strategy must remain available after all retry failures");
   }
 }

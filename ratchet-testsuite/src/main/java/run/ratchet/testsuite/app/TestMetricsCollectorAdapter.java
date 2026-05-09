@@ -5,7 +5,7 @@ import run.ratchet.api.JobType;
 import run.ratchet.spi.MetricsCollector;
 
 /** No-op adapter for tests that only assert a subset of {@link MetricsCollector} callbacks. */
-abstract class TestMetricsCollectorAdapter implements MetricsCollector {
+public abstract class TestMetricsCollectorAdapter implements MetricsCollector {
 
   @Override
   public void successFinalizationRetried(UUID jobId, JobType type) {}

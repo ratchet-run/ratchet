@@ -1,6 +1,7 @@
 package run.ratchet.testsuite.security;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -9,6 +10,7 @@ import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.exception.JobAuthorizationException;
+import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.testsuite.app.DenyCreateJobAuthorizationPolicy;
 import run.ratchet.testsuite.app.SimpleJob;
 import run.ratchet.testsuite.app.TestJobService;
@@ -26,6 +28,8 @@ import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 class JobAuthorizationDenyIT extends BaseRatchetIT {
 
   @Inject private TestJobService jobService;
+
+  @Inject private JobCrudStore jobCrudStore;
 
   @Deployment
   public static WebArchive createDeployment() {
@@ -73,8 +77,13 @@ class JobAuthorizationDenyIT extends BaseRatchetIT {
   void noJobsExecute_whenCreationIsDenied() {
     SimpleJob.resetCount();
 
-    assertThrows(JobAuthorizationException.class, () -> jobService.enqueueNow(SimpleJob::execute));
+    JobAuthorizationException ex =
+        assertThrows(
+            JobAuthorizationException.class, () -> jobService.enqueueNow(SimpleJob::execute));
 
+    assertFalse(
+        jobCrudStore.findById(ex.getJobId()).isPresent(),
+        "Denied job must not be persisted after checkCreate rejects it");
     // No task body should ever run since the job was never persisted
     assertEquals(
         0,
