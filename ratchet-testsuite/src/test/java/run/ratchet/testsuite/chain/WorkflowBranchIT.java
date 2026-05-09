@@ -1,16 +1,20 @@
 package run.ratchet.testsuite.chain;
 
 import static org.awaitility.Awaitility.await;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.inject.Inject;
 import java.time.Duration;
+import java.util.List;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
+import run.ratchet.api.JobStatus;
+import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.testsuite.app.FailingJob;
 import run.ratchet.testsuite.app.SimpleJob;
@@ -22,6 +26,8 @@ import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /** Validates workflow branching: success branch fires on success, failure branch on failure. */
 class WorkflowBranchIT extends BaseRatchetIT {
+
+  private static final Duration BRANCH_TIMEOUT = Duration.ofSeconds(10);
 
   @Inject private TestJobService jobService;
 
@@ -60,8 +66,11 @@ class WorkflowBranchIT extends BaseRatchetIT {
     JobAssertions.assertJobCompleted(jobCrudStore, handle);
 
     await()
-        .atMost(Duration.ofSeconds(10))
+        .atMost(BRANCH_TIMEOUT)
         .untilAsserted(() -> assertTrue(WorkflowBranchTracker.successScenarioSuccessBranchFired()));
+
+    assertPersistedBranchStatus(handle, "onSuccessScenarioSuccess", JobStatus.SUCCEEDED);
+    assertPersistedBranchStatus(handle, "onSuccessScenarioFailure", JobStatus.PENDING);
 
     assertFalse(
         WorkflowBranchTracker.successScenarioFailureBranchFired(),
@@ -80,11 +89,40 @@ class WorkflowBranchIT extends BaseRatchetIT {
     JobAssertions.assertJobFailed(jobCrudStore, handle);
 
     await()
-        .atMost(Duration.ofSeconds(10))
+        .atMost(BRANCH_TIMEOUT)
         .untilAsserted(() -> assertTrue(WorkflowBranchTracker.failureScenarioFailureBranchFired()));
+
+    assertPersistedBranchStatus(handle, "onFailureScenarioFailure", JobStatus.SUCCEEDED);
+    assertPersistedBranchStatus(handle, "onFailureScenarioSuccess", JobStatus.PENDING);
 
     assertFalse(
         WorkflowBranchTracker.failureScenarioSuccessBranchFired(),
         "Success branch should not fire on failure");
+  }
+
+  private void assertPersistedBranchStatus(
+      JobHandle parentHandle, String branchMethodName, JobStatus expectedStatus) {
+    await()
+        .atMost(BRANCH_TIMEOUT)
+        .untilAsserted(
+            () -> {
+              List<JobEntity> branches = jobCrudStore.findDependants(parentHandle.id());
+              JobEntity branch =
+                  branches.stream()
+                      .filter(job -> branchMethodName.equals(job.getMethodName()))
+                      .findFirst()
+                      .orElseThrow(
+                          () ->
+                              new AssertionError(
+                                  "Expected persisted workflow branch "
+                                      + branchMethodName
+                                      + " for parent "
+                                      + parentHandle.id()));
+
+              assertEquals(
+                  expectedStatus,
+                  branch.getStatus(),
+                  "Persisted workflow branch " + branchMethodName + " has unexpected status");
+            });
   }
 }

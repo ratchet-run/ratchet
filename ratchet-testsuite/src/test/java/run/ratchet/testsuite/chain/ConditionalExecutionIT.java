@@ -13,6 +13,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobResult;
+import run.ratchet.api.JobStatus;
+import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.testsuite.app.FailingJob;
 import run.ratchet.testsuite.app.SimpleJob;
@@ -90,13 +92,58 @@ class ConditionalExecutionIT extends BaseRatchetIT {
 
     JobAssertions.assertJobFailed(jobCrudStore, handle);
 
+    assertOnlyDependantStatus(handle, JobStatus.CANCELED);
+    assertFalse(
+        WorkflowBranchTracker.conditionalBranchFired(),
+        "Conditional branch should not fire when condition is false");
+  }
+
+  @Test
+  void whenPredicateThrows_shouldNotExecuteConditionalBranch() {
+    JobHandle handle =
+        jobService
+            .enqueue(SimpleJob::execute)
+            .<Void>when(
+                WorkflowBranchTracker::throwingCondition, WorkflowBranchTracker::onConditional)
+            .submit();
+
+    JobAssertions.assertJobCompleted(jobCrudStore, handle);
+
+    assertOnlyDependantStatus(handle, JobStatus.CANCELED);
+    assertFalse(
+        WorkflowBranchTracker.conditionalBranchFired(),
+        "Conditional branch should not fire when predicate evaluation fails");
+  }
+
+  @Test
+  void whenConditionalTaskThrows_shouldCaptureExceptionInResult() {
+    JobHandle handle =
+        jobService
+            .enqueue(SimpleJob::execute)
+            .<Void>when(JobResult::isSuccess, WorkflowBranchTracker::throwingConditional)
+            .submit();
+
+    JobAssertions.assertJobCompleted(jobCrudStore, handle);
+
+    assertOnlyDependantStatus(handle, JobStatus.FAILED);
+  }
+
+  private void assertOnlyDependantStatus(JobHandle handle, JobStatus expected) {
     await()
-        .during(Duration.ofSeconds(3))
-        .atMost(Duration.ofSeconds(5))
+        .atMost(Duration.ofSeconds(10))
         .untilAsserted(
-            () ->
-                assertFalse(
-                    WorkflowBranchTracker.conditionalBranchFired(),
-                    "Conditional branch should not fire when condition is false"));
+            () -> {
+              JobEntity child = onlyDependant(handle);
+              assertEquals(
+                  expected,
+                  child.getStatus(),
+                  "Expected conditional branch child to be " + expected);
+            });
+  }
+
+  private JobEntity onlyDependant(JobHandle handle) {
+    var dependants = jobCrudStore.findDependants(handle.id());
+    assertEquals(1, dependants.size(), "Expected exactly one conditional branch child");
+    return dependants.get(0);
   }
 }

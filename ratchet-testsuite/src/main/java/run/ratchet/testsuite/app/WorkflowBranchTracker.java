@@ -2,6 +2,7 @@ package run.ratchet.testsuite.app;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import run.ratchet.api.JobResult;
 
 /**
  * Tracks which workflow branch fired for integration tests.
@@ -37,6 +38,14 @@ public class WorkflowBranchTracker {
   public static void onConditional() {
     CONDITIONAL_BRANCH_FIRED.set(true);
     CONDITIONAL_BRANCH_EXECUTIONS.incrementAndGet();
+  }
+
+  public static boolean throwingCondition(JobResult<Void> result) {
+    throw new IllegalStateException("conditional predicate failed");
+  }
+
+  public static void throwingConditional() {
+    throw new IllegalStateException("conditional branch failed");
   }
 
   public static void onSuccessScenarioSuccess() {
