@@ -4,6 +4,8 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -31,6 +33,37 @@ final class PostgresqlDialectMapper implements DialectTypeMapper {
 
   private static String textLiteral(String literal) {
     return "'" + literal.replace("'", "''") + "'::text";
+  }
+
+  private static void validateCommon(LogicalPredicate predicate) {
+    Objects.requireNonNull(predicate, "predicate");
+    if (predicate.column() == null || predicate.column().isBlank()) {
+      throw new IllegalArgumentException("predicate column is required");
+    }
+    if (predicate.op() == null) {
+      throw new IllegalArgumentException("predicate op is required");
+    }
+    if (predicate.literals() == null) {
+      throw new IllegalArgumentException("predicate literals are required");
+    }
+    if (predicate.literals().stream().anyMatch(Objects::isNull)) {
+      throw new IllegalArgumentException("predicate literals must not contain null");
+    }
+  }
+
+  private static String singleLiteral(LogicalPredicate predicate) {
+    if (predicate.literals().size() != 1) {
+      throw new IllegalArgumentException(
+          predicate.op() + " predicate requires exactly one literal");
+    }
+    return predicate.literals().get(0);
+  }
+
+  private static List<String> nonEmptyLiterals(LogicalPredicate predicate) {
+    if (predicate.literals().isEmpty()) {
+      throw new IllegalArgumentException("IN predicate requires at least one literal");
+    }
+    return predicate.literals();
   }
 
   @Override
@@ -98,19 +131,20 @@ final class PostgresqlDialectMapper implements DialectTypeMapper {
 
   @Override
   public Optional<String> renderPredicate(LogicalPredicate predicate) {
+    validateCommon(predicate);
     return switch (predicate.op()) {
       case EQ ->
           Optional.of(
-              "(" + predicate.column() + " = " + textLiteral(predicate.literals().get(0)) + ")");
+              "(" + predicate.column() + " = " + textLiteral(singleLiteral(predicate)) + ")");
       case NEQ ->
           Optional.of(
-              "(" + predicate.column() + " <> " + textLiteral(predicate.literals().get(0)) + ")");
+              "(" + predicate.column() + " <> " + textLiteral(singleLiteral(predicate)) + ")");
       case IN ->
           Optional.of(
               "("
                   + predicate.column()
                   + " = ANY (ARRAY["
-                  + predicate.literals().stream()
+                  + nonEmptyLiterals(predicate).stream()
                       .map(PostgresqlDialectMapper::textLiteral)
                       .collect(Collectors.joining(", "))
                   + "]))");

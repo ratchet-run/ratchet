@@ -1,7 +1,10 @@
 package run.ratchet.store.postgresql;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import run.ratchet.tck.store.schema.LogicalPredicate;
@@ -37,5 +40,42 @@ class PostgresqlDialectMapperTest {
             .renderPredicate(
                 new LogicalPredicate("status", LogicalPredicate.Op.NEQ, List.of("not 'done'")))
             .orElseThrow());
+  }
+
+  @Test
+  void renderPredicateRejectsMissingEqLiteral() {
+    IllegalArgumentException thrown =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                mapper.renderPredicate(
+                    new LogicalPredicate("status", LogicalPredicate.Op.EQ, List.of())));
+
+    assertTrue(thrown.getMessage().contains("exactly one literal"));
+  }
+
+  @Test
+  void renderPredicateRejectsEmptyInLiteralList() {
+    IllegalArgumentException thrown =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                mapper.renderPredicate(
+                    new LogicalPredicate("status", LogicalPredicate.Op.IN, List.of())));
+
+    assertTrue(thrown.getMessage().contains("at least one literal"));
+  }
+
+  @Test
+  void renderPredicateRejectsNullLiteral() {
+    IllegalArgumentException thrown =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                mapper.renderPredicate(
+                    new LogicalPredicate(
+                        "status", LogicalPredicate.Op.NEQ, Arrays.asList((String) null))));
+
+    assertTrue(thrown.getMessage().contains("must not contain null"));
   }
 }
