@@ -1,22 +1,24 @@
 package run.ratchet.testsuite.tck;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.inject.Inject;
-import java.io.File;
+import java.util.UUID;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.junit5.ArquillianExtension;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
-import org.jboss.shrinkwrap.resolver.api.maven.Maven;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobType;
 import run.ratchet.micrometer.MicrometerMetricsCollector;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.tck.api.RatchetTckRuntime;
 import run.ratchet.tck.api.TckJobs;
 import run.ratchet.tck.jakarta.AbstractTxEnqueueContract;
 import run.ratchet.tck.util.ConcurrentTestRunner;
-import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /**
  * Verifies that {@link MicrometerMetricsCollector} is selected over {@link
@@ -34,40 +36,39 @@ import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 class RiMicrometerAlternativeIT {
 
   @Inject private MetricsCollector metricsCollector;
+  @Inject private MeterRegistry registry;
 
   @Deployment
   public static WebArchive createDeployment() {
-    String dbType = System.getProperty("ratchet.test.db.type", "mysql");
-    String profile = System.getProperty("testsuite.profile", "wildfly-managed");
-
-    // Resolve ratchet-micrometer and its transitive deps (micrometer-core) separately so they
-    // can be layered onto a standard ratchet deployment. Other ITs must not include micrometer
-    // so they exercise the NoOp default path.
-    File[] micrometerJars =
-        Maven.resolver()
-            .loadPomFromFile("pom.xml")
-            .resolve("run.ratchet:ratchet-micrometer")
-            .withTransitivity()
-            .asFile();
-
-    return RatchetArchiveBuilder.create()
-        .addRatchetDependencies(profile, dbType)
-        .addPackage(RatchetTckRuntime.class.getPackage())
-        .addPackage(AbstractTxEnqueueContract.class.getPackage())
-        .addPackage(ConcurrentTestRunner.class.getPackage())
-        .addClasses(RiRatchetTckRuntime.class, ListenerProbe.class, TckJobs.class)
-        .addStoreInfrastructure()
-        .addBeansXml()
-        .build()
-        .addAsLibraries(micrometerJars);
+    return RiOptionalModuleDeployment.create(
+        "run.ratchet:ratchet-micrometer",
+        new Package[] {
+          RatchetTckRuntime.class.getPackage(),
+          AbstractTxEnqueueContract.class.getPackage(),
+          ConcurrentTestRunner.class.getPackage()
+        },
+        RiRatchetTckRuntime.class,
+        ListenerProbe.class,
+        TckJobs.class);
   }
 
   @Test
-  void micrometerAlternativeSelectedOverNoOp() {
+  void micrometerAlternativeSelectedOverNoOpAndRecordsMetrics() {
     assertInstanceOf(
         MicrometerMetricsCollector.class,
         metricsCollector,
         "When ratchet-micrometer is on the deployment classpath, the @Alternative @Priority(1000) "
             + "MicrometerMetricsCollector must be selected over the default NoOpMetricsCollector");
+
+    metricsCollector.jobStarted(new UUID(0L, 1L), JobType.SINGLE, JobPriority.NORMAL);
+
+    assertEquals(
+        1.0,
+        registry
+            .get("ratchet.jobs.started")
+            .tag("type", "SINGLE")
+            .tag("priority", "NORMAL")
+            .counter()
+            .count());
   }
 }
