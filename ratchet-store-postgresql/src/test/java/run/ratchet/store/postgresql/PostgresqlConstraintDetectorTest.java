@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.sql.SQLException;
 import java.sql.SQLRecoverableException;
+import java.sql.SQLTransientException;
 import org.junit.jupiter.api.Test;
 
 class PostgresqlConstraintDetectorTest {
@@ -95,8 +96,30 @@ class PostgresqlConstraintDetectorTest {
   }
 
   @Test
+  void detectsCrashShutdownThroughWrappers() {
+    Exception wrapped = new RuntimeException("jpa", new SQLException("crash shutdown", "57P02"));
+
+    assertTrue(detector.isTransientConnectionFailure(wrapped));
+  }
+
+  @Test
+  void detectsCannotConnectNowThroughWrappers() {
+    Exception wrapped =
+        new RuntimeException("jpa", new SQLException("cannot connect now", "57P03"));
+
+    assertTrue(detector.isTransientConnectionFailure(wrapped));
+  }
+
+  @Test
   void detectsRecoverableSqlExceptions() {
     Exception wrapped = new RuntimeException("jpa", new SQLRecoverableException("recoverable"));
+
+    assertTrue(detector.isTransientConnectionFailure(wrapped));
+  }
+
+  @Test
+  void detectsTransientSqlExceptions() {
+    Exception wrapped = new RuntimeException("jpa", new SQLTransientException("transient"));
 
     assertTrue(detector.isTransientConnectionFailure(wrapped));
   }
