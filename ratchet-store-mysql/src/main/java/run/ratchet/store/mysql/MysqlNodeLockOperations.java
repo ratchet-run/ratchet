@@ -133,20 +133,21 @@ final class MysqlNodeLockOperations implements NodeStore, LockStore {
   }
 
   @Override
+  @SuppressWarnings("unchecked")
   public List<NodeEntity> findInactiveNodesSince(Instant cutoff) {
-    // language=JPAQL
-    String jpql = "SELECT n FROM NodeEntity n WHERE n.lastHeartbeat < :cutoff";
+    // language=MySQL
+    String sql = "SELECT * FROM scheduler_node WHERE heartbeat_ts < ?";
     return ctx.em()
-        .createQuery(jpql, NodeEntity.class)
-        .setParameter("cutoff", cutoff)
+        .createNativeQuery(sql, NodeEntity.class)
+        .setParameter(1, Timestamp.from(cutoff))
         .getResultList();
   }
 
   @Override
   public int deleteInactiveNodesSince(Instant cutoff) {
-    // language=JPAQL
-    String jpql = "DELETE FROM NodeEntity n WHERE n.lastHeartbeat < :cutoff";
-    return ctx.em().createQuery(jpql).setParameter("cutoff", cutoff).executeUpdate();
+    // language=MySQL
+    String sql = "DELETE FROM scheduler_node WHERE heartbeat_ts < ?";
+    return ctx.em().createNativeQuery(sql).setParameter(1, Timestamp.from(cutoff)).executeUpdate();
   }
 
   @Override

@@ -1,5 +1,6 @@
 package run.ratchet.store.mysql;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -7,11 +8,13 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 import java.lang.reflect.Proxy;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import org.junit.jupiter.api.Test;
 import run.ratchet.spi.MetricsCollector;
+import run.ratchet.store.entity.NodeEntity;
 
 class MysqlNodeLockOperationsTest {
 
@@ -39,6 +42,29 @@ class MysqlNodeLockOperationsTest {
         "tryLock must not perform a post-mutation owner SELECT");
   }
 
+  @Test
+  void findInactiveNodesSince_usesNativeSchedulerNodeQuery() {
+    List<String> sqlStatements = new ArrayList<>();
+    NodeEntity inactive = new NodeEntity();
+    MysqlNodeLockOperations locks = newLocksReturningRows(sqlStatements, List.of(inactive));
+
+    List<NodeEntity> result = locks.findInactiveNodesSince(Instant.parse("2026-05-09T12:00:00Z"));
+
+    assertEquals(List.of(inactive), result);
+    assertEquals(List.of("SELECT * FROM scheduler_node WHERE heartbeat_ts < ?"), sqlStatements);
+  }
+
+  @Test
+  void deleteInactiveNodesSince_usesNativeSchedulerNodeQuery() {
+    List<String> sqlStatements = new ArrayList<>();
+    MysqlNodeLockOperations locks = newLocks(sqlStatements, 7);
+
+    int deleted = locks.deleteInactiveNodesSince(Instant.parse("2026-05-09T12:00:00Z"));
+
+    assertEquals(7, deleted);
+    assertEquals(List.of("DELETE FROM scheduler_node WHERE heartbeat_ts < ?"), sqlStatements);
+  }
+
   private static MysqlNodeLockOperations newLocks(List<String> sqlStatements, int... updateCounts) {
     EntityManager em =
         (EntityManager)
@@ -57,6 +83,24 @@ class MysqlNodeLockOperationsTest {
     return new MysqlNodeLockOperations(new MysqlStoreContext(em, noopMetrics()));
   }
 
+  private static MysqlNodeLockOperations newLocksReturningRows(
+      List<String> sqlStatements, List<NodeEntity> rows) {
+    EntityManager em =
+        (EntityManager)
+            Proxy.newProxyInstance(
+                EntityManager.class.getClassLoader(),
+                new Class<?>[] {EntityManager.class},
+                (proxy, method, args) -> {
+                  if ("createNativeQuery".equals(method.getName()) && args != null) {
+                    sqlStatements.add(((String) args[0]).stripLeading());
+                    assertEquals(NodeEntity.class, args[1]);
+                    return queryReturningRows(rows);
+                  }
+                  throw new UnsupportedOperationException(method.getName());
+                });
+    return new MysqlNodeLockOperations(new MysqlStoreContext(em, noopMetrics()));
+  }
+
   private static Query queryReturning(int updateCount) {
     return (Query)
         Proxy.newProxyInstance(
@@ -68,6 +112,20 @@ class MysqlNodeLockOperationsTest {
                 case "executeUpdate" -> updateCount;
                 case "getSingleResult" ->
                     throw new AssertionError("tryLock must not SELECT owner_node after mutation");
+                default -> throw new UnsupportedOperationException(method.getName());
+              };
+            });
+  }
+
+  private static Query queryReturningRows(List<NodeEntity> rows) {
+    return (Query)
+        Proxy.newProxyInstance(
+            Query.class.getClassLoader(),
+            new Class<?>[] {Query.class},
+            (proxy, method, args) -> {
+              return switch (method.getName()) {
+                case "setParameter" -> proxy;
+                case "getResultList" -> rows;
                 default -> throw new UnsupportedOperationException(method.getName());
               };
             });
