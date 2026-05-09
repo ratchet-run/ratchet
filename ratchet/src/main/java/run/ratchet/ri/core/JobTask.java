@@ -620,20 +620,7 @@ public class JobTask implements Callable<Void> {
         "Job %s failed with non-retryable exception: %s - moving directly to DLQ",
         job.getId(), ex.getClass().getName());
 
-    if (currentExecution != null) {
-      currentExecution.markFailed(ex);
-      observabilityFacade.saveExecution(currentExecution);
-    }
-
-    if (jobStore.compareAndSwapStatus(
-        job.getId(), JobStatus.RUNNING, JobStatus.FAILED, errorSanitizer.sanitize(ex))) {
-      job.setAttempts(attempt);
-      job.setStatus(JobStatus.FAILED);
-      publishDlqEvent(ex, attempt);
-      lifecycleFacade.moveToDlq(job, ex);
-      handleBatchOrWorkflowPermanentFailure();
-      invokeCallback(job.getOnFailurePayload(), "onFailure");
-    }
+    transitionToDlq(ex, attempt);
   }
 
   private void handleSuccess(Instant start, Object jobResult) {
@@ -787,6 +774,12 @@ public class JobTask implements Callable<Void> {
   }
 
   private void moveToDlq(Throwable ex, int attempt) {
+    if (transitionToDlq(ex, attempt)) {
+      log.errorf(ex, "Job %s moved to DLQ after %s attempts", job.getId(), attempt);
+    }
+  }
+
+  private boolean transitionToDlq(Throwable ex, int attempt) {
     if (currentExecution != null) {
       currentExecution.markFailed(ex);
       observabilityFacade.saveExecution(currentExecution);
@@ -800,8 +793,9 @@ public class JobTask implements Callable<Void> {
       lifecycleFacade.moveToDlq(job, ex);
       handleBatchOrWorkflowPermanentFailure();
       invokeCallback(job.getOnFailurePayload(), "onFailure");
-      log.errorf(ex, "Job %s moved to DLQ after %s attempts", job.getId(), attempt);
+      return true;
     }
+    return false;
   }
 
   private void publishDlqEvent(Throwable ex, int attempt) {
