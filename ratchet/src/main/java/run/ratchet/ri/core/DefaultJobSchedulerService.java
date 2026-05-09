@@ -2,8 +2,6 @@ package run.ratchet.ri.core;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import jakarta.transaction.Status;
-import jakarta.transaction.Synchronization;
 import jakarta.transaction.TransactionSynchronizationRegistry;
 import jakarta.transaction.Transactional;
 import java.io.Serializable;
@@ -677,32 +675,11 @@ public class DefaultJobSchedulerService
   }
 
   private boolean registerAfterCommit(Runnable action) {
-    TransactionSynchronizationRegistry reg = resolveTxRegistry();
-    if (reg == null) {
-      return false;
-    }
-    try {
-      if (reg.getTransactionStatus() != Status.STATUS_ACTIVE) {
-        return false;
-      }
-      reg.registerInterposedSynchronization(
-          new Synchronization() {
-            @Override
-            public void beforeCompletion() {}
-
-            @Override
-            public void afterCompletion(int status) {
-              if (status == Status.STATUS_COMMITTED) {
-                action.run();
-              }
-            }
-          });
-      return true;
-    } catch (Exception e) {
-      log.warnf(
-          "After-commit event registration failed; publishing immediately: %s", e.getMessage());
-      return false;
-    }
+    return JobWakeupService.registerAfterCommit(
+        resolveTxRegistry(),
+        action,
+        log,
+        "After-commit event registration failed; publishing immediately: %s");
   }
 
   private int deliverSignalRaw(UUID jobId, Serializable payload) {

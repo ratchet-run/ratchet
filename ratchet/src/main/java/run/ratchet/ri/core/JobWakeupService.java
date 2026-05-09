@@ -92,6 +92,15 @@ public class JobWakeupService {
   }
 
   private boolean registerAfterCommit(Runnable action) {
+    return registerAfterCommit(
+        txRegistry, action, log, "After-commit wakeup registration error; firing now: %s");
+  }
+
+  static boolean registerAfterCommit(
+      TransactionSynchronizationRegistry txRegistry,
+      Runnable action,
+      Logger log,
+      String failureMessage) {
     if (txRegistry == null) {
       return false;
     }
@@ -115,7 +124,7 @@ public class JobWakeupService {
           });
       return true;
     } catch (Exception e) {
-      log.warnf("After-commit wakeup registration error; firing now: %s", e.getMessage());
+      log.warnf(failureMessage, e.getMessage());
       return false;
     }
   }
