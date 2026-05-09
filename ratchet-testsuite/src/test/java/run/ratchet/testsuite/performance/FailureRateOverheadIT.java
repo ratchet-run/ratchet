@@ -1,5 +1,8 @@
 package run.ratchet.testsuite.performance;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import java.util.List;
 import java.util.logging.Logger;
 import org.jboss.arquillian.container.test.api.Deployment;
@@ -8,16 +11,15 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
+import run.ratchet.api.JobStatus;
 import run.ratchet.testsuite.app.ConfigurableWorkJob;
 import run.ratchet.testsuite.app.NoOpResilienceStrategy;
 import run.ratchet.testsuite.app.PerformanceMetricsCollector;
 import run.ratchet.testsuite.app.ProbabilisticFailingJob;
-import run.ratchet.testsuite.app.TestJobService;
 import run.ratchet.testsuite.app.TimingJob;
 import run.ratchet.testsuite.util.PerformanceBaseline;
 import run.ratchet.testsuite.util.PerformanceReport;
 import run.ratchet.testsuite.util.PerformanceReportWriter;
-import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /**
  * Measures the overhead of the retry/failure path compared to a clean-run baseline. The failure
@@ -32,25 +34,8 @@ class FailureRateOverheadIT extends BasePerformanceIT {
 
   @Deployment
   public static WebArchive createDeployment() {
-    String dbType = System.getProperty("ratchet.test.db.type", "mysql");
-    String profile = System.getProperty("testsuite.profile", "wildfly-managed");
-
-    return RatchetArchiveBuilder.create()
-        .addRatchetDependencies(profile, dbType)
-        .addClasses(
-            TimingJob.class,
-            ConfigurableWorkJob.class,
-            ProbabilisticFailingJob.class,
-            NoOpResilienceStrategy.class,
-            PerformanceMetricsCollector.class,
-            TestJobService.class,
-            BasePerformanceIT.class,
-            PerformanceBaseline.class,
-            PerformanceReport.class,
-            PerformanceReportWriter.class)
-        .addStoreInfrastructure()
-        .addBeansXml()
-        .build();
+    return createPerformanceDeployment(
+        ConfigurableWorkJob.class, ProbabilisticFailingJob.class, NoOpResilienceStrategy.class);
   }
 
   @BeforeEach
@@ -99,16 +84,23 @@ class FailureRateOverheadIT extends BasePerformanceIT {
     double failureThroughput = (count * 1000.0) / failureMs;
 
     double overheadRatio = baselineThroughput / failureThroughput;
+    long terminalSuccesses = countHandlesWithStatus(failureHandles, JobStatus.SUCCEEDED);
+    long terminalFailures = countHandlesWithStatus(failureHandles, JobStatus.FAILED);
+    int invocationSuccesses = ProbabilisticFailingJob.getSuccessCount();
+    int invocationFailures = ProbabilisticFailingJob.getFailureCount();
+    int totalInvocations = invocationSuccesses + invocationFailures;
+    double actualFailureRate = (double) invocationFailures / totalInvocations;
 
     log.info(
         String.format(
             "Failure overhead: baseline=%.1f jobs/sec, withFailures=%.1f jobs/sec, ratio=%.2f"
-                + " (successes=%d, failures=%d)",
+                + " (successes=%d, failures=%d, terminalFailures=%d)",
             baselineThroughput,
             failureThroughput,
             overheadRatio,
-            ProbabilisticFailingJob.getSuccessCount(),
-            ProbabilisticFailingJob.getFailureCount()));
+            invocationSuccesses,
+            invocationFailures,
+            terminalFailures));
 
     reportWriter.addReport(
         new PerformanceReport(
@@ -120,5 +112,39 @@ class FailureRateOverheadIT extends BasePerformanceIT {
     baseline.assertWithinTolerance("failureOverhead.baselineJobsPerSec", baselineThroughput);
     baseline.assertWithinTolerance("failureOverhead.withFailuresJobsPerSec", failureThroughput);
     baseline.assertLatencyWithinTolerance("failureOverhead.ratio", overheadRatio);
+    assertEquals(
+        count,
+        terminalSuccesses + terminalFailures,
+        "Failure phase should account for every submitted job");
+    assertTrue(
+        terminalFailures <= maxTerminalFailureCount(count),
+        "Retry phase left too many terminal failures: "
+            + terminalFailures
+            + " of "
+            + count
+            + " jobs");
+    assertTrue(
+        totalInvocations >= count,
+        "Retry phase should have at least one invocation per submitted job but had "
+            + totalInvocations);
+    assertTrue(invocationFailures > 0, "Expected the configured failure path to be exercised");
+    assertTrue(
+        actualFailureRate >= minObservedFailureRate()
+            && actualFailureRate <= maxObservedFailureRate(),
+        String.format(
+            "Observed failure rate %.2f outside expected range [%.2f, %.2f]",
+            actualFailureRate, minObservedFailureRate(), maxObservedFailureRate()));
+  }
+
+  private static long maxTerminalFailureCount(int submittedJobs) {
+    return Long.getLong("perf.failure.maxTerminalFailures", Math.max(1, submittedJobs / 10));
+  }
+
+  private static double minObservedFailureRate() {
+    return Double.parseDouble(System.getProperty("perf.failure.minObservedRate", "0.15"));
+  }
+
+  private static double maxObservedFailureRate() {
+    return Double.parseDouble(System.getProperty("perf.failure.maxObservedRate", "0.45"));
   }
 }

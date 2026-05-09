@@ -1,12 +1,16 @@
 package run.ratchet.testsuite.performance;
 
 import static org.awaitility.Awaitility.await;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.inject.Inject;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.function.LongSupplier;
+import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import run.ratchet.api.JobHandle;
@@ -15,11 +19,15 @@ import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.store.spi.JobClaimStore;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.testsuite.app.PerformanceMetricsCollector;
 import run.ratchet.testsuite.app.PerformanceTestHelper;
 import run.ratchet.testsuite.app.TestJobService;
+import run.ratchet.testsuite.app.TimingJob;
 import run.ratchet.testsuite.util.BaseRatchetIT;
 import run.ratchet.testsuite.util.PerformanceBaseline;
+import run.ratchet.testsuite.util.PerformanceReport;
 import run.ratchet.testsuite.util.PerformanceReportWriter;
+import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /** Shared setup for performance ITs. */
 @Tag("performance")
@@ -62,6 +70,26 @@ public abstract class BasePerformanceIT extends BaseRatchetIT {
     return new PerformanceReportWriter(getDbType());
   }
 
+  protected static WebArchive createPerformanceDeployment(Class<?>... additionalClasses) {
+    String profile = System.getProperty("testsuite.profile", "wildfly-managed");
+    List<Class<?>> classes = new ArrayList<>();
+    classes.add(TimingJob.class);
+    classes.add(PerformanceMetricsCollector.class);
+    classes.add(TestJobService.class);
+    classes.add(BasePerformanceIT.class);
+    classes.add(PerformanceBaseline.class);
+    classes.add(PerformanceReport.class);
+    classes.add(PerformanceReportWriter.class);
+    classes.addAll(List.of(additionalClasses));
+
+    return RatchetArchiveBuilder.create()
+        .addRatchetDependencies(profile, getDbType())
+        .addClasses(classes.toArray(new Class<?>[0]))
+        .addStoreInfrastructure()
+        .addBeansXml()
+        .build();
+  }
+
   protected static long[] computePercentiles(long[] data, double... percentiles) {
     Arrays.sort(data);
     long[] result = new long[percentiles.length];
@@ -77,6 +105,25 @@ public abstract class BasePerformanceIT extends BaseRatchetIT {
       return (tableSize / 1_000_000) + "M";
     }
     return (tableSize / 1000) + "K";
+  }
+
+  protected static List<String> generateItems(int count) {
+    List<String> items = new ArrayList<>(count);
+    for (int i = 0; i < count; i++) {
+      items.add("item-" + i);
+    }
+    return items;
+  }
+
+  protected static long[] measureQueryTimes(int iterations, LongSupplier operation) {
+    long[] times = new long[iterations];
+    for (int i = 0; i < iterations; i++) {
+      long start = System.nanoTime();
+      operation.getAsLong();
+      long elapsed = System.nanoTime() - start;
+      times[i] = elapsed / 1_000_000;
+    }
+    return times;
   }
 
   @BeforeEach
@@ -102,6 +149,10 @@ public abstract class BasePerformanceIT extends BaseRatchetIT {
     return handles;
   }
 
+  /**
+   * Waits until every submitted job succeeds. Use this for performance paths where failures should
+   * fail the test instead of merely ending execution.
+   */
   protected void awaitAllCompleted(List<JobHandle> handles, Duration timeout) {
     await()
         .atMost(timeout)
@@ -126,6 +177,10 @@ public abstract class BasePerformanceIT extends BaseRatchetIT {
     return result;
   }
 
+  /**
+   * Waits until every submitted job reaches an end-of-life state, whether it succeeded, failed, or
+   * was canceled. Use this for tests that intentionally exercise terminal failure or cancellation.
+   */
   protected void awaitAllTerminal(List<JobHandle> handles, Duration timeout) {
     await()
         .atMost(timeout)
@@ -151,5 +206,63 @@ public abstract class BasePerformanceIT extends BaseRatchetIT {
       handles.add(jobService.enqueue(task).withMaxRetries(maxRetries).submit());
     }
     return handles;
+  }
+
+  protected void assertSnapshotCompleted(
+      String scenario,
+      PerformanceMetricsCollector.PerformanceSnapshot snap,
+      long expectedCompleted) {
+    assertEquals(
+        expectedCompleted,
+        snap.completedCount(),
+        scenario
+            + " completed count mismatch: expected "
+            + expectedCompleted
+            + " got "
+            + snap.completedCount());
+    assertTrue(
+        snap.startedCount() >= expectedCompleted,
+        scenario
+            + " should have at least "
+            + expectedCompleted
+            + " started jobs but had "
+            + snap.startedCount());
+  }
+
+  protected void assertLatencyPercentilesSane(
+      String scenario,
+      PerformanceMetricsCollector.PerformanceSnapshot snap,
+      long maxP50Ms,
+      long maxP95Ms,
+      long maxP99Ms) {
+    assertTrue(
+        snap.p50Ms() >= 0 && snap.p50Ms() <= maxP50Ms,
+        scenario + " p50 latency unreasonable: " + snap.p50Ms() + "ms");
+    assertTrue(
+        snap.p95Ms() >= snap.p50Ms() && snap.p95Ms() <= maxP95Ms,
+        scenario
+            + " p95 latency unreasonable: p50="
+            + snap.p50Ms()
+            + "ms p95="
+            + snap.p95Ms()
+            + "ms");
+    assertTrue(
+        snap.p99Ms() >= snap.p95Ms() && snap.p99Ms() <= maxP99Ms,
+        scenario
+            + " p99 latency unreasonable: p95="
+            + snap.p95Ms()
+            + "ms p99="
+            + snap.p99Ms()
+            + "ms");
+  }
+
+  protected long countHandlesWithStatus(List<JobHandle> handles, JobStatus expectedStatus) {
+    long count = 0;
+    for (JobHandle handle : handles) {
+      if (jobCrudStore.getJobStatus(handle.id()) == expectedStatus) {
+        count++;
+      }
+    }
+    return count;
   }
 }

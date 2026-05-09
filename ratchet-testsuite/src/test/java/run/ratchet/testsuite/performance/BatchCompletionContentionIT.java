@@ -1,6 +1,5 @@
 package run.ratchet.testsuite.performance;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Logger;
 import org.jboss.arquillian.container.test.api.Deployment;
@@ -54,14 +53,6 @@ class BatchCompletionContentionIT extends BasePerformanceIT {
         .addStoreInfrastructure()
         .addBeansXml()
         .build();
-  }
-
-  private static List<String> generateItems(int count) {
-    List<String> items = new ArrayList<>(count);
-    for (int i = 0; i < count; i++) {
-      items.add("item-" + i);
-    }
-    return items;
   }
 
   @BeforeEach

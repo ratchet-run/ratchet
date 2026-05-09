@@ -10,12 +10,10 @@ import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
 import run.ratchet.testsuite.app.ConfigurableWorkJob;
 import run.ratchet.testsuite.app.PerformanceMetricsCollector;
-import run.ratchet.testsuite.app.TestJobService;
 import run.ratchet.testsuite.app.TimingJob;
 import run.ratchet.testsuite.util.PerformanceBaseline;
 import run.ratchet.testsuite.util.PerformanceReport;
 import run.ratchet.testsuite.util.PerformanceReportWriter;
-import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /**
  * Measures throughput scaling characteristics under the default thread pool configuration.
@@ -41,23 +39,7 @@ class ConcurrentScalingIT extends BasePerformanceIT {
 
   @Deployment
   public static WebArchive createDeployment() {
-    String dbType = System.getProperty("ratchet.test.db.type", "mysql");
-    String profile = System.getProperty("testsuite.profile", "wildfly-managed");
-
-    return RatchetArchiveBuilder.create()
-        .addRatchetDependencies(profile, dbType)
-        .addClasses(
-            TimingJob.class,
-            ConfigurableWorkJob.class,
-            PerformanceMetricsCollector.class,
-            TestJobService.class,
-            BasePerformanceIT.class,
-            PerformanceBaseline.class,
-            PerformanceReport.class,
-            PerformanceReportWriter.class)
-        .addStoreInfrastructure()
-        .addBeansXml()
-        .build();
+    return createPerformanceDeployment(ConfigurableWorkJob.class);
   }
 
   @BeforeEach
@@ -108,6 +90,8 @@ class ConcurrentScalingIT extends BasePerformanceIT {
             snap.p95Ms(),
             snap.p99Ms());
     reportWriter.addReport(report);
+    assertSnapshotCompleted("scaling.noOp.burst", snap, measured);
+    assertLatencyPercentilesSane("scaling.noOp.burst", snap, maxP50Ms(), maxP95Ms(), maxP99Ms());
     baseline.assertWithinTolerance("scaling.noOp.burst.jobsPerSec", throughput);
   }
 
@@ -148,6 +132,9 @@ class ConcurrentScalingIT extends BasePerformanceIT {
             snap.p95Ms(),
             snap.p99Ms());
     reportWriter.addReport(report);
+    assertSnapshotCompleted("scaling.work10ms.burst", snap, measured);
+    assertLatencyPercentilesSane(
+        "scaling.work10ms.burst", snap, maxP50Ms(), maxP95Ms(), maxP99Ms());
     baseline.assertWithinTolerance("scaling.work10ms.burst.jobsPerSec", throughput);
   }
 
@@ -183,7 +170,22 @@ class ConcurrentScalingIT extends BasePerformanceIT {
               snap.p95Ms(),
               snap.p99Ms());
       reportWriter.addReport(report);
+      assertSnapshotCompleted("scaling.incremental." + load, snap, load);
+      assertLatencyPercentilesSane(
+          "scaling.incremental." + load, snap, maxP50Ms(), maxP95Ms(), maxP99Ms());
       baseline.assertWithinTolerance("scaling.incremental." + load + ".jobsPerSec", throughput);
     }
+  }
+
+  private static long maxP50Ms() {
+    return Long.getLong("perf.scaling.max.p50.ms", 5_000L);
+  }
+
+  private static long maxP95Ms() {
+    return Long.getLong("perf.scaling.max.p95.ms", 10_000L);
+  }
+
+  private static long maxP99Ms() {
+    return Long.getLong("perf.scaling.max.p99.ms", 30_000L);
   }
 }

@@ -1,5 +1,7 @@
 package run.ratchet.testsuite.performance;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Logger;
@@ -12,12 +14,10 @@ import run.ratchet.api.JobHandle;
 import run.ratchet.testsuite.app.ConfigurableWorkJob;
 import run.ratchet.testsuite.app.PerformanceMetricsCollector;
 import run.ratchet.testsuite.app.ProbabilisticFailingJob;
-import run.ratchet.testsuite.app.TestJobService;
 import run.ratchet.testsuite.app.TimingJob;
 import run.ratchet.testsuite.util.PerformanceBaseline;
 import run.ratchet.testsuite.util.PerformanceReport;
 import run.ratchet.testsuite.util.PerformanceReportWriter;
-import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /**
  * Tests thread pool fairness when fast and slow jobs share the same pool. Measures whether slow
@@ -31,24 +31,7 @@ class MixedDurationStarvationIT extends BasePerformanceIT {
 
   @Deployment
   public static WebArchive createDeployment() {
-    String dbType = System.getProperty("ratchet.test.db.type", "mysql");
-    String profile = System.getProperty("testsuite.profile", "wildfly-managed");
-
-    return RatchetArchiveBuilder.create()
-        .addRatchetDependencies(profile, dbType)
-        .addClasses(
-            TimingJob.class,
-            ConfigurableWorkJob.class,
-            ProbabilisticFailingJob.class,
-            PerformanceMetricsCollector.class,
-            TestJobService.class,
-            BasePerformanceIT.class,
-            PerformanceBaseline.class,
-            PerformanceReport.class,
-            PerformanceReportWriter.class)
-        .addStoreInfrastructure()
-        .addBeansXml()
-        .build();
+    return createPerformanceDeployment(ConfigurableWorkJob.class, ProbabilisticFailingJob.class);
   }
 
   @BeforeEach
@@ -125,6 +108,7 @@ class MixedDurationStarvationIT extends BasePerformanceIT {
     awaitAllCompleted(allHandles, PERF_TIMEOUT);
     long totalMs = System.currentTimeMillis() - startMs;
 
+    int slowJobsCompleted = ConfigurableWorkJob.getInvocationCount();
     long fastP99 = perfHelper.queryQueueWaitPercentileForClass(TimingJob.class.getName(), 0.99);
 
     log.info(
@@ -135,6 +119,8 @@ class MixedDurationStarvationIT extends BasePerformanceIT {
     reportWriter.addReport(
         new PerformanceReport(
             "starvation.mixed", fastCount + slowCount, totalMs, 0, 0, 0, fastP99));
+    assertEquals(
+        slowCount, slowJobsCompleted, "Mixed workload should execute every scheduled slow job");
     baseline.assertLatencyWithinTolerance("starvation.mixed.fastP99Ms", fastP99);
   }
 }

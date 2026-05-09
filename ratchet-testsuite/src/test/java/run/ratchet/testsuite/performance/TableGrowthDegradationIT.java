@@ -138,15 +138,8 @@ class TableGrowthDegradationIT extends BasePerformanceIT {
   }
 
   private long measureClaimQueryLatency(int iterations) {
-    long[] times = new long[iterations];
     Instant now = Instant.now();
-
-    for (int i = 0; i < iterations; i++) {
-      long start = System.nanoTime();
-      jobCrudStore.countReadyJobs(now);
-      long elapsed = System.nanoTime() - start;
-      times[i] = elapsed / 1_000_000;
-    }
+    long[] times = measureQueryTimes(iterations, () -> jobCrudStore.countReadyJobs(now));
 
     long[] percentiles = computePercentiles(times, 0.99);
     return percentiles[0];
