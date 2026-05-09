@@ -1,5 +1,7 @@
 package run.ratchet.testsuite.performance;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 import java.util.List;
 import java.util.logging.Logger;
 import org.jboss.arquillian.container.test.api.Deployment;
@@ -75,6 +77,10 @@ class ThroughputIT extends BasePerformanceIT {
     long startMs = System.currentTimeMillis();
     List<JobHandle> handles = enqueueN(measured, TimingJob::execute);
     awaitAllCompleted(handles, PERF_TIMEOUT);
+    assertEquals(
+        measured,
+        TimingJob.getInvocationCount(),
+        "Expected no-op job invocation count to match completed jobs");
     long totalMs = System.currentTimeMillis() - startMs;
 
     PerformanceSnapshot snap = PerformanceMetricsCollector.snapshot();
@@ -115,6 +121,10 @@ class ThroughputIT extends BasePerformanceIT {
     long startMs = System.currentTimeMillis();
     List<JobHandle> handles = enqueueN(measured, ConfigurableWorkJob::execute);
     awaitAllCompleted(handles, PERF_TIMEOUT);
+    assertEquals(
+        measured,
+        ConfigurableWorkJob.getInvocationCount(),
+        "Expected light-work job invocation count to match completed jobs");
     long totalMs = System.currentTimeMillis() - startMs;
 
     PerformanceSnapshot snap = PerformanceMetricsCollector.snapshot();

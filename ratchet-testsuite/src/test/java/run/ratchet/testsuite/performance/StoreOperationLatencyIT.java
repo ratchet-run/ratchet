@@ -125,8 +125,16 @@ class StoreOperationLatencyIT extends BasePerformanceIT {
 
   @Test
   void statusTransitionCAS() {
+    int warmup = getWarmupCount();
     int measured = getMeasuredCount();
     long[] casTimes = new long[measured];
+
+    for (int i = 0; i < warmup; i++) {
+      JobEntity job = createJobEntity("warmup-cas-" + i);
+      JobEntity saved = jobCrudStore.save(job);
+      jobBatchStatusStore.compareAndSwapStatus(
+          saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+    }
 
     for (int i = 0; i < measured; i++) {
       JobEntity job = createJobEntity("cas-" + i);

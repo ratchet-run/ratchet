@@ -8,8 +8,11 @@ import jakarta.inject.Inject;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.LongSupplier;
+import org.awaitility.core.ConditionTimeoutException;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -182,21 +185,39 @@ public abstract class BasePerformanceIT extends BaseRatchetIT {
    * was canceled. Use this for tests that intentionally exercise terminal failure or cancellation.
    */
   protected void awaitAllTerminal(List<JobHandle> handles, Duration timeout) {
-    await()
-        .atMost(timeout)
-        .pollInterval(PERF_POLL_INTERVAL)
-        .untilAsserted(
-            () -> {
-              for (JobHandle handle : handles) {
-                JobStatus status = jobCrudStore.getJobStatus(handle.id());
-                if (status != JobStatus.SUCCEEDED
-                    && status != JobStatus.FAILED
-                    && status != JobStatus.CANCELED) {
-                  throw new AssertionError(
-                      "Job " + handle.id() + " expected terminal but was " + status);
+    try {
+      await()
+          .atMost(timeout)
+          .pollInterval(PERF_POLL_INTERVAL)
+          .untilAsserted(
+              () -> {
+                for (JobHandle handle : handles) {
+                  JobStatus status = jobCrudStore.getJobStatus(handle.id());
+                  if (status != JobStatus.SUCCEEDED
+                      && status != JobStatus.FAILED
+                      && status != JobStatus.CANCELED) {
+                    throw new AssertionError(
+                        "Job " + handle.id() + " expected terminal but was " + status);
+                  }
                 }
-              }
-            });
+              });
+    } catch (ConditionTimeoutException e) {
+      throw new AssertionError(
+          "Timed out waiting for "
+              + handles.size()
+              + " jobs to reach terminal status. Status histogram: "
+              + statusHistogram(handles),
+          e);
+    }
+  }
+
+  private Map<JobStatus, Integer> statusHistogram(List<JobHandle> handles) {
+    Map<JobStatus, Integer> histogram = new EnumMap<>(JobStatus.class);
+    for (JobHandle handle : handles) {
+      JobStatus status = jobCrudStore.getJobStatus(handle.id());
+      histogram.merge(status, 1, Integer::sum);
+    }
+    return histogram;
   }
 
   protected List<JobHandle> enqueueNWithRetries(

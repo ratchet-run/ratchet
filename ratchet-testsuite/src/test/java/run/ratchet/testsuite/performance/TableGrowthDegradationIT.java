@@ -113,6 +113,10 @@ class TableGrowthDegradationIT extends BasePerformanceIT {
       long claimP99 = measureClaimQueryLatency(50);
       baseline.assertLatencyWithinTolerance(
           "tableDegradation." + sizeKey + ".claimP99Ms", claimP99);
+
+      if (tableSize == 10_000 || tableSize == 100_000 || tableSize == 1_000_000) {
+        assertClaimQueriesUseIndexes(sizeKey);
+      }
     }
 
     // Report throughput ratio (largest vs 0K)
@@ -126,14 +130,15 @@ class TableGrowthDegradationIT extends BasePerformanceIT {
       baseline.assertLatencyWithinTolerance(
           "tableDegradation." + lastSizeKey + ".throughputRatio", throughputRatio);
     }
+  }
 
-    // Verify actual store methods use index scans at maximum table size
+  private void assertClaimQueriesUseIndexes(String sizeKey) {
     Instant now = Instant.now();
     perfHelper.assertNoFullScan(
-        "countReadyJobs @ " + lastSizeKey, () -> jobCrudStore.countReadyJobs(now));
+        "countReadyJobs @ " + sizeKey, () -> jobCrudStore.countReadyJobs(now));
 
     perfHelper.assertNoFullScan(
-        "claimNextBatch @ " + lastSizeKey,
+        "claimNextBatch @ " + sizeKey,
         () -> jobClaimStore.claimNextBatchOptimized(JobExecutionType.SINGLE, 10, "perf-test-node"));
   }
 
