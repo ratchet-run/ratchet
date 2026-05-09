@@ -293,6 +293,46 @@ class JobTaskTest {
 
   @Test
   @SuppressWarnings("unchecked")
+  void handleFailure_batchChild_marksBatchChildFailedInsteadOfSchedulingNext() throws Exception {
+    JobEntity job = createTestJob();
+    job.setJobType(JobExecutionType.BATCH_CHILD);
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+
+    RuntimeException error = new RuntimeException("batch child failed");
+    when(resilienceStrategy.execute(anyString(), any(Callable.class))).thenThrow(error);
+    when(validationFacade.shouldNotRetry(error)).thenReturn(true);
+    when(jobStore.compareAndSwapStatus(
+            eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any()))
+        .thenReturn(true);
+
+    jobTask.call();
+
+    verify(lifecycleFacade).markBatchChildFailed(job);
+    verify(lifecycleFacade, never()).scheduleNext(job);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void handleCanceledDuringExecution_batchChild_marksBatchChildFailedInsteadOfCancelingChain()
+      throws Exception {
+    JobEntity job = createTestJob();
+    job.setJobType(JobExecutionType.BATCH_CHILD);
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING, JobStatus.CANCELED);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resilienceStrategy.execute(anyString(), any(Callable.class)))
+        .thenAnswer(inv -> ((Callable<?>) inv.getArgument(1)).call());
+
+    jobTask.call();
+
+    verify(lifecycleFacade).markBatchChildFailed(job);
+    verify(lifecycleFacade, never()).cancelChain(job);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
   void handleSuccess_jobCanceledDuringExecution_discardsResultAndPublishesCancellation()
       throws Exception {
     JobEntity job = createTestJob();
@@ -349,6 +389,26 @@ class JobTaskTest {
     jobTask.call();
 
     verify(resourcePermitService).release("api-gateway", JOB_UUID);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void call_resourcePermitUnavailable_reschedulesWithoutExecutingPayload() throws Exception {
+    JobEntity job = createTestJob();
+    job.setResourceName("gpu");
+    job.setAttempts(2);
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resourcePermitService.tryAcquire("gpu", JOB_UUID, "node-1")).thenReturn(false);
+    when(resourcePermitService.getRetryDelay("gpu")).thenReturn(250);
+    when(jobStore.scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(2))).thenReturn(true);
+
+    jobTask.call();
+
+    verify(jobStore).scheduleJobRetry(eq(JOB_UUID), eq("Waiting for resource: gpu"), any(), eq(2));
+    verify(resilienceStrategy, never()).execute(anyString(), any(Callable.class));
+    verify(resourcePermitService, never()).release(anyString(), any(UUID.class));
   }
 
   @Test
