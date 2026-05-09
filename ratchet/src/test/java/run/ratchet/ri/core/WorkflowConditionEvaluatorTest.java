@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 import java.io.Serializable;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -43,6 +44,12 @@ class WorkflowConditionEvaluatorTest {
 
     public static boolean isHighValue(Object value) {
       return ((Number) value).intValue() > 100;
+    }
+  }
+
+  public static final class BeanCondition {
+    public boolean hasExpectedFailureCount(BatchContext ctx) {
+      return ctx.failedItems() == 2;
     }
   }
 
@@ -304,6 +311,41 @@ class WorkflowConditionEvaluatorTest {
     String expression =
         serializeCondition(
             (SerializablePredicate<BatchContext>) TestConditions::batchHasOneFailure);
+
+    assertTrue(
+        evaluator.evaluate(
+            conditionWithExpression(WorkflowCondition.ConditionType.BATCH_CUSTOM, expression),
+            parent));
+  }
+
+  @Test
+  void batchCustom_staticMethodRefFalse_returnsFalse() {
+    JobEntity parent = batchParent(JobStatus.SUCCEEDED);
+    when(batchStore.findBatchById(parent.getId())).thenReturn(Optional.of(batch(10, 10, 0)));
+    String expression =
+        serializeCondition(
+            (SerializablePredicate<BatchContext>) TestConditions::batchHasOneFailure);
+
+    assertFalse(
+        evaluator.evaluate(
+            conditionWithExpression(WorkflowCondition.ConditionType.BATCH_CUSTOM, expression),
+            parent));
+  }
+
+  @Test
+  void batchCustom_cdiBeanReceiver_evaluates() {
+    JobEntity parent = batchParent(JobStatus.SUCCEEDED);
+    when(batchStore.findBatchById(parent.getId())).thenReturn(Optional.of(batch(10, 8, 2)));
+    BeanCondition bean = new BeanCondition();
+    when(beanResolver.resolve(BeanCondition.class)).thenReturn(bean);
+    String expression =
+        payloadSerializer.serialize(
+            new JobPayload(
+                BeanCondition.class.getName(),
+                "hasExpectedFailureCount",
+                "(Lrun/ratchet/api/BatchContext;)Z",
+                false,
+                Collections.singletonList(null)));
 
     assertTrue(
         evaluator.evaluate(
