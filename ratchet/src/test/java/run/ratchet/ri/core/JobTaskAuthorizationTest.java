@@ -14,6 +14,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -147,6 +148,57 @@ class JobTaskAuthorizationTest {
 
     verify(resilienceStrategy, never()).execute(anyString(), any());
     verify(lifecycleFacade).moveToDlq(eq(job), eq(denial));
+  }
+
+  @Test
+  void checkExecute_denialWithFailedCas_doesNotMoveJobToDlqOrAdvanceWorkflow() throws Exception {
+    JobEntity job = jobWithPrincipal();
+    initCore(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+
+    JobAuthorizationException denial =
+        new JobAuthorizationException(JOB_UUID, "execute", OWNER_PRINCIPAL, "denied");
+    doThrow(denial).when(authorizationPolicy).checkExecute(any(UUID.class), anyString());
+    when(validationFacade.shouldNotRetry(denial)).thenReturn(true);
+    when(jobStore.compareAndSwapStatus(
+            eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), any()))
+        .thenReturn(false);
+
+    jobTask.call();
+
+    verify(resilienceStrategy, never()).execute(anyString(), any());
+    verify(lifecycleFacade, never()).moveToDlq(any(), any());
+    verify(lifecycleFacade, never()).scheduleNext(any());
+    verify(lifecycleFacade, never()).markBatchChildFailed(any());
+  }
+
+  @Test
+  void checkExecute_runtimeException_usesRetryPath_withoutCallingResilienceStrategy()
+      throws Exception {
+    JobEntity job = jobWithPrincipal();
+    job.setMaxRetries(3);
+    initCore(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+
+    RuntimeException failure = new RuntimeException("authorization backend unavailable");
+    doThrow(failure).when(authorizationPolicy).checkExecute(any(UUID.class), anyString());
+    when(validationFacade.shouldNotRetry(failure)).thenReturn(false);
+    when(jobStore.incrementRetryAttempt(JOB_UUID)).thenReturn(1);
+    when(retryPolicy.shouldRetry(1, failure)).thenReturn(true);
+    when(retryPolicy.getDelay(1)).thenReturn(Duration.ofSeconds(5));
+    when(errorSanitizer.sanitize(failure)).thenReturn("authorization backend unavailable");
+    when(jobStore.scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(1))).thenReturn(true);
+
+    jobTask.call();
+
+    verify(resilienceStrategy, never()).execute(anyString(), any());
+    verify(jobStore).incrementRetryAttempt(JOB_UUID);
+    verify(retryPolicy).shouldRetry(1, failure);
+    verify(jobStore).scheduleJobRetry(eq(JOB_UUID), anyString(), any(), eq(1));
+    verify(jobStore, never()).compareAndSwapStatus(any(), any(), any(), any());
+    verify(lifecycleFacade, never()).moveToDlq(any(), any());
   }
 
   @Test
