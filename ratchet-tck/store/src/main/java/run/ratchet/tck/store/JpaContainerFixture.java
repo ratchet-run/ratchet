@@ -6,6 +6,9 @@ import jakarta.persistence.EntityTransaction;
 import jakarta.persistence.Persistence;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
@@ -114,6 +117,15 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
   @Override
   public final JobStore store() {
     return storeProxy;
+  }
+
+  /** Open a raw JDBC connection to the same container used by this fixture. */
+  public final Connection openConnection() throws SQLException {
+    Object container = container();
+    return DriverManager.getConnection(
+        containerString(container, "getJdbcUrl"),
+        containerString(container, "getUsername"),
+        containerString(container, "getPassword"));
   }
 
   @Override
