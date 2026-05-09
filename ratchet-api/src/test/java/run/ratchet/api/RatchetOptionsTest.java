@@ -80,4 +80,90 @@ class RatchetOptionsTest {
                             CircuitBreakerProfile.DEFAULT,
                             profile -> profile.failureRateThreshold(101.0f))));
   }
+
+  @Test
+  void circuitBreakerFailureRateAcceptsBoundaries() {
+    RatchetOptions zero =
+        RatchetOptions.builder()
+            .circuitBreaker(
+                circuitBreaker ->
+                    circuitBreaker.profile(
+                        CircuitBreakerProfile.DEFAULT,
+                        profile -> profile.failureRateThreshold(0.0f)))
+            .build();
+    RatchetOptions hundred =
+        RatchetOptions.builder()
+            .circuitBreaker(
+                circuitBreaker ->
+                    circuitBreaker.profile(
+                        CircuitBreakerProfile.DEFAULT,
+                        profile -> profile.failureRateThreshold(100.0f)))
+            .build();
+
+    assertEquals(
+        0.0f, zero.circuitBreaker().profile(CircuitBreakerProfile.DEFAULT).failureRateThreshold());
+    assertEquals(
+        100.0f,
+        hundred.circuitBreaker().profile(CircuitBreakerProfile.DEFAULT).failureRateThreshold());
+  }
+
+  @Test
+  void circuitBreakerFailureRateRejectsInvalidBoundaries() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            RatchetOptions.builder()
+                .circuitBreaker(
+                    circuitBreaker ->
+                        circuitBreaker.profile(
+                            CircuitBreakerProfile.DEFAULT,
+                            profile -> profile.failureRateThreshold(-1.0f))));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            RatchetOptions.builder()
+                .circuitBreaker(
+                    circuitBreaker ->
+                        circuitBreaker.profile(
+                            CircuitBreakerProfile.DEFAULT,
+                            profile -> profile.failureRateThreshold(Float.NaN))));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            RatchetOptions.builder()
+                .circuitBreaker(
+                    circuitBreaker ->
+                        circuitBreaker.profile(
+                            CircuitBreakerProfile.DEFAULT,
+                            profile -> profile.failureRateThreshold(Float.POSITIVE_INFINITY))));
+  }
+
+  @Test
+  void nestedBuildersRejectBlankTextAndInvalidMinimums() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> RatchetOptions.builder().node(node -> node.nodeId(" ")));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> RatchetOptions.builder().retryBuffer(retryBuffer -> retryBuffer.drainIntervalMs(49)));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> RatchetOptions.builder().maintenance(maintenance -> maintenance.dlqPurgeCron(" ")));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> RatchetOptions.builder().maintenance(maintenance -> maintenance.jobArchiveCron(" ")));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> RatchetOptions.builder().maintenance(maintenance -> maintenance.logPurgeCron(" ")));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            RatchetOptions.builder()
+                .notifications(notifications -> notifications.dlqAlertChannel(" ")));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            RatchetOptions.builder()
+                .notifications(notifications -> notifications.timeoutAlertChannel(" ")));
+  }
 }

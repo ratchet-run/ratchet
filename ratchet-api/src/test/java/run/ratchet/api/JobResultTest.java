@@ -2,6 +2,11 @@ package run.ratchet.api;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.Serial;
 import java.time.Instant;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -52,6 +57,33 @@ class JobResultTest {
     assertTrue(result.hasError());
     assertEquals("operation failed", result.getError());
     assertSame(cause, result.getException());
+  }
+
+  @Test
+  void failureWithNullErrorAndExceptionIsStillFailure() {
+    JobResult<Void> result = JobResult.failure(null, null);
+
+    assertTrue(result.isFailure());
+    assertFalse(result.isSuccess());
+    assertFalse(result.hasError());
+    assertNull(result.getError());
+    assertNull(result.getException());
+  }
+
+  @Test
+  void writeReplaceSanitizesNonSerializableThrowable() throws Exception {
+    NonSerializableException original = new NonSerializableException("boom");
+    original.setStackTrace(new StackTraceElement[] {new StackTraceElement("C", "m", "C.java", 7)});
+    JobResult<Void> result = JobResult.failure("operation failed", original);
+
+    JobResult<?> roundTripped = roundTrip(result);
+
+    assertEquals("operation failed", roundTripped.getError());
+    assertInstanceOf(RuntimeException.class, roundTripped.getException());
+    assertEquals(
+        NonSerializableException.class.getName() + ": boom",
+        roundTripped.getException().getMessage());
+    assertArrayEquals(original.getStackTrace(), roundTripped.getException().getStackTrace());
   }
 
   @Test
@@ -149,5 +181,28 @@ class JobResultTest {
     JobResult<String> failure = JobResult.failure("err", null);
 
     assertNotEquals(success, failure);
+  }
+
+  private static JobResult<?> roundTrip(JobResult<?> result) throws Exception {
+    ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+    try (ObjectOutputStream out = new ObjectOutputStream(bytes)) {
+      out.writeObject(result);
+    }
+    try (ObjectInputStream in =
+        new ObjectInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+      return (JobResult<?>) in.readObject();
+    }
+  }
+
+  private static final class NonSerializableException extends Exception {
+
+    @Serial private static final long serialVersionUID = 1L;
+
+    @SuppressWarnings("unused")
+    private final Object nonSerializable = new Object();
+
+    private NonSerializableException(String message) {
+      super(message);
+    }
   }
 }

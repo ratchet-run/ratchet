@@ -12,6 +12,25 @@ import org.junit.jupiter.api.Test;
 class SignalDecisionTest {
 
   @Test
+  void approvedDecisionExposesOutcomeHelpersAndPayload() {
+    SignalDecision decision = SignalDecision.approved("payload");
+
+    assertTrue(decision.isApproved());
+    assertFalse(decision.isRejected());
+    assertEquals(SignalDecision.Outcome.APPROVED, decision.outcome());
+    assertEquals("payload", decision.payload(String.class));
+    assertNull(decision.rejectionReason());
+  }
+
+  @Test
+  void approvedDecisionAllowsNullPayload() {
+    SignalDecision decision = SignalDecision.approved(null);
+
+    assertTrue(decision.isApproved());
+    assertNull(decision.payload(String.class));
+  }
+
+  @Test
   void approvedDecisionRejectsRejectionReason() {
     assertThrows(
         IllegalArgumentException.class,
