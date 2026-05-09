@@ -1,12 +1,23 @@
 package run.ratchet.store.mongodb;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static run.ratchet.store.mongodb.MongoFieldNames.BUSINESS_KEY;
+import static run.ratchet.store.mongodb.MongoFieldNames.ERROR_HASH;
+import static run.ratchet.store.mongodb.MongoFieldNames.ID;
+import static run.ratchet.store.mongodb.MongoFieldNames.IDEMPOTENCY_KEY;
+import static run.ratchet.store.mongodb.MongoFieldNames.JOB_ID;
+import static run.ratchet.store.mongodb.MongoFieldNames.JOB_TYPE;
+import static run.ratchet.store.mongodb.MongoFieldNames.NEXT_FIRE;
+import static run.ratchet.store.mongodb.MongoFieldNames.PRIORITY;
+import static run.ratchet.store.mongodb.MongoFieldNames.SCHEDULED_TIME;
+import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
 
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoDatabase;
 import java.time.Duration;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.List;
 import java.util.UUID;
 import org.bson.Document;
 import org.junit.jupiter.api.AfterEach;
@@ -53,50 +64,91 @@ class MongoIndexConformanceTest {
 
   @Test
   void schedulerJob_hasClaimExecIndex() {
-    Set<String> names = indexNamesOn("scheduler_job");
-    assertTrue(
-        names.contains(MongoIndexHints.JOB_CLAIM_EXEC),
-        "scheduler_job must have '"
-            + MongoIndexHints.JOB_CLAIM_EXEC
-            + "' (used as hint in claimNextBatchOptimized)");
+    assertIndex(
+        "scheduler_job",
+        MongoIndexHints.JOB_CLAIM_EXEC,
+        new Document(STATUS, 1)
+            .append(JOB_TYPE, 1)
+            .append(PRIORITY, -1)
+            .append(SCHEDULED_TIME, 1)
+            .append(ID, 1),
+        false,
+        null);
   }
 
   @Test
   void schedulerJob_hasClaimRecurringIndex() {
-    Set<String> names = indexNamesOn("scheduler_job");
-    assertTrue(
-        names.contains(MongoIndexHints.JOB_CLAIM_RECURRING),
-        "scheduler_job must have '"
-            + MongoIndexHints.JOB_CLAIM_RECURRING
-            + "' (used as hint in claimDueRecurring)");
+    assertIndex(
+        "scheduler_job",
+        MongoIndexHints.JOB_CLAIM_RECURRING,
+        new Document(STATUS, 1)
+            .append(JOB_TYPE, 1)
+            .append(PRIORITY, -1)
+            .append(NEXT_FIRE, 1)
+            .append(ID, 1),
+        false,
+        null);
   }
 
   @Test
   void schedulerJob_hasIdempotencyKeyUniqueIndex() {
-    Set<String> names = indexNamesOn("scheduler_job");
-    assertTrue(
-        names.contains("idx_job_idempotency_key"), "idempotency key unique index must exist");
+    assertIndex(
+        "scheduler_job", "idx_job_idempotency_key", new Document(IDEMPOTENCY_KEY, 1), true, null);
   }
 
   @Test
   void schedulerJob_hasActiveBusinessKeyPartialUniqueIndex() {
-    Set<String> names = indexNamesOn("scheduler_job");
-    assertTrue(
-        names.contains("idx_job_active_business_key"),
-        "active business key partial unique index must exist");
+    Document expectedPartialFilter =
+        new Document(
+                STATUS, new Document("$in", List.of("PENDING", "RUNNING", "PAUSED", "WAITING")))
+            .append(BUSINESS_KEY, new Document("$type", "string"));
+
+    assertIndex(
+        "scheduler_job",
+        "idx_job_active_business_key",
+        new Document(BUSINESS_KEY, 1),
+        true,
+        expectedPartialFilter);
   }
 
   @Test
   void schedulerDlqAlerts_hasJobHashUniqueIndex() {
-    Set<String> names = indexNamesOn("scheduler_dlq_alerts");
-    assertTrue(names.contains("idx_dlq_job_hash"), "DLQ job+hash unique index must exist");
+    assertIndex(
+        "scheduler_dlq_alerts",
+        "idx_dlq_job_hash",
+        new Document(JOB_ID, 1).append(ERROR_HASH, 1),
+        true,
+        null);
   }
 
-  private Set<String> indexNamesOn(String collectionName) {
-    Set<String> names = new HashSet<>();
-    for (Document doc : database.getCollection(collectionName).listIndexes()) {
-      names.add(doc.getString("name"));
+  private void assertIndex(
+      String collectionName,
+      String indexName,
+      Document expectedKey,
+      boolean expectedUnique,
+      Document expectedPartialFilter) {
+    Document index = indexByName(collectionName, indexName);
+    assertNotNull(index, collectionName + " must have index " + indexName);
+    assertEquals(expectedKey, index.get("key", Document.class), indexName + " key mismatch");
+    assertEquals(expectedUnique, index.getBoolean("unique", false), indexName + " uniqueness");
+    if (expectedPartialFilter == null) {
+      assertTrue(
+          !index.containsKey("partialFilterExpression"),
+          indexName + " should not define a partial filter");
+    } else {
+      assertEquals(
+          expectedPartialFilter,
+          index.get("partialFilterExpression", Document.class),
+          indexName + " partial filter mismatch");
     }
-    return names;
+  }
+
+  private Document indexByName(String collectionName, String indexName) {
+    for (Document doc : database.getCollection(collectionName).listIndexes()) {
+      if (indexName.equals(doc.getString("name"))) {
+        return doc;
+      }
+    }
+    return null;
   }
 }
