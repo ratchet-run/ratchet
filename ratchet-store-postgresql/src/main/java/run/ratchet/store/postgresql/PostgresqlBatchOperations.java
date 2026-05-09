@@ -3,6 +3,7 @@ package run.ratchet.store.postgresql;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
 import org.jboss.logging.Logger;
 import run.ratchet.store.converter.PayloadSerializerHolder;
 import run.ratchet.store.dto.BatchProgress;
@@ -94,9 +95,46 @@ final class PostgresqlBatchOperations implements BatchStore, BatchMetricsStore {
         RETURNING completed_items, failed_items, total_items, progress_hook
         """,
             counter.columnName);
-    Object[] row =
-        (Object[]) ctx.em().createNativeQuery(sql).setParameter(1, batchId).getSingleResult();
-    return BatchProgressRows.fromCurrentRow(batchId, row, this::parseProgressHook);
+    Object result = ctx.em().createNativeQuery(sql).setParameter(1, batchId).getSingleResult();
+    return mapIncrementResult(batchId, result, this::parseProgressHook);
+  }
+
+  static BatchProgress mapIncrementResult(
+      UUID batchId, Object result, Function<Object, JobPayload> progressHookParser) {
+    if (!(result instanceof Object[] row)) {
+      throw new IllegalStateException(
+          "Expected batch progress row for batch "
+              + batchId
+              + " to be Object[] but was "
+              + typeName(result));
+    }
+    if (row.length < 4) {
+      throw new IllegalStateException(
+          "Expected batch progress row for batch "
+              + batchId
+              + " to contain at least 4 columns but found "
+              + row.length);
+    }
+    requireNumber(batchId, row, 0, "completed_items");
+    requireNumber(batchId, row, 1, "failed_items");
+    requireNumber(batchId, row, 2, "total_items");
+    return BatchProgressRows.fromCurrentRow(batchId, row, progressHookParser);
+  }
+
+  private static void requireNumber(UUID batchId, Object[] row, int index, String columnName) {
+    if (!(row[index] instanceof Number)) {
+      throw new IllegalStateException(
+          "Expected batch progress column "
+              + columnName
+              + " for batch "
+              + batchId
+              + " to be numeric but was "
+              + typeName(row[index]));
+    }
+  }
+
+  private static String typeName(Object value) {
+    return value == null ? "null" : value.getClass().getName();
   }
 
   @Override
