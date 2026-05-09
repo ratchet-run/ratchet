@@ -137,20 +137,27 @@ final class MysqlAuxiliaryOperations
   @Override
   public WorkflowConditionEntity findConditionById(UUID id) {
     List<WorkflowConditionEntity> results =
-        findConditions("WHERE id = ?", List.of(id), "ORDER BY condition_priority ASC");
+        findConditions(
+            "WHERE id = ?",
+            List.of(UuidByteArrayConverter.toBytes(id)),
+            "ORDER BY condition_priority ASC");
     return results.isEmpty() ? null : results.get(0);
   }
 
   @Override
   public List<WorkflowConditionEntity> findConditionsByParentJobId(UUID parentJobId) {
     return findConditions(
-        "WHERE parent_job_id = ?", List.of(parentJobId), "ORDER BY condition_priority ASC");
+        "WHERE parent_job_id = ?",
+        List.of(UuidByteArrayConverter.toBytes(parentJobId)),
+        "ORDER BY condition_priority ASC");
   }
 
   @Override
   public List<WorkflowConditionEntity> findConditionsByChildJobId(UUID childJobId) {
     return findConditions(
-        "WHERE child_job_id = ?", List.of(childJobId), "ORDER BY condition_priority ASC");
+        "WHERE child_job_id = ?",
+        List.of(UuidByteArrayConverter.toBytes(childJobId)),
+        "ORDER BY condition_priority ASC");
   }
 
   @Override
@@ -158,7 +165,7 @@ final class MysqlAuxiliaryOperations
       UUID parentJobId, WorkflowCondition.ConditionType type) {
     return findConditions(
         "WHERE parent_job_id = ? AND condition_type = ?",
-        List.of(parentJobId, type.name()),
+        List.of(UuidByteArrayConverter.toBytes(parentJobId), type.name()),
         "ORDER BY condition_priority ASC");
   }
 
@@ -354,9 +361,7 @@ final class MysqlAuxiliaryOperations
         """;
     Query query = ctx.em().createNativeQuery(sqlPrefix + whereClause + " " + orderClause);
     for (int i = 0; i < params.size(); i++) {
-      Object value = params.get(i);
-      query.setParameter(
-          i + 1, value instanceof UUID uuid ? UuidByteArrayConverter.toBytes(uuid) : value);
+      query.setParameter(i + 1, params.get(i));
     }
     return ((List<Object[]>) query.getResultList())
         .stream().map(MysqlAuxiliaryOperations::mapCondition).toList();
