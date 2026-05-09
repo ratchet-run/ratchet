@@ -266,6 +266,18 @@ public final class DocumentMapper {
     return doc;
   }
 
+  public static JobLogEntity toJobLogEntity(Document doc) {
+    JobLogEntity logEntry =
+        new JobLogEntity(
+            doc.get("job_id", UUID.class),
+            toInstant(doc.getDate("ts")),
+            JobLogEntity.LogLevel.valueOf(doc.getString("level")),
+            doc.getString("message"),
+            documentToNodeInfo(doc.get("mdc", Document.class)));
+    logEntry.setId(doc.get("_id", UUID.class));
+    return logEntry;
+  }
+
   public static Document toDocument(ArchivedJobEntity a) {
     Document doc = new Document();
     if (a.getId() != null) {
@@ -485,6 +497,16 @@ public final class DocumentMapper {
     doc.append("node_id", permit.getNodeId());
     doc.append("acquired_at", toDate(permit.getAcquiredAt()));
     return doc;
+  }
+
+  public static ResourcePermitEntity toResourcePermitEntity(Document doc) {
+    ResourcePermitEntity permit = new ResourcePermitEntity();
+    permit.setId(doc.get("_id", UUID.class));
+    permit.setResourceName(doc.getString("resource_name"));
+    permit.setJobId(doc.get("job_id", UUID.class));
+    permit.setNodeId(doc.getString("node_id"));
+    permit.setAcquiredAt(toInstant(doc.getDate("acquired_at")));
+    return permit;
   }
 
   static String payloadToStoredValue(JobPayload payload) {

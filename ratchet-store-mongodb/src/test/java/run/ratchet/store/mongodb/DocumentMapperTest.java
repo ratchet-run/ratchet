@@ -15,7 +15,9 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.JobPayload;
+import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.id.UuidV7Factory;
 
 class DocumentMapperTest {
@@ -140,5 +142,43 @@ class DocumentMapperTest {
 
     doc.put("progress_hook", legacyPayloadDocument(payload));
     assertEquals(payload, DocumentMapper.toBatchEntity(doc).getProgressHook());
+  }
+
+  @Test
+  void roundTripsJobLogDocuments() {
+    JobLogEntity logEntry =
+        new JobLogEntity(
+            UuidV7Factory.create(),
+            Instant.parse("2026-01-01T00:00:00Z"),
+            JobLogEntity.LogLevel.WARN,
+            "retry scheduled",
+            Map.of("jobType", "billing"));
+    logEntry.setId(UuidV7Factory.create());
+
+    JobLogEntity reloaded = DocumentMapper.toJobLogEntity(DocumentMapper.toDocument(logEntry));
+
+    assertEquals(logEntry.getId(), reloaded.getId());
+    assertEquals(logEntry.getJobId(), reloaded.getJobId());
+    assertEquals(logEntry.getTs(), reloaded.getTs());
+    assertEquals(logEntry.getLevel(), reloaded.getLevel());
+    assertEquals(logEntry.getMessage(), reloaded.getMessage());
+    assertEquals(logEntry.getMdc(), reloaded.getMdc());
+  }
+
+  @Test
+  void roundTripsResourcePermitDocuments() {
+    ResourcePermitEntity permit =
+        ResourcePermitEntity.create("gpu", UuidV7Factory.create(), "node");
+    permit.setId(UuidV7Factory.create());
+    permit.setAcquiredAt(Instant.parse("2026-01-01T00:00:00Z"));
+
+    ResourcePermitEntity reloaded =
+        DocumentMapper.toResourcePermitEntity(DocumentMapper.toDocument(permit));
+
+    assertEquals(permit.getId(), reloaded.getId());
+    assertEquals(permit.getResourceName(), reloaded.getResourceName());
+    assertEquals(permit.getJobId(), reloaded.getJobId());
+    assertEquals(permit.getNodeId(), reloaded.getNodeId());
+    assertEquals(permit.getAcquiredAt(), reloaded.getAcquiredAt());
   }
 }
