@@ -51,9 +51,7 @@ class JobTimeoutHandlerTest {
 
   @BeforeEach
   void setUp() {
-    handler =
-        new JobTimeoutHandler(
-            jobCrudStore, jobRetryStore, jobBatchStatusStore, lifecycleFacade, 80, 60L);
+    handler = newHandler(null, null, JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE);
   }
 
   @Test
@@ -184,20 +182,7 @@ class JobTimeoutHandlerTest {
 
   @Test
   void scanSignalTimeoutsUsesConfiguredBatchLimit() {
-    JobTimeoutHandler limitedHandler =
-        new JobTimeoutHandler(
-            jobCrudStore,
-            jobRetryStore,
-            jobBatchStatusStore,
-            lifecycleFacade,
-            80,
-            60L,
-            Clock.systemUTC(),
-            null,
-            null,
-            signalStore,
-            metricsCollector,
-            17);
+    JobTimeoutHandler limitedHandler = newHandler(signalStore, metricsCollector, 17);
     when(signalStore.findTimedOutSignalJobs(any(Instant.class), eq(17))).thenReturn(List.of());
 
     limitedHandler.scanSignalTimeouts();
@@ -208,18 +193,7 @@ class JobTimeoutHandlerTest {
   @Test
   void signalTimeoutPublishesTimedOutMetricWhenFailureIsApplied() {
     JobTimeoutHandler metricsHandler =
-        new JobTimeoutHandler(
-            jobCrudStore,
-            jobRetryStore,
-            jobBatchStatusStore,
-            lifecycleFacade,
-            80,
-            60L,
-            Clock.systemUTC(),
-            null,
-            null,
-            null,
-            metricsCollector);
+        newHandler(null, metricsCollector, JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE);
     JobEntity job = waitingJobWithMaxRetries(0);
     when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
     when(jobBatchStatusStore.compareAndSwapStatus(
@@ -278,5 +252,22 @@ class JobTimeoutHandlerTest {
     job.setSignalTimeout(Instant.now().minusSeconds(1));
     job.setBackoffPolicy(BackoffPolicy.NONE);
     return job;
+  }
+
+  private JobTimeoutHandler newHandler(
+      SignalStore signalStore, MetricsCollector metricsCollector, int signalTimeoutBatchSize) {
+    return new JobTimeoutHandler(
+        jobCrudStore,
+        jobRetryStore,
+        jobBatchStatusStore,
+        lifecycleFacade,
+        80,
+        60L,
+        Clock.systemUTC(),
+        null,
+        null,
+        signalStore,
+        metricsCollector,
+        signalTimeoutBatchSize);
   }
 }
