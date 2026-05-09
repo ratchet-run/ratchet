@@ -2,11 +2,13 @@ package run.ratchet.testsuite.recurring;
 
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.inject.Inject;
 import java.time.Duration;
 import java.time.ZoneOffset;
+import java.util.UUID;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
@@ -51,8 +53,7 @@ class RecurringPauseResumeIT extends BaseRatchetIT {
 
   @Test
   void pauseRecurringJob_shouldStopFiring() {
-    JobHandle handle =
-        jobService.scheduleRecurring("*/1 * * * * ?", ZoneOffset.UTC, CronTestJobs::tick).submit();
+    JobHandle handle = scheduleTickingRecurring();
 
     await()
         .atMost(Duration.ofSeconds(5))
@@ -85,8 +86,7 @@ class RecurringPauseResumeIT extends BaseRatchetIT {
 
   @Test
   void resumePausedRecurringJob_shouldRestartFiring() {
-    JobHandle handle =
-        jobService.scheduleRecurring("*/1 * * * * ?", ZoneOffset.UTC, CronTestJobs::tick).submit();
+    JobHandle handle = scheduleTickingRecurring();
 
     await()
         .atMost(Duration.ofSeconds(5))
@@ -113,5 +113,39 @@ class RecurringPauseResumeIT extends BaseRatchetIT {
                     CronTestJobs.tickCount() > ticksBeforeResume,
                     "Expected new ticks after resume but count stayed at "
                         + CronTestJobs.tickCount()));
+  }
+
+  @Test
+  void pauseAlreadyPausedRecurringJob_shouldBeIdempotent() {
+    JobHandle handle = scheduleTickingRecurring();
+
+    assertTrue(jobService.pauseJob(handle.id()), "Expected initial pauseJob to return true");
+    assertTrue(jobService.pauseJob(handle.id()), "Expected repeated pauseJob to return true");
+
+    JobAssertions.assertJobStatus(jobCrudStore, handle, JobStatus.PAUSED);
+  }
+
+  @Test
+  void resumeActiveRecurringJob_shouldReturnFalse() {
+    JobHandle handle = scheduleTickingRecurring();
+
+    assertFalse(
+        jobService.resumeJob(handle.id()), "Expected resumeJob on active recurring job to fail");
+
+    JobAssertions.assertJobStatus(jobCrudStore, handle, JobStatus.PENDING);
+  }
+
+  @Test
+  void pauseResumeMissingJob_shouldReturnFalse() {
+    UUID missingJobId = UUID.randomUUID();
+
+    assertFalse(jobService.pauseJob(missingJobId), "Expected pauseJob on missing job to fail");
+    assertFalse(jobService.resumeJob(missingJobId), "Expected resumeJob on missing job to fail");
+  }
+
+  private JobHandle scheduleTickingRecurring() {
+    return jobService
+        .scheduleRecurring("*/1 * * * * ?", ZoneOffset.UTC, CronTestJobs::tick)
+        .submit();
   }
 }
