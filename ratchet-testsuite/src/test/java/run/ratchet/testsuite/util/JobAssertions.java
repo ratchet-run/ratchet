@@ -122,6 +122,13 @@ public final class JobAssertions {
     }
   }
 
+  /**
+   * Waits until the batch root job reaches {@link JobStatus#SUCCEEDED}.
+   *
+   * <p>This assertion intentionally checks only the batch handle passed by the caller. It does not
+   * traverse or verify child jobs; callers that need child-level guarantees should assert those
+   * jobs explicitly.
+   */
   public static void assertBatchSucceeded(
       JobCrudStore store, JobHandle batchHandle, Duration timeout) {
     assertJobCompleted(store, batchHandle, timeout);

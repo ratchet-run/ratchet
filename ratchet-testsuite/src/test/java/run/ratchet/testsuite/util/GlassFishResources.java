@@ -47,10 +47,10 @@ final class GlassFishResources {
         """;
     return template.formatted(
         doctype,
-        dataSourceClassName(config.dbType()),
-        xml(config.url()),
-        xml(config.username()),
-        xml(config.password()),
+        DataSourceResources.dataSourceClassName(config.dbType()),
+        DataSourceResources.xml(config.url()),
+        DataSourceResources.xml(config.username()),
+        DataSourceResources.xml(config.password()),
         mysqlProperties(config.dbType()),
         JTA_DATASOURCE);
   }
@@ -66,27 +66,7 @@ final class GlassFishResources {
         """;
   }
 
-  private static String dataSourceClassName(String dbType) {
-    return switch (dbType) {
-      case "mysql" -> "com.mysql.cj.jdbc.MysqlDataSource";
-      case "postgresql" -> "org.postgresql.ds.PGSimpleDataSource";
-      default -> throw new IllegalArgumentException("Unsupported database type: " + dbType);
-    };
-  }
-
   private static String driverCoordinates(String dbType) {
-    return switch (dbType) {
-      case "mysql" -> "com.mysql:mysql-connector-j";
-      case "postgresql" -> "org.postgresql:postgresql";
-      default -> throw new IllegalArgumentException("Unsupported database type: " + dbType);
-    };
-  }
-
-  private static String xml(String value) {
-    return value
-        .replace("&", "&amp;")
-        .replace("\"", "&quot;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;");
+    return DataSourceResources.driverCoordinates(dbType);
   }
 }

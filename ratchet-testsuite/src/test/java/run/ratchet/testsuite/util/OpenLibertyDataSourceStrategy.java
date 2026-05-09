@@ -1,7 +1,9 @@
 package run.ratchet.testsuite.util;
 
 import java.io.IOException;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
@@ -27,11 +29,11 @@ public class OpenLibertyDataSourceStrategy implements DataSourceStrategy {
     Path configDropinsDir = serverConfigDir.resolve("configDropins").resolve("defaults");
 
     try {
-      Files.createDirectories(jdbcDir);
-      Files.createDirectories(configDropinsDir);
+      createDirectories(jdbcDir);
+      createDirectories(configDropinsDir);
       deleteExistingDriverFiles(jdbcDir);
       copyJdbcDriver(config, jdbcDir);
-      Files.writeString(configDropinsDir.resolve("ratchet-datasource.xml"), dataSourceXml(config));
+      writeDataSourceXml(configDropinsDir.resolve("ratchet-datasource.xml"), config);
     } catch (IOException e) {
       throw new IllegalStateException("Unable to configure Open Liberty datasource", e);
     }
@@ -48,16 +50,53 @@ public class OpenLibertyDataSourceStrategy implements DataSourceStrategy {
       throw new IllegalStateException(
           SERVER_CONFIG_DIR_PROPERTY + " system property must be set for Open Liberty tests");
     }
-    return Path.of(configured);
+    Path path;
+    try {
+      path = Path.of(configured).toAbsolutePath().normalize();
+    } catch (InvalidPathException e) {
+      throw new IllegalStateException(
+          SERVER_CONFIG_DIR_PROPERTY + " system property is not a valid path: " + configured, e);
+    }
+    if (!Files.isDirectory(path)) {
+      throw new IllegalStateException(
+          SERVER_CONFIG_DIR_PROPERTY + " must point to an existing directory: " + path);
+    }
+    if (!Files.isWritable(path)) {
+      throw new IllegalStateException(
+          SERVER_CONFIG_DIR_PROPERTY + " must point to a writable directory: " + path);
+    }
+    return path;
+  }
+
+  private static void createDirectories(Path dir) throws IOException {
+    try {
+      Files.createDirectories(dir);
+    } catch (IOException e) {
+      throw new IOException("Unable to create Open Liberty datasource directory: " + dir, e);
+    }
   }
 
   private static void deleteExistingDriverFiles(Path jdbcDir) throws IOException {
-    try (var files = Files.newDirectoryStream(jdbcDir)) {
+    DirectoryStream<Path> files;
+    try {
+      files = Files.newDirectoryStream(jdbcDir);
+    } catch (IOException e) {
+      throw new IOException("Unable to list Open Liberty JDBC driver directory: " + jdbcDir, e);
+    }
+    try (files) {
       for (Path file : files) {
         if (Files.isRegularFile(file)) {
-          Files.delete(file);
+          deleteDriverFile(file);
         }
       }
+    }
+  }
+
+  private static void deleteDriverFile(Path file) throws IOException {
+    try {
+      Files.delete(file);
+    } catch (IOException e) {
+      throw new IOException("Unable to delete stale Open Liberty JDBC driver: " + file, e);
     }
   }
 
@@ -68,8 +107,21 @@ public class OpenLibertyDataSourceStrategy implements DataSourceStrategy {
             .resolve(driverCoordinates(config.dbType()))
             .withTransitivity()
             .asFile()) {
-      Files.copy(
-          file.toPath(), jdbcDir.resolve(file.getName()), StandardCopyOption.REPLACE_EXISTING);
+      Path target = jdbcDir.resolve(file.getName());
+      try {
+        Files.copy(file.toPath(), target, StandardCopyOption.REPLACE_EXISTING);
+      } catch (IOException e) {
+        throw new IOException("Unable to copy Open Liberty JDBC driver to: " + target, e);
+      }
+    }
+  }
+
+  private static void writeDataSourceXml(Path target, JdbcDatabaseConfig config)
+      throws IOException {
+    try {
+      Files.writeString(target, dataSourceXml(config));
+    } catch (IOException e) {
+      throw new IOException("Unable to write Open Liberty datasource config: " + target, e);
     }
   }
 
@@ -94,35 +146,15 @@ public class OpenLibertyDataSourceStrategy implements DataSourceStrategy {
         </server>
         """;
     return template.formatted(
-        xml(config.dbType()),
-        dataSourceClassName(config.dbType()),
+        DataSourceResources.xml(config.dbType()),
+        DataSourceResources.dataSourceClassName(config.dbType()),
         JTA_DATASOURCE,
-        xml(config.url()),
-        xml(config.username()),
-        xml(config.password()));
-  }
-
-  private static String dataSourceClassName(String dbType) {
-    return switch (dbType) {
-      case "mysql" -> "com.mysql.cj.jdbc.MysqlDataSource";
-      case "postgresql" -> "org.postgresql.ds.PGSimpleDataSource";
-      default -> throw new IllegalArgumentException("Unsupported database type: " + dbType);
-    };
+        DataSourceResources.xml(config.url()),
+        DataSourceResources.xml(config.username()),
+        DataSourceResources.xml(config.password()));
   }
 
   private static String driverCoordinates(String dbType) {
-    return switch (dbType) {
-      case "mysql" -> "com.mysql:mysql-connector-j";
-      case "postgresql" -> "org.postgresql:postgresql";
-      default -> throw new IllegalArgumentException("Unsupported database type: " + dbType);
-    };
-  }
-
-  private static String xml(String value) {
-    return value
-        .replace("&", "&amp;")
-        .replace("\"", "&quot;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;");
+    return DataSourceResources.driverCoordinates(dbType);
   }
 }
