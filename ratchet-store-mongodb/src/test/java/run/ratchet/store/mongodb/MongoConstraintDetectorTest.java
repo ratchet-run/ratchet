@@ -1,8 +1,10 @@
 package run.ratchet.store.mongodb;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.mongodb.MongoCommandException;
 import com.mongodb.MongoException;
 import com.mongodb.MongoNodeIsRecoveringException;
 import com.mongodb.MongoSocketOpenException;
@@ -64,6 +66,7 @@ class MongoConstraintDetectorTest {
                 SERVER_ADDRESS));
 
     assertTrue(detector.isDuplicateKey(wrapped));
+    assertEquals("idx_job_active_business_key", detector.constraintName(wrapped));
     assertTrue(detector.isDuplicateBusinessKey(wrapped));
   }
 
@@ -82,5 +85,44 @@ class MongoConstraintDetectorTest {
 
     assertTrue(detector.isDuplicateKey(wrapped));
     assertFalse(detector.isDuplicateBusinessKey(wrapped));
+  }
+
+  @Test
+  void detectsDuplicateKeyFromCommandException() {
+    MongoCommandException commandException =
+        commandException(
+            11000,
+            "E11000 duplicate key error collection: ratchet.scheduler_job index:"
+                + " idx_job_idempotency_key dup key: { idempotency_key: \"same\" }");
+
+    assertTrue(detector.isDuplicateKey(commandException));
+    assertEquals("idx_job_idempotency_key", detector.constraintName(commandException));
+    assertFalse(detector.isDuplicateBusinessKey(commandException));
+  }
+
+  @Test
+  void detectsWriteConflictAsDeadlock() {
+    assertTrue(detector.isDeadlock(commandException(112, "WriteConflict")));
+  }
+
+  @Test
+  void detectsTransientTransactionLabelAsDeadlock() {
+    MongoCommandException commandException = commandException(251, "NoSuchTransaction");
+    commandException.addLabel("TransientTransactionError");
+
+    assertTrue(detector.isDeadlock(commandException));
+  }
+
+  @Test
+  void ignoresNonDeadlockMongoCommandException() {
+    assertFalse(detector.isDeadlock(commandException(50, "ExceededTimeLimit")));
+  }
+
+  private static MongoCommandException commandException(int code, String message) {
+    BsonDocument response =
+        new BsonDocument("ok", new BsonInt32(0))
+            .append("code", new BsonInt32(code))
+            .append("errmsg", new org.bson.BsonString(message));
+    return new MongoCommandException(response, SERVER_ADDRESS);
   }
 }
