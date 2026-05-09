@@ -42,9 +42,9 @@ final class MysqlJobCountOperations {
   }
 
   long countActiveNodes() {
-    // language=JPAQL
-    String jpql = "SELECT COUNT(n) FROM NodeEntity n";
-    return ctx.em().createQuery(jpql, Long.class).getSingleResult();
+    // language=MySQL
+    String sql = "SELECT COUNT(*) FROM scheduler_node";
+    return ctx.countByNative(sql);
   }
 
   long countReadyJobs(Instant now) {

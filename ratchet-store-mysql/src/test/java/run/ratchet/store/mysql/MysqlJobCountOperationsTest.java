@@ -6,6 +6,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.persistence.Query;
 import java.lang.reflect.Proxy;
 import java.time.Instant;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class MysqlJobCountOperationsTest {
@@ -21,7 +22,23 @@ class MysqlJobCountOperationsTest {
     assertEquals(0.0, counts.getAverageBatchSize(since));
   }
 
+  @Test
+  void countActiveNodesUsesNativeSchedulerNodeCount() {
+    AtomicReference<String> sql = new AtomicReference<>();
+    MysqlJobCountOperations counts =
+        new MysqlJobCountOperations(
+            new MysqlStoreContext(entityManagerReturningCount(sql, 3L), null));
+
+    assertEquals(3L, counts.countActiveNodes());
+    assertEquals("SELECT COUNT(*) FROM scheduler_node", sql.get());
+  }
+
   private static EntityManager entityManagerReturningNull() {
+    return entityManagerReturningCount(new AtomicReference<>(), null);
+  }
+
+  private static EntityManager entityManagerReturningCount(
+      AtomicReference<String> sql, Number countResult) {
     Query query =
         (Query)
             Proxy.newProxyInstance(
@@ -32,7 +49,7 @@ class MysqlJobCountOperationsTest {
                     return proxy;
                   }
                   if (method.getName().equals("getSingleResult")) {
-                    return null;
+                    return countResult;
                   }
                   throw new UnsupportedOperationException(method.getName());
                 });
@@ -43,6 +60,7 @@ class MysqlJobCountOperationsTest {
             new Class<?>[] {EntityManager.class},
             (proxy, method, args) -> {
               if (method.getName().equals("createNativeQuery")) {
+                sql.set((String) args[0]);
                 return query;
               }
               throw new UnsupportedOperationException(method.getName());
