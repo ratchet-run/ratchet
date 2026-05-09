@@ -105,7 +105,14 @@ public record RatchetConfigKey<T>(
 
   private static float requireRange(float value, float minInclusive, float maxInclusive) {
     if (!Float.isFinite(value) || value < minInclusive || value > maxInclusive) {
-      throw new IllegalArgumentException("Value is outside the allowed range");
+      throw new IllegalArgumentException(
+          "Value "
+              + value
+              + " must be a finite number between "
+              + minInclusive
+              + " and "
+              + maxInclusive
+              + " inclusive");
     }
     return value;
   }
@@ -116,7 +123,8 @@ public record RatchetConfigKey<T>(
 
   private static int requireAtLeast(int value, int minInclusive) {
     if (value < minInclusive) {
-      throw new IllegalArgumentException("Value is below the allowed minimum");
+      throw new IllegalArgumentException(
+          "Value " + value + " must be greater than or equal to " + minInclusive);
     }
     return value;
   }
@@ -127,7 +135,8 @@ public record RatchetConfigKey<T>(
 
   private static long requireAtLeast(long value, long minInclusive) {
     if (value < minInclusive) {
-      throw new IllegalArgumentException("Value is below the allowed minimum");
+      throw new IllegalArgumentException(
+          "Value " + value + " must be greater than or equal to " + minInclusive);
     }
     return value;
   }

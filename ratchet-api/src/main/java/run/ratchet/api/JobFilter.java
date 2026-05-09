@@ -164,6 +164,9 @@ public record JobFilter(
     }
 
     public Builder tags(String... values) {
+      if (values.length == 0) {
+        return this;
+      }
       this.tags = Collections.unmodifiableSet(new HashSet<>(Set.of(values)));
       return this;
     }
