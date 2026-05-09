@@ -4,26 +4,27 @@ import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Collectors;
+import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobClaimStore;
+import run.ratchet.store.util.JobClaimSqlSupport;
 
 final class PostgresqlJobClaimOperations implements JobClaimStore {
 
   static final String EXECUTABLE_JOB_TYPE_FILTER =
       "job_type IN ('SINGLE','BATCH_CHILD','CHAIN_STEP','WORKFLOW_BRANCH')";
 
-  private static final String CLAIM_SELECT_COLUMNS =
-      "job_id, status, job_type, priority, scheduled_time, version, "
-          + "timeout_sec, picked_by, picked_at, business_key, attempts, max_retries";
+  private static final String CLAIM_SELECT_COLUMNS = ClaimColumn.selectClause();
 
   private final PostgresqlStoreContext ctx;
   private final PostgresqlJobCrudOperations jobs;
@@ -76,60 +77,6 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
             buildBoostOrderBy(timeColumn, boostInterval));
   }
 
-  /**
-   * Builds a SQL fragment (empty string or starting with newline+AND) for tag affinity filtering.
-   * Guards each list independently to avoid empty {@code IN ()}.
-   */
-  private static String buildTagFilterSql(NodeTagFilter filter, String tableAlias) {
-    if (filter.isUnfiltered()) {
-      return "";
-    }
-    StringBuilder sb = new StringBuilder();
-    if (!filter.requireTags().isEmpty()) {
-      String placeholders = "?,".repeat(filter.requireTags().size());
-      sb.append("\n  AND EXISTS (SELECT 1 FROM scheduler_job_tag t WHERE t.job_id = ")
-          .append(tableAlias)
-          .append(".job_id AND t.tag IN (")
-          .append(placeholders, 0, placeholders.length() - 1)
-          .append("))");
-    }
-    if (!filter.excludeTags().isEmpty()) {
-      String placeholders = "?,".repeat(filter.excludeTags().size());
-      sb.append("\n  AND NOT EXISTS (SELECT 1 FROM scheduler_job_tag t WHERE t.job_id = ")
-          .append(tableAlias)
-          .append(".job_id AND t.tag IN (")
-          .append(placeholders, 0, placeholders.length() - 1)
-          .append("))");
-    }
-    return sb.toString();
-  }
-
-  private static int bindTagFilter(Query query, NodeTagFilter filter, int startParam) {
-    int p = startParam;
-    for (String tag : filter.requireTags()) {
-      query.setParameter(p++, tag);
-    }
-    for (String tag : filter.excludeTags()) {
-      query.setParameter(p++, tag);
-    }
-    return p;
-  }
-
-  private static List<JobEntity> reorderById(List<JobEntity> jobs, List<UUID> orderedIds) {
-    Map<UUID, JobEntity> byId = new HashMap<>(jobs.size());
-    for (JobEntity j : jobs) {
-      byId.put(j.getId(), j);
-    }
-    List<JobEntity> ordered = new ArrayList<>(jobs.size());
-    for (UUID id : orderedIds) {
-      JobEntity j = byId.get(id);
-      if (j != null) {
-        ordered.add(j);
-      }
-    }
-    return ordered;
-  }
-
   @Override
   public List<JobEntity> claimNextBatch(int limit, String nodeId, NodeTagFilter tagFilter) {
     if (limit <= 0) {
@@ -137,7 +84,7 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
     }
     try {
       int boostInterval = ctx.priorityBoostIntervalMinutes();
-      String tagSql = buildTagFilterSql(tagFilter, "scheduler_job_queue");
+      String tagSql = JobClaimSqlSupport.buildTagFilterSql(tagFilter, "scheduler_job_queue");
       Query selectQuery =
           ctx.em()
               .createNativeQuery(
@@ -148,7 +95,7 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
                       "scheduled_time",
                       boostInterval));
       int parameter = 1;
-      parameter = bindTagFilter(selectQuery, tagFilter, parameter);
+      parameter = JobClaimSqlSupport.bindTagFilter(selectQuery, tagFilter, parameter);
       if (boostInterval > 0) {
         selectQuery.setParameter(parameter++, boostInterval);
       }
@@ -163,7 +110,7 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
         ids.add(PostgresqlJobRowMapper.uuidOrNull(idRow));
       }
       markPendingClaimsRunning(ids, nodeId, Instant.now());
-      return reorderById(jobs.findByIds(ids), ids);
+      return JobClaimSqlSupport.reorderById(jobs.findByIds(ids), ids, JobEntity::getId);
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("claim jobs", e);
     }
@@ -177,7 +124,7 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
     }
     try {
       int boostInterval = ctx.priorityBoostIntervalMinutes();
-      String tagSql = buildTagFilterSql(tagFilter, "scheduler_job_queue");
+      String tagSql = JobClaimSqlSupport.buildTagFilterSql(tagFilter, "scheduler_job_queue");
       Query selectQuery =
           ctx.em()
               .createNativeQuery(
@@ -189,7 +136,7 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
                       boostInterval));
       int parameter = 1;
       selectQuery.setParameter(parameter++, jobType.name());
-      parameter = bindTagFilter(selectQuery, tagFilter, parameter);
+      parameter = JobClaimSqlSupport.bindTagFilter(selectQuery, tagFilter, parameter);
       if (boostInterval > 0) {
         selectQuery.setParameter(parameter++, boostInterval);
       }
@@ -202,28 +149,28 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
 
       List<UUID> ids = new ArrayList<>(rows.size());
       for (Object[] row : rows) {
-        ids.add(PostgresqlJobRowMapper.uuidOrNull(row[0]));
+        ids.add(new ClaimRow(row).jobId());
       }
       Instant now = Instant.now();
       markPendingClaimsRunning(ids, nodeId, now);
 
       List<JobClaimDto> claims = new ArrayList<>(rows.size());
       for (int i = 0; i < rows.size(); i++) {
-        Object[] row = rows.get(i);
+        ClaimRow row = new ClaimRow(rows.get(i));
         claims.add(
             new JobClaimDto(
                 ids.get(i),
                 JobStatus.RUNNING,
-                JobExecutionType.valueOf((String) row[2]),
-                PostgresqlJobRowMapper.safeJobPriority(((Number) row[3]).intValue()),
-                PostgresqlJobRowMapper.toInstant(row[4]),
-                row[5] == null ? null : ((Number) row[5]).intValue(),
-                ((Number) row[6]).intValue(),
+                row.jobType(),
+                row.priority(),
+                row.scheduledTime(),
+                row.version(),
+                row.timeoutSeconds(),
                 nodeId,
                 now,
-                (String) row[9],
-                ((Number) row[10]).intValue(),
-                ((Number) row[11]).intValue()));
+                row.businessKey(),
+                row.attempts(),
+                row.maxRetries()));
       }
       return claims;
     } catch (RuntimeException e) {
@@ -257,6 +204,85 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
     query.executeUpdate();
   }
 
+  private enum ClaimColumn {
+    JOB_ID("job_id"),
+    STATUS("status"),
+    JOB_TYPE("job_type"),
+    PRIORITY("priority"),
+    SCHEDULED_TIME("scheduled_time"),
+    VERSION("version"),
+    TIMEOUT_SEC("timeout_sec"),
+    PICKED_BY("picked_by"),
+    PICKED_AT("picked_at"),
+    BUSINESS_KEY("business_key"),
+    ATTEMPTS("attempts"),
+    MAX_RETRIES("max_retries");
+
+    private final String sqlName;
+
+    ClaimColumn(String sqlName) {
+      this.sqlName = sqlName;
+    }
+
+    static String selectClause() {
+      return Arrays.stream(values()).map(ClaimColumn::sqlName).collect(Collectors.joining(", "));
+    }
+
+    String sqlName() {
+      return sqlName;
+    }
+  }
+
+  private record ClaimRow(Object[] values) {
+    ClaimRow {
+      Objects.requireNonNull(values, "values");
+    }
+
+    UUID jobId() {
+      return PostgresqlJobRowMapper.uuidOrNull(value(ClaimColumn.JOB_ID));
+    }
+
+    JobExecutionType jobType() {
+      return JobExecutionType.valueOf((String) value(ClaimColumn.JOB_TYPE));
+    }
+
+    JobPriority priority() {
+      return PostgresqlJobRowMapper.safeJobPriority(number(ClaimColumn.PRIORITY).intValue());
+    }
+
+    Instant scheduledTime() {
+      return PostgresqlJobRowMapper.toInstant(value(ClaimColumn.SCHEDULED_TIME));
+    }
+
+    int version() {
+      return number(ClaimColumn.VERSION).intValue();
+    }
+
+    int timeoutSeconds() {
+      return number(ClaimColumn.TIMEOUT_SEC).intValue();
+    }
+
+    String businessKey() {
+      return (String) value(ClaimColumn.BUSINESS_KEY);
+    }
+
+    int attempts() {
+      return number(ClaimColumn.ATTEMPTS).intValue();
+    }
+
+    int maxRetries() {
+      return number(ClaimColumn.MAX_RETRIES).intValue();
+    }
+
+    private Number number(ClaimColumn column) {
+      return (Number) value(column);
+    }
+
+    private Object value(ClaimColumn column) {
+      return values[column.ordinal()];
+    }
+  }
+
   @Override
   @SuppressWarnings("unchecked")
   public List<JobEntity> claimDueRecurring(int limit, String nodeId, NodeTagFilter tagFilter) {
@@ -265,7 +291,7 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
     }
     try {
       int boostInterval = ctx.priorityBoostIntervalMinutes();
-      String tagSql = buildTagFilterSql(tagFilter, "scheduler_job");
+      String tagSql = JobClaimSqlSupport.buildTagFilterSql(tagFilter, "scheduler_job");
       // language=PostgreSQL
       String sql =
           """
@@ -280,7 +306,7 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
               .formatted(tagSql, buildBoostOrderBy("next_fire", boostInterval));
       Query selectQuery = ctx.em().createNativeQuery(sql);
       int parameter = 1;
-      parameter = bindTagFilter(selectQuery, tagFilter, parameter);
+      parameter = JobClaimSqlSupport.bindTagFilter(selectQuery, tagFilter, parameter);
       if (boostInterval > 0) {
         selectQuery.setParameter(parameter++, boostInterval);
       }
@@ -293,7 +319,8 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
       for (Object n : idRows) {
         ids.add(PostgresqlJobRowMapper.uuidOrNull(n));
       }
-      List<JobEntity> ordered = reorderById(jobs.findByIds(ids), ids);
+      List<JobEntity> ordered =
+          JobClaimSqlSupport.reorderById(jobs.findByIds(ids), ids, JobEntity::getId);
       Instant now = Instant.now();
       for (JobEntity job : ordered) {
         job.setStatus(JobStatus.RUNNING);
