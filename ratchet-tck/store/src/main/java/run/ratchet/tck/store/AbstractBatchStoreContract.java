@@ -46,6 +46,8 @@ public abstract class AbstractBatchStoreContract implements JobStoreContractFixt
         recoverable.contains(parent.getId()),
         "Completed batch should be visible to recovery before completion is marked");
     assertTrue(store().markBatchCompleteIfReady(parent.getId()));
+    assertEquals(
+        Boolean.TRUE, store().findBatchById(parent.getId()).orElseThrow().getCompletionProcessed());
   }
 
   @Test
