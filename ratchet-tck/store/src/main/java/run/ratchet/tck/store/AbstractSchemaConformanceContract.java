@@ -54,6 +54,20 @@ public abstract class AbstractSchemaConformanceContract {
     };
   }
 
+  private String requireMetadataString(ResultSet rs, String metadataColumn, String subject)
+      throws SQLException {
+    String value = rs.getString(metadataColumn);
+    if (value == null) {
+      fail(
+          mapper().dialectName()
+              + " JDBC metadata column "
+              + metadataColumn
+              + " was null while introspecting "
+              + subject);
+    }
+    return value;
+  }
+
   @Test
   void allRequiredTablesPresent() throws SQLException {
     try (Connection c = openConnection()) {
@@ -272,7 +286,7 @@ public abstract class AbstractSchemaConformanceContract {
     Set<String> names = new HashSet<>();
     try (ResultSet rs = md.getTables(c.getCatalog(), c.getSchema(), "%", new String[] {"TABLE"})) {
       while (rs.next()) {
-        names.add(rs.getString("TABLE_NAME").toLowerCase(Locale.ROOT));
+        names.add(requireMetadataString(rs, "TABLE_NAME", "table names").toLowerCase(Locale.ROOT));
       }
     }
     return names;
@@ -284,8 +298,9 @@ public abstract class AbstractSchemaConformanceContract {
     Map<String, IntrospectedColumn> out = new LinkedHashMap<>();
     try (ResultSet rs = md.getColumns(c.getCatalog(), c.getSchema(), table, "%")) {
       while (rs.next()) {
-        String name = rs.getString("COLUMN_NAME").toLowerCase(Locale.ROOT);
-        String type = rs.getString("TYPE_NAME");
+        String subject = "columns for table " + table;
+        String name = requireMetadataString(rs, "COLUMN_NAME", subject).toLowerCase(Locale.ROOT);
+        String type = requireMetadataString(rs, "TYPE_NAME", subject);
         boolean nullable = "YES".equalsIgnoreCase(rs.getString("IS_NULLABLE"));
         out.put(name, new IntrospectedColumn(name, type, nullable));
       }
@@ -298,7 +313,10 @@ public abstract class AbstractSchemaConformanceContract {
     try (ResultSet rs =
         md.getPrimaryKeys(md.getConnection().getCatalog(), md.getConnection().getSchema(), table)) {
       while (rs.next()) {
-        ordered.put(rs.getShort("KEY_SEQ"), rs.getString("COLUMN_NAME").toLowerCase(Locale.ROOT));
+        ordered.put(
+            rs.getShort("KEY_SEQ"),
+            requireMetadataString(rs, "COLUMN_NAME", "primary key for table " + table)
+                .toLowerCase(Locale.ROOT));
       }
     }
     return new ArrayList<>(ordered.values());
@@ -311,9 +329,11 @@ public abstract class AbstractSchemaConformanceContract {
         md.getImportedKeys(
             md.getConnection().getCatalog(), md.getConnection().getSchema(), table)) {
       while (rs.next()) {
-        String fkColumn = rs.getString("FKCOLUMN_NAME").toLowerCase(Locale.ROOT);
-        String pkTable = rs.getString("PKTABLE_NAME");
-        String pkColumn = rs.getString("PKCOLUMN_NAME");
+        String subject = "imported foreign keys for table " + table;
+        String fkColumn =
+            requireMetadataString(rs, "FKCOLUMN_NAME", subject).toLowerCase(Locale.ROOT);
+        String pkTable = requireMetadataString(rs, "PKTABLE_NAME", subject);
+        String pkColumn = requireMetadataString(rs, "PKCOLUMN_NAME", subject);
         OnDeleteAction action = mapJdbcDeleteRule(rs.getShort("DELETE_RULE"));
         out.put(fkColumn, new IntrospectedForeignKey(fkColumn, pkTable, pkColumn, action));
       }
