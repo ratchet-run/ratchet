@@ -39,6 +39,17 @@ final class PostgresqlJobWriteOperations {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       """;
 
+  private static final int IDX_HOT_STATUS = 0;
+  private static final int IDX_HOT_SCHEDULED_TIME = 1;
+  private static final int IDX_HOT_ATTEMPTS = 2;
+  private static final int IDX_HOT_PICKED_BY = 3;
+  private static final int IDX_HOT_PICKED_AT = 4;
+  private static final int IDX_HOT_PAUSED_FROM_STATUS = 5;
+  private static final int IDX_HOT_LAST_ERROR = 6;
+  private static final int IDX_HOT_VERSION = 7;
+  private static final int IDX_HOT_TERMINAL_STATUS = 8;
+  private static final int IDX_HOT_REC_STATUS = 9;
+
   private final PostgresqlStoreContext ctx;
   private final PostgresqlBusinessKeyReservations reservations;
   private final PostgresqlTagOperations tags;
@@ -466,9 +477,9 @@ final class PostgresqlJobWriteOperations {
     if (row == null) {
       throw new IllegalStateException("save() called on missing job id=" + id);
     }
-    String qStatus = (String) row[0];
-    String terminal = (String) row[8];
-    String recStatus = PostgresqlJobRowMapper.stringOrNull(row[9]);
+    String qStatus = (String) row[IDX_HOT_STATUS];
+    String terminal = (String) row[IDX_HOT_TERMINAL_STATUS];
+    String recStatus = PostgresqlJobRowMapper.stringOrNull(row[IDX_HOT_REC_STATUS]);
 
     if (qStatus != null) {
       JobStatus storedStatus = JobStatus.valueOf(qStatus);
@@ -477,17 +488,20 @@ final class PostgresqlJobWriteOperations {
           id,
           "scheduledTime",
           incoming.getScheduledTime(),
-          PostgresqlJobRowMapper.toInstant(row[1]));
-      Integer storedAttempts = ((Number) row[2]).intValue();
+          PostgresqlJobRowMapper.toInstant(row[IDX_HOT_SCHEDULED_TIME]));
+      Integer storedAttempts = ((Number) row[IDX_HOT_ATTEMPTS]).intValue();
       checkHotField(id, "attempts", incoming.getAttempts(), storedAttempts);
-      checkHotField(id, "pickedBy", incoming.getPickedBy(), row[3]);
+      checkHotField(id, "pickedBy", incoming.getPickedBy(), row[IDX_HOT_PICKED_BY]);
       checkHotField(
-          id, "pickedAt", incoming.getPickedAt(), PostgresqlJobRowMapper.toInstant(row[4]));
-      String pausedFrom = (String) row[5];
+          id,
+          "pickedAt",
+          incoming.getPickedAt(),
+          PostgresqlJobRowMapper.toInstant(row[IDX_HOT_PICKED_AT]));
+      String pausedFrom = (String) row[IDX_HOT_PAUSED_FROM_STATUS];
       JobStatus storedPausedFrom = pausedFrom != null ? JobStatus.valueOf(pausedFrom) : null;
       checkHotField(id, "pausedFromStatus", incoming.getPausedFromStatus(), storedPausedFrom);
-      checkHotField(id, "lastError", incoming.getLastError(), row[6]);
-      Integer storedVersion = ((Number) row[7]).intValue();
+      checkHotField(id, "lastError", incoming.getLastError(), row[IDX_HOT_LAST_ERROR]);
+      Integer storedVersion = ((Number) row[IDX_HOT_VERSION]).intValue();
       checkHotField(id, "version", incoming.getVersion(), storedVersion);
       return;
     }
@@ -534,23 +548,23 @@ final class PostgresqlJobWriteOperations {
     if (row == null) {
       return false;
     }
-    String hotStatusStr = (String) row[0];
-    String terminalStr = (String) row[8];
-    String recStatus = PostgresqlJobRowMapper.stringOrNull(row[9]);
+    String hotStatusStr = (String) row[IDX_HOT_STATUS];
+    String terminalStr = (String) row[IDX_HOT_TERMINAL_STATUS];
+    String recStatus = PostgresqlJobRowMapper.stringOrNull(row[IDX_HOT_REC_STATUS]);
     if (terminalStr != null || recStatus != null || hotStatusStr == null) {
       return false;
     }
 
     JobStatus storedStatus = JobStatus.valueOf(hotStatusStr);
-    Instant storedSched = PostgresqlJobRowMapper.toInstant(row[1]);
-    int storedAttempts = ((Number) row[2]).intValue();
-    Object storedPickedBy = row[3];
-    Instant storedPickedAt = PostgresqlJobRowMapper.toInstant(row[4]);
-    String storedPausedFromStr = (String) row[5];
+    Instant storedSched = PostgresqlJobRowMapper.toInstant(row[IDX_HOT_SCHEDULED_TIME]);
+    int storedAttempts = ((Number) row[IDX_HOT_ATTEMPTS]).intValue();
+    Object storedPickedBy = row[IDX_HOT_PICKED_BY];
+    Instant storedPickedAt = PostgresqlJobRowMapper.toInstant(row[IDX_HOT_PICKED_AT]);
+    String storedPausedFromStr = (String) row[IDX_HOT_PAUSED_FROM_STATUS];
     JobStatus storedPausedFrom =
         storedPausedFromStr != null ? JobStatus.valueOf(storedPausedFromStr) : null;
-    Object storedLastError = row[6];
-    int storedVersion = ((Number) row[7]).intValue();
+    Object storedLastError = row[IDX_HOT_LAST_ERROR];
+    int storedVersion = ((Number) row[IDX_HOT_VERSION]).intValue();
 
     boolean statusDiffers = incoming.getStatus() != null && incoming.getStatus() != storedStatus;
     boolean anyHotFieldDiffers =
