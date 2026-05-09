@@ -763,7 +763,7 @@ class MysqlJobStoreImpl implements MysqlJobStore {
             reads,
             new MysqlJobCountOperations(ctx),
             new MysqlJobDeleteOperations(ctx, reservations),
-            new MysqlJobWriteOperations(ctx, mapper, reservations, tags));
+            new MysqlJobWriteOperations(ctx, reservations, tags));
     query = new MysqlJobQueryOperations(ctx, mapper, tags);
     batches = new MysqlBatchOperations(ctx);
     claims = new MysqlJobClaimOperations(ctx, jobs);

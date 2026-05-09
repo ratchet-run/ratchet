@@ -41,17 +41,12 @@ final class MysqlJobWriteOperations {
       """;
 
   private final MysqlStoreContext ctx;
-  private final MysqlJobRowMapper mapper;
   private final MysqlBusinessKeyReservations reservations;
   private final MysqlTagOperations tags;
 
   MysqlJobWriteOperations(
-      MysqlStoreContext ctx,
-      MysqlJobRowMapper mapper,
-      MysqlBusinessKeyReservations reservations,
-      MysqlTagOperations tags) {
+      MysqlStoreContext ctx, MysqlBusinessKeyReservations reservations, MysqlTagOperations tags) {
     this.ctx = ctx;
-    this.mapper = mapper;
     this.reservations = reservations;
     this.tags = tags;
   }
@@ -208,19 +203,19 @@ final class MysqlJobWriteOperations {
         .setParameter(8, job.getCronExpr())
         .setParameter(9, job.getZoneId())
         .setParameter(10, job.getNextFire() != null ? Timestamp.from(job.getNextFire()) : null)
-        .setParameter(11, mapper.payloadToJson(job))
-        .setParameter(12, mapper.paramsToJson(job))
+        .setParameter(11, MysqlJobRowMapper.payloadToJson(job))
+        .setParameter(12, MysqlJobRowMapper.paramsToJson(job))
         .setParameter(13, job.getIdempotencyKey())
         .setParameter(14, job.getBusinessKey())
         .setParameter(15, job.getResourceName())
-        .setParameter(16, mapper.callbackPayloadToJson(job.getOnSuccessPayload()))
-        .setParameter(17, mapper.callbackPayloadToJson(job.getOnFailurePayload()))
+        .setParameter(16, MysqlJobRowMapper.callbackPayloadToJson(job.getOnSuccessPayload()))
+        .setParameter(17, MysqlJobRowMapper.callbackPayloadToJson(job.getOnFailurePayload()))
         .setParameter(18, UuidByteArrayConverter.toBytes(job.getDependsOn()))
         .setParameter(19, UuidByteArrayConverter.toBytes(job.getSupersededBy()))
         .setParameter(20, nowTs)
         .setParameter(21, job.getCallerPrincipal())
         .setParameter(22, recStatus)
-        .setParameter(23, mapper.traceContextToJson(job))
+        .setParameter(23, MysqlJobRowMapper.traceContextToJson(job))
         .executeUpdate();
   }
 
@@ -285,9 +280,9 @@ final class MysqlJobWriteOperations {
     ctx.em()
         .createNativeQuery(sql)
         .setParameter(1, job.getNextFire() != null ? Timestamp.from(job.getNextFire()) : null)
-        .setParameter(2, mapper.paramsToJson(job))
-        .setParameter(3, mapper.callbackPayloadToJson(job.getOnSuccessPayload()))
-        .setParameter(4, mapper.callbackPayloadToJson(job.getOnFailurePayload()))
+        .setParameter(2, MysqlJobRowMapper.paramsToJson(job))
+        .setParameter(3, MysqlJobRowMapper.callbackPayloadToJson(job.getOnSuccessPayload()))
+        .setParameter(4, MysqlJobRowMapper.callbackPayloadToJson(job.getOnFailurePayload()))
         .setParameter(5, UuidByteArrayConverter.toBytes(job.getDependsOn()))
         .setParameter(6, UuidByteArrayConverter.toBytes(job.getSupersededBy()))
         .setParameter(7, job.getResourceName())
@@ -307,13 +302,13 @@ final class MysqlJobWriteOperations {
     q.setParameter(i++, job.getCronExpr());
     q.setParameter(i++, job.getZoneId());
     q.setParameter(i++, job.getNextFire() != null ? Timestamp.from(job.getNextFire()) : null);
-    q.setParameter(i++, mapper.payloadToJson(job));
-    q.setParameter(i++, mapper.paramsToJson(job));
+    q.setParameter(i++, MysqlJobRowMapper.payloadToJson(job));
+    q.setParameter(i++, MysqlJobRowMapper.paramsToJson(job));
     q.setParameter(i++, job.getIdempotencyKey());
     q.setParameter(i++, job.getBusinessKey());
     q.setParameter(i++, job.getResourceName());
-    q.setParameter(i++, mapper.callbackPayloadToJson(job.getOnSuccessPayload()));
-    q.setParameter(i++, mapper.callbackPayloadToJson(job.getOnFailurePayload()));
+    q.setParameter(i++, MysqlJobRowMapper.callbackPayloadToJson(job.getOnSuccessPayload()));
+    q.setParameter(i++, MysqlJobRowMapper.callbackPayloadToJson(job.getOnFailurePayload()));
     q.setParameter(i++, UuidByteArrayConverter.toBytes(job.getDependsOn()));
     q.setParameter(i++, UuidByteArrayConverter.toBytes(job.getSupersededBy()));
     q.setParameter(i++, nowTs);
@@ -325,7 +320,7 @@ final class MysqlJobWriteOperations {
       recStatus = rec != null ? rec : "P";
     }
     q.setParameter(i++, recStatus);
-    q.setParameter(i, mapper.traceContextToJson(job));
+    q.setParameter(i, MysqlJobRowMapper.traceContextToJson(job));
   }
 
   private void bindHotInsert(Query q, JobEntity job, Timestamp nowTs) {
