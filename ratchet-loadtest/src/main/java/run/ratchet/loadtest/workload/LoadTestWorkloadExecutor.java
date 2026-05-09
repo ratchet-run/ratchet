@@ -118,6 +118,30 @@ public class LoadTestWorkloadExecutor {
     }
   }
 
+  private static int parseInt(String name, String raw) {
+    try {
+      return Integer.parseInt(raw);
+    } catch (NumberFormatException e) {
+      throw new IllegalArgumentException(name + " must be a valid integer: " + raw, e);
+    }
+  }
+
+  private static long parseLong(String name, String raw) {
+    try {
+      return Long.parseLong(raw);
+    } catch (NumberFormatException e) {
+      throw new IllegalArgumentException(name + " must be a valid long: " + raw, e);
+    }
+  }
+
+  private static double parseDouble(String name, String raw) {
+    try {
+      return Double.parseDouble(raw);
+    } catch (NumberFormatException e) {
+      throw new IllegalArgumentException(name + " must be a valid decimal: " + raw, e);
+    }
+  }
+
   public void execute(
       String runId,
       String workload,
@@ -133,12 +157,12 @@ public class LoadTestWorkloadExecutor {
         new WorkloadSpec(
             runId,
             WorkloadType.parse(workload),
-            Integer.parseInt(sequence),
-            Long.parseLong(sleepMs),
-            Long.parseLong(sleepJitterMs),
-            Double.parseDouble(sleepSpikeRate),
-            Long.parseLong(sleepSpikeMs),
-            Double.parseDouble(failureRate),
+            parseInt("sequence", sequence),
+            parseLong("sleepMs", sleepMs),
+            parseLong("sleepJitterMs", sleepJitterMs),
+            parseDouble("sleepSpikeRate", sleepSpikeRate),
+            parseLong("sleepSpikeMs", sleepSpikeMs),
+            parseDouble("failureRate", failureRate),
             payload));
   }
 

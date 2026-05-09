@@ -55,13 +55,13 @@ public class RunStatusService {
 
   public ClusterStatusResponse cluster() {
     ClusterStatusResponse response = new ClusterStatusResponse();
-    response.nodeId = nodeIdentityProvider.getNodeId();
-    response.activeNodes = jobStore.countActiveNodes();
-    response.readyJobs = jobStore.countReadyJobs(Instant.now());
-    response.pendingJobs = jobStore.countPendingJobs();
-    response.checkedAt = Instant.now();
+    response.setNodeId(nodeIdentityProvider.getNodeId());
+    response.setActiveNodes(jobStore.countActiveNodes());
+    response.setReadyJobs(jobStore.countReadyJobs(Instant.now()));
+    response.setPendingJobs(jobStore.countPendingJobs());
+    response.setCheckedAt(Instant.now());
     for (JobStatus status : JobStatus.values()) {
-      response.statusCounts.put(status.name(), jobStore.countJobsByStatus(status));
+      response.getStatusCounts().put(status.name(), jobStore.countJobsByStatus(status));
     }
     return response;
   }

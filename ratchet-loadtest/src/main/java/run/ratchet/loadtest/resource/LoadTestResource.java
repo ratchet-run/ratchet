@@ -82,7 +82,7 @@ public class LoadTestResource {
   @Path("/node")
   public Response node() {
     NodeResponse response = new NodeResponse(nodeIdentityProvider.getNodeId(), Instant.now());
-    return Response.ok(response).header("X-Ratchet-Node-Id", response.nodeId).build();
+    return Response.ok(response).header("X-Ratchet-Node-Id", response.getNodeId()).build();
   }
 
   @GET
@@ -94,7 +94,7 @@ public class LoadTestResource {
   @POST
   @Path("/reset")
   public Object reset(ResetRequest request) {
-    String runId = request == null ? null : request.runId;
+    String runId = request == null ? null : request.getRunId();
     return resetService.reset(runId);
   }
 }

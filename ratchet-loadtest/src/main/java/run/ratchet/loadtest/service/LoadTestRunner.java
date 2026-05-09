@@ -56,19 +56,19 @@ public class LoadTestRunner {
 
   public RunMetadata start(StartRunRequest request) {
     StartRunRequest req = request == null ? new StartRunRequest() : request;
-    int jobs = validateJobs(req.jobs);
+    int jobs = validateJobs(req.getJobs());
     JobConfig config =
         new JobConfig(
-            WorkloadType.parse(req.workload),
-            Math.max(0, req.sleepMs),
-            Math.max(0, req.sleepJitterMs),
-            Math.max(0.0, Math.min(1.0, req.sleepSpikeRate)),
-            Math.max(0, req.sleepSpikeMs),
-            Math.max(0.0, Math.min(1.0, req.failureRate)),
-            payload(Math.max(0, req.payloadBytes)),
-            Math.max(0, req.maxRetries),
-            parsePriority(req.priority),
-            Duration.ofSeconds(Math.max(1, req.timeoutSeconds)));
+            WorkloadType.parse(req.getWorkload()),
+            Math.max(0, req.getSleepMs()),
+            Math.max(0, req.getSleepJitterMs()),
+            Math.max(0.0, Math.min(1.0, req.getSleepSpikeRate())),
+            Math.max(0, req.getSleepSpikeMs()),
+            Math.max(0.0, Math.min(1.0, req.getFailureRate())),
+            payload(Math.max(0, req.getPayloadBytes())),
+            Math.max(0, req.getMaxRetries()),
+            parsePriority(req.getPriority()),
+            Duration.ofSeconds(Math.max(1, req.getTimeoutSeconds())));
 
     String runId = UUID.randomUUID().toString();
     String acceptedNodeId = nodeIdentityProvider.getNodeId();
@@ -87,23 +87,30 @@ public class LoadTestRunner {
     EnqueueJobRequest req = request == null ? new EnqueueJobRequest() : request;
     JobConfig config =
         new JobConfig(
-            WorkloadType.parse(req.workload),
-            Math.max(0, req.sleepMs),
-            Math.max(0, req.sleepJitterMs),
-            Math.max(0.0, Math.min(1.0, req.sleepSpikeRate)),
-            Math.max(0, req.sleepSpikeMs),
-            Math.max(0.0, Math.min(1.0, req.failureRate)),
-            payload(Math.max(0, req.payloadBytes)),
-            Math.max(0, req.maxRetries),
-            parsePriority(req.priority),
-            Duration.ofSeconds(Math.max(1, req.timeoutSeconds)));
+            WorkloadType.parse(req.getWorkload()),
+            Math.max(0, req.getSleepMs()),
+            Math.max(0, req.getSleepJitterMs()),
+            Math.max(0.0, Math.min(1.0, req.getSleepSpikeRate())),
+            Math.max(0, req.getSleepSpikeMs()),
+            Math.max(0.0, Math.min(1.0, req.getFailureRate())),
+            payload(Math.max(0, req.getPayloadBytes())),
+            Math.max(0, req.getMaxRetries()),
+            parsePriority(req.getPriority()),
+            Duration.ofSeconds(Math.max(1, req.getTimeoutSeconds())));
     String runId =
-        req.runId == null || req.runId.isBlank() ? UUID.randomUUID().toString() : req.runId;
+        req.getRunId() == null || req.getRunId().isBlank()
+            ? UUID.randomUUID().toString()
+            : req.getRunId();
     String acceptedNodeId = nodeIdentityProvider.getNodeId();
-    JobHandle handle = submitJob(runId, req.sequence, config, acceptedNodeId);
+    JobHandle handle = submitJob(runId, req.getSequence(), config, acceptedNodeId);
     recordSubmitted(config.workload().name(), "http", 1);
     return new JobEnqueuedResponse(
-        runId, handle.id(), req.sequence, config.workload().name(), acceptedNodeId, Instant.now());
+        runId,
+        handle.id(),
+        req.getSequence(),
+        config.workload().name(),
+        acceptedNodeId,
+        Instant.now());
   }
 
   private JobHandle submitJob(String runId, int sequence, JobConfig config, String acceptedNodeId) {

@@ -2,16 +2,112 @@ package run.ratchet.loadtest.api;
 
 public class EnqueueJobRequest {
 
-  public String runId;
-  public int sequence = 0;
-  public String workload = "noop";
-  public long sleepMs = 5;
-  public long sleepJitterMs = 0;
-  public double sleepSpikeRate = 0.0;
-  public long sleepSpikeMs = 0;
-  public double failureRate = 0.0;
-  public int payloadBytes = 0;
-  public int maxRetries = 0;
-  public String priority = "NORMAL";
-  public long timeoutSeconds = 60;
+  private String runId;
+  private int sequence;
+  private String workload = "noop";
+  private long sleepMs = 5;
+  private long sleepJitterMs;
+  private double sleepSpikeRate;
+  private long sleepSpikeMs;
+  private double failureRate;
+  private int payloadBytes;
+  private int maxRetries;
+  private String priority = "NORMAL";
+  private long timeoutSeconds = 60;
+
+  public String getRunId() {
+    return runId;
+  }
+
+  public void setRunId(String runId) {
+    this.runId = runId;
+  }
+
+  public int getSequence() {
+    return sequence;
+  }
+
+  public void setSequence(int sequence) {
+    this.sequence = sequence;
+  }
+
+  public String getWorkload() {
+    return workload;
+  }
+
+  public void setWorkload(String workload) {
+    this.workload = workload;
+  }
+
+  public long getSleepMs() {
+    return sleepMs;
+  }
+
+  public void setSleepMs(long sleepMs) {
+    this.sleepMs = sleepMs;
+  }
+
+  public long getSleepJitterMs() {
+    return sleepJitterMs;
+  }
+
+  public void setSleepJitterMs(long sleepJitterMs) {
+    this.sleepJitterMs = sleepJitterMs;
+  }
+
+  public double getSleepSpikeRate() {
+    return sleepSpikeRate;
+  }
+
+  public void setSleepSpikeRate(double sleepSpikeRate) {
+    this.sleepSpikeRate = sleepSpikeRate;
+  }
+
+  public long getSleepSpikeMs() {
+    return sleepSpikeMs;
+  }
+
+  public void setSleepSpikeMs(long sleepSpikeMs) {
+    this.sleepSpikeMs = sleepSpikeMs;
+  }
+
+  public double getFailureRate() {
+    return failureRate;
+  }
+
+  public void setFailureRate(double failureRate) {
+    this.failureRate = failureRate;
+  }
+
+  public int getPayloadBytes() {
+    return payloadBytes;
+  }
+
+  public void setPayloadBytes(int payloadBytes) {
+    this.payloadBytes = payloadBytes;
+  }
+
+  public int getMaxRetries() {
+    return maxRetries;
+  }
+
+  public void setMaxRetries(int maxRetries) {
+    this.maxRetries = maxRetries;
+  }
+
+  public String getPriority() {
+    return priority;
+  }
+
+  public void setPriority(String priority) {
+    this.priority = priority;
+  }
+
+  public long getTimeoutSeconds() {
+    return timeoutSeconds;
+  }
+
+  public void setTimeoutSeconds(long timeoutSeconds) {
+    this.timeoutSeconds = timeoutSeconds;
+  }
 }
