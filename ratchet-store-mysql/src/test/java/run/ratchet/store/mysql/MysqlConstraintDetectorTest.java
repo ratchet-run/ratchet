@@ -51,6 +51,26 @@ class MysqlConstraintDetectorTest {
   }
 
   @Test
+  void detectsDuplicateBusinessKeyFromReservationConstraint() {
+    Exception wrapped =
+        new RuntimeException(
+            "hibernate",
+            new SQLException(
+                "Duplicate entry 'order-1' for key 'scheduler_business_key_reservation.PRIMARY'"));
+
+    assertTrue(detector.isDuplicateBusinessKey(wrapped));
+  }
+
+  @Test
+  void ignoresDuplicateKeyFromOtherConstraintAsBusinessKey() {
+    Exception wrapped =
+        new RuntimeException(
+            "hibernate", new SQLException("Duplicate entry 'abc' for key 'uq_job_key'"));
+
+    assertFalse(detector.isDuplicateBusinessKey(wrapped));
+  }
+
+  @Test
   void detectsDeadlockByErrorCodeThroughWrappers() {
     Exception wrapped =
         new RuntimeException(

@@ -60,6 +60,29 @@ class PostgresqlConstraintDetectorTest {
   }
 
   @Test
+  void detectsDuplicateBusinessKeyFromReservationConstraint() {
+    Exception wrapped =
+        new RuntimeException(
+            "hibernate",
+            new SQLException(
+                "duplicate key value violates unique constraint \"scheduler_business_key_reservation_pkey\"",
+                "23505"));
+
+    assertTrue(detector.isDuplicateBusinessKey(wrapped));
+  }
+
+  @Test
+  void ignoresDuplicateKeyFromOtherConstraintAsBusinessKey() {
+    Exception wrapped =
+        new RuntimeException(
+            "hibernate",
+            new SQLException(
+                "duplicate key value violates unique constraint \"uq_job_key\"", "23505"));
+
+    assertFalse(detector.isDuplicateBusinessKey(wrapped));
+  }
+
+  @Test
   void detectsDeadlockThroughWrappers() {
     Exception wrapped = new RuntimeException("hibernate", new SQLException("deadlock", "40P01"));
 

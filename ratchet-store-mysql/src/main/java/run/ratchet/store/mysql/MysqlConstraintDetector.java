@@ -49,19 +49,6 @@ class MysqlConstraintDetector implements ConstraintDetector {
     return false;
   }
 
-  /**
-   * Returns true if the exception was raised by a unique-constraint violation on {@code
-   * scheduler_business_key_reservation.business_key} (PRIMARY KEY). Use to translate the bkres
-   * insert race to {@code DuplicateBusinessKeyException}.
-   */
-  public boolean isDuplicateBusinessKey(Exception e) {
-    if (!isDuplicateKey(e)) {
-      return false;
-    }
-    String name = constraintName(e);
-    return name != null && name.contains("scheduler_business_key_reservation");
-  }
-
   @Override
   public boolean isDeadlock(Exception e) {
     Throwable current = e;
