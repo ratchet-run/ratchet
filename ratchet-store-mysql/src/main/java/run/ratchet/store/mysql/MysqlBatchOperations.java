@@ -84,6 +84,9 @@ final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
   }
 
   private BatchProgress incrementAtomic(UUID batchId, BatchCounter counter) {
+    // MySQL 8.0 does not support UPDATE ... RETURNING. Keep the row locked from the
+    // snapshot read through the counter update so the returned BatchProgress reflects
+    // the exact increment applied by this transaction.
     // language=MySQL
     String selectSql =
         """
