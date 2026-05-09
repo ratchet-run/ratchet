@@ -38,7 +38,6 @@ import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.ri.security.JobPayloadInputValidator;
 import run.ratchet.spi.JobAuthorizationPolicy;
-import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.entity.JobEntity;
@@ -90,34 +89,58 @@ class DefaultJobCreationServiceAuthorizationTest {
     return e;
   }
 
+  private static CallerPrincipalProvider principalProviderReturning(String principal) {
+    return new CallerPrincipalProvider(null) {
+      @Override
+      public Optional<String> currentPrincipal() {
+        return Optional.of(principal);
+      }
+    };
+  }
+
+  private DefaultJobCreationService serviceWith(
+      CallerPrincipalProvider principalProvider,
+      JobAuthorizationPolicy authorizationPolicy,
+      InternalEventPublisher eventPublisher,
+      MetricsCollector metricsCollector,
+      Clock clock) {
+    return new DefaultJobCreationService(
+        jobBatchStatusStore,
+        jobTerminalStore,
+        jobCrudStore,
+        batchStore,
+        tagStore,
+        workflowConditionStore,
+        wakeupService,
+        recurringScheduler,
+        new DefaultJobInvocationResolver(),
+        new JobPayloadInputValidator(),
+        principalProvider,
+        tracingCollector,
+        authorizationPolicy,
+        eventPublisher,
+        metricsCollector,
+        clock);
+  }
+
+  private DefaultJobCreationService serviceWithoutAuthorizationPolicy() {
+    return new DefaultJobCreationService(
+        jobBatchStatusStore,
+        jobTerminalStore,
+        jobCrudStore,
+        batchStore,
+        tagStore,
+        workflowConditionStore,
+        wakeupService,
+        recurringScheduler);
+  }
+
   @BeforeEach
   void setUp() {
     wakeupService = new NoopJobWakeupService();
-
-    CallerPrincipalProvider principalProvider =
-        new CallerPrincipalProvider(null) {
-          @Override
-          public Optional<String> currentPrincipal() {
-            return Optional.of(CAPTURED_PRINCIPAL);
-          }
-        };
-
-    JobInvocationResolver resolver = new DefaultJobInvocationResolver();
-
     service =
-        new DefaultJobCreationService(
-            jobBatchStatusStore,
-            jobTerminalStore,
-            jobCrudStore,
-            batchStore,
-            tagStore,
-            workflowConditionStore,
-            wakeupService,
-            recurringScheduler,
-            resolver,
-            new JobPayloadInputValidator(),
-            principalProvider,
-            tracingCollector,
+        serviceWith(
+            principalProviderReturning(CAPTURED_PRINCIPAL),
             authorizationPolicy,
             eventPublisher,
             metricsCollector,
@@ -184,16 +207,7 @@ class DefaultJobCreationServiceAuthorizationTest {
   @Test
   void checkCreate_nullPolicyIsToleratedWithoutException() {
     // Use the 8-param constructor which sets authorizationPolicy = null
-    DefaultJobCreationService nullPolicyService =
-        new DefaultJobCreationService(
-            jobBatchStatusStore,
-            jobTerminalStore,
-            jobCrudStore,
-            batchStore,
-            tagStore,
-            workflowConditionStore,
-            wakeupService,
-            recurringScheduler);
+    DefaultJobCreationService nullPolicyService = serviceWithoutAuthorizationPolicy();
 
     JobEntity saved = savedEntity();
     when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
@@ -212,21 +226,10 @@ class DefaultJobCreationServiceAuthorizationTest {
 
   @Test
   void checkCreate_systemJob_nullPrincipalPassedThrough() {
-    // Provider returns empty = system-initiated job
+    // No provider = system-initiated job
     DefaultJobCreationService systemService =
-        new DefaultJobCreationService(
-            jobBatchStatusStore,
-            jobTerminalStore,
-            jobCrudStore,
-            batchStore,
-            tagStore,
-            workflowConditionStore,
-            wakeupService,
-            recurringScheduler,
-            new DefaultJobInvocationResolver(),
-            new JobPayloadInputValidator(),
+        serviceWith(
             null, // no CallerPrincipalProvider
-            tracingCollector,
             authorizationPolicy,
             null,
             null,
@@ -272,19 +275,8 @@ class DefaultJobCreationServiceAuthorizationTest {
   void signalDeadlineIsComputedAtSubmitTimeWithInjectedClock() {
     Instant fixedNow = Instant.parse("2026-05-06T10:15:30Z");
     DefaultJobCreationService fixedClockService =
-        new DefaultJobCreationService(
-            jobBatchStatusStore,
-            jobTerminalStore,
-            jobCrudStore,
-            batchStore,
-            tagStore,
-            workflowConditionStore,
-            wakeupService,
-            recurringScheduler,
-            new DefaultJobInvocationResolver(),
-            new JobPayloadInputValidator(),
+        serviceWith(
             null,
-            tracingCollector,
             authorizationPolicy,
             eventPublisher,
             metricsCollector,
