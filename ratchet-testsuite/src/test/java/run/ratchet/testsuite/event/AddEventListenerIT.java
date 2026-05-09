@@ -1,5 +1,6 @@
 package run.ratchet.testsuite.event;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -66,8 +67,9 @@ class AddEventListenerIT extends BaseRatchetIT {
 
     boolean eventReceived = latch.await(10, TimeUnit.SECONDS);
     assertTrue(eventReceived, "Programmatic listener should have received JobCompletedEvent");
-    assertTrue(
-        received.stream().anyMatch(e -> e instanceof JobCompletedEvent),
-        "Received events should contain JobCompletedEvent");
+    assertEquals(
+        1,
+        received.stream().filter(e -> e instanceof JobCompletedEvent).count(),
+        "Listener should receive exactly one JobCompletedEvent");
   }
 }

@@ -45,23 +45,58 @@ class DlqPurgeIT extends BaseRatchetIT {
 
   @Test
   void deleteDlqOlderThan_shouldPurgeFailedJobsRegardlessOfExecutionType() {
-    JobEntity staleFailed = persistFailedJob();
-    JobEntity freshFailed = persistFailedJob();
+    JobEntity staleSingle = persistFailedJob(JobExecutionType.SINGLE);
+    JobEntity staleRecurring = persistFailedJob(JobExecutionType.RECURRING);
+    JobEntity staleBatchChild = persistFailedJob(JobExecutionType.BATCH_CHILD);
+    JobEntity freshFailed = persistFailedJob(JobExecutionType.SINGLE);
+    JobEntity exactCutoffFailed = persistFailedJob(JobExecutionType.SINGLE);
 
     Instant cutoff = Instant.now().minus(Duration.ofDays(2));
-    dataManipulator.setJobUpdatedAt(staleFailed.getId(), cutoff.minus(Duration.ofHours(1)));
+    dataManipulator.setJobUpdatedAt(staleSingle.getId(), cutoff.minus(Duration.ofHours(1)));
+    dataManipulator.setJobUpdatedAt(staleRecurring.getId(), cutoff.minus(Duration.ofHours(1)));
+    dataManipulator.setJobUpdatedAt(staleBatchChild.getId(), cutoff.minus(Duration.ofHours(1)));
     dataManipulator.setJobUpdatedAt(freshFailed.getId(), cutoff.plus(Duration.ofHours(1)));
+    dataManipulator.setJobUpdatedAt(exactCutoffFailed.getId(), cutoff);
 
     int deleted = jobBulkStore.deleteDlqOlderThan(cutoff);
 
-    assertEquals(1, deleted);
-    assertFalse(jobCrudStore.findById(staleFailed.getId()).isPresent());
+    assertEquals(3, deleted);
+    assertFalse(jobCrudStore.findById(staleSingle.getId()).isPresent());
+    assertFalse(jobCrudStore.findById(staleRecurring.getId()).isPresent());
+    assertFalse(jobCrudStore.findById(staleBatchChild.getId()).isPresent());
     assertTrue(jobCrudStore.findById(freshFailed.getId()).isPresent());
+    assertTrue(
+        jobCrudStore.findById(exactCutoffFailed.getId()).isPresent(),
+        "deleteDlqOlderThan uses an exclusive cutoff");
   }
 
-  private JobEntity persistFailedJob() {
+  @Test
+  void deleteDlqOlderThan_whenNoJobsMatch_shouldReturnZero() {
+    Instant cutoff = Instant.now().minus(Duration.ofDays(2));
+
+    int deleted = jobBulkStore.deleteDlqOlderThan(cutoff);
+
+    assertEquals(0, deleted);
+  }
+
+  @Test
+  void deleteDlqOlderThan_whenAllJobsAreStale_shouldDeleteAll() {
+    JobEntity first = persistFailedJob(JobExecutionType.SINGLE);
+    JobEntity second = persistFailedJob(JobExecutionType.RECURRING);
+    Instant cutoff = Instant.now().minus(Duration.ofDays(2));
+    dataManipulator.setJobUpdatedAt(first.getId(), cutoff.minus(Duration.ofHours(1)));
+    dataManipulator.setJobUpdatedAt(second.getId(), cutoff.minus(Duration.ofHours(1)));
+
+    int deleted = jobBulkStore.deleteDlqOlderThan(cutoff);
+
+    assertEquals(2, deleted);
+    assertFalse(jobCrudStore.findById(first.getId()).isPresent());
+    assertFalse(jobCrudStore.findById(second.getId()).isPresent());
+  }
+
+  private JobEntity persistFailedJob(JobExecutionType executionType) {
     JobEntity job = new JobEntity();
-    job.setJobType(JobExecutionType.SINGLE);
+    job.setJobType(executionType);
     job.setStatus(JobStatus.FAILED);
     job.setPriority(JobPriority.NORMAL);
     job.setScheduledTime(Instant.now().minusSeconds(5));

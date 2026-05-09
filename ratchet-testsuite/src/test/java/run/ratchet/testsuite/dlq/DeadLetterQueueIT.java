@@ -102,6 +102,8 @@ class DeadLetterQueueIT extends BaseRatchetIT {
 
     // Job should re-execute and succeed (FailOnceJob only fails once)
     JobAssertions.assertJobCompleted(jobCrudStore, handle);
+    assertEquals(
+        2, FailOnceJob.getAttemptCount(), "Job should execute once before and once after retry");
 
     // Verify the job was cleaned up
     var succeededJob = jobCrudStore.findById(handle.id());
@@ -111,6 +113,16 @@ class DeadLetterQueueIT extends BaseRatchetIT {
         succeededJob.get().getLastError(), "lastError should be cleared after successful retry");
     assertEquals(
         0, succeededJob.get().getAttempts(), "Attempts should be reset before re-execution");
+  }
+
+  @Test
+  void pendingJob_pauseShouldSucceed() {
+    JobHandle handle =
+        jobService.schedule(Duration.ofMinutes(5), FailingJob::execute).withMaxRetries(0).submit();
+
+    assertNotNull(handle);
+    assertTrue(jobService.pauseJob(handle.id()), "pauseJob should pause a pending job");
+    JobAssertions.assertJobStatus(jobCrudStore, handle, JobStatus.PAUSED);
   }
 
   @Test

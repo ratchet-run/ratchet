@@ -12,7 +12,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.event.JobCompletedEvent;
+import run.ratchet.api.event.JobDlqEvent;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.testsuite.app.FailingJob;
 import run.ratchet.testsuite.app.SimpleJob;
 import run.ratchet.testsuite.app.TestJobService;
 import run.ratchet.testsuite.observer.EventCapture;
@@ -35,7 +37,7 @@ class CdiEventObserverIT extends BaseRatchetIT {
 
     return RatchetArchiveBuilder.create()
         .addRatchetDependencies(profile, dbType)
-        .addClasses(SimpleJob.class, TestJobService.class, EventCapture.class)
+        .addClasses(SimpleJob.class, FailingJob.class, TestJobService.class, EventCapture.class)
         .addStoreInfrastructure()
         .addBeansXml()
         .build();
@@ -44,6 +46,7 @@ class CdiEventObserverIT extends BaseRatchetIT {
   @BeforeEach
   void resetState() {
     SimpleJob.resetCount();
+    FailingJob.resetCount();
     eventCapture.clear();
   }
 
@@ -57,5 +60,21 @@ class CdiEventObserverIT extends BaseRatchetIT {
     boolean received = eventCapture.awaitEvent(JobCompletedEvent.class, Duration.ofSeconds(10));
     assertTrue(received, "Should have received JobCompletedEvent");
     assertFalse(eventCapture.getEvents(JobCompletedEvent.class).isEmpty());
+  }
+
+  @Test
+  void failedJob_shouldFireJobDlqEvent() throws InterruptedException {
+    JobHandle handle = jobService.enqueue(FailingJob::execute).withMaxRetries(0).submit();
+
+    assertNotNull(handle);
+    JobAssertions.assertJobFailed(jobCrudStore, handle);
+
+    boolean received = eventCapture.awaitEvent(JobDlqEvent.class, Duration.ofSeconds(10));
+    assertTrue(received, "Should have received JobDlqEvent");
+    var events = eventCapture.getEvents(JobDlqEvent.class);
+    assertFalse(events.isEmpty());
+    assertTrue(
+        events.stream().anyMatch(event -> handle.id().equals(event.getJobId())),
+        "JobDlqEvent should reference the failed job");
   }
 }
