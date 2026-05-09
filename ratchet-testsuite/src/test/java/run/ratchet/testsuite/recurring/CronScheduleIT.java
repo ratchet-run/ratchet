@@ -3,10 +3,12 @@ package run.ratchet.testsuite.recurring;
 import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.inject.Inject;
 import java.time.Duration;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
@@ -75,5 +77,39 @@ class CronScheduleIT extends BaseRatchetIT {
     assertEquals(JobExecutionType.RECURRING, recurringJob.getJobType());
     assertEquals(JobStatus.PENDING, recurringJob.getStatus());
     assertNotNull(recurringJob.getNextFire());
+  }
+
+  @Test
+  void scheduleRecurring_withInvalidCron_shouldThrow() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            jobService
+                .scheduleRecurring("not a cron", ZoneOffset.UTC, CronTestJobs::tick)
+                .submit());
+  }
+
+  @Test
+  void scheduleRecurring_withNullTask_shouldThrow() {
+    assertThrows(
+        NullPointerException.class,
+        () -> jobService.scheduleRecurring("0 * * * * ?", ZoneOffset.UTC, null).submit());
+  }
+
+  @Test
+  void scheduleRecurring_withHourlyCron_shouldSubmit() {
+    JobHandle handle =
+        jobService.scheduleRecurring("0 0 * * * ?", ZoneOffset.UTC, CronTestJobs::tick).submit();
+
+    assertNotNull(handle.id());
+  }
+
+  @Test
+  void scheduleRecurring_withDailyCronAndNamedZone_shouldSubmit() {
+    ZoneId zone = ZoneId.of("America/New_York");
+    JobHandle handle =
+        jobService.scheduleRecurring("0 0 0 * * ?", zone, CronTestJobs::tick).submit();
+
+    assertNotNull(handle.id());
   }
 }

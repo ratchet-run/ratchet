@@ -11,6 +11,8 @@ import run.ratchet.api.Recurring;
 @ApplicationScoped
 public class TestRecurringJobs {
 
+  public static final String EVERY_FIVE_SECONDS_JOB_ID = "test-every-5-seconds";
+
   private static final AtomicInteger EVERY_FIVE_SECONDS_COUNT = new AtomicInteger(0);
 
   public static int getEveryFiveSecondsCount() {
@@ -21,7 +23,7 @@ public class TestRecurringJobs {
     EVERY_FIVE_SECONDS_COUNT.set(0);
   }
 
-  @Recurring(cron = "*/5 * * * * ?", id = "test-every-5-seconds")
+  @Recurring(cron = "*/5 * * * * ?", id = EVERY_FIVE_SECONDS_JOB_ID)
   public void everyFiveSeconds() {
     EVERY_FIVE_SECONDS_COUNT.incrementAndGet();
   }

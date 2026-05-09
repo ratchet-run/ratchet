@@ -1,6 +1,8 @@
 package run.ratchet.testsuite.recurring;
 
 import static org.awaitility.Awaitility.await;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.inject.Inject;
@@ -10,7 +12,9 @@ import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobStatus;
 import run.ratchet.ri.core.RecurringScheduler;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.testsuite.app.TestJobService;
 import run.ratchet.testsuite.app.TestRecurringJobs;
@@ -22,8 +26,6 @@ import run.ratchet.testsuite.util.RatchetArchiveBuilder;
  * scheduled for execution.
  */
 class RecurringAnnotationIT extends BaseRatchetIT {
-
-  @Inject private TestJobService jobService;
 
   @Inject private JobCrudStore jobCrudStore;
 
@@ -54,16 +56,24 @@ class RecurringAnnotationIT extends BaseRatchetIT {
 
   @Test
   void recurringAnnotation_shouldBeDiscoveredAndScheduled() {
-    // The @Recurring(cron = "*/5 * * * * ?") method should fire quickly after deployment.
+    // The @Recurring(cron = "*/5 * * * * ?") method should fire repeatedly after deployment.
     await()
-        .atMost(Duration.ofSeconds(15))
+        .atMost(Duration.ofSeconds(20))
         .pollInterval(Duration.ofSeconds(1))
         .untilAsserted(
             () ->
                 assertTrue(
-                    TestRecurringJobs.getEveryFiveSecondsCount() >= 1,
-                    "Expected @Recurring method to fire at least once but count was "
+                    TestRecurringJobs.getEveryFiveSecondsCount() >= 2,
+                    "Expected @Recurring method to fire at least twice but count was "
                         + TestRecurringJobs.getEveryFiveSecondsCount()));
+
+    var recurringJob =
+        jobCrudStore
+            .findActiveByBusinessKey(TestRecurringJobs.EVERY_FIVE_SECONDS_JOB_ID)
+            .orElseThrow();
+    assertEquals(JobExecutionType.RECURRING, recurringJob.getJobType());
+    assertEquals(JobStatus.PENDING, recurringJob.getStatus());
+    assertNotNull(recurringJob.getNextFire());
   }
 
   @Override
