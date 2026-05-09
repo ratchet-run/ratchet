@@ -5,6 +5,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.spi.LockStore;
@@ -20,6 +21,9 @@ final class PostgresqlNodeLockOperations implements LockStore, NodeStore {
 
   @Override
   public boolean tryLock(String name, Duration ttl, String nodeId) {
+    requireLockName(name);
+    requirePositiveDuration(ttl, "ttl");
+    Objects.requireNonNull(nodeId, "nodeId");
     long ttlSeconds = ttl.toSeconds();
     // language=PostgreSQL
     String sql =
@@ -48,6 +52,8 @@ final class PostgresqlNodeLockOperations implements LockStore, NodeStore {
 
   @Override
   public void unlock(String name, String nodeId) {
+    requireLockName(name);
+    Objects.requireNonNull(nodeId, "nodeId");
     // language=PostgreSQL
     String sql = "DELETE FROM scheduler_lock WHERE lock_name = ? AND owner_node = ?";
     ctx.em().createNativeQuery(sql).setParameter(1, name).setParameter(2, nodeId).executeUpdate();
@@ -55,6 +61,9 @@ final class PostgresqlNodeLockOperations implements LockStore, NodeStore {
 
   @Override
   public boolean renewLock(String name, Duration extension, String nodeId) {
+    requireLockName(name);
+    requirePositiveDuration(extension, "extension");
+    Objects.requireNonNull(nodeId, "nodeId");
     long extensionSeconds = extension.toSeconds();
     // language=PostgreSQL
     String sql =
@@ -71,6 +80,20 @@ final class PostgresqlNodeLockOperations implements LockStore, NodeStore {
             .setParameter(3, nodeId)
             .executeUpdate();
     return updated > 0;
+  }
+
+  private static void requireLockName(String name) {
+    Objects.requireNonNull(name, "name");
+    if (name.isBlank()) {
+      throw new IllegalArgumentException("name must be non-empty");
+    }
+  }
+
+  private static void requirePositiveDuration(Duration duration, String parameterName) {
+    Objects.requireNonNull(duration, parameterName);
+    if (duration.isZero() || duration.isNegative()) {
+      throw new IllegalArgumentException(parameterName + " must be positive");
+    }
   }
 
   @Override

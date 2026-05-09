@@ -24,6 +24,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import org.bson.Document;
 import run.ratchet.store.entity.NodeEntity;
@@ -49,6 +50,9 @@ final class MongoNodeLockOperations implements LockStore, NodeStore {
 
   @Override
   public boolean tryLock(String name, Duration ttl, String nodeId) {
+    requireLockName(name);
+    requirePositiveDuration(ttl, "ttl");
+    Objects.requireNonNull(nodeId, "nodeId");
     Date now = DocumentMapper.toDate(Instant.now());
     Date expiresAt = DocumentMapper.toDate(Instant.now().plus(ttl));
 
@@ -74,16 +78,35 @@ final class MongoNodeLockOperations implements LockStore, NodeStore {
 
   @Override
   public void unlock(String name, String nodeId) {
+    requireLockName(name);
+    Objects.requireNonNull(nodeId, "nodeId");
     ctx.locks().deleteOne(and(eq(ID, name), eq(OWNER_NODE, nodeId)));
   }
 
   @Override
   public boolean renewLock(String name, Duration extension, String nodeId) {
+    requireLockName(name);
+    requirePositiveDuration(extension, "extension");
+    Objects.requireNonNull(nodeId, "nodeId");
     Date newExpiry = DocumentMapper.toDate(Instant.now().plus(extension));
     UpdateResult result =
         ctx.locks()
             .updateOne(and(eq(ID, name), eq(OWNER_NODE, nodeId)), set(EXPIRES_AT, newExpiry));
     return result.getModifiedCount() > 0;
+  }
+
+  private static void requireLockName(String name) {
+    Objects.requireNonNull(name, "name");
+    if (name.isBlank()) {
+      throw new IllegalArgumentException("name must be non-empty");
+    }
+  }
+
+  private static void requirePositiveDuration(Duration duration, String parameterName) {
+    Objects.requireNonNull(duration, parameterName);
+    if (duration.isZero() || duration.isNegative()) {
+      throw new IllegalArgumentException(parameterName + " must be positive");
+    }
   }
 
   @Override

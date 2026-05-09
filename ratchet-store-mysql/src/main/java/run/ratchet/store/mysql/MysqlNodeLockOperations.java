@@ -4,6 +4,7 @@ import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.spi.LockStore;
@@ -19,6 +20,9 @@ final class MysqlNodeLockOperations implements NodeStore, LockStore {
 
   @Override
   public boolean tryLock(String name, Duration ttl, String nodeId) {
+    requireLockName(name);
+    requirePositiveDuration(ttl, "ttl");
+    Objects.requireNonNull(nodeId, "nodeId");
     long ttlSeconds = ttl.toSeconds();
     // language=MySQL
     String updateSql =
@@ -63,6 +67,8 @@ final class MysqlNodeLockOperations implements NodeStore, LockStore {
 
   @Override
   public void unlock(String name, String nodeId) {
+    requireLockName(name);
+    Objects.requireNonNull(nodeId, "nodeId");
     // language=MySQL
     String sql = "DELETE FROM scheduler_lock WHERE lock_name = ? AND owner_node = ?";
     ctx.em().createNativeQuery(sql).setParameter(1, name).setParameter(2, nodeId).executeUpdate();
@@ -70,6 +76,9 @@ final class MysqlNodeLockOperations implements NodeStore, LockStore {
 
   @Override
   public boolean renewLock(String name, Duration extension, String nodeId) {
+    requireLockName(name);
+    requirePositiveDuration(extension, "extension");
+    Objects.requireNonNull(nodeId, "nodeId");
     // language=MySQL
     String sql =
         """
@@ -84,6 +93,20 @@ final class MysqlNodeLockOperations implements NodeStore, LockStore {
             .setParameter(3, nodeId)
             .executeUpdate();
     return updated > 0;
+  }
+
+  private static void requireLockName(String name) {
+    Objects.requireNonNull(name, "name");
+    if (name.isBlank()) {
+      throw new IllegalArgumentException("name must be non-empty");
+    }
+  }
+
+  private static void requirePositiveDuration(Duration duration, String parameterName) {
+    Objects.requireNonNull(duration, parameterName);
+    if (duration.isZero() || duration.isNegative()) {
+      throw new IllegalArgumentException(parameterName + " must be positive");
+    }
   }
 
   @Override

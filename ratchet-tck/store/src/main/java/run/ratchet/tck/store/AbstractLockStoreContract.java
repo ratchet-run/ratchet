@@ -1,6 +1,7 @@
 package run.ratchet.tck.store;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
@@ -42,6 +43,15 @@ public abstract class AbstractLockStoreContract implements JobStoreContractFixtu
   }
 
   @Test
+  void tryLock_rejectsNullParameters() {
+    Duration ttl = Duration.ofMinutes(5);
+
+    assertThrows(NullPointerException.class, () -> store().tryLock(null, ttl, "node-A"));
+    assertThrows(NullPointerException.class, () -> store().tryLock("lock1", null, "node-A"));
+    assertThrows(NullPointerException.class, () -> store().tryLock("lock1", ttl, null));
+  }
+
+  @Test
   void renewLock_extendsExistingLock() {
     store().tryLock("lock1", Duration.ofMinutes(1), "node-A");
 
@@ -70,6 +80,15 @@ public abstract class AbstractLockStoreContract implements JobStoreContractFixtu
   }
 
   @Test
+  void renewLock_rejectsNullParameters() {
+    Duration extension = Duration.ofMinutes(5);
+
+    assertThrows(NullPointerException.class, () -> store().renewLock(null, extension, "node-A"));
+    assertThrows(NullPointerException.class, () -> store().renewLock("lock1", null, "node-A"));
+    assertThrows(NullPointerException.class, () -> store().renewLock("lock1", extension, null));
+  }
+
+  @Test
   void renewLock_nonExistent_returnsFalse() {
     boolean renewed = store().renewLock("never-acquired", Duration.ofMinutes(5), "node-A");
 
@@ -79,6 +98,12 @@ public abstract class AbstractLockStoreContract implements JobStoreContractFixtu
   @Test
   void unlock_nonHeldLock_isNoOp() {
     store().unlock("never-acquired", "node-A");
+  }
+
+  @Test
+  void unlock_rejectsNullParameters() {
+    assertThrows(NullPointerException.class, () -> store().unlock(null, "node-A"));
+    assertThrows(NullPointerException.class, () -> store().unlock("lock1", null));
   }
 
   @Test
