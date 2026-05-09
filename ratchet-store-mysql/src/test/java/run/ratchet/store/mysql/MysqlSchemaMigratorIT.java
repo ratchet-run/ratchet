@@ -149,21 +149,31 @@ class MysqlSchemaMigratorIT {
         };
     ExecutorService pool = Executors.newFixedThreadPool(2);
     List<Future<SchemaMigrator.MigrationResult>> futures = new ArrayList<>();
+    int totalApplied = 0;
+    int totalSkipped = 0;
     try {
       futures.add(pool.submit(task));
       futures.add(pool.submit(task));
       assertTrue(ready.await(15, TimeUnit.SECONDS));
       go.countDown();
-    } finally {
-      pool.shutdown();
-    }
 
-    int totalApplied = 0;
-    int totalSkipped = 0;
-    for (Future<SchemaMigrator.MigrationResult> future : futures) {
-      SchemaMigrator.MigrationResult result = future.get(120, TimeUnit.SECONDS);
-      totalApplied += result.appliedCount();
-      totalSkipped += result.skippedCount();
+      for (Future<SchemaMigrator.MigrationResult> future : futures) {
+        SchemaMigrator.MigrationResult result = future.get(120, TimeUnit.SECONDS);
+        totalApplied += result.appliedCount();
+        totalSkipped += result.skippedCount();
+      }
+    } finally {
+      for (Future<SchemaMigrator.MigrationResult> future : futures) {
+        if (!future.isDone()) {
+          future.cancel(true);
+        }
+      }
+      pool.shutdown();
+      if (!pool.awaitTermination(15, TimeUnit.SECONDS)) {
+        pool.shutdownNow();
+        assertTrue(
+            pool.awaitTermination(15, TimeUnit.SECONDS), "Executor should terminate cleanly");
+      }
     }
 
     int finalRows = countSchemaVersionRows();
