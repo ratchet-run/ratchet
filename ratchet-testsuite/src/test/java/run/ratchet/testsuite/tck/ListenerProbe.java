@@ -48,6 +48,7 @@ public class ListenerProbe implements RatchetTckProbe {
   private final Map<UUID, Deque<ProbeEvent>> recordedEvents = new ConcurrentHashMap<>();
   private final Map<UUID, Deque<ProbeEvent>> pendingEvents = new ConcurrentHashMap<>();
   private final Set<UUID> trackedIds = ConcurrentHashMap.newKeySet();
+  private final Object stateLock = new Object();
 
   @Inject private JobSchedulerService scheduler;
 
@@ -72,25 +73,40 @@ public class ListenerProbe implements RatchetTckProbe {
    * RiRatchetTckRuntime#clear}.
    */
   public void reset() {
-    trackedIds.clear();
-    recordedEvents.clear();
-    pendingEvents.clear();
+    synchronized (stateLock) {
+      trackedIds.clear();
+      recordedEvents.clear();
+      pendingEvents.clear();
+    }
   }
 
   @Override
   public void track(JobHandle handle) {
     UUID id = handle.id();
-    if (!trackedIds.add(id)) {
-      return;
-    }
-    Deque<ProbeEvent> pending = pendingEvents.remove(id);
-    if (pending != null) {
-      Deque<ProbeEvent> bucket =
-          recordedEvents.computeIfAbsent(id, k -> new ConcurrentLinkedDeque<>());
-      bucket.addAll(pending);
-      synchronized (bucket) {
-        bucket.notifyAll();
+    synchronized (stateLock) {
+      if (!trackedIds.add(id)) {
+        return;
       }
+      Deque<ProbeEvent> pending = pendingEvents.remove(id);
+      if (pending != null) {
+        Deque<ProbeEvent> bucket =
+            recordedEvents.computeIfAbsent(id, k -> new ConcurrentLinkedDeque<>());
+        recordAllAndNotify(bucket, pending);
+      }
+    }
+  }
+
+  private static void recordAndNotify(Deque<ProbeEvent> bucket, ProbeEvent event) {
+    synchronized (bucket) {
+      bucket.add(event);
+      bucket.notifyAll();
+    }
+  }
+
+  private static void recordAllAndNotify(Deque<ProbeEvent> bucket, Deque<ProbeEvent> events) {
+    synchronized (bucket) {
+      bucket.addAll(events);
+      bucket.notifyAll();
     }
   }
 
@@ -120,13 +136,15 @@ public class ListenerProbe implements RatchetTckProbe {
     if (bucket == null) {
       return 0;
     }
-    int n = 0;
-    for (ProbeEvent e : bucket) {
-      if (e.type() == ProbeEvent.Type.STARTED) {
-        n++;
+    synchronized (bucket) {
+      int n = 0;
+      for (ProbeEvent e : bucket) {
+        if (e.type() == ProbeEvent.Type.STARTED) {
+          n++;
+        }
       }
+      return n;
     }
-    return n;
   }
 
   @Override
@@ -135,19 +153,21 @@ public class ListenerProbe implements RatchetTckProbe {
     if (bucket == null) {
       return Collections.emptyList();
     }
-    return List.copyOf(new ArrayList<>(bucket));
+    synchronized (bucket) {
+      return List.copyOf(new ArrayList<>(bucket));
+    }
   }
 
   private boolean awaitType(JobHandle handle, ProbeEvent.Type type, Duration timeout) {
     long deadlineNanos = System.nanoTime() + timeout.toNanos();
     Deque<ProbeEvent> bucket =
         recordedEvents.computeIfAbsent(handle.id(), k -> new ConcurrentLinkedDeque<>());
-    while (!hasType(bucket, type)) {
-      long remainingNanos = deadlineNanos - System.nanoTime();
-      if (remainingNanos <= 0) {
-        return false;
-      }
-      synchronized (bucket) {
+    synchronized (bucket) {
+      while (!hasType(bucket, type)) {
+        long remainingNanos = deadlineNanos - System.nanoTime();
+        if (remainingNanos <= 0) {
+          return false;
+        }
         try {
           bucket.wait(Math.max(1L, TimeUnit.NANOSECONDS.toMillis(remainingNanos)));
         } catch (InterruptedException ie) {
@@ -175,19 +195,18 @@ public class ListenerProbe implements RatchetTckProbe {
       return;
     }
     ProbeEvent ev = new ProbeEvent(type, Instant.now());
-    if (trackedIds.contains(jobId)) {
-      Deque<ProbeEvent> bucket =
-          recordedEvents.computeIfAbsent(jobId, k -> new ConcurrentLinkedDeque<>());
-      bucket.add(ev);
-      synchronized (bucket) {
-        bucket.notifyAll();
+    synchronized (stateLock) {
+      if (trackedIds.contains(jobId)) {
+        Deque<ProbeEvent> bucket =
+            recordedEvents.computeIfAbsent(jobId, k -> new ConcurrentLinkedDeque<>());
+        recordAndNotify(bucket, ev);
+        return;
       }
-      return;
-    }
-    Deque<ProbeEvent> pending =
-        pendingEvents.computeIfAbsent(jobId, k -> new ConcurrentLinkedDeque<>());
-    if (pending.size() < PENDING_BUFFER_LIMIT) {
-      pending.add(ev);
+      Deque<ProbeEvent> pending =
+          pendingEvents.computeIfAbsent(jobId, k -> new ConcurrentLinkedDeque<>());
+      if (pending.size() < PENDING_BUFFER_LIMIT) {
+        pending.add(ev);
+      }
     }
   }
 
