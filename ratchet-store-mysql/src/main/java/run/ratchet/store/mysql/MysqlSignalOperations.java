@@ -107,33 +107,17 @@ final class MysqlSignalOperations implements SignalStore {
       String deliveredBy,
       Instant deliveredAt,
       String deliveryId) {
-    // language=MySQL
-    String sql =
-        """
-        UPDATE scheduler_job_queue
-        SET status = 'PENDING',
-            signal_payload = ?,
-            signal_payload_type = ?,
-            signal_outcome = ?,
-            signal_rejection_reason = ?,
-            signal_delivered_at = ?,
-            signal_delivered_by = ?,
-            signal_delivery_id = ?,
-            updated_at = NOW(3)
-        WHERE job_id = ? AND status = 'WAITING'
-        """;
     int updated =
-        ctx.em()
-            .createNativeQuery(sql)
-            .setParameter(1, payload)
-            .setParameter(2, payloadType)
-            .setParameter(3, outcome)
-            .setParameter(4, rejectionReason)
-            .setParameter(5, deliveredAt != null ? Timestamp.from(deliveredAt) : null)
-            .setParameter(6, deliveredBy)
-            .setParameter(7, deliveryId)
-            .setParameter(8, UuidByteArrayConverter.toBytes(jobId))
-            .executeUpdate();
+        deliverSignal(
+            "job_id = ?",
+            UuidByteArrayConverter.toBytes(jobId),
+            payload,
+            payloadType,
+            outcome,
+            rejectionReason,
+            deliveredBy,
+            deliveredAt,
+            deliveryId);
     log.debugf("deliverSignalById(%s): %s row(s) updated", jobId, updated);
     return updated;
   }
@@ -141,6 +125,31 @@ final class MysqlSignalOperations implements SignalStore {
   @Override
   public int deliverSignalByKey(
       String signalKey,
+      String payload,
+      String payloadType,
+      String outcome,
+      String rejectionReason,
+      String deliveredBy,
+      Instant deliveredAt,
+      String deliveryId) {
+    int updated =
+        deliverSignal(
+            "signal_key = ?",
+            signalKey,
+            payload,
+            payloadType,
+            outcome,
+            rejectionReason,
+            deliveredBy,
+            deliveredAt,
+            deliveryId);
+    log.debugf("deliverSignalByKey('%s'): %s row(s) updated", signalKey, updated);
+    return updated;
+  }
+
+  private int deliverSignal(
+      String selectorPredicate,
+      Object selectorValue,
       String payload,
       String payloadType,
       String outcome,
@@ -161,22 +170,21 @@ final class MysqlSignalOperations implements SignalStore {
             signal_delivered_by = ?,
             signal_delivery_id = ?,
             updated_at = NOW(3)
-        WHERE signal_key = ? AND status = 'WAITING'
-        """;
-    int updated =
-        ctx.em()
-            .createNativeQuery(sql)
-            .setParameter(1, payload)
-            .setParameter(2, payloadType)
-            .setParameter(3, outcome)
-            .setParameter(4, rejectionReason)
-            .setParameter(5, deliveredAt != null ? Timestamp.from(deliveredAt) : null)
-            .setParameter(6, deliveredBy)
-            .setParameter(7, deliveryId)
-            .setParameter(8, signalKey)
-            .executeUpdate();
-    log.debugf("deliverSignalByKey('%s'): %s row(s) updated", signalKey, updated);
-    return updated;
+        """
+            + "WHERE "
+            + selectorPredicate
+            + " AND status = 'WAITING'";
+    return ctx.em()
+        .createNativeQuery(sql)
+        .setParameter(1, payload)
+        .setParameter(2, payloadType)
+        .setParameter(3, outcome)
+        .setParameter(4, rejectionReason)
+        .setParameter(5, deliveredAt != null ? Timestamp.from(deliveredAt) : null)
+        .setParameter(6, deliveredBy)
+        .setParameter(7, deliveryId)
+        .setParameter(8, selectorValue)
+        .executeUpdate();
   }
 
   @Override
@@ -192,11 +200,6 @@ final class MysqlSignalOperations implements SignalStore {
             + " WHERE q.signal_delivery_id = ?";
     List<Object[]> rows =
         ctx.em().createNativeQuery(sql).setParameter(1, deliveryId).getResultList();
-    List<JobEntity> result = new ArrayList<>(rows.size());
-    MysqlJobRowMapper mapper = new MysqlJobRowMapper();
-    for (Object[] row : rows) {
-      result.add(mapper.hydrateJobEntity(row));
-    }
-    return result;
+    return MysqlJobRowMapper.hydrateRows(rows);
   }
 }
