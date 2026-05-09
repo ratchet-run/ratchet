@@ -3,6 +3,7 @@ package run.ratchet.store.mongodb;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.time.Instant;
 import java.util.List;
@@ -80,6 +81,16 @@ class DocumentMapperTest {
   }
 
   @Test
+  void readsTraceContextWithoutUncheckedCasts() {
+    JobEntity job = job(payload("com.example.TraceJob", "run"));
+    job.setTraceContext(Map.of("traceparent", "00-abc-def-01"));
+
+    JobEntity reloaded = DocumentMapper.toJobEntity(DocumentMapper.toDocument(job));
+
+    assertEquals(job.getTraceContext(), reloaded.getTraceContext());
+  }
+
+  @Test
   void readsLegacyDocumentJobPayloads() {
     JobEntity job = job(null);
     JobPayload payload = payload("com.example.LegacyJob", "execute");
@@ -99,6 +110,21 @@ class DocumentMapperTest {
 
     assertNull(DocumentMapper.toJobEntity(missing).getPayload());
     assertNull(DocumentMapper.toJobEntity(empty).getPayload());
+  }
+
+  @Test
+  void rejectsMalformedLegacyPayloadArgs() {
+    JobPayload payload = payload("com.example.LegacyJob", "execute");
+    Document legacyPayload = legacyPayloadDocument(payload);
+    legacyPayload.put("args", "not-a-list");
+
+    IllegalArgumentException thrown =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> DocumentMapper.storedValueToPayload(legacyPayload));
+
+    assertEquals(
+        "Expected MongoDB payload args list, got: class java.lang.String", thrown.getMessage());
   }
 
   @Test

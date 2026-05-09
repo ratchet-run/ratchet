@@ -129,9 +129,7 @@ public final class DocumentMapper {
     job.setLastError(doc.getString("last_error"));
     job.setCreatedAt(toInstant(doc.getDate("created_at")));
     job.setCallerPrincipal(doc.getString("caller_principal"));
-    @SuppressWarnings("unchecked")
-    Map<String, String> tc = (Map<String, String>) doc.get("trace_context");
-    job.setTraceContext(tc);
+    job.setTraceContext(documentToStringMap(doc.get("trace_context")));
     job.setUpdatedAt(toInstant(doc.getDate("updated_at")));
     job.setExecutionStartTime(toInstant(doc.getDate("execution_start_time")));
     job.setExecutionEndTime(toInstant(doc.getDate("execution_end_time")));
@@ -535,8 +533,7 @@ public final class DocumentMapper {
     if (doc == null || doc.isEmpty()) {
       return null;
     }
-    @SuppressWarnings("unchecked")
-    List<Object> args = (List<Object>) doc.get("args");
+    List<Object> args = documentToArgs(doc.get("args"));
     return new JobPayload(
         doc.getString("target"),
         doc.getString("method"),
@@ -561,6 +558,35 @@ public final class DocumentMapper {
     Map<String, String> out = new LinkedHashMap<>();
     doc.forEach((k, v) -> out.put(k, v == null ? null : String.valueOf(v)));
     return out;
+  }
+
+  private static Map<String, String> documentToStringMap(Object value) {
+    if (value == null) {
+      return null;
+    }
+    if (!(value instanceof Map<?, ?> raw)) {
+      throw new IllegalArgumentException("Expected MongoDB document map, got: " + value.getClass());
+    }
+    Map<String, String> out = new LinkedHashMap<>();
+    raw.forEach(
+        (k, v) -> {
+          if (!(k instanceof String key)) {
+            throw new IllegalArgumentException("MongoDB document map key must be a String: " + k);
+          }
+          out.put(key, v == null ? null : String.valueOf(v));
+        });
+    return out;
+  }
+
+  private static List<Object> documentToArgs(Object value) {
+    if (value == null) {
+      return List.of();
+    }
+    if (value instanceof List<?> args) {
+      return List.copyOf(args);
+    }
+    throw new IllegalArgumentException(
+        "Expected MongoDB payload args list, got: " + value.getClass());
   }
 
   private static Document nodeInfoToDocument(Map<String, Object> nodeInfo) {
