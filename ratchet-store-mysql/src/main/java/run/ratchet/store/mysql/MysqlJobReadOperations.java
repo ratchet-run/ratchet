@@ -56,26 +56,8 @@ final class MysqlJobReadOperations {
     return Optional.of(job);
   }
 
-  @SuppressWarnings("unchecked")
   Optional<JobEntity> findByIdLatest(UUID id) {
-    // language=MySQL
-    String sql =
-        "SELECT "
-            + MysqlJobRowMapper.HYDRATION_SELECT
-            + " "
-            + HYDRATION_FROM
-            + " WHERE c.job_id = ?";
-    List<Object[]> rows =
-        ctx.em()
-            .createNativeQuery(sql)
-            .setParameter(1, UuidByteArrayConverter.toBytes(id))
-            .getResultList();
-    if (rows.isEmpty()) {
-      return Optional.empty();
-    }
-    JobEntity job = mapper.hydrateJobEntity(rows.get(0));
-    tags.hydrateTagsSingle(job);
-    return Optional.of(job);
+    return findById(id);
   }
 
   @SuppressWarnings("unchecked")
