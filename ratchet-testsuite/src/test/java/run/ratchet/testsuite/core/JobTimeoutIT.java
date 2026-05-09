@@ -1,6 +1,7 @@
 package run.ratchet.testsuite.core;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.inject.Inject;
 import java.time.Duration;
@@ -49,6 +50,7 @@ class JobTimeoutIT extends BaseRatchetIT {
 
     assertNotNull(handle);
     JobAssertions.assertJobFailed(jobCrudStore, handle);
+    assertTrue(SlowJob.hasStarted(), "Job should start before timing out");
   }
 
   @Test
@@ -60,5 +62,6 @@ class JobTimeoutIT extends BaseRatchetIT {
 
     assertNotNull(handle);
     JobAssertions.assertJobCompleted(jobCrudStore, handle);
+    assertTrue(SlowJob.hasCompleted(), "Job should finish its work before succeeding");
   }
 }

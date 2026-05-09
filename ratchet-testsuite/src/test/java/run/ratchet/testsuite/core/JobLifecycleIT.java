@@ -59,6 +59,7 @@ class JobLifecycleIT extends BaseRatchetIT {
 
     assertNotNull(handle);
     JobAssertions.assertJobCompleted(jobCrudStore, handle);
+    assertEquals(1, SimpleJob.getInvocationCount());
   }
 
   @Test

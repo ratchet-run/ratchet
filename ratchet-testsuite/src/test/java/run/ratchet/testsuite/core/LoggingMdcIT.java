@@ -1,11 +1,14 @@
 package run.ratchet.testsuite.core;
 
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.inject.Inject;
+import java.time.Duration;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
@@ -51,6 +54,55 @@ class LoggingMdcIT extends BaseRatchetIT {
     assertNotNull(handle);
     JobAssertions.assertJobCompleted(jobCrudStore, handle);
 
+    assertCapturedMdc(handle);
+  }
+
+  @Test
+  void mdcKeysArePopulatedWhenJobFails() {
+    JobHandle handle =
+        jobService.enqueue(MdcCapturingJob::executeAndFail).withMaxRetries(0).submit();
+
+    assertNotNull(handle);
+    JobAssertions.assertJobFailed(jobCrudStore, handle);
+
+    assertCapturedMdc(handle);
+  }
+
+  @Test
+  void mdcKeysArePopulatedWhenJobTimesOut() {
+    MdcCapturingJob.setSleepMs(60_000);
+
+    JobHandle handle =
+        jobService
+            .enqueue(MdcCapturingJob::executeSlow)
+            .withTimeout(Duration.ofSeconds(1))
+            .submit();
+
+    assertNotNull(handle);
+    JobAssertions.assertJobFailed(jobCrudStore, handle);
+
+    assertCapturedMdc(handle);
+  }
+
+  @Test
+  void mdcKeysArePopulatedWhenRunningJobIsCanceled() {
+    MdcCapturingJob.setSleepMs(5_000);
+
+    JobHandle handle = jobService.enqueueNow(MdcCapturingJob::executeSlow);
+
+    assertNotNull(handle);
+    await()
+        .atMost(Duration.ofSeconds(15))
+        .pollInterval(100, TimeUnit.MILLISECONDS)
+        .until(MdcCapturingJob::hasStarted);
+
+    assertTrue(jobService.cancelJob(handle.id()), "Should be able to cancel a running job");
+    JobAssertions.assertJobCanceled(jobCrudStore, handle);
+
+    assertCapturedMdc(handle);
+  }
+
+  private void assertCapturedMdc(JobHandle handle) {
     Map<String, Object> captured = MdcCapturingJob.getCapturedMdc();
     assertNotNull(captured, "MdcCapturingJob did not run — no MDC snapshot captured");
 
@@ -69,9 +121,12 @@ class LoggingMdcIT extends BaseRatchetIT {
         "node MDC key missing or null during job execution. Captured: " + captured);
 
     // jobType is populated from JobEntity.getPublicJobType().name(); single jobs = "SINGLE".
+    Object jobTypeValue = captured.get("jobType");
+    assertNotNull(
+        jobTypeValue, "jobType MDC key missing during job execution. Captured: " + captured);
     assertEquals(
         "SINGLE",
-        String.valueOf(captured.get("jobType")),
+        String.valueOf(jobTypeValue),
         "jobType MDC key should be SINGLE for a directly-enqueued job. Captured: " + captured);
 
     // jobCreator is populated from CallerPrincipalProvider (callerPrincipal) at enqueue time.
