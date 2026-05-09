@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -52,6 +53,20 @@ class ArchiveRowMapperTest {
     assertEquals(BackoffPolicy.NONE, archive.getBackoffPolicy());
   }
 
+  @Test
+  void mapAcceptsUuidBytesFromNativeMysqlProjection() {
+    Object[] row = validRow();
+    UUID id = UUID.fromString("00000000-0000-0000-0000-000000000011");
+    UUID originalJobId = UUID.fromString("00000000-0000-0000-0000-000000000012");
+    row[0] = uuidBytes(id);
+    row[1] = uuidBytes(originalJobId);
+
+    ArchivedJobEntity archive = ArchiveRowMapper.map(row, this::instant);
+
+    assertEquals(id, archive.getId());
+    assertEquals(originalJobId, archive.getOriginalJobId());
+  }
+
   private Object[] validRow() {
     Object[] row = new Object[ArchiveRowMapper.COLUMN_COUNT];
     int column = 0;
@@ -91,5 +106,12 @@ class ArchiveRowMapperTest {
 
   private Instant instant(Object value) {
     return (Instant) value;
+  }
+
+  private static byte[] uuidBytes(UUID uuid) {
+    return ByteBuffer.allocate(16)
+        .putLong(uuid.getMostSignificantBits())
+        .putLong(uuid.getLeastSignificantBits())
+        .array();
   }
 }

@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.mock;
@@ -58,6 +59,10 @@ class SchemaMigratorTest {
     return -1;
   }
 
+  private SchemaMigrator migrator(String classpathPrefix) {
+    return new SchemaMigrator(dataSource, "mysql", classpathPrefix);
+  }
+
   @BeforeEach
   void setUp() throws Exception {
     dataSource = mock(DataSource.class);
@@ -98,8 +103,7 @@ class SchemaMigratorTest {
     ResultSet secondMissingVersion = missingVersion();
     when(selectVersion.executeQuery()).thenReturn(firstMissingVersion, secondMissingVersion);
 
-    SchemaMigrator.MigrationResult result =
-        new SchemaMigrator(dataSource, "mysql", "schema-migrator").migrate();
+    SchemaMigrator.MigrationResult result = migrator("schema-migrator").migrate();
 
     assertEquals(2, result.appliedCount());
     assertEquals(0, result.skippedCount());
@@ -123,7 +127,7 @@ class SchemaMigratorTest {
 
   @Test
   void skipsMigrationsWithMatchingChecksums() throws Exception {
-    SchemaMigrator migrator = new SchemaMigrator(dataSource, "mysql", "schema-migrator");
+    SchemaMigrator migrator = migrator("schema-migrator");
     List<SchemaMigrator.MigrationScript> scripts = migrator.discoverMigrations();
     ResultSet firstExistingVersion = existingVersion(scripts.get(0).checksum());
     ResultSet secondExistingVersion = existingVersion(scripts.get(1).checksum());
@@ -142,9 +146,7 @@ class SchemaMigratorTest {
     ResultSet mismatchedVersion = existingVersion("not-the-current-checksum");
     when(selectVersion.executeQuery()).thenReturn(mismatchedVersion);
 
-    assertThrows(
-        SchemaMigrationException.class,
-        () -> new SchemaMigrator(dataSource, "mysql", "schema-migrator").migrate());
+    assertThrows(SchemaMigrationException.class, () -> migrator("schema-migrator").migrate());
 
     verify(insertVersion, never()).executeUpdate();
     verify(connection, never()).commit();
@@ -156,9 +158,7 @@ class SchemaMigratorTest {
     when(selectVersion.executeQuery()).thenReturn(missingChecksum);
 
     SchemaMigrationException ex =
-        assertThrows(
-            SchemaMigrationException.class,
-            () -> new SchemaMigrator(dataSource, "mysql", "schema-migrator").migrate());
+        assertThrows(SchemaMigrationException.class, () -> migrator("schema-migrator").migrate());
 
     assertTrue(ex.getMessage().contains("already recorded without a checksum"));
     verify(insertVersion, never()).executeUpdate();
@@ -170,9 +170,7 @@ class SchemaMigratorTest {
     when(mysqlLock.getInt(1)).thenReturn(0);
 
     SchemaMigrationException ex =
-        assertThrows(
-            SchemaMigrationException.class,
-            () -> new SchemaMigrator(dataSource, "mysql", "schema-migrator").migrate());
+        assertThrows(SchemaMigrationException.class, () -> migrator("schema-migrator").migrate());
 
     assertTrue(ex.getMessage().contains("Timed out acquiring MySQL schema migration lock"));
     verify(statement, never()).execute(startsWith("CREATE TABLE IF NOT EXISTS"));
@@ -197,11 +195,40 @@ class SchemaMigratorTest {
 
     SchemaInitializationException ex =
         assertThrows(
-            SchemaInitializationException.class,
-            () -> new SchemaMigrator(dataSource, "mysql", "schema-migrator").migrate());
+            SchemaInitializationException.class, () -> migrator("schema-migrator").migrate());
     assertTrue(ex.getMessage().contains("ratchet_schema_version is empty"));
     assertTrue(ex.getMessage().contains("scheduler_job_queue"));
     verify(insertVersion, never()).executeUpdate();
+  }
+
+  @Test
+  void rollsBackAndRestoresAutoCommitWhenMigrationStatementFails() throws Exception {
+    ResultSet firstMissingVersion = missingVersion();
+    when(selectVersion.executeQuery()).thenReturn(firstMissingVersion);
+    when(statement.execute(contains("CREATE TABLE ratchet_test_order")))
+        .thenThrow(new java.sql.SQLException("boom"));
+
+    java.sql.SQLException ex =
+        assertThrows(java.sql.SQLException.class, () -> migrator("schema-migrator").migrate());
+
+    assertEquals("boom", ex.getMessage());
+    verify(connection).setAutoCommit(false);
+    verify(connection).rollback();
+    verify(connection).setAutoCommit(true);
+    verify(insertVersion, never()).executeUpdate();
+    verify(statement).executeQuery("SELECT RELEASE_LOCK('ratchet_schema_migration')");
+  }
+
+  @Test
+  void surfacesMysqlReleaseLockFailureAfterMigrationWorkCompletes() throws Exception {
+    when(mysqlRelease.getInt(1)).thenReturn(0);
+
+    java.sql.SQLException ex =
+        assertThrows(
+            java.sql.SQLException.class, () -> migrator("schema-migrator-empty").migrate());
+
+    assertTrue(ex.getMessage().contains("Failed to release MySQL schema migration lock"));
+    verify(statement).executeQuery("SELECT RELEASE_LOCK('ratchet_schema_migration')");
   }
 
   @Test

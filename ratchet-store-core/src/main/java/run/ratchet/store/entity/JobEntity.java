@@ -656,6 +656,7 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
 
   @PrePersist
   void prePersist() {
+    validateRequiredFields();
     Instant now = Instant.now();
     createdAt = now;
     updatedAt = now;
@@ -663,6 +664,25 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
 
   @PreUpdate
   void preUpdate() {
+    validateRequiredFields();
     updatedAt = Instant.now();
+  }
+
+  private void validateRequiredFields() {
+    requireRequiredField(status, "status");
+    requireRequiredField(scheduledTime, "scheduledTime");
+    requireRequiredField(jobType, "jobType");
+    requireRequiredField(priority, "priority");
+    requireRequiredField(backoffPolicy, "backoffPolicy");
+    requireRequiredField(cronExpr, "cronExpr");
+    requireRequiredField(zoneId, "zoneId");
+    requireRequiredField(payload, "payload");
+    requireRequiredField(idempotencyKey, "idempotencyKey");
+  }
+
+  private static void requireRequiredField(Object value, String fieldName) {
+    if (value == null) {
+      throw new IllegalStateException("JobEntity." + fieldName + " is required");
+    }
   }
 }

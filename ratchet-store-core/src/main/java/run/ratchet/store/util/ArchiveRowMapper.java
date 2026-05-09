@@ -1,7 +1,10 @@
 package run.ratchet.store.util;
 
+import static run.ratchet.store.util.RowValues.longOrNull;
+import static run.ratchet.store.util.RowValues.stringOrNull;
+import static run.ratchet.store.util.RowValues.uuidOrNull;
+
 import java.time.Instant;
-import java.util.UUID;
 import java.util.function.Function;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
@@ -18,39 +21,40 @@ public final class ArchiveRowMapper {
 
   public static ArchivedJobEntity map(Object[] row, Function<Object, Instant> instantMapper) {
     assertColumnCount(row);
+    RowCursor cursor = new RowCursor(row);
     ArchivedJobEntity archive = new ArchivedJobEntity();
-    int column = 0;
-    archive.setId(uuidOrNull(row[column++]));
-    archive.setOriginalJobId(uuidOrNull(row[column++]));
-    archive.setFinalStatus(enumValue(row[column++], "final_status", JobStatus.class));
-    archive.setJobType(enumValue(row[column++], "job_type", JobExecutionType.class));
-    archive.setPriority(priorityValue(row[column++], "priority"));
-    archive.setTotalAttempts(((Number) row[column++]).intValue());
-    archive.setMaxRetries(((Number) row[column++]).intValue());
-    archive.setBackoffPolicy(enumValue(row[column++], "backoff_policy", BackoffPolicy.class));
-    archive.setBackoffParamMs(((Number) row[column++]).intValue());
-    archive.setTimeoutSec(((Number) row[column++]).intValue());
-    archive.setTargetClass(stringOrNull(row[column++]));
-    archive.setMethodName(stringOrNull(row[column++]));
-    archive.setBusinessKey(stringOrNull(row[column++]));
-    archive.setCronExpr(stringOrNull(row[column++]));
-    archive.setZoneId(stringOrNull(row[column++]));
-    archive.setOriginalScheduledTime(instantMapper.apply(row[column++]));
-    archive.setOriginalCreatedAt(instantMapper.apply(row[column++]));
-    archive.setFirstExecutionTime(instantMapper.apply(row[column++]));
-    archive.setCompletionTime(instantMapper.apply(row[column++]));
-    archive.setTotalExecutionTimeMs(longOrNull(row[column++]));
-    archive.setQueueWaitMs(longOrNull(row[column++]));
-    archive.setArchivedAt(instantMapper.apply(row[column++]));
-    archive.setArchivedBy(stringOrNull(row[column++]));
-    archive.setArchiveReason(stringOrNull(row[column++]));
-    archive.setJobResult(stringOrNull(row[column++]));
-    archive.setResultType(stringOrNull(row[column++]));
-    archive.setFinalError(stringOrNull(row[column++]));
-    archive.setPayloadSummary(stringOrNull(row[column++]));
-    archive.setDependedOn(uuidOrNull(row[column++]));
-    archive.setSupersededBy(uuidOrNull(row[column++]));
-    archive.setTags(stringOrNull(row[column]));
+    archive.setId(uuidOrNull(cursor.next("id")));
+    archive.setOriginalJobId(uuidOrNull(cursor.next("original_job_id")));
+    archive.setFinalStatus(enumValue(cursor.next("final_status"), "final_status", JobStatus.class));
+    archive.setJobType(enumValue(cursor.next("job_type"), "job_type", JobExecutionType.class));
+    archive.setPriority(priorityValue(cursor.next("priority"), "priority"));
+    archive.setTotalAttempts(((Number) cursor.next("total_attempts")).intValue());
+    archive.setMaxRetries(((Number) cursor.next("max_retries")).intValue());
+    archive.setBackoffPolicy(
+        enumValue(cursor.next("backoff_policy"), "backoff_policy", BackoffPolicy.class));
+    archive.setBackoffParamMs(((Number) cursor.next("backoff_param_ms")).intValue());
+    archive.setTimeoutSec(((Number) cursor.next("timeout_sec")).intValue());
+    archive.setTargetClass(stringOrNull(cursor.next("target_class")));
+    archive.setMethodName(stringOrNull(cursor.next("method_name")));
+    archive.setBusinessKey(stringOrNull(cursor.next("business_key")));
+    archive.setCronExpr(stringOrNull(cursor.next("cron_expr")));
+    archive.setZoneId(stringOrNull(cursor.next("zone_id")));
+    archive.setOriginalScheduledTime(instantMapper.apply(cursor.next("original_scheduled_time")));
+    archive.setOriginalCreatedAt(instantMapper.apply(cursor.next("original_created_at")));
+    archive.setFirstExecutionTime(instantMapper.apply(cursor.next("first_execution_time")));
+    archive.setCompletionTime(instantMapper.apply(cursor.next("completion_time")));
+    archive.setTotalExecutionTimeMs(longOrNull(cursor.next("total_execution_time_ms")));
+    archive.setQueueWaitMs(longOrNull(cursor.next("queue_wait_ms")));
+    archive.setArchivedAt(instantMapper.apply(cursor.next("archived_at")));
+    archive.setArchivedBy(stringOrNull(cursor.next("archived_by")));
+    archive.setArchiveReason(stringOrNull(cursor.next("archive_reason")));
+    archive.setJobResult(stringOrNull(cursor.next("job_result")));
+    archive.setResultType(stringOrNull(cursor.next("result_type")));
+    archive.setFinalError(stringOrNull(cursor.next("final_error")));
+    archive.setPayloadSummary(stringOrNull(cursor.next("payload_summary")));
+    archive.setDependedOn(uuidOrNull(cursor.next("depended_on")));
+    archive.setSupersededBy(uuidOrNull(cursor.next("superseded_by")));
+    archive.setTags(stringOrNull(cursor.next("tags")));
     return archive;
   }
 
@@ -62,10 +66,6 @@ public final class ArchiveRowMapper {
               + " columns but got "
               + (row == null ? "null" : row.length));
     }
-  }
-
-  private static Long longOrNull(Object value) {
-    return value == null ? null : ((Number) value).longValue();
   }
 
   private static <E extends Enum<E>> E enumValue(
@@ -106,35 +106,19 @@ public final class ArchiveRowMapper {
     return priorities[ordinal];
   }
 
-  private static UUID uuidOrNull(Object value) {
-    if (value == null) {
-      return null;
-    }
-    if (value instanceof UUID uuid) {
-      return uuid;
-    }
-    if (value instanceof byte[] bytes) {
-      return uuidFromBytes(bytes);
-    }
-    return UUID.fromString(value.toString());
-  }
+  private static final class RowCursor {
+    private final Object[] row;
+    private int column;
 
-  private static UUID uuidFromBytes(byte[] bytes) {
-    if (bytes.length != 16) {
-      throw new IllegalArgumentException("UUID byte array must be 16 bytes, got " + bytes.length);
+    private RowCursor(Object[] row) {
+      this.row = row;
     }
-    long msb = 0;
-    long lsb = 0;
-    for (int i = 0; i < 8; i++) {
-      msb = (msb << 8) | (bytes[i] & 0xff);
-    }
-    for (int i = 8; i < 16; i++) {
-      lsb = (lsb << 8) | (bytes[i] & 0xff);
-    }
-    return new UUID(msb, lsb);
-  }
 
-  private static String stringOrNull(Object value) {
-    return value == null ? null : value.toString();
+    private Object next(String columnName) {
+      if (column >= row.length) {
+        throw new IllegalStateException("Archive row ended before column " + columnName);
+      }
+      return row[column++];
+    }
   }
 }

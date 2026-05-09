@@ -1,6 +1,7 @@
 package run.ratchet.store.util;
 
 import java.time.Instant;
+import java.util.Objects;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.JobEntity;
 
@@ -24,6 +25,7 @@ public final class ArchiveHelper {
 
   /** Populates an {@link ArchivedJobEntity} from the given job, reason, and archivedBy fields. */
   public static ArchivedJobEntity buildArchive(JobEntity job, String reason, String archivedBy) {
+    Objects.requireNonNull(job, "job");
     ArchivedJobEntity a = new ArchivedJobEntity();
     a.setOriginalJobId(job.getId());
     a.setFinalStatus(job.getStatus());

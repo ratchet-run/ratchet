@@ -15,6 +15,7 @@ import run.ratchet.store.converter.JsonMapConverter;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
+import run.ratchet.store.util.RowValues;
 import run.ratchet.store.util.StatusClassifier;
 
 final class MysqlJobRowMapper {
@@ -126,37 +127,15 @@ final class MysqlJobRowMapper {
   }
 
   static String stringOrNull(Object val) {
-    if (val == null) return null;
-    if (val instanceof String s) return s;
-    return val.toString();
+    return RowValues.stringOrNull(val);
   }
 
   static Long longOrNull(Object val) {
-    if (val == null) return null;
-    if (val instanceof Number n) return n.longValue();
-    return null;
+    return RowValues.longOrNull(val);
   }
 
   static UUID uuidOrNull(Object val) {
-    if (val == null) return null;
-    if (val instanceof UUID uuid) return uuid;
-    if (val instanceof byte[] bytes) return uuidFromBytes(bytes);
-    return UUID.fromString(val.toString());
-  }
-
-  private static UUID uuidFromBytes(byte[] bytes) {
-    if (bytes.length != 16) {
-      throw new IllegalArgumentException("UUID byte array must be 16 bytes, got " + bytes.length);
-    }
-    long msb = 0;
-    long lsb = 0;
-    for (int i = 0; i < 8; i++) {
-      msb = (msb << 8) | (bytes[i] & 0xff);
-    }
-    for (int i = 8; i < 16; i++) {
-      lsb = (lsb << 8) | (bytes[i] & 0xff);
-    }
-    return new UUID(msb, lsb);
+    return RowValues.uuidOrNull(val);
   }
 
   static Instant toInstant(Object val) {
