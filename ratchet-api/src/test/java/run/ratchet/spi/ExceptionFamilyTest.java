@@ -49,6 +49,16 @@ class ExceptionFamilyTest {
   }
 
   @Test
+  void classifyValidationForJakartaValidationExceptions() {
+    assertEquals(
+        ExceptionFamily.VALIDATION,
+        ExceptionFamily.classify(new jakarta.validation.ValidationException("bad input")));
+    assertEquals(
+        ExceptionFamily.VALIDATION,
+        ExceptionFamily.classify(new jakarta.validation.ConstraintViolationException("bad input")));
+  }
+
+  @Test
   void classifyBusinessForCustomRuntimeException() {
     assertEquals(
         ExceptionFamily.BUSINESS,

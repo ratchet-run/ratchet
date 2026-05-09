@@ -12,6 +12,7 @@ import java.io.Serializable;
  * @see WorkflowCondition
  * @see JobBuilder#branch(WorkflowCondition, SerializableCheckedRunnable, String)
  */
+@Incubating
 public record WorkflowBranch(WorkflowCondition condition, Serializable task, String description)
     implements Serializable {
 

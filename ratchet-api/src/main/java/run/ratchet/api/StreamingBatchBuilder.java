@@ -7,6 +7,11 @@ import java.util.stream.Stream;
 /**
  * Fluent builder for streaming batch jobs that process large datasets in chunks.
  *
+ * <p>Each item type must be {@link Serializable} because streaming batches persist chunk boundaries
+ * and may replay individual items after failures. The stream itself is consumed by the builder and
+ * is not serialized, but every emitted item and any batch callback supplied to this API must remain
+ * serializable across scheduler restarts.
+ *
  * @param <T> the item type, must be {@link Serializable}
  */
 public interface StreamingBatchBuilder<T extends Serializable> {
