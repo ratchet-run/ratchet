@@ -1,8 +1,16 @@
 package run.ratchet.store.mongodb;
 
+import static com.mongodb.client.model.Filters.and;
+import static com.mongodb.client.model.Filters.eq;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static run.ratchet.store.mongodb.MongoFieldNames.ACTIVE_COUNT;
+import static run.ratchet.store.mongodb.MongoFieldNames.ID;
+import static run.ratchet.store.mongodb.MongoFieldNames.JOB_ID;
+import static run.ratchet.store.mongodb.MongoFieldNames.RESOURCE_NAME;
 
+import org.bson.Document;
 import org.junit.jupiter.api.Test;
 import run.ratchet.store.entity.JobEntity;
 
@@ -23,6 +31,8 @@ class ResourcePermitIT extends BaseDocumentStoreIT {
 
     store().releasePermit("gpu", j1.getId());
     assertTrue(store().tryAcquirePermit("gpu", j3.getId(), "node-1"));
+    assertEquals(1, permitCount("gpu", j3));
+    assertEquals(2, activeCount("gpu"));
   }
 
   @Test
@@ -36,11 +46,73 @@ class ResourcePermitIT extends BaseDocumentStoreIT {
 
     JobEntity j2 = store().save(newPendingJob());
     assertTrue(store().tryAcquirePermit("db-conn", j2.getId(), "node-1"));
+    assertEquals(0, permitCount("db-conn", j1));
+    assertEquals(1, permitCount("db-conn", j2));
+    assertEquals(1, activeCount("db-conn"));
+  }
+
+  @Test
+  void releaseAllPermits_clearsMultipleResourcesForJob() {
+    store().configureResource("api", 1, 5000, "API slot");
+    store().configureResource("disk", 1, 5000, "Disk slot");
+
+    JobEntity first = store().save(newPendingJob());
+    JobEntity second = store().save(newPendingJob());
+
+    assertTrue(store().tryAcquirePermit("api", first.getId(), "node-1"));
+    assertTrue(store().tryAcquirePermit("disk", first.getId(), "node-1"));
+
+    assertFalse(store().tryAcquirePermit("api", second.getId(), "node-2"));
+    assertFalse(store().tryAcquirePermit("disk", second.getId(), "node-2"));
+
+    store().releaseAllPermits(first.getId());
+
+    assertTrue(store().tryAcquirePermit("api", second.getId(), "node-2"));
+    assertTrue(store().tryAcquirePermit("disk", second.getId(), "node-2"));
+    assertEquals(0, permitCount("api", first));
+    assertEquals(0, permitCount("disk", first));
+    assertEquals(1, permitCount("api", second));
+    assertEquals(1, permitCount("disk", second));
+    assertEquals(1, activeCount("api"));
+    assertEquals(1, activeCount("disk"));
+  }
+
+  @Test
+  void configuredResource_deniesAfterPoolIsExhaustedUntilRelease() {
+    store().configureResource("cpu", 1, 5000, "CPU slot");
+
+    JobEntity first = store().save(newPendingJob());
+    JobEntity second = store().save(newPendingJob());
+
+    assertTrue(store().tryAcquirePermit("cpu", first.getId(), "node-1"));
+    assertFalse(store().tryAcquirePermit("cpu", second.getId(), "node-2"));
+    assertEquals(1, permitCount("cpu", first));
+    assertEquals(0, permitCount("cpu", second));
+    assertEquals(1, activeCount("cpu"));
+
+    store().releasePermit("cpu", first.getId());
+
+    assertTrue(store().tryAcquirePermit("cpu", second.getId(), "node-2"));
+    assertEquals(0, permitCount("cpu", first));
+    assertEquals(1, permitCount("cpu", second));
+    assertEquals(1, activeCount("cpu"));
   }
 
   @Test
   void unconfiguredResource_deniesPermit() {
     JobEntity job = store().save(newPendingJob());
     assertFalse(store().tryAcquirePermit("nonexistent-resource", job.getId(), "node-1"));
+  }
+
+  private long permitCount(String resource, JobEntity job) {
+    return database()
+        .getCollection("scheduler_resource_permit")
+        .countDocuments(and(eq(RESOURCE_NAME, resource), eq(JOB_ID, job.getId())));
+  }
+
+  private int activeCount(String resource) {
+    Document limit =
+        database().getCollection("scheduler_resource_limit").find(eq(ID, resource)).first();
+    return limit.getInteger(ACTIVE_COUNT);
   }
 }
