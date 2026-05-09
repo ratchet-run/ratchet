@@ -11,18 +11,18 @@ import run.ratchet.api.Recurring;
 @ApplicationScoped
 public class TestRecurringJobs {
 
-  private static final AtomicInteger EVERY_MINUTE_COUNT = new AtomicInteger(0);
+  private static final AtomicInteger EVERY_FIVE_SECONDS_COUNT = new AtomicInteger(0);
 
-  public static int getEveryMinuteCount() {
-    return EVERY_MINUTE_COUNT.get();
+  public static int getEveryFiveSecondsCount() {
+    return EVERY_FIVE_SECONDS_COUNT.get();
   }
 
   public static void resetCounts() {
-    EVERY_MINUTE_COUNT.set(0);
+    EVERY_FIVE_SECONDS_COUNT.set(0);
   }
 
   @Recurring(cron = "*/5 * * * * ?", id = "test-every-5-seconds")
-  public void everyMinute() {
-    EVERY_MINUTE_COUNT.incrementAndGet();
+  public void everyFiveSeconds() {
+    EVERY_FIVE_SECONDS_COUNT.incrementAndGet();
   }
 }

@@ -61,9 +61,9 @@ class RecurringAnnotationIT extends BaseRatchetIT {
         .untilAsserted(
             () ->
                 assertTrue(
-                    TestRecurringJobs.getEveryMinuteCount() >= 1,
+                    TestRecurringJobs.getEveryFiveSecondsCount() >= 1,
                     "Expected @Recurring method to fire at least once but count was "
-                        + TestRecurringJobs.getEveryMinuteCount()));
+                        + TestRecurringJobs.getEveryFiveSecondsCount()));
   }
 
   @Override

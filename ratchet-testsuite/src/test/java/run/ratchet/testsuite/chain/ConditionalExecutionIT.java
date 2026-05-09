@@ -1,6 +1,7 @@
 package run.ratchet.testsuite.chain;
 
 import static org.awaitility.Awaitility.await;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -55,6 +56,7 @@ class ConditionalExecutionIT extends BaseRatchetIT {
         jobService
             .enqueue(SimpleJob::execute)
             .<Void>when(JobResult::isSuccess, WorkflowBranchTracker::onConditional)
+            .<Void>when(JobResult::isFailure, WorkflowBranchTracker::onFailure)
             .submit();
 
     JobAssertions.assertJobCompleted(jobCrudStore, handle);
@@ -62,6 +64,20 @@ class ConditionalExecutionIT extends BaseRatchetIT {
     await()
         .atMost(Duration.ofSeconds(10))
         .untilAsserted(() -> assertTrue(WorkflowBranchTracker.conditionalBranchFired()));
+
+    await()
+        .during(Duration.ofSeconds(3))
+        .atMost(Duration.ofSeconds(5))
+        .untilAsserted(
+            () -> {
+              assertEquals(
+                  1,
+                  WorkflowBranchTracker.conditionalBranchExecutionCount(),
+                  "Conditional branch should execute exactly once");
+              assertFalse(
+                  WorkflowBranchTracker.failureBranchFired(),
+                  "Failure conditional branch should not fire when condition is false");
+            });
   }
 
   @Test

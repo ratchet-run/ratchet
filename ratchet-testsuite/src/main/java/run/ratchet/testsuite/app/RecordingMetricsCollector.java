@@ -8,13 +8,12 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
-import run.ratchet.spi.MetricsCollector;
 
 /** Metrics collector that records callback payloads for integration assertions. */
 @Alternative
 @Priority(3)
 @ApplicationScoped
-public class RecordingMetricsCollector implements MetricsCollector {
+public class RecordingMetricsCollector extends TestMetricsCollectorAdapter {
 
   private static final ConcurrentLinkedQueue<StartedMetric> STARTED = new ConcurrentLinkedQueue<>();
   private static final ConcurrentLinkedQueue<CompletedMetric> COMPLETED =
@@ -54,33 +53,6 @@ public class RecordingMetricsCollector implements MetricsCollector {
     FAILED.add(
         new FailedMetric(jobId, type, attempt, cause == null ? null : cause.getClass().getName()));
   }
-
-  @Override
-  public void successFinalizationRetried(UUID jobId, JobType type) {}
-
-  @Override
-  public void successFinalizationMinimal(UUID jobId, JobType type) {}
-
-  @Override
-  public void successFinalizationStuck(UUID jobId, JobType type) {}
-
-  @Override
-  public void claimTransientFailure(String executionType) {}
-
-  @Override
-  public void jobsClaimed(String executionType, int claimedCount) {}
-
-  @Override
-  public void gateRejected(String executionType, String gateStatus) {}
-
-  @Override
-  public void localWakeup(String source) {}
-
-  @Override
-  public void clusterWakeupPublished(String transport, String outcome) {}
-
-  @Override
-  public void clusterWakeupReceived(String transport, String outcome) {}
 
   public record StartedMetric(UUID jobId, JobType type, JobPriority priority) {}
 

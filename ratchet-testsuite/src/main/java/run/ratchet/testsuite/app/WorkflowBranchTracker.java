@@ -1,6 +1,7 @@
 package run.ratchet.testsuite.app;
 
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Tracks which workflow branch fired for integration tests.
@@ -9,6 +10,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * executes based on the parent job's outcome.
  */
 public class WorkflowBranchTracker {
+
+  private WorkflowBranchTracker() {}
 
   private static final AtomicBoolean SUCCESS_BRANCH_FIRED = new AtomicBoolean(false);
   private static final AtomicBoolean FAILURE_BRANCH_FIRED = new AtomicBoolean(false);
@@ -21,6 +24,7 @@ public class WorkflowBranchTracker {
   private static final AtomicBoolean FAILURE_SCENARIO_FAILURE_BRANCH_FIRED =
       new AtomicBoolean(false);
   private static final AtomicBoolean CONDITIONAL_BRANCH_FIRED = new AtomicBoolean(false);
+  private static final AtomicInteger CONDITIONAL_BRANCH_EXECUTIONS = new AtomicInteger();
 
   public static void onSuccess() {
     SUCCESS_BRANCH_FIRED.set(true);
@@ -32,6 +36,7 @@ public class WorkflowBranchTracker {
 
   public static void onConditional() {
     CONDITIONAL_BRANCH_FIRED.set(true);
+    CONDITIONAL_BRANCH_EXECUTIONS.incrementAndGet();
   }
 
   public static void onSuccessScenarioSuccess() {
@@ -62,6 +67,10 @@ public class WorkflowBranchTracker {
     return CONDITIONAL_BRANCH_FIRED.get();
   }
 
+  public static int conditionalBranchExecutionCount() {
+    return CONDITIONAL_BRANCH_EXECUTIONS.get();
+  }
+
   public static boolean successScenarioSuccessBranchFired() {
     return SUCCESS_SCENARIO_SUCCESS_BRANCH_FIRED.get();
   }
@@ -86,5 +95,6 @@ public class WorkflowBranchTracker {
     FAILURE_SCENARIO_SUCCESS_BRANCH_FIRED.set(false);
     FAILURE_SCENARIO_FAILURE_BRANCH_FIRED.set(false);
     CONDITIONAL_BRANCH_FIRED.set(false);
+    CONDITIONAL_BRANCH_EXECUTIONS.set(0);
   }
 }

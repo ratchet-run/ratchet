@@ -7,12 +7,11 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
-import run.ratchet.spi.MetricsCollector;
 
 @Alternative
 @Priority(1)
 @ApplicationScoped
-public class CountingMetricsCollector implements MetricsCollector {
+public class CountingMetricsCollector extends TestMetricsCollectorAdapter {
 
   private static final AtomicInteger STARTED_COUNT = new AtomicInteger(0);
   private static final AtomicInteger COMPLETED_COUNT = new AtomicInteger(0);
@@ -50,31 +49,4 @@ public class CountingMetricsCollector implements MetricsCollector {
   public void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt) {
     FAILED_COUNT.incrementAndGet();
   }
-
-  @Override
-  public void successFinalizationRetried(UUID jobId, JobType type) {}
-
-  @Override
-  public void successFinalizationMinimal(UUID jobId, JobType type) {}
-
-  @Override
-  public void successFinalizationStuck(UUID jobId, JobType type) {}
-
-  @Override
-  public void claimTransientFailure(String executionType) {}
-
-  @Override
-  public void jobsClaimed(String executionType, int claimedCount) {}
-
-  @Override
-  public void gateRejected(String executionType, String gateStatus) {}
-
-  @Override
-  public void localWakeup(String source) {}
-
-  @Override
-  public void clusterWakeupPublished(String transport, String outcome) {}
-
-  @Override
-  public void clusterWakeupReceived(String transport, String outcome) {}
 }

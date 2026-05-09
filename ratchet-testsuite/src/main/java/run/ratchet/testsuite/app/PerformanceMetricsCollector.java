@@ -10,11 +10,10 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
-import run.ratchet.spi.MetricsCollector;
 
 /**
- * Performance-focused {@link MetricsCollector} that records timing data for throughput and latency
- * analysis.
+ * Performance-focused metrics collector that records timing data for throughput and latency
+ * analysis. Inherits no-op defaults for callbacks that performance tests do not inspect.
  *
  * <p>Uses {@code @Priority(2)} to win over {@link CountingMetricsCollector} ({@code @Priority(1)})
  * when both are deployed in the same archive.
@@ -22,7 +21,7 @@ import run.ratchet.spi.MetricsCollector;
 @Alternative
 @Priority(2)
 @ApplicationScoped
-public class PerformanceMetricsCollector implements MetricsCollector {
+public class PerformanceMetricsCollector extends TestMetricsCollectorAdapter {
 
   private static final ConcurrentLinkedQueue<Long> EXECUTION_TIMES = new ConcurrentLinkedQueue<>();
   private static final AtomicLong STARTED_COUNT = new AtomicLong(0);
@@ -91,33 +90,6 @@ public class PerformanceMetricsCollector implements MetricsCollector {
   public void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt) {
     FAILED_COUNT.incrementAndGet();
   }
-
-  @Override
-  public void successFinalizationRetried(UUID jobId, JobType type) {}
-
-  @Override
-  public void successFinalizationMinimal(UUID jobId, JobType type) {}
-
-  @Override
-  public void successFinalizationStuck(UUID jobId, JobType type) {}
-
-  @Override
-  public void claimTransientFailure(String executionType) {}
-
-  @Override
-  public void jobsClaimed(String executionType, int claimedCount) {}
-
-  @Override
-  public void gateRejected(String executionType, String gateStatus) {}
-
-  @Override
-  public void localWakeup(String source) {}
-
-  @Override
-  public void clusterWakeupPublished(String transport, String outcome) {}
-
-  @Override
-  public void clusterWakeupReceived(String transport, String outcome) {}
 
   public record PerformanceSnapshot(
       long completedCount,
