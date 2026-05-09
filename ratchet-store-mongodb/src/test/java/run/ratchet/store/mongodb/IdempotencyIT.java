@@ -39,7 +39,10 @@ class IdempotencyIT extends BaseDocumentStoreIT {
     JobEntity job2 = newPendingJob();
     job2.setBusinessKey(bizKey);
 
-    assertThrows(RatchetTransientStoreException.class, () -> store().save(job2));
+    RatchetTransientStoreException ex =
+        assertThrows(RatchetTransientStoreException.class, () -> store().save(job2));
+    assertTrue(ex.getMessage().contains("business key"));
+    assertTrue(causeMessage(ex).contains("idx_job_active_business_key"));
   }
 
   @Test
@@ -56,6 +59,7 @@ class IdempotencyIT extends BaseDocumentStoreIT {
     job2.setBusinessKey(bizKey);
     JobEntity saved = store().save(job2);
     assertNotNull(saved.getId());
+    assertEquals(bizKey, saved.getBusinessKey());
   }
 
   @Test
@@ -68,5 +72,13 @@ class IdempotencyIT extends BaseDocumentStoreIT {
     Optional<JobEntity> found = store().findByIdempotencyKey(key);
     assertTrue(found.isPresent());
     assertEquals(key, found.get().getIdempotencyKey());
+  }
+
+  private static String causeMessage(Throwable throwable) {
+    Throwable current = throwable;
+    while (current.getCause() != null) {
+      current = current.getCause();
+    }
+    return current.getMessage();
   }
 }
