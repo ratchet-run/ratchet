@@ -18,6 +18,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import org.jboss.logging.Logger;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
@@ -144,28 +145,28 @@ public class JobExecutorService {
   public ExecutionResult execute(JobEntity job) {
     JobExecutionType jobType = job.getJobType();
     AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef = new AtomicReference<>();
-    Callable<Void> callable = createPermitAwareRunner(job, jobType, handlesRef);
-    Instant executionStartTime = Instant.now();
-
-    try {
-      Future<Void> future = submitToExecutor(callable);
-      handlesRef.set(
-          scheduleWatchdog(job.getId(), job.getTimeoutSec(), future, executionStartTime));
-      return ExecutionResult.success(future);
-    } catch (RejectedExecutionException e) {
-      return ExecutionResult.rejected(e);
-    }
+    Callable<Void> callable = createPermitAwareRunner(jobType, handlesRef, task -> task.init(job));
+    return execute(job.getId(), job.getTimeoutSec(), callable, handlesRef);
   }
 
   public ExecutionResult execute(JobClaimDto claim) {
     JobExecutionType jobType = claim.jobType();
     AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef = new AtomicReference<>();
-    Callable<Void> callable = createPermitAwareRunner(claim, jobType, handlesRef);
+    Callable<Void> callable =
+        createPermitAwareRunner(jobType, handlesRef, task -> task.initFromClaim(claim));
+    return execute(claim.id(), claim.timeoutSec(), callable, handlesRef);
+  }
+
+  private ExecutionResult execute(
+      UUID jobId,
+      int timeoutSec,
+      Callable<Void> callable,
+      AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef) {
     Instant executionStartTime = Instant.now();
 
     try {
       Future<Void> future = submitToExecutor(callable);
-      handlesRef.set(scheduleWatchdog(claim.id(), claim.timeoutSec(), future, executionStartTime));
+      handlesRef.set(scheduleWatchdog(jobId, timeoutSec, future, executionStartTime));
       return ExecutionResult.success(future);
     } catch (RejectedExecutionException e) {
       return ExecutionResult.rejected(e);
@@ -234,31 +235,11 @@ public class JobExecutorService {
   }
 
   private Callable<Void> createPermitAwareRunner(
-      JobEntity job,
       JobExecutionType jobType,
-      AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef) {
+      AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef,
+      Consumer<JobTask> initializer) {
     JobTask task = createTask();
-    task.init(job);
-
-    return () -> {
-      try {
-        return task.call();
-      } finally {
-        threadPoolManager.releasePermit(jobType);
-        if (pollerScheduler != null) {
-          pollerScheduler.wakeup();
-        }
-        cancelTimeoutHandles(handlesRef);
-      }
-    };
-  }
-
-  private Callable<Void> createPermitAwareRunner(
-      JobClaimDto claim,
-      JobExecutionType jobType,
-      AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef) {
-    JobTask task = createTask();
-    task.initFromClaim(claim);
+    initializer.accept(task);
 
     return () -> {
       try {
