@@ -39,7 +39,9 @@ import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.result.DeleteResult;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.bson.Document;
@@ -286,24 +288,17 @@ final class MongoAuxiliaryOperations {
     try (ClientSession session = ctx.startSession()) {
       return session.withTransaction(
           () -> {
-            List<Document> orphanedPermits = new ArrayList<>();
+            Map<String, Integer> removedByResource = new HashMap<>();
             ctx.resourcePermits()
                 .find(session, in(NODE_ID, staleNodeIds))
-                .forEach(orphanedPermits::add);
+                .forEach(
+                    doc -> removedByResource.merge(doc.getString(RESOURCE_NAME), 1, Integer::sum));
             DeleteResult result =
                 ctx.resourcePermits().deleteMany(session, in(NODE_ID, staleNodeIds));
-            orphanedPermits.stream()
-                .map(doc -> doc.getString(RESOURCE_NAME))
-                .distinct()
-                .forEach(
-                    resource -> {
-                      long count =
-                          orphanedPermits.stream()
-                              .filter(doc -> resource.equals(doc.getString(RESOURCE_NAME)))
-                              .count();
-                      ctx.resourceLimits()
-                          .updateOne(session, eq(ID, resource), inc(ACTIVE_COUNT, (int) -count));
-                    });
+            removedByResource.forEach(
+                (resource, count) ->
+                    ctx.resourceLimits()
+                        .updateOne(session, eq(ID, resource), inc(ACTIVE_COUNT, -count)));
             return (int) result.getDeletedCount();
           });
     }

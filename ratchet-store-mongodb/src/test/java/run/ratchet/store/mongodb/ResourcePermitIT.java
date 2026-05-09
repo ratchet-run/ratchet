@@ -10,6 +10,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.JOB_ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.RESOURCE_NAME;
 
+import java.util.List;
 import org.bson.Document;
 import org.junit.jupiter.api.Test;
 import run.ratchet.store.entity.JobEntity;
@@ -96,6 +97,35 @@ class ResourcePermitIT extends BaseDocumentStoreIT {
     assertEquals(0, permitCount("cpu", first));
     assertEquals(1, permitCount("cpu", second));
     assertEquals(1, activeCount("cpu"));
+  }
+
+  @Test
+  void cleanupOrphanedPermits_decrementsActiveCountsByResource() {
+    store().configureResource("cleanup-api", 4, 5000, "API slots");
+    store().configureResource("cleanup-disk", 3, 5000, "Disk slots");
+
+    JobEntity staleApiOne = store().save(newPendingJob());
+    JobEntity staleApiTwo = store().save(newPendingJob());
+    JobEntity staleDisk = store().save(newPendingJob());
+    JobEntity liveApi = store().save(newPendingJob());
+    JobEntity liveDisk = store().save(newPendingJob());
+
+    assertTrue(store().tryAcquirePermit("cleanup-api", staleApiOne.getId(), "stale-node-1"));
+    assertTrue(store().tryAcquirePermit("cleanup-api", staleApiTwo.getId(), "stale-node-2"));
+    assertTrue(store().tryAcquirePermit("cleanup-disk", staleDisk.getId(), "stale-node-1"));
+    assertTrue(store().tryAcquirePermit("cleanup-api", liveApi.getId(), "live-node"));
+    assertTrue(store().tryAcquirePermit("cleanup-disk", liveDisk.getId(), "live-node"));
+
+    int cleaned = store().cleanupOrphanedPermits(List.of("stale-node-1", "stale-node-2"));
+
+    assertEquals(3, cleaned);
+    assertEquals(1, activeCount("cleanup-api"));
+    assertEquals(1, activeCount("cleanup-disk"));
+    assertEquals(0, permitCount("cleanup-api", staleApiOne));
+    assertEquals(0, permitCount("cleanup-api", staleApiTwo));
+    assertEquals(0, permitCount("cleanup-disk", staleDisk));
+    assertEquals(1, permitCount("cleanup-api", liveApi));
+    assertEquals(1, permitCount("cleanup-disk", liveDisk));
   }
 
   @Test
