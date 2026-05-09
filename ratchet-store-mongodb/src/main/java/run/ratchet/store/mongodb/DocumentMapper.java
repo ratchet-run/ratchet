@@ -31,6 +31,14 @@ import run.ratchet.store.entity.WorkflowConditionEntity;
 /** Bidirectional mapping between Ratchet store-core entities and MongoDB BSON documents. */
 public final class DocumentMapper {
 
+  private static final JobStatus DEFAULT_JOB_STATUS = JobStatus.PENDING;
+  private static final JobPriority DEFAULT_JOB_PRIORITY = JobPriority.NORMAL;
+  private static final String DEFAULT_CRON_EXPR = "";
+  private static final String DEFAULT_ZONE_ID = "UTC";
+  private static final int DEFAULT_COUNT = 0;
+  private static final int DEFAULT_VERSION = 0;
+  private static final long DEFAULT_DURATION_MS = 0L;
+
   private DocumentMapper() {}
 
   public static Document toDocument(JobEntity job) {
@@ -38,10 +46,8 @@ public final class DocumentMapper {
     if (job.getId() != null) {
       doc.append("_id", job.getId());
     }
-    doc.append("status", job.getStatus() == null ? "PENDING" : job.getStatus().name());
-    doc.append(
-        "paused_from_status",
-        job.getPausedFromStatus() == null ? null : job.getPausedFromStatus().name());
+    doc.append("status", enumNameOrDefault(job.getStatus(), DEFAULT_JOB_STATUS));
+    doc.append("paused_from_status", enumName(job.getPausedFromStatus()));
     doc.append("scheduled_time", toDate(job.getScheduledTime()));
     doc.append("job_type", job.getJobType().name());
     doc.append("priority", job.getPriority().ordinal());
@@ -50,8 +56,8 @@ public final class DocumentMapper {
     doc.append("backoff_policy", job.getBackoffPolicy().name());
     doc.append("backoff_param_ms", job.getBackoffParamMs());
     doc.append("timeout_sec", job.getTimeoutSec());
-    doc.append("cron_expr", job.getCronExpr() == null ? "" : job.getCronExpr());
-    doc.append("zone_id", job.getZoneId() == null ? "UTC" : job.getZoneId());
+    doc.append("cron_expr", stringOrDefault(job.getCronExpr(), DEFAULT_CRON_EXPR));
+    doc.append("zone_id", stringOrDefault(job.getZoneId(), DEFAULT_ZONE_ID));
     doc.append("next_fire", toDate(job.getNextFire()));
     doc.append("payload", payloadToStoredValue(job.getPayload()));
     doc.append("params", paramsToDocument(job.getParams()));
@@ -62,7 +68,7 @@ public final class DocumentMapper {
         "method_name", job.getPayload() != null ? job.getPayload().method() : job.getMethodName());
     doc.append("idempotency_key", job.getIdempotencyKey());
     doc.append("business_key", job.getBusinessKey());
-    doc.append("tags", job.getTags() != null ? job.getTags() : List.of());
+    doc.append("tags", listOrEmpty(job.getTags()));
     doc.append("resource_name", job.getResourceName());
     doc.append("on_success_payload", payloadToStoredValue(job.getOnSuccessPayload()));
     doc.append("on_failure_payload", payloadToStoredValue(job.getOnFailurePayload()));
@@ -81,7 +87,7 @@ public final class DocumentMapper {
     doc.append("queue_wait_ms", job.getQueueWaitMs());
     doc.append("job_result", job.getJobResult());
     doc.append("result_type", job.getResultType());
-    doc.append("version", job.getVersion() == null ? 0 : job.getVersion());
+    doc.append("version", versionOrDefault(job.getVersion()));
     doc.append("signal_key", job.getSignalKey());
     doc.append("signal_timeout", toDate(job.getSignalTimeout()));
     doc.append("signal_payload", job.getSignalPayload());
@@ -97,18 +103,18 @@ public final class DocumentMapper {
   public static JobEntity toJobEntity(Document doc) {
     JobEntity job = new JobEntity();
     job.setId(doc.get("_id", UUID.class));
-    job.setStatus(JobStatus.valueOf(doc.getString("status")));
+    job.setStatus(requiredEnumValue(doc.getString("status"), JobStatus.class));
     if (doc.getString("paused_from_status") != null) {
-      job.setPausedFromStatus(JobStatus.valueOf(doc.getString("paused_from_status")));
+      job.setPausedFromStatus(enumValue(doc.getString("paused_from_status"), JobStatus.class));
     }
     job.setScheduledTime(toInstant(doc.getDate("scheduled_time")));
-    job.setJobType(JobExecutionType.valueOf(doc.getString("job_type")));
-    job.setPriority(safeJobPriority(doc.getInteger("priority", 2)));
-    job.setAttempts(doc.getInteger("attempts", 0));
-    job.setMaxRetries(doc.getInteger("max_retries", 0));
-    job.setBackoffPolicy(BackoffPolicy.valueOf(doc.getString("backoff_policy")));
-    job.setBackoffParamMs(doc.getInteger("backoff_param_ms", 0));
-    job.setTimeoutSec(doc.getInteger("timeout_sec", 0));
+    job.setJobType(requiredEnumValue(doc.getString("job_type"), JobExecutionType.class));
+    job.setPriority(jobPriorityFromOrdinal(doc.getInteger("priority")));
+    job.setAttempts(doc.getInteger("attempts", DEFAULT_COUNT));
+    job.setMaxRetries(doc.getInteger("max_retries", DEFAULT_COUNT));
+    job.setBackoffPolicy(requiredEnumValue(doc.getString("backoff_policy"), BackoffPolicy.class));
+    job.setBackoffParamMs(doc.getInteger("backoff_param_ms", DEFAULT_COUNT));
+    job.setTimeoutSec(doc.getInteger("timeout_sec", DEFAULT_COUNT));
     job.setCronExpr(doc.getString("cron_expr"));
     job.setZoneId(doc.getString("zone_id"));
     job.setNextFire(toInstant(doc.getDate("next_fire")));
@@ -137,7 +143,7 @@ public final class DocumentMapper {
     job.setQueueWaitMs(doc.getLong("queue_wait_ms"));
     job.setJobResult(doc.getString("job_result"));
     job.setResultType(doc.getString("result_type"));
-    job.setVersion(doc.getInteger("version", 0));
+    job.setVersion(doc.getInteger("version", DEFAULT_VERSION));
     job.setSignalKey(doc.getString("signal_key"));
     job.setSignalTimeout(toInstant(doc.getDate("signal_timeout")));
     job.setSignalPayload(doc.getString("signal_payload"));
@@ -153,17 +159,17 @@ public final class DocumentMapper {
   public static JobClaimDto toJobClaimDto(Document doc) {
     return new JobClaimDto(
         doc.get("_id", UUID.class),
-        JobStatus.valueOf(doc.getString("status")),
-        JobExecutionType.valueOf(doc.getString("job_type")),
-        safeJobPriority(doc.getInteger("priority", 2)),
+        requiredEnumValue(doc.getString("status"), JobStatus.class),
+        requiredEnumValue(doc.getString("job_type"), JobExecutionType.class),
+        jobPriorityFromOrdinal(doc.getInteger("priority")),
         toInstant(doc.getDate("scheduled_time")),
         doc.getInteger("version"),
-        doc.getInteger("timeout_sec", 0),
+        doc.getInteger("timeout_sec", DEFAULT_COUNT),
         doc.getString("picked_by"),
         toInstant(doc.getDate("picked_at")),
         doc.getString("business_key"),
-        doc.getInteger("attempts", 0),
-        doc.getInteger("max_retries", 0));
+        doc.getInteger("attempts", DEFAULT_COUNT),
+        doc.getInteger("max_retries", DEFAULT_COUNT));
   }
 
   public static Document toDocument(BatchEntity batch) {
@@ -173,7 +179,7 @@ public final class DocumentMapper {
     doc.append("completed_items", batch.getCompletedItems());
     doc.append("failed_items", batch.getFailedItems());
     doc.append("completion_processed", batch.getCompletionProcessed());
-    doc.append("version", batch.getVersion() == null ? 0 : batch.getVersion());
+    doc.append("version", versionOrDefault(batch.getVersion()));
     doc.append("progress_hook", payloadToStoredValue(batch.getProgressHook()));
     return doc;
   }
@@ -181,11 +187,11 @@ public final class DocumentMapper {
   public static BatchEntity toBatchEntity(Document doc) {
     BatchEntity batch = new BatchEntity();
     batch.setId(doc.get("_id", UUID.class));
-    batch.setTotalItems(doc.getInteger("total_items", 0));
-    batch.setCompletedItems(doc.getInteger("completed_items", 0));
-    batch.setFailedItems(doc.getInteger("failed_items", 0));
+    batch.setTotalItems(doc.getInteger("total_items", DEFAULT_COUNT));
+    batch.setCompletedItems(doc.getInteger("completed_items", DEFAULT_COUNT));
+    batch.setFailedItems(doc.getInteger("failed_items", DEFAULT_COUNT));
     batch.setCompletionProcessed(doc.getBoolean("completion_processed", false));
-    batch.setVersion(doc.getInteger("version", 0));
+    batch.setVersion(doc.getInteger("version", DEFAULT_VERSION));
     batch.setProgressHook(storedValueToPayload(doc.get("progress_hook")));
     return batch;
   }
@@ -193,9 +199,9 @@ public final class DocumentMapper {
   public static BatchProgress toBatchProgress(Document doc, UUID batchId) {
     return new BatchProgress(
         batchId,
-        doc.getInteger("total_items", 0),
-        doc.getInteger("completed_items", 0),
-        doc.getInteger("failed_items", 0),
+        doc.getInteger("total_items", DEFAULT_COUNT),
+        doc.getInteger("completed_items", DEFAULT_COUNT),
+        doc.getInteger("failed_items", DEFAULT_COUNT),
         storedValueToPayload(doc.get("progress_hook")));
   }
 
@@ -227,7 +233,7 @@ public final class DocumentMapper {
     doc.append("node_id", exec.getNodeId());
     doc.append("started_at", toDate(exec.getStartedAt()));
     doc.append("ended_at", toDate(exec.getEndedAt()));
-    doc.append("status", exec.getStatus() == null ? null : exec.getStatus().name());
+    doc.append("status", enumName(exec.getStatus()));
     doc.append("error_message", exec.getErrorMessage());
     doc.append("error_class", exec.getErrorClass());
     doc.append("duration_ms", exec.getDurationMs());
@@ -238,12 +244,12 @@ public final class DocumentMapper {
     JobExecutionEntity exec = new JobExecutionEntity();
     exec.setId(doc.get("_id", UUID.class));
     exec.setJobId(doc.get("job_id", UUID.class));
-    exec.setAttempt(doc.getInteger("attempt", 0));
+    exec.setAttempt(doc.getInteger("attempt", DEFAULT_COUNT));
     exec.setNodeId(doc.getString("node_id"));
     exec.setStartedAt(toInstant(doc.getDate("started_at")));
     exec.setEndedAt(toInstant(doc.getDate("ended_at")));
     if (doc.getString("status") != null) {
-      exec.setStatus(JobExecutionEntity.ExecutionStatus.valueOf(doc.getString("status")));
+      exec.setStatus(enumValue(doc.getString("status"), JobExecutionEntity.ExecutionStatus.class));
     }
     exec.setErrorMessage(doc.getString("error_message"));
     exec.setErrorClass(doc.getString("error_class"));
@@ -258,7 +264,7 @@ public final class DocumentMapper {
     }
     doc.append("job_id", logEntry.getJobId());
     doc.append("ts", toDate(logEntry.getTs()));
-    doc.append("level", logEntry.getLevel() == null ? null : logEntry.getLevel().name());
+    doc.append("level", enumName(logEntry.getLevel()));
     doc.append("message", logEntry.getMessage());
     doc.append("mdc", nodeInfoToDocument(logEntry.getMdc()));
     return doc;
@@ -269,7 +275,7 @@ public final class DocumentMapper {
         new JobLogEntity(
             doc.get("job_id", UUID.class),
             toInstant(doc.getDate("ts")),
-            JobLogEntity.LogLevel.valueOf(doc.getString("level")),
+            requiredEnumValue(doc.getString("level"), JobLogEntity.LogLevel.class),
             doc.getString("message"),
             documentToNodeInfo(doc.get("mdc", Document.class)));
     logEntry.setId(doc.get("_id", UUID.class));
@@ -282,12 +288,12 @@ public final class DocumentMapper {
       doc.append("_id", a.getId());
     }
     doc.append("original_job_id", a.getOriginalJobId());
-    doc.append("final_status", a.getFinalStatus() == null ? null : a.getFinalStatus().name());
-    doc.append("job_type", a.getJobType() == null ? null : a.getJobType().name());
+    doc.append("final_status", enumName(a.getFinalStatus()));
+    doc.append("job_type", enumName(a.getJobType()));
     doc.append("priority", a.getPriority() == null ? null : a.getPriority().ordinal());
     doc.append("total_attempts", a.getTotalAttempts());
     doc.append("max_retries", a.getMaxRetries());
-    doc.append("backoff_policy", a.getBackoffPolicy() == null ? null : a.getBackoffPolicy().name());
+    doc.append("backoff_policy", enumName(a.getBackoffPolicy()));
     doc.append("backoff_param_ms", a.getBackoffParamMs());
     doc.append("timeout_sec", a.getTimeoutSec());
     doc.append("target_class", a.getTargetClass());
@@ -328,19 +334,19 @@ public final class DocumentMapper {
     e.setId(doc.get("original_job_id", UUID.class));
     String finalStatus = doc.getString("final_status");
     if (finalStatus != null) {
-      e.setStatus(JobStatus.valueOf(finalStatus));
+      e.setStatus(enumValue(finalStatus, JobStatus.class));
     }
     String jobType = doc.getString("job_type");
     if (jobType != null) {
-      e.setJobType(JobExecutionType.valueOf(jobType));
+      e.setJobType(enumValue(jobType, JobExecutionType.class));
     }
-    e.setPriority(safeJobPriority(doc.getInteger("priority", 2)));
-    e.setMaxRetries(doc.getInteger("max_retries", 0));
+    e.setPriority(jobPriorityFromOrdinal(doc.getInteger("priority")));
+    e.setMaxRetries(doc.getInteger("max_retries", DEFAULT_COUNT));
     if (doc.getString("backoff_policy") != null) {
-      e.setBackoffPolicy(BackoffPolicy.valueOf(doc.getString("backoff_policy")));
+      e.setBackoffPolicy(enumValue(doc.getString("backoff_policy"), BackoffPolicy.class));
     }
-    e.setBackoffParamMs(doc.getInteger("backoff_param_ms", 0));
-    e.setTimeoutSec(doc.getInteger("timeout_sec", 0));
+    e.setBackoffParamMs(doc.getInteger("backoff_param_ms", DEFAULT_COUNT));
+    e.setTimeoutSec(doc.getInteger("timeout_sec", DEFAULT_COUNT));
     e.setTargetClass(doc.getString("target_class"));
     e.setMethodName(doc.getString("method_name"));
     e.setBusinessKey(doc.getString("business_key"));
@@ -357,7 +363,7 @@ public final class DocumentMapper {
     e.setJobResult(doc.getString("job_result"));
     e.setResultType(doc.getString("result_type"));
     e.setLastError(doc.getString("final_error"));
-    e.setAttempts(doc.getInteger("total_attempts", 0));
+    e.setAttempts(doc.getInteger("total_attempts", DEFAULT_COUNT));
     return e;
   }
 
@@ -366,19 +372,19 @@ public final class DocumentMapper {
     a.setId(doc.get("_id", UUID.class));
     a.setOriginalJobId(doc.get("original_job_id", UUID.class));
     if (doc.getString("final_status") != null) {
-      a.setFinalStatus(JobStatus.valueOf(doc.getString("final_status")));
+      a.setFinalStatus(enumValue(doc.getString("final_status"), JobStatus.class));
     }
     if (doc.getString("job_type") != null) {
-      a.setJobType(JobExecutionType.valueOf(doc.getString("job_type")));
+      a.setJobType(enumValue(doc.getString("job_type"), JobExecutionType.class));
     }
-    a.setPriority(safeJobPriority(doc.getInteger("priority", 2)));
-    a.setTotalAttempts(doc.getInteger("total_attempts", 0));
-    a.setMaxRetries(doc.getInteger("max_retries", 0));
+    a.setPriority(jobPriorityFromOrdinal(doc.getInteger("priority")));
+    a.setTotalAttempts(doc.getInteger("total_attempts", DEFAULT_COUNT));
+    a.setMaxRetries(doc.getInteger("max_retries", DEFAULT_COUNT));
     if (doc.getString("backoff_policy") != null) {
-      a.setBackoffPolicy(BackoffPolicy.valueOf(doc.getString("backoff_policy")));
+      a.setBackoffPolicy(enumValue(doc.getString("backoff_policy"), BackoffPolicy.class));
     }
-    a.setBackoffParamMs(doc.getInteger("backoff_param_ms", 0));
-    a.setTimeoutSec(doc.getInteger("timeout_sec", 0));
+    a.setBackoffParamMs(doc.getInteger("backoff_param_ms", DEFAULT_COUNT));
+    a.setTimeoutSec(doc.getInteger("timeout_sec", DEFAULT_COUNT));
     a.setTargetClass(doc.getString("target_class"));
     a.setMethodName(doc.getString("method_name"));
     a.setBusinessKey(doc.getString("business_key"));
@@ -410,8 +416,7 @@ public final class DocumentMapper {
     }
     doc.append("parent_job_id", wc.getParentJobId());
     doc.append("child_job_id", wc.getChildJobId());
-    doc.append(
-        "condition_type", wc.getConditionType() == null ? null : wc.getConditionType().name());
+    doc.append("condition_type", enumName(wc.getConditionType()));
     doc.append("condition_expression", wc.getConditionExpression());
     doc.append("condition_priority", wc.getConditionPriority());
     doc.append("created_at", toDate(wc.getCreatedAt()));
@@ -424,7 +429,8 @@ public final class DocumentMapper {
     wc.setParentJobId(doc.get("parent_job_id", UUID.class));
     wc.setChildJobId(doc.get("child_job_id", UUID.class));
     if (doc.getString("condition_type") != null) {
-      wc.setConditionType(WorkflowCondition.ConditionType.valueOf(doc.getString("condition_type")));
+      wc.setConditionType(
+          enumValue(doc.getString("condition_type"), WorkflowCondition.ConditionType.class));
     }
     wc.setConditionExpression(doc.getString("condition_expression"));
     wc.setConditionPriority(doc.getInteger("condition_priority"));
@@ -435,16 +441,15 @@ public final class DocumentMapper {
   public static Document toDocument(BatchMetricsEntity bm) {
     Document doc = new Document();
     doc.append("_id", bm.getBatchId());
-    doc.append("total_duration_ms", bm.getTotalDurationMs() == null ? 0L : bm.getTotalDurationMs());
-    doc.append(
-        "child_execution_ms", bm.getChildExecutionMs() == null ? 0L : bm.getChildExecutionMs());
-    doc.append("overhead_ms", bm.getOverheadMs() == null ? 0L : bm.getOverheadMs());
+    doc.append("total_duration_ms", longOrDefault(bm.getTotalDurationMs()));
+    doc.append("child_execution_ms", longOrDefault(bm.getChildExecutionMs()));
+    doc.append("overhead_ms", longOrDefault(bm.getOverheadMs()));
     doc.append("child_count", bm.getChildCount());
     doc.append("success_count", bm.getSuccessCount());
     doc.append("failure_count", bm.getFailureCount());
     doc.append("started_at", toDate(bm.getStartedAt()));
     doc.append("completed_at", toDate(bm.getCompletedAt()));
-    doc.append("version", bm.getVersion() == null ? 0 : bm.getVersion());
+    doc.append("version", versionOrDefault(bm.getVersion()));
     return doc;
   }
 
@@ -454,12 +459,12 @@ public final class DocumentMapper {
     bm.setTotalDurationMs(doc.getLong("total_duration_ms"));
     bm.setChildExecutionMs(doc.getLong("child_execution_ms"));
     bm.setOverheadMs(doc.getLong("overhead_ms"));
-    bm.setChildCount(doc.getInteger("child_count", 0));
-    bm.setSuccessCount(doc.getInteger("success_count", 0));
-    bm.setFailureCount(doc.getInteger("failure_count", 0));
+    bm.setChildCount(doc.getInteger("child_count", DEFAULT_COUNT));
+    bm.setSuccessCount(doc.getInteger("success_count", DEFAULT_COUNT));
+    bm.setFailureCount(doc.getInteger("failure_count", DEFAULT_COUNT));
     bm.setStartedAt(toInstant(doc.getDate("started_at")));
     bm.setCompletedAt(toInstant(doc.getDate("completed_at")));
-    bm.setVersion(doc.getInteger("version", 0));
+    bm.setVersion(doc.getInteger("version", DEFAULT_VERSION));
     return bm;
   }
 
@@ -613,6 +618,42 @@ public final class DocumentMapper {
 
   static Instant toInstant(Date date) {
     return date == null ? null : date.toInstant();
+  }
+
+  private static String enumName(Enum<?> value) {
+    return value == null ? null : value.name();
+  }
+
+  private static String enumNameOrDefault(Enum<?> value, Enum<?> defaultValue) {
+    return enumName(value == null ? defaultValue : value);
+  }
+
+  private static <E extends Enum<E>> E enumValue(String value, Class<E> enumType) {
+    return value == null ? null : Enum.valueOf(enumType, value);
+  }
+
+  private static <E extends Enum<E>> E requiredEnumValue(String value, Class<E> enumType) {
+    return Enum.valueOf(enumType, value);
+  }
+
+  private static String stringOrDefault(String value, String defaultValue) {
+    return value == null ? defaultValue : value;
+  }
+
+  private static int versionOrDefault(Integer version) {
+    return version == null ? DEFAULT_VERSION : version;
+  }
+
+  private static long longOrDefault(Long value) {
+    return value == null ? DEFAULT_DURATION_MS : value;
+  }
+
+  private static <T> List<T> listOrEmpty(List<T> value) {
+    return value == null ? List.of() : value;
+  }
+
+  private static JobPriority jobPriorityFromOrdinal(Integer ordinal) {
+    return safeJobPriority(ordinal == null ? DEFAULT_JOB_PRIORITY.ordinal() : ordinal);
   }
 
   static JobPriority safeJobPriority(int ordinal) {

@@ -81,6 +81,35 @@ class DocumentMapperTest {
   }
 
   @Test
+  void writesExistingJobDefaultsForNullDefaultedFields() {
+    JobEntity job = job(null);
+    job.setStatus(null);
+    job.setCronExpr(null);
+    job.setZoneId(null);
+    job.setTags(null);
+    job.setVersion(null);
+
+    Document doc = DocumentMapper.toDocument(job);
+
+    assertEquals("PENDING", doc.getString("status"));
+    assertEquals("", doc.getString("cron_expr"));
+    assertEquals("UTC", doc.getString("zone_id"));
+    assertEquals(List.of(), doc.getList("tags", String.class));
+    assertEquals(0, doc.getInteger("version"));
+  }
+
+  @Test
+  void readsMissingOrInvalidJobPriorityAsNormal() {
+    Document doc = DocumentMapper.toDocument(job(null));
+    doc.remove("priority");
+
+    assertEquals(JobPriority.NORMAL, DocumentMapper.toJobEntity(doc).getPriority());
+
+    doc.put("priority", -1);
+    assertEquals(JobPriority.NORMAL, DocumentMapper.toJobEntity(doc).getPriority());
+  }
+
+  @Test
   void readsTraceContextWithoutUncheckedCasts() {
     JobEntity job = job(payload("com.example.TraceJob", "run"));
     job.setTraceContext(Map.of("traceparent", "00-abc-def-01"));
