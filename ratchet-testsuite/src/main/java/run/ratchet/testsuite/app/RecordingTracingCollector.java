@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import run.ratchet.spi.TracingCollector;
@@ -30,6 +31,7 @@ public class RecordingTracingCollector implements TracingCollector {
 
   private static final List<Map<String, String>> receivedParentContexts =
       new CopyOnWriteArrayList<>();
+  private static final List<String> executionScopeEvents = new CopyOnWriteArrayList<>();
   private static volatile Map<String, String> contextToCapture = Map.of();
 
   /** Injects the carrier map that {@link #captureCurrentContext()} will return. */
@@ -45,9 +47,14 @@ public class RecordingTracingCollector implements TracingCollector {
     return Collections.unmodifiableList(receivedParentContexts);
   }
 
+  public static List<String> getExecutionScopeEvents() {
+    return Collections.unmodifiableList(executionScopeEvents);
+  }
+
   public static void reset() {
     contextToCapture = Map.of();
     receivedParentContexts.clear();
+    executionScopeEvents.clear();
   }
 
   @Override
@@ -59,6 +66,31 @@ public class RecordingTracingCollector implements TracingCollector {
   public ExecutionScope jobExecutionStarted(
       UUID jobId, JobType type, JobPriority priority, Map<String, String> parentContext) {
     receivedParentContexts.add(Map.copyOf(parentContext));
-    return NoOpExecutionScope.INSTANCE;
+    executionScopeEvents.add("started");
+    return new RecordingExecutionScope();
+  }
+
+  private static final class RecordingExecutionScope implements ExecutionScope {
+
+    private final AtomicBoolean closed = new AtomicBoolean();
+
+    @Override
+    public void success(long executionTimeMs) {
+      executionScopeEvents.add("success");
+      close();
+    }
+
+    @Override
+    public void failure(Throwable cause, int attempt) {
+      executionScopeEvents.add("failure");
+      close();
+    }
+
+    @Override
+    public void close() {
+      if (closed.compareAndSet(false, true)) {
+        executionScopeEvents.add("close");
+      }
+    }
   }
 }

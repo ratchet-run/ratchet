@@ -81,6 +81,23 @@ class WorkerTagAffinityIT extends BaseRatchetIT {
   }
 
   @Test
+  void nodeWithRequireAndExcludeTags_claimsRequiredJobsWithoutExcludedTags() {
+    Instant due = Instant.now().minusSeconds(5);
+    JobEntity currentGpuJob = persistJob(due, "gpu");
+    persistJob(due, "gpu", "old-gpu");
+    persistJob(due, "cpu");
+    persistJob(due);
+
+    NodeTagFilter currentGpuNode = new NodeTagFilter(List.of("gpu"), List.of("old-gpu"));
+    List<JobClaimDto> claimed =
+        jobClaimStore.claimNextBatchOptimized(
+            JobExecutionType.SINGLE, 10, "current-gpu-node", currentGpuNode);
+
+    assertEquals(1, claimed.size(), "node should require gpu while excluding old-gpu");
+    assertEquals(currentGpuJob.getId(), claimed.get(0).id());
+  }
+
+  @Test
   void twoNodes_routeJobsWithoutDoubleClaimOrDrops() {
     Instant due = Instant.now().minusSeconds(5);
     JobEntity gpuJob = persistJob(due, "gpu");

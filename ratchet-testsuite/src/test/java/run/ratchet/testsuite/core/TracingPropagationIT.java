@@ -8,12 +8,17 @@ import jakarta.inject.Inject;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobType;
+import run.ratchet.spi.TracingCollector;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.testsuite.app.FailingJob;
 import run.ratchet.testsuite.app.RecordingTracingCollector;
 import run.ratchet.testsuite.app.SimpleJob;
 import run.ratchet.testsuite.app.TestJobService;
@@ -41,7 +46,11 @@ class TracingPropagationIT extends BaseRatchetIT {
 
     return RatchetArchiveBuilder.create()
         .addRatchetDependencies(profile, dbType)
-        .addClasses(RecordingTracingCollector.class, SimpleJob.class, TestJobService.class)
+        .addClasses(
+            RecordingTracingCollector.class,
+            SimpleJob.class,
+            FailingJob.class,
+            TestJobService.class)
         .addStoreInfrastructure()
         .addBeansXml()
         .build();
@@ -51,6 +60,7 @@ class TracingPropagationIT extends BaseRatchetIT {
   void reset() {
     RecordingTracingCollector.reset();
     SimpleJob.resetCount();
+    FailingJob.resetCount();
   }
 
   @Test
@@ -117,5 +127,49 @@ class TracingPropagationIT extends BaseRatchetIT {
     assertTrue(
         RecordingTracingCollector.getReceivedParentContexts().get(0).isEmpty(),
         "When no trace is active, jobExecutionStarted must receive an empty parentContext");
+  }
+
+  @Test
+  void executionScope_recordsSuccessAndClosesOnce() {
+    JobHandle handle = jobService.enqueueNow(SimpleJob::execute);
+    JobAssertions.assertJobCompleted(jobCrudStore, handle);
+
+    await()
+        .atMost(Duration.ofSeconds(5))
+        .untilAsserted(
+            () ->
+                assertEquals(
+                    List.of("started", "success", "close"),
+                    RecordingTracingCollector.getExecutionScopeEvents()));
+  }
+
+  @Test
+  void executionScope_recordsFailureAndClosesOnce() {
+    JobHandle handle = jobService.enqueue(FailingJob::execute).withMaxRetries(0).submit();
+    JobAssertions.assertJobFailed(jobCrudStore, handle);
+
+    await()
+        .atMost(Duration.ofSeconds(5))
+        .untilAsserted(
+            () ->
+                assertEquals(
+                    List.of("started", "failure", "close"),
+                    RecordingTracingCollector.getExecutionScopeEvents()));
+  }
+
+  @Test
+  void executionScope_closeIsIdempotent() {
+    RecordingTracingCollector collector = new RecordingTracingCollector();
+    TracingCollector.ExecutionScope scope =
+        collector.jobExecutionStarted(
+            UUID.randomUUID(), JobType.SINGLE, JobPriority.NORMAL, Map.of());
+
+    scope.close();
+    scope.close();
+
+    assertEquals(
+        List.of("started", "close"),
+        RecordingTracingCollector.getExecutionScopeEvents(),
+        "Repeated close calls should record a single close event");
   }
 }
