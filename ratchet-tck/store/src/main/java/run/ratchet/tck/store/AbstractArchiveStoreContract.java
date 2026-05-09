@@ -91,10 +91,9 @@ public abstract class AbstractArchiveStoreContract implements JobStoreContractFi
   @Test
   void purgeArchivedJobs_removesOldArchives() {
     var job = completeJob(persist(newPendingJob()));
-    store().archiveJob(job, "purge-test", "tck");
+    var archived = store().archiveJob(job, "purge-test", "tck");
 
-    // Purge with a cutoff in the future — should remove the just-archived record
-    int purged = store().purgeArchivedJobs(Instant.now().plusSeconds(3600));
+    int purged = store().purgeArchivedJobs(archived.getArchivedAt().plusMillis(1));
 
     assertTrue(purged >= 1, "purgeArchivedJobs should remove the archived record");
   }
