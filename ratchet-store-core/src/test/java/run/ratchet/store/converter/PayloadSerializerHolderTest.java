@@ -1,8 +1,10 @@
 package run.ratchet.store.converter;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import jakarta.json.bind.Jsonb;
 import jakarta.json.bind.JsonbBuilder;
@@ -62,6 +64,33 @@ class PayloadSerializerHolderTest {
     assertEquals(payload.target(), back.target());
   }
 
+  @Test
+  void jobPayloadConverter_wrapsSerializationErrors() {
+    PayloadSerializerHolder.set(new ThrowingSerializer());
+    JobPayloadConverter converter = new JobPayloadConverter();
+    JobPayload payload = new JobPayload("t", "m", "()V", false, List.of());
+
+    IllegalArgumentException thrown =
+        assertThrows(
+            IllegalArgumentException.class, () -> converter.convertToDatabaseColumn(payload));
+
+    assertEquals("JobPayload serialization error", thrown.getMessage());
+    assertInstanceOf(IllegalArgumentException.class, thrown.getCause());
+  }
+
+  @Test
+  void jobPayloadConverter_wrapsDeserializationErrors() {
+    PayloadSerializerHolder.set(new ThrowingSerializer());
+    JobPayloadConverter converter = new JobPayloadConverter();
+
+    IllegalArgumentException thrown =
+        assertThrows(
+            IllegalArgumentException.class, () -> converter.convertToEntityAttribute("{}"));
+
+    assertEquals("JobPayload deserialization error", thrown.getMessage());
+    assertInstanceOf(IllegalArgumentException.class, thrown.getCause());
+  }
+
   /** Records framework invocations while delegating JSON via a nested JSON-B call. */
   static final class RecordingSerializer implements PayloadSerializer {
 
@@ -82,6 +111,19 @@ class PayloadSerializerHolderTest {
         return null;
       }
       return jsonb.fromJson(json, type);
+    }
+  }
+
+  static final class ThrowingSerializer implements PayloadSerializer {
+
+    @Override
+    public String serialize(Object payload) {
+      throw new IllegalArgumentException("serialize failed");
+    }
+
+    @Override
+    public <T> T deserialize(String json, Class<T> type) {
+      throw new IllegalArgumentException("deserialize failed");
     }
   }
 }

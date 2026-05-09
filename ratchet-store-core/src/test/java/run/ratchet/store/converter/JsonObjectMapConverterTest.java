@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -26,8 +27,29 @@ class JsonObjectMapConverterTest {
     Map<String, Object> restored = converter.convertToEntityAttribute(json);
 
     assertEquals("Alice", restored.get("name"));
-    assertEquals(0, new BigDecimal("30").compareTo(new BigDecimal(restored.get("age").toString())));
+    assertEquals(new BigDecimal("30"), restored.get("age"));
     assertEquals(true, restored.get("active"));
+  }
+
+  @Test
+  void roundtrip_preservesNestedStructures() {
+    Map<String, Object> original =
+        Map.of("user", Map.of("name", "Alice", "roles", List.of("admin", "operator"), "score", 99));
+
+    Map<String, Object> restored =
+        converter.convertToEntityAttribute(converter.convertToDatabaseColumn(original));
+
+    assertEquals(
+        Map.of(
+            "user",
+            Map.of(
+                "name",
+                "Alice",
+                "roles",
+                List.of("admin", "operator"),
+                "score",
+                new BigDecimal("99"))),
+        restored);
   }
 
   @Test

@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.spi.PayloadSerializer;
@@ -27,8 +28,18 @@ class JsonListConverterTest {
 
     assertEquals(3, restored.size());
     assertEquals("alpha", restored.get(0));
-    assertEquals(0, new BigDecimal("42").compareTo(new BigDecimal(restored.get(1).toString())));
+    assertEquals(new BigDecimal("42"), restored.get(1));
     assertEquals(true, restored.get(2));
+  }
+
+  @Test
+  void roundtrip_preservesNestedGenericStructures() {
+    List<Object> original = List.of(Map.of("name", "alpha", "flags", List.of(true, false)));
+
+    List<Object> restored =
+        converter.convertToEntityAttribute(converter.convertToDatabaseColumn(original));
+
+    assertEquals(original, restored);
   }
 
   @Test

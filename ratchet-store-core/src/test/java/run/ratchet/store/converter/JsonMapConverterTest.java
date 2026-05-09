@@ -33,6 +33,14 @@ class JsonMapConverterTest {
   }
 
   @Test
+  void roundtrip_preservesEmptyMap() {
+    Map<String, String> restored =
+        converter.convertToEntityAttribute(converter.convertToDatabaseColumn(Map.of()));
+
+    assertEquals(Map.of(), restored);
+  }
+
+  @Test
   void nullAttribute_returnsNull() {
     assertNull(converter.convertToDatabaseColumn(null));
   }

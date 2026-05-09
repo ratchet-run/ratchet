@@ -9,6 +9,10 @@ import java.util.List;
 /**
  * JPA {@link AttributeConverter} that converts {@code List<Object>} to/from JSON for database
  * storage.
+ *
+ * <p>Deserialization intentionally targets raw {@link List} because JSON-B cannot recover erased
+ * element types for {@code List<Object>}. Scalar values and nested JSON structures are restored as
+ * JSON-B's standard runtime types, not application-specific POJOs.
  */
 @Converter
 public class JsonListConverter extends AbstractJsonAttributeConverter<List<Object>> {
