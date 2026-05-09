@@ -28,98 +28,77 @@ class RatchetLifecycleShutdownTest {
 
   @Test
   void onStartupStartsRetryBufferDrainer() {
-    Poller poller = mock(Poller.class);
-    RecurringScheduler recurringScheduler = mock(RecurringScheduler.class);
-    OrphanRecoveryTimer orphanRecoveryTimer = mock(OrphanRecoveryTimer.class);
-    BatchRecoveryTimer batchRecoveryTimer = mock(BatchRecoveryTimer.class);
-    DeadLetterService deadLetterService = mock(DeadLetterService.class);
-    JobArchivingService jobArchivingService = mock(JobArchivingService.class);
-    LogPurgeTimer logPurgeTimer = mock(LogPurgeTimer.class);
-    PollerWakeupListener pollerWakeupListener = mock(PollerWakeupListener.class);
-    ExecutorProvider executorProvider = mock(ExecutorProvider.class);
-    ScheduledExecutorService scheduledExecutor = mock(ScheduledExecutorService.class);
-    NodeIdentityProvider nodeIdentityProvider = mock(NodeIdentityProvider.class);
-    DrainController drainController = mock(DrainController.class);
-    RatchetOptions options =
-        RatchetOptions.builder()
-            .node(node -> node.orphanScanIntervalMinutes(1L))
-            .maintenance(
-                maintenance ->
-                    maintenance
-                        .dlqPurgeEnabled(false)
-                        .jobArchiveEnabled(false)
-                        .logPurgeEnabled(false))
-            .build();
-    JobExecutionCoordinator jobExecutionCoordinator = mock(JobExecutionCoordinator.class);
+    LifecycleFixture fixture = new LifecycleFixture(quietOptions());
 
-    when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
+    fixture.lifecycle.onStartup(new Object());
 
-    RatchetLifecycle lifecycle =
-        new RatchetLifecycle(
-            poller,
-            recurringScheduler,
-            orphanRecoveryTimer,
-            batchRecoveryTimer,
-            deadLetterService,
-            jobArchivingService,
-            logPurgeTimer,
-            pollerWakeupListener,
-            executorProvider,
-            nodeIdentityProvider,
-            drainController,
-            options,
-            jobExecutionCoordinator);
-
-    lifecycle.onStartup(new Object());
-
-    verify(jobExecutionCoordinator).initRetryBufferDrainer();
-    verifyNoInteractions(deadLetterService, jobArchivingService, logPurgeTimer);
+    verify(fixture.jobExecutionCoordinator).initRetryBufferDrainer();
+    verifyNoInteractions(
+        fixture.deadLetterService, fixture.jobArchivingService, fixture.logPurgeTimer);
   }
 
   @Test
   void onShutdownEngagesDrainBeforeStoppingPoller() {
-    Poller poller = mock(Poller.class);
-    DrainController drainController = mock(DrainController.class);
-    RecurringScheduler recurringScheduler = mock(RecurringScheduler.class);
-    OrphanRecoveryTimer orphanRecoveryTimer = mock(OrphanRecoveryTimer.class);
-    BatchRecoveryTimer batchRecoveryTimer = mock(BatchRecoveryTimer.class);
-    DeadLetterService deadLetterService = mock(DeadLetterService.class);
-    JobArchivingService jobArchivingService = mock(JobArchivingService.class);
-    LogPurgeTimer logPurgeTimer = mock(LogPurgeTimer.class);
-    PollerWakeupListener pollerWakeupListener = mock(PollerWakeupListener.class);
+    LifecycleFixture fixture = new LifecycleFixture(RatchetOptions.defaults());
+
+    fixture.lifecycle.onShutdown();
+
+    InOrder inOrder = inOrder(fixture.drainController, fixture.poller);
+    inOrder.verify(fixture.drainController).setDraining(true);
+    inOrder.verify(fixture.poller).stop();
+
+    verify(fixture.recurringScheduler).stop();
+    verify(fixture.orphanRecoveryTimer).stop();
+    verify(fixture.batchRecoveryTimer).stop();
+    verify(fixture.deadLetterService).stop();
+    verify(fixture.jobArchivingService).stop();
+    verify(fixture.logPurgeTimer).stop();
+    verify(fixture.jobExecutionCoordinator).shutdown();
+  }
+
+  private static RatchetOptions quietOptions() {
+    return RatchetOptions.builder()
+        .node(node -> node.orphanScanIntervalMinutes(1L))
+        .maintenance(
+            maintenance ->
+                maintenance.dlqPurgeEnabled(false).jobArchiveEnabled(false).logPurgeEnabled(false))
+        .build();
+  }
+
+  private static ExecutorProvider executorProviderWithScheduler() {
     ExecutorProvider executorProvider = mock(ExecutorProvider.class);
-    NodeIdentityProvider nodeIdentityProvider = mock(NodeIdentityProvider.class);
-    RatchetOptions options = RatchetOptions.defaults();
-    JobExecutionCoordinator jobExecutionCoordinator = mock(JobExecutionCoordinator.class);
+    when(executorProvider.getScheduledExecutor()).thenReturn(mock(ScheduledExecutorService.class));
+    return executorProvider;
+  }
 
-    RatchetLifecycle lifecycle =
-        new RatchetLifecycle(
-            poller,
-            recurringScheduler,
-            orphanRecoveryTimer,
-            batchRecoveryTimer,
-            deadLetterService,
-            jobArchivingService,
-            logPurgeTimer,
-            pollerWakeupListener,
-            executorProvider,
-            nodeIdentityProvider,
-            drainController,
-            options,
-            jobExecutionCoordinator);
+  private static final class LifecycleFixture {
+    final Poller poller = mock(Poller.class);
+    final RecurringScheduler recurringScheduler = mock(RecurringScheduler.class);
+    final OrphanRecoveryTimer orphanRecoveryTimer = mock(OrphanRecoveryTimer.class);
+    final BatchRecoveryTimer batchRecoveryTimer = mock(BatchRecoveryTimer.class);
+    final DeadLetterService deadLetterService = mock(DeadLetterService.class);
+    final JobArchivingService jobArchivingService = mock(JobArchivingService.class);
+    final LogPurgeTimer logPurgeTimer = mock(LogPurgeTimer.class);
+    final DrainController drainController = mock(DrainController.class);
+    final JobExecutionCoordinator jobExecutionCoordinator = mock(JobExecutionCoordinator.class);
+    final RatchetLifecycle lifecycle;
 
-    lifecycle.onShutdown();
-
-    InOrder inOrder = inOrder(drainController, poller);
-    inOrder.verify(drainController).setDraining(true);
-    inOrder.verify(poller).stop();
-
-    verify(recurringScheduler).stop();
-    verify(orphanRecoveryTimer).stop();
-    verify(batchRecoveryTimer).stop();
-    verify(deadLetterService).stop();
-    verify(jobArchivingService).stop();
-    verify(logPurgeTimer).stop();
-    verify(jobExecutionCoordinator).shutdown();
+    LifecycleFixture(RatchetOptions options) {
+      lifecycle =
+          new RatchetLifecycle(
+              poller,
+              recurringScheduler,
+              orphanRecoveryTimer,
+              batchRecoveryTimer,
+              deadLetterService,
+              jobArchivingService,
+              logPurgeTimer,
+              mock(PollerWakeupListener.class),
+              executorProviderWithScheduler(),
+              mock(NodeIdentityProvider.class),
+              drainController,
+              options,
+              jobExecutionCoordinator);
+    }
   }
 }
