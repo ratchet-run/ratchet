@@ -6,6 +6,7 @@ import java.util.EnumMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.LongSupplier;
 import org.jboss.logging.Logger;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.store.entity.JobExecutionType;
@@ -19,6 +20,7 @@ public class JobTypeRateLimiter {
   private final Map<JobExecutionType, Integer> rateLimits = new EnumMap<>(JobExecutionType.class);
   private final Map<JobExecutionType, RateWindow> rateWindows = new ConcurrentHashMap<>();
   private final RatchetOptions options;
+  private final LongSupplier clockMillis;
 
   public JobTypeRateLimiter() {
     this(RatchetOptions.defaults());
@@ -26,7 +28,12 @@ public class JobTypeRateLimiter {
 
   @Inject
   public JobTypeRateLimiter(RatchetOptions options) {
+    this(options, System::currentTimeMillis);
+  }
+
+  JobTypeRateLimiter(RatchetOptions options, LongSupplier clockMillis) {
     this.options = options;
+    this.clockMillis = clockMillis;
     init();
   }
 
@@ -58,7 +65,7 @@ public class JobTypeRateLimiter {
       return true;
     }
 
-    RateWindow window = rateWindows.computeIfAbsent(jobType, k -> new RateWindow());
+    RateWindow window = rateWindows.computeIfAbsent(jobType, k -> new RateWindow(clockMillis));
 
     return window.tryAcquire(maxPerMinute);
   }
@@ -85,10 +92,16 @@ public class JobTypeRateLimiter {
   private static class RateWindow {
 
     private final AtomicInteger count = new AtomicInteger(0);
-    private volatile long windowStart = System.currentTimeMillis();
+    private final LongSupplier clockMillis;
+    private volatile long windowStart;
+
+    private RateWindow(LongSupplier clockMillis) {
+      this.clockMillis = clockMillis;
+      this.windowStart = clockMillis.getAsLong();
+    }
 
     int getCurrentCount() {
-      long now = System.currentTimeMillis();
+      long now = clockMillis.getAsLong();
       if (now - windowStart >= 60000) {
         return 0;
       }
@@ -96,7 +109,7 @@ public class JobTypeRateLimiter {
     }
 
     synchronized boolean tryAcquire(int maxPerMinute) {
-      long now = System.currentTimeMillis();
+      long now = clockMillis.getAsLong();
 
       if (now - windowStart >= 60000) {
         count.set(1);

@@ -1,5 +1,6 @@
 package run.ratchet.ri.core;
 
+import java.util.function.LongSupplier;
 import run.ratchet.spi.PollingDelayStrategy;
 
 /**
@@ -33,6 +34,7 @@ public class PollingStrategy implements PollingDelayStrategy {
   private final long deepIdleThresholdMs;
   private final int idleThreshold;
   private final int batchSize;
+  private final LongSupplier clockMillis;
 
   private final long[] recentJobCounts = new long[ROLLING_WINDOW_SIZE];
   private int recentJobCountIndex = 0;
@@ -64,6 +66,26 @@ public class PollingStrategy implements PollingDelayStrategy {
       long deepIdleThresholdMs,
       int idleThreshold,
       int batchSize) {
+    this(
+        burstDelayMs,
+        minDelayMs,
+        maxDelayMs,
+        deepIdleDelayMs,
+        deepIdleThresholdMs,
+        idleThreshold,
+        batchSize,
+        System::currentTimeMillis);
+  }
+
+  PollingStrategy(
+      long burstDelayMs,
+      long minDelayMs,
+      long maxDelayMs,
+      long deepIdleDelayMs,
+      long deepIdleThresholdMs,
+      int idleThreshold,
+      int batchSize,
+      LongSupplier clockMillis) {
     this.burstDelayMs = burstDelayMs;
     this.minDelayMs = minDelayMs;
     this.maxDelayMs = maxDelayMs;
@@ -71,8 +93,9 @@ public class PollingStrategy implements PollingDelayStrategy {
     this.deepIdleThresholdMs = deepIdleThresholdMs;
     this.idleThreshold = idleThreshold;
     this.batchSize = batchSize;
+    this.clockMillis = clockMillis;
     this.currentDelayMs = minDelayMs;
-    this.lastJobFoundTime = System.currentTimeMillis();
+    this.lastJobFoundTime = clockMillis.getAsLong();
   }
 
   public synchronized long getCurrentDelay() {
@@ -92,14 +115,14 @@ public class PollingStrategy implements PollingDelayStrategy {
         consecutiveFullBatches,
         systemLoadFactor,
         avgRecentJobs,
-        System.currentTimeMillis() - lastJobFoundTime,
+        clockMillis.getAsLong() - lastJobFoundTime,
         inDeepIdle,
         inBurstMode,
         deepIdleThresholdMs);
   }
 
   public synchronized void onWakeup() {
-    lastJobFoundTime = System.currentTimeMillis();
+    lastJobFoundTime = clockMillis.getAsLong();
     inDeepIdle = false;
     inBurstMode = true;
     currentDelayMs = burstDelayMs;

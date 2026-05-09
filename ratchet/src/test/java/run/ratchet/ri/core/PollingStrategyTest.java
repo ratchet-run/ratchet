@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -17,19 +18,25 @@ class PollingStrategyTest {
   private static final int IDLE_THRESHOLD = 3;
   private static final int BATCH_SIZE = 10;
 
+  private AtomicLong now;
   private PollingStrategy strategy;
 
   @BeforeEach
   void setUp() {
-    strategy =
-        new PollingStrategy(
-            BURST_DELAY,
-            MIN_DELAY,
-            MAX_DELAY,
-            DEEP_IDLE_DELAY,
-            DEEP_IDLE_THRESHOLD,
-            IDLE_THRESHOLD,
-            BATCH_SIZE);
+    now = new AtomicLong(1_000_000L);
+    strategy = pollingStrategy();
+  }
+
+  private PollingStrategy pollingStrategy() {
+    return new PollingStrategy(
+        BURST_DELAY,
+        MIN_DELAY,
+        MAX_DELAY,
+        DEEP_IDLE_DELAY,
+        DEEP_IDLE_THRESHOLD,
+        IDLE_THRESHOLD,
+        BATCH_SIZE,
+        now::get);
   }
 
   @Test
@@ -54,7 +61,7 @@ class PollingStrategyTest {
   void onWakeup_exitsDeepIdle() {
     // Force deep idle: pollStartTime must be far enough ahead of lastJobFoundTime (set at
     // construction)
-    long futureTime = System.currentTimeMillis() + DEEP_IDLE_THRESHOLD + 1;
+    long futureTime = now.get() + DEEP_IDLE_THRESHOLD + 1;
     strategy.recordPollResult(0, futureTime);
     assertTrue(strategy.isInDeepIdle());
 
@@ -68,10 +75,10 @@ class PollingStrategyTest {
     strategy.onWakeup();
     assertTrue(strategy.isInBurstMode());
 
-    long now = System.currentTimeMillis();
+    long pollTime = now.get();
     // Send enough empty polls to exit burst mode
     for (int i = 0; i < IDLE_THRESHOLD; i++) {
-      strategy.recordPollResult(0, now);
+      strategy.recordPollResult(0, pollTime);
     }
     assertFalse(strategy.isInBurstMode());
     assertEquals(MIN_DELAY, strategy.getCurrentDelay());
@@ -80,7 +87,7 @@ class PollingStrategyTest {
   @Test
   void deepIdle_enteredAfterThresholdElapsed() {
     // pollStartTime must exceed lastJobFoundTime by deepIdleThreshold
-    long futureTime = System.currentTimeMillis() + DEEP_IDLE_THRESHOLD + 1;
+    long futureTime = now.get() + DEEP_IDLE_THRESHOLD + 1;
     strategy.recordPollResult(0, futureTime);
 
     assertTrue(strategy.isInDeepIdle());
@@ -89,7 +96,7 @@ class PollingStrategyTest {
 
   @Test
   void deepIdle_exitedOnJobsFound() {
-    long futureTime = System.currentTimeMillis() + DEEP_IDLE_THRESHOLD + 1;
+    long futureTime = now.get() + DEEP_IDLE_THRESHOLD + 1;
     strategy.recordPollResult(0, futureTime);
     assertTrue(strategy.isInDeepIdle());
 
@@ -99,13 +106,13 @@ class PollingStrategyTest {
 
   @Test
   void jobsFound_resetsIdleCount() {
-    long now = System.currentTimeMillis();
+    long pollTime = now.get();
     // Accumulate some idle polls (but not enough to trigger backoff)
-    strategy.recordPollResult(0, now);
-    strategy.recordPollResult(0, now);
+    strategy.recordPollResult(0, pollTime);
+    strategy.recordPollResult(0, pollTime);
 
     // Finding jobs should reset idle state
-    strategy.recordPollResult(5, now);
+    strategy.recordPollResult(5, pollTime);
 
     PollingStrategy.PollingStats stats = strategy.getStats();
     assertEquals(0, stats.currentIdleCount());
@@ -113,9 +120,9 @@ class PollingStrategyTest {
 
   @Test
   void consecutiveFullBatches_reducesDelay() {
-    long now = System.currentTimeMillis();
+    long pollTime = now.get();
     for (int i = 0; i < 4; i++) {
-      strategy.recordPollResult(BATCH_SIZE, now);
+      strategy.recordPollResult(BATCH_SIZE, pollTime);
     }
 
     long delay = strategy.getCurrentDelay();
@@ -126,13 +133,13 @@ class PollingStrategyTest {
 
   @Test
   void nonFullBatch_resetsConsecutiveFullBatchCounter() {
-    long now = System.currentTimeMillis();
-    strategy.recordPollResult(BATCH_SIZE, now);
-    strategy.recordPollResult(BATCH_SIZE, now);
-    strategy.recordPollResult(BATCH_SIZE, now);
+    long pollTime = now.get();
+    strategy.recordPollResult(BATCH_SIZE, pollTime);
+    strategy.recordPollResult(BATCH_SIZE, pollTime);
+    strategy.recordPollResult(BATCH_SIZE, pollTime);
 
     // Partial batch resets the counter
-    strategy.recordPollResult(3, now);
+    strategy.recordPollResult(3, pollTime);
 
     PollingStrategy.PollingStats stats = strategy.getStats();
     assertEquals(0, stats.consecutiveFullBatches());
@@ -140,25 +147,17 @@ class PollingStrategyTest {
 
   @Test
   void highLoadFactor_reducesDelay() {
-    long now = System.currentTimeMillis();
+    long pollTime = now.get();
     // Fill rolling window with high-load jobs (> batchSize * 0.8 = 8)
     for (int i = 0; i < 10; i++) {
-      strategy.recordPollResult(9, now);
+      strategy.recordPollResult(9, pollTime);
     }
     long highLoadDelay = strategy.getCurrentDelay();
 
     // Reset and test with low load
-    PollingStrategy lowStrategy =
-        new PollingStrategy(
-            BURST_DELAY,
-            MIN_DELAY,
-            MAX_DELAY,
-            DEEP_IDLE_DELAY,
-            DEEP_IDLE_THRESHOLD,
-            IDLE_THRESHOLD,
-            BATCH_SIZE);
+    PollingStrategy lowStrategy = pollingStrategy();
     for (int i = 0; i < 10; i++) {
-      lowStrategy.recordPollResult(1, now);
+      lowStrategy.recordPollResult(1, pollTime);
     }
     long lowLoadDelay = lowStrategy.getCurrentDelay();
 
@@ -173,24 +172,16 @@ class PollingStrategyTest {
 
   @Test
   void updateSystemLoadFactor_affectsDelay() {
-    long now = System.currentTimeMillis();
+    long pollTime = now.get();
 
     // High utilization → higher load factor → shorter delay (baseDelay / loadFactor)
     strategy.updateSystemLoadFactor(100.0);
-    strategy.recordPollResult(5, now);
+    strategy.recordPollResult(5, pollTime);
     long highUtilDelay = strategy.getCurrentDelay();
 
-    PollingStrategy lowUtilStrategy =
-        new PollingStrategy(
-            BURST_DELAY,
-            MIN_DELAY,
-            MAX_DELAY,
-            DEEP_IDLE_DELAY,
-            DEEP_IDLE_THRESHOLD,
-            IDLE_THRESHOLD,
-            BATCH_SIZE);
+    PollingStrategy lowUtilStrategy = pollingStrategy();
     lowUtilStrategy.updateSystemLoadFactor(0.0);
-    lowUtilStrategy.recordPollResult(5, now);
+    lowUtilStrategy.recordPollResult(5, pollTime);
     long lowUtilDelay = lowUtilStrategy.getCurrentDelay();
 
     assertTrue(
@@ -206,10 +197,10 @@ class PollingStrategyTest {
   void delay_neverBelowAbsoluteMinimum() {
     strategy.onWakeup();
     // Even in burst mode with full batches, should not go below 50ms
-    long now = System.currentTimeMillis();
+    long pollTime = now.get();
     strategy.updateSystemLoadFactor(100.0);
     for (int i = 0; i < 5; i++) {
-      strategy.recordPollResult(BATCH_SIZE, now);
+      strategy.recordPollResult(BATCH_SIZE, pollTime);
     }
     assertTrue(
         strategy.getCurrentDelay() >= 50, "Delay must never go below absolute minimum of 50ms");
@@ -217,11 +208,11 @@ class PollingStrategyTest {
 
   @Test
   void delay_neverExceedsMaxDelay() {
-    long now = System.currentTimeMillis();
+    long pollTime = now.get();
     // Many empty polls with aggressive backoff
     strategy.updateSystemLoadFactor(0.0);
     for (int i = 0; i < 50; i++) {
-      strategy.recordPollResult(0, now);
+      strategy.recordPollResult(0, pollTime);
     }
     assertTrue(
         strategy.getCurrentDelay() <= MAX_DELAY,
@@ -232,8 +223,8 @@ class PollingStrategyTest {
   void aggressiveBackoffAfterThirtySecondsIdleTriplesDelay() {
     PollingStrategy aggressiveStrategy =
         new PollingStrategy(
-            BURST_DELAY, MIN_DELAY, MAX_DELAY, DEEP_IDLE_DELAY, 120_000L, 4, BATCH_SIZE);
-    long idlePollTime = System.currentTimeMillis() + 31_000L;
+            BURST_DELAY, MIN_DELAY, MAX_DELAY, DEEP_IDLE_DELAY, 120_000L, 4, BATCH_SIZE, now::get);
+    long idlePollTime = now.get() + 31_000L;
 
     aggressiveStrategy.recordPollResult(0, idlePollTime);
     long delay = aggressiveStrategy.recordPollResult(0, idlePollTime + 1);
@@ -263,7 +254,7 @@ class PollingStrategyTest {
 
   @Test
   void getStats_usesConfiguredDeepIdleThresholdForIdleStatus() {
-    long belowThreshold = System.currentTimeMillis() + DEEP_IDLE_THRESHOLD - 1;
+    long belowThreshold = now.get() + DEEP_IDLE_THRESHOLD - 1;
 
     strategy.recordPollResult(0, belowThreshold);
 

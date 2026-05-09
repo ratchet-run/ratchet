@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.store.entity.JobExecutionType;
@@ -62,6 +63,24 @@ class JobTypeRateLimiterTest {
   }
 
   @Test
+  void tryAcquire_limitOneRejectsSecondCallUntilWindowResets() {
+    AtomicLong now = new AtomicLong(1_000L);
+    RatchetOptions options =
+        RatchetOptions.builder().execution(e -> e.rateLimitPerMinute("SINGLE", 1)).build();
+    JobTypeRateLimiter limiter = new JobTypeRateLimiter(options, now::get);
+
+    assertTrue(limiter.tryAcquire(JobExecutionType.SINGLE));
+    assertFalse(limiter.tryAcquire(JobExecutionType.SINGLE));
+    assertEquals(1, limiter.getCurrentCount(JobExecutionType.SINGLE));
+
+    now.addAndGet(60_000L);
+
+    assertEquals(0, limiter.getCurrentCount(JobExecutionType.SINGLE));
+    assertTrue(limiter.tryAcquire(JobExecutionType.SINGLE));
+    assertEquals(1, limiter.getCurrentCount(JobExecutionType.SINGLE));
+  }
+
+  @Test
   void isRateLimited_matchesConfiguration() {
     RatchetOptions withLimit =
         RatchetOptions.builder().execution(e -> e.rateLimitPerMinute("SINGLE", 5)).build();
@@ -82,6 +101,15 @@ class JobTypeRateLimiterTest {
     assertEquals(10, limiter.getRateLimit(JobExecutionType.BATCH_CHILD));
     assertEquals(
         0, limiter.getRateLimit(JobExecutionType.SINGLE), "unconfigured type defaults to 0");
+  }
+
+  @Test
+  void nullJobTypeIsTreatedAsUnlimited() {
+    JobTypeRateLimiter limiter = new JobTypeRateLimiter(RatchetOptions.defaults());
+
+    assertEquals(0, limiter.getRateLimit(null));
+    assertFalse(limiter.isRateLimited(null));
+    assertTrue(limiter.tryAcquire(null));
   }
 
   @Test
