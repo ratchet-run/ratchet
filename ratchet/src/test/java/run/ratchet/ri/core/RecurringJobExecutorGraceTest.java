@@ -155,6 +155,22 @@ class RecurringJobExecutorGraceTest {
     verify(jobCrudStore, never()).save(any(JobEntity.class));
   }
 
+  @Test
+  void malformedCronSkipsMasterAndContinuesBatch() {
+    state.markRegistrationComplete(Set.of("bad-key", "known-key"));
+
+    JobEntity malformed = recurringMaster(12L, "bad-key");
+    malformed.setCronExpr("not a cron");
+    JobEntity known = recurringMaster(13L, "known-key");
+    when(jobClaimStore.claimDueRecurring(anyInt(), anyString(), any()))
+        .thenReturn(List.of(malformed, known));
+
+    int fired = executor.process(10, "node-A");
+
+    assertEquals(1, fired, "malformed recurring masters must not abort the batch");
+    verify(jobCrudStore, times(2)).save(any(JobEntity.class));
+  }
+
   private JobEntity recurringMaster(long id, String businessKey) {
     JobEntity master = new JobEntity();
     master.setId(new UUID(0L, id));

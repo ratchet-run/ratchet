@@ -1,5 +1,6 @@
 package run.ratchet.ri.core;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -129,15 +130,19 @@ class JobTimeoutHandlerTest {
   @Test
   void signalTimeoutRetriesRemainingReschedulesInsteadOfDlq() {
     JobEntity job = waitingJobWithMaxRetries(3);
-    Instant now = Instant.now();
+    job.setBackoffPolicy(BackoffPolicy.FIXED);
+    job.setBackoffParamMs(2_500);
+    Instant now = Instant.parse("2026-05-09T12:00:00Z");
     when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
     when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1)))
         .thenReturn(true);
+    ArgumentCaptor<Instant> retryTimeCaptor = ArgumentCaptor.forClass(Instant.class);
 
     handler.processSignalTimeout(job, now);
 
     verify(jobRetryStore, times(1))
-        .scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1));
+        .scheduleJobRetry(eq(JOB_ID), anyString(), retryTimeCaptor.capture(), eq(1));
+    assertEquals(now.plusMillis(2_500), retryTimeCaptor.getValue());
     verify(jobBatchStatusStore, never()).compareAndSwapStatus(any(UUID.class), any(), any(), any());
     verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
   }
@@ -173,6 +178,8 @@ class JobTimeoutHandlerTest {
 
     verify(lifecycleFacade).handlePermanentFailure(eq(job), throwableCaptor.capture());
     assertInstanceOf(SignalTimeoutException.class, throwableCaptor.getValue());
+    assertEquals(
+        "Signal timeout exceeded for key: approval", throwableCaptor.getValue().getMessage());
   }
 
   @Test

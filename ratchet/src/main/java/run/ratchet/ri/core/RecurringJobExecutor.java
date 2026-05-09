@@ -86,14 +86,21 @@ public class RecurringJobExecutor {
             master.getId(), master.getBusinessKey());
         continue;
       }
-      firedCount++;
-      Cron cron = RecurringScheduler.PARSER.parse(master.getCronExpr());
-      ZoneId zone = ZoneId.of(master.getZoneId());
+      Cron cron;
+      ZoneId zone;
+      try {
+        cron = RecurringScheduler.PARSER.parse(master.getCronExpr());
+        zone = ZoneId.of(master.getZoneId());
+      } catch (RuntimeException e) {
+        log.warnf(e, "Recurring job %s skipped after scheduling error", master.getId());
+        continue;
+      }
       ExecutionTime execTime = ExecutionTime.forCron(cron);
 
       Instant baseTime = master.getNextFire() != null ? master.getNextFire() : now;
 
       enqueueChild(master, baseTime.isBefore(now) ? baseTime : now);
+      firedCount++;
 
       Optional<Instant> nextOpt =
           execTime.nextExecution(baseTime.atZone(zone)).map(ZonedDateTime::toInstant);
