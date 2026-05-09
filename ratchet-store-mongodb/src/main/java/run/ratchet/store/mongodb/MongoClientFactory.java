@@ -4,6 +4,7 @@ import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
+import java.util.Objects;
 import org.bson.UuidRepresentation;
 
 /**
@@ -22,6 +23,10 @@ public final class MongoClientFactory {
   private MongoClientFactory() {}
 
   public static MongoClient create(String connectionString) {
+    Objects.requireNonNull(connectionString, "connectionString");
+    if (connectionString.isBlank()) {
+      throw new IllegalArgumentException("connectionString must not be blank");
+    }
     MongoClientSettings settings =
         MongoClientSettings.builder()
             .applyConnectionString(new ConnectionString(connectionString))
