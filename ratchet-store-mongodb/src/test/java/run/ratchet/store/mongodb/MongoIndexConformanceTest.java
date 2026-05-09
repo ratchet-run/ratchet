@@ -1,7 +1,9 @@
 package run.ratchet.store.mongodb;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static run.ratchet.store.mongodb.MongoFieldNames.BUSINESS_KEY;
 import static run.ratchet.store.mongodb.MongoFieldNames.ERROR_HASH;
@@ -13,9 +15,12 @@ import static run.ratchet.store.mongodb.MongoFieldNames.NEXT_FIRE;
 import static run.ratchet.store.mongodb.MongoFieldNames.PRIORITY;
 import static run.ratchet.store.mongodb.MongoFieldNames.SCHEDULED_TIME;
 import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
+import static run.ratchet.store.mongodb.MongoFieldNames.TAGS;
 
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.IndexOptions;
+import com.mongodb.client.model.Indexes;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
@@ -119,6 +124,36 @@ class MongoIndexConformanceTest {
         new Document(JOB_ID, 1).append(ERROR_HASH, 1),
         true,
         null);
+  }
+
+  @Test
+  void initialize_continuesWhenOptionalIndexCannotBeCreated() {
+    database.drop();
+    database
+        .getCollection("scheduler_job")
+        .createIndex(Indexes.ascending("legacy_tags"), new IndexOptions().name("idx_job_tags"));
+
+    assertDoesNotThrow(() -> new MongoCollectionInitializer(database).initialize());
+
+    Document index = indexByName("scheduler_job", "idx_job_tags");
+    assertNotNull(index);
+    assertEquals(new Document("legacy_tags", 1), index.get("key", Document.class));
+  }
+
+  @Test
+  void initialize_failsWhenRequiredIndexCannotBeCreated() {
+    database.drop();
+    database
+        .getCollection("scheduler_job")
+        .createIndex(
+            Indexes.ascending(TAGS), new IndexOptions().name(MongoIndexHints.JOB_CLAIM_EXEC));
+
+    IllegalStateException thrown =
+        assertThrows(
+            IllegalStateException.class,
+            () -> new MongoCollectionInitializer(database).initialize());
+
+    assertTrue(thrown.getMessage().contains(MongoIndexHints.JOB_CLAIM_EXEC));
   }
 
   private void assertIndex(

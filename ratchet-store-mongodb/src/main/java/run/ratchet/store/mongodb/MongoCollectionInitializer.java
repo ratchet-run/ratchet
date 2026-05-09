@@ -2,6 +2,7 @@ package run.ratchet.store.mongodb;
 
 import static run.ratchet.store.mongodb.MongoFieldNames.*;
 
+import com.mongodb.MongoCommandException;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.IndexOptions;
@@ -30,7 +31,7 @@ class MongoCollectionInitializer {
   private static void createIndex(MongoCollection<Document> coll, Bson keys, IndexOptions options) {
     try {
       coll.createIndex(keys, options);
-    } catch (Exception e) {
+    } catch (MongoCommandException e) {
       log.warnf(
           e,
           "Index creation error: %s on %s",
