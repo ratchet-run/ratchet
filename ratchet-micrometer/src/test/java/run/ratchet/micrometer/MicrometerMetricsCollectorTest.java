@@ -40,6 +40,22 @@ class MicrometerMetricsCollectorTest {
   }
 
   @Test
+  void jobFailedTagsValidationBusinessAndUnknownFamilies() {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    MicrometerMetricsCollector collector = new MicrometerMetricsCollector(registry);
+
+    collector.jobFailed(
+        new UUID(0L, 11L), JobType.SINGLE, new IllegalArgumentException("bad input"), 1);
+    collector.jobFailed(
+        new UUID(0L, 12L), JobType.SINGLE, new OrderRejectedException("customer rule"), 1);
+    collector.jobFailed(new UUID(0L, 13L), JobType.SINGLE, new NullPointerException("bug"), 1);
+
+    assertJobFailureFamily(registry, "VALIDATION");
+    assertJobFailureFamily(registry, "BUSINESS");
+    assertJobFailureFamily(registry, "UNKNOWN");
+  }
+
+  @Test
   void callbackFailedTagsByBoundedFamily() {
     SimpleMeterRegistry registry = new SimpleMeterRegistry();
     MicrometerMetricsCollector collector = new MicrometerMetricsCollector(registry);
@@ -61,6 +77,22 @@ class MicrometerMetricsCollectorTest {
   }
 
   @Test
+  void callbackFailedTagsValidationBusinessAndUnknownFamilies() {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    MicrometerMetricsCollector collector = new MicrometerMetricsCollector(registry);
+
+    collector.callbackFailed(
+        new UUID(0L, 21L), JobType.BATCH, new IllegalArgumentException("bad input"), 1);
+    collector.callbackFailed(
+        new UUID(0L, 22L), JobType.BATCH, new OrderRejectedException("customer rule"), 1);
+    collector.callbackFailed(new UUID(0L, 23L), JobType.BATCH, new NullPointerException("bug"), 1);
+
+    assertCallbackFailureFamily(registry, "VALIDATION");
+    assertCallbackFailureFamily(registry, "BUSINESS");
+    assertCallbackFailureFamily(registry, "UNKNOWN");
+  }
+
+  @Test
   void pollerBreakerStatePublishesGauge() {
     SimpleMeterRegistry registry = new SimpleMeterRegistry();
     MicrometerMetricsCollector collector = new MicrometerMetricsCollector(registry);
@@ -69,6 +101,27 @@ class MicrometerMetricsCollectorTest {
 
     assertEquals(
         2.0,
+        registry.get("ratchet.poller.breaker.state").tag("breaker", "store.claim").gauge().value());
+  }
+
+  @Test
+  void pollerBreakerStatePublishesDocumentedNumericValues() {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    MicrometerMetricsCollector collector = new MicrometerMetricsCollector(registry);
+
+    collector.pollerBreakerState("store.claim", "HALF_OPEN");
+    assertEquals(
+        1.0,
+        registry.get("ratchet.poller.breaker.state").tag("breaker", "store.claim").gauge().value());
+
+    collector.pollerBreakerState("store.claim", "CLOSED");
+    assertEquals(
+        0.0,
+        registry.get("ratchet.poller.breaker.state").tag("breaker", "store.claim").gauge().value());
+
+    collector.pollerBreakerState("store.claim", "unexpected");
+    assertEquals(
+        0.0,
         registry.get("ratchet.poller.breaker.state").tag("breaker", "store.claim").gauge().value());
   }
 
@@ -159,5 +212,34 @@ class MicrometerMetricsCollectorTest {
             .tag("execution_type", "SINGLE")
             .counter()
             .count());
+  }
+
+  private static void assertJobFailureFamily(SimpleMeterRegistry registry, String family) {
+    assertEquals(
+        1.0,
+        registry
+            .get("ratchet.jobs.failed")
+            .tag("type", "SINGLE")
+            .tag("family", family)
+            .counter()
+            .count());
+  }
+
+  private static void assertCallbackFailureFamily(SimpleMeterRegistry registry, String family) {
+    assertEquals(
+        1.0,
+        registry
+            .get("ratchet.callbacks.failed")
+            .tag("type", "BATCH")
+            .tag("family", family)
+            .counter()
+            .count());
+  }
+
+  private static final class OrderRejectedException extends RuntimeException {
+
+    private OrderRejectedException(String message) {
+      super(message);
+    }
   }
 }

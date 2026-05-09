@@ -44,7 +44,8 @@ import run.ratchet.spi.MetricsCollector;
  *   <li>{@code ratchet.signal.delivered} — counter, tagged by type and outcome
  *   <li>{@code ratchet.signal.timed_out} — counter, tagged by type
  *   <li>{@code ratchet.signal.cancelled} — counter, tagged by type
- *   <li>{@code ratchet.poller.breaker.state} — gauge, tagged by breaker
+ *   <li>{@code ratchet.poller.breaker.state} — gauge, tagged by breaker; values are {@code 0} for
+ *       closed/unknown, {@code 1} for half-open, and {@code 2} for open
  *   <li>{@code ratchet.store.operation} — timer, tagged by store, operation, and outcome
  * </ul>
  */
@@ -56,6 +57,9 @@ public class MicrometerMetricsCollector implements MetricsCollector {
   private static final Logger log = Logger.getLogger(MicrometerMetricsCollector.class);
   private static final MicrometerMetricTagPolicy DEFAULT_TAG_POLICY =
       MicrometerMetricTagPolicy.defaultPolicy();
+  private static final int BREAKER_STATE_CLOSED_OR_UNKNOWN = 0;
+  private static final int BREAKER_STATE_HALF_OPEN = 1;
+  private static final int BREAKER_STATE_OPEN = 2;
 
   private final MeterRegistry registry;
   private final MicrometerMetricTagPolicy tagPolicy;
@@ -337,12 +341,12 @@ public class MicrometerMetricsCollector implements MetricsCollector {
 
   private int toBreakerStateValue(String state) {
     if ("OPEN".equals(state)) {
-      return 2;
+      return BREAKER_STATE_OPEN;
     }
     if ("HALF_OPEN".equals(state)) {
-      return 1;
+      return BREAKER_STATE_HALF_OPEN;
     }
-    return 0;
+    return BREAKER_STATE_CLOSED_OR_UNKNOWN;
   }
 
   private String tag(String tagName, String value) {
