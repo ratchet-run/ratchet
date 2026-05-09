@@ -52,6 +52,15 @@ public abstract class AbstractLockStoreContract implements JobStoreContractFixtu
   }
 
   @Test
+  public void tryLock_rejectsNonPositiveTtl() {
+    assertThrows(
+        IllegalArgumentException.class, () -> store().tryLock("lock1", Duration.ZERO, "node-A"));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> store().tryLock("lock1", Duration.ofMillis(-1), "node-A"));
+  }
+
+  @Test
   void renewLock_extendsExistingLock() {
     store().tryLock("lock1", Duration.ofMinutes(1), "node-A");
 
@@ -86,6 +95,15 @@ public abstract class AbstractLockStoreContract implements JobStoreContractFixtu
     assertThrows(NullPointerException.class, () -> store().renewLock(null, extension, "node-A"));
     assertThrows(NullPointerException.class, () -> store().renewLock("lock1", null, "node-A"));
     assertThrows(NullPointerException.class, () -> store().renewLock("lock1", extension, null));
+  }
+
+  @Test
+  public void renewLock_rejectsNonPositiveExtension() {
+    assertThrows(
+        IllegalArgumentException.class, () -> store().renewLock("lock1", Duration.ZERO, "node-A"));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> store().renewLock("lock1", Duration.ofMillis(-1), "node-A"));
   }
 
   @Test
