@@ -36,10 +36,7 @@ final class PostgresqlJobDeleteOperations {
     // language=PostgreSQL
     String sql = "DELETE FROM scheduler_job WHERE job_id IN (" + placeholders + ")";
     Query jobDelete = ctx.em().createNativeQuery(sql);
-    int parameter = 1;
-    for (UUID id : ids) {
-      jobDelete.setParameter(parameter++, id);
-    }
+    bindUuidParameters(jobDelete, ids);
     return jobDelete.executeUpdate();
   }
 
@@ -69,11 +66,15 @@ final class PostgresqlJobDeleteOperations {
     // language=PostgreSQL
     String deleteSql = "DELETE FROM scheduler_job WHERE job_id IN (" + placeholders + ")";
     Query jobDelete = ctx.em().createNativeQuery(deleteSql);
+    bindUuidParameters(jobDelete, ids);
+    return jobDelete.executeUpdate();
+  }
+
+  private static void bindUuidParameters(Query query, List<UUID> ids) {
     int parameter = 1;
     for (UUID id : ids) {
-      jobDelete.setParameter(parameter++, id);
+      query.setParameter(parameter++, id);
     }
-    return jobDelete.executeUpdate();
   }
 
   int resetOrphanJobs(Duration grace) {
