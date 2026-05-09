@@ -2,6 +2,7 @@ package run.ratchet.store.mysql;
 
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
+import java.util.Objects;
 import java.util.UUID;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
@@ -27,9 +28,7 @@ final class MysqlBusinessKeyReservations {
   }
 
   void insertReservation(String businessKey, UUID ownerJobId, String ownerTable) {
-    if (businessKey == null) {
-      return;
-    }
+    Objects.requireNonNull(businessKey, "businessKey");
     // Keep DML local: MySQL stores UUIDs as binary values and uses dialect-specific timestamps.
     // language=MySQL
     String sql =
@@ -57,7 +56,7 @@ final class MysqlBusinessKeyReservations {
   }
 
   void bindInsert(Query q, JobEntity job, Timestamp nowTs) {
-    q.setParameter(1, job.getBusinessKey());
+    q.setParameter(1, Objects.requireNonNull(job.getBusinessKey(), "businessKey"));
     q.setParameter(2, UuidByteArrayConverter.toBytes(job.getId()));
     q.setParameter(3, BusinessKeyReservations.ownerTableFor(job.getJobType()));
     q.setParameter(4, nowTs);
