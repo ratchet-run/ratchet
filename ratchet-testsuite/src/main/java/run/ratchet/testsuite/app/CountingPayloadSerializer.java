@@ -1,10 +1,13 @@
 package run.ratchet.testsuite.app;
 
+import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Alternative;
 import jakarta.json.bind.Jsonb;
 import jakarta.json.bind.JsonbBuilder;
+import jakarta.json.bind.JsonbException;
 import java.util.concurrent.atomic.AtomicInteger;
 import run.ratchet.spi.PayloadSerializer;
 
@@ -13,6 +16,10 @@ import run.ratchet.spi.PayloadSerializer;
  * otherwise delegates to JSON-B. Used by {@code CustomSerializationStrategyIT} to prove that the
  * framework routes payload and result JSON through the SPI during real job execution (not just
  * bean-producibility — the counter increments only when the framework itself invokes the SPI).
+ *
+ * <p>The invocation counters are static because Arquillian tests may observe them from the test
+ * runner side of the deployment boundary. Each test that deploys this bean must call {@link
+ * #resetCounts()} before enqueueing jobs so counts remain scoped to that test method.
  */
 @Alternative
 @Priority(1)
@@ -22,7 +29,7 @@ public class CountingPayloadSerializer implements PayloadSerializer {
   private static final AtomicInteger SERIALIZE_COUNT = new AtomicInteger(0);
   private static final AtomicInteger DESERIALIZE_COUNT = new AtomicInteger(0);
 
-  private final Jsonb jsonb = JsonbBuilder.create();
+  private volatile Jsonb jsonb;
 
   public static int getSerializeCount() {
     return SERIALIZE_COUNT.get();
@@ -32,6 +39,7 @@ public class CountingPayloadSerializer implements PayloadSerializer {
     return DESERIALIZE_COUNT.get();
   }
 
+  /** Resets test-visible static counters; call from {@code @BeforeEach} before scheduling jobs. */
   public static void resetCounts() {
     SERIALIZE_COUNT.set(0);
     DESERIALIZE_COUNT.set(0);
@@ -43,7 +51,12 @@ public class CountingPayloadSerializer implements PayloadSerializer {
     if (payload == null) {
       return null;
     }
-    return jsonb.toJson(payload);
+    try {
+      return jsonb().toJson(payload);
+    } catch (JsonbException e) {
+      throw new IllegalArgumentException(
+          "JSON-B serialization error for " + payload.getClass().getName(), e);
+    }
   }
 
   @Override
@@ -52,6 +65,41 @@ public class CountingPayloadSerializer implements PayloadSerializer {
     if (json == null || json.isEmpty()) {
       return null;
     }
-    return jsonb.fromJson(json, type);
+    try {
+      return jsonb().fromJson(json, type);
+    } catch (JsonbException e) {
+      throw new IllegalArgumentException(
+          "JSON-B deserialization error for " + (type == null ? "null" : type.getName()), e);
+    }
+  }
+
+  @PostConstruct
+  void init() {
+    this.jsonb = JsonbBuilder.create();
+  }
+
+  @PreDestroy
+  void close() {
+    Jsonb instance = this.jsonb;
+    if (instance != null) {
+      try {
+        instance.close();
+      } catch (Exception ignored) {
+        // Best-effort cleanup during test deployment shutdown.
+      }
+    }
+  }
+
+  private Jsonb jsonb() {
+    Jsonb instance = this.jsonb;
+    if (instance == null) {
+      synchronized (this) {
+        if (this.jsonb == null) {
+          this.jsonb = JsonbBuilder.create();
+        }
+        instance = this.jsonb;
+      }
+    }
+    return instance;
   }
 }
