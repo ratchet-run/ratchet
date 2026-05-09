@@ -456,6 +456,9 @@ final class MongoJobLifecycleOperations
         ctx.jobs()
             .findOneAndUpdate(
                 and(eq(ID, id), eq(STATUS, "PAUSED")),
+                // Use an update pipeline so MongoDB restores the pre-pause status from the
+                // same matched document in this atomic transition. A read followed by a
+                // separate update could race with another worker resuming or claiming the job.
                 List.of(
                     new Document(
                         "$set",
