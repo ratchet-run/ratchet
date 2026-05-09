@@ -12,6 +12,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import run.ratchet.store.entity.JobEntity;
@@ -19,7 +20,7 @@ import run.ratchet.store.entity.JobEntity;
 class ConcurrentClaimIT extends BaseDocumentStoreIT {
 
   @Test
-  void multipleNodes_noDoubleClaims() throws InterruptedException {
+  void multipleNodes_noDoubleClaims() throws Exception {
     int jobCount = 50;
     int nodeCount = 5;
 
@@ -33,29 +34,42 @@ class ConcurrentClaimIT extends BaseDocumentStoreIT {
     CountDownLatch doneLatch = new CountDownLatch(nodeCount);
 
     ExecutorService executor = Executors.newFixedThreadPool(nodeCount);
-    for (int n = 0; n < nodeCount; n++) {
-      final String nodeId = "node-" + n;
-      executor.submit(
-          () -> {
-            try {
-              startLatch.await();
-              List<JobEntity> claimed = store().claimNextBatch(jobCount, nodeId);
-              for (JobEntity job : claimed) {
-                if (!allClaimedIds.add(job.getId())) {
-                  duplicates.add(job.getId());
-                }
-              }
-            } catch (Exception e) {
-              throw new RuntimeException(e);
-            } finally {
-              doneLatch.countDown();
-            }
-          });
-    }
+    try {
+      List<Future<?>> futures = new ArrayList<>(nodeCount);
+      for (int n = 0; n < nodeCount; n++) {
+        final String nodeId = "node-" + n;
+        futures.add(
+            executor.submit(
+                () -> {
+                  try {
+                    startLatch.await();
+                    List<JobEntity> claimed = store().claimNextBatch(jobCount, nodeId);
+                    for (JobEntity job : claimed) {
+                      if (!allClaimedIds.add(job.getId())) {
+                        duplicates.add(job.getId());
+                      }
+                    }
+                  } catch (Exception e) {
+                    throw new RuntimeException(e);
+                  } finally {
+                    doneLatch.countDown();
+                  }
+                }));
+      }
 
-    startLatch.countDown();
-    assertTrue(doneLatch.await(30, TimeUnit.SECONDS), "Claiming should complete within 30s");
-    executor.shutdown();
+      startLatch.countDown();
+      assertTrue(doneLatch.await(30, TimeUnit.SECONDS), "Claiming should complete within 30s");
+      for (Future<?> future : futures) {
+        future.get(5, TimeUnit.SECONDS);
+      }
+    } finally {
+      executor.shutdown();
+      assertTrue(
+          executor.awaitTermination(5, TimeUnit.SECONDS), "Executor should terminate cleanly");
+      if (!executor.isTerminated()) {
+        executor.shutdownNow();
+      }
+    }
 
     assertEquals(0, duplicates.size(), "No job should be claimed by multiple nodes");
     assertEquals(jobCount, allClaimedIds.size(), "All jobs should be claimed");
