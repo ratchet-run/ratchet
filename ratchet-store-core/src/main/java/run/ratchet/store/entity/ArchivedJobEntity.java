@@ -172,7 +172,10 @@ public class ArchivedJobEntity implements UuidV7EntityListener.UuidV7Assignable 
   }
 
   public JobType getPublicJobType() {
-    return jobType != null ? jobType.toPublicType() : null;
+    if (jobType == null) {
+      throw new IllegalStateException("Archived job type is not set");
+    }
+    return jobType.toPublicType();
   }
 
   public JobPriority getPriority() {

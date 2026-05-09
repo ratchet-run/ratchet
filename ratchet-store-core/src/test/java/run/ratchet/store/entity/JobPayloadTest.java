@@ -2,6 +2,8 @@ package run.ratchet.store.entity;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -63,6 +65,27 @@ class JobPayloadTest {
     Class<?>[] fromVoid = payload("(I)V").parameterTypes();
     Class<?>[] fromString = payload("(I)Ljava/lang/String;").parameterTypes();
     assertArrayEquals(fromVoid, fromString);
+  }
+
+  @Test
+  void unknownParameterTypeThrowsIllegalStateException() {
+    IllegalStateException thrown =
+        assertThrows(
+            IllegalStateException.class,
+            () -> payload("(Lcom/example/MissingType;)V").parameterTypes());
+
+    assertEquals("Cannot resolve parameter types from descriptor", thrown.getMessage());
+    assertInstanceOf(ClassNotFoundException.class, thrown.getCause());
+  }
+
+  @Test
+  void nullDescriptorThrowsRuntimeException() {
+    assertThrows(RuntimeException.class, () -> payload(null).parameterTypes());
+  }
+
+  @Test
+  void emptyDescriptorThrowsRuntimeException() {
+    assertThrows(RuntimeException.class, () -> payload("").parameterTypes());
   }
 
   private JobPayload payload(String descriptor) {

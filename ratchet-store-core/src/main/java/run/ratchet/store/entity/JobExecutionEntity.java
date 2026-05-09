@@ -150,15 +150,23 @@ public class JobExecutionEntity implements UuidV7EntityListener.UuidV7Assignable
   }
 
   public void markSucceeded() {
-    this.endedAt = Instant.now();
+    markSucceeded(Instant.now());
+  }
+
+  public void markSucceeded(Instant endedAt) {
+    this.endedAt = endedAt;
     this.status = ExecutionStatus.SUCCEEDED;
-    this.durationMs = endedAt.toEpochMilli() - startedAt.toEpochMilli();
+    this.durationMs = durationSinceStart(endedAt);
   }
 
   public void markFailed(Throwable exception) {
-    this.endedAt = Instant.now();
+    markFailed(exception, Instant.now());
+  }
+
+  public void markFailed(Throwable exception, Instant endedAt) {
+    this.endedAt = endedAt;
     this.status = ExecutionStatus.FAILED;
-    this.durationMs = endedAt.toEpochMilli() - startedAt.toEpochMilli();
+    this.durationMs = durationSinceStart(endedAt);
     if (exception != null) {
       this.errorClass = exception.getClass().getName();
       String message = exception.getMessage();
@@ -170,10 +178,21 @@ public class JobExecutionEntity implements UuidV7EntityListener.UuidV7Assignable
   }
 
   public void markCanceled() {
-    this.endedAt = Instant.now();
+    markCanceled(Instant.now());
+  }
+
+  public void markCanceled(Instant endedAt) {
+    this.endedAt = endedAt;
     this.status = ExecutionStatus.CANCELED;
-    this.durationMs = endedAt.toEpochMilli() - startedAt.toEpochMilli();
+    this.durationMs = durationSinceStart(endedAt);
     this.errorMessage = "Job was canceled during execution - result discarded";
+  }
+
+  private long durationSinceStart(Instant endedAt) {
+    if (startedAt == null) {
+      throw new IllegalStateException("Execution start time is not set");
+    }
+    return endedAt.toEpochMilli() - startedAt.toEpochMilli();
   }
 
   public enum ExecutionStatus {

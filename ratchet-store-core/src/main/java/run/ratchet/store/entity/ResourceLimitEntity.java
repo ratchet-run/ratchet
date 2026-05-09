@@ -5,6 +5,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.util.Objects;
 
 /**
  * Configured resource concurrency limit.
@@ -15,6 +16,8 @@ import java.time.Instant;
 @Table(name = "scheduler_resource_limit")
 public class ResourceLimitEntity {
 
+  public static final int DEFAULT_RETRY_DELAY_MS = 5000;
+
   @Id
   @Column(name = "resource_name", nullable = false, length = 100)
   private String resourceName;
@@ -23,7 +26,7 @@ public class ResourceLimitEntity {
   private int maxConcurrent;
 
   @Column(name = "retry_delay_ms", nullable = false)
-  private int retryDelayMs = 5000;
+  private int retryDelayMs = DEFAULT_RETRY_DELAY_MS;
 
   @Column(name = "description")
   private String description;
@@ -80,5 +83,19 @@ public class ResourceLimitEntity {
 
   public void setUpdatedAt(Instant updatedAt) {
     this.updatedAt = updatedAt;
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hashCode(resourceName);
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (o == null || getClass() != o.getClass()) {
+      return false;
+    }
+    ResourceLimitEntity that = (ResourceLimitEntity) o;
+    return Objects.equals(resourceName, that.resourceName);
   }
 }
