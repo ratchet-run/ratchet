@@ -3,6 +3,7 @@ package run.ratchet.tck.store;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
@@ -323,9 +324,9 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     for (int i = 1; i < results.size(); i++) {
       Instant prev = results.get(i - 1).getCreatedAt();
       Instant curr = results.get(i).getCreatedAt();
-      if (prev != null && curr != null) {
-        assertFalse(prev.isAfter(curr), "Results must be in ascending createdAt order");
-      }
+      assertNotNull(prev, "Sorted jobs must expose non-null createdAt values");
+      assertNotNull(curr, "Sorted jobs must expose non-null createdAt values");
+      assertFalse(prev.isAfter(curr), "Results must be in ascending createdAt order");
     }
   }
 
@@ -348,10 +349,9 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     for (int i = 1; i < results.size(); i++) {
       JobPriority prev = results.get(i - 1).getPriority();
       JobPriority curr = results.get(i).getPriority();
-      if (prev != null && curr != null) {
-        assertTrue(
-            prev.ordinal() >= curr.ordinal(), "Results must be in descending priority order");
-      }
+      assertNotNull(prev, "Sorted jobs must expose non-null priority values");
+      assertNotNull(curr, "Sorted jobs must expose non-null priority values");
+      assertTrue(prev.ordinal() >= curr.ordinal(), "Results must be in descending priority order");
     }
   }
 
