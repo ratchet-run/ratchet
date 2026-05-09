@@ -13,6 +13,10 @@ public record LogicalPredicate(String column, Op op, List<String> literals) {
     return new LogicalPredicate(column, Op.EQ, List.of(literal));
   }
 
+  public static LogicalPredicate neq(String column, String literal) {
+    return new LogicalPredicate(column, Op.NEQ, List.of(literal));
+  }
+
   public static LogicalPredicate in(String column, String... literals) {
     return new LogicalPredicate(column, Op.IN, List.of(literals));
   }

@@ -27,12 +27,7 @@ public abstract class AbstractWorkflowConditionStoreContract implements JobStore
     var parent = persist(newPendingJob());
     var child = persist(newPendingJob());
 
-    WorkflowConditionEntity condition = new WorkflowConditionEntity();
-    condition.setParentJobId(parent.getId());
-    condition.setChildJobId(child.getId());
-    condition.setConditionType(WorkflowCondition.ConditionType.SUCCESS);
-    condition.setConditionPriority(0);
-    condition.setCreatedAt(Instant.now());
+    WorkflowConditionEntity condition = newCondition(parent.getId(), child.getId());
 
     var saved = store().saveCondition(condition);
     assertNotNull(saved.getId(), "Saved condition should have an assigned ID");
@@ -50,20 +45,11 @@ public abstract class AbstractWorkflowConditionStoreContract implements JobStore
     var childA = persist(newPendingJob());
     var childB = persist(newPendingJob());
 
-    WorkflowConditionEntity first = new WorkflowConditionEntity();
-    first.setParentJobId(parent.getId());
-    first.setChildJobId(childA.getId());
-    first.setConditionType(WorkflowCondition.ConditionType.SUCCESS);
-    first.setConditionPriority(0);
-    first.setCreatedAt(Instant.now());
+    WorkflowConditionEntity first = newCondition(parent.getId(), childA.getId());
     store().saveCondition(first);
 
-    WorkflowConditionEntity second = new WorkflowConditionEntity();
-    second.setParentJobId(parent.getId());
-    second.setChildJobId(childB.getId());
-    second.setConditionType(WorkflowCondition.ConditionType.FAILURE);
-    second.setConditionPriority(1);
-    second.setCreatedAt(Instant.now());
+    WorkflowConditionEntity second =
+        newCondition(parent.getId(), childB.getId(), WorkflowCondition.ConditionType.FAILURE, 1);
     store().saveCondition(second);
 
     var conditions = store().findConditionsByParentJobId(parent.getId());
@@ -75,12 +61,7 @@ public abstract class AbstractWorkflowConditionStoreContract implements JobStore
     var parent = persist(newPendingJob());
     var child = persist(newPendingJob());
 
-    WorkflowConditionEntity condition = new WorkflowConditionEntity();
-    condition.setParentJobId(parent.getId());
-    condition.setChildJobId(child.getId());
-    condition.setConditionType(WorkflowCondition.ConditionType.SUCCESS);
-    condition.setConditionPriority(0);
-    condition.setCreatedAt(Instant.now());
+    WorkflowConditionEntity condition = newCondition(parent.getId(), child.getId());
     store().saveCondition(condition);
 
     store().deleteConditionsByParentJobId(parent.getId());
@@ -178,11 +159,19 @@ public abstract class AbstractWorkflowConditionStoreContract implements JobStore
   }
 
   private WorkflowConditionEntity newCondition(UUID parentJobId, UUID childJobId) {
+    return newCondition(parentJobId, childJobId, WorkflowCondition.ConditionType.SUCCESS, 0);
+  }
+
+  private WorkflowConditionEntity newCondition(
+      UUID parentJobId,
+      UUID childJobId,
+      WorkflowCondition.ConditionType conditionType,
+      int conditionPriority) {
     WorkflowConditionEntity condition = new WorkflowConditionEntity();
     condition.setParentJobId(parentJobId);
     condition.setChildJobId(childJobId);
-    condition.setConditionType(WorkflowCondition.ConditionType.SUCCESS);
-    condition.setConditionPriority(0);
+    condition.setConditionType(conditionType);
+    condition.setConditionPriority(conditionPriority);
     condition.setCreatedAt(Instant.now());
     return condition;
   }

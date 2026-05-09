@@ -36,10 +36,7 @@ class PostgresqlDialectMapperTest {
   void renderPredicateEscapesNeqLiteral() {
     assertEquals(
         "(status <> 'not ''done'''::text)",
-        mapper
-            .renderPredicate(
-                new LogicalPredicate("status", LogicalPredicate.Op.NEQ, List.of("not 'done'")))
-            .orElseThrow());
+        mapper.renderPredicate(LogicalPredicate.neq("status", "not 'done'")).orElseThrow());
   }
 
   @Test
