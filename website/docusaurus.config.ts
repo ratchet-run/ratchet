@@ -35,6 +35,16 @@ const config: Config = {
               defer: 'true',
             },
           },
+          {
+            tagName: 'script',
+            attributes: {
+              src: `${umamiHost}/recorder.js`,
+              'data-website-id': umamiSiteId,
+              'data-sample-rate': '1',
+              'data-mask-level': 'moderate',
+              defer: 'true',
+            },
+          },
         ]
       : []),
   ],
