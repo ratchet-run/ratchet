@@ -20,6 +20,8 @@ import run.ratchet.store.spi.RatchetEntityManagerProvider;
 public class JpaTestCleanupStrategy implements TestCleanupStrategy {
 
   private static final Logger log = Logger.getLogger(JpaTestCleanupStrategy.class.getName());
+  private static final String DB_TYPE_MYSQL = "mysql";
+  private static final String DB_TYPE_POSTGRESQL = "postgresql";
 
   private static final List<String> TABLES_BEFORE_HOT_STATE =
       List.of(
@@ -54,21 +56,23 @@ public class JpaTestCleanupStrategy implements TestCleanupStrategy {
   @Transactional(Transactional.TxType.REQUIRES_NEW)
   public void truncateAll() {
     String dbType = TestRuntimeConfig.dbType();
+    boolean mysql = DB_TYPE_MYSQL.equals(dbType);
+    boolean postgresql = DB_TYPE_POSTGRESQL.equals(dbType);
 
     try {
-      if ("mysql".equals(dbType)) {
+      if (mysql) {
         em().createNativeQuery("SET FOREIGN_KEY_CHECKS = 0").executeUpdate();
       }
 
       for (String table : tablesToClear()) {
-        if ("postgresql".equals(dbType)) {
+        if (postgresql) {
           em().createNativeQuery("DELETE FROM " + table).executeUpdate();
         } else {
           em().createNativeQuery("TRUNCATE TABLE " + table).executeUpdate();
         }
       }
     } finally {
-      if ("mysql".equals(dbType)) {
+      if (mysql) {
         try {
           em().createNativeQuery("SET FOREIGN_KEY_CHECKS = 1").executeUpdate();
         } catch (Exception e) {

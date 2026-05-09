@@ -1,6 +1,7 @@
 package run.ratchet.testsuite.archiving;
 
 import static org.awaitility.Awaitility.await;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.cronutils.model.CronType;
@@ -18,8 +19,14 @@ import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobHandle;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobStatus;
 import run.ratchet.ri.core.JobArchivingService;
+import run.ratchet.ri.payload.JobPayloadFactory;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.testsuite.app.SimpleJob;
@@ -106,6 +113,43 @@ class JobArchivingIT extends BaseRatchetIT {
   }
 
   @Test
+  void archivingRun_purgesArchivesOlderThanThreeTimesRetention() throws Exception {
+    JobEntity staleArchiveJob = persistFailedJob();
+    JobEntity freshArchiveJob = persistFailedJob();
+    JobEntity triggerJob = persistFailedJob();
+
+    var staleArchive =
+        archiveStore.archiveJob(
+            jobCrudStore.findById(staleArchiveJob.getId()).orElseThrow(), "test-stale", "it");
+    var freshArchive =
+        archiveStore.archiveJob(
+            jobCrudStore.findById(freshArchiveJob.getId()).orElseThrow(), "test-fresh", "it");
+
+    dataManipulator.setArchivedAt(staleArchive.getId(), Instant.now().minus(4, ChronoUnit.DAYS));
+    dataManipulator.setArchivedAt(freshArchive.getId(), Instant.now().minus(2, ChronoUnit.DAYS));
+    dataManipulator.setJobUpdatedAt(triggerJob.getId(), Instant.now().minus(2, ChronoUnit.DAYS));
+
+    archivingService.init(true, 1, 100, CRON_PARSER.parse("0 0 2 * * ?"));
+    archivingService.triggerArchiving().get(30, TimeUnit.SECONDS);
+
+    await()
+        .atMost(Duration.ofSeconds(30))
+        .pollInterval(Duration.ofMillis(500))
+        .untilAsserted(
+            () -> {
+              var archived = archiveStore.findArchivedJobs(null, null, null, null, 100);
+              List<UUID> archiveIds = archived.stream().map(a -> a.getId()).toList();
+
+              assertFalse(
+                  archiveIds.contains(staleArchive.getId()),
+                  "Archive older than 3x retention should be purged");
+              assertTrue(
+                  archiveIds.contains(freshArchive.getId()),
+                  "Archive newer than 3x retention should be retained");
+            });
+  }
+
+  @Test
   void activeAndRecentJobs_shouldNotBeArchived() throws Exception {
     // Submit and wait for 2 jobs — don't backdate, they're within retention
     JobHandle handle1 = jobService.enqueueNow(SimpleJob::execute);
@@ -133,5 +177,20 @@ class JobArchivingIT extends BaseRatchetIT {
         jobCrudStore.findById(handle1.id()).isPresent(), "Job 1 should still be in active table");
     assertTrue(
         jobCrudStore.findById(handle2.id()).isPresent(), "Job 2 should still be in active table");
+  }
+
+  private JobEntity persistFailedJob() {
+    JobEntity job = new JobEntity();
+    job.setJobType(JobExecutionType.SINGLE);
+    job.setStatus(JobStatus.FAILED);
+    job.setPriority(JobPriority.NORMAL);
+    job.setScheduledTime(Instant.now().minusSeconds(5));
+    job.setPayload(JobPayloadFactory.noop());
+    job.setIdempotencyKey(UUID.randomUUID().toString());
+    job.setBackoffPolicy(BackoffPolicy.NONE);
+    job.setAttempts(0);
+    job.setMaxRetries(0);
+    job.setLastError("boom");
+    return jobCrudStore.save(job);
   }
 }

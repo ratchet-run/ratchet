@@ -7,4 +7,6 @@ import java.util.UUID;
 public interface TestDataManipulator {
 
   void setJobUpdatedAt(UUID jobId, Instant updatedAt);
+
+  void setArchivedAt(UUID archiveId, Instant archivedAt);
 }

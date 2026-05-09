@@ -76,6 +76,29 @@ public class JpaTestDataManipulator implements TestDataManipulator {
     }
   }
 
+  @Override
+  public void setArchivedAt(UUID archiveId, Instant archivedAt) {
+    try {
+      utx.begin();
+      Timestamp ts = Timestamp.from(archivedAt);
+
+      // language=SQL
+      String sql = "UPDATE scheduler_job_archive SET archived_at = ?1 WHERE archive_id = ?2";
+      em().createNativeQuery(sql)
+          .setParameter(1, ts)
+          .setParameter(2, jobIdParam(archiveId))
+          .executeUpdate();
+
+      utx.commit();
+    } catch (RuntimeException e) {
+      rollbackQuietly();
+      throw e;
+    } catch (Exception e) {
+      rollbackQuietly();
+      throw new RuntimeException("Failed to set archived_at", e);
+    }
+  }
+
   private void rollbackQuietly() {
     try {
       utx.rollback();

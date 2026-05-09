@@ -44,4 +44,23 @@ public class DocumentStoreTestDataManipulator implements TestDataManipulator {
       log.warning("scheduler_job updated_at was already " + updatedAt + " for " + jobId);
     }
   }
+
+  @Override
+  public void setArchivedAt(UUID archiveId, Instant archivedAt) {
+    UpdateResult result =
+        mongoDb
+            .getCollection("scheduler_job_archive")
+            .updateOne(eq("_id", archiveId), set("archived_at", Date.from(archivedAt)));
+    if (!result.wasAcknowledged()) {
+      throw new IllegalStateException(
+          "MongoDB did not acknowledge archived_at update for " + archiveId);
+    }
+    if (result.getMatchedCount() == 0) {
+      throw new IllegalStateException("No scheduler_job_archive document found for " + archiveId);
+    }
+    if (result.getModifiedCount() == 0) {
+      log.warning(
+          "scheduler_job_archive archived_at was already " + archivedAt + " for " + archiveId);
+    }
+  }
 }
