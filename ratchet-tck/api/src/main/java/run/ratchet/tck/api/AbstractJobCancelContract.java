@@ -22,6 +22,9 @@ import run.ratchet.api.JobHandle;
  */
 public abstract class AbstractJobCancelContract {
 
+  private static final Duration CHAIN_CHILD_QUIET_WINDOW = Duration.ofMillis(500);
+  private static final Duration CHAIN_CHILD_POLL_INTERVAL = Duration.ofMillis(50);
+
   @AfterEach
   void clearAfterEach() {
     runtime().clear();
@@ -98,16 +101,27 @@ public abstract class AbstractJobCancelContract {
         runtime().probe().awaitCancelled(handle, defaultTimeout()),
         "Cancelled chain parent must surface a CANCELLED event");
 
-    // Allow a brief window for any spurious child execution to appear.
-    Thread.sleep(500L);
-    assertTrue(
-        TckJobs.chainEvents().isEmpty(),
-        "Chain child must not execute when the parent job was cancelled");
+    assertNoChainEventsWithin(CHAIN_CHILD_QUIET_WINDOW);
   }
 
   protected abstract RatchetTckRuntime runtime();
 
   protected Duration defaultTimeout() {
     return Duration.ofSeconds(5);
+  }
+
+  private void assertNoChainEventsWithin(Duration quietWindow) throws InterruptedException {
+    // The API does not expose handles for child chain jobs. After the parent cancellation event is
+    // visible, observe a short, bounded quiet window and fail fast if a child records execution.
+    long deadlineNanos = System.nanoTime() + quietWindow.toNanos();
+    while (System.nanoTime() < deadlineNanos) {
+      assertTrue(
+          TckJobs.chainEvents().isEmpty(),
+          "Chain child must not execute when the parent job was cancelled");
+      Thread.sleep(CHAIN_CHILD_POLL_INTERVAL.toMillis());
+    }
+    assertTrue(
+        TckJobs.chainEvents().isEmpty(),
+        "Chain child must not execute when the parent job was cancelled");
   }
 }
