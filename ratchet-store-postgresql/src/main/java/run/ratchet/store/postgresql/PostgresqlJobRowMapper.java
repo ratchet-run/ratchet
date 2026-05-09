@@ -269,9 +269,7 @@ final class PostgresqlJobRowMapper {
   }
 
   static Long longOrNull(Object value) {
-    if (value == null) return null;
-    if (value instanceof Number n) return n.longValue();
-    return null;
+    return RowValues.longOrNull(value);
   }
 
   static UUID uuidOrNull(Object value) {
