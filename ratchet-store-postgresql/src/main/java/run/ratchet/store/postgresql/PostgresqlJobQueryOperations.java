@@ -108,7 +108,12 @@ final class PostgresqlJobQueryOperations {
 
   private static final int MAX_IN_CLAUSE = 1000;
 
-  // Positional column numbers (1-indexed) for UNION ORDER BY
+  /*
+   * PostgreSQL allows ORDER BY by output-column position after UNION. These constants are mapped
+   * to PostgresqlJobRowMapper.hydrationSelect()/ARCHIVE_PROJECTION positions, which must stay in
+   * lock-step. They are internal constants, not caller input; dynamic ORDER BY text is bounded to
+   * this mapping plus ASC/DESC derived from a boolean.
+   */
   private static final int POS_JOB_ID = 1;
   private static final int POS_PRIORITY = 3;
   private static final int POS_CREATED_AT = 22;
@@ -219,6 +224,15 @@ final class PostgresqlJobQueryOperations {
     }
   }
 
+  /*
+   * LIMIT/OFFSET are concatenated because JPA providers vary in native-query support for binding
+   * them. The values are primitive ints computed by this store layer (limit is clamped by caller
+   * before use), so they cannot carry SQL tokens.
+   */
+  private static String limitOffsetClause(int limit, int offset) {
+    return " LIMIT " + limit + " OFFSET " + offset;
+  }
+
   @SuppressWarnings("unchecked")
   List<JobEntity> searchJobs(JobFilter filter, int limit, int offset) {
     boolean archive = useArchive(filter);
@@ -237,10 +251,7 @@ final class PostgresqlJobQueryOperations {
               + HYDRATION_FROM
               + buildWhere(filter, params)
               + buildOrderBy(filter)
-              + " LIMIT "
-              + safeLimit
-              + " OFFSET "
-              + effectiveOffset;
+              + limitOffsetClause(safeLimit, effectiveOffset);
     }
 
     Query q = ctx.em().createNativeQuery(sql);
@@ -374,10 +385,7 @@ final class PostgresqlJobQueryOperations {
         + ", "
         + POS_JOB_ID
         + " ASC"
-        + " LIMIT "
-        + limit
-        + " OFFSET "
-        + offset;
+        + limitOffsetClause(limit, offset);
   }
 
   private void appendStatusCondition(JobFilter filter, StringBuilder where, List<Object> params) {
@@ -437,59 +445,23 @@ final class PostgresqlJobQueryOperations {
   }
 
   private void appendJobTypeCondition(JobFilter filter, StringBuilder where, List<Object> params) {
-    Set<JobType> types = filter.types();
-    if (types == null || types.isEmpty()) {
-      return;
-    }
-    List<String> execTypeNames =
-        Stream.of(JobExecutionType.values())
-            .filter(e -> types.contains(e.toPublicType()))
-            .map(Enum::name)
-            .collect(Collectors.toList());
-    if (execTypeNames.isEmpty()) {
-      return;
-    }
-    and(where, "c.job_type IN (" + placeholders(execTypeNames.size()) + ")");
-    params.addAll(execTypeNames);
+    appendJobTypeCondition("c.job_type", filter.types(), where, params);
   }
 
   // ── ORDER BY builder ────────────────────────────────────────────────────
 
   private void appendArchiveJobTypeCondition(
       JobFilter filter, StringBuilder where, List<Object> params) {
-    Set<JobType> types = filter.types();
-    if (types == null || types.isEmpty()) {
-      return;
-    }
-    List<String> execTypeNames =
-        Stream.of(JobExecutionType.values())
-            .filter(e -> types.contains(e.toPublicType()))
-            .map(Enum::name)
-            .collect(Collectors.toList());
-    if (execTypeNames.isEmpty()) {
-      return;
-    }
-    and(where, "a.job_type IN (" + placeholders(execTypeNames.size()) + ")");
-    params.addAll(execTypeNames);
+    appendJobTypeCondition("a.job_type", filter.types(), where, params);
   }
 
   private void appendPriorityCondition(JobFilter filter, StringBuilder where, List<Object> params) {
-    Set<JobPriority> priorities = filter.priorities();
-    if (priorities == null || priorities.isEmpty()) {
-      return;
-    }
-    and(where, "c.priority IN (" + placeholders(priorities.size()) + ")");
-    priorities.stream().map(JobPriority::ordinal).forEach(params::add);
+    appendPriorityCondition("c.priority", filter.priorities(), where, params);
   }
 
   private void appendArchivePriorityCondition(
       JobFilter filter, StringBuilder where, List<Object> params) {
-    Set<JobPriority> priorities = filter.priorities();
-    if (priorities == null || priorities.isEmpty()) {
-      return;
-    }
-    and(where, "a.priority IN (" + placeholders(priorities.size()) + ")");
-    priorities.stream().map(JobPriority::ordinal).forEach(params::add);
+    appendPriorityCondition("a.priority", filter.priorities(), where, params);
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────────
@@ -499,8 +471,7 @@ final class PostgresqlJobQueryOperations {
     if (parentJobId == null) {
       return;
     }
-    and(where, "c.depends_on = ?");
-    params.add(parentJobId);
+    appendUuidEq("c.depends_on", parentJobId, where, params);
   }
 
   private void appendArchiveParentJobId(
@@ -509,8 +480,38 @@ final class PostgresqlJobQueryOperations {
     if (parentJobId == null) {
       return;
     }
-    and(where, "a.depended_on = ?");
-    params.add(parentJobId);
+    appendUuidEq("a.depended_on", parentJobId, where, params);
+  }
+
+  private void appendJobTypeCondition(
+      String column, Set<JobType> types, StringBuilder where, List<Object> params) {
+    if (types == null || types.isEmpty()) {
+      return;
+    }
+    List<String> execTypeNames =
+        Stream.of(JobExecutionType.values())
+            .filter(e -> types.contains(e.toPublicType()))
+            .map(Enum::name)
+            .collect(Collectors.toList());
+    if (execTypeNames.isEmpty()) {
+      return;
+    }
+    and(where, column + " IN (" + placeholders(execTypeNames.size()) + ")");
+    params.addAll(execTypeNames);
+  }
+
+  private void appendPriorityCondition(
+      String column, Set<JobPriority> priorities, StringBuilder where, List<Object> params) {
+    if (priorities == null || priorities.isEmpty()) {
+      return;
+    }
+    and(where, column + " IN (" + placeholders(priorities.size()) + ")");
+    priorities.stream().map(JobPriority::ordinal).forEach(params::add);
+  }
+
+  private void appendUuidEq(String column, UUID value, StringBuilder where, List<Object> params) {
+    and(where, column + " = ?");
+    params.add(value);
   }
 
   private void appendTagCondition(JobFilter filter, StringBuilder where, List<Object> params) {
