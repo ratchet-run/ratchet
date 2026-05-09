@@ -39,6 +39,13 @@ import run.ratchet.store.query.JobQueryCursor;
  */
 final class MysqlJobQueryOperations {
 
+  /*
+   * Keep this builder dialect-local. It mirrors the PostgreSQL builder in shape, but the
+   * common-looking clauses sit next to MySQL-specific hydration columns, trace extraction,
+   * byte-array UUID binding, and archive tag hydration rules. Limit future sharing to small pure
+   * helpers with contract tests.
+   */
+
   // language=MySQL
   private static final String HYDRATION_FROM =
       """
@@ -408,21 +415,23 @@ final class MysqlJobQueryOperations {
       String termPh = placeholders(terminal.size());
       and(
           where,
-          "(q.status IN ("
-              + livePh
-              + ") OR (q.job_id IS NULL AND c.terminal_status IN ("
-              + termPh
-              + ")))");
-      live.stream().map(JobStatus::name).forEach(params::add);
-      terminal.stream().map(JobStatus::name).forEach(params::add);
+          "("
+              + statusInCondition("q.status", livePh)
+              + " OR (q.job_id IS NULL AND "
+              + statusInCondition("c.terminal_status", termPh)
+              + "))");
+      addStatusParams(live, params);
+      addStatusParams(terminal, params);
     } else if (!live.isEmpty()) {
-      and(where, "q.status IN (" + placeholders(live.size()) + ")");
-      live.stream().map(JobStatus::name).forEach(params::add);
+      and(where, statusInCondition("q.status", placeholders(live.size())));
+      addStatusParams(live, params);
     } else {
       and(
           where,
-          "(q.job_id IS NULL AND c.terminal_status IN (" + placeholders(terminal.size()) + "))");
-      terminal.stream().map(JobStatus::name).forEach(params::add);
+          "(q.job_id IS NULL AND "
+              + statusInCondition("c.terminal_status", placeholders(terminal.size()))
+              + ")");
+      addStatusParams(terminal, params);
     }
   }
 
@@ -433,40 +442,29 @@ final class MysqlJobQueryOperations {
       return;
     }
     // Archive only contains terminal statuses; filter to the terminal subset
-    Set<JobStatus> terminal =
-        statuses.stream()
-            .filter(s -> !MysqlJobRowMapper.isLiveStatus(s))
-            .collect(Collectors.toCollection(() -> EnumSet.noneOf(JobStatus.class)));
+    Set<JobStatus> terminal = terminalStatuses(statuses);
     if (terminal.isEmpty()) {
       // Caller wants only live statuses; exclude all archive rows
       and(where, "1 = 0");
       return;
     }
-    and(where, "a.final_status IN (" + placeholders(terminal.size()) + ")");
-    terminal.stream().map(JobStatus::name).forEach(params::add);
+    and(where, statusInCondition("a.final_status", placeholders(terminal.size())));
+    addStatusParams(terminal, params);
   }
 
   private void appendJobTypeCondition(JobFilter filter, StringBuilder where, List<Object> params) {
-    Set<JobType> types = filter.types();
-    if (types == null || types.isEmpty()) {
-      return;
-    }
-    List<String> execTypeNames =
-        Stream.of(JobExecutionType.values())
-            .filter(e -> types.contains(e.toPublicType()))
-            .map(Enum::name)
-            .collect(Collectors.toList());
-    if (execTypeNames.isEmpty()) {
-      return;
-    }
-    and(where, "c.job_type IN (" + placeholders(execTypeNames.size()) + ")");
-    params.addAll(execTypeNames);
+    appendJobTypeCondition(filter, "c.job_type", where, params);
   }
 
   // ── ORDER BY builder ────────────────────────────────────────────────────
 
   private void appendArchiveJobTypeCondition(
       JobFilter filter, StringBuilder where, List<Object> params) {
+    appendJobTypeCondition(filter, "a.job_type", where, params);
+  }
+
+  private void appendJobTypeCondition(
+      JobFilter filter, String column, StringBuilder where, List<Object> params) {
     Set<JobType> types = filter.types();
     if (types == null || types.isEmpty()) {
       return;
@@ -479,27 +477,41 @@ final class MysqlJobQueryOperations {
     if (execTypeNames.isEmpty()) {
       return;
     }
-    and(where, "a.job_type IN (" + placeholders(execTypeNames.size()) + ")");
+    and(where, column + " IN (" + placeholders(execTypeNames.size()) + ")");
     params.addAll(execTypeNames);
   }
 
   private void appendPriorityCondition(JobFilter filter, StringBuilder where, List<Object> params) {
-    Set<JobPriority> priorities = filter.priorities();
-    if (priorities == null || priorities.isEmpty()) {
-      return;
-    }
-    and(where, "c.priority IN (" + placeholders(priorities.size()) + ")");
-    priorities.stream().map(JobPriority::ordinal).forEach(params::add);
+    appendPriorityCondition(filter, "c.priority", where, params);
   }
 
   private void appendArchivePriorityCondition(
       JobFilter filter, StringBuilder where, List<Object> params) {
+    appendPriorityCondition(filter, "a.priority", where, params);
+  }
+
+  private void appendPriorityCondition(
+      JobFilter filter, String column, StringBuilder where, List<Object> params) {
     Set<JobPriority> priorities = filter.priorities();
     if (priorities == null || priorities.isEmpty()) {
       return;
     }
-    and(where, "a.priority IN (" + placeholders(priorities.size()) + ")");
+    and(where, column + " IN (" + placeholders(priorities.size()) + ")");
     priorities.stream().map(JobPriority::ordinal).forEach(params::add);
+  }
+
+  private static Set<JobStatus> terminalStatuses(Set<JobStatus> statuses) {
+    return statuses.stream()
+        .filter(s -> !MysqlJobRowMapper.isLiveStatus(s))
+        .collect(Collectors.toCollection(() -> EnumSet.noneOf(JobStatus.class)));
+  }
+
+  private static String statusInCondition(String column, String placeholders) {
+    return column + " IN (" + placeholders + ")";
+  }
+
+  private static void addStatusParams(Set<JobStatus> statuses, List<Object> params) {
+    statuses.stream().map(JobStatus::name).forEach(params::add);
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────────
