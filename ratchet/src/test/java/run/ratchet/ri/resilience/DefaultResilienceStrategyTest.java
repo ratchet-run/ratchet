@@ -2,6 +2,7 @@ package run.ratchet.ri.resilience;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.time.Duration;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.CircuitBreakerProfile;
@@ -11,11 +12,12 @@ import run.ratchet.spi.CircuitBreakerConfigProvider;
 
 class DefaultResilienceStrategyTest {
 
+  private CircuitBreakerRegistry registry;
   private DefaultResilienceStrategy strategy;
 
   @BeforeEach
   void setUp() {
-    CircuitBreakerRegistry registry = new CircuitBreakerRegistry();
+    registry = new CircuitBreakerRegistry();
     strategy = new DefaultResilienceStrategy(registry);
   }
 
@@ -23,6 +25,10 @@ class DefaultResilienceStrategyTest {
   void executePassesThroughWhenClosed() throws Exception {
     String result = strategy.execute("my-service", () -> "hello");
     assertEquals("hello", result);
+    assertTrue(strategy.isServiceAvailable("my-service"));
+    assertEquals(
+        Duration.ofMillis(registry.getBreaker("my-service").getWaitDurationMs()),
+        strategy.getRetryDelay("my-service"));
   }
 
   @Test
@@ -48,6 +54,26 @@ class DefaultResilienceStrategyTest {
         ServiceUnavailableException.class,
         () -> strategy.execute("failing-service", () -> "should not run"));
     assertFalse(strategy.isServiceAvailable("failing-service"));
+  }
+
+  @Test
+  void getRetryDelayReturnsBreakerWaitDurationAfterCircuitOpens() {
+    for (int i = 0; i < 10; i++) {
+      try {
+        strategy.execute(
+            "retry-delay-service",
+            () -> {
+              throw new RuntimeException("fail");
+            });
+      } catch (Exception ignored) {
+        // Drive the breaker open.
+      }
+    }
+
+    assertEquals(
+        Duration.ofMillis(registry.getBreaker("retry-delay-service").getWaitDurationMs()),
+        strategy.getRetryDelay("retry-delay-service"));
+    assertFalse(strategy.isServiceAvailable("retry-delay-service"));
   }
 
   @Test

@@ -4,6 +4,10 @@ import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.time.Duration;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -42,6 +46,7 @@ class CircuitBreakerTest {
                 () -> {
                   throw new RuntimeException("fail");
                 }));
+    assertDoesNotThrow(() -> breaker.execute(() -> "ok"));
     assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
   }
 
@@ -97,6 +102,59 @@ class CircuitBreakerTest {
   }
 
   @Test
+  void halfOpenExhaustionRejectsExtraConcurrentTrialCalls() throws Exception {
+    breaker.transitionToOpen();
+    await()
+        .atMost(Duration.ofSeconds(1))
+        .untilAsserted(() -> assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState()));
+
+    CountDownLatch started = new CountDownLatch(2);
+    CountDownLatch release = new CountDownLatch(1);
+    ExecutorService executor = Executors.newFixedThreadPool(2);
+    try {
+      Future<String> first = executor.submit(() -> blockingHalfOpenCall(started, release));
+      Future<String> second = executor.submit(() -> blockingHalfOpenCall(started, release));
+      assertTrue(started.await(1, java.util.concurrent.TimeUnit.SECONDS));
+
+      ServiceUnavailableException thrown =
+          assertThrows(ServiceUnavailableException.class, () -> breaker.execute(() -> "extra"));
+      assertTrue(thrown.getMessage().contains("HALF_OPEN"));
+
+      release.countDown();
+      assertEquals("ok", first.get());
+      assertEquals("ok", second.get());
+      assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+    } finally {
+      release.countDown();
+      executor.shutdownNow();
+    }
+  }
+
+  @Test
+  void halfOpenSuccessTransitionsToClosedAndResetsSlidingWindow() throws Exception {
+    breaker.transitionToOpen();
+    await()
+        .atMost(Duration.ofSeconds(1))
+        .untilAsserted(() -> assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState()));
+
+    breaker.execute(() -> "ok1");
+    breaker.execute(() -> "ok2");
+    assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
+
+    assertThrows(
+        RuntimeException.class,
+        () ->
+            breaker.execute(
+                () -> {
+                  throw new RuntimeException("new failure");
+                }));
+    assertEquals(
+        CircuitBreaker.State.CLOSED,
+        breaker.getState(),
+        "a reset sliding window should not open after one new failure");
+  }
+
+  @Test
   void halfOpenFailureTransitionsBackToOpen() {
     breaker.transitionToOpen();
     await()
@@ -147,5 +205,15 @@ class CircuitBreakerTest {
     assertThrows(
         IllegalArgumentException.class,
         () -> new CircuitBreakerConfiguration(50.0f, 4, 100L, 2, 0));
+  }
+
+  private String blockingHalfOpenCall(CountDownLatch started, CountDownLatch release)
+      throws Exception {
+    return breaker.execute(
+        () -> {
+          started.countDown();
+          release.await();
+          return "ok";
+        });
   }
 }
