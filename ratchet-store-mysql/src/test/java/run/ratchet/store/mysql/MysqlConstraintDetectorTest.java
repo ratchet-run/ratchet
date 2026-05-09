@@ -77,10 +77,15 @@ class MysqlConstraintDetectorTest {
   }
 
   @Test
-  void detectsSqlState08ThroughWrappers() {
-    Exception wrapped = new RuntimeException("jpa", new SQLException("connection lost", "08S01"));
+  void detectsSqlState08PrefixThroughWrappers() {
+    assertTrue(detector.isTransientConnectionFailure(wrappedSqlState("08S01")));
+    assertTrue(detector.isTransientConnectionFailure(wrappedSqlState("08P01")));
+    assertTrue(detector.isTransientConnectionFailure(wrappedSqlState("08999")));
+  }
 
-    assertTrue(detector.isTransientConnectionFailure(wrapped));
+  @Test
+  void ignoresSqlStatesThatDoNotStartWith08() {
+    assertFalse(detector.isTransientConnectionFailure(wrappedSqlState("00801")));
   }
 
   @Test
@@ -103,5 +108,9 @@ class MysqlConstraintDetectorTest {
     Exception wrapped = new RuntimeException("hibernate", new SQLException("syntax", "42000"));
 
     assertFalse(detector.isTransientConnectionFailure(wrapped));
+  }
+
+  private static Exception wrappedSqlState(String sqlState) {
+    return new RuntimeException("jpa", new SQLException("connection lost", sqlState));
   }
 }
