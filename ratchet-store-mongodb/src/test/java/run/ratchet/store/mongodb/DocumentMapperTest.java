@@ -2,9 +2,11 @@ package run.ratchet.store.mongodb;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import org.bson.Document;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.BackoffPolicy;
@@ -33,7 +35,10 @@ class DocumentMapperTest {
     job.setCronExpr("");
     job.setZoneId("UTC");
     job.setPayload(payload);
-    job.setTags(List.of());
+    job.setParams(Map.of("tenant", "acme"));
+    job.setTags(List.of("billing", "nightly"));
+    job.setBusinessKey("order-1");
+    job.setIdempotencyKey("idempotency-1");
     job.setCreatedAt(Instant.parse("2026-01-01T00:00:00Z"));
     job.setUpdatedAt(Instant.parse("2026-01-01T00:00:00Z"));
     job.setVersion(0);
@@ -58,18 +63,40 @@ class DocumentMapperTest {
     JobEntity job = job(payload);
 
     Document doc = DocumentMapper.toDocument(job);
+    JobEntity reloaded = DocumentMapper.toJobEntity(doc);
 
     assertInstanceOf(String.class, doc.get("payload"));
-    assertEquals(payload, DocumentMapper.toJobEntity(doc).getPayload());
+    assertEquals(payload, reloaded.getPayload());
+    assertEquals(job.getId(), reloaded.getId());
+    assertEquals(JobStatus.PENDING, reloaded.getStatus());
+    assertEquals(JobExecutionType.SINGLE, reloaded.getJobType());
+    assertEquals(JobPriority.NORMAL, reloaded.getPriority());
+    assertEquals(job.getScheduledTime(), reloaded.getScheduledTime());
+    assertEquals(job.getTags(), reloaded.getTags());
+    assertEquals(job.getParams(), reloaded.getParams());
+    assertEquals("order-1", reloaded.getBusinessKey());
   }
 
   @Test
   void readsLegacyDocumentJobPayloads() {
+    JobEntity job = job(null);
     JobPayload payload = payload("com.example.LegacyJob", "execute");
-    Document doc = DocumentMapper.toDocument(job(null));
+    Document doc = DocumentMapper.toDocument(job);
     doc.put("payload", legacyPayloadDocument(payload));
 
     assertEquals(payload, DocumentMapper.toJobEntity(doc).getPayload());
+  }
+
+  @Test
+  void readsMissingAndEmptyJobPayloadsAsNull() {
+    Document missing = DocumentMapper.toDocument(job(null));
+    missing.remove("payload");
+
+    Document empty = DocumentMapper.toDocument(job(null));
+    empty.put("payload", "");
+
+    assertNull(DocumentMapper.toJobEntity(missing).getPayload());
+    assertNull(DocumentMapper.toJobEntity(empty).getPayload());
   }
 
   @Test
