@@ -2,6 +2,8 @@ package run.ratchet.ri.security;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import run.ratchet.store.entity.JobPayload;
@@ -91,6 +93,21 @@ class JobPayloadInputValidatorTest {
     IllegalArgumentException ex =
         assertThrows(IllegalArgumentException.class, () -> validator.validateAtCreation(payload));
     assertTrue(ex.getMessage().contains("not found"));
+  }
+
+  @Test
+  void signatureValidationExceptionIsReportedAsValidationError() throws Exception {
+    JobPayload payload = new JobPayload(Target.class.getName(), "run", "()V", false, List.of());
+    List<String> errors = new ArrayList<>();
+    Method validateMethodSignature =
+        JobPayloadInputValidator.class.getDeclaredMethod(
+            "validateMethodSignature", Class.class, JobPayload.class, List.class);
+    validateMethodSignature.setAccessible(true);
+
+    validateMethodSignature.invoke(validator, null, payload, errors);
+
+    assertEquals(1, errors.size());
+    assertTrue(errors.get(0).contains("Failed to validate method signature"));
   }
 
   public static class Target {
