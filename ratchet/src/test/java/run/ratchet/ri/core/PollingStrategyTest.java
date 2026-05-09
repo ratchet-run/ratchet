@@ -229,6 +229,21 @@ class PollingStrategyTest {
   }
 
   @Test
+  void aggressiveBackoffAfterThirtySecondsIdleTriplesDelay() {
+    PollingStrategy aggressiveStrategy =
+        new PollingStrategy(
+            BURST_DELAY, MIN_DELAY, MAX_DELAY, DEEP_IDLE_DELAY, 120_000L, 4, BATCH_SIZE);
+    long idlePollTime = System.currentTimeMillis() + 31_000L;
+
+    aggressiveStrategy.recordPollResult(0, idlePollTime);
+    long delay = aggressiveStrategy.recordPollResult(0, idlePollTime + 1);
+
+    assertEquals(MIN_DELAY * 3, delay);
+    assertFalse(aggressiveStrategy.isInDeepIdle());
+    assertFalse(aggressiveStrategy.isInBurstMode());
+  }
+
+  @Test
   void defaultConstructor_usesReasonableDefaults() {
     PollingStrategy defaultStrategy = new PollingStrategy();
     assertEquals(2000L, defaultStrategy.getCurrentDelay());

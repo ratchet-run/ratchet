@@ -6,7 +6,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -67,8 +68,10 @@ class PollerTest {
                         .deepIdleThresholdMs(300000L)
                         .idleThreshold(5))
             .build();
-    when(threadPoolManager.getThreadPoolHealth()).thenReturn(new EnumMap<>(JobExecutionType.class));
-    when(nodeIdProvider.getNodeId()).thenReturn("node-1");
+    lenient()
+        .when(threadPoolManager.getThreadPoolHealth())
+        .thenReturn(new EnumMap<>(JobExecutionType.class));
+    lenient().when(nodeIdProvider.getNodeId()).thenReturn("node-1");
     when(drainController.isDraining()).thenReturn(false);
     claimCircuitBreaker =
         new CircuitBreaker("store.claim", new CircuitBreakerConfiguration(50.0f, 2, 5_000L, 1, 2));
@@ -77,6 +80,19 @@ class PollerTest {
 
     poller = newPoller(true);
     poller.init();
+    clearInvocations(metricsCollector);
+  }
+
+  @Test
+  void tick_drainModeSkipsClaimingAndReturnsCurrentDelay() {
+    when(drainController.isDraining()).thenReturn(true);
+
+    long nextDelay = poller.tick();
+
+    verify(jobClaimStore, never()).claimNextBatchOptimized(any(), anyInt(), anyString(), any());
+    verify(jobExecutionCoordinator, never()).submit(any(JobClaimDto.class));
+    verify(threadPoolManager, never()).getAvailableCapacity(any());
+    assertEquals(2000L, nextDelay);
   }
 
   @Test
@@ -111,7 +127,7 @@ class PollerTest {
     verify(jobExecutionCoordinator).submit(batchClaim);
     verify(metricsCollector).jobsClaimed(JobExecutionType.SINGLE.name(), 1);
     verify(metricsCollector).jobsClaimed(JobExecutionType.BATCH_CHILD.name(), 1);
-    verify(metricsCollector, atLeastOnce()).pollerBreakerState("store.claim", "CLOSED");
+    verify(metricsCollector).pollerBreakerState("store.claim", "CLOSED");
     assertEquals(4000L, nextDelay);
   }
 
@@ -127,6 +143,7 @@ class PollerTest {
     verify(jobExecutionCoordinator, never()).submit(any(JobClaimDto.class));
     verify(metricsCollector).claimTransientFailure(JobExecutionType.SINGLE.name());
     verify(metricsCollector, never()).jobsClaimed(anyString(), anyInt());
+    verify(metricsCollector).pollerBreakerState("store.claim", "CLOSED");
     assertEquals(4000L, nextDelay);
   }
 
@@ -143,9 +160,27 @@ class PollerTest {
 
     verify(jobClaimStore, times(2))
         .claimNextBatchOptimized(eq(JobExecutionType.SINGLE), eq(1), eq("node-1"), any());
-    verify(metricsCollector, atLeastOnce()).pollerBreakerState("store.claim", "OPEN");
+    verify(metricsCollector, times(2)).pollerBreakerState("store.claim", "OPEN");
     assertEquals(CircuitBreaker.State.OPEN, claimCircuitBreaker.getState());
     assertTrue(nextDelay >= 5_000L);
+    assertTrue(nextDelay <= options.polling().maxDelayMs());
+  }
+
+  @Test
+  void tick_emptyClaimBatchUpdatesLoadAndDoesNotSubmitJobs() {
+    when(threadPoolManager.getAvailableCapacity(JobExecutionType.SINGLE)).thenReturn(1);
+    when(jobClaimStore.claimNextBatchOptimized(
+            eq(JobExecutionType.SINGLE), eq(1), eq("node-1"), any()))
+        .thenReturn(List.of());
+
+    long nextDelay = poller.tick();
+
+    verify(jobClaimStore)
+        .claimNextBatchOptimized(eq(JobExecutionType.SINGLE), eq(1), eq("node-1"), any());
+    verify(jobExecutionCoordinator, never()).submit(any(JobClaimDto.class));
+    verify(metricsCollector, never()).jobsClaimed(anyString(), anyInt());
+    verify(threadPoolManager).getThreadPoolHealth();
+    assertEquals(2000L, nextDelay);
   }
 
   @Test
@@ -171,8 +206,8 @@ class PollerTest {
     verify(jobClaimStore, times(3))
         .claimNextBatchOptimized(eq(JobExecutionType.SINGLE), eq(1), eq("node-1"), any());
     verify(jobExecutionCoordinator).submit(any(JobClaimDto.class));
-    verify(metricsCollector, atLeastOnce()).pollerBreakerState("store.claim", "HALF_OPEN");
-    verify(metricsCollector, atLeastOnce()).pollerBreakerState("store.claim", "CLOSED");
+    verify(metricsCollector).pollerBreakerState("store.claim", "HALF_OPEN");
+    verify(metricsCollector, times(3)).pollerBreakerState("store.claim", "CLOSED");
     assertEquals(CircuitBreaker.State.CLOSED, claimCircuitBreaker.getState());
     assertEquals(4_000L, nextDelay);
   }
