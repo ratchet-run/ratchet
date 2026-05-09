@@ -6,6 +6,11 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -13,11 +18,15 @@ import run.ratchet.api.RatchetOptions;
 
 class RecurringRegistrationStateTest {
 
+  private static final Instant NOW = Instant.parse("2026-05-09T12:00:00Z");
+
   private RecurringRegistrationState state;
+  private MutableClock clock;
 
   @BeforeEach
   void setUp() {
-    state = new RecurringRegistrationState();
+    clock = new MutableClock(NOW);
+    state = new RecurringRegistrationState(RatchetOptions.defaults(), clock);
   }
 
   @Test
@@ -57,9 +66,27 @@ class RecurringRegistrationStateTest {
         new RecurringRegistrationState(
             RatchetOptions.builder()
                 .recurring(recurring -> recurring.startupGraceSeconds(0))
-                .build());
+                .build(),
+            clock);
     state.markRegistrationComplete(Set.of("alpha"));
     // Even an unknown key fires because the grace window is 0.
+    assertTrue(state.shouldFire("orphan"));
+  }
+
+  @Test
+  void shouldFireReturnsTrueForUnknownKeyAfterConfiguredGraceExpires() {
+    state =
+        new RecurringRegistrationState(
+            RatchetOptions.builder()
+                .recurring(recurring -> recurring.startupGraceSeconds(30))
+                .build(),
+            clock);
+    state.markRegistrationComplete(Set.of("alpha"));
+
+    assertFalse(state.shouldFire("orphan"));
+
+    clock.advance(Duration.ofSeconds(31));
+
     assertTrue(state.shouldFire("orphan"));
   }
 
@@ -69,7 +96,8 @@ class RecurringRegistrationStateTest {
         new RecurringRegistrationState(
             RatchetOptions.builder()
                 .recurring(recurring -> recurring.startupGraceSeconds(0))
-                .build());
+                .build(),
+            clock);
     state.markRegistrationComplete(Set.of("alpha"));
     assertFalse(state.inStartupGrace());
   }
@@ -84,7 +112,7 @@ class RecurringRegistrationStateTest {
   void markRegistrationCompleteSetsTimestamp() {
     assertNull(state.registrationCompletedAt());
     state.markRegistrationComplete(Set.of());
-    assertNotNull(state.registrationCompletedAt());
+    assertEquals(NOW, state.registrationCompletedAt());
   }
 
   @Test
@@ -113,7 +141,35 @@ class RecurringRegistrationStateTest {
         new RecurringRegistrationState(
             RatchetOptions.builder()
                 .recurring(recurring -> recurring.startupGraceSeconds(30))
-                .build());
+                .build(),
+            clock);
     assertEquals(30L, state.startupGraceSeconds());
+  }
+
+  private static final class MutableClock extends Clock {
+    private Instant instant;
+
+    private MutableClock(Instant instant) {
+      this.instant = instant;
+    }
+
+    private void advance(Duration duration) {
+      instant = instant.plus(duration);
+    }
+
+    @Override
+    public ZoneId getZone() {
+      return ZoneOffset.UTC;
+    }
+
+    @Override
+    public Clock withZone(ZoneId zone) {
+      return Clock.fixed(instant, zone);
+    }
+
+    @Override
+    public Instant instant() {
+      return instant;
+    }
   }
 }

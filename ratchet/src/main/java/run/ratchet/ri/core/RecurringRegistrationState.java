@@ -2,6 +2,7 @@ package run.ratchet.ri.core;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
@@ -22,6 +23,7 @@ public class RecurringRegistrationState {
 
   private final Set<String> knownAnnotationKeys = ConcurrentHashMap.newKeySet();
   private final long startupGraceSeconds;
+  private final Clock clock;
 
   @SuppressWarnings("java:S3077")
   private volatile Instant registrationCompletedAt;
@@ -30,9 +32,14 @@ public class RecurringRegistrationState {
     this(RatchetOptions.defaults());
   }
 
-  @Inject
   public RecurringRegistrationState(RatchetOptions options) {
+    this(options, Clock.systemUTC());
+  }
+
+  @Inject
+  public RecurringRegistrationState(RatchetOptions options, Clock clock) {
     this.startupGraceSeconds = options.recurring().startupGraceSeconds();
+    this.clock = clock != null ? clock : Clock.systemUTC();
   }
 
   /**
@@ -44,7 +51,7 @@ public class RecurringRegistrationState {
   public void markRegistrationComplete(Set<String> keys) {
     knownAnnotationKeys.clear();
     knownAnnotationKeys.addAll(keys);
-    registrationCompletedAt = Instant.now();
+    registrationCompletedAt = Instant.now(clock);
     log.debugf(
         "RecurringRegistrationState: marked %s known annotation key(s) at %s",
         keys.size(), registrationCompletedAt);
@@ -76,7 +83,7 @@ public class RecurringRegistrationState {
     }
 
     Instant graceExpires = completedAt.plus(Duration.ofSeconds(graceSeconds));
-    if (Instant.now().isAfter(graceExpires)) {
+    if (Instant.now(clock).isAfter(graceExpires)) {
       return true;
     }
 
@@ -106,7 +113,7 @@ public class RecurringRegistrationState {
     if (graceSeconds == 0) {
       return false;
     }
-    return Instant.now().isBefore(completedAt.plus(Duration.ofSeconds(graceSeconds)));
+    return Instant.now(clock).isBefore(completedAt.plus(Duration.ofSeconds(graceSeconds)));
   }
 
   public Instant registrationCompletedAt() {
