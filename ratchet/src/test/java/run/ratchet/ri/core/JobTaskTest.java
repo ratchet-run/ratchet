@@ -15,6 +15,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -51,7 +52,7 @@ import run.ratchet.store.spi.JobStore;
 class JobTaskTest {
 
   private static final UUID JOB_UUID = new UUID(0L, 42L);
-  private static volatile SignalDecision observedSignalDecision;
+  private static final ThreadLocal<SignalDecision> OBSERVED_SIGNAL_DECISION = new ThreadLocal<>();
 
   private final ClassPolicy classPolicy = className -> true;
   @Mock private JobStore jobStore;
@@ -71,7 +72,7 @@ class JobTaskTest {
   }
 
   public static String captureSignalDecision() {
-    observedSignalDecision = JobContext.current().signalPayload(SignalDecision.class);
+    OBSERVED_SIGNAL_DECISION.set(JobContext.current().signalPayload(SignalDecision.class));
     return "done";
   }
 
@@ -96,6 +97,7 @@ class JobTaskTest {
 
   @BeforeEach
   void setUp() {
+    OBSERVED_SIGNAL_DECISION.remove();
     jobTask =
         new JobTask(
             jobStore,
@@ -109,6 +111,11 @@ class JobTaskTest {
             resilienceStrategy,
             errorSanitizer,
             classPolicy);
+  }
+
+  @AfterEach
+  void tearDown() {
+    OBSERVED_SIGNAL_DECISION.remove();
   }
 
   @Test
@@ -433,7 +440,6 @@ class JobTaskTest {
   @SuppressWarnings("unchecked")
   void call_deserializesStructuredSignalDecisionIntoJobContext() throws Exception {
     SignalDecision decision = SignalDecision.rejected("payload", "denied");
-    observedSignalDecision = null;
     PayloadSerializer signalSerializer =
         new PayloadSerializer() {
           @Override
@@ -491,7 +497,7 @@ class JobTaskTest {
 
     signalTask.call();
 
-    Assertions.assertEquals(decision, observedSignalDecision);
+    Assertions.assertEquals(decision, OBSERVED_SIGNAL_DECISION.get());
   }
 
   private JobEntity createTestJob() {
