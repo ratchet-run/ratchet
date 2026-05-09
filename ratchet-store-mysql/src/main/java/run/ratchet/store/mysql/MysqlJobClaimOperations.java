@@ -22,6 +22,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import run.ratchet.store.spi.JobClaimStore;
+import run.ratchet.store.util.JobClaimSqlSupport;
 
 final class MysqlJobClaimOperations implements JobClaimStore {
 
@@ -36,21 +37,6 @@ final class MysqlJobClaimOperations implements JobClaimStore {
   MysqlJobClaimOperations(MysqlStoreContext ctx, MysqlJobCrudOperations jobs) {
     this.ctx = ctx;
     this.jobs = jobs;
-  }
-
-  private static List<JobEntity> reorderById(List<JobEntity> jobs, List<UUID> orderedIds) {
-    Map<UUID, JobEntity> byId = new HashMap<>(jobs.size());
-    for (JobEntity j : jobs) {
-      byId.put(j.getId(), j);
-    }
-    List<JobEntity> ordered = new ArrayList<>(jobs.size());
-    for (UUID id : orderedIds) {
-      JobEntity j = byId.get(id);
-      if (j != null) {
-        ordered.add(j);
-      }
-    }
-    return ordered;
   }
 
   // language=MySQL
@@ -73,57 +59,12 @@ final class MysqlJobClaimOperations implements JobClaimStore {
             timeColumn,
             typeFilter,
             tagFilterSql,
-            buildBoostedOrderBy(timeColumn, boostInterval));
+            buildMysqlBoostedOrderBy(timeColumn, boostInterval));
   }
 
-  /**
-   * Builds a SQL fragment (empty string or starting with newline+AND) for tag affinity filtering.
-   * Guards each list independently: only emits EXISTS if requireTags non-empty; only NOT EXISTS if
-   * excludeTags non-empty. Never produces an empty {@code IN ()}.
-   */
-  private static String buildTagFilterSql(NodeTagFilter filter, String tableAlias) {
-    if (filter.isUnfiltered()) {
-      return "";
-    }
-    StringBuilder sb = new StringBuilder();
-    if (!filter.requireTags().isEmpty()) {
-      String placeholders = "?,".repeat(filter.requireTags().size());
-      sb.append("\n  AND EXISTS (SELECT 1 FROM scheduler_job_tag t WHERE t.job_id = ")
-          .append(tableAlias)
-          .append(".job_id AND t.tag IN (")
-          .append(placeholders, 0, placeholders.length() - 1)
-          .append("))");
-    }
-    if (!filter.excludeTags().isEmpty()) {
-      String placeholders = "?,".repeat(filter.excludeTags().size());
-      sb.append("\n  AND NOT EXISTS (SELECT 1 FROM scheduler_job_tag t WHERE t.job_id = ")
-          .append(tableAlias)
-          .append(".job_id AND t.tag IN (")
-          .append(placeholders, 0, placeholders.length() - 1)
-          .append("))");
-    }
-    return sb.toString();
-  }
-
-  private static int bindTagFilter(Query query, NodeTagFilter filter, int startParam) {
-    int p = startParam;
-    for (String tag : filter.requireTags()) {
-      query.setParameter(p++, tag);
-    }
-    for (String tag : filter.excludeTags()) {
-      query.setParameter(p++, tag);
-    }
-    return p;
-  }
-
-  private static String buildBoostedOrderBy(String timeColumn, int boostInterval) {
-    return boostInterval > 0
-        ? "(priority + FLOOR(GREATEST(0, TIMESTAMPDIFF(MINUTE, "
-            + timeColumn
-            + ", NOW(3))) / ?)) DESC, "
-            + timeColumn
-            + " ASC, job_id ASC"
-        : "priority DESC, " + timeColumn + " ASC, job_id ASC";
+  private static String buildMysqlBoostedOrderBy(String timeColumn, int boostInterval) {
+    return JobClaimSqlSupport.buildBoostedOrderBy(
+        timeColumn, "TIMESTAMPDIFF(MINUTE, " + timeColumn + ", NOW(3))", boostInterval);
   }
 
   @Override
@@ -131,7 +72,7 @@ final class MysqlJobClaimOperations implements JobClaimStore {
   public List<JobEntity> claimNextBatch(int limit, String nodeId, NodeTagFilter tagFilter) {
     try {
       int boostInterval = ctx.priorityBoostIntervalMinutes();
-      String tagSql = buildTagFilterSql(tagFilter, "scheduler_job_queue");
+      String tagSql = JobClaimSqlSupport.buildTagFilterSql(tagFilter, "scheduler_job_queue");
       var query =
           ctx.em()
               .createNativeQuery(
@@ -142,7 +83,7 @@ final class MysqlJobClaimOperations implements JobClaimStore {
                       "scheduled_time",
                       boostInterval));
       int parameter = 1;
-      parameter = bindTagFilter(query, tagFilter, parameter);
+      parameter = JobClaimSqlSupport.bindTagFilter(query, tagFilter, parameter);
       if (boostInterval > 0) {
         query.setParameter(parameter++, boostInterval);
       }
@@ -169,7 +110,8 @@ final class MysqlJobClaimOperations implements JobClaimStore {
       if (claimedIds.isEmpty()) {
         return List.of();
       }
-      return reorderById(jobs.findByIds(claimedIds), claimedIds);
+      return JobClaimSqlSupport.reorderById(
+          jobs.findByIds(claimedIds), claimedIds, JobEntity::getId);
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("claim jobs", e);
     }
@@ -185,7 +127,7 @@ final class MysqlJobClaimOperations implements JobClaimStore {
 
     try {
       int boostInterval = ctx.priorityBoostIntervalMinutes();
-      String tagSql = buildTagFilterSql(tagFilter, "scheduler_job_queue");
+      String tagSql = JobClaimSqlSupport.buildTagFilterSql(tagFilter, "scheduler_job_queue");
       var query =
           ctx.em()
               .createNativeQuery(
@@ -197,7 +139,7 @@ final class MysqlJobClaimOperations implements JobClaimStore {
                       boostInterval));
       int parameter = 1;
       query.setParameter(parameter++, jobType.name());
-      parameter = bindTagFilter(query, tagFilter, parameter);
+      parameter = JobClaimSqlSupport.bindTagFilter(query, tagFilter, parameter);
       if (boostInterval > 0) {
         query.setParameter(parameter++, boostInterval);
       }
@@ -222,7 +164,7 @@ final class MysqlJobClaimOperations implements JobClaimStore {
   public List<JobEntity> claimDueRecurring(int limit, String nodeId, NodeTagFilter tagFilter) {
     try {
       int boostInterval = ctx.priorityBoostIntervalMinutes();
-      String tagSql = buildTagFilterSql(tagFilter, "scheduler_job");
+      String tagSql = JobClaimSqlSupport.buildTagFilterSql(tagFilter, "scheduler_job");
       // language=MySQL
       String sql =
           """
@@ -235,10 +177,10 @@ final class MysqlJobClaimOperations implements JobClaimStore {
           LIMIT ?
           FOR UPDATE SKIP LOCKED
           """
-              .formatted(tagSql, buildBoostedOrderBy("next_fire", boostInterval));
+              .formatted(tagSql, buildMysqlBoostedOrderBy("next_fire", boostInterval));
       var query = ctx.em().createNativeQuery(sql);
       int parameter = 1;
-      parameter = bindTagFilter(query, tagFilter, parameter);
+      parameter = JobClaimSqlSupport.bindTagFilter(query, tagFilter, parameter);
       if (boostInterval > 0) {
         query.setParameter(parameter++, boostInterval);
       }
@@ -250,7 +192,8 @@ final class MysqlJobClaimOperations implements JobClaimStore {
       for (Object[] row : rows) {
         ids.add(MysqlJobRowMapper.uuidOrNull(row[0]));
       }
-      List<JobEntity> ordered = reorderById(jobs.findByIds(ids), ids);
+      List<JobEntity> ordered =
+          JobClaimSqlSupport.reorderById(jobs.findByIds(ids), ids, JobEntity::getId);
       for (JobEntity job : ordered) {
         job.setStatus(JobStatus.RUNNING);
       }
@@ -399,6 +342,12 @@ final class MysqlJobClaimOperations implements JobClaimStore {
     Timestamp nowTs = Timestamp.from(now);
     try {
       String placeholders = String.join(",", Collections.nCopies(jobIds.size(), "?"));
+      /*
+       * MySQL has no PostgreSQL-style UPDATE ... RETURNING for claiming and hydrating rows in one
+       * statement. The caller already holds candidate row locks from FOR UPDATE SKIP LOCKED, so this
+       * dialect keeps the portable MySQL pattern: UPDATE the locked PENDING rows, then reselect the
+       * ids owned by this node to report which candidates were actually claimed.
+       */
       // language=MySQL
       String updateSql =
           """
