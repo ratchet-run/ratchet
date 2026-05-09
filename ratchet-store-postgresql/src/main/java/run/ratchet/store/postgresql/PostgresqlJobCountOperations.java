@@ -58,16 +58,14 @@ final class PostgresqlJobCountOperations {
   }
 
   long countStuckJobs(Instant stuckThreshold) {
-    // language=PostgreSQL
-    String sql =
-        """
-        SELECT COUNT(*) FROM scheduler_job_queue
-        WHERE status = 'RUNNING' AND picked_at < ?
-        """;
-    return ctx.countByNative(sql, Timestamp.from(stuckThreshold));
+    return countRunningJobsPickedBefore(stuckThreshold);
   }
 
   long countLongRunningJobs(Instant threshold) {
+    return countRunningJobsPickedBefore(threshold);
+  }
+
+  private long countRunningJobsPickedBefore(Instant threshold) {
     // language=PostgreSQL
     String sql =
         """
