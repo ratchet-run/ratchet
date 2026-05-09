@@ -2,10 +2,12 @@ package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.lang.reflect.Field;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -72,6 +74,19 @@ class DynamicHeartbeatCalculatorTest {
   }
 
   @Test
+  void loadThresholdBoundaries_useExpectedMultiplier() {
+    assertEquals(45, heartbeatIntervalFor(1, 9));
+    assertEquals(45, heartbeatIntervalFor(1, 10));
+    assertEquals(40, heartbeatIntervalFor(1, 11));
+    assertEquals(40, heartbeatIntervalFor(1, 49));
+    assertEquals(40, heartbeatIntervalFor(1, 50));
+    assertEquals(31, heartbeatIntervalFor(1, 51));
+    assertEquals(31, heartbeatIntervalFor(1, 199));
+    assertEquals(31, heartbeatIntervalFor(1, 200));
+    assertEquals(22, heartbeatIntervalFor(1, 201));
+  }
+
+  @Test
   void interval_neverBelowMinimum() {
     when(jobCrudStore.countActiveNodes()).thenReturn(10L);
     when(jobCrudStore.countPendingJobs()).thenReturn(1000L);
@@ -133,6 +148,19 @@ class DynamicHeartbeatCalculatorTest {
   }
 
   @Test
+  void cacheTTL_afterWindow_refreshesStoreCounts() throws Exception {
+    when(jobCrudStore.countActiveNodes()).thenReturn(1L, 8L);
+    when(jobCrudStore.countPendingJobs()).thenReturn(0L, 300L);
+
+    assertEquals(54, calculator.calculateHeartbeatInterval());
+    expireCache(calculator);
+
+    assertEquals(9, calculator.calculateHeartbeatInterval());
+    verify(jobCrudStore, times(2)).countActiveNodes();
+    verify(jobCrudStore, times(2)).countPendingJobs();
+  }
+
+  @Test
   void storeException_heartbeat_returnsBaseInterval() {
     when(jobCrudStore.countActiveNodes()).thenThrow(new RuntimeException("DB down"));
 
@@ -148,5 +176,20 @@ class DynamicHeartbeatCalculatorTest {
     long delay = calculator.calculatePollerDelay();
 
     assertEquals(POLLER_MIN_DELAY_MS, delay);
+  }
+
+  private static long heartbeatIntervalFor(long activeNodes, long pendingJobs) {
+    JobCrudStore store = mock(JobCrudStore.class);
+    when(store.countActiveNodes()).thenReturn(activeNodes);
+    when(store.countPendingJobs()).thenReturn(pendingJobs);
+    return new DynamicHeartbeatCalculator(
+            store, BASE_HEARTBEAT_SECONDS, POLLER_MIN_DELAY_MS, POLLER_MAX_DELAY_MS)
+        .calculateHeartbeatInterval();
+  }
+
+  private static void expireCache(DynamicHeartbeatCalculator calculator) throws Exception {
+    Field cacheTimestamp = DynamicHeartbeatCalculator.class.getDeclaredField("cacheTimestamp");
+    cacheTimestamp.setAccessible(true);
+    cacheTimestamp.setLong(calculator, System.currentTimeMillis() - 6000);
   }
 }

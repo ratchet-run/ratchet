@@ -27,6 +27,14 @@ class BackoffPolicyHandlerTest {
   }
 
   @Test
+  void fixed_ignoresAttemptBoundaries() {
+    assertEquals(3000L, BackoffPolicyHandler.computeDelay(BackoffPolicy.FIXED, 3000, 0));
+    assertEquals(3000L, BackoffPolicyHandler.computeDelay(BackoffPolicy.FIXED, 3000, 2));
+    assertEquals(
+        3000L, BackoffPolicyHandler.computeDelay(BackoffPolicy.FIXED, 3000, Integer.MAX_VALUE));
+  }
+
+  @Test
   void fixed_zeroBaseMs_returnsZero() {
     assertEquals(0L, BackoffPolicyHandler.computeDelay(BackoffPolicy.FIXED, 0, 5));
   }

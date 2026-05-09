@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -15,6 +16,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobStatus;
@@ -63,7 +65,9 @@ class ChainSchedulerTest {
 
     when(jobCrudStore.findDependants(finished.getId())).thenReturn(List.of(child));
 
+    Instant before = Instant.now();
     assertTrue(scheduler.scheduleNext(finished));
+    Instant after = Instant.now();
 
     ArgumentCaptor<JobEntity> saved = ArgumentCaptor.forClass(JobEntity.class);
     verify(jobCrudStore).save(saved.capture());
@@ -71,6 +75,12 @@ class ChainSchedulerTest {
         ChainScheduler.CHAIN_LOCK_TIME,
         saved.getValue().getScheduledTime(),
         "scheduleNext must replace CHAIN_LOCK_TIME with a real instant");
+    assertFalse(
+        saved.getValue().getScheduledTime().isBefore(before),
+        "replacement scheduledTime should not be before scheduleNext started");
+    assertFalse(
+        saved.getValue().getScheduledTime().isAfter(after),
+        "replacement scheduledTime should come from the scheduleNext call");
   }
 
   @Test
@@ -217,6 +227,9 @@ class ChainSchedulerTest {
 
     scheduler.cancelChain(failed);
 
+    InOrder order = inOrder(jobCrudStore);
+    order.verify(jobCrudStore).save(b);
+    order.verify(jobCrudStore).save(c);
     assertEquals(JobStatus.CANCELED, b.getStatus());
     assertEquals(JobStatus.CANCELED, c.getStatus());
   }
