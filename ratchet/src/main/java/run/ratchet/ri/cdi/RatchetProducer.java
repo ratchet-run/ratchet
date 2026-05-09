@@ -135,7 +135,7 @@ public class RatchetProducer {
     Map<JobExecutionType, Integer> maxConcurrencyMap = new EnumMap<>(JobExecutionType.class);
     for (JobExecutionType type : JobExecutionType.values()) {
       maxConcurrencyMap.put(
-          type, executionTuningProvider.maxConcurrency(type.name(), defaultConcurrency(type)));
+          type, executionTuningProvider.maxConcurrency(type.name(), configuredConcurrency(type)));
     }
 
     return new ThreadPoolManager(
@@ -367,7 +367,7 @@ public class RatchetProducer {
     }
   }
 
-  private int defaultConcurrency(JobExecutionType type) {
+  private int configuredConcurrency(JobExecutionType type) {
     return switch (type) {
       case SINGLE -> options.execution().maxConcurrency("SINGLE", 20);
       case RECURRING -> options.execution().maxConcurrency("RECURRING", 5);
