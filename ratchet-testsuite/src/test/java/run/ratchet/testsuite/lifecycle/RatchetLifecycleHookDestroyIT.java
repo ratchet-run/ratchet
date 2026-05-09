@@ -1,5 +1,6 @@
 package run.ratchet.testsuite.lifecycle;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.annotation.PreDestroy;
@@ -40,7 +41,7 @@ class RatchetLifecycleHookDestroyIT extends BaseRatchetIT {
 
     return RatchetArchiveBuilder.create()
         .addRatchetDependencies(profile, dbType)
-        .addClasses(TrackingDependentHook.class)
+        .addClasses(TrackingDependentHook.class, ThrowingPreDestroyHook.class)
         .addStoreInfrastructure()
         .addBeansXml()
         .build();
@@ -61,7 +62,9 @@ class RatchetLifecycleHookDestroyIT extends BaseRatchetIT {
     // afterStop -> destroyHooks(), which calls Instance.destroy(hook) for each resolved hook.
     Method onShutdown = RatchetLifecycle.class.getDeclaredMethod("onShutdown");
     onShutdown.setAccessible(true);
-    onShutdown.invoke(lifecycle);
+    assertDoesNotThrow(
+        () -> onShutdown.invoke(lifecycle),
+        "Shutdown must log and continue when Instance.destroy(hook) fails");
 
     assertTrue(
         TrackingDependentHook.beforeStopCount.get() >= 1, "beforeStop must fire during shutdown");
@@ -72,6 +75,10 @@ class RatchetLifecycleHookDestroyIT extends BaseRatchetIT {
         "@PreDestroy must fire on the @Dependent hook when Instance.destroy(hook) is called by "
             + "destroyHooks(). Pre-fix, the field was held as Iterable<>, losing destroy() and "
             + "leaking dependent instances.");
+    assertTrue(
+        ThrowingPreDestroyHook.preDestroyCount.get() >= 1,
+        "A failing @PreDestroy hook must be released via Instance.destroy() without aborting "
+            + "shutdown.");
   }
 
   @Dependent
@@ -106,6 +113,18 @@ class RatchetLifecycleHookDestroyIT extends BaseRatchetIT {
     @PreDestroy
     void onPreDestroy() {
       preDestroyCalled.set(true);
+    }
+  }
+
+  @Dependent
+  public static class ThrowingPreDestroyHook implements SchedulerLifecycleHook {
+
+    static final AtomicInteger preDestroyCount = new AtomicInteger();
+
+    @PreDestroy
+    void onPreDestroy() {
+      preDestroyCount.incrementAndGet();
+      throw new IllegalStateException("boom");
     }
   }
 }
