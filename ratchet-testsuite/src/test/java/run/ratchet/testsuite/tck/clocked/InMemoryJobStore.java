@@ -224,6 +224,8 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
       return true;
     }
     List<String> tags = job.getTags() == null ? List.of() : job.getTags();
+    // Match the SQL claim-store semantics: requireTags is an inclusive OR via IN (...), while
+    // excludeTags rejects the job if any excluded tag is present.
     if (!filter.requireTags().isEmpty()) {
       boolean hasRequired = tags.stream().anyMatch(filter.requireTags()::contains);
       if (!hasRequired) {
@@ -305,10 +307,13 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
 
   @Override
   public synchronized List<JobEntity> findTimedOutSignalJobs(Instant now, int limit) {
+    if (limit <= 0) {
+      throw new IllegalArgumentException("limit must be positive: " + limit);
+    }
     return jobs.values().stream()
         .filter(j -> j.getStatus() == JobStatus.WAITING)
         .filter(j -> j.getSignalTimeout() != null && !j.getSignalTimeout().isAfter(now))
-        .limit(Math.max(1, limit))
+        .limit(limit)
         .toList();
   }
 

@@ -2,7 +2,6 @@ package run.ratchet.testsuite.tck.clocked;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import java.time.Duration;
 import java.util.Optional;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.ri.core.DrainController;
@@ -11,6 +10,7 @@ import run.ratchet.tck.api.RatchetTckProbe;
 import run.ratchet.tck.api.RatchetTckRuntime;
 import run.ratchet.tck.api.TestClock;
 import run.ratchet.testsuite.tck.ListenerProbe;
+import run.ratchet.testsuite.tck.RiRatchetTckRuntime;
 
 /**
  * RI-side {@link RatchetTckRuntime} variant that exposes a {@link TestClock} and reset semantics
@@ -19,8 +19,6 @@ import run.ratchet.testsuite.tck.ListenerProbe;
  */
 @ApplicationScoped
 public class RiClockedTckRuntime implements RatchetTckRuntime {
-
-  private static final Duration CLEAR_DRAIN_TIMEOUT = Duration.ofSeconds(30);
 
   @Inject private JobSchedulerService scheduler;
   @Inject private ListenerProbe probe;
@@ -46,22 +44,7 @@ public class RiClockedTckRuntime implements RatchetTckRuntime {
 
   @Override
   public void clear() {
-    drainController.setDraining(true);
-    try {
-      boolean idle = executor.awaitIdle(CLEAR_DRAIN_TIMEOUT);
-      if (!idle) {
-        throw new IllegalStateException(
-            "RiClockedTckRuntime.clear(): executor did not become idle within "
-                + CLEAR_DRAIN_TIMEOUT
-                + " — implementation drain is buggy or a worker is stuck");
-      }
-      inMemoryJobStore.reset();
-      probe.reset();
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      throw new IllegalStateException("clear() interrupted", e);
-    } finally {
-      drainController.setDraining(false);
-    }
+    RiRatchetTckRuntime.clearRuntime(
+        "RiClockedTckRuntime", drainController, executor, inMemoryJobStore::reset, probe);
   }
 }

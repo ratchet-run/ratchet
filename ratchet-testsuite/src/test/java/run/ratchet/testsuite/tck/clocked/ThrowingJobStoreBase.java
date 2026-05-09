@@ -670,6 +670,44 @@ public abstract class ThrowingJobStoreBase implements JobStore {
     return fail("cleanupOrphanedPermits");
   }
 
+  // ----- SignalStore -----
+
+  @Override
+  public List<JobEntity> findTimedOutSignalJobs(Instant now, int limit) {
+    return fail("findTimedOutSignalJobs");
+  }
+
+  @Override
+  public int deliverSignalById(
+      UUID jobId,
+      String payload,
+      String payloadType,
+      String outcome,
+      String rejectionReason,
+      String deliveredBy,
+      Instant deliveredAt,
+      String deliveryId) {
+    return fail("deliverSignalById");
+  }
+
+  @Override
+  public int deliverSignalByKey(
+      String signalKey,
+      String payload,
+      String payloadType,
+      String outcome,
+      String rejectionReason,
+      String deliveredBy,
+      Instant deliveredAt,
+      String deliveryId) {
+    return fail("deliverSignalByKey");
+  }
+
+  @Override
+  public List<JobEntity> findJobsBySignalDeliveryId(String deliveryId) {
+    return fail("findJobsBySignalDeliveryId");
+  }
+
   // ----- JobQueryStore -----
 
   @Override

@@ -4,7 +4,6 @@ import jakarta.inject.Inject;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.junit5.ArquillianExtension;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import run.ratchet.tck.api.RatchetTckRuntime;
 import run.ratchet.tck.api.TckJobs;
@@ -26,18 +25,6 @@ class RiTxSupportsIT extends AbstractTxSupportsContract {
   @Override
   protected RatchetTckRuntime runtime() {
     return runtime;
-  }
-
-  @Override
-  @Test
-  protected void enqueueSubmit_insideRolledBackTx_jobDoesNotExecute() {
-    // Arquillian mis-reports TestAbortedException; MongoDB exemption via assumeTrue in base class.
-  }
-
-  @Override
-  @Test
-  protected void scheduleSubmit_insideRolledBackTx_jobDoesNotExecute() {
-    // Arquillian mis-reports TestAbortedException; MongoDB exemption via assumeTrue in base class.
   }
 
   @Deployment

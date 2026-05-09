@@ -57,16 +57,27 @@ public class RiRatchetTckRuntime implements RatchetTckRuntime {
 
   @Override
   public void clear() {
+    clearRuntime(
+        "RiRatchetTckRuntime", drainController, executor, cleanupStrategy::truncateAll, probe);
+  }
+
+  public static void clearRuntime(
+      String runtimeName,
+      DrainController drainController,
+      JobExecutorService executor,
+      Runnable resetStore,
+      ListenerProbe probe) {
     drainController.setDraining(true);
     try {
       boolean idle = executor.awaitIdle(CLEAR_DRAIN_TIMEOUT);
       if (!idle) {
         throw new IllegalStateException(
-            "RiRatchetTckRuntime.clear(): executor did not become idle within "
+            runtimeName
+                + ".clear(): executor did not become idle within "
                 + CLEAR_DRAIN_TIMEOUT
                 + " — implementation drain is buggy or a worker is stuck");
       }
-      cleanupStrategy.truncateAll();
+      resetStore.run();
       probe.reset();
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
