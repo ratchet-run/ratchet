@@ -28,20 +28,10 @@ public class ConformanceReportExtension extends AbstractConformanceReportExtensi
    * diagnostic tooling.
    */
   public static String findContractSimpleName(String className) {
-    try {
-      ClassLoader cl = Thread.currentThread().getContextClassLoader();
-      if (cl == null) cl = ConformanceReportExtension.class.getClassLoader();
-      Class<?> clazz = Class.forName(className, false, cl);
-      while (clazz != null && clazz != Object.class) {
-        if (ConformanceLevel.forContract(clazz.getSimpleName()) != null) {
-          return clazz.getSimpleName();
-        }
-        clazz = clazz.getSuperclass();
-      }
-    } catch (ClassNotFoundException | NoClassDefFoundError ignored) {
-      // Non-fatal: skip
-    }
-    return null;
+    return findContractSimpleName(
+        className,
+        contractName -> ConformanceLevel.forContract(contractName) != null,
+        ConformanceReportExtension.class);
   }
 
   @Override

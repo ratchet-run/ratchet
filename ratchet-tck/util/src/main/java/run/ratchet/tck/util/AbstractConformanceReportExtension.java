@@ -9,6 +9,8 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.function.Predicate;
 import org.junit.platform.engine.TestExecutionResult;
 import org.junit.platform.engine.support.descriptor.ClassSource;
 import org.junit.platform.engine.support.descriptor.MethodSource;
@@ -78,12 +80,20 @@ public abstract class AbstractConformanceReportExtension implements TestExecutio
   }
 
   String findContractName(String className) {
+    Map<String, String> index =
+        Objects.requireNonNull(
+            contractIndex, "testPlanExecutionStarted must initialize the contract index first");
+    return findContractSimpleName(className, index::containsKey, getClass());
+  }
+
+  protected static String findContractSimpleName(
+      String className, Predicate<String> isContractName, Class<?> fallbackClass) {
     try {
       ClassLoader cl = Thread.currentThread().getContextClassLoader();
-      if (cl == null) cl = getClass().getClassLoader();
+      if (cl == null) cl = fallbackClass.getClassLoader();
       Class<?> clazz = Class.forName(className, false, cl);
       while (clazz != null && clazz != Object.class) {
-        if (contractIndex != null && contractIndex.containsKey(clazz.getSimpleName())) {
+        if (isContractName.test(clazz.getSimpleName())) {
           return clazz.getSimpleName();
         }
         clazz = clazz.getSuperclass();
