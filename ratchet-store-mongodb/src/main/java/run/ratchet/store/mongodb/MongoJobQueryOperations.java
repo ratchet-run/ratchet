@@ -22,6 +22,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.bson.Document;
 import org.bson.conversions.Bson;
+import org.jboss.logging.Logger;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobQuerySortField;
@@ -47,6 +48,7 @@ import run.ratchet.store.query.JobQueryCursor;
  */
 final class MongoJobQueryOperations {
 
+  private static final Logger log = Logger.getLogger(MongoJobQueryOperations.class);
   private static final int MAX_LIMIT = 1000;
 
   private final MongoStoreContext ctx;
@@ -101,12 +103,6 @@ final class MongoJobQueryOperations {
     conditions.add(in(MongoFieldNames.JOB_TYPE, execTypeNames));
   }
 
-  // ── Archive collection query ────────────────────────────────────────────
-
-  private static void appendArchiveJobTypeCondition(JobFilter filter, List<Bson> conditions) {
-    appendJobTypeCondition(filter, conditions); // same field name in archive
-  }
-
   // ── Filter builders ─────────────────────────────────────────────────────
 
   private static void appendPriorityCondition(JobFilter filter, List<Bson> conditions) {
@@ -119,24 +115,11 @@ final class MongoJobQueryOperations {
     conditions.add(in(MongoFieldNames.PRIORITY, ordinals));
   }
 
-  private static void appendArchivePriorityCondition(JobFilter filter, List<Bson> conditions) {
-    appendPriorityCondition(filter, conditions); // same field name in archive
-  }
-
   private static void appendParentJobId(JobFilter filter, List<Bson> conditions) {
     UUID parentJobId = filter.parentJobId();
     if (parentJobId == null) {
       return;
     }
-    conditions.add(eq(MongoFieldNames.DEPENDS_ON, parentJobId));
-  }
-
-  private static void appendArchiveParentJobId(JobFilter filter, List<Bson> conditions) {
-    UUID parentJobId = filter.parentJobId();
-    if (parentJobId == null) {
-      return;
-    }
-    // Archive uses "depends_on" for the same concept (same field name set in DocumentMapper)
     conditions.add(eq(MongoFieldNames.DEPENDS_ON, parentJobId));
   }
 
@@ -187,8 +170,11 @@ final class MongoJobQueryOperations {
         conditions.add(
             or(lt(field, sortVal), and(eq(field, sortVal), gt(MongoFieldNames.ID, c.jobId()))));
       }
-    } catch (IllegalArgumentException ignored) {
-      // Malformed cursor — ignore
+    } catch (IllegalArgumentException e) {
+      // Malformed cursors are treated as absent so callers fall back to offset-based pagination.
+      log.warnf(
+          "Ignoring malformed MongoDB job query cursor; falling back to offset-based pagination (%s)",
+          e.getClass().getSimpleName());
     }
   }
 
@@ -377,11 +363,11 @@ final class MongoJobQueryOperations {
     }
 
     appendArchiveStatusCondition(filter, conditions);
-    appendArchiveJobTypeCondition(filter, conditions);
-    appendArchivePriorityCondition(filter, conditions);
+    appendJobTypeCondition(filter, conditions);
+    appendPriorityCondition(filter, conditions);
     appendStringEq(MongoFieldNames.BUSINESS_KEY, filter.businessKey(), conditions);
     appendStringEq(MongoFieldNames.TARGET_CLASS, filter.targetClass(), conditions);
-    appendArchiveParentJobId(filter, conditions);
+    appendParentJobId(filter, conditions);
     appendInstantGte(MongoFieldNames.ORIGINAL_CREATED_AT, filter.createdAfter(), conditions);
     appendInstantLt(MongoFieldNames.ORIGINAL_CREATED_AT, filter.createdBefore(), conditions);
     appendInstantGte(MongoFieldNames.SCHEDULED_TIME, filter.scheduledAfter(), conditions);
