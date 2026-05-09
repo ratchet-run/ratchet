@@ -20,14 +20,14 @@ final class MysqlJobCrudOperations implements JobCrudStore, JobBulkStore {
   private final MysqlJobWriteOperations writes;
 
   MysqlJobCrudOperations(
-      MysqlStoreContext ctx,
-      MysqlJobRowMapper mapper,
-      MysqlBusinessKeyReservations reservations,
-      MysqlTagOperations tags) {
-    this.reads = new MysqlJobReadOperations(ctx, mapper, tags);
-    this.counts = new MysqlJobCountOperations(ctx);
-    this.deletes = new MysqlJobDeleteOperations(ctx, reservations);
-    this.writes = new MysqlJobWriteOperations(ctx, mapper, reservations, tags);
+      MysqlJobReadOperations reads,
+      MysqlJobCountOperations counts,
+      MysqlJobDeleteOperations deletes,
+      MysqlJobWriteOperations writes) {
+    this.reads = reads;
+    this.counts = counts;
+    this.deletes = deletes;
+    this.writes = writes;
   }
 
   @Override
