@@ -3,6 +3,7 @@ package run.ratchet.store.postgresql;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.List;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -49,9 +50,26 @@ class PostgresqlSchemaMigratorLegacyIT {
         assertThrows(
             SchemaInitializationException.class,
             () -> new SchemaMigrator(dataSource(), "postgresql").migrate());
-    String message = ex.getMessage();
-    assertTrue(message.contains("ratchet_schema_version is empty"), () -> "got: " + message);
-    assertTrue(message.contains("seed ratchet_schema_version"), () -> "got: " + message);
-    assertTrue(message.contains("ratchet.schema.auto-migrate=false"), () -> "got: " + message);
+    assertLegacySchemaRemediationGuidance(ex.getMessage());
+  }
+
+  private static void assertLegacySchemaRemediationGuidance(String message) {
+    List<String> requiredGuidance =
+        List.of(
+            "ratchet_schema_version is empty",
+            "seed ratchet_schema_version",
+            "ratchet.schema.auto-migrate=false");
+    List<String> missingGuidance =
+        requiredGuidance.stream()
+            .filter(fragment -> message == null || !message.contains(fragment))
+            .toList();
+
+    assertTrue(
+        missingGuidance.isEmpty(),
+        () ->
+            "Expected legacy-schema remediation guidance to include "
+                + missingGuidance
+                + ", got: "
+                + message);
   }
 }
