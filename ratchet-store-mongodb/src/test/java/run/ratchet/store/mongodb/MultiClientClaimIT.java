@@ -5,8 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoDatabase;
-import java.time.Duration;
-import java.time.Instant;
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -20,15 +19,10 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.mongodb.MongoDBContainer;
-import run.ratchet.api.BackoffPolicy;
-import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.entity.JobPayload;
 
 /**
  * Multi-client claim race test. Unlike {@link ConcurrentClaimIT}, which races multiple threads
@@ -37,28 +31,11 @@ import run.ratchet.store.entity.JobPayload;
  * database. That exercises the true cross-client atomicity of {@code findOneAndUpdate(status=
  * PENDING)} — the invariant that matters when two physical nodes race for the same job.
  */
-class MultiClientClaimIT {
+class MultiClientClaimIT extends BaseDocumentStoreIT {
 
-  // 2-minute startup timeout absorbs replica-set bootstrap variance on busy hosts; the default
-  // 60s timeout would race the "waiting for connections" log line under contention.
-  private static final MongoDBContainer MONGO =
-      new MongoDBContainer("mongo:7.0")
-          .withReplicaSet()
-          .waitingFor(
-              Wait.forLogMessage("(?i).*waiting for connections.*", 1)
-                  .withStartupTimeout(Duration.ofMinutes(2)));
-
-  static {
-    MONGO.start();
-  }
-
-  private MongoClient clientA;
   private MongoClient clientB;
-  private MongoDatabase dbA;
   private MongoDatabase dbB;
-  private MongoJobStore storeA;
   private MongoJobStore storeB;
-  private ExecutorService claimExecutorA;
   private ExecutorService claimExecutorB;
 
   private static void race(
@@ -88,62 +65,94 @@ class MultiClientClaimIT {
     }
   }
 
-  private static JobEntity newPendingJob() {
-    JobEntity job = new JobEntity();
-    job.setStatus(JobStatus.PENDING);
-    job.setScheduledTime(Instant.now());
-    job.setJobType(JobExecutionType.SINGLE);
-    job.setPriority(JobPriority.NORMAL);
-    job.setBackoffPolicy(BackoffPolicy.NONE);
-    job.setIdempotencyKey(UUID.randomUUID().toString());
-    job.setPayload(new JobPayload("com.example.TestJob", "execute", "()V", false, List.of()));
-    return job;
-  }
-
-  @BeforeEach
-  void setUp() {
-    String dbName = "ratchet_multi_" + UUID.randomUUID().toString().substring(0, 8);
-    clientA = MongoClientFactory.create(MONGO.getConnectionString());
-    clientB = MongoClientFactory.create(MONGO.getConnectionString());
-    dbA = clientA.getDatabase(dbName);
-    dbB = clientB.getDatabase(dbName);
-    claimExecutorA = Executors.newCachedThreadPool();
-    claimExecutorB = Executors.newCachedThreadPool();
-    storeA = new MongoJobStoreImpl(clientA, dbA, RatchetOptions.defaults(), claimExecutorA);
-    storeB = new MongoJobStoreImpl(clientB, dbB, RatchetOptions.defaults(), claimExecutorB);
-    new MongoCollectionInitializer(dbA).initialize();
-  }
-
-  @AfterEach
-  void tearDown() {
-    dbA.drop();
-    clientA.close();
-    clientB.close();
-    claimExecutorA.shutdownNow();
-    claimExecutorB.shutdownNow();
-  }
-
-  @Test
-  void twoClients_noDuplicateClaims() throws InterruptedException {
-    int jobCount = 100;
-    for (int i = 0; i < jobCount; i++) {
-      storeA.save(newPendingJob());
+  private static String mongoConnectionString() {
+    try {
+      Field mongoField = BaseDocumentStoreIT.class.getDeclaredField("MONGO");
+      mongoField.setAccessible(true);
+      MongoDBContainer mongo = (MongoDBContainer) mongoField.get(null);
+      return mongo.getConnectionString();
+    } catch (ReflectiveOperationException e) {
+      throw new IllegalStateException("Unable to read BaseDocumentStoreIT Mongo container", e);
     }
+  }
 
+  private static ClaimRaceResult raceClaims(MongoJobStore storeA, MongoJobStore storeB)
+      throws InterruptedException {
     Set<UUID> allClaimed = ConcurrentHashMap.newKeySet();
     List<UUID> duplicates = Collections.synchronizedList(new ArrayList<>());
     CountDownLatch start = new CountDownLatch(1);
     CountDownLatch done = new CountDownLatch(2);
 
     ExecutorService pool = Executors.newFixedThreadPool(2);
-    pool.submit(() -> race(storeA, "node-A", start, done, allClaimed, duplicates));
-    pool.submit(() -> race(storeB, "node-B", start, done, allClaimed, duplicates));
+    try {
+      pool.submit(() -> race(storeA, "node-A", start, done, allClaimed, duplicates));
+      pool.submit(() -> race(storeB, "node-B", start, done, allClaimed, duplicates));
 
-    start.countDown();
-    assertTrue(done.await(30, TimeUnit.SECONDS), "both clients must finish within 30s");
-    pool.shutdown();
-
-    assertEquals(0, duplicates.size(), "no job should be claimed by both clients: " + duplicates);
-    assertEquals(jobCount, allClaimed.size(), "every job should be claimed exactly once");
+      start.countDown();
+      assertTrue(done.await(30, TimeUnit.SECONDS), "both clients must finish within 30s");
+    } finally {
+      pool.shutdownNow();
+    }
+    return new ClaimRaceResult(allClaimed, duplicates);
   }
+
+  @BeforeEach
+  void setUpSecondClient() {
+    clientB = MongoClientFactory.create(mongoConnectionString());
+    dbB = clientB.getDatabase(database().getName());
+    claimExecutorB = Executors.newCachedThreadPool();
+    storeB = new MongoJobStoreImpl(clientB, dbB, RatchetOptions.defaults(), claimExecutorB);
+  }
+
+  @AfterEach
+  void tearDownSecondClient() {
+    if (clientB != null) {
+      clientB.close();
+    }
+    if (claimExecutorB != null) {
+      claimExecutorB.shutdownNow();
+    }
+  }
+
+  @Test
+  void twoClients_noDuplicateClaims() throws InterruptedException {
+    int jobCount = 100;
+    for (int i = 0; i < jobCount; i++) {
+      store().save(newPendingJob());
+    }
+
+    ClaimRaceResult result = raceClaims(store(), storeB);
+
+    assertEquals(
+        0,
+        result.duplicates().size(),
+        "no job should be claimed by both clients: " + result.duplicates());
+    assertEquals(jobCount, result.allClaimed().size(), "every job should be claimed exactly once");
+  }
+
+  @Test
+  void failedJob_requiresExplicitResetBeforeConcurrentClaim() throws InterruptedException {
+    JobEntity failed = newPendingJob();
+    failed.setStatus(JobStatus.FAILED);
+    store().save(failed);
+
+    ClaimRaceResult beforeReset = raceClaims(store(), storeB);
+
+    assertEquals(0, beforeReset.duplicates().size(), "failed job should not be claimed");
+    assertTrue(beforeReset.allClaimed().isEmpty(), "failed job must not be claimed before reset");
+    assertEquals(JobStatus.FAILED, store().findById(failed.getId()).orElseThrow().getStatus());
+
+    assertTrue(store().resetFailedToPending(failed.getId()), "failed job should reset to pending");
+
+    ClaimRaceResult afterReset = raceClaims(store(), storeB);
+
+    assertEquals(
+        0,
+        afterReset.duplicates().size(),
+        "reset job should not be claimed by both clients: " + afterReset.duplicates());
+    assertEquals(Set.of(failed.getId()), afterReset.allClaimed());
+    assertEquals(JobStatus.RUNNING, store().findById(failed.getId()).orElseThrow().getStatus());
+  }
+
+  private record ClaimRaceResult(Set<UUID> allClaimed, List<UUID> duplicates) {}
 }
