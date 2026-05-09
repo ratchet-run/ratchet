@@ -3,13 +3,13 @@ package run.ratchet.store.postgresql;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.ArchiveStore;
 import run.ratchet.store.util.ArchiveHelper;
+import run.ratchet.store.util.ArchiveQuerySupport;
 import run.ratchet.store.util.ArchiveRowMapper;
 
 final class PostgresqlArchiveOperations implements ArchiveStore {
@@ -149,32 +149,11 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
   @Override
   public List<ArchivedJobEntity> findArchivedJobs(
       String targetClass, String businessKey, Instant from, Instant to, int limit) {
-    StringBuilder sql =
-        new StringBuilder("SELECT " + ARCHIVE_COLUMNS + " FROM scheduler_job_archive WHERE 1=1");
-    List<Object> params = new ArrayList<>();
-    if (targetClass != null) {
-      sql.append(" AND target_class = ?");
-      params.add(targetClass);
-    }
-    if (businessKey != null) {
-      sql.append(" AND business_key = ?");
-      params.add(businessKey);
-    }
-    if (from != null) {
-      sql.append(" AND archived_at >= ?");
-      params.add(Timestamp.from(from));
-    }
-    if (to != null) {
-      sql.append(" AND archived_at <= ?");
-      params.add(Timestamp.from(to));
-    }
-    sql.append(" ORDER BY archived_at DESC LIMIT ?");
-    params.add(limit);
-
-    Query query = ctx.em().createNativeQuery(sql.toString());
-    for (int i = 0; i < params.size(); i++) {
-      query.setParameter(i + 1, params.get(i));
-    }
+    var searchQuery =
+        ArchiveQuerySupport.buildFindArchivedJobsQuery(
+            ARCHIVE_COLUMNS, targetClass, businessKey, from, to, limit);
+    Query query = ctx.em().createNativeQuery(searchQuery.sql());
+    ArchiveQuerySupport.bindParameters(query, searchQuery);
     @SuppressWarnings("unchecked")
     List<Object[]> rows = query.getResultList();
     return rows.stream()
