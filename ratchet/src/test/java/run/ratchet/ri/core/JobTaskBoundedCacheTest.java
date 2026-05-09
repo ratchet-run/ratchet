@@ -66,6 +66,36 @@ class JobTaskBoundedCacheTest {
   }
 
   @Test
+  void supportsStoredNullValues() {
+    Map<String, String> cache = JobTask.newBoundedCache(2);
+
+    cache.put("present-null", null);
+
+    assertTrue(cache.containsKey("present-null"));
+    assertNull(cache.get("present-null"));
+    assertFalse(cache.containsKey("missing"));
+    assertNull(cache.get("missing"));
+  }
+
+  @Test
+  void maxEntriesOne_evictsPreviousEntryOnEveryNewKey() {
+    Map<Integer, String> cache = JobTask.newBoundedCache(1);
+
+    cache.put(1, "a");
+    cache.put(2, "b");
+
+    assertEquals(1, cache.size());
+    assertFalse(cache.containsKey(1));
+    assertEquals("b", cache.get(2));
+
+    cache.put(3, "c");
+
+    assertEquals(1, cache.size());
+    assertFalse(cache.containsKey(2));
+    assertEquals("c", cache.get(3));
+  }
+
+  @Test
   void remainsBoundedUnderConcurrentAccess() {
     assertTimeoutPreemptively(
         Duration.ofSeconds(5),

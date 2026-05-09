@@ -2,7 +2,6 @@ package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -33,9 +32,9 @@ class JobTaskClassCacheBypassTest {
     Method helper = JobTask.class.getDeclaredMethod("loadAllowedClass", String.class);
     helper.setAccessible(true);
 
-    Throwable thrown =
+    SecurityException thrown =
         assertThrows(
-            Throwable.class,
+            SecurityException.class,
             () -> {
               try {
                 helper.invoke(task, "java.lang.String");
@@ -43,10 +42,7 @@ class JobTaskClassCacheBypassTest {
                 throw e.getCause();
               }
             });
-    assertInstanceOf(
-        SecurityException.class,
-        thrown,
-        "Denied class must throw SecurityException, got: " + thrown);
+    assertEquals("Class java.lang.String is not allowed for job execution.", thrown.getMessage());
 
     Field cacheField = JobTask.class.getDeclaredField("CLASS_CACHE");
     cacheField.setAccessible(true);
@@ -81,9 +77,9 @@ class JobTaskClassCacheBypassTest {
     helper.invoke(allowTask, "java.lang.String");
 
     JobTask denyTask = newMinimalJobTask(className -> false);
-    Throwable thrown =
+    SecurityException thrown =
         assertThrows(
-            Throwable.class,
+            SecurityException.class,
             () -> {
               try {
                 helper.invoke(denyTask, "java.lang.String");
@@ -91,10 +87,7 @@ class JobTaskClassCacheBypassTest {
                 throw e.getCause();
               }
             });
-    assertInstanceOf(
-        SecurityException.class,
-        thrown,
-        "Cache hit must re-validate policy; denied class must throw even if cached");
+    assertEquals("Class java.lang.String is not allowed for job execution.", thrown.getMessage());
   }
 
   private JobTask newMinimalJobTask(ClassPolicy classPolicy) {

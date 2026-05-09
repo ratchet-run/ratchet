@@ -29,11 +29,12 @@ class JobMdcContextThrowableTest {
   void clearRemovesMdcKeysAfterAssertionError() {
     // Bind via the 4-arg overload that JobTask.call() uses.
     UUID jobId = new UUID(0L, 42L);
-    JobMdcContext.bindJobContext(jobId, Map.of(), "node-A", "alice");
+    JobMdcContext.bindJobContext(jobId, null, Map.of(), "node-A", "alice", "SINGLE");
 
     assertEquals(jobId.toString(), MDC.get(JobMdcContext.MDC_JOB_ID));
     assertEquals("node-A", MDC.get(JobMdcContext.MDC_NODE));
     assertEquals("alice", MDC.get(JobMdcContext.MDC_JOB_CREATOR));
+    assertEquals("SINGLE", MDC.get(JobMdcContext.MDC_JOB_TYPE));
 
     // Simulate the JobTask.call() try/finally pattern: Error propagates, finally still runs.
     AssertionError thrown =
@@ -51,6 +52,7 @@ class JobMdcContextThrowableTest {
     assertNull(MDC.get(JobMdcContext.MDC_JOB_ID));
     assertNull(MDC.get(JobMdcContext.MDC_NODE));
     assertNull(MDC.get(JobMdcContext.MDC_JOB_CREATOR));
+    assertNull(MDC.get(JobMdcContext.MDC_JOB_TYPE));
   }
 
   @Test
@@ -60,8 +62,9 @@ class JobMdcContextThrowableTest {
     MDC.put("requestId", "req-xyz");
 
     UUID jobId = new UUID(0L, 7L);
-    JobMdcContext.bindJobContext(jobId, Map.of(), "node-B", "bob");
+    JobMdcContext.bindJobContext(jobId, null, Map.of(), "node-B", "bob", "SINGLE");
     assertEquals(jobId.toString(), MDC.get(JobMdcContext.MDC_JOB_ID));
+    assertEquals("SINGLE", MDC.get(JobMdcContext.MDC_JOB_TYPE));
     assertEquals("req-xyz", MDC.get("requestId"));
 
     JobMdcContext.clear();
@@ -70,6 +73,7 @@ class JobMdcContextThrowableTest {
     assertNull(MDC.get(JobMdcContext.MDC_JOB_ID));
     assertNull(MDC.get(JobMdcContext.MDC_NODE));
     assertNull(MDC.get(JobMdcContext.MDC_JOB_CREATOR));
+    assertNull(MDC.get(JobMdcContext.MDC_JOB_TYPE));
     assertEquals("req-xyz", MDC.get("requestId"));
   }
 

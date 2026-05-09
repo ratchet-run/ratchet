@@ -78,6 +78,19 @@ class JobCascadeServiceTest {
   }
 
   @Test
+  void pause_pendingChildWhenTransitionRejected_childCountedAsSkipped() {
+    UUID rootId = UUID.randomUUID();
+    JobEntity child = pendingJob();
+
+    when(jobCrudStore.findDependants(rootId)).thenReturn(List.of(child));
+    when(jobCrudStore.findDependants(child.getId())).thenReturn(List.of());
+    when(jobPauseStore.transitionToPaused(child.getId(), JobStatus.PENDING)).thenReturn(false);
+
+    assertArrayEquals(new int[] {0, 1}, cascadeService.pauseChildrenIterative(rootId));
+    verify(jobPauseStore).transitionToPaused(eq(child.getId()), eq(JobStatus.PENDING));
+  }
+
+  @Test
   void pause_nonPendingChild_skipped() {
     UUID rootId = UUID.randomUUID();
     JobEntity child = job(JobStatus.RUNNING);
@@ -148,6 +161,19 @@ class JobCascadeServiceTest {
     when(jobPauseStore.transitionFromPaused(child.getId(), JobStatus.PENDING)).thenReturn(true);
 
     assertArrayEquals(new int[] {1, 0}, cascadeService.resumeChildrenIterative(rootId));
+  }
+
+  @Test
+  void resume_pausedChildWhenTransitionRejected_childCountedAsSkipped() {
+    UUID rootId = UUID.randomUUID();
+    JobEntity child = job(JobStatus.PAUSED);
+
+    when(jobCrudStore.findDependants(rootId)).thenReturn(List.of(child));
+    when(jobCrudStore.findDependants(child.getId())).thenReturn(List.of());
+    when(jobPauseStore.transitionFromPaused(child.getId(), JobStatus.PENDING)).thenReturn(false);
+
+    assertArrayEquals(new int[] {0, 1}, cascadeService.resumeChildrenIterative(rootId));
+    verify(jobPauseStore).transitionFromPaused(eq(child.getId()), eq(JobStatus.PENDING));
   }
 
   @Test

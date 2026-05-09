@@ -1,5 +1,6 @@
 package run.ratchet.ri.core;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -120,9 +121,11 @@ class JobTaskAuthorizationTest {
     ArgumentCaptor<UUID> idCaptor = ArgumentCaptor.forClass(UUID.class);
     ArgumentCaptor<String> principalCaptor = ArgumentCaptor.forClass(String.class);
     verify(authorizationPolicy).checkExecute(idCaptor.capture(), principalCaptor.capture());
-    assert JOB_UUID.equals(idCaptor.getValue()) : "checkExecute must receive the job's UUID";
-    assert OWNER_PRINCIPAL.equals(principalCaptor.getValue())
-        : "checkExecute must receive the entity's callerPrincipal";
+    assertEquals(JOB_UUID, idCaptor.getValue(), "checkExecute must receive the job's UUID");
+    assertEquals(
+        OWNER_PRINCIPAL,
+        principalCaptor.getValue(),
+        "checkExecute must receive the entity's callerPrincipal");
   }
 
   @Test
