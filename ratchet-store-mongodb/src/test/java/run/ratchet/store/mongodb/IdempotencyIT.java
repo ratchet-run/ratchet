@@ -29,6 +29,25 @@ class IdempotencyIT extends BaseDocumentStoreIT {
   }
 
   @Test
+  void duplicateIdempotencyKey_returnsExistingJobForIdempotentSubmitPath() {
+    String key = "webhook-delivery-12345";
+
+    JobEntity original = newPendingJob();
+    original.setIdempotencyKey(key);
+    original = store().save(original);
+
+    JobEntity duplicateAttempt = newPendingJob();
+    duplicateAttempt.setIdempotencyKey(key);
+
+    Optional<JobEntity> existing =
+        store().findByIdempotencyKey(duplicateAttempt.getIdempotencyKey());
+
+    assertTrue(existing.isPresent());
+    assertEquals(original.getId(), existing.get().getId());
+    assertEquals(key, existing.get().getIdempotencyKey());
+  }
+
+  @Test
   void businessKey_uniqueAmongActiveJobs() {
     String bizKey = "order-12345";
 
