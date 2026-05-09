@@ -67,6 +67,10 @@ class ResourcePermitIT extends BaseRatchetIT {
     }
 
     assertTrue(ResourceTestJob.getMaxConcurrentSeen() >= 1, "At least one job should have run");
+    assertTrue(
+        ResourceTestJob.getMaxConcurrentSeen() <= 3,
+        "Max concurrent should be <= 3 (permit limit) but was "
+            + ResourceTestJob.getMaxConcurrentSeen());
   }
 
   @Test

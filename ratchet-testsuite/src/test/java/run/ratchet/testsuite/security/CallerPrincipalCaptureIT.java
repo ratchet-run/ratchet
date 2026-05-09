@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import jakarta.inject.Inject;
+import java.time.Duration;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.Test;
@@ -48,22 +49,30 @@ class CallerPrincipalCaptureIT extends BaseRatchetIT {
   }
 
   @Test
-  void enqueueNow_stampsCallerPrincipalFromProvider() {
-    JobHandle handle = jobService.enqueueNow(SimpleJob::execute);
+  void scheduledJob_stampsCallerPrincipalFromProviderBeforeExecution() {
+    JobHandle handle = jobService.schedule(Duration.ofSeconds(2), SimpleJob::execute).submit();
 
     assertNotNull(handle);
-    // Wait for the job to complete so the persisted row is definitely flushed; the caller
-    // principal is stamped at creation and must not be overwritten by execution.
+    JobEntity beforeExecution =
+        jobCrudStore
+            .findById(handle.id())
+            .orElseThrow(() -> new AssertionError("Job not found after submit"));
+
+    assertEquals(
+        StubCallerPrincipalProvider.STUB_PRINCIPAL,
+        beforeExecution.getCallerPrincipal(),
+        "Framework MUST persist the principal returned by CallerPrincipalProvider at job creation");
+
     JobAssertions.assertJobCompleted(jobCrudStore, handle);
 
-    JobEntity reloaded =
+    JobEntity afterExecution =
         jobCrudStore
             .findById(handle.id())
             .orElseThrow(() -> new AssertionError("Job not found after completion"));
 
     assertEquals(
-        StubCallerPrincipalProvider.STUB_PRINCIPAL,
-        reloaded.getCallerPrincipal(),
-        "Framework MUST persist the principal returned by CallerPrincipalProvider at job creation");
+        beforeExecution.getCallerPrincipal(),
+        afterExecution.getCallerPrincipal(),
+        "Execution must not overwrite the caller principal stamped at job creation");
   }
 }

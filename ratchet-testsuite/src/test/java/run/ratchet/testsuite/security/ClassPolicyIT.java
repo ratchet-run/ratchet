@@ -62,6 +62,12 @@ class ClassPolicyIT extends BaseRatchetIT {
   }
 
   @Test
+  void classPolicy_shouldRejectNullAndEmptyClassNames() {
+    assertFalse(classPolicy.isAllowed(null));
+    assertFalse(classPolicy.isAllowed(""));
+  }
+
+  @Test
   void emptyClassPolicy_shouldBlockAllClasses() {
     ClassPolicy empty = new PackagePrefixClassPolicy();
     assertFalse(empty.isAllowed("java.lang.Runtime"));
