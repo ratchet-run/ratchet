@@ -1,6 +1,7 @@
 package run.ratchet.store.util;
 
 import java.util.UUID;
+import run.ratchet.api.JobPriority;
 
 /** Shared scalar conversions for native-query row mappers. */
 public final class RowValues {
@@ -13,6 +14,14 @@ public final class RowValues {
 
   public static Long longOrNull(Object value) {
     return value == null ? null : ((Number) value).longValue();
+  }
+
+  public static JobPriority safeJobPriority(int ordinal) {
+    JobPriority[] values = JobPriority.values();
+    if (ordinal < 0 || ordinal >= values.length) {
+      return JobPriority.NORMAL;
+    }
+    return values[ordinal];
   }
 
   public static UUID uuidOrNull(Object value) {

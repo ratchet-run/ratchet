@@ -15,6 +15,7 @@ import run.ratchet.store.converter.JsonMapConverter;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
+import run.ratchet.store.util.RowValues;
 import run.ratchet.store.util.StatusClassifier;
 
 /**
@@ -235,15 +236,11 @@ final class PostgresqlJobRowMapper {
   }
 
   static String recStatusForLiveStatus(JobStatus s) {
-    if (s == JobStatus.PENDING) return "P";
-    if (s == JobStatus.PAUSED) return "A";
-    return null;
+    return StatusClassifier.recStatusForLiveStatus(s);
   }
 
   static JobStatus recStatusDecode(String c) {
-    if ("P".equals(c)) return JobStatus.PENDING;
-    if ("A".equals(c)) return JobStatus.PAUSED;
-    return null;
+    return StatusClassifier.recStatusDecode(c);
   }
 
   static boolean isLiveStatus(JobStatus s) {
@@ -268,9 +265,7 @@ final class PostgresqlJobRowMapper {
   }
 
   static String stringOrNull(Object value) {
-    if (value == null) return null;
-    if (value instanceof String s) return s;
-    return value.toString();
+    return RowValues.stringOrNull(value);
   }
 
   static Long longOrNull(Object value) {
@@ -280,33 +275,11 @@ final class PostgresqlJobRowMapper {
   }
 
   static UUID uuidOrNull(Object value) {
-    if (value == null) return null;
-    if (value instanceof UUID uuid) return uuid;
-    if (value instanceof byte[] bytes) return uuidFromBytes(bytes);
-    return UUID.fromString(value.toString());
-  }
-
-  private static UUID uuidFromBytes(byte[] bytes) {
-    if (bytes.length != 16) {
-      throw new IllegalArgumentException("UUID byte array must be 16 bytes, got " + bytes.length);
-    }
-    long msb = 0;
-    long lsb = 0;
-    for (int i = 0; i < 8; i++) {
-      msb = (msb << 8) | (bytes[i] & 0xff);
-    }
-    for (int i = 8; i < 16; i++) {
-      lsb = (lsb << 8) | (bytes[i] & 0xff);
-    }
-    return new UUID(msb, lsb);
+    return RowValues.uuidOrNull(value);
   }
 
   static JobPriority safeJobPriority(int ordinal) {
-    JobPriority[] values = JobPriority.values();
-    if (ordinal < 0 || ordinal >= values.length) {
-      return JobPriority.NORMAL;
-    }
-    return values[ordinal];
+    return RowValues.safeJobPriority(ordinal);
   }
 
   static String payloadToJson(JobEntity job) {

@@ -4,7 +4,9 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.UUID;
 import org.jboss.logging.Logger;
 import run.ratchet.api.BackoffPolicy;
@@ -107,23 +109,15 @@ final class MysqlJobRowMapper {
   }
 
   static JobPriority safeJobPriority(int ordinal) {
-    JobPriority[] values = JobPriority.values();
-    if (ordinal < 0 || ordinal >= values.length) {
-      return JobPriority.NORMAL;
-    }
-    return values[ordinal];
+    return RowValues.safeJobPriority(ordinal);
   }
 
   static String recStatusForLiveStatus(JobStatus s) {
-    if (s == JobStatus.PENDING) return "P";
-    if (s == JobStatus.PAUSED) return "A";
-    return null;
+    return StatusClassifier.recStatusForLiveStatus(s);
   }
 
   static JobStatus recStatusDecode(String c) {
-    if ("P".equals(c)) return JobStatus.PENDING;
-    if ("A".equals(c)) return JobStatus.PAUSED;
-    return null;
+    return StatusClassifier.recStatusDecode(c);
   }
 
   static String stringOrNull(Object val) {
@@ -276,19 +270,28 @@ final class MysqlJobRowMapper {
     return j;
   }
 
-  String payloadToJson(JobEntity job) {
+  static List<JobEntity> hydrateRows(List<Object[]> rows) {
+    MysqlJobRowMapper mapper = new MysqlJobRowMapper();
+    List<JobEntity> jobs = new ArrayList<>(rows.size());
+    for (Object[] row : rows) {
+      jobs.add(mapper.hydrateJobEntity(row));
+    }
+    return jobs;
+  }
+
+  static String payloadToJson(JobEntity job) {
     return JOB_PAYLOAD_CONVERTER.convertToDatabaseColumn(job.getPayload());
   }
 
-  String paramsToJson(JobEntity job) {
+  static String paramsToJson(JobEntity job) {
     return JSON_MAP_CONVERTER.convertToDatabaseColumn(job.getParams());
   }
 
-  String callbackPayloadToJson(JobPayload payload) {
+  static String callbackPayloadToJson(JobPayload payload) {
     return JOB_PAYLOAD_CONVERTER.convertToDatabaseColumn(payload);
   }
 
-  String traceContextToJson(JobEntity job) {
+  static String traceContextToJson(JobEntity job) {
     return JSON_MAP_CONVERTER.convertToDatabaseColumn(job.getTraceContext());
   }
 }
