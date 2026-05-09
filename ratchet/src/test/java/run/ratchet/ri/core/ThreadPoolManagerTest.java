@@ -2,6 +2,7 @@ package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -9,6 +10,7 @@ import static org.mockito.Mockito.when;
 
 import java.util.EnumMap;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
 import run.ratchet.spi.ExecutionTuningProvider;
@@ -163,5 +165,81 @@ class ThreadPoolManagerTest {
             IllegalStateException.class, () -> manager.getExecutor(JobExecutionType.SINGLE));
 
     assertTrue(error.getMessage().contains("ExecutorProvider"));
+  }
+
+  @Test
+  void getExecutor_delegatesToExecutorProvider() {
+    ExecutorProvider provider = mock(ExecutorProvider.class);
+    ExecutorService executor = mock(ExecutorService.class);
+    when(provider.getJobExecutor()).thenReturn(executor);
+    ThreadPoolManager manager =
+        new ThreadPoolManager(
+            provider,
+            mock(MetricsCollector.class),
+            false,
+            Map.of(JobExecutionType.SINGLE, 1),
+            null);
+
+    assertSame(executor, manager.getExecutor(JobExecutionType.SINGLE));
+  }
+
+  @Test
+  void utilizationReflectsActivePermitsForSingleTypeAndOverall() {
+    ThreadPoolManager manager = semaphoreManager(4);
+
+    manager.tryAcquirePermit(JobExecutionType.SINGLE);
+    manager.tryAcquirePermit(JobExecutionType.SINGLE);
+    manager.tryAcquirePermit(JobExecutionType.BATCH_CHILD);
+
+    assertEquals(50.0, manager.getUtilization(JobExecutionType.SINGLE));
+    assertEquals(3.0 / (JobExecutionType.values().length * 4), manager.getOverallUtilization());
+  }
+
+  @Test
+  void getThreadPoolHealthReportsSemaphoreState() {
+    ThreadPoolManager manager = semaphoreManager(2);
+    manager.tryAcquirePermit(JobExecutionType.SINGLE);
+
+    ThreadPoolManager.ThreadPoolHealth health =
+        manager.getThreadPoolHealth().get(JobExecutionType.SINGLE);
+
+    assertEquals(JobExecutionType.SINGLE, health.jobType());
+    assertFalse(health.isVirtual());
+    assertEquals(2, health.corePoolSize());
+    assertEquals(2, health.maxPoolSize());
+    assertEquals(1, health.activeThreads());
+    assertEquals(50.0, health.getUtilizationPercent());
+    assertTrue(health.isHealthy());
+  }
+
+  @Test
+  void virtualThreadHealthReportsVirtualPoolsAndUsage() {
+    ThreadPoolManager manager = virtualThreadManager(2);
+    assertTrue(manager.isUseVirtualThreads());
+
+    manager.tryAcquirePermit(JobExecutionType.SINGLE);
+
+    assertEquals(1, manager.getActiveThreadCount());
+    assertEquals(1.0 / (JobExecutionType.values().length * 2), manager.getOverallUtilization());
+    assertEquals(0.0, manager.getUtilization(JobExecutionType.SINGLE));
+
+    ThreadPoolManager.ThreadPoolHealth health =
+        manager.getThreadPoolHealth().get(JobExecutionType.SINGLE);
+    assertTrue(health.isVirtual());
+    assertEquals(0.0, health.getUtilizationPercent());
+    assertTrue(health.isHealthy());
+  }
+
+  @Test
+  void shutdownClearsCapacityAndHealthState() {
+    ThreadPoolManager manager = semaphoreManager(2);
+    manager.tryAcquirePermit(JobExecutionType.SINGLE);
+
+    manager.shutdown();
+
+    assertEquals(0, manager.getAvailableCapacity(JobExecutionType.SINGLE));
+    assertEquals(0, manager.getActiveThreadCount());
+    assertEquals(0.0, manager.getOverallUtilization());
+    assertTrue(manager.getThreadPoolHealth().isEmpty());
   }
 }
