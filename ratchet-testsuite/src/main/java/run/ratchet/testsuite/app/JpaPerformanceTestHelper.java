@@ -115,23 +115,15 @@ public class JpaPerformanceTestHelper implements PerformanceTestHelper {
         SELECT seq_scan, idx_scan FROM pg_stat_user_tables
         WHERE relname = 'scheduler_job'
         """;
-    utx.begin();
-    Object[] before = (Object[]) em().createNativeQuery(statSql).getSingleResult();
-    utx.commit();
-
-    long seqBefore = ((Number) before[0]).longValue();
-    long idxBefore = ((Number) before[1]).longValue();
+    PostgresqlScanCounts before = readPostgresqlScanCounts(statSql);
 
     utx.begin();
     storeOperation.run();
     utx.commit();
 
-    utx.begin();
-    Object[] after = (Object[]) em().createNativeQuery(statSql).getSingleResult();
-    utx.commit();
-
-    long seqDelta = ((Number) after[0]).longValue() - seqBefore;
-    long idxDelta = ((Number) after[1]).longValue() - idxBefore;
+    PostgresqlScanCounts after = readPostgresqlScanCounts(statSql);
+    long seqDelta = after.seqScan() - before.seqScan();
+    long idxDelta = after.idxScan() - before.idxScan();
 
     log.info(
         String.format(
@@ -141,6 +133,24 @@ public class JpaPerformanceTestHelper implements PerformanceTestHelper {
       throw new AssertionError(
           label + ": sequential scan detected on scheduler_job (seq_scan delta=" + seqDelta + ")");
     }
+  }
+
+  private PostgresqlScanCounts readPostgresqlScanCounts(String statSql) throws Exception {
+    utx.begin();
+    Object result = em().createNativeQuery(statSql).getSingleResult();
+    utx.commit();
+
+    if (!(result instanceof Object[] row) || row.length < 2) {
+      throw new IllegalStateException("Unexpected PostgreSQL scan stats row: " + result);
+    }
+    return new PostgresqlScanCounts(numberAt(row, 0, "seq_scan"), numberAt(row, 1, "idx_scan"));
+  }
+
+  private long numberAt(Object[] row, int index, String columnName) {
+    if (!(row[index] instanceof Number value)) {
+      throw new IllegalStateException("PostgreSQL scan stat " + columnName + " was " + row[index]);
+    }
+    return value.longValue();
   }
 
   private void assertNoFullScanMysql(String label, Runnable storeOperation) throws Exception {
@@ -224,4 +234,6 @@ public class JpaPerformanceTestHelper implements PerformanceTestHelper {
       // best-effort rollback
     }
   }
+
+  private record PostgresqlScanCounts(long seqScan, long idxScan) {}
 }
