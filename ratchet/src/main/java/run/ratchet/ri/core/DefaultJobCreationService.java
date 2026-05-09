@@ -119,41 +119,6 @@ public class DefaultJobCreationService
         Clock.systemUTC());
   }
 
-  public DefaultJobCreationService(
-      JobBatchStatusStore jobBatchStatusStore,
-      JobTerminalStore jobTerminalStore,
-      JobCrudStore jobCrudStore,
-      BatchStore batchStore,
-      TagStore tagStore,
-      WorkflowConditionStore workflowConditionStore,
-      JobWakeupService wakeupService,
-      RecurringScheduler recurringScheduler,
-      JobInvocationResolver jobInvocationResolver,
-      JobPayloadInputValidator payloadValidator,
-      CallerPrincipalProvider callerPrincipalProvider,
-      TracingCollector tracingCollector,
-      JobAuthorizationPolicy authorizationPolicy,
-      InternalEventPublisher eventPublisher,
-      Clock clock) {
-    this(
-        jobBatchStatusStore,
-        jobTerminalStore,
-        jobCrudStore,
-        batchStore,
-        tagStore,
-        workflowConditionStore,
-        wakeupService,
-        recurringScheduler,
-        jobInvocationResolver,
-        payloadValidator,
-        callerPrincipalProvider,
-        tracingCollector,
-        authorizationPolicy,
-        eventPublisher,
-        null,
-        clock);
-  }
-
   @Inject
   public DefaultJobCreationService(
       JobBatchStatusStore jobBatchStatusStore,
