@@ -4,6 +4,7 @@ import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -141,8 +142,7 @@ final class MysqlJobReadOperations {
     }
     Object[] full = rows.get(0);
     String ownerTable = (String) full[0];
-    Object[] hydrationRow = new Object[MysqlJobRowMapper.HYDRATION_COL_COUNT];
-    System.arraycopy(full, 1, hydrationRow, 0, MysqlJobRowMapper.HYDRATION_COL_COUNT);
+    Object[] hydrationRow = businessKeyHydrationRow(full);
     JobEntity job = mapper.hydrateJobEntity(hydrationRow);
     if (MysqlBusinessKeyReservations.OWNER_TABLE_QUEUE.equals(ownerTable)
         && hydrationRow[MysqlJobRowMapper.IDX_Q_STATUS] == null) {
@@ -153,6 +153,10 @@ final class MysqlJobReadOperations {
     }
     tags.hydrateTagsSingle(job);
     return Optional.of(job);
+  }
+
+  private static Object[] businessKeyHydrationRow(Object[] reservationAndJobRow) {
+    return Arrays.copyOfRange(reservationAndJobRow, 1, 1 + MysqlJobRowMapper.HYDRATION_COL_COUNT);
   }
 
   @SuppressWarnings("unchecked")

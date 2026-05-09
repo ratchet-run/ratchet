@@ -10,6 +10,9 @@ import java.util.Set;
 import java.util.UUID;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 
+// Keep this class aligned with PostgresqlJobRecurringAndResetOperations. The control flow is
+// intentionally parallel, while SQL syntax, timestamp functions, and UUID binding stay
+// dialect-local.
 final class MysqlJobRecurringAndResetOperations {
 
   private final MysqlStoreContext ctx;
