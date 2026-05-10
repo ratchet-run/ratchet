@@ -69,12 +69,57 @@ class JobPayloadInputValidatorTest {
   }
 
   @Test
+  void argumentCountMismatchReportsError() {
+    JobPayload payload = new JobPayload(Target.class.getName(), "add", "(II)V", false, List.of(1));
+
+    IllegalArgumentException ex =
+        assertThrows(IllegalArgumentException.class, () -> validator.validateAtCreation(payload));
+
+    assertTrue(ex.getMessage().contains("Argument count mismatch"));
+    assertTrue(ex.getMessage().contains("expected 2"));
+    assertTrue(ex.getMessage().contains("payload has 1"));
+  }
+
+  @Test
   void nullArgsReportsClearValidationError() {
     JobPayload payload =
         new JobPayload(Target.class.getName(), "greet", "(Ljava/lang/String;)V", false, null);
     IllegalArgumentException ex =
         assertThrows(IllegalArgumentException.class, () -> validator.validateAtCreation(payload));
     assertTrue(ex.getMessage().contains("Arguments cannot be null"));
+  }
+
+  @Test
+  void privateMethodReportsVisibilityError() {
+    JobPayload payload = new JobPayload(Target.class.getName(), "hidden", "()V", false, List.of());
+
+    IllegalArgumentException ex =
+        assertThrows(IllegalArgumentException.class, () -> validator.validateAtCreation(payload));
+
+    assertTrue(ex.getMessage().contains("is private"));
+    assertTrue(ex.getMessage().contains("only public methods can be scheduled"));
+  }
+
+  @Test
+  void protectedMethodReportsVisibilityError() {
+    JobPayload payload = new JobPayload(Target.class.getName(), "guarded", "()V", false, List.of());
+
+    IllegalArgumentException ex =
+        assertThrows(IllegalArgumentException.class, () -> validator.validateAtCreation(payload));
+
+    assertTrue(ex.getMessage().contains("is protected"));
+    assertTrue(ex.getMessage().contains("only public methods can be scheduled"));
+  }
+
+  @Test
+  void packagePrivateMethodReportsVisibilityError() {
+    JobPayload payload = new JobPayload(Target.class.getName(), "local", "()V", false, List.of());
+
+    IllegalArgumentException ex =
+        assertThrows(IllegalArgumentException.class, () -> validator.validateAtCreation(payload));
+
+    assertTrue(ex.getMessage().contains("is package-private"));
+    assertTrue(ex.getMessage().contains("only public methods can be scheduled"));
   }
 
   @Test
@@ -116,5 +161,11 @@ class JobPayloadInputValidatorTest {
     public void greet(String name) {}
 
     public void add(int a, int b) {}
+
+    private void hidden() {}
+
+    protected void guarded() {}
+
+    void local() {}
   }
 }

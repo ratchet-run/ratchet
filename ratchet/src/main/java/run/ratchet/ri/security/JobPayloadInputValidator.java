@@ -131,6 +131,15 @@ public class JobPayloadInputValidator {
         return;
       }
 
+      if (args.size() != methodParamTypes.length) {
+        errors.add(
+            "Argument count mismatch: expected "
+                + methodParamTypes.length
+                + " parameters, but payload has "
+                + args.size());
+        return;
+      }
+
       if (paramTypes.length != methodParamTypes.length) {
         errors.add(
             "Argument count mismatch: expected "
