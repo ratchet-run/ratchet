@@ -28,6 +28,9 @@ public interface JobPauseStore {
   /**
    * Atomically transitions from PAUSED to the stored paused-from status, reading the target from
    * the database row in the same operation to avoid TOCTOU races.
+   *
+   * @param id job id to resume
+   * @return the status restored from the paused row, or {@code null} when no PAUSED row matched
    */
   JobStatus transitionFromPausedAtomic(UUID id);
 

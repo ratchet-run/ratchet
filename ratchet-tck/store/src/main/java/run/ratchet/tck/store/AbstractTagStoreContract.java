@@ -29,6 +29,9 @@ public abstract class AbstractTagStoreContract implements JobStoreContractFixtur
     List<UUID> ids = store().findJobIdsByTag("tag1", 10, 0);
 
     assertTrue(ids.contains(saved.getId()), "findJobIdsByTag should return the tagged job");
+    assertTrue(
+        store().findJobIdsByTag("tag2", 10, 0).contains(saved.getId()),
+        "findJobIdsByTag should return the job for every inserted tag");
   }
 
   @Test
@@ -62,6 +65,15 @@ public abstract class AbstractTagStoreContract implements JobStoreContractFixtur
 
     assertEquals(2, page1.size(), "First page should contain 2 results");
     assertEquals(1, page2.size(), "Second page should contain 1 result");
+    assertTrue(
+        page1.stream().noneMatch(page2::contains),
+        "Second page should contain ids not returned on the first page");
+    assertEquals(
+        List.of(first.getId(), second.getId(), third.getId()).stream()
+            .filter(page2::contains)
+            .count(),
+        page2.size(),
+        "Second page should contain one of the remaining tagged jobs");
   }
 
   @Test
