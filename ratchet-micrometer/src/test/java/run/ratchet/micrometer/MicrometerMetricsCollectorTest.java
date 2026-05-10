@@ -4,9 +4,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.lang.reflect.Field;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import run.ratchet.api.SignalDecision;
 import run.ratchet.api.exception.RatchetTransientStoreException;
@@ -178,6 +181,32 @@ class MicrometerMetricsCollectorTest {
   }
 
   @Test
+  void repeatedMetricCallsReuseCachedCountersAndTimers() throws Exception {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    MicrometerMetricsCollector collector = new MicrometerMetricsCollector(registry);
+    UUID jobId = new UUID(0L, 4L);
+
+    collector.jobStarted(jobId, JobType.SINGLE, JobPriority.NORMAL);
+    collector.jobStarted(jobId, JobType.SINGLE, JobPriority.NORMAL);
+    collector.jobCompleted(jobId, JobType.SINGLE, 10L);
+    collector.jobCompleted(jobId, JobType.SINGLE, 20L);
+
+    assertEquals(
+        2.0,
+        registry
+            .get("ratchet.jobs.started")
+            .tag("type", "SINGLE")
+            .tag("priority", "NORMAL")
+            .counter()
+            .count());
+    assertEquals(
+        2.0, registry.get("ratchet.jobs.completed").tag("type", "SINGLE").counter().count());
+    assertEquals(2L, registry.get("ratchet.jobs.duration").tag("type", "SINGLE").timer().count());
+    assertEquals(2, cacheSize(collector, "counters"));
+    assertEquals(1, cacheSize(collector, "timers"));
+  }
+
+  @Test
   void customStringMetricTagsRequireExplicitOptIn() {
     SimpleMeterRegistry registry = new SimpleMeterRegistry();
     MicrometerMetricTagPolicy tagPolicy =
@@ -234,6 +263,14 @@ class MicrometerMetricsCollectorTest {
             .tag("family", family)
             .counter()
             .count());
+  }
+
+  @SuppressWarnings("unchecked")
+  private static int cacheSize(MicrometerMetricsCollector collector, String fieldName)
+      throws ReflectiveOperationException {
+    Field field = MicrometerMetricsCollector.class.getDeclaredField(fieldName);
+    field.setAccessible(true);
+    return ((Map<?, ?>) field.get(collector)).size();
   }
 
   private static final class OrderRejectedException extends RuntimeException {

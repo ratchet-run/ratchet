@@ -10,6 +10,7 @@ import jakarta.enterprise.inject.Alternative;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -63,6 +64,8 @@ public class MicrometerMetricsCollector implements MetricsCollector {
 
   private final MeterRegistry registry;
   private final MicrometerMetricTagPolicy tagPolicy;
+  private final Map<MeterKey, Counter> counters = new ConcurrentHashMap<>();
+  private final Map<MeterKey, Timer> timers = new ConcurrentHashMap<>();
   private final Map<String, AtomicInteger> pollerBreakerStates = new ConcurrentHashMap<>();
 
   // Required by CDI proxy. The CDI proxy never invokes business methods on this instance —
@@ -96,11 +99,7 @@ public class MicrometerMetricsCollector implements MetricsCollector {
     if (registry == null) {
       return;
     }
-    Counter.builder("ratchet.jobs.started")
-        .tag("type", type.name())
-        .tag("priority", priority.name())
-        .register(registry)
-        .increment();
+    counter("ratchet.jobs.started", "type", type.name(), "priority", priority.name()).increment();
   }
 
   @Override
@@ -108,15 +107,8 @@ public class MicrometerMetricsCollector implements MetricsCollector {
     if (registry == null) {
       return;
     }
-    Counter.builder("ratchet.jobs.completed")
-        .tag("type", type.name())
-        .register(registry)
-        .increment();
-
-    Timer.builder("ratchet.jobs.duration")
-        .tag("type", type.name())
-        .register(registry)
-        .record(Duration.ofMillis(executionTimeMs));
+    counter("ratchet.jobs.completed", "type", type.name()).increment();
+    timer("ratchet.jobs.duration", "type", type.name()).record(Duration.ofMillis(executionTimeMs));
   }
 
   @Override
@@ -125,11 +117,7 @@ public class MicrometerMetricsCollector implements MetricsCollector {
       return;
     }
     ExceptionFamily family = ExceptionFamily.classify(cause);
-    Counter.builder("ratchet.jobs.failed")
-        .tag("type", type.name())
-        .tag("family", family.name())
-        .register(registry)
-        .increment();
+    counter("ratchet.jobs.failed", "type", type.name(), "family", family.name()).increment();
     logRawFailure("job", jobId, type, cause, family, attempt);
   }
 
@@ -138,10 +126,7 @@ public class MicrometerMetricsCollector implements MetricsCollector {
     if (registry == null) {
       return;
     }
-    Counter.builder("ratchet.store.finalization.retries")
-        .tag("type", type.name())
-        .register(registry)
-        .increment();
+    counter("ratchet.store.finalization.retries", "type", type.name()).increment();
   }
 
   @Override
@@ -149,10 +134,7 @@ public class MicrometerMetricsCollector implements MetricsCollector {
     if (registry == null) {
       return;
     }
-    Counter.builder("ratchet.store.finalization.minimal_success")
-        .tag("type", type.name())
-        .register(registry)
-        .increment();
+    counter("ratchet.store.finalization.minimal_success", "type", type.name()).increment();
   }
 
   @Override
@@ -160,10 +142,7 @@ public class MicrometerMetricsCollector implements MetricsCollector {
     if (registry == null) {
       return;
     }
-    Counter.builder("ratchet.store.finalization.stuck")
-        .tag("type", type.name())
-        .register(registry)
-        .increment();
+    counter("ratchet.store.finalization.stuck", "type", type.name()).increment();
   }
 
   @Override
@@ -171,9 +150,10 @@ public class MicrometerMetricsCollector implements MetricsCollector {
     if (registry == null) {
       return;
     }
-    Counter.builder("ratchet.store.claim.transient_failures")
-        .tag("execution_type", tag("execution_type", executionType))
-        .register(registry)
+    counter(
+            "ratchet.store.claim.transient_failures",
+            "execution_type",
+            tag("execution_type", executionType))
         .increment();
   }
 
@@ -182,9 +162,7 @@ public class MicrometerMetricsCollector implements MetricsCollector {
     if (registry == null || claimedCount <= 0) {
       return;
     }
-    Counter.builder("ratchet.poller.claimed.jobs")
-        .tag("execution_type", tag("execution_type", executionType))
-        .register(registry)
+    counter("ratchet.poller.claimed.jobs", "execution_type", tag("execution_type", executionType))
         .increment(claimedCount);
   }
 
@@ -193,10 +171,12 @@ public class MicrometerMetricsCollector implements MetricsCollector {
     if (registry == null) {
       return;
     }
-    Counter.builder("ratchet.submission.gate.rejections")
-        .tag("execution_type", tag("execution_type", executionType))
-        .tag("gate_status", tag("gate_status", gateStatus))
-        .register(registry)
+    counter(
+            "ratchet.submission.gate.rejections",
+            "execution_type",
+            tag("execution_type", executionType),
+            "gate_status",
+            tag("gate_status", gateStatus))
         .increment();
   }
 
@@ -205,10 +185,7 @@ public class MicrometerMetricsCollector implements MetricsCollector {
     if (registry == null) {
       return;
     }
-    Counter.builder("ratchet.wakeup.local")
-        .tag("source", tag("source", source))
-        .register(registry)
-        .increment();
+    counter("ratchet.wakeup.local", "source", tag("source", source)).increment();
   }
 
   @Override
@@ -216,10 +193,12 @@ public class MicrometerMetricsCollector implements MetricsCollector {
     if (registry == null) {
       return;
     }
-    Counter.builder("ratchet.wakeup.cluster.publish")
-        .tag("transport", tag("transport", transport))
-        .tag("outcome", tag("outcome", outcome))
-        .register(registry)
+    counter(
+            "ratchet.wakeup.cluster.publish",
+            "transport",
+            tag("transport", transport),
+            "outcome",
+            tag("outcome", outcome))
         .increment();
   }
 
@@ -228,10 +207,12 @@ public class MicrometerMetricsCollector implements MetricsCollector {
     if (registry == null) {
       return;
     }
-    Counter.builder("ratchet.wakeup.cluster.receive")
-        .tag("transport", tag("transport", transport))
-        .tag("outcome", tag("outcome", outcome))
-        .register(registry)
+    counter(
+            "ratchet.wakeup.cluster.receive",
+            "transport",
+            tag("transport", transport),
+            "outcome",
+            tag("outcome", outcome))
         .increment();
   }
 
@@ -241,11 +222,7 @@ public class MicrometerMetricsCollector implements MetricsCollector {
       return;
     }
     ExceptionFamily family = ExceptionFamily.classify(cause);
-    Counter.builder("ratchet.callbacks.failed")
-        .tag("type", type.name())
-        .tag("family", family.name())
-        .register(registry)
-        .increment();
+    counter("ratchet.callbacks.failed", "type", type.name(), "family", family.name()).increment();
     logRawFailure("callback", jobId, type, cause, family, attempt);
   }
 
@@ -254,10 +231,7 @@ public class MicrometerMetricsCollector implements MetricsCollector {
     if (registry == null) {
       return;
     }
-    Counter.builder("ratchet.signal.waiting")
-        .tag("type", type.name())
-        .register(registry)
-        .increment();
+    counter("ratchet.signal.waiting", "type", type.name()).increment();
   }
 
   @Override
@@ -266,10 +240,12 @@ public class MicrometerMetricsCollector implements MetricsCollector {
     if (registry == null) {
       return;
     }
-    Counter.builder("ratchet.signal.delivered")
-        .tag("type", type.name())
-        .tag("outcome", outcome != null ? outcome.name() : "UNKNOWN")
-        .register(registry)
+    counter(
+            "ratchet.signal.delivered",
+            "type",
+            type.name(),
+            "outcome",
+            outcome != null ? outcome.name() : "UNKNOWN")
         .increment();
   }
 
@@ -278,10 +254,7 @@ public class MicrometerMetricsCollector implements MetricsCollector {
     if (registry == null) {
       return;
     }
-    Counter.builder("ratchet.signal.timed_out")
-        .tag("type", type.name())
-        .register(registry)
-        .increment();
+    counter("ratchet.signal.timed_out", "type", type.name()).increment();
   }
 
   @Override
@@ -289,10 +262,7 @@ public class MicrometerMetricsCollector implements MetricsCollector {
     if (registry == null) {
       return;
     }
-    Counter.builder("ratchet.signal.cancelled")
-        .tag("type", type.name())
-        .register(registry)
-        .increment();
+    counter("ratchet.signal.cancelled", "type", type.name()).increment();
   }
 
   @Override
@@ -300,11 +270,14 @@ public class MicrometerMetricsCollector implements MetricsCollector {
     if (registry == null) {
       return;
     }
-    Timer.builder("ratchet.store.operation")
-        .tag("store", tag("store", store))
-        .tag("operation", tag("operation", operation))
-        .tag("outcome", tag("outcome", outcome))
-        .register(registry)
+    timer(
+            "ratchet.store.operation",
+            "store",
+            tag("store", store),
+            "operation",
+            tag("operation", operation),
+            "outcome",
+            tag("outcome", outcome))
         .record(Duration.ofNanos(durationNanos));
   }
 
@@ -324,6 +297,40 @@ public class MicrometerMetricsCollector implements MetricsCollector {
               return stateValue;
             });
     gaugeValue.set(toBreakerStateValue(state));
+  }
+
+  private Counter counter(String name, String... tags) {
+    MeterKey key = MeterKey.of(name, tags);
+    return counters.computeIfAbsent(key, ignored -> registerCounter(key));
+  }
+
+  private Timer timer(String name, String... tags) {
+    MeterKey key = MeterKey.of(name, tags);
+    return timers.computeIfAbsent(key, ignored -> registerTimer(key));
+  }
+
+  private Counter registerCounter(MeterKey key) {
+    Counter.Builder builder = Counter.builder(key.name());
+    applyTags(builder, key.tags());
+    return builder.register(registry);
+  }
+
+  private Timer registerTimer(MeterKey key) {
+    Timer.Builder builder = Timer.builder(key.name());
+    applyTags(builder, key.tags());
+    return builder.register(registry);
+  }
+
+  private static void applyTags(Counter.Builder builder, List<String> tags) {
+    for (int i = 0; i < tags.size(); i += 2) {
+      builder.tag(tags.get(i), tags.get(i + 1));
+    }
+  }
+
+  private static void applyTags(Timer.Builder builder, List<String> tags) {
+    for (int i = 0; i < tags.size(); i += 2) {
+      builder.tag(tags.get(i), tags.get(i + 1));
+    }
   }
 
   private void logRawFailure(
@@ -351,5 +358,20 @@ public class MicrometerMetricsCollector implements MetricsCollector {
 
   private String tag(String tagName, String value) {
     return tagPolicy.metricTagValue(tagName, value);
+  }
+
+  private record MeterKey(String name, List<String> tags) {
+
+    private MeterKey {
+      tags = List.copyOf(Objects.requireNonNull(tags, "tags must not be null"));
+      if (tags.size() % 2 != 0) {
+        throw new IllegalArgumentException("Micrometer tags must be supplied as name/value pairs");
+      }
+      name = Objects.requireNonNull(name, "name must not be null");
+    }
+
+    private static MeterKey of(String name, String... tags) {
+      return new MeterKey(name, List.of(tags));
+    }
   }
 }
