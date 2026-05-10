@@ -67,6 +67,13 @@ final class MysqlJobClaimOperations implements JobClaimStore {
         timeColumn, "TIMESTAMPDIFF(MINUTE, " + timeColumn + ", NOW(3))", boostInterval);
   }
 
+  private static String buildRecurringBoostedOrderBy(int boostInterval) {
+    return boostInterval > 0
+        ? "(c.priority + FLOOR(GREATEST(0, TIMESTAMPDIFF(MINUTE, c.next_fire, NOW(3))) / ?))"
+            + " DESC, c.next_fire ASC, c.job_id ASC"
+        : "c.priority DESC, c.next_fire ASC, c.job_id ASC";
+  }
+
   @Override
   @SuppressWarnings("unchecked")
   public List<JobEntity> claimNextBatch(int limit, String nodeId, NodeTagFilter tagFilter) {
@@ -164,20 +171,24 @@ final class MysqlJobClaimOperations implements JobClaimStore {
   public List<JobEntity> claimDueRecurring(int limit, String nodeId, NodeTagFilter tagFilter) {
     try {
       int boostInterval = ctx.priorityBoostIntervalMinutes();
-      String tagSql = JobClaimSqlSupport.buildTagFilterSql(tagFilter, "scheduler_job");
+      String tagSql = JobClaimSqlSupport.buildTagFilterSql(tagFilter, "c");
       // language=MySQL
       String sql =
           """
-          SELECT job_id, next_fire, priority, business_key
-          FROM scheduler_job
-          WHERE job_type = 'RECURRING'
-            AND rec_status = 'P'
-            AND next_fire <= NOW(3)%s
+          SELECT %s
+          FROM scheduler_job c
+          LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
+          WHERE c.job_type = 'RECURRING'
+            AND c.rec_status = 'P'
+            AND c.next_fire <= NOW(3)%s
           ORDER BY %s
           LIMIT ?
           FOR UPDATE SKIP LOCKED
           """
-              .formatted(tagSql, buildMysqlBoostedOrderBy("next_fire", boostInterval));
+              .formatted(
+                  MysqlJobRowMapper.HYDRATION_SELECT,
+                  tagSql,
+                  buildRecurringBoostedOrderBy(boostInterval));
       var query = ctx.em().createNativeQuery(sql);
       int parameter = 1;
       parameter = JobClaimSqlSupport.bindTagFilter(query, tagFilter, parameter);
@@ -188,14 +199,12 @@ final class MysqlJobClaimOperations implements JobClaimStore {
       if (rows.isEmpty()) {
         return List.of();
       }
-      List<UUID> ids = new ArrayList<>(rows.size());
-      for (Object[] row : rows) {
-        ids.add(MysqlJobRowMapper.uuidOrNull(row[0]));
-      }
-      List<JobEntity> ordered =
-          JobClaimSqlSupport.reorderById(jobs.findByIds(ids), ids, JobEntity::getId);
+      List<JobEntity> ordered = MysqlJobRowMapper.hydrateRows(rows);
+      Instant now = Instant.now();
       for (JobEntity job : ordered) {
         job.setStatus(JobStatus.RUNNING);
+        job.setPickedBy(nodeId);
+        job.setPickedAt(now);
       }
       return ordered;
     } catch (RuntimeException e) {
