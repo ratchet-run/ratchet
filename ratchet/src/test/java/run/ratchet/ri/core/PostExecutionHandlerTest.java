@@ -6,6 +6,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -26,6 +28,7 @@ class PostExecutionHandlerTest {
 
   private static JobEntity job(JobExecutionType jobType) {
     JobEntity job = new JobEntity();
+    job.setId(UUID.randomUUID());
     job.setJobType(jobType);
     return job;
   }
@@ -89,6 +92,20 @@ class PostExecutionHandlerTest {
     JobEntity job = job(JobExecutionType.WORKFLOW_JOIN);
 
     handler.handleJobSuccess(job);
+
+    verifyNoInteractions(batchService, workflowScheduler, deadLetterService, pollerScheduler);
+  }
+
+  @Test
+  void handleJobSuccess_defaultJobTypesDoNothing() {
+    for (JobExecutionType jobType :
+        List.of(
+            JobExecutionType.RECURRING,
+            JobExecutionType.BATCH_PARENT,
+            JobExecutionType.DLQ_ALERT,
+            JobExecutionType.WORKFLOW_JOIN)) {
+      handler.handleJobSuccess(job(jobType));
+    }
 
     verifyNoInteractions(batchService, workflowScheduler, deadLetterService, pollerScheduler);
   }
@@ -183,6 +200,23 @@ class PostExecutionHandlerTest {
     verify(workflowScheduler, never()).scheduleNext(job);
     verify(batchService, never()).markChildFailed(job);
     verify(pollerScheduler, never()).wakeup();
+  }
+
+  @Test
+  void handlePermanentFailure_defaultJobTypesMoveToDlqOnly() {
+    RuntimeException failure = new RuntimeException("boom");
+    JobEntity batchParent = job(JobExecutionType.BATCH_PARENT);
+    JobEntity dlqAlert = job(JobExecutionType.DLQ_ALERT);
+    JobEntity workflowJoin = job(JobExecutionType.WORKFLOW_JOIN);
+
+    handler.handlePermanentFailure(batchParent, failure);
+    handler.handlePermanentFailure(dlqAlert, failure);
+    handler.handlePermanentFailure(workflowJoin, failure);
+
+    verify(deadLetterService).moveToDlq(batchParent, failure);
+    verify(deadLetterService).moveToDlq(dlqAlert, failure);
+    verify(deadLetterService).moveToDlq(workflowJoin, failure);
+    verifyNoInteractions(batchService, workflowScheduler, pollerScheduler);
   }
 
   @Test
