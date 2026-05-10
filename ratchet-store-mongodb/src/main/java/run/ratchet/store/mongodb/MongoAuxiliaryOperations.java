@@ -213,6 +213,9 @@ final class MongoAuxiliaryOperations {
                         new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
 
             if (result == null) {
+              if (ctx.resourceLimits().find(session, eq(ID, resource)).first() == null) {
+                throw new IllegalArgumentException("Resource is not configured: " + resource);
+              }
               return false;
             }
 

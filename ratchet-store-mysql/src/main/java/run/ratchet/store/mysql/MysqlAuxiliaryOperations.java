@@ -252,7 +252,7 @@ final class MysqlAuxiliaryOperations
     Object[] limits = permitResults.stream().findFirst().orElse(null);
 
     if (limits == null) {
-      return false;
+      throw new IllegalArgumentException("Resource is not configured: " + resource);
     }
 
     int maxConcurrent = ((Number) limits[0]).intValue();

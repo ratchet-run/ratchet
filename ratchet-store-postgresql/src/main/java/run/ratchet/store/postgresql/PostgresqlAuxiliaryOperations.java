@@ -228,7 +228,7 @@ final class PostgresqlAuxiliaryOperations
     List<Object> lockedLimits =
         ctx.em().createNativeQuery(lockSql).setParameter(1, resource).getResultList();
     if (lockedLimits.isEmpty()) {
-      return false;
+      throw new IllegalArgumentException("Resource is not configured: " + resource);
     }
 
     // PostgreSQL uses one statement snapshot even after waiting on FOR UPDATE. Keep the lock

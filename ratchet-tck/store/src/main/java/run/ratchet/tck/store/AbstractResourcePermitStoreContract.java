@@ -2,6 +2,7 @@ package run.ratchet.tck.store;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
@@ -42,6 +43,16 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
 
     assertTrue(firstAcquired, "First acquire should succeed");
     assertFalse(secondAcquired, "Second acquire should fail when resource is at capacity");
+  }
+
+  @Test
+  void tryAcquirePermit_unconfiguredResource_failsHard() {
+    var job = persist(newPendingJob());
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> store().tryAcquirePermit("missing-resource", job.getId(), "node-1"),
+        "Unconfigured resources should fail hard instead of behaving like capacity pressure");
   }
 
   @Test

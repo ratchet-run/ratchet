@@ -1,6 +1,7 @@
 package run.ratchet.testsuite.resource;
 
 import static org.awaitility.Awaitility.await;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.inject.Inject;
@@ -98,5 +99,14 @@ class ResourcePermitIT extends BaseRatchetIT {
         ResourceTestJob.getMaxConcurrentSeen() <= 2,
         "Max concurrent should be <= 2 (permit limit) but was "
             + ResourceTestJob.getMaxConcurrentSeen());
+  }
+
+  @Test
+  void jobWithUnconfiguredResource_shouldFailHard() {
+    JobHandle handle =
+        jobService.enqueue(ResourceTestJob::execute).withResource("missing-resource").submit();
+
+    JobAssertions.assertJobFailed(jobCrudStore, handle);
+    assertEquals(0, ResourceTestJob.getCompletedCount(), "Job body should not execute");
   }
 }

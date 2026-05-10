@@ -4,6 +4,7 @@ import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static run.ratchet.store.mongodb.MongoFieldNames.ACTIVE_COUNT;
 import static run.ratchet.store.mongodb.MongoFieldNames.ID;
@@ -129,9 +130,11 @@ class ResourcePermitIT extends BaseDocumentStoreIT {
   }
 
   @Test
-  void unconfiguredResource_deniesPermit() {
+  void unconfiguredResource_failsHard() {
     JobEntity job = store().save(newPendingJob());
-    assertFalse(store().tryAcquirePermit("nonexistent-resource", job.getId(), "node-1"));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> store().tryAcquirePermit("nonexistent-resource", job.getId(), "node-1"));
   }
 
   private long permitCount(String resource, JobEntity job) {

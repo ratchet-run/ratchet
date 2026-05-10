@@ -8,6 +8,13 @@ import run.ratchet.api.Incubating;
 @Incubating
 public interface ResourcePermitStore {
 
+  /**
+   * Attempts to acquire capacity for a configured resource.
+   *
+   * @return {@code true} when a permit was acquired, {@code false} when the resource exists but is
+   *     already at capacity
+   * @throws IllegalArgumentException when {@code resource} has not been configured
+   */
   boolean tryAcquirePermit(String resource, UUID jobId, String nodeId);
 
   void releasePermit(String resource, UUID jobId);
