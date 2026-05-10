@@ -125,6 +125,11 @@ public interface JobSchedulerService {
    * replacement, and the cancellation of the old job MUST execute within a single transaction.
    *
    * @param jobId UUIDv7 job id of the job to replace
+   * @param delay delay before the replacement job becomes eligible to run
+   * @param newTask task to execute for the replacement job
+   * @param opts optional job options to apply to the replacement; {@code null} uses implementation
+   *     defaults
+   * @return handle for the newly submitted replacement job
    */
   JobHandle replace(
       UUID jobId, Duration delay, SerializableCheckedRunnable newTask, JobOptions opts);
