@@ -3,6 +3,7 @@ package run.ratchet.ri.core;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
@@ -19,7 +20,6 @@ import run.ratchet.api.WorkflowBranch;
 import run.ratchet.api.WorkflowCondition;
 
 /** {@inheritDoc} */
-@SuppressWarnings("unchecked")
 public class DefaultStreamingBatchBuilder<T extends Serializable>
     implements StreamingBatchBuilder<T> {
 
@@ -43,10 +43,9 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
   }
 
   @Override
-  public <U extends Serializable> StreamingBatchBuilder<U> fromStream(Stream<U> stream) {
-    DefaultStreamingBatchBuilder<U> cast = (DefaultStreamingBatchBuilder<U>) this;
-    cast.stream = stream;
-    return cast;
+  public StreamingBatchBuilder<T> fromStream(Stream<T> stream) {
+    this.stream = Objects.requireNonNull(stream, "stream must not be null");
+    return this;
   }
 
   @Override

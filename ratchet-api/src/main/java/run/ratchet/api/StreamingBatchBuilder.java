@@ -16,8 +16,8 @@ import java.util.stream.Stream;
  */
 public interface StreamingBatchBuilder<T extends Serializable> {
 
-  /** Sets the input stream of items to process. */
-  <U extends Serializable> StreamingBatchBuilder<U> fromStream(Stream<U> stream);
+  /** Sets the input stream of items to process. The stream item type must match this builder. */
+  StreamingBatchBuilder<T> fromStream(Stream<T> stream);
 
   /** Sets the processing action applied to each item; may throw checked exceptions. */
   StreamingBatchBuilder<T> process(SerializableCheckedConsumer<T> action);
