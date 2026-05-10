@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -38,15 +39,22 @@ final class PostgresqlTagOperations implements TagStore {
     if (tags == null || tags.isEmpty()) {
       return;
     }
+    List<String> uniqueTags = new ArrayList<>(new LinkedHashSet<>(tags));
+    String placeholders = String.join(", ", Collections.nCopies(uniqueTags.size(), "(?, ?)"));
     // language=PostgreSQL
     String sql =
         """
-        INSERT INTO scheduler_job_tag (job_id, tag) VALUES (?, ?)
+        INSERT INTO scheduler_job_tag (job_id, tag) VALUES %s
         ON CONFLICT (job_id, tag) DO NOTHING
-        """;
-    for (String tag : tags) {
-      ctx.em().createNativeQuery(sql).setParameter(1, jobId).setParameter(2, tag).executeUpdate();
+        """
+            .formatted(placeholders);
+    Query query = ctx.em().createNativeQuery(sql);
+    int parameter = 1;
+    for (String tag : uniqueTags) {
+      query.setParameter(parameter++, jobId);
+      query.setParameter(parameter++, tag);
     }
+    query.executeUpdate();
   }
 
   @Override
