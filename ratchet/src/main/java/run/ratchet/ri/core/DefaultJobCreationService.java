@@ -10,6 +10,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZonedDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -43,6 +44,7 @@ import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobBatchStatusStore;
+import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.spi.TagStore;
@@ -58,6 +60,7 @@ public class DefaultJobCreationService
   private final JobBatchStatusStore jobBatchStatusStore;
   private final JobTerminalStore jobTerminalStore;
   private final JobCrudStore jobCrudStore;
+  private final JobBulkStore jobBulkStore;
   private final BatchStore batchStore;
   private final TagStore tagStore;
   private final WorkflowConditionStore workflowConditionStore;
@@ -76,6 +79,7 @@ public class DefaultJobCreationService
     this.jobBatchStatusStore = null;
     this.jobTerminalStore = null;
     this.jobCrudStore = null;
+    this.jobBulkStore = null;
     this.batchStore = null;
     this.tagStore = null;
     this.workflowConditionStore = null;
@@ -104,6 +108,7 @@ public class DefaultJobCreationService
         jobBatchStatusStore,
         jobTerminalStore,
         jobCrudStore,
+        jobCrudStore instanceof JobBulkStore bulkStore ? bulkStore : null,
         batchStore,
         tagStore,
         workflowConditionStore,
@@ -124,6 +129,7 @@ public class DefaultJobCreationService
       JobBatchStatusStore jobBatchStatusStore,
       JobTerminalStore jobTerminalStore,
       JobCrudStore jobCrudStore,
+      JobBulkStore jobBulkStore,
       BatchStore batchStore,
       TagStore tagStore,
       WorkflowConditionStore workflowConditionStore,
@@ -140,6 +146,7 @@ public class DefaultJobCreationService
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.jobTerminalStore = jobTerminalStore;
     this.jobCrudStore = jobCrudStore;
+    this.jobBulkStore = jobBulkStore;
     this.batchStore = batchStore;
     this.tagStore = tagStore;
     this.workflowConditionStore = workflowConditionStore;
@@ -286,6 +293,7 @@ public class DefaultJobCreationService
       return () -> parentId;
     }
 
+    List<JobEntity> childJobs = new ArrayList<>(builder.children().size());
     for (DefaultBatchBuilder.ChildSpec child : builder.children()) {
       JobEntity childJob = new JobEntity();
       childJob.setJobType(JobExecutionType.BATCH_CHILD);
@@ -297,8 +305,9 @@ public class DefaultJobCreationService
       childJob.setDependsOn(parentId);
       stampCallerPrincipal(childJob);
       checkCreateAuthorization(childJob);
-      jobCrudStore.create(childJob);
+      childJobs.add(childJob);
     }
+    jobBulkStore.bulkInsert(childJobs);
 
     for (WorkflowBranch branch : builder.workflowBranches()) {
       createWorkflowBranch(parentId, branch);
@@ -470,7 +479,7 @@ public class DefaultJobCreationService
 
   private <T extends Serializable> int createStreamingChildJobs(
       UUID parentId, DefaultStreamingBatchBuilder<T> builder, List<T> items) {
-    int count = 0;
+    List<JobEntity> children = new ArrayList<>(items.size());
     for (T item : items) {
       JobEntity child = new JobEntity();
       child.setJobType(JobExecutionType.BATCH_CHILD);
@@ -482,10 +491,10 @@ public class DefaultJobCreationService
       child.setDependsOn(parentId);
       stampCallerPrincipal(child);
       checkCreateAuthorization(child);
-      jobCrudStore.create(child);
-      count++;
+      children.add(child);
     }
-    return count;
+    jobBulkStore.bulkInsert(children);
+    return children.size();
   }
 
   private void createWorkflowBranches(UUID parentId, List<WorkflowBranch> branches) {

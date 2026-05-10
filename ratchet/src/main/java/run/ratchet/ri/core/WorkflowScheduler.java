@@ -5,9 +5,12 @@ import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
@@ -61,24 +64,24 @@ public class WorkflowScheduler extends ChainScheduler {
 
     List<WorkflowConditionEntity> conditions =
         conditionStore.findConditionsByParentJobId(parentJob.getId());
+    Map<UUID, JobEntity> childJobs = loadChildJobs(conditions);
 
     AtomicInteger canceledCount = new AtomicInteger(0);
     for (WorkflowConditionEntity condition : conditions) {
-      jobCrudStore
-          .findById(condition.getChildJobId())
-          .filter(
-              job -> job.getStatus() == JobStatus.PENDING || job.getStatus() == JobStatus.WAITING)
-          .ifPresent(
-              childJob -> {
-                // Terminal CANCELED transition: cancelJob runs DELETE hot + UPDATE cold +
-                // DELETE bkres atomically. setStatus()+save() is rejected by the hot guard.
-                if (jobTerminalStore.cancelJob(childJob.getId())) {
-                  canceledCount.incrementAndGet();
-                  log.infof(
-                      "Canceled workflow branch job %s due to parent job %s failure",
-                      childJob.getId(), parentJob.getId());
-                }
-              });
+      JobEntity childJob = childJobs.get(condition.getChildJobId());
+      if (childJob == null
+          || (childJob.getStatus() != JobStatus.PENDING
+              && childJob.getStatus() != JobStatus.WAITING)) {
+        continue;
+      }
+      // Terminal CANCELED transition: cancelJob runs DELETE hot + UPDATE cold +
+      // DELETE bkres atomically. setStatus()+save() is rejected by the hot guard.
+      if (jobTerminalStore.cancelJob(childJob.getId())) {
+        canceledCount.incrementAndGet();
+        log.infof(
+            "Canceled workflow branch job %s due to parent job %s failure",
+            childJob.getId(), parentJob.getId());
+      }
     }
 
     if (canceledCount.get() > 0) {
@@ -105,11 +108,12 @@ public class WorkflowScheduler extends ChainScheduler {
 
     log.infof("Evaluating %s workflow conditions for job %s", conditions.size(), parentJob.getId());
 
+    Map<UUID, JobEntity> childJobs = loadChildJobs(conditions);
     WorkflowConditionEntity scheduledCondition = null;
     for (WorkflowConditionEntity condition : conditions) {
       try {
         if (conditionEvaluator.evaluate(condition, parentJob)) {
-          boolean scheduled = scheduleChildJob(condition, parentJob);
+          boolean scheduled = scheduleChildJob(condition, parentJob, childJobs);
           if (scheduled) {
             scheduledCondition = condition;
             log.infof(
@@ -141,7 +145,7 @@ public class WorkflowScheduler extends ChainScheduler {
       }
     }
 
-    cancelUnscheduledBranches(conditions, scheduledCondition);
+    cancelUnscheduledBranches(conditions, scheduledCondition, childJobs);
 
     if (scheduledCondition != null) {
       log.infof(
@@ -158,39 +162,39 @@ public class WorkflowScheduler extends ChainScheduler {
   }
 
   private void cancelUnscheduledBranches(
-      List<WorkflowConditionEntity> conditions, WorkflowConditionEntity scheduledCondition) {
+      List<WorkflowConditionEntity> conditions,
+      WorkflowConditionEntity scheduledCondition,
+      Map<UUID, JobEntity> childJobs) {
     UUID scheduledChildId = scheduledCondition == null ? null : scheduledCondition.getChildJobId();
     for (WorkflowConditionEntity condition : conditions) {
       if (Objects.equals(condition.getChildJobId(), scheduledChildId)) {
         continue;
       }
-      jobCrudStore
-          .findById(condition.getChildJobId())
-          .filter(
-              job -> job.getStatus() == JobStatus.PENDING || job.getStatus() == JobStatus.WAITING)
-          .ifPresent(
-              childJob -> {
-                if (jobTerminalStore.cancelJob(childJob.getId())) {
-                  log.infof(
-                      "Canceled unmatched workflow branch job %s for condition %s",
-                      childJob.getId(), condition.getId());
-                }
-              });
+      JobEntity childJob = childJobs.get(condition.getChildJobId());
+      if (childJob == null
+          || (childJob.getStatus() != JobStatus.PENDING
+              && childJob.getStatus() != JobStatus.WAITING)) {
+        continue;
+      }
+      if (jobTerminalStore.cancelJob(childJob.getId())) {
+        log.infof(
+            "Canceled unmatched workflow branch job %s for condition %s",
+            childJob.getId(), condition.getId());
+      }
     }
   }
 
   @SuppressWarnings("java:S1172") // parentJob reserved for future parent context logging
-  private boolean scheduleChildJob(WorkflowConditionEntity condition, JobEntity parentJob) {
-    return jobCrudStore
-        .findById(condition.getChildJobId())
-        .map(childJob -> scheduleIfPending(condition, childJob))
-        .orElseGet(
-            () -> {
-              log.warnf(
-                  "Child job %s not found for workflow condition %s",
-                  condition.getChildJobId(), condition.getId());
-              return false;
-            });
+  private boolean scheduleChildJob(
+      WorkflowConditionEntity condition, JobEntity parentJob, Map<UUID, JobEntity> childJobs) {
+    JobEntity childJob = childJobs.get(condition.getChildJobId());
+    if (childJob == null) {
+      log.warnf(
+          "Child job %s not found for workflow condition %s",
+          condition.getChildJobId(), condition.getId());
+      return false;
+    }
+    return scheduleIfPending(condition, childJob);
   }
 
   @SuppressWarnings("java:S1172") // condition reserved for future context logging
@@ -206,5 +210,15 @@ public class WorkflowScheduler extends ChainScheduler {
     childJob.setJobType(JobExecutionType.WORKFLOW_BRANCH);
     jobCrudStore.save(childJob);
     return true;
+  }
+
+  private Map<UUID, JobEntity> loadChildJobs(List<WorkflowConditionEntity> conditions) {
+    List<UUID> childIds =
+        conditions.stream().map(WorkflowConditionEntity::getChildJobId).distinct().toList();
+    if (childIds.isEmpty()) {
+      return Map.of();
+    }
+    return jobCrudStore.findByIds(childIds).stream()
+        .collect(Collectors.toMap(JobEntity::getId, Function.identity(), (left, right) -> left));
   }
 }

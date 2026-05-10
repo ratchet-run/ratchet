@@ -44,6 +44,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.BatchStore;
 import run.ratchet.store.spi.JobBatchStatusStore;
+import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.spi.TagStore;
@@ -57,6 +58,7 @@ class DefaultJobCreationServiceAuthorizationTest {
   @Mock private JobBatchStatusStore jobBatchStatusStore;
   @Mock private JobTerminalStore jobTerminalStore;
   @Mock private JobCrudStore jobCrudStore;
+  @Mock private JobBulkStore jobBulkStore;
   @Mock private BatchStore batchStore;
   @Mock private TagStore tagStore;
   @Mock private WorkflowConditionStore workflowConditionStore;
@@ -108,6 +110,7 @@ class DefaultJobCreationServiceAuthorizationTest {
         jobBatchStatusStore,
         jobTerminalStore,
         jobCrudStore,
+        jobBulkStore,
         batchStore,
         tagStore,
         workflowConditionStore,
@@ -345,6 +348,42 @@ class DefaultJobCreationServiceAuthorizationTest {
 
     // 1 batch parent + 3 child jobs
     verify(authorizationPolicy, times(4)).checkCreate(any(UUID.class), anyString());
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void batchSubmit_bulkInsertsChildren() {
+    when(jobCrudStore.create(any())).thenAnswer(inv -> savedEntity());
+
+    DefaultBatchBuilder builder = new DefaultBatchBuilder("test-batch", service);
+    builder.forEach(
+        List.of("one", "two", "three"), DefaultJobCreationServiceAuthorizationTest::consumeString);
+
+    service.submit(builder);
+
+    ArgumentCaptor<List<JobEntity>> childrenCaptor = ArgumentCaptor.forClass(List.class);
+    verify(jobBulkStore).bulkInsert(childrenCaptor.capture());
+    assertEquals(3, childrenCaptor.getValue().size());
+    verify(jobCrudStore, times(1)).create(any(JobEntity.class));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void streamingBatchSubmit_bulkInsertsEachChunk() {
+    when(jobCrudStore.create(any())).thenAnswer(inv -> savedEntity());
+
+    DefaultStreamingBatchBuilder<String> builder =
+        new DefaultStreamingBatchBuilder<>("test-batch", service);
+    builder.fromStream(Stream.of("one", "two", "three"));
+    builder.withChunkSize(2);
+    builder.process(DefaultJobCreationServiceAuthorizationTest::consumeString);
+
+    service.submit(builder);
+
+    ArgumentCaptor<List<JobEntity>> childrenCaptor = ArgumentCaptor.forClass(List.class);
+    verify(jobBulkStore, times(2)).bulkInsert(childrenCaptor.capture());
+    assertEquals(2, childrenCaptor.getAllValues().get(0).size());
+    assertEquals(1, childrenCaptor.getAllValues().get(1).size());
   }
 
   @Test

@@ -5,7 +5,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -23,6 +22,7 @@ import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobClaimStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobTerminalStore;
@@ -33,6 +33,7 @@ import run.ratchet.store.spi.JobTerminalStore;
 class RecurringJobExecutorGraceTest {
 
   @Mock private JobCrudStore jobCrudStore;
+  @Mock private JobBulkStore jobBulkStore;
   @Mock private JobClaimStore jobClaimStore;
   @Mock private JobTerminalStore jobTerminalStore;
 
@@ -44,7 +45,12 @@ class RecurringJobExecutorGraceTest {
     state = new RecurringRegistrationState();
     executor =
         new RecurringJobExecutor(
-            jobCrudStore, jobClaimStore, jobTerminalStore, state, () -> NodeTagFilter.NONE);
+            jobCrudStore,
+            jobBulkStore,
+            jobClaimStore,
+            jobTerminalStore,
+            state,
+            () -> NodeTagFilter.NONE);
   }
 
   @Test
@@ -63,6 +69,7 @@ class RecurringJobExecutorGraceTest {
     // tx end. No save() call is expected, and the master's next_fire stays unchanged so it's
     // eligible on the next claim cycle.
     verify(jobCrudStore, never()).save(any(JobEntity.class));
+    verify(jobBulkStore, never()).bulkInsert(any());
   }
 
   @Test
@@ -75,8 +82,9 @@ class RecurringJobExecutorGraceTest {
     int fired = executor.process(10, "node-A");
 
     assertEquals(1, fired);
-    // Two saves: one for the spawned child, one for the master next_fire update.
-    verify(jobCrudStore, times(2)).save(any(JobEntity.class));
+    // One child bulk insert, one save for the master next_fire update.
+    verify(jobBulkStore).bulkInsert(any());
+    verify(jobCrudStore).save(any(JobEntity.class));
   }
 
   @Test
@@ -88,7 +96,12 @@ class RecurringJobExecutorGraceTest {
                 .build());
     executor =
         new RecurringJobExecutor(
-            jobCrudStore, jobClaimStore, jobTerminalStore, state, () -> NodeTagFilter.NONE);
+            jobCrudStore,
+            jobBulkStore,
+            jobClaimStore,
+            jobTerminalStore,
+            state,
+            () -> NodeTagFilter.NONE);
     state.markRegistrationComplete(Set.of("known-key"));
 
     JobEntity unknown = recurringMaster(99L, "unknown-key");
@@ -114,9 +127,9 @@ class RecurringJobExecutorGraceTest {
 
     assertEquals(1, fired);
     // Post hot/cold-split: orphans skip without save() (no hot row to release). Only the
-    // known master triggers two saves: one for the spawned child, one for the next_fire
-    // cold-only update on the master.
-    verify(jobCrudStore, times(2)).save(any(JobEntity.class));
+    // known master triggers one child bulk insert and one next_fire cold-only update on the master.
+    verify(jobBulkStore).bulkInsert(any());
+    verify(jobCrudStore).save(any(JobEntity.class));
   }
 
   @Test
@@ -153,6 +166,7 @@ class RecurringJobExecutorGraceTest {
 
     assertEquals(0, fired);
     verify(jobCrudStore, never()).save(any(JobEntity.class));
+    verify(jobBulkStore, never()).bulkInsert(any());
   }
 
   @Test
@@ -168,7 +182,8 @@ class RecurringJobExecutorGraceTest {
     int fired = executor.process(10, "node-A");
 
     assertEquals(1, fired, "malformed recurring masters must not abort the batch");
-    verify(jobCrudStore, times(2)).save(any(JobEntity.class));
+    verify(jobBulkStore).bulkInsert(any());
+    verify(jobCrudStore).save(any(JobEntity.class));
   }
 
   private JobEntity recurringMaster(long id, String businessKey) {

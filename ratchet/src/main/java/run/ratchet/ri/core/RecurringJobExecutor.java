@@ -8,6 +8,7 @@ import jakarta.transaction.Transactional;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -17,6 +18,7 @@ import run.ratchet.api.NodeTagFilter;
 import run.ratchet.spi.NodeTagAffinityProvider;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobClaimStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobTerminalStore;
@@ -32,6 +34,7 @@ public class RecurringJobExecutor {
   private static final int MAX_CATCHUP_COUNT = 10;
 
   private final JobCrudStore jobCrudStore;
+  private final JobBulkStore jobBulkStore;
   private final JobClaimStore jobClaimStore;
   private final JobTerminalStore jobTerminalStore;
   private final RecurringRegistrationState registrationState;
@@ -39,6 +42,7 @@ public class RecurringJobExecutor {
 
   protected RecurringJobExecutor() {
     this.jobCrudStore = null;
+    this.jobBulkStore = null;
     this.jobClaimStore = null;
     this.jobTerminalStore = null;
     this.registrationState = null;
@@ -48,11 +52,13 @@ public class RecurringJobExecutor {
   @Inject
   public RecurringJobExecutor(
       JobCrudStore jobCrudStore,
+      JobBulkStore jobBulkStore,
       JobClaimStore jobClaimStore,
       JobTerminalStore jobTerminalStore,
       RecurringRegistrationState registrationState,
       NodeTagAffinityProvider tagAffinityProvider) {
     this.jobCrudStore = jobCrudStore;
+    this.jobBulkStore = jobBulkStore;
     this.jobClaimStore = jobClaimStore;
     this.jobTerminalStore = jobTerminalStore;
     this.registrationState = registrationState;
@@ -61,7 +67,7 @@ public class RecurringJobExecutor {
 
   void enqueueChild(JobEntity master, Instant fireTs) {
     JobEntity child = createChildFromMaster(master, fireTs);
-    jobCrudStore.save(child);
+    jobBulkStore.bulkInsert(List.of(child));
   }
 
   /**
@@ -75,6 +81,7 @@ public class RecurringJobExecutor {
         tagAffinityProvider != null ? tagAffinityProvider.tagFilter() : NodeTagFilter.NONE;
     List<JobEntity> masters = jobClaimStore.claimDueRecurring(batchLimit, nodeId, tagFilter);
     Instant now = Instant.now();
+    List<JobEntity> children = new ArrayList<>();
     int firedCount = 0;
     for (JobEntity master : masters) {
       // Startup grace gate: during the first ratchet.recurring.startup-grace-seconds after this
@@ -105,7 +112,7 @@ public class RecurringJobExecutor {
 
       Instant baseTime = master.getNextFire() != null ? master.getNextFire() : now;
 
-      enqueueChild(master, baseTime.isBefore(now) ? baseTime : now);
+      children.add(createChildFromMaster(master, baseTime.isBefore(now) ? baseTime : now));
       firedCount++;
 
       Optional<Instant> nextOpt =
@@ -115,7 +122,7 @@ public class RecurringJobExecutor {
       while (nextOpt.isPresent()
           && nextOpt.get().isBefore(now)
           && catchupCount < MAX_CATCHUP_COUNT) {
-        enqueueChild(master, nextOpt.get());
+        children.add(createChildFromMaster(master, nextOpt.get()));
         catchupCount++;
         nextOpt = execTime.nextExecution(nextOpt.get().atZone(zone)).map(ZonedDateTime::toInstant);
       }
@@ -142,6 +149,9 @@ public class RecurringJobExecutor {
         jobTerminalStore.cancelJob(master.getId());
       }
       log.infof("Recurring job %s fired; next=%s", master.getId(), master.getNextFire());
+    }
+    if (!children.isEmpty()) {
+      jobBulkStore.bulkInsert(children);
     }
     return firedCount;
   }

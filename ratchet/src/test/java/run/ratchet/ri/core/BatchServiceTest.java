@@ -3,10 +3,12 @@ package run.ratchet.ri.core;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -138,5 +140,49 @@ class BatchServiceTest {
     verify(metricsStore, never()).finalizeBatchMetrics(any());
     verify(eventPublisher, never()).publish(any());
     verify(workflowScheduler, never()).scheduleNext(any());
+  }
+
+  @Test
+  void recoverStuckBatchesBulkLoadsCompletedParents() {
+    UUID firstId = new UUID(0L, 101L);
+    UUID secondId = new UUID(0L, 102L);
+    BatchEntity firstBatch = batch(firstId, 2, 2, 0);
+    BatchEntity secondBatch = batch(secondId, 3, 3, 0);
+    JobEntity firstParent = parent(firstId);
+    JobEntity secondParent = parent(secondId);
+
+    when(batchStore.findRecoverableBatchIds(100)).thenReturn(List.of(firstId, secondId));
+    when(batchStore.findBatchesByIds(List.of(firstId, secondId)))
+        .thenReturn(List.of(firstBatch, secondBatch));
+    when(batchStore.markBatchCompleteIfReady(firstId)).thenReturn(true);
+    when(batchStore.markBatchCompleteIfReady(secondId)).thenReturn(true);
+    when(jobCrudStore.findByIds(List.of(firstId, secondId)))
+        .thenReturn(List.of(firstParent, secondParent));
+    when(jobBatchStatusStore.tryPickUpJob(eq(firstId), any())).thenReturn(true);
+    when(jobBatchStatusStore.tryPickUpJob(eq(secondId), any())).thenReturn(true);
+
+    assertEquals(2, batchService.recoverStuckBatches());
+
+    verify(jobCrudStore).findByIds(List.of(firstId, secondId));
+    verify(jobCrudStore, never()).findById(firstId);
+    verify(jobCrudStore, never()).findById(secondId);
+  }
+
+  private static BatchEntity batch(UUID id, int total, int completed, int failed) {
+    BatchEntity batch = new BatchEntity();
+    batch.setId(id);
+    batch.setTotalItems(total);
+    batch.setCompletedItems(completed);
+    batch.setFailedItems(failed);
+    return batch;
+  }
+
+  private static JobEntity parent(UUID id) {
+    JobEntity parent = new JobEntity();
+    parent.setId(id);
+    parent.setStatus(JobStatus.PENDING);
+    parent.setJobType(JobExecutionType.BATCH_PARENT);
+    parent.setPriority(JobPriority.NORMAL);
+    return parent;
   }
 }

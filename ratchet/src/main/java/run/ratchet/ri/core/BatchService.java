@@ -6,6 +6,7 @@ import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import java.lang.reflect.Method;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -122,6 +123,7 @@ public class BatchService {
             .collect(Collectors.toMap(BatchEntity::getId, Function.identity()));
 
     int recovered = 0;
+    List<UUID> completedIds = new ArrayList<>();
     for (UUID batchId : recoverableIds) {
       BatchEntity batch = batchMap.get(batchId);
       if (batch == null) {
@@ -129,8 +131,20 @@ public class BatchService {
       }
 
       if (batchStore.markBatchCompleteIfReady(batchId)) {
-        processBatchCompletion(batchId, batch);
+        completedIds.add(batchId);
         recovered++;
+      }
+    }
+    if (!completedIds.isEmpty()) {
+      Map<UUID, JobEntity> parentMap =
+          jobCrudStore.findByIds(completedIds).stream()
+              .collect(Collectors.toMap(JobEntity::getId, Function.identity()));
+      for (UUID batchId : completedIds) {
+        BatchEntity batch = batchMap.get(batchId);
+        JobEntity parent = parentMap.get(batchId);
+        if (batch != null && parent != null) {
+          processBatchCompletion(batchId, batch, parent);
+        }
       }
     }
     return recovered;
@@ -192,56 +206,51 @@ public class BatchService {
   private boolean processBatchCompletion(UUID parentId, BatchEntity batch) {
     return jobCrudStore
         .findById(parentId)
-        .map(
-            parent -> {
-              if (parent.getStatus() == JobStatus.PENDING) {
-                // Skip-execute the parent into terminal SUCCEEDED/FAILED. Post hot/cold-split,
-                // save() can't mutate the hot row's status; the equivalent is a synthetic pickup
-                // followed by mark-terminal so the hot DELETE + cold UPDATE + bkres DELETE all
-                // run atomically through the store.
-                if (!jobBatchStatusStore.tryPickUpJob(
-                    parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID)) {
-                  return false;
-                }
-
-                boolean succeeded = batch.getFailedItems() == 0;
-                Instant nowTs = Instant.now();
-                if (succeeded) {
-                  jobTerminalStore.markJobSucceededMinimal(parentId, nowTs, nowTs, 0L, 0L);
-                  parent.setStatus(JobStatus.SUCCEEDED);
-                } else {
-                  jobTerminalStore.markJobFailedTerminal(
-                      parentId,
-                      "Batch completed with " + batch.getFailedItems() + " failed children",
-                      0);
-                  parent.setStatus(JobStatus.FAILED);
-                }
-
-                metricsStore.finalizeBatchMetrics(parentId);
-
-                metricsStore
-                    .findBatchMetrics(parentId)
-                    .filter(metrics -> metrics.getTotalDurationMs() != null)
-                    .ifPresent(
-                        metrics ->
-                            metricsCollector.jobCompleted(
-                                parentId, parent.getPublicJobType(), metrics.getTotalDurationMs()));
-
-                publishBatchEvent(batch, parent);
-
-                log.info(
-                    String.format(
-                        "Batch %s completed: %d total, %d succeeded, %d failed",
-                        parentId,
-                        batch.getTotalItems(),
-                        batch.getCompletedItems(),
-                        batch.getFailedItems()));
-
-                return workflowScheduler.scheduleNext(parent);
-              }
-              return false;
-            })
+        .map(parent -> processBatchCompletion(parentId, batch, parent))
         .orElse(false);
+  }
+
+  private boolean processBatchCompletion(UUID parentId, BatchEntity batch, JobEntity parent) {
+    if (parent.getStatus() != JobStatus.PENDING) {
+      return false;
+    }
+    // Skip-execute the parent into terminal SUCCEEDED/FAILED. Post hot/cold-split,
+    // save() can't mutate the hot row's status; the equivalent is a synthetic pickup
+    // followed by mark-terminal so the hot DELETE + cold UPDATE + bkres DELETE all
+    // run atomically through the store.
+    if (!jobBatchStatusStore.tryPickUpJob(parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID)) {
+      return false;
+    }
+
+    boolean succeeded = batch.getFailedItems() == 0;
+    Instant nowTs = Instant.now();
+    if (succeeded) {
+      jobTerminalStore.markJobSucceededMinimal(parentId, nowTs, nowTs, 0L, 0L);
+      parent.setStatus(JobStatus.SUCCEEDED);
+    } else {
+      jobTerminalStore.markJobFailedTerminal(
+          parentId, "Batch completed with " + batch.getFailedItems() + " failed children", 0);
+      parent.setStatus(JobStatus.FAILED);
+    }
+
+    metricsStore.finalizeBatchMetrics(parentId);
+
+    metricsStore
+        .findBatchMetrics(parentId)
+        .filter(metrics -> metrics.getTotalDurationMs() != null)
+        .ifPresent(
+            metrics ->
+                metricsCollector.jobCompleted(
+                    parentId, parent.getPublicJobType(), metrics.getTotalDurationMs()));
+
+    publishBatchEvent(batch, parent);
+
+    log.info(
+        String.format(
+            "Batch %s completed: %d total, %d succeeded, %d failed",
+            parentId, batch.getTotalItems(), batch.getCompletedItems(), batch.getFailedItems()));
+
+    return workflowScheduler.scheduleNext(parent);
   }
 
   private void publishBatchEvent(BatchEntity batch, JobEntity parent) {
