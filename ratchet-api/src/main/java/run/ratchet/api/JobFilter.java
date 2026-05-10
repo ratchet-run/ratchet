@@ -21,6 +21,30 @@ import java.util.UUID;
  *     .createdAfter(Instant.now().minus(7, ChronoUnit.DAYS))
  *     .build();
  * }</pre>
+ *
+ * @param statuses allowed job statuses, or null for all statuses
+ * @param types allowed job types, or null for all types
+ * @param priorities allowed priorities, or null for all priorities
+ * @param businessKey exact business key to match, or null for no business-key filter
+ * @param idempotencyKey exact idempotency key to match, or null for no idempotency-key filter
+ * @param tags tags that must be present according to the store's tag-match semantics, or null for
+ *     no tag filter
+ * @param targetClass exact payload target class name to match, or null for no target filter
+ * @param callerPrincipal submitting principal to match, or null for no principal filter
+ * @param pickedBy executor node currently owning the job, or null for no owner filter
+ * @param resourceName resource permit name to match, or null for no resource filter
+ * @param traceCorrelationId trace correlation identifier to match, or null for no trace filter
+ * @param parentJobId parent or dependency job id to match, or null for no parent filter
+ * @param createdAfter lower bound for creation time, inclusive when supported by the store
+ * @param createdBefore upper bound for creation time, inclusive when supported by the store
+ * @param scheduledAfter lower bound for scheduled time, inclusive when supported by the store
+ * @param scheduledBefore upper bound for scheduled time, inclusive when supported by the store
+ * @param updatedAfter lower bound for update time, inclusive when supported by the store
+ * @param sortField field used for result ordering; defaults to {@link JobQuerySortField#CREATED_AT}
+ * @param sortAscending true for ascending order, false for descending order
+ * @param skipCount true to skip the total-count query and return {@code -1} as total count
+ * @param includeArchived true to include archived jobs when the backing store supports archives
+ * @param cursor opaque keyset-pagination cursor, or null to use offset-based pagination
  */
 @Incubating
 public record JobFilter(

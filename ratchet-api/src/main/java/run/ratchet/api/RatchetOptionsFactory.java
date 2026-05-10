@@ -134,7 +134,8 @@ public final class RatchetOptionsFactory {
    * <p>The surrounding producer method should be {@code @ApplicationScoped} so sources are read
    * once at bootstrap rather than on every injection.
    *
-   * @param additional optional overlay sources consulted before MicroProfile Config / env vars
+   * @param additional optional overlay sources consulted before MicroProfile Config / env vars;
+   *     null elements are ignored
    * @return the fully-populated, immutable {@link RatchetOptions}
    */
   @Incubating

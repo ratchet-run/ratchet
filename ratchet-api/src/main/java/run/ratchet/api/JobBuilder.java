@@ -38,8 +38,9 @@ public interface JobBuilder {
    * delivered with {@link JobSchedulerService#deliverSignal(java.util.UUID, SignalDecision)
    * deliverSignal(jobId, decision)}.
    *
-   * <p>If the signal is not delivered within {@code timeout}, the job transitions to FAILED with a
-   * {@link SignalTimeoutException}.
+   * <p>If the signal is not delivered within {@code timeout}, timeout handling happens
+   * asynchronously: the stored job is retried or transitions to FAILED with a {@link
+   * SignalTimeoutException}. This method throws only for invalid signal-wait configuration.
    *
    * @param signalKey the named signal this job waits for; used for broadcast delivery
    * @param timeout maximum wait duration before the job fails; must be positive
@@ -165,21 +166,30 @@ public interface JobBuilder {
   /** Returns the business key, or null if not configured. */
   String businessKey();
 
+  /** Returns the failure callback, or null if not configured. */
   SerializableBiConsumer<JobContext, Throwable> onFailure();
 
+  /** Returns the success callback, or null if not configured. */
   SerializableConsumer<JobContext> onSuccess();
 
+  /** Returns the immutable job options for this builder. */
   JobOptions opts();
 
+  /** Returns the job parameters. The map is unmodifiable. */
   Map<String, String> params();
 
+  /** Returns the normalized job tags. The list is unmodifiable. */
   List<String> tags();
 
+  /** Returns the task payload configured for this builder. */
   SerializableCheckedRunnable task();
 
+  /** Returns conditional workflow branches. The list is unmodifiable. */
   List<WorkflowBranch> workflowBranches();
 
+  /** Returns the resource name, or null if no resource permit is required. */
   String resourceName();
 
+  /** Returns true when this job should wake the poller immediately after persistence. */
   boolean isImmediate();
 }

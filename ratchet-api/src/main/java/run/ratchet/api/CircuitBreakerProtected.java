@@ -11,8 +11,9 @@ import java.lang.annotation.Target;
 /**
  * Marks a job method or class for circuit breaker protection.
  *
- * <p>When the RI encounters this annotation on a target method's class or method, it wraps
- * invocation through the configured {@link run.ratchet.spi.ResilienceStrategy}.
+ * <p>When the RI encounters this annotation on a target method's class or method, its CDI
+ * interceptor wraps the invocation in the built-in circuit breaker selected by {@link #service()}
+ * and {@link #profile()}.
  *
  * <h2>Usage</h2>
  *

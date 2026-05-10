@@ -4,11 +4,14 @@ package run.ratchet.api;
  * Lifecycle states for a scheduled job.
  *
  * <pre>
- *   PENDING -&gt; RUNNING -&gt; SUCCEEDED
- *              |          ^
- *            FAILED ------+ (with retries)
- *              |
- *           CANCELED (terminal)
+ *   PAUSED &lt;-&gt; PENDING -&gt; RUNNING -&gt; SUCCEEDED
+ *                |           |
+ *                v           v
+ *              WAITING     FAILED -&gt; PENDING (retry)
+ *                |  ^
+ *   signal -----+  +----- timeout -&gt; FAILED
+ *
+ *   PENDING/RUNNING/WAITING/PAUSED -&gt; CANCELED
  * </pre>
  */
 public enum JobStatus {

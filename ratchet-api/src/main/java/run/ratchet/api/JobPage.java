@@ -12,6 +12,7 @@ import java.util.List;
  * @param limit the page size requested
  * @param offset the zero-based offset of this page
  * @param hasMore true if there are additional items beyond this page
+ * @param nextCursor opaque cursor for the next page, or null if no cursor is available
  */
 @Incubating
 public record JobPage<T>(

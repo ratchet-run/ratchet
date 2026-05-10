@@ -10,9 +10,10 @@ import java.util.UUID;
  * <p>This interface is separate from {@link JobSchedulerService}, which is write-only. Callers that
  * only need to observe job state should depend only on this interface.
  *
- * <p>Authorization: implementations apply the configured {@code JobAuthorizationPolicy} on
- * single-job lookups. For list queries, the caller's principal is available to filter or redact
- * results, but per-row enforcement is not mandated by this contract.
+ * <p>Authorization: implementations apply the configured {@code JobAuthorizationPolicy} to {@link
+ * #getJobDetail(UUID)}. Denied detail reads are reported as {@link Optional#empty()}, the same as a
+ * missing job. For list and relationship queries, the caller's principal is available to filter or
+ * redact results, but per-row enforcement is not mandated by this contract.
  *
  * <p><b>Transaction attribute:</b> query operations are read-only. Implementations SHOULD avoid
  * opening a transaction for simple reads, but MAY use a read-only store transaction when the
@@ -23,6 +24,7 @@ import java.util.UUID;
 @Incubating
 public interface JobQueryService {
 
+  /** Default page size used by convenience query methods that do not accept a limit parameter. */
   int DEFAULT_PAGE_LIMIT = 100;
 
   /**
