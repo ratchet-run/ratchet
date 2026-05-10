@@ -22,6 +22,7 @@ import run.ratchet.testsuite.app.ConfigurableWorkJob;
 import run.ratchet.testsuite.app.FailingJob;
 import run.ratchet.testsuite.app.RecordingMetricsCollector;
 import run.ratchet.testsuite.app.TestJobService;
+import run.ratchet.testsuite.app.TestMetricsCollectorAdapter;
 import run.ratchet.testsuite.util.BaseRatchetIT;
 import run.ratchet.testsuite.util.JobAssertions;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
@@ -49,6 +50,7 @@ class MetricsCollectorSemanticsIT extends BaseRatchetIT {
         .addRatchetDependencies(profile, dbType)
         .addClasses(
             RecordingMetricsCollector.class,
+            TestMetricsCollectorAdapter.class,
             ConfigurableWorkJob.class,
             FailingJob.class,
             TestJobService.class)

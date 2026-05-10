@@ -70,7 +70,7 @@ class WorkflowBranchIT extends BaseRatchetIT {
         .untilAsserted(() -> assertTrue(WorkflowBranchTracker.successScenarioSuccessBranchFired()));
 
     assertPersistedBranchStatus(handle, "onSuccessScenarioSuccess", JobStatus.SUCCEEDED);
-    assertPersistedBranchStatus(handle, "onSuccessScenarioFailure", JobStatus.PENDING);
+    assertPersistedBranchStatus(handle, "onSuccessScenarioFailure", JobStatus.CANCELED);
 
     assertFalse(
         WorkflowBranchTracker.successScenarioFailureBranchFired(),
@@ -93,7 +93,7 @@ class WorkflowBranchIT extends BaseRatchetIT {
         .untilAsserted(() -> assertTrue(WorkflowBranchTracker.failureScenarioFailureBranchFired()));
 
     assertPersistedBranchStatus(handle, "onFailureScenarioFailure", JobStatus.SUCCEEDED);
-    assertPersistedBranchStatus(handle, "onFailureScenarioSuccess", JobStatus.PENDING);
+    assertPersistedBranchStatus(handle, "onFailureScenarioSuccess", JobStatus.CANCELED);
 
     assertFalse(
         WorkflowBranchTracker.failureScenarioSuccessBranchFired(),

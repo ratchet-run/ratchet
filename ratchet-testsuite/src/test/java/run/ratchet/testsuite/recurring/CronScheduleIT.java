@@ -12,12 +12,10 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobStatus;
-import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.testsuite.app.CronTestJobs;
@@ -31,8 +29,6 @@ class CronScheduleIT extends BaseRatchetIT {
   @Inject private TestJobService jobService;
 
   @Inject private JobCrudStore jobCrudStore;
-
-  @Inject private RecurringScheduler recurringScheduler;
 
   @Deployment
   public static WebArchive createDeployment() {
@@ -50,11 +46,6 @@ class CronScheduleIT extends BaseRatchetIT {
   @BeforeEach
   void resetTrackers() {
     CronTestJobs.reset();
-  }
-
-  @AfterEach
-  void stopRecurringScheduler() {
-    recurringScheduler.stop();
   }
 
   @Test
