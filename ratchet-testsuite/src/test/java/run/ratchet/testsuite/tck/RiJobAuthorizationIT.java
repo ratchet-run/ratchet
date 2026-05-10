@@ -8,9 +8,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import run.ratchet.tck.api.AbstractJobAuthorizationContract;
 import run.ratchet.tck.api.RatchetTckRuntime;
-import run.ratchet.tck.api.TckJobs;
-import run.ratchet.tck.util.ConcurrentTestRunner;
-import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /**
  * RI subclass of {@link AbstractJobAuthorizationContract}.
@@ -44,16 +41,6 @@ class RiJobAuthorizationIT extends AbstractJobAuthorizationContract {
 
   @Deployment
   public static WebArchive createDeployment() {
-    String dbType = System.getProperty("ratchet.test.db.type", "mysql");
-    String profile = System.getProperty("testsuite.profile", "wildfly-managed");
-
-    return RatchetArchiveBuilder.create()
-        .addRatchetDependencies(profile, dbType)
-        .addPackage(RatchetTckRuntime.class.getPackage())
-        .addPackage(ConcurrentTestRunner.class.getPackage())
-        .addClasses(RiRatchetTckRuntime.class, ListenerProbe.class, TckJobs.class)
-        .addStoreInfrastructure()
-        .addBeansXml()
-        .build();
+    return RiTckDeployment.create();
   }
 }

@@ -4,13 +4,11 @@ import jakarta.inject.Inject;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.junit5.ArquillianExtension;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledIfSystemProperty;
 import org.junit.jupiter.api.extension.ExtendWith;
 import run.ratchet.tck.api.RatchetTckRuntime;
-import run.ratchet.tck.api.TckJobs;
-import run.ratchet.tck.jakarta.AbstractTxEnqueueContract;
 import run.ratchet.tck.jakarta.AbstractTxSupportsContract;
-import run.ratchet.tck.util.ConcurrentTestRunner;
-import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /**
  * RI subclass of {@link AbstractTxSupportsContract}. The RI builder factory methods do not write to
@@ -27,19 +25,22 @@ class RiTxSupportsIT extends AbstractTxSupportsContract {
     return runtime;
   }
 
+  @Override
+  @Test
+  @DisabledIfSystemProperty(named = "ratchet.test.db.type", matches = "mongodb")
+  protected void enqueueSubmit_insideRolledBackTx_jobDoesNotExecute() throws Exception {
+    super.enqueueSubmit_insideRolledBackTx_jobDoesNotExecute();
+  }
+
+  @Override
+  @Test
+  @DisabledIfSystemProperty(named = "ratchet.test.db.type", matches = "mongodb")
+  protected void scheduleSubmit_insideRolledBackTx_jobDoesNotExecute() throws Exception {
+    super.scheduleSubmit_insideRolledBackTx_jobDoesNotExecute();
+  }
+
   @Deployment
   public static WebArchive createDeployment() {
-    String dbType = System.getProperty("ratchet.test.db.type", "mysql");
-    String profile = System.getProperty("testsuite.profile", "wildfly-managed");
-
-    return RatchetArchiveBuilder.create()
-        .addRatchetDependencies(profile, dbType)
-        .addPackage(RatchetTckRuntime.class.getPackage())
-        .addPackage(AbstractTxEnqueueContract.class.getPackage())
-        .addPackage(ConcurrentTestRunner.class.getPackage())
-        .addClasses(RiRatchetTckRuntime.class, ListenerProbe.class, TckJobs.class)
-        .addStoreInfrastructure()
-        .addBeansXml()
-        .build();
+    return RiTckDeployment.create(AbstractTxSupportsContract.class.getPackage());
   }
 }

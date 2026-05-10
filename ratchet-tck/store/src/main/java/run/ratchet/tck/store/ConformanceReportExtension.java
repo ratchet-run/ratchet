@@ -28,7 +28,7 @@ public class ConformanceReportExtension extends AbstractConformanceReportExtensi
    * diagnostic tooling.
    */
   public static String findContractSimpleName(String className) {
-    return findContractSimpleName(
+    return AbstractConformanceReportExtension.findContractSimpleName(
         className,
         contractName -> ConformanceLevel.forContract(contractName) != null,
         ConformanceReportExtension.class);
