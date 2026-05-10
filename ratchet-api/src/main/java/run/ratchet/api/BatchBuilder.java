@@ -7,6 +7,7 @@ import java.util.Collection;
  * Fluent builder for batch job execution with progress monitoring, conditional branching, and
  * failure handling.
  */
+@Incubating
 public interface BatchBuilder {
 
   /** Enqueues one child job per item in the collection, each processed by {@code action}. */

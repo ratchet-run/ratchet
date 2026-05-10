@@ -329,6 +329,7 @@ public class RatchetOptions {
   public record StoreOptions(
       IsolationCheckMode isolationCheckMode, int priorityBoostIntervalMinutes) {}
 
+  @Incubating
   public record CircuitBreakerOptions(
       boolean enabled, Map<CircuitBreakerProfile, CircuitBreakerProfileOptions> profiles) {
 
@@ -341,6 +342,7 @@ public class RatchetOptions {
     }
   }
 
+  @Incubating
   public record CircuitBreakerProfileOptions(
       float failureRateThreshold,
       int slidingWindowSize,
@@ -925,6 +927,7 @@ public class RatchetOptions {
     }
   }
 
+  @Incubating
   public static final class CircuitBreakerBuilder {
     private final Map<CircuitBreakerProfile, CircuitBreakerProfileBuilder> profiles =
         defaultCircuitBreakerProfiles();
@@ -958,6 +961,7 @@ public class RatchetOptions {
     }
   }
 
+  @Incubating
   public static final class CircuitBreakerProfileBuilder {
     private float failureRateThreshold = 50.0f;
     private int slidingWindowSize = 100;

@@ -13,5 +13,6 @@ import java.util.List;
  * @param offset the zero-based offset of this page
  * @param hasMore true if there are additional items beyond this page
  */
+@Incubating
 public record JobPage<T>(
     List<T> items, long totalCount, int limit, int offset, boolean hasMore, String nextCursor) {}

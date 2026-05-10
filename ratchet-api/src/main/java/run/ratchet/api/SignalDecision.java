@@ -10,7 +10,10 @@ import java.io.Serializable;
  * not by themselves decide job success or failure: a delivered decision still unblocks the job from
  * WAITING to PENDING, and the job body reads the decision from {@link
  * JobContext#signalPayload(Class)} and applies domain-specific behavior.
+ *
+ * @since 0.1
  */
+@Incubating
 public record SignalDecision(Outcome outcome, Serializable payload, String rejectionReason)
     implements Serializable {
 

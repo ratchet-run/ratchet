@@ -137,6 +137,7 @@ public final class RatchetOptionsFactory {
    * @param additional optional overlay sources consulted before MicroProfile Config / env vars
    * @return the fully-populated, immutable {@link RatchetOptions}
    */
+  @Incubating
   public static RatchetOptions fromEnvironment(RatchetConfigSource... additional) {
     List<RatchetConfigSource> sources = new ArrayList<>();
     for (RatchetConfigSource source : additional) {

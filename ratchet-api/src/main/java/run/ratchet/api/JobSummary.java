@@ -10,6 +10,7 @@ import java.util.UUID;
  * <p>All fields are derived from persisted state; none are computed at query time. For full detail
  * including execution history and parameters, use {@link JobDetail}.
  */
+@Incubating
 public record JobSummary(
     UUID id,
     JobStatus status,

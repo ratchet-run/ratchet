@@ -12,6 +12,7 @@ import java.util.UUID;
  * are capped at {@link JobQueryService#DEFAULT_PAGE_LIMIT}; use the paged query methods to walk
  * larger histories or dependency sets. For lightweight list views use {@link JobSummary} instead.
  */
+@Incubating
 public record JobDetail(
     JobSummary summary,
     Map<String, String> params,

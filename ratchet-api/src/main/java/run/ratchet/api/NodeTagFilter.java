@@ -14,6 +14,7 @@ import java.util.List;
  *
  * <p>Both lists empty ({@link #NONE}) means the node accepts all jobs.
  */
+@Incubating
 public record NodeTagFilter(List<String> requireTags, List<String> excludeTags) {
 
   public static final NodeTagFilter NONE = new NodeTagFilter(List.of(), List.of());

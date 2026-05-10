@@ -22,6 +22,7 @@ import java.util.UUID;
  *     .build();
  * }</pre>
  */
+@Incubating
 public record JobFilter(
     Set<JobStatus> statuses,
     Set<JobType> types,

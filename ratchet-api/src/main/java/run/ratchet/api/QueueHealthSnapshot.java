@@ -24,6 +24,7 @@ import java.util.Map;
  * @param pendingByType pending job count keyed by public job type
  * @param pendingByPriority pending job count keyed by priority
  */
+@Incubating
 public record QueueHealthSnapshot(
     long pendingCount,
     long runningCount,
