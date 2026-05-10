@@ -63,10 +63,7 @@ public @interface Recurring {
   /** Display name for monitoring and logs; defaults to the method name if not specified. */
   String name() default "";
 
-  /**
-   * Execution priority on a 1–10 scale, mapped by the RI to {@link JobPriority} buckets
-   * (1–2=LOWEST, 3–4=LOW, 5–6=NORMAL, 7–8=HIGH, 9–10=CRITICAL). Default 5 = NORMAL.
-   */
+  /** Execution priority on a 1-10 scale where 1 is lowest and 10 is highest. Default is 5. */
   int priority() default 5;
 
   /** Tags for filtering and categorization. */

@@ -10,8 +10,26 @@ import java.util.List;
  */
 public interface RecurringJobBuilder {
 
+  /**
+   * Replaces the recurring job options used for children created from this schedule.
+   *
+   * <p>The default is {@link JobOptions#defaults()}. This is an in-memory builder operation; it
+   * does not open a transaction.
+   *
+   * @param options non-null options to apply
+   * @throws NullPointerException if {@code options} is null
+   */
   RecurringJobBuilder withOptions(JobOptions options);
 
+  /**
+   * Replaces the recurring job tags.
+   *
+   * <p>The builder defensively copies the supplied list. Passing null clears the tags. Duplicate
+   * tags are not significant; backing stores may collapse duplicates when persisting tags.
+   *
+   * @param tags replacement tags, or null for no tags
+   * @throws NullPointerException if {@code tags} contains null elements
+   */
   RecurringJobBuilder withTags(List<String> tags);
 
   /**

@@ -23,17 +23,28 @@ public record SignalDecision(Outcome outcome, Serializable payload, String rejec
     if (outcome == null) {
       throw new IllegalArgumentException("outcome must not be null");
     }
-    if (outcome == Outcome.APPROVED && rejectionReason != null && !rejectionReason.isBlank()) {
-      throw new IllegalArgumentException("approved decisions cannot include a rejection reason");
-    }
     rejectionReason =
         rejectionReason == null || rejectionReason.isBlank() ? null : rejectionReason.trim();
+    if (outcome == Outcome.APPROVED && rejectionReason != null) {
+      throw new IllegalArgumentException("approved decisions cannot include a rejection reason");
+    }
+    if (outcome == Outcome.REJECTED && rejectionReason == null) {
+      throw new IllegalArgumentException("rejected decisions must include a rejection reason");
+    }
   }
 
+  /** Creates an approval decision with an optional serializable payload. */
   public static SignalDecision approved(Serializable payload) {
     return new SignalDecision(Outcome.APPROVED, payload, null);
   }
 
+  /**
+   * Creates a rejection decision.
+   *
+   * @param payload optional serializable payload
+   * @param rejectionReason non-blank human-readable rejection reason
+   * @throws IllegalArgumentException if {@code rejectionReason} is null or blank
+   */
   public static SignalDecision rejected(Serializable payload, String rejectionReason) {
     return new SignalDecision(Outcome.REJECTED, payload, rejectionReason);
   }

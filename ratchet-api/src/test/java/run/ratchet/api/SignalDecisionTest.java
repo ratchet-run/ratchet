@@ -49,10 +49,9 @@ class SignalDecisionTest {
   }
 
   @Test
-  void blankRejectionReasonNormalizesToNull() {
-    SignalDecision decision = SignalDecision.rejected(null, " ");
-
-    assertNull(decision.rejectionReason());
+  void rejectedDecisionRequiresReason() {
+    assertThrows(IllegalArgumentException.class, () -> SignalDecision.rejected(null, " "));
+    assertThrows(IllegalArgumentException.class, () -> SignalDecision.rejected(null, null));
   }
 
   @Test

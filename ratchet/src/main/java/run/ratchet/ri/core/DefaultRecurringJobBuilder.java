@@ -1,8 +1,8 @@
 package run.ratchet.ri.core;
 
 import java.time.ZoneId;
-import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobOptions;
 import run.ratchet.api.RecurringJobBuilder;
@@ -17,7 +17,7 @@ public class DefaultRecurringJobBuilder implements RecurringJobBuilder {
   private final RecurringJobSubmitter submitter;
 
   private JobOptions options = JobOptions.defaults();
-  private List<String> tags = new ArrayList<>();
+  private List<String> tags = List.of();
   private String businessKey;
 
   DefaultRecurringJobBuilder(
@@ -33,13 +33,13 @@ public class DefaultRecurringJobBuilder implements RecurringJobBuilder {
 
   @Override
   public RecurringJobBuilder withOptions(JobOptions options) {
-    this.options = options;
+    this.options = Objects.requireNonNull(options, "options must not be null");
     return this;
   }
 
   @Override
   public RecurringJobBuilder withTags(List<String> tags) {
-    this.tags = tags != null ? tags : new ArrayList<>();
+    this.tags = tags == null ? List.of() : List.copyOf(tags);
     return this;
   }
 

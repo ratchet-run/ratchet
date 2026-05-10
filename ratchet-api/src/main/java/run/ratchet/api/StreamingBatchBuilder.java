@@ -9,8 +9,8 @@ import java.util.stream.Stream;
  *
  * <p>Each item type must be {@link Serializable} because streaming batches persist chunk boundaries
  * and may replay individual items after failures. The stream itself is consumed by the builder and
- * is not serialized, but every emitted item and any batch callback supplied to this API must remain
- * serializable across scheduler restarts.
+ * is not serialized, but every emitted item and persisted batch callback must remain serializable
+ * across scheduler restarts.
  *
  * @param <T> the item type, must be {@link Serializable}
  */
@@ -22,11 +22,20 @@ public interface StreamingBatchBuilder<T extends Serializable> {
   /** Sets the processing action applied to each item; may throw checked exceptions. */
   StreamingBatchBuilder<T> process(SerializableCheckedConsumer<T> action);
 
-  /** Sets the number of items per chunk (must be positive). */
+  /**
+   * Sets the number of items per chunk.
+   *
+   * @param size positive chunk size
+   * @throws IllegalArgumentException if {@code size} is less than 1
+   */
   StreamingBatchBuilder<T> withChunkSize(int size);
 
   /**
-   * Attaches a progress hook invoked during stream consumption with current streaming metrics.
+   * Attaches a local progress hook invoked during stream consumption with current streaming
+   * metrics.
+   *
+   * <p>This hook is not serialized with the batch and does not run after handoff to another JVM.
+   * Use {@link #onBatchProgress(SerializableConsumer)} for persisted batch execution progress.
    *
    * @param hook receives a {@link StreamingBatchContext} with streaming progress
    */
@@ -61,9 +70,11 @@ public interface StreamingBatchBuilder<T extends Serializable> {
       SerializablePredicate<BatchContext> condition, SerializableCheckedRunnable next);
 
   /**
-   * Executes the given task when the failure count reaches the specified threshold.
+   * Executes the given task when the final failure count is less than or equal to {@code
+   * maxFailures}.
    *
-   * @param maxFailures failure count threshold
+   * @param maxFailures maximum allowed failures, must be non-negative
+   * @throws IllegalArgumentException if {@code maxFailures} is negative
    */
   StreamingBatchBuilder<T> thenWhenFailureCount(int maxFailures, SerializableCheckedRunnable next);
 
