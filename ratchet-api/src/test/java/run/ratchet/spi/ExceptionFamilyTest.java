@@ -42,6 +42,15 @@ class ExceptionFamilyTest {
   }
 
   @Test
+  void classifyPreservesFamilyPriorityAcrossCauseChain() {
+    ExceptionFamily family =
+        ExceptionFamily.classify(
+            new IllegalArgumentException("bad input", new RatchetTransientStoreException("retry")));
+
+    assertEquals(ExceptionFamily.TRANSIENT, family);
+  }
+
+  @Test
   void classifyValidationForIllegalArgumentException() {
     assertEquals(
         ExceptionFamily.VALIDATION,
@@ -70,10 +79,23 @@ class ExceptionFamilyTest {
     assertEquals(ExceptionFamily.UNKNOWN, ExceptionFamily.classify(new NullPointerException()));
   }
 
+  @Test
+  void classifyTerminatesOnCyclicCauseChain() {
+    assertEquals(ExceptionFamily.UNKNOWN, ExceptionFamily.classify(new SelfCausedError()));
+  }
+
   private static final class OrderRejectedException extends RuntimeException {
 
     private OrderRejectedException(String message) {
       super(message);
+    }
+  }
+
+  private static final class SelfCausedError extends Error {
+
+    @Override
+    public synchronized Throwable getCause() {
+      return this;
     }
   }
 

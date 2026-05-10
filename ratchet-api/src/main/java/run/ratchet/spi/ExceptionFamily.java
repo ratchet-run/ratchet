@@ -2,8 +2,10 @@ package run.ratchet.spi;
 
 import java.net.SocketTimeoutException;
 import java.nio.channels.InterruptedByTimeoutException;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.Set;
 import java.util.concurrent.TimeoutException;
-import java.util.function.Predicate;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 
 /** Bounded exception families for metrics tags. */
@@ -18,30 +20,30 @@ public enum ExceptionFamily {
     if (throwable == null) {
       return UNKNOWN;
     }
-    if (hasCause(throwable, ExceptionFamily::isTimeout)) {
-      return TIMEOUT;
+    Set<Throwable> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+    boolean transientSeen = false;
+    boolean validationSeen = false;
+    boolean businessSeen = false;
+    Throwable current = throwable;
+    while (current != null && seen.add(current)) {
+      if (isTimeout(current)) {
+        return TIMEOUT;
+      }
+      transientSeen |= isTransient(current);
+      validationSeen |= isValidation(current);
+      businessSeen |= isBusiness(current);
+      current = current.getCause();
     }
-    if (hasCause(throwable, ExceptionFamily::isTransient)) {
+    if (transientSeen) {
       return TRANSIENT;
     }
-    if (hasCause(throwable, ExceptionFamily::isValidation)) {
+    if (validationSeen) {
       return VALIDATION;
     }
-    if (hasCause(throwable, ExceptionFamily::isBusiness)) {
+    if (businessSeen) {
       return BUSINESS;
     }
     return UNKNOWN;
-  }
-
-  private static boolean hasCause(Throwable throwable, Predicate<Throwable> test) {
-    Throwable current = throwable;
-    while (current != null) {
-      if (test.test(current)) {
-        return true;
-      }
-      current = current.getCause();
-    }
-    return false;
   }
 
   private static boolean isTimeout(Throwable throwable) {
