@@ -4,7 +4,12 @@ import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.id.UuidV7Factory;
@@ -24,17 +29,19 @@ final class MysqlArchiveOperations implements ArchiveStore {
       original_created_at, first_execution_time, completion_time,
       total_execution_time_ms, queue_wait_ms, archived_at, archived_by, archive_reason,
       job_result, result_type, final_error, payload_summary, depended_on, superseded_by,
-      tags
-      """;
+	      tags
+	      """;
+
+  private static final String ARCHIVE_VALUE_PLACEHOLDERS =
+      "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
   // language=MySQL
   private static final String INSERT_ARCHIVE_SQL =
       """
       INSERT INTO scheduler_job_archive (%s)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES %s
       """
-          .formatted(ARCHIVE_COLUMNS);
+          .formatted(ARCHIVE_COLUMNS, ARCHIVE_VALUE_PLACEHOLDERS);
 
   private final MysqlStoreContext ctx;
   private final MysqlJobRowMapper mapper;
@@ -61,8 +68,7 @@ final class MysqlArchiveOperations implements ArchiveStore {
     }
   }
 
-  private static void setArchiveParameters(Query query, ArchivedJobEntity archive) {
-    int parameter = 1;
+  private static int setArchiveParameters(Query query, ArchivedJobEntity archive, int parameter) {
     query.setParameter(parameter++, UuidByteArrayConverter.toBytes(archive.getId()));
     query.setParameter(parameter++, UuidByteArrayConverter.toBytes(archive.getOriginalJobId()));
     query.setParameter(parameter++, archive.getFinalStatus().name());
@@ -93,7 +99,8 @@ final class MysqlArchiveOperations implements ArchiveStore {
     query.setParameter(parameter++, archive.getPayloadSummary());
     query.setParameter(parameter++, UuidByteArrayConverter.toBytes(archive.getDependedOn()));
     query.setParameter(parameter++, UuidByteArrayConverter.toBytes(archive.getSupersededBy()));
-    query.setParameter(parameter, archive.getTags());
+    query.setParameter(parameter++, archive.getTags());
+    return parameter;
   }
 
   private static Timestamp timestampOrNull(Instant instant) {
@@ -111,24 +118,54 @@ final class MysqlArchiveOperations implements ArchiveStore {
     ArchivedJobEntity archive = ArchiveHelper.buildArchive(hydrated, reason, archivedBy);
     prepareArchive(archive);
     Query query = ctx.em().createNativeQuery(INSERT_ARCHIVE_SQL);
-    setArchiveParameters(query, archive);
+    setArchiveParameters(query, archive, 1);
     query.executeUpdate();
     return archive;
   }
 
   /**
-   * Archives each supplied terminal job in the caller's store transaction.
+   * Archives all supplied terminal jobs in the caller's store transaction using a single multi-row
+   * insert.
    *
-   * @return number of jobs archived before any exception is raised
+   * @return number of archive rows inserted
    */
   @Override
   public int archiveJobsBatch(List<JobEntity> jobsToArchive, String reason, String archivedBy) {
-    int count = 0;
-    for (JobEntity job : jobsToArchive) {
-      archiveJob(job, reason, archivedBy);
-      count++;
+    if (jobsToArchive.isEmpty()) {
+      return 0;
     }
-    return count;
+
+    List<UUID> ids = jobsToArchive.stream().map(JobEntity::getId).toList();
+    Map<UUID, JobEntity> hydratedById =
+        jobs.findByIds(ids).stream()
+            .collect(Collectors.toMap(JobEntity::getId, Function.identity()));
+    List<ArchivedJobEntity> archives = new ArrayList<>(jobsToArchive.size());
+    for (UUID id : ids) {
+      JobEntity hydrated = hydratedById.get(id);
+      if (hydrated == null) {
+        throw new IllegalStateException("Job not found for archival: " + id);
+      }
+      ArchivedJobEntity archive = ArchiveHelper.buildArchive(hydrated, reason, archivedBy);
+      prepareArchive(archive);
+      archives.add(archive);
+    }
+
+    String rows =
+        String.join(",", Collections.nCopies(archives.size(), ARCHIVE_VALUE_PLACEHOLDERS));
+    Query query =
+        ctx.em()
+            .createNativeQuery(
+                """
+                INSERT INTO scheduler_job_archive (%s)
+                VALUES %s
+                """
+                    .formatted(ARCHIVE_COLUMNS, rows));
+    int parameter = 1;
+    for (ArchivedJobEntity archive : archives) {
+      parameter = setArchiveParameters(query, archive, parameter);
+    }
+    query.executeUpdate();
+    return archives.size();
   }
 
   @Override
