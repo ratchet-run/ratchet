@@ -4,7 +4,6 @@ import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
@@ -42,32 +41,16 @@ final class PostgresqlJobDeleteOperations {
 
   int deleteDlqOlderThan(Instant cutoff) {
     // language=PostgreSQL
-    String selectSql =
+    String deleteSql =
         """
-        SELECT job_id FROM scheduler_job
+        DELETE FROM scheduler_job
         WHERE terminal_status = 'FAILED' AND total_attempts >= max_retries
           AND terminated_at < ?
         """;
-    @SuppressWarnings("unchecked")
-    List<?> idRows =
-        ctx.em()
-            .createNativeQuery(selectSql)
-            .setParameter(1, Timestamp.from(cutoff))
-            .getResultList();
-    if (idRows.isEmpty()) {
-      return 0;
-    }
-    List<UUID> ids = new ArrayList<>(idRows.size());
-    for (Object n : idRows) {
-      ids.add(PostgresqlJobRowMapper.uuidOrNull(n));
-    }
-    reservations.deleteReservationsByOwners(ids);
-    String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
-    // language=PostgreSQL
-    String deleteSql = "DELETE FROM scheduler_job WHERE job_id IN (" + placeholders + ")";
-    Query jobDelete = ctx.em().createNativeQuery(deleteSql);
-    bindUuidParameters(jobDelete, ids);
-    return jobDelete.executeUpdate();
+    return ctx.em()
+        .createNativeQuery(deleteSql)
+        .setParameter(1, Timestamp.from(cutoff))
+        .executeUpdate();
   }
 
   private static void bindUuidParameters(Query query, List<UUID> ids) {

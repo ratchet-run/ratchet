@@ -118,6 +118,30 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
   }
 
   @Test
+  void deleteDlqOlderThan_removesOnlyExhaustedTerminalFailures() {
+    JobEntity exhausted = newPendingJob();
+    exhausted.setMaxRetries(1);
+    exhausted = persist(exhausted);
+    store().compareAndSwapStatus(exhausted.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+    store().markJobFailedTerminal(exhausted.getId(), "boom", 1);
+
+    JobEntity retryable = newPendingJob();
+    retryable.setMaxRetries(3);
+    retryable = persist(retryable);
+    store().compareAndSwapStatus(retryable.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+    store().markJobFailedTerminal(retryable.getId(), "retry later", 1);
+
+    var pending = persist(newPendingJob());
+
+    int deleted = store().deleteDlqOlderThan(Instant.now().plusSeconds(1));
+
+    assertEquals(1, deleted, "Only exhausted terminal failures should be purged");
+    assertTrue(store().findById(exhausted.getId()).isEmpty(), "Exhausted failure is deleted");
+    assertTrue(store().findById(retryable.getId()).isPresent(), "Retryable failure remains");
+    assertTrue(store().findById(pending.getId()).isPresent(), "Pending job remains");
+  }
+
+  @Test
   void resetOrphanJobsForNode_reclaimsOwnRunningRowsUnconditionally() {
     // Startup self-recovery: our node had two RUNNING rows picked a moment ago. Even though
     // their picked_at is well inside any reasonable grace window, they must be reclaimed on
