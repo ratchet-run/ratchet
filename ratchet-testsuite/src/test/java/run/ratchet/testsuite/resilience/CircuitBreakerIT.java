@@ -18,6 +18,7 @@ import org.jboss.arquillian.junit5.ArquillianExtension;
 import org.jboss.shrinkwrap.api.ShrinkWrap;
 import org.jboss.shrinkwrap.api.asset.StringAsset;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
+import org.jboss.shrinkwrap.resolver.api.maven.Maven;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -75,6 +76,12 @@ public class CircuitBreakerIT {
             CircuitBreakerConfiguration.class,
             CircuitBreakerRegistry.class,
             ServiceUnavailableException.class)
+        .addAsLibraries(
+            Maven.configureResolver()
+                .loadPomFromFile("pom.xml")
+                .resolve("org.awaitility:awaitility", "org.jboss.logging:jboss-logging")
+                .withTransitivity()
+                .asFile())
         .addAsWebInfResource(new StringAsset(BEANS_XML), "beans.xml");
   }
 
