@@ -3,6 +3,7 @@ package run.ratchet.store.id;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -100,5 +101,48 @@ class UuidV7FactoryTest {
       UUID b = ids[i];
       assertTrue(b.compareTo(a) > 0, () -> "IDs not strictly increasing across overflow");
     }
+  }
+
+  @Test
+  void clockBackwardStepPreservesMonotonicTimestampAndCounter() throws Exception {
+    Field lockField = UuidV7Factory.class.getDeclaredField("LOCK");
+    lockField.setAccessible(true);
+    Object lock = lockField.get(null);
+
+    Field lastTimestampField = UuidV7Factory.class.getDeclaredField("lastTimestampMs");
+    lastTimestampField.setAccessible(true);
+    Field counterField = UuidV7Factory.class.getDeclaredField("counter");
+    counterField.setAccessible(true);
+
+    long originalTimestamp;
+    int originalCounter;
+    long futureTimestamp = System.currentTimeMillis() + 10_000L;
+    int previousCounter = 7;
+    synchronized (lock) {
+      originalTimestamp = lastTimestampField.getLong(null);
+      originalCounter = counterField.getInt(null);
+      lastTimestampField.setLong(null, futureTimestamp);
+      counterField.setInt(null, previousCounter);
+    }
+
+    try {
+      UUID id = UuidV7Factory.create();
+
+      assertEquals(futureTimestamp, timestampFrom(id));
+      assertEquals(previousCounter + 1, counterFrom(id));
+    } finally {
+      synchronized (lock) {
+        lastTimestampField.setLong(null, originalTimestamp);
+        counterField.setInt(null, originalCounter);
+      }
+    }
+  }
+
+  private static long timestampFrom(UUID id) {
+    return (id.getMostSignificantBits() >>> 16) & 0xFFFF_FFFF_FFFFL;
+  }
+
+  private static int counterFrom(UUID id) {
+    return (int) (id.getMostSignificantBits() & 0x0FFFL);
   }
 }
