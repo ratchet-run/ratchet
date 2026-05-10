@@ -1,7 +1,9 @@
 package run.ratchet.store.spi;
 
 import java.time.Instant;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import run.ratchet.api.Incubating;
@@ -73,8 +75,32 @@ public interface JobCrudStore {
   /** Counts pending jobs at the supplied priority. */
   long countPendingJobsByPriority(JobPriority priority);
 
+  /** Counts pending jobs grouped by priority. */
+  default Map<JobPriority, Long> countPendingJobsByPriorities() {
+    Map<JobPriority, Long> counts = new EnumMap<>(JobPriority.class);
+    for (JobPriority priority : JobPriority.values()) {
+      long count = countPendingJobsByPriority(priority);
+      if (count > 0) {
+        counts.put(priority, count);
+      }
+    }
+    return counts;
+  }
+
   /** Counts pending jobs of the supplied type. */
   long countPendingJobsByType(JobExecutionType jobType);
+
+  /** Counts pending jobs grouped by internal execution type. */
+  default Map<JobExecutionType, Long> countPendingJobsByTypes() {
+    Map<JobExecutionType, Long> counts = new EnumMap<>(JobExecutionType.class);
+    for (JobExecutionType jobType : JobExecutionType.values()) {
+      long count = countPendingJobsByType(jobType);
+      if (count > 0) {
+        counts.put(jobType, count);
+      }
+    }
+    return counts;
+  }
 
   /** Counts jobs in a status whose last update was at or after the supplied instant. */
   long countJobsByStatusSince(JobStatus status, Instant since);

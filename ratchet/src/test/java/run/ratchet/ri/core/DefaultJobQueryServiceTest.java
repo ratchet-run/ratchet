@@ -393,22 +393,10 @@ class DefaultJobQueryServiceTest {
     when(crudStore.getAverageProcessingTime(any())).thenReturn(250.0);
     when(crudStore.getQueueWaitTimePercentile(0.95)).thenReturn(500L);
     when(crudStore.getOldestPendingJobTime()).thenReturn(Optional.of(oldestPending));
-    when(crudStore.countPendingJobsByType(any()))
-        .thenAnswer(
-            inv ->
-                switch (inv.getArgument(0, JobExecutionType.class)) {
-                  case SINGLE -> 2L;
-                  case BATCH_CHILD -> 3L;
-                  default -> 0L;
-                });
-    when(crudStore.countPendingJobsByPriority(any()))
-        .thenAnswer(
-            inv ->
-                switch (inv.getArgument(0, JobPriority.class)) {
-                  case HIGH -> 7L;
-                  case CRITICAL -> 8L;
-                  default -> 0L;
-                });
+    when(crudStore.countPendingJobsByTypes())
+        .thenReturn(Map.of(JobExecutionType.SINGLE, 2L, JobExecutionType.BATCH_CHILD, 3L));
+    when(crudStore.countPendingJobsByPriorities())
+        .thenReturn(Map.of(JobPriority.HIGH, 7L, JobPriority.CRITICAL, 8L));
 
     QueueHealthSnapshot snapshot = service.getQueueHealth();
 
@@ -427,6 +415,8 @@ class DefaultJobQueryServiceTest {
     assertEquals(Map.of(JobType.SINGLE, 2L, JobType.BATCH, 3L), snapshot.pendingByType());
     assertEquals(
         Map.of(JobPriority.HIGH, 7L, JobPriority.CRITICAL, 8L), snapshot.pendingByPriority());
+    verify(crudStore, never()).countPendingJobsByType(any());
+    verify(crudStore, never()).countPendingJobsByPriority(any());
   }
 
   // ── helpers ─────────────────────────────────────────────────────────────

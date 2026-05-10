@@ -3,6 +3,7 @@ package run.ratchet.store.postgresql;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import run.ratchet.api.JobPriority;
@@ -132,8 +133,18 @@ final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore {
   }
 
   @Override
+  public Map<JobPriority, Long> countPendingJobsByPriorities() {
+    return counts.countPendingJobsByPriorities();
+  }
+
+  @Override
   public long countPendingJobsByType(JobExecutionType jobType) {
     return counts.countPendingJobsByType(jobType);
+  }
+
+  @Override
+  public Map<JobExecutionType, Long> countPendingJobsByTypes() {
+    return counts.countPendingJobsByTypes();
   }
 
   @Override

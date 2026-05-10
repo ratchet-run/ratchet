@@ -41,7 +41,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.bson.Document;
@@ -258,8 +260,46 @@ final class MongoJobCrudOperations {
         .countDocuments(and(eq(STATUS, STATUS_PENDING), eq(PRIORITY, priority.ordinal())));
   }
 
+  Map<JobPriority, Long> countPendingJobsByPriorities() {
+    List<Document> pipeline =
+        List.of(
+            new Document("$match", new Document(STATUS, STATUS_PENDING)),
+            new Document(
+                "$group",
+                new Document(ID, "$" + PRIORITY).append("count", new Document("$sum", 1))));
+    Map<JobPriority, Long> counts = new EnumMap<>(JobPriority.class);
+    JobPriority[] values = JobPriority.values();
+    for (Document doc : ctx.jobs().aggregate(pipeline)) {
+      Object rawPriority = doc.get(ID);
+      if (rawPriority instanceof Number priority) {
+        int ordinal = priority.intValue();
+        if (ordinal >= 0 && ordinal < values.length) {
+          counts.put(values[ordinal], numberField(doc, "count").longValue());
+        }
+      }
+    }
+    return counts;
+  }
+
   long countPendingJobsByType(JobExecutionType jobType) {
     return ctx.jobs().countDocuments(and(eq(STATUS, STATUS_PENDING), eq(JOB_TYPE, jobType.name())));
+  }
+
+  Map<JobExecutionType, Long> countPendingJobsByTypes() {
+    List<Document> pipeline =
+        List.of(
+            new Document("$match", new Document(STATUS, STATUS_PENDING)),
+            new Document(
+                "$group",
+                new Document(ID, "$" + JOB_TYPE).append("count", new Document("$sum", 1))));
+    Map<JobExecutionType, Long> counts = new EnumMap<>(JobExecutionType.class);
+    for (Document doc : ctx.jobs().aggregate(pipeline)) {
+      Object rawType = doc.get(ID);
+      if (rawType instanceof String type) {
+        counts.put(JobExecutionType.valueOf(type), numberField(doc, "count").longValue());
+      }
+    }
+    return counts;
   }
 
   long countJobsByStatusSince(JobStatus status, Instant since) {

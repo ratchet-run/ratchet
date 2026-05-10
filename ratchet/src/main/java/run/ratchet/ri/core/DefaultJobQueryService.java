@@ -24,7 +24,6 @@ import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.query.JobQueryCursor;
 import run.ratchet.store.spi.ExecutionStore;
 import run.ratchet.store.spi.JobCrudStore;
@@ -180,20 +179,12 @@ public class DefaultJobQueryService implements JobQueryService {
     Instant since = now.minusSeconds(3600);
 
     Map<JobType, Long> pendingByType = new EnumMap<>(JobType.class);
-    for (JobExecutionType execType : JobExecutionType.values()) {
-      long count = crudStore.countPendingJobsByType(execType);
-      if (count > 0) {
-        pendingByType.merge(execType.toPublicType(), count, Long::sum);
-      }
-    }
+    crudStore
+        .countPendingJobsByTypes()
+        .forEach((type, count) -> pendingByType.merge(type.toPublicType(), count, Long::sum));
 
     Map<JobPriority, Long> pendingByPriority = new EnumMap<>(JobPriority.class);
-    for (JobPriority priority : JobPriority.values()) {
-      long count = crudStore.countPendingJobsByPriority(priority);
-      if (count > 0) {
-        pendingByPriority.put(priority, count);
-      }
-    }
+    pendingByPriority.putAll(crudStore.countPendingJobsByPriorities());
 
     return new QueueHealthSnapshot(
         crudStore.countJobsByStatus(JobStatus.PENDING),

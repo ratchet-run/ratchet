@@ -179,8 +179,18 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
+  public Map<JobPriority, Long> countPendingJobsByPriorities() {
+    return crud.countPendingJobsByPriorities();
+  }
+
+  @Override
   public long countPendingJobsByType(JobExecutionType jobType) {
     return crud.countPendingJobsByType(jobType);
+  }
+
+  @Override
+  public Map<JobExecutionType, Long> countPendingJobsByTypes() {
+    return crud.countPendingJobsByTypes();
   }
 
   @Override

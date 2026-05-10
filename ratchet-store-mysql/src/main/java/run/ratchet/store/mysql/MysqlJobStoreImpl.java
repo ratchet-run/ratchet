@@ -179,8 +179,18 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   }
 
   @Override
+  public Map<JobPriority, Long> countPendingJobsByPriorities() {
+    return jobs.countPendingJobsByPriorities();
+  }
+
+  @Override
   public long countPendingJobsByType(JobExecutionType jobType) {
     return jobs.countPendingJobsByType(jobType);
+  }
+
+  @Override
+  public Map<JobExecutionType, Long> countPendingJobsByTypes() {
+    return jobs.countPendingJobsByTypes();
   }
 
   @Override

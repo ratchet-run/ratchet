@@ -2,7 +2,9 @@ package run.ratchet.store.mysql;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
@@ -97,6 +99,28 @@ final class MysqlJobCountOperations {
     return ctx.countByNative(sql, priority.ordinal());
   }
 
+  @SuppressWarnings("unchecked")
+  Map<JobPriority, Long> countPendingJobsByPriorities() {
+    // language=MySQL
+    String sql =
+        """
+        SELECT priority, COUNT(*)
+        FROM scheduler_job_queue
+        WHERE status = 'PENDING'
+        GROUP BY priority
+        """;
+    List<Object[]> rows = ctx.em().createNativeQuery(sql).getResultList();
+    Map<JobPriority, Long> counts = new EnumMap<>(JobPriority.class);
+    JobPriority[] values = JobPriority.values();
+    for (Object[] row : rows) {
+      int ordinal = ((Number) row[0]).intValue();
+      if (ordinal >= 0 && ordinal < values.length) {
+        counts.put(values[ordinal], ((Number) row[1]).longValue());
+      }
+    }
+    return counts;
+  }
+
   long countPendingJobsByType(JobExecutionType jobType) {
     // language=MySQL
     String sql =
@@ -105,6 +129,24 @@ final class MysqlJobCountOperations {
         WHERE status = 'PENDING' AND job_type = ?
         """;
     return ctx.countByNative(sql, jobType.name());
+  }
+
+  @SuppressWarnings("unchecked")
+  Map<JobExecutionType, Long> countPendingJobsByTypes() {
+    // language=MySQL
+    String sql =
+        """
+        SELECT job_type, COUNT(*)
+        FROM scheduler_job_queue
+        WHERE status = 'PENDING'
+        GROUP BY job_type
+        """;
+    List<Object[]> rows = ctx.em().createNativeQuery(sql).getResultList();
+    Map<JobExecutionType, Long> counts = new EnumMap<>(JobExecutionType.class);
+    for (Object[] row : rows) {
+      counts.put(JobExecutionType.valueOf((String) row[0]), ((Number) row[1]).longValue());
+    }
+    return counts;
   }
 
   long countJobsByStatusSince(JobStatus status, Instant since) {

@@ -9,12 +9,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.tck.util.ConcurrentTestRunner;
 
 /** Base contract tests for {@code JobCrudStore}. */
@@ -213,6 +216,48 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
     long count = store().countPendingJobs();
 
     assertEquals(3L, count, "countPendingJobs should count only PENDING jobs");
+  }
+
+  @Test
+  void countPendingJobsByPriorities_returnsGroupedPendingCounts() {
+    JobEntity high = newPendingJob();
+    high.setPriority(JobPriority.HIGH);
+    persist(high);
+
+    JobEntity critical = newPendingJob();
+    critical.setPriority(JobPriority.CRITICAL);
+    persist(critical);
+
+    JobEntity running = newPendingJob();
+    running.setPriority(JobPriority.HIGH);
+    JobEntity savedRunning = persist(running);
+    store().compareAndSwapStatus(savedRunning.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+
+    Map<JobPriority, Long> counts = store().countPendingJobsByPriorities();
+
+    assertEquals(1L, counts.get(JobPriority.HIGH));
+    assertEquals(1L, counts.get(JobPriority.CRITICAL));
+  }
+
+  @Test
+  void countPendingJobsByTypes_returnsGroupedPendingCounts() {
+    JobEntity single = newPendingJob();
+    single.setJobType(JobExecutionType.SINGLE);
+    persist(single);
+
+    JobEntity child = newPendingJob();
+    child.setJobType(JobExecutionType.BATCH_CHILD);
+    persist(child);
+
+    JobEntity running = newPendingJob();
+    running.setJobType(JobExecutionType.SINGLE);
+    JobEntity savedRunning = persist(running);
+    store().compareAndSwapStatus(savedRunning.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+
+    Map<JobExecutionType, Long> counts = store().countPendingJobsByTypes();
+
+    assertEquals(1L, counts.get(JobExecutionType.SINGLE));
+    assertEquals(1L, counts.get(JobExecutionType.BATCH_CHILD));
   }
 
   @Test
