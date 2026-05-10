@@ -29,4 +29,8 @@ public record JobSummary(
     String lastError,
     int attempts,
     int maxRetries,
-    UUID dependsOn) {}
+    UUID dependsOn) {
+  public JobSummary {
+    tags = tags == null ? null : List.copyOf(tags);
+  }
+}

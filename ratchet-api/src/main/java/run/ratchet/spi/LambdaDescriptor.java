@@ -12,6 +12,15 @@ public record LambdaDescriptor(
     String methodDescriptor,
     boolean isStatic,
     Object[] capturedArgs) {
+  public LambdaDescriptor {
+    capturedArgs = capturedArgs == null ? null : Arrays.copyOf(capturedArgs, capturedArgs.length);
+  }
+
+  @Override
+  public Object[] capturedArgs() {
+    return capturedArgs == null ? null : Arrays.copyOf(capturedArgs, capturedArgs.length);
+  }
+
   @Override
   public boolean equals(Object o) {
     if (!(o instanceof LambdaDescriptor that)) return false;

@@ -8,6 +8,7 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serial;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -102,6 +103,18 @@ class JobResultTest {
     assertEquals(start, result.getStartTime());
     assertEquals(end, result.getEndTime());
     assertEquals(meta, result.getMetadata());
+  }
+
+  @Test
+  void metadataIsDefensivelyCopied() {
+    Map<String, Object> meta = new HashMap<>();
+    meta.put("key", "value");
+
+    JobResult<String> result = JobResult.of(true, "done", null, null, null, null, null, meta);
+    meta.put("key", "changed");
+
+    assertEquals("value", result.getMetadata("key"));
+    assertThrows(UnsupportedOperationException.class, () -> result.getMetadata().put("x", "y"));
   }
 
   @Test

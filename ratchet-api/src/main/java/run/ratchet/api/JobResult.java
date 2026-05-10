@@ -52,7 +52,7 @@ public class JobResult<T> implements Serializable {
     this.executionTimeMs = executionTimeMs;
     this.startTime = startTime;
     this.endTime = endTime;
-    this.metadata = metadata;
+    this.metadata = metadata == null ? null : Map.copyOf(metadata);
   }
 
   /** Creates a successful result with the given return value. */

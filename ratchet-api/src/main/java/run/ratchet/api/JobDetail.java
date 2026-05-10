@@ -22,4 +22,11 @@ public record JobDetail(
     Long executionDurationMs,
     Long queueWaitMs,
     List<ExecutionHistorySummary> executionHistory,
-    List<UUID> dependantJobIds) {}
+    List<UUID> dependantJobIds) {
+  public JobDetail {
+    params = params == null ? null : Map.copyOf(params);
+    traceContext = traceContext == null ? null : Map.copyOf(traceContext);
+    executionHistory = executionHistory == null ? null : List.copyOf(executionHistory);
+    dependantJobIds = dependantJobIds == null ? null : List.copyOf(dependantJobIds);
+  }
+}

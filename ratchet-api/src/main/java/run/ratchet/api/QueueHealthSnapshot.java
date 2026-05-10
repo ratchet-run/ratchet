@@ -38,4 +38,9 @@ public record QueueHealthSnapshot(
     long p95QueueWaitMs,
     @Nullable Instant oldestPendingJobTime,
     Map<JobType, Long> pendingByType,
-    Map<JobPriority, Long> pendingByPriority) {}
+    Map<JobPriority, Long> pendingByPriority) {
+  public QueueHealthSnapshot {
+    pendingByType = pendingByType == null ? null : Map.copyOf(pendingByType);
+    pendingByPriority = pendingByPriority == null ? null : Map.copyOf(pendingByPriority);
+  }
+}
