@@ -7,12 +7,12 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import run.ratchet.loadtest.api.ResetResponse;
-import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobBulkStore;
 
 @ApplicationScoped
 public class LoadTestResetService {
 
-  @Inject JobCrudStore jobStore;
+  @Inject JobBulkStore jobStore;
   @Inject RunRegistry runRegistry;
   @Inject RunStatusService runStatusService;
 
@@ -38,11 +38,9 @@ public class LoadTestResetService {
 
   private int deleteRun(String runId) {
     List<UUID> jobIds = runStatusService.findJobIds(runId);
-    int deleted = 0;
-    for (UUID jobId : jobIds) {
-      jobStore.delete(jobId);
-      deleted++;
+    if (jobIds.isEmpty()) {
+      return 0;
     }
-    return deleted;
+    return jobStore.deleteJobsByIds(jobIds);
   }
 }
