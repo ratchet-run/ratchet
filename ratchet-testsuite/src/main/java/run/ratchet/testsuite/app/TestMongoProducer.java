@@ -11,7 +11,7 @@ import run.ratchet.store.mongodb.MongoClientFactory;
 @ApplicationScoped
 public class TestMongoProducer {
 
-  private MongoClient client;
+  private volatile MongoClient client;
 
   @Produces
   @ApplicationScoped

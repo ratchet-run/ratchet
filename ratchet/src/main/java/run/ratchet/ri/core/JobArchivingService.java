@@ -43,11 +43,11 @@ public class JobArchivingService {
   private final SingletonLeaseService singletonLeaseService;
   private final ExecutorProvider executorProvider;
 
-  private Duration retentionPeriod;
-  private int batchSize;
-  private Cron cron;
-  private ZoneId zone;
-  private boolean enabled;
+  private volatile Duration retentionPeriod;
+  private volatile int batchSize;
+  private volatile Cron cron;
+  private volatile ZoneId zone;
+  private volatile boolean enabled;
 
   private volatile boolean stopped = false;
 

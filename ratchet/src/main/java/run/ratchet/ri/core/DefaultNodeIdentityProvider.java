@@ -55,8 +55,8 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
   private final String explicitNodeId;
   private final Object heartbeatLifecycleMonitor = new Object();
 
-  private ScheduledFuture<?> heartbeatHandle;
-  private String nodeId;
+  private volatile ScheduledFuture<?> heartbeatHandle;
+  private volatile String nodeId;
 
   protected DefaultNodeIdentityProvider() {
     this.nodeStore = null;

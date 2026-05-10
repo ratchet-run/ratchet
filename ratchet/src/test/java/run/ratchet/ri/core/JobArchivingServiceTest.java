@@ -14,6 +14,7 @@ import com.cronutils.model.Cron;
 import com.cronutils.model.CronType;
 import com.cronutils.model.definition.CronDefinitionBuilder;
 import com.cronutils.parser.CronParser;
+import java.lang.reflect.Modifier;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -266,6 +267,22 @@ class JobArchivingServiceTest {
     service.run();
 
     verify(archiveStore).purgeArchivedJobs(any());
+  }
+
+  @Test
+  void schedulerConfigurationReadByWorkerThreads_isVolatile() throws Exception {
+    Assertions.assertTrue(
+        Modifier.isVolatile(JobArchivingService.class.getDeclaredField("enabled").getModifiers()));
+    Assertions.assertTrue(
+        Modifier.isVolatile(JobArchivingService.class.getDeclaredField("cron").getModifiers()));
+    Assertions.assertTrue(
+        Modifier.isVolatile(JobArchivingService.class.getDeclaredField("zone").getModifiers()));
+    Assertions.assertTrue(
+        Modifier.isVolatile(
+            JobArchivingService.class.getDeclaredField("retentionPeriod").getModifiers()));
+    Assertions.assertTrue(
+        Modifier.isVolatile(
+            JobArchivingService.class.getDeclaredField("batchSize").getModifiers()));
   }
 
   @Test
