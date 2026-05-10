@@ -2,6 +2,7 @@ package run.ratchet.store.mongodb;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.mongodb.MongoCommandException;
@@ -114,8 +115,34 @@ class MongoConstraintDetectorTest {
   }
 
   @Test
+  void detectsWriteConflictFromWriteExceptionAsDeadlock() {
+    assertTrue(detector.isDeadlock(writeException(112, "WriteConflict")));
+  }
+
+  @Test
   void ignoresNonDeadlockMongoCommandException() {
     assertFalse(detector.isDeadlock(commandException(50, "ExceededTimeLimit")));
+  }
+
+  @Test
+  void parsesConstraintNameAtEndOfMessage() {
+    MongoWriteException exception =
+        writeException(
+            11000,
+            "E11000 duplicate key error collection: ratchet.scheduler_job index:"
+                + " idx_job_active_business_key");
+
+    assertEquals("idx_job_active_business_key", detector.constraintName(exception));
+  }
+
+  @Test
+  void returnsNullWhenConstraintNameIsAbsent() {
+    assertNull(detector.constraintName(writeException(11000, "duplicate key")));
+  }
+
+  private static MongoWriteException writeException(int code, String message) {
+    return new MongoWriteException(
+        new WriteError(code, message, new BsonDocument()), SERVER_ADDRESS);
   }
 
   private static MongoCommandException commandException(int code, String message) {

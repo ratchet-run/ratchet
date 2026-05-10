@@ -48,9 +48,12 @@ class MongoConstraintDetector implements ConstraintDetector {
     int idx = message.indexOf("index: ");
     if (idx >= 0) {
       int start = idx + "index: ".length();
-      int end = message.indexOf(" ", start);
-      if (end < 0) {
-        end = message.length();
+      int end = message.length();
+      for (char delimiter : new char[] {' ', ',', '\'', '"'}) {
+        int delimiterIndex = message.indexOf(delimiter, start);
+        if (delimiterIndex >= 0 && delimiterIndex < end) {
+          end = delimiterIndex;
+        }
       }
       return message.substring(start, end);
     }
