@@ -3,6 +3,7 @@ package run.ratchet.ri.core;
 import jakarta.inject.Inject;
 import java.io.Serial;
 import java.io.Serializable;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.time.Clock;
@@ -825,7 +826,7 @@ public class JobTask implements Callable<Void> {
       Method method = resolveMethod(cls, callbackPayload);
       Object target = callbackPayload.isStatic() ? null : beanResolver.resolve(cls);
       List<Object> args = callbackPayload.args() != null ? callbackPayload.args() : List.of();
-      method.invoke(target, args.toArray());
+      invokeTargetMethod(method, target, args);
     } catch (Exception e) {
       // Log + metric + event; parent job still succeeds
       log.errorf(
@@ -961,8 +962,9 @@ public class JobTask implements Callable<Void> {
       throw e;
     }
 
+    List<Object> args = payload.args() != null ? payload.args() : List.of();
     if (payload.isStatic()) {
-      return m.invoke(null, payload.args().toArray());
+      return invokeTargetMethod(m, null, args);
     }
 
     Object bean;
@@ -983,7 +985,23 @@ public class JobTask implements Callable<Void> {
           e);
     }
 
-    return m.invoke(bean, payload.args().toArray());
+    return invokeTargetMethod(m, bean, args);
+  }
+
+  private Object invokeTargetMethod(Method method, Object target, List<Object> args)
+      throws Exception {
+    try {
+      return method.invoke(target, args.toArray());
+    } catch (InvocationTargetException e) {
+      Throwable cause = e.getCause();
+      if (cause instanceof Exception exception) {
+        throw exception;
+      }
+      if (cause instanceof Error error) {
+        throw error;
+      }
+      throw e;
+    }
   }
 
   private void scheduleReadyJobsUpdate(long backoff) {
