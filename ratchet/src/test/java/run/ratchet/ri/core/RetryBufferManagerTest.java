@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -19,6 +20,11 @@ import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -191,6 +197,42 @@ class RetryBufferManagerTest {
     JobEntity overflow = standardJob(99999L);
     assertFalse(manager.forceOffer(overflow));
     verify(deadLetterService).moveToDlq(eq(overflow), any(IllegalStateException.class));
+  }
+
+  @Test
+  void forceOffer_atHardCap_releasesBufferLockBeforeMovingToDlq() throws Exception {
+    for (int i = 0; i < RetryBufferManager.HARD_CAP_PER_TYPE; i++) {
+      manager.forceOffer(standardJob(i));
+    }
+
+    CountDownLatch dlqEntered = new CountDownLatch(1);
+    CountDownLatch releaseDlq = new CountDownLatch(1);
+    doAnswer(
+            invocation -> {
+              dlqEntered.countDown();
+              assertTrue(releaseDlq.await(5, TimeUnit.SECONDS));
+              return null;
+            })
+        .when(deadLetterService)
+        .moveToDlq(any(JobEntity.class), any(IllegalStateException.class));
+
+    ExecutorService executor = Executors.newFixedThreadPool(2);
+    try {
+      Future<Boolean> overflowResult =
+          executor.submit(() -> manager.forceOffer(standardJob(99999L)));
+      assertTrue(dlqEntered.await(2, TimeUnit.SECONDS));
+
+      Future<Boolean> offerWhileDlqIsBlocked =
+          executor.submit(() -> manager.offer(standardJob(100000L)));
+      assertFalse(offerWhileDlqIsBlocked.get(500, TimeUnit.MILLISECONDS));
+
+      releaseDlq.countDown();
+      assertFalse(overflowResult.get(2, TimeUnit.SECONDS));
+    } finally {
+      releaseDlq.countDown();
+      executor.shutdownNow();
+      assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+    }
   }
 
   @Test
