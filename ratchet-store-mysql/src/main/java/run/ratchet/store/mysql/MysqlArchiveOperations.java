@@ -100,6 +100,11 @@ final class MysqlArchiveOperations implements ArchiveStore {
     return instant == null ? null : Timestamp.from(instant);
   }
 
+  /**
+   * Archives one terminal job in the caller's store transaction.
+   *
+   * @return the archived row that was inserted
+   */
   @Override
   public ArchivedJobEntity archiveJob(JobEntity job, String reason, String archivedBy) {
     JobEntity hydrated = hydrateForArchive(job);
@@ -111,6 +116,11 @@ final class MysqlArchiveOperations implements ArchiveStore {
     return archive;
   }
 
+  /**
+   * Archives each supplied terminal job in the caller's store transaction.
+   *
+   * @return number of jobs archived before any exception is raised
+   */
   @Override
   public int archiveJobsBatch(List<JobEntity> jobsToArchive, String reason, String archivedBy) {
     int count = 0;

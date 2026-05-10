@@ -336,7 +336,7 @@ public class RatchetOptions {
       profiles = Map.copyOf(profiles);
     }
 
-    public CircuitBreakerProfileOptions profile(CircuitBreakerProfile profile) {
+    public @Nullable CircuitBreakerProfileOptions profile(CircuitBreakerProfile profile) {
       return profiles.get(profile);
     }
   }

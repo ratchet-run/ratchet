@@ -13,6 +13,12 @@ import java.util.UUID;
  * <p>Authorization: implementations apply the configured {@code JobAuthorizationPolicy} on
  * single-job lookups. For list queries, the caller's principal is available to filter or redact
  * results, but per-row enforcement is not mandated by this contract.
+ *
+ * <p><b>Transaction attribute:</b> query operations are read-only. Implementations SHOULD avoid
+ * opening a transaction for simple reads, but MAY use a read-only store transaction when the
+ * backing store requires one for repeatable pagination, lazy hydration, or authorization checks.
+ * Unlike {@link JobSchedulerService}, this incubating query API does not define Jakarta
+ * Transactions attributes per method.
  */
 @Incubating
 public interface JobQueryService {

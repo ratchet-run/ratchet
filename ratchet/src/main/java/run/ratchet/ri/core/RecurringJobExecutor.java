@@ -64,6 +64,12 @@ public class RecurringJobExecutor {
     jobCrudStore.save(child);
   }
 
+  /**
+   * Claims due recurring masters, creates child jobs, advances each master's next-fire timestamp,
+   * and returns the number of children scheduled.
+   *
+   * <p>Runs with the class-level Jakarta Transactions {@code REQUIRED} behavior.
+   */
   int process(int batchLimit, String nodeId) {
     NodeTagFilter tagFilter =
         tagAffinityProvider != null ? tagAffinityProvider.tagFilter() : NodeTagFilter.NONE;

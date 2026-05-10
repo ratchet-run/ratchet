@@ -8,7 +8,11 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 
 /**
- * Pre-flight gate checker: drain → permit → rate-limit. A CLEAR result holds an acquired permit.
+ * Pre-flight gate checker: drain → permit → rate-limit.
+ *
+ * <p>A {@code CLEAR} result means a thread-pool permit was acquired and must be handed to either
+ * {@link JobExecutorService} for normal release on runner completion or {@link
+ * SubmissionFailureHandler} for release on rejection/failure before execution starts.
  */
 @ApplicationScoped
 public class SubmissionGateChecker {
@@ -34,8 +38,7 @@ public class SubmissionGateChecker {
   }
 
   /**
-   * Checks all gates for the given job. On success a permit has been acquired and the caller must
-   * release it.
+   * Checks all gates for the given job. On success, ownership of one permit transfers to caller.
    */
   public GateCheckResult check(JobEntity job, boolean isFirstAttempt) {
     return checkInternal(job.getJobType(), job.getId(), isFirstAttempt);

@@ -43,7 +43,6 @@ public class ResourcePermitService {
    * Attempts to acquire a permit atomically using pessimistic locking.
    *
    * @return true if permit was acquired, false if resource is at capacity
-   * @throws IllegalArgumentException if resource is not configured
    */
   public boolean tryAcquire(String resourceName, UUID jobId, String nodeId) {
     boolean acquired = resourcePermitStore.tryAcquirePermit(resourceName, jobId, nodeId);

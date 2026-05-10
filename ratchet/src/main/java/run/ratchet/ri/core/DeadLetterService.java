@@ -27,6 +27,9 @@ import run.ratchet.store.spi.JobTerminalStore;
 /**
  * Manages the Dead Letter Queue (DLQ): moves permanently failed jobs there and purges old entries
  * on a cron schedule.
+ *
+ * <p>Internal RI service. Public methods inherit the class-level Jakarta Transactions {@code
+ * REQUIRED} behavior unless a method declares a narrower transaction attribute.
  */
 @ApplicationScoped
 @Transactional

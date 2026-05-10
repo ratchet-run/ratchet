@@ -11,7 +11,13 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobCrudStore;
 
-/** Propagates success/failure through chained job dependencies. */
+/**
+ * Propagates success/failure through chained job dependencies.
+ *
+ * <p>Internal RI service. Public methods inherit the class-level Jakarta Transactions {@code
+ * REQUIRED} behavior so chain state changes commit or roll back with the caller's scheduler
+ * operation.
+ */
 @Transactional
 public class ChainScheduler {
 

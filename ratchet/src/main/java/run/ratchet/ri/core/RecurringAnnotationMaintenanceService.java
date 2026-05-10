@@ -3,7 +3,11 @@ package run.ratchet.ri.core;
 import java.time.Instant;
 import java.util.Set;
 
-/** Internal maintenance operations for {@code @Recurring} registration cleanup. */
+/**
+ * Internal maintenance operations for {@code @Recurring} registration cleanup.
+ *
+ * <p>Implementations run inside the scheduler's normal registration transaction boundary.
+ */
 public interface RecurringAnnotationMaintenanceService {
 
   /**

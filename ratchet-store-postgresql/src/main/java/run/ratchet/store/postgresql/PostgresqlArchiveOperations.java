@@ -98,6 +98,11 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
     return instant == null ? null : Timestamp.from(instant);
   }
 
+  /**
+   * Archives one terminal job in the caller's store transaction.
+   *
+   * @return the archived row that was inserted
+   */
   @Override
   public ArchivedJobEntity archiveJob(JobEntity job, String reason, String archivedBy) {
     JobEntity hydrated = reads.hydrateForArchive(job);
@@ -109,6 +114,12 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
     return archive;
   }
 
+  /**
+   * Archives all supplied terminal jobs in the caller's store transaction using a single multi-row
+   * insert.
+   *
+   * @return number of archive rows inserted
+   */
   @Override
   public int archiveJobsBatch(List<JobEntity> jobsToArchive, String reason, String archivedBy) {
     if (jobsToArchive.isEmpty()) {

@@ -6,7 +6,13 @@ import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 
-/** Orchestrates job submission: checks gates, executes, handles failures. */
+/**
+ * Orchestrates job submission: checks gates, executes, handles failures.
+ *
+ * <p>A clear gate check transfers a thread-pool permit to {@link JobExecutorService}. The executor
+ * releases that permit in the job runner's {@code finally} block; rejection and pre-execution
+ * failure paths release it through {@link SubmissionFailureHandler}.
+ */
 @ApplicationScoped
 public class JobSubmissionService {
 

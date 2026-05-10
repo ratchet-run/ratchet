@@ -13,7 +13,12 @@ public interface PerformanceTestHelper {
 
   void insertBackgroundRows(int count, String keyPrefix);
 
-  /** Returns the queue wait time in milliseconds at the given percentile, or -1 if unavailable. */
+  /**
+   * Returns the queue wait time in milliseconds at the given percentile.
+   *
+   * @return the percentile value, {@code 0} when no matching completed jobs exist, or {@code -1}
+   *     when the backend-specific query is unavailable or fails
+   */
   long queryQueueWaitPercentileForClass(String targetClass, double percentile);
 
   void assertNoFullScan(String label, Runnable storeOperation);
