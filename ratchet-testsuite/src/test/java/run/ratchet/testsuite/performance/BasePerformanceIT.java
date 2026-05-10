@@ -28,6 +28,7 @@ import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.testsuite.app.PerformanceMetricsCollector;
 import run.ratchet.testsuite.app.PerformanceTestHelper;
 import run.ratchet.testsuite.app.TestJobService;
+import run.ratchet.testsuite.app.TestMetricsCollectorAdapter;
 import run.ratchet.testsuite.app.TimingJob;
 import run.ratchet.testsuite.util.BaseRatchetIT;
 import run.ratchet.testsuite.util.PerformanceBaseline;
@@ -99,6 +100,7 @@ public abstract class BasePerformanceIT extends BaseRatchetIT {
     List<Class<?>> classes = new ArrayList<>();
     classes.add(TimingJob.class);
     classes.add(PerformanceMetricsCollector.class);
+    classes.add(TestMetricsCollectorAdapter.class);
     classes.add(TestJobService.class);
     classes.add(BasePerformanceIT.class);
     classes.add(PerformanceBaseline.class);

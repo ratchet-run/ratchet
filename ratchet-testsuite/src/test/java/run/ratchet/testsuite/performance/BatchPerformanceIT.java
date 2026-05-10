@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
 import run.ratchet.testsuite.app.PerformanceMetricsCollector;
 import run.ratchet.testsuite.app.TestJobService;
+import run.ratchet.testsuite.app.TestMetricsCollectorAdapter;
 import run.ratchet.testsuite.app.TimingJob;
 import run.ratchet.testsuite.util.JobAssertions;
 import run.ratchet.testsuite.util.PerformanceBaseline;
@@ -33,6 +34,7 @@ class BatchPerformanceIT extends BasePerformanceIT {
         .addClasses(
             TimingJob.class,
             PerformanceMetricsCollector.class,
+            TestMetricsCollectorAdapter.class,
             TestJobService.class,
             BasePerformanceIT.class,
             PerformanceBaseline.class,
@@ -108,6 +110,15 @@ class BatchPerformanceIT extends BasePerformanceIT {
     assertTrue(
         snap.completedCount() >= batchSize,
         "Expected at least " + batchSize + " completed jobs but got " + snap.completedCount());
+    assertTrue(
+        throughput >= minThroughputJobsPerSec(batchSize),
+        "Batch "
+            + batchSize
+            + " throughput below floor: expected at least "
+            + minThroughputJobsPerSec(batchSize)
+            + " jobs/sec but got "
+            + throughput);
+    assertLatencyPercentilesSane("batch." + batchSize, snap, maxP50Ms(), maxP95Ms(), maxP99Ms());
 
     PerformanceReport report =
         new PerformanceReport(
@@ -122,5 +133,24 @@ class BatchPerformanceIT extends BasePerformanceIT {
 
     baseline().assertWithinTolerance("batch." + batchSize + ".throughputJobsPerSec", throughput);
     baseline().assertLatencyWithinTolerance("batch." + batchSize + ".totalTimeMs", totalMs);
+  }
+
+  private static double minThroughputJobsPerSec(int batchSize) {
+    String perBatchKey = "perf.batch." + batchSize + ".min.jobsPerSec";
+    String configured =
+        System.getProperty(perBatchKey, System.getProperty("perf.batch.min.jobsPerSec", "1.0"));
+    return Double.parseDouble(configured);
+  }
+
+  private static long maxP50Ms() {
+    return Long.getLong("perf.batch.max.p50.ms", 5_000L);
+  }
+
+  private static long maxP95Ms() {
+    return Long.getLong("perf.batch.max.p95.ms", 15_000L);
+  }
+
+  private static long maxP99Ms() {
+    return Long.getLong("perf.batch.max.p99.ms", 30_000L);
   }
 }
