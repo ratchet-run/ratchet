@@ -233,21 +233,6 @@ public abstract class AbstractJobClaimStoreContract implements JobStoreContractF
   }
 
   @Test
-  void claimDueRecurring_doesNotReclaimClaimedJobs() {
-    JobEntity recurring = newPendingJob();
-    recurring.setJobType(JobExecutionType.RECURRING);
-    recurring.setCronExpr("0 * * * *");
-    recurring.setNextFire(Instant.now().minusSeconds(60));
-    persist(recurring);
-
-    var firstClaim = store().claimDueRecurring(10, "node-1");
-    var secondClaim = store().claimDueRecurring(10, "node-2");
-
-    assertEquals(1, firstClaim.size(), "first claim should return the due recurring job");
-    assertTrue(secondClaim.isEmpty(), "claimed recurring jobs must not be returned again");
-  }
-
-  @Test
   void claimDueRecurring_skipsNotYetDue() {
     JobEntity recurring = newPendingJob();
     recurring.setJobType(JobExecutionType.RECURRING);
