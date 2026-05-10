@@ -3,6 +3,7 @@ package run.ratchet.store.mysql;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -16,20 +17,29 @@ import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 
 final class MysqlJobWriteOperations {
 
+  private static final int MAX_BULK_INSERT_ROWS = 500;
+
   // language=MySQL
-  private static final String COLD_INSERT_SQL =
+  private static final String COLD_INSERT_PREFIX =
       """
       INSERT INTO scheduler_job (
         job_id, job_type, priority, max_retries, backoff_policy, backoff_param_ms,
         timeout_sec, cron_expr, zone_id, next_fire, payload, params, idempotency_key,
         business_key, resource_name, on_success_payload, on_failure_payload, depends_on,
         superseded_by, created_at, caller_principal, rec_status, trace_context)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?,
+      VALUES
+      """;
+
+  private static final String COLD_INSERT_VALUES =
+      """
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?,
               CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, ?, ?, CAST(? AS JSON))
       """;
 
+  private static final String COLD_INSERT_SQL = COLD_INSERT_PREFIX + COLD_INSERT_VALUES;
+
   // language=MySQL
-  private static final String HOT_INSERT_SQL =
+  private static final String HOT_INSERT_PREFIX =
       """
       INSERT INTO scheduler_job_queue (
         job_id, status, job_type, priority, scheduled_time, business_key, timeout_sec,
@@ -37,8 +47,23 @@ final class MysqlJobWriteOperations {
         version, updated_at, signal_key, signal_timeout, signal_payload, signal_payload_type,
         signal_outcome, signal_rejection_reason, signal_delivered_at, signal_delivered_by,
         signal_delivery_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES
       """;
+
+  private static final String HOT_INSERT_VALUES =
+      "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+  private static final String HOT_INSERT_SQL = HOT_INSERT_PREFIX + HOT_INSERT_VALUES;
+
+  // language=MySQL
+  private static final String BKRES_INSERT_PREFIX =
+      """
+      INSERT INTO scheduler_business_key_reservation
+        (business_key, owner_job_id, owner_table, reserved_at)
+      VALUES
+      """;
+
+  private static final String BKRES_INSERT_VALUES = "(?, ?, ?, ?)";
 
   private final MysqlStoreContext ctx;
   private final MysqlBusinessKeyReservations reservations;
@@ -93,29 +118,9 @@ final class MysqlJobWriteOperations {
       assignTsidIfMissing(job);
     }
 
-    for (JobEntity job : jobs) {
-      Query q = ctx.em().createNativeQuery(COLD_INSERT_SQL);
-      bindColdInsert(q, job, nowTs);
-      q.executeUpdate();
-    }
-
-    for (JobEntity job : jobs) {
-      if (job.getJobType() == JobExecutionType.RECURRING) {
-        continue;
-      }
-      Query q = ctx.em().createNativeQuery(HOT_INSERT_SQL);
-      bindHotInsert(q, job, nowTs);
-      q.executeUpdate();
-    }
-
-    for (JobEntity job : jobs) {
-      if (job.getBusinessKey() == null) {
-        continue;
-      }
-      Query q = ctx.em().createNativeQuery(MysqlBusinessKeyReservations.BKRES_INSERT_SQL);
-      reservations.bindInsert(q, job, nowTs);
-      q.executeUpdate();
-    }
+    executeColdBulkInsert(jobs, nowTs);
+    executeHotBulkInsert(jobs, nowTs);
+    executeBusinessKeyBulkInsert(jobs, nowTs);
 
     ctx.em().clear();
   }
@@ -185,74 +190,15 @@ final class MysqlJobWriteOperations {
   }
 
   private void executeColdInsert(JobEntity job, Timestamp nowTs) {
-    String recStatus = null;
-    if (job.getJobType() == JobExecutionType.RECURRING) {
-      JobStatus s = job.getStatus() != null ? job.getStatus() : JobStatus.PENDING;
-      String r = MysqlJobRowMapper.recStatusForLiveStatus(s);
-      recStatus = r != null ? r : "P";
-    }
-    ctx.em()
-        .createNativeQuery(COLD_INSERT_SQL)
-        .setParameter(1, UuidByteArrayConverter.toBytes(job.getId()))
-        .setParameter(2, job.getJobType().name())
-        .setParameter(3, job.getPriority().ordinal())
-        .setParameter(4, job.getMaxRetries())
-        .setParameter(5, job.getBackoffPolicy().name())
-        .setParameter(6, job.getBackoffParamMs())
-        .setParameter(7, job.getTimeoutSec())
-        .setParameter(8, job.getCronExpr())
-        .setParameter(9, job.getZoneId())
-        .setParameter(10, job.getNextFire() != null ? Timestamp.from(job.getNextFire()) : null)
-        .setParameter(11, MysqlJobRowMapper.payloadToJson(job))
-        .setParameter(12, MysqlJobRowMapper.paramsToJson(job))
-        .setParameter(13, job.getIdempotencyKey())
-        .setParameter(14, job.getBusinessKey())
-        .setParameter(15, job.getResourceName())
-        .setParameter(16, MysqlJobRowMapper.callbackPayloadToJson(job.getOnSuccessPayload()))
-        .setParameter(17, MysqlJobRowMapper.callbackPayloadToJson(job.getOnFailurePayload()))
-        .setParameter(18, UuidByteArrayConverter.toBytes(job.getDependsOn()))
-        .setParameter(19, UuidByteArrayConverter.toBytes(job.getSupersededBy()))
-        .setParameter(20, nowTs)
-        .setParameter(21, job.getCallerPrincipal())
-        .setParameter(22, recStatus)
-        .setParameter(23, MysqlJobRowMapper.traceContextToJson(job))
-        .executeUpdate();
+    Query q = ctx.em().createNativeQuery(COLD_INSERT_SQL);
+    bindColdInsert(q, job, nowTs);
+    q.executeUpdate();
   }
 
   private void executeHotInsert(JobEntity job, Timestamp nowTs) {
-    JobStatus s = job.getStatus() != null ? job.getStatus() : JobStatus.PENDING;
-    Instant scheduled = job.getScheduledTime();
-    ctx.em()
-        .createNativeQuery(HOT_INSERT_SQL)
-        .setParameter(1, UuidByteArrayConverter.toBytes(job.getId()))
-        .setParameter(2, s.name())
-        .setParameter(3, job.getJobType().name())
-        .setParameter(4, job.getPriority().ordinal())
-        .setParameter(5, scheduled != null ? Timestamp.from(scheduled) : nowTs)
-        .setParameter(6, job.getBusinessKey())
-        .setParameter(7, job.getTimeoutSec())
-        .setParameter(8, job.getMaxRetries())
-        .setParameter(9, job.getAttempts())
-        .setParameter(10, job.getPickedBy())
-        .setParameter(11, job.getPickedAt() != null ? Timestamp.from(job.getPickedAt()) : null)
-        .setParameter(
-            12, job.getPausedFromStatus() != null ? job.getPausedFromStatus().name() : null)
-        .setParameter(13, job.getLastError())
-        .setParameter(14, job.getVersion() != null ? job.getVersion() : 0)
-        .setParameter(15, nowTs)
-        .setParameter(16, job.getSignalKey())
-        .setParameter(
-            17, job.getSignalTimeout() != null ? Timestamp.from(job.getSignalTimeout()) : null)
-        .setParameter(18, job.getSignalPayload())
-        .setParameter(19, job.getSignalPayloadType())
-        .setParameter(20, job.getSignalOutcome())
-        .setParameter(21, job.getSignalRejectionReason())
-        .setParameter(
-            22,
-            job.getSignalDeliveredAt() != null ? Timestamp.from(job.getSignalDeliveredAt()) : null)
-        .setParameter(23, job.getSignalDeliveredBy())
-        .setParameter(24, job.getSignalDeliveryId())
-        .executeUpdate();
+    Query q = ctx.em().createNativeQuery(HOT_INSERT_SQL);
+    bindHotInsert(q, job, nowTs);
+    q.executeUpdate();
   }
 
   private void saveColdUpdate(JobEntity job) {
@@ -291,7 +237,10 @@ final class MysqlJobWriteOperations {
   }
 
   private void bindColdInsert(Query q, JobEntity job, Timestamp nowTs) {
-    int i = 1;
+    bindColdInsert(q, job, nowTs, 1);
+  }
+
+  private int bindColdInsert(Query q, JobEntity job, Timestamp nowTs, int i) {
     q.setParameter(i++, UuidByteArrayConverter.toBytes(job.getId()));
     q.setParameter(i++, job.getJobType().name());
     q.setParameter(i++, job.getPriority().ordinal());
@@ -321,10 +270,14 @@ final class MysqlJobWriteOperations {
     }
     q.setParameter(i++, recStatus);
     q.setParameter(i, MysqlJobRowMapper.traceContextToJson(job));
+    return i + 1;
   }
 
   private void bindHotInsert(Query q, JobEntity job, Timestamp nowTs) {
-    int i = 1;
+    bindHotInsert(q, job, nowTs, 1);
+  }
+
+  private int bindHotInsert(Query q, JobEntity job, Timestamp nowTs, int i) {
     q.setParameter(i++, UuidByteArrayConverter.toBytes(job.getId()));
     JobStatus s = job.getStatus() != null ? job.getStatus() : JobStatus.PENDING;
     q.setParameter(i++, s.name());
@@ -355,6 +308,61 @@ final class MysqlJobWriteOperations {
         job.getSignalDeliveredAt() != null ? Timestamp.from(job.getSignalDeliveredAt()) : null);
     q.setParameter(i++, job.getSignalDeliveredBy());
     q.setParameter(i, job.getSignalDeliveryId());
+    return i + 1;
+  }
+
+  private void executeColdBulkInsert(List<JobEntity> jobs, Timestamp nowTs) {
+    for (int start = 0; start < jobs.size(); start += MAX_BULK_INSERT_ROWS) {
+      List<JobEntity> chunk =
+          jobs.subList(start, Math.min(start + MAX_BULK_INSERT_ROWS, jobs.size()));
+      Query query =
+          ctx.em()
+              .createNativeQuery(
+                  COLD_INSERT_PREFIX + repeatValues(COLD_INSERT_VALUES, chunk.size()));
+      int parameter = 1;
+      for (JobEntity job : chunk) {
+        parameter = bindColdInsert(query, job, nowTs, parameter);
+      }
+      query.executeUpdate();
+    }
+  }
+
+  private void executeHotBulkInsert(List<JobEntity> jobs, Timestamp nowTs) {
+    List<JobEntity> hotJobs =
+        jobs.stream().filter(job -> job.getJobType() != JobExecutionType.RECURRING).toList();
+    for (int start = 0; start < hotJobs.size(); start += MAX_BULK_INSERT_ROWS) {
+      List<JobEntity> chunk =
+          hotJobs.subList(start, Math.min(start + MAX_BULK_INSERT_ROWS, hotJobs.size()));
+      Query query =
+          ctx.em()
+              .createNativeQuery(HOT_INSERT_PREFIX + repeatValues(HOT_INSERT_VALUES, chunk.size()));
+      int parameter = 1;
+      for (JobEntity job : chunk) {
+        parameter = bindHotInsert(query, job, nowTs, parameter);
+      }
+      query.executeUpdate();
+    }
+  }
+
+  private void executeBusinessKeyBulkInsert(List<JobEntity> jobs, Timestamp nowTs) {
+    List<JobEntity> keyedJobs = jobs.stream().filter(job -> job.getBusinessKey() != null).toList();
+    for (int start = 0; start < keyedJobs.size(); start += MAX_BULK_INSERT_ROWS) {
+      List<JobEntity> chunk =
+          keyedJobs.subList(start, Math.min(start + MAX_BULK_INSERT_ROWS, keyedJobs.size()));
+      Query query =
+          ctx.em()
+              .createNativeQuery(
+                  BKRES_INSERT_PREFIX + repeatValues(BKRES_INSERT_VALUES, chunk.size()));
+      int parameter = 1;
+      for (JobEntity job : chunk) {
+        parameter = reservations.bindInsert(query, job, nowTs, parameter);
+      }
+      query.executeUpdate();
+    }
+  }
+
+  private static String repeatValues(String values, int count) {
+    return String.join(", ", Collections.nCopies(count, values));
   }
 
   @SuppressWarnings("unchecked")

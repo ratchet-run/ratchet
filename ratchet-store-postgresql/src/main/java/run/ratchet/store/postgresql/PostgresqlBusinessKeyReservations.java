@@ -45,6 +45,13 @@ final class PostgresqlBusinessKeyReservations {
         .executeUpdate();
   }
 
+  int bindInsert(Query q, JobEntity job, int i) {
+    q.setParameter(i++, job.getBusinessKey());
+    q.setParameter(i++, job.getId());
+    q.setParameter(i++, ownerTableFor(job.getJobType()));
+    return i;
+  }
+
   @SuppressWarnings("UnusedReturnValue")
   int deleteReservationByOwner(UUID ownerJobId) {
     // language=PostgreSQL

@@ -76,9 +76,14 @@ final class MysqlBusinessKeyReservations {
   }
 
   void bindInsert(Query q, JobEntity job, Timestamp nowTs) {
-    q.setParameter(1, Objects.requireNonNull(job.getBusinessKey(), "businessKey"));
-    q.setParameter(2, UuidByteArrayConverter.toBytes(job.getId()));
-    q.setParameter(3, BusinessKeyReservations.ownerTableFor(job.getJobType()));
-    q.setParameter(4, nowTs);
+    bindInsert(q, job, nowTs, 1);
+  }
+
+  int bindInsert(Query q, JobEntity job, Timestamp nowTs, int i) {
+    q.setParameter(i++, Objects.requireNonNull(job.getBusinessKey(), "businessKey"));
+    q.setParameter(i++, UuidByteArrayConverter.toBytes(job.getId()));
+    q.setParameter(i++, BusinessKeyReservations.ownerTableFor(job.getJobType()));
+    q.setParameter(i, nowTs);
+    return i + 1;
   }
 }

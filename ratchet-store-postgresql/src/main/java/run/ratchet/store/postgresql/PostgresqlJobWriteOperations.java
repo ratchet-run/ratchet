@@ -3,6 +3,7 @@ package run.ratchet.store.postgresql;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -15,20 +16,29 @@ import run.ratchet.store.id.UuidV7Factory;
 
 final class PostgresqlJobWriteOperations {
 
+  private static final int MAX_BULK_INSERT_ROWS = 500;
+
   // language=PostgreSQL
-  private static final String COLD_INSERT_SQL =
+  private static final String COLD_INSERT_PREFIX =
       """
       INSERT INTO scheduler_job (
         job_id, job_type, priority, max_retries, backoff_policy, backoff_param_ms,
         timeout_sec, cron_expr, zone_id, next_fire, payload, params, idempotency_key,
         business_key, resource_name, on_success_payload, on_failure_payload, depends_on,
         superseded_by, created_at, caller_principal, rec_status, trace_context)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), CAST(? AS jsonb), ?, ?, ?,
+      VALUES
+      """;
+
+  private static final String COLD_INSERT_VALUES =
+      """
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), CAST(? AS jsonb), ?, ?, ?,
               CAST(? AS jsonb), CAST(? AS jsonb), ?, ?, ?, ?, ?, CAST(? AS jsonb))
       """;
 
+  private static final String COLD_INSERT_SQL = COLD_INSERT_PREFIX + COLD_INSERT_VALUES;
+
   // language=PostgreSQL
-  private static final String HOT_INSERT_SQL =
+  private static final String HOT_INSERT_PREFIX =
       """
       INSERT INTO scheduler_job_queue (
         job_id, status, job_type, priority, scheduled_time, business_key, timeout_sec,
@@ -36,8 +46,23 @@ final class PostgresqlJobWriteOperations {
         version, updated_at, signal_key, signal_timeout, signal_payload, signal_payload_type,
         signal_outcome, signal_rejection_reason, signal_delivered_at, signal_delivered_by,
         signal_delivery_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES
       """;
+
+  private static final String HOT_INSERT_VALUES =
+      "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+  private static final String HOT_INSERT_SQL = HOT_INSERT_PREFIX + HOT_INSERT_VALUES;
+
+  // language=PostgreSQL
+  private static final String BKRES_INSERT_PREFIX =
+      """
+      INSERT INTO scheduler_business_key_reservation
+        (business_key, owner_job_id, owner_table, reserved_at)
+      VALUES
+      """;
+
+  private static final String BKRES_INSERT_VALUES = "(?, ?, ?, statement_timestamp())";
 
   private static final int IDX_HOT_STATUS = 0;
   private static final int IDX_HOT_SCHEDULED_TIME = 1;
@@ -112,39 +137,10 @@ final class PostgresqlJobWriteOperations {
     }
 
     try {
-      for (JobEntity job : jobs) {
-        Query q = ctx.em().createNativeQuery(COLD_INSERT_SQL);
-        bindColdInsert(q, job, nowTs);
-        q.executeUpdate();
-      }
-
-      for (JobEntity job : jobs) {
-        if (job.getJobType() == JobExecutionType.RECURRING) {
-          continue;
-        }
-        if (job.getStatus() != null && PostgresqlJobRowMapper.isTerminalStatus(job.getStatus())) {
-          continue;
-        }
-        Query q = ctx.em().createNativeQuery(HOT_INSERT_SQL);
-        bindHotInsert(q, job, nowTs);
-        q.executeUpdate();
-      }
-
-      for (JobEntity job : jobs) {
-        if (job.getStatus() != null && PostgresqlJobRowMapper.isTerminalStatus(job.getStatus())) {
-          executeColdTerminalBackfill(job, nowTs);
-          job.setTerminalStatus(job.getStatus());
-          continue;
-        }
-        if (job.getBusinessKey() == null) {
-          continue;
-        }
-        String ownerTable =
-            job.getJobType() == JobExecutionType.RECURRING
-                ? PostgresqlBusinessKeyReservations.OWNER_TABLE_RECURRING
-                : PostgresqlBusinessKeyReservations.OWNER_TABLE_QUEUE;
-        reservations.insertReservation(job.getBusinessKey(), job.getId(), ownerTable);
-      }
+      executeColdBulkInsert(jobs, nowTs);
+      executeHotBulkInsert(jobs, nowTs);
+      executeTerminalBackfills(jobs, nowTs);
+      executeBusinessKeyBulkInsert(jobs);
     } catch (RuntimeException e) {
       if (ctx.constraintDetector().isDuplicateBusinessKey(e)) {
         throw new RatchetTransientStoreException("Active business key in use", e);
@@ -232,7 +228,10 @@ final class PostgresqlJobWriteOperations {
   }
 
   private void bindColdInsert(Query q, JobEntity job, Timestamp nowTs) {
-    int i = 1;
+    bindColdInsert(q, job, nowTs, 1);
+  }
+
+  private int bindColdInsert(Query q, JobEntity job, Timestamp nowTs, int i) {
     q.setParameter(i++, job.getId());
     q.setParameter(i++, job.getJobType().name());
     q.setParameter(i++, job.getPriority().ordinal());
@@ -262,10 +261,14 @@ final class PostgresqlJobWriteOperations {
     }
     q.setParameter(i++, recStatus);
     q.setParameter(i, PostgresqlJobRowMapper.traceContextToJson(job));
+    return i + 1;
   }
 
   private void bindHotInsert(Query q, JobEntity job, Timestamp nowTs) {
-    int i = 1;
+    bindHotInsert(q, job, nowTs, 1);
+  }
+
+  private int bindHotInsert(Query q, JobEntity job, Timestamp nowTs, int i) {
     q.setParameter(i++, job.getId());
     JobStatus s = job.getStatus() != null ? job.getStatus() : JobStatus.PENDING;
     q.setParameter(i++, s.name());
@@ -296,6 +299,83 @@ final class PostgresqlJobWriteOperations {
         job.getSignalDeliveredAt() != null ? Timestamp.from(job.getSignalDeliveredAt()) : null);
     q.setParameter(i++, job.getSignalDeliveredBy());
     q.setParameter(i, job.getSignalDeliveryId());
+    return i + 1;
+  }
+
+  private void executeColdBulkInsert(List<JobEntity> jobs, Timestamp nowTs) {
+    for (int start = 0; start < jobs.size(); start += MAX_BULK_INSERT_ROWS) {
+      List<JobEntity> chunk =
+          jobs.subList(start, Math.min(start + MAX_BULK_INSERT_ROWS, jobs.size()));
+      Query query =
+          ctx.em()
+              .createNativeQuery(
+                  COLD_INSERT_PREFIX + repeatValues(COLD_INSERT_VALUES, chunk.size()));
+      int parameter = 1;
+      for (JobEntity job : chunk) {
+        parameter = bindColdInsert(query, job, nowTs, parameter);
+      }
+      query.executeUpdate();
+    }
+  }
+
+  private void executeHotBulkInsert(List<JobEntity> jobs, Timestamp nowTs) {
+    List<JobEntity> hotJobs =
+        jobs.stream()
+            .filter(job -> job.getJobType() != JobExecutionType.RECURRING)
+            .filter(
+                job ->
+                    job.getStatus() == null
+                        || !PostgresqlJobRowMapper.isTerminalStatus(job.getStatus()))
+            .toList();
+    for (int start = 0; start < hotJobs.size(); start += MAX_BULK_INSERT_ROWS) {
+      List<JobEntity> chunk =
+          hotJobs.subList(start, Math.min(start + MAX_BULK_INSERT_ROWS, hotJobs.size()));
+      Query query =
+          ctx.em()
+              .createNativeQuery(HOT_INSERT_PREFIX + repeatValues(HOT_INSERT_VALUES, chunk.size()));
+      int parameter = 1;
+      for (JobEntity job : chunk) {
+        parameter = bindHotInsert(query, job, nowTs, parameter);
+      }
+      query.executeUpdate();
+    }
+  }
+
+  private void executeTerminalBackfills(List<JobEntity> jobs, Timestamp nowTs) {
+    for (JobEntity job : jobs) {
+      if (job.getStatus() != null && PostgresqlJobRowMapper.isTerminalStatus(job.getStatus())) {
+        executeColdTerminalBackfill(job, nowTs);
+        job.setTerminalStatus(job.getStatus());
+      }
+    }
+  }
+
+  private void executeBusinessKeyBulkInsert(List<JobEntity> jobs) {
+    List<JobEntity> keyedJobs =
+        jobs.stream()
+            .filter(job -> job.getBusinessKey() != null)
+            .filter(
+                job ->
+                    job.getStatus() == null
+                        || !PostgresqlJobRowMapper.isTerminalStatus(job.getStatus()))
+            .toList();
+    for (int start = 0; start < keyedJobs.size(); start += MAX_BULK_INSERT_ROWS) {
+      List<JobEntity> chunk =
+          keyedJobs.subList(start, Math.min(start + MAX_BULK_INSERT_ROWS, keyedJobs.size()));
+      Query query =
+          ctx.em()
+              .createNativeQuery(
+                  BKRES_INSERT_PREFIX + repeatValues(BKRES_INSERT_VALUES, chunk.size()));
+      int parameter = 1;
+      for (JobEntity job : chunk) {
+        parameter = reservations.bindInsert(query, job, parameter);
+      }
+      query.executeUpdate();
+    }
+  }
+
+  private static String repeatValues(String values, int count) {
+    return String.join(", ", Collections.nCopies(count, values));
   }
 
   private void saveColdUpdate(JobEntity job) {
