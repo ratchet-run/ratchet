@@ -166,7 +166,12 @@ public class JobExecutorService {
 
     try {
       Future<Void> future = submitToExecutor(callable);
-      handlesRef.set(scheduleWatchdog(jobId, timeoutSec, future, executionStartTime));
+      JobTimeoutHandler.TimeoutHandles handles =
+          scheduleWatchdog(jobId, timeoutSec, future, executionStartTime);
+      handlesRef.set(handles);
+      if (future.isDone() && handles != null) {
+        handles.cancel();
+      }
       return ExecutionResult.success(future);
     } catch (RejectedExecutionException e) {
       return ExecutionResult.rejected(e);
