@@ -30,7 +30,9 @@ public interface JobQueryService {
    *
    * @param filter filter criteria; use {@link JobFilter#builder()} to construct
    * @param limit maximum number of results to return
-   * @param offset zero-based index of the first result
+   * @param offset zero-based index of the first result; deep offsets can degrade on some stores, so
+   *     production callers should prefer {@link JobFilter.Builder#cursor(String)} for deep
+   *     pagination
    * @return a page of matching job summaries
    */
   JobPage<JobSummary> findJobs(JobFilter filter, int limit, int offset);

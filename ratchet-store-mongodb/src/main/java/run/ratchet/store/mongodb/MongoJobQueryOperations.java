@@ -50,6 +50,7 @@ final class MongoJobQueryOperations {
 
   private static final Logger log = Logger.getLogger(MongoJobQueryOperations.class);
   private static final int MAX_LIMIT = 1000;
+  private static final int OFFSET_WARNING_THRESHOLD = MAX_LIMIT;
 
   private final MongoStoreContext ctx;
 
@@ -273,6 +274,12 @@ final class MongoJobQueryOperations {
   List<JobEntity> searchJobs(JobFilter filter, int limit, int offset) {
     int safeLimit = Math.min(limit, MAX_LIMIT);
     boolean archive = useArchive(filter);
+    if (offset > OFFSET_WARNING_THRESHOLD && (filter == null || filter.cursor() == null)) {
+      log.warnf(
+          "MongoDB offset pagination requested offset %d; deep offsets degrade linearly. Prefer "
+              + "JobFilter.cursor() for production deep pagination.",
+          offset);
+    }
 
     if (!archive) {
       return searchLive(filter, safeLimit, offset);
