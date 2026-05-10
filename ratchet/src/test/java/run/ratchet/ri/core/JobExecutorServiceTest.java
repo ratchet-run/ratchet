@@ -43,9 +43,6 @@ class JobExecutorServiceTest {
 
   @BeforeEach
   void setUp() {
-    when(executorProvider.getJobExecutor()).thenReturn(jobExecutor);
-    when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
-
     service =
         new JobExecutorService(
             threadPoolManager,
@@ -72,6 +69,8 @@ class JobExecutorServiceTest {
 
   @Test
   void immediateCompletionCancelsWatchdogScheduledAfterSubmit() throws Exception {
+    when(executorProvider.getJobExecutor()).thenReturn(jobExecutor);
+    when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
     doAnswer(
             invocation -> {
               invocation.<Runnable>getArgument(0).run();
@@ -90,6 +89,15 @@ class JobExecutorServiceTest {
     assertTrue(result.future().isDone());
     verify(softTimeout).cancel(false);
     verify(hardTimeout).cancel(false);
+  }
+
+  @Test
+  void shutdownRejectsLaterSubmissions() throws Exception {
+    service.shutdownActiveExecutions();
+
+    ExecutionResult result = invokeExecute(() -> null, new AtomicReference<>());
+
+    assertTrue(result.isRejected());
   }
 
   @SuppressWarnings("unchecked")

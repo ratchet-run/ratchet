@@ -65,6 +65,8 @@ public class JobExecutorService {
   private final PayloadSerializer payloadSerializer;
   private final PollerScheduler pollerScheduler;
   private final Clock clock;
+  private final Object submissionLock = new Object();
+  private final AtomicBoolean acceptingExecutions = new AtomicBoolean(true);
   private final Set<TrackingFutureTask> activeFutures = ConcurrentHashMap.newKeySet();
 
   protected JobExecutorService() {
@@ -211,8 +213,11 @@ public class JobExecutorService {
   }
 
   public int shutdownActiveExecutions() {
-    for (TrackingFutureTask task : activeFutures) {
-      task.cancel(true);
+    synchronized (submissionLock) {
+      acceptingExecutions.set(false);
+      for (TrackingFutureTask task : activeFutures) {
+        task.cancel(true);
+      }
     }
 
     long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
@@ -293,15 +298,20 @@ public class JobExecutorService {
   }
 
   private Future<Void> submitToExecutor(Callable<Void> callable) {
-    ExecutorService executor = executorProvider.getJobExecutor();
     TrackingFutureTask task = new TrackingFutureTask(callable);
-    activeFutures.add(task);
-    try {
-      executor.execute(task);
-      return task;
-    } catch (RejectedExecutionException e) {
-      activeFutures.remove(task);
-      throw e;
+    synchronized (submissionLock) {
+      if (!acceptingExecutions.get()) {
+        throw new RejectedExecutionException("Job executor is shutting down");
+      }
+      ExecutorService executor = executorProvider.getJobExecutor();
+      activeFutures.add(task);
+      try {
+        executor.execute(task);
+        return task;
+      } catch (RejectedExecutionException e) {
+        activeFutures.remove(task);
+        throw e;
+      }
     }
   }
 
