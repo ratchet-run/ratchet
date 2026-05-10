@@ -17,7 +17,7 @@ class DefaultResilienceStrategyTest {
 
   @BeforeEach
   void setUp() {
-    registry = new CircuitBreakerRegistry();
+    registry = defaultRegistry();
     strategy = new DefaultResilienceStrategy(registry);
   }
 
@@ -167,5 +167,10 @@ class DefaultResilienceStrategyTest {
     public CircuitBreakerConfig configFor(CircuitBreakerProfile profile) {
       return config;
     }
+  }
+
+  private static CircuitBreakerRegistry defaultRegistry() {
+    return new CircuitBreakerRegistry(
+        new DefaultCircuitBreakerConfigProvider(RatchetOptions.defaults()));
   }
 }

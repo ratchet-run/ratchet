@@ -6,7 +6,6 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import org.jboss.logging.Logger;
 import run.ratchet.api.CircuitBreakerProfile;
-import run.ratchet.api.RatchetOptions;
 import run.ratchet.spi.CircuitBreakerConfigProvider;
 
 /**
@@ -25,8 +24,8 @@ public class CircuitBreakerRegistry {
   private final Map<String, CircuitBreakerConfiguration> configs = new ConcurrentHashMap<>();
   private final CircuitBreakerConfigProvider configProvider;
 
-  public CircuitBreakerRegistry() {
-    this(new DefaultCircuitBreakerConfigProvider(RatchetOptions.defaults()));
+  protected CircuitBreakerRegistry() {
+    this.configProvider = null;
   }
 
   @Inject

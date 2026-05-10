@@ -6,12 +6,13 @@ import java.lang.reflect.Field;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.CircuitBreakerProfile;
+import run.ratchet.api.RatchetOptions;
 
 class CircuitBreakerRegistryTest {
 
   @Test
   void serviceNamesContainingProfileSeparatorsDoNotUseEncodedStringKeys() throws Exception {
-    CircuitBreakerRegistry registry = new CircuitBreakerRegistry();
+    CircuitBreakerRegistry registry = defaultRegistry();
 
     CircuitBreaker breaker = registry.getBreaker("payments:DEFAULT", CircuitBreakerProfile.FAST);
 
@@ -21,7 +22,7 @@ class CircuitBreakerRegistryTest {
 
   @Test
   void serviceNamesContainingSeparatorsRemainIndependentlyManageable() {
-    CircuitBreakerRegistry registry = new CircuitBreakerRegistry();
+    CircuitBreakerRegistry registry = defaultRegistry();
 
     CircuitBreaker plain = registry.getBreaker("payments", CircuitBreakerProfile.DEFAULT);
     CircuitBreaker colon = registry.getBreaker("payments:DEFAULT", CircuitBreakerProfile.FAST);
@@ -37,7 +38,7 @@ class CircuitBreakerRegistryTest {
 
   @Test
   void getBreakerState_createsMissingBreaker() {
-    CircuitBreakerRegistry registry = new CircuitBreakerRegistry();
+    CircuitBreakerRegistry registry = defaultRegistry();
 
     assertEquals(CircuitBreaker.State.CLOSED, registry.getBreakerState("shipping"));
   }
@@ -48,5 +49,10 @@ class CircuitBreakerRegistryTest {
     Field breakers = CircuitBreakerRegistry.class.getDeclaredField("breakers");
     breakers.setAccessible(true);
     return (Map<Object, CircuitBreaker>) breakers.get(registry);
+  }
+
+  private static CircuitBreakerRegistry defaultRegistry() {
+    return new CircuitBreakerRegistry(
+        new DefaultCircuitBreakerConfigProvider(RatchetOptions.defaults()));
   }
 }
