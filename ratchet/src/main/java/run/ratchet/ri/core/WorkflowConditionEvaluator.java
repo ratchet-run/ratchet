@@ -101,11 +101,17 @@ public class WorkflowConditionEvaluator {
 
   private Map<String, Object> createMetadata(JobEntity job) {
     Map<String, Object> metadata = new HashMap<>();
-    metadata.put("jobId", job.getId());
-    metadata.put("jobType", job.getPublicJobType().name());
-    metadata.put("businessKey", job.getBusinessKey());
+    putMetadata(metadata, "jobId", job.getId());
+    putMetadata(metadata, "jobType", job.getPublicJobType().name());
+    putMetadata(metadata, "businessKey", job.getBusinessKey());
     metadata.put("attempts", job.getAttempts());
     return metadata;
+  }
+
+  private static void putMetadata(Map<String, Object> metadata, String key, Object value) {
+    if (value != null) {
+      metadata.put(key, value);
+    }
   }
 
   private boolean evaluateBatchCustom(WorkflowConditionEntity condition, JobEntity parentJob) {
