@@ -15,11 +15,20 @@ import run.ratchet.api.Incubating;
 @Incubating
 public interface SchedulerLifecycleHook {
 
+  /**
+   * Runs before Ratchet starts pollers, recurring registration, or maintenance work.
+   *
+   * <p>Throw {@code SchemaInitializationException} here to abort startup for an incompatible
+   * schema.
+   */
   default void beforeStart() {}
 
+  /** Runs after Ratchet startup has completed. */
   default void afterStart() {}
 
+  /** Runs before Ratchet begins shutdown. */
   default void beforeStop() {}
 
+  /** Runs after Ratchet has requested scheduler shutdown. */
   default void afterStop() {}
 }

@@ -19,6 +19,8 @@ public interface MetricsCollector {
   /**
    * Called when a job completes successfully.
    *
+   * @param jobId job that completed; never {@code null}
+   * @param type public job type; never {@code null}
    * @param executionTimeMs wall-clock duration of the completed attempt
    */
   void jobCompleted(UUID jobId, JobType type, long executionTimeMs);
@@ -26,6 +28,9 @@ public interface MetricsCollector {
   /**
    * Called when a job fails.
    *
+   * @param jobId job that failed; never {@code null}
+   * @param type public job type; never {@code null}
+   * @param cause failure that ended the attempt; never {@code null}
    * @param attempt the 1-based attempt number including this failure
    */
   void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt);

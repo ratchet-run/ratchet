@@ -8,9 +8,20 @@ import run.ratchet.api.Incubating;
 public interface RetryPolicy {
 
   /**
+   * Returns whether a failed job attempt should be retried.
+   *
    * @param attempt 1-based attempt number
+   * @param cause failure that ended the attempt; never {@code null}
+   * @return {@code true} to schedule another attempt, {@code false} to move toward terminal failure
    */
   boolean shouldRetry(int attempt, Throwable cause);
 
+  /**
+   * Returns the retry delay for an attempt.
+   *
+   * @param attempt 1-based attempt number being scheduled
+   * @return non-null delay. {@link Duration#ZERO} means retry immediately or fall back to the job's
+   *     configured backoff policy, depending on the caller.
+   */
   Duration getDelay(int attempt);
 }

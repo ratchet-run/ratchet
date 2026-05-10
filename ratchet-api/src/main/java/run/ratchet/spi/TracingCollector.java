@@ -76,6 +76,13 @@ public interface TracingCollector {
   /**
    * Called at the start of a job execution attempt with additional scheduler metadata to tag on the
    * span. Default delegates to the original four-argument method for source compatibility.
+   *
+   * @param jobId unique job identifier
+   * @param type public job type
+   * @param priority job priority at the time of execution
+   * @param parentContext propagation carrier captured at enqueue time; may be empty
+   * @param attributes scheduler metadata to attach to the span; may be empty
+   * @return a scope handle that the RI will close when this execution attempt ends
    */
   default ExecutionScope jobExecutionStarted(
       UUID jobId,

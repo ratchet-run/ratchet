@@ -47,7 +47,7 @@ public interface PayloadSerializer {
    * Deserializes the given JSON string to an instance of the requested type.
    *
    * @param json the JSON string to deserialize; MAY be {@code null} or empty
-   * @param type the target class
+   * @param type the target class; must not be {@code null}
    * @param <T> the target type
    * @return the deserialized instance, or {@code null} if {@code json} is {@code null} or empty
    * @throws IllegalArgumentException if deserialization fails

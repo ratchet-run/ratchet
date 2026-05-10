@@ -14,5 +14,11 @@ import run.ratchet.api.NodeTagFilter;
 @Incubating
 public interface NodeTagAffinityProvider {
 
+  /**
+   * Returns the node's current tag filter.
+   *
+   * @return filter to apply to claim queries; return {@link NodeTagFilter#NONE} to claim all
+   *     eligible jobs. Never return {@code null}.
+   */
   NodeTagFilter tagFilter();
 }

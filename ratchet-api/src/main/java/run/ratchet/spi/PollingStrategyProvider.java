@@ -6,5 +6,11 @@ import run.ratchet.api.Incubating;
 @Incubating
 public interface PollingStrategyProvider {
 
+  /**
+   * Creates a polling delay strategy for one poller.
+   *
+   * @param config immutable initial polling settings; never {@code null}
+   * @return new stateful polling delay strategy; never {@code null}
+   */
   PollingDelayStrategy create(PollingConfig config);
 }

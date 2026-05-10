@@ -75,6 +75,12 @@ class ExceptionFamilyTest {
   }
 
   @Test
+  void classifyBusinessForCheckedException() {
+    assertEquals(
+        ExceptionFamily.BUSINESS, ExceptionFamily.classify(new CheckedBusinessException()));
+  }
+
+  @Test
   void classifyUnknownForJdkRuntimeException() {
     assertEquals(ExceptionFamily.UNKNOWN, ExceptionFamily.classify(new NullPointerException()));
   }
@@ -90,6 +96,8 @@ class ExceptionFamilyTest {
       super(message);
     }
   }
+
+  private static final class CheckedBusinessException extends Exception {}
 
   private static final class SelfCausedError extends Error {
 

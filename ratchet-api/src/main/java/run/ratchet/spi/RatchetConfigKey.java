@@ -12,6 +12,14 @@ import run.ratchet.api.Incubating;
  * <p>Ratchet checks the canonical property/env name. Invalid values fall back to the key default
  * and emit a single WARN log so operators can spot typos instead of discovering them as silent
  * behavior drift.
+ *
+ * @param name dotted property name, for example {@code ratchet.poller.batch-size}
+ * @param environmentVariable environment variable fallback, for example {@code
+ *     RATCHET_POLLER_BATCH_SIZE}
+ * @param defaultValue typed default returned when no valid raw value is available; never {@code
+ *     null}
+ * @param parser parser used after trimming raw input; must throw {@link RuntimeException} for
+ *     invalid values
  */
 @Incubating
 public record RatchetConfigKey<T>(
@@ -141,6 +149,16 @@ public record RatchetConfigKey<T>(
     return value;
   }
 
+  /**
+   * Parses a raw configuration value.
+   *
+   * <p>{@code null} or blank input returns {@link #defaultValue()}. Nonblank input is trimmed
+   * before parsing. If parsing throws a {@link RuntimeException}, the exception is logged at {@code
+   * WARN} and {@link #defaultValue()} is returned.
+   *
+   * @param raw raw string value from a config source; may be {@code null}
+   * @return parsed value or the key default; never {@code null}
+   */
   public T parse(String raw) {
     if (raw == null || raw.isBlank()) {
       return defaultValue;
