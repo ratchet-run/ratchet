@@ -113,7 +113,7 @@ final class MysqlJobTerminalOperations {
     String updateSql =
         """
         UPDATE scheduler_job_queue
-        SET attempts = attempts + 1, updated_at = NOW(3)
+        SET attempts = LAST_INSERT_ID(attempts + 1), updated_at = NOW(3)
         WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')
         """;
     int updated =
@@ -129,12 +129,8 @@ final class MysqlJobTerminalOperations {
       return -1;
     }
     // language=MySQL
-    String selectSql = "SELECT attempts FROM scheduler_job_queue WHERE job_id = ?";
-    Object result =
-        ctx.em()
-            .createNativeQuery(selectSql)
-            .setParameter(1, UuidByteArrayConverter.toBytes(id))
-            .getSingleResult();
+    String selectSql = "SELECT LAST_INSERT_ID()";
+    Object result = ctx.em().createNativeQuery(selectSql).getSingleResult();
     return ((Number) result).intValue();
   }
 
@@ -403,12 +399,17 @@ final class MysqlJobTerminalOperations {
             terminated_at = NOW(3), execution_end_time = NOW(3)
         WHERE job_id = ? AND terminal_status IS NULL
         """;
-    ctx.em()
-        .createNativeQuery(updateColdSql)
-        .setParameter(1, terminalError)
-        .setParameter(2, totalAttempts)
-        .setParameter(3, UuidByteArrayConverter.toBytes(id))
-        .executeUpdate();
+    int coldUpdated =
+        ctx.em()
+            .createNativeQuery(updateColdSql)
+            .setParameter(1, terminalError)
+            .setParameter(2, totalAttempts)
+            .setParameter(3, UuidByteArrayConverter.toBytes(id))
+            .executeUpdate();
+    if (coldUpdated == 0) {
+      throw new IllegalStateException(
+          "terminal failure removed hot row but did not update cold row for job " + id);
+    }
     reservations.deleteReservationByOwner(id);
     return true;
   }

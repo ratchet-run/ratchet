@@ -84,17 +84,7 @@ final class PostgresqlJobTerminalOperations {
             > 0;
       }
       if (newStatus == JobStatus.CANCELED) {
-        // language=PostgreSQL
-        String countSql =
-            "SELECT COUNT(*) FROM scheduler_job_queue WHERE job_id = ? AND status = ?";
-        Object countResult =
-            ctx.em()
-                .createNativeQuery(countSql)
-                .setParameter(1, id)
-                .setParameter(2, expected.name())
-                .getSingleResult();
-        int gateMatched = countResult instanceof Number n ? n.intValue() : 0;
-        return gateMatched > 0 && cancelJob(id);
+        return lockExpectedQueueStatusForTerminalCas(id, expected) && cancelJob(id);
       }
       if (newStatus == JobStatus.FAILED) {
         if (expected != JobStatus.RUNNING && expected != JobStatus.WAITING) {
@@ -191,10 +181,37 @@ final class PostgresqlJobTerminalOperations {
     return markJobFailedTerminalFromStatus(id, terminalError, totalAttempts, JobStatus.RUNNING);
   }
 
+  private boolean lockExpectedQueueStatusForTerminalCas(UUID id, JobStatus expected) {
+    // The terminal cancel path deletes any live queue row after updating the cold row. Lock the
+    // expected hot row first so this multi-statement path preserves CAS semantics inside the
+    // method transaction: either this caller owns the expected status, or it reports a miss.
+    // language=PostgreSQL
+    String gateSql =
+        """
+	        SELECT job_id
+	        FROM scheduler_job_queue
+	        WHERE job_id = ? AND status = ?
+	        FOR UPDATE
+	        """;
+    @SuppressWarnings("unchecked")
+    List<Object> rows =
+        ctx.em()
+            .createNativeQuery(gateSql)
+            .setParameter(1, id)
+            .setParameter(2, expected.name())
+            .getResultList();
+    return !rows.isEmpty();
+  }
+
   boolean cancelJob(UUID id) {
     // language=PostgreSQL
     String selectSql =
-        "SELECT job_type, terminal_status, rec_status FROM scheduler_job WHERE job_id = ?";
+        """
+	        SELECT job_type, terminal_status, rec_status
+	        FROM scheduler_job
+	        WHERE job_id = ?
+	        FOR UPDATE
+	        """;
     @SuppressWarnings("unchecked")
     List<Object[]> rows = ctx.em().createNativeQuery(selectSql).setParameter(1, id).getResultList();
     if (rows.isEmpty()) {
@@ -239,6 +256,10 @@ final class PostgresqlJobTerminalOperations {
         WHERE job_id = ? AND terminal_status IS NULL
         """;
     int coldUpdated = ctx.em().createNativeQuery(updateColdSql).setParameter(1, id).executeUpdate();
+    if (coldUpdated == 0) {
+      throw new IllegalStateException(
+          "cancel removed hot row but did not update cold row for job " + id);
+    }
     reservations.deleteReservationByOwner(id);
     return coldUpdated > 0;
   }
@@ -337,12 +358,17 @@ final class PostgresqlJobTerminalOperations {
             execution_end_time = statement_timestamp()
         WHERE job_id = ? AND terminal_status IS NULL
         """;
-    ctx.em()
-        .createNativeQuery(updateColdSql)
-        .setParameter(1, terminalError)
-        .setParameter(2, totalAttempts)
-        .setParameter(3, id)
-        .executeUpdate();
+    int coldUpdated =
+        ctx.em()
+            .createNativeQuery(updateColdSql)
+            .setParameter(1, terminalError)
+            .setParameter(2, totalAttempts)
+            .setParameter(3, id)
+            .executeUpdate();
+    if (coldUpdated == 0) {
+      throw new IllegalStateException(
+          "terminal failure removed hot row but did not update cold row for job " + id);
+    }
     reservations.deleteReservationByOwner(id);
     return true;
   }
