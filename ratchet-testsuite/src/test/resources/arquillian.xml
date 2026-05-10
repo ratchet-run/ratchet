@@ -39,7 +39,7 @@
     <configuration>
       <property name="payaraHome">${payara.home}</property>
       <property name="domain">domain1</property>
-      <property name="adminPort">4848</property>
+      <property name="adminPort">${payara.admin.port}</property>
       <!--
         Payara 6.x ships with admin/<empty> as the DAS credentials AND requires
         Basic-Auth on the management endpoint (sending no Authorization header
@@ -54,17 +54,20 @@
       <property name="adminPassword"></property>
       <property name="allowConnectingToRunningServer">false</property>
       <property name="outputToConsole">true</property>
-      <property name="serverSystemProperties">
-        ratchet.test.db.type=${ratchet.test.db.type}:testsuite.profile=${testsuite.profile}
-      </property>
+      <!--
+        The Payara adapter's serverSystemProperties hook shells out to asadmin
+        without honoring the configured adminPort. The pom.xml profile injects
+        ratchet.test.db.type and testsuite.profile into domain.xml instead.
+      -->
     </configuration>
   </container>
 
   <container qualifier="glassfish-managed">
     <configuration>
       <property name="glassFishHome">${glassfish.home}</property>
-      <property name="domain">domain1</property>
-      <property name="adminPort">4848</property>
+      <property name="adminPort">${glassfish.admin.port}</property>
+      <property name="httpPort">${glassfish.http.port}</property>
+      <property name="httpsPort">${glassfish.https.port}</property>
       <property name="allowConnectingToRunningServer">false</property>
       <property name="outputToConsole">true</property>
       <!--

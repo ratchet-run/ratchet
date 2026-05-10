@@ -355,6 +355,14 @@
         <testsuite.profile>payara-managed</testsuite.profile>
         <arquillian.launch>payara-managed</arquillian.launch>
         <payara.home>${project.build.directory}/payara6</payara.home>
+        <payara.http.port>18080</payara.http.port>
+        <payara.https.port>18181</payara.https.port>
+        <payara.admin.port>14848</payara.admin.port>
+        <payara.iiop.port>13700</payara.iiop.port>
+        <payara.iiop.ssl.port>13820</payara.iiop.ssl.port>
+        <payara.iiop.mutualauth.port>13920</payara.iiop.mutualauth.port>
+        <payara.jmx.port>18686</payara.jmx.port>
+        <payara.osgi.shell.port>16666</payara.osgi.shell.port>
         <payara.hazelcast.das.port>14900</payara.hazelcast.das.port>
         <payara.hazelcast.start.port>15900</payara.hazelcast.start.port>
       </properties>
@@ -406,6 +414,56 @@
                 <configuration>
                   <target>
                     <chmod file="${payara.home}/bin/asadmin" perm="755"/>
+                    <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;network-listener protocol=&quot;http-listener-1&quot; port=&quot;)[^&quot;]+(&quot; name=&quot;http-listener-1&quot;)"
+                                   replace="\1${payara.http.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;network-listener protocol=&quot;http-listener-2&quot; port=&quot;)[^&quot;]+(&quot; name=&quot;http-listener-2&quot;)"
+                                   replace="\1${payara.https.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;network-listener protocol=&quot;[^&quot;]+&quot; port=&quot;)[^&quot;]+(&quot; name=&quot;admin-listener&quot;)"
+                                   replace="\1${payara.admin.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;iiop-listener address=&quot;0\.0\.0\.0&quot; port=&quot;)[^&quot;]+(&quot; lazy-init=&quot;true&quot; id=&quot;orb-listener-1&quot;)"
+                                   replace="\1${payara.iiop.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;iiop-listener address=&quot;0\.0\.0\.0&quot; port=&quot;)[^&quot;]+(&quot; id=&quot;SSL&quot;)"
+                                   replace="\1${payara.iiop.ssl.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;iiop-listener address=&quot;0\.0\.0\.0&quot; port=&quot;)[^&quot;]+(&quot; id=&quot;SSL_MUTUALAUTH&quot;)"
+                                   replace="\1${payara.iiop.mutualauth.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;jmx-connector address=&quot;0\.0\.0\.0&quot; port=&quot;)[^&quot;]+(&quot; name=&quot;system&quot;)"
+                                   replace="\1${payara.jmx.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;jvm-options&gt;-Dosgi\.shell\.telnet\.port=)[^&lt;]+(&lt;/jvm-options&gt;)"
+                                   replace="\1${payara.osgi.shell.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="\s*&lt;jvm-options&gt;-D(ratchet\.test\.db\.type|testsuite\.profile)=[^&lt;]*&lt;/jvm-options&gt;"
+                                   replace=""
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(\s*)&lt;/java-config&gt;"
+                                   replace="\1  &lt;jvm-options&gt;-Dratchet.test.db.type=${ratchet.test.db.type}&lt;/jvm-options&gt;\1  &lt;jvm-options&gt;-Dtestsuite.profile=${testsuite.profile}&lt;/jvm-options&gt;\1&lt;/java-config&gt;"
+                                   flags="g"
+                                   byline="true"/>
                     <replace
                         file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
                         token="&lt;hazelcast-runtime-configuration&gt;"
@@ -446,6 +504,14 @@
           subtree), not the nested glassfish/ subdir.
         -->
         <glassfish.home>${project.build.directory}/glassfish8/glassfish8</glassfish.home>
+        <glassfish.http.port>19080</glassfish.http.port>
+        <glassfish.https.port>19181</glassfish.https.port>
+        <glassfish.admin.port>15848</glassfish.admin.port>
+        <glassfish.iiop.port>14700</glassfish.iiop.port>
+        <glassfish.iiop.ssl.port>14820</glassfish.iiop.ssl.port>
+        <glassfish.iiop.mutualauth.port>14920</glassfish.iiop.mutualauth.port>
+        <glassfish.jmx.port>19686</glassfish.jmx.port>
+        <glassfish.osgi.shell.port>17666</glassfish.osgi.shell.port>
       </properties>
       <dependencies>
         <dependency>
@@ -456,33 +522,6 @@
       </dependencies>
       <build>
         <plugins>
-          <plugin>
-            <groupId>org.apache.maven.plugins</groupId>
-            <artifactId>maven-failsafe-plugin</artifactId>
-            <configuration>
-              <!--
-                omnifish 2.1.3's stopContainer() always invokes
-                executeAdminDomainCommand("stop-domain", List.of(), ...) on
-                Arquillian @AfterSuite teardown, and that method tries to
-                add() to its immutable args list, throwing
-                UnsupportedOperationException. The error is reported as a
-                synthetic test class named "JUnit Jupiter" — see
-                target/failsafe-reports/TEST-JUnit Jupiter.xml.
-
-                There's no @Tag/@ExcludedGroup we can apply to the engine
-                container, and the class name with a space isn't friendly
-                to Failsafe's <excludes>. So we let Failsafe ignore that
-                single error class. Per-test reports still get written, so
-                real ratchet IT failures remain visible by inspecting
-                target/failsafe-reports/.
-
-                Remove this when omnifish fixes the
-                immutable-list-mutation bug in executeAdminDomainCommand.
-                Tracking issue: filed at OmniFish-EE/arquillian-container-glassfish.
-              -->
-              <testFailureIgnore>true</testFailureIgnore>
-            </configuration>
-          </plugin>
           <plugin>
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-enforcer-plugin</artifactId>
@@ -556,9 +595,81 @@
                       a prior abort would otherwise fail every IT.
                     -->
                     <exec executable="${glassfish.home}/bin/asadmin" failonerror="false">
+                      <arg value="--port"/>
+                      <arg value="${glassfish.admin.port}"/>
                       <arg value="stop-domain"/>
                       <arg value="domain1"/>
                     </exec>
+                    <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;network-listener[^&gt;]* port=&quot;)[^&quot;]+(&quot;[^&gt;]*name=&quot;admin-listener&quot;)"
+                                   replace="\1${glassfish.admin.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;iiop-listener[^&gt;]*port=&quot;)[^&quot;]+(&quot;[^&gt;]*id=&quot;orb-listener-1&quot;)"
+                                   replace="\1${glassfish.iiop.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;iiop-listener[^&gt;]*port=&quot;)[^&quot;]+(&quot;[^&gt;]*id=&quot;SSL&quot;)"
+                                   replace="\1${glassfish.iiop.ssl.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;iiop-listener[^&gt;]*port=&quot;)[^&quot;]+(&quot;[^&gt;]*id=&quot;SSL_MUTUALAUTH&quot;)"
+                                   replace="\1${glassfish.iiop.mutualauth.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;jmx-connector[^&gt;]*port=&quot;)[^&quot;]+(&quot;[^&gt;]*name=&quot;system&quot;)"
+                                   replace="\1${glassfish.jmx.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;system-property name=&quot;ASADMIN_LISTENER_PORT&quot; value=&quot;)[^&quot;]+(&quot;)"
+                                   replace="\1${glassfish.admin.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;system-property name=&quot;HTTP_LISTENER_PORT&quot; value=&quot;)[^&quot;]+(&quot;)"
+                                   replace="\1${glassfish.http.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;system-property name=&quot;HTTP_SSL_LISTENER_PORT&quot; value=&quot;)[^&quot;]+(&quot;)"
+                                   replace="\1${glassfish.https.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;system-property name=&quot;IIOP_LISTENER_PORT&quot; value=&quot;)[^&quot;]+(&quot;)"
+                                   replace="\1${glassfish.iiop.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;system-property name=&quot;IIOP_SSL_LISTENER_PORT&quot; value=&quot;)[^&quot;]+(&quot;)"
+                                   replace="\1${glassfish.iiop.ssl.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;system-property name=&quot;IIOP_SSL_MUTUALAUTH_PORT&quot; value=&quot;)[^&quot;]+(&quot;)"
+                                   replace="\1${glassfish.iiop.mutualauth.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;system-property name=&quot;JMX_SYSTEM_CONNECTOR_PORT&quot; value=&quot;)[^&quot;]+(&quot;)"
+                                   replace="\1${glassfish.jmx.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;system-property name=&quot;OSGI_SHELL_TELNET_PORT&quot; value=&quot;)[^&quot;]+(&quot;)"
+                                   replace="\1${glassfish.osgi.shell.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${glassfish.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;jvm-options&gt;-Dosgi\.shell\.telnet\.port=)[^&lt;]+(&lt;/jvm-options&gt;)"
+                                   replace="\1${glassfish.osgi.shell.port}\2"
+                                   flags="g"
+                                   byline="true"/>
                     <!--
                       Inject ratchet.test.db.type and testsuite.profile as
                       jvm-options directly into domain.xml. Tests use
