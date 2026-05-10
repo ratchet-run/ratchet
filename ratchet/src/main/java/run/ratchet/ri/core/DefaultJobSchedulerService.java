@@ -321,11 +321,13 @@ public class DefaultJobSchedulerService
   }
 
   @Override
+  @Transactional(Transactional.TxType.NOT_SUPPORTED)
   public void addEventListener(Consumer<Object> listener) {
     eventPublisher.addListener(listener);
   }
 
   @Override
+  @Transactional(Transactional.TxType.NOT_SUPPORTED)
   public void removeEventListener(Consumer<Object> listener) {
     eventPublisher.removeListener(listener);
   }
