@@ -13,9 +13,21 @@ import run.ratchet.api.JobPriority;
 @Incubating
 public interface ClusterCoordinator {
 
-  /** Signals that new work at the given priority is available. */
+  /**
+   * Signals that new work is available somewhere in the cluster.
+   *
+   * @param priority priority of the newly available work; never {@code null}
+   */
   void notifyNewWork(JobPriority priority);
 
-  /** Registers a listener to receive wakeup notifications from the cluster coordinator. */
+  /**
+   * Registers a local listener for cross-node wakeup notifications.
+   *
+   * <p>Implementations may invoke listeners from coordinator-owned threads, transport callback
+   * threads, or scheduler threads. The listener must be fast, non-blocking, and thread-safe.
+   * Registering the same listener more than once may produce duplicate callbacks.
+   *
+   * @param listener callback to invoke when another node reports available work; never {@code null}
+   */
   void registerWakeupListener(Runnable listener);
 }

@@ -6,9 +6,11 @@ import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Set;
 import java.util.concurrent.TimeoutException;
+import run.ratchet.api.Incubating;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 
 /** Bounded exception families for metrics tags. */
+@Incubating
 public enum ExceptionFamily {
   TRANSIENT,
   TIMEOUT,
@@ -16,6 +18,15 @@ public enum ExceptionFamily {
   BUSINESS,
   UNKNOWN;
 
+  /**
+   * Classifies a throwable into a bounded metrics family.
+   *
+   * <p>{@code null} and unrecognized throwables classify as {@link #UNKNOWN}. The classifier walks
+   * the cause chain defensively and handles cycles.
+   *
+   * @param throwable throwable to classify; may be {@code null}
+   * @return bounded exception family; never {@code null}
+   */
   public static ExceptionFamily classify(Throwable throwable) {
     if (throwable == null) {
       return UNKNOWN;

@@ -16,5 +16,11 @@ import run.ratchet.api.Incubating;
 @Incubating
 public interface ErrorSanitizer {
 
+  /**
+   * Converts a throwable into text safe for persistence and event publication.
+   *
+   * @param ex throwable to sanitize; never {@code null}
+   * @return sanitized, bounded error text; never {@code null}
+   */
   String sanitize(Throwable ex);
 }

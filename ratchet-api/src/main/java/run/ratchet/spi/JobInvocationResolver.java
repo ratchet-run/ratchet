@@ -8,7 +8,20 @@ import run.ratchet.api.Incubating;
 @Incubating
 public interface JobInvocationResolver {
 
+  /**
+   * Resolves a serializable callback into a persisted invocation.
+   *
+   * @param callback serializable user callback; never {@code null}
+   * @return invocation descriptor suitable for persistence; never {@code null}
+   */
   JobInvocation resolve(Serializable callback);
 
+  /**
+   * Resolves a serializable callback with runtime-supplied arguments.
+   *
+   * @param callback serializable user callback; never {@code null}
+   * @param runtimeArguments arguments appended or substituted by the caller; never {@code null}
+   * @return invocation descriptor suitable for persistence; never {@code null}
+   */
   JobInvocation resolve(Serializable callback, List<Object> runtimeArguments);
 }

@@ -11,5 +11,11 @@ import run.ratchet.api.Incubating;
 @Incubating
 public interface ClassPolicy {
 
+  /**
+   * Returns whether a class name may be used during payload restoration or invocation.
+   *
+   * @param className fully qualified binary class name; never {@code null} or blank
+   * @return {@code true} to allow the class, {@code false} to deny it
+   */
   boolean isAllowed(String className);
 }
