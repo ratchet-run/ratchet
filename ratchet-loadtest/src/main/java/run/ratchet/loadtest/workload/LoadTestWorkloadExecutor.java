@@ -141,6 +141,21 @@ public class LoadTestWorkloadExecutor {
     }
   }
 
+  /**
+   * Executes a deterministic load-test workload from string parameters supplied by the scheduler.
+   *
+   * @param runId logical load-test run id
+   * @param workload workload type name, for example {@code noop}, {@code cpu}, or {@code io}
+   * @param sequence integer sequence number within the run
+   * @param sleepMs base sleep duration in milliseconds
+   * @param sleepJitterMs maximum deterministic sleep jitter in milliseconds
+   * @param sleepSpikeRate decimal probability from {@code 0.0} to {@code 1.0} for adding a spike
+   * @param sleepSpikeMs additional sleep duration in milliseconds when a spike is selected
+   * @param failureRate decimal probability from {@code 0.0} to {@code 1.0} for throwing a synthetic
+   *     failure
+   * @param payload opaque payload string included in the workload spec
+   * @throws IllegalArgumentException if a numeric parameter cannot be parsed
+   */
   public void execute(
       String runId,
       String workload,

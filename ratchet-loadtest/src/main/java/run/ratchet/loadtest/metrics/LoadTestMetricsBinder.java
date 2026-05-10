@@ -16,12 +16,22 @@ public class LoadTestMetricsBinder {
   @Inject JobCrudStore jobStore;
   @Inject MeterRegistry registry;
 
-  private boolean bound;
+  private volatile boolean bound;
 
-  public synchronized void ensureBound() {
+  public void ensureBound() {
     if (bound) {
       return;
     }
+    synchronized (this) {
+      if (bound) {
+        return;
+      }
+      bindGauges();
+      bound = true;
+    }
+  }
+
+  private void bindGauges() {
     Gauge.builder("ratchet.store.nodes.active", jobStore, JobCrudStore::countActiveNodes)
         .description("Registered Ratchet scheduler nodes")
         .register(registry);
@@ -51,8 +61,6 @@ public class LoadTestMetricsBinder {
             store -> store.countJobsByStatus(JobStatus.WAITING))
         .description("Signal-waiting jobs currently blocked on an external signal")
         .register(registry);
-
-    bound = true;
   }
 
   @PostConstruct
