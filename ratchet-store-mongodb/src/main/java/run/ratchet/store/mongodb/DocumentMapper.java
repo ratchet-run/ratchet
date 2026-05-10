@@ -35,6 +35,7 @@ public final class DocumentMapper {
   private static final JobPriority DEFAULT_JOB_PRIORITY = JobPriority.NORMAL;
   private static final String DEFAULT_CRON_EXPR = "";
   private static final String DEFAULT_ZONE_ID = "UTC";
+  private static final JobPriority[] JOB_PRIORITY_VALUES = JobPriority.values();
   private static final int DEFAULT_COUNT = 0;
   private static final int DEFAULT_VERSION = 0;
   private static final long DEFAULT_DURATION_MS = 0L;
@@ -657,10 +658,9 @@ public final class DocumentMapper {
   }
 
   static JobPriority safeJobPriority(int ordinal) {
-    JobPriority[] values = JobPriority.values();
-    if (ordinal < 0 || ordinal >= values.length) {
+    if (ordinal < 0 || ordinal >= JOB_PRIORITY_VALUES.length) {
       return JobPriority.NORMAL;
     }
-    return values[ordinal];
+    return JOB_PRIORITY_VALUES[ordinal];
   }
 }
