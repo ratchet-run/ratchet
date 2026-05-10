@@ -6,7 +6,6 @@ import java.util.List;
 import java.util.logging.Logger;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
@@ -23,8 +22,6 @@ import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 class BatchPerformanceIT extends BasePerformanceIT {
 
   private static final Logger log = Logger.getLogger(BatchPerformanceIT.class.getName());
-  private static final PerformanceBaseline baseline = createBaseline();
-  private static final PerformanceReportWriter reportWriter = createReportWriter();
 
   @Deployment
   public static WebArchive createDeployment() {
@@ -50,12 +47,6 @@ class BatchPerformanceIT extends BasePerformanceIT {
   void resetCounters() {
     TimingJob.resetCount();
     PerformanceMetricsCollector.reset();
-  }
-
-  @AfterEach
-  void writeResults() {
-    reportWriter.writeClassFragment(getClass().getSimpleName());
-    baseline.writeRecordedBaselines();
   }
 
   @Test
@@ -127,9 +118,9 @@ class BatchPerformanceIT extends BasePerformanceIT {
             snap.p50Ms(),
             snap.p95Ms(),
             snap.p99Ms());
-    reportWriter.addReport(report);
+    reportWriter().addReport(report);
 
-    baseline.assertWithinTolerance("batch." + batchSize + ".throughputJobsPerSec", throughput);
-    baseline.assertLatencyWithinTolerance("batch." + batchSize + ".totalTimeMs", totalMs);
+    baseline().assertWithinTolerance("batch." + batchSize + ".throughputJobsPerSec", throughput);
+    baseline().assertLatencyWithinTolerance("batch." + batchSize + ".totalTimeMs", totalMs);
   }
 }

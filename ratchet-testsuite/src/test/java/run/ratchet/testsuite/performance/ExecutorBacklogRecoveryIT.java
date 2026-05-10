@@ -6,7 +6,6 @@ import java.util.List;
 import java.util.logging.Logger;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
@@ -22,14 +21,12 @@ import run.ratchet.testsuite.util.PerformanceReportWriter;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /**
- * Tests retry buffer backpressure under sustained overload. Burst-enqueues many jobs with sleep to
- * exceed the default thread pool capacity, then measures how many survive vs go to DLQ.
+ * Measures recovery from executor backlog pressure. Burst-enqueues more sleeping jobs than the
+ * default worker pool can run at once, then verifies they eventually drain successfully.
  */
-class RetryBufferSaturationIT extends BasePerformanceIT {
+class ExecutorBacklogRecoveryIT extends BasePerformanceIT {
 
-  private static final Logger log = Logger.getLogger(RetryBufferSaturationIT.class.getName());
-  private static final PerformanceBaseline baseline = createBaseline();
-  private static final PerformanceReportWriter reportWriter = createReportWriter();
+  private static final Logger log = Logger.getLogger(ExecutorBacklogRecoveryIT.class.getName());
 
   @Deployment
   public static WebArchive createDeployment() {
@@ -59,19 +56,13 @@ class RetryBufferSaturationIT extends BasePerformanceIT {
     PerformanceMetricsCollector.reset();
   }
 
-  @AfterEach
-  void writeResults() {
-    reportWriter.writeClassFragment(getClass().getSimpleName());
-    baseline.writeRecordedBaselines();
-  }
-
   @Test
   void sustainedOverloadRecovery() {
     int jobCount = 200;
     ConfigurableWorkJob.setSleepMs(100);
 
     log.info(
-        "Buffer saturation: burst-enqueuing "
+        "Executor backlog: burst-enqueuing "
             + jobCount
             + " jobs with 100ms sleep (exceeds ~10 thread pool)");
 
@@ -86,7 +77,7 @@ class RetryBufferSaturationIT extends BasePerformanceIT {
 
     log.info(
         String.format(
-            "Buffer saturation: %d/%d succeeded (%.1f%%), %d failed, recovery=%dms",
+            "Executor backlog: %d/%d succeeded (%.1f%%), %d failed, recovery=%dms",
             succeeded, jobCount, succeededRate * 100, failed, totalMs));
 
     assertTrue(
@@ -95,9 +86,11 @@ class RetryBufferSaturationIT extends BasePerformanceIT {
             "Expected >95%% success rate but got %.1f%% (%d/%d succeeded)",
             succeededRate * 100, succeeded, jobCount));
 
-    reportWriter.addReport(
-        new PerformanceReport("bufferSaturation", jobCount, totalMs, succeededRate, 0, 0, failed));
-    baseline.assertWithinTolerance("bufferSaturation.succeededRate", succeededRate);
-    baseline.assertLatencyWithinTolerance("bufferSaturation.recoveryMs", totalMs);
+    reportWriter()
+        .addReport(
+            new PerformanceReport(
+                "executorBacklog", jobCount, totalMs, succeededRate, 0, 0, failed));
+    baseline().assertWithinTolerance("executorBacklog.succeededRate", succeededRate);
+    baseline().assertLatencyWithinTolerance("executorBacklog.recoveryMs", totalMs);
   }
 }

@@ -6,7 +6,6 @@ import java.util.List;
 import java.util.logging.Logger;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
@@ -24,8 +23,6 @@ import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 class ThroughputIT extends BasePerformanceIT {
 
   private static final Logger log = Logger.getLogger(ThroughputIT.class.getName());
-  private static final PerformanceBaseline baseline = createBaseline();
-  private static final PerformanceReportWriter reportWriter = createReportWriter();
 
   @Deployment
   public static WebArchive createDeployment() {
@@ -53,12 +50,6 @@ class ThroughputIT extends BasePerformanceIT {
     TimingJob.resetCount();
     ConfigurableWorkJob.reset();
     PerformanceMetricsCollector.reset();
-  }
-
-  @AfterEach
-  void writeResults() {
-    reportWriter.writeClassFragment(getClass().getSimpleName());
-    baseline.writeRecordedBaselines();
   }
 
   @Test
@@ -99,8 +90,8 @@ class ThroughputIT extends BasePerformanceIT {
             snap.p50Ms(),
             snap.p95Ms(),
             snap.p99Ms());
-    reportWriter.addReport(report);
-    baseline.assertWithinTolerance("throughput.noOp.jobsPerSec", throughput);
+    reportWriter().addReport(report);
+    baseline().assertWithinTolerance("throughput.noOp.jobsPerSec", throughput);
   }
 
   @Test
@@ -144,7 +135,7 @@ class ThroughputIT extends BasePerformanceIT {
             snap.p50Ms(),
             snap.p95Ms(),
             snap.p99Ms());
-    reportWriter.addReport(report);
-    baseline.assertWithinTolerance("throughput.lightWork.jobsPerSec", throughput);
+    reportWriter().addReport(report);
+    baseline().assertWithinTolerance("throughput.lightWork.jobsPerSec", throughput);
   }
 }

@@ -4,16 +4,13 @@ import java.util.List;
 import java.util.logging.Logger;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
 import run.ratchet.testsuite.app.ConfigurableWorkJob;
 import run.ratchet.testsuite.app.PerformanceMetricsCollector;
 import run.ratchet.testsuite.app.TimingJob;
-import run.ratchet.testsuite.util.PerformanceBaseline;
 import run.ratchet.testsuite.util.PerformanceReport;
-import run.ratchet.testsuite.util.PerformanceReportWriter;
 
 /**
  * Measures throughput scaling characteristics under the default thread pool configuration.
@@ -34,8 +31,6 @@ import run.ratchet.testsuite.util.PerformanceReportWriter;
 class ConcurrentScalingIT extends BasePerformanceIT {
 
   private static final Logger log = Logger.getLogger(ConcurrentScalingIT.class.getName());
-  private static final PerformanceBaseline baseline = createBaseline();
-  private static final PerformanceReportWriter reportWriter = createReportWriter();
 
   @Deployment
   public static WebArchive createDeployment() {
@@ -47,12 +42,6 @@ class ConcurrentScalingIT extends BasePerformanceIT {
     TimingJob.resetCount();
     ConfigurableWorkJob.reset();
     PerformanceMetricsCollector.reset();
-  }
-
-  @AfterEach
-  void writeResults() {
-    reportWriter.writeClassFragment(getClass().getSimpleName());
-    baseline.writeRecordedBaselines();
   }
 
   @Test
@@ -89,10 +78,10 @@ class ConcurrentScalingIT extends BasePerformanceIT {
             snap.p50Ms(),
             snap.p95Ms(),
             snap.p99Ms());
-    reportWriter.addReport(report);
+    reportWriter().addReport(report);
     assertSnapshotCompleted("scaling.noOp.burst", snap, measured);
     assertLatencyPercentilesSane("scaling.noOp.burst", snap, maxP50Ms(), maxP95Ms(), maxP99Ms());
-    baseline.assertWithinTolerance("scaling.noOp.burst.jobsPerSec", throughput);
+    baseline().assertWithinTolerance("scaling.noOp.burst.jobsPerSec", throughput);
   }
 
   @Test
@@ -131,11 +120,11 @@ class ConcurrentScalingIT extends BasePerformanceIT {
             snap.p50Ms(),
             snap.p95Ms(),
             snap.p99Ms());
-    reportWriter.addReport(report);
+    reportWriter().addReport(report);
     assertSnapshotCompleted("scaling.work10ms.burst", snap, measured);
     assertLatencyPercentilesSane(
         "scaling.work10ms.burst", snap, maxP50Ms(), maxP95Ms(), maxP99Ms());
-    baseline.assertWithinTolerance("scaling.work10ms.burst.jobsPerSec", throughput);
+    baseline().assertWithinTolerance("scaling.work10ms.burst.jobsPerSec", throughput);
   }
 
   @Test
@@ -169,11 +158,11 @@ class ConcurrentScalingIT extends BasePerformanceIT {
               snap.p50Ms(),
               snap.p95Ms(),
               snap.p99Ms());
-      reportWriter.addReport(report);
+      reportWriter().addReport(report);
       assertSnapshotCompleted("scaling.incremental." + load, snap, load);
       assertLatencyPercentilesSane(
           "scaling.incremental." + load, snap, maxP50Ms(), maxP95Ms(), maxP99Ms());
-      baseline.assertWithinTolerance("scaling.incremental." + load + ".jobsPerSec", throughput);
+      baseline().assertWithinTolerance("scaling.incremental." + load + ".jobsPerSec", throughput);
     }
   }
 

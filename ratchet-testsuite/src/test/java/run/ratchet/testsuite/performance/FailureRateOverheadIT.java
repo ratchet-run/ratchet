@@ -7,7 +7,6 @@ import java.util.List;
 import java.util.logging.Logger;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
@@ -17,9 +16,7 @@ import run.ratchet.testsuite.app.NoOpResilienceStrategy;
 import run.ratchet.testsuite.app.PerformanceMetricsCollector;
 import run.ratchet.testsuite.app.ProbabilisticFailingJob;
 import run.ratchet.testsuite.app.TimingJob;
-import run.ratchet.testsuite.util.PerformanceBaseline;
 import run.ratchet.testsuite.util.PerformanceReport;
-import run.ratchet.testsuite.util.PerformanceReportWriter;
 
 /**
  * Measures the overhead of the retry/failure path compared to a clean-run baseline. The failure
@@ -29,8 +26,6 @@ import run.ratchet.testsuite.util.PerformanceReportWriter;
 class FailureRateOverheadIT extends BasePerformanceIT {
 
   private static final Logger log = Logger.getLogger(FailureRateOverheadIT.class.getName());
-  private static final PerformanceBaseline baseline = createBaseline();
-  private static final PerformanceReportWriter reportWriter = createReportWriter();
 
   @Deployment
   public static WebArchive createDeployment() {
@@ -43,12 +38,6 @@ class FailureRateOverheadIT extends BasePerformanceIT {
     TimingJob.resetCount();
     ProbabilisticFailingJob.reset();
     PerformanceMetricsCollector.reset();
-  }
-
-  @AfterEach
-  void writeResults() {
-    reportWriter.writeClassFragment(getClass().getSimpleName());
-    baseline.writeRecordedBaselines();
   }
 
   @Test
@@ -102,16 +91,18 @@ class FailureRateOverheadIT extends BasePerformanceIT {
             invocationFailures,
             terminalFailures));
 
-    reportWriter.addReport(
-        new PerformanceReport(
-            "failureOverhead.baseline", count, baselineMs, baselineThroughput, 0, 0, 0));
-    reportWriter.addReport(
-        new PerformanceReport(
-            "failureOverhead.withFailures", count, failureMs, failureThroughput, 0, 0, 0));
+    reportWriter()
+        .addReport(
+            new PerformanceReport(
+                "failureOverhead.baseline", count, baselineMs, baselineThroughput, 0, 0, 0));
+    reportWriter()
+        .addReport(
+            new PerformanceReport(
+                "failureOverhead.withFailures", count, failureMs, failureThroughput, 0, 0, 0));
 
-    baseline.assertWithinTolerance("failureOverhead.baselineJobsPerSec", baselineThroughput);
-    baseline.assertWithinTolerance("failureOverhead.withFailuresJobsPerSec", failureThroughput);
-    baseline.assertLatencyWithinTolerance("failureOverhead.ratio", overheadRatio);
+    baseline().assertWithinTolerance("failureOverhead.baselineJobsPerSec", baselineThroughput);
+    baseline().assertWithinTolerance("failureOverhead.withFailuresJobsPerSec", failureThroughput);
+    baseline().assertLatencyWithinTolerance("failureOverhead.ratio", overheadRatio);
     assertEquals(
         count,
         terminalSuccesses + terminalFailures,

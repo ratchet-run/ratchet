@@ -7,7 +7,6 @@ import java.util.UUID;
 import java.util.logging.Logger;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
@@ -29,8 +28,6 @@ import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 class StoreOperationLatencyIT extends BasePerformanceIT {
 
   private static final Logger log = Logger.getLogger(StoreOperationLatencyIT.class.getName());
-  private static final PerformanceBaseline baseline = createBaseline();
-  private static final PerformanceReportWriter reportWriter = createReportWriter();
 
   @Inject private JobBatchStatusStore jobBatchStatusStore;
 
@@ -52,12 +49,6 @@ class StoreOperationLatencyIT extends BasePerformanceIT {
         .addStoreInfrastructure()
         .addBeansXml()
         .build();
-  }
-
-  @AfterEach
-  void writeResults() {
-    reportWriter.writeClassFragment(getClass().getSimpleName());
-    baseline.writeRecordedBaselines();
   }
 
   @Test
@@ -100,27 +91,29 @@ class StoreOperationLatencyIT extends BasePerformanceIT {
             "findById(): p50=%dms, p95=%dms, p99=%dms",
             findPercentiles[0], findPercentiles[1], findPercentiles[2]));
 
-    reportWriter.addReport(
-        new PerformanceReport(
-            "store.save",
-            measured,
-            0,
-            0,
-            savePercentiles[0],
-            savePercentiles[1],
-            savePercentiles[2]));
-    reportWriter.addReport(
-        new PerformanceReport(
-            "store.findById",
-            measured,
-            0,
-            0,
-            findPercentiles[0],
-            findPercentiles[1],
-            findPercentiles[2]));
+    reportWriter()
+        .addReport(
+            new PerformanceReport(
+                "store.save",
+                measured,
+                0,
+                0,
+                savePercentiles[0],
+                savePercentiles[1],
+                savePercentiles[2]));
+    reportWriter()
+        .addReport(
+            new PerformanceReport(
+                "store.findById",
+                measured,
+                0,
+                0,
+                findPercentiles[0],
+                findPercentiles[1],
+                findPercentiles[2]));
 
-    baseline.assertLatencyWithinTolerance("store.save.p99Ms", savePercentiles[2]);
-    baseline.assertLatencyWithinTolerance("store.findById.p99Ms", findPercentiles[2]);
+    baseline().assertLatencyWithinTolerance("store.save.p99Ms", savePercentiles[2]);
+    baseline().assertLatencyWithinTolerance("store.findById.p99Ms", findPercentiles[2]);
   }
 
   @Test
@@ -153,10 +146,11 @@ class StoreOperationLatencyIT extends BasePerformanceIT {
         String.format(
             "CAS: p50=%dms, p95=%dms, p99=%dms", percentiles[0], percentiles[1], percentiles[2]));
 
-    reportWriter.addReport(
-        new PerformanceReport(
-            "store.cas", measured, 0, 0, percentiles[0], percentiles[1], percentiles[2]));
-    baseline.assertLatencyWithinTolerance("store.cas.p99Ms", percentiles[2]);
+    reportWriter()
+        .addReport(
+            new PerformanceReport(
+                "store.cas", measured, 0, 0, percentiles[0], percentiles[1], percentiles[2]));
+    baseline().assertLatencyWithinTolerance("store.cas.p99Ms", percentiles[2]);
   }
 
   @Test
@@ -191,10 +185,11 @@ class StoreOperationLatencyIT extends BasePerformanceIT {
             "Poll query: p50=%dms, p95=%dms, p99=%dms",
             percentiles[0], percentiles[1], percentiles[2]));
 
-    reportWriter.addReport(
-        new PerformanceReport(
-            "store.poll", measured, 0, 0, percentiles[0], percentiles[1], percentiles[2]));
-    baseline.assertLatencyWithinTolerance("store.poll.p99Ms", percentiles[2]);
+    reportWriter()
+        .addReport(
+            new PerformanceReport(
+                "store.poll", measured, 0, 0, percentiles[0], percentiles[1], percentiles[2]));
+    baseline().assertLatencyWithinTolerance("store.poll.p99Ms", percentiles[2]);
   }
 
   private JobEntity createJobEntity(String suffix) {

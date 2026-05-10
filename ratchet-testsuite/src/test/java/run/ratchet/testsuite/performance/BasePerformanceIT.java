@@ -11,9 +11,12 @@ import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.function.LongSupplier;
 import org.awaitility.core.ConditionTimeoutException;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import run.ratchet.api.JobHandle;
@@ -38,6 +41,10 @@ public abstract class BasePerformanceIT extends BaseRatchetIT {
 
   protected static final Duration PERF_TIMEOUT = Duration.ofSeconds(180);
   protected static final Duration PERF_POLL_INTERVAL = Duration.ofMillis(200);
+  private static final ConcurrentMap<Class<?>, PerformanceBaseline> BASELINES =
+      new ConcurrentHashMap<>();
+  private static final ConcurrentMap<Class<?>, PerformanceReportWriter> REPORT_WRITERS =
+      new ConcurrentHashMap<>();
 
   @Inject protected TestJobService jobService;
   @Inject protected JobCrudStore jobCrudStore;
@@ -71,6 +78,20 @@ public abstract class BasePerformanceIT extends BaseRatchetIT {
 
   protected static PerformanceReportWriter createReportWriter() {
     return new PerformanceReportWriter(getDbType());
+  }
+
+  protected final PerformanceBaseline baseline() {
+    return BASELINES.computeIfAbsent(getClass(), ignored -> createBaseline());
+  }
+
+  protected final PerformanceReportWriter reportWriter() {
+    return REPORT_WRITERS.computeIfAbsent(getClass(), ignored -> createReportWriter());
+  }
+
+  @AfterEach
+  void writePerformanceResults() {
+    reportWriter().writeClassFragment(getClass().getSimpleName());
+    baseline().writeRecordedBaselines();
   }
 
   protected static WebArchive createPerformanceDeployment(Class<?>... additionalClasses) {

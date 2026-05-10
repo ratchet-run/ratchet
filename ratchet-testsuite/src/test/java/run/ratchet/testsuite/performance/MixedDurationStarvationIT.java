@@ -7,7 +7,6 @@ import java.util.List;
 import java.util.logging.Logger;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
@@ -15,9 +14,7 @@ import run.ratchet.testsuite.app.ConfigurableWorkJob;
 import run.ratchet.testsuite.app.PerformanceMetricsCollector;
 import run.ratchet.testsuite.app.ProbabilisticFailingJob;
 import run.ratchet.testsuite.app.TimingJob;
-import run.ratchet.testsuite.util.PerformanceBaseline;
 import run.ratchet.testsuite.util.PerformanceReport;
-import run.ratchet.testsuite.util.PerformanceReportWriter;
 
 /**
  * Tests thread pool fairness when fast and slow jobs share the same pool. Measures whether slow
@@ -26,8 +23,6 @@ import run.ratchet.testsuite.util.PerformanceReportWriter;
 class MixedDurationStarvationIT extends BasePerformanceIT {
 
   private static final Logger log = Logger.getLogger(MixedDurationStarvationIT.class.getName());
-  private static final PerformanceBaseline baseline = createBaseline();
-  private static final PerformanceReportWriter reportWriter = createReportWriter();
 
   @Deployment
   public static WebArchive createDeployment() {
@@ -39,12 +34,6 @@ class MixedDurationStarvationIT extends BasePerformanceIT {
     TimingJob.resetCount();
     ConfigurableWorkJob.reset();
     PerformanceMetricsCollector.reset();
-  }
-
-  @AfterEach
-  void writeResults() {
-    reportWriter.writeClassFragment(getClass().getSimpleName());
-    baseline.writeRecordedBaselines();
   }
 
   @Test
@@ -73,9 +62,9 @@ class MixedDurationStarvationIT extends BasePerformanceIT {
             "Fast-only baseline: %d jobs in %dms, fast p99 queue wait=%dms",
             count, totalMs, fastP99));
 
-    reportWriter.addReport(
-        new PerformanceReport("starvation.fastOnly", count, totalMs, 0, 0, 0, fastP99));
-    baseline.assertLatencyWithinTolerance("starvation.fastOnly.p99Ms", fastP99);
+    reportWriter()
+        .addReport(new PerformanceReport("starvation.fastOnly", count, totalMs, 0, 0, 0, fastP99));
+    baseline().assertLatencyWithinTolerance("starvation.fastOnly.p99Ms", fastP99);
   }
 
   @Test
@@ -116,11 +105,12 @@ class MixedDurationStarvationIT extends BasePerformanceIT {
             "Mixed workload: %d total jobs in %dms, fast p99 queue wait=%dms",
             fastCount + slowCount, totalMs, fastP99));
 
-    reportWriter.addReport(
-        new PerformanceReport(
-            "starvation.mixed", fastCount + slowCount, totalMs, 0, 0, 0, fastP99));
+    reportWriter()
+        .addReport(
+            new PerformanceReport(
+                "starvation.mixed", fastCount + slowCount, totalMs, 0, 0, 0, fastP99));
     assertEquals(
         slowCount, slowJobsCompleted, "Mixed workload should execute every scheduled slow job");
-    baseline.assertLatencyWithinTolerance("starvation.mixed.fastP99Ms", fastP99);
+    baseline().assertLatencyWithinTolerance("starvation.mixed.fastP99Ms", fastP99);
   }
 }

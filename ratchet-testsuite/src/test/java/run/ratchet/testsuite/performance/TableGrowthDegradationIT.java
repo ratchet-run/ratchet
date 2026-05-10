@@ -5,7 +5,6 @@ import java.util.List;
 import java.util.logging.Logger;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
 import run.ratchet.store.entity.JobExecutionType;
@@ -29,8 +28,6 @@ import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 class TableGrowthDegradationIT extends BasePerformanceIT {
 
   private static final Logger log = Logger.getLogger(TableGrowthDegradationIT.class.getName());
-  private static final PerformanceBaseline baseline = createBaseline();
-  private static final PerformanceReportWriter reportWriter = createReportWriter();
 
   @Deployment
   public static WebArchive createDeployment() {
@@ -52,12 +49,6 @@ class TableGrowthDegradationIT extends BasePerformanceIT {
         .addStoreInfrastructure()
         .addBeansXml()
         .build();
-  }
-
-  @AfterEach
-  void writeResults() {
-    reportWriter.writeClassFragment(getClass().getSimpleName());
-    baseline.writeRecordedBaselines();
   }
 
   @Test
@@ -100,10 +91,11 @@ class TableGrowthDegradationIT extends BasePerformanceIT {
               "Table growth [%s]: %.1f jobs/sec (%d jobs in %dms)",
               sizeKey, throughput, measureCount, totalMs));
 
-      reportWriter.addReport(
-          new PerformanceReport(
-              "tableDegradation." + sizeKey, measureCount, totalMs, throughput, 0, 0, 0));
-      baseline.assertWithinTolerance("tableDegradation." + sizeKey + ".jobsPerSec", throughput);
+      reportWriter()
+          .addReport(
+              new PerformanceReport(
+                  "tableDegradation." + sizeKey, measureCount, totalMs, throughput, 0, 0, 0));
+      baseline().assertWithinTolerance("tableDegradation." + sizeKey + ".jobsPerSec", throughput);
 
       if (tableSize == 0) {
         baselineThroughput = throughput;
@@ -111,8 +103,8 @@ class TableGrowthDegradationIT extends BasePerformanceIT {
 
       // Also measure claim query latency directly
       long claimP99 = measureClaimQueryLatency(50);
-      baseline.assertLatencyWithinTolerance(
-          "tableDegradation." + sizeKey + ".claimP99Ms", claimP99);
+      baseline()
+          .assertLatencyWithinTolerance("tableDegradation." + sizeKey + ".claimP99Ms", claimP99);
 
       if (tableSize == 10_000 || tableSize == 100_000 || tableSize == 1_000_000) {
         assertClaimQueriesUseIndexes(sizeKey);
@@ -127,8 +119,9 @@ class TableGrowthDegradationIT extends BasePerformanceIT {
           String.format(
               "Table growth throughput ratio (0K/%s): %.2f (1.0 = no degradation)",
               lastSizeKey, throughputRatio));
-      baseline.assertLatencyWithinTolerance(
-          "tableDegradation." + lastSizeKey + ".throughputRatio", throughputRatio);
+      baseline()
+          .assertLatencyWithinTolerance(
+              "tableDegradation." + lastSizeKey + ".throughputRatio", throughputRatio);
     }
   }
 

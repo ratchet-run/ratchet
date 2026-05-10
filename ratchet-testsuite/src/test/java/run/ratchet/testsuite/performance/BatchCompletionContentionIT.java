@@ -4,7 +4,6 @@ import java.util.List;
 import java.util.logging.Logger;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
@@ -30,8 +29,6 @@ import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 class BatchCompletionContentionIT extends BasePerformanceIT {
 
   private static final Logger log = Logger.getLogger(BatchCompletionContentionIT.class.getName());
-  private static final PerformanceBaseline baseline = createBaseline();
-  private static final PerformanceReportWriter reportWriter = createReportWriter();
 
   @Deployment
   public static WebArchive createDeployment() {
@@ -59,12 +56,6 @@ class BatchCompletionContentionIT extends BasePerformanceIT {
   void resetCounters() {
     TimingJob.resetCount();
     PerformanceMetricsCollector.reset();
-  }
-
-  @AfterEach
-  void writeResults() {
-    reportWriter.writeClassFragment(getClass().getSimpleName());
-    baseline.writeRecordedBaselines();
   }
 
   @Test
@@ -105,11 +96,13 @@ class BatchCompletionContentionIT extends BasePerformanceIT {
               "Batch contention [%d]: total=%dms, overhead/child=%.2fms",
               size, totalMs, overheadPerChild[i]));
 
-      reportWriter.addReport(
-          new PerformanceReport(
-              "batchContention." + size, size, totalMs, (size * 1000.0) / totalMs, 0, 0, 0));
-      baseline.assertLatencyWithinTolerance(
-          "batchContention." + size + ".overheadPerChildMs", overheadPerChild[i]);
+      reportWriter()
+          .addReport(
+              new PerformanceReport(
+                  "batchContention." + size, size, totalMs, (size * 1000.0) / totalMs, 0, 0, 0));
+      baseline()
+          .assertLatencyWithinTolerance(
+              "batchContention." + size + ".overheadPerChildMs", overheadPerChild[i]);
     }
 
     // Compute scaling ratio: overhead at 1000 vs overhead at 50
@@ -119,6 +112,6 @@ class BatchCompletionContentionIT extends BasePerformanceIT {
             "Batch contention scaling ratio (1000/50): %.2f (1.0 = constant, >1.0 = contention)",
             scalingRatio));
 
-    baseline.assertLatencyWithinTolerance("batchContention.scalingRatio", scalingRatio);
+    baseline().assertLatencyWithinTolerance("batchContention.scalingRatio", scalingRatio);
   }
 }

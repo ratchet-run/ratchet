@@ -4,7 +4,6 @@ import java.time.Instant;
 import java.util.logging.Logger;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.testsuite.app.ConfigurableWorkJob;
@@ -27,8 +26,6 @@ import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 class ClaimQueryDegradationIT extends BasePerformanceIT {
 
   private static final Logger log = Logger.getLogger(ClaimQueryDegradationIT.class.getName());
-  private static final PerformanceBaseline baseline = createBaseline();
-  private static final PerformanceReportWriter reportWriter = createReportWriter();
 
   @Deployment
   public static WebArchive createDeployment() {
@@ -50,12 +47,6 @@ class ClaimQueryDegradationIT extends BasePerformanceIT {
         .addStoreInfrastructure()
         .addBeansXml()
         .build();
-  }
-
-  @AfterEach
-  void writeResults() {
-    reportWriter.writeClassFragment(getClass().getSimpleName());
-    baseline.writeRecordedBaselines();
   }
 
   @Test
@@ -93,17 +84,18 @@ class ClaimQueryDegradationIT extends BasePerformanceIT {
                 "Claim query [%s rows]: p50=%dms, p95=%dms, p99=%dms",
                 sizeKey, percentiles[0], percentiles[1], percentiles[2]));
 
-        reportWriter.addReport(
-            new PerformanceReport(
-                "claimQuery." + sizeKey,
-                iterations,
-                0,
-                0,
-                percentiles[0],
-                percentiles[1],
-                percentiles[2]));
+        reportWriter()
+            .addReport(
+                new PerformanceReport(
+                    "claimQuery." + sizeKey,
+                    iterations,
+                    0,
+                    0,
+                    percentiles[0],
+                    percentiles[1],
+                    percentiles[2]));
 
-        baseline.assertLatencyWithinTolerance("claimQuery." + sizeKey + ".p99Ms", percentiles[2]);
+        baseline().assertLatencyWithinTolerance("claimQuery." + sizeKey + ".p99Ms", percentiles[2]);
 
         if (tableSize == 0) {
           baselineP99 = percentiles[2];
@@ -126,7 +118,7 @@ class ClaimQueryDegradationIT extends BasePerformanceIT {
         log.info(
             String.format(
                 "Claim query degradation ratio (%s/0K): %.2f", lastSizeKey, degradationRatio));
-        baseline.assertLatencyWithinTolerance("claimQuery.degradationRatio", degradationRatio);
+        baseline().assertLatencyWithinTolerance("claimQuery.degradationRatio", degradationRatio);
       }
     } catch (AssertionError | RuntimeException e) {
       throw new AssertionError(

@@ -4,7 +4,6 @@ import java.util.List;
 import java.util.logging.Logger;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
@@ -21,8 +20,6 @@ import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 class QueueLatencyIT extends BasePerformanceIT {
 
   private static final Logger log = Logger.getLogger(QueueLatencyIT.class.getName());
-  private static final PerformanceBaseline baseline = createBaseline();
-  private static final PerformanceReportWriter reportWriter = createReportWriter();
 
   @Deployment
   public static WebArchive createDeployment() {
@@ -48,12 +45,6 @@ class QueueLatencyIT extends BasePerformanceIT {
   void resetCounters() {
     TimingJob.resetCount();
     PerformanceMetricsCollector.reset();
-  }
-
-  @AfterEach
-  void writeResults() {
-    reportWriter.writeClassFragment(getClass().getSimpleName());
-    baseline.writeRecordedBaselines();
   }
 
   @Test
@@ -89,9 +80,9 @@ class QueueLatencyIT extends BasePerformanceIT {
             percentiles[0],
             percentiles[1],
             percentiles[2]);
-    reportWriter.addReport(report);
+    reportWriter().addReport(report);
 
-    baseline.assertLatencyWithinTolerance("latency.queueWait.light.p99Ms", percentiles[2]);
+    baseline().assertLatencyWithinTolerance("latency.queueWait.light.p99Ms", percentiles[2]);
   }
 
   @Test
@@ -126,9 +117,9 @@ class QueueLatencyIT extends BasePerformanceIT {
             percentiles[0],
             percentiles[1],
             percentiles[2]);
-    reportWriter.addReport(report);
+    reportWriter().addReport(report);
 
-    baseline.assertLatencyWithinTolerance("latency.queueWait.heavy.p99Ms", percentiles[2]);
+    baseline().assertLatencyWithinTolerance("latency.queueWait.heavy.p99Ms", percentiles[2]);
   }
 
   @Test
@@ -163,8 +154,8 @@ class QueueLatencyIT extends BasePerformanceIT {
             snap.p50Ms(),
             snap.p95Ms(),
             snap.p99Ms());
-    reportWriter.addReport(report);
+    reportWriter().addReport(report);
 
-    baseline.assertLatencyWithinTolerance("latency.execution.p99Ms", snap.p99Ms());
+    baseline().assertLatencyWithinTolerance("latency.execution.p99Ms", snap.p99Ms());
   }
 }
