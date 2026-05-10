@@ -228,7 +228,7 @@ public class Poller {
 
     long nextDelay = strategy.recordPollResult(jobCount, pollStartTime);
 
-    log.debugf("Poll completed: claimed %s job(s), next delay %s ms", jobCount, nextDelay);
+    log.debugf("Poll completed: claimed %d job(s), next delay %d ms", (long) jobCount, nextDelay);
 
     return nextDelay;
   }
