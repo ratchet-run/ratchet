@@ -408,8 +408,9 @@ public final class SchemaMigrator {
           statement.execute(sql);
         }
       }
-      // Upsert so the migrator authoritatively owns the checksum even when scripts self-record
-      // (e.g., via `INSERT INTO ratchet_schema_version` from manual `psql -f` workflows).
+      // Upsert so the bundled migrator authoritatively owns the schema-version metadata. If a
+      // script self-recorded an older description/checksum, a managed run rewrites both values to
+      // match the bundled script.
       try (PreparedStatement statement = connection.prepareStatement(dialect.recordVersionSql())) {
         statement.setString(1, script.version());
         statement.setString(2, script.description());

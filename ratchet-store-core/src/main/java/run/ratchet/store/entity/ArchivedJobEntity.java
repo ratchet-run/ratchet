@@ -118,16 +118,16 @@ public class ArchivedJobEntity implements UuidV7EntityListener.UuidV7Assignable 
   @Column(name = "archive_reason", length = 128)
   private String archiveReason;
 
-  @Column(name = "job_result")
+  @Column(name = "job_result", columnDefinition = "TEXT")
   private String jobResult;
 
   @Column(name = "result_type", length = 100)
   private String resultType;
 
-  @Column(name = "final_error")
+  @Column(name = "final_error", columnDefinition = "TEXT")
   private String finalError;
 
-  @Column(name = "payload_summary")
+  @Column(name = "payload_summary", columnDefinition = "TEXT")
   private String payloadSummary;
 
   @Column(name = "depended_on")

@@ -131,7 +131,7 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   @Column(name = "business_key")
   private String businessKey;
 
-  @ElementCollection(fetch = FetchType.LAZY)
+  @ElementCollection(fetch = FetchType.EAGER)
   @CollectionTable(
       name = "scheduler_job_tag",
       joinColumns = @JoinColumn(name = "job_id"),

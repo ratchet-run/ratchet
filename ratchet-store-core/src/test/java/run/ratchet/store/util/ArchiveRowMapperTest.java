@@ -50,7 +50,30 @@ class ArchiveRowMapperTest {
     assertEquals(JobStatus.SUCCEEDED, archive.getFinalStatus());
     assertEquals(JobExecutionType.SINGLE, archive.getJobType());
     assertEquals(JobPriority.NORMAL, archive.getPriority());
+    assertEquals(UUID.fromString("00000000-0000-0000-0000-000000000001"), archive.getId());
+    assertEquals(
+        UUID.fromString("00000000-0000-0000-0000-000000000002"), archive.getOriginalJobId());
+    assertEquals(1, archive.getTotalAttempts());
+    assertEquals(3, archive.getMaxRetries());
     assertEquals(BackoffPolicy.NONE, archive.getBackoffPolicy());
+    assertEquals(0, archive.getBackoffParamMs());
+    assertEquals(60, archive.getTimeoutSec());
+    assertEquals("com.example.Job", archive.getTargetClass());
+    assertEquals("run", archive.getMethodName());
+    assertEquals("business-key", archive.getBusinessKey());
+    assertEquals(Instant.parse("2026-05-07T12:00:00Z"), archive.getOriginalScheduledTime());
+    assertEquals(Instant.parse("2026-05-07T12:00:01Z"), archive.getOriginalCreatedAt());
+    assertEquals(Instant.parse("2026-05-07T12:00:02Z"), archive.getFirstExecutionTime());
+    assertEquals(Instant.parse("2026-05-07T12:00:03Z"), archive.getCompletionTime());
+    assertEquals(100L, archive.getTotalExecutionTimeMs());
+    assertEquals(200L, archive.getQueueWaitMs());
+    assertEquals(Instant.parse("2026-05-07T12:00:04Z"), archive.getArchivedAt());
+    assertEquals("archiver", archive.getArchivedBy());
+    assertEquals("retention", archive.getArchiveReason());
+    assertEquals("result", archive.getJobResult());
+    assertEquals("java.lang.String", archive.getResultType());
+    assertEquals("payload", archive.getPayloadSummary());
+    assertEquals("tag", archive.getTags());
   }
 
   @Test

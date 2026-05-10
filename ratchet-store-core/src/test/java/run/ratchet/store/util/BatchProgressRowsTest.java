@@ -44,6 +44,16 @@ class BatchProgressRowsTest {
     assertEquals(5, progress.totalItems());
   }
 
+  @Test
+  void completedItemsReadsFirstColumn() {
+    assertEquals(7, BatchProgressRows.completedItems(row(7, 3, 10)));
+  }
+
+  @Test
+  void failedItemsReadsSecondColumn() {
+    assertEquals(3, BatchProgressRows.failedItems(row(7, 3, 10)));
+  }
+
   private static Object[] row(int completedItems, int failedItems, int totalItems) {
     return new Object[] {completedItems, failedItems, totalItems, "{\"type\":\"hook\"}"};
   }

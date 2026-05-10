@@ -36,7 +36,12 @@ public interface JobCrudStore {
 
   void delete(UUID id);
 
-  /** Returns the current persisted status for a job, or store-specific null handling if absent. */
+  /**
+   * Returns the current persisted status for a job.
+   *
+   * @param id job id to inspect
+   * @return current status, or {@code null} when no job exists for {@code id}
+   */
   JobStatus getJobStatus(UUID id);
 
   /** Batch-loads jobs by primary key for hot-path recovery and draining flows. */
