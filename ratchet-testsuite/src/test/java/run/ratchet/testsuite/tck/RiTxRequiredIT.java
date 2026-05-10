@@ -4,6 +4,7 @@ import jakarta.inject.Inject;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.junit5.ArquillianExtension;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import run.ratchet.tck.api.RatchetTckRuntime;
@@ -26,8 +27,10 @@ class RiTxRequiredIT extends AbstractTxRequiredContract {
 
   @Override
   @Test
+  @Disabled(
+      "Arquillian waits indefinitely for the remote servlet response on this inherited method")
   protected void pauseJob_rollback_doesNotSuppressExecution() {
-    // Arquillian waits indefinitely for the remote servlet response on this inherited method.
+    // Disabled explicitly so the unsupported RI contract is visible in test reports.
   }
 
   @Deployment

@@ -49,7 +49,6 @@ class RiDelayedSchedulingIT extends AbstractDelayedSchedulingContract {
             .addPackage(RatchetTckRuntime.class.getPackage())
             .addPackage(ConcurrentTestRunner.class.getPackage())
             .addClasses(
-                RiRatchetTckRuntime.class,
                 ListenerProbe.class,
                 TckJobs.class,
                 SteppingTestClock.class,
