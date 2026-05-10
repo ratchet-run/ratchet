@@ -3,7 +3,13 @@ package run.ratchet.store.postgresql;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.id.UuidV7Factory;
@@ -25,14 +31,16 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
       tags
       """;
 
+  private static final String ARCHIVE_VALUE_PLACEHOLDERS =
+      "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
   // language=PostgreSQL
   private static final String INSERT_ARCHIVE_SQL =
       """
       INSERT INTO scheduler_job_archive (%s)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES %s
       """
-          .formatted(ARCHIVE_COLUMNS);
+          .formatted(ARCHIVE_COLUMNS, ARCHIVE_VALUE_PLACEHOLDERS);
 
   private final PostgresqlStoreContext ctx;
   private final PostgresqlJobReadOperations reads;
@@ -51,8 +59,7 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
     }
   }
 
-  private static void setArchiveParameters(Query query, ArchivedJobEntity archive) {
-    int parameter = 1;
+  private static int setArchiveParameters(Query query, ArchivedJobEntity archive, int parameter) {
     query.setParameter(parameter++, archive.getId());
     query.setParameter(parameter++, archive.getOriginalJobId());
     query.setParameter(parameter++, archive.getFinalStatus().name());
@@ -83,7 +90,8 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
     query.setParameter(parameter++, archive.getPayloadSummary());
     query.setParameter(parameter++, archive.getDependedOn());
     query.setParameter(parameter++, archive.getSupersededBy());
-    query.setParameter(parameter, archive.getTags());
+    query.setParameter(parameter++, archive.getTags());
+    return parameter;
   }
 
   private static Timestamp timestampOrNull(Instant instant) {
@@ -96,19 +104,48 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
     ArchivedJobEntity archive = ArchiveHelper.buildArchive(hydrated, reason, archivedBy);
     prepareArchive(archive);
     Query query = ctx.em().createNativeQuery(INSERT_ARCHIVE_SQL);
-    setArchiveParameters(query, archive);
+    setArchiveParameters(query, archive, 1);
     query.executeUpdate();
     return archive;
   }
 
   @Override
   public int archiveJobsBatch(List<JobEntity> jobsToArchive, String reason, String archivedBy) {
-    int count = 0;
-    for (JobEntity job : jobsToArchive) {
-      archiveJob(job, reason, archivedBy);
-      count++;
+    if (jobsToArchive.isEmpty()) {
+      return 0;
     }
-    return count;
+
+    List<UUID> ids = jobsToArchive.stream().map(JobEntity::getId).toList();
+    Map<UUID, JobEntity> hydratedById =
+        reads.findByIds(ids).stream()
+            .collect(Collectors.toMap(JobEntity::getId, Function.identity()));
+    List<ArchivedJobEntity> archives = new ArrayList<>(jobsToArchive.size());
+    for (UUID id : ids) {
+      JobEntity hydrated = hydratedById.get(id);
+      if (hydrated == null) {
+        throw new IllegalStateException("Job not found for archival: " + id);
+      }
+      ArchivedJobEntity archive = ArchiveHelper.buildArchive(hydrated, reason, archivedBy);
+      prepareArchive(archive);
+      archives.add(archive);
+    }
+
+    String rows =
+        String.join(",", Collections.nCopies(archives.size(), ARCHIVE_VALUE_PLACEHOLDERS));
+    Query query =
+        ctx.em()
+            .createNativeQuery(
+                """
+                INSERT INTO scheduler_job_archive (%s)
+                VALUES %s
+                """
+                    .formatted(ARCHIVE_COLUMNS, rows));
+    int parameter = 1;
+    for (ArchivedJobEntity archive : archives) {
+      parameter = setArchiveParameters(query, archive, parameter);
+    }
+    query.executeUpdate();
+    return archives.size();
   }
 
   @Override
