@@ -3,7 +3,6 @@ package run.ratchet.micrometer;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.enterprise.context.Dependent;
 import jakarta.enterprise.inject.Default;
 import jakarta.enterprise.inject.Produces;
 
@@ -34,7 +33,7 @@ public class MicrometerMeterRegistryProducer {
 
   @Produces
   @Default
-  @Dependent
+  @ApplicationScoped
   public MeterRegistry defaultRegistry() {
     return defaultRegistry;
   }
