@@ -32,10 +32,13 @@ import static run.ratchet.store.mongodb.MongoFieldNames.TS;
 import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
 
 import com.mongodb.client.ClientSession;
+import com.mongodb.client.model.BulkWriteOptions;
 import com.mongodb.client.model.FindOneAndUpdateOptions;
 import com.mongodb.client.model.ReplaceOptions;
 import com.mongodb.client.model.ReturnDocument;
+import com.mongodb.client.model.UpdateOneModel;
 import com.mongodb.client.model.UpdateOptions;
+import com.mongodb.client.model.WriteModel;
 import com.mongodb.client.result.DeleteResult;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -246,15 +249,14 @@ final class MongoAuxiliaryOperations {
     try (ClientSession session = ctx.startSession()) {
       session.withTransaction(
           () -> {
-            List<String> resources = new ArrayList<>();
+            Map<String, Integer> releasedByResource = new HashMap<>();
             ctx.resourcePermits()
                 .find(session, eq(JOB_ID, jobId))
-                .forEach(doc -> resources.add(doc.getString(RESOURCE_NAME)));
+                .forEach(
+                    doc -> releasedByResource.merge(doc.getString(RESOURCE_NAME), 1, Integer::sum));
             DeleteResult dr = ctx.resourcePermits().deleteMany(session, eq(JOB_ID, jobId));
             if (dr.getDeletedCount() > 0) {
-              for (String resource : resources) {
-                ctx.resourceLimits().updateOne(session, eq(ID, resource), inc(ACTIVE_COUNT, -1));
-              }
+              decrementResourceCounts(session, releasedByResource);
             }
             return Boolean.TRUE;
           });
@@ -298,12 +300,20 @@ final class MongoAuxiliaryOperations {
                     doc -> removedByResource.merge(doc.getString(RESOURCE_NAME), 1, Integer::sum));
             DeleteResult result =
                 ctx.resourcePermits().deleteMany(session, in(NODE_ID, staleNodeIds));
-            removedByResource.forEach(
-                (resource, count) ->
-                    ctx.resourceLimits()
-                        .updateOne(session, eq(ID, resource), inc(ACTIVE_COUNT, -count)));
+            decrementResourceCounts(session, removedByResource);
             return (int) result.getDeletedCount();
           });
     }
+  }
+
+  private void decrementResourceCounts(ClientSession session, Map<String, Integer> counts) {
+    if (counts.isEmpty()) {
+      return;
+    }
+    List<WriteModel<Document>> writes = new ArrayList<>(counts.size());
+    counts.forEach(
+        (resource, count) ->
+            writes.add(new UpdateOneModel<>(eq(ID, resource), inc(ACTIVE_COUNT, -count))));
+    ctx.resourceLimits().bulkWrite(session, writes, new BulkWriteOptions().ordered(false));
   }
 }
