@@ -69,7 +69,7 @@ final class RatchetConfigKeys {
   static final RatchetConfigKey<Long> ORPHAN_SCAN_INTERVAL_MINUTES =
       longKey(
           "ratchet.node.orphan-scan-interval-minutes",
-          "RATCHET_ORPHAN_SCAN_INTERVAL_MINUTES",
+          "RATCHET_NODE_ORPHAN_SCAN_INTERVAL_MINUTES",
           5L,
           1L);
   static final RatchetConfigKey<Boolean> DYNAMIC_HEARTBEAT_ENABLED =

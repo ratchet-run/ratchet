@@ -88,7 +88,7 @@ There is no built-in job routing or affinity -- any node can execute any job. If
 |---|---|---|
 | `RATCHET_NODE_HEARTBEAT_INTERVAL_SECONDS` | `10` | How often nodes write their heartbeat |
 | `RATCHET_NODE_ORPHAN_GRACE_SECONDS` | `60` | Time before a silent node's jobs are recovered |
-| `RATCHET_ORPHAN_SCAN_INTERVAL_MINUTES` | `5` | How often to scan for orphaned jobs |
+| `RATCHET_NODE_ORPHAN_SCAN_INTERVAL_MINUTES` | `5` | How often to scan for orphaned jobs |
 
 ## What Happens If the Server Crashes Mid-Job?
 

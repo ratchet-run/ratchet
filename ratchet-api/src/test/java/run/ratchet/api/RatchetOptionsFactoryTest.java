@@ -24,6 +24,16 @@ class RatchetOptionsFactoryTest {
   }
 
   @Test
+  void mapsNodeOrphanScanIntervalEnvironmentVariable() {
+    RatchetOptions options =
+        optionsFrom(
+            new MapRatchetConfigSource(
+                Map.of(), Map.of("RATCHET_NODE_ORPHAN_SCAN_INTERVAL_MINUTES", "17")));
+
+    assertEquals(17L, options.node().orphanScanIntervalMinutes());
+  }
+
+  @Test
   void fallsBackToPropertyNameWhenEnvironmentVariableNameIsMissing() {
     RatchetOptions options =
         optionsFrom(
