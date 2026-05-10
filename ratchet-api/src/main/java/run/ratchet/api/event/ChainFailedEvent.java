@@ -14,6 +14,12 @@ public class ChainFailedEvent extends AbstractJobSchedulerEvent {
   private final UUID parentJobId;
   private final String errorMessage;
 
+  /**
+   * Creates an event with an explicit timestamp.
+   *
+   * @param parentJobId root or parent job whose chain failed
+   * @param errorMessage sanitized failure message that stopped the chain
+   */
   public ChainFailedEvent(
       UUID jobId,
       String businessKey,
@@ -28,6 +34,12 @@ public class ChainFailedEvent extends AbstractJobSchedulerEvent {
     this.errorMessage = errorMessage;
   }
 
+  /**
+   * Creates an event using the current system clock instant.
+   *
+   * @param parentJobId root or parent job whose chain failed
+   * @param errorMessage sanitized failure message that stopped the chain
+   */
   public ChainFailedEvent(
       UUID jobId,
       String businessKey,
@@ -41,10 +53,12 @@ public class ChainFailedEvent extends AbstractJobSchedulerEvent {
     this.errorMessage = errorMessage;
   }
 
+  /** Returns the root or parent job whose chain failed. */
   public UUID getParentJobId() {
     return parentJobId;
   }
 
+  /** Returns the sanitized failure message that stopped the chain. */
   public String getErrorMessage() {
     return errorMessage;
   }

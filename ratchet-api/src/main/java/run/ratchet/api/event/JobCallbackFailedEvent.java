@@ -13,8 +13,13 @@ public class JobCallbackFailedEvent extends AbstractJobSchedulerEvent {
   private final CallbackType callbackType;
   private final String errorMessage;
   private final String causeClassName;
-  private final Integer callbackAttempt;
+  private final int callbackAttempt;
 
+  /**
+   * Creates an event with an explicit timestamp.
+   *
+   * @param callbackAttempt 1-based callback attempt number
+   */
   public JobCallbackFailedEvent(
       UUID jobId,
       String businessKey,
@@ -25,7 +30,7 @@ public class JobCallbackFailedEvent extends AbstractJobSchedulerEvent {
       CallbackType callbackType,
       String errorMessage,
       String causeClassName,
-      Integer callbackAttempt) {
+      int callbackAttempt) {
     super(jobId, businessKey, jobType, priority, nodeId, timestamp);
     this.callbackType = callbackType;
     this.errorMessage = errorMessage;
@@ -33,6 +38,11 @@ public class JobCallbackFailedEvent extends AbstractJobSchedulerEvent {
     this.callbackAttempt = callbackAttempt;
   }
 
+  /**
+   * Creates an event using the current system clock instant.
+   *
+   * @param callbackAttempt 1-based callback attempt number
+   */
   public JobCallbackFailedEvent(
       UUID jobId,
       String businessKey,
@@ -42,7 +52,7 @@ public class JobCallbackFailedEvent extends AbstractJobSchedulerEvent {
       CallbackType callbackType,
       String errorMessage,
       String causeClassName,
-      Integer callbackAttempt) {
+      int callbackAttempt) {
     super(jobId, businessKey, jobType, priority, nodeId);
     this.callbackType = callbackType;
     this.errorMessage = errorMessage;
@@ -50,19 +60,23 @@ public class JobCallbackFailedEvent extends AbstractJobSchedulerEvent {
     this.callbackAttempt = callbackAttempt;
   }
 
+  /** Returns which lifecycle callback failed. */
   public CallbackType getCallbackType() {
     return callbackType;
   }
 
+  /** Returns the callback failure message. */
   public String getErrorMessage() {
     return errorMessage;
   }
 
+  /** Returns the class name of the thrown callback exception. */
   public String getCauseClassName() {
     return causeClassName;
   }
 
-  public Integer getCallbackAttempt() {
+  /** Returns the 1-based callback attempt number. */
+  public int getCallbackAttempt() {
     return callbackAttempt;
   }
 

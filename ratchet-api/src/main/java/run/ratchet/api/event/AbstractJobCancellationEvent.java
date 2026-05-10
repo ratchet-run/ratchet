@@ -45,6 +45,12 @@ public abstract class AbstractJobCancellationEvent extends AbstractJobSchedulerE
     return previousStatus;
   }
 
+  /**
+   * Returns the measured execution duration in milliseconds.
+   *
+   * <p>This value is {@code null} when the job was canceled before execution began, or when Ratchet
+   * could not reload the job details after a successful cancellation transition.
+   */
   public Long getExecutionTimeMs() {
     return executionTimeMs;
   }

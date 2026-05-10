@@ -1,6 +1,7 @@
 package run.ratchet.api.event;
 
 import java.io.Serial;
+import java.util.Objects;
 import java.util.UUID;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
@@ -53,7 +54,7 @@ public class JobSignaledEvent extends AbstractJobSchedulerEvent {
     super(jobId, businessKey, jobType, priority, nodeId);
     this.signalKey = signalKey;
     this.signalDeliveredBy = signalDeliveredBy;
-    this.outcome = outcome != null ? outcome : SignalDecision.Outcome.APPROVED;
+    this.outcome = Objects.requireNonNull(outcome, "outcome");
     this.rejectionReason =
         rejectionReason == null || rejectionReason.isBlank() ? null : rejectionReason.trim();
   }

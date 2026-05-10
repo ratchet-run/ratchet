@@ -12,7 +12,7 @@ public class WorkflowBranchTriggeredEvent extends AbstractJobSchedulerEvent {
   @Serial private static final long serialVersionUID = 1721949020293115008L;
 
   private final String branchCondition;
-  private final String nextJobId;
+  private final UUID nextJobId;
 
   public WorkflowBranchTriggeredEvent(
       UUID jobId,
@@ -22,7 +22,7 @@ public class WorkflowBranchTriggeredEvent extends AbstractJobSchedulerEvent {
       String nodeId,
       Instant timestamp,
       String branchCondition,
-      String nextJobId) {
+      UUID nextJobId) {
     super(jobId, businessKey, jobType, priority, nodeId, timestamp);
     this.branchCondition = branchCondition;
     this.nextJobId = nextJobId;
@@ -35,7 +35,7 @@ public class WorkflowBranchTriggeredEvent extends AbstractJobSchedulerEvent {
       JobPriority priority,
       String nodeId,
       String branchCondition,
-      String nextJobId) {
+      UUID nextJobId) {
     super(jobId, businessKey, jobType, priority, nodeId);
     this.branchCondition = branchCondition;
     this.nextJobId = nextJobId;
@@ -45,7 +45,8 @@ public class WorkflowBranchTriggeredEvent extends AbstractJobSchedulerEvent {
     return branchCondition;
   }
 
-  public String getNextJobId() {
+  /** Returns the job id scheduled for the triggered branch. */
+  public UUID getNextJobId() {
     return nextJobId;
   }
 }

@@ -6,14 +6,20 @@ import java.util.UUID;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 
-/** Fired when a job is moved to the dead letter queue. */
+/** Fired after Ratchet moves a permanently failed job to the dead letter queue. */
 public class JobDlqEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = -2578972098474327757L;
 
   private final String errorMessage;
-  private final Integer retryAttempt;
+  private final int retryAttempt;
 
+  /**
+   * Creates an event with an explicit timestamp.
+   *
+   * @param errorMessage sanitized final failure message
+   * @param retryAttempt final 1-based execution attempt count before DLQ
+   */
   public JobDlqEvent(
       UUID jobId,
       String businessKey,
@@ -22,12 +28,18 @@ public class JobDlqEvent extends AbstractJobSchedulerEvent {
       String nodeId,
       Instant timestamp,
       String errorMessage,
-      Integer retryAttempt) {
+      int retryAttempt) {
     super(jobId, businessKey, jobType, priority, nodeId, timestamp);
     this.errorMessage = errorMessage;
     this.retryAttempt = retryAttempt;
   }
 
+  /**
+   * Creates an event using the current system clock instant.
+   *
+   * @param errorMessage sanitized final failure message
+   * @param retryAttempt final 1-based execution attempt count before DLQ
+   */
   public JobDlqEvent(
       UUID jobId,
       String businessKey,
@@ -35,17 +47,19 @@ public class JobDlqEvent extends AbstractJobSchedulerEvent {
       JobPriority priority,
       String nodeId,
       String errorMessage,
-      Integer retryAttempt) {
+      int retryAttempt) {
     super(jobId, businessKey, jobType, priority, nodeId);
     this.errorMessage = errorMessage;
     this.retryAttempt = retryAttempt;
   }
 
+  /** Returns the sanitized final failure message. */
   public String getErrorMessage() {
     return errorMessage;
   }
 
-  public Integer getRetryAttempt() {
+  /** Returns the final 1-based execution attempt count before DLQ. */
+  public int getRetryAttempt() {
     return retryAttempt;
   }
 }

@@ -11,9 +11,9 @@ public class BatchCompletedEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = 843735174177646423L;
 
-  private final Integer totalItems;
-  private final Integer completedItems;
-  private final Integer failedItems;
+  private final int totalItems;
+  private final int completedItems;
+  private final int failedItems;
 
   public BatchCompletedEvent(
       UUID jobId,
@@ -22,9 +22,9 @@ public class BatchCompletedEvent extends AbstractJobSchedulerEvent {
       JobPriority priority,
       String nodeId,
       Instant timestamp,
-      Integer totalItems,
-      Integer completedItems,
-      Integer failedItems) {
+      int totalItems,
+      int completedItems,
+      int failedItems) {
     super(jobId, businessKey, jobType, priority, nodeId, timestamp);
     this.totalItems = totalItems;
     this.completedItems = completedItems;
@@ -37,24 +37,27 @@ public class BatchCompletedEvent extends AbstractJobSchedulerEvent {
       JobType jobType,
       JobPriority priority,
       String nodeId,
-      Integer totalItems,
-      Integer completedItems,
-      Integer failedItems) {
+      int totalItems,
+      int completedItems,
+      int failedItems) {
     super(jobId, businessKey, jobType, priority, nodeId);
     this.totalItems = totalItems;
     this.completedItems = completedItems;
     this.failedItems = failedItems;
   }
 
-  public Integer getTotalItems() {
+  /** Returns the total number of child jobs in the batch. */
+  public int getTotalItems() {
     return totalItems;
   }
 
-  public Integer getCompletedItems() {
+  /** Returns the number of child jobs that completed successfully. */
+  public int getCompletedItems() {
     return completedItems;
   }
 
-  public Integer getFailedItems() {
+  /** Returns the number of child jobs that failed. */
+  public int getFailedItems() {
     return failedItems;
   }
 }

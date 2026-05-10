@@ -12,7 +12,7 @@ public class JobRetryingEvent extends AbstractJobSchedulerEvent {
   @Serial private static final long serialVersionUID = -3500975641125637480L;
 
   private final String errorMessage;
-  private final Integer retryAttempt;
+  private final int retryAttempt;
   private final Instant scheduledTime;
 
   public JobRetryingEvent(
@@ -23,7 +23,7 @@ public class JobRetryingEvent extends AbstractJobSchedulerEvent {
       String nodeId,
       Instant timestamp,
       String errorMessage,
-      Integer retryAttempt,
+      int retryAttempt,
       Instant scheduledTime) {
     super(jobId, businessKey, jobType, priority, nodeId, timestamp);
     this.errorMessage = errorMessage;
@@ -38,7 +38,7 @@ public class JobRetryingEvent extends AbstractJobSchedulerEvent {
       JobPriority priority,
       String nodeId,
       String errorMessage,
-      Integer retryAttempt,
+      int retryAttempt,
       Instant scheduledTime) {
     super(jobId, businessKey, jobType, priority, nodeId);
     this.errorMessage = errorMessage;
@@ -50,10 +50,12 @@ public class JobRetryingEvent extends AbstractJobSchedulerEvent {
     return errorMessage;
   }
 
-  public Integer getRetryAttempt() {
+  /** Returns the 1-based execution attempt count being scheduled for retry. */
+  public int getRetryAttempt() {
     return retryAttempt;
   }
 
+  /** Returns when the retry is scheduled to become claimable. */
   public Instant getScheduledTime() {
     return scheduledTime;
   }

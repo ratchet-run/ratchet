@@ -121,14 +121,14 @@ Fired when a job fails after its final attempt (all retries exhausted, or marked
 ```java
 public class JobFailedEvent extends AbstractJobSchedulerEvent {
     public String getErrorMessage()
-    public Integer getRetryAttempt()
+    public int getRetryAttempt()
 }
 ```
 
 | Method | Return Type | Description |
 |---|---|---|
 | `getErrorMessage()` | `String` | Error message from the failure |
-| `getRetryAttempt()` | `Integer` | Final retry attempt number |
+| `getRetryAttempt()` | `int` | Final retry attempt number |
 
 ```java
 public void onFailed(@Observes JobFailedEvent event) {
@@ -144,7 +144,7 @@ Fired when a job is being retried after a failure.
 ```java
 public class JobRetryingEvent extends AbstractJobSchedulerEvent {
     public String getErrorMessage()
-    public Integer getRetryAttempt()
+    public int getRetryAttempt()
     public Instant getScheduledTime()
 }
 ```
@@ -152,7 +152,7 @@ public class JobRetryingEvent extends AbstractJobSchedulerEvent {
 | Method | Return Type | Description |
 |---|---|---|
 | `getErrorMessage()` | `String` | Error from the failure that triggered the retry |
-| `getRetryAttempt()` | `Integer` | Current retry attempt number |
+| `getRetryAttempt()` | `int` | Current retry attempt number |
 | `getScheduledTime()` | `Instant` | When the retry is scheduled (after backoff) |
 
 ```java
@@ -231,14 +231,14 @@ Fired when a job is moved to the Dead Letter Queue after exhausting all retries.
 ```java
 public class JobDlqEvent extends AbstractJobSchedulerEvent {
     public String getErrorMessage()
-    public Integer getRetryAttempt()
+    public int getRetryAttempt()
 }
 ```
 
 | Method | Return Type | Description |
 |---|---|---|
 | `getErrorMessage()` | `String` | Error from the final failure |
-| `getRetryAttempt()` | `Integer` | Total retry attempts before DLQ |
+| `getRetryAttempt()` | `int` | Total retry attempts before DLQ |
 
 ```java
 public void onDlq(@Observes JobDlqEvent event) {
@@ -258,16 +258,16 @@ public class BatchCompletingEvent extends AbstractJobSchedulerEvent
 ```
 
 ```java
-public Integer getTotalItems()
-public Integer getCompletedItems()
-public Integer getFailedItems()
+public int getTotalItems()
+public int getCompletedItems()
+public int getFailedItems()
 ```
 
 | Method | Return Type | Description |
 |---|---|---|
-| `getTotalItems()` | `Integer` | Total child jobs in the batch |
-| `getCompletedItems()` | `Integer` | Successfully completed child jobs so far |
-| `getFailedItems()` | `Integer` | Failed child jobs so far |
+| `getTotalItems()` | `int` | Total child jobs in the batch |
+| `getCompletedItems()` | `int` | Successfully completed child jobs so far |
+| `getFailedItems()` | `int` | Failed child jobs so far |
 
 ### BatchCompletedEvent
 
@@ -275,17 +275,17 @@ Fired when a batch is fully complete (all child jobs have finished).
 
 ```java
 public class BatchCompletedEvent extends AbstractJobSchedulerEvent {
-    public Integer getTotalItems()
-    public Integer getCompletedItems()
-    public Integer getFailedItems()
+    public int getTotalItems()
+    public int getCompletedItems()
+    public int getFailedItems()
 }
 ```
 
 | Method | Return Type | Description |
 |---|---|---|
-| `getTotalItems()` | `Integer` | Total child jobs in the batch |
-| `getCompletedItems()` | `Integer` | Successfully completed child jobs |
-| `getFailedItems()` | `Integer` | Failed child jobs |
+| `getTotalItems()` | `int` | Total child jobs in the batch |
+| `getCompletedItems()` | `int` | Successfully completed child jobs |
+| `getFailedItems()` | `int` | Failed child jobs |
 
 ```java
 public void onBatchCompleted(@Observes BatchCompletedEvent event) {
@@ -359,13 +359,13 @@ public class WorkflowBranchTriggeredEvent extends AbstractJobSchedulerEvent
 
 ```java
 public String getBranchCondition()
-public String getNextJobId()
+public UUID getNextJobId()
 ```
 
 | Method | Return Type | Description |
 |---|---|---|
 | `getBranchCondition()` | `String` | Description of the branch condition that matched |
-| `getNextJobId()` | `String` | String form of the child job ID scheduled for the branch |
+| `getNextJobId()` | `UUID` | Child job ID scheduled for the branch |
 
 ### PerformanceMetricsEvent
 
@@ -376,6 +376,8 @@ public record PerformanceMetricsEvent(
     Map<String, Object> performanceData
 ) implements Serializable
 ```
+
+The `performanceData` map is defensively copied and immutable after construction. Keys and values must be non-null and serializable by your event transport.
 
 The `performanceData` map typically contains:
 

@@ -31,6 +31,12 @@ public class JobSignalWaitingEvent extends AbstractJobSchedulerEvent {
     return signalKey;
   }
 
+  /**
+   * Returns the maximum time the job may wait for its signal.
+   *
+   * <p>A {@code null} value means the job has no signal timeout and waits until a matching signal
+   * is delivered or the job is canceled.
+   */
   public Duration getSignalTimeout() {
     return signalTimeout;
   }
