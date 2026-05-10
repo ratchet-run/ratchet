@@ -179,18 +179,20 @@ final class MysqlJobReadOperations {
   }
 
   @SuppressWarnings("unchecked")
-  List<JobEntity> findDependants(UUID parentJobId) {
+  List<JobEntity> findDependants(UUID parentJobId, int limit, int offset) {
     // language=MySQL
     String sql =
         "SELECT "
             + MysqlJobRowMapper.HYDRATION_SELECT
             + " "
             + HYDRATION_FROM
-            + " WHERE c.depends_on = ?";
+            + " WHERE c.depends_on = ? ORDER BY c.created_at ASC, c.job_id ASC";
     List<Object[]> rows =
         ctx.em()
             .createNativeQuery(sql)
             .setParameter(1, UuidByteArrayConverter.toBytes(parentJobId))
+            .setFirstResult(offset)
+            .setMaxResults(limit)
             .getResultList();
     List<JobEntity> jobs = new ArrayList<>(rows.size());
     for (Object[] row : rows) {

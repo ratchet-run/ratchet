@@ -87,9 +87,7 @@ public class DefaultJobQueryService implements JobQueryService {
 
   @Override
   public JobPage<JobSummary> findJobs(JobFilter filter, int limit, int offset) {
-    if (limit < 1) {
-      throw new IllegalArgumentException("limit must be at least 1");
-    }
+    validatePageRequest(limit, offset);
 
     JobFilter scoped = scopeFilter(filter);
 
@@ -142,12 +140,14 @@ public class DefaultJobQueryService implements JobQueryService {
     }
 
     List<ExecutionHistorySummary> history =
-        executionStore.findExecutionsByJobId(jobId).stream()
+        executionStore.findExecutionsByJobId(jobId, DEFAULT_PAGE_LIMIT, 0).stream()
             .map(JobEntityMapper::toExecutionSummary)
             .collect(Collectors.toList());
 
     List<UUID> dependantIds =
-        crudStore.findDependants(jobId).stream().map(JobEntity::getId).collect(Collectors.toList());
+        crudStore.findDependants(jobId, DEFAULT_PAGE_LIMIT, 0).stream()
+            .map(JobEntity::getId)
+            .collect(Collectors.toList());
 
     JobDetail detail =
         new JobDetail(
@@ -166,10 +166,15 @@ public class DefaultJobQueryService implements JobQueryService {
   }
 
   @Override
-  public List<ExecutionHistorySummary> getExecutionHistory(UUID jobId) {
-    return executionStore.findExecutionsByJobId(jobId).stream()
-        .map(JobEntityMapper::toExecutionSummary)
-        .collect(Collectors.toList());
+  public JobPage<ExecutionHistorySummary> getExecutionHistory(UUID jobId, int limit, int offset) {
+    validatePageRequest(limit, offset);
+    List<ExecutionHistorySummary> items =
+        executionStore.findExecutionsByJobId(jobId, limit, offset).stream()
+            .map(JobEntityMapper::toExecutionSummary)
+            .collect(Collectors.toList());
+    long total = executionStore.countExecutionAttempts(jobId);
+    boolean hasMore = (long) offset + items.size() < total;
+    return new JobPage<>(items, total, limit, offset, hasMore, null);
   }
 
   @Override
@@ -204,10 +209,8 @@ public class DefaultJobQueryService implements JobQueryService {
   }
 
   @Override
-  public List<JobSummary> getDependants(UUID jobId) {
-    return crudStore.findDependants(jobId).stream()
-        .map(JobEntityMapper::toSummary)
-        .collect(Collectors.toList());
+  public JobPage<JobSummary> getDependants(UUID jobId, int limit, int offset) {
+    return findJobs(JobFilter.builder().parentJobId(jobId).build(), limit, offset);
   }
 
   @Override
@@ -219,6 +222,15 @@ public class DefaultJobQueryService implements JobQueryService {
   @Override
   public JobPage<JobSummary> getRecurringMasters(int limit, int offset) {
     return findJobs(JobFilter.builder().types(JobType.RECURRING).build(), limit, offset);
+  }
+
+  private static void validatePageRequest(int limit, int offset) {
+    if (limit < 1) {
+      throw new IllegalArgumentException("limit must be at least 1");
+    }
+    if (offset < 0) {
+      throw new IllegalArgumentException("offset must be non-negative");
+    }
   }
 
   private JobFilter scopeFilter(JobFilter filter) {

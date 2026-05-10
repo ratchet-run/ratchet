@@ -124,8 +124,8 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
-  public List<JobEntity> findDependants(UUID parentJobId) {
-    return crud.findDependants(parentJobId);
+  public List<JobEntity> findDependants(UUID parentJobId, int limit, int offset) {
+    return crud.findDependants(parentJobId, limit, offset);
   }
 
   @Override
@@ -516,8 +516,8 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
-  public List<JobExecutionEntity> findExecutionsByJobId(UUID jobId) {
-    return auxiliary.findExecutionsByJobId(jobId);
+  public List<JobExecutionEntity> findExecutionsByJobId(UUID jobId, int limit, int offset) {
+    return auxiliary.findExecutionsByJobId(jobId, limit, offset);
   }
 
   @Override

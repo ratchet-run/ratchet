@@ -16,6 +16,8 @@ import run.ratchet.store.entity.JobExecutionType;
 @Incubating
 public interface JobCrudStore {
 
+  int DEFAULT_PAGE_LIMIT = 100;
+
   /** Inserts a new job row and returns the persisted entity view. */
   JobEntity create(JobEntity job);
 
@@ -45,8 +47,22 @@ public interface JobCrudStore {
 
   Optional<JobEntity> findByIdempotencyKey(String idempotencyKey);
 
-  /** Returns direct dependant jobs whose {@code dependsOn} points at the supplied parent. */
-  List<JobEntity> findDependants(UUID parentJobId);
+  /**
+   * Returns the first page of direct dependant jobs whose {@code dependsOn} points at the supplied
+   * parent.
+   *
+   * @deprecated use {@link #findDependants(UUID, int, int)} when callers need to walk more than the
+   *     default page.
+   */
+  @Deprecated(since = "0.1.0", forRemoval = false)
+  default List<JobEntity> findDependants(UUID parentJobId) {
+    return findDependants(parentJobId, DEFAULT_PAGE_LIMIT, 0);
+  }
+
+  /**
+   * Returns a page of direct dependant jobs whose {@code dependsOn} points at the supplied parent.
+   */
+  List<JobEntity> findDependants(UUID parentJobId, int limit, int offset);
 
   /** Returns the next fire time of the earliest pending recurring master job. */
   Optional<Instant> findEarliestRecurringNextFire();

@@ -10,9 +10,23 @@ import run.ratchet.store.entity.JobExecutionEntity;
 @Incubating
 public interface ExecutionStore {
 
+  int DEFAULT_PAGE_LIMIT = 100;
+
   JobExecutionEntity saveExecution(JobExecutionEntity execution);
 
-  List<JobExecutionEntity> findExecutionsByJobId(UUID jobId);
+  /**
+   * Returns the first page of execution records for a job, ordered by attempt ascending.
+   *
+   * @deprecated use {@link #findExecutionsByJobId(UUID, int, int)} when callers need to walk more
+   *     than the default page.
+   */
+  @Deprecated(since = "0.1.0", forRemoval = false)
+  default List<JobExecutionEntity> findExecutionsByJobId(UUID jobId) {
+    return findExecutionsByJobId(jobId, DEFAULT_PAGE_LIMIT, 0);
+  }
+
+  /** Returns a page of execution records for a job, ordered by attempt ascending. */
+  List<JobExecutionEntity> findExecutionsByJobId(UUID jobId, int limit, int offset);
 
   Optional<JobExecutionEntity> findLatestExecution(UUID jobId);
 

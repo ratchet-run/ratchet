@@ -90,7 +90,7 @@ public abstract class ThrowingJobStoreBase implements JobStore {
   }
 
   @Override
-  public List<JobEntity> findDependants(UUID parentJobId) {
+  public List<JobEntity> findDependants(UUID parentJobId, int limit, int offset) {
     return fail("findDependants");
   }
 
@@ -492,7 +492,7 @@ public abstract class ThrowingJobStoreBase implements JobStore {
   }
 
   @Override
-  public List<JobExecutionEntity> findExecutionsByJobId(UUID jobId) {
+  public List<JobExecutionEntity> findExecutionsByJobId(UUID jobId, int limit, int offset) {
     return fail("findExecutionsByJobId");
   }
 

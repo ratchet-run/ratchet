@@ -6,10 +6,11 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Full read-only view of a job, including execution history and runtime metadata.
+ * Full read-only view of a job, including bounded execution history and runtime metadata.
  *
- * <p>Returned by {@link JobQueryService#getJobDetail(UUID)}. For lightweight list views use {@link
- * JobSummary} instead.
+ * <p>Returned by {@link JobQueryService#getJobDetail(UUID)}. Execution history and dependant IDs
+ * are capped at {@link JobQueryService#DEFAULT_PAGE_LIMIT}; use the paged query methods to walk
+ * larger histories or dependency sets. For lightweight list views use {@link JobSummary} instead.
  */
 public record JobDetail(
     JobSummary summary,

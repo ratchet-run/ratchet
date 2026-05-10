@@ -3,6 +3,7 @@ package run.ratchet.ri.core;
 import jakarta.transaction.Transactional;
 import java.time.Instant;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.UUID;
@@ -27,6 +28,7 @@ public class ChainScheduler {
   static final Instant CHAIN_LOCK_TIME = Instant.parse("9999-12-31T23:59:59Z");
 
   private static final Logger log = Logger.getLogger(ChainScheduler.class);
+  private static final int DEPENDANT_PAGE_SIZE = JobCrudStore.DEFAULT_PAGE_LIMIT;
 
   protected final JobCrudStore jobCrudStore;
 
@@ -44,7 +46,7 @@ public class ChainScheduler {
 
     while (!stack.isEmpty()) {
       UUID parentId = stack.pop();
-      List<JobEntity> children = jobCrudStore.findDependants(parentId);
+      List<JobEntity> children = findAllDependants(parentId);
       for (JobEntity child : children) {
         JobStatus status = child.getStatus();
         if (status == JobStatus.PENDING || status == JobStatus.WAITING) {
@@ -58,7 +60,7 @@ public class ChainScheduler {
   }
 
   public boolean scheduleNext(JobEntity finished) {
-    List<JobEntity> children = jobCrudStore.findDependants(finished.getId());
+    List<JobEntity> children = findAllDependants(finished.getId());
     if (children.isEmpty()) {
       return false;
     }
@@ -83,5 +85,18 @@ public class ChainScheduler {
       }
     }
     return scheduled;
+  }
+
+  private List<JobEntity> findAllDependants(UUID parentId) {
+    List<JobEntity> dependants = new ArrayList<>();
+    int offset = 0;
+    while (true) {
+      List<JobEntity> page = jobCrudStore.findDependants(parentId, DEPENDANT_PAGE_SIZE, offset);
+      dependants.addAll(page);
+      if (page.size() < DEPENDANT_PAGE_SIZE) {
+        return dependants;
+      }
+      offset += page.size();
+    }
   }
 }

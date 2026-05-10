@@ -14,6 +14,7 @@ import static com.mongodb.client.model.Updates.inc;
 import static com.mongodb.client.model.Updates.set;
 import static run.ratchet.store.mongodb.MongoFieldNames.ATTEMPTS;
 import static run.ratchet.store.mongodb.MongoFieldNames.BUSINESS_KEY;
+import static run.ratchet.store.mongodb.MongoFieldNames.CREATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.DEPENDS_ON;
 import static run.ratchet.store.mongodb.MongoFieldNames.EXECUTION_DURATION_MS;
 import static run.ratchet.store.mongodb.MongoFieldNames.EXECUTION_START_TIME;
@@ -189,9 +190,14 @@ final class MongoJobCrudOperations {
     return doc == null ? Optional.empty() : Optional.of(DocumentMapper.toJobEntity(doc));
   }
 
-  List<JobEntity> findDependants(UUID parentJobId) {
+  List<JobEntity> findDependants(UUID parentJobId, int limit, int offset) {
     List<JobEntity> results = new ArrayList<>();
-    for (Document doc : ctx.jobs().find(eq(DEPENDS_ON, parentJobId))) {
+    for (Document doc :
+        ctx.jobs()
+            .find(eq(DEPENDS_ON, parentJobId))
+            .sort(ascending(CREATED_AT, ID))
+            .skip(offset)
+            .limit(limit)) {
       results.add(DocumentMapper.toJobEntity(doc));
     }
     return results;

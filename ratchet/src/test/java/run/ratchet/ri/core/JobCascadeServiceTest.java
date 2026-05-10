@@ -2,7 +2,9 @@ package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -43,6 +45,9 @@ class JobCascadeServiceTest {
   @BeforeEach
   void setUp() {
     cascadeService = new JobCascadeService(jobCrudStore, jobPauseStore);
+    lenient()
+        .when(jobCrudStore.findDependants(any(UUID.class), anyInt(), anyInt()))
+        .thenAnswer(inv -> jobCrudStore.findDependants(inv.getArgument(0)));
   }
 
   @Test

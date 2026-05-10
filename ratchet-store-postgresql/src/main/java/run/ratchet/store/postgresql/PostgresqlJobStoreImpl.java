@@ -126,8 +126,8 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   @Override
-  public List<JobEntity> findDependants(UUID parentJobId) {
-    return jobs.findDependants(parentJobId);
+  public List<JobEntity> findDependants(UUID parentJobId, int limit, int offset) {
+    return jobs.findDependants(parentJobId, limit, offset);
   }
 
   @Override
@@ -543,8 +543,8 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   @Override
-  public List<JobExecutionEntity> findExecutionsByJobId(UUID jobId) {
-    return auxiliary.findExecutionsByJobId(jobId);
+  public List<JobExecutionEntity> findExecutionsByJobId(UUID jobId, int limit, int offset) {
+    return auxiliary.findExecutionsByJobId(jobId, limit, offset);
   }
 
   @Override

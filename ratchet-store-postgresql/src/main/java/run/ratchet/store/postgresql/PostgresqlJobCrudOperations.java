@@ -78,8 +78,8 @@ final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore {
   }
 
   @Override
-  public List<JobEntity> findDependants(UUID parentJobId) {
-    return reads.findDependants(parentJobId);
+  public List<JobEntity> findDependants(UUID parentJobId, int limit, int offset) {
+    return reads.findDependants(parentJobId, limit, offset);
   }
 
   @Override

@@ -289,8 +289,10 @@ class DefaultJobQueryServiceTest {
     JobEntity entity = minimalJobWithId(jobId);
     when(crudStore.findById(jobId)).thenReturn(Optional.of(entity));
     when(principalProvider.currentPrincipal()).thenReturn(Optional.of("alice"));
-    when(executionStore.findExecutionsByJobId(jobId)).thenReturn(Collections.emptyList());
-    when(crudStore.findDependants(jobId)).thenReturn(Collections.emptyList());
+    when(executionStore.findExecutionsByJobId(eq(jobId), anyInt(), anyInt()))
+        .thenReturn(Collections.emptyList());
+    when(crudStore.findDependants(eq(jobId), anyInt(), anyInt()))
+        .thenReturn(Collections.emptyList());
 
     service.getJobDetail(jobId);
 
@@ -318,8 +320,9 @@ class DefaultJobQueryServiceTest {
     UUID jobId = UUID.randomUUID();
     when(crudStore.findById(jobId)).thenReturn(Optional.of(minimalJobWithId(jobId)));
     when(principalProvider.currentPrincipal()).thenReturn(Optional.empty());
-    when(executionStore.findExecutionsByJobId(jobId)).thenReturn(Collections.emptyList());
-    when(crudStore.findDependants(jobId)).thenReturn(List.of(minimalJob()));
+    when(executionStore.findExecutionsByJobId(eq(jobId), anyInt(), anyInt()))
+        .thenReturn(Collections.emptyList());
+    when(crudStore.findDependants(eq(jobId), anyInt(), anyInt())).thenReturn(List.of(minimalJob()));
 
     Optional<JobDetail> result = service.getJobDetail(jobId);
 
@@ -333,8 +336,10 @@ class DefaultJobQueryServiceTest {
         new DefaultJobQueryService(queryStore, crudStore, executionStore, null, null);
     UUID jobId = UUID.randomUUID();
     when(crudStore.findById(jobId)).thenReturn(Optional.of(minimalJobWithId(jobId)));
-    when(executionStore.findExecutionsByJobId(jobId)).thenReturn(Collections.emptyList());
-    when(crudStore.findDependants(jobId)).thenReturn(Collections.emptyList());
+    when(executionStore.findExecutionsByJobId(eq(jobId), anyInt(), anyInt()))
+        .thenReturn(Collections.emptyList());
+    when(crudStore.findDependants(eq(jobId), anyInt(), anyInt()))
+        .thenReturn(Collections.emptyList());
 
     Optional<JobDetail> result = permissive.getJobDetail(jobId);
 
@@ -344,7 +349,7 @@ class DefaultJobQueryServiceTest {
   }
 
   @Test
-  void getExecutionHistory_delegatesToExecutionStore_andMapsResults() {
+  void getExecutionHistory_returnsPaginatedPage() {
     UUID jobId = UUID.randomUUID();
     UUID executionId = UUID.randomUUID();
     Instant startedAt = Instant.parse("2026-05-07T12:00:00Z");
@@ -359,12 +364,15 @@ class DefaultJobQueryServiceTest {
     execution.setDurationMs(42_000L);
     execution.setStatus(JobExecutionEntity.ExecutionStatus.SUCCEEDED);
 
-    when(executionStore.findExecutionsByJobId(jobId)).thenReturn(List.of(execution));
+    when(executionStore.findExecutionsByJobId(jobId, 2, 4)).thenReturn(List.of(execution));
+    when(executionStore.countExecutionAttempts(jobId)).thenReturn(6);
 
-    List<ExecutionHistorySummary> history = service.getExecutionHistory(jobId);
+    JobPage<ExecutionHistorySummary> history = service.getExecutionHistory(jobId, 2, 4);
 
-    assertEquals(1, history.size());
-    ExecutionHistorySummary summary = history.get(0);
+    assertEquals(1, history.items().size());
+    assertEquals(6L, history.totalCount());
+    assertTrue(history.hasMore());
+    ExecutionHistorySummary summary = history.items().get(0);
     assertEquals(executionId, summary.id());
     assertEquals(jobId, summary.jobId());
     assertEquals(2, summary.attempt());
@@ -375,7 +383,7 @@ class DefaultJobQueryServiceTest {
     assertTrue(summary.succeeded());
     assertNull(summary.errorMessage());
     assertNull(summary.errorClass());
-    verify(executionStore).findExecutionsByJobId(jobId);
+    verify(executionStore).findExecutionsByJobId(jobId, 2, 4);
   }
 
   @Test
@@ -422,15 +430,20 @@ class DefaultJobQueryServiceTest {
   // ── helpers ─────────────────────────────────────────────────────────────
 
   @Test
-  void getDependants_delegatesToCrudStore() {
+  void getDependants_returnsPaginatedPage() {
     UUID parentId = UUID.randomUUID();
     JobEntity child = minimalJob();
-    when(crudStore.findDependants(parentId)).thenReturn(List.of(child));
+    when(queryStore.searchJobs(
+            argThat(filter -> parentId.equals(filter.parentJobId())), eq(2), eq(3)))
+        .thenReturn(List.of(child));
+    when(queryStore.countJobs(any())).thenReturn(4L);
 
-    List<JobSummary> result = service.getDependants(parentId);
+    JobPage<JobSummary> result = service.getDependants(parentId, 2, 3);
 
-    assertEquals(1, result.size());
-    assertEquals(child.getId(), result.get(0).id());
+    assertEquals(1, result.items().size());
+    assertEquals(child.getId(), result.items().get(0).id());
+    assertEquals(4L, result.totalCount());
+    assertFalse(result.hasMore());
   }
 
   @Test

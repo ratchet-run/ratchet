@@ -122,7 +122,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   }
 
   @Override
-  public synchronized List<JobEntity> findDependants(UUID parentJobId) {
+  public synchronized List<JobEntity> findDependants(UUID parentJobId, int limit, int offset) {
     return Collections.emptyList();
   }
 
@@ -292,9 +292,13 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   }
 
   @Override
-  public synchronized List<JobExecutionEntity> findExecutionsByJobId(UUID jobId) {
+  public synchronized List<JobExecutionEntity> findExecutionsByJobId(
+      UUID jobId, int limit, int offset) {
     List<JobExecutionEntity> list = executions.get(jobId);
-    return list == null ? Collections.emptyList() : new ArrayList<>(list);
+    if (list == null || offset >= list.size()) {
+      return Collections.emptyList();
+    }
+    return new ArrayList<>(list.subList(offset, Math.min(offset + limit, list.size())));
   }
 
   @Override

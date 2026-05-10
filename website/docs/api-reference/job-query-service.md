@@ -81,13 +81,15 @@ The result is empty when the job does not exist or the caller is not allowed to 
 
 ```java
 List<ExecutionHistorySummary> getExecutionHistory(UUID jobId)
+JobPage<ExecutionHistorySummary> getExecutionHistory(UUID jobId, int limit, int offset)
 ```
 
-Returns execution attempts for a job ordered by attempt number.
+Returns execution attempts for a job ordered by attempt number. The list-returning convenience
+method returns the first default page.
 
 ```java
-List<ExecutionHistorySummary> attempts = jobs.getExecutionHistory(jobId);
-long failures = attempts.stream()
+JobPage<ExecutionHistorySummary> attempts = jobs.getExecutionHistory(jobId, 100, 0);
+long failures = attempts.items().stream()
     .filter(attempt -> !attempt.succeeded())
     .count();
 ```
@@ -114,9 +116,11 @@ This snapshot is intentionally not transactionally consistent across every field
 
 ```java
 List<JobSummary> getDependants(UUID jobId)
+JobPage<JobSummary> getDependants(UUID jobId, int limit, int offset)
 ```
 
-Returns direct dependant jobs whose `dependsOn` field points at the supplied parent job.
+Returns direct dependant jobs whose `dependsOn` field points at the supplied parent job. The
+list-returning convenience method returns the first default page.
 
 ### getBatchChildren
 

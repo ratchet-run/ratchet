@@ -205,6 +205,31 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
   }
 
   @Test
+  void findDependants_returnsRequestedPage() {
+    var parent = persist(newPendingJob());
+
+    var child1 = newPendingJob();
+    child1.setDependsOn(parent.getId());
+    var saved1 = persist(child1);
+
+    var child2 = newPendingJob();
+    child2.setDependsOn(parent.getId());
+    var saved2 = persist(child2);
+
+    var page0 = store().findDependants(parent.getId(), 1, 0);
+    var page1 = store().findDependants(parent.getId(), 1, 1);
+
+    assertEquals(1, page0.size(), "first dependant page should honor limit");
+    assertEquals(1, page1.size(), "second dependant page should honor offset");
+    assertTrue(
+        List.of(saved1.getId(), saved2.getId()).contains(page0.get(0).getId()),
+        "first page should contain one saved child");
+    assertTrue(
+        List.of(saved1.getId(), saved2.getId()).contains(page1.get(0).getId()),
+        "second page should contain one saved child");
+  }
+
+  @Test
   void countPendingJobs_returnsAccurateCount() {
     persist(newPendingJob());
     persist(newPendingJob());

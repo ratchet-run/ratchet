@@ -83,9 +83,14 @@ final class MongoAuxiliaryOperations {
     return execution;
   }
 
-  List<JobExecutionEntity> findExecutionsByJobId(UUID jobId) {
+  List<JobExecutionEntity> findExecutionsByJobId(UUID jobId, int limit, int offset) {
     List<JobExecutionEntity> results = new ArrayList<>();
-    for (Document doc : ctx.executions().find(eq(JOB_ID, jobId)).sort(ascending(ATTEMPT))) {
+    for (Document doc :
+        ctx.executions()
+            .find(eq(JOB_ID, jobId))
+            .sort(ascending(ATTEMPT))
+            .skip(offset)
+            .limit(limit)) {
       results.add(DocumentMapper.toJobExecutionEntity(doc));
     }
     return results;

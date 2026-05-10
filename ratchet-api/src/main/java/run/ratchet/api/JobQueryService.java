@@ -44,12 +44,26 @@ public interface JobQueryService {
   Optional<JobDetail> getJobDetail(UUID jobId);
 
   /**
-   * Returns all execution attempts recorded for the given job, ordered by attempt number ascending.
+   * Returns the first page of execution attempts recorded for the given job, ordered by attempt
+   * number ascending.
    *
    * @param jobId the job id
    * @return execution history; empty list if the job has never been executed or does not exist
    */
-  List<ExecutionHistorySummary> getExecutionHistory(UUID jobId);
+  default List<ExecutionHistorySummary> getExecutionHistory(UUID jobId) {
+    return getExecutionHistory(jobId, DEFAULT_PAGE_LIMIT, 0).items();
+  }
+
+  /**
+   * Returns a page of execution attempts recorded for the given job, ordered by attempt number
+   * ascending.
+   *
+   * @param jobId the job id
+   * @param limit maximum number of results to return
+   * @param offset zero-based index of the first result
+   * @return execution history page; empty if the job has never been executed or does not exist
+   */
+  JobPage<ExecutionHistorySummary> getExecutionHistory(UUID jobId, int limit, int offset);
 
   /**
    * Returns a point-in-time snapshot of queue health metrics.
@@ -60,12 +74,24 @@ public interface JobQueryService {
   QueueHealthSnapshot getQueueHealth();
 
   /**
-   * Returns all jobs whose {@code dependsOn} field points at the given parent.
+   * Returns the first page of jobs whose {@code dependsOn} field points at the given parent.
    *
    * @param jobId the parent job id
    * @return direct dependants; empty list if none
    */
-  List<JobSummary> getDependants(UUID jobId);
+  default List<JobSummary> getDependants(UUID jobId) {
+    return getDependants(jobId, DEFAULT_PAGE_LIMIT, 0).items();
+  }
+
+  /**
+   * Returns a page of jobs whose {@code dependsOn} field points at the given parent.
+   *
+   * @param jobId the parent job id
+   * @param limit maximum number of results to return
+   * @param offset zero-based index of the first result
+   * @return direct dependants page; empty list if none
+   */
+  JobPage<JobSummary> getDependants(UUID jobId, int limit, int offset);
 
   /**
    * Returns the first page of child jobs for the given batch parent.

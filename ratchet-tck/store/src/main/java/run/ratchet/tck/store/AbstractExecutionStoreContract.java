@@ -61,6 +61,21 @@ public abstract class AbstractExecutionStoreContract implements JobStoreContract
   }
 
   @Test
+  void findExecutionsByJobId_returnsRequestedPage() {
+    var job = persist(newPendingJob());
+
+    store().saveExecution(JobExecutionEntity.start(job.getId(), 1, "node-1"));
+    store().saveExecution(JobExecutionEntity.start(job.getId(), 2, "node-1"));
+    store().saveExecution(JobExecutionEntity.start(job.getId(), 3, "node-1"));
+
+    var executions = store().findExecutionsByJobId(job.getId(), 2, 1);
+
+    assertEquals(2, executions.size(), "paged execution lookup should return the requested window");
+    assertEquals(2, executions.get(0).getAttempt(), "page should preserve attempt ordering");
+    assertEquals(3, executions.get(1).getAttempt(), "page should preserve attempt ordering");
+  }
+
+  @Test
   void findExecutionsByJobId_unknownJob_returnsEmpty() {
     var executions = store().findExecutionsByJobId(new UUID(0L, Long.MAX_VALUE));
 

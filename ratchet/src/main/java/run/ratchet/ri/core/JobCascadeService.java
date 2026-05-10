@@ -20,6 +20,8 @@ import run.ratchet.store.spi.JobPauseStore;
 @Transactional
 public class JobCascadeService {
 
+  private static final int DEPENDANT_PAGE_SIZE = JobCrudStore.DEFAULT_PAGE_LIMIT;
+
   private final JobCrudStore jobCrudStore;
   private final JobPauseStore jobPauseStore;
 
@@ -57,7 +59,7 @@ public class JobCascadeService {
 
       // Find all direct children of the entire level
       for (UUID parentId : currentLevel) {
-        List<JobEntity> children = jobCrudStore.findDependants(parentId);
+        List<JobEntity> children = findAllDependants(parentId);
         for (JobEntity child : children) {
           if (!visited.add(child.getId())) {
             continue;
@@ -104,7 +106,7 @@ public class JobCascadeService {
       }
 
       for (UUID parentId : currentLevel) {
-        List<JobEntity> children = jobCrudStore.findDependants(parentId);
+        List<JobEntity> children = findAllDependants(parentId);
         for (JobEntity child : children) {
           if (!visited.add(child.getId())) {
             continue;
@@ -123,5 +125,18 @@ public class JobCascadeService {
     }
 
     return new int[] {resumedCount, skippedCount};
+  }
+
+  private List<JobEntity> findAllDependants(UUID parentId) {
+    List<JobEntity> dependants = new ArrayList<>();
+    int offset = 0;
+    while (true) {
+      List<JobEntity> page = jobCrudStore.findDependants(parentId, DEPENDANT_PAGE_SIZE, offset);
+      dependants.addAll(page);
+      if (page.size() < DEPENDANT_PAGE_SIZE) {
+        return dependants;
+      }
+      offset += page.size();
+    }
   }
 }
