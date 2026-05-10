@@ -41,23 +41,78 @@ public interface JobLogger {
    */
   void trace(String message);
 
+  /**
+   * Returns whether informational messages should be formatted and logged.
+   *
+   * @return {@code true} when info logging is enabled
+   */
+  default boolean isInfoEnabled() {
+    return true;
+  }
+
+  /**
+   * Returns whether debug messages should be formatted and logged.
+   *
+   * @return {@code true} when debug logging is enabled
+   */
+  default boolean isDebugEnabled() {
+    return true;
+  }
+
+  /**
+   * Returns whether warning messages should be formatted and logged.
+   *
+   * @return {@code true} when warn logging is enabled
+   */
+  default boolean isWarnEnabled() {
+    return true;
+  }
+
+  /**
+   * Returns whether error messages should be formatted and logged.
+   *
+   * @return {@code true} when error logging is enabled
+   */
+  default boolean isErrorEnabled() {
+    return true;
+  }
+
+  /**
+   * Returns whether trace messages should be formatted and logged.
+   *
+   * @return {@code true} when trace logging is enabled
+   */
+  default boolean isTraceEnabled() {
+    return true;
+  }
+
   default void info(String format, Object... args) {
-    info(JobLoggerFormat.format(format, args));
+    if (isInfoEnabled()) {
+      info(JobLoggerFormat.format(format, args));
+    }
   }
 
   default void debug(String format, Object... args) {
-    debug(JobLoggerFormat.format(format, args));
+    if (isDebugEnabled()) {
+      debug(JobLoggerFormat.format(format, args));
+    }
   }
 
   default void warn(String format, Object... args) {
-    warn(JobLoggerFormat.format(format, args));
+    if (isWarnEnabled()) {
+      warn(JobLoggerFormat.format(format, args));
+    }
   }
 
   default void error(String format, Object... args) {
-    error(JobLoggerFormat.format(format, args));
+    if (isErrorEnabled()) {
+      error(JobLoggerFormat.format(format, args));
+    }
   }
 
   default void trace(String format, Object... args) {
-    trace(JobLoggerFormat.format(format, args));
+    if (isTraceEnabled()) {
+      trace(JobLoggerFormat.format(format, args));
+    }
   }
 }

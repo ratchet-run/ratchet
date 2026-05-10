@@ -58,6 +58,31 @@ public class JBossLoggingJobLogger implements JobLogger {
     publishLogLine(LogLevel.TRACE, message);
   }
 
+  @Override
+  public boolean isInfoEnabled() {
+    return eventPublisher != null || log.isInfoEnabled();
+  }
+
+  @Override
+  public boolean isDebugEnabled() {
+    return eventPublisher != null || log.isDebugEnabled();
+  }
+
+  @Override
+  public boolean isWarnEnabled() {
+    return eventPublisher != null || log.isEnabled(Logger.Level.WARN);
+  }
+
+  @Override
+  public boolean isErrorEnabled() {
+    return eventPublisher != null || log.isEnabled(Logger.Level.ERROR);
+  }
+
+  @Override
+  public boolean isTraceEnabled() {
+    return eventPublisher != null || log.isTraceEnabled();
+  }
+
   private void publishLogLine(LogLevel level, String message) {
     if (eventPublisher != null) {
       @SuppressWarnings("unchecked")

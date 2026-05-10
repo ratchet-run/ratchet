@@ -131,5 +131,30 @@ final class JobMdcContext {
 
     @Override
     public void trace(String message) {}
+
+    @Override
+    public boolean isInfoEnabled() {
+      return false;
+    }
+
+    @Override
+    public boolean isDebugEnabled() {
+      return false;
+    }
+
+    @Override
+    public boolean isWarnEnabled() {
+      return false;
+    }
+
+    @Override
+    public boolean isErrorEnabled() {
+      return false;
+    }
+
+    @Override
+    public boolean isTraceEnabled() {
+      return false;
+    }
   }
 }
