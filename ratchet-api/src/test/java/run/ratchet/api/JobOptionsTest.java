@@ -79,10 +79,15 @@ class JobOptionsTest {
   }
 
   @Test
-  void withTimeout_rejectsDurationsOutsideIntegerRange() {
-    assertThrows(
-        ArithmeticException.class,
-        () -> JobOptions.defaults().withTimeout(Duration.ofSeconds((long) Integer.MAX_VALUE + 1L)));
+  void withTimeout_rejectsDurationsOutsideIntegerRangeWithApiException() {
+    IllegalArgumentException ex =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                JobOptions.defaults()
+                    .withTimeout(Duration.ofSeconds((long) Integer.MAX_VALUE + 1L)));
+
+    assertTrue(ex.getMessage().contains("timeout must be <= " + Integer.MAX_VALUE + " seconds"));
   }
 
   @Test

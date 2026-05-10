@@ -53,14 +53,21 @@ public record JobOptions(
 
   /**
    * Returns a copy with the specified execution timeout. Use {@link Duration#ZERO} to disable
-   * timeout enforcement.
+   * timeout enforcement. The timeout is stored in whole seconds and must fit in a signed 32-bit
+   * integer.
+   *
+   * @throws NullPointerException if {@code t} is null
+   * @throws IllegalArgumentException if {@code t} is negative or exceeds {@link Integer#MAX_VALUE}
+   *     seconds
    */
   public JobOptions withTimeout(Duration t) {
-    return new JobOptions(
-        priority,
-        maxRetries,
-        backoffPolicy,
-        backoffParam,
-        Math.toIntExact(Objects.requireNonNull(t, "timeout must not be null").toSeconds()));
+    long timeoutSeconds = Objects.requireNonNull(t, "timeout must not be null").toSeconds();
+    if (timeoutSeconds < 0) {
+      throw new IllegalArgumentException("timeout must be >= 0 seconds");
+    }
+    if (timeoutSeconds > Integer.MAX_VALUE) {
+      throw new IllegalArgumentException("timeout must be <= " + Integer.MAX_VALUE + " seconds");
+    }
+    return new JobOptions(priority, maxRetries, backoffPolicy, backoffParam, (int) timeoutSeconds);
   }
 }
