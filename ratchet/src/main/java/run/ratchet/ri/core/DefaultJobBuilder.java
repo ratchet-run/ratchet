@@ -130,6 +130,13 @@ public final class DefaultJobBuilder implements JobBuilder {
   }
 
   @Override
+  public <T> JobBuilder whenResult(
+      SerializableFunction<T, Boolean> condition, SerializableCheckedRunnable next, int priority) {
+    workflowBranches.add(new WorkflowBranch(WorkflowCondition.result(condition, priority), next));
+    return this;
+  }
+
+  @Override
   public JobBuilder withIdempotencyKey(String key) {
     if (key != null && !key.isBlank()) {
       String trimmed = key.trim();

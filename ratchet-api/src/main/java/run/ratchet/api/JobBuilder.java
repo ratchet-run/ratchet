@@ -106,6 +106,14 @@ public interface JobBuilder {
       SerializableFunction<T, Boolean> condition, SerializableCheckedRunnable next);
 
   /**
+   * Schedules a job based on the job's return value.
+   *
+   * @param priority evaluation order when multiple conditions overlap (lower = first)
+   */
+  <T> JobBuilder whenResult(
+      SerializableFunction<T, Boolean> condition, SerializableCheckedRunnable next, int priority);
+
+  /**
    * Overrides the auto-generated idempotency key with a custom key.
    *
    * <p>A UUID is auto-generated at builder creation time. Use this when an external ID (e.g. a

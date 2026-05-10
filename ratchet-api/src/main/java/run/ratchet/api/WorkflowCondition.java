@@ -104,6 +104,12 @@ public record WorkflowCondition(ConditionType type, Serializable expression, int
     return new WorkflowCondition(ConditionType.RESULT_VALUE, function);
   }
 
+  /** Creates a RESULT_VALUE condition with explicit evaluation priority (lower = first). */
+  public static <T> WorkflowCondition result(
+      SerializableFunction<T, Boolean> function, int priority) {
+    return new WorkflowCondition(ConditionType.RESULT_VALUE, function, priority);
+  }
+
   /** Creates a SUCCESS condition (true when the job finishes without throwing). */
   public static WorkflowCondition success() {
     return new WorkflowCondition(ConditionType.SUCCESS, null);
