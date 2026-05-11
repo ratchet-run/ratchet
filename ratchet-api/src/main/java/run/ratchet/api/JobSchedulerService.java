@@ -195,8 +195,8 @@ public interface JobSchedulerService {
   /**
    * Pauses a job, preventing it from being picked up for execution.
    *
-   * <p>Only PENDING or FAILED jobs can be paused. The job's previous status is recorded so it can
-   * be restored on resume. Jobs in RUNNING state cannot be paused (cancel them instead).
+   * <p>Only PENDING jobs can be paused. The job's previous status is recorded so it can be restored
+   * on resume. Jobs in RUNNING, WAITING, or terminal states cannot be paused.
    *
    * <p>Idempotent: pausing an already-PAUSED job returns {@code true} without error.
    *
@@ -204,16 +204,14 @@ public interface JobSchedulerService {
    *
    * @param jobId UUIDv7 job id
    * @return true if the job was paused or was already paused, false if the job was not found or in
-   *     an incompatible state (RUNNING, SUCCEEDED, CANCELED)
+   *     an incompatible state (RUNNING, WAITING, SUCCEEDED, FAILED, CANCELED)
    */
   boolean pauseJob(UUID jobId);
 
   /**
    * Resumes a paused job, making it eligible for execution again.
    *
-   * <p>The job returns to the status it had before being paused. Resuming a previously PENDING job
-   * makes it eligible for polling again. Resuming a previously FAILED job restores it to FAILED
-   * without retrying it.
+   * <p>Resuming a previously PENDING job makes it eligible for polling again.
    *
    * <p>Idempotent: resuming a non-paused job returns {@code false} without error.
    *
