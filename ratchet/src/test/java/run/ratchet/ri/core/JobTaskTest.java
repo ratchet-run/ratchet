@@ -234,11 +234,13 @@ class JobTaskTest {
     when(jobStore.incrementRetryAttempt(JOB_UUID)).thenReturn(1);
     when(retryPolicy.shouldRetry(1, error)).thenReturn(true);
     when(retryPolicy.getDelay(1)).thenReturn(Duration.ofSeconds(5));
+    when(errorSanitizer.sanitize(error)).thenReturn("safe boom");
     when(jobStore.scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt())).thenReturn(true);
 
     jobTask.call();
 
     verify(retryPolicy).shouldRetry(1, error);
+    verify(errorSanitizer, times(1)).sanitize(error);
   }
 
   @Test

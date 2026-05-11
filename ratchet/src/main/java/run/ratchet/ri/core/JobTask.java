@@ -72,6 +72,7 @@ public class JobTask implements Callable<Void> {
   private static final Map<String, Method> METHOD_CACHE = newBoundedCache(CACHE_MAX_ENTRIES);
   private static final Map<String, Class<?>> CLASS_CACHE = newBoundedCache(CACHE_MAX_ENTRIES);
   private static final Map<String, String> SERVICE_NAME_CACHE = newBoundedCache(CACHE_MAX_ENTRIES);
+  private static final Object REFLECTION_CACHE_LOCK = new Object();
   private static final int SUCCESS_FINALIZATION_MAX_ATTEMPTS = 5;
   private static final long[] SUCCESS_FINALIZATION_BACKOFF_MS = {25L, 50L, 100L, 200L, 400L};
   private static final long SUCCESS_FINALIZATION_JITTER_MAX_MS = 25L;
@@ -209,9 +210,11 @@ public class JobTask implements Callable<Void> {
    * Payara).
    */
   public static void clearCaches() {
-    METHOD_CACHE.clear();
-    CLASS_CACHE.clear();
-    SERVICE_NAME_CACHE.clear();
+    synchronized (REFLECTION_CACHE_LOCK) {
+      SERVICE_NAME_CACHE.clear();
+      METHOD_CACHE.clear();
+      CLASS_CACHE.clear();
+    }
   }
 
   private static String simpleClassName(String fqcn) {
@@ -424,14 +427,16 @@ public class JobTask implements Callable<Void> {
     if (classPolicy != null && !classPolicy.isAllowed(className)) {
       throw new SecurityException("Class " + className + " is not allowed for job execution.");
     }
-    Class<?> cached = CLASS_CACHE.get(className);
-    if (cached != null) {
-      return cached;
+    synchronized (REFLECTION_CACHE_LOCK) {
+      Class<?> cached = CLASS_CACHE.get(className);
+      if (cached != null) {
+        return cached;
+      }
+      Class<?> loaded =
+          Class.forName(className, true, Thread.currentThread().getContextClassLoader());
+      CLASS_CACHE.put(className, loaded);
+      return loaded;
     }
-    Class<?> loaded =
-        Class.forName(className, true, Thread.currentThread().getContextClassLoader());
-    CLASS_CACHE.putIfAbsent(className, loaded);
-    return loaded;
   }
 
   private JobEntity getJob() {
@@ -865,69 +870,73 @@ public class JobTask implements Callable<Void> {
 
   private Method resolveMethod(Class<?> clazz, JobPayload payload) throws NoSuchMethodException {
     String cacheKey = clazz.getName() + "#" + payload.method() + ":" + payload.methodDescriptor();
-    Method cached = METHOD_CACHE.get(cacheKey);
-    if (cached != null) {
-      return cached;
-    }
-
-    for (Method m : clazz.getMethods()) {
-      if (m.getName().equals(payload.method())
-          && Type.getMethodDescriptor(m).equals(payload.methodDescriptor())) {
-        METHOD_CACHE.put(cacheKey, m);
-        return m;
+    synchronized (REFLECTION_CACHE_LOCK) {
+      Method cached = METHOD_CACHE.get(cacheKey);
+      if (cached != null) {
+        return cached;
       }
-    }
 
-    for (Method m : clazz.getDeclaredMethods()) {
-      if (m.getName().equals(payload.method())
-          && Type.getMethodDescriptor(m).equals(payload.methodDescriptor())) {
-        String visibility =
-            Modifier.isPrivate(m.getModifiers())
-                ? "private"
-                : Modifier.isProtected(m.getModifiers()) ? "protected" : "package-private";
-        throw new NoSuchMethodException(
-            payload.method()
-                + " in "
-                + clazz.getName()
-                + " is "
-                + visibility
-                + " — only public methods can be scheduled as jobs. "
-                + "Change the method visibility to public.");
+      for (Method m : clazz.getMethods()) {
+        if (m.getName().equals(payload.method())
+            && Type.getMethodDescriptor(m).equals(payload.methodDescriptor())) {
+          METHOD_CACHE.put(cacheKey, m);
+          return m;
+        }
       }
-    }
 
-    throw new NoSuchMethodException(
-        payload.method() + " with descriptor " + payload.methodDescriptor());
+      for (Method m : clazz.getDeclaredMethods()) {
+        if (m.getName().equals(payload.method())
+            && Type.getMethodDescriptor(m).equals(payload.methodDescriptor())) {
+          String visibility =
+              Modifier.isPrivate(m.getModifiers())
+                  ? "private"
+                  : Modifier.isProtected(m.getModifiers()) ? "protected" : "package-private";
+          throw new NoSuchMethodException(
+              payload.method()
+                  + " in "
+                  + clazz.getName()
+                  + " is "
+                  + visibility
+                  + " — only public methods can be scheduled as jobs. "
+                  + "Change the method visibility to public.");
+        }
+      }
+
+      throw new NoSuchMethodException(
+          payload.method() + " with descriptor " + payload.methodDescriptor());
+    }
   }
 
   private String resolveResilienceServiceName(JobPayload payload) {
     String cacheKey = payload.target() + "#" + payload.method() + ":" + payload.methodDescriptor();
-    String cached = SERVICE_NAME_CACHE.get(cacheKey);
-    if (cached != null) {
-      return cached;
-    }
-
-    String fallbackServiceName = simpleClassName(payload.target()) + "." + payload.method();
-    try {
-      // Route through the policy-guarded loader so CLASS_CACHE is never primed with a denied
-      // class. This path runs BEFORE runPayload's security validation, so without this guard
-      // an attacker-controlled class name would land in the cache unchecked.
-      Class<?> clazz = loadAllowedClass(payload.target());
-      Method method = resolveMethod(clazz, payload);
-      CircuitBreakerProtected annotation = method.getAnnotation(CircuitBreakerProtected.class);
-      if (annotation == null) {
-        annotation = clazz.getAnnotation(CircuitBreakerProtected.class);
+    synchronized (REFLECTION_CACHE_LOCK) {
+      String cached = SERVICE_NAME_CACHE.get(cacheKey);
+      if (cached != null) {
+        return cached;
       }
 
-      String resolved =
-          annotation != null && annotation.service() != null && !annotation.service().isBlank()
-              ? annotation.service()
-              : clazz.getSimpleName() + "." + method.getName();
-      SERVICE_NAME_CACHE.put(cacheKey, resolved);
-      return resolved;
-    } catch (Exception e) {
-      SERVICE_NAME_CACHE.put(cacheKey, fallbackServiceName);
-      return fallbackServiceName;
+      String fallbackServiceName = simpleClassName(payload.target()) + "." + payload.method();
+      try {
+        // Route through the policy-guarded loader so CLASS_CACHE is never primed with a denied
+        // class. This path runs BEFORE runPayload's security validation, so without this guard
+        // an attacker-controlled class name would land in the cache unchecked.
+        Class<?> clazz = loadAllowedClass(payload.target());
+        Method method = resolveMethod(clazz, payload);
+        CircuitBreakerProtected annotation = method.getAnnotation(CircuitBreakerProtected.class);
+        if (annotation == null) {
+          annotation = clazz.getAnnotation(CircuitBreakerProtected.class);
+        }
+
+        String resolved =
+            annotation != null && annotation.service() != null && !annotation.service().isBlank()
+                ? annotation.service()
+                : clazz.getSimpleName() + "." + method.getName();
+        SERVICE_NAME_CACHE.put(cacheKey, resolved);
+        return resolved;
+      } catch (Exception e) {
+        SERVICE_NAME_CACHE.put(cacheKey, fallbackServiceName);
+        return fallbackServiceName;
+      }
     }
   }
 
@@ -1024,12 +1033,12 @@ public class JobTask implements Callable<Void> {
                 job.getBackoffPolicy(), job.getBackoffParamMs(), attempt)
             : policyDelay.toMillis();
     Instant newScheduledTime = effective().instant().plusMillis(backoff);
+    String sanitizedError = errorSanitizer.sanitize(ex);
 
-    if (jobStore.scheduleJobRetry(
-        job.getId(), errorSanitizer.sanitize(ex), newScheduledTime, attempt)) {
+    if (jobStore.scheduleJobRetry(job.getId(), sanitizedError, newScheduledTime, attempt)) {
       job.setAttempts(attempt);
       job.setScheduledTime(newScheduledTime);
-      job.setLastError(errorSanitizer.sanitize(ex));
+      job.setLastError(sanitizedError);
       job.setStatus(JobStatus.PENDING);
 
       observabilityFacade.publishEvent(
@@ -1039,7 +1048,7 @@ public class JobTask implements Callable<Void> {
               job.getPublicJobType(),
               job.getPriority(),
               job.getPickedBy(),
-              errorSanitizer.sanitize(ex),
+              sanitizedError,
               attempt,
               newScheduledTime));
       scheduleReadyJobsUpdate(backoff);
