@@ -2,7 +2,6 @@ package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -33,6 +32,7 @@ import run.ratchet.api.JobDetail;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobPage;
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.JobQuerySortField;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobSummary;
 import run.ratchet.api.JobType;
@@ -44,6 +44,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
+import run.ratchet.store.query.JobQueryCursor;
 import run.ratchet.store.spi.ExecutionStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobQueryStore;
@@ -252,14 +253,24 @@ class DefaultJobQueryServiceTest {
   }
 
   @Test
-  void findJobs_nextCursor_setWhenHasMore() {
-    when(queryStore.searchJobs(any(), eq(2), eq(0)))
-        .thenReturn(List.of(minimalJob(), minimalJob()));
+  void findJobs_nextCursor_encodesLastRowSortValueAndIdWhenHasMore() {
+    UUID firstId = new UUID(0L, 101L);
+    UUID secondId = new UUID(0L, 102L);
+    Instant firstCreated = Instant.parse("2026-05-10T12:00:00Z");
+    Instant secondCreated = Instant.parse("2026-05-10T12:01:00Z");
+    JobEntity first = minimalJobWithId(firstId);
+    first.setCreatedAt(firstCreated);
+    JobEntity second = minimalJobWithId(secondId);
+    second.setCreatedAt(secondCreated);
+    when(queryStore.searchJobs(any(), eq(2), eq(0))).thenReturn(List.of(first, second));
     when(queryStore.countJobs(any())).thenReturn(5L);
 
     JobPage<JobSummary> page = service.findJobs(JobFilter.builder().build(), 2, 0);
 
-    assertNotNull(page.nextCursor(), "nextCursor should be set when hasMore");
+    JobQueryCursor cursor = JobQueryCursor.decode(page.nextCursor());
+    assertEquals(JobQuerySortField.CREATED_AT, cursor.sortField());
+    assertEquals(secondCreated.toString(), cursor.sortValue());
+    assertEquals(secondId, cursor.jobId());
   }
 
   @Test

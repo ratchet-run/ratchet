@@ -251,7 +251,7 @@ class DefaultJobSchedulerServiceAuthorizationTest {
   }
 
   @Test
-  void cancelJob_nullPolicy_skipsCheckAndProceedsNormally() {
+  void cancelJob_mainConstructorWithNullPolicy_skipsCheckAndProceedsNormally() {
     DefaultJobSchedulerService nullPolicyService =
         new DefaultJobSchedulerService(
             eventPublisher,
@@ -264,7 +264,13 @@ class DefaultJobSchedulerServiceAuthorizationTest {
             tagStore,
             workflowConditionStore,
             wakeupService,
-            recurringScheduler);
+            recurringScheduler,
+            jobInvocationResolver,
+            jobCreationService,
+            null,
+            null,
+            null,
+            null);
 
     when(jobBatchStatusStore.compareAndSwapStatus(
             eq(JOB_ID), eq(JobStatus.PENDING), eq(JobStatus.CANCELED), any()))

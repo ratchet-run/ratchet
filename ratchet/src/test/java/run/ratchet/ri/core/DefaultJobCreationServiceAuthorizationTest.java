@@ -2,6 +2,7 @@ package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -96,6 +97,15 @@ class DefaultJobCreationServiceAuthorizationTest {
       @Override
       public Optional<String> currentPrincipal() {
         return Optional.of(principal);
+      }
+    };
+  }
+
+  private static CallerPrincipalProvider principalProviderReturningEmpty() {
+    return new CallerPrincipalProvider(null) {
+      @Override
+      public Optional<String> currentPrincipal() {
+        return Optional.empty();
       }
     };
   }
@@ -250,6 +260,31 @@ class DefaultJobCreationServiceAuthorizationTest {
     systemService.submit(builder);
 
     verify(authorizationPolicy).checkCreate(any(UUID.class), isNull());
+  }
+
+  @Test
+  void checkCreate_emptyPrincipalProvider_passesNullPrincipalAndDoesNotStampEntity() {
+    DefaultJobCreationService anonymousService =
+        serviceWith(
+            principalProviderReturningEmpty(), authorizationPolicy, null, null, Clock.systemUTC());
+
+    JobEntity saved = savedEntity();
+    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.create(any(JobEntity.class))).thenReturn(saved);
+
+    DefaultJobBuilder builder =
+        (DefaultJobBuilder)
+            DefaultJobBuilder.create(
+                anonymousService,
+                DefaultJobCreationServiceAuthorizationTest::noopTask,
+                Duration.ZERO);
+
+    anonymousService.submit(builder);
+
+    ArgumentCaptor<JobEntity> jobCaptor = ArgumentCaptor.forClass(JobEntity.class);
+    verify(jobCrudStore).create(jobCaptor.capture());
+    verify(authorizationPolicy).checkCreate(any(UUID.class), isNull());
+    assertNull(jobCaptor.getValue().getCallerPrincipal());
   }
 
   // ---- recurring job ----
