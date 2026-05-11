@@ -69,6 +69,14 @@ const config: SidebarsConfig = {
     'troubleshooting/debugging',
     'troubleshooting/faq',
   ],
+  comparisonSidebar: [
+    'comparison/overview',
+    'comparison/vs-quartz',
+    'comparison/vs-jobrunr',
+    'comparison/vs-spring-batch',
+    'comparison/vs-jberet',
+    'comparison/vs-db-scheduler',
+  ],
   conformanceSidebar: [
     'conformance/index',
     {

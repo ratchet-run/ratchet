@@ -105,6 +105,12 @@ const config: Config = {
         },
         {
           type: 'docSidebar',
+          sidebarId: 'comparisonSidebar',
+          position: 'left',
+          label: 'Compare',
+        },
+        {
+          type: 'docSidebar',
           sidebarId: 'conceptsSidebar',
           position: 'left',
           label: 'Concepts',
@@ -143,6 +149,10 @@ const config: Config = {
             {
               label: 'Getting Started',
               to: '/docs/getting-started/introduction',
+            },
+            {
+              label: 'Compare',
+              to: '/docs/comparison/overview',
             },
             {
               label: 'API Reference',
