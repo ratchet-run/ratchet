@@ -107,6 +107,18 @@ class JobCascadeServiceTest {
     verify(jobPauseStore, never()).transitionToPaused(any(), any());
   }
 
+  @Test
+  void pause_failedChild_skipped() {
+    UUID rootId = UUID.randomUUID();
+    JobEntity child = job(JobStatus.FAILED);
+
+    when(jobCrudStore.findDependants(rootId)).thenReturn(List.of(child));
+    when(jobCrudStore.findDependants(child.getId())).thenReturn(List.of());
+
+    assertArrayEquals(new int[] {0, 1}, cascadeService.pauseChildrenIterative(rootId));
+    verify(jobPauseStore, never()).transitionToPaused(any(), any());
+  }
+
   // ── resumeChildrenIterative ────────────────────────────────────────────────
 
   @Test

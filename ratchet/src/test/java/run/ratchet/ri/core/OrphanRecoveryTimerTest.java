@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -18,6 +19,7 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.store.entity.NodeEntity;
@@ -66,8 +68,9 @@ class OrphanRecoveryTimerTest {
 
     timer.recoverOrphans();
 
-    verify(resourcePermitService).cleanupOrphanedPermits(List.of("node-1"));
-    verify(nodeStore).deleteInactiveNodesSince(any(Instant.class));
+    InOrder order = inOrder(resourcePermitService, nodeStore);
+    order.verify(resourcePermitService).cleanupOrphanedPermits(List.of("node-1"));
+    order.verify(nodeStore).deleteInactiveNodesSince(any(Instant.class));
   }
 
   @Test

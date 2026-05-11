@@ -12,7 +12,9 @@ import static org.mockito.Mockito.when;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import org.junit.jupiter.api.AfterEach;
@@ -42,6 +44,7 @@ import run.ratchet.spi.ResultPersistenceStrategy;
 import run.ratchet.spi.RetryPolicy;
 import run.ratchet.spi.SerializedJobResult;
 import run.ratchet.spi.TracingCollector;
+import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -415,6 +418,36 @@ class JobTaskTest {
 
   @Test
   @SuppressWarnings("unchecked")
+  void call_claimedJobNoLongerRunning_skipsExecution() throws Exception {
+    JobEntity job = createTestJob();
+    job.setStatus(JobStatus.PENDING);
+    job.setPickedBy("node-1");
+    initJobTaskFromClaimWithDefaultStubs(claimForNode("node-1"), job);
+
+    jobTask.call();
+
+    verify(observabilityFacade, never()).startExecution(any(UUID.class), anyInt(), anyString());
+    verify(resilienceStrategy, never()).execute(anyString(), any(Callable.class));
+    verify(jobStore, never()).getJobStatus(any(UUID.class));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void call_claimedJobPickedByAnotherNode_skipsExecution() throws Exception {
+    JobEntity job = createTestJob();
+    job.setStatus(JobStatus.RUNNING);
+    job.setPickedBy("node-2");
+    initJobTaskFromClaimWithDefaultStubs(claimForNode("node-1"), job);
+
+    jobTask.call();
+
+    verify(observabilityFacade, never()).startExecution(any(UUID.class), anyInt(), anyString());
+    verify(resilienceStrategy, never()).execute(anyString(), any(Callable.class));
+    verify(jobStore, never()).getJobStatus(any(UUID.class));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
   void handleSuccess_retriesTransientFinalizationWithoutFailingJob() throws Exception {
     JobEntity job = createTestJob();
     initJobTaskWithDefaultStubs(job);
@@ -574,8 +607,30 @@ class JobTaskTest {
     return job;
   }
 
+  private static JobClaimDto claimForNode(String pickedBy) {
+    return new JobClaimDto(
+        JOB_UUID,
+        JobStatus.RUNNING,
+        JobExecutionType.SINGLE,
+        JobPriority.NORMAL,
+        Instant.EPOCH,
+        1,
+        30,
+        pickedBy,
+        Instant.EPOCH,
+        null,
+        0,
+        3);
+  }
+
   private void initJobTaskWithDefaultStubs(JobEntity job) {
     initJobTaskWithDefaultStubs(jobTask, job);
+  }
+
+  private void initJobTaskFromClaimWithDefaultStubs(JobClaimDto claim, JobEntity job) {
+    jobTask.initFromClaim(claim);
+    when(jobStore.findById(claim.id())).thenReturn(Optional.of(job));
+    when(nodeIdProvider.getNodeId()).thenReturn("node-1");
   }
 
   private void initJobTaskWithDefaultStubs(JobTask task, JobEntity job) {
