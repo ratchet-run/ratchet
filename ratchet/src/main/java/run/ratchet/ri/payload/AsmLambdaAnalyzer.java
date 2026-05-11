@@ -7,6 +7,7 @@ import java.io.Serializable;
 import java.lang.invoke.SerializedLambda;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Deque;
 import java.util.List;
 import java.util.Objects;
@@ -103,7 +104,7 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
             methodNode.name,
             methodNode.desc,
             opcodeValue == Opcodes.INVOKESTATIC,
-            List.of(resolvedArguments),
+            immutableListAllowingNulls(resolvedArguments),
             resolvedReceiver));
 
     if (Type.getReturnType(methodNode.desc) != Type.VOID_TYPE) {
@@ -195,8 +196,7 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
         case Opcodes.INVOKESPECIAL -> {
           MethodInsnNode methodInsn = (MethodInsnNode) node;
           if ("<init>".equals(methodInsn.name)) {
-            operandStack.pop();
-            operandStack.push(UnknownValue.INSTANCE);
+            popInvocationOperands(operandStack, methodInsn);
           } else {
             handleGenericInvoke(
                 operandStack, invocationList, methodInsn, opcodeValue, capturedValues);
@@ -271,6 +271,20 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
         isStatic,
         List.copyOf(invocationArguments),
         receiver);
+  }
+
+  private static List<Object> immutableListAllowingNulls(Object[] values) {
+    List<Object> copy = new ArrayList<>(values.length);
+    Collections.addAll(copy, values);
+    return Collections.unmodifiableList(copy);
+  }
+
+  private static void popInvocationOperands(Deque<Value> operandStack, MethodInsnNode methodInsn) {
+    Type[] argumentTypes = Type.getArgumentTypes(methodInsn.desc);
+    for (int i = argumentTypes.length - 1; i >= 0; i--) {
+      operandStack.pop();
+    }
+    operandStack.pop();
   }
 
   private static ClassNode readClassNode(String classInternalName) {
