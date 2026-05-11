@@ -223,10 +223,15 @@ public abstract class AbstractSchemaConformanceContract {
   void deprecatedColumnsAbsent() throws SQLException {
     try (Connection c = openConnection()) {
       List<String> violations = new ArrayList<>();
+      Map<String, Map<String, IntrospectedColumn>> columnsByTable = new LinkedHashMap<>();
       for (DeprecatedArtifact artifact : expectedSchema().deprecated()) {
         if (artifact instanceof DeprecatedArtifact.DroppedColumn dc
             && expectedSchema().version() >= dc.sinceVersion()) {
-          Map<String, IntrospectedColumn> cols = introspectColumns(c, dc.table());
+          Map<String, IntrospectedColumn> cols = columnsByTable.get(dc.table());
+          if (cols == null) {
+            cols = introspectColumns(c, dc.table());
+            columnsByTable.put(dc.table(), cols);
+          }
           if (cols.containsKey(dc.column().toLowerCase(Locale.ROOT))) {
             violations.add(
                 dc.table() + "." + dc.column() + " (dropped in v" + dc.sinceVersion() + ")");
@@ -247,10 +252,15 @@ public abstract class AbstractSchemaConformanceContract {
     try (Connection c = openConnection()) {
       DatabaseMetaData md = c.getMetaData();
       List<String> violations = new ArrayList<>();
+      Map<String, Map<String, IntrospectedIndex>> indexesByTable = new LinkedHashMap<>();
       for (DeprecatedArtifact artifact : expectedSchema().deprecated()) {
         if (artifact instanceof DeprecatedArtifact.DroppedIndex di
             && expectedSchema().version() >= di.sinceVersion()) {
-          Map<String, IntrospectedIndex> idxs = introspectIndexes(md, di.table());
+          Map<String, IntrospectedIndex> idxs = indexesByTable.get(di.table());
+          if (idxs == null) {
+            idxs = introspectIndexes(md, di.table());
+            indexesByTable.put(di.table(), idxs);
+          }
           if (idxs.containsKey(di.index().toLowerCase(Locale.ROOT))) {
             violations.add(
                 di.table() + "." + di.index() + " (dropped in v" + di.sinceVersion() + ")");

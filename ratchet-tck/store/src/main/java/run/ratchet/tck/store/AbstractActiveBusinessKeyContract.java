@@ -31,11 +31,11 @@ import run.ratchet.tck.util.ConcurrentTestRunner;
  *       metadata.
  * </ul>
  *
- * <p>This contract fills the remaining status matrix — RUNNING, PAUSED, FAILED-terminal, and
- * CANCELED — and locks the pause/resume cycle plus uniqueness while a peer is in any active state.
- * It is independent of physical layout: SQL stores satisfy it via the {@code
- * scheduler_business_key_reservation} table, Mongo via a partial unique index over {@code
- * (business_key, status IN PENDING/RUNNING/PAUSED)}.
+ * <p>This contract fills the remaining status matrix — RUNNING, WAITING, PAUSED, FAILED-terminal,
+ * and CANCELED — and locks the pause/resume cycle plus uniqueness while a peer is in any active
+ * state. It is independent of physical layout: SQL stores satisfy it via the {@code
+ * scheduler_business_key_reservation} table, Mongo via a partial unique index over active
+ * business-key statuses.
  */
 public abstract class AbstractActiveBusinessKeyContract implements JobStoreContractFixture {
 
@@ -78,6 +78,23 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
     assertTrue(
         result.isPresent(),
         "PAUSED job should remain visible to findActiveByBusinessKey — PAUSED is an active status");
+    assertEquals(saved.getId(), result.get().getId());
+  }
+
+  @Test
+  void findActiveByBusinessKey_waitingJob_returnsJob() {
+    String bk = uniqueBusinessKey();
+    JobEntity waiting = jobWithBusinessKey(bk);
+    waiting.setStatus(JobStatus.WAITING);
+    waiting.setSignalKey("approval");
+    waiting.setSignalTimeout(Instant.now().plusSeconds(600));
+    JobEntity saved = persist(waiting);
+
+    var result = store().findActiveByBusinessKey(bk);
+
+    assertTrue(
+        result.isPresent(),
+        "WAITING job should remain visible to findActiveByBusinessKey — WAITING is an active status");
     assertEquals(saved.getId(), result.get().getId());
   }
 
@@ -188,6 +205,23 @@ public abstract class AbstractActiveBusinessKeyContract implements JobStoreContr
     try {
       persist(jobWithBusinessKey(bk));
       fail("Duplicate enqueue while PAUSED peer holds the business key must throw");
+    } catch (RuntimeException expected) {
+      // expected
+    }
+  }
+
+  @Test
+  void duplicateEnqueueWhileWaiting_fails() {
+    String bk = uniqueBusinessKey();
+    JobEntity waiting = jobWithBusinessKey(bk);
+    waiting.setStatus(JobStatus.WAITING);
+    waiting.setSignalKey("approval");
+    waiting.setSignalTimeout(Instant.now().plusSeconds(600));
+    persist(waiting);
+
+    try {
+      persist(jobWithBusinessKey(bk));
+      fail("Duplicate enqueue while WAITING peer holds the business key must throw");
     } catch (RuntimeException expected) {
       // expected
     }

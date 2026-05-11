@@ -69,12 +69,11 @@ public final class TckJobs {
   public static void blockUntilReleased() throws InterruptedException {
     CountDownLatch started = STARTED_LATCH.get();
     CountDownLatch release = RELEASE_LATCH.get();
-    if (started != null) {
-      started.countDown();
+    if (started == null || release == null) {
+      throw new IllegalStateException("beginBlocking() must be called before blockUntilReleased()");
     }
-    if (release != null) {
-      release.await();
-    }
+    started.countDown();
+    release.await();
   }
 
   /** Installs fresh started/release latches and returns the started latch the test awaits on. */

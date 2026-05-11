@@ -407,7 +407,13 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
     page1.forEach(j -> allIds.add(j.getId()));
     page2.forEach(j -> allIds.add(j.getId()));
 
-    // No duplicates across pages — tiebreaker ensures stable ordering
+    List<JobEntity> allJobs = new ArrayList<>();
+    allJobs.addAll(page1);
+    allJobs.addAll(page2);
+    for (int i = 1; i < allJobs.size(); i++) {
+      assertDefaultCreatedAtOrder(allJobs.get(i - 1), allJobs.get(i));
+    }
+
     assertEquals(
         allIds.size(),
         new HashSet<>(allIds).size(),
@@ -444,5 +450,18 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
 
     assertEquals(1, results.size(), "parentJobId filter should return only direct dependants");
     assertEquals(child.getId(), results.get(0).getId(), "Returned job should be the child job");
+  }
+
+  private static void assertDefaultCreatedAtOrder(JobEntity previous, JobEntity current) {
+    assertNotNull(previous.getCreatedAt(), "Sorted jobs must expose non-null createdAt values");
+    assertNotNull(current.getCreatedAt(), "Sorted jobs must expose non-null createdAt values");
+    int createdOrder = previous.getCreatedAt().compareTo(current.getCreatedAt());
+    if (createdOrder != 0) {
+      assertTrue(createdOrder >= 0, "Default ordering must sort createdAt descending");
+      return;
+    }
+    assertTrue(
+        previous.getId().compareTo(current.getId()) <= 0,
+        "Default ordering must use job id as a stable ascending tiebreaker");
   }
 }
