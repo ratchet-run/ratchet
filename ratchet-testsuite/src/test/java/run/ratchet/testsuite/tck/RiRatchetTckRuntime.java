@@ -20,9 +20,7 @@ import run.ratchet.testsuite.app.TestCleanupStrategy;
  *   <li>{@code probe()} → {@link ListenerProbe}, which subscribes via {@code
  *       addEventListener(Consumer&lt;Object&gt;)}.
  *   <li>{@code clock()} → {@link Optional#empty()}; the RI is wall-clock-driven today, so {@link
- *       run.ratchet.tck.api.AbstractDelayedSchedulingContract} skips via JUnit assumption. The RI
- *       subclass also carries an explicit {@code @Disabled} so the skip is visible in test reports
- *       rather than silently swallowed.
+ *       run.ratchet.tck.api.AbstractDelayedSchedulingContract} skips via JUnit assumption.
  *   <li>{@code clear()} → drain-controller-pause + non-destructive {@link
  *       JobExecutorService#awaitIdle(Duration)} + store truncate via {@link TestCleanupStrategy} +
  *       probe reset + drain-controller-resume.

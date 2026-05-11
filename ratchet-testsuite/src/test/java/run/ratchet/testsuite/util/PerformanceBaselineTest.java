@@ -1,11 +1,17 @@
 package run.ratchet.testsuite.util;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Properties;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class PerformanceBaselineTest {
 
@@ -41,6 +47,41 @@ class PerformanceBaselineTest {
     assertThrows(
         AssertionError.class,
         () -> baseline.assertLatencyWithinTolerance("p95", Double.NEGATIVE_INFINITY));
+  }
+
+  @Test
+  void writeRecordedBaselinesWritesMetricsAndPreservesExistingValues(@TempDir Path targetDir)
+      throws IOException {
+    String originalBuildDir = System.getProperty("project.build.directory");
+    System.setProperty("project.build.directory", targetDir.toString());
+    try {
+      Path outputDir = targetDir.resolve("perf-baselines");
+      Files.createDirectories(outputDir);
+      Path outputFile = outputDir.resolve("mysql-baselines.properties");
+      Files.writeString(outputFile, "existingMetric=7.00\n");
+
+      PerformanceBaseline baseline =
+          new PerformanceBaseline("mysql", 0.10, "missing-perf-baselines");
+      baseline.assertWithinTolerance("jobsPerSecond", 123.456);
+      baseline.assertLatencyWithinTolerance("p95", 42.0);
+
+      baseline.writeRecordedBaselines();
+
+      assertTrue(Files.exists(outputFile), "Baseline file should be written");
+      Properties written = new Properties();
+      try (InputStream in = Files.newInputStream(outputFile)) {
+        written.load(in);
+      }
+      assertEquals("7.00", written.getProperty("existingMetric"));
+      assertEquals("123.46", written.getProperty("jobsPerSecond"));
+      assertEquals("42.00", written.getProperty("p95"));
+    } finally {
+      if (originalBuildDir == null) {
+        System.clearProperty("project.build.directory");
+      } else {
+        System.setProperty("project.build.directory", originalBuildDir);
+      }
+    }
   }
 
   private static final class UnreadableBaselineClassLoader extends ClassLoader {

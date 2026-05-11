@@ -8,11 +8,13 @@ import org.testcontainers.mysql.MySQLContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
- * JUnit 5 extension that starts a Testcontainers database before all tests.
+ * JUnit 5 extension that starts a shared Testcontainers SQL database before all tests.
  *
- * <p>The database type is determined by the {@code ratchet.test.db.type} system property (defaults
- * to "mysql"). The container is started once and shared across all test classes via the JUnit
- * {@link ExtensionContext.Store} with GLOBAL namespace.
+ * <p>The database type is determined by the {@code ratchet.test.db.type} system property. The
+ * extension starts a container only for {@code mysql} or {@code postgresql}; other values leave the
+ * extension inactive, and {@link #getConfig()} will fail until a SQL-backed run initializes it. The
+ * container is started once and shared across all test classes via the JUnit {@link
+ * ExtensionContext.Store} with GLOBAL namespace.
  */
 public class JdbcContainerExtension
     implements BeforeAllCallback, ExtensionContext.Store.CloseableResource {

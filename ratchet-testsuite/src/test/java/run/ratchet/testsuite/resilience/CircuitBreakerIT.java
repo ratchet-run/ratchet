@@ -36,8 +36,8 @@ import run.ratchet.testsuite.app.CircuitBreakerTestService;
 /**
  * Validates the {@code @CircuitBreakerProtected} CDI interceptor integration.
  *
- * <p>Uses the FAST profile: 50% failure threshold, 20-call sliding window, 3 minimum calls, 10s
- * wait duration, 2 permitted calls in half-open.
+ * <p>Uses a test FAST profile: 50% failure threshold, 20-call sliding window, 3 minimum calls, 100
+ * ms wait duration, 2 permitted calls in half-open.
  */
 @ExtendWith(ArquillianExtension.class)
 @Vetoed

@@ -8,7 +8,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import jakarta.inject.Inject;
 import java.time.Duration;
 import java.util.List;
-import java.util.UUID;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
@@ -151,10 +150,14 @@ class JobAuthorizationPolicyIT extends BaseRatchetIT {
 
   @Test
   void checkRetry_isCalledWhenRetryIsRequested() {
+    JobHandle handle = jobService.enqueue(FailOnceJob::execute).withMaxRetries(0).submit();
+    JobAssertions.assertJobFailed(jobCrudStore, handle);
+    StubJobAuthorizationPolicy.resetAll();
+
     assertEquals(
         0, StubJobAuthorizationPolicy.getRetryCount(), "Pre-condition: no retry calls yet");
 
-    jobService.retryJob(UUID.randomUUID());
+    assertTrue(jobService.retryJob(handle.id()), "retryJob should retry an existing FAILED job");
 
     assertEquals(
         1,

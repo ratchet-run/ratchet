@@ -1,6 +1,7 @@
 package run.ratchet.testsuite.transaction;
 
-import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.inject.Inject;
 import org.jboss.arquillian.container.test.api.Deployment;
@@ -17,8 +18,8 @@ import run.ratchet.testsuite.util.JobAssertions;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /**
- * Validates that job enqueue participates in the caller's JTA transaction — the job row and any
- * business data commit atomically.
+ * Validates that job enqueue participates in the caller's JTA transaction: the submitted job row
+ * commits and the committed job is eligible for execution.
  *
  * <p>JPA-only: these tests exercise JTA transaction semantics which are not applicable to document
  * stores.
@@ -52,11 +53,11 @@ class TransactionalEnqueueIT extends BaseRatchetIT {
   void enqueue_withinTransaction_shouldCommitWithTransaction() {
     JobHandle handle = jobService.enqueue(SimpleJob::execute).submit();
 
-    assertNotNull(handle);
-
-    // Job should be visible and eventually complete
     var job = jobCrudStore.findById(handle.id());
-    assertNotNull(job, "Job row should be committed and visible");
+    assertTrue(job.isPresent(), "Job row should be committed and visible");
+    assertEquals(handle.id(), job.orElseThrow().getId(), "Visible row should match submitted job");
+
     JobAssertions.assertJobCompleted(jobCrudStore, handle);
+    assertEquals(1, SimpleJob.getInvocationCount(), "Committed job should execute exactly once");
   }
 }

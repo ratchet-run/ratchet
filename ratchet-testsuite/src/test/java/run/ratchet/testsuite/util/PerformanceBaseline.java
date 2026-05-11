@@ -18,7 +18,9 @@ import java.util.logging.Logger;
  *
  * <p>On first run (no baseline file), metrics are recorded to {@code target/perf-baselines/} for
  * the user to copy into {@code src/test/resources/perf-baselines/}. On subsequent runs, actual
- * values are compared against baselines with a configurable tolerance.
+ * values are compared against baselines with a configurable tolerance. Throughput metrics enforce a
+ * lower bound because lower values are regressions; latency metrics enforce an upper bound because
+ * higher values are regressions.
  */
 public class PerformanceBaseline {
 

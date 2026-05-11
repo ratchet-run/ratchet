@@ -23,9 +23,9 @@ import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7Factory;
 
 /**
- * Single-threaded in-memory {@link run.ratchet.store.spi.JobStore} implementation that supports
- * just enough of the SPI to drive {@code AbstractDelayedSchedulingContract} green: submit → claim
- * (filtered by an injectable {@link Clock}) → mark-succeeded → workflow-noop.
+ * Single-threaded in-memory {@link run.ratchet.store.spi.JobStore} implementation that supports the
+ * public-API clocked TCK path: CRUD, claim, execution history, signal delivery, workflow condition
+ * no-ops, tags, node liveness, locks, DLQ cleanup, and resource-permit no-ops.
  *
  * <p>All other SPI methods inherit {@link UnsupportedOperationException} stubs from {@link
  * ThrowingJobStoreBase}. If a future contract reaches a stubbed method, the failure surfaces with
