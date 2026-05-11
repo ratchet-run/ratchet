@@ -182,16 +182,7 @@ public class BatchService {
           "Progress hook target class not allowed by ClassPolicy: " + targetName);
     }
 
-    Class<?> cls =
-        CLASS_CACHE.computeIfAbsent(
-            targetName,
-            name -> {
-              try {
-                return Class.forName(name, true, Thread.currentThread().getContextClassLoader());
-              } catch (ClassNotFoundException e) {
-                throw new IllegalStateException("Progress hook target class not found: " + name, e);
-              }
-            });
+    Class<?> cls = loadProgressHookClass(targetName);
     Method method = resolveHookMethod(cls, payload);
 
     if (payload.isStatic()) {
@@ -201,6 +192,21 @@ public class BatchService {
 
     Object instance = beanResolver.resolve(cls);
     method.invoke(instance, ctx);
+  }
+
+  private Class<?> loadProgressHookClass(String targetName) {
+    Class<?> cached = CLASS_CACHE.get(targetName);
+    if (cached != null) {
+      return cached;
+    }
+    Class<?> loaded;
+    try {
+      loaded = Class.forName(targetName, true, Thread.currentThread().getContextClassLoader());
+    } catch (ClassNotFoundException e) {
+      throw new IllegalStateException("Progress hook target class not found: " + targetName, e);
+    }
+    Class<?> existing = CLASS_CACHE.putIfAbsent(targetName, loaded);
+    return existing == null ? loaded : existing;
   }
 
   private boolean processBatchCompletion(UUID parentId, BatchEntity batch) {
@@ -245,10 +251,9 @@ public class BatchService {
 
     publishBatchEvent(batch, parent);
 
-    log.info(
-        String.format(
-            "Batch %s completed: %d total, %d succeeded, %d failed",
-            parentId, batch.getTotalItems(), batch.getCompletedItems(), batch.getFailedItems()));
+    log.infof(
+        "Batch %s completed: %d total, %d succeeded, %d failed",
+        parentId, batch.getTotalItems(), batch.getCompletedItems(), batch.getFailedItems());
 
     return workflowScheduler.scheduleNext(parent);
   }
@@ -331,11 +336,18 @@ public class BatchService {
     triggerWithProgress(progress.progressHook(), progress);
 
     if (batchStore.markBatchCompleteIfReady(parentId)) {
-      return batchStore
-          .findBatchById(parentId)
-          .map(batch -> processBatchCompletion(parentId, batch))
-          .orElse(false);
+      return processBatchCompletion(parentId, batchFromProgress(progress));
     }
     return false;
+  }
+
+  private BatchEntity batchFromProgress(BatchProgress progress) {
+    BatchEntity batch = new BatchEntity();
+    batch.setId(progress.batchId());
+    batch.setTotalItems(progress.totalItems());
+    batch.setCompletedItems(progress.completedItems());
+    batch.setFailedItems(progress.failedItems());
+    batch.setProgressHook(progress.progressHook());
+    return batch;
   }
 }

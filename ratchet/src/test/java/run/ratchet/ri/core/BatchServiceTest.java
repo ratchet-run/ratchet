@@ -73,12 +73,6 @@ class BatchServiceTest {
     child.setDependsOn(parentId);
 
     BatchProgress progress = new BatchProgress(parentId, 3, 3, 0, null);
-    BatchEntity batch = new BatchEntity();
-    batch.setId(parentId);
-    batch.setTotalItems(3);
-    batch.setCompletedItems(3);
-    batch.setFailedItems(0);
-
     JobEntity parent = new JobEntity();
     parent.setId(parentId);
     parent.setStatus(JobStatus.PENDING);
@@ -89,7 +83,6 @@ class BatchServiceTest {
 
     when(batchStore.incrementCompletedAtomic(parentId)).thenReturn(progress);
     when(batchStore.markBatchCompleteIfReady(parentId)).thenReturn(true);
-    when(batchStore.findBatchById(parentId)).thenReturn(Optional.of(batch));
     when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent));
     when(jobBatchStatusStore.tryPickUpJob(parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID))
         .thenReturn(true);
@@ -106,6 +99,10 @@ class BatchServiceTest {
     assertEquals(JobType.BATCH, completingEvent.getJobType());
     assertEquals(JobPriority.HIGH, completingEvent.getPriority());
     assertEquals("batch-node-1", completingEvent.getNodeId());
+    assertEquals(3, completingEvent.getTotalItems());
+    assertEquals(3, completingEvent.getCompletedItems());
+    assertEquals(0, completingEvent.getFailedItems());
+    verify(batchStore, never()).findBatchById(parentId);
   }
 
   @Test
@@ -115,12 +112,6 @@ class BatchServiceTest {
     child.setDependsOn(parentId);
 
     BatchProgress progress = new BatchProgress(parentId, 1, 1, 0, null);
-    BatchEntity batch = new BatchEntity();
-    batch.setId(parentId);
-    batch.setTotalItems(1);
-    batch.setCompletedItems(1);
-    batch.setFailedItems(0);
-
     JobEntity parent = new JobEntity();
     parent.setId(parentId);
     parent.setStatus(JobStatus.PENDING);
@@ -128,7 +119,6 @@ class BatchServiceTest {
 
     when(batchStore.incrementCompletedAtomic(parentId)).thenReturn(progress);
     when(batchStore.markBatchCompleteIfReady(parentId)).thenReturn(true);
-    when(batchStore.findBatchById(parentId)).thenReturn(Optional.of(batch));
     when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent));
     when(jobBatchStatusStore.tryPickUpJob(parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID))
         .thenReturn(false);
@@ -140,6 +130,7 @@ class BatchServiceTest {
     verify(metricsStore, never()).finalizeBatchMetrics(any());
     verify(eventPublisher, never()).publish(any());
     verify(workflowScheduler, never()).scheduleNext(any());
+    verify(batchStore, never()).findBatchById(parentId);
   }
 
   @Test
