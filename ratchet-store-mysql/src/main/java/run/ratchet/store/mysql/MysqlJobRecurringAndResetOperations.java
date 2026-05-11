@@ -229,27 +229,55 @@ final class MysqlJobRecurringAndResetOperations {
     if (idRows.isEmpty()) {
       return 0;
     }
+    List<UUID> ids = new ArrayList<>(idRows.size());
+    for (Object row : idRows) {
+      UUID id = MysqlJobRowMapper.uuidOrNull(row);
+      if (id != null) {
+        ids.add(id);
+      }
+    }
+    if (ids.isEmpty()) {
+      return 0;
+    }
+    String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
     // language=MySQL
     String sql =
         """
         UPDATE scheduler_job SET rec_status = NULL, terminal_status = 'CANCELED',
             terminated_at = NOW(3)
-        WHERE job_id = ? AND job_type = 'RECURRING'
+        WHERE job_id IN (%s) AND job_type = 'RECURRING'
           AND rec_status IS NOT NULL AND terminal_status IS NULL
-        """;
-    int total = 0;
-    for (Object n : idRows) {
-      UUID id = MysqlJobRowMapper.uuidOrNull(n);
-      int updated =
-          ctx.em()
-              .createNativeQuery(sql)
-              .setParameter(1, UuidByteArrayConverter.toBytes(id))
-              .executeUpdate();
-      if (updated > 0) {
-        reservations.deleteReservationByOwner(id);
-        total += updated;
-      }
+        """
+            .formatted(placeholders);
+    Query query = ctx.em().createNativeQuery(sql);
+    int parameter = 1;
+    for (UUID id : ids) {
+      query.setParameter(parameter++, UuidByteArrayConverter.toBytes(id));
     }
-    return total;
+    int updated = query.executeUpdate();
+    if (updated > 0) {
+      deleteReservationsForCanceledRecurringIds(ids);
+    }
+    return updated;
+  }
+
+  private void deleteReservationsForCanceledRecurringIds(List<UUID> ids) {
+    String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+    // language=MySQL
+    String sql =
+        """
+        DELETE r FROM scheduler_business_key_reservation r
+          JOIN scheduler_job j ON j.job_id = r.owner_job_id
+        WHERE r.owner_job_id IN (%s)
+          AND j.job_type = 'RECURRING'
+          AND j.terminal_status = 'CANCELED'
+        """
+            .formatted(placeholders);
+    Query query = ctx.em().createNativeQuery(sql);
+    int parameter = 1;
+    for (UUID id : ids) {
+      query.setParameter(parameter++, UuidByteArrayConverter.toBytes(id));
+    }
+    query.executeUpdate();
   }
 }

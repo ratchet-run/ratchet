@@ -237,6 +237,33 @@ final class MysqlJobTerminalOperations {
 
   boolean cancelJob(UUID id) {
     // language=MySQL
+    String cancelNonRecurringSql =
+        """
+        UPDATE scheduler_job
+        SET terminal_status = 'CANCELED', terminated_at = NOW(3)
+        WHERE job_id = ? AND job_type <> 'RECURRING' AND terminal_status IS NULL
+        """;
+    int nonRecurringUpdated =
+        ctx.em()
+            .createNativeQuery(cancelNonRecurringSql)
+            .setParameter(1, UuidByteArrayConverter.toBytes(id))
+            .executeUpdate();
+    if (nonRecurringUpdated > 0) {
+      // language=MySQL
+      String deleteHotSql =
+          """
+          DELETE FROM scheduler_job_queue
+          WHERE job_id = ? AND status IN ('PENDING','RUNNING','PAUSED','WAITING')
+          """;
+      ctx.em()
+          .createNativeQuery(deleteHotSql)
+          .setParameter(1, UuidByteArrayConverter.toBytes(id))
+          .executeUpdate();
+      reservations.deleteReservationByOwner(id);
+      return true;
+    }
+
+    // language=MySQL
     String selectSql =
         "SELECT job_type, terminal_status, rec_status FROM scheduler_job WHERE job_id = ?";
     @SuppressWarnings("unchecked")
@@ -274,30 +301,7 @@ final class MysqlJobTerminalOperations {
       reservations.deleteReservationByOwner(id);
       return true;
     }
-    // language=MySQL
-    String deleteHotSql =
-        """
-        DELETE FROM scheduler_job_queue
-        WHERE job_id = ? AND status IN ('PENDING','RUNNING','PAUSED','WAITING')
-        """;
-    ctx.em()
-        .createNativeQuery(deleteHotSql)
-        .setParameter(1, UuidByteArrayConverter.toBytes(id))
-        .executeUpdate();
-    // language=MySQL
-    String updateColdSql =
-        """
-        UPDATE scheduler_job
-        SET terminal_status = 'CANCELED', terminated_at = NOW(3)
-        WHERE job_id = ? AND terminal_status IS NULL
-        """;
-    int coldUpdated =
-        ctx.em()
-            .createNativeQuery(updateColdSql)
-            .setParameter(1, UuidByteArrayConverter.toBytes(id))
-            .executeUpdate();
-    reservations.deleteReservationByOwner(id);
-    return coldUpdated > 0;
+    return false;
   }
 
   boolean resetFailedToPending(UUID id) {

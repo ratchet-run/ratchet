@@ -202,13 +202,14 @@ final class MysqlJobWriteOperations {
   }
 
   private void saveColdUpdate(JobEntity job) {
-    if (tryScheduledTimeOnlyHotUpdate(job)) {
+    Object[] row = snapshotHotRow(job.getId());
+    if (tryScheduledTimeOnlyHotUpdate(job, row)) {
       return;
     }
-    if (tryHotMutationDispatch(job)) {
+    if (tryHotMutationDispatch(job, row)) {
       return;
     }
-    guardAgainstHotMutation(job);
+    guardAgainstHotMutation(job, row);
 
     // language=MySQL
     String sql =
@@ -365,26 +366,11 @@ final class MysqlJobWriteOperations {
     return String.join(", ", Collections.nCopies(count, values));
   }
 
-  @SuppressWarnings("unchecked")
-  private boolean tryScheduledTimeOnlyHotUpdate(JobEntity job) {
+  private boolean tryScheduledTimeOnlyHotUpdate(JobEntity job, Object[] row) {
     UUID id = job.getId();
-    // language=MySQL
-    String selectSql =
-        """
-        SELECT q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at,
-               q.paused_from_status, q.last_error, q.version
-        FROM scheduler_job_queue q
-        WHERE q.job_id = ?
-        """;
-    List<Object[]> rows =
-        ctx.em()
-            .createNativeQuery(selectSql)
-            .setParameter(1, UuidByteArrayConverter.toBytes(id))
-            .getResultList();
-    if (rows.isEmpty()) {
+    if (row == null) {
       return false;
     }
-    Object[] row = rows.get(0);
     String storedStatus = (String) row[0];
     if (!"PENDING".equals(storedStatus) && !"WAITING".equals(storedStatus)) {
       return false;
@@ -511,9 +497,8 @@ final class MysqlJobWriteOperations {
     return rows.isEmpty() ? null : rows.get(0);
   }
 
-  private void guardAgainstHotMutation(JobEntity incoming) {
+  private void guardAgainstHotMutation(JobEntity incoming, Object[] row) {
     UUID id = incoming.getId();
-    Object[] row = snapshotHotRow(id);
     if (row == null) {
       throw new IllegalStateException("save() called on missing job id=" + id);
     }
@@ -575,9 +560,8 @@ final class MysqlJobWriteOperations {
     }
   }
 
-  private boolean tryHotMutationDispatch(JobEntity incoming) {
+  private boolean tryHotMutationDispatch(JobEntity incoming, Object[] row) {
     UUID id = incoming.getId();
-    Object[] row = snapshotHotRow(id);
     if (row == null) {
       return false;
     }

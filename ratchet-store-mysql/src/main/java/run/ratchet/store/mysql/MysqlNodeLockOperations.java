@@ -82,7 +82,7 @@ final class MysqlNodeLockOperations implements NodeStore, LockStore {
     // language=MySQL
     String sql =
         """
-        UPDATE scheduler_lock SET expires_at = DATE_ADD(NOW(3), INTERVAL ? SECOND)
+        UPDATE scheduler_lock SET expires_at = DATE_ADD(NOW(6), INTERVAL ? SECOND)
         WHERE lock_name = ? AND owner_node = ?
         """;
     int updated =

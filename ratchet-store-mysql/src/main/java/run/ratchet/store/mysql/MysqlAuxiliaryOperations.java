@@ -142,7 +142,8 @@ final class MysqlAuxiliaryOperations
         findConditions(
             "WHERE id = ?",
             List.of(UuidByteArrayConverter.toBytes(id)),
-            "ORDER BY condition_priority ASC");
+            "ORDER BY condition_priority ASC",
+            1);
     return results.isEmpty() ? null : results.get(0);
   }
 
@@ -354,6 +355,12 @@ final class MysqlAuxiliaryOperations
   @SuppressWarnings("unchecked")
   private List<WorkflowConditionEntity> findConditions(
       String whereClause, List<Object> params, String orderClause) {
+    return findConditions(whereClause, params, orderClause, 0);
+  }
+
+  @SuppressWarnings("unchecked")
+  private List<WorkflowConditionEntity> findConditions(
+      String whereClause, List<Object> params, String orderClause, int maxResults) {
     // language=MySQL
     String sqlPrefix =
         """
@@ -364,6 +371,9 @@ final class MysqlAuxiliaryOperations
     Query query = ctx.em().createNativeQuery(sqlPrefix + whereClause + " " + orderClause);
     for (int i = 0; i < params.size(); i++) {
       query.setParameter(i + 1, params.get(i));
+    }
+    if (maxResults > 0) {
+      query.setMaxResults(maxResults);
     }
     return ((List<Object[]>) query.getResultList())
         .stream().map(MysqlAuxiliaryOperations::mapCondition).toList();

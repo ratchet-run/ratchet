@@ -65,6 +65,17 @@ class MysqlNodeLockOperationsTest {
     assertEquals(List.of("DELETE FROM scheduler_node WHERE heartbeat_ts < ?"), sqlStatements);
   }
 
+  @Test
+  void renewLock_usesMicrosecondTimestampPrecision() {
+    List<String> sqlStatements = new ArrayList<>();
+    MysqlNodeLockOperations locks = newLocks(sqlStatements, 1);
+
+    assertTrue(locks.renewLock("held-lock", Duration.ofSeconds(30), "node-A"));
+
+    assertTrue(sqlStatements.get(0).contains("NOW(6)"));
+    assertFalse(sqlStatements.get(0).contains("NOW(3)"));
+  }
+
   private static MysqlNodeLockOperations newLocks(List<String> sqlStatements, int... updateCounts) {
     EntityManager em =
         (EntityManager)
