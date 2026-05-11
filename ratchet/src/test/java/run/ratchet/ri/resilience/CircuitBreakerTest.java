@@ -96,6 +96,7 @@ class CircuitBreakerTest {
         .untilAsserted(() -> assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState()));
 
     breaker.execute(() -> "ok1");
+    assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
     breaker.execute(() -> "ok2");
 
     assertEquals(CircuitBreaker.State.CLOSED, breaker.getState());
@@ -160,6 +161,27 @@ class CircuitBreakerTest {
     await()
         .atMost(Duration.ofSeconds(1))
         .untilAsserted(() -> assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState()));
+
+    assertThrows(
+        RuntimeException.class,
+        () ->
+            breaker.execute(
+                () -> {
+                  throw new RuntimeException("still broken");
+                }));
+
+    assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
+  }
+
+  @Test
+  void halfOpenFailureAfterPartialSuccessTransitionsBackToOpen() throws Exception {
+    breaker.transitionToOpen();
+    await()
+        .atMost(Duration.ofSeconds(1))
+        .untilAsserted(() -> assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState()));
+
+    breaker.execute(() -> "ok");
+    assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
 
     assertThrows(
         RuntimeException.class,

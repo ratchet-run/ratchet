@@ -134,7 +134,7 @@ class SubmissionFailureHandlerTest {
   }
 
   @Test
-  void handleGateFailure_uuidJobIdFormatsSafely() {
+  void handleGateFailure_bufferFullRetryResetsUuidJobWithoutThrowing() {
     JobEntity job = runningSingleJob(43L);
     when(retryBufferManager.offer(job)).thenReturn(false);
     when(jobStateManager.resetJobToPending(job)).thenReturn(true);
@@ -186,7 +186,7 @@ class SubmissionFailureHandlerTest {
   }
 
   @Test
-  void handleRejection_uuidClaimIdFormatsSafely() {
+  void handleRejection_claimRetryPathsDoNotThrow() {
     UUID claimJobId = new UUID(0L, 45L);
     JobClaimDto claim =
         new JobClaimDto(

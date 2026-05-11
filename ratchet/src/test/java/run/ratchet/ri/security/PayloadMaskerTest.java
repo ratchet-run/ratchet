@@ -17,6 +17,11 @@ class PayloadMaskerTest {
   }
 
   @Test
+  void maskPayload_objectOverloadNullInput_returnsNull() {
+    assertNull(PayloadMasker.maskPayload((Object) null));
+  }
+
+  @Test
   void maskPayload_emptyInput_returnsNull() {
     assertNull(PayloadMasker.maskPayload(""));
   }

@@ -203,6 +203,18 @@ class WorkflowConditionEvaluatorTest {
   }
 
   @Test
+  void batchSuccessRate_invalidThreshold_returnsFalse() {
+    JobEntity parent = batchParent(JobStatus.SUCCEEDED);
+    when(batchStore.findBatchById(parent.getId())).thenReturn(Optional.of(batch(100, 80, 20)));
+
+    assertFalse(
+        evaluator.evaluate(
+            conditionWithExpression(
+                WorkflowCondition.ConditionType.BATCH_SUCCESS_RATE, "not-a-number"),
+            parent));
+  }
+
+  @Test
   void batchFailureCount_withinLimit_returnsTrue() {
     JobEntity parent = batchParent(JobStatus.SUCCEEDED);
     when(batchStore.findBatchById(parent.getId())).thenReturn(Optional.of(batch(100, 97, 3)));
@@ -221,6 +233,18 @@ class WorkflowConditionEvaluatorTest {
     assertFalse(
         evaluator.evaluate(
             conditionWithExpression(WorkflowCondition.ConditionType.BATCH_FAILURE_COUNT, "5"),
+            parent));
+  }
+
+  @Test
+  void batchFailureCount_invalidThreshold_returnsFalse() {
+    JobEntity parent = batchParent(JobStatus.SUCCEEDED);
+    when(batchStore.findBatchById(parent.getId())).thenReturn(Optional.of(batch(100, 90, 10)));
+
+    assertFalse(
+        evaluator.evaluate(
+            conditionWithExpression(
+                WorkflowCondition.ConditionType.BATCH_FAILURE_COUNT, "not-a-number"),
             parent));
   }
 

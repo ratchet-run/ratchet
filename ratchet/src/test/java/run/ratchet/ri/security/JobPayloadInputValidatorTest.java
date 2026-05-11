@@ -90,6 +90,19 @@ class JobPayloadInputValidatorTest {
   }
 
   @Test
+  void malformedBaseFieldsAccumulateBeforeSignatureValidation() {
+    JobPayload payload = new JobPayload(null, null, null, false, null);
+
+    IllegalArgumentException ex =
+        assertThrows(IllegalArgumentException.class, () -> validator.validateAtCreation(payload));
+
+    assertTrue(ex.getMessage().contains("Target class cannot be null or empty"));
+    assertTrue(ex.getMessage().contains("Method name cannot be null or empty"));
+    assertTrue(ex.getMessage().contains("Method descriptor cannot be null or empty"));
+    assertFalse(ex.getMessage().contains("Arguments cannot be null"));
+  }
+
+  @Test
   void privateMethodReportsVisibilityError() {
     JobPayload payload = new JobPayload(Target.class.getName(), "hidden", "()V", false, List.of());
 
