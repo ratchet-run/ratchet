@@ -3,6 +3,7 @@ package run.ratchet.ri.core;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import jakarta.security.enterprise.AuthenticationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.DoNotRetry;
@@ -49,6 +50,11 @@ class DoNotRetryPolicyTest {
   }
 
   @Test
+  void shouldNotRetry_authenticationException_returnsTrue() {
+    assertTrue(policy.shouldNotRetry(new AuthenticationException("bad credentials")));
+  }
+
+  @Test
   void shouldNotRetry_wrappedNonRetryableCause_returnsTrue() {
     // Wrapping a non-retryable exception in a retryable one must not bypass the check.
     RuntimeException wrapped = new RuntimeException("outer", new IllegalArgumentException("inner"));
@@ -82,10 +88,8 @@ class DoNotRetryPolicyTest {
   }
 
   @Test
-  void shouldNotRetry_unannotatedSubclassOfAnnotatedBase_returnsTrue() {
-    // Subclass inherits the annotation — isAnnotationPresent checks declared annotations only,
-    // but DoNotRetry is @Target(TYPE), so check that the direct class annotation is detected.
-    assertTrue(policy.shouldNotRetry(new AnnotatedBusinessException()));
+  void shouldNotRetry_unannotatedSubclassOfAnnotatedBase_returnsFalse() {
+    assertFalse(policy.shouldNotRetry(new UnannotatedBusinessException()));
   }
 
   @Test
@@ -95,10 +99,12 @@ class DoNotRetryPolicyTest {
   }
 
   @DoNotRetry("permanent business failure")
-  private static final class AnnotatedBusinessException extends RuntimeException {
+  private static class AnnotatedBusinessException extends RuntimeException {
 
     AnnotatedBusinessException() {
       super("business error");
     }
   }
+
+  private static final class UnannotatedBusinessException extends AnnotatedBusinessException {}
 }

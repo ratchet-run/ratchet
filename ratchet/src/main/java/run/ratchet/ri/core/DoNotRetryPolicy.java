@@ -23,8 +23,7 @@ public class DoNotRetryPolicy {
           "java.lang.IllegalArgumentException",
           "java.lang.NullPointerException",
           "java.lang.SecurityException",
-          "jakarta.security.enterprise.AuthenticationException",
-          "jakarta.security.enterprise.AuthenticationStatus");
+          "jakarta.security.enterprise.AuthenticationException");
 
   public boolean shouldNotRetry(Throwable exception) {
     if (exception == null) {
