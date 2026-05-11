@@ -42,7 +42,10 @@ public final class JobContext {
     return ctx;
   }
 
-  /** Binds a new context with parameters to the current thread. */
+  /**
+   * Binds a new context with parameters to the current thread. Always pair with {@link #clear()} in
+   * a finally block.
+   */
   public static JobContext bind(UUID jobId, JobLogger logger, Map<String, String> params) {
     JobContext ctx = new JobContext(jobId, logger, params);
     TL.set(ctx);
@@ -52,7 +55,7 @@ public final class JobContext {
   /**
    * Binds a new context with parameters and a pre-deserialized signal payload. Called by the job
    * executor for signal-waiting jobs; the payload is deserialized before bind so {@code JobContext}
-   * carries no serializer dependency.
+   * carries no serializer dependency. Always pair with {@link #clear()} in a finally block.
    */
   public static JobContext bind(
       UUID jobId, JobLogger logger, Map<String, String> params, Serializable signalPayload) {
@@ -101,6 +104,11 @@ public final class JobContext {
     return params.getOrDefault(key, defaultValue);
   }
 
+  /**
+   * Returns an unmodifiable map of job parameters.
+   *
+   * @return job parameters, or an empty map if none were supplied
+   */
   public Map<String, String> params() {
     return params;
   }

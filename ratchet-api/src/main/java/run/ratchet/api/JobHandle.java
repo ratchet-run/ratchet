@@ -8,6 +8,7 @@ import java.util.UUID;
  * @see JobBuilder#submit()
  * @see BatchBuilder#submit()
  * @see RecurringJobBuilder#submit()
+ * @see StreamingBatchBuilder#start()
  */
 @FunctionalInterface
 public interface JobHandle {

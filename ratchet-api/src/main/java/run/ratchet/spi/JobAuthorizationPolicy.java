@@ -32,9 +32,10 @@ import run.ratchet.api.exception.JobAuthorizationException;
  *
  * <h2>Bulk recurring cancel</h2>
  *
- * <p>{@code JobSchedulerService.cancelRecurringJobsByTag} and {@code
- * cancelRecurringJobByBusinessKey} are not subject to per-job authorization checks. Use {@code
- * cancelJob(UUID)} for authorization-gated cancellation.
+ * <p>{@link run.ratchet.api.JobSchedulerService#cancelRecurringJobsByTag(String)} and {@link
+ * run.ratchet.api.JobSchedulerService#cancelRecurringJobByBusinessKey(String)} are not subject to
+ * per-job authorization checks. Use {@link run.ratchet.api.JobSchedulerService#cancelJob(UUID)} for
+ * authorization-gated cancellation.
  */
 @Incubating
 public interface JobAuthorizationPolicy {
@@ -43,8 +44,8 @@ public interface JobAuthorizationPolicy {
    * Called at direct API job submission, within the {@code REQUIRED} transaction, after the caller
    * principal has been captured but before the job is persisted.
    *
-   * <p>Also called for chain steps and workflow branches at their creation points; batch streaming
-   * children are excluded (see class-level note on bulk fan-out).
+   * <p>Also called for chain steps and workflow branches at their creation points. Batch streaming
+   * children are excluded because the root batch submission was already authorized before fan-out.
    *
    * @param jobId the UUIDv7 job identifier (client-generated, not yet persisted)
    * @param callerPrincipal the principal captured at creation; {@code null} if no security context

@@ -44,6 +44,8 @@ public interface JobBuilder {
    *
    * @param signalKey the named signal this job waits for; used for broadcast delivery
    * @param timeout maximum wait duration before the job fails; must be positive
+   * @throws IllegalArgumentException if {@code signalKey} is blank or {@code timeout} is null or
+   *     non-positive
    */
   JobBuilder awaitSignal(String signalKey, Duration timeout);
 
@@ -66,9 +68,21 @@ public interface JobBuilder {
    */
   JobBuilder immediate();
 
-  JobBuilder onFailure(SerializableBiConsumer<JobContext, Throwable> f);
+  /**
+   * Registers a callback invoked after this job fails.
+   *
+   * @param handler failure callback; receives the job context and failure
+   * @return this builder
+   */
+  JobBuilder onFailure(SerializableBiConsumer<JobContext, Throwable> handler);
 
-  JobBuilder onSuccess(SerializableConsumer<JobContext> s);
+  /**
+   * Registers a callback invoked after this job succeeds.
+   *
+   * @param handler success callback; receives the job context
+   * @return this builder
+   */
+  JobBuilder onSuccess(SerializableConsumer<JobContext> handler);
 
   /**
    * Persists the job and returns a handle to it.

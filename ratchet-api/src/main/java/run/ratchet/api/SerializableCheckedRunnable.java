@@ -39,5 +39,10 @@ import java.io.Serializable;
 // Generic exception intentional for job execution functional interface
 public interface SerializableCheckedRunnable extends Serializable {
 
+  /**
+   * Executes this job task.
+   *
+   * @throws Exception if the task fails; the scheduler records the failure and applies retry policy
+   */
   void run() throws Exception;
 }

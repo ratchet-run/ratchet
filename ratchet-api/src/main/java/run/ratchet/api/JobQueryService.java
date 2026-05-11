@@ -74,6 +74,9 @@ public interface JobQueryService {
    *
    * <p>The snapshot aggregates counts from the backing store as best-effort reads and is not
    * transactionally consistent across all fields.
+   *
+   * @throws run.ratchet.api.exception.RatchetTransientStoreException if the backing store is
+   *     temporarily unavailable
    */
   QueueHealthSnapshot getQueueHealth();
 

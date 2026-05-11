@@ -128,6 +128,7 @@ public class JobResult<T> implements Serializable {
    * Returns a typed metadata value, falling back to the default if absent.
    *
    * @param <V> the expected type
+   * @param key metadata key to look up
    * @param defaultValue fallback if key is not found
    */
   @SuppressWarnings("unchecked")

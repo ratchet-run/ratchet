@@ -31,9 +31,20 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.RUNTIME)
 public @interface CircuitBreakerProtected {
 
+  /**
+   * Returns the circuit breaker service key. When empty, the RI derives the key from the
+   * fully-qualified method name.
+   *
+   * @return circuit breaker service key, or empty for the derived method key
+   */
   @Nonbinding
   String service() default "";
 
+  /**
+   * Returns the circuit breaker profile used for this method or class.
+   *
+   * @return circuit breaker profile
+   */
   @Nonbinding
   CircuitBreakerProfile profile() default CircuitBreakerProfile.DEFAULT;
 }

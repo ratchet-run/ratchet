@@ -7,7 +7,10 @@ import java.util.Objects;
  * Immutable configuration for job execution: priority, retry behavior, backoff strategy, and
  * timeout. Use {@link #defaults()} and the {@code with*} methods to build custom configurations.
  *
+ * @param priority execution priority
  * @param maxRetries maximum number of retry attempts (0 = no retries)
+ * @param backoffPolicy retry backoff strategy
+ * @param backoffParam base delay or policy-specific backoff parameter
  * @param timeoutSec maximum execution time in seconds (0 = no timeout)
  * @see JobBuilder
  * @see BackoffPolicy

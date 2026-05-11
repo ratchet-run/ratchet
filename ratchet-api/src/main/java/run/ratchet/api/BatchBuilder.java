@@ -10,7 +10,17 @@ import java.util.Collection;
 @Incubating
 public interface BatchBuilder {
 
-  /** Enqueues one child job per item in the collection, each processed by {@code action}. */
+  /**
+   * Enqueues one child job per item in the collection, each processed by {@code action}.
+   *
+   * <p>The items collection must not be null. An empty collection creates an empty batch.
+   *
+   * @param <T> item payload type
+   * @param items the items to process
+   * @param action child job action invoked once per item
+   * @return this builder
+   * @throws NullPointerException if {@code items} is null
+   */
   <T extends Serializable> BatchBuilder forEach(
       Collection<T> items, SerializableConsumer<T> action);
 
