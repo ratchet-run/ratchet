@@ -14,7 +14,8 @@ import run.ratchet.store.entity.JobExecutionType;
 
 /**
  * Periodically drains retry buffers by resubmitting jobs when executor capacity becomes available.
- * Runs on a fixed 1-second interval, respecting priority ordering and drain mode.
+ * Runs on a configurable interval, defaulting to 1 second with a 50 ms floor, while respecting
+ * priority ordering and drain mode.
  */
 @ApplicationScoped
 public class RetryBufferDrainer {
