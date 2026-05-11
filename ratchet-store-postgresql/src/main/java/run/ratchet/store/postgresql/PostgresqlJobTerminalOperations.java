@@ -149,12 +149,16 @@ final class PostgresqlJobTerminalOperations {
       Long durationMs,
       Long queueWaitMs,
       UUID batchId) {
-    boolean succeeded =
-        markJobSucceeded(jobId, resultJson, resultType, start, end, durationMs, queueWaitMs);
-    if (succeeded) {
-      batches.incrementCompletedAtomic(batchId);
+    try {
+      boolean succeeded =
+          markJobSucceeded(jobId, resultJson, resultType, start, end, durationMs, queueWaitMs);
+      if (succeeded) {
+        batches.incrementCompletedAtomic(batchId);
+      }
+      return succeeded;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("mark job succeeded and update batch", e);
     }
-    return succeeded;
   }
 
   boolean scheduleJobRetry(UUID id, String error, Instant newScheduledTime, int attempts) {

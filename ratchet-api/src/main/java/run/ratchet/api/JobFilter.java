@@ -192,11 +192,13 @@ public record JobFilter(
       if (values.length == 0) {
         return this;
       }
+      // Multiple tags use any-tag (OR) semantics in store queries.
       this.tags = Collections.unmodifiableSet(new HashSet<>(Set.of(values)));
       return this;
     }
 
     public Builder tags(Set<String> values) {
+      // Multiple tags use any-tag (OR) semantics in store queries.
       this.tags = Collections.unmodifiableSet(new HashSet<>(values));
       return this;
     }

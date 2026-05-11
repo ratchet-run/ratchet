@@ -106,7 +106,7 @@ final class PostgresqlJobQueryOperations {
       NULL\
       """;
 
-  private static final int MAX_IN_CLAUSE = 1000;
+  private static final int MAX_RESULT_LIMIT = 1000;
 
   /*
    * PostgreSQL allows ORDER BY by output-column position after UNION. These constants are mapped
@@ -236,7 +236,7 @@ final class PostgresqlJobQueryOperations {
   @SuppressWarnings("unchecked")
   List<JobEntity> searchJobs(JobFilter filter, int limit, int offset) {
     boolean archive = useArchive(filter);
-    int safeLimit = Math.min(limit, MAX_IN_CLAUSE);
+    int safeLimit = Math.min(limit, MAX_RESULT_LIMIT);
     int effectiveOffset = (filter != null && filter.cursor() != null) ? 0 : offset;
 
     List<Object> params = new ArrayList<>();
@@ -519,6 +519,8 @@ final class PostgresqlJobQueryOperations {
     if (filterTags == null || filterTags.isEmpty()) {
       return;
     }
+    // JobFilter tags use any-tag (OR) semantics: a job matches when it has at least one requested
+    // tag. All-tag semantics would need grouped counts or repeated EXISTS predicates.
     and(
         where,
         "c.job_id IN (SELECT job_id FROM scheduler_job_tag WHERE tag IN ("

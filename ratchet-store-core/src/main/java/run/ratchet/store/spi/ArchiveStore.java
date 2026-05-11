@@ -18,6 +18,14 @@ public interface ArchiveStore {
 
   long countJobsForArchiving(Instant olderThan);
 
+  /**
+   * Finds archived jobs matching optional filters.
+   *
+   * <p>{@code null} filter arguments are ignored: {@code targetClass} omits the target-class
+   * predicate, {@code businessKey} omits the business-key predicate, {@code from} omits the lower
+   * archived-at bound, and {@code to} omits the upper archived-at bound. Results are returned
+   * newest first by archive timestamp and capped at {@code limit}.
+   */
   List<ArchivedJobEntity> findArchivedJobs(
       String targetClass, String businessKey, Instant from, Instant to, int limit);
 

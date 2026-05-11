@@ -1,5 +1,6 @@
 package run.ratchet.store.postgresql;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -63,15 +64,30 @@ final class PostgresqlBatchOperations implements BatchStore, BatchMetricsStore {
   }
 
   @Override
+  @SuppressWarnings("unchecked")
   public List<BatchEntity> findBatchesByIds(List<UUID> batchIds) {
     if (batchIds == null || batchIds.isEmpty()) {
       return List.of();
     }
-    // language=JPAQL
-    String jpql = "SELECT b FROM BatchEntity b WHERE b.id IN :ids";
-    List<BatchEntity> batches =
-        ctx.em().createQuery(jpql, BatchEntity.class).setParameter("ids", batchIds).getResultList();
-    batches.forEach(this::refreshIfManaged);
+    String placeholders = "?,".repeat(batchIds.size());
+    // language=PostgreSQL
+    String sql =
+        """
+        SELECT batch_id, total_items, completed_items, failed_items,
+               completion_processed, version, progress_hook
+        FROM scheduler_batch
+        WHERE batch_id IN (%s)
+        """
+            .formatted(placeholders.substring(0, placeholders.length() - 1));
+    var query = ctx.em().createNativeQuery(sql);
+    for (int i = 0; i < batchIds.size(); i++) {
+      query.setParameter(i + 1, batchIds.get(i));
+    }
+    List<Object[]> rows = query.getResultList();
+    List<BatchEntity> batches = new ArrayList<>(rows.size());
+    for (Object[] row : rows) {
+      batches.add(mapBatchRow(row));
+    }
     return batches;
   }
 
@@ -252,6 +268,25 @@ final class PostgresqlBatchOperations implements BatchStore, BatchMetricsStore {
       log.warnf("Bad progress_hook JSON: %s", e.getMessage());
       return null;
     }
+  }
+
+  private BatchEntity mapBatchRow(Object[] row) {
+    BatchEntity batch = new BatchEntity();
+    batch.setId(PostgresqlJobRowMapper.uuidOrNull(row[0]));
+    batch.setTotalItems(((Number) row[1]).intValue());
+    batch.setCompletedItems(((Number) row[2]).intValue());
+    batch.setFailedItems(((Number) row[3]).intValue());
+    batch.setCompletionProcessed(asBoolean(row[4]));
+    batch.setVersion(row[5] == null ? null : ((Number) row[5]).intValue());
+    batch.setProgressHook(parseProgressHook(row[6]));
+    return batch;
+  }
+
+  private static boolean asBoolean(Object value) {
+    if (value instanceof Boolean bool) {
+      return bool;
+    }
+    return value != null && ((Number) value).intValue() != 0;
   }
 
   private void refreshIfManaged(BatchEntity batch) {

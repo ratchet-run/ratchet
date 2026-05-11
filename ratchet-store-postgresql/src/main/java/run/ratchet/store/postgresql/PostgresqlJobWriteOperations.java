@@ -379,13 +379,14 @@ final class PostgresqlJobWriteOperations {
   }
 
   private void saveColdUpdate(JobEntity job) {
-    if (tryScheduledTimeOnlyHotUpdate(job)) {
+    Object[] row = snapshotHotRow(job.getId());
+    if (tryScheduledTimeOnlyHotUpdate(job, row)) {
       return;
     }
-    if (tryHotMutationDispatch(job)) {
+    if (tryHotMutationDispatch(job, row)) {
       return;
     }
-    guardAgainstHotMutation(job);
+    guardAgainstHotMutation(job, row);
 
     // language=PostgreSQL
     String sql =
@@ -413,39 +414,32 @@ final class PostgresqlJobWriteOperations {
         .executeUpdate();
   }
 
-  @SuppressWarnings("unchecked")
-  private boolean tryScheduledTimeOnlyHotUpdate(JobEntity job) {
+  private boolean tryScheduledTimeOnlyHotUpdate(JobEntity job, Object[] row) {
     UUID id = job.getId();
-    // language=PostgreSQL
-    String selectSql =
-        """
-        SELECT q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at,
-               q.paused_from_status, q.last_error, q.version
-        FROM scheduler_job_queue q
-        WHERE q.job_id = ?
-        """;
-    List<Object[]> rows = ctx.em().createNativeQuery(selectSql).setParameter(1, id).getResultList();
-    if (rows.isEmpty()) {
+    if (row == null) {
       return false;
     }
-    Object[] row = rows.get(0);
-    String storedStatus = (String) row[0];
+    String storedStatus = (String) row[IDX_HOT_STATUS];
     if (!"PENDING".equals(storedStatus) && !"WAITING".equals(storedStatus)) {
       return false;
     }
-    Instant storedSched = PostgresqlJobRowMapper.toInstant(row[1]);
+    Instant storedSched = PostgresqlJobRowMapper.toInstant(row[IDX_HOT_SCHEDULED_TIME]);
     Instant incomingSched = job.getScheduledTime();
     if (Objects.equals(storedSched, incomingSched)) {
       return false;
     }
     if (!Objects.equals(JobStatus.valueOf(storedStatus), job.getStatus())
-        || !Objects.equals(((Number) row[2]).intValue(), job.getAttempts())
-        || !Objects.equals(row[3], job.getPickedBy())
-        || !Objects.equals(PostgresqlJobRowMapper.toInstant(row[4]), job.getPickedAt())
+        || !Objects.equals(((Number) row[IDX_HOT_ATTEMPTS]).intValue(), job.getAttempts())
+        || !Objects.equals(row[IDX_HOT_PICKED_BY], job.getPickedBy())
         || !Objects.equals(
-            row[5] != null ? JobStatus.valueOf((String) row[5]) : null, job.getPausedFromStatus())
-        || !Objects.equals(row[6], job.getLastError())
-        || !Objects.equals(((Number) row[7]).intValue(), job.getVersion())) {
+            PostgresqlJobRowMapper.toInstant(row[IDX_HOT_PICKED_AT]), job.getPickedAt())
+        || !Objects.equals(
+            row[IDX_HOT_PAUSED_FROM_STATUS] != null
+                ? JobStatus.valueOf((String) row[IDX_HOT_PAUSED_FROM_STATUS])
+                : null,
+            job.getPausedFromStatus())
+        || !Objects.equals(row[IDX_HOT_LAST_ERROR], job.getLastError())
+        || !Objects.equals(((Number) row[IDX_HOT_VERSION]).intValue(), job.getVersion())) {
       return false;
     }
     // language=PostgreSQL
@@ -551,9 +545,8 @@ final class PostgresqlJobWriteOperations {
     return rows.isEmpty() ? null : rows.get(0);
   }
 
-  private void guardAgainstHotMutation(JobEntity incoming) {
+  private void guardAgainstHotMutation(JobEntity incoming, Object[] row) {
     UUID id = incoming.getId();
-    Object[] row = snapshotHotRow(id);
     if (row == null) {
       throw new IllegalStateException("save() called on missing job id=" + id);
     }
@@ -622,9 +615,8 @@ final class PostgresqlJobWriteOperations {
     }
   }
 
-  private boolean tryHotMutationDispatch(JobEntity incoming) {
+  private boolean tryHotMutationDispatch(JobEntity incoming, Object[] row) {
     UUID id = incoming.getId();
-    Object[] row = snapshotHotRow(id);
     if (row == null) {
       return false;
     }

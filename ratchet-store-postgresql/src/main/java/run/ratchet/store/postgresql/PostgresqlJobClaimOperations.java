@@ -27,11 +27,11 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
   private static final String CLAIM_SELECT_COLUMNS = ClaimColumn.selectClause();
 
   private final PostgresqlStoreContext ctx;
-  private final PostgresqlJobCrudOperations jobs;
+  private final PostgresqlJobReadOperations reads;
 
-  PostgresqlJobClaimOperations(PostgresqlStoreContext ctx, PostgresqlJobCrudOperations jobs) {
+  PostgresqlJobClaimOperations(PostgresqlStoreContext ctx, PostgresqlJobReadOperations reads) {
     this.ctx = ctx;
-    this.jobs = jobs;
+    this.reads = reads;
   }
 
   static String buildBoostOrderBy(String timeColumn, int boostInterval) {
@@ -77,6 +77,42 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
             buildBoostOrderBy(timeColumn, boostInterval));
   }
 
+  // language=PostgreSQL
+  private static String buildHydratedQueueSelectSql(
+      String selectColumns,
+      String typeFilter,
+      String tagFilterSql,
+      String timeColumn,
+      int boostInterval) {
+    return """
+        SELECT %s
+        FROM scheduler_job c
+        JOIN scheduler_job_queue q ON q.job_id = c.job_id
+        WHERE q.status = 'PENDING'
+          AND %s <= statement_timestamp()
+          AND %s%s
+        ORDER BY %s
+        LIMIT ?
+        FOR UPDATE SKIP LOCKED
+        """
+        .formatted(
+            selectColumns,
+            timeColumn,
+            typeFilter,
+            tagFilterSql,
+            buildHydratedBoostOrderBy(timeColumn, boostInterval));
+  }
+
+  private static String buildHydratedBoostOrderBy(String timeColumn, int boostInterval) {
+    return boostInterval > 0
+        ? "(q.priority + FLOOR(GREATEST(0, EXTRACT(EPOCH FROM (statement_timestamp() - "
+            + timeColumn
+            + "))) / (60.0 * ?))) DESC, "
+            + timeColumn
+            + " ASC, q.job_id ASC"
+        : "q.priority DESC, " + timeColumn + " ASC, q.job_id ASC";
+  }
+
   @Override
   public List<JobEntity> claimNextBatch(int limit, String nodeId, NodeTagFilter tagFilter) {
     if (limit <= 0) {
@@ -84,15 +120,15 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
     }
     try {
       int boostInterval = ctx.priorityBoostIntervalMinutes();
-      String tagSql = JobClaimSqlSupport.buildTagFilterSql(tagFilter, "scheduler_job_queue");
+      String tagSql = JobClaimSqlSupport.buildTagFilterSql(tagFilter, "q");
       Query selectQuery =
           ctx.em()
               .createNativeQuery(
-                  buildQueueSelectSql(
-                      "job_id",
-                      EXECUTABLE_JOB_TYPE_FILTER,
+                  buildHydratedQueueSelectSql(
+                      PostgresqlJobRowMapper.hydrationSelect(),
+                      "q.job_type IN ('SINGLE','BATCH_CHILD','CHAIN_STEP','WORKFLOW_BRANCH')",
                       tagSql,
-                      "scheduled_time",
+                      "q.scheduled_time",
                       boostInterval));
       int parameter = 1;
       parameter = JobClaimSqlSupport.bindTagFilter(selectQuery, tagFilter, parameter);
@@ -101,16 +137,23 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
       }
       selectQuery.setParameter(parameter, limit);
       @SuppressWarnings("unchecked")
-      List<?> idRows = selectQuery.getResultList();
-      if (idRows.isEmpty()) {
+      List<Object[]> rows = selectQuery.getResultList();
+      if (rows.isEmpty()) {
         return List.of();
       }
-      List<UUID> ids = new ArrayList<>(idRows.size());
-      for (Object idRow : idRows) {
-        ids.add(PostgresqlJobRowMapper.uuidOrNull(idRow));
+      List<JobEntity> ordered = reads.hydrateRowsWithTags(rows);
+      List<UUID> ids = new ArrayList<>(ordered.size());
+      for (JobEntity job : ordered) {
+        ids.add(job.getId());
       }
-      markPendingClaimsRunning(ids, nodeId, Instant.now());
-      return JobClaimSqlSupport.reorderById(jobs.findByIds(ids), ids, JobEntity::getId);
+      Instant now = Instant.now();
+      markPendingClaimsRunning(ids, nodeId, now);
+      for (JobEntity job : ordered) {
+        job.setStatus(JobStatus.RUNNING);
+        job.setPickedBy(nodeId);
+        job.setPickedAt(now);
+      }
+      return ordered;
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("claim jobs", e);
     }
@@ -291,19 +334,24 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
     }
     try {
       int boostInterval = ctx.priorityBoostIntervalMinutes();
-      String tagSql = JobClaimSqlSupport.buildTagFilterSql(tagFilter, "scheduler_job");
+      String tagSql = JobClaimSqlSupport.buildTagFilterSql(tagFilter, "c");
       // language=PostgreSQL
       String sql =
           """
-          SELECT job_id FROM scheduler_job
-          WHERE job_type = 'RECURRING'
-            AND rec_status = 'P'
-            AND next_fire <= statement_timestamp()%s
+          SELECT %s
+          FROM scheduler_job c
+          LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
+          WHERE c.job_type = 'RECURRING'
+            AND c.rec_status = 'P'
+            AND c.next_fire <= statement_timestamp()%s
           ORDER BY %s
           LIMIT ?
-          FOR UPDATE SKIP LOCKED
+          FOR UPDATE OF c SKIP LOCKED
           """
-              .formatted(tagSql, buildBoostOrderBy("next_fire", boostInterval));
+              .formatted(
+                  PostgresqlJobRowMapper.hydrationSelect(),
+                  tagSql,
+                  buildRecurringBoostOrderBy(boostInterval));
       Query selectQuery = ctx.em().createNativeQuery(sql);
       int parameter = 1;
       parameter = JobClaimSqlSupport.bindTagFilter(selectQuery, tagFilter, parameter);
@@ -311,16 +359,11 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
         selectQuery.setParameter(parameter++, boostInterval);
       }
       selectQuery.setParameter(parameter, limit);
-      List<?> idRows = selectQuery.getResultList();
-      if (idRows.isEmpty()) {
+      List<Object[]> rows = selectQuery.getResultList();
+      if (rows.isEmpty()) {
         return List.of();
       }
-      List<UUID> ids = new ArrayList<>(idRows.size());
-      for (Object n : idRows) {
-        ids.add(PostgresqlJobRowMapper.uuidOrNull(n));
-      }
-      List<JobEntity> ordered =
-          JobClaimSqlSupport.reorderById(jobs.findByIds(ids), ids, JobEntity::getId);
+      List<JobEntity> ordered = reads.hydrateRowsWithTags(rows);
       Instant now = Instant.now();
       for (JobEntity job : ordered) {
         job.setStatus(JobStatus.RUNNING);
@@ -331,5 +374,12 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("claim recurring jobs", e);
     }
+  }
+
+  private static String buildRecurringBoostOrderBy(int boostInterval) {
+    return boostInterval > 0
+        ? "(c.priority + FLOOR(GREATEST(0, EXTRACT(EPOCH FROM (statement_timestamp() - "
+            + "c.next_fire))) / (60.0 * ?))) DESC, c.next_fire ASC, c.job_id ASC"
+        : "c.priority DESC, c.next_fire ASC, c.job_id ASC";
   }
 }

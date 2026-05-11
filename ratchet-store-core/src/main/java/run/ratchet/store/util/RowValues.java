@@ -6,6 +6,8 @@ import run.ratchet.api.JobPriority;
 /** Shared scalar conversions for native-query row mappers. */
 public final class RowValues {
 
+  private static final JobPriority[] JOB_PRIORITY_VALUES = JobPriority.values();
+
   private RowValues() {}
 
   public static String stringOrNull(Object value) {
@@ -17,11 +19,10 @@ public final class RowValues {
   }
 
   public static JobPriority safeJobPriority(int ordinal) {
-    JobPriority[] values = JobPriority.values();
-    if (ordinal < 0 || ordinal >= values.length) {
+    if (ordinal < 0 || ordinal >= JOB_PRIORITY_VALUES.length) {
       return JobPriority.NORMAL;
     }
-    return values[ordinal];
+    return JOB_PRIORITY_VALUES[ordinal];
   }
 
   public static UUID uuidOrNull(Object value) {

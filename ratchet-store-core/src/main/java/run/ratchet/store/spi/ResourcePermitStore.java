@@ -11,6 +11,10 @@ public interface ResourcePermitStore {
   /**
    * Attempts to acquire capacity for a configured resource.
    *
+   * <p>SQL stores that implement this with row locks require the caller's store operation to run in
+   * one active transaction so the capacity check and permit insert observe the same locked resource
+   * row.
+   *
    * @return {@code true} when a permit was acquired, {@code false} when the resource exists but is
    *     already at capacity
    * @throws IllegalArgumentException when {@code resource} has not been configured
