@@ -28,6 +28,7 @@ import run.ratchet.api.StreamingBatchBuilder;
 import run.ratchet.api.event.JobCancelledEvent;
 import run.ratchet.api.event.JobSignaledEvent;
 import run.ratchet.api.event.JobsBulkCancelledEvent;
+import run.ratchet.api.event.JobsBulkSignaledEvent;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.spi.JobAuthorizationPolicy;
@@ -770,7 +771,8 @@ public class DefaultJobSchedulerService
             now,
             deliveryId);
     if (unblocked > 0) {
-      publishBulkSignaledEvents(deliveryId, principal, SignalDecision.Outcome.APPROVED, null);
+      publishBulkSignaledEvent(
+          signalKey, unblocked, principal, SignalDecision.Outcome.APPROVED, null);
       log.debugf("Signal '%s' broadcast to %s job(s) by %s", signalKey, unblocked, principal);
     }
     return unblocked;
@@ -800,18 +802,25 @@ public class DefaultJobSchedulerService
             now,
             deliveryId);
     if (unblocked > 0) {
-      publishBulkSignaledEvents(
-          deliveryId, principal, decision.outcome(), decision.rejectionReason());
+      publishBulkSignaledEvent(
+          signalKey, unblocked, principal, decision.outcome(), decision.rejectionReason());
       log.debugf(
           "Signal decision '%s' broadcast to %s job(s) by %s", signalKey, unblocked, principal);
     }
     return unblocked;
   }
 
-  private void publishBulkSignaledEvents(
-      String deliveryId, String principal, SignalDecision.Outcome outcome, String rejectionReason) {
-    for (JobEntity job : signalStore.findJobsBySignalDeliveryId(deliveryId)) {
-      publishSignaledEvent(job.getId(), job, principal, outcome, rejectionReason);
+  private void publishBulkSignaledEvent(
+      String signalKey,
+      int count,
+      String principal,
+      SignalDecision.Outcome outcome,
+      String rejectionReason) {
+    JobsBulkSignaledEvent event =
+        new JobsBulkSignaledEvent(
+            signalKey, count, principal, outcome, rejectionReason, effective().instant());
+    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+      eventPublisher.publish(event);
     }
   }
 

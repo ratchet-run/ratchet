@@ -164,7 +164,7 @@ public interface JobSchedulerService {
    * {@code @ObservesAsync} when the observer does not need to participate in the source
    * transaction.
    *
-   * <p>Event types delivered (all extend {@link run.ratchet.api.event.AbstractJobSchedulerEvent}):
+   * <p>Event types delivered:
    *
    * <ul>
    *   <li><b>Job lifecycle:</b> {@code JobStartedEvent}, {@code JobCompletedEvent}, {@code
@@ -174,7 +174,7 @@ public interface JobSchedulerService {
    *   <li><b>Chain/Workflow:</b> {@code ChainStartedEvent}, {@code ChainCompletedEvent}, {@code
    *       ChainFailedEvent}, {@code WorkflowBranchTriggeredEvent}
    *   <li><b>Signals:</b> {@code JobSignalWaitingEvent}, {@code JobSignaledEvent}, {@code
-   *       JobSignalTimedOutEvent}
+   *       JobsBulkSignaledEvent}, {@code JobSignalTimedOutEvent}
    *   <li><b>Observability:</b> {@code JobDlqEvent}, {@code PerformanceMetricsEvent}
    * </ul>
    *

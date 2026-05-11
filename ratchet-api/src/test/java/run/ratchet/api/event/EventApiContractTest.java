@@ -70,6 +70,24 @@ class EventApiContractTest {
   }
 
   @Test
+  void bulkSignalEventNormalizesOutcomeAndRejectionReason() {
+    assertThrows(
+        NullPointerException.class,
+        () -> new JobsBulkSignaledEvent("signal-key", 2, "operator", null, null, TIMESTAMP));
+
+    JobsBulkSignaledEvent event =
+        new JobsBulkSignaledEvent(
+            "signal-key", 2, "operator", SignalDecision.Outcome.REJECTED, " no ", TIMESTAMP);
+
+    assertEquals("signal-key", event.getSignalKey());
+    assertEquals(2, event.getCount());
+    assertEquals("operator", event.getSignalDeliveredBy());
+    assertEquals(SignalDecision.Outcome.REJECTED, event.getOutcome());
+    assertEquals("no", event.getRejectionReason());
+    assertEquals(TIMESTAMP, event.getSignaledAt());
+  }
+
+  @Test
   void performanceMetricsDefensivelyCopiesInputMap() {
     Map<String, Object> data = new HashMap<>();
     data.put("queued", 1);
