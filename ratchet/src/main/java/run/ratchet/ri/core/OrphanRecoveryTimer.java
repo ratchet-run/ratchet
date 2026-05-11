@@ -73,7 +73,10 @@ public class OrphanRecoveryTimer {
     this.orphanGraceSeconds = orphanGraceSeconds;
   }
 
-  public void start(ScheduledExecutorService executor, long intervalMinutes) {
+  public synchronized void start(ScheduledExecutorService executor, long intervalMinutes) {
+    if (handle != null) {
+      handle.cancel(false);
+    }
     leaseTtl = Duration.ofMinutes(Math.max(2, intervalMinutes));
     handle =
         executor.scheduleAtFixedRate(
@@ -83,10 +86,11 @@ public class OrphanRecoveryTimer {
         intervalMinutes, orphanGraceSeconds);
   }
 
-  public void stop() {
-    if (handle != null) {
-      handle.cancel(false);
-      handle = null;
+  public synchronized void stop() {
+    ScheduledFuture<?> current = handle;
+    handle = null;
+    if (current != null) {
+      current.cancel(false);
     }
   }
 
