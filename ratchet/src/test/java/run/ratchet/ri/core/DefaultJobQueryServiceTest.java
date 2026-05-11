@@ -389,12 +389,15 @@ class DefaultJobQueryServiceTest {
   @Test
   void getQueueHealth_aggregatesAllCountMethods() {
     Instant oldestPending = Instant.parse("2026-05-07T10:15:30Z");
-    when(crudStore.countJobsByStatus(JobStatus.PENDING)).thenReturn(5L);
-    when(crudStore.countJobsByStatus(JobStatus.RUNNING)).thenReturn(4L);
-    when(crudStore.countJobsByStatus(JobStatus.FAILED)).thenReturn(3L);
-    when(crudStore.countJobsByStatus(JobStatus.SUCCEEDED)).thenReturn(2L);
-    when(crudStore.countJobsByStatus(JobStatus.CANCELED)).thenReturn(1L);
-    when(crudStore.countJobsByStatus(JobStatus.PAUSED)).thenReturn(6L);
+    when(crudStore.countJobsByStatuses())
+        .thenReturn(
+            Map.of(
+                JobStatus.PENDING, 5L,
+                JobStatus.RUNNING, 4L,
+                JobStatus.FAILED, 3L,
+                JobStatus.SUCCEEDED, 2L,
+                JobStatus.CANCELED, 1L,
+                JobStatus.PAUSED, 6L));
     when(crudStore.countStuckJobs(any())).thenReturn(1L);
     when(crudStore.countReadyJobs(any())).thenReturn(3L);
     when(crudStore.getRetryRateStats(any())).thenReturn(0.1);
@@ -423,6 +426,8 @@ class DefaultJobQueryServiceTest {
     assertEquals(Map.of(JobType.SINGLE, 2L, JobType.BATCH, 3L), snapshot.pendingByType());
     assertEquals(
         Map.of(JobPriority.HIGH, 7L, JobPriority.CRITICAL, 8L), snapshot.pendingByPriority());
+    verify(crudStore).countJobsByStatuses();
+    verify(crudStore, never()).countJobsByStatus(any());
     verify(crudStore, never()).countPendingJobsByType(any());
     verify(crudStore, never()).countPendingJobsByPriority(any());
   }

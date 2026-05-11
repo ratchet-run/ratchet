@@ -76,6 +76,18 @@ public interface JobCrudStore {
 
   long countJobsByStatus(JobStatus status);
 
+  /** Counts jobs grouped by status. */
+  default Map<JobStatus, Long> countJobsByStatuses() {
+    Map<JobStatus, Long> counts = new EnumMap<>(JobStatus.class);
+    for (JobStatus status : JobStatus.values()) {
+      long count = countJobsByStatus(status);
+      if (count > 0) {
+        counts.put(status, count);
+      }
+    }
+    return counts;
+  }
+
   /** Counts active jobs of the supplied type. */
   long countActiveJobs(JobExecutionType jobType);
 

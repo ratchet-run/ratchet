@@ -150,6 +150,12 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
 
   @Override
   @Transactional(Transactional.TxType.SUPPORTS)
+  public Map<JobStatus, Long> countJobsByStatuses() {
+    return jobs.countJobsByStatuses();
+  }
+
+  @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
   public long countActiveJobs(JobExecutionType jobType) {
     return jobs.countActiveJobs(jobType);
   }

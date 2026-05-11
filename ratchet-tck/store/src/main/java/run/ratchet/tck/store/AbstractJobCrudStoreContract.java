@@ -244,6 +244,24 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
   }
 
   @Test
+  void countJobsByStatuses_returnsGroupedStatusCounts() {
+    persist(newPendingJob());
+
+    var running = persist(newPendingJob());
+    store().compareAndSwapStatus(running.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+
+    var succeeded = persist(newPendingJob());
+    store().compareAndSwapStatus(succeeded.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+    store().markJobSucceeded(succeeded.getId(), null, null, Instant.now(), Instant.now(), 0L, 0L);
+
+    Map<JobStatus, Long> counts = store().countJobsByStatuses();
+
+    assertEquals(1L, counts.get(JobStatus.PENDING));
+    assertEquals(1L, counts.get(JobStatus.RUNNING));
+    assertEquals(1L, counts.get(JobStatus.SUCCEEDED));
+  }
+
+  @Test
   void countPendingJobsByPriorities_returnsGroupedPendingCounts() {
     JobEntity high = newPendingJob();
     high.setPriority(JobPriority.HIGH);

@@ -144,6 +144,11 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   }
 
   @Override
+  public Map<JobStatus, Long> countJobsByStatuses() {
+    return jobs.countJobsByStatuses();
+  }
+
+  @Override
   public long countActiveJobs(JobExecutionType jobType) {
     return jobs.countActiveJobs(jobType);
   }

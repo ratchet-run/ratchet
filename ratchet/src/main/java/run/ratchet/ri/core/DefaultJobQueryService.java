@@ -190,14 +190,15 @@ public class DefaultJobQueryService implements JobQueryService {
 
     Map<JobPriority, Long> pendingByPriority = new EnumMap<>(JobPriority.class);
     pendingByPriority.putAll(crudStore.countPendingJobsByPriorities());
+    Map<JobStatus, Long> countsByStatus = crudStore.countJobsByStatuses();
 
     return new QueueHealthSnapshot(
-        crudStore.countJobsByStatus(JobStatus.PENDING),
-        crudStore.countJobsByStatus(JobStatus.RUNNING),
-        crudStore.countJobsByStatus(JobStatus.FAILED),
-        crudStore.countJobsByStatus(JobStatus.SUCCEEDED),
-        crudStore.countJobsByStatus(JobStatus.CANCELED),
-        crudStore.countJobsByStatus(JobStatus.PAUSED),
+        countsByStatus.getOrDefault(JobStatus.PENDING, 0L),
+        countsByStatus.getOrDefault(JobStatus.RUNNING, 0L),
+        countsByStatus.getOrDefault(JobStatus.FAILED, 0L),
+        countsByStatus.getOrDefault(JobStatus.SUCCEEDED, 0L),
+        countsByStatus.getOrDefault(JobStatus.CANCELED, 0L),
+        countsByStatus.getOrDefault(JobStatus.PAUSED, 0L),
         crudStore.countStuckJobs(stuckThreshold),
         crudStore.countReadyJobs(now),
         crudStore.getRetryRateStats(since),

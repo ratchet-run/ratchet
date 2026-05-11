@@ -226,6 +226,21 @@ final class MongoJobCrudOperations {
     return ctx.jobs().countDocuments(eq(STATUS, status.name()));
   }
 
+  Map<JobStatus, Long> countJobsByStatuses() {
+    List<Document> pipeline =
+        List.of(
+            new Document(
+                "$group", new Document(ID, "$" + STATUS).append("count", new Document("$sum", 1))));
+    Map<JobStatus, Long> counts = new EnumMap<>(JobStatus.class);
+    for (Document doc : ctx.jobs().aggregate(pipeline)) {
+      Object rawStatus = doc.get(ID);
+      if (rawStatus instanceof String status) {
+        counts.put(JobStatus.valueOf(status), numberField(doc, "count").longValue());
+      }
+    }
+    return counts;
+  }
+
   long countActiveJobs(JobExecutionType jobType) {
     return ctx.jobs()
         .countDocuments(

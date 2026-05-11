@@ -33,6 +33,26 @@ final class PostgresqlJobCountOperations {
     return ctx.countByNative(sql, status.name());
   }
 
+  @SuppressWarnings("unchecked")
+  Map<JobStatus, Long> countJobsByStatuses() {
+    // language=PostgreSQL
+    String sql =
+        """
+        SELECT status, COUNT(*) FROM scheduler_job_queue
+        GROUP BY status
+        UNION ALL
+        SELECT terminal_status, COUNT(*) FROM scheduler_job
+        WHERE terminal_status IS NOT NULL
+        GROUP BY terminal_status
+        """;
+    List<Object[]> rows = ctx.em().createNativeQuery(sql).getResultList();
+    Map<JobStatus, Long> counts = new EnumMap<>(JobStatus.class);
+    for (Object[] row : rows) {
+      counts.merge(JobStatus.valueOf((String) row[0]), ((Number) row[1]).longValue(), Long::sum);
+    }
+    return counts;
+  }
+
   long countActiveJobs(JobExecutionType jobType) {
     // language=PostgreSQL
     String sql =

@@ -144,6 +144,11 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
+  public Map<JobStatus, Long> countJobsByStatuses() {
+    return crud.countJobsByStatuses();
+  }
+
+  @Override
   public long countActiveJobs(JobExecutionType jobType) {
     return crud.countActiveJobs(jobType);
   }

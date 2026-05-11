@@ -98,6 +98,11 @@ final class PostgresqlJobCrudOperations implements JobCrudStore, JobBulkStore {
   }
 
   @Override
+  public Map<JobStatus, Long> countJobsByStatuses() {
+    return counts.countJobsByStatuses();
+  }
+
+  @Override
   public long countActiveJobs(JobExecutionType jobType) {
     return counts.countActiveJobs(jobType);
   }
