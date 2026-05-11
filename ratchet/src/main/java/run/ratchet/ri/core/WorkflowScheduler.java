@@ -24,6 +24,10 @@ import run.ratchet.store.spi.WorkflowConditionStore;
 /**
  * Extends {@link ChainScheduler} with conditional branching. Falls back to linear chaining when no
  * workflow conditions are defined.
+ *
+ * <p>Internal RI service. Public methods inherit the class-level Jakarta Transactions {@code
+ * REQUIRED} behavior so workflow branch mutations commit or roll back with the caller's scheduler
+ * operation.
  */
 @ApplicationScoped
 @Transactional
@@ -58,6 +62,12 @@ public class WorkflowScheduler extends ChainScheduler {
     this.conditionEvaluator = conditionEvaluator;
   }
 
+  /**
+   * {@inheritDoc}
+   *
+   * <p><b>Transaction attribute:</b> {@code REQUIRED}, inherited from the class-level {@link
+   * Transactional}.
+   */
   @Override
   public void cancelChain(JobEntity parentJob) {
     super.cancelChain(parentJob);
@@ -91,6 +101,12 @@ public class WorkflowScheduler extends ChainScheduler {
     }
   }
 
+  /**
+   * {@inheritDoc}
+   *
+   * <p><b>Transaction attribute:</b> {@code REQUIRED}, inherited from the class-level {@link
+   * Transactional}.
+   */
   @Override
   public boolean scheduleNext(JobEntity parentJob) {
     List<WorkflowConditionEntity> conditions =

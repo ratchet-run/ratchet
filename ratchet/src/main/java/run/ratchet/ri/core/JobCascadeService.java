@@ -15,7 +15,13 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobPauseStore;
 
-/** Cascades pause/resume through job dependency trees via BFS. */
+/**
+ * Cascades pause/resume through job dependency trees via BFS.
+ *
+ * <p>Internal RI service. Public methods inherit the class-level Jakarta Transactions {@code
+ * REQUIRED} behavior so cascade mutations commit or roll back with the caller's scheduler
+ * operation.
+ */
 @ApplicationScoped
 @Transactional
 public class JobCascadeService {
@@ -38,6 +44,9 @@ public class JobCascadeService {
 
   /**
    * Iteratively pauses all PENDING children of the given root job using BFS.
+   *
+   * <p><b>Transaction attribute:</b> {@code REQUIRED}, inherited from the class-level {@link
+   * Transactional}.
    *
    * @return an array of two ints: [pausedCount, skippedCount]
    */
@@ -86,6 +95,9 @@ public class JobCascadeService {
 
   /**
    * Iteratively resumes all PAUSED children of the given root job using BFS.
+   *
+   * <p><b>Transaction attribute:</b> {@code REQUIRED}, inherited from the class-level {@link
+   * Transactional}.
    *
    * @return an array of two ints: [resumedCount, skippedCount]
    */

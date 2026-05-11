@@ -26,6 +26,9 @@ import run.ratchet.store.spi.JobBulkStore;
  * Moves completed jobs older than the retention period to archive storage, then purges archived
  * jobs older than 3x the retention period. Runs on a cron schedule with a singleton lease to
  * prevent duplicate runs across nodes.
+ *
+ * <p>Internal RI service. Public CDI business methods inherit the class-level Jakarta Transactions
+ * {@code REQUIRED} behavior unless a method declares a narrower transaction attribute.
  */
 @ApplicationScoped
 @Transactional
@@ -70,10 +73,22 @@ public class JobArchivingService {
     this.executorProvider = executorProvider;
   }
 
+  /**
+   * Stops future scheduling for this service.
+   *
+   * <p><b>Transaction attribute:</b> {@code REQUIRED}, inherited from the class-level {@link
+   * Transactional}.
+   */
   public void stop() {
     stopped = true;
   }
 
+  /**
+   * Initializes archive retention settings and schedules the first archive pass when enabled.
+   *
+   * <p><b>Transaction attribute:</b> {@code REQUIRED}, inherited from the class-level {@link
+   * Transactional}.
+   */
   public void init(boolean enabled, long retentionDays, int batchSize, Cron cronExpression) {
     this.enabled = enabled;
 
@@ -93,6 +108,11 @@ public class JobArchivingService {
         "Job archiving service initialized: retention=%s days, batch=%d", retentionDays, batchSize);
   }
 
+  /**
+   * Submits an archive pass to the job executor without joining the caller's transaction.
+   *
+   * <p><b>Transaction attribute:</b> {@code NOT_SUPPORTED}.
+   */
   @Transactional(TxType.NOT_SUPPORTED)
   public Future<?> triggerArchiving() {
     if (!enabled) {
@@ -104,6 +124,12 @@ public class JobArchivingService {
     return executorProvider.getJobExecutor().submit(this::performArchivingWithLease);
   }
 
+  /**
+   * Scheduled archive tick invoked by this service's scheduler callback.
+   *
+   * <p>Package-private internal entry point. It runs on the scheduled executor callback path rather
+   * than through a public CDI proxy, so it does not define a public transaction contract.
+   */
   void run() {
     if (!enabled) {
       log.debug("Job archiving is disabled, skipping run");
