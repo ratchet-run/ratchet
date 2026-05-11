@@ -19,10 +19,13 @@ import java.time.zone.ZoneRulesException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobOptions;
@@ -64,6 +67,7 @@ public class RecurringJobProcessor {
   private final StartupCoordinator startupCoordinator;
   private final RecurringRegistrationState registrationState;
   private final RatchetOptions options;
+  private final Set<Class<?>> discoveredRecurringBeanClasses;
 
   protected RecurringJobProcessor() {
     this.schedulerService = null;
@@ -74,6 +78,7 @@ public class RecurringJobProcessor {
     this.startupCoordinator = null;
     this.registrationState = null;
     this.options = null;
+    this.discoveredRecurringBeanClasses = Set.of();
   }
 
   @Inject
@@ -86,6 +91,28 @@ public class RecurringJobProcessor {
       StartupCoordinator startupCoordinator,
       RecurringRegistrationState registrationState,
       RatchetOptions options) {
+    this(
+        schedulerService,
+        jobBatchStatusStore,
+        recurringAnnotationMaintenanceService,
+        beanManager,
+        methodInvoker,
+        startupCoordinator,
+        registrationState,
+        options,
+        RecurringMethodDiscoveryExtension.recurringBeanClasses());
+  }
+
+  RecurringJobProcessor(
+      JobSchedulerService schedulerService,
+      JobBatchStatusStore jobBatchStatusStore,
+      RecurringAnnotationMaintenanceService recurringAnnotationMaintenanceService,
+      BeanManager beanManager,
+      RecurringMethodInvoker methodInvoker,
+      StartupCoordinator startupCoordinator,
+      RecurringRegistrationState registrationState,
+      RatchetOptions options,
+      Set<Class<?>> discoveredRecurringBeanClasses) {
     this.schedulerService = schedulerService;
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.recurringAnnotationMaintenanceService = recurringAnnotationMaintenanceService;
@@ -94,6 +121,7 @@ public class RecurringJobProcessor {
     this.startupCoordinator = startupCoordinator;
     this.registrationState = registrationState;
     this.options = options;
+    this.discoveredRecurringBeanClasses = Set.copyOf(discoveredRecurringBeanClasses);
   }
 
   public RecurringJobProcessor(
@@ -124,8 +152,22 @@ public class RecurringJobProcessor {
     Instant startTime = Instant.now();
     log.info("Starting registration of @Recurring annotated jobs");
 
-    for (Bean<?> bean : beanManager.getBeans(Object.class, Any.Literal.INSTANCE)) {
-      processBean(bean);
+    List<RecurringMethodRegistration> registrations = discoverRecurringMethods();
+    Set<String> jobIds =
+        registrations.stream()
+            .map(RecurringMethodRegistration::jobId)
+            .collect(Collectors.toCollection(LinkedHashSet::new));
+    cancelExistingJobs(jobIds);
+    for (RecurringMethodRegistration registration : registrations) {
+      try {
+        registerJob(registration);
+      } catch (Exception e) {
+        log.errorf(
+            e,
+            "@Recurring registration error: %s.%s",
+            registration.beanClass().getName(),
+            registration.methodName());
+      }
     }
 
     log.infof("Completed registration of %s recurring jobs", registeredJobIds.size());
@@ -182,17 +224,39 @@ public class RecurringJobProcessor {
     }
   }
 
-  private void cancelExistingJobs(String jobId) {
+  private void cancelExistingJobs(Set<String> jobIds) {
+    if (jobIds.isEmpty()) {
+      return;
+    }
     // Calls the store SPI directly: cancellation is a pure persistence-layer state flip with no
     // events, observers, or scheduling-side orchestration. Routing through JobSchedulerService
     // would just re-enter the same SPI method one stack frame deeper.
-    int canceled = jobBatchStatusStore.cancelRecurringJobByBusinessKey(jobId);
+    int canceled = jobBatchStatusStore.cancelRecurringJobsByBusinessKeys(jobIds);
     if (canceled > 0) {
-      log.infof("Canceled %s existing recurring job(s) with ID: %s", canceled, jobId);
+      log.infof("Canceled %s existing recurring job(s) with IDs: %s", canceled, jobIds);
     }
   }
 
-  private void processBean(Bean<?> bean) {
+  private List<Bean<?>> recurringBeans() {
+    if (discoveredRecurringBeanClasses.isEmpty()) {
+      return new ArrayList<>(beanManager.getBeans(Object.class, Any.Literal.INSTANCE));
+    }
+    Set<Bean<?>> beans = new LinkedHashSet<>();
+    for (Class<?> beanClass : discoveredRecurringBeanClasses) {
+      beans.addAll(beanManager.getBeans(beanClass, Any.Literal.INSTANCE));
+    }
+    return new ArrayList<>(beans);
+  }
+
+  private List<RecurringMethodRegistration> discoverRecurringMethods() {
+    List<RecurringMethodRegistration> registrations = new ArrayList<>();
+    for (Bean<?> bean : recurringBeans()) {
+      processBean(bean, registrations);
+    }
+    return registrations;
+  }
+
+  private void processBean(Bean<?> bean, List<RecurringMethodRegistration> registrations) {
     Class<?> beanClass = bean.getBeanClass();
     // Walk the class hierarchy so @Recurring methods declared on a superclass are picked up.
     // getDeclaredMethods() alone misses inherited methods. Filter synthetic/bridge methods
@@ -221,62 +285,68 @@ public class RecurringJobProcessor {
           log.errorf(e, "Invalid @Recurring method: %s.%s", beanClass.getName(), methodName);
           continue;
         }
-        processRecurringMethod(beanClass, methodName, hasJobContextParam, annotation);
+        prepareRecurringMethod(beanClass, methodName, hasJobContextParam, annotation)
+            .ifPresent(registrations::add);
       }
       current = current.getSuperclass();
     }
   }
 
-  private void processRecurringMethod(
+  private Optional<RecurringMethodRegistration> prepareRecurringMethod(
       Class<?> beanClass, String methodName, boolean hasJobContextParam, Recurring annotation) {
     try {
       if (!RecurringAnnotationParser.isEnabled(annotation)) {
         log.infof("Skipping disabled recurring job: %s.%s", beanClass.getName(), methodName);
-        return;
+        return Optional.empty();
       }
 
       methodInvoker.validateBeanResolvable(beanClass);
 
-      registerJob(beanClass, methodName, hasJobContextParam, annotation);
+      String jobId =
+          RecurringAnnotationParser.generateJobId(annotation, beanClass.getName(), methodName);
+
+      try {
+        CRON_PARSER.parse(annotation.cron()).validate();
+      } catch (IllegalArgumentException e) {
+        log.errorf(
+            "Invalid cron expression '%s' for @Recurring method %s.%s: %s",
+            annotation.cron(), beanClass.getName(), methodName, e.getMessage());
+        return Optional.empty();
+      }
+
+      ZoneId zone;
+      try {
+        zone = ZoneId.of(annotation.zone());
+      } catch (ZoneRulesException | IllegalArgumentException e) {
+        log.errorf(
+            "Invalid timezone '%s' for @Recurring method %s.%s: %s",
+            annotation.zone(), beanClass.getName(), methodName, e.getMessage());
+        return Optional.empty();
+      }
+
+      RecurringAnnotationParser.mapPriority(annotation.priority());
+
+      return Optional.of(
+          new RecurringMethodRegistration(
+              beanClass, methodName, hasJobContextParam, annotation, jobId, zone));
     } catch (Exception e) {
       log.errorf(e, "@Recurring registration error: %s.%s", beanClass.getName(), methodName);
+      return Optional.empty();
     }
   }
 
-  private void registerJob(
-      Class<?> beanClass, String methodName, boolean hasJobContextParam, Recurring annotation) {
-    String jobId =
-        RecurringAnnotationParser.generateJobId(annotation, beanClass.getName(), methodName);
-
-    // Validate cron expression at registration time
-    try {
-      CRON_PARSER.parse(annotation.cron()).validate();
-    } catch (IllegalArgumentException e) {
-      log.errorf(
-          "Invalid cron expression '%s' for @Recurring method %s.%s: %s",
-          annotation.cron(), beanClass.getName(), methodName, e.getMessage());
-      return;
-    }
-
-    // Validate timezone at registration time
-    ZoneId zone;
-    try {
-      zone = ZoneId.of(annotation.zone());
-    } catch (ZoneRulesException | IllegalArgumentException e) {
-      log.errorf(
-          "Invalid timezone '%s' for @Recurring method %s.%s: %s",
-          annotation.zone(), beanClass.getName(), methodName, e.getMessage());
-      return;
-    }
-
-    cancelExistingJobs(jobId);
-
+  private void registerJob(RecurringMethodRegistration registration) {
+    Class<?> beanClass = registration.beanClass();
+    String methodName = registration.methodName();
+    boolean hasJobContextParam = registration.hasJobContextParam();
+    Recurring annotation = registration.annotation();
+    String jobId = registration.jobId();
     String className = beanClass.getName();
 
     RecurringJobBuilder builder =
         schedulerService.scheduleRecurring(
             annotation.cron(),
-            zone,
+            registration.zone(),
             () -> methodInvoker.invoke(className, methodName, hasJobContextParam));
 
     JobOptions options =
@@ -301,4 +371,12 @@ public class RecurringJobProcessor {
 
     log.infof("Registered recurring job: %s with cron: %s", jobId, annotation.cron());
   }
+
+  private record RecurringMethodRegistration(
+      Class<?> beanClass,
+      String methodName,
+      boolean hasJobContextParam,
+      Recurring annotation,
+      String jobId,
+      ZoneId zone) {}
 }

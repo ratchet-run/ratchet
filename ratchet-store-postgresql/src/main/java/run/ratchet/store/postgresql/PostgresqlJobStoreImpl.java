@@ -391,6 +391,11 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   @Override
+  public int cancelRecurringJobsByBusinessKeys(Set<String> businessKeys) {
+    return lifecycle.cancelRecurringJobsByBusinessKeys(businessKeys);
+  }
+
+  @Override
   public int cancelOrphanedRecurringAnnotationJobs(
       Set<String> registeredIds, Instant nodeStartTime) {
     return lifecycle.cancelOrphanedRecurringAnnotationJobs(registeredIds, nodeStartTime);

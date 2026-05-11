@@ -166,6 +166,30 @@ final class MysqlJobRecurringAndResetOperations {
     return cancelRecurringByIds(ids);
   }
 
+  int cancelRecurringJobsByBusinessKeys(Set<String> businessKeys) {
+    if (businessKeys.isEmpty()) {
+      return 0;
+    }
+    List<String> keysList = new ArrayList<>(businessKeys);
+    String placeholders = String.join(",", Collections.nCopies(keysList.size(), "?"));
+    // language=MySQL
+    String sql =
+        """
+        SELECT job_id FROM scheduler_job
+        WHERE business_key IN (%s) AND job_type = 'RECURRING'
+          AND rec_status IS NOT NULL AND terminal_status IS NULL
+        """
+            .formatted(placeholders);
+    Query query = ctx.em().createNativeQuery(sql);
+    int parameter = 1;
+    for (String businessKey : keysList) {
+      query.setParameter(parameter++, businessKey);
+    }
+    @SuppressWarnings("unchecked")
+    List<?> ids = query.getResultList();
+    return cancelRecurringByIds(ids);
+  }
+
   int cancelOrphanedRecurringAnnotationJobs(Set<String> registeredIds, Instant nodeStartTime) {
     if (registeredIds.isEmpty()) {
       return 0;

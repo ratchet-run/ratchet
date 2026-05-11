@@ -383,6 +383,25 @@ final class MongoJobLifecycleOperations
   }
 
   @Override
+  public int cancelRecurringJobsByBusinessKeys(Set<String> businessKeys) {
+    if (businessKeys.isEmpty()) {
+      return 0;
+    }
+    UpdateResult result =
+        ctx.jobs()
+            .updateMany(
+                and(
+                    in(BUSINESS_KEY, businessKeys),
+                    eq(JOB_TYPE, "RECURRING"),
+                    in(STATUS, MongoStoreContext.ACTIVE_STATUSES)),
+                combine(
+                    set(STATUS, "CANCELED"),
+                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                    inc(VERSION, 1)));
+    return (int) result.getModifiedCount();
+  }
+
+  @Override
   public int cancelOrphanedRecurringAnnotationJobs(
       Set<String> registeredIds, Instant nodeStartTime) {
     if (registeredIds.isEmpty()) {

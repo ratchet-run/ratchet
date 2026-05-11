@@ -41,5 +41,7 @@ public interface JobBatchStatusStore {
 
   int cancelRecurringJobByBusinessKey(String businessKey);
 
+  int cancelRecurringJobsByBusinessKeys(Set<String> businessKeys);
+
   int cancelOrphanedRecurringAnnotationJobs(Set<String> registeredIds, Instant nodeStartTime);
 }

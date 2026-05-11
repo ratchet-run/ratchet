@@ -179,6 +179,24 @@ public abstract class AbstractJobBatchStatusStoreContract implements JobStoreCon
   }
 
   @Test
+  void cancelRecurringJobsByBusinessKeys_cancelsMatchingRecurringJobsInBulk() {
+    var first = recurringJob("tag-a", "business-key-first");
+    var second = recurringJob("tag-b", "business-key-second");
+    var other = recurringJob("tag-c", "business-key-other");
+    var oneShot = persist(newPendingJob("tag-a"));
+
+    int canceled =
+        store()
+            .cancelRecurringJobsByBusinessKeys(Set.of("business-key-first", "business-key-second"));
+
+    assertEquals(2, canceled);
+    assertEquals(JobStatus.CANCELED, store().getJobStatus(first.getId()));
+    assertEquals(JobStatus.CANCELED, store().getJobStatus(second.getId()));
+    assertEquals(JobStatus.PENDING, store().getJobStatus(other.getId()));
+    assertEquals(JobStatus.PENDING, store().getJobStatus(oneShot.getId()));
+  }
+
+  @Test
   void cancelOrphanedRecurringAnnotationJobs_cancelsOnlyOldUnregisteredRecurringJobs() {
     var orphan = recurringJob("tag-a", "annotation-missing");
     var registered = recurringJob("tag-b", "annotation-registered");

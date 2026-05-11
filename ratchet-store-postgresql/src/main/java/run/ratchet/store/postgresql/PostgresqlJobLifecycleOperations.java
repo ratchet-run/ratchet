@@ -120,6 +120,11 @@ final class PostgresqlJobLifecycleOperations
   }
 
   @Override
+  public int cancelRecurringJobsByBusinessKeys(Set<String> businessKeys) {
+    return recurring.cancelRecurringJobsByBusinessKeys(businessKeys);
+  }
+
+  @Override
   public int cancelOrphanedRecurringAnnotationJobs(
       Set<String> registeredIds, Instant nodeStartTime) {
     return recurring.cancelOrphanedRecurringAnnotationJobs(registeredIds, nodeStartTime);

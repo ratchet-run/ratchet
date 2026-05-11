@@ -333,6 +333,11 @@ public abstract class ThrowingJobStoreBase implements JobStore {
   }
 
   @Override
+  public int cancelRecurringJobsByBusinessKeys(Set<String> businessKeys) {
+    return fail("cancelRecurringJobsByBusinessKeys");
+  }
+
+  @Override
   public int cancelOrphanedRecurringAnnotationJobs(
       Set<String> registeredIds, Instant nodeStartTime) {
     return fail("cancelOrphanedRecurringAnnotationJobs");

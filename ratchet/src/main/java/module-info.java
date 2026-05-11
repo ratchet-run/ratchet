@@ -15,6 +15,9 @@ module run.ratchet.ri {
   requires org.objectweb.asm;
   requires org.objectweb.asm.tree;
 
+  provides jakarta.enterprise.inject.spi.Extension with
+      run.ratchet.ri.cdi.RecurringMethodDiscoveryExtension;
+
   opens run.ratchet.ri.cdi;
   opens run.ratchet.ri.core;
   opens run.ratchet.ri.payload;
