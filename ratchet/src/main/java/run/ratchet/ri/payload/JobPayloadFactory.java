@@ -8,6 +8,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import org.jboss.logging.Logger;
 import org.objectweb.asm.Type;
 import run.ratchet.ri.payload.AsmLambdaAnalyzer.InspectionResult;
@@ -29,6 +31,12 @@ public final class JobPayloadFactory {
 
   private static final JobPayload NOOP =
       new JobPayload("run.ratchet.ri.util.JobPlaceholders", "noop", "()V", true, List.of());
+
+  private static final ConcurrentMap<MethodLookupKey, VisibilityVerdict> VISIBILITY_CACHE =
+      new ConcurrentHashMap<>();
+
+  private static final ConcurrentMap<MethodLookupKey, Boolean> FUNCTIONAL_INTERFACE_METHOD_CACHE =
+      new ConcurrentHashMap<>();
 
   /**
    * Maximum depth for unwrapping nested functional-interface adapter lambdas (e.g. a {@code
@@ -117,40 +125,57 @@ public final class JobPayloadFactory {
 
   private static void rejectNonPublicMethod(InvocationStep step) {
     String className = internalNameToFqcn(step.ownerInternalName());
+    MethodLookupKey key =
+        new MethodLookupKey(
+            className,
+            step.methodName(),
+            step.methodDescriptor(),
+            Thread.currentThread().getContextClassLoader());
+    VisibilityVerdict verdict =
+        VISIBILITY_CACHE.computeIfAbsent(key, JobPayloadFactory::resolveVisibility);
+
+    if (!verdict.publicOrUnknown()) {
+      throw new IllegalArgumentException(
+          "Cannot schedule "
+              + verdict.visibility()
+              + " method '"
+              + step.methodName()
+              + "' in "
+              + className
+              + ". "
+              + "The job scheduler invokes methods via reflection, so only public methods are "
+              + "supported. Change the method visibility to public.");
+    }
+  }
+
+  private static VisibilityVerdict resolveVisibility(MethodLookupKey key) {
     try {
-      Class<?> clazz =
-          Class.forName(className, false, Thread.currentThread().getContextClassLoader());
+      Class<?> clazz = Class.forName(key.className(), false, key.classLoader());
 
       Method matched =
           Arrays.stream(clazz.getDeclaredMethods())
               .filter(
                   m ->
-                      m.getName().equals(step.methodName())
-                          && Type.getMethodDescriptor(m).equals(step.methodDescriptor()))
+                      m.getName().equals(key.methodName())
+                          && Type.getMethodDescriptor(m).equals(key.methodDescriptor()))
               .findFirst()
               .orElse(null);
 
-      if (matched != null && !Modifier.isPublic(matched.getModifiers())) {
-        String visibility =
-            Modifier.isPrivate(matched.getModifiers())
-                ? "private"
-                : Modifier.isProtected(matched.getModifiers()) ? "protected" : "package-private";
-        throw new IllegalArgumentException(
-            "Cannot schedule "
-                + visibility
-                + " method '"
-                + step.methodName()
-                + "' in "
-                + className
-                + ". "
-                + "The job scheduler invokes methods via reflection, so only public methods are "
-                + "supported. Change the method visibility to public.");
+      if (matched == null || Modifier.isPublic(matched.getModifiers())) {
+        return VisibilityVerdict.PUBLIC_OR_UNKNOWN;
       }
+
+      String visibility =
+          Modifier.isPrivate(matched.getModifiers())
+              ? "private"
+              : Modifier.isProtected(matched.getModifiers()) ? "protected" : "package-private";
+      return new VisibilityVerdict(false, visibility);
     } catch (ClassNotFoundException e) {
       // Target class cannot be loaded from this context — we cannot verify visibility, but we do
       // not want to block scheduling on a reflective lookup miss. The invocation path will surface
       // a clearer error at execution time if the class is genuinely missing.
-      log.debugf(e, "Cannot load %s for visibility check; skipping", className);
+      log.debugf(e, "Cannot load %s for visibility check; skipping", key.className());
+      return VisibilityVerdict.PUBLIC_OR_UNKNOWN;
     }
   }
 
@@ -231,10 +256,20 @@ public final class JobPayloadFactory {
 
   private static boolean isSerializableFunctionalInterfaceMethod(InvocationStep step) {
     String ownerClassName = internalNameToFqcn(step.ownerInternalName());
+    MethodLookupKey key =
+        new MethodLookupKey(
+            ownerClassName,
+            step.methodName(),
+            step.methodDescriptor(),
+            Thread.currentThread().getContextClassLoader());
 
+    return FUNCTIONAL_INTERFACE_METHOD_CACHE.computeIfAbsent(
+        key, JobPayloadFactory::resolveSerializableFunctionalInterfaceMethod);
+  }
+
+  private static boolean resolveSerializableFunctionalInterfaceMethod(MethodLookupKey key) {
     try {
-      ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
-      Class<?> ownerClass = Class.forName(ownerClassName, false, classLoader);
+      Class<?> ownerClass = Class.forName(key.className(), false, key.classLoader());
 
       if (!ownerClass.isInterface() || !Serializable.class.isAssignableFrom(ownerClass)) {
         return false;
@@ -246,8 +281,8 @@ public final class JobPayloadFactory {
             || !Modifier.isAbstract(method.getModifiers())) {
           continue;
         }
-        if (method.getName().equals(step.methodName())
-            && Type.getMethodDescriptor(method).equals(step.methodDescriptor())) {
+        if (method.getName().equals(key.methodName())
+            && Type.getMethodDescriptor(method).equals(key.methodDescriptor())) {
           matchingAbstractMethods++;
         }
       }
@@ -256,6 +291,13 @@ public final class JobPayloadFactory {
     } catch (ClassNotFoundException e) {
       return false;
     }
+  }
+
+  private record MethodLookupKey(
+      String className, String methodName, String methodDescriptor, ClassLoader classLoader) {}
+
+  private record VisibilityVerdict(boolean publicOrUnknown, String visibility) {
+    private static final VisibilityVerdict PUBLIC_OR_UNKNOWN = new VisibilityVerdict(true, null);
   }
 
   private static SerializedLambda tryToSerializedLambda(Serializable value) {
