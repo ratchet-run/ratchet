@@ -46,9 +46,9 @@ public class DynamicHeartbeatCalculator {
    */
   public long calculateHeartbeatInterval() {
     try {
-      refreshCacheIfStale();
-      long activeNodes = cachedNodes;
-      long pendingJobs = cachedPending;
+      CacheSnapshot snapshot = refreshCacheIfStale();
+      long activeNodes = snapshot.activeNodes();
+      long pendingJobs = snapshot.pendingJobs();
 
       long adjustedInterval =
           calculateNodeBasedInterval(baseHeartbeatIntervalSeconds, (int) activeNodes);
@@ -74,8 +74,8 @@ public class DynamicHeartbeatCalculator {
 
   public long calculatePollerDelay() {
     try {
-      refreshCacheIfStale();
-      long pendingJobs = cachedPending;
+      CacheSnapshot snapshot = refreshCacheIfStale();
+      long pendingJobs = snapshot.pendingJobs();
 
       if (pendingJobs == 0) {
         return pollerMaxDelayMs;
@@ -90,21 +90,18 @@ public class DynamicHeartbeatCalculator {
     }
   }
 
-  private void refreshCacheIfStale() {
+  private CacheSnapshot refreshCacheIfStale() {
     long now = System.currentTimeMillis();
-    if (now - cacheTimestamp <= CACHE_TTL_MS) {
-      return;
-    }
-
     synchronized (cacheRefreshLock) {
-      long refreshedAt = System.currentTimeMillis();
-      if (refreshedAt - cacheTimestamp <= CACHE_TTL_MS) {
-        return;
+      if (now - cacheTimestamp > CACHE_TTL_MS) {
+        long refreshedAt = System.currentTimeMillis();
+        if (refreshedAt - cacheTimestamp > CACHE_TTL_MS) {
+          cachedNodes = jobCrudStore.countActiveNodes();
+          cachedPending = jobCrudStore.countPendingJobs();
+          cacheTimestamp = refreshedAt;
+        }
       }
-
-      cachedNodes = jobCrudStore.countActiveNodes();
-      cachedPending = jobCrudStore.countPendingJobs();
-      cacheTimestamp = refreshedAt;
+      return new CacheSnapshot(cachedNodes, cachedPending);
     }
   }
 
@@ -133,4 +130,6 @@ public class DynamicHeartbeatCalculator {
       return (long) (baseInterval * 0.6);
     }
   }
+
+  private record CacheSnapshot(long activeNodes, long pendingJobs) {}
 }
