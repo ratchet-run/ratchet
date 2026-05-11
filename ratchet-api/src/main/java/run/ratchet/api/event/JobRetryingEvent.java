@@ -15,6 +15,14 @@ public class JobRetryingEvent extends AbstractJobSchedulerEvent {
   private final int retryAttempt;
   private final Instant scheduledTime;
 
+  /**
+   * Creates a retry event with an explicit event timestamp.
+   *
+   * @param errorMessage sanitized failure message that caused the retry, or {@code null} if no
+   *     message was recorded
+   * @param retryAttempt 1-based execution attempt count being scheduled for retry
+   * @param scheduledTime instant when the retry becomes eligible for claiming
+   */
   public JobRetryingEvent(
       UUID jobId,
       String businessKey,
@@ -31,6 +39,14 @@ public class JobRetryingEvent extends AbstractJobSchedulerEvent {
     this.scheduledTime = scheduledTime;
   }
 
+  /**
+   * Creates a retry event using the current system clock instant.
+   *
+   * @param errorMessage sanitized failure message that caused the retry, or {@code null} if no
+   *     message was recorded
+   * @param retryAttempt 1-based execution attempt count being scheduled for retry
+   * @param scheduledTime instant when the retry becomes eligible for claiming
+   */
   public JobRetryingEvent(
       UUID jobId,
       String businessKey,
@@ -46,6 +62,7 @@ public class JobRetryingEvent extends AbstractJobSchedulerEvent {
     this.scheduledTime = scheduledTime;
   }
 
+  /** Returns the sanitized failure message that caused the retry, or {@code null} if absent. */
   public String getErrorMessage() {
     return errorMessage;
   }

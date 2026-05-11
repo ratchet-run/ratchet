@@ -33,6 +33,7 @@ import java.io.Serializable;
  * events to external systems should treat them as in-memory event payloads, not as a stable
  * long-term storage format.
  *
+ * @param type condition evaluation strategy
  * @param expression type-specific expression data (predicate, threshold, or null)
  * @param priority evaluation order when multiple conditions match (lower = first, default 0)
  * @see JobBuilder#when(SerializablePredicate, SerializableCheckedRunnable)

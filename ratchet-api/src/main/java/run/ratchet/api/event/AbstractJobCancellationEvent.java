@@ -28,6 +28,12 @@ public abstract class AbstractJobCancellationEvent extends AbstractJobSchedulerE
     this.executionTimeMs = executionTimeMs;
   }
 
+  /**
+   * Creates a cancellation event using the current system clock instant.
+   *
+   * @param previousStatus status observed before the cancellation transition
+   * @param executionTimeMs measured execution duration, or {@code null} if unavailable
+   */
   protected AbstractJobCancellationEvent(
       UUID jobId,
       String businessKey,
@@ -41,6 +47,7 @@ public abstract class AbstractJobCancellationEvent extends AbstractJobSchedulerE
     this.executionTimeMs = executionTimeMs;
   }
 
+  /** Returns the status observed before the cancellation transition. */
   public String getPreviousStatus() {
     return previousStatus;
   }

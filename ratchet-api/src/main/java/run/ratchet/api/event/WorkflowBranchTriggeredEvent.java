@@ -6,7 +6,12 @@ import java.util.UUID;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 
-/** Fired when a workflow branch condition is triggered. */
+/**
+ * Fired when a workflow branch condition is triggered.
+ *
+ * <p>{@code branchCondition} is the persisted condition description or expression that matched.
+ * {@code nextJobId} identifies the job scheduled for the triggered branch.
+ */
 public class WorkflowBranchTriggeredEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = 1721949020293115008L;
@@ -14,6 +19,12 @@ public class WorkflowBranchTriggeredEvent extends AbstractJobSchedulerEvent {
   private final String branchCondition;
   private final UUID nextJobId;
 
+  /**
+   * Creates a workflow-branch event with an explicit timestamp.
+   *
+   * @param branchCondition persisted condition description or expression that matched
+   * @param nextJobId job scheduled for the triggered branch
+   */
   public WorkflowBranchTriggeredEvent(
       UUID jobId,
       String businessKey,
@@ -28,6 +39,12 @@ public class WorkflowBranchTriggeredEvent extends AbstractJobSchedulerEvent {
     this.nextJobId = nextJobId;
   }
 
+  /**
+   * Creates a workflow-branch event using the current system clock instant.
+   *
+   * @param branchCondition persisted condition description or expression that matched
+   * @param nextJobId job scheduled for the triggered branch
+   */
   public WorkflowBranchTriggeredEvent(
       UUID jobId,
       String businessKey,
@@ -41,6 +58,7 @@ public class WorkflowBranchTriggeredEvent extends AbstractJobSchedulerEvent {
     this.nextJobId = nextJobId;
   }
 
+  /** Returns the persisted condition description or expression that matched. */
   public String getBranchCondition() {
     return branchCondition;
   }

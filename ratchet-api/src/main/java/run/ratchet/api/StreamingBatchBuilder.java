@@ -52,6 +52,7 @@ public interface StreamingBatchBuilder<T extends Serializable> {
    * Submits the configured streaming batch for execution.
    *
    * @return a {@link JobHandle} for the submitted batch job
+   * @throws IllegalStateException if no input stream or processing action has been configured
    */
   JobHandle start();
 

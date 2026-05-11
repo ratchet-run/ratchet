@@ -8,6 +8,9 @@ import java.io.Serializable;
  * job completes, the associated task is enqueued. Multiple matching branches execute in priority
  * order (lower first).
  *
+ * @param condition condition evaluated after the parent job completes; must not be {@code null}
+ * @param task serializable task scheduled when the condition matches; must be a supported Ratchet
+ *     job callback
  * @param description optional label for monitoring and debugging
  * @see WorkflowCondition
  * @see JobBuilder#branch(WorkflowCondition, SerializableCheckedRunnable, String)

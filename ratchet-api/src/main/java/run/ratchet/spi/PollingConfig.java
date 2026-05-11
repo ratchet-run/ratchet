@@ -12,6 +12,9 @@ import run.ratchet.api.Incubating;
  * @param deepIdleThresholdMs idle time required before entering deep idle
  * @param idleThreshold number of idle polls before increasing delay
  * @param batchSize target claim batch size used to interpret full vs partial polls
+ * @apiNote Ratchet validates this configuration before constructing its built-in strategy: delays
+ *     must be non-negative, {@code minDelayMs <= maxDelayMs <= deepIdleDelayMs}, {@code batchSize}
+ *     must be positive, and {@code idleThreshold} must be non-negative.
  */
 @Incubating
 public record PollingConfig(

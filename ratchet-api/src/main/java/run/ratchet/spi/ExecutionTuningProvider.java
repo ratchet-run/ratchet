@@ -16,8 +16,8 @@ public interface ExecutionTuningProvider {
   /**
    * Returns the maximum platform-thread concurrency for an execution type.
    *
-   * @param executionTypeName public execution type name such as {@code SINGLE} or {@code
-   *     BATCH_CHILD}
+   * @param executionTypeName non-null public execution type name such as {@code SINGLE} or {@code
+   *     BATCH_CHILD}; unknown names should fall back to {@code defaultValue}
    * @param defaultValue value Ratchet would use if the provider does not override the type
    * @return effective maximum concurrency; should be positive
    */
@@ -26,8 +26,8 @@ public interface ExecutionTuningProvider {
   /**
    * Returns the virtual-thread concurrency limit for an execution type.
    *
-   * @param executionTypeName public execution type name such as {@code SINGLE} or {@code
-   *     BATCH_CHILD}
+   * @param executionTypeName non-null public execution type name such as {@code SINGLE} or {@code
+   *     BATCH_CHILD}; unknown names should fall back to {@code defaultValue}
    * @param defaultValue value Ratchet would use if the provider does not override the type
    * @return effective virtual-thread limit; should be positive
    */

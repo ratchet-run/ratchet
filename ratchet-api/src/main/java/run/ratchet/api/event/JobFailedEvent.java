@@ -14,6 +14,12 @@ public class JobFailedEvent extends AbstractJobSchedulerEvent {
   private final String errorMessage;
   private final int retryAttempt;
 
+  /**
+   * Creates a failure event with an explicit timestamp.
+   *
+   * @param errorMessage sanitized failure message, or {@code null} when no message was recorded
+   * @param retryAttempt 1-based execution attempt count that failed
+   */
   public JobFailedEvent(
       UUID jobId,
       String businessKey,
@@ -28,6 +34,12 @@ public class JobFailedEvent extends AbstractJobSchedulerEvent {
     this.retryAttempt = retryAttempt;
   }
 
+  /**
+   * Creates a failure event using the current system clock instant.
+   *
+   * @param errorMessage sanitized failure message, or {@code null} when no message was recorded
+   * @param retryAttempt 1-based execution attempt count that failed
+   */
   public JobFailedEvent(
       UUID jobId,
       String businessKey,
@@ -41,6 +53,7 @@ public class JobFailedEvent extends AbstractJobSchedulerEvent {
     this.retryAttempt = retryAttempt;
   }
 
+  /** Returns the sanitized failure message, or {@code null} when no message was recorded. */
   public String getErrorMessage() {
     return errorMessage;
   }

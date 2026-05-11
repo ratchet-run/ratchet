@@ -20,7 +20,8 @@ public interface JobInvocationResolver {
    * Resolves a serializable callback with runtime-supplied arguments.
    *
    * @param callback serializable user callback; never {@code null}
-   * @param runtimeArguments arguments appended or substituted by the caller; never {@code null}
+   * @param runtimeArguments arguments appended or substituted by the caller; use an empty list when
+   *     there are no runtime arguments
    * @return invocation descriptor suitable for persistence; never {@code null}
    */
   JobInvocation resolve(Serializable callback, List<Object> runtimeArguments);

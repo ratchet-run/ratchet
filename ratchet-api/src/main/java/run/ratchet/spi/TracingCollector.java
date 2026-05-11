@@ -76,6 +76,7 @@ public interface TracingCollector {
   /**
    * Called at the start of a job execution attempt with additional scheduler metadata to tag on the
    * span. Default delegates to the original four-argument method for source compatibility.
+   * Implementations that do not override this overload ignore {@code attributes}.
    *
    * @param jobId unique job identifier
    * @param type public job type

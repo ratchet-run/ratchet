@@ -33,7 +33,12 @@ public record SignalDecision(Outcome outcome, Serializable payload, String rejec
     }
   }
 
-  /** Creates an approval decision with an optional serializable payload. */
+  /**
+   * Creates an approval decision.
+   *
+   * @param payload optional serializable payload exposed to the unblocked job
+   * @return an approved signal decision with no rejection reason
+   */
   public static SignalDecision approved(Serializable payload) {
     return new SignalDecision(Outcome.APPROVED, payload, null);
   }
@@ -42,7 +47,9 @@ public record SignalDecision(Outcome outcome, Serializable payload, String rejec
    * Creates a rejection decision.
    *
    * @param payload optional serializable payload
-   * @param rejectionReason non-blank human-readable rejection reason
+   * @param rejectionReason non-blank human-readable rejection reason; leading and trailing
+   *     whitespace is ignored
+   * @return a rejected signal decision
    * @throws IllegalArgumentException if {@code rejectionReason} is null or blank
    */
   public static SignalDecision rejected(Serializable payload, String rejectionReason) {
@@ -57,6 +64,14 @@ public record SignalDecision(Outcome outcome, Serializable payload, String rejec
     return outcome == Outcome.REJECTED;
   }
 
+  /**
+   * Returns the optional payload cast to the requested type.
+   *
+   * @param type expected payload type
+   * @param <T> expected payload type
+   * @return the payload cast to {@code type}, or {@code null} when no payload was supplied
+   * @throws ClassCastException if a non-null payload is not assignable to {@code type}
+   */
   public <T> T payload(Class<T> type) {
     return payload == null ? null : type.cast(payload);
   }

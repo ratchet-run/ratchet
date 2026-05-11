@@ -15,6 +15,13 @@ public class BatchCompletingEvent extends AbstractJobSchedulerEvent {
   private final int completedItems;
   private final int failedItems;
 
+  /**
+   * Creates a batch-completing event with an explicit timestamp.
+   *
+   * @param totalItems total number of child jobs in the batch
+   * @param completedItems number of successful child jobs observed before callbacks run
+   * @param failedItems number of failed child jobs observed before callbacks run
+   */
   public BatchCompletingEvent(
       UUID jobId,
       String businessKey,
@@ -31,6 +38,13 @@ public class BatchCompletingEvent extends AbstractJobSchedulerEvent {
     this.failedItems = failedItems;
   }
 
+  /**
+   * Creates a batch-completing event using the current system clock instant.
+   *
+   * @param totalItems total number of child jobs in the batch
+   * @param completedItems number of successful child jobs observed before callbacks run
+   * @param failedItems number of failed child jobs observed before callbacks run
+   */
   public BatchCompletingEvent(
       UUID jobId,
       String businessKey,

@@ -6,7 +6,12 @@ import java.util.UUID;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 
-/** Fired when a job has been created in WAITING state, blocked on a named signal. */
+/**
+ * Fired when a job has been created in WAITING state, blocked on a named signal.
+ *
+ * <p>{@code signalTimeout} is the maximum time the job may wait before timing out. A {@code null}
+ * timeout means the job waits until a matching signal is delivered or the job is canceled.
+ */
 public class JobSignalWaitingEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = 7412309856012374810L;
@@ -27,6 +32,7 @@ public class JobSignalWaitingEvent extends AbstractJobSchedulerEvent {
     this.signalTimeout = signalTimeout;
   }
 
+  /** Returns the signal key the job is waiting on. */
   public String getSignalKey() {
     return signalKey;
   }

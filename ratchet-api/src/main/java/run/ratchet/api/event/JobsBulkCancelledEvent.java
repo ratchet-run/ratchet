@@ -24,20 +24,30 @@ public class JobsBulkCancelledEvent implements Serializable {
   private final int count;
   private final Instant cancelledAt;
 
+  /**
+   * Creates a bulk-cancel event.
+   *
+   * @param tag tag used to select jobs for cancellation
+   * @param count number of jobs successfully cancelled
+   * @param cancelledAt instant when the bulk operation completed
+   */
   public JobsBulkCancelledEvent(String tag, int count, Instant cancelledAt) {
     this.tag = tag;
     this.count = count;
     this.cancelledAt = cancelledAt;
   }
 
+  /** Returns the tag used to select jobs for cancellation. */
   public String getTag() {
     return tag;
   }
 
+  /** Returns the number of jobs successfully cancelled. */
   public int getCount() {
     return count;
   }
 
+  /** Returns the instant when the bulk operation completed. */
   public Instant getCancelledAt() {
     return cancelledAt;
   }

@@ -9,7 +9,13 @@ import java.util.concurrent.TimeoutException;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 
-/** Bounded exception families for metrics tags. */
+/**
+ * Bounded exception families for metrics tags.
+ *
+ * <p>Classification walks the cause chain defensively. Timeout exceptions take priority, followed
+ * by transient store/database failures, validation failures, business exceptions, and finally
+ * {@link #UNKNOWN}. Cause-chain cycles are tolerated.
+ */
 @Incubating
 public enum ExceptionFamily {
   TRANSIENT,

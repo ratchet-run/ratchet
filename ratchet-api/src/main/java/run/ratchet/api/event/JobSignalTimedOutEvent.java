@@ -14,6 +14,12 @@ public class JobSignalTimedOutEvent extends AbstractJobSchedulerEvent {
   private final String signalKey;
   private final Duration signalTimeout;
 
+  /**
+   * Creates a signal-timeout event.
+   *
+   * @param signalKey signal key the job was waiting on
+   * @param signalTimeout configured maximum wait duration that elapsed
+   */
   public JobSignalTimedOutEvent(
       UUID jobId,
       String businessKey,
@@ -27,10 +33,12 @@ public class JobSignalTimedOutEvent extends AbstractJobSchedulerEvent {
     this.signalTimeout = signalTimeout;
   }
 
+  /** Returns the signal key the job was waiting on. */
   public String getSignalKey() {
     return signalKey;
   }
 
+  /** Returns the configured maximum wait duration that elapsed. */
   public Duration getSignalTimeout() {
     return signalTimeout;
   }

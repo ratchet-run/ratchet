@@ -6,7 +6,12 @@ import java.util.UUID;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 
-/** Fired when all steps in a job chain complete. */
+/**
+ * Fired when all steps in a job chain complete.
+ *
+ * <p>{@code jobId} identifies the step whose completion closed the chain. {@code parentJobId}
+ * identifies the root job that initiated the chain.
+ */
 public class ChainCompletedEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = -8140882369003276835L;
@@ -36,6 +41,7 @@ public class ChainCompletedEvent extends AbstractJobSchedulerEvent {
     this.parentJobId = parentJobId;
   }
 
+  /** Returns the root job that initiated the completed chain. */
   public UUID getParentJobId() {
     return parentJobId;
   }

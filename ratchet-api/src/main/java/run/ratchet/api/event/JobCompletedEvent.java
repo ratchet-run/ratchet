@@ -13,6 +13,12 @@ public class JobCompletedEvent extends AbstractJobSchedulerEvent {
 
   private final Long executionTimeMs;
 
+  /**
+   * Creates a completion event with an explicit timestamp.
+   *
+   * @param executionTimeMs wall-clock execution duration in milliseconds, or {@code null} if not
+   *     recorded
+   */
   public JobCompletedEvent(
       UUID jobId,
       String businessKey,
@@ -25,6 +31,12 @@ public class JobCompletedEvent extends AbstractJobSchedulerEvent {
     this.executionTimeMs = executionTimeMs;
   }
 
+  /**
+   * Creates a completion event using the current system clock instant.
+   *
+   * @param executionTimeMs wall-clock execution duration in milliseconds, or {@code null} if not
+   *     recorded
+   */
   public JobCompletedEvent(
       UUID jobId,
       String businessKey,
@@ -36,6 +48,7 @@ public class JobCompletedEvent extends AbstractJobSchedulerEvent {
     this.executionTimeMs = executionTimeMs;
   }
 
+  /** Returns the wall-clock execution duration in milliseconds, or {@code null} if not recorded. */
   public Long getExecutionTimeMs() {
     return executionTimeMs;
   }

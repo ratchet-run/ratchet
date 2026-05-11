@@ -82,7 +82,10 @@ public class JobCallbackFailedEvent extends AbstractJobSchedulerEvent {
 
   /** Identifies which callback failed — e.g. {@code ON_SUCCESS}, {@code ON_FAILURE}. */
   public enum CallbackType {
+    /** The {@code onSuccess} lifecycle callback threw an exception. */
     ON_SUCCESS,
+
+    /** The {@code onFailure} lifecycle callback threw an exception. */
     ON_FAILURE
   }
 }

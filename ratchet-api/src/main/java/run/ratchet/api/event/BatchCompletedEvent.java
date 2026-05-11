@@ -6,7 +6,13 @@ import java.util.UUID;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 
-/** Fired when all children of a batch complete. */
+/**
+ * Fired when all children of a batch reach a terminal state.
+ *
+ * <p>{@code completedItems} counts successful children and {@code failedItems} counts children that
+ * ended in a failed state. The event is still emitted when one or more children failed, after the
+ * batch has no remaining pending/running children.
+ */
 public class BatchCompletedEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = 843735174177646423L;

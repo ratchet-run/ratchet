@@ -86,30 +86,60 @@ public interface JobLogger {
     return true;
   }
 
+  /**
+   * Formats and logs an informational message using SLF4J-style {@code {}} placeholders.
+   *
+   * @param format message template; never {@code null}
+   * @param args placeholder values
+   */
   default void info(String format, Object... args) {
     if (isInfoEnabled()) {
       info(JobLoggerFormat.format(format, args));
     }
   }
 
+  /**
+   * Formats and logs a debug message using SLF4J-style {@code {}} placeholders.
+   *
+   * @param format message template; never {@code null}
+   * @param args placeholder values
+   */
   default void debug(String format, Object... args) {
     if (isDebugEnabled()) {
       debug(JobLoggerFormat.format(format, args));
     }
   }
 
+  /**
+   * Formats and logs a warning message using SLF4J-style {@code {}} placeholders.
+   *
+   * @param format message template; never {@code null}
+   * @param args placeholder values
+   */
   default void warn(String format, Object... args) {
     if (isWarnEnabled()) {
       warn(JobLoggerFormat.format(format, args));
     }
   }
 
+  /**
+   * Formats and logs an error message using SLF4J-style {@code {}} placeholders.
+   *
+   * @param format message template; never {@code null}
+   * @param args placeholder values
+   */
   default void error(String format, Object... args) {
     if (isErrorEnabled()) {
       error(JobLoggerFormat.format(format, args));
     }
   }
 
+  /**
+   * Formats and logs a trace message using SLF4J-style {@code {}} placeholders.
+   *
+   * @param format message template; never {@code null}
+   * @param args placeholder values
+   */
   default void trace(String format, Object... args) {
     if (isTraceEnabled()) {
       trace(JobLoggerFormat.format(format, args));

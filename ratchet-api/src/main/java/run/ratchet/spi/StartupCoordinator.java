@@ -15,8 +15,8 @@ public interface StartupCoordinator {
   /**
    * Attempts to acquire a startup lease for the named action.
    *
-   * @param actionName logical name of the startup action
-   * @param leaseTtl how long the lease should remain valid if acquired
+   * @param actionName non-blank logical name of the startup action
+   * @param leaseTtl how long the lease should remain valid if acquired; must be positive
    * @return {@code true} if this node acquired the lease and may proceed
    */
   boolean tryAcquire(String actionName, Duration leaseTtl);
@@ -24,7 +24,7 @@ public interface StartupCoordinator {
   /**
    * Releases a startup lease previously acquired by this node.
    *
-   * @param actionName logical name of the startup action
+   * @param actionName non-blank logical name of the startup action
    */
   void release(String actionName);
 }
