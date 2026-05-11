@@ -132,8 +132,7 @@ final class MysqlAuxiliaryOperations
         .setParameter(6, condition.getConditionPriority())
         .setParameter(7, Timestamp.from(condition.getCreatedAt()))
         .executeUpdate();
-    WorkflowConditionEntity saved = findConditionById(condition.getId());
-    return saved == null ? condition : saved;
+    return condition;
   }
 
   @Override

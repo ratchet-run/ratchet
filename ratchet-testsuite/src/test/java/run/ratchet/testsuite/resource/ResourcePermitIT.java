@@ -67,7 +67,9 @@ class ResourcePermitIT extends BaseRatchetIT {
       JobAssertions.assertJobCompleted(jobCrudStore, handle);
     }
 
-    assertTrue(ResourceTestJob.getMaxConcurrentSeen() >= 1, "At least one job should have run");
+    assertTrue(
+        ResourceTestJob.getMaxConcurrentSeen() >= 2,
+        "Permit limit of 3 should allow overlapping execution");
     assertTrue(
         ResourceTestJob.getMaxConcurrentSeen() <= 3,
         "Max concurrent should be <= 3 (permit limit) but was "

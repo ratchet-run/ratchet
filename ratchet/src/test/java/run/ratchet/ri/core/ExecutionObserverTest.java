@@ -108,6 +108,15 @@ class ExecutionObserverTest {
   }
 
   @Test
+  void publishEvent_delegatesToEventPublisher() {
+    Object event = new Object();
+
+    observer.publishEvent(event);
+
+    verify(eventPublisher).publish(event);
+  }
+
+  @Test
   void recordSuccessFinalizationRetry_forwardsToMetricsCollector() {
     JobEntity job = job(42L);
 

@@ -225,6 +225,12 @@ public final class JobPayloadFactory {
 
   private static List<Object> mergeInvocationArguments(
       InvocationStep nestedStep, List<Object> wrapperArgs) {
+    /*
+     * Functional adapter unwrapping merges wrapper-supplied values into unresolved null slots from
+     * the nested invocation. If ASM already resolved every nested parameter but the wrapper captured
+     * the complete target argument list, the arity fallback below keeps those wrapper values instead
+     * of dropping them as leftovers.
+     */
     if (wrapperArgs.isEmpty()) {
       return nestedStep.arguments();
     }

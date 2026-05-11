@@ -238,8 +238,8 @@ class DefaultJobCreationServiceAuthorizationTest {
   }
 
   @Test
-  void checkCreate_systemJob_nullPrincipalPassedThrough() {
-    // No provider = system-initiated job
+  void checkCreate_nullCallerPrincipalProvider_passesNullPrincipal() {
+    // No CallerPrincipalProvider is configured.
     DefaultJobCreationService systemService =
         serviceWith(
             null, // no CallerPrincipalProvider

@@ -8,6 +8,7 @@ import java.util.Arrays;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 
@@ -27,8 +28,8 @@ public class PerformanceMetricsCollector extends TestMetricsCollectorAdapter {
   private static final AtomicLong STARTED_COUNT = new AtomicLong(0);
   private static final AtomicLong COMPLETED_COUNT = new AtomicLong(0);
   private static final AtomicLong FAILED_COUNT = new AtomicLong(0);
-  private static volatile Instant firstStart;
-  private static volatile Instant lastCompletion;
+  private static final AtomicReference<Instant> FIRST_START = new AtomicReference<>();
+  private static final AtomicReference<Instant> LAST_COMPLETION = new AtomicReference<>();
 
   public static PerformanceSnapshot snapshot() {
     long[] times = EXECUTION_TIMES.stream().mapToLong(Long::longValue).toArray();
@@ -36,6 +37,8 @@ public class PerformanceMetricsCollector extends TestMetricsCollectorAdapter {
 
     long completed = COMPLETED_COUNT.get();
     double throughput = 0.0;
+    Instant firstStart = FIRST_START.get();
+    Instant lastCompletion = LAST_COMPLETION.get();
 
     if (firstStart != null && lastCompletion != null && completed > 0) {
       long elapsedMs = lastCompletion.toEpochMilli() - firstStart.toEpochMilli();
@@ -59,8 +62,8 @@ public class PerformanceMetricsCollector extends TestMetricsCollectorAdapter {
     STARTED_COUNT.set(0);
     COMPLETED_COUNT.set(0);
     FAILED_COUNT.set(0);
-    firstStart = null;
-    lastCompletion = null;
+    FIRST_START.set(null);
+    LAST_COMPLETION.set(null);
   }
 
   private static long percentile(long[] sorted, double p) {
@@ -74,16 +77,14 @@ public class PerformanceMetricsCollector extends TestMetricsCollectorAdapter {
   @Override
   public void jobStarted(UUID jobId, JobType type, JobPriority priority) {
     STARTED_COUNT.incrementAndGet();
-    if (firstStart == null) {
-      firstStart = Instant.now();
-    }
+    FIRST_START.compareAndSet(null, Instant.now());
   }
 
   @Override
   public void jobCompleted(UUID jobId, JobType type, long executionTimeMs) {
     COMPLETED_COUNT.incrementAndGet();
     EXECUTION_TIMES.add(executionTimeMs);
-    lastCompletion = Instant.now();
+    LAST_COMPLETION.set(Instant.now());
   }
 
   @Override

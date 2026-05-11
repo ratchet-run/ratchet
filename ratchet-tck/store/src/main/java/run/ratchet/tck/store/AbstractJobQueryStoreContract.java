@@ -66,7 +66,9 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
   @Test
   void searchByMultipleStatuses_returnsUnion() {
     var a = persist(newPendingJob());
-    var b = persist(newPendingJob());
+    JobEntity running = newPendingJob();
+    running.setStatus(JobStatus.RUNNING);
+    var b = persist(running);
 
     List<JobEntity> results =
         store()
@@ -75,7 +77,7 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
 
     List<UUID> ids = results.stream().map(JobEntity::getId).toList();
     assertTrue(ids.contains(a.getId()), "Multi-status filter should include PENDING job");
-    assertTrue(ids.contains(b.getId()), "Multi-status filter should include both PENDING jobs");
+    assertTrue(ids.contains(b.getId()), "Multi-status filter should include RUNNING job");
   }
 
   // ── Priority filtering ─────────────────────────────────────────────────

@@ -493,7 +493,7 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
 
   @Override
   public synchronized long countPendingJobs() {
-    return 0L;
+    return jobs.values().stream().filter(j -> j.getStatus() == JobStatus.PENDING).count();
   }
 
   @Override

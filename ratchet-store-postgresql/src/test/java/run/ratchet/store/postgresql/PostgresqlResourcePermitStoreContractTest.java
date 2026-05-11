@@ -40,10 +40,11 @@ class PostgresqlResourcePermitStoreContractTest extends AbstractResourcePermitSt
         Files.readString(
             Path.of(
                 "src/main/java/run/ratchet/store/postgresql/PostgresqlAuxiliaryOperations.java"));
-    String method =
-        source.substring(
-            source.indexOf("public boolean tryAcquirePermit"),
-            source.indexOf("public void releasePermit"));
+    int start = source.indexOf("public boolean tryAcquirePermit");
+    int end = source.indexOf("public void releasePermit");
+    assertTrue(start >= 0, "tryAcquirePermit method should exist in source");
+    assertTrue(end > start, "releasePermit should appear after tryAcquirePermit in source");
+    String method = source.substring(start, end);
 
     assertTrue(
         method.contains("INSERT INTO scheduler_resource_permit")

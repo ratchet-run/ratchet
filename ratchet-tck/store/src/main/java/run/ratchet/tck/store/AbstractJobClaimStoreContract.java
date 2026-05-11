@@ -215,7 +215,7 @@ public abstract class AbstractJobClaimStoreContract implements JobStoreContractF
     long errorCount = failures.stream().filter(t -> t != null).count();
     assertEquals(0L, errorCount, "no thread should fail; got " + failures);
     assertTrue(duplicates.isEmpty(), "no job should be claimed by multiple nodes: " + duplicates);
-    assertTrue(allClaimedIds.size() >= 1, "at least one thread should have claimed jobs");
+    assertEquals(jobCount, allClaimedIds.size(), "all jobs should be claimed exactly once");
   }
 
   @Test

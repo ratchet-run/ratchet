@@ -9,7 +9,7 @@ import run.ratchet.testsuite.app.TestCleanupStrategy;
 
 /**
  * Base class for all Ratchet integration tests. Injects TestCleanupStrategy and truncates tables
- * before each test.
+ * before and after each test.
  */
 @ExtendWith(ArquillianExtension.class)
 public abstract class BaseRatchetIT {

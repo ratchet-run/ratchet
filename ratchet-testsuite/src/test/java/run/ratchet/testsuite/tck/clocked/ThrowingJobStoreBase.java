@@ -26,7 +26,7 @@ import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.spi.JobStore;
 
 /**
- * Base implementation of the 18-interface {@link JobStore} marker that throws {@link
+ * Base implementation of the composed {@link JobStore} marker that throws {@link
  * UnsupportedOperationException} from every method. Subclasses override only the operations they
  * need to support; everything else surfaces as a clear failure rather than a silent no-op.
  *

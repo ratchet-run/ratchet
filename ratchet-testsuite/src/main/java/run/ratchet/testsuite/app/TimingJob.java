@@ -3,8 +3,8 @@ package run.ratchet.testsuite.app;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * No-op job for performance testing. Isolates scheduler overhead from job logic by doing zero work
- * in the execute method.
+ * Minimal job for performance testing. Isolates scheduler overhead from job logic by doing only
+ * atomic invocation-count bookkeeping in the execute method.
  */
 public class TimingJob {
 

@@ -48,7 +48,9 @@ final class MysqlSignalOperations implements SignalStore {
   @Override
   @SuppressWarnings("unchecked")
   public List<JobEntity> findTimedOutSignalJobs(Instant now, int limit) {
-    int safeLimit = Math.max(1, limit);
+    if (limit <= 0) {
+      throw new IllegalArgumentException("limit must be positive: " + limit);
+    }
     // language=MySQL
     String sql =
         """
@@ -66,7 +68,7 @@ final class MysqlSignalOperations implements SignalStore {
         ORDER BY q.signal_timeout ASC, q.job_id ASC
         LIMIT """
             + " "
-            + safeLimit;
+            + limit;
     List<Object[]> rows =
         ctx.em().createNativeQuery(sql).setParameter(1, Timestamp.from(now)).getResultList();
 

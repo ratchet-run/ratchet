@@ -109,6 +109,10 @@ public class ArchivedJobEntity implements UuidV7EntityListener.UuidV7Assignable 
   @Column(name = "queue_wait_ms")
   private Long queueWaitMs;
 
+  /**
+   * Archive timestamp. Archive services normally set this with their injected clock; {@link
+   * #prePersist()} backfills a wall-clock value only when a caller leaves it unset.
+   */
   @Column(name = "archived_at", nullable = false)
   private Instant archivedAt;
 

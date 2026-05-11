@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.inject.Inject;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import org.jboss.arquillian.container.test.api.Deployment;
@@ -68,6 +69,9 @@ class CronScheduleIT extends BaseRatchetIT {
     assertEquals(JobExecutionType.RECURRING, recurringJob.getJobType());
     assertEquals(JobStatus.PENDING, recurringJob.getStatus());
     assertNotNull(recurringJob.getNextFire());
+    assertTrue(
+        recurringJob.getNextFire().isAfter(Instant.now()),
+        "Next fire should be scheduled in the future but was " + recurringJob.getNextFire());
   }
 
   @Test

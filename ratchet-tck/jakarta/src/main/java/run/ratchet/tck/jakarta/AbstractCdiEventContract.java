@@ -73,6 +73,7 @@ public abstract class AbstractCdiEventContract {
         "Signaled job should complete after the event is delivered");
   }
 
+  /** Returns the non-null TCK runtime adapter supplied by the concrete deployment. */
   protected abstract RatchetTckRuntime runtime();
 
   protected Duration defaultTimeout() {
