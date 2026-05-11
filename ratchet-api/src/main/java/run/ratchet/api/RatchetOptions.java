@@ -169,6 +169,13 @@ public class RatchetOptions {
     return value;
   }
 
+  private static void requireNotGreater(
+      String lowerName, long lowerValue, String upperName, long upperValue) {
+    if (lowerValue > upperValue) {
+      throw new IllegalArgumentException(lowerName + " must not exceed " + upperName);
+    }
+  }
+
   public PollingOptions polling() {
     return polling;
   }
@@ -510,6 +517,7 @@ public class RatchetOptions {
     }
 
     private PollingOptions build() {
+      requireNotGreater("minDelayMs", minDelayMs, "maxDelayMs", maxDelayMs);
       return new PollingOptions(
           batchSize,
           burstDelayMs,
@@ -664,6 +672,7 @@ public class RatchetOptions {
     }
 
     private RecurringOptions build() {
+      requireNotGreater("pollMs", pollMs, "maxPollMs", maxPollMs);
       return new RecurringOptions(
           batchLimit, pollMs, maxPollMs, startupGraceSeconds, convergenceWindowSeconds);
     }

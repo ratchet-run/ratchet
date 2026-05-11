@@ -169,6 +169,10 @@ final class MysqlJobClaimOperations implements JobClaimStore {
   @Override
   @SuppressWarnings("unchecked")
   public List<JobEntity> claimDueRecurring(int limit, String nodeId, NodeTagFilter tagFilter) {
+    if (limit <= 0) {
+      return List.of();
+    }
+
     try {
       int boostInterval = ctx.priorityBoostIntervalMinutes();
       String tagSql = JobClaimSqlSupport.buildTagFilterSql(tagFilter, "c");

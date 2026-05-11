@@ -79,6 +79,18 @@ class RatchetOptionsTest {
                         circuitBreaker.profile(
                             CircuitBreakerProfile.DEFAULT,
                             profile -> profile.failureRateThreshold(101.0f))));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            RatchetOptions.builder()
+                .polling(polling -> polling.minDelayMs(5000).maxDelayMs(1))
+                .build());
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            RatchetOptions.builder()
+                .recurring(recurring -> recurring.pollMs(5000).maxPollMs(1))
+                .build());
   }
 
   @Test

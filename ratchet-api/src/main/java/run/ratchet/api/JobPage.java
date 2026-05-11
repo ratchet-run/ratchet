@@ -16,4 +16,8 @@ import java.util.List;
  */
 @Incubating
 public record JobPage<T>(
-    List<T> items, long totalCount, int limit, int offset, boolean hasMore, String nextCursor) {}
+    List<T> items, long totalCount, int limit, int offset, boolean hasMore, String nextCursor) {
+  public JobPage {
+    items = List.copyOf(items);
+  }
+}

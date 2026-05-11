@@ -174,6 +174,13 @@ class RatchetOptionsFactoryTest {
   }
 
   @Test
+  void maintenanceCronEnvNamesUseActionNouns() {
+    assertEquals(
+        "RATCHET_JOB_ARCHIVE_CRON", RatchetConfigKeys.JOB_ARCHIVE_CRON.environmentVariable());
+    assertEquals("RATCHET_LOG_PURGE_CRON", RatchetConfigKeys.LOG_PURGE_CRON.environmentVariable());
+  }
+
+  @Test
   void skipsSourceThatThrowsAndUsesNextSource() {
     RatchetOptions options =
         optionsFrom(

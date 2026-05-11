@@ -1,6 +1,7 @@
 package run.ratchet.store.mysql;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import java.util.Map;
@@ -42,5 +43,13 @@ class MysqlJobClaimOperationsTest {
             Map.entry("attempts", 10),
             Map.entry("max_retries", 11)),
         MysqlJobClaimOperations.claimSelectColumnIndexes());
+  }
+
+  @Test
+  void claimDueRecurringReturnsEmptyForNonPositiveLimit() {
+    MysqlJobClaimOperations operations = new MysqlJobClaimOperations(null, null);
+
+    assertTrue(operations.claimDueRecurring(0, "node-1", null).isEmpty());
+    assertTrue(operations.claimDueRecurring(-1, "node-1", null).isEmpty());
   }
 }

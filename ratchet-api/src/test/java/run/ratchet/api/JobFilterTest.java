@@ -1,6 +1,7 @@
 package run.ratchet.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -69,5 +70,25 @@ class JobFilterTest {
     assertEquals(Set.of(JobType.SINGLE), filter.types());
     assertEquals(Set.of(JobPriority.HIGH), filter.priorities());
     assertEquals(Set.of("billing"), filter.tags());
+  }
+
+  @Test
+  void nullSetValuesClearConstraints() {
+    JobFilter filter =
+        JobFilter.builder()
+            .statuses(JobStatus.PENDING)
+            .statuses((Set<JobStatus>) null)
+            .types(JobType.SINGLE)
+            .types((Set<JobType>) null)
+            .priorities(JobPriority.HIGH)
+            .priorities((Set<JobPriority>) null)
+            .tags("billing")
+            .tags((Set<String>) null)
+            .build();
+
+    assertNull(filter.statuses());
+    assertNull(filter.types());
+    assertNull(filter.priorities());
+    assertNull(filter.tags());
   }
 }

@@ -127,7 +127,7 @@ final class RatchetConfigKeys {
   static final RatchetConfigKey<Boolean> JOB_ARCHIVE_ENABLED =
       boolKey("ratchet.jobs.archive-enabled", "RATCHET_JOB_ARCHIVE_ENABLED", true);
   static final RatchetConfigKey<String> JOB_ARCHIVE_CRON =
-      stringKey("ratchet.jobs.archive-cron", "RATCHET_JOB_ARCHIVER_CRON", "0 0 1 * * ?");
+      stringKey("ratchet.jobs.archive-cron", "RATCHET_JOB_ARCHIVE_CRON", "0 0 1 * * ?");
   static final RatchetConfigKey<Long> JOB_RETENTION_DAYS =
       longKey("ratchet.jobs.retention-days", "RATCHET_JOB_RETENTION_DAYS", 90L, 0L);
   static final RatchetConfigKey<Integer> JOB_ARCHIVE_BATCH_SIZE =
@@ -135,7 +135,7 @@ final class RatchetConfigKeys {
   static final RatchetConfigKey<Boolean> LOG_PURGE_ENABLED =
       boolKey("ratchet.logs.purge-enabled", "RATCHET_LOG_PURGE_ENABLED", true);
   static final RatchetConfigKey<String> LOG_PURGE_CRON =
-      stringKey("ratchet.logs.purge-cron", "RATCHET_LOG_PURGER_CRON", "0 30 2 * * ?");
+      stringKey("ratchet.logs.purge-cron", "RATCHET_LOG_PURGE_CRON", "0 30 2 * * ?");
   static final RatchetConfigKey<Long> LOG_RETENTION_DAYS =
       longKey("ratchet.logs.retention-days", "RATCHET_LOG_RETENTION_DAYS", 30L, 0L);
 

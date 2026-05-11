@@ -51,6 +51,7 @@ final class MongoJobQueryOperations {
   private static final Logger log = Logger.getLogger(MongoJobQueryOperations.class);
   private static final int MAX_LIMIT = 1000;
   private static final int OFFSET_WARNING_THRESHOLD = MAX_LIMIT;
+  private static final int ARCHIVE_OFFSET_LIMIT = MAX_LIMIT;
 
   private final MongoStoreContext ctx;
 
@@ -283,6 +284,13 @@ final class MongoJobQueryOperations {
 
     if (!archive) {
       return searchLive(filter, safeLimit, offset);
+    }
+
+    if (offset > ARCHIVE_OFFSET_LIMIT) {
+      throw new IllegalArgumentException(
+          "MongoDB archive queries with offset greater than "
+              + ARCHIVE_OFFSET_LIMIT
+              + " require cursor pagination");
     }
 
     // Fetch from both collections and merge in memory

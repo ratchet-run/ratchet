@@ -139,6 +139,10 @@ public record JobFilter(
 
     private Builder() {}
 
+    private static <T> Set<T> copyOrNull(Set<T> values) {
+      return values == null ? null : Collections.unmodifiableSet(new HashSet<>(values));
+    }
+
     public Builder statuses(JobStatus... values) {
       if (values.length == 0) {
         return this;
@@ -148,7 +152,7 @@ public record JobFilter(
     }
 
     public Builder statuses(Set<JobStatus> values) {
-      this.statuses = Collections.unmodifiableSet(new HashSet<>(values));
+      this.statuses = copyOrNull(values);
       return this;
     }
 
@@ -161,7 +165,7 @@ public record JobFilter(
     }
 
     public Builder types(Set<JobType> values) {
-      this.types = Collections.unmodifiableSet(new HashSet<>(values));
+      this.types = copyOrNull(values);
       return this;
     }
 
@@ -174,7 +178,7 @@ public record JobFilter(
     }
 
     public Builder priorities(Set<JobPriority> values) {
-      this.priorities = Collections.unmodifiableSet(new HashSet<>(values));
+      this.priorities = copyOrNull(values);
       return this;
     }
 
@@ -199,7 +203,7 @@ public record JobFilter(
 
     public Builder tags(Set<String> values) {
       // Multiple tags use any-tag (OR) semantics in store queries.
-      this.tags = Collections.unmodifiableSet(new HashSet<>(values));
+      this.tags = copyOrNull(values);
       return this;
     }
 
