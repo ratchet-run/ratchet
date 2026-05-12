@@ -164,12 +164,12 @@ final class MysqlJobRowMapper {
     }
     JobEntity j = new JobEntity();
     j.setId(uuidOrNull(row[IDX_JOB_ID]));
-    j.setJobType(JobExecutionType.valueOf((String) row[IDX_JOB_TYPE]));
-    j.setPriority(safeJobPriority(((Number) row[IDX_PRIORITY]).intValue()));
-    j.setMaxRetries(((Number) row[IDX_MAX_RETRIES]).intValue());
-    j.setBackoffPolicy(BackoffPolicy.valueOf((String) row[IDX_BACKOFF_POLICY]));
-    j.setBackoffParamMs(((Number) row[IDX_BACKOFF_PARAM_MS]).intValue());
-    j.setTimeoutSec(((Number) row[IDX_TIMEOUT_SEC]).intValue());
+    j.setJobType(enumValue(row, IDX_JOB_TYPE, "job_type", JobExecutionType.class));
+    j.setPriority(safeJobPriority(requiredNumber(row, IDX_PRIORITY, "priority").intValue()));
+    j.setMaxRetries(requiredNumber(row, IDX_MAX_RETRIES, "max_retries").intValue());
+    j.setBackoffPolicy(enumValue(row, IDX_BACKOFF_POLICY, "backoff_policy", BackoffPolicy.class));
+    j.setBackoffParamMs(requiredNumber(row, IDX_BACKOFF_PARAM_MS, "backoff_param_ms").intValue());
+    j.setTimeoutSec(requiredNumber(row, IDX_TIMEOUT_SEC, "timeout_sec").intValue());
     j.setCronExpr((String) row[IDX_CRON_EXPR]);
     j.setZoneId((String) row[IDX_ZONE_ID]);
     j.setNextFire(toInstant(row[IDX_NEXT_FIRE]));
@@ -189,8 +189,8 @@ final class MysqlJobRowMapper {
     j.setCreatedAt(toInstant(row[IDX_CREATED_AT]));
     j.setCallerPrincipal((String) row[IDX_CALLER_PRINCIPAL]);
 
-    String terminalStr = (String) row[IDX_TERMINAL_STATUS];
-    JobStatus terminal = terminalStr != null ? JobStatus.valueOf(terminalStr) : null;
+    JobStatus terminal =
+        enumValueOrNull(row, IDX_TERMINAL_STATUS, "terminal_status", JobStatus.class);
     j.setTerminalStatus(terminal);
 
     j.setExecutionStartTime(toInstant(row[IDX_EXEC_START]));
@@ -212,8 +212,7 @@ final class MysqlJobRowMapper {
     j.setSignalDeliveryId(stringOrNull(row[IDX_Q_SIGNAL_DELIVERY_ID]));
 
     String recStatus = stringOrNull(row[IDX_REC_STATUS]);
-    String liveStr = (String) row[IDX_Q_STATUS];
-    JobStatus live = liveStr != null ? JobStatus.valueOf(liveStr) : null;
+    JobStatus live = enumValueOrNull(row, IDX_Q_STATUS, "q.status", JobStatus.class);
 
     JobStatus resolved;
     if (live != null) {
@@ -232,13 +231,13 @@ final class MysqlJobRowMapper {
 
     if (live != null) {
       j.setScheduledTime(toInstant(row[IDX_Q_SCHEDULED_TIME]));
-      j.setAttempts(((Number) row[IDX_Q_ATTEMPTS]).intValue());
+      j.setAttempts(requiredNumber(row, IDX_Q_ATTEMPTS, "q.attempts").intValue());
       j.setPickedBy((String) row[IDX_Q_PICKED_BY]);
       j.setPickedAt(toInstant(row[IDX_Q_PICKED_AT]));
-      String pausedFrom = (String) row[IDX_Q_PAUSED];
-      j.setPausedFromStatus(pausedFrom != null ? JobStatus.valueOf(pausedFrom) : null);
+      j.setPausedFromStatus(
+          enumValueOrNull(row, IDX_Q_PAUSED, "q.paused_from_status", JobStatus.class));
       j.setLastError(stringOrNull(row[IDX_Q_LAST_ERROR]));
-      j.setVersion(((Number) row[IDX_Q_VERSION]).intValue());
+      j.setVersion(requiredNumber(row, IDX_Q_VERSION, "q.version").intValue());
       Instant queueUpdatedAt = toInstant(row[IDX_Q_UPDATED_AT]);
       if (queueUpdatedAt != null) {
         j.setUpdatedAt(queueUpdatedAt);
@@ -248,7 +247,7 @@ final class MysqlJobRowMapper {
       j.setAttempts(0);
       j.setVersion(0);
     } else {
-      Number ta = (Number) row[IDX_TOTAL_ATTEMPTS];
+      Number ta = numberOrNull(row, IDX_TOTAL_ATTEMPTS, "total_attempts");
       j.setAttempts(ta != null ? ta.intValue() : 0);
       j.setLastError(stringOrNull(row[IDX_TERMINAL_ERROR]));
       j.setVersion(0);
@@ -293,5 +292,78 @@ final class MysqlJobRowMapper {
 
   static String traceContextToJson(JobEntity job) {
     return JSON_MAP_CONVERTER.convertToDatabaseColumn(job.getTraceContext());
+  }
+
+  private static <E extends Enum<E>> E enumValue(
+      Object[] row, int index, String column, Class<E> enumType) {
+    String raw = stringOrNull(row[index]);
+    if (raw == null) {
+      throw hydrationFailure(row, index, column, null, null);
+    }
+    try {
+      return Enum.valueOf(enumType, raw);
+    } catch (IllegalArgumentException e) {
+      throw hydrationFailure(row, index, column, raw, e);
+    }
+  }
+
+  private static <E extends Enum<E>> E enumValueOrNull(
+      Object[] row, int index, String column, Class<E> enumType) {
+    String raw = stringOrNull(row[index]);
+    if (raw == null) {
+      return null;
+    }
+    try {
+      return Enum.valueOf(enumType, raw);
+    } catch (IllegalArgumentException e) {
+      throw hydrationFailure(row, index, column, raw, e);
+    }
+  }
+
+  private static Number requiredNumber(Object[] row, int index, String column) {
+    Number number = numberOrNull(row, index, column);
+    if (number == null) {
+      throw hydrationFailure(row, index, column, null, null);
+    }
+    return number;
+  }
+
+  private static Number numberOrNull(Object[] row, int index, String column) {
+    Object value = row[index];
+    if (value == null) {
+      return null;
+    }
+    if (value instanceof Number number) {
+      return number;
+    }
+    throw hydrationFailure(row, index, column, value, null);
+  }
+
+  private static JobHydrationException hydrationFailure(
+      Object[] row, int index, String column, Object value, Throwable cause) {
+    return new JobHydrationException(
+        "Failed to hydrate MySQL job "
+            + safeJobId(row)
+            + ": column "
+            + column
+            + " at index "
+            + index
+            + " has value "
+            + value,
+        cause);
+  }
+
+  private static UUID safeJobId(Object[] row) {
+    try {
+      return uuidOrNull(row[IDX_JOB_ID]);
+    } catch (RuntimeException ignored) {
+      return null;
+    }
+  }
+
+  static final class JobHydrationException extends IllegalStateException {
+    JobHydrationException(String message, Throwable cause) {
+      super(message, cause);
+    }
   }
 }

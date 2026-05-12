@@ -503,6 +503,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   @Override
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
   public void unlock(String name, String nodeId) {
     nodeLocks.unlock(name, nodeId);
   }

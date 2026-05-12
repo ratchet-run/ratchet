@@ -40,6 +40,9 @@ import run.ratchet.store.util.IsolationCheck;
  * <p>This class is intentionally a CDI/test wiring composite. Cohesive package-private operation
  * classes own the actual SQL for each store area, while this type owns injection, lifecycle, and
  * SPI forwarding.
+ *
+ * <p>The type-level {@link Transactional} annotation gives forwarded store writes the default
+ * {@code REQUIRED} boundary unless a method declares a narrower attribute.
  */
 @ApplicationScoped
 @Transactional

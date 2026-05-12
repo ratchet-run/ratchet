@@ -3,6 +3,7 @@ package run.ratchet.store.postgresql;
 import jakarta.persistence.Query;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
@@ -542,7 +543,7 @@ final class PostgresqlJobQueryOperations {
       params.add(sortVal);
       params.add(sortVal);
       params.add(c.jobId());
-    } catch (IllegalArgumentException ignored) {
+    } catch (IllegalArgumentException | DateTimeParseException ignored) {
       // Malformed cursor — ignore and fall through to offset-based pagination
     }
   }
