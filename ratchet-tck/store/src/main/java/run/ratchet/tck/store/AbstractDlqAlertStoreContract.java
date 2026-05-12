@@ -22,15 +22,19 @@ public abstract class AbstractDlqAlertStoreContract implements JobStoreContractF
   @Test
   void saveDlqAlert_persistsAlert() {
     var job = persist(newPendingJob());
+    Instant sentAt = Instant.now();
 
     DlqAlertEntity alert = new DlqAlertEntity();
     alert.setJobId(job.getId());
     alert.setErrorHash("abc123hash");
-    alert.setAlertSentAt(Instant.now());
+    alert.setAlertSentAt(sentAt);
     alert.setAlertChannel("test-channel");
 
     store().saveDlqAlert(alert);
-    // No exception means the alert was persisted successfully
+
+    assertTrue(
+        store().existsRecentDlqAlert(job.getId(), "abc123hash", sentAt.minusSeconds(1)),
+        "saved DLQ alert should be visible through existsRecentDlqAlert");
   }
 
   @Test

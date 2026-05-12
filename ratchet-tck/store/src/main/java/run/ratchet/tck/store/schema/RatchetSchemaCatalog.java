@@ -32,7 +32,7 @@ import run.ratchet.tck.store.schema.DeprecatedArtifact.DroppedIndex;
  */
 public final class RatchetSchemaCatalog {
 
-  public static final int CURRENT_VERSION = 5;
+  public static final int CURRENT_VERSION = 6;
 
   public static final SchemaSpec CURRENT =
       new SchemaSpec(
@@ -120,6 +120,15 @@ public final class RatchetSchemaCatalog {
         .column(nullable("last_error", TEXT))
         .column(required("version", INT32))
         .column(required("updated_at", TIMESTAMP_TZ))
+        .column(nullable("signal_key", TEXT))
+        .column(nullable("signal_timeout", TIMESTAMP_TZ))
+        .column(nullable("signal_payload", TEXT))
+        .column(nullable("signal_payload_type", TEXT))
+        .column(nullable("signal_outcome", TEXT))
+        .column(nullable("signal_rejection_reason", TEXT))
+        .column(nullable("signal_delivered_at", TIMESTAMP_TZ))
+        .column(nullable("signal_delivered_by", TEXT))
+        .column(nullable("signal_delivery_id", TEXT))
         .primaryKey("job_id")
         .foreignKey(
             new ForeignKey(
@@ -128,6 +137,9 @@ public final class RatchetSchemaCatalog {
             Index.of("idx_claim_executable", "job_type", "scheduled_time", "priority", "job_id")
                 .withPartialPredicate(LogicalPredicate.eq("status", "PENDING")))
         .index(Index.of("idx_queue_orphan", "status", "picked_at", "picked_by"))
+        .index(Index.of("idx_signal_key_status", "signal_key", "status"))
+        .index(Index.of("idx_signal_timeout_status", "status", "signal_timeout"))
+        .index(Index.of("idx_signal_delivery_id", "signal_delivery_id"))
         .build();
   }
 

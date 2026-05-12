@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.inject.Inject;
+import java.lang.reflect.Field;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -13,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Future;
 import java.util.function.LongSupplier;
 import org.awaitility.core.ConditionTimeoutException;
 import org.jboss.shrinkwrap.api.spec.WebArchive;
@@ -42,6 +44,8 @@ public abstract class BasePerformanceIT extends BaseRatchetIT {
 
   protected static final Duration PERF_TIMEOUT = Duration.ofSeconds(180);
   protected static final Duration PERF_POLL_INTERVAL = Duration.ofMillis(200);
+  private static final Duration POLLER_STOP_TIMEOUT = Duration.ofSeconds(5);
+  private static final Duration POLLER_STOP_POLL_INTERVAL = Duration.ofMillis(10);
   private static final ConcurrentMap<Class<?>, PerformanceBaseline> BASELINES =
       new ConcurrentHashMap<>();
   private static final ConcurrentMap<Class<?>, PerformanceReportWriter> REPORT_WRITERS =
@@ -162,9 +166,30 @@ public abstract class BasePerformanceIT extends BaseRatchetIT {
   @Override
   protected void truncateAll() throws Exception {
     pollerScheduler.stop();
-    // Brief pause to let any in-flight poll cycle complete its transaction
-    Thread.sleep(100);
+    await()
+        .atMost(POLLER_STOP_TIMEOUT)
+        .pollInterval(POLLER_STOP_POLL_INTERVAL)
+        .until(() -> pollerSchedulerStopped(pollerScheduler));
     super.truncateAll();
+  }
+
+  static boolean pollerSchedulerStopped(PollerScheduler scheduler) {
+    Object lock = readField(scheduler, "scheduleLock", Object.class);
+    synchronized (lock) {
+      Future<?> handle = readField(scheduler, "handle", Future.class);
+      return !readField(scheduler, "cycleRunning", Boolean.class)
+          && (handle == null || handle.isDone() || handle.isCancelled());
+    }
+  }
+
+  private static <T> T readField(Object target, String name, Class<T> type) {
+    try {
+      Field field = target.getClass().getDeclaredField(name);
+      field.setAccessible(true);
+      return type.cast(field.get(target));
+    } catch (ReflectiveOperationException e) {
+      throw new IllegalStateException("Unable to read " + name + " from " + target.getClass(), e);
+    }
   }
 
   protected List<JobHandle> enqueueN(int count, SerializableCheckedRunnable task) {
