@@ -1,5 +1,6 @@
 package run.ratchet.store.postgresql;
 
+import jakarta.persistence.NoResultException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -111,8 +112,14 @@ final class PostgresqlBatchOperations implements BatchStore, BatchMetricsStore {
         RETURNING completed_items, failed_items, total_items, progress_hook
         """,
             counter.columnName);
-    Object result = ctx.em().createNativeQuery(sql).setParameter(1, batchId).getSingleResult();
-    return mapIncrementResult(batchId, result, this::parseProgressHook);
+    try {
+      Object result = ctx.em().createNativeQuery(sql).setParameter(1, batchId).getSingleResult();
+      return mapIncrementResult(batchId, result, this::parseProgressHook);
+    } catch (NoResultException e) {
+      throw new IllegalStateException("Batch not found: " + batchId, e);
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("increment batch " + counter.operationName, e);
+    }
   }
 
   static BatchProgress mapIncrementResult(
@@ -300,13 +307,15 @@ final class PostgresqlBatchOperations implements BatchStore, BatchMetricsStore {
   }
 
   private enum BatchCounter {
-    COMPLETED("completed_items"),
-    FAILED("failed_items");
+    COMPLETED("completed_items", "completed counter"),
+    FAILED("failed_items", "failed counter");
 
     private final String columnName;
+    private final String operationName;
 
-    BatchCounter(String columnName) {
+    BatchCounter(String columnName, String operationName) {
       this.columnName = columnName;
+      this.operationName = operationName;
     }
   }
 }

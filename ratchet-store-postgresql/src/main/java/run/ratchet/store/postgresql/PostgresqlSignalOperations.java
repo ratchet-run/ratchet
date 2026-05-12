@@ -40,13 +40,7 @@ final class PostgresqlSignalOperations implements SignalStore {
   }
 
   private static Instant toInstant(Object value) {
-    if (value == null) {
-      return null;
-    }
-    if (value instanceof Timestamp ts) {
-      return ts.toInstant();
-    }
-    return null;
+    return PostgresqlJobRowMapper.toInstant(value);
   }
 
   @Override
@@ -83,7 +77,9 @@ final class PostgresqlSignalOperations implements SignalStore {
       job.setStatus(JobStatus.WAITING);
       job.setJobType(row[4] != null ? JobExecutionType.valueOf((String) row[4]) : null);
       job.setPriority(
-          row[5] != null ? JobPriority.values()[((Number) row[5]).intValue()] : JobPriority.NORMAL);
+          row[5] != null
+              ? PostgresqlJobRowMapper.safeJobPriority(((Number) row[5]).intValue())
+              : JobPriority.NORMAL);
       job.setMaxRetries(row[6] != null ? ((Number) row[6]).intValue() : 0);
       job.setBusinessKey((String) row[7]);
       job.setBackoffPolicy(

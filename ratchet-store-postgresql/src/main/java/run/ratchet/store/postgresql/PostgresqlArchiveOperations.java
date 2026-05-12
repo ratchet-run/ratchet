@@ -101,23 +101,29 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
   /**
    * Archives one terminal job in the caller's store transaction.
    *
+   * @implNote TX: REQUIRED - joins the caller's active store transaction.
    * @return the archived row that was inserted
    */
   @Override
   public ArchivedJobEntity archiveJob(JobEntity job, String reason, String archivedBy) {
-    JobEntity hydrated = reads.hydrateForArchive(job);
-    ArchivedJobEntity archive = ArchiveHelper.buildArchive(hydrated, reason, archivedBy);
-    prepareArchive(archive);
-    Query query = ctx.em().createNativeQuery(INSERT_ARCHIVE_SQL);
-    setArchiveParameters(query, archive, 1);
-    query.executeUpdate();
-    return archive;
+    try {
+      JobEntity hydrated = reads.hydrateForArchive(job);
+      ArchivedJobEntity archive = ArchiveHelper.buildArchive(hydrated, reason, archivedBy);
+      prepareArchive(archive);
+      Query query = ctx.em().createNativeQuery(INSERT_ARCHIVE_SQL);
+      setArchiveParameters(query, archive, 1);
+      query.executeUpdate();
+      return archive;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("archive job", e);
+    }
   }
 
   /**
    * Archives all supplied terminal jobs in the caller's store transaction using a single multi-row
    * insert.
    *
+   * @implNote TX: REQUIRED - joins the caller's active store transaction.
    * @return number of archive rows inserted
    */
   @Override
@@ -126,37 +132,41 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
       return 0;
     }
 
-    List<UUID> ids = jobsToArchive.stream().map(JobEntity::getId).toList();
-    Map<UUID, JobEntity> hydratedById =
-        reads.findByIds(ids).stream()
-            .collect(Collectors.toMap(JobEntity::getId, Function.identity()));
-    List<ArchivedJobEntity> archives = new ArrayList<>(jobsToArchive.size());
-    for (UUID id : ids) {
-      JobEntity hydrated = hydratedById.get(id);
-      if (hydrated == null) {
-        throw new IllegalStateException("Job not found for archival: " + id);
+    try {
+      List<UUID> ids = jobsToArchive.stream().map(JobEntity::getId).toList();
+      Map<UUID, JobEntity> hydratedById =
+          reads.findByIds(ids).stream()
+              .collect(Collectors.toMap(JobEntity::getId, Function.identity()));
+      List<ArchivedJobEntity> archives = new ArrayList<>(jobsToArchive.size());
+      for (UUID id : ids) {
+        JobEntity hydrated = hydratedById.get(id);
+        if (hydrated == null) {
+          throw new IllegalStateException("Job not found for archival: " + id);
+        }
+        ArchivedJobEntity archive = ArchiveHelper.buildArchive(hydrated, reason, archivedBy);
+        prepareArchive(archive);
+        archives.add(archive);
       }
-      ArchivedJobEntity archive = ArchiveHelper.buildArchive(hydrated, reason, archivedBy);
-      prepareArchive(archive);
-      archives.add(archive);
-    }
 
-    String rows =
-        String.join(",", Collections.nCopies(archives.size(), ARCHIVE_VALUE_PLACEHOLDERS));
-    Query query =
-        ctx.em()
-            .createNativeQuery(
-                """
-                INSERT INTO scheduler_job_archive (%s)
-                VALUES %s
-                """
-                    .formatted(ARCHIVE_COLUMNS, rows));
-    int parameter = 1;
-    for (ArchivedJobEntity archive : archives) {
-      parameter = setArchiveParameters(query, archive, parameter);
+      String rows =
+          String.join(",", Collections.nCopies(archives.size(), ARCHIVE_VALUE_PLACEHOLDERS));
+      Query query =
+          ctx.em()
+              .createNativeQuery(
+                  """
+                  INSERT INTO scheduler_job_archive (%s)
+                  VALUES %s
+                  """
+                      .formatted(ARCHIVE_COLUMNS, rows));
+      int parameter = 1;
+      for (ArchivedJobEntity archive : archives) {
+        parameter = setArchiveParameters(query, archive, parameter);
+      }
+      query.executeUpdate();
+      return archives.size();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("archive jobs batch", e);
     }
-    query.executeUpdate();
-    return archives.size();
   }
 
   @Override

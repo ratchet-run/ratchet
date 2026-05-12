@@ -20,37 +20,49 @@ final class PostgresqlJobDeleteOperations {
   }
 
   void delete(UUID id) {
-    reservations.deleteReservationByOwner(id);
-    // language=PostgreSQL
-    String sql = "DELETE FROM scheduler_job WHERE job_id = ?";
-    ctx.em().createNativeQuery(sql).setParameter(1, id).executeUpdate();
+    try {
+      reservations.deleteReservationByOwner(id);
+      // language=PostgreSQL
+      String sql = "DELETE FROM scheduler_job WHERE job_id = ?";
+      ctx.em().createNativeQuery(sql).setParameter(1, id).executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("delete job", e);
+    }
   }
 
   int deleteJobsByIds(List<UUID> ids) {
     if (ids.isEmpty()) {
       return 0;
     }
-    reservations.deleteReservationsByOwners(ids);
-    String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
-    // language=PostgreSQL
-    String sql = "DELETE FROM scheduler_job WHERE job_id IN (" + placeholders + ")";
-    Query jobDelete = ctx.em().createNativeQuery(sql);
-    bindUuidParameters(jobDelete, ids);
-    return jobDelete.executeUpdate();
+    try {
+      reservations.deleteReservationsByOwners(ids);
+      String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+      // language=PostgreSQL
+      String sql = "DELETE FROM scheduler_job WHERE job_id IN (" + placeholders + ")";
+      Query jobDelete = ctx.em().createNativeQuery(sql);
+      bindUuidParameters(jobDelete, ids);
+      return jobDelete.executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("delete jobs by ids", e);
+    }
   }
 
   int deleteDlqOlderThan(Instant cutoff) {
-    // language=PostgreSQL
-    String deleteSql =
-        """
-        DELETE FROM scheduler_job
-        WHERE terminal_status = 'FAILED' AND total_attempts >= max_retries
-          AND terminated_at < ?
-        """;
-    return ctx.em()
-        .createNativeQuery(deleteSql)
-        .setParameter(1, Timestamp.from(cutoff))
-        .executeUpdate();
+    try {
+      // language=PostgreSQL
+      String deleteSql =
+          """
+          DELETE FROM scheduler_job
+          WHERE terminal_status = 'FAILED' AND total_attempts >= max_retries
+            AND terminated_at < ?
+          """;
+      return ctx.em()
+          .createNativeQuery(deleteSql)
+          .setParameter(1, Timestamp.from(cutoff))
+          .executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("delete dlq older than cutoff", e);
+    }
   }
 
   private static void bindUuidParameters(Query query, List<UUID> ids) {
@@ -61,38 +73,46 @@ final class PostgresqlJobDeleteOperations {
   }
 
   int resetOrphanJobs(Duration grace) {
-    long graceSeconds = grace.toSeconds();
-    // language=PostgreSQL
-    String sql =
-        """
-        UPDATE scheduler_job_queue
-        SET status = 'PENDING',
-            picked_by = NULL, picked_at = NULL,
-            updated_at = statement_timestamp()
-        WHERE status = 'RUNNING'
-          AND picked_by NOT IN (
-            SELECT node_id FROM scheduler_node
-            WHERE heartbeat_ts > statement_timestamp() - ? * interval '1 second'
-          )
-          AND extract(epoch from (statement_timestamp() - picked_at))::bigint >= ?
-        """;
-    return ctx.em()
-        .createNativeQuery(sql)
-        .setParameter(1, graceSeconds)
-        .setParameter(2, graceSeconds)
-        .executeUpdate();
+    try {
+      long graceSeconds = grace.toSeconds();
+      // language=PostgreSQL
+      String sql =
+          """
+          UPDATE scheduler_job_queue
+          SET status = 'PENDING',
+              picked_by = NULL, picked_at = NULL,
+              updated_at = statement_timestamp()
+          WHERE status = 'RUNNING'
+            AND picked_by NOT IN (
+              SELECT node_id FROM scheduler_node
+              WHERE heartbeat_ts > statement_timestamp() - ? * interval '1 second'
+            )
+            AND extract(epoch from (statement_timestamp() - picked_at))::bigint >= ?
+          """;
+      return ctx.em()
+          .createNativeQuery(sql)
+          .setParameter(1, graceSeconds)
+          .setParameter(2, graceSeconds)
+          .executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("reset orphan jobs", e);
+    }
   }
 
   int resetOrphanJobsForNode(String nodeId) {
-    // language=PostgreSQL
-    String sql =
-        """
-        UPDATE scheduler_job_queue
-        SET status = 'PENDING',
-            picked_by = NULL, picked_at = NULL,
-            updated_at = statement_timestamp()
-        WHERE status = 'RUNNING' AND picked_by = ?
-        """;
-    return ctx.em().createNativeQuery(sql).setParameter(1, nodeId).executeUpdate();
+    try {
+      // language=PostgreSQL
+      String sql =
+          """
+          UPDATE scheduler_job_queue
+          SET status = 'PENDING',
+              picked_by = NULL, picked_at = NULL,
+              updated_at = statement_timestamp()
+          WHERE status = 'RUNNING' AND picked_by = ?
+          """;
+      return ctx.em().createNativeQuery(sql).setParameter(1, nodeId).executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("reset orphan jobs for node", e);
+    }
   }
 }
