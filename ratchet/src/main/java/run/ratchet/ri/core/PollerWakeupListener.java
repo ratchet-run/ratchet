@@ -57,7 +57,7 @@ public class PollerWakeupListener {
       }
       pollerScheduler.wakeup();
     } catch (Exception e) {
-      log.warnf("Error processing wakeup notification: %s", e.getMessage());
+      log.warn("Error processing wakeup notification", e);
     }
   }
 }

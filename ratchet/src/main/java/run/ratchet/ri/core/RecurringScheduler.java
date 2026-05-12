@@ -43,9 +43,7 @@ public class RecurringScheduler {
   private final PollerScheduler pollerScheduler;
   private final Clock clock;
 
-  private volatile int batchLimit = 20;
-  private volatile long minPollMs = 1000;
-  private volatile long maxPollMs = 60000;
+  private volatile Config config = new Config(1000, 60000, 20);
   private volatile long currentDelayMs;
 
   @SuppressWarnings("java:S3077")
@@ -87,9 +85,7 @@ public class RecurringScheduler {
   }
 
   public void configure(long minPollMs, long maxPollMs, int batchLimit) {
-    this.minPollMs = minPollMs;
-    this.maxPollMs = maxPollMs;
-    this.batchLimit = batchLimit;
+    this.config = new Config(minPollMs, maxPollMs, batchLimit);
   }
 
   public void init() {
@@ -99,9 +95,12 @@ public class RecurringScheduler {
     }
 
     executor = executorProvider.getScheduledExecutor();
-    currentDelayMs = minPollMs;
-    scheduleNext(minPollMs);
-    log.infof("RecurringScheduler started (minPoll=%s ms, maxPoll=%s ms)", minPollMs, maxPollMs);
+    Config snapshot = config;
+    currentDelayMs = snapshot.minPollMs();
+    scheduleNext(snapshot.minPollMs());
+    log.infof(
+        "RecurringScheduler started (minPoll=%s ms, maxPoll=%s ms)",
+        snapshot.minPollMs(), snapshot.maxPollMs());
   }
 
   /** Forces an immediate poll cycle. */
@@ -118,7 +117,7 @@ public class RecurringScheduler {
         current.cancel(false);
         handle = null;
       }
-      scheduleNextLocked(minPollMs);
+      scheduleNextLocked(config.minPollMs());
     }
     log.debug("RecurringScheduler kicked — immediate scan scheduled");
   }
@@ -133,7 +132,6 @@ public class RecurringScheduler {
     }
   }
 
-  @SuppressWarnings("java:S1181")
   void run() {
     if (!started.get()) {
       return;
@@ -144,18 +142,18 @@ public class RecurringScheduler {
     try {
       lease = singletonLeaseService.tryAcquire(LEASE_NAME, LEASE_TTL);
       if (lease.isEmpty()) {
-        scheduleNext(minPollMs);
+        scheduleNext(config.minPollMs());
         return;
       }
 
       SingletonLease acquiredLease = lease.get();
       AtomicBoolean leaseValid = new AtomicBoolean(true);
       renewalTask =
-          executor.scheduleAtFixedRate(
+          executor.scheduleWithFixedDelay(
               () -> renewLease(acquiredLease, leaseValid), 2, 2, TimeUnit.MINUTES);
 
       int processedCount =
-          recurringJobExecutor.process(batchLimit, nodeIdentityProvider.getNodeId());
+          recurringJobExecutor.process(config.batchLimit(), nodeIdentityProvider.getNodeId());
 
       if (!leaseValid.get()) {
         return;
@@ -167,7 +165,7 @@ public class RecurringScheduler {
 
       long nextDelay = calculateNextDelay(processedCount);
       scheduleNext(nextDelay);
-    } catch (Throwable ex) {
+    } catch (Exception ex) {
       if (!started.get()) {
         return;
       }
@@ -179,10 +177,13 @@ public class RecurringScheduler {
       }
       log.error("RecurringScheduler failed", ex);
       try {
-        scheduleNext(minPollMs);
+        scheduleNext(config.minPollMs());
       } catch (Exception e) {
         log.debug("Cannot reschedule recurring scan — scheduler will restart on next deploy", e);
       }
+    } catch (Error error) {
+      log.error("RecurringScheduler failed with unrecoverable error", error);
+      throw error;
     } finally {
       if (renewalTask != null && !renewalTask.isCancelled()) {
         renewalTask.cancel(false);
@@ -192,21 +193,22 @@ public class RecurringScheduler {
   }
 
   private long calculateNextDelay(int processedCount) {
+    Config snapshot = config;
     if (processedCount > 0) {
-      return minPollMs;
+      return snapshot.minPollMs();
     }
 
     Optional<Instant> earliestNextFire = jobCrudStore.findEarliestRecurringNextFire();
 
     if (earliestNextFire.isEmpty()) {
-      return maxPollMs;
+      return snapshot.maxPollMs();
     }
 
     long msUntilNextFire =
         Duration.between(Instant.now(effective()), earliestNextFire.get()).toMillis();
 
-    long targetDelay = Math.max(msUntilNextFire - 500, minPollMs);
-    return Math.min(targetDelay, maxPollMs);
+    long targetDelay = Math.max(msUntilNextFire - 500, snapshot.minPollMs());
+    return Math.min(targetDelay, snapshot.maxPollMs());
   }
 
   private Clock effective() {
@@ -242,4 +244,6 @@ public class RecurringScheduler {
     currentDelayMs = delayMs;
     handle = executor.schedule(this::run, delayMs, TimeUnit.MILLISECONDS);
   }
+
+  private record Config(long minPollMs, long maxPollMs, int batchLimit) {}
 }

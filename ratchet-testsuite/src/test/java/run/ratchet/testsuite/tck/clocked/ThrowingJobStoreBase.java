@@ -366,6 +366,11 @@ public abstract class ThrowingJobStoreBase implements JobStore {
   }
 
   @Override
+  public int resetOrphanJobsBefore(Instant cutoff) {
+    return fail("resetOrphanJobsBefore");
+  }
+
+  @Override
   public int resetOrphanJobsForNode(String nodeId) {
     return fail("resetOrphanJobsForNode");
   }
@@ -449,6 +454,11 @@ public abstract class ThrowingJobStoreBase implements JobStore {
   @Override
   public int deleteInactiveNodesSince(Instant cutoff) {
     return fail("deleteInactiveNodesSince");
+  }
+
+  @Override
+  public int deleteInactiveNodesByIds(java.util.Collection<String> nodeIds) {
+    return fail("deleteInactiveNodesByIds");
   }
 
   @Override

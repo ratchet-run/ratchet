@@ -100,6 +100,34 @@ final class PostgresqlJobDeleteOperations {
     }
   }
 
+  int resetOrphanJobsBefore(Instant cutoff) {
+    try {
+      // language=PostgreSQL
+      String sql =
+          """
+          UPDATE scheduler_job_queue
+          SET status = 'PENDING',
+              picked_by = NULL, picked_at = NULL,
+              updated_at = statement_timestamp()
+          WHERE status = 'RUNNING'
+            AND NOT EXISTS (
+              SELECT 1 FROM scheduler_node n
+              WHERE n.node_id = scheduler_job_queue.picked_by
+                AND n.heartbeat_ts >= ?
+            )
+            AND picked_at < ?
+          """;
+      Timestamp cutoffTimestamp = Timestamp.from(cutoff);
+      return ctx.em()
+          .createNativeQuery(sql)
+          .setParameter(1, cutoffTimestamp)
+          .setParameter(2, cutoffTimestamp)
+          .executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("reset orphan jobs before cutoff", e);
+    }
+  }
+
   int resetOrphanJobsForNode(String nodeId) {
     try {
       // language=PostgreSQL

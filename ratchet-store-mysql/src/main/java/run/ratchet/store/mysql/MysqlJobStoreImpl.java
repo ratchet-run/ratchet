@@ -278,6 +278,11 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   }
 
   @Override
+  public int resetOrphanJobsBefore(Instant cutoff) {
+    return jobs.resetOrphanJobsBefore(cutoff);
+  }
+
+  @Override
   public int resetOrphanJobsForNode(String nodeId) {
     return jobs.resetOrphanJobsForNode(nodeId);
   }
@@ -533,6 +538,11 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   @Override
   public int deleteInactiveNodesSince(Instant cutoff) {
     return nodeLocks.deleteInactiveNodesSince(cutoff);
+  }
+
+  @Override
+  public int deleteInactiveNodesByIds(java.util.Collection<String> nodeIds) {
+    return nodeLocks.deleteInactiveNodesByIds(nodeIds);
   }
 
   @Override

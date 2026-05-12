@@ -444,6 +444,11 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   }
 
   @Override
+  public synchronized int deleteInactiveNodesByIds(java.util.Collection<String> nodeIds) {
+    return 0;
+  }
+
+  @Override
   public synchronized java.time.Instant getDatabaseTime() {
     return clock.instant();
   }
@@ -452,6 +457,11 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
 
   @Override
   public synchronized int resetOrphanJobs(java.time.Duration grace) {
+    return 0;
+  }
+
+  @Override
+  public synchronized int resetOrphanJobsBefore(java.time.Instant cutoff) {
     return 0;
   }
 

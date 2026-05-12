@@ -77,7 +77,7 @@ public class PollingStrategy implements PollingDelayStrategy {
         System::currentTimeMillis);
   }
 
-  PollingStrategy(
+  public PollingStrategy(
       long burstDelayMs,
       long minDelayMs,
       long maxDelayMs,

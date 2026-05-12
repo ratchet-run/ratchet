@@ -127,6 +127,7 @@ public class RecurringJobExecutor {
         cron = RecurringScheduler.PARSER.parse(master.getCronExpr());
         zone = ZoneId.of(master.getZoneId());
       } catch (RuntimeException e) {
+        // claimDueRecurring holds a row lock only; there is no picked_by state to clear here.
         log.warnf(e, "Recurring job %s skipped after scheduling error", master.getId());
         continue;
       }
@@ -134,7 +135,7 @@ public class RecurringJobExecutor {
 
       Instant baseTime = master.getNextFire() != null ? master.getNextFire() : now;
 
-      children.add(createChildFromMaster(master, baseTime.isBefore(now) ? baseTime : now));
+      children.add(createChildFromMaster(master, baseTime));
       firedCount++;
 
       Optional<Instant> nextOpt =
@@ -154,8 +155,8 @@ public class RecurringJobExecutor {
             "Recurring job %s caught up on %s missed executions", master.getId(), catchupCount);
       }
 
-      while (nextOpt.isPresent() && nextOpt.get().isBefore(now)) {
-        nextOpt = execTime.nextExecution(nextOpt.get().atZone(zone)).map(ZonedDateTime::toInstant);
+      if (nextOpt.isPresent() && nextOpt.get().isBefore(now)) {
+        nextOpt = execTime.nextExecution(now.atZone(zone)).map(ZonedDateTime::toInstant);
       }
 
       if (nextOpt.isPresent()) {

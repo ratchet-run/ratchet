@@ -260,7 +260,7 @@ public class Poller {
       try {
         timeoutHandler.scanSignalTimeouts();
       } catch (Exception e) {
-        log.warnf("Signal timeout scan failed: %s", e.getMessage());
+        log.warn("Signal timeout scan failed", e);
       }
     }
 

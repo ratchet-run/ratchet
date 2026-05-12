@@ -93,7 +93,7 @@ class RecurringJobExecutorGraceTest {
     // One child bulk insert, one save for the master next_fire update.
     ArgumentCaptor<List<JobEntity>> childrenCaptor = ArgumentCaptor.forClass(List.class);
     verify(jobBulkStore).bulkInsert(childrenCaptor.capture());
-    assertEquals(FIXED_NOW, childrenCaptor.getValue().get(0).getScheduledTime());
+    assertEquals(FIXED_NOW.plusSeconds(60), childrenCaptor.getValue().get(0).getScheduledTime());
     verify(jobCrudStore).save(any(JobEntity.class));
   }
 
@@ -195,6 +195,27 @@ class RecurringJobExecutorGraceTest {
     assertEquals(1, fired, "malformed recurring masters must not abort the batch");
     verify(jobBulkStore).bulkInsert(any());
     verify(jobCrudStore).save(any(JobEntity.class));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void longDowntimeCatchupAdvancesDirectlyToNextFutureFire() {
+    state.markRegistrationComplete(Set.of("known-key"));
+
+    JobEntity stale = recurringMaster(14L, "known-key");
+    stale.setCronExpr("0/1 * * * * ?");
+    stale.setNextFire(FIXED_NOW.minusSeconds(3600));
+    when(jobClaimStore.claimDueRecurring(anyInt(), anyString(), any())).thenReturn(List.of(stale));
+
+    int fired = executor.process(10, "node-A");
+
+    assertEquals(1, fired);
+    ArgumentCaptor<List<JobEntity>> childrenCaptor = ArgumentCaptor.forClass(List.class);
+    verify(jobBulkStore).bulkInsert(childrenCaptor.capture());
+    assertEquals(11, childrenCaptor.getValue().size());
+    verify(jobTerminalStore, never()).cancelJob(stale.getId());
+    verify(jobCrudStore).save(stale);
+    assertEquals(FIXED_NOW.plusSeconds(1), stale.getNextFire());
   }
 
   private JobEntity recurringMaster(long id, String businessKey) {

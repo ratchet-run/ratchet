@@ -32,6 +32,15 @@ public interface JobBulkStore {
   int resetOrphanJobs(Duration grace);
 
   /**
+   * Resets orphaned RUNNING jobs using a caller-supplied cutoff. Implementations should compare
+   * node heartbeat and job claim timestamps to this exact instant. Transaction attribute: {@code
+   * REQUIRED}.
+   */
+  default int resetOrphanJobsBefore(Instant cutoff) {
+    return resetOrphanJobs(Duration.between(cutoff, Instant.now()));
+  }
+
+  /**
    * Reclaims all RUNNING jobs currently owned by {@code nodeId}, unconditionally of heartbeat age,
    * by resetting them to PENDING and clearing {@code picked_by}/{@code picked_at}. Intended for
    * startup self-recovery: a crashing node that restarts within the normal grace window ({@link

@@ -76,10 +76,11 @@ class OrphanRecoveryTimerTest {
     timer.recoverOrphans();
 
     Instant cutoff = FIXED_NOW.minusSeconds(60);
+    verify(jobBulkStore).resetOrphanJobsBefore(cutoff);
     verify(nodeStore).findInactiveNodesSince(cutoff);
     InOrder order = inOrder(resourcePermitService, nodeStore);
     order.verify(resourcePermitService).cleanupOrphanedPermits(List.of("node-1"));
-    order.verify(nodeStore).deleteInactiveNodesSince(cutoff);
+    order.verify(nodeStore).deleteInactiveNodesByIds(List.of("node-1"));
   }
 
   @Test

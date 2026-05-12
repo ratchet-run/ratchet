@@ -40,7 +40,7 @@ public interface PollingDelayStrategy {
   /**
    * Updates the observed executor utilization.
    *
-   * @param avgUtilization average utilization from {@code 0.0} to {@code 1.0}
+   * @param avgUtilization average utilization percentage from {@code 0.0} to {@code 100.0}
    */
   void updateSystemLoadFactor(double avgUtilization);
 

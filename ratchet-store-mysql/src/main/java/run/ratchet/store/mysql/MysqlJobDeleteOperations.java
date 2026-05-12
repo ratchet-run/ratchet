@@ -123,6 +123,33 @@ final class MysqlJobDeleteOperations {
     }
   }
 
+  int resetOrphanJobsBefore(Instant cutoff) {
+    try {
+      // language=MySQL
+      String sql =
+          """
+          UPDATE scheduler_job_queue
+          SET status = 'PENDING', picked_by = NULL, picked_at = NULL, updated_at = NOW(3)
+          WHERE status = 'RUNNING'
+            AND (
+              picked_by IS NULL OR picked_by NOT IN (
+                SELECT node_id FROM scheduler_node
+                WHERE heartbeat_ts >= ?
+              )
+            )
+            AND picked_at < ?
+          """;
+      Timestamp cutoffTimestamp = Timestamp.from(cutoff);
+      return ctx.em()
+          .createNativeQuery(sql)
+          .setParameter(1, cutoffTimestamp)
+          .setParameter(2, cutoffTimestamp)
+          .executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("reset orphan jobs before cutoff", e);
+    }
+  }
+
   int resetOrphanJobsForNode(String nodeId) {
     try {
       // language=MySQL

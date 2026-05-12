@@ -7,7 +7,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import org.jboss.logging.Logger;
 import run.ratchet.api.RatchetOptions;
 
@@ -21,9 +20,11 @@ public class RecurringRegistrationState {
 
   private static final Logger log = Logger.getLogger(RecurringRegistrationState.class);
 
-  private final Set<String> knownAnnotationKeys = ConcurrentHashMap.newKeySet();
   private final long startupGraceSeconds;
   private final Clock clock;
+
+  @SuppressWarnings("java:S3077")
+  private volatile Set<String> knownAnnotationKeys = Set.of();
 
   @SuppressWarnings("java:S3077")
   private volatile Instant registrationCompletedAt;
@@ -49,8 +50,7 @@ public class RecurringRegistrationState {
    * @param keys business keys discovered for {@code @Recurring} annotated methods on this node
    */
   public void markRegistrationComplete(Set<String> keys) {
-    knownAnnotationKeys.clear();
-    knownAnnotationKeys.addAll(keys);
+    knownAnnotationKeys = Set.copyOf(keys);
     registrationCompletedAt = Instant.now(clock);
     log.debugf(
         "RecurringRegistrationState: marked %s known annotation key(s) at %s",
@@ -129,7 +129,7 @@ public class RecurringRegistrationState {
   }
 
   void resetForTesting() {
-    knownAnnotationKeys.clear();
+    knownAnnotationKeys = Set.of();
     registrationCompletedAt = null;
   }
 }

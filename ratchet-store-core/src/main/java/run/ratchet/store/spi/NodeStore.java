@@ -1,6 +1,7 @@
 package run.ratchet.store.spi;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import run.ratchet.api.Incubating;
@@ -21,6 +22,11 @@ public interface NodeStore {
 
   /** Deletes inactive node rows. Transaction attribute: {@code REQUIRED}. */
   int deleteInactiveNodesSince(Instant cutoff);
+
+  /** Deletes the resolved inactive node rows by id. Transaction attribute: {@code REQUIRED}. */
+  default int deleteInactiveNodesByIds(Collection<String> nodeIds) {
+    throw new UnsupportedOperationException("deleteInactiveNodesByIds is not implemented");
+  }
 
   /**
    * Returns the current database server time for clock skew detection. Transaction attribute:

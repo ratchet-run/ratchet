@@ -124,12 +124,15 @@ public class LogPurgeTimer {
     Optional<Instant> next =
         ExecutionTime.forCron(cron).nextExecution(now.atZone(zone)).map(ZonedDateTime::toInstant);
 
-    next.ifPresent(
-        instant ->
-            executorProvider
-                .getScheduledExecutor()
-                .schedule(
-                    this::run, Duration.between(now, instant).toMillis(), TimeUnit.MILLISECONDS));
+    if (next.isEmpty()) {
+      log.warn("Log purge timer found no next cron execution; purge scheduling has stopped");
+      return;
+    }
+
+    Instant instant = next.get();
+    executorProvider
+        .getScheduledExecutor()
+        .schedule(this::run, Duration.between(now, instant).toMillis(), TimeUnit.MILLISECONDS);
   }
 
   private Clock effective() {

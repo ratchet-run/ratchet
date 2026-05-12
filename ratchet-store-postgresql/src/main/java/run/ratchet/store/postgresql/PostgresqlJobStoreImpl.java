@@ -277,6 +277,11 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   @Override
+  public int resetOrphanJobsBefore(Instant cutoff) {
+    return jobs.resetOrphanJobsBefore(cutoff);
+  }
+
+  @Override
   public int resetOrphanJobsForNode(String nodeId) {
     return jobs.resetOrphanJobsForNode(nodeId);
   }
@@ -536,6 +541,12 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   @Transactional(Transactional.TxType.REQUIRES_NEW)
   public int deleteInactiveNodesSince(Instant cutoff) {
     return nodeLocks.deleteInactiveNodesSince(cutoff);
+  }
+
+  @Override
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
+  public int deleteInactiveNodesByIds(java.util.Collection<String> nodeIds) {
+    return nodeLocks.deleteInactiveNodesByIds(nodeIds);
   }
 
   @Override

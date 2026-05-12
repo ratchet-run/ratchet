@@ -67,7 +67,7 @@ class RecurringSchedulerTest {
     when(executor.schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS)))
         .thenReturn(scheduledScan);
     AtomicReference<Runnable> renewal = new AtomicReference<>();
-    when(executor.scheduleAtFixedRate(any(Runnable.class), eq(2L), eq(2L), eq(TimeUnit.MINUTES)))
+    when(executor.scheduleWithFixedDelay(any(Runnable.class), eq(2L), eq(2L), eq(TimeUnit.MINUTES)))
         .thenAnswer(
             invocation -> {
               renewal.set(invocation.getArgument(0));

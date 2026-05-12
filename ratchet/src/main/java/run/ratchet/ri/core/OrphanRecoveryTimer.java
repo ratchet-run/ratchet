@@ -140,9 +140,8 @@ public class OrphanRecoveryTimer {
       throw new IllegalStateException("OrphanRecoveryTimer dependencies are not initialized");
     }
 
-    int resetJobs = jobBulkStore.resetOrphanJobs(Duration.ofSeconds(orphanGraceSeconds));
-
     Instant cutoff = effective().instant().minusSeconds(orphanGraceSeconds);
+    int resetJobs = jobBulkStore.resetOrphanJobsBefore(cutoff);
     List<NodeEntity> staleNodes = nodeStore.findInactiveNodesSince(cutoff);
 
     int cleanedPermits = 0;
@@ -151,7 +150,7 @@ public class OrphanRecoveryTimer {
     if (!staleNodes.isEmpty()) {
       List<String> staleNodeIds = staleNodes.stream().map(NodeEntity::getId).toList();
       cleanedPermits = resourcePermitService.cleanupOrphanedPermits(staleNodeIds);
-      deletedNodes = nodeStore.deleteInactiveNodesSince(cutoff);
+      deletedNodes = nodeStore.deleteInactiveNodesByIds(staleNodeIds);
     }
 
     if (resetJobs > 0 || cleanedPermits > 0 || deletedNodes > 0) {

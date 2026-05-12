@@ -405,6 +405,11 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
+  public int resetOrphanJobsBefore(Instant cutoff) {
+    return crud.resetOrphanJobsBefore(cutoff);
+  }
+
+  @Override
   public int resetOrphanJobsForNode(String nodeId) {
     return crud.resetOrphanJobsForNode(nodeId);
   }
@@ -482,6 +487,11 @@ class MongoJobStoreImpl implements MongoJobStore {
   @Override
   public int deleteInactiveNodesSince(Instant cutoff) {
     return nodeLocks.deleteInactiveNodesSince(cutoff);
+  }
+
+  @Override
+  public int deleteInactiveNodesByIds(java.util.Collection<String> nodeIds) {
+    return nodeLocks.deleteInactiveNodesByIds(nodeIds);
   }
 
   @Override

@@ -2,6 +2,7 @@ package run.ratchet.store.mongodb;
 
 import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
+import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Filters.lt;
 import static com.mongodb.client.model.Updates.combine;
 import static com.mongodb.client.model.Updates.set;
@@ -22,6 +23,7 @@ import com.mongodb.client.result.UpdateResult;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Date;
 import java.util.List;
 import java.util.Objects;
@@ -146,6 +148,15 @@ final class MongoNodeLockOperations implements LockStore, NodeStore {
   @Override
   public int deleteInactiveNodesSince(Instant cutoff) {
     DeleteResult result = ctx.nodes().deleteMany(lt(HEARTBEAT_TS, DocumentMapper.toDate(cutoff)));
+    return (int) result.getDeletedCount();
+  }
+
+  @Override
+  public int deleteInactiveNodesByIds(Collection<String> nodeIds) {
+    if (nodeIds.isEmpty()) {
+      return 0;
+    }
+    DeleteResult result = ctx.nodes().deleteMany(in(ID, nodeIds));
     return (int) result.getDeletedCount();
   }
 

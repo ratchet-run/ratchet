@@ -533,7 +533,11 @@ final class MongoJobCrudOperations {
 
   int resetOrphanJobs(Duration grace) {
     // Use Duration directly — toMinutes() truncates sub-minute values.
-    Date cutoff = DocumentMapper.toDate(Instant.now().minus(grace));
+    return resetOrphanJobsBefore(Instant.now().minus(grace));
+  }
+
+  int resetOrphanJobsBefore(Instant cutoffInstant) {
+    Date cutoff = DocumentMapper.toDate(cutoffInstant);
 
     try (ClientSession session = ctx.startSession()) {
       return session.withTransaction(

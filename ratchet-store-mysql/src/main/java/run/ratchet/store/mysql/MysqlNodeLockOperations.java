@@ -3,6 +3,8 @@ package run.ratchet.store.mysql;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -187,6 +189,26 @@ final class MysqlNodeLockOperations implements NodeStore, LockStore {
           .executeUpdate();
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("delete inactive nodes", e);
+    }
+  }
+
+  @Override
+  public int deleteInactiveNodesByIds(Collection<String> nodeIds) {
+    if (nodeIds.isEmpty()) {
+      return 0;
+    }
+    try {
+      String placeholders = String.join(",", Collections.nCopies(nodeIds.size(), "?"));
+      // language=MySQL
+      String sql = "DELETE FROM scheduler_node WHERE node_id IN (" + placeholders + ")";
+      var query = ctx.em().createNativeQuery(sql);
+      int parameter = 1;
+      for (String nodeId : nodeIds) {
+        query.setParameter(parameter++, nodeId);
+      }
+      return query.executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("delete inactive nodes by id", e);
     }
   }
 

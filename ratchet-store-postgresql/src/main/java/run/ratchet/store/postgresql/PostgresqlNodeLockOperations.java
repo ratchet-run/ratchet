@@ -3,6 +3,8 @@ package run.ratchet.store.postgresql;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -136,6 +138,22 @@ final class PostgresqlNodeLockOperations implements LockStore, NodeStore {
     // language=PostgreSQL
     String sql = "DELETE FROM scheduler_node WHERE heartbeat_ts < ?";
     return ctx.em().createNativeQuery(sql).setParameter(1, Timestamp.from(cutoff)).executeUpdate();
+  }
+
+  @Override
+  public int deleteInactiveNodesByIds(Collection<String> nodeIds) {
+    if (nodeIds.isEmpty()) {
+      return 0;
+    }
+    String placeholders = String.join(",", Collections.nCopies(nodeIds.size(), "?"));
+    // language=PostgreSQL
+    String sql = "DELETE FROM scheduler_node WHERE node_id IN (" + placeholders + ")";
+    var query = ctx.em().createNativeQuery(sql);
+    int parameter = 1;
+    for (String nodeId : nodeIds) {
+      query.setParameter(parameter++, nodeId);
+    }
+    return query.executeUpdate();
   }
 
   @Override

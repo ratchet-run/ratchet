@@ -176,7 +176,7 @@ public class PollerScheduler {
       try {
         scheduleNextLocked(delayMs);
       } catch (Exception e) {
-        log.debug("Cannot reschedule poll cycle — scheduler will restart on next deploy", e);
+        log.warn("Cannot reschedule poll cycle; scheduler will restart on next deploy", e);
       }
     }
   }
