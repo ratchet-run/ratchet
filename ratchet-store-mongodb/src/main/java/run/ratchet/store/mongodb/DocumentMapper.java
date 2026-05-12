@@ -104,16 +104,16 @@ public final class DocumentMapper {
   public static JobEntity toJobEntity(Document doc) {
     JobEntity job = new JobEntity();
     job.setId(doc.get("_id", UUID.class));
-    job.setStatus(requiredEnumValue(doc.getString("status"), JobStatus.class));
+    job.setStatus(requiredEnumValue(doc, "status", JobStatus.class));
     if (doc.getString("paused_from_status") != null) {
       job.setPausedFromStatus(enumValue(doc.getString("paused_from_status"), JobStatus.class));
     }
     job.setScheduledTime(toInstant(doc.getDate("scheduled_time")));
-    job.setJobType(requiredEnumValue(doc.getString("job_type"), JobExecutionType.class));
+    job.setJobType(requiredEnumValue(doc, "job_type", JobExecutionType.class));
     job.setPriority(jobPriorityFromOrdinal(doc.getInteger("priority")));
     job.setAttempts(doc.getInteger("attempts", DEFAULT_COUNT));
     job.setMaxRetries(doc.getInteger("max_retries", DEFAULT_COUNT));
-    job.setBackoffPolicy(requiredEnumValue(doc.getString("backoff_policy"), BackoffPolicy.class));
+    job.setBackoffPolicy(requiredEnumValue(doc, "backoff_policy", BackoffPolicy.class));
     job.setBackoffParamMs(doc.getInteger("backoff_param_ms", DEFAULT_COUNT));
     job.setTimeoutSec(doc.getInteger("timeout_sec", DEFAULT_COUNT));
     job.setCronExpr(doc.getString("cron_expr"));
@@ -160,8 +160,8 @@ public final class DocumentMapper {
   public static JobClaimDto toJobClaimDto(Document doc) {
     return new JobClaimDto(
         doc.get("_id", UUID.class),
-        requiredEnumValue(doc.getString("status"), JobStatus.class),
-        requiredEnumValue(doc.getString("job_type"), JobExecutionType.class),
+        requiredEnumValue(doc, "status", JobStatus.class),
+        requiredEnumValue(doc, "job_type", JobExecutionType.class),
         jobPriorityFromOrdinal(doc.getInteger("priority")),
         toInstant(doc.getDate("scheduled_time")),
         doc.getInteger("version"),
@@ -276,7 +276,7 @@ public final class DocumentMapper {
         new JobLogEntity(
             doc.get("job_id", UUID.class),
             toInstant(doc.getDate("ts")),
-            requiredEnumValue(doc.getString("level"), JobLogEntity.LogLevel.class),
+            requiredEnumValue(doc, "level", JobLogEntity.LogLevel.class),
             doc.getString("message"),
             documentToNodeInfo(doc.get("mdc", Document.class)));
     logEntry.setId(doc.get("_id", UUID.class));
@@ -633,8 +633,26 @@ public final class DocumentMapper {
     return value == null ? null : Enum.valueOf(enumType, value);
   }
 
-  private static <E extends Enum<E>> E requiredEnumValue(String value, Class<E> enumType) {
-    return Enum.valueOf(enumType, value);
+  private static <E extends Enum<E>> E requiredEnumValue(
+      Document doc, String fieldName, Class<E> enumType) {
+    String value = doc.getString(fieldName);
+    if (value == null) {
+      throw new IllegalArgumentException(
+          "Required enum field '" + fieldName + "' is null for " + enumType.getSimpleName());
+    }
+    try {
+      return Enum.valueOf(enumType, value);
+    } catch (IllegalArgumentException e) {
+      throw new IllegalArgumentException(
+          "Invalid enum value '"
+              + value
+              + "' for required field '"
+              + fieldName
+              + "' ("
+              + enumType.getSimpleName()
+              + ")",
+          e);
+    }
   }
 
   private static String stringOrDefault(String value, String defaultValue) {

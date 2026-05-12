@@ -34,9 +34,9 @@ import run.ratchet.store.spi.NodeStore;
 /**
  * Distributed locks (scheduler_lock) + node heartbeats (scheduler_node) + a server-clock probe.
  *
- * <p>tryLock uses a conditional upsert: the {@code lt(EXPIRES_AT, now)} filter lets an expired lock
- * be overwritten atomically; a live one triggers the duplicate-key path. Heartbeat upsert ensures a
- * node row exists with {@code started_at} set on first write only.
+ * <p>tryLock uses a conditional upsert with the database clock: the {@code lt(EXPIRES_AT, now)}
+ * filter lets an expired lock be overwritten atomically; a live one triggers the duplicate-key
+ * path. Heartbeat upsert ensures a node row exists with {@code started_at} set on first write only.
  */
 final class MongoNodeLockOperations implements LockStore, NodeStore {
 
@@ -53,8 +53,9 @@ final class MongoNodeLockOperations implements LockStore, NodeStore {
     requireLockName(name);
     requirePositiveDuration(ttl, "ttl");
     Objects.requireNonNull(nodeId, "nodeId");
-    Date now = DocumentMapper.toDate(Instant.now());
-    Date expiresAt = DocumentMapper.toDate(Instant.now().plus(ttl));
+    Instant nowInstant = getDatabaseTime();
+    Date now = DocumentMapper.toDate(nowInstant);
+    Date expiresAt = DocumentMapper.toDate(nowInstant.plus(ttl));
 
     try {
       Document result =
@@ -88,7 +89,7 @@ final class MongoNodeLockOperations implements LockStore, NodeStore {
     requireLockName(name);
     requirePositiveDuration(extension, "extension");
     Objects.requireNonNull(nodeId, "nodeId");
-    Date newExpiry = DocumentMapper.toDate(Instant.now().plus(extension));
+    Date newExpiry = DocumentMapper.toDate(getDatabaseTime().plus(extension));
     UpdateResult result =
         ctx.locks()
             .updateOne(and(eq(ID, name), eq(OWNER_NODE, nodeId)), set(EXPIRES_AT, newExpiry));

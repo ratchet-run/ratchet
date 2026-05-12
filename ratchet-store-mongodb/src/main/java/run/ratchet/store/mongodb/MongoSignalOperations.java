@@ -91,13 +91,19 @@ final class MongoSignalOperations implements SignalStore {
             set(SIGNAL_DELIVERY_ID, deliveryId),
             set(UPDATED_AT, updatedAt));
 
-    Document found =
-        ctx.jobs()
-            .findOneAndUpdate(
-                filter, update, new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
-    int updated = found != null ? 1 : 0;
-    log.debugf("deliverSignalById(%s): %s", jobId, updated > 0 ? "delivered" : "miss");
-    return updated;
+    try {
+      Document found =
+          ctx.jobs()
+              .findOneAndUpdate(
+                  filter,
+                  update,
+                  new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
+      int updated = found != null ? 1 : 0;
+      log.debugf("deliverSignalById(%s): %s", jobId, updated > 0 ? "delivered" : "miss");
+      return updated;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("deliver signal by id", e);
+    }
   }
 
   @Override
@@ -124,13 +130,15 @@ final class MongoSignalOperations implements SignalStore {
             set(SIGNAL_DELIVERY_ID, deliveryId),
             set(UPDATED_AT, updatedAt));
 
-    UpdateResult result;
     try (ClientSession session = ctx.startSession()) {
-      result = session.withTransaction(() -> ctx.jobs().updateMany(session, filter, update));
+      UpdateResult result =
+          session.withTransaction(() -> ctx.jobs().updateMany(session, filter, update));
+      int updated = (int) result.getModifiedCount();
+      log.debugf("deliverSignalByKey('%s'): %s job(s) unblocked", signalKey, updated);
+      return updated;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("deliver signal by key", e);
     }
-    int updated = (int) result.getModifiedCount();
-    log.debugf("deliverSignalByKey('%s'): %s job(s) unblocked", signalKey, updated);
-    return updated;
   }
 
   @Override

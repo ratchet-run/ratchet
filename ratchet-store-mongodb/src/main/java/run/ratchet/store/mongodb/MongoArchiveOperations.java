@@ -10,16 +10,19 @@ import static com.mongodb.client.model.Sorts.ascending;
 import static com.mongodb.client.model.Sorts.descending;
 import static run.ratchet.store.mongodb.MongoFieldNames.ARCHIVED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.BUSINESS_KEY;
+import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
 import static run.ratchet.store.mongodb.MongoFieldNames.TARGET_CLASS;
 import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
 
+import com.mongodb.client.ClientSession;
 import com.mongodb.client.result.DeleteResult;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import run.ratchet.store.entity.ArchivedJobEntity;
@@ -28,8 +31,9 @@ import run.ratchet.store.id.UuidV7Factory;
 
 /**
  * Archive operations over {@code scheduler_job_archive}. Terminal-state jobs matching the retention
- * cutoff are projected into {@link ArchivedJobEntity} documents — original job rows are left alone;
- * the caller is responsible for subsequent deletion via {@code deleteJobsByIds}.
+ * cutoff are projected into {@link ArchivedJobEntity} documents. Batch archiving moves MongoDB rows
+ * inside one Mongo transaction because the Jakarta transaction on the caller cannot enlist this
+ * driver session.
  */
 final class MongoArchiveOperations {
 
@@ -56,13 +60,33 @@ final class MongoArchiveOperations {
     if (jobList.isEmpty()) {
       return 0;
     }
+    try (ClientSession session = ctx.startSession()) {
+      return session.withTransaction(
+          () -> {
+            int archived = archiveJobsBatch(session, jobList, reason, archivedBy);
+            if (archived > 0) {
+              List<UUID> ids = jobList.stream().limit(archived).map(JobEntity::getId).toList();
+              ctx.jobs().deleteMany(session, in(ID, ids));
+            }
+            return archived;
+          });
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("archive jobs batch", e);
+    }
+  }
+
+  int archiveJobsBatch(
+      ClientSession session, List<JobEntity> jobList, String reason, String archivedBy) {
+    if (jobList.isEmpty()) {
+      return 0;
+    }
     List<Document> docs = new ArrayList<>(jobList.size());
     for (JobEntity job : jobList) {
       ArchivedJobEntity archive = buildArchive(job, reason, archivedBy);
       archive.setId(UuidV7Factory.create());
       docs.add(DocumentMapper.toDocument(archive));
     }
-    ctx.archives().insertMany(docs);
+    ctx.archives().insertMany(session, docs);
     return docs.size();
   }
 

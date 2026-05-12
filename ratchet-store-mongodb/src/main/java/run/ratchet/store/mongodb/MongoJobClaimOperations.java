@@ -20,6 +20,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
 import com.mongodb.MongoBulkWriteException;
 import com.mongodb.bulk.BulkWriteError;
 import com.mongodb.bulk.BulkWriteResult;
+import com.mongodb.client.MongoCursor;
 import com.mongodb.client.model.BulkWriteOptions;
 import com.mongodb.client.model.UpdateOneModel;
 import java.time.Instant;
@@ -111,19 +112,26 @@ final class MongoJobClaimOperations {
             "$sort", new Document("effective_priority", -1).append(timeColumn, 1).append(ID, 1));
     Bson batchLimit = new Document("$limit", limit);
 
-    var query = ctx.jobs().aggregate(List.of(match, project, sort, batchLimit)).allowDiskUse(true);
+    try {
+      var query =
+          ctx.jobs().aggregate(List.of(match, project, sort, batchLimit)).allowDiskUse(true);
 
-    if (NEXT_FIRE.equals(timeColumn)) {
-      query.hintString(MongoIndexHints.JOB_CLAIM_RECURRING);
-    } else {
-      query.hintString(MongoIndexHints.JOB_CLAIM_EXEC);
-    }
+      if (NEXT_FIRE.equals(timeColumn)) {
+        query.hintString(MongoIndexHints.JOB_CLAIM_RECURRING);
+      } else {
+        query.hintString(MongoIndexHints.JOB_CLAIM_EXEC);
+      }
 
-    List<UUID> ids = new ArrayList<>(limit);
-    for (Document doc : query) {
-      ids.add(doc.get(ID, UUID.class));
+      List<UUID> ids = new ArrayList<>(limit);
+      try (MongoCursor<Document> cursor = query.cursor()) {
+        while (cursor.hasNext()) {
+          ids.add(cursor.next().get(ID, UUID.class));
+        }
+      }
+      return ids;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("find claim candidates", e);
     }
-    return ids;
   }
 
   private Object effectivePriorityExpression(String timeColumn, Date now) {
@@ -166,54 +174,62 @@ final class MongoJobClaimOperations {
       return List.of();
     }
 
-    Date nowDate = DocumentMapper.toDate(Instant.now());
-    List<UpdateOneModel<Document>> ops = new ArrayList<>(ids.size());
-    for (UUID id : ids) {
-      ops.add(
-          new UpdateOneModel<>(
-              and(eq(ID, id), eq(STATUS, "PENDING")),
-              combine(
-                  set(STATUS, "RUNNING"),
-                  set(PICKED_BY, nodeId),
-                  set(PICKED_AT, nowDate),
-                  set(UPDATED_AT, nowDate),
-                  inc(VERSION, 1))));
-    }
-
-    long matched;
     try {
-      BulkWriteResult result = ctx.jobs().bulkWrite(ops, new BulkWriteOptions().ordered(false));
-      matched = result.getMatchedCount();
-    } catch (MongoBulkWriteException e) {
-      // ordered=false: server applied every op; partial successes are durable. Log per-op
-      // failures and continue with the read-back of whatever did succeed.
-      matched = e.getWriteResult().getMatchedCount();
-      for (BulkWriteError err : e.getWriteErrors()) {
-        log.warnf("Bulk claim error at index %d: %s", err.getIndex(), err.getMessage());
+      Date nowDate = DocumentMapper.toDate(Instant.now());
+      List<UpdateOneModel<Document>> ops = new ArrayList<>(ids.size());
+      for (UUID id : ids) {
+        ops.add(
+            new UpdateOneModel<>(
+                and(eq(ID, id), eq(STATUS, "PENDING")),
+                combine(
+                    set(STATUS, "RUNNING"),
+                    set(PICKED_BY, nodeId),
+                    set(PICKED_AT, nowDate),
+                    set(UPDATED_AT, nowDate),
+                    inc(VERSION, 1))));
       }
-    }
 
-    if (matched == 0) {
-      return List.of();
-    }
-
-    Map<UUID, T> byId = new HashMap<>(ids.size());
-    for (Document doc :
-        ctx.jobs()
-            .find(
-                and(
-                    new Document(ID, new Document("$in", ids)),
-                    eq(PICKED_BY, nodeId),
-                    eq(STATUS, "RUNNING")))) {
-      byId.put(doc.get(ID, UUID.class), mapper.apply(doc));
-    }
-    List<T> ordered = new ArrayList<>(byId.size());
-    for (UUID id : ids) {
-      T claim = byId.get(id);
-      if (claim != null) {
-        ordered.add(claim);
+      long matched;
+      try {
+        BulkWriteResult result = ctx.jobs().bulkWrite(ops, new BulkWriteOptions().ordered(false));
+        matched = result.getMatchedCount();
+      } catch (MongoBulkWriteException e) {
+        // ordered=false: server applied every op; partial successes are durable. Log per-op
+        // failures and continue with the read-back of whatever did succeed.
+        matched = e.getWriteResult().getMatchedCount();
+        for (BulkWriteError err : e.getWriteErrors()) {
+          log.warnf("Bulk claim error at index %d: %s", err.getIndex(), err.getMessage());
+        }
       }
+
+      if (matched == 0) {
+        return List.of();
+      }
+
+      Map<UUID, T> byId = new HashMap<>(ids.size());
+      try (MongoCursor<Document> cursor =
+          ctx.jobs()
+              .find(
+                  and(
+                      new Document(ID, new Document("$in", ids)),
+                      eq(PICKED_BY, nodeId),
+                      eq(STATUS, "RUNNING")))
+              .iterator()) {
+        while (cursor.hasNext()) {
+          Document doc = cursor.next();
+          byId.put(doc.get(ID, UUID.class), mapper.apply(doc));
+        }
+      }
+      List<T> ordered = new ArrayList<>(byId.size());
+      for (UUID id : ids) {
+        T claim = byId.get(id);
+        if (claim != null) {
+          ordered.add(claim);
+        }
+      }
+      return ordered;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("claim batch", e);
     }
-    return ordered;
   }
 }

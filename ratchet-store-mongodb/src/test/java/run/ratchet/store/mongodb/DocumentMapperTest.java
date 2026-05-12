@@ -110,6 +110,17 @@ class DocumentMapperTest {
   }
 
   @Test
+  void rejectsMissingRequiredEnumWithFieldContext() {
+    Document doc = DocumentMapper.toDocument(job(null));
+    doc.remove("status");
+
+    IllegalArgumentException thrown =
+        assertThrows(IllegalArgumentException.class, () -> DocumentMapper.toJobEntity(doc));
+
+    assertEquals("Required enum field 'status' is null for JobStatus", thrown.getMessage());
+  }
+
+  @Test
   void readsTraceContextWithoutUncheckedCasts() {
     JobEntity job = job(payload("com.example.TraceJob", "run"));
     job.setTraceContext(Map.of("traceparent", "00-abc-def-01"));
