@@ -38,6 +38,24 @@ class EventApiContractTest {
   }
 
   @Test
+  void jobDlqEventPreservesExplicitTimestamp() {
+    JobDlqEvent event =
+        new JobDlqEvent(
+            JOB_ID,
+            "business-key",
+            JobType.SINGLE,
+            JobPriority.NORMAL,
+            "node-a",
+            TIMESTAMP,
+            "failed",
+            3);
+
+    assertEquals(TIMESTAMP, event.getTimestamp());
+    assertEquals("failed", event.getErrorMessage());
+    assertEquals(3, event.getRetryAttempt());
+  }
+
+  @Test
   void signalOutcomeMustBeExplicitWhenUsingFullConstructor() {
     assertThrows(
         NullPointerException.class,

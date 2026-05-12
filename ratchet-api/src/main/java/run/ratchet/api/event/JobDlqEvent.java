@@ -37,6 +37,9 @@ public class JobDlqEvent extends AbstractJobSchedulerEvent {
   /**
    * Creates an event using the current system clock instant.
    *
+   * <p>Tests that assert event timestamps should use the constructor that accepts an explicit
+   * {@link Instant}.
+   *
    * @param errorMessage sanitized final failure message
    * @param retryAttempt final 1-based execution attempt count before DLQ
    */

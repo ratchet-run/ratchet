@@ -2,6 +2,8 @@ package run.ratchet.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -156,6 +158,31 @@ class DefaultRatchetConfigTest {
       logger.removeHandler(handler);
       logger.setLevel(previousLevel);
       logger.setUseParentHandlers(true);
+    }
+  }
+
+  @Test
+  void configKeyParseWarningDoesNotLogRawInvalidValue() {
+    Logger logger = Logger.getLogger(RatchetConfigKey.class.getName());
+    CapturingHandler handler = new CapturingHandler();
+    logger.addHandler(handler);
+    boolean previousUseParentHandlers = logger.getUseParentHandlers();
+    logger.setUseParentHandlers(false);
+    Level previousLevel = logger.getLevel();
+    logger.setLevel(Level.ALL);
+    RatchetConfigKey<Integer> key =
+        RatchetConfigKey.integer("ratchet.test.secret", "RATCHET_TEST_SECRET", 7);
+    String pastedSecret = "prod-password-value-that-does-not-belong-in-logs";
+    try {
+      assertEquals(7, key.parse(pastedSecret));
+      assertNotNull(handler.record);
+      assertFalse(handler.record.getMessage().contains(pastedSecret));
+      assertTrue(handler.record.getMessage().contains("<redacted"));
+      assertNull(handler.record.getThrown());
+    } finally {
+      logger.removeHandler(handler);
+      logger.setLevel(previousLevel);
+      logger.setUseParentHandlers(previousUseParentHandlers);
     }
   }
 

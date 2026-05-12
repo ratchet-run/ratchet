@@ -140,20 +140,87 @@ class MicrometerMetricsCollectorTest {
     collector.signalCancelled(jobId, JobType.SINGLE, "approval");
 
     assertEquals(
-        1.0, registry.get("ratchet.signal.waiting").tag("type", "SINGLE").counter().count());
+        1.0,
+        registry
+            .get("ratchet.signal.waiting")
+            .tag("type", "SINGLE")
+            .tag("signal_key", "OTHER")
+            .counter()
+            .count());
     assertEquals(
         1.0,
         registry
             .get("ratchet.signal.delivered")
             .tag("type", "SINGLE")
+            .tag("signal_key", "OTHER")
             .tag("outcome", "REJECTED")
             .counter()
             .count());
     assertEquals(
-        1.0, registry.get("ratchet.signal.timed_out").tag("type", "SINGLE").counter().count());
+        1.0,
+        registry
+            .get("ratchet.signal.timed_out")
+            .tag("type", "SINGLE")
+            .tag("signal_key", "OTHER")
+            .counter()
+            .count());
     assertEquals(
-        1.0, registry.get("ratchet.signal.cancelled").tag("type", "SINGLE").counter().count());
+        1.0,
+        registry
+            .get("ratchet.signal.cancelled")
+            .tag("type", "SINGLE")
+            .tag("signal_key", "OTHER")
+            .counter()
+            .count());
     assertNull(registry.find("ratchet.signal.waiting").tag("signal_key", "approval").counter());
+  }
+
+  @Test
+  void signalMetricsCanTagAllowlistedSignalKeys() {
+    SimpleMeterRegistry registry = new SimpleMeterRegistry();
+    MicrometerMetricTagPolicy tagPolicy =
+        MicrometerMetricTagPolicy.builder().allowValue("signal_key", "approval").build();
+    MicrometerMetricsCollector collector = new MicrometerMetricsCollector(registry, tagPolicy);
+    UUID jobId = new UUID(0L, 31L);
+
+    collector.signalWaiting(jobId, JobType.SINGLE, "approval");
+    collector.signalDelivered(jobId, JobType.SINGLE, "approval", SignalDecision.Outcome.APPROVED);
+    collector.signalTimedOut(jobId, JobType.SINGLE, "approval");
+    collector.signalCancelled(jobId, JobType.SINGLE, "approval");
+
+    assertEquals(
+        1.0,
+        registry
+            .get("ratchet.signal.waiting")
+            .tag("type", "SINGLE")
+            .tag("signal_key", "approval")
+            .counter()
+            .count());
+    assertEquals(
+        1.0,
+        registry
+            .get("ratchet.signal.delivered")
+            .tag("type", "SINGLE")
+            .tag("signal_key", "approval")
+            .tag("outcome", "APPROVED")
+            .counter()
+            .count());
+    assertEquals(
+        1.0,
+        registry
+            .get("ratchet.signal.timed_out")
+            .tag("type", "SINGLE")
+            .tag("signal_key", "approval")
+            .counter()
+            .count());
+    assertEquals(
+        1.0,
+        registry
+            .get("ratchet.signal.cancelled")
+            .tag("type", "SINGLE")
+            .tag("signal_key", "approval")
+            .counter()
+            .count());
   }
 
   @Test

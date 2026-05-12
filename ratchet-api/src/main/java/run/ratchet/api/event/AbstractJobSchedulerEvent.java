@@ -41,10 +41,10 @@ public abstract class AbstractJobSchedulerEvent implements Serializable {
   }
 
   /**
-   * Creates an event using the current system clock instant.
+   * Creates an event using {@link Instant#now()}.
    *
-   * <p>Call the timestamp constructor when tests, replay, or integration code require a
-   * deterministic event timestamp.
+   * <p>Tests, replay code, and integrations that need a deterministic timestamp should call the
+   * constructor that accepts an explicit {@link Instant}.
    */
   protected AbstractJobSchedulerEvent(
       UUID jobId, String businessKey, JobType jobType, JobPriority priority, String nodeId) {

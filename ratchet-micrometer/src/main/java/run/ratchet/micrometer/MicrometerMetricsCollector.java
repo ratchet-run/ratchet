@@ -41,10 +41,10 @@ import run.ratchet.spi.MetricsCollector;
  *   <li>{@code ratchet.wakeup.cluster.publish} — counter, tagged by transport and outcome
  *   <li>{@code ratchet.wakeup.cluster.receive} — counter, tagged by transport and outcome
  *   <li>{@code ratchet.callbacks.failed} — counter, tagged by type and exception family
- *   <li>{@code ratchet.signal.waiting} — counter, tagged by type
- *   <li>{@code ratchet.signal.delivered} — counter, tagged by type and outcome
- *   <li>{@code ratchet.signal.timed_out} — counter, tagged by type
- *   <li>{@code ratchet.signal.cancelled} — counter, tagged by type
+ *   <li>{@code ratchet.signal.waiting} — counter, tagged by type and signal key
+ *   <li>{@code ratchet.signal.delivered} — counter, tagged by type, signal key, and outcome
+ *   <li>{@code ratchet.signal.timed_out} — counter, tagged by type and signal key
+ *   <li>{@code ratchet.signal.cancelled} — counter, tagged by type and signal key
  *   <li>{@code ratchet.poller.breaker.state} — gauge, tagged by breaker; values are {@code 0} for
  *       closed/unknown, {@code 1} for half-open, and {@code 2} for open
  *   <li>{@code ratchet.store.operation} — timer, tagged by store, operation, and outcome
@@ -231,7 +231,13 @@ public class MicrometerMetricsCollector implements MetricsCollector {
     if (registry == null) {
       return;
     }
-    counter("ratchet.signal.waiting", "type", type.name()).increment();
+    counter(
+            "ratchet.signal.waiting",
+            "type",
+            type.name(),
+            "signal_key",
+            tag("signal_key", signalKey))
+        .increment();
   }
 
   @Override
@@ -244,6 +250,8 @@ public class MicrometerMetricsCollector implements MetricsCollector {
             "ratchet.signal.delivered",
             "type",
             type.name(),
+            "signal_key",
+            tag("signal_key", signalKey),
             "outcome",
             outcome != null ? outcome.name() : "UNKNOWN")
         .increment();
@@ -254,7 +262,13 @@ public class MicrometerMetricsCollector implements MetricsCollector {
     if (registry == null) {
       return;
     }
-    counter("ratchet.signal.timed_out", "type", type.name()).increment();
+    counter(
+            "ratchet.signal.timed_out",
+            "type",
+            type.name(),
+            "signal_key",
+            tag("signal_key", signalKey))
+        .increment();
   }
 
   @Override
@@ -262,7 +276,13 @@ public class MicrometerMetricsCollector implements MetricsCollector {
     if (registry == null) {
       return;
     }
-    counter("ratchet.signal.cancelled", "type", type.name()).increment();
+    counter(
+            "ratchet.signal.cancelled",
+            "type",
+            type.name(),
+            "signal_key",
+            tag("signal_key", signalKey))
+        .increment();
   }
 
   @Override

@@ -244,8 +244,8 @@ public record RatchetConfigKey<T>(
    * Parses a raw configuration value.
    *
    * <p>{@code null} or blank input returns {@link #defaultValue()}. Nonblank input is trimmed
-   * before parsing. If parsing throws a {@link RuntimeException}, the exception is logged at {@code
-   * WARN} and {@link #defaultValue()} is returned.
+   * before parsing. If parsing throws a {@link RuntimeException}, Ratchet logs a {@code WARN} and
+   * returns {@link #defaultValue()}.
    *
    * @param raw raw string value from a config source; may be {@code null}
    * @return parsed value or the key default; never {@code null}
@@ -259,18 +259,23 @@ public record RatchetConfigKey<T>(
     } catch (RuntimeException e) {
       LOG.log(
           Level.WARNING,
-          e,
           () ->
               "Invalid value for Ratchet config key '"
                   + name
                   + "' (env '"
                   + environmentVariable
-                  + "'): '"
-                  + raw
-                  + "' — falling back to default '"
+                  + "'): "
+                  + redactedRawValue()
+                  + "; parser rejected it with "
+                  + e.getClass().getSimpleName()
+                  + "; falling back to default '"
                   + defaultValue
                   + "'");
       return defaultValue;
     }
+  }
+
+  private static String redactedRawValue() {
+    return "<redacted>";
   }
 }
