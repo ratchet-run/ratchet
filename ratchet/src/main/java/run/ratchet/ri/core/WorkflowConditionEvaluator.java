@@ -2,6 +2,7 @@ package run.ratchet.ri.core;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.List;
@@ -251,6 +252,10 @@ public class WorkflowConditionEvaluator {
       }
       Object result = method.invoke(target, args);
       return Boolean.TRUE.equals(result);
+    } catch (InvocationTargetException e) {
+      Throwable cause = e.getCause() != null ? e.getCause() : e;
+      log.errorf(cause, "Condition expression evaluation failed: %s", cause.getMessage());
+      return false;
     } catch (ClassNotFoundException | NoSuchMethodException | IllegalAccessException e) {
       throw new WorkflowConditionConfigurationException(
           "Invalid workflow condition expression metadata: " + e.getMessage(), e);

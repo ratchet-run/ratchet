@@ -23,6 +23,7 @@ public class RetryBufferDrainer {
   private static final Logger log = Logger.getLogger(RetryBufferDrainer.class);
 
   private final AtomicBoolean started = new AtomicBoolean();
+  private final Object lifecycleLock = new Object();
 
   private final ExecutorProvider executorProvider;
   private final RetryBufferManager retryBufferManager;
@@ -60,25 +61,31 @@ public class RetryBufferDrainer {
   }
 
   void start() {
-    if (!started.compareAndSet(false, true)) {
-      return;
-    }
+    synchronized (lifecycleLock) {
+      if (!started.compareAndSet(false, true)) {
+        return;
+      }
 
-    drainerTask =
-        executorProvider
-            .getScheduledExecutor()
-            .scheduleAtFixedRate(
-                this::drainRetryBuffersSafely,
-                drainIntervalMs,
-                drainIntervalMs,
-                TimeUnit.MILLISECONDS);
+      drainerTask =
+          executorProvider
+              .getScheduledExecutor()
+              .scheduleAtFixedRate(
+                  this::drainRetryBuffersSafely,
+                  drainIntervalMs,
+                  drainIntervalMs,
+                  TimeUnit.MILLISECONDS);
+    }
   }
 
   void shutdown() {
-    started.set(false);
-    if (drainerTask != null && !drainerTask.isCancelled()) {
-      drainerTask.cancel(false);
-      log.info("RetryBufferDrainer shutdown complete");
+    synchronized (lifecycleLock) {
+      started.set(false);
+      ScheduledFuture<?> task = drainerTask;
+      drainerTask = null;
+      if (task != null && !task.isCancelled()) {
+        task.cancel(false);
+        log.info("RetryBufferDrainer shutdown complete");
+      }
     }
   }
 

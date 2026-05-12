@@ -5,12 +5,15 @@ import jakarta.inject.Inject;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.Optional;
+import org.jboss.logging.Logger;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.spi.LockStore;
 
 /** Acquires expiring cluster-wide leases for work that must run on at most one node at a time. */
 @ApplicationScoped
 public class SingletonLeaseService {
+
+  private static final Logger log = Logger.getLogger(SingletonLeaseService.class);
 
   private final LockStore lockStore;
   private final NodeIdentityProvider nodeIdentityProvider;
@@ -46,7 +49,12 @@ public class SingletonLeaseService {
     requirePositiveDuration(ttl, "ttl");
 
     String nodeId = nodeIdentityProvider.getNodeId();
-    if (!lockStore.tryLock(normalizedName, ttl, nodeId)) {
+    try {
+      if (!lockStore.tryLock(normalizedName, ttl, nodeId)) {
+        return Optional.empty();
+      }
+    } catch (RuntimeException e) {
+      log.errorf(e, "Failed to acquire singleton lease %s for node %s", normalizedName, nodeId);
       return Optional.empty();
     }
 

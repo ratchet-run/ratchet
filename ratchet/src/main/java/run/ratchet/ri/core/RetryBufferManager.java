@@ -103,10 +103,22 @@ public class RetryBufferManager {
     return forceOffer(BufferedClaim.from(claim));
   }
 
-  /** Unmodifiable view; use {@link #pollFromBuffer} or {@link #pollBatchFromBuffer} to drain. */
+  /**
+   * Stable unmodifiable snapshot; use {@link #pollFromBuffer} or {@link #pollBatchFromBuffer} to
+   * drain.
+   */
   public Collection<BufferedClaim> getBuffer(JobExecutionType jobType) {
     Queue<BufferedClaim> queue = retryBuffers.get(jobType);
-    return queue != null ? Collections.unmodifiableCollection(queue) : List.of();
+    ReentrantLock lock = bufferLocks.get(jobType);
+    if (queue == null || lock == null) {
+      return List.of();
+    }
+    lock.lock();
+    try {
+      return Collections.unmodifiableList(new ArrayList<>(queue));
+    } finally {
+      lock.unlock();
+    }
   }
 
   public BufferedClaim pollFromBuffer(JobExecutionType jobType) {
@@ -183,12 +195,14 @@ public class RetryBufferManager {
   @Transactional
   public void flushOnShutdown() {
     int flushed = 0;
+    List<BufferedClaim> failed = new ArrayList<>();
     String nodeId = nodeIdentityProvider.getNodeId();
     for (Map.Entry<JobExecutionType, Queue<BufferedClaim>> entry : retryBuffers.entrySet()) {
       Queue<BufferedClaim> buffer = entry.getValue();
       ReentrantLock lock = bufferLocks.get(entry.getKey());
       lock.lock();
       try {
+        List<BufferedClaim> failedForType = new ArrayList<>();
         BufferedClaim buffered;
         while ((buffered = buffer.poll()) != null) {
           try {
@@ -197,14 +211,21 @@ public class RetryBufferManager {
             }
           } catch (Exception e) {
             log.errorf(e, "Buffer reset error for job %s on shutdown", buffered.jobId());
+            failedForType.add(buffered);
           }
         }
+        buffer.addAll(failedForType);
+        failed.addAll(failedForType);
       } finally {
         lock.unlock();
       }
     }
     if (flushed > 0) {
       log.infof("RetryBufferManager shutdown: flushed %s buffered job(s) back to PENDING", flushed);
+    }
+    if (!failed.isEmpty()) {
+      throw new IllegalStateException(
+          "Failed to flush " + failed.size() + " buffered job(s) during shutdown");
     }
   }
 

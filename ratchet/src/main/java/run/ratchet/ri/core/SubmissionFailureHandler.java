@@ -124,7 +124,10 @@ public class SubmissionFailureHandler {
 
   private void resetToPendingOrBuffer(JobEntity job) {
     if (!jobStateManager.resetJobToPending(job)) {
-      retryBufferManager.forceOffer(job);
+      boolean buffered = retryBufferManager.forceOffer(job);
+      if (!buffered) {
+        log.warnf("Job %s was neither reset to PENDING nor buffered", job.getId());
+      }
     }
   }
 

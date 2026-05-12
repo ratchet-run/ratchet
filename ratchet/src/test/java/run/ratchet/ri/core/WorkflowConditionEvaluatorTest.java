@@ -49,6 +49,10 @@ class WorkflowConditionEvaluatorTest {
     public static boolean jobSucceeded(JobResult<?> result) {
       return result.isSuccess();
     }
+
+    public static boolean throwsDuringEvaluation(JobResult<?> result) {
+      throw new IllegalStateException("predicate failed");
+    }
   }
 
   public static final class BeanCondition {
@@ -318,6 +322,23 @@ class WorkflowConditionEvaluatorTest {
 
     assertFalse(
         restrictedEvaluator.evaluate(
+            conditionWithExpression(WorkflowCondition.ConditionType.CUSTOM, expression),
+            parentJob(JobStatus.SUCCEEDED)));
+  }
+
+  @Test
+  void customCondition_predicateThrows_returnsFalse() {
+    String expression =
+        payloadSerializer.serialize(
+            new JobPayload(
+                TestConditions.class.getName(),
+                "throwsDuringEvaluation",
+                "(Lrun/ratchet/api/JobResult;)Z",
+                true,
+                List.of()));
+
+    assertFalse(
+        evaluator.evaluate(
             conditionWithExpression(WorkflowCondition.ConditionType.CUSTOM, expression),
             parentJob(JobStatus.SUCCEEDED)));
   }

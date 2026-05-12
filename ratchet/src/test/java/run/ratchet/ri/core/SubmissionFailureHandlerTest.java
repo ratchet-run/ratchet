@@ -146,6 +146,19 @@ class SubmissionFailureHandlerTest {
   }
 
   @Test
+  void handleGateFailure_firstAttemptHandlesResetAndForceBufferFailure() {
+    JobEntity job = runningSingleJob(54L);
+    when(jobStateManager.resetJobToPending(job)).thenReturn(false);
+    when(retryBufferManager.forceOffer(job)).thenReturn(false);
+
+    handler.handleGateFailure(
+        job, GateCheckResult.noPermits(JobExecutionType.SINGLE, job.getId()), true);
+
+    verify(jobStateManager).resetJobToPending(job);
+    verify(retryBufferManager).forceOffer(job);
+  }
+
+  @Test
   void handleRejection_firstAttemptReleasesPermitWakesPollerAndResets() {
     JobEntity job = runningSingleJob(44L);
     when(jobStateManager.resetJobToPending(job)).thenReturn(true);

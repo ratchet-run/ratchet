@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -46,6 +47,18 @@ class SingletonLeaseServiceTest {
   void tryAcquire_returnsEmpty_whenStoreLeaseNotAcquired() {
     when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
     when(lockStore.tryLock("jobArchiver", Duration.ofMinutes(5), "node-1")).thenReturn(false);
+
+    Optional<SingletonLease> lease = service.tryAcquire("jobArchiver", Duration.ofMinutes(5));
+
+    assertTrue(lease.isEmpty());
+  }
+
+  @Test
+  void tryAcquire_returnsEmpty_whenStoreThrows() {
+    when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
+    doThrow(new RuntimeException("db unavailable"))
+        .when(lockStore)
+        .tryLock("jobArchiver", Duration.ofMinutes(5), "node-1");
 
     Optional<SingletonLease> lease = service.tryAcquire("jobArchiver", Duration.ofMinutes(5));
 

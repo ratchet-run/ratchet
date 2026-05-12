@@ -39,6 +39,10 @@ public class SubmissionGateChecker {
 
   /**
    * Checks all gates for the given job. On success, ownership of one permit transfers to caller.
+   *
+   * <p>Retry submissions intentionally bypass drain mode because they already represent claimed
+   * work owned by this node. The permit and rate-limit gates are separate best-effort checks; a
+   * rate-limited job may hold a permit briefly before this method releases it.
    */
   public GateCheckResult check(JobEntity job, boolean isFirstAttempt) {
     return checkInternal(job.getJobType(), job.getId(), isFirstAttempt);

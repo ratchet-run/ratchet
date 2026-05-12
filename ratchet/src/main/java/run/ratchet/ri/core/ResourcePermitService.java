@@ -42,6 +42,9 @@ public class ResourcePermitService {
   /**
    * Attempts to acquire a permit atomically using pessimistic locking.
    *
+   * <p>TX attribute: REQUIRED. SQL stores depend on the caller's active transaction so the capacity
+   * check and permit insert share the same locked resource row.
+   *
    * @return true if permit was acquired, false if resource is at capacity
    */
   public boolean tryAcquire(String resourceName, UUID jobId, String nodeId) {
@@ -54,16 +57,36 @@ public class ResourcePermitService {
     return acquired;
   }
 
-  /** Safe to call even if the job holds no permit. */
+  /**
+   * Releases a permit held by a job.
+   *
+   * <p>TX attribute: REQUIRED. Store implementations may depend on the caller's active transaction.
+   * The poller wakeup still fires if the store release throws, so waiters are not stranded until
+   * the next scheduled poll.
+   *
+   * <p>Safe to call even if the job holds no permit.
+   */
   public void release(String resourceName, UUID jobId) {
-    resourcePermitStore.releasePermit(resourceName, jobId);
-    log.debugf("Job %s released permit for resource %s", jobId, resourceName);
-    pollerScheduler.wakeup();
+    try {
+      resourcePermitStore.releasePermit(resourceName, jobId);
+      log.debugf("Job %s released permit for resource %s", jobId, resourceName);
+    } finally {
+      pollerScheduler.wakeup();
+    }
   }
 
+  /**
+   * Releases all permits held by a job.
+   *
+   * <p>TX attribute: REQUIRED. Store implementations may depend on the caller's active transaction.
+   * The poller wakeup still fires if the store release throws.
+   */
   public void releaseAll(UUID jobId) {
-    resourcePermitStore.releaseAllPermits(jobId);
-    pollerScheduler.wakeup();
+    try {
+      resourcePermitStore.releaseAllPermits(jobId);
+    } finally {
+      pollerScheduler.wakeup();
+    }
   }
 
   /**

@@ -1,8 +1,10 @@
 package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
@@ -12,6 +14,10 @@ import static org.mockito.Mockito.when;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -83,6 +89,46 @@ class RetryBufferDrainerTest {
     verify(retryBufferManager).forceOffer(first.toClaimDto());
     verify(retryBufferManager).forceOffer(second.toClaimDto());
     verify(jobSubmissionService, never()).submitBuffered(any(JobClaimDto.class));
+  }
+
+  @Test
+  void shutdownDuringStart_cancelsScheduledTask() throws Exception {
+    CountDownLatch scheduleEntered = new CountDownLatch(1);
+    CountDownLatch releaseSchedule = new CountDownLatch(1);
+    when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
+    doAnswer(
+            invocation -> {
+              scheduleEntered.countDown();
+              assertTrue(releaseSchedule.await(5, TimeUnit.SECONDS));
+              return scheduledFuture;
+            })
+        .when(scheduledExecutor)
+        .scheduleAtFixedRate(any(Runnable.class), eq(1000L), eq(1000L), eq(TimeUnit.MILLISECONDS));
+
+    RetryBufferDrainer drainer =
+        new RetryBufferDrainer(
+            executorProvider,
+            retryBufferManager,
+            jobSubmissionService,
+            threadPoolManager,
+            drainController,
+            RatchetOptions.defaults());
+    ExecutorService executor = Executors.newFixedThreadPool(2);
+    try {
+      Future<?> start = executor.submit(drainer::start);
+      assertTrue(scheduleEntered.await(2, TimeUnit.SECONDS));
+      Future<?> shutdown = executor.submit(drainer::shutdown);
+
+      releaseSchedule.countDown();
+      start.get(2, TimeUnit.SECONDS);
+      shutdown.get(2, TimeUnit.SECONDS);
+
+      verify(scheduledFuture).cancel(false);
+    } finally {
+      releaseSchedule.countDown();
+      executor.shutdownNow();
+      assertTrue(executor.awaitTermination(5, TimeUnit.SECONDS));
+    }
   }
 
   private Runnable startAndCaptureTask() {

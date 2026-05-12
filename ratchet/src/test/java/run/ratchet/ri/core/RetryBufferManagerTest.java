@@ -149,7 +149,7 @@ class RetryBufferManagerTest {
   }
 
   @Test
-  void getBuffer_returnsUnmodifiableViewOfExistingBuffer() {
+  void getBuffer_returnsUnmodifiableSnapshotOfExistingBuffer() {
     manager.offer(standardJob(1L));
 
     Collection<RetryBufferManager.BufferedClaim> buffer =
@@ -159,6 +159,11 @@ class RetryBufferManagerTest {
     assertThrows(
         UnsupportedOperationException.class,
         () -> buffer.add(RetryBufferManager.BufferedClaim.from(standardJob(2L))));
+
+    manager.pollFromBuffer(JobExecutionType.SINGLE);
+
+    assertEquals(1, buffer.size());
+    assertTrue(manager.getBuffer(JobExecutionType.SINGLE).isEmpty());
   }
 
   @Test
@@ -284,7 +289,7 @@ class RetryBufferManagerTest {
   }
 
   @Test
-  void flushOnShutdown_resetExceptionIsSwallowedAndBufferIsCleared() {
+  void flushOnShutdown_resetExceptionRequeuesClaimAndSignalsFailure() {
     manager.offer(standardJob(1L));
     manager.offer(standardJob(2L));
     when(nodeIdentityProvider.getNodeId()).thenReturn("node-1");
@@ -293,10 +298,15 @@ class RetryBufferManagerTest {
         .resetRunningJob(new UUID(0L, 1L), "node-1");
     when(jobBatchStatusStore.resetRunningJob(new UUID(0L, 2L), "node-1")).thenReturn(true);
 
-    manager.flushOnShutdown();
+    IllegalStateException failure =
+        assertThrows(IllegalStateException.class, manager::flushOnShutdown);
 
     verify(jobBatchStatusStore).resetRunningJob(new UUID(0L, 1L), "node-1");
     verify(jobBatchStatusStore).resetRunningJob(new UUID(0L, 2L), "node-1");
-    assertTrue(manager.isBufferEmpty(JobExecutionType.SINGLE));
+    assertTrue(failure.getMessage().contains("Failed to flush 1 buffered job"));
+    assertEquals(1, manager.totalSize());
+    assertTrue(
+        manager.getBuffer(JobExecutionType.SINGLE).stream()
+            .anyMatch(claim -> new UUID(0L, 1L).equals(claim.jobId())));
   }
 }
