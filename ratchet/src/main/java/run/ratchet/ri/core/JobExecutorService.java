@@ -164,7 +164,7 @@ public class JobExecutorService {
       int timeoutSec,
       Callable<Void> callable,
       AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef) {
-    Instant executionStartTime = Instant.now();
+    Instant executionStartTime = effective().instant();
 
     try {
       Future<Void> future = submitToExecutor(callable);
@@ -281,7 +281,7 @@ public class JobExecutorService {
         resultPersistenceStrategy,
         authorizationPolicy,
         payloadSerializer,
-        clock != null ? clock : Clock.systemUTC());
+        effective());
   }
 
   private JobTimeoutHandler.TimeoutHandles scheduleWatchdog(
@@ -313,6 +313,10 @@ public class JobExecutorService {
         throw e;
       }
     }
+  }
+
+  private Clock effective() {
+    return clock != null ? clock : Clock.systemUTC();
   }
 
   private final class TrackingFutureTask extends FutureTask<Void> {

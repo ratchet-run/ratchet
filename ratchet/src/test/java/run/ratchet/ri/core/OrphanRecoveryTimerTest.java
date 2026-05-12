@@ -11,7 +11,9 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -29,6 +31,9 @@ import run.ratchet.store.spi.NodeStore;
 @ExtendWith(MockitoExtension.class)
 class OrphanRecoveryTimerTest {
 
+  private static final Instant FIXED_NOW = Instant.parse("2026-05-12T12:00:00Z");
+  private static final Clock FIXED_CLOCK = Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
+
   @Mock private JobBulkStore jobBulkStore;
   @Mock private NodeStore nodeStore;
   @Mock private ResourcePermitService resourcePermitService;
@@ -37,7 +42,9 @@ class OrphanRecoveryTimerTest {
 
   @BeforeEach
   void setUp() {
-    timer = new OrphanRecoveryTimer(jobBulkStore, nodeStore, resourcePermitService);
+    timer =
+        new OrphanRecoveryTimer(
+            jobBulkStore, nodeStore, resourcePermitService, null, 60, FIXED_CLOCK);
   }
 
   @Test
@@ -68,9 +75,11 @@ class OrphanRecoveryTimerTest {
 
     timer.recoverOrphans();
 
+    Instant cutoff = FIXED_NOW.minusSeconds(60);
+    verify(nodeStore).findInactiveNodesSince(cutoff);
     InOrder order = inOrder(resourcePermitService, nodeStore);
     order.verify(resourcePermitService).cleanupOrphanedPermits(List.of("node-1"));
-    order.verify(nodeStore).deleteInactiveNodesSince(any(Instant.class));
+    order.verify(nodeStore).deleteInactiveNodesSince(cutoff);
   }
 
   @Test

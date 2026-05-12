@@ -1,9 +1,12 @@
 package run.ratchet.ri.resilience;
 
-import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -13,12 +16,17 @@ import org.junit.jupiter.api.Test;
 
 class CircuitBreakerTest {
 
+  private static final Instant FIXED_NOW = Instant.parse("2026-05-12T12:00:00Z");
+
+  private MutableClock clock;
   private CircuitBreaker breaker;
 
   @BeforeEach
   void setUp() {
+    clock = new MutableClock(FIXED_NOW);
     breaker =
-        new CircuitBreaker("test-service", new CircuitBreakerConfiguration(50.0f, 4, 100L, 2, 2));
+        new CircuitBreaker(
+            "test-service", new CircuitBreakerConfiguration(50.0f, 4, 100L, 2, 2), clock);
   }
 
   @Test
@@ -83,17 +91,15 @@ class CircuitBreakerTest {
     breaker.transitionToOpen();
     assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
 
-    await()
-        .atMost(Duration.ofSeconds(1))
-        .untilAsserted(() -> assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState()));
+    clock.advance(Duration.ofMillis(100));
+    assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
   }
 
   @Test
   void halfOpenSuccessTransitionsToClosed() throws Exception {
     breaker.transitionToOpen();
-    await()
-        .atMost(Duration.ofSeconds(1))
-        .untilAsserted(() -> assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState()));
+    clock.advance(Duration.ofMillis(100));
+    assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
 
     breaker.execute(() -> "ok1");
     assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
@@ -105,9 +111,8 @@ class CircuitBreakerTest {
   @Test
   void halfOpenExhaustionRejectsExtraConcurrentTrialCalls() throws Exception {
     breaker.transitionToOpen();
-    await()
-        .atMost(Duration.ofSeconds(1))
-        .untilAsserted(() -> assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState()));
+    clock.advance(Duration.ofMillis(100));
+    assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
 
     CountDownLatch started = new CountDownLatch(2);
     CountDownLatch release = new CountDownLatch(1);
@@ -134,9 +139,8 @@ class CircuitBreakerTest {
   @Test
   void halfOpenSuccessTransitionsToClosedAndResetsSlidingWindow() throws Exception {
     breaker.transitionToOpen();
-    await()
-        .atMost(Duration.ofSeconds(1))
-        .untilAsserted(() -> assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState()));
+    clock.advance(Duration.ofMillis(100));
+    assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
 
     breaker.execute(() -> "ok1");
     breaker.execute(() -> "ok2");
@@ -158,9 +162,8 @@ class CircuitBreakerTest {
   @Test
   void halfOpenFailureTransitionsBackToOpen() {
     breaker.transitionToOpen();
-    await()
-        .atMost(Duration.ofSeconds(1))
-        .untilAsserted(() -> assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState()));
+    clock.advance(Duration.ofMillis(100));
+    assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
 
     assertThrows(
         RuntimeException.class,
@@ -176,9 +179,8 @@ class CircuitBreakerTest {
   @Test
   void halfOpenFailureAfterPartialSuccessTransitionsBackToOpen() throws Exception {
     breaker.transitionToOpen();
-    await()
-        .atMost(Duration.ofSeconds(1))
-        .untilAsserted(() -> assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState()));
+    clock.advance(Duration.ofMillis(100));
+    assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
 
     breaker.execute(() -> "ok");
     assertEquals(CircuitBreaker.State.HALF_OPEN, breaker.getState());
@@ -237,5 +239,33 @@ class CircuitBreakerTest {
           release.await();
           return "ok";
         });
+  }
+
+  private static final class MutableClock extends Clock {
+
+    private Instant instant;
+
+    private MutableClock(Instant instant) {
+      this.instant = instant;
+    }
+
+    private void advance(Duration duration) {
+      instant = instant.plus(duration);
+    }
+
+    @Override
+    public ZoneId getZone() {
+      return ZoneOffset.UTC;
+    }
+
+    @Override
+    public Clock withZone(ZoneId zone) {
+      return Clock.fixed(instant, zone);
+    }
+
+    @Override
+    public Instant instant() {
+      return instant;
+    }
   }
 }

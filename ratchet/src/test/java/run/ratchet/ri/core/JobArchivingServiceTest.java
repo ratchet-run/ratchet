@@ -13,10 +13,15 @@ import static org.mockito.Mockito.when;
 import com.cronutils.model.Cron;
 import com.cronutils.model.CronType;
 import com.cronutils.model.definition.CronDefinitionBuilder;
+import com.cronutils.model.time.ExecutionTime;
 import com.cronutils.parser.CronParser;
 import java.lang.reflect.Modifier;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -43,6 +48,8 @@ class JobArchivingServiceTest {
 
   private static final CronParser CRON_PARSER =
       new CronParser(CronDefinitionBuilder.instanceDefinitionFor(CronType.QUARTZ));
+  private static final Instant FIXED_NOW = Instant.parse("2026-05-12T12:00:00Z");
+  private static final Clock FIXED_CLOCK = Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
 
   // Fires once a day — a valid Quartz cron used to satisfy init() without real scheduling
   private static final String DAILY_CRON = "0 0 2 * * ?";
@@ -75,7 +82,7 @@ class JobArchivingServiceTest {
   void setUp() {
     service =
         new JobArchivingService(
-            jobBulkStore, archiveStore, singletonLeaseService, executorProvider);
+            jobBulkStore, archiveStore, singletonLeaseService, executorProvider, FIXED_CLOCK);
 
     lenient().when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
     lenient()
@@ -329,10 +336,42 @@ class JobArchivingServiceTest {
     verify(archiveStore).purgeArchivedJobs(cutoffCaptor.capture());
 
     Instant cutoff = cutoffCaptor.getValue();
-    Instant expectedMin = Instant.now().minus(Duration.ofDays((long) retentionDays * 3 + 1));
-    Instant expectedMax = Instant.now().minus(Duration.ofDays((long) retentionDays * 3 - 1));
+    Instant expected = FIXED_NOW.minus(Duration.ofDays((long) retentionDays * 3));
 
-    Assertions.assertTrue(cutoff.isAfter(expectedMin) && cutoff.isBefore(expectedMax));
+    Assertions.assertEquals(expected, cutoff);
+  }
+
+  @Test
+  void runUsesFixedClockForArchiveCutoff() {
+    int retentionDays = 7;
+    int batchSize = 50;
+    service.init(true, retentionDays, batchSize, parsedCron());
+
+    when(singletonLeaseService.tryAcquire(anyString(), any(Duration.class)))
+        .thenReturn(acquiredLease());
+    when(archiveStore.countJobsForArchiving(any())).thenReturn(0L);
+
+    service.run();
+
+    verify(archiveStore).countJobsForArchiving(FIXED_NOW.minus(Duration.ofDays(retentionDays)));
+  }
+
+  @Test
+  void initSchedulesNextExecutionFromFixedClock() {
+    Cron cron = parsedCron();
+
+    service.init(true, 7, 100, cron);
+
+    Instant next =
+        ExecutionTime.forCron(cron)
+            .nextExecution(FIXED_NOW.atZone(ZoneId.systemDefault()))
+            .map(ZonedDateTime::toInstant)
+            .orElseThrow();
+    verify(scheduledExecutor)
+        .schedule(
+            any(Runnable.class),
+            eq(Duration.between(FIXED_NOW, next).toMillis()),
+            eq(TimeUnit.MILLISECONDS));
   }
 
   @Test

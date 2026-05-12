@@ -1,5 +1,6 @@
 package run.ratchet.ri.core;
 
+import java.time.Clock;
 import org.jboss.logging.Logger;
 import run.ratchet.store.spi.JobCrudStore;
 
@@ -17,6 +18,7 @@ public class DynamicHeartbeatCalculator {
   private final long baseHeartbeatIntervalSeconds;
   private final long pollerMinDelayMs;
   private final long pollerMaxDelayMs;
+  private final Clock clock;
   private final Object cacheRefreshLock = new Object();
 
   private volatile long cachedNodes;
@@ -28,6 +30,7 @@ public class DynamicHeartbeatCalculator {
     this.baseHeartbeatIntervalSeconds = 0;
     this.pollerMinDelayMs = 0;
     this.pollerMaxDelayMs = 0;
+    this.clock = null;
   }
 
   public DynamicHeartbeatCalculator(
@@ -35,10 +38,25 @@ public class DynamicHeartbeatCalculator {
       long baseHeartbeatIntervalSeconds,
       long pollerMinDelayMs,
       long pollerMaxDelayMs) {
+    this(
+        jobCrudStore,
+        baseHeartbeatIntervalSeconds,
+        pollerMinDelayMs,
+        pollerMaxDelayMs,
+        Clock.systemUTC());
+  }
+
+  public DynamicHeartbeatCalculator(
+      JobCrudStore jobCrudStore,
+      long baseHeartbeatIntervalSeconds,
+      long pollerMinDelayMs,
+      long pollerMaxDelayMs,
+      Clock clock) {
     this.jobCrudStore = jobCrudStore;
     this.baseHeartbeatIntervalSeconds = baseHeartbeatIntervalSeconds;
     this.pollerMinDelayMs = pollerMinDelayMs;
     this.pollerMaxDelayMs = pollerMaxDelayMs;
+    this.clock = clock;
   }
 
   /**
@@ -91,10 +109,10 @@ public class DynamicHeartbeatCalculator {
   }
 
   private CacheSnapshot refreshCacheIfStale() {
-    long now = System.currentTimeMillis();
+    long now = effective().millis();
     synchronized (cacheRefreshLock) {
       if (now - cacheTimestamp > CACHE_TTL_MS) {
-        long refreshedAt = System.currentTimeMillis();
+        long refreshedAt = effective().millis();
         if (refreshedAt - cacheTimestamp > CACHE_TTL_MS) {
           cachedNodes = jobCrudStore.countActiveNodes();
           cachedPending = jobCrudStore.countPendingJobs();
@@ -129,6 +147,10 @@ public class DynamicHeartbeatCalculator {
     } else {
       return (long) (baseInterval * 0.6);
     }
+  }
+
+  private Clock effective() {
+    return clock != null ? clock : Clock.systemUTC();
   }
 
   private record CacheSnapshot(long activeNodes, long pendingJobs) {}

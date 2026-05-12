@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 import java.lang.reflect.Method;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
@@ -30,6 +31,8 @@ import run.ratchet.spi.ExecutorProvider;
 class JobExecutorServiceTest {
 
   private static final UUID JOB_ID = new UUID(0L, 55L);
+  private static final Instant FIXED_NOW = Instant.parse("2026-05-12T12:00:00Z");
+  private static final Clock FIXED_CLOCK = Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
 
   @Mock private ThreadPoolManager threadPoolManager;
   @Mock private JobTimeoutHandler timeoutHandler;
@@ -64,7 +67,7 @@ class JobExecutorServiceTest {
             null,
             null,
             null,
-            Clock.systemUTC());
+            FIXED_CLOCK);
   }
 
   @Test
@@ -89,6 +92,9 @@ class JobExecutorServiceTest {
     assertTrue(result.future().isDone());
     verify(softTimeout).cancel(false);
     verify(hardTimeout).cancel(false);
+    verify(timeoutHandler)
+        .scheduleTimeoutMonitoring(
+            eq(JOB_ID), anyInt(), any(Future.class), eq(scheduledExecutor), eq(FIXED_NOW));
   }
 
   @Test

@@ -8,6 +8,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -37,6 +40,9 @@ import run.ratchet.store.spi.JobTerminalStore;
 @ExtendWith(MockitoExtension.class)
 class BatchServiceTest {
 
+  private static final Instant FIXED_NOW = Instant.parse("2026-05-12T12:00:00Z");
+  private static final Clock FIXED_CLOCK = Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
+
   @Mock private BatchStore batchStore;
   @Mock private JobCrudStore jobCrudStore;
   @Mock private JobBatchStatusStore jobBatchStatusStore;
@@ -63,7 +69,8 @@ class BatchServiceTest {
             eventPublisher,
             workflowScheduler,
             classPolicy,
-            beanResolver);
+            beanResolver,
+            FIXED_CLOCK);
   }
 
   @Test
@@ -103,6 +110,7 @@ class BatchServiceTest {
     assertEquals(3, completingEvent.getCompletedItems());
     assertEquals(0, completingEvent.getFailedItems());
     verify(batchStore, never()).findBatchById(parentId);
+    verify(jobTerminalStore).markJobSucceededMinimal(parentId, FIXED_NOW, FIXED_NOW, 0L, 0L);
   }
 
   @Test

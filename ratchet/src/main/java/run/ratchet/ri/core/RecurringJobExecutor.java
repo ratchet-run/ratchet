@@ -5,6 +5,7 @@ import com.cronutils.model.time.ExecutionTime;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -39,6 +40,7 @@ public class RecurringJobExecutor {
   private final JobTerminalStore jobTerminalStore;
   private final RecurringRegistrationState registrationState;
   private final NodeTagAffinityProvider tagAffinityProvider;
+  private final Clock clock;
 
   protected RecurringJobExecutor() {
     this.jobCrudStore = null;
@@ -47,6 +49,24 @@ public class RecurringJobExecutor {
     this.jobTerminalStore = null;
     this.registrationState = null;
     this.tagAffinityProvider = null;
+    this.clock = null;
+  }
+
+  public RecurringJobExecutor(
+      JobCrudStore jobCrudStore,
+      JobBulkStore jobBulkStore,
+      JobClaimStore jobClaimStore,
+      JobTerminalStore jobTerminalStore,
+      RecurringRegistrationState registrationState,
+      NodeTagAffinityProvider tagAffinityProvider) {
+    this(
+        jobCrudStore,
+        jobBulkStore,
+        jobClaimStore,
+        jobTerminalStore,
+        registrationState,
+        tagAffinityProvider,
+        Clock.systemUTC());
   }
 
   @Inject
@@ -56,13 +76,15 @@ public class RecurringJobExecutor {
       JobClaimStore jobClaimStore,
       JobTerminalStore jobTerminalStore,
       RecurringRegistrationState registrationState,
-      NodeTagAffinityProvider tagAffinityProvider) {
+      NodeTagAffinityProvider tagAffinityProvider,
+      Clock clock) {
     this.jobCrudStore = jobCrudStore;
     this.jobBulkStore = jobBulkStore;
     this.jobClaimStore = jobClaimStore;
     this.jobTerminalStore = jobTerminalStore;
     this.registrationState = registrationState;
     this.tagAffinityProvider = tagAffinityProvider;
+    this.clock = clock;
   }
 
   void enqueueChild(JobEntity master, Instant fireTs) {
@@ -80,7 +102,7 @@ public class RecurringJobExecutor {
     NodeTagFilter tagFilter =
         tagAffinityProvider != null ? tagAffinityProvider.tagFilter() : NodeTagFilter.NONE;
     List<JobEntity> masters = jobClaimStore.claimDueRecurring(batchLimit, nodeId, tagFilter);
-    Instant now = Instant.now();
+    Instant now = effective().instant();
     List<JobEntity> children = new ArrayList<>();
     int firedCount = 0;
     for (JobEntity master : masters) {
@@ -170,5 +192,9 @@ public class RecurringJobExecutor {
     child.setDependsOn(master.getId());
     child.setIdempotencyKey(UUID.randomUUID().toString());
     return child;
+  }
+
+  private Clock effective() {
+    return clock != null ? clock : Clock.systemUTC();
   }
 }

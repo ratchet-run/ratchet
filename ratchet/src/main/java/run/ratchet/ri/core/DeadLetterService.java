@@ -7,6 +7,7 @@ import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -49,6 +50,7 @@ public class DeadLetterService {
   private final DlqAlertStore dlqAlertStore;
   private final InternalEventPublisher eventPublisher;
   private final ErrorSanitizer errorSanitizer;
+  private final Clock clock;
 
   private Duration purgeAfter;
   private Cron cron;
@@ -65,6 +67,28 @@ public class DeadLetterService {
     this.dlqAlertStore = null;
     this.eventPublisher = null;
     this.errorSanitizer = null;
+    this.clock = null;
+  }
+
+  public DeadLetterService(
+      ExecutorProvider executorProvider,
+      JobCrudStore jobCrudStore,
+      JobBulkStore jobBulkStore,
+      JobTerminalStore jobTerminalStore,
+      SingletonLeaseService singletonLeaseService,
+      DlqAlertStore dlqAlertStore,
+      InternalEventPublisher eventPublisher,
+      ErrorSanitizer errorSanitizer) {
+    this(
+        executorProvider,
+        jobCrudStore,
+        jobBulkStore,
+        jobTerminalStore,
+        singletonLeaseService,
+        dlqAlertStore,
+        eventPublisher,
+        errorSanitizer,
+        Clock.systemUTC());
   }
 
   @Inject
@@ -76,7 +100,8 @@ public class DeadLetterService {
       SingletonLeaseService singletonLeaseService,
       DlqAlertStore dlqAlertStore,
       InternalEventPublisher eventPublisher,
-      ErrorSanitizer errorSanitizer) {
+      ErrorSanitizer errorSanitizer,
+      Clock clock) {
     this.executorProvider = executorProvider;
     this.jobCrudStore = jobCrudStore;
     this.jobBulkStore = jobBulkStore;
@@ -85,6 +110,7 @@ public class DeadLetterService {
     this.dlqAlertStore = dlqAlertStore;
     this.eventPublisher = eventPublisher;
     this.errorSanitizer = errorSanitizer;
+    this.clock = clock;
   }
 
   public void moveToDlq(JobEntity job, Throwable cause) {
@@ -131,7 +157,7 @@ public class DeadLetterService {
       }
 
       try (SingletonLease ignored = lease.get()) {
-        Instant cutoff = Instant.now().minus(purgeAfter);
+        Instant cutoff = effective().instant().minus(purgeAfter);
         int deleted = jobBulkStore.deleteDlqOlderThan(cutoff);
         if (deleted > 0) {
           log.infof("Purged %s DLQ rows older than %s", deleted, cutoff);
@@ -145,7 +171,8 @@ public class DeadLetterService {
   private void recordDlqAlert(JobEntity job, Throwable cause) {
     try {
       String errorHash = hashError(cause);
-      Instant cutoff = Instant.now().minus(ALERT_DEDUP_WINDOW);
+      Instant now = effective().instant();
+      Instant cutoff = now.minus(ALERT_DEDUP_WINDOW);
 
       if (dlqAlertStore.existsRecentDlqAlert(job.getId(), errorHash, cutoff)) {
         log.debugf("DLQ alert suppressed for job %s (duplicate within window)", job.getId());
@@ -155,7 +182,7 @@ public class DeadLetterService {
       DlqAlertEntity alert = new DlqAlertEntity();
       alert.setJobId(job.getId());
       alert.setErrorHash(errorHash);
-      alert.setAlertSentAt(Instant.now());
+      alert.setAlertSentAt(now);
       alert.setAlertChannel("system");
       dlqAlertStore.saveDlqAlert(alert);
     } catch (Exception e) {
@@ -177,7 +204,7 @@ public class DeadLetterService {
     if (stopped) {
       return;
     }
-    Instant now = Instant.now();
+    Instant now = effective().instant();
     Optional<Instant> next =
         ExecutionTime.forCron(cron).nextExecution(now.atZone(zone)).map(ZonedDateTime::toInstant);
 
@@ -187,5 +214,9 @@ public class DeadLetterService {
                 .getScheduledExecutor()
                 .schedule(
                     this::run, Duration.between(now, instant).toMillis(), TimeUnit.MILLISECONDS));
+  }
+
+  private Clock effective() {
+    return clock != null ? clock : Clock.systemUTC();
   }
 }

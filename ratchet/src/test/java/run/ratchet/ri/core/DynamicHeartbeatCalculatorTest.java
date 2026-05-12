@@ -7,7 +7,11 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import java.lang.reflect.Field;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -21,16 +25,19 @@ class DynamicHeartbeatCalculatorTest {
   private static final long BASE_HEARTBEAT_SECONDS = 30;
   private static final long POLLER_MIN_DELAY_MS = 500;
   private static final long POLLER_MAX_DELAY_MS = 10_000;
+  private static final Instant FIXED_NOW = Instant.parse("2026-05-12T12:00:00Z");
 
   @Mock private JobCrudStore jobCrudStore;
 
+  private MutableClock clock;
   private DynamicHeartbeatCalculator calculator;
 
   @BeforeEach
   void setUp() {
+    clock = new MutableClock(FIXED_NOW);
     calculator =
         new DynamicHeartbeatCalculator(
-            jobCrudStore, BASE_HEARTBEAT_SECONDS, POLLER_MIN_DELAY_MS, POLLER_MAX_DELAY_MS);
+            jobCrudStore, BASE_HEARTBEAT_SECONDS, POLLER_MIN_DELAY_MS, POLLER_MAX_DELAY_MS, clock);
   }
 
   @Test
@@ -148,12 +155,12 @@ class DynamicHeartbeatCalculatorTest {
   }
 
   @Test
-  void cacheTTL_afterWindow_refreshesStoreCounts() throws Exception {
+  void cacheTTL_afterWindow_refreshesStoreCounts() {
     when(jobCrudStore.countActiveNodes()).thenReturn(1L, 8L);
     when(jobCrudStore.countPendingJobs()).thenReturn(0L, 300L);
 
     assertEquals(54, calculator.calculateHeartbeatInterval());
-    expireCache(calculator);
+    clock.advance(Duration.ofMillis(5001));
 
     assertEquals(9, calculator.calculateHeartbeatInterval());
     verify(jobCrudStore, times(2)).countActiveNodes();
@@ -183,13 +190,39 @@ class DynamicHeartbeatCalculatorTest {
     when(store.countActiveNodes()).thenReturn(activeNodes);
     when(store.countPendingJobs()).thenReturn(pendingJobs);
     return new DynamicHeartbeatCalculator(
-            store, BASE_HEARTBEAT_SECONDS, POLLER_MIN_DELAY_MS, POLLER_MAX_DELAY_MS)
+            store,
+            BASE_HEARTBEAT_SECONDS,
+            POLLER_MIN_DELAY_MS,
+            POLLER_MAX_DELAY_MS,
+            Clock.fixed(FIXED_NOW, ZoneOffset.UTC))
         .calculateHeartbeatInterval();
   }
 
-  private static void expireCache(DynamicHeartbeatCalculator calculator) throws Exception {
-    Field cacheTimestamp = DynamicHeartbeatCalculator.class.getDeclaredField("cacheTimestamp");
-    cacheTimestamp.setAccessible(true);
-    cacheTimestamp.setLong(calculator, System.currentTimeMillis() - 6000);
+  private static final class MutableClock extends Clock {
+
+    private Instant instant;
+
+    private MutableClock(Instant instant) {
+      this.instant = instant;
+    }
+
+    private void advance(Duration duration) {
+      instant = instant.plus(duration);
+    }
+
+    @Override
+    public ZoneId getZone() {
+      return ZoneOffset.UTC;
+    }
+
+    @Override
+    public Clock withZone(ZoneId zone) {
+      return Clock.fixed(instant, zone);
+    }
+
+    @Override
+    public Instant instant() {
+      return instant;
+    }
   }
 }

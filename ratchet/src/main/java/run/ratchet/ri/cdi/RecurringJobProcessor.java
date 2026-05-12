@@ -12,6 +12,7 @@ import jakarta.enterprise.inject.spi.Bean;
 import jakarta.enterprise.inject.spi.BeanManager;
 import jakarta.inject.Inject;
 import jakarta.interceptor.Interceptor;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -68,6 +69,7 @@ public class RecurringJobProcessor {
   private final RecurringRegistrationState registrationState;
   private final RatchetOptions options;
   private final Set<Class<?>> discoveredRecurringBeanClasses;
+  private final Clock clock;
 
   protected RecurringJobProcessor() {
     this.schedulerService = null;
@@ -79,9 +81,9 @@ public class RecurringJobProcessor {
     this.registrationState = null;
     this.options = null;
     this.discoveredRecurringBeanClasses = Set.of();
+    this.clock = null;
   }
 
-  @Inject
   public RecurringJobProcessor(
       JobSchedulerService schedulerService,
       JobBatchStatusStore jobBatchStatusStore,
@@ -100,7 +102,31 @@ public class RecurringJobProcessor {
         startupCoordinator,
         registrationState,
         options,
-        RecurringMethodDiscoveryExtension.recurringBeanClasses());
+        Clock.systemUTC());
+  }
+
+  @Inject
+  public RecurringJobProcessor(
+      JobSchedulerService schedulerService,
+      JobBatchStatusStore jobBatchStatusStore,
+      RecurringAnnotationMaintenanceService recurringAnnotationMaintenanceService,
+      BeanManager beanManager,
+      RecurringMethodInvoker methodInvoker,
+      StartupCoordinator startupCoordinator,
+      RecurringRegistrationState registrationState,
+      RatchetOptions options,
+      Clock clock) {
+    this(
+        schedulerService,
+        jobBatchStatusStore,
+        recurringAnnotationMaintenanceService,
+        beanManager,
+        methodInvoker,
+        startupCoordinator,
+        registrationState,
+        options,
+        RecurringMethodDiscoveryExtension.recurringBeanClasses(),
+        clock);
   }
 
   RecurringJobProcessor(
@@ -113,6 +139,30 @@ public class RecurringJobProcessor {
       RecurringRegistrationState registrationState,
       RatchetOptions options,
       Set<Class<?>> discoveredRecurringBeanClasses) {
+    this(
+        schedulerService,
+        jobBatchStatusStore,
+        recurringAnnotationMaintenanceService,
+        beanManager,
+        methodInvoker,
+        startupCoordinator,
+        registrationState,
+        options,
+        discoveredRecurringBeanClasses,
+        Clock.systemUTC());
+  }
+
+  RecurringJobProcessor(
+      JobSchedulerService schedulerService,
+      JobBatchStatusStore jobBatchStatusStore,
+      RecurringAnnotationMaintenanceService recurringAnnotationMaintenanceService,
+      BeanManager beanManager,
+      RecurringMethodInvoker methodInvoker,
+      StartupCoordinator startupCoordinator,
+      RecurringRegistrationState registrationState,
+      RatchetOptions options,
+      Set<Class<?>> discoveredRecurringBeanClasses,
+      Clock clock) {
     this.schedulerService = schedulerService;
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.recurringAnnotationMaintenanceService = recurringAnnotationMaintenanceService;
@@ -122,6 +172,7 @@ public class RecurringJobProcessor {
     this.registrationState = registrationState;
     this.options = options;
     this.discoveredRecurringBeanClasses = Set.copyOf(discoveredRecurringBeanClasses);
+    this.clock = clock;
   }
 
   public RecurringJobProcessor(
@@ -149,7 +200,7 @@ public class RecurringJobProcessor {
   }
 
   void registerRecurringJobs() {
-    Instant startTime = Instant.now();
+    Instant startTime = effective().instant();
     log.info("Starting registration of @Recurring annotated jobs");
 
     List<RecurringMethodRegistration> registrations = discoverRecurringMethods();
@@ -370,6 +421,10 @@ public class RecurringJobProcessor {
     registeredJobIds.put(jobId, String.valueOf(handle.id()));
 
     log.infof("Registered recurring job: %s with cron: %s", jobId, annotation.cron());
+  }
+
+  private Clock effective() {
+    return clock != null ? clock : Clock.systemUTC();
   }
 
   private record RecurringMethodRegistration(

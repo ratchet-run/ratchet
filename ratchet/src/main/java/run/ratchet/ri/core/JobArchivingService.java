@@ -6,6 +6,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.transaction.Transactional.TxType;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -45,6 +46,7 @@ public class JobArchivingService {
   private final ArchiveStore archiveStore;
   private final SingletonLeaseService singletonLeaseService;
   private final ExecutorProvider executorProvider;
+  private final Clock clock;
 
   private volatile Duration retentionPeriod;
   private volatile int batchSize;
@@ -59,6 +61,15 @@ public class JobArchivingService {
     this.archiveStore = null;
     this.singletonLeaseService = null;
     this.executorProvider = null;
+    this.clock = null;
+  }
+
+  public JobArchivingService(
+      JobBulkStore jobBulkStore,
+      ArchiveStore archiveStore,
+      SingletonLeaseService singletonLeaseService,
+      ExecutorProvider executorProvider) {
+    this(jobBulkStore, archiveStore, singletonLeaseService, executorProvider, Clock.systemUTC());
   }
 
   @Inject
@@ -66,11 +77,13 @@ public class JobArchivingService {
       JobBulkStore jobBulkStore,
       ArchiveStore archiveStore,
       SingletonLeaseService singletonLeaseService,
-      ExecutorProvider executorProvider) {
+      ExecutorProvider executorProvider,
+      Clock clock) {
     this.jobBulkStore = jobBulkStore;
     this.archiveStore = archiveStore;
     this.singletonLeaseService = singletonLeaseService;
     this.executorProvider = executorProvider;
+    this.clock = clock;
   }
 
   /**
@@ -159,7 +172,7 @@ public class JobArchivingService {
 
   private void performArchiveCleanup() {
     Duration archiveRetention = retentionPeriod.multipliedBy(3);
-    Instant archiveCutoff = Instant.now().minus(archiveRetention);
+    Instant archiveCutoff = effective().instant().minus(archiveRetention);
 
     try {
       int purged = archiveStore.purgeArchivedJobs(archiveCutoff);
@@ -172,7 +185,7 @@ public class JobArchivingService {
   }
 
   private void performArchiving() {
-    Instant cutoffTime = Instant.now().minus(retentionPeriod);
+    Instant cutoffTime = effective().instant().minus(retentionPeriod);
 
     log.infof("Starting job archiving for jobs older than %s", cutoffTime);
 
@@ -235,7 +248,7 @@ public class JobArchivingService {
       return;
     }
 
-    Instant now = Instant.now();
+    Instant now = effective().instant();
     Optional<Instant> next =
         ExecutionTime.forCron(cron).nextExecution(now.atZone(zone)).map(ZonedDateTime::toInstant);
 
@@ -245,5 +258,9 @@ public class JobArchivingService {
                 .getScheduledExecutor()
                 .schedule(
                     this::run, Duration.between(now, instant).toMillis(), TimeUnit.MILLISECONDS));
+  }
+
+  private Clock effective() {
+    return clock != null ? clock : Clock.systemUTC();
   }
 }

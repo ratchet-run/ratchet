@@ -1,5 +1,6 @@
 package run.ratchet.ri.resilience;
 
+import java.time.Clock;
 import java.util.Arrays;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicReference;
@@ -32,6 +33,7 @@ public class CircuitBreaker {
 
   private final String name;
   private final CircuitBreakerConfiguration config;
+  private final Clock clock;
   private final AtomicReference<State> state = new AtomicReference<>(State.CLOSED);
   private final ReentrantLock lock = new ReentrantLock();
   // Sliding window: ring buffer of outcomes (1 = success, 0 = failure, -1 = uninitialized)
@@ -46,8 +48,13 @@ public class CircuitBreaker {
   private volatile long openedAtMs;
 
   public CircuitBreaker(String name, CircuitBreakerConfiguration config) {
+    this(name, config, Clock.systemUTC());
+  }
+
+  public CircuitBreaker(String name, CircuitBreakerConfiguration config, Clock clock) {
     this.name = name;
     this.config = config;
+    this.clock = clock != null ? clock : Clock.systemUTC();
     this.window = new int[config.slidingWindowSize()];
     Arrays.fill(this.window, UNINITIALIZED);
   }
@@ -59,8 +66,7 @@ public class CircuitBreaker {
   public State getState() {
     State current = state.get();
     // Auto-transition from OPEN to HALF_OPEN if wait duration has elapsed
-    if (current == State.OPEN
-        && System.currentTimeMillis() - openedAtMs >= config.waitDurationMs()) {
+    if (current == State.OPEN && clock.millis() - openedAtMs >= config.waitDurationMs()) {
       lock.lock();
       try {
         if (state.compareAndSet(State.OPEN, State.HALF_OPEN)) {
@@ -107,7 +113,7 @@ public class CircuitBreaker {
       // Write openedAtMs BEFORE the CAS so any thread that sees state==OPEN via getState()
       // also sees a valid timestamp. The lock prevents a concurrent reset() from clearing
       // openedAtMs between the write and the CAS.
-      openedAtMs = System.currentTimeMillis();
+      openedAtMs = clock.millis();
       state.compareAndSet(current, State.OPEN);
     } finally {
       lock.unlock();

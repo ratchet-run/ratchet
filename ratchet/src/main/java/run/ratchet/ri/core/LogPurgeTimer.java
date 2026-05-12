@@ -4,6 +4,7 @@ import com.cronutils.model.Cron;
 import com.cronutils.model.time.ExecutionTime;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -29,6 +30,7 @@ public class LogPurgeTimer {
   private final JobLogStore jobLogStore;
   private final SingletonLeaseService singletonLeaseService;
   private final ExecutorProvider executorProvider;
+  private final Clock clock;
 
   private Duration retentionPeriod;
   private Cron cron;
@@ -39,16 +41,26 @@ public class LogPurgeTimer {
     this.jobLogStore = null;
     this.singletonLeaseService = null;
     this.executorProvider = null;
+    this.clock = null;
+  }
+
+  public LogPurgeTimer(
+      JobLogStore jobLogStore,
+      SingletonLeaseService singletonLeaseService,
+      ExecutorProvider executorProvider) {
+    this(jobLogStore, singletonLeaseService, executorProvider, Clock.systemUTC());
   }
 
   @Inject
   public LogPurgeTimer(
       JobLogStore jobLogStore,
       SingletonLeaseService singletonLeaseService,
-      ExecutorProvider executorProvider) {
+      ExecutorProvider executorProvider,
+      Clock clock) {
     this.jobLogStore = jobLogStore;
     this.singletonLeaseService = singletonLeaseService;
     this.executorProvider = executorProvider;
+    this.clock = clock;
   }
 
   public void init(long retentionDays, Cron cronExpression) {
@@ -92,7 +104,7 @@ public class LogPurgeTimer {
       }
 
       try (SingletonLease ignored = lease.get()) {
-        Instant cutoff = Instant.now().minus(retentionPeriod);
+        Instant cutoff = effective().instant().minus(retentionPeriod);
         int deleted = jobLogStore.purgeLogsOlderThan(cutoff);
         if (deleted > 0) {
           log.infof("Purged %s log rows older than %s", deleted, cutoff);
@@ -108,7 +120,7 @@ public class LogPurgeTimer {
       return;
     }
 
-    Instant now = Instant.now();
+    Instant now = effective().instant();
     Optional<Instant> next =
         ExecutionTime.forCron(cron).nextExecution(now.atZone(zone)).map(ZonedDateTime::toInstant);
 
@@ -118,5 +130,9 @@ public class LogPurgeTimer {
                 .getScheduledExecutor()
                 .schedule(
                     this::run, Duration.between(now, instant).toMillis(), TimeUnit.MILLISECONDS));
+  }
+
+  private Clock effective() {
+    return clock != null ? clock : Clock.systemUTC();
   }
 }

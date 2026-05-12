@@ -12,6 +12,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -33,6 +36,9 @@ import run.ratchet.store.spi.WorkflowConditionStore;
 
 @ExtendWith(MockitoExtension.class)
 class WorkflowSchedulerTest {
+
+  private static final Instant FIXED_NOW = Instant.parse("2026-05-12T12:00:00Z");
+  private static final Clock FIXED_CLOCK = Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
 
   @Mock private JobCrudStore jobCrudStore;
   @Mock private JobBatchStatusStore jobBatchStatusStore;
@@ -67,7 +73,8 @@ class WorkflowSchedulerTest {
             jobBatchStatusStore,
             jobTerminalStore,
             conditionStore,
-            conditionEvaluator);
+            conditionEvaluator,
+            FIXED_CLOCK);
     lenient()
         .when(jobCrudStore.findByIds(anyList()))
         .thenAnswer(
@@ -98,7 +105,7 @@ class WorkflowSchedulerTest {
     verify(jobCrudStore).save(child);
     assertEquals(JobStatus.WAITING, child.getStatus());
     assertEquals(JobExecutionType.WORKFLOW_BRANCH, child.getJobType());
-    assertNotNull(child.getScheduledTime());
+    assertEquals(FIXED_NOW, child.getScheduledTime());
   }
 
   @Test
@@ -158,7 +165,7 @@ class WorkflowSchedulerTest {
     verify(jobCrudStore).save(child);
     assertEquals(JobStatus.PENDING, child.getStatus());
     assertEquals(JobExecutionType.WORKFLOW_BRANCH, child.getJobType());
-    assertNotNull(child.getScheduledTime());
+    assertEquals(FIXED_NOW, child.getScheduledTime());
   }
 
   @Test

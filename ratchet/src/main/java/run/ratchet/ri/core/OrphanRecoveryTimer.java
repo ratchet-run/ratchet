@@ -1,5 +1,6 @@
 package run.ratchet.ri.core;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -34,6 +35,7 @@ public class OrphanRecoveryTimer {
   private final ResourcePermitService resourcePermitService;
   private final SingletonLeaseService singletonLeaseService;
   private final long orphanGraceSeconds;
+  private final Clock clock;
 
   private volatile ScheduledFuture<?> handle;
   private volatile Duration leaseTtl = Duration.ofMinutes(2);
@@ -44,6 +46,7 @@ public class OrphanRecoveryTimer {
     this.resourcePermitService = null;
     this.singletonLeaseService = null;
     this.orphanGraceSeconds = 0;
+    this.clock = null;
   }
 
   public OrphanRecoveryTimer(
@@ -65,12 +68,29 @@ public class OrphanRecoveryTimer {
       ResourcePermitService resourcePermitService,
       SingletonLeaseService singletonLeaseService,
       long orphanGraceSeconds) {
+    this(
+        jobBulkStore,
+        nodeStore,
+        resourcePermitService,
+        singletonLeaseService,
+        orphanGraceSeconds,
+        Clock.systemUTC());
+  }
+
+  public OrphanRecoveryTimer(
+      JobBulkStore jobBulkStore,
+      NodeStore nodeStore,
+      ResourcePermitService resourcePermitService,
+      SingletonLeaseService singletonLeaseService,
+      long orphanGraceSeconds,
+      Clock clock) {
     this.jobBulkStore = Objects.requireNonNull(jobBulkStore, "jobBulkStore must not be null");
     this.nodeStore = Objects.requireNonNull(nodeStore, "nodeStore must not be null");
     this.resourcePermitService =
         Objects.requireNonNull(resourcePermitService, "resourcePermitService must not be null");
     this.singletonLeaseService = singletonLeaseService;
     this.orphanGraceSeconds = orphanGraceSeconds;
+    this.clock = clock;
   }
 
   public synchronized void start(ScheduledExecutorService executor, long intervalMinutes) {
@@ -122,7 +142,7 @@ public class OrphanRecoveryTimer {
 
     int resetJobs = jobBulkStore.resetOrphanJobs(Duration.ofSeconds(orphanGraceSeconds));
 
-    Instant cutoff = Instant.now().minusSeconds(orphanGraceSeconds);
+    Instant cutoff = effective().instant().minusSeconds(orphanGraceSeconds);
     List<NodeEntity> staleNodes = nodeStore.findInactiveNodesSince(cutoff);
 
     int cleanedPermits = 0;
@@ -139,5 +159,9 @@ public class OrphanRecoveryTimer {
           "Orphan recovery: reset %s job(s), cleaned %s permit(s), removed %s stale node(s)",
           resetJobs, cleanedPermits, deletedNodes);
     }
+  }
+
+  private Clock effective() {
+    return clock != null ? clock : Clock.systemUTC();
   }
 }

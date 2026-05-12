@@ -8,13 +8,16 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobStatus;
@@ -31,6 +34,9 @@ import run.ratchet.store.spi.JobTerminalStore;
 // expires.
 @ExtendWith(MockitoExtension.class)
 class RecurringJobExecutorGraceTest {
+
+  private static final Instant FIXED_NOW = Instant.parse("2026-05-12T12:00:00Z");
+  private static final Clock FIXED_CLOCK = Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
 
   @Mock private JobCrudStore jobCrudStore;
   @Mock private JobBulkStore jobBulkStore;
@@ -50,7 +56,8 @@ class RecurringJobExecutorGraceTest {
             jobClaimStore,
             jobTerminalStore,
             state,
-            () -> NodeTagFilter.NONE);
+            () -> NodeTagFilter.NONE,
+            FIXED_CLOCK);
   }
 
   @Test
@@ -73,6 +80,7 @@ class RecurringJobExecutorGraceTest {
   }
 
   @Test
+  @SuppressWarnings("unchecked")
   void firesKnownMasterWithinGrace() {
     state.markRegistrationComplete(Set.of("known-key"));
 
@@ -83,7 +91,9 @@ class RecurringJobExecutorGraceTest {
 
     assertEquals(1, fired);
     // One child bulk insert, one save for the master next_fire update.
-    verify(jobBulkStore).bulkInsert(any());
+    ArgumentCaptor<List<JobEntity>> childrenCaptor = ArgumentCaptor.forClass(List.class);
+    verify(jobBulkStore).bulkInsert(childrenCaptor.capture());
+    assertEquals(FIXED_NOW, childrenCaptor.getValue().get(0).getScheduledTime());
     verify(jobCrudStore).save(any(JobEntity.class));
   }
 
@@ -101,7 +111,8 @@ class RecurringJobExecutorGraceTest {
             jobClaimStore,
             jobTerminalStore,
             state,
-            () -> NodeTagFilter.NONE);
+            () -> NodeTagFilter.NONE,
+            FIXED_CLOCK);
     state.markRegistrationComplete(Set.of("known-key"));
 
     JobEntity unknown = recurringMaster(99L, "unknown-key");
@@ -194,9 +205,9 @@ class RecurringJobExecutorGraceTest {
     master.setStatus(JobStatus.PENDING);
     master.setCronExpr("0 0 12 * * ?"); // noon daily
     master.setZoneId("UTC");
-    master.setNextFire(Instant.now().plusSeconds(60));
+    master.setNextFire(FIXED_NOW.plusSeconds(60));
     master.setPickedBy("node-A");
-    master.setPickedAt(Instant.now());
+    master.setPickedAt(FIXED_NOW);
     return master;
   }
 }

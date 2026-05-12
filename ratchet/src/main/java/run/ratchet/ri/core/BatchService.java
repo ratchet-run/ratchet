@@ -5,6 +5,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import java.lang.reflect.Method;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -54,6 +55,7 @@ public class BatchService {
   private final WorkflowScheduler workflowScheduler;
   private final ClassPolicy classPolicy;
   private final BeanResolver beanResolver;
+  private final Clock clock;
 
   protected BatchService() {
     this.batchStore = null;
@@ -66,6 +68,32 @@ public class BatchService {
     this.workflowScheduler = null;
     this.classPolicy = null;
     this.beanResolver = null;
+    this.clock = null;
+  }
+
+  public BatchService(
+      BatchStore batchStore,
+      JobCrudStore jobCrudStore,
+      JobBatchStatusStore jobBatchStatusStore,
+      JobTerminalStore jobTerminalStore,
+      BatchMetricsStore metricsStore,
+      MetricsCollector metricsCollector,
+      InternalEventPublisher eventPublisher,
+      WorkflowScheduler workflowScheduler,
+      ClassPolicy classPolicy,
+      BeanResolver beanResolver) {
+    this(
+        batchStore,
+        jobCrudStore,
+        jobBatchStatusStore,
+        jobTerminalStore,
+        metricsStore,
+        metricsCollector,
+        eventPublisher,
+        workflowScheduler,
+        classPolicy,
+        beanResolver,
+        Clock.systemUTC());
   }
 
   @Inject
@@ -79,7 +107,8 @@ public class BatchService {
       InternalEventPublisher eventPublisher,
       WorkflowScheduler workflowScheduler,
       ClassPolicy classPolicy,
-      BeanResolver beanResolver) {
+      BeanResolver beanResolver,
+      Clock clock) {
     this.batchStore = batchStore;
     this.jobCrudStore = jobCrudStore;
     this.jobBatchStatusStore = jobBatchStatusStore;
@@ -90,6 +119,7 @@ public class BatchService {
     this.workflowScheduler = workflowScheduler;
     this.classPolicy = classPolicy;
     this.beanResolver = beanResolver;
+    this.clock = clock;
   }
 
   @PreDestroy
@@ -229,7 +259,7 @@ public class BatchService {
     }
 
     boolean succeeded = batch.getFailedItems() == 0;
-    Instant nowTs = Instant.now();
+    Instant nowTs = effective().instant();
     if (succeeded) {
       jobTerminalStore.markJobSucceededMinimal(parentId, nowTs, nowTs, 0L, 0L);
       parent.setStatus(JobStatus.SUCCEEDED);
@@ -349,5 +379,9 @@ public class BatchService {
     batch.setFailedItems(progress.failedItems());
     batch.setProgressHook(progress.progressHook());
     return batch;
+  }
+
+  private Clock effective() {
+    return clock != null ? clock : Clock.systemUTC();
   }
 }

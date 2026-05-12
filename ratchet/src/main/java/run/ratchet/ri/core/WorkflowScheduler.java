@@ -3,7 +3,7 @@ package run.ratchet.ri.core;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
-import java.time.Instant;
+import java.time.Clock;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -39,6 +39,7 @@ public class WorkflowScheduler extends ChainScheduler {
   private final WorkflowConditionEvaluator conditionEvaluator;
   private final JobBatchStatusStore jobBatchStatusStore;
   private final JobTerminalStore jobTerminalStore;
+  private final Clock clock;
 
   protected WorkflowScheduler() {
     super();
@@ -46,6 +47,22 @@ public class WorkflowScheduler extends ChainScheduler {
     this.conditionEvaluator = null;
     this.jobBatchStatusStore = null;
     this.jobTerminalStore = null;
+    this.clock = null;
+  }
+
+  public WorkflowScheduler(
+      JobCrudStore jobCrudStore,
+      JobBatchStatusStore jobBatchStatusStore,
+      JobTerminalStore jobTerminalStore,
+      WorkflowConditionStore conditionStore,
+      WorkflowConditionEvaluator conditionEvaluator) {
+    this(
+        jobCrudStore,
+        jobBatchStatusStore,
+        jobTerminalStore,
+        conditionStore,
+        conditionEvaluator,
+        Clock.systemUTC());
   }
 
   @Inject
@@ -54,12 +71,14 @@ public class WorkflowScheduler extends ChainScheduler {
       JobBatchStatusStore jobBatchStatusStore,
       JobTerminalStore jobTerminalStore,
       WorkflowConditionStore conditionStore,
-      WorkflowConditionEvaluator conditionEvaluator) {
+      WorkflowConditionEvaluator conditionEvaluator,
+      Clock clock) {
     super(jobCrudStore);
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.jobTerminalStore = jobTerminalStore;
     this.conditionStore = conditionStore;
     this.conditionEvaluator = conditionEvaluator;
+    this.clock = clock;
   }
 
   /**
@@ -222,7 +241,7 @@ public class WorkflowScheduler extends ChainScheduler {
       return false;
     }
 
-    childJob.setScheduledTime(Instant.now());
+    childJob.setScheduledTime(effective().instant());
     childJob.setJobType(JobExecutionType.WORKFLOW_BRANCH);
     jobCrudStore.save(childJob);
     return true;
@@ -236,5 +255,9 @@ public class WorkflowScheduler extends ChainScheduler {
     }
     return jobCrudStore.findByIds(childIds).stream()
         .collect(Collectors.toMap(JobEntity::getId, Function.identity(), (left, right) -> left));
+  }
+
+  private Clock effective() {
+    return clock != null ? clock : Clock.systemUTC();
   }
 }

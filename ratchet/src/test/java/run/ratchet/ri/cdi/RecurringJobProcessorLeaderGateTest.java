@@ -1,6 +1,7 @@
 package run.ratchet.ri.cdi;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -14,9 +15,11 @@ import static org.mockito.Mockito.when;
 
 import jakarta.enterprise.inject.spi.Bean;
 import jakarta.enterprise.inject.spi.BeanManager;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.Collections;
 import java.util.Set;
 import java.util.UUID;
@@ -34,6 +37,9 @@ import run.ratchet.store.spi.JobBatchStatusStore;
 
 // Verifies startup-lease-gated cleanup and convergence window in RecurringJobProcessor.
 class RecurringJobProcessorLeaderGateTest {
+
+  private static final Instant FIXED_NOW = Instant.parse("2026-05-12T12:00:00Z");
+  private static final Clock FIXED_CLOCK = Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
 
   @Test
   void cleanup_skippedWhenStartupLeaseNotAcquired() throws Exception {
@@ -126,9 +132,10 @@ class RecurringJobProcessorLeaderGateTest {
             new RecurringRegistrationState(),
             RatchetOptions.builder()
                 .recurring(recurring -> recurring.convergenceWindowSeconds(120))
-                .build());
+                .build(),
+            Set.of(),
+            FIXED_CLOCK);
 
-    Instant beforeRun = Instant.now().minusMillis(1);
     processor.registerRecurringJobs();
 
     ArgumentCaptor<Instant> cutoffCaptor = ArgumentCaptor.forClass(Instant.class);
@@ -136,12 +143,7 @@ class RecurringJobProcessorLeaderGateTest {
     verify(coordinator).release("recurring-annotation-orphan-cleanup");
 
     Instant cutoff = cutoffCaptor.getValue();
-    Instant expectedFloor = beforeRun.minusSeconds(120);
-    assertFalse(
-        cutoff.isBefore(expectedFloor), "Cutoff must not be before expectedFloor; got " + cutoff);
-    assertTrue(
-        Duration.between(expectedFloor, cutoff).compareTo(Duration.ofSeconds(1)) < 0,
-        "Cutoff should be computed from startup time; got " + cutoff);
+    assertEquals(FIXED_NOW.minusSeconds(120), cutoff);
   }
 
   @Test
