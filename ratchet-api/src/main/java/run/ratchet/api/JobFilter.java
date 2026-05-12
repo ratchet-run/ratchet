@@ -71,8 +71,19 @@ public record JobFilter(
     boolean includeArchived,
     String cursor) {
 
+  public JobFilter {
+    statuses = copyOrNull(statuses);
+    types = copyOrNull(types);
+    priorities = copyOrNull(priorities);
+    tags = copyOrNull(tags);
+  }
+
   public static Builder builder() {
     return new Builder();
+  }
+
+  private static <T> Set<T> copyOrNull(Set<T> values) {
+    return values == null ? null : Collections.unmodifiableSet(new HashSet<>(values));
   }
 
   /**
@@ -138,10 +149,6 @@ public record JobFilter(
     private String cursor;
 
     private Builder() {}
-
-    private static <T> Set<T> copyOrNull(Set<T> values) {
-      return values == null ? null : Collections.unmodifiableSet(new HashSet<>(values));
-    }
 
     public Builder statuses(JobStatus... values) {
       if (values.length == 0) {

@@ -13,7 +13,9 @@ import java.util.stream.Stream;
  * across scheduler restarts.
  *
  * @param <T> the item type, must be {@link Serializable}
+ * @since 0.1
  */
+@Incubating
 public interface StreamingBatchBuilder<T extends Serializable> {
 
   /** Sets the input stream of items to process. The stream item type must match this builder. */

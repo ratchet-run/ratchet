@@ -2,7 +2,9 @@ package run.ratchet.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import java.util.HashSet;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
@@ -90,5 +92,54 @@ class JobFilterTest {
     assertNull(filter.types());
     assertNull(filter.priorities());
     assertNull(filter.tags());
+  }
+
+  @Test
+  void canonicalConstructorDefensivelyCopiesSetValues() {
+    Set<JobStatus> statuses = new HashSet<>(Set.of(JobStatus.PENDING));
+    Set<JobType> types = new HashSet<>(Set.of(JobType.SINGLE));
+    Set<JobPriority> priorities = new HashSet<>(Set.of(JobPriority.HIGH));
+    Set<String> tags = new HashSet<>(Set.of("billing"));
+
+    JobFilter filter =
+        new JobFilter(
+            statuses,
+            types,
+            priorities,
+            null,
+            null,
+            tags,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            JobQuerySortField.CREATED_AT,
+            false,
+            false,
+            false,
+            null);
+
+    statuses.add(JobStatus.FAILED);
+    types.add(JobType.RECURRING);
+    priorities.add(JobPriority.LOW);
+    tags.add("reports");
+
+    assertEquals(Set.of(JobStatus.PENDING), filter.statuses());
+    assertEquals(Set.of(JobType.SINGLE), filter.types());
+    assertEquals(Set.of(JobPriority.HIGH), filter.priorities());
+    assertEquals(Set.of("billing"), filter.tags());
+    assertThrows(
+        UnsupportedOperationException.class, () -> filter.statuses().add(JobStatus.RUNNING));
+    assertThrows(UnsupportedOperationException.class, () -> filter.types().add(JobType.BATCH));
+    assertThrows(
+        UnsupportedOperationException.class, () -> filter.priorities().add(JobPriority.NORMAL));
+    assertThrows(UnsupportedOperationException.class, () -> filter.tags().add("audit"));
   }
 }

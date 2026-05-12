@@ -58,6 +58,7 @@ public interface JobBuilder {
   Duration awaitSignalTimeout();
 
   /** Adds a workflow branch with a human-readable description for monitoring. */
+  @Incubating
   JobBuilder branch(
       WorkflowCondition condition, SerializableCheckedRunnable next, String description);
 
@@ -207,6 +208,7 @@ public interface JobBuilder {
   SerializableCheckedRunnable task();
 
   /** Returns conditional workflow branches. The list is unmodifiable. */
+  @Incubating
   List<WorkflowBranch> workflowBranches();
 
   /** Returns the resource name, or null if no resource permit is required. */
