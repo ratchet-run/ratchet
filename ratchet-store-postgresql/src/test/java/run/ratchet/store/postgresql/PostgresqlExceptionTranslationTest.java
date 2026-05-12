@@ -77,6 +77,22 @@ class PostgresqlExceptionTranslationTest {
   }
 
   @Test
+  void queryOperationsTranslateSearchDeadlock() {
+    var ctx = new PostgresqlStoreContext(entityManager(queryThrowingOnResults()));
+    var queries = new PostgresqlJobQueryOperations(ctx, new PostgresqlTagOperations(ctx));
+
+    assertThrows(RatchetTransientStoreException.class, () -> queries.searchJobs(null, 10, 0));
+  }
+
+  @Test
+  void queryOperationsTranslateCountDeadlock() {
+    var ctx = new PostgresqlStoreContext(entityManager(queryThrowingOnSingleResult()));
+    var queries = new PostgresqlJobQueryOperations(ctx, new PostgresqlTagOperations(ctx));
+
+    assertThrows(RatchetTransientStoreException.class, () -> queries.countJobs(null));
+  }
+
+  @Test
   void statusTransitionsTranslateDeadlock() {
     var transitions =
         new PostgresqlJobStatusTransitions(
@@ -137,8 +153,21 @@ class PostgresqlExceptionTranslationTest {
     return query(List.of(), 0, null, deadlock());
   }
 
+  private static Query queryThrowingOnSingleResult() {
+    return query(List.of(), 0, null, null, deadlock());
+  }
+
   private static Query query(
       List<?> rows, int updated, RuntimeException executeFailure, RuntimeException resultsFailure) {
+    return query(rows, updated, executeFailure, resultsFailure, null);
+  }
+
+  private static Query query(
+      List<?> rows,
+      int updated,
+      RuntimeException executeFailure,
+      RuntimeException resultsFailure,
+      RuntimeException singleResultFailure) {
     return (Query)
         Proxy.newProxyInstance(
             Query.class.getClassLoader(),
@@ -157,6 +186,12 @@ class PostgresqlExceptionTranslationTest {
                     throw resultsFailure;
                   }
                   yield rows;
+                }
+                case "getSingleResult" -> {
+                  if (singleResultFailure != null) {
+                    throw singleResultFailure;
+                  }
+                  yield rows.isEmpty() ? 0 : rows.get(0);
                 }
                 default -> throw new UnsupportedOperationException(method.getName());
               };

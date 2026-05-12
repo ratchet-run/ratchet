@@ -191,31 +191,35 @@ final class PostgresqlJobCountOperations {
   }
 
   double getRetryRateStats(Instant since) {
-    Timestamp sinceTs = Timestamp.from(since);
-    // language=PostgreSQL
-    String sql =
-        """
-        SELECT COALESCE(
-          CAST(
-            ((SELECT COUNT(*) FROM scheduler_job_queue
-                WHERE attempts > 0 AND updated_at >= ?)
-             + (SELECT COUNT(*) FROM scheduler_job
-                WHERE total_attempts > 0 AND terminated_at >= ?))
-            AS DOUBLE PRECISION)
-          / NULLIF(
-            ((SELECT COUNT(*) FROM scheduler_job_queue WHERE updated_at >= ?)
-             + (SELECT COUNT(*) FROM scheduler_job
-                WHERE terminated_at >= ?)), 0), 0)
-        """;
-    Object result =
-        ctx.em()
-            .createNativeQuery(sql)
-            .setParameter(1, sinceTs)
-            .setParameter(2, sinceTs)
-            .setParameter(3, sinceTs)
-            .setParameter(4, sinceTs)
-            .getSingleResult();
-    return result == null ? 0.0 : ((Number) result).doubleValue();
+    try {
+      Timestamp sinceTs = Timestamp.from(since);
+      // language=PostgreSQL
+      String sql =
+          """
+          SELECT COALESCE(
+            CAST(
+              ((SELECT COUNT(*) FROM scheduler_job_queue
+                  WHERE attempts > 0 AND updated_at >= ?)
+               + (SELECT COUNT(*) FROM scheduler_job
+                  WHERE total_attempts > 0 AND terminated_at >= ?))
+              AS DOUBLE PRECISION)
+            / NULLIF(
+              ((SELECT COUNT(*) FROM scheduler_job_queue WHERE updated_at >= ?)
+               + (SELECT COUNT(*) FROM scheduler_job
+                  WHERE terminated_at >= ?)), 0), 0)
+          """;
+      Object result =
+          ctx.em()
+              .createNativeQuery(sql)
+              .setParameter(1, sinceTs)
+              .setParameter(2, sinceTs)
+              .setParameter(3, sinceTs)
+              .setParameter(4, sinceTs)
+              .getSingleResult();
+      return result == null ? 0.0 : ((Number) result).doubleValue();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("get retry rate stats", e);
+    }
   }
 
   double getAverageProcessingTime(Instant since) {
@@ -257,6 +261,9 @@ final class PostgresqlJobCountOperations {
   }
 
   long getQueueWaitTimePercentile(double percentile) {
+    if (percentile < 0.0 || percentile > 1.0) {
+      throw new IllegalArgumentException("percentile must be in [0.0, 1.0], got: " + percentile);
+    }
     // language=PostgreSQL
     String sql =
         """

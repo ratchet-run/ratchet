@@ -90,7 +90,10 @@ final class PostgresqlJobRecurringAndResetOperations {
           AND j.job_type = 'RECURRING'
           AND j.terminal_status = 'CANCELED'
         """;
-    ctx.em().createNativeQuery(reservationsSql).setParameter(1, tag).executeUpdate();
+    ctx.timedStoreOperation(
+        "cancel_recurring_by_tag_reservations",
+        () -> ctx.em().createNativeQuery(reservationsSql).setParameter(1, tag).executeUpdate(),
+        updated -> updated > 0 ? "updated" : "miss");
     return cancelled;
   }
 
@@ -133,7 +136,10 @@ final class PostgresqlJobRecurringAndResetOperations {
           AND j.terminal_status = 'CANCELED'
           AND q.status IN ('PENDING','PAUSED','WAITING')
         """;
-    ctx.em().createNativeQuery(hotSql).setParameter(1, tag).executeUpdate();
+    ctx.timedStoreOperation(
+        "cancel_jobs_by_tag_hot",
+        () -> ctx.em().createNativeQuery(hotSql).setParameter(1, tag).executeUpdate(),
+        updated -> updated > 0 ? "updated" : "miss");
     // Reservations housekeeping.
     // language=PostgreSQL
     String reservationsSql =
@@ -146,7 +152,10 @@ final class PostgresqlJobRecurringAndResetOperations {
           AND j.job_type <> 'RECURRING'
           AND j.terminal_status = 'CANCELED'
         """;
-    ctx.em().createNativeQuery(reservationsSql).setParameter(1, tag).executeUpdate();
+    ctx.timedStoreOperation(
+        "cancel_jobs_by_tag_reservations",
+        () -> ctx.em().createNativeQuery(reservationsSql).setParameter(1, tag).executeUpdate(),
+        updated -> updated > 0 ? "updated" : "miss");
     return cancelled;
   }
 

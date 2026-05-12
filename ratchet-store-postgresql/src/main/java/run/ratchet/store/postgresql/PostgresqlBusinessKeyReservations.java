@@ -101,6 +101,13 @@ final class PostgresqlBusinessKeyReservations {
     }
   }
 
+  /**
+   * Rebuilds the active reservation for one job.
+   *
+   * @implNote TX: REQUIRED - callers must invoke this inside the same store transaction that
+   *     changed the job state. The delete/read/insert sequence must commit or roll back as one
+   *     unit.
+   */
   void syncForJob(UUID ownerJobId, JobStatus status) {
     try {
       deleteReservationByOwner(ownerJobId);

@@ -85,8 +85,7 @@ final class PostgresqlJobReadOperations {
       if (terminal != null) {
         return JobStatus.valueOf(terminal);
       }
-      log.errorf("Job %s has no live, recurring, or terminal status — invariant violation", id);
-      return null;
+      throw new IllegalStateException("Job " + id + " has no live, recurring, or terminal status");
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("get job status", e);
     }
@@ -151,7 +150,12 @@ final class PostgresqlJobReadOperations {
         log.errorf(
             "bkres invariant violation: business_key=%s claims QUEUE owner job=%s but no hot row",
             businessKey, job.getId());
-        return Optional.empty();
+        throw new IllegalStateException(
+            "Business key reservation "
+                + businessKey
+                + " claims QUEUE owner job "
+                + job.getId()
+                + " but no hot row exists");
       }
       tags.hydrateTagsSingle(job);
       return Optional.of(job);

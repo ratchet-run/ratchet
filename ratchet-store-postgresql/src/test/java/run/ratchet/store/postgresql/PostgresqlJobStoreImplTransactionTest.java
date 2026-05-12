@@ -2,7 +2,6 @@ package run.ratchet.store.postgresql;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 
 import jakarta.transaction.Transactional;
 import java.time.Duration;
@@ -22,12 +21,13 @@ class PostgresqlJobStoreImplTransactionTest {
   }
 
   @Test
-  void tryLockKeepsClassLevelRequiredBoundary() throws NoSuchMethodException {
+  void tryLockUsesIndependentTransactionBoundary() throws NoSuchMethodException {
     Transactional transactional =
         PostgresqlJobStoreImpl.class
             .getMethod("tryLock", String.class, Duration.class, String.class)
             .getAnnotation(Transactional.class);
 
-    assertNull(transactional);
+    assertNotNull(transactional);
+    assertEquals(Transactional.TxType.REQUIRES_NEW, transactional.value());
   }
 }

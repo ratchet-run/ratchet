@@ -498,6 +498,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   @Override
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
   public boolean tryLock(String name, Duration ttl, String nodeId) {
     return nodeLocks.tryLock(name, ttl, nodeId);
   }

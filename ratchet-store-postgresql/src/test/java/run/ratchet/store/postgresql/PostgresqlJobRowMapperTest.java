@@ -29,6 +29,17 @@ class PostgresqlJobRowMapperTest {
     assertInstanceOf(IllegalArgumentException.class, thrown.getCause());
   }
 
+  @Test
+  void hydrateRejectsRowsWithNoEffectiveStatus() {
+    Object[] row = liveRow();
+    row[35] = null;
+
+    IllegalStateException thrown =
+        assertThrows(IllegalStateException.class, () -> PostgresqlJobRowMapper.hydrate(row));
+
+    assertTrue(thrown.getMessage().contains("no live, recurring, or terminal status"));
+  }
+
   private static Object[] liveRow() {
     Object[] row = new Object[PostgresqlJobRowMapper.HYDRATION_COL_COUNT];
     Instant now = Instant.parse("2026-05-12T14:30:00Z");

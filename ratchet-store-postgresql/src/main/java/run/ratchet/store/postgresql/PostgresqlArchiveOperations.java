@@ -34,6 +34,8 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
   private static final String ARCHIVE_VALUE_PLACEHOLDERS =
       "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
+  private static final String MISSING_ARCHIVE_JOB_MESSAGE = "Job not found for archival: ";
+
   // language=PostgreSQL
   private static final String INSERT_ARCHIVE_SQL =
       """
@@ -141,7 +143,7 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
       for (UUID id : ids) {
         JobEntity hydrated = hydratedById.get(id);
         if (hydrated == null) {
-          throw new IllegalStateException("Job not found for archival: " + id);
+          throw new IllegalStateException(MISSING_ARCHIVE_JOB_MESSAGE.concat(String.valueOf(id)));
         }
         ArchivedJobEntity archive = ArchiveHelper.buildArchive(hydrated, reason, archivedBy);
         prepareArchive(archive);

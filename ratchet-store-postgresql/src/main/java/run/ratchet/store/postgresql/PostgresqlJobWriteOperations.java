@@ -147,7 +147,7 @@ final class PostgresqlJobWriteOperations {
       }
       throw e;
     } finally {
-      ctx.em().clear();
+      detachInsertedJobs(jobs);
     }
   }
 
@@ -184,16 +184,15 @@ final class PostgresqlJobWriteOperations {
           reservations.insertReservation(job.getBusinessKey(), job.getId(), ownerTable);
         }
       }
+      if (job.getTags() != null && !job.getTags().isEmpty()) {
+        tags.insertTags(job.getId(), job.getTags());
+      }
     } catch (RuntimeException e) {
       if (ctx.constraintDetector().isDuplicateBusinessKey(e)) {
         throw new RatchetTransientStoreException(
             "Active business key in use for job " + job.getId(), e);
       }
       throw e;
-    }
-
-    if (job.getTags() != null && !job.getTags().isEmpty()) {
-      tags.insertTags(job.getId(), job.getTags());
     }
   }
 
@@ -342,10 +341,50 @@ final class PostgresqlJobWriteOperations {
   }
 
   private void executeTerminalBackfills(List<JobEntity> jobs, Timestamp nowTs) {
-    for (JobEntity job : jobs) {
-      if (job.getStatus() != null && PostgresqlJobRowMapper.isTerminalStatus(job.getStatus())) {
-        executeColdTerminalBackfill(job, nowTs);
+    List<JobEntity> terminalJobs =
+        jobs.stream()
+            .filter(job -> job.getStatus() != null)
+            .filter(job -> PostgresqlJobRowMapper.isTerminalStatus(job.getStatus()))
+            .toList();
+    for (int start = 0; start < terminalJobs.size(); start += MAX_BULK_INSERT_ROWS) {
+      List<JobEntity> chunk =
+          terminalJobs.subList(start, Math.min(start + MAX_BULK_INSERT_ROWS, terminalJobs.size()));
+      String values =
+          String.join(
+              ",",
+              Collections.nCopies(
+                  chunk.size(),
+                  "(CAST(? AS uuid), CAST(? AS varchar), ?, ?, CAST(? AS timestamptz))"));
+      // language=PostgreSQL
+      String sql =
+          """
+          UPDATE scheduler_job AS c
+          SET terminal_status = v.terminal_status,
+              terminal_error = v.terminal_error,
+              total_attempts = v.total_attempts,
+              terminated_at = v.terminated_at
+          FROM (VALUES %s) AS v(job_id, terminal_status, terminal_error, total_attempts, terminated_at)
+          WHERE c.job_id = v.job_id
+          """
+              .formatted(values);
+      Query query = ctx.em().createNativeQuery(sql);
+      int parameter = 1;
+      for (JobEntity job : chunk) {
+        query.setParameter(parameter++, job.getId());
+        query.setParameter(parameter++, job.getStatus().name());
+        query.setParameter(parameter++, job.getLastError());
+        query.setParameter(parameter++, job.getAttempts());
+        query.setParameter(parameter++, nowTs);
         job.setTerminalStatus(job.getStatus());
+      }
+      query.executeUpdate();
+    }
+  }
+
+  private void detachInsertedJobs(List<JobEntity> jobs) {
+    for (JobEntity job : jobs) {
+      if (ctx.em().contains(job)) {
+        ctx.em().detach(job);
       }
     }
   }

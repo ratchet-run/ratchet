@@ -155,16 +155,17 @@ final class PostgresqlJobTerminalOperations {
       Long durationMs,
       Long queueWaitMs,
       UUID batchId) {
-    try {
-      boolean succeeded =
-          markJobSucceeded(jobId, resultJson, resultType, start, end, durationMs, queueWaitMs);
-      if (succeeded) {
+    boolean succeeded =
+        markJobSucceeded(jobId, resultJson, resultType, start, end, durationMs, queueWaitMs);
+    if (succeeded) {
+      try {
         batches.incrementCompletedAtomic(batchId);
+      } catch (RuntimeException e) {
+        throw ctx.translateTransientStoreException(
+            "increment completed batch after job success", e);
       }
-      return succeeded;
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("mark job succeeded and update batch", e);
     }
+    return succeeded;
   }
 
   boolean scheduleJobRetry(UUID id, String error, Instant newScheduledTime, int attempts) {
@@ -267,7 +268,10 @@ final class PostgresqlJobTerminalOperations {
           DELETE FROM scheduler_job_queue
           WHERE job_id = ? AND status IN ('PENDING','RUNNING','PAUSED','WAITING')
           """;
-      ctx.em().createNativeQuery(deleteHotSql).setParameter(1, id).executeUpdate();
+      int hotDeleted = ctx.em().createNativeQuery(deleteHotSql).setParameter(1, id).executeUpdate();
+      if (hotDeleted == 0) {
+        return false;
+      }
       // language=PostgreSQL
       String updateColdSql =
           """

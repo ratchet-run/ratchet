@@ -74,12 +74,22 @@ final class PostgresqlStoreContext {
     return e;
   }
 
+  /**
+   * Runs a compile-time SQL count query with positional parameters.
+   *
+   * <p>The {@code sql} argument must be a package-owned constant. Never pass user-controlled SQL
+   * fragments; bind user values through {@code params}.
+   */
   long countByNative(String sql, Object... params) {
-    var query = em.createNativeQuery(sql);
-    for (int i = 0; i < params.length; i++) {
-      query.setParameter(i + 1, params[i]);
+    try {
+      var query = em.createNativeQuery(sql);
+      for (int i = 0; i < params.length; i++) {
+        query.setParameter(i + 1, params[i]);
+      }
+      return ((Number) query.getSingleResult()).longValue();
+    } catch (RuntimeException e) {
+      throw translateTransientStoreException("count by native SQL", e);
     }
-    return ((Number) query.getSingleResult()).longValue();
   }
 
   <T> T timedStoreOperation(
@@ -93,8 +103,12 @@ final class PostgresqlStoreContext {
       recordStoreOperation(operation, "transient_failure", startNanos);
       throw e;
     } catch (RuntimeException e) {
-      recordStoreOperation(operation, "failure", startNanos);
-      throw e;
+      RuntimeException translated = translateTransientStoreException(operation, e);
+      recordStoreOperation(
+          operation,
+          translated instanceof RatchetTransientStoreException ? "transient_failure" : "failure",
+          startNanos);
+      throw translated;
     }
   }
 

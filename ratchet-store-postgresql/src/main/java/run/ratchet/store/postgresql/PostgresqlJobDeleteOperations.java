@@ -83,9 +83,10 @@ final class PostgresqlJobDeleteOperations {
               picked_by = NULL, picked_at = NULL,
               updated_at = statement_timestamp()
           WHERE status = 'RUNNING'
-            AND picked_by NOT IN (
-              SELECT node_id FROM scheduler_node
-              WHERE heartbeat_ts > statement_timestamp() - ? * interval '1 second'
+            AND NOT EXISTS (
+              SELECT 1 FROM scheduler_node n
+              WHERE n.node_id = scheduler_job_queue.picked_by
+                AND n.heartbeat_ts > statement_timestamp() - ? * interval '1 second'
             )
             AND extract(epoch from (statement_timestamp() - picked_at))::bigint >= ?
           """;

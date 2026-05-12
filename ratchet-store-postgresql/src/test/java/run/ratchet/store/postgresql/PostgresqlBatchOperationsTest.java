@@ -9,7 +9,9 @@ import jakarta.persistence.NoResultException;
 import jakarta.persistence.Query;
 import java.lang.reflect.Proxy;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import run.ratchet.store.entity.BatchEntity;
 
 class PostgresqlBatchOperationsTest {
 
@@ -73,6 +75,47 @@ class PostgresqlBatchOperationsTest {
 
     assertTrue(thrown.getMessage().contains("Batch not found"));
     assertTrue(thrown.getMessage().contains(BATCH_ID.toString()));
+  }
+
+  @Test
+  void saveBatchUsesReturningRowWithoutFollowUpSelect() {
+    AtomicInteger createNativeQueryCalls = new AtomicInteger();
+    Query query =
+        (Query)
+            Proxy.newProxyInstance(
+                Query.class.getClassLoader(),
+                new Class<?>[] {Query.class},
+                (proxy, method, args) -> {
+                  return switch (method.getName()) {
+                    case "setParameter" -> proxy;
+                    case "getSingleResult" -> new Object[] {BATCH_ID, 4, 1, 2, false, 7, null};
+                    default -> throw new UnsupportedOperationException(method.getName());
+                  };
+                });
+    EntityManager em =
+        (EntityManager)
+            Proxy.newProxyInstance(
+                EntityManager.class.getClassLoader(),
+                new Class<?>[] {EntityManager.class},
+                (proxy, method, args) -> {
+                  if ("createNativeQuery".equals(method.getName())) {
+                    createNativeQueryCalls.incrementAndGet();
+                    return query;
+                  }
+                  throw new UnsupportedOperationException(method.getName());
+                });
+    BatchEntity batch = new BatchEntity();
+    batch.setId(BATCH_ID);
+    batch.setTotalItems(4);
+    batch.setCompletedItems(1);
+    batch.setFailedItems(2);
+
+    BatchEntity saved =
+        new PostgresqlBatchOperations(new PostgresqlStoreContext(em)).saveBatch(batch);
+
+    assertEquals(1, createNativeQueryCalls.get());
+    assertEquals(BATCH_ID, saved.getId());
+    assertEquals(7, saved.getVersion());
   }
 
   private static EntityManager entityManagerThrowingNoResult() {

@@ -16,6 +16,8 @@ import run.ratchet.store.spi.TagStore;
 
 final class PostgresqlTagOperations implements TagStore {
 
+  private static final int MAX_TAG_HYDRATION_IDS = 250;
+
   private final PostgresqlStoreContext ctx;
 
   PostgresqlTagOperations(PostgresqlStoreContext ctx) {
@@ -211,33 +213,40 @@ final class PostgresqlTagOperations implements TagStore {
         }
       }
       if (ids.isEmpty()) return;
-      String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
-      // language=PostgreSQL
-      String sql =
-          "SELECT job_id, tag FROM scheduler_job_tag WHERE job_id IN ("
-              + placeholders
-              + ") ORDER BY job_id";
-      Query tagQuery = ctx.em().createNativeQuery(sql);
-      int parameter = 1;
-      for (UUID id : ids) {
-        tagQuery.setParameter(parameter++, id);
-      }
-      @SuppressWarnings("unchecked")
-      List<Object[]> rows = tagQuery.getResultList();
-      for (Object[] row : rows) {
-        UUID jobId = PostgresqlJobRowMapper.uuidOrNull(row[0]);
-        String tag = (String) row[1];
-        JobEntity job = byId.get(jobId);
-        if (job == null) continue;
-        List<String> tags = job.getTags();
-        if (tags == null) {
-          tags = new ArrayList<>();
-          job.setTags(tags);
+      for (int start = 0; start < ids.size(); start += MAX_TAG_HYDRATION_IDS) {
+        List<UUID> chunk = ids.subList(start, Math.min(start + MAX_TAG_HYDRATION_IDS, ids.size()));
+        String placeholders = String.join(",", Collections.nCopies(chunk.size(), "?"));
+        // language=PostgreSQL
+        String sql =
+            "SELECT job_id, tag FROM scheduler_job_tag WHERE job_id IN ("
+                + placeholders
+                + ") ORDER BY job_id";
+        Query tagQuery = ctx.em().createNativeQuery(sql);
+        int parameter = 1;
+        for (UUID id : chunk) {
+          tagQuery.setParameter(parameter++, id);
         }
-        tags.add(tag);
+        @SuppressWarnings("unchecked")
+        List<Object[]> rows = tagQuery.getResultList();
+        applyHydratedTagRows(rows, byId);
       }
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("hydrate job tags batch", e);
+    }
+  }
+
+  private static void applyHydratedTagRows(List<Object[]> rows, Map<UUID, JobEntity> byId) {
+    for (Object[] row : rows) {
+      UUID jobId = PostgresqlJobRowMapper.uuidOrNull(row[0]);
+      String tag = (String) row[1];
+      JobEntity job = byId.get(jobId);
+      if (job == null) continue;
+      List<String> tags = job.getTags();
+      if (tags == null) {
+        tags = new ArrayList<>();
+        job.setTags(tags);
+      }
+      tags.add(tag);
     }
   }
 }

@@ -1,6 +1,8 @@
 package run.ratchet.store.postgresql;
 
 import jakarta.persistence.NoResultException;
+import jakarta.persistence.Query;
+import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -43,18 +45,20 @@ final class PostgresqlBatchOperations implements BatchStore, BatchMetricsStore {
           completion_processed = EXCLUDED.completion_processed,
           progress_hook = EXCLUDED.progress_hook,
           version = scheduler_batch.version + 1
+        RETURNING batch_id, total_items, completed_items, failed_items,
+                  completion_processed, version, progress_hook
         """;
-    ctx.em()
-        .createNativeQuery(sql)
-        .setParameter(1, batch.getId())
-        .setParameter(2, batch.getTotalItems())
-        .setParameter(3, batch.getCompletedItems())
-        .setParameter(4, batch.getFailedItems())
-        .setParameter(5, Boolean.TRUE.equals(batch.getCompletionProcessed()))
-        .setParameter(6, progressHookJson(batch.getProgressHook()))
-        .executeUpdate();
-    ctx.em().flush();
-    return findBatchById(batch.getId()).orElse(batch);
+    Object row =
+        ctx.em()
+            .createNativeQuery(sql)
+            .setParameter(1, batch.getId())
+            .setParameter(2, batch.getTotalItems())
+            .setParameter(3, batch.getCompletedItems())
+            .setParameter(4, batch.getFailedItems())
+            .setParameter(5, Boolean.TRUE.equals(batch.getCompletionProcessed()))
+            .setParameter(6, progressHookJson(batch.getProgressHook()))
+            .getSingleResult();
+    return row instanceof Object[] values ? mapBatchRow(values) : batch;
   }
 
   @Override
@@ -203,14 +207,39 @@ final class PostgresqlBatchOperations implements BatchStore, BatchMetricsStore {
 
   @Override
   public BatchMetricsEntity saveBatchMetrics(BatchMetricsEntity metrics) {
-    if (ctx.em().find(BatchMetricsEntity.class, metrics.getBatchId()) == null) {
-      if (metrics.getBatchJob() == null) {
-        metrics.setBatchJob(ctx.em().getReference(JobEntity.class, metrics.getBatchId()));
-      }
-      ctx.em().persist(metrics);
-      return metrics;
+    if (metrics.getBatchJob() == null) {
+      metrics.setBatchJob(ctx.em().getReference(JobEntity.class, metrics.getBatchId()));
     }
-    return ctx.em().merge(metrics);
+    // language=PostgreSQL
+    String sql =
+        """
+        INSERT INTO scheduler_batch_metrics
+          (batch_id, total_duration_ms, child_execution_ms, overhead_ms, child_count,
+           success_count, failure_count, started_at, completed_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (batch_id) DO UPDATE SET
+          total_duration_ms = EXCLUDED.total_duration_ms,
+          child_execution_ms = EXCLUDED.child_execution_ms,
+          overhead_ms = EXCLUDED.overhead_ms,
+          child_count = EXCLUDED.child_count,
+          success_count = EXCLUDED.success_count,
+          failure_count = EXCLUDED.failure_count,
+          started_at = EXCLUDED.started_at,
+          completed_at = EXCLUDED.completed_at,
+          version = scheduler_batch_metrics.version + 1
+        """;
+    Query query = ctx.em().createNativeQuery(sql);
+    query.setParameter(1, metrics.getBatchId());
+    query.setParameter(2, metrics.getTotalDurationMs());
+    query.setParameter(3, metrics.getChildExecutionMs());
+    query.setParameter(4, metrics.getOverheadMs());
+    query.setParameter(5, metrics.getChildCount());
+    query.setParameter(6, metrics.getSuccessCount());
+    query.setParameter(7, metrics.getFailureCount());
+    query.setParameter(8, timestampOrNull(metrics.getStartedAt()));
+    query.setParameter(9, timestampOrNull(metrics.getCompletedAt()));
+    query.executeUpdate();
+    return metrics;
   }
 
   @Override
@@ -272,9 +301,13 @@ final class PostgresqlBatchOperations implements BatchStore, BatchMetricsStore {
     try {
       return PayloadSerializerHolder.get().deserialize(jsonValue.toString(), JobPayload.class);
     } catch (IllegalArgumentException e) {
-      log.warnf("Bad progress_hook JSON: %s", e.getMessage());
+      log.warn("Bad progress_hook JSON", e);
       return null;
     }
+  }
+
+  private static Timestamp timestampOrNull(java.time.Instant instant) {
+    return instant == null ? null : Timestamp.from(instant);
   }
 
   private BatchEntity mapBatchRow(Object[] row) {

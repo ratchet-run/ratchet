@@ -6,7 +6,6 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import org.jboss.logging.Logger;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
@@ -33,7 +32,6 @@ final class PostgresqlJobRowMapper {
 
   static final int HYDRATION_COL_COUNT = 53;
   static final int IDX_Q_STATUS = 35;
-  private static final Logger log = Logger.getLogger(PostgresqlJobRowMapper.class);
   private static final JobPayloadConverter JOB_PAYLOAD_CONVERTER = new JobPayloadConverter();
   private static final JsonMapConverter JSON_MAP_CONVERTER = new JsonMapConverter();
   private static final int IDX_JOB_ID = 0;
@@ -187,10 +185,8 @@ final class PostgresqlJobRowMapper {
     } else if (terminal != null) {
       resolved = terminal;
     } else {
-      log.errorf(
-          "Job %s has no live, recurring, or terminal status — possible invariant violation",
-          j.getId());
-      resolved = null;
+      throw new IllegalStateException(
+          "Job " + j.getId() + " has no live, recurring, or terminal status");
     }
     j.setStatus(resolved);
 

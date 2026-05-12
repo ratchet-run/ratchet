@@ -255,18 +255,22 @@ final class PostgresqlJobQueryOperations {
               + limitOffsetClause(safeLimit, effectiveOffset);
     }
 
-    Query q = ctx.em().createNativeQuery(sql);
-    bindParams(q, params);
-    List<Object[]> rows = q.getResultList();
-    List<JobEntity> result = new ArrayList<>(rows.size());
-    for (Object[] row : rows) {
-      JobEntity job = PostgresqlJobRowMapper.hydrate(row);
-      if (job != null) {
-        result.add(job);
+    try {
+      Query q = ctx.em().createNativeQuery(sql);
+      bindParams(q, params);
+      List<Object[]> rows = q.getResultList();
+      List<JobEntity> result = new ArrayList<>(rows.size());
+      for (Object[] row : rows) {
+        JobEntity job = PostgresqlJobRowMapper.hydrate(row);
+        if (job != null) {
+          result.add(job);
+        }
       }
+      tags.hydrateTagsBatch(result);
+      return result;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("search jobs", e);
     }
-    tags.hydrateTagsBatch(result);
-    return result;
   }
 
   long countJobs(JobFilter filter) {
@@ -287,9 +291,13 @@ final class PostgresqlJobQueryOperations {
       // language=PostgreSQL
       sql = "SELECT COUNT(*) " + HYDRATION_FROM + buildWhere(filter, params);
     }
-    Query q = ctx.em().createNativeQuery(sql);
-    bindParams(q, params);
-    return ((Number) q.getSingleResult()).longValue();
+    try {
+      Query q = ctx.em().createNativeQuery(sql);
+      bindParams(q, params);
+      return ((Number) q.getSingleResult()).longValue();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("count jobs", e);
+    }
   }
 
   private String buildWhere(JobFilter filter, List<Object> params) {
