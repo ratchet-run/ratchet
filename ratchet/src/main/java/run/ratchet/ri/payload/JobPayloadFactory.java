@@ -24,6 +24,10 @@ import run.ratchet.store.entity.JobPayload;
  * Supports method references, static/instance calls, and captured variables. Lambdas must be {@link
  * Serializable} and contain exactly one method invocation.
  *
+ * <p>Class names read here come from JVM {@link SerializedLambda} metadata for caller-local
+ * lambdas. This factory only extracts the invocation shape; {@code JobSecurityValidator} applies
+ * the configured class policy before jobs are persisted or executed.
+ *
  * @see JobPayload
  * @see AsmLambdaAnalyzer
  */

@@ -229,6 +229,8 @@ public class RatchetLifecycle {
         }
         log.warnf(e, "Scheduler lifecycle hook failed during %s: %s", phase, e.getMessage());
       } catch (Exception e) {
+        // SchedulerLifecycleHook allows non-schema hook failures to warn and continue; schema
+        // failures are the one startup-aborting exception because they can make job claims unsafe.
         log.warnf(e, "Scheduler lifecycle hook failed during %s: %s", phase, e.getMessage());
       }
     }
