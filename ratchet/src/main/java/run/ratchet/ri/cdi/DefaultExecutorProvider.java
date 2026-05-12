@@ -1,5 +1,6 @@
 package run.ratchet.ri.cdi;
 
+import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
@@ -21,8 +22,9 @@ import run.ratchet.spi.ExecutorProvider;
  * lookup of the well-known names is portable across all compliant runtimes and returns the same
  * context-propagating {@code ManagedExecutorService} that injection would.
  *
- * <p>Lookups are performed lazily on first call and the resolved references are cached for the
- * lifetime of the bean.
+ * <p>Container-managed instances resolve both names during CDI startup, while direct-construction
+ * test paths still resolve lazily on first use. Resolved references are cached for the lifetime of
+ * the bean.
  *
  * <p>Users can override by providing their own {@code @Alternative @Priority(APPLICATION)
  * ExecutorProvider} bean — for example {@link StandaloneExecutorProvider} for plain-CDI/SE runs.
@@ -36,16 +38,46 @@ public class DefaultExecutorProvider implements ExecutorProvider {
   private volatile ExecutorService resolvedJobExecutor;
   private volatile ScheduledExecutorService resolvedScheduledExecutor;
 
-  private static <T> T lookup(String jndiName, Class<T> type) {
+  @PostConstruct
+  void init() {
+    InitialContext context = newInitialContext();
+    synchronized (this) {
+      if (resolvedJobExecutor == null) {
+        resolvedJobExecutor = lookup(context, JOB_EXECUTOR_JNDI, ExecutorService.class);
+      }
+      if (resolvedScheduledExecutor == null) {
+        resolvedScheduledExecutor =
+            lookup(context, SCHEDULED_EXECUTOR_JNDI, ScheduledExecutorService.class);
+      }
+    }
+  }
+
+  InitialContext newInitialContext() {
     try {
-      return type.cast(new InitialContext().lookup(jndiName));
+      return new InitialContext();
+    } catch (NamingException e) {
+      throw new IllegalStateException(
+          "DefaultExecutorProvider could not create an InitialContext. If you are running outside"
+              + " a Jakarta EE 10+ container, provide an @Alternative ExecutorProvider bean"
+              + " such as StandaloneExecutorProvider.",
+          e);
+    }
+  }
+
+  private <T> T lookup(String jndiName, Class<T> type) {
+    return lookup(newInitialContext(), jndiName, type);
+  }
+
+  private static <T> T lookup(InitialContext context, String jndiName, Class<T> type) {
+    try {
+      return type.cast(context.lookup(jndiName));
     } catch (NamingException e) {
       throw new IllegalStateException(
           "DefaultExecutorProvider could not resolve "
               + jndiName
               + " from JNDI. This name is required by Jakarta Concurrency 3.0+; if you are running"
               + " outside a Jakarta EE 10+ container, provide an @Alternative ExecutorProvider bean"
-              + " (e.g., StandaloneExecutorProvider).",
+              + " such as StandaloneExecutorProvider.",
           e);
     } catch (ClassCastException e) {
       throw new IllegalStateException(

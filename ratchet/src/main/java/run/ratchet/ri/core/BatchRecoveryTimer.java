@@ -23,6 +23,8 @@ public class BatchRecoveryTimer {
   private static final Logger log = Logger.getLogger(BatchRecoveryTimer.class);
   private static final String LEASE_NAME = "batchRecovery";
   private static final Duration LEASE_TTL = Duration.ofMinutes(15);
+  private static final long INITIAL_DELAY_MINUTES = 1;
+  private static final long PERIOD_MINUTES = 15;
 
   private final BatchService batchService;
   private final SingletonLeaseService singletonLeaseService;
@@ -46,8 +48,10 @@ public class BatchRecoveryTimer {
   }
 
   public void start(ScheduledExecutorService executor) {
-    handle = executor.scheduleAtFixedRate(this::recoverBatches, 15, 15, TimeUnit.MINUTES);
-    log.info("Initialized batch recovery timer — checking for stuck batches every 15min");
+    handle =
+        executor.scheduleAtFixedRate(
+            this::recoverBatches, INITIAL_DELAY_MINUTES, PERIOD_MINUTES, TimeUnit.MINUTES);
+    log.info("Initialized batch recovery timer; first scan in 1min, then every 15min");
   }
 
   public void stop() {

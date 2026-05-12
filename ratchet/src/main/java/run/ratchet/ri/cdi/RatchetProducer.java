@@ -1,6 +1,8 @@
 package run.ratchet.ri.cdi;
 
+import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.context.Dependent;
 import jakarta.enterprise.context.Initialized;
 import jakarta.enterprise.event.Observes;
 import jakarta.enterprise.inject.Default;
@@ -83,6 +85,7 @@ public class RatchetProducer {
   private final ExecutionTuningProvider executionTuningProvider;
   private final PollingStrategyProvider pollingStrategyProvider;
   private final CircuitBreakerConfigProvider circuitBreakerConfigProvider;
+  private volatile Instance.Handle<PayloadSerializer> dependentPayloadSerializerHandle;
 
   protected RatchetProducer() {
     this.executorProvider = null;
@@ -361,10 +364,33 @@ public class RatchetProducer {
       @Observes @Initialized(ApplicationScoped.class) Object init,
       Instance<PayloadSerializer> payloadSerializers) {
     if (payloadSerializers.isResolvable()) {
-      PayloadSerializerHolder.set(payloadSerializers.get());
+      destroyDependentPayloadSerializer();
+      Instance.Handle<PayloadSerializer> handle = payloadSerializers.getHandle();
+      PayloadSerializerHolder.set(handle.get());
+      if (handle.getBean().getScope().equals(Dependent.class)) {
+        dependentPayloadSerializerHandle = handle;
+      }
     } else {
       log.warn(
           "No PayloadSerializer bean resolvable at startup; JPA converters will use fallback JSON-B.");
+    }
+  }
+
+  @PreDestroy
+  void unregisterPayloadSerializer() {
+    PayloadSerializerHolder.set(null);
+    destroyDependentPayloadSerializer();
+  }
+
+  private void destroyDependentPayloadSerializer() {
+    Instance.Handle<PayloadSerializer> handle = dependentPayloadSerializerHandle;
+    dependentPayloadSerializerHandle = null;
+    if (handle != null) {
+      try {
+        handle.destroy();
+      } catch (RuntimeException e) {
+        log.warnf(e, "PayloadSerializer destruction failed during Ratchet shutdown");
+      }
     }
   }
 

@@ -6,6 +6,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.json.bind.Jsonb;
 import jakarta.json.bind.JsonbBuilder;
 import jakarta.json.bind.JsonbException;
+import org.jboss.logging.Logger;
 import run.ratchet.spi.PayloadSerializer;
 
 /**
@@ -27,6 +28,8 @@ import run.ratchet.spi.PayloadSerializer;
  */
 @ApplicationScoped
 public class JsonbPayloadSerializer implements PayloadSerializer {
+
+  private static final Logger log = Logger.getLogger(JsonbPayloadSerializer.class);
 
   private volatile Jsonb jsonb;
 
@@ -69,8 +72,8 @@ public class JsonbPayloadSerializer implements PayloadSerializer {
     if (instance != null) {
       try {
         instance.close();
-      } catch (Exception ignored) {
-        // Best-effort cleanup.
+      } catch (Exception e) {
+        log.warnf(e, "Failed to close Jsonb instance during shutdown");
       }
     }
   }

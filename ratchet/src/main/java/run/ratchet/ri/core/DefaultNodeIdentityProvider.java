@@ -9,9 +9,11 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.LongUnaryOperator;
 import org.jboss.logging.Logger;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
@@ -55,6 +57,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
   private final boolean dynamicHeartbeatEnabled;
   private final String explicitNodeId;
   private final Clock clock;
+  private final LongUnaryOperator retryDelayJitter;
   private final Object heartbeatLifecycleMonitor = new Object();
 
   private volatile ScheduledFuture<?> heartbeatHandle;
@@ -70,6 +73,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
     this.dynamicHeartbeatEnabled = false;
     this.explicitNodeId = null;
     this.clock = null;
+    this.retryDelayJitter = DefaultNodeIdentityProvider::withRetryJitter;
   }
 
   public DefaultNodeIdentityProvider(
@@ -123,6 +127,30 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
       boolean dynamicHeartbeatEnabled,
       String explicitNodeId,
       Clock clock) {
+    this(
+        nodeStore,
+        jobBulkStore,
+        heartbeatCalculator,
+        executorProvider,
+        heartbeatIntervalSeconds,
+        orphanGraceSeconds,
+        dynamicHeartbeatEnabled,
+        explicitNodeId,
+        clock,
+        DefaultNodeIdentityProvider::withRetryJitter);
+  }
+
+  DefaultNodeIdentityProvider(
+      NodeStore nodeStore,
+      JobBulkStore jobBulkStore,
+      DynamicHeartbeatCalculator heartbeatCalculator,
+      ExecutorProvider executorProvider,
+      long heartbeatIntervalSeconds,
+      long orphanGraceSeconds,
+      boolean dynamicHeartbeatEnabled,
+      String explicitNodeId,
+      Clock clock,
+      LongUnaryOperator retryDelayJitter) {
     this.nodeStore = nodeStore;
     this.jobBulkStore = jobBulkStore;
     this.heartbeatCalculator = heartbeatCalculator;
@@ -132,6 +160,8 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
     this.dynamicHeartbeatEnabled = dynamicHeartbeatEnabled;
     this.explicitNodeId = explicitNodeId;
     this.clock = clock;
+    this.retryDelayJitter =
+        retryDelayJitter != null ? retryDelayJitter : DefaultNodeIdentityProvider::withRetryJitter;
   }
 
   private static boolean isContainerShutdownException(Throwable throwable) {
@@ -236,7 +266,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
       String pid = ManagementFactory.getRuntimeMXBean().getName().split("@")[0];
       return host + "-" + pid + "-" + UUID.randomUUID().toString().substring(0, 8);
     } catch (Exception e) {
-      log.warnf("Hostname resolution error, using UUID fallback: %s", e.getMessage());
+      log.warnf(e, "Hostname resolution error, using UUID fallback: %s", e.getMessage());
       return UUID.randomUUID().toString();
     }
   }
@@ -322,10 +352,27 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
           return;
         }
         log.error(failureMessage, e);
-        long cappedDelay = Math.min(failureDelaySeconds * 2, orphanGraceSeconds);
-        scheduleHeartbeatWithDelay(cappedDelay);
+        scheduleHeartbeatWithDelay(retryDelaySeconds(failureDelaySeconds));
       }
     }
+  }
+
+  private long retryDelaySeconds(long failureDelaySeconds) {
+    long doubled =
+        failureDelaySeconds > Long.MAX_VALUE / 2 ? Long.MAX_VALUE : failureDelaySeconds * 2;
+    long cappedDelay = Math.min(doubled, orphanGraceSeconds);
+    long jitteredDelay = retryDelayJitter.applyAsLong(cappedDelay);
+    return Math.max(0, Math.min(jitteredDelay, orphanGraceSeconds));
+  }
+
+  private static long withRetryJitter(long cappedDelaySeconds) {
+    if (cappedDelaySeconds <= 1) {
+      return cappedDelaySeconds;
+    }
+    long jitterRange = Math.max(1, cappedDelaySeconds / 10);
+    long lowerBound = Math.max(1, cappedDelaySeconds - jitterRange);
+    long upperBound = cappedDelaySeconds + jitterRange;
+    return ThreadLocalRandom.current().nextLong(lowerBound, upperBound + 1);
   }
 
   private Clock effective() {

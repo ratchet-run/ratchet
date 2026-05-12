@@ -17,11 +17,19 @@ import static org.mockito.Mockito.when;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.LongUnaryOperator;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -78,17 +86,22 @@ class DefaultNodeIdentityProviderTest {
 
     when(nodeStore.getDatabaseTime()).thenReturn(clock.instant());
 
-    provider =
-        new DefaultNodeIdentityProvider(
-            nodeStore,
-            jobBulkStore,
-            heartbeatCalculator,
-            executorProvider,
-            5,
-            30,
-            false,
-            "test-node",
-            clock);
+    provider = newProvider(false, "test-node", LongUnaryOperator.identity());
+  }
+
+  private DefaultNodeIdentityProvider newProvider(
+      boolean dynamicHeartbeatEnabled, String explicitNodeId, LongUnaryOperator retryDelayJitter) {
+    return new DefaultNodeIdentityProvider(
+        nodeStore,
+        jobBulkStore,
+        heartbeatCalculator,
+        executorProvider,
+        5,
+        30,
+        dynamicHeartbeatEnabled,
+        explicitNodeId,
+        clock,
+        retryDelayJitter);
   }
 
   @Test
@@ -196,17 +209,7 @@ class DefaultNodeIdentityProviderTest {
   @Test
   void dynamicHeartbeatFailure_retriesFromDynamicInterval() {
     heartbeatCalculator.intervalSeconds(11L);
-    provider =
-        new DefaultNodeIdentityProvider(
-            nodeStore,
-            jobBulkStore,
-            heartbeatCalculator,
-            executorProvider,
-            5,
-            30,
-            true,
-            "test-node",
-            clock);
+    provider = newProvider(true, "test-node", LongUnaryOperator.identity());
 
     provider.init();
     Runnable scheduledHeartbeat = runnableCaptor.getValue();
@@ -224,19 +227,50 @@ class DefaultNodeIdentityProviderTest {
   }
 
   @Test
+  void heartbeatFailure_appliesRetryJitterAfterCapping() {
+    provider = newProvider(false, "test-node", delay -> delay + 3);
+
+    provider.init();
+    Runnable scheduledHeartbeat = runnableCaptor.getValue();
+
+    clearInvocations(nodeStore, scheduledExecutor, scheduledFuture);
+    doThrow(new IllegalStateException("store unavailable"))
+        .when(nodeStore)
+        .upsertHeartbeat(any(), any(Instant.class));
+
+    scheduledHeartbeat.run();
+
+    verify(scheduledExecutor).schedule(any(Runnable.class), eq(13L), eq(TimeUnit.SECONDS));
+  }
+
+  @Test
+  void hostnameFallbackLogsThrowable() {
+    RuntimeException failure = new RuntimeException("executor unavailable");
+    when(executorProvider.getJobExecutor()).thenThrow(failure);
+    provider = newProvider(false, null, LongUnaryOperator.identity());
+
+    LogCapture logs = LogCapture.start(DefaultNodeIdentityProvider.class);
+    try {
+      provider.init();
+    } finally {
+      logs.close();
+    }
+
+    UUID.fromString(provider.getNodeId());
+    assertTrue(
+        logs.records().stream()
+            .anyMatch(
+                record ->
+                    record.getLevel().intValue() >= Level.WARNING.intValue()
+                        && record.getThrown() == failure
+                        && record.getMessage().contains("Hostname resolution error")),
+        "Hostname fallback warning should include the original exception");
+  }
+
+  @Test
   void dynamicHeartbeatEnabledUsesCalculatorForInitialSchedule() {
     heartbeatCalculator.intervalSeconds(13L);
-    provider =
-        new DefaultNodeIdentityProvider(
-            nodeStore,
-            jobBulkStore,
-            heartbeatCalculator,
-            executorProvider,
-            5,
-            30,
-            true,
-            "test-node",
-            clock);
+    provider = newProvider(true, "test-node", LongUnaryOperator.identity());
 
     clearInvocations(scheduledExecutor);
 
@@ -244,5 +278,50 @@ class DefaultNodeIdentityProviderTest {
 
     assertEquals(1, heartbeatCalculator.calls());
     verify(scheduledExecutor).schedule(any(Runnable.class), eq(13L), eq(TimeUnit.SECONDS));
+  }
+
+  private static final class LogCapture implements AutoCloseable {
+    private final Logger logger;
+    private final Handler handler;
+    private final Level originalLevel;
+    private final boolean originalUseParentHandlers;
+    private final List<LogRecord> records = new ArrayList<>();
+
+    private LogCapture(Class<?> type) {
+      logger = Logger.getLogger(type.getName());
+      originalLevel = logger.getLevel();
+      originalUseParentHandlers = logger.getUseParentHandlers();
+      handler =
+          new Handler() {
+            @Override
+            public void publish(LogRecord record) {
+              records.add(record);
+            }
+
+            @Override
+            public void flush() {}
+
+            @Override
+            public void close() {}
+          };
+      logger.setLevel(Level.ALL);
+      logger.setUseParentHandlers(false);
+      logger.addHandler(handler);
+    }
+
+    static LogCapture start(Class<?> type) {
+      return new LogCapture(type);
+    }
+
+    List<LogRecord> records() {
+      return records;
+    }
+
+    @Override
+    public void close() {
+      logger.removeHandler(handler);
+      logger.setLevel(originalLevel);
+      logger.setUseParentHandlers(originalUseParentHandlers);
+    }
   }
 }
