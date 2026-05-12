@@ -85,7 +85,9 @@ public class JobCascadeService {
             skippedCount++;
           }
 
-          toProcess.add(child.getId());
+          if (!child.getStatus().isTerminal()) {
+            toProcess.add(child.getId());
+          }
         }
       }
     }
@@ -131,7 +133,9 @@ public class JobCascadeService {
             skippedCount++;
           }
 
-          toProcess.add(child.getId());
+          if (!child.getStatus().isTerminal()) {
+            toProcess.add(child.getId());
+          }
         }
       }
     }

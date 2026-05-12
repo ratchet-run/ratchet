@@ -5,6 +5,9 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.UUID;
 import org.jboss.logging.MDC;
 import org.junit.jupiter.api.AfterEach;
@@ -115,12 +118,16 @@ class JBossLoggingJobLoggerTest {
   }
 
   @Test
-  void publishedLine_timestampIsSet() {
-    JBossLoggingJobLogger logger = new JBossLoggingJobLogger(UUID.randomUUID(), eventPublisher);
+  void publishedLine_usesInjectedClock() {
+    Instant fixedNow = Instant.parse("2026-05-12T12:00:00Z");
+    JBossLoggingJobLogger logger =
+        new JBossLoggingJobLogger(
+            UUID.randomUUID(), eventPublisher, Clock.fixed(fixedNow, ZoneOffset.UTC));
 
     logger.info("timestamped");
 
-    verify(eventPublisher).publish(argThat(line -> ((JobLogLine) line).timestamp() != null));
+    verify(eventPublisher)
+        .publish(argThat(line -> fixedNow.equals(((JobLogLine) line).timestamp())));
   }
 
   @Test

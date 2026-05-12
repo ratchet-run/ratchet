@@ -1,8 +1,9 @@
 package run.ratchet.ri.core;
 
-import java.time.Instant;
+import java.time.Clock;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import org.jboss.logging.Logger;
 import org.jboss.logging.MDC;
@@ -22,10 +23,16 @@ public class JBossLoggingJobLogger implements JobLogger {
 
   private final UUID jobId;
   private final InternalEventPublisher eventPublisher;
+  private final Clock clock;
 
   public JBossLoggingJobLogger(UUID jobId, InternalEventPublisher eventPublisher) {
+    this(jobId, eventPublisher, Clock.systemUTC());
+  }
+
+  public JBossLoggingJobLogger(UUID jobId, InternalEventPublisher eventPublisher, Clock clock) {
     this.jobId = jobId;
     this.eventPublisher = eventPublisher;
+    this.clock = Objects.requireNonNull(clock, "clock must not be null");
   }
 
   @Override
@@ -88,7 +95,7 @@ public class JBossLoggingJobLogger implements JobLogger {
       @SuppressWarnings("unchecked")
       Map<String, Object> mdcSnapshot =
           MDC.getMap() == null ? new HashMap<>() : new HashMap<>(MDC.getMap());
-      eventPublisher.publish(new JobLogLine(jobId, Instant.now(), level, message, mdcSnapshot));
+      eventPublisher.publish(new JobLogLine(jobId, clock.instant(), level, message, mdcSnapshot));
     }
   }
 }

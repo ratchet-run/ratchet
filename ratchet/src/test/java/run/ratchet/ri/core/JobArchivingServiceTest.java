@@ -15,6 +15,8 @@ import com.cronutils.model.CronType;
 import com.cronutils.model.definition.CronDefinitionBuilder;
 import com.cronutils.model.time.ExecutionTime;
 import com.cronutils.parser.CronParser;
+import jakarta.transaction.Transactional;
+import jakarta.transaction.Transactional.TxType;
 import java.lang.reflect.Modifier;
 import java.time.Clock;
 import java.time.Duration;
@@ -386,6 +388,15 @@ class JobArchivingServiceTest {
 
     verify(scheduledExecutor, times(1))
         .schedule(any(Runnable.class), any(Long.class), any(TimeUnit.class));
+  }
+
+  @Test
+  void stopDoesNotAdvertiseTransactionalRollbackSemantics() throws Exception {
+    Transactional tx =
+        JobArchivingService.class.getMethod("stop").getAnnotation(Transactional.class);
+
+    Assertions.assertNotNull(tx);
+    Assertions.assertEquals(TxType.NOT_SUPPORTED, tx.value());
   }
 
   private Optional<SingletonLease> acquiredLease() {

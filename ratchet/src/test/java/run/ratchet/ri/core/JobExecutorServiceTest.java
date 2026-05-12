@@ -1,24 +1,30 @@
 package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.lang.reflect.Method;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -104,6 +110,57 @@ class JobExecutorServiceTest {
     ExecutionResult result = invokeExecute(() -> null, new AtomicReference<>());
 
     assertTrue(result.isRejected());
+  }
+
+  @Test
+  void watchdogSchedulingFailureRejectsWithoutSubmittingTask() throws Exception {
+    when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
+    when(timeoutHandler.scheduleTimeoutMonitoring(
+            eq(JOB_ID), anyInt(), any(Future.class), eq(scheduledExecutor), any(Instant.class)))
+        .thenThrow(new RejectedExecutionException("scheduler stopped"));
+
+    ExecutionResult result = invokeExecute(() -> null, new AtomicReference<>());
+
+    assertTrue(result.isRejected());
+    verify(executorProvider, never()).getJobExecutor();
+    verify(jobExecutor, never()).execute(any(Runnable.class));
+  }
+
+  @Test
+  void shutdownCanCancelWhileExecutorExecuteIsBlocked() throws Exception {
+    CountDownLatch enteredExecute = new CountDownLatch(1);
+    CountDownLatch releaseExecute = new CountDownLatch(1);
+    when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
+    when(executorProvider.getJobExecutor()).thenReturn(jobExecutor);
+    when(timeoutHandler.scheduleTimeoutMonitoring(
+            eq(JOB_ID), anyInt(), any(Future.class), eq(scheduledExecutor), any(Instant.class)))
+        .thenReturn(new JobTimeoutHandler.TimeoutHandles(softTimeout, hardTimeout));
+    doAnswer(
+            invocation -> {
+              enteredExecute.countDown();
+              assertTrue(releaseExecute.await(5, TimeUnit.SECONDS));
+              return null;
+            })
+        .when(jobExecutor)
+        .execute(any(Runnable.class));
+
+    Thread submitter =
+        new Thread(
+            () -> {
+              try {
+                invokeExecute(() -> null, new AtomicReference<>());
+              } catch (Exception e) {
+                throw new AssertionError(e);
+              }
+            });
+    submitter.start();
+    assertTrue(enteredExecute.await(5, TimeUnit.SECONDS));
+
+    assertTimeoutPreemptively(Duration.ofMillis(500), () -> service.shutdownActiveExecutions());
+
+    releaseExecute.countDown();
+    submitter.join(5_000);
+    assertFalse(submitter.isAlive());
   }
 
   @SuppressWarnings("unchecked")

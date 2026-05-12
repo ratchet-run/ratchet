@@ -2,6 +2,7 @@ package run.ratchet.ri.core;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.time.Clock;
 import java.util.Objects;
 import run.ratchet.spi.JobLogger;
 import run.ratchet.spi.JobLoggerContext;
@@ -12,14 +13,21 @@ import run.ratchet.spi.JobLoggerFactory;
 public class DefaultJobLoggerFactory implements JobLoggerFactory {
 
   private final InternalEventPublisher eventPublisher;
+  private final Clock clock;
 
   protected DefaultJobLoggerFactory() {
     this.eventPublisher = null;
+    this.clock = null;
+  }
+
+  public DefaultJobLoggerFactory(InternalEventPublisher eventPublisher) {
+    this(eventPublisher, Clock.systemUTC());
   }
 
   @Inject
-  public DefaultJobLoggerFactory(InternalEventPublisher eventPublisher) {
+  public DefaultJobLoggerFactory(InternalEventPublisher eventPublisher, Clock clock) {
     this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher must not be null");
+    this.clock = Objects.requireNonNull(clock, "clock must not be null");
   }
 
   @Override
@@ -28,6 +36,6 @@ public class DefaultJobLoggerFactory implements JobLoggerFactory {
       throw new IllegalStateException(
           "DefaultJobLoggerFactory requires an injected InternalEventPublisher");
     }
-    return new JBossLoggingJobLogger(context.jobId(), eventPublisher);
+    return new JBossLoggingJobLogger(context.jobId(), eventPublisher, clock);
   }
 }

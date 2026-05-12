@@ -101,8 +101,6 @@ class JobCascadeServiceTest {
     JobEntity child = job(JobStatus.RUNNING);
 
     when(jobCrudStore.findDependants(rootId)).thenReturn(List.of(child));
-    when(jobCrudStore.findDependants(child.getId())).thenReturn(List.of());
-
     assertArrayEquals(new int[] {0, 1}, cascadeService.pauseChildrenIterative(rootId));
     verify(jobPauseStore, never()).transitionToPaused(any(), any());
   }
@@ -113,10 +111,20 @@ class JobCascadeServiceTest {
     JobEntity child = job(JobStatus.FAILED);
 
     when(jobCrudStore.findDependants(rootId)).thenReturn(List.of(child));
-    when(jobCrudStore.findDependants(child.getId())).thenReturn(List.of());
 
     assertArrayEquals(new int[] {0, 1}, cascadeService.pauseChildrenIterative(rootId));
     verify(jobPauseStore, never()).transitionToPaused(any(), any());
+  }
+
+  @Test
+  void pause_terminalChild_doesNotTraverseChildSubtree() {
+    UUID rootId = UUID.randomUUID();
+    JobEntity failedChild = job(JobStatus.FAILED);
+
+    when(jobCrudStore.findDependants(rootId)).thenReturn(List.of(failedChild));
+
+    assertArrayEquals(new int[] {0, 1}, cascadeService.pauseChildrenIterative(rootId));
+    verify(jobCrudStore, never()).findDependants(eq(failedChild.getId()), anyInt(), anyInt());
   }
 
   // ── resumeChildrenIterative ────────────────────────────────────────────────
@@ -203,6 +211,17 @@ class JobCascadeServiceTest {
 
     assertArrayEquals(new int[] {0, 1}, cascadeService.resumeChildrenIterative(rootId));
     verify(jobPauseStore, never()).transitionFromPaused(any(), any());
+  }
+
+  @Test
+  void resume_terminalChild_doesNotTraverseChildSubtree() {
+    UUID rootId = UUID.randomUUID();
+    JobEntity canceledChild = job(JobStatus.CANCELED);
+
+    when(jobCrudStore.findDependants(rootId)).thenReturn(List.of(canceledChild));
+
+    assertArrayEquals(new int[] {0, 1}, cascadeService.resumeChildrenIterative(rootId));
+    verify(jobCrudStore, never()).findDependants(eq(canceledChild.getId()), anyInt(), anyInt());
   }
 
   @Test

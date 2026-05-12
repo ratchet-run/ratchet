@@ -89,9 +89,10 @@ public class JobArchivingService {
   /**
    * Stops future scheduling for this service.
    *
-   * <p><b>Transaction attribute:</b> {@code REQUIRED}, inherited from the class-level {@link
-   * Transactional}.
+   * <p><b>Transaction attribute:</b> {@code NOT_SUPPORTED}. This changes only an in-memory flag and
+   * is not rolled back with a caller's transaction.
    */
+  @Transactional(TxType.NOT_SUPPORTED)
   public void stop() {
     stopped = true;
   }
@@ -230,7 +231,14 @@ public class JobArchivingService {
         }
 
       } catch (Exception e) {
-        log.errorf(e, "Failed to process archiving batch %s", batchCount);
+        log.errorf(
+            e,
+            "Failed to process archiving batch %s; firstJobId=%s lastJobId=%s size=%s. "
+                + "Remaining eligible jobs will be retried by a later archive pass.",
+            batchCount,
+            batch.get(0).getId(),
+            batch.get(batch.size() - 1).getId(),
+            batch.size());
         break;
       }
     }

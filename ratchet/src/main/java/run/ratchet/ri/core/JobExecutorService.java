@@ -138,7 +138,7 @@ public class JobExecutorService {
 
   private static void cancelTimeoutHandles(
       AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef) {
-    JobTimeoutHandler.TimeoutHandles handles = handlesRef.get();
+    JobTimeoutHandler.TimeoutHandles handles = handlesRef.getAndSet(null);
     if (handles != null) {
       handles.cancel();
     }
@@ -165,17 +165,25 @@ public class JobExecutorService {
       Callable<Void> callable,
       AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef) {
     Instant executionStartTime = effective().instant();
+    TrackingFutureTask task;
+    try {
+      task = prepareTask(callable);
+    } catch (RejectedExecutionException e) {
+      return ExecutionResult.rejected(e);
+    }
 
     try {
-      Future<Void> future = submitToExecutor(callable);
       JobTimeoutHandler.TimeoutHandles handles =
-          scheduleWatchdog(jobId, timeoutSec, future, executionStartTime);
+          scheduleWatchdog(jobId, timeoutSec, task, executionStartTime);
       handlesRef.set(handles);
-      if (future.isDone() && handles != null) {
-        handles.cancel();
+      submitToExecutor(task);
+      if (task.isDone()) {
+        cancelTimeoutHandles(handlesRef);
       }
-      return ExecutionResult.success(future);
+      return ExecutionResult.success(task);
     } catch (RejectedExecutionException e) {
+      cancelTimeoutHandles(handlesRef);
+      task.cancel(true);
       return ExecutionResult.rejected(e);
     }
   }
@@ -290,28 +298,35 @@ public class JobExecutorService {
       return timeoutHandler.scheduleTimeoutMonitoring(
           jobId, timeoutSec, fut, executorProvider.getScheduledExecutor(), executionStartTime);
     } catch (Exception e) {
-      log.warnf(
-          "Watchdog scheduling error for job %s — no timeout monitoring: %s",
-          jobId, e.getMessage());
-      return null;
+      log.warnf(e, "Watchdog scheduling error for job %s; rejecting execution", jobId);
+      throw new RejectedExecutionException("Timeout monitoring could not be scheduled", e);
     }
   }
 
-  private Future<Void> submitToExecutor(Callable<Void> callable) {
+  private TrackingFutureTask prepareTask(Callable<Void> callable) {
     TrackingFutureTask task = new TrackingFutureTask(callable);
     synchronized (submissionLock) {
       if (!acceptingExecutions.get()) {
         throw new RejectedExecutionException("Job executor is shutting down");
       }
-      ExecutorService executor = executorProvider.getJobExecutor();
       activeFutures.add(task);
-      try {
-        executor.execute(task);
-        return task;
-      } catch (RejectedExecutionException e) {
-        activeFutures.remove(task);
-        throw e;
+      return task;
+    }
+  }
+
+  private void submitToExecutor(TrackingFutureTask task) {
+    if (task.isCancelled()) {
+      throw new RejectedExecutionException("Job execution was canceled before submission");
+    }
+    ExecutorService executor = executorProvider.getJobExecutor();
+    try {
+      executor.execute(task);
+      if (task.isCancelled()) {
+        throw new RejectedExecutionException("Job execution was canceled during submission");
       }
+    } catch (RejectedExecutionException e) {
+      activeFutures.remove(task);
+      throw e;
     }
   }
 
