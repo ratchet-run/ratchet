@@ -43,6 +43,18 @@ class MysqlNodeLockOperationsTest {
   }
 
   @Test
+  void tryLock_preservesSubSecondTtl() {
+    List<String> sqlStatements = new ArrayList<>();
+    List<Object> parameters = new ArrayList<>();
+    MysqlNodeLockOperations locks = newLocksCapturingParams(sqlStatements, parameters, 1);
+
+    assertTrue(locks.tryLock("short-lock", Duration.ofMillis(500), "node-A"));
+
+    assertTrue(sqlStatements.get(0).contains("DATE_ADD(NOW(6), INTERVAL ? MICROSECOND)"));
+    assertEquals(500_000L, parameters.get(1));
+  }
+
+  @Test
   void findInactiveNodesSince_usesNativeSchedulerNodeQuery() {
     List<String> sqlStatements = new ArrayList<>();
     NodeEntity inactive = new NodeEntity();
@@ -73,6 +85,7 @@ class MysqlNodeLockOperationsTest {
     assertTrue(locks.renewLock("held-lock", Duration.ofSeconds(30), "node-A"));
 
     assertTrue(sqlStatements.get(0).contains("NOW(6)"));
+    assertTrue(sqlStatements.get(0).contains("INTERVAL ? MICROSECOND"));
     assertFalse(sqlStatements.get(0).contains("NOW(3)"));
   }
 
@@ -88,6 +101,25 @@ class MysqlNodeLockOperationsTest {
                     sqlStatements.add(sql.stripLeading());
                     int updateCount = updateCounts[sqlStatements.size() - 1];
                     return queryReturning(updateCount);
+                  }
+                  throw new UnsupportedOperationException(method.getName());
+                });
+    return new MysqlNodeLockOperations(new MysqlStoreContext(em, noopMetrics()));
+  }
+
+  private static MysqlNodeLockOperations newLocksCapturingParams(
+      List<String> sqlStatements, List<Object> parameters, int... updateCounts) {
+    EntityManager em =
+        (EntityManager)
+            Proxy.newProxyInstance(
+                EntityManager.class.getClassLoader(),
+                new Class<?>[] {EntityManager.class},
+                (proxy, method, args) -> {
+                  if ("createNativeQuery".equals(method.getName()) && args != null) {
+                    String sql = (String) args[0];
+                    sqlStatements.add(sql.stripLeading());
+                    int updateCount = updateCounts[sqlStatements.size() - 1];
+                    return queryReturning(updateCount, parameters);
                   }
                   throw new UnsupportedOperationException(method.getName());
                 });
@@ -113,13 +145,22 @@ class MysqlNodeLockOperationsTest {
   }
 
   private static Query queryReturning(int updateCount) {
+    return queryReturning(updateCount, null);
+  }
+
+  private static Query queryReturning(int updateCount, List<Object> parameters) {
     return (Query)
         Proxy.newProxyInstance(
             Query.class.getClassLoader(),
             new Class<?>[] {Query.class},
             (proxy, method, args) -> {
               return switch (method.getName()) {
-                case "setParameter" -> proxy;
+                case "setParameter" -> {
+                  if (parameters != null) {
+                    parameters.add(args[1]);
+                  }
+                  yield proxy;
+                }
                 case "executeUpdate" -> updateCount;
                 case "getSingleResult" ->
                     throw new AssertionError("tryLock must not SELECT owner_node after mutation");

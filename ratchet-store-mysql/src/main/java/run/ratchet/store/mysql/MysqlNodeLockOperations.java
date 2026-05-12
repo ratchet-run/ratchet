@@ -20,79 +20,91 @@ final class MysqlNodeLockOperations implements NodeStore, LockStore {
 
   @Override
   public boolean tryLock(String name, Duration ttl, String nodeId) {
-    requireLockName(name);
-    requirePositiveDuration(ttl, "ttl");
-    Objects.requireNonNull(nodeId, "nodeId");
-    long ttlSeconds = ttl.toSeconds();
-    // language=MySQL
-    String updateSql =
-        """
-        UPDATE scheduler_lock
-        SET owner_node = ?,
-            locked_at = CASE
-              WHEN locked_at = NOW(6) THEN locked_at + INTERVAL 1 MICROSECOND
-              ELSE NOW(6)
-            END,
-            expires_at = DATE_ADD(NOW(6), INTERVAL ? SECOND)
-        WHERE lock_name = ?
-          AND (expires_at < NOW(6) OR owner_node = ?)
-        """;
-    int updated =
-        ctx.em()
-            .createNativeQuery(updateSql)
-            .setParameter(1, nodeId)
-            .setParameter(2, ttlSeconds)
-            .setParameter(3, name)
-            .setParameter(4, nodeId)
-            .executeUpdate();
-    if (updated > 0) {
-      return true;
-    }
+    try {
+      requireLockName(name);
+      requirePositiveDuration(ttl, "ttl");
+      Objects.requireNonNull(nodeId, "nodeId");
+      long ttlMicros = durationMicros(ttl);
+      // language=MySQL
+      String updateSql =
+          """
+          UPDATE scheduler_lock
+          SET owner_node = ?,
+              locked_at = CASE
+                WHEN locked_at = NOW(6) THEN locked_at + INTERVAL 1 MICROSECOND
+                ELSE NOW(6)
+              END,
+              expires_at = DATE_ADD(NOW(6), INTERVAL ? MICROSECOND)
+          WHERE lock_name = ?
+            AND (expires_at < NOW(6) OR owner_node = ?)
+          """;
+      int updated =
+          ctx.em()
+              .createNativeQuery(updateSql)
+              .setParameter(1, nodeId)
+              .setParameter(2, ttlMicros)
+              .setParameter(3, name)
+              .setParameter(4, nodeId)
+              .executeUpdate();
+      if (updated > 0) {
+        return true;
+      }
 
-    // language=MySQL
-    String insertSql =
-        """
-        INSERT IGNORE INTO scheduler_lock (lock_name, owner_node, locked_at, expires_at)
-        VALUES (?, ?, NOW(6), DATE_ADD(NOW(6), INTERVAL ? SECOND))
-        """;
-    int inserted =
-        ctx.em()
-            .createNativeQuery(insertSql)
-            .setParameter(1, name)
-            .setParameter(2, nodeId)
-            .setParameter(3, ttlSeconds)
-            .executeUpdate();
-    return inserted > 0;
+      // language=MySQL
+      String insertSql =
+          """
+          INSERT IGNORE INTO scheduler_lock (lock_name, owner_node, locked_at, expires_at)
+          VALUES (?, ?, NOW(6), DATE_ADD(NOW(6), INTERVAL ? MICROSECOND))
+          """;
+      int inserted =
+          ctx.em()
+              .createNativeQuery(insertSql)
+              .setParameter(1, name)
+              .setParameter(2, nodeId)
+              .setParameter(3, ttlMicros)
+              .executeUpdate();
+      return inserted > 0;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("try lock", e);
+    }
   }
 
   @Override
   public void unlock(String name, String nodeId) {
-    requireLockName(name);
-    Objects.requireNonNull(nodeId, "nodeId");
-    // language=MySQL
-    String sql = "DELETE FROM scheduler_lock WHERE lock_name = ? AND owner_node = ?";
-    ctx.em().createNativeQuery(sql).setParameter(1, name).setParameter(2, nodeId).executeUpdate();
+    try {
+      requireLockName(name);
+      Objects.requireNonNull(nodeId, "nodeId");
+      // language=MySQL
+      String sql = "DELETE FROM scheduler_lock WHERE lock_name = ? AND owner_node = ?";
+      ctx.em().createNativeQuery(sql).setParameter(1, name).setParameter(2, nodeId).executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("unlock", e);
+    }
   }
 
   @Override
   public boolean renewLock(String name, Duration extension, String nodeId) {
-    requireLockName(name);
-    requirePositiveDuration(extension, "extension");
-    Objects.requireNonNull(nodeId, "nodeId");
-    // language=MySQL
-    String sql =
-        """
-        UPDATE scheduler_lock SET expires_at = DATE_ADD(NOW(6), INTERVAL ? SECOND)
-        WHERE lock_name = ? AND owner_node = ?
-        """;
-    int updated =
-        ctx.em()
-            .createNativeQuery(sql)
-            .setParameter(1, extension.toSeconds())
-            .setParameter(2, name)
-            .setParameter(3, nodeId)
-            .executeUpdate();
-    return updated > 0;
+    try {
+      requireLockName(name);
+      requirePositiveDuration(extension, "extension");
+      Objects.requireNonNull(nodeId, "nodeId");
+      // language=MySQL
+      String sql =
+          """
+          UPDATE scheduler_lock SET expires_at = DATE_ADD(NOW(6), INTERVAL ? MICROSECOND)
+          WHERE lock_name = ? AND owner_node = ?
+          """;
+      int updated =
+          ctx.em()
+              .createNativeQuery(sql)
+              .setParameter(1, durationMicros(extension))
+              .setParameter(2, name)
+              .setParameter(3, nodeId)
+              .executeUpdate();
+      return updated > 0;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("renew lock", e);
+    }
   }
 
   private static void requireLockName(String name) {
@@ -109,22 +121,35 @@ final class MysqlNodeLockOperations implements NodeStore, LockStore {
     }
   }
 
+  private static long durationMicros(Duration duration) {
+    long seconds = duration.getSeconds();
+    long microsFromNanos = (duration.getNano() + 999L) / 1_000L;
+    if (seconds > (Long.MAX_VALUE - microsFromNanos) / 1_000_000L) {
+      return Long.MAX_VALUE;
+    }
+    return Math.max(1L, seconds * 1_000_000L + microsFromNanos);
+  }
+
   @Override
   public void upsertHeartbeat(String nodeId, Instant ts) {
-    Timestamp tsTs = Timestamp.from(ts);
-    // language=MySQL
-    String sql =
-        """
-        INSERT INTO scheduler_node (node_id, heartbeat_ts, started_at)
-        VALUES (?, ?, ?)
-        ON DUPLICATE KEY UPDATE heartbeat_ts = VALUES(heartbeat_ts)
-        """;
-    ctx.em()
-        .createNativeQuery(sql)
-        .setParameter(1, nodeId)
-        .setParameter(2, tsTs)
-        .setParameter(3, tsTs)
-        .executeUpdate();
+    try {
+      Timestamp tsTs = Timestamp.from(ts);
+      // language=MySQL
+      String sql =
+          """
+          INSERT INTO scheduler_node (node_id, heartbeat_ts, started_at)
+          VALUES (?, ?, ?)
+          ON DUPLICATE KEY UPDATE heartbeat_ts = VALUES(heartbeat_ts)
+          """;
+      ctx.em()
+          .createNativeQuery(sql)
+          .setParameter(1, nodeId)
+          .setParameter(2, tsTs)
+          .setParameter(3, tsTs)
+          .executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("upsert heartbeat", e);
+    }
   }
 
   @Override
@@ -135,31 +160,46 @@ final class MysqlNodeLockOperations implements NodeStore, LockStore {
   @Override
   @SuppressWarnings("unchecked")
   public List<NodeEntity> findInactiveNodesSince(Instant cutoff) {
-    // language=MySQL
-    String sql = "SELECT * FROM scheduler_node WHERE heartbeat_ts < ?";
-    return ctx.em()
-        .createNativeQuery(sql, NodeEntity.class)
-        .setParameter(1, Timestamp.from(cutoff))
-        .getResultList();
+    try {
+      // language=MySQL
+      String sql = "SELECT * FROM scheduler_node WHERE heartbeat_ts < ?";
+      return ctx.em()
+          .createNativeQuery(sql, NodeEntity.class)
+          .setParameter(1, Timestamp.from(cutoff))
+          .getResultList();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("find inactive nodes", e);
+    }
   }
 
   @Override
   public int deleteInactiveNodesSince(Instant cutoff) {
-    // language=MySQL
-    String sql = "DELETE FROM scheduler_node WHERE heartbeat_ts < ?";
-    return ctx.em().createNativeQuery(sql).setParameter(1, Timestamp.from(cutoff)).executeUpdate();
+    try {
+      // language=MySQL
+      String sql = "DELETE FROM scheduler_node WHERE heartbeat_ts < ?";
+      return ctx.em()
+          .createNativeQuery(sql)
+          .setParameter(1, Timestamp.from(cutoff))
+          .executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("delete inactive nodes", e);
+    }
   }
 
   @Override
   public Instant getDatabaseTime() {
-    // language=MySQL
-    String sql = "SELECT CAST(ROUND(UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000) AS SIGNED)";
-    Object epochMillis = ctx.em().createNativeQuery(sql).getSingleResult();
-    if (epochMillis instanceof Number n) {
-      return Instant.ofEpochMilli(n.longValue());
+    try {
+      // language=MySQL
+      String sql = "SELECT CAST(ROUND(UNIX_TIMESTAMP(CURRENT_TIMESTAMP(3)) * 1000) AS SIGNED)";
+      Object epochMillis = ctx.em().createNativeQuery(sql).getSingleResult();
+      if (epochMillis instanceof Number n) {
+        return Instant.ofEpochMilli(n.longValue());
+      }
+      throw new IllegalStateException(
+          "Unexpected database epoch millis result type: "
+              + (epochMillis == null ? "null" : epochMillis.getClass().getName()));
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("get database time", e);
     }
-    throw new IllegalStateException(
-        "Unexpected database epoch millis result type: "
-            + (epochMillis == null ? "null" : epochMillis.getClass().getName()));
   }
 }

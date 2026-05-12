@@ -21,56 +21,68 @@ final class MysqlJobDeleteOperations {
   }
 
   void delete(UUID id) {
-    reservations.deleteReservationByOwner(id);
-    // language=MySQL
-    String sql = "DELETE FROM scheduler_job WHERE job_id = ?";
-    ctx.em()
-        .createNativeQuery(sql)
-        .setParameter(1, UuidByteArrayConverter.toBytes(id))
-        .executeUpdate();
+    try {
+      reservations.deleteReservationByOwner(id);
+      // language=MySQL
+      String sql = "DELETE FROM scheduler_job WHERE job_id = ?";
+      ctx.em()
+          .createNativeQuery(sql)
+          .setParameter(1, UuidByteArrayConverter.toBytes(id))
+          .executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("delete job", e);
+    }
   }
 
   int deleteJobsByIds(List<UUID> ids) {
-    if (ids.isEmpty()) {
-      return 0;
+    try {
+      if (ids.isEmpty()) {
+        return 0;
+      }
+      reservations.deleteReservationsByOwners(ids);
+      String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+      // language=MySQL
+      String jobSql = "DELETE FROM scheduler_job WHERE job_id IN (" + placeholders + ")";
+      Query jobDelete = ctx.em().createNativeQuery(jobSql);
+      bindUuidList(jobDelete, ids, 1);
+      return jobDelete.executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("delete jobs by ids", e);
     }
-    reservations.deleteReservationsByOwners(ids);
-    String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
-    // language=MySQL
-    String jobSql = "DELETE FROM scheduler_job WHERE job_id IN (" + placeholders + ")";
-    Query jobDelete = ctx.em().createNativeQuery(jobSql);
-    bindUuidList(jobDelete, ids, 1);
-    return jobDelete.executeUpdate();
   }
 
   int deleteDlqOlderThan(Instant cutoff) {
-    // language=MySQL
-    String selectSql =
-        """
-        SELECT job_id FROM scheduler_job
-        WHERE terminal_status = 'FAILED' AND total_attempts >= max_retries
-          AND terminated_at < ?
-        """;
-    @SuppressWarnings("unchecked")
-    List<?> idRows =
-        ctx.em()
-            .createNativeQuery(selectSql)
-            .setParameter(1, Timestamp.from(cutoff))
-            .getResultList();
-    if (idRows.isEmpty()) {
-      return 0;
+    try {
+      // language=MySQL
+      String selectSql =
+          """
+          SELECT job_id FROM scheduler_job
+          WHERE terminal_status = 'FAILED' AND total_attempts >= max_retries
+            AND terminated_at < ?
+          """;
+      @SuppressWarnings("unchecked")
+      List<?> idRows =
+          ctx.em()
+              .createNativeQuery(selectSql)
+              .setParameter(1, Timestamp.from(cutoff))
+              .getResultList();
+      if (idRows.isEmpty()) {
+        return 0;
+      }
+      List<UUID> ids = new ArrayList<>(idRows.size());
+      for (Object n : idRows) {
+        ids.add(MysqlJobRowMapper.uuidOrNull(n));
+      }
+      reservations.deleteReservationsByOwners(ids);
+      String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+      // language=MySQL
+      String jobSql = "DELETE FROM scheduler_job WHERE job_id IN (" + placeholders + ")";
+      Query jobDelete = ctx.em().createNativeQuery(jobSql);
+      bindUuidList(jobDelete, ids, 1);
+      return jobDelete.executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("delete dlq older than", e);
     }
-    List<UUID> ids = new ArrayList<>(idRows.size());
-    for (Object n : idRows) {
-      ids.add(MysqlJobRowMapper.uuidOrNull(n));
-    }
-    reservations.deleteReservationsByOwners(ids);
-    String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
-    // language=MySQL
-    String jobSql = "DELETE FROM scheduler_job WHERE job_id IN (" + placeholders + ")";
-    Query jobDelete = ctx.em().createNativeQuery(jobSql);
-    bindUuidList(jobDelete, ids, 1);
-    return jobDelete.executeUpdate();
   }
 
   private static void bindUuidList(Query query, List<UUID> ids, int startParam) {
@@ -81,34 +93,44 @@ final class MysqlJobDeleteOperations {
   }
 
   int resetOrphanJobs(Duration grace) {
-    long graceSec = grace.toSeconds();
-    // language=MySQL
-    String sql =
-        """
-        UPDATE scheduler_job_queue
-        SET status = 'PENDING', picked_by = NULL, picked_at = NULL, updated_at = NOW(3)
-        WHERE status = 'RUNNING'
-          AND picked_by NOT IN (
-            SELECT node_id FROM scheduler_node
-            WHERE TIMESTAMPDIFF(SECOND, heartbeat_ts, NOW(3)) <= ?
-          )
-          AND TIMESTAMPDIFF(SECOND, picked_at, NOW(3)) >= ?
-        """;
-    return ctx.em()
-        .createNativeQuery(sql)
-        .setParameter(1, graceSec)
-        .setParameter(2, graceSec)
-        .executeUpdate();
+    try {
+      long graceSec = grace.toSeconds();
+      // language=MySQL
+      String sql =
+          """
+          UPDATE scheduler_job_queue
+          SET status = 'PENDING', picked_by = NULL, picked_at = NULL, updated_at = NOW(3)
+          WHERE status = 'RUNNING'
+            AND (
+              picked_by IS NULL OR picked_by NOT IN (
+                SELECT node_id FROM scheduler_node
+                WHERE TIMESTAMPDIFF(SECOND, heartbeat_ts, NOW(3)) <= ?
+              )
+            )
+            AND TIMESTAMPDIFF(SECOND, picked_at, NOW(3)) >= ?
+          """;
+      return ctx.em()
+          .createNativeQuery(sql)
+          .setParameter(1, graceSec)
+          .setParameter(2, graceSec)
+          .executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("reset orphan jobs", e);
+    }
   }
 
   int resetOrphanJobsForNode(String nodeId) {
-    // language=MySQL
-    String sql =
-        """
-        UPDATE scheduler_job_queue
-        SET status = 'PENDING', picked_by = NULL, picked_at = NULL, updated_at = NOW(3)
-        WHERE status = 'RUNNING' AND picked_by = ?
-        """;
-    return ctx.em().createNativeQuery(sql).setParameter(1, nodeId).executeUpdate();
+    try {
+      // language=MySQL
+      String sql =
+          """
+          UPDATE scheduler_job_queue
+          SET status = 'PENDING', picked_by = NULL, picked_at = NULL, updated_at = NOW(3)
+          WHERE status = 'RUNNING' AND picked_by = ?
+          """;
+      return ctx.em().createNativeQuery(sql).setParameter(1, nodeId).executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("reset orphan jobs for node", e);
+    }
   }
 }

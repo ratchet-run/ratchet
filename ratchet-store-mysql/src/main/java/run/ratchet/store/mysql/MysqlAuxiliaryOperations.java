@@ -235,38 +235,50 @@ final class MysqlAuxiliaryOperations
 
   @Override
   public boolean tryAcquirePermit(String resource, UUID jobId, String nodeId) {
-    // language=MySQL
-    String sql =
-        """
-        SELECT max_concurrent,
-               (SELECT COUNT(*) FROM scheduler_resource_permit WHERE resource_name = ?)
-        FROM scheduler_resource_limit
-        WHERE resource_name = ?
-        FOR UPDATE
-        """;
-    @SuppressWarnings("unchecked")
-    List<Object[]> permitResults =
-        ctx.em()
-            .createNativeQuery(sql)
-            .setParameter(1, resource)
-            .setParameter(2, resource)
-            .getResultList();
-    Object[] limits = permitResults.stream().findFirst().orElse(null);
+    try {
+      // language=MySQL
+      String sql =
+          """
+          SELECT max_concurrent,
+                 (SELECT COUNT(*) FROM scheduler_resource_permit WHERE resource_name = ?),
+                 (SELECT COUNT(*) FROM scheduler_resource_permit
+                  WHERE resource_name = ? AND job_id = ?)
+          FROM scheduler_resource_limit
+          WHERE resource_name = ?
+          FOR UPDATE
+          """;
+      @SuppressWarnings("unchecked")
+      List<Object[]> permitResults =
+          ctx.em()
+              .createNativeQuery(sql)
+              .setParameter(1, resource)
+              .setParameter(2, resource)
+              .setParameter(3, UuidByteArrayConverter.toBytes(jobId))
+              .setParameter(4, resource)
+              .getResultList();
+      Object[] limits = permitResults.stream().findFirst().orElse(null);
 
-    if (limits == null) {
-      throw new IllegalArgumentException("Resource is not configured: " + resource);
+      if (limits == null) {
+        throw new IllegalArgumentException("Resource is not configured: " + resource);
+      }
+
+      int maxConcurrent = ((Number) limits[0]).intValue();
+      int active = ((Number) limits[1]).intValue();
+      int existingForJob = ((Number) limits[2]).intValue();
+
+      if (existingForJob > 0) {
+        return true;
+      }
+      if (active >= maxConcurrent) {
+        return false;
+      }
+
+      ResourcePermitEntity permit = ResourcePermitEntity.create(resource, jobId, nodeId);
+      ctx.em().persist(permit);
+      return true;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("try acquire permit", e);
     }
-
-    int maxConcurrent = ((Number) limits[0]).intValue();
-    int active = ((Number) limits[1]).intValue();
-
-    if (active >= maxConcurrent) {
-      return false;
-    }
-
-    ResourcePermitEntity permit = ResourcePermitEntity.create(resource, jobId, nodeId);
-    ctx.em().persist(permit);
-    return true;
   }
 
   @Override

@@ -114,13 +114,17 @@ final class MysqlArchiveOperations implements ArchiveStore {
    */
   @Override
   public ArchivedJobEntity archiveJob(JobEntity job, String reason, String archivedBy) {
-    JobEntity hydrated = hydrateForArchive(job);
-    ArchivedJobEntity archive = ArchiveHelper.buildArchive(hydrated, reason, archivedBy);
-    prepareArchive(archive);
-    Query query = ctx.em().createNativeQuery(INSERT_ARCHIVE_SQL);
-    setArchiveParameters(query, archive, 1);
-    query.executeUpdate();
-    return archive;
+    try {
+      JobEntity hydrated = hydrateForArchive(job);
+      ArchivedJobEntity archive = ArchiveHelper.buildArchive(hydrated, reason, archivedBy);
+      prepareArchive(archive);
+      Query query = ctx.em().createNativeQuery(INSERT_ARCHIVE_SQL);
+      setArchiveParameters(query, archive, 1);
+      query.executeUpdate();
+      return archive;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("archive job", e);
+    }
   }
 
   /**
@@ -131,110 +135,130 @@ final class MysqlArchiveOperations implements ArchiveStore {
    */
   @Override
   public int archiveJobsBatch(List<JobEntity> jobsToArchive, String reason, String archivedBy) {
-    if (jobsToArchive.isEmpty()) {
-      return 0;
-    }
-
-    List<UUID> ids = jobsToArchive.stream().map(JobEntity::getId).toList();
-    Map<UUID, JobEntity> hydratedById =
-        jobs.findByIds(ids).stream()
-            .collect(Collectors.toMap(JobEntity::getId, Function.identity()));
-    List<ArchivedJobEntity> archives = new ArrayList<>(jobsToArchive.size());
-    for (UUID id : ids) {
-      JobEntity hydrated = hydratedById.get(id);
-      if (hydrated == null) {
-        throw new IllegalStateException("Job not found for archival: " + id);
+    try {
+      if (jobsToArchive.isEmpty()) {
+        return 0;
       }
-      ArchivedJobEntity archive = ArchiveHelper.buildArchive(hydrated, reason, archivedBy);
-      prepareArchive(archive);
-      archives.add(archive);
-    }
 
-    String rows =
-        String.join(",", Collections.nCopies(archives.size(), ARCHIVE_VALUE_PLACEHOLDERS));
-    Query query =
-        ctx.em()
-            .createNativeQuery(
-                """
-                INSERT INTO scheduler_job_archive (%s)
-                VALUES %s
-                """
-                    .formatted(ARCHIVE_COLUMNS, rows));
-    int parameter = 1;
-    for (ArchivedJobEntity archive : archives) {
-      parameter = setArchiveParameters(query, archive, parameter);
+      List<UUID> ids = jobsToArchive.stream().map(JobEntity::getId).toList();
+      Map<UUID, JobEntity> hydratedById =
+          jobs.findByIds(ids).stream()
+              .collect(Collectors.toMap(JobEntity::getId, Function.identity()));
+      List<ArchivedJobEntity> archives = new ArrayList<>(jobsToArchive.size());
+      for (UUID id : ids) {
+        JobEntity hydrated = hydratedById.get(id);
+        if (hydrated == null) {
+          throw new IllegalStateException("Job not found for archival: " + id);
+        }
+        ArchivedJobEntity archive = ArchiveHelper.buildArchive(hydrated, reason, archivedBy);
+        prepareArchive(archive);
+        archives.add(archive);
+      }
+
+      String rows =
+          String.join(",", Collections.nCopies(archives.size(), ARCHIVE_VALUE_PLACEHOLDERS));
+      Query query =
+          ctx.em()
+              .createNativeQuery(
+                  """
+                  INSERT INTO scheduler_job_archive (%s)
+                  VALUES %s
+                  """
+                      .formatted(ARCHIVE_COLUMNS, rows));
+      int parameter = 1;
+      for (ArchivedJobEntity archive : archives) {
+        parameter = setArchiveParameters(query, archive, parameter);
+      }
+      query.executeUpdate();
+      return archives.size();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("archive jobs batch", e);
     }
-    query.executeUpdate();
-    return archives.size();
   }
 
   @Override
   @SuppressWarnings("unchecked")
   public List<JobEntity> findJobsForArchiving(Instant olderThan, int limit) {
-    // language=MySQL
-    String sql =
-        """
-        SELECT %s
-        FROM scheduler_job c
-        LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
-        WHERE c.terminal_status IS NOT NULL AND c.terminated_at < ?
-        ORDER BY c.terminated_at ASC
-        LIMIT ?
-        """
-            .formatted(MysqlJobRowMapper.HYDRATION_SELECT);
-    List<Object[]> rows =
-        ctx.em()
-            .createNativeQuery(sql)
-            .setParameter(1, Timestamp.from(olderThan))
-            .setParameter(2, limit)
-            .getResultList();
-    List<JobEntity> jobs = new ArrayList<>(rows.size());
-    for (Object[] row : rows) {
-      jobs.add(mapper.hydrateJobEntity(row));
+    try {
+      // language=MySQL
+      String sql =
+          """
+          SELECT %s
+          FROM scheduler_job c
+          LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
+          WHERE c.terminal_status IS NOT NULL AND c.terminated_at < ?
+          ORDER BY c.terminated_at ASC
+          LIMIT ?
+          """
+              .formatted(MysqlJobRowMapper.HYDRATION_SELECT);
+      List<Object[]> rows =
+          ctx.em()
+              .createNativeQuery(sql)
+              .setParameter(1, Timestamp.from(olderThan))
+              .setParameter(2, limit)
+              .getResultList();
+      List<JobEntity> jobs = new ArrayList<>(rows.size());
+      for (Object[] row : rows) {
+        jobs.add(mapper.hydrateJobEntity(row));
+      }
+      tags.hydrateTagsBatch(jobs);
+      return jobs;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("find jobs for archiving", e);
     }
-    tags.hydrateTagsBatch(jobs);
-    return jobs;
   }
 
   @Override
   public long countJobsForArchiving(Instant olderThan) {
-    // language=MySQL
-    String sql =
-        """
-        SELECT COUNT(*) FROM scheduler_job
-        WHERE terminal_status IS NOT NULL AND terminated_at < ?
-        """;
-    Object result =
-        ctx.em()
-            .createNativeQuery(sql)
-            .setParameter(1, Timestamp.from(olderThan))
-            .getSingleResult();
-    return ((Number) result).longValue();
+    try {
+      // language=MySQL
+      String sql =
+          """
+          SELECT COUNT(*) FROM scheduler_job
+          WHERE terminal_status IS NOT NULL AND terminated_at < ?
+          """;
+      Object result =
+          ctx.em()
+              .createNativeQuery(sql)
+              .setParameter(1, Timestamp.from(olderThan))
+              .getSingleResult();
+      return ((Number) result).longValue();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("count jobs for archiving", e);
+    }
   }
 
   @Override
   public List<ArchivedJobEntity> findArchivedJobs(
       String targetClass, String businessKey, Instant from, Instant to, int limit) {
-    var searchQuery =
-        ArchiveQuerySupport.buildFindArchivedJobsQuery(
-            ARCHIVE_COLUMNS, targetClass, businessKey, from, to, limit);
-    Query query = ctx.em().createNativeQuery(searchQuery.sql());
-    ArchiveQuerySupport.bindParameters(query, searchQuery);
-    @SuppressWarnings("unchecked")
-    List<Object[]> rows = query.getResultList();
-    return rows.stream()
-        .map(row -> ArchiveRowMapper.map(row, MysqlJobRowMapper::toInstant))
-        .toList();
+    try {
+      var searchQuery =
+          ArchiveQuerySupport.buildFindArchivedJobsQuery(
+              ARCHIVE_COLUMNS, targetClass, businessKey, from, to, limit);
+      Query query = ctx.em().createNativeQuery(searchQuery.sql());
+      ArchiveQuerySupport.bindParameters(query, searchQuery);
+      @SuppressWarnings("unchecked")
+      List<Object[]> rows = query.getResultList();
+      return rows.stream()
+          .map(row -> ArchiveRowMapper.map(row, MysqlJobRowMapper::toInstant))
+          .toList();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("find archived jobs", e);
+    }
   }
 
   @Override
   public int purgeArchivedJobs(Instant olderThan) {
-    // language=MySQL
-    String sql = "DELETE FROM scheduler_job_archive WHERE archived_at < ?";
-    return ctx.em()
-        .createNativeQuery(sql)
-        .setParameter(1, Timestamp.from(olderThan))
-        .executeUpdate();
+    try {
+      // language=MySQL
+      String sql = "DELETE FROM scheduler_job_archive WHERE archived_at < ?";
+      return ctx.em()
+          .createNativeQuery(sql)
+          .setParameter(1, Timestamp.from(olderThan))
+          .executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("purge archived jobs", e);
+    }
   }
 
   private JobEntity hydrateForArchive(JobEntity job) {

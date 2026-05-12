@@ -48,55 +48,61 @@ final class MysqlSignalOperations implements SignalStore {
   @Override
   @SuppressWarnings("unchecked")
   public List<JobEntity> findTimedOutSignalJobs(Instant now, int limit) {
-    if (limit <= 0) {
-      throw new IllegalArgumentException("limit must be positive: " + limit);
-    }
-    // language=MySQL
-    String sql =
-        """
-        SELECT q.job_id, q.signal_key, q.signal_timeout, q.status,
-               c.job_type, c.priority, c.max_retries, c.business_key,
-               c.backoff_policy, c.backoff_param_ms,
-               q.signal_payload, q.signal_payload_type, q.signal_outcome,
-               q.signal_rejection_reason, q.signal_delivered_at,
-               q.signal_delivered_by, q.signal_delivery_id
-        FROM scheduler_job_queue q
-        JOIN scheduler_job c ON c.job_id = q.job_id
-        WHERE q.status = 'WAITING'
-          AND q.signal_timeout IS NOT NULL
-          AND q.signal_timeout <= ?
-        ORDER BY q.signal_timeout ASC, q.job_id ASC
-        LIMIT """
-            + " "
-            + limit;
-    List<Object[]> rows =
-        ctx.em().createNativeQuery(sql).setParameter(1, Timestamp.from(now)).getResultList();
+    try {
+      if (limit <= 0) {
+        throw new IllegalArgumentException("limit must be positive: " + limit);
+      }
+      // language=MySQL
+      String sql =
+          """
+          SELECT q.job_id, q.signal_key, q.signal_timeout, q.status,
+                 c.job_type, c.priority, c.max_retries, c.business_key,
+                 c.backoff_policy, c.backoff_param_ms,
+                 q.signal_payload, q.signal_payload_type, q.signal_outcome,
+                 q.signal_rejection_reason, q.signal_delivered_at,
+                 q.signal_delivered_by, q.signal_delivery_id
+          FROM scheduler_job_queue q
+          JOIN scheduler_job c ON c.job_id = q.job_id
+          WHERE q.status = 'WAITING'
+            AND q.signal_timeout IS NOT NULL
+            AND q.signal_timeout <= ?
+          ORDER BY q.signal_timeout ASC, q.job_id ASC
+          LIMIT """
+              + " "
+              + limit;
+      List<Object[]> rows =
+          ctx.em().createNativeQuery(sql).setParameter(1, Timestamp.from(now)).getResultList();
 
-    List<JobEntity> result = new ArrayList<>(rows.size());
-    for (Object[] row : rows) {
-      JobEntity job = new JobEntity();
-      job.setId(UuidByteArrayConverter.fromBytes((byte[]) row[0]));
-      job.setSignalKey((String) row[1]);
-      job.setSignalTimeout(toInstant(row[2]));
-      job.setStatus(JobStatus.WAITING);
-      job.setJobType(row[4] != null ? JobExecutionType.valueOf((String) row[4]) : null);
-      job.setPriority(
-          row[5] != null ? JobPriority.values()[((Number) row[5]).intValue()] : JobPriority.NORMAL);
-      job.setMaxRetries(row[6] != null ? ((Number) row[6]).intValue() : 0);
-      job.setBusinessKey((String) row[7]);
-      job.setBackoffPolicy(
-          row[8] != null ? BackoffPolicy.valueOf((String) row[8]) : BackoffPolicy.NONE);
-      job.setBackoffParamMs(row[9] != null ? ((Number) row[9]).intValue() : 0);
-      job.setSignalPayload((String) row[10]);
-      job.setSignalPayloadType((String) row[11]);
-      job.setSignalOutcome((String) row[12]);
-      job.setSignalRejectionReason((String) row[13]);
-      job.setSignalDeliveredAt(toInstant(row[14]));
-      job.setSignalDeliveredBy((String) row[15]);
-      job.setSignalDeliveryId((String) row[16]);
-      result.add(job);
+      List<JobEntity> result = new ArrayList<>(rows.size());
+      for (Object[] row : rows) {
+        JobEntity job = new JobEntity();
+        job.setId(UuidByteArrayConverter.fromBytes((byte[]) row[0]));
+        job.setSignalKey((String) row[1]);
+        job.setSignalTimeout(toInstant(row[2]));
+        job.setStatus(JobStatus.WAITING);
+        job.setJobType(row[4] != null ? JobExecutionType.valueOf((String) row[4]) : null);
+        job.setPriority(
+            row[5] != null
+                ? JobPriority.values()[((Number) row[5]).intValue()]
+                : JobPriority.NORMAL);
+        job.setMaxRetries(row[6] != null ? ((Number) row[6]).intValue() : 0);
+        job.setBusinessKey((String) row[7]);
+        job.setBackoffPolicy(
+            row[8] != null ? BackoffPolicy.valueOf((String) row[8]) : BackoffPolicy.NONE);
+        job.setBackoffParamMs(row[9] != null ? ((Number) row[9]).intValue() : 0);
+        job.setSignalPayload((String) row[10]);
+        job.setSignalPayloadType((String) row[11]);
+        job.setSignalOutcome((String) row[12]);
+        job.setSignalRejectionReason((String) row[13]);
+        job.setSignalDeliveredAt(toInstant(row[14]));
+        job.setSignalDeliveredBy((String) row[15]);
+        job.setSignalDeliveryId((String) row[16]);
+        result.add(job);
+      }
+      return result;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("find timed out signal jobs", e);
     }
-    return result;
   }
 
   @Override
@@ -109,19 +115,23 @@ final class MysqlSignalOperations implements SignalStore {
       String deliveredBy,
       Instant deliveredAt,
       String deliveryId) {
-    int updated =
-        deliverSignal(
-            "job_id = ?",
-            UuidByteArrayConverter.toBytes(jobId),
-            payload,
-            payloadType,
-            outcome,
-            rejectionReason,
-            deliveredBy,
-            deliveredAt,
-            deliveryId);
-    log.debugf("deliverSignalById(%s): %s row(s) updated", jobId, updated);
-    return updated;
+    try {
+      int updated =
+          deliverSignal(
+              "job_id = ?",
+              UuidByteArrayConverter.toBytes(jobId),
+              payload,
+              payloadType,
+              outcome,
+              rejectionReason,
+              deliveredBy,
+              deliveredAt,
+              deliveryId);
+      log.debugf("deliverSignalById(%s): %s row(s) updated", jobId, updated);
+      return updated;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("deliver signal by id", e);
+    }
   }
 
   @Override
@@ -134,19 +144,23 @@ final class MysqlSignalOperations implements SignalStore {
       String deliveredBy,
       Instant deliveredAt,
       String deliveryId) {
-    int updated =
-        deliverSignal(
-            "signal_key = ?",
-            signalKey,
-            payload,
-            payloadType,
-            outcome,
-            rejectionReason,
-            deliveredBy,
-            deliveredAt,
-            deliveryId);
-    log.debugf("deliverSignalByKey('%s'): %s row(s) updated", signalKey, updated);
-    return updated;
+    try {
+      int updated =
+          deliverSignal(
+              "signal_key = ?",
+              signalKey,
+              payload,
+              payloadType,
+              outcome,
+              rejectionReason,
+              deliveredBy,
+              deliveredAt,
+              deliveryId);
+      log.debugf("deliverSignalByKey('%s'): %s row(s) updated", signalKey, updated);
+      return updated;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("deliver signal by key", e);
+    }
   }
 
   private int deliverSignal(
@@ -192,16 +206,20 @@ final class MysqlSignalOperations implements SignalStore {
   @Override
   @SuppressWarnings("unchecked")
   public List<JobEntity> findJobsBySignalDeliveryId(String deliveryId) {
-    if (deliveryId == null || deliveryId.isBlank()) {
-      return List.of();
+    try {
+      if (deliveryId == null || deliveryId.isBlank()) {
+        return List.of();
+      }
+      String sql =
+          "SELECT "
+              + MysqlJobRowMapper.HYDRATION_SELECT
+              + " FROM scheduler_job c LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id"
+              + " WHERE q.signal_delivery_id = ?";
+      List<Object[]> rows =
+          ctx.em().createNativeQuery(sql).setParameter(1, deliveryId).getResultList();
+      return MysqlJobRowMapper.hydrateRows(rows);
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("find jobs by signal delivery id", e);
     }
-    String sql =
-        "SELECT "
-            + MysqlJobRowMapper.HYDRATION_SELECT
-            + " FROM scheduler_job c LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id"
-            + " WHERE q.signal_delivery_id = ?";
-    List<Object[]> rows =
-        ctx.em().createNativeQuery(sql).setParameter(1, deliveryId).getResultList();
-    return MysqlJobRowMapper.hydrateRows(rows);
   }
 }

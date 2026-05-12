@@ -36,31 +36,35 @@ final class MysqlJobTerminalOperations {
     ctx.timedStoreOperation(
         "update_status",
         () -> {
-          if (MysqlJobRowMapper.isLiveStatus(status)) {
-            // language=MySQL
-            String sql =
-                """
-                UPDATE scheduler_job_queue
-                SET status = ?, last_error = ?, updated_at = NOW(3)
-                WHERE job_id = ?
-                """;
-            return ctx.em()
-                .createNativeQuery(sql)
-                .setParameter(1, status.name())
-                .setParameter(2, errorMessage)
-                .setParameter(3, UuidByteArrayConverter.toBytes(id))
-                .executeUpdate();
+          try {
+            if (MysqlJobRowMapper.isLiveStatus(status)) {
+              // language=MySQL
+              String sql =
+                  """
+                  UPDATE scheduler_job_queue
+                  SET status = ?, last_error = ?, updated_at = NOW(3)
+                  WHERE job_id = ?
+                  """;
+              return ctx.em()
+                  .createNativeQuery(sql)
+                  .setParameter(1, status.name())
+                  .setParameter(2, errorMessage)
+                  .setParameter(3, UuidByteArrayConverter.toBytes(id))
+                  .executeUpdate();
+            }
+            if (status == JobStatus.CANCELED) {
+              return cancelJob(id) ? 1 : 0;
+            }
+            if (status == JobStatus.FAILED) {
+              return markJobFailedTerminal(id, errorMessage, 0) ? 1 : 0;
+            }
+            if (status == JobStatus.SUCCEEDED) {
+              return markJobSucceededMinimal(id, null, null, null, null) ? 1 : 0;
+            }
+            throw new IllegalArgumentException("Unsupported status target: " + status);
+          } catch (RuntimeException e) {
+            throw ctx.translateTransientStoreException("update status", e);
           }
-          if (status == JobStatus.CANCELED) {
-            return cancelJob(id) ? 1 : 0;
-          }
-          if (status == JobStatus.FAILED) {
-            return markJobFailedTerminal(id, errorMessage, 0) ? 1 : 0;
-          }
-          if (status == JobStatus.SUCCEEDED) {
-            return markJobSucceededMinimal(id, null, null, null, null) ? 1 : 0;
-          }
-          throw new IllegalArgumentException("Unsupported status target: " + status);
         },
         updated -> updated > 0 ? "updated" : "miss");
   }
@@ -109,29 +113,38 @@ final class MysqlJobTerminalOperations {
   }
 
   int incrementRetryAttempt(UUID id) {
-    // language=MySQL
-    String updateSql =
-        """
-        UPDATE scheduler_job_queue
-        SET attempts = LAST_INSERT_ID(attempts + 1), updated_at = NOW(3)
-        WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')
-        """;
-    int updated =
-        ctx.timedStoreOperation(
-            "increment_retry_attempt",
-            () ->
-                ctx.em()
-                    .createNativeQuery(updateSql)
-                    .setParameter(1, UuidByteArrayConverter.toBytes(id))
-                    .executeUpdate(),
-            count -> count > 0 ? "updated" : "miss");
-    if (updated == 0) {
-      return -1;
+    try {
+      // language=MySQL
+      String updateSql =
+          """
+          UPDATE scheduler_job_queue
+          SET attempts = LAST_INSERT_ID(attempts + 1), updated_at = NOW(3)
+          WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')
+          """;
+      int updated =
+          ctx.timedStoreOperation(
+              "increment_retry_attempt",
+              () -> {
+                try {
+                  return ctx.em()
+                      .createNativeQuery(updateSql)
+                      .setParameter(1, UuidByteArrayConverter.toBytes(id))
+                      .executeUpdate();
+                } catch (RuntimeException e) {
+                  throw ctx.translateTransientStoreException("increment retry attempt", e);
+                }
+              },
+              count -> count > 0 ? "updated" : "miss");
+      if (updated == 0) {
+        return -1;
+      }
+      // language=MySQL
+      String selectSql = "SELECT LAST_INSERT_ID()";
+      Object result = ctx.em().createNativeQuery(selectSql).getSingleResult();
+      return ((Number) result).intValue();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("increment retry attempt", e);
     }
-    // language=MySQL
-    String selectSql = "SELECT LAST_INSERT_ID()";
-    Object result = ctx.em().createNativeQuery(selectSql).getSingleResult();
-    return ((Number) result).intValue();
   }
 
   boolean markJobSucceeded(
@@ -178,12 +191,16 @@ final class MysqlJobTerminalOperations {
       Long durationMs,
       Long queueWaitMs,
       UUID batchId) {
-    boolean succeeded =
-        markJobSucceeded(jobId, resultJson, resultType, start, end, durationMs, queueWaitMs);
-    if (succeeded) {
-      batches.incrementCompletedAtomic(batchId);
+    try {
+      boolean succeeded =
+          markJobSucceeded(jobId, resultJson, resultType, start, end, durationMs, queueWaitMs);
+      if (succeeded) {
+        batches.incrementCompletedAtomic(batchId);
+      }
+      return succeeded;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("mark job succeeded and update batch", e);
     }
-    return succeeded;
   }
 
   boolean scheduleJobRetry(UUID id, String error, Instant newScheduledTime, int attempts) {
@@ -197,20 +214,29 @@ final class MysqlJobTerminalOperations {
         """;
     return ctx.timedStoreOperation(
             "schedule_retry",
-            () ->
-                ctx.em()
+            () -> {
+              try {
+                return ctx.em()
                     .createNativeQuery(sql)
                     .setParameter(1, error)
                     .setParameter(2, Timestamp.from(newScheduledTime))
                     .setParameter(3, attempts)
                     .setParameter(4, UuidByteArrayConverter.toBytes(id))
-                    .executeUpdate(),
+                    .executeUpdate();
+              } catch (RuntimeException e) {
+                throw ctx.translateTransientStoreException("schedule job retry", e);
+              }
+            },
             updated -> updated > 0 ? "updated" : "miss")
         > 0;
   }
 
   boolean markJobFailedTerminal(UUID id, String terminalError, int totalAttempts) {
-    return markJobFailedTerminalFromStatus(id, terminalError, totalAttempts, JobStatus.RUNNING);
+    try {
+      return markJobFailedTerminalFromStatus(id, terminalError, totalAttempts, JobStatus.RUNNING);
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("mark job failed terminal", e);
+    }
   }
 
   private boolean lockExpectedQueueStatusForTerminalCas(UUID id, JobStatus expected) {
@@ -236,6 +262,14 @@ final class MysqlJobTerminalOperations {
   }
 
   boolean cancelJob(UUID id) {
+    try {
+      return doCancelJob(id);
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("cancel job", e);
+    }
+  }
+
+  private boolean doCancelJob(UUID id) {
     // language=MySQL
     String cancelNonRecurringSql =
         """
@@ -305,6 +339,14 @@ final class MysqlJobTerminalOperations {
   }
 
   boolean resetFailedToPending(UUID id) {
+    try {
+      return doResetFailedToPending(id);
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("reset failed to pending", e);
+    }
+  }
+
+  private boolean doResetFailedToPending(UUID id) {
     // language=MySQL
     String selectSql =
         """

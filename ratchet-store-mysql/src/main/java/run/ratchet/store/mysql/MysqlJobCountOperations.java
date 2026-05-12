@@ -255,6 +255,9 @@ final class MysqlJobCountOperations {
   }
 
   long getQueueWaitTimePercentile(double percentile) {
+    if (Double.isNaN(percentile) || percentile < 0.0 || percentile > 1.0) {
+      throw new IllegalArgumentException("percentile must be in [0.0, 1.0]: " + percentile);
+    }
     // language=MySQL
     String countSql =
         """
@@ -266,7 +269,7 @@ final class MysqlJobCountOperations {
     if (total == 0) {
       return 0L;
     }
-    int offset = (int) Math.floor(percentile * total);
+    long offset = Math.max(0L, Math.min(total - 1, (long) Math.ceil(percentile * total) - 1L));
     // language=MySQL
     String percentileSql =
         """
