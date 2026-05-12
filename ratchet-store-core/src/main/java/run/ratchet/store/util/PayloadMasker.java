@@ -8,6 +8,7 @@ import jakarta.json.JsonObjectBuilder;
 import jakarta.json.JsonReader;
 import jakarta.json.JsonValue;
 import java.io.StringReader;
+import java.util.Locale;
 import java.util.Set;
 import org.jboss.logging.Logger;
 import run.ratchet.store.converter.PayloadSerializerHolder;
@@ -25,29 +26,28 @@ public final class PayloadMasker {
           "pwd",
           "secret",
           "token",
-          "apiKey",
-          "api_key",
           "apikey",
-          "apiSecret",
+          "api_key",
+          "apisecret",
           "api_secret",
-          "accessKey",
+          "accesskey",
           "access_key",
-          "accessToken",
+          "accesstoken",
           "access_token",
-          "refreshToken",
+          "refreshtoken",
           "refresh_token",
           "auth",
           "authorization",
           "credential",
           "credentials",
-          "privateKey",
+          "privatekey",
           "private_key",
           "ssn",
-          "socialSecurityNumber",
+          "socialsecuritynumber",
           "social_security_number",
-          "creditCard",
+          "creditcard",
           "credit_card",
-          "cardNumber",
+          "cardnumber",
           "card_number",
           "cvv",
           "pin");
@@ -95,9 +95,8 @@ public final class PayloadMasker {
     if (fieldName == null) {
       return false;
     }
-    String lowerFieldName = fieldName.toLowerCase();
-    return SENSITIVE_FIELDS.stream()
-        .anyMatch(sensitive -> lowerFieldName.contains(sensitive.toLowerCase()));
+    String lowerFieldName = fieldName.toLowerCase(Locale.ROOT);
+    return SENSITIVE_FIELDS.stream().anyMatch(lowerFieldName::contains);
   }
 
   private static JsonObjectBuilder maskObject(JsonObject object) {

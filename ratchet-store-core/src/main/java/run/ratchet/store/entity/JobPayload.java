@@ -57,7 +57,8 @@ public record JobPayload(
         clz[i] = resolveType(asmTypes[i]);
       }
     } catch (ClassNotFoundException e) {
-      throw new IllegalStateException("Cannot resolve parameter types from descriptor", e);
+      throw new IllegalStateException(
+          "Cannot resolve parameter types from descriptor '" + methodDescriptor + "'", e);
     }
     return clz;
   }

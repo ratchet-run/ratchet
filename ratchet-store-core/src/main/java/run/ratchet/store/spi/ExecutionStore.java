@@ -12,10 +12,13 @@ public interface ExecutionStore {
 
   int DEFAULT_PAGE_LIMIT = 100;
 
+  /** Saves one execution record. Transaction attribute: {@code REQUIRED}. */
   JobExecutionEntity saveExecution(JobExecutionEntity execution);
 
   /**
    * Returns the first page of execution records for a job, ordered by attempt ascending.
+   *
+   * <p>Transaction attribute: {@code SUPPORTS}.
    *
    * @deprecated use {@link #findExecutionsByJobId(UUID, int, int)} when callers need to walk more
    *     than the default page.
@@ -25,10 +28,16 @@ public interface ExecutionStore {
     return findExecutionsByJobId(jobId, DEFAULT_PAGE_LIMIT, 0);
   }
 
-  /** Returns a page of execution records for a job, ordered by attempt ascending. */
+  /**
+   * Returns a page of execution records for a job, ordered by attempt ascending.
+   *
+   * <p>Transaction attribute: {@code SUPPORTS}.
+   */
   List<JobExecutionEntity> findExecutionsByJobId(UUID jobId, int limit, int offset);
 
+  /** Finds the latest execution for one job. Transaction attribute: {@code SUPPORTS}. */
   Optional<JobExecutionEntity> findLatestExecution(UUID jobId);
 
+  /** Counts execution attempts for one job. Transaction attribute: {@code SUPPORTS}. */
   int countExecutionAttempts(UUID jobId);
 }

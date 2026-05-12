@@ -1,5 +1,6 @@
 package run.ratchet.store.util;
 
+import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Function;
 import run.ratchet.store.dto.BatchProgress;
@@ -67,8 +68,14 @@ public final class BatchProgressRows {
       int failedItems,
       Object progressHook,
       Function<Object, JobPayload> progressHookParser) {
-    return new BatchProgress(
-        batchId, totalItems, completedItems, failedItems, progressHookParser.apply(progressHook));
+    Objects.requireNonNull(progressHookParser, "progressHookParser");
+    JobPayload parsedHook;
+    try {
+      parsedHook = progressHookParser.apply(progressHook);
+    } catch (RuntimeException e) {
+      throw new IllegalStateException("Could not parse batch progress hook", e);
+    }
+    return new BatchProgress(batchId, totalItems, completedItems, failedItems, parsedHook);
   }
 
   private static int intValue(Object value) {

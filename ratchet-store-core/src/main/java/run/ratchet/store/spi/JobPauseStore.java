@@ -30,7 +30,9 @@ public interface JobPauseStore {
    * the database row in the same operation to avoid TOCTOU races.
    *
    * @param id job id to resume
-   * @return the status restored from the paused row, or {@code null} when no PAUSED row matched
+   * @return the status restored from the paused row, or {@code null} when no row is currently
+   *     PAUSED. Callers should treat {@code null} as a lost race or missing job and re-read before
+   *     deciding whether to retry.
    *     <p>Transaction attribute: {@code REQUIRED}.
    */
   JobStatus transitionFromPausedAtomic(UUID id);

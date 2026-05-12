@@ -35,7 +35,11 @@ public final class RowValues {
     if (value instanceof byte[] bytes) {
       return uuidFromBytes(bytes);
     }
-    return UUID.fromString(value.toString());
+    if (value instanceof CharSequence text) {
+      return UUID.fromString(text.toString());
+    }
+    throw new IllegalArgumentException(
+        "Unsupported UUID source type: " + value.getClass().getName());
   }
 
   private static UUID uuidFromBytes(byte[] bytes) {

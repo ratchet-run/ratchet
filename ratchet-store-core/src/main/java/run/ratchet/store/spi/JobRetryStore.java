@@ -8,7 +8,12 @@ import run.ratchet.api.Incubating;
 @Incubating
 public interface JobRetryStore {
 
-  /** Increments the retry attempt count. Transaction attribute: {@code REQUIRED}. */
+  /**
+   * Increments the retry attempt count.
+   *
+   * @return the new attempt count, or {@code -1} when no retryable job row matched the id
+   *     <p>Transaction attribute: {@code REQUIRED}.
+   */
   int incrementRetryAttempt(UUID id);
 
   /** Schedules the next retry attempt. Transaction attribute: {@code REQUIRED}. */

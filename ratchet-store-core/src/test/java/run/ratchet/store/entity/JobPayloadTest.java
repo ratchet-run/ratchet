@@ -74,7 +74,9 @@ class JobPayloadTest {
             IllegalStateException.class,
             () -> payload("(Lcom/example/MissingType;)V").parameterTypes());
 
-    assertEquals("Cannot resolve parameter types from descriptor", thrown.getMessage());
+    assertEquals(
+        "Cannot resolve parameter types from descriptor '(Lcom/example/MissingType;)V'",
+        thrown.getMessage());
     assertInstanceOf(ClassNotFoundException.class, thrown.getCause());
   }
 

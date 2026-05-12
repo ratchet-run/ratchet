@@ -22,10 +22,22 @@ public interface ResourcePermitStore {
    */
   boolean tryAcquirePermit(String resource, UUID jobId, String nodeId);
 
-  /** Releases one permit. Transaction attribute: {@code REQUIRED}. */
+  /**
+   * Releases one permit. Missing permits are a no-op.
+   *
+   * @throws run.ratchet.api.exception.RatchetTransientStoreException if the backing store cannot
+   *     complete the release
+   *     <p>Transaction attribute: {@code REQUIRED}.
+   */
   void releasePermit(String resource, UUID jobId);
 
-  /** Releases all permits for one job. Transaction attribute: {@code REQUIRED}. */
+  /**
+   * Releases all permits for one job. Unknown jobs are a no-op.
+   *
+   * @throws run.ratchet.api.exception.RatchetTransientStoreException if the backing store cannot
+   *     complete the release
+   *     <p>Transaction attribute: {@code REQUIRED}.
+   */
   void releaseAllPermits(UUID jobId);
 
   /** Reads the retry delay for a resource. Transaction attribute: {@code SUPPORTS}. */

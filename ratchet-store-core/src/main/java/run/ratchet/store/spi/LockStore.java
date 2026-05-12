@@ -64,6 +64,8 @@ public interface LockStore {
    * @param nodeId identifier of the acquiring node; MUST be non-null
    * @return {@code true} if the lease was acquired by this caller; {@code false} otherwise (lease
    *     currently held by another live owner)
+   *     <p>Transaction attribute: {@code REQUIRED}. The acquisition must use the caller's store
+   *     transaction so multi-statement SQL implementations do not split the update/insert race.
    */
   boolean tryLock(String name, Duration ttl, String nodeId);
 
@@ -77,6 +79,7 @@ public interface LockStore {
    *
    * @param name the lease name; MUST be non-null and non-empty
    * @param nodeId identifier of the releasing node; MUST be non-null
+   *     <p>Transaction attribute: {@code REQUIRED}.
    */
   void unlock(String name, String nodeId);
 
@@ -98,6 +101,7 @@ public interface LockStore {
    * @param nodeId identifier of the renewing node; MUST be non-null
    * @return {@code true} if the lease was still owned by {@code nodeId} and was extended; {@code
    *     false} if the caller has lost ownership
+   *     <p>Transaction attribute: {@code REQUIRED}.
    */
   boolean renewLock(String name, Duration extension, String nodeId);
 }

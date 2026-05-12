@@ -14,6 +14,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import jakarta.enterprise.inject.Instance;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.PreparedStatement;
@@ -24,6 +25,7 @@ import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import run.ratchet.api.RatchetOptions;
 
 class SchemaMigratorTest {
 
@@ -301,5 +303,32 @@ class SchemaMigratorTest {
             () -> SchemaMigrator.dialectFromMetadata(crdbConn));
     assertTrue(ex.getMessage().contains("CockroachDB"));
     assertTrue(ex.getMessage().contains("Supported"));
+  }
+
+  @Test
+  void lifecycleHookNamesExceptionWhenMigrationFailureHasNoMessage() throws Exception {
+    @SuppressWarnings("unchecked")
+    Instance<DataSource> dataSources = mock(Instance.class);
+    DataSource failingDataSource = mock(DataSource.class);
+    when(dataSources.isUnsatisfied()).thenReturn(false);
+    when(dataSources.isAmbiguous()).thenReturn(false);
+    when(dataSources.get()).thenReturn(failingDataSource);
+    when(failingDataSource.getConnection()).thenThrow(new java.sql.SQLException());
+
+    RatchetOptions options =
+        RatchetOptions.builder()
+            .schema(
+                schema ->
+                    schema
+                        .autoMigrate(true)
+                        .migrationDialect("mysql")
+                        .migrationPrefix("schema-migrator-empty"))
+            .build();
+    SchemaMigrationLifecycleHook hook = new SchemaMigrationLifecycleHook(options, dataSources);
+
+    SchemaInitializationException ex =
+        assertThrows(SchemaInitializationException.class, hook::beforeStart);
+
+    assertEquals("Ratchet schema auto-migration failed: SQLException", ex.getMessage());
   }
 }

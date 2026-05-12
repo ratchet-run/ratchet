@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
+import java.util.Locale;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -68,6 +69,21 @@ class PayloadMaskerTest {
   @Test
   void maskPayload_objectOverloadSerializationFailure_returnsRedactedValue() {
     assertEquals("***REDACTED***", PayloadMasker.maskPayload(new ThrowingPayload()));
+  }
+
+  @Test
+  void maskPayload_usesLocaleRootForSensitiveFieldMatching() {
+    Locale previous = Locale.getDefault();
+    try {
+      Locale.setDefault(Locale.forLanguageTag("tr-TR"));
+
+      String masked = PayloadMasker.maskPayload("{\"APIKey\":\"secret\"}");
+
+      assertTrue(masked.contains("\"APIKey\":\"***REDACTED***\""));
+      assertFalse(masked.contains("secret"));
+    } finally {
+      Locale.setDefault(previous);
+    }
   }
 
   public static class ThrowingPayload {

@@ -19,6 +19,12 @@ public final class ArchiveRowMapper {
 
   private ArchiveRowMapper() {}
 
+  /**
+   * Maps one archive projection row.
+   *
+   * @throws IllegalStateException when the projection shape or column values do not match the
+   *     archive row contract
+   */
   public static ArchivedJobEntity map(Object[] row, Function<Object, Instant> instantMapper) {
     assertColumnCount(row);
     RowCursor cursor = new RowCursor(row);

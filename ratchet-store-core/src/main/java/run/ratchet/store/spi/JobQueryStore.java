@@ -23,6 +23,7 @@ public interface JobQueryStore {
    * @param limit maximum number of results
    * @param offset zero-based starting position
    * @return matching jobs, possibly empty; never null
+   *     <p>Transaction attribute: {@code SUPPORTS}.
    */
   List<JobEntity> searchJobs(JobFilter filter, int limit, int offset);
 
@@ -31,6 +32,7 @@ public interface JobQueryStore {
    *
    * @param filter filter criteria; null fields are ignored
    * @return count of matching jobs
+   *     <p>Transaction attribute: {@code SUPPORTS}.
    */
   long countJobs(JobFilter filter);
 }

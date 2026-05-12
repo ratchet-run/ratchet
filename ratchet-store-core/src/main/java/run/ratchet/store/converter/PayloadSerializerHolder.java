@@ -52,6 +52,7 @@ public final class PayloadSerializerHolder {
   }
 
   private static Jsonb fallbackJsonb() {
+    // Double-checked locking keeps the common converter path out of the synchronized block.
     Jsonb jsonb = fallbackJsonb;
     if (jsonb == null) {
       synchronized (PayloadSerializerHolder.class) {

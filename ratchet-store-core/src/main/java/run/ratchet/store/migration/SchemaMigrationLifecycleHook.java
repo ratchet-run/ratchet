@@ -96,8 +96,16 @@ public class SchemaMigrationLifecycleHook implements SchedulerLifecycleHook {
       throw e;
     } catch (RuntimeException | SQLException | java.io.IOException e) {
       throw new SchemaInitializationException(
-          "Ratchet schema auto-migration failed: " + e.getMessage(), e);
+          "Ratchet schema auto-migration failed: " + exceptionSummary(e), e);
     }
+  }
+
+  private static String exceptionSummary(Exception e) {
+    String message = e.getMessage();
+    if (message == null || message.isBlank()) {
+      return e.getClass().getSimpleName();
+    }
+    return e.getClass().getSimpleName() + ": " + message;
   }
 
   private String resolveDialect(DataSource dataSource, RatchetOptions.SchemaOptions schemaOptions) {
@@ -111,7 +119,7 @@ public class SchemaMigrationLifecycleHook implements SchedulerLifecycleHook {
       throw new SchemaInitializationException(
           "Could not probe DataSource metadata to resolve migration dialect; set"
               + " ratchet.schema.migration-dialect explicitly. Cause: "
-              + e.getMessage(),
+              + exceptionSummary(e),
           e);
     }
   }

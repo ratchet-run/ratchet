@@ -44,4 +44,12 @@ class RowValuesTest {
 
     assertEquals("UUID byte array must be 16 bytes, got 15", thrown.getMessage());
   }
+
+  @Test
+  void uuidOrNullRejectsNonTextValuesWithTypeName() {
+    IllegalArgumentException thrown =
+        assertThrows(IllegalArgumentException.class, () -> RowValues.uuidOrNull(42));
+
+    assertEquals("Unsupported UUID source type: java.lang.Integer", thrown.getMessage());
+  }
 }

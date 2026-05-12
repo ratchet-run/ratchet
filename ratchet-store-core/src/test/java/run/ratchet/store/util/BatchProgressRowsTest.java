@@ -88,6 +88,33 @@ class BatchProgressRowsTest {
     assertEquals("Batch progress counter column is not numeric: java.lang.String", ex.getMessage());
   }
 
+  @Test
+  void rejectsMissingProgressHookParserByName() {
+    NullPointerException ex =
+        assertThrows(
+            NullPointerException.class,
+            () -> BatchProgressRows.fromCurrentRow(batchId, row(0, 0, 1), null));
+
+    assertEquals("progressHookParser", ex.getMessage());
+  }
+
+  @Test
+  void wrapsProgressHookParserFailuresWithContext() {
+    IllegalStateException ex =
+        assertThrows(
+            IllegalStateException.class,
+            () ->
+                BatchProgressRows.afterCompletedIncrement(
+                    batchId,
+                    row(0, 0, 1),
+                    ignored -> {
+                      throw new IllegalArgumentException("bad progress hook");
+                    }));
+
+    assertEquals("Could not parse batch progress hook", ex.getMessage());
+    assertEquals("bad progress hook", ex.getCause().getMessage());
+  }
+
   private static Object[] row(int completedItems, int failedItems, int totalItems) {
     return new Object[] {completedItems, failedItems, totalItems, "{\"type\":\"hook\"}"};
   }

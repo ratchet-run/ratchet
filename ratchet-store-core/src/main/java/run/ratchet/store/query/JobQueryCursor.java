@@ -26,17 +26,26 @@ import run.ratchet.api.JobQuerySortField;
 public record JobQueryCursor(JobQuerySortField sortField, String sortValue, UUID jobId) {
 
   public static JobQueryCursor decode(String cursor) {
-    byte[] bytes = Base64.getUrlDecoder().decode(cursor);
+    byte[] bytes;
+    try {
+      bytes = Base64.getUrlDecoder().decode(cursor);
+    } catch (IllegalArgumentException e) {
+      throw malformedCursor(e);
+    }
     String raw = new String(bytes, StandardCharsets.UTF_8);
     int first = raw.indexOf('|');
     int second = raw.indexOf('|', first + 1);
     if (first < 0 || second < 0) {
-      throw new IllegalArgumentException("malformed cursor: " + cursor);
+      throw malformedCursor(null);
     }
-    JobQuerySortField field = JobQuerySortField.valueOf(raw.substring(0, first));
-    String sortValue = raw.substring(first + 1, second);
-    UUID jobId = UUID.fromString(raw.substring(second + 1));
-    return new JobQueryCursor(field, sortValue, jobId);
+    try {
+      JobQuerySortField field = JobQuerySortField.valueOf(raw.substring(0, first));
+      String sortValue = raw.substring(first + 1, second);
+      UUID jobId = UUID.fromString(raw.substring(second + 1));
+      return new JobQueryCursor(field, sortValue, jobId);
+    } catch (IllegalArgumentException e) {
+      throw malformedCursor(e);
+    }
   }
 
   public String encode() {
@@ -45,5 +54,11 @@ public record JobQueryCursor(JobQuerySortField sortField, String sortValue, UUID
     return Base64.getUrlEncoder()
         .withoutPadding()
         .encodeToString(raw.getBytes(StandardCharsets.UTF_8));
+  }
+
+  private static IllegalArgumentException malformedCursor(Throwable cause) {
+    return cause == null
+        ? new IllegalArgumentException("Malformed pagination cursor")
+        : new IllegalArgumentException("Malformed pagination cursor", cause);
   }
 }
