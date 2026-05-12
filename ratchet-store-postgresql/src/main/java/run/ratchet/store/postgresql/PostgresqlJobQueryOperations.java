@@ -139,6 +139,18 @@ final class PostgresqlJobQueryOperations {
     };
   }
 
+  private static ParsedCursor parseCursor(JobFilter filter) {
+    if (filter == null || filter.cursor() == null) {
+      return null;
+    }
+    try {
+      JobQueryCursor cursor = JobQueryCursor.decode(filter.cursor());
+      return new ParsedCursor(cursor, parseSortValue(cursor));
+    } catch (IllegalArgumentException | DateTimeParseException ignored) {
+      return null;
+    }
+  }
+
   private static void appendStringEq(
       String col, String value, StringBuilder where, List<Object> params) {
     if (value == null || value.isEmpty()) {
@@ -185,6 +197,16 @@ final class PostgresqlJobQueryOperations {
       case UPDATED_AT -> "COALESCE(q.updated_at, c.terminated_at, c.created_at)";
       case PRIORITY -> "c.priority";
       case STATUS -> "COALESCE(q.status, c.terminal_status)";
+    };
+  }
+
+  private static String archiveSortColumn(JobQuerySortField field) {
+    return switch (field) {
+      case CREATED_AT -> "a.original_created_at";
+      case SCHEDULED_TIME -> "a.original_scheduled_time";
+      case UPDATED_AT -> "a.archived_at";
+      case PRIORITY -> "a.priority";
+      case STATUS -> "a.final_status";
     };
   }
 
@@ -238,7 +260,9 @@ final class PostgresqlJobQueryOperations {
   List<JobEntity> searchJobs(JobFilter filter, int limit, int offset) {
     boolean archive = useArchive(filter);
     int safeLimit = Math.min(limit, MAX_RESULT_LIMIT);
-    int effectiveOffset = (filter != null && filter.cursor() != null) ? 0 : offset;
+    ParsedCursor cursor = parseCursor(filter);
+    // A valid cursor uses keyset pagination, so offset applies only without a usable cursor.
+    int effectiveOffset = cursor != null ? 0 : offset;
 
     List<Object> params = new ArrayList<>();
     String sql;
@@ -360,6 +384,7 @@ final class PostgresqlJobQueryOperations {
     appendInstantGte("a.original_scheduled_time", filter.scheduledAfter(), where, params);
     appendInstantLt("a.original_scheduled_time", filter.scheduledBefore(), where, params);
     appendInstantGte("a.archived_at", filter.updatedAfter(), where, params);
+    appendArchiveCursorCondition(filter, where, params);
 
     return where.length() == 0 ? "" : " WHERE " + where;
   }
@@ -539,20 +564,33 @@ final class PostgresqlJobQueryOperations {
   }
 
   private void appendCursorCondition(JobFilter filter, StringBuilder where, List<Object> params) {
-    if (filter == null || filter.cursor() == null) {
+    ParsedCursor parsed = parseCursor(filter);
+    if (parsed == null) {
       return;
     }
-    try {
-      JobQueryCursor c = JobQueryCursor.decode(filter.cursor());
-      String sortCol = sortColumn(c.sortField());
-      String op = filter.sortAscending() ? ">" : "<";
-      and(where, "(" + sortCol + " " + op + " ? OR (" + sortCol + " = ? AND c.job_id > ?))");
-      Object sortVal = parseSortValue(c);
-      params.add(sortVal);
-      params.add(sortVal);
-      params.add(c.jobId());
-    } catch (IllegalArgumentException | DateTimeParseException ignored) {
-      // Malformed cursor — ignore and fall through to offset-based pagination
-    }
+    JobQueryCursor cursor = parsed.cursor();
+    String sortCol = sortColumn(cursor.sortField());
+    String op = filter.sortAscending() ? ">" : "<";
+    and(where, "(" + sortCol + " " + op + " ? OR (" + sortCol + " = ? AND c.job_id > ?))");
+    params.add(parsed.sortValue());
+    params.add(parsed.sortValue());
+    params.add(cursor.jobId());
   }
+
+  private void appendArchiveCursorCondition(
+      JobFilter filter, StringBuilder where, List<Object> params) {
+    ParsedCursor parsed = parseCursor(filter);
+    if (parsed == null) {
+      return;
+    }
+    JobQueryCursor cursor = parsed.cursor();
+    String sortCol = archiveSortColumn(cursor.sortField());
+    String op = filter.sortAscending() ? ">" : "<";
+    and(where, "(" + sortCol + " " + op + " ? OR (" + sortCol + " = ? AND a.original_job_id > ?))");
+    params.add(parsed.sortValue());
+    params.add(parsed.sortValue());
+    params.add(cursor.jobId());
+  }
+
+  private record ParsedCursor(JobQueryCursor cursor, Object sortValue) {}
 }

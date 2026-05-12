@@ -101,6 +101,8 @@ final class PostgresqlNodeLockOperations implements LockStore, NodeStore {
 
   @Override
   public void upsertHeartbeat(String nodeId, Instant ts) {
+    Objects.requireNonNull(nodeId, "nodeId");
+    Objects.requireNonNull(ts, "ts");
     // language=PostgreSQL
     String sql =
         """

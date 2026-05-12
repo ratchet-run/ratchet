@@ -734,11 +734,13 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
   public List<JobEntity> searchJobs(JobFilter filter, int limit, int offset) {
     return query.searchJobs(filter, limit, offset);
   }
 
   @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
   public long countJobs(JobFilter filter) {
     return query.countJobs(filter);
   }

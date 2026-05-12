@@ -17,6 +17,7 @@ import run.ratchet.store.spi.TagStore;
 final class PostgresqlTagOperations implements TagStore {
 
   private static final int MAX_TAG_HYDRATION_IDS = 250;
+  private static final int INSERT_TAG_BATCH_SIZE = 250;
 
   private final PostgresqlStoreContext ctx;
 
@@ -43,24 +44,31 @@ final class PostgresqlTagOperations implements TagStore {
     }
     try {
       List<String> uniqueTags = new ArrayList<>(new LinkedHashSet<>(tags));
-      String placeholders = String.join(", ", Collections.nCopies(uniqueTags.size(), "(?, ?)"));
-      // language=PostgreSQL
-      String sql =
-          """
-          INSERT INTO scheduler_job_tag (job_id, tag) VALUES %s
-          ON CONFLICT (job_id, tag) DO NOTHING
-          """
-              .formatted(placeholders);
-      Query query = ctx.em().createNativeQuery(sql);
-      int parameter = 1;
-      for (String tag : uniqueTags) {
-        query.setParameter(parameter++, jobId);
-        query.setParameter(parameter++, tag);
+      for (int start = 0; start < uniqueTags.size(); start += INSERT_TAG_BATCH_SIZE) {
+        int end = Math.min(start + INSERT_TAG_BATCH_SIZE, uniqueTags.size());
+        insertTagChunk(jobId, uniqueTags.subList(start, end));
       }
-      query.executeUpdate();
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("insert job tags", e);
     }
+  }
+
+  private void insertTagChunk(UUID jobId, List<String> tags) {
+    String placeholders = String.join(", ", Collections.nCopies(tags.size(), "(?, ?)"));
+    // language=PostgreSQL
+    String sql =
+        """
+        INSERT INTO scheduler_job_tag (job_id, tag) VALUES %s
+        ON CONFLICT (job_id, tag) DO NOTHING
+        """
+            .formatted(placeholders);
+    Query query = ctx.em().createNativeQuery(sql);
+    int parameter = 1;
+    for (String tag : tags) {
+      query.setParameter(parameter++, jobId);
+      query.setParameter(parameter++, tag);
+    }
+    query.executeUpdate();
   }
 
   @Override
@@ -171,8 +179,10 @@ final class PostgresqlTagOperations implements TagStore {
               JOIN scheduler_job_tag t ON t.job_id = c2.job_id
               JOIN scheduler_job_execution e ON e.job_id = c2.job_id
               WHERE t.tag = ? AND c2.terminal_status IS NOT NULL
-                AND e.id::text = (SELECT MAX(e2.id::text) FROM scheduler_job_execution e2
-                                  WHERE e2.job_id = c2.job_id)
+                AND e.id = (SELECT e2.id FROM scheduler_job_execution e2
+                            WHERE e2.job_id = c2.job_id
+                            ORDER BY e2.attempt DESC, e2.started_at DESC, e2.id DESC
+                            LIMIT 1)
                 AND e.node_id IS NOT NULL AND e.node_id <> ''
               GROUP BY e.node_id
           ) u GROUP BY node ORDER BY node
