@@ -49,12 +49,13 @@ public class PollerScheduler {
   }
 
   public void start() {
+    ScheduledExecutorService resolvedExecutor = executorProvider.getScheduledExecutor();
     if (!started.compareAndSet(false, true)) {
       log.warn("PollerScheduler already started; skipping re-start");
       return;
     }
 
-    executor = executorProvider.getScheduledExecutor();
+    executor = resolvedExecutor;
     log.info("PollerScheduler starting");
     synchronized (scheduleLock) {
       scheduleNextLocked(0);

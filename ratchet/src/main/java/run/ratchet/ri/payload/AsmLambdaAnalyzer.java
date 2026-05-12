@@ -61,8 +61,10 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
   }
 
   private static void binaryOpInt(Deque<Value> operandStack, IntBinaryOperator operation) {
-    Object rightOperand = resolveValue(operandStack.pop(), new Object[0]);
-    Object leftOperand = resolveValue(operandStack.pop(), new Object[0]);
+    Object rightOperand =
+        resolveValue(popOperand(operandStack, "reading integer operand"), new Object[0]);
+    Object leftOperand =
+        resolveValue(popOperand(operandStack, "reading integer operand"), new Object[0]);
     if (leftOperand instanceof Integer leftInt && rightOperand instanceof Integer rightInt) {
       operandStack.push(new ConstantValue(operation.applyAsInt(leftInt, rightInt)));
     } else {
@@ -90,12 +92,14 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
     Object[] resolvedArguments = new Object[argumentTypes.length];
 
     for (int i = argumentTypes.length - 1; i >= 0; i--) {
-      resolvedArguments[i] = resolveValue(operandStack.pop(), capturedValues);
+      resolvedArguments[i] =
+          resolveValue(popOperand(operandStack, "reading invocation argument"), capturedValues);
     }
 
     Object resolvedReceiver = null;
     if (opcodeValue != Opcodes.INVOKESTATIC) {
-      resolvedReceiver = resolveValue(operandStack.pop(), capturedValues);
+      resolvedReceiver =
+          resolveValue(popOperand(operandStack, "reading invocation receiver"), capturedValues);
     }
 
     invocationList.add(
@@ -176,15 +180,15 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
         case Opcodes.IDIV -> binaryOpInt(operandStack, (a, b) -> a / b);
         case Opcodes.IREM -> binaryOpInt(operandStack, (a, b) -> a % b);
 
-        case Opcodes.POP -> operandStack.pop();
-        case Opcodes.DUP -> operandStack.push(operandStack.peek());
+        case Opcodes.POP -> popOperand(operandStack, "executing POP");
+        case Opcodes.DUP -> operandStack.push(peekOperand(operandStack, "executing DUP"));
 
         // Field access: we can't resolve the field value at analysis time, but we can maintain
         // correct stack discipline so the enclosing INVOKE* still pops its arguments and receiver
         // from the right slots. Typical case: a lambda captures `this` and reads an instance
         // field to obtain the invocation receiver (e.g. `this.service.doWork(captured)`).
         case Opcodes.GETFIELD -> {
-          operandStack.pop();
+          popOperand(operandStack, "reading field receiver");
           operandStack.push(UnknownValue.INSTANCE);
         }
         case Opcodes.GETSTATIC -> operandStack.push(UnknownValue.INSTANCE);
@@ -221,7 +225,7 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
             Opcodes.DRETURN,
             Opcodes.ARETURN -> {
           if (!operandStack.isEmpty()) {
-            operandStack.pop();
+            popOperand(operandStack, "returning value");
           }
         }
 
@@ -282,9 +286,30 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
   private static void popInvocationOperands(Deque<Value> operandStack, MethodInsnNode methodInsn) {
     Type[] argumentTypes = Type.getArgumentTypes(methodInsn.desc);
     for (int i = argumentTypes.length - 1; i >= 0; i--) {
-      operandStack.pop();
+      popOperand(operandStack, "reading constructor argument");
     }
-    operandStack.pop();
+    popOperand(operandStack, "reading constructor receiver");
+  }
+
+  private static Value popOperand(Deque<Value> operandStack, String operation) {
+    Value value = operandStack.poll();
+    if (value == null) {
+      throw stackUnderflow(operation);
+    }
+    return value;
+  }
+
+  private static Value peekOperand(Deque<Value> operandStack, String operation) {
+    Value value = operandStack.peek();
+    if (value == null) {
+      throw stackUnderflow(operation);
+    }
+    return value;
+  }
+
+  private static UnsupportedLambdaBytecodeException stackUnderflow(String operation) {
+    return new UnsupportedLambdaBytecodeException(
+        "Malformed lambda bytecode: operand stack underflow while " + operation);
   }
 
   private static ClassNode readClassNode(String classInternalName) {

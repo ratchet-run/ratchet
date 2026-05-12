@@ -403,6 +403,23 @@ class DefaultJobCreationServiceAuthorizationTest {
   }
 
   @Test
+  void batchSubmit_withoutBulkStoreThrowsClearException() {
+    DefaultJobCreationService serviceWithoutBulkStore = serviceWithoutAuthorizationPolicy();
+    when(jobCrudStore.create(any())).thenAnswer(inv -> savedEntity());
+
+    DefaultBatchBuilder builder = new DefaultBatchBuilder("test-batch", serviceWithoutBulkStore);
+    builder.forEach(List.of("one"), DefaultJobCreationServiceAuthorizationTest::consumeString);
+
+    IllegalStateException exception =
+        assertThrows(IllegalStateException.class, () -> serviceWithoutBulkStore.submit(builder));
+
+    assertEquals(
+        "Batch submission requires a JobBulkStore; use the CDI constructor or pass a store that"
+            + " implements JobBulkStore.",
+        exception.getMessage());
+  }
+
+  @Test
   @SuppressWarnings("unchecked")
   void streamingBatchSubmit_bulkInsertsEachChunk() {
     when(jobCrudStore.create(any())).thenAnswer(inv -> savedEntity());

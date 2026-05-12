@@ -3,6 +3,7 @@ package run.ratchet.ri.core;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.LongSupplier;
 import org.jboss.logging.Logger;
 import run.ratchet.api.CircuitBreakerProfile;
 import run.ratchet.api.NodeTagFilter;
@@ -55,6 +56,7 @@ public class Poller {
   private final boolean claimCircuitBreakerEnabled;
   private final int batchSize;
   private final int claimHeadroomFactor;
+  private final LongSupplier clockMillis;
 
   @SuppressWarnings("java:S3077")
   private volatile PollingDelayStrategy strategy;
@@ -75,6 +77,7 @@ public class Poller {
     this.claimCircuitBreakerEnabled = false;
     this.batchSize = 0;
     this.claimHeadroomFactor = 0;
+    this.clockMillis = System::currentTimeMillis;
   }
 
   public Poller(
@@ -92,6 +95,40 @@ public class Poller {
       NodeTagAffinityProvider tagAffinityProvider,
       int batchSize,
       JobTimeoutHandler timeoutHandler) {
+    this(
+        jobClaimStore,
+        jobExecutionCoordinator,
+        nodeIdProvider,
+        threadPoolManager,
+        drainController,
+        pollerScheduler,
+        options,
+        metricsCollector,
+        circuitBreakerRegistry,
+        claimCircuitBreakerEnabled,
+        pollingStrategyProvider,
+        tagAffinityProvider,
+        batchSize,
+        timeoutHandler,
+        System::currentTimeMillis);
+  }
+
+  Poller(
+      JobClaimStore jobClaimStore,
+      JobExecutionCoordinator jobExecutionCoordinator,
+      NodeIdentityProvider nodeIdProvider,
+      ThreadPoolManager threadPoolManager,
+      DrainController drainController,
+      PollerScheduler pollerScheduler,
+      RatchetOptions options,
+      MetricsCollector metricsCollector,
+      CircuitBreakerRegistry circuitBreakerRegistry,
+      boolean claimCircuitBreakerEnabled,
+      PollingStrategyProvider pollingStrategyProvider,
+      NodeTagAffinityProvider tagAffinityProvider,
+      int batchSize,
+      JobTimeoutHandler timeoutHandler,
+      LongSupplier clockMillis) {
     this.timeoutHandler = timeoutHandler;
     this.jobClaimStore = jobClaimStore;
     this.jobExecutionCoordinator = jobExecutionCoordinator;
@@ -111,6 +148,7 @@ public class Poller {
     this.tagAffinityProvider = tagAffinityProvider;
     this.batchSize = batchSize;
     this.claimHeadroomFactor = Math.max(0, options.polling().claimHeadroomFactor());
+    this.clockMillis = clockMillis;
   }
 
   public PollingStrategy.PollingStats getPollingStats() {
@@ -193,7 +231,7 @@ public class Poller {
       return strategy.getCurrentDelay();
     }
 
-    long pollStartTime = System.currentTimeMillis();
+    long pollStartTime = clockMillis.getAsLong();
     if (!hasAvailableCapacity()) {
       updateSystemLoadFactor();
       return strategy.recordPollResult(0, pollStartTime);

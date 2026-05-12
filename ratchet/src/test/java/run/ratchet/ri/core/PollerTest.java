@@ -17,6 +17,7 @@ import java.time.Instant;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -33,6 +34,7 @@ import run.ratchet.ri.resilience.CircuitBreakerConfiguration;
 import run.ratchet.ri.resilience.CircuitBreakerRegistry;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
+import run.ratchet.spi.PollingDelayStrategy;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobClaimStore;
@@ -184,6 +186,34 @@ class PollerTest {
   }
 
   @Test
+  void tick_usesInjectedClockForPollStartTime() {
+    AtomicLong now = new AtomicLong(123_456L);
+    RecordingDelayStrategy recordingStrategy = new RecordingDelayStrategy();
+    poller =
+        new Poller(
+            jobClaimStore,
+            jobExecutionCoordinator,
+            nodeIdProvider,
+            threadPoolManager,
+            drainController,
+            pollerScheduler,
+            options,
+            metricsCollector,
+            circuitBreakerRegistry,
+            true,
+            config -> recordingStrategy,
+            () -> NodeTagFilter.NONE,
+            5,
+            null,
+            now::get);
+    poller.init();
+
+    poller.tick();
+
+    assertEquals(123_456L, recordingStrategy.pollStartTime);
+  }
+
+  @Test
   void tick_halfOpenProbeRecoversAfterOpenWait() {
     claimCircuitBreaker =
         new CircuitBreaker("store.claim", new CircuitBreakerConfiguration(50.0f, 2, 0L, 1, 2));
@@ -244,5 +274,31 @@ class PollerTest {
         type,
         0,
         0);
+  }
+
+  private static final class RecordingDelayStrategy implements PollingDelayStrategy {
+    private long pollStartTime = Long.MIN_VALUE;
+
+    @Override
+    public long getCurrentDelay() {
+      return 2000L;
+    }
+
+    @Override
+    public void onWakeup() {}
+
+    @Override
+    public long recordPollResult(int jobCount, long pollStartTime) {
+      this.pollStartTime = pollStartTime;
+      return 2000L;
+    }
+
+    @Override
+    public void updateSystemLoadFactor(double avgUtilization) {}
+
+    @Override
+    public boolean isInDeepIdle() {
+      return false;
+    }
   }
 }

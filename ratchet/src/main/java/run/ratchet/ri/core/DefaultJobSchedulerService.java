@@ -670,8 +670,12 @@ public class DefaultJobSchedulerService
       try {
         reg = InitialContext.doLookup("java:comp/TransactionSynchronizationRegistry");
         txRegistry = reg;
-      } catch (NamingException ignored) {
+      } catch (NamingException e) {
         // No component context on this thread (e.g. CDI startup observers on Payara admin thread)
+        log.debugf(
+            "TransactionSynchronizationRegistry lookup unavailable on this thread; using immediate"
+                + " fallback publication: %s",
+            e.getMessage());
       }
     }
     return reg;

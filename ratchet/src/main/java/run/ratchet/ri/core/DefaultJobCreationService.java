@@ -307,7 +307,7 @@ public class DefaultJobCreationService
       checkCreateAuthorization(childJob);
       childJobs.add(childJob);
     }
-    jobBulkStore.bulkInsert(childJobs);
+    bulkStore().bulkInsert(childJobs);
 
     for (WorkflowBranch branch : builder.workflowBranches()) {
       createWorkflowBranch(parentId, branch);
@@ -493,8 +493,17 @@ public class DefaultJobCreationService
       checkCreateAuthorization(child);
       children.add(child);
     }
-    jobBulkStore.bulkInsert(children);
+    bulkStore().bulkInsert(children);
     return children.size();
+  }
+
+  private JobBulkStore bulkStore() {
+    if (jobBulkStore == null) {
+      throw new IllegalStateException(
+          "Batch submission requires a JobBulkStore; use the CDI constructor or pass a store that"
+              + " implements JobBulkStore.");
+    }
+    return jobBulkStore;
   }
 
   private void createWorkflowBranches(UUID parentId, List<WorkflowBranch> branches) {
