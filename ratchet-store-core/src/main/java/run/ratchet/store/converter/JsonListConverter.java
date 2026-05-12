@@ -1,6 +1,5 @@
 package run.ratchet.store.converter;
 
-import jakarta.json.bind.Jsonb;
 import jakarta.json.bind.JsonbBuilder;
 import jakarta.json.bind.JsonbException;
 import jakarta.persistence.Converter;
@@ -17,21 +16,31 @@ import java.util.List;
 @Converter
 public class JsonListConverter extends AbstractJsonAttributeConverter<List<Object>> {
 
-  private static final Jsonb JSONB = JsonbBuilder.create();
-
   public String convertToDatabaseColumn(List<Object> attribute) {
     return super.convertToDatabaseColumn(attribute);
   }
 
   @Override
   protected String serialize(List<Object> attribute) {
-    return JSONB.toJson(attribute);
+    try (var jsonb = JsonbBuilder.create()) {
+      return jsonb.toJson(attribute);
+    } catch (JsonbException e) {
+      throw e;
+    } catch (Exception e) {
+      throw new JsonbException("JSON-B list serializer close failed", e);
+    }
   }
 
   @SuppressWarnings("unchecked")
   @Override
   protected List<Object> deserialize(String dbData) {
-    return (List<Object>) JSONB.fromJson(dbData, List.class);
+    try (var jsonb = JsonbBuilder.create()) {
+      return (List<Object>) jsonb.fromJson(dbData, List.class);
+    } catch (JsonbException e) {
+      throw e;
+    } catch (Exception e) {
+      throw new JsonbException("JSON-B list deserializer close failed", e);
+    }
   }
 
   @Override

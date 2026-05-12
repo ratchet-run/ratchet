@@ -8,13 +8,15 @@ import run.ratchet.api.Incubating;
 @Incubating
 public interface JobRetryStore {
 
+  /** Increments the retry attempt count. Transaction attribute: {@code REQUIRED}. */
   int incrementRetryAttempt(UUID id);
 
+  /** Schedules the next retry attempt. Transaction attribute: {@code REQUIRED}. */
   boolean scheduleJobRetry(UUID id, String error, Instant newScheduledTime, int attempts);
 
   /**
    * Atomically resets FAILED to PENDING including retry metadata in one operation to avoid TOCTOU
-   * gaps.
+   * gaps. Transaction attribute: {@code REQUIRED}.
    */
   boolean resetFailedToPending(UUID id);
 }

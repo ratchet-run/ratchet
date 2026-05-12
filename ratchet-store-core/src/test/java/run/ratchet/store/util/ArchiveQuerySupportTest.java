@@ -1,6 +1,7 @@
 package run.ratchet.store.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 
@@ -45,6 +46,20 @@ class ArchiveQuerySupportTest {
             + " ORDER BY archived_at DESC LIMIT ?",
         searchQuery.sql());
     assertEquals(List.of(10), searchQuery.parameters());
+  }
+
+  @Test
+  void buildFindArchivedJobsQueryRejectsNonColumnFragments() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            ArchiveQuerySupport.buildFindArchivedJobsQuery(
+                "archive_id FROM scheduler_job_archive; DELETE FROM scheduler_job_archive",
+                null,
+                null,
+                null,
+                null,
+                10));
   }
 
   @Test

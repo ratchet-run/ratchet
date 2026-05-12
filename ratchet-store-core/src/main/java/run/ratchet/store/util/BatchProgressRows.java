@@ -12,6 +12,7 @@ public final class BatchProgressRows {
 
   public static BatchProgress fromCurrentRow(
       UUID batchId, Object[] row, Function<Object, JobPayload> progressHookParser) {
+    requireProgressRow(row);
     return progress(
         batchId,
         totalItems(row),
@@ -23,6 +24,7 @@ public final class BatchProgressRows {
 
   public static BatchProgress afterCompletedIncrement(
       UUID batchId, Object[] row, Function<Object, JobPayload> progressHookParser) {
+    requireProgressRow(row);
     return progress(
         batchId,
         totalItems(row),
@@ -34,6 +36,7 @@ public final class BatchProgressRows {
 
   public static BatchProgress afterFailedIncrement(
       UUID batchId, Object[] row, Function<Object, JobPayload> progressHookParser) {
+    requireProgressRow(row);
     return progress(
         batchId,
         totalItems(row),
@@ -44,10 +47,12 @@ public final class BatchProgressRows {
   }
 
   public static int completedItems(Object[] row) {
+    requireProgressRow(row);
     return intValue(row[0]);
   }
 
   public static int failedItems(Object[] row) {
+    requireProgressRow(row);
     return intValue(row[1]);
   }
 
@@ -67,6 +72,22 @@ public final class BatchProgressRows {
   }
 
   private static int intValue(Object value) {
-    return ((Number) value).intValue();
+    if (value == null) {
+      throw new IllegalStateException("Batch progress counter column is null");
+    }
+    if (!(value instanceof Number number)) {
+      throw new IllegalStateException(
+          "Batch progress counter column is not numeric: " + value.getClass().getName());
+    }
+    return number.intValue();
+  }
+
+  private static void requireProgressRow(Object[] row) {
+    if (row == null || row.length < 4) {
+      int length = row == null ? 0 : row.length;
+      throw new IllegalArgumentException(
+          "Batch progress row must contain completed, failed, total, and progress hook columns; got "
+              + length);
+    }
   }
 }

@@ -11,14 +11,22 @@ import run.ratchet.store.entity.BatchEntity;
 @Incubating
 public interface BatchStore {
 
+  /** Persists a batch row. Transaction attribute: {@code REQUIRED}. */
   BatchEntity saveBatch(BatchEntity batch);
 
+  /** Finds a batch by id. Transaction attribute: {@code SUPPORTS}. */
   Optional<BatchEntity> findBatchById(UUID batchId);
 
-  /** Atomically increments the completed-child counter and returns the post-update snapshot. */
+  /**
+   * Atomically increments the completed-child counter and returns the post-update snapshot.
+   * Transaction attribute: {@code REQUIRED}.
+   */
   BatchProgress incrementCompletedAtomic(UUID batchId);
 
-  /** Atomically increments the failed-child counter and returns the post-update snapshot. */
+  /**
+   * Atomically increments the failed-child counter and returns the post-update snapshot.
+   * Transaction attribute: {@code REQUIRED}.
+   */
   BatchProgress incrementFailedAtomic(UUID batchId);
 
   /**
@@ -27,6 +35,7 @@ public interface BatchStore {
    * @param batchId batch parent id
    * @return {@code true} when this call changed the batch to processed, {@code false} when the
    *     batch is missing, already processed, or not yet complete
+   *     <p>Transaction attribute: {@code REQUIRED}.
    */
   boolean markBatchCompleteIfReady(UUID batchId);
 
@@ -35,9 +44,16 @@ public interface BatchStore {
    *
    * @param limit maximum number of batch ids to return; implementations may return fewer
    * @return at most {@code limit} recoverable batch ids
+   *     <p>Transaction attribute: {@code SUPPORTS}.
    */
   List<UUID> findRecoverableBatchIds(int limit);
 
+  /**
+   * Batch-loads batch rows by id. Transaction attribute: {@code SUPPORTS}.
+   *
+   * <p>Callers should keep {@code batchIds} sized for one backend {@code IN} predicate; stores may
+   * split larger lists internally.
+   */
   List<BatchEntity> findBatchesByIds(List<UUID> batchIds);
 
   /**
@@ -47,6 +63,7 @@ public interface BatchStore {
    * @param totalItems final expected child count
    * @return {@code true} when the batch was found and updated, {@code false} when no batch exists
    *     for {@code batchId}
+   *     <p>Transaction attribute: {@code REQUIRED}.
    */
   boolean updateBatchTotalItems(UUID batchId, int totalItems);
 }

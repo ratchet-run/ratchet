@@ -69,7 +69,7 @@ public final class PayloadMasker {
       // when the root is an object.
       return root.toString();
     } catch (Exception e) {
-      log.warnf("Payload masking error, redacting: %s", e.getMessage());
+      log.warn("Payload masking error, redacting entire payload", e);
       return MASKED_VALUE;
     }
   }
@@ -86,7 +86,7 @@ public final class PayloadMasker {
       String json = PayloadSerializerHolder.get().serialize(payload);
       return maskPayload(json);
     } catch (Exception e) {
-      log.warnf("Payload serialization error, redacting: %s", e.getMessage());
+      log.warn("Payload serialization error, redacting entire payload", e);
       return MASKED_VALUE;
     }
   }

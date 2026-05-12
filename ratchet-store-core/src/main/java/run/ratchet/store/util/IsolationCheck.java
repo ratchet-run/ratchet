@@ -96,7 +96,11 @@ public final class IsolationCheck {
       // Detection failure across every query — be permissive (skip), but log at debug so
       // operators investigating mysterious behavior can find the trail.
       String reason = lastFailure != null ? lastFailure.getMessage() : "no result";
-      log.debugf("Could not check %s isolation level: %s", dbName, reason);
+      if (lastFailure != null) {
+        log.debugf(lastFailure, "Could not check %s isolation level: %s", dbName, reason);
+      } else {
+        log.debugf("Could not check %s isolation level: %s", dbName, reason);
+      }
       return;
     }
 

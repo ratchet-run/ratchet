@@ -12,6 +12,7 @@ public interface JobLogStore {
    * Appends one per-job log line.
    *
    * @param log log entity to persist; never {@code null}
+   *     <p>Transaction attribute: {@code REQUIRED}.
    */
   void appendLog(JobLogEntity log);
 
@@ -21,6 +22,7 @@ public interface JobLogStore {
    * @param cutoff exclusive upper bound; rows with timestamps before this instant are eligible for
    *     deletion
    * @return number of deleted log rows
+   *     <p>Transaction attribute: {@code REQUIRED}.
    */
   int purgeLogsOlderThan(Instant cutoff);
 }

@@ -9,7 +9,9 @@ import run.ratchet.store.entity.DlqAlertEntity;
 @Incubating
 public interface DlqAlertStore {
 
+  /** Persists a DLQ alert. Transaction attribute: {@code REQUIRED}. */
   DlqAlertEntity saveDlqAlert(DlqAlertEntity alert);
 
+  /** Checks recent alert suppression state. Transaction attribute: {@code SUPPORTS}. */
   boolean existsRecentDlqAlert(UUID jobId, String errorHash, Instant cutoff);
 }

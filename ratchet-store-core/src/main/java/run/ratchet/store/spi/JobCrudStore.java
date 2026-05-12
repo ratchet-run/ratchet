@@ -76,7 +76,12 @@ public interface JobCrudStore {
 
   long countJobsByStatus(JobStatus status);
 
-  /** Counts jobs grouped by status. */
+  /**
+   * Counts jobs grouped by status.
+   *
+   * <p>Transaction attribute: {@code SUPPORTS}. Production stores should override this fallback
+   * with one grouped query.
+   */
   default Map<JobStatus, Long> countJobsByStatuses() {
     Map<JobStatus, Long> counts = new EnumMap<>(JobStatus.class);
     for (JobStatus status : JobStatus.values()) {
@@ -108,7 +113,12 @@ public interface JobCrudStore {
   /** Counts pending jobs at the supplied priority. */
   long countPendingJobsByPriority(JobPriority priority);
 
-  /** Counts pending jobs grouped by priority. */
+  /**
+   * Counts pending jobs grouped by priority.
+   *
+   * <p>Transaction attribute: {@code SUPPORTS}. Production stores should override this fallback
+   * with one grouped query.
+   */
   default Map<JobPriority, Long> countPendingJobsByPriorities() {
     Map<JobPriority, Long> counts = new EnumMap<>(JobPriority.class);
     for (JobPriority priority : JobPriority.values()) {
@@ -123,7 +133,12 @@ public interface JobCrudStore {
   /** Counts pending jobs of the supplied type. */
   long countPendingJobsByType(JobExecutionType jobType);
 
-  /** Counts pending jobs grouped by internal execution type. */
+  /**
+   * Counts pending jobs grouped by internal execution type.
+   *
+   * <p>Transaction attribute: {@code SUPPORTS}. Production stores should override this fallback
+   * with one grouped query.
+   */
   default Map<JobExecutionType, Long> countPendingJobsByTypes() {
     Map<JobExecutionType, Long> counts = new EnumMap<>(JobExecutionType.class);
     for (JobExecutionType jobType : JobExecutionType.values()) {

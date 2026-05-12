@@ -32,6 +32,8 @@ public interface SignalStore {
    * @param now current time used for deadline comparison
    * @param limit maximum number of jobs to return; must be positive
    * @return expired WAITING jobs, never null
+   *     <p>Transaction attribute: {@code SUPPORTS}.
+   * @throws RuntimeException when the store cannot read timed-out signal jobs
    */
   List<JobEntity> findTimedOutSignalJobs(Instant now, int limit);
 
@@ -39,7 +41,10 @@ public interface SignalStore {
    * Delivers a signal to one WAITING job.
    *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}. The WAITING-to-PENDING update and delivery
-   * metadata write must be atomic.
+   * metadata write must be atomic. Implementations must throw if the update cannot be completed; a
+   * normal return value means the delivery transaction committed for that many rows.
+   *
+   * @throws RuntimeException when the store cannot complete the delivery atomically
    */
   int deliverSignalById(
       UUID jobId,
@@ -56,7 +61,10 @@ public interface SignalStore {
    *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}. Implementations must use one atomic bulk
    * update, or the store's closest equivalent, so concurrent deliveries cannot unblock the same
-   * jobs twice.
+   * jobs twice. Implementations must throw if the update cannot be completed; a normal return value
+   * means the delivery transaction committed for that many rows.
+   *
+   * @throws RuntimeException when the store cannot complete the delivery atomically
    */
   int deliverSignalByKey(
       String signalKey,
@@ -75,6 +83,7 @@ public interface SignalStore {
    * delivery and must not start its own write transaction.
    *
    * @return an empty list if {@code deliveryId} is unknown; never null
+   * @throws RuntimeException when the store cannot read delivery results
    */
   List<JobEntity> findJobsBySignalDeliveryId(String deliveryId);
 }

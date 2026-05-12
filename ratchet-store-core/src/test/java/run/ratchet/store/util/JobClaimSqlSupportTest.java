@@ -1,6 +1,7 @@
 package run.ratchet.store.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 
@@ -53,6 +54,21 @@ class JobClaimSqlSupportTest {
     assertEquals(
         "(priority + FLOOR(GREATEST(0, age_minutes) / ?)) DESC, scheduled_time ASC, job_id ASC",
         JobClaimSqlSupport.buildBoostedOrderBy("scheduled_time", "age_minutes", 15));
+
+    assertEquals(
+        "(priority + FLOOR(GREATEST(0, TIMESTAMPDIFF(MINUTE, scheduled_time, NOW(3))) / ?))"
+            + " DESC, scheduled_time ASC, job_id ASC",
+        JobClaimSqlSupport.buildBoostedOrderBy(
+            "scheduled_time", "TIMESTAMPDIFF(MINUTE, scheduled_time, NOW(3))", 15));
+  }
+
+  @Test
+  void buildBoostedOrderByRejectsUnsafeFragments() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            JobClaimSqlSupport.buildBoostedOrderBy(
+                "scheduled_time", "age_minutes); DELETE FROM scheduler_job_queue; --", 15));
   }
 
   @Test

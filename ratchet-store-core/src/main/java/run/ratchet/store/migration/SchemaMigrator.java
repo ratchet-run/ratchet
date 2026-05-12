@@ -417,6 +417,8 @@ public final class SchemaMigrator {
 
   private void applyMigration(Connection connection, MigrationScript script) throws SQLException {
     boolean originalAutoCommit = connection.getAutoCommit();
+    // The bundled migrator owns this connection while applying one script. Container-managed
+    // callers should provide an unmanaged migration connection.
     connection.setAutoCommit(false);
     try {
       for (String sql : splitStatements(script.sql())) {
@@ -435,7 +437,11 @@ public final class SchemaMigrator {
       }
       connection.commit();
     } catch (SQLException | RuntimeException e) {
-      connection.rollback();
+      try {
+        connection.rollback();
+      } catch (SQLException rollbackException) {
+        e.addSuppressed(rollbackException);
+      }
       throw e;
     } finally {
       connection.setAutoCommit(originalAutoCommit);

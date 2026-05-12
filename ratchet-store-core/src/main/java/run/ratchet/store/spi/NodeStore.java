@@ -10,14 +10,21 @@ import run.ratchet.store.entity.NodeEntity;
 @Incubating
 public interface NodeStore {
 
+  /** Inserts or updates a node heartbeat. Transaction attribute: {@code REQUIRED}. */
   void upsertHeartbeat(String nodeId, Instant ts);
 
+  /** Finds a node by id. Transaction attribute: {@code SUPPORTS}. */
   Optional<NodeEntity> findNodeById(String nodeId);
 
+  /** Finds inactive nodes. Transaction attribute: {@code SUPPORTS}. */
   List<NodeEntity> findInactiveNodesSince(Instant cutoff);
 
+  /** Deletes inactive node rows. Transaction attribute: {@code REQUIRED}. */
   int deleteInactiveNodesSince(Instant cutoff);
 
-  /** Returns the current database server time for clock skew detection. */
+  /**
+   * Returns the current database server time for clock skew detection. Transaction attribute:
+   * {@code SUPPORTS}.
+   */
   Instant getDatabaseTime();
 }

@@ -16,12 +16,19 @@ import run.ratchet.store.entity.JobEntity;
 @Incubating
 public interface JobBulkStore {
 
+  /** Inserts jobs in bulk. Transaction attribute: {@code REQUIRED}. */
   void bulkInsert(List<JobEntity> jobs);
 
+  /** Deletes jobs by id in bulk. Transaction attribute: {@code REQUIRED}. */
   int deleteJobsByIds(List<UUID> ids);
 
+  /** Deletes old DLQ rows. Transaction attribute: {@code REQUIRED}. */
   int deleteDlqOlderThan(Instant cutoff);
 
+  /**
+   * Resets orphaned RUNNING jobs to PENDING in one bulk update, or inside one transaction when the
+   * backend has no native bulk form. Transaction attribute: {@code REQUIRED}.
+   */
   int resetOrphanJobs(Duration grace);
 
   /**
@@ -33,6 +40,8 @@ public interface JobBulkStore {
    *
    * @param nodeId the node identity whose own prior claims should be released
    * @return number of rows reset to PENDING
+   *     <p>Transaction attribute: {@code REQUIRED}. The reset must be one bulk update, or the
+   *     backend's closest single-transaction equivalent.
    */
   int resetOrphanJobsForNode(String nodeId);
 }

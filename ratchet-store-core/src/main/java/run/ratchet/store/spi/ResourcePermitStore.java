@@ -18,16 +18,22 @@ public interface ResourcePermitStore {
    * @return {@code true} when a permit was acquired, {@code false} when the resource exists but is
    *     already at capacity
    * @throws IllegalArgumentException when {@code resource} has not been configured
+   *     <p>Transaction attribute: {@code REQUIRED}.
    */
   boolean tryAcquirePermit(String resource, UUID jobId, String nodeId);
 
+  /** Releases one permit. Transaction attribute: {@code REQUIRED}. */
   void releasePermit(String resource, UUID jobId);
 
+  /** Releases all permits for one job. Transaction attribute: {@code REQUIRED}. */
   void releaseAllPermits(UUID jobId);
 
+  /** Reads the retry delay for a resource. Transaction attribute: {@code SUPPORTS}. */
   int getPermitRetryDelay(String resource);
 
+  /** Creates or updates a resource limit. Transaction attribute: {@code REQUIRED}. */
   void configureResource(String name, int maxConcurrent, int retryDelayMs, String description);
 
+  /** Cleans permits owned by stale nodes. Transaction attribute: {@code REQUIRED}. */
   int cleanupOrphanedPermits(List<String> staleNodeIds);
 }

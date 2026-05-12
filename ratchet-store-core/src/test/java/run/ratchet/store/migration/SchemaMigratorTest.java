@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.atLeast;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -217,6 +218,23 @@ class SchemaMigratorTest {
     verify(connection).setAutoCommit(true);
     verify(insertVersion, never()).executeUpdate();
     verify(statement).executeQuery("SELECT RELEASE_LOCK('ratchet_schema_migration')");
+  }
+
+  @Test
+  void keepsMigrationFailureWhenRollbackAlsoFails() throws Exception {
+    ResultSet firstMissingVersion = missingVersion();
+    when(selectVersion.executeQuery()).thenReturn(firstMissingVersion);
+    when(statement.execute(contains("CREATE TABLE ratchet_test_order")))
+        .thenThrow(new java.sql.SQLException("ddl failed"));
+    doThrow(new java.sql.SQLException("rollback failed")).when(connection).rollback();
+
+    java.sql.SQLException ex =
+        assertThrows(java.sql.SQLException.class, () -> migrator("schema-migrator").migrate());
+
+    assertEquals("ddl failed", ex.getMessage());
+    assertEquals(1, ex.getSuppressed().length);
+    assertEquals("rollback failed", ex.getSuppressed()[0].getMessage());
+    verify(connection).setAutoCommit(true);
   }
 
   @Test

@@ -12,6 +12,8 @@ import run.ratchet.api.NodeTagFilter;
 /** Shared SQL helpers for JDBC/JPA job-claim implementations. */
 public final class JobClaimSqlSupport {
 
+  private static final String SAFE_SQL_EXPRESSION_PATTERN = "[A-Za-z0-9_().,\\s+\\-*/]+";
+
   private JobClaimSqlSupport() {}
 
   /**
@@ -55,6 +57,8 @@ public final class JobClaimSqlSupport {
 
   public static String buildBoostedOrderBy(
       String timeColumn, String overdueMinutesExpression, int boostInterval) {
+    requireSafeSqlFragment(timeColumn, "timeColumn");
+    requireSafeSqlFragment(overdueMinutesExpression, "overdueMinutesExpression");
     return boostInterval > 0
         ? "(priority + FLOOR(GREATEST(0, "
             + overdueMinutesExpression
@@ -62,6 +66,12 @@ public final class JobClaimSqlSupport {
             + timeColumn
             + " ASC, job_id ASC"
         : "priority DESC, " + timeColumn + " ASC, job_id ASC";
+  }
+
+  private static void requireSafeSqlFragment(String value, String name) {
+    if (value == null || !value.matches(SAFE_SQL_EXPRESSION_PATTERN)) {
+      throw new IllegalArgumentException(name + " must be a store-defined SQL fragment");
+    }
   }
 
   public static <T> List<T> reorderById(

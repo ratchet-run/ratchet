@@ -11,11 +11,18 @@ import run.ratchet.store.entity.JobExecutionType;
 @Incubating
 public interface JobClaimStore {
 
+  /**
+   * Claims due one-shot jobs with SKIP LOCKED semantics. Transaction attribute: {@code REQUIRED}.
+   */
   List<JobEntity> claimNextBatch(int limit, String nodeId, NodeTagFilter tagFilter);
 
+  /**
+   * Claims due jobs and returns lightweight claim rows. Transaction attribute: {@code REQUIRED}.
+   */
   List<JobClaimDto> claimNextBatchOptimized(
       JobExecutionType jobType, int limit, String nodeId, NodeTagFilter tagFilter);
 
+  /** Claims due recurring masters. Transaction attribute: {@code REQUIRED}. */
   List<JobEntity> claimDueRecurring(int limit, String nodeId, NodeTagFilter tagFilter);
 
   default List<JobEntity> claimNextBatch(int limit, String nodeId) {

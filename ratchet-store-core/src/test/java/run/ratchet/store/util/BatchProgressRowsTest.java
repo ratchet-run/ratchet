@@ -2,6 +2,7 @@ package run.ratchet.store.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.List;
 import java.util.UUID;
@@ -52,6 +53,39 @@ class BatchProgressRowsTest {
   @Test
   void failedItemsReadsSecondColumn() {
     assertEquals(3, BatchProgressRows.failedItems(row(7, 3, 10)));
+  }
+
+  @Test
+  void rejectsRowsWithMissingColumns() {
+    var ex =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                BatchProgressRows.fromCurrentRow(batchId, new Object[] {1, 0, 2}, ignored -> null));
+
+    assertEquals(
+        "Batch progress row must contain completed, failed, total, and progress hook columns; got 3",
+        ex.getMessage());
+  }
+
+  @Test
+  void rejectsNullCounterColumns() {
+    var ex =
+        assertThrows(
+            IllegalStateException.class,
+            () -> BatchProgressRows.completedItems(new Object[] {null, 0, 1, "{}"}));
+
+    assertEquals("Batch progress counter column is null", ex.getMessage());
+  }
+
+  @Test
+  void rejectsNonNumericCounterColumns() {
+    var ex =
+        assertThrows(
+            IllegalStateException.class,
+            () -> BatchProgressRows.failedItems(new Object[] {0, "one", 1, "{}"}));
+
+    assertEquals("Batch progress counter column is not numeric: java.lang.String", ex.getMessage());
   }
 
   private static Object[] row(int completedItems, int failedItems, int totalItems) {
