@@ -2,7 +2,9 @@ package run.ratchet.store.mongodb;
 
 import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
+import static com.mongodb.client.model.Filters.exists;
 import static com.mongodb.client.model.Filters.in;
+import static com.mongodb.client.model.Filters.or;
 import static com.mongodb.client.model.Updates.combine;
 import static com.mongodb.client.model.Updates.inc;
 import static com.mongodb.client.model.Updates.set;
@@ -187,7 +189,7 @@ final class MongoBatchOperations {
 
     ctx.batchMetrics()
         .updateOne(
-            eq(ID, batchId),
+            and(eq(ID, batchId), or(exists(COMPLETED_AT, false), eq(COMPLETED_AT, null))),
             combine(
                 set(COMPLETED_AT, DocumentMapper.toDate(now)),
                 set(TOTAL_DURATION_MS, totalDurationMs),

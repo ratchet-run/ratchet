@@ -44,6 +44,7 @@ import run.ratchet.store.spi.SignalStore;
 final class MongoSignalOperations implements SignalStore {
 
   private static final Logger log = Logger.getLogger(MongoSignalOperations.class);
+  private static final int SIGNAL_DELIVERY_RESULT_WARNING_THRESHOLD = 1000;
 
   private final MongoStoreContext ctx;
 
@@ -149,6 +150,11 @@ final class MongoSignalOperations implements SignalStore {
     List<JobEntity> result = new ArrayList<>();
     for (Document doc : ctx.jobs().find(eq(SIGNAL_DELIVERY_ID, deliveryId))) {
       result.add(DocumentMapper.toJobEntity(doc));
+      if (result.size() == SIGNAL_DELIVERY_RESULT_WARNING_THRESHOLD + 1) {
+        log.warnf(
+            "MongoDB signal delivery lookup %s returned more than %d jobs",
+            deliveryId, SIGNAL_DELIVERY_RESULT_WARNING_THRESHOLD);
+      }
     }
     return result;
   }

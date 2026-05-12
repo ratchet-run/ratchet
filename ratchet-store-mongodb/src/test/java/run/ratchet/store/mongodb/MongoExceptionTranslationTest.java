@@ -3,11 +3,15 @@ package run.ratchet.store.mongodb;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static run.ratchet.store.mongodb.MongoFieldNames.HEARTBEAT_TS;
 import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.OWNER_NODE;
 
+import com.mongodb.MongoCommandException;
+import com.mongodb.MongoException;
 import com.mongodb.MongoSocketException;
 import com.mongodb.ServerAddress;
+import com.mongodb.WriteError;
 import com.mongodb.bulk.BulkWriteResult;
 import com.mongodb.client.AggregateIterable;
 import com.mongodb.client.ClientSession;
@@ -26,11 +30,17 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import org.bson.BsonDocument;
+import org.bson.BsonInt32;
 import org.bson.Document;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.BackoffPolicy;
+import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.exception.RatchetTransientStoreException;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 
 class MongoExceptionTranslationTest {
 
@@ -200,6 +210,113 @@ class MongoExceptionTranslationTest {
   }
 
   @Test
+  void tryAcquirePermitTranslatesTransientTransactionFailure() {
+    MongoSocketException failure = transientFailure();
+    ClientSession session =
+        clientSession(
+            (proxy, method, args) -> {
+              if ("withTransaction".equals(method.getName())) {
+                throw failure;
+              }
+              return defaultValue(method);
+            });
+    MongoAuxiliaryOperations auxiliary =
+        new MongoAuxiliaryOperations(contextWithJobsAndSession(null, session));
+
+    RatchetTransientStoreException thrown =
+        assertThrows(
+            RatchetTransientStoreException.class,
+            () -> auxiliary.tryAcquirePermit("api", UUID.randomUUID(), "node-1"));
+
+    assertSame(failure, thrown.getCause());
+  }
+
+  @Test
+  void translateStoreExceptionWrapsNonTransientMongoFailures() {
+    MongoException failure = new MongoException("plain command failure");
+    MongoStoreContext ctx = contextWithJobs(null);
+
+    IllegalStateException thrown =
+        assertThrows(
+            IllegalStateException.class,
+            () -> {
+              throw ctx.translateTransientStoreException("read jobs", failure);
+            });
+
+    assertSame(failure, thrown.getCause());
+    assertTrue(thrown.getMessage().contains("read jobs"));
+  }
+
+  @Test
+  void bulkInsertTranslatesDuplicateBusinessKeyFailure() {
+    RuntimeException failure =
+        new RuntimeException(
+            "bulk",
+            new com.mongodb.MongoWriteException(
+                new WriteError(
+                    11000,
+                    "E11000 duplicate key error collection: ratchet.scheduler_job index:"
+                        + " idx_job_active_business_key dup key: { business_key: \"order-1\" }",
+                    new BsonDocument()),
+                new ServerAddress()));
+    MongoCollection<Document> jobs =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("insertMany".equals(method.getName())) {
+                throw failure;
+              }
+              return defaultValue(method);
+            });
+    MongoJobCrudOperations crud = new MongoJobCrudOperations(contextWithJobs(jobs));
+
+    RatchetTransientStoreException thrown =
+        assertThrows(
+            RatchetTransientStoreException.class, () -> crud.bulkInsert(List.of(testJob())));
+
+    assertSame(failure, thrown.getCause());
+  }
+
+  @Test
+  void resetOrphanJobsUsesTransactionForNodeSnapshotAndMutation() {
+    AtomicBoolean usedTransaction = new AtomicBoolean();
+    MongoCollection<Document> nodes =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("find".equals(method.getName())) {
+                return findIterable(
+                    cursor(
+                        List.of(
+                            new Document(ID, "node-1")
+                                .append(HEARTBEAT_TS, DocumentMapper.toDate(Instant.now()))),
+                        new AtomicBoolean()));
+              }
+              return defaultValue(method);
+            });
+    MongoCollection<Document> jobs =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("updateMany".equals(method.getName())) {
+                return com.mongodb.client.result.UpdateResult.acknowledged(1, 1L, null);
+              }
+              return defaultValue(method);
+            });
+    ClientSession session =
+        clientSession(
+            (proxy, method, args) -> {
+              if ("withTransaction".equals(method.getName())) {
+                usedTransaction.set(true);
+                return ((TransactionBody<?>) args[0]).execute();
+              }
+              return defaultValue(method);
+            });
+    MongoJobCrudOperations crud =
+        new MongoJobCrudOperations(contextWithCollections(jobs, nodes, session));
+
+    assertTrue(crud.resetOrphanJobs(java.time.Duration.ofMinutes(5)) >= 0);
+    assertTrue(usedTransaction.get());
+  }
+
+  @Test
   void tryLockReadsDatabaseTimeBeforeWritingLease() {
     AtomicBoolean readDatabaseTime = new AtomicBoolean();
     MongoCollection<Document> locks =
@@ -231,17 +348,45 @@ class MongoExceptionTranslationTest {
     assertTrue(readDatabaseTime.get());
   }
 
+  @Test
+  void getDatabaseTimeFallsBackToLocalClockWhenServerStatusFails() {
+    MongoDatabase database =
+        mongoDatabase(
+            (proxy, method, args) -> {
+              if ("runCommand".equals(method.getName())) {
+                throw new MongoCommandException(
+                    new BsonDocument("ok", new BsonInt32(0))
+                        .append("code", new BsonInt32(13))
+                        .append("errmsg", new org.bson.BsonString("unauthorized")),
+                    new ServerAddress());
+              }
+              return defaultValue(method);
+            });
+    MongoNodeLockOperations locks =
+        new MongoNodeLockOperations(new MongoStoreContext(mongoClient(null), database));
+
+    assertTrue(locks.getDatabaseTime().isAfter(Instant.now().minusSeconds(5)));
+  }
+
   private static MongoStoreContext contextWithJobs(MongoCollection<Document> jobs) {
     return contextWithJobsAndSession(jobs, null);
   }
 
   private static MongoStoreContext contextWithJobsAndSession(
       MongoCollection<Document> jobs, ClientSession session) {
+    return contextWithCollections(jobs, jobs, session);
+  }
+
+  private static MongoStoreContext contextWithCollections(
+      MongoCollection<Document> jobs, MongoCollection<Document> nodes, ClientSession session) {
     MongoDatabase database =
         mongoDatabase(
             (proxy, method, args) -> {
               if ("getCollection".equals(method.getName())) {
-                return jobs;
+                return switch ((String) args[0]) {
+                  case "scheduler_node" -> nodes;
+                  default -> jobs;
+                };
               }
               return defaultValue(method);
             });
@@ -250,6 +395,17 @@ class MongoExceptionTranslationTest {
 
   private static MongoSocketException transientFailure() {
     return new MongoSocketException("network failure", new ServerAddress());
+  }
+
+  private static JobEntity testJob() {
+    JobEntity job = new JobEntity();
+    job.setStatus(JobStatus.PENDING);
+    job.setScheduledTime(Instant.now());
+    job.setJobType(JobExecutionType.SINGLE);
+    job.setPriority(JobPriority.NORMAL);
+    job.setBackoffPolicy(BackoffPolicy.NONE);
+    job.setIdempotencyKey(UUID.randomUUID().toString());
+    return job;
   }
 
   private static AggregateIterable<Document> aggregateIterable(MongoCursor<Document> cursor) {

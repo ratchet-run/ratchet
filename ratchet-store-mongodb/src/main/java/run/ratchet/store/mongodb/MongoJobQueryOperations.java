@@ -11,6 +11,7 @@ import static com.mongodb.client.model.Sorts.ascending;
 import static com.mongodb.client.model.Sorts.descending;
 import static com.mongodb.client.model.Sorts.orderBy;
 
+import com.mongodb.client.ClientSession;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -45,6 +46,8 @@ import run.ratchet.store.query.JobQueryCursor;
  * limit. Archive documents are mapped to {@link JobEntity} using archive-specific field names; tags
  * and trace-context filtering are not applied to archived rows (those fields are absent from the
  * archive document schema). The caller-principal check is intentionally skipped for archived rows.
+ * Offset pagination on this path reads {@code limit + offset} rows from each collection, capped by
+ * the module limit, so deep archive browsing should use cursors.
  */
 final class MongoJobQueryOperations {
 
@@ -175,6 +178,7 @@ final class MongoJobQueryOperations {
     } catch (IllegalArgumentException e) {
       // Malformed cursors are treated as absent so callers fall back to offset-based pagination.
       log.warnf(
+          e,
           "Ignoring malformed MongoDB job query cursor; falling back to offset-based pagination (%s)",
           e.getClass().getSimpleName());
     }
@@ -293,18 +297,24 @@ final class MongoJobQueryOperations {
               + " require cursor pagination");
     }
 
-    // Fetch from both collections and merge in memory
     int fetchLimit = safeLimit + offset;
-    List<JobEntity> live = searchLive(filter, fetchLimit, 0);
-    List<JobEntity> archived = searchArchive(filter, fetchLimit);
+    try (ClientSession session = ctx.startSession()) {
+      return session.withTransaction(
+          () -> {
+            List<JobEntity> live = searchLive(session, filter, fetchLimit, 0);
+            List<JobEntity> archived = searchArchive(session, filter, fetchLimit);
 
-    List<JobEntity> merged = new ArrayList<>(live.size() + archived.size());
-    merged.addAll(live);
-    merged.addAll(archived);
-    merged.sort(mergeComparator(filter));
-    int from = Math.min(offset, merged.size());
-    int to = Math.min(from + safeLimit, merged.size());
-    return merged.subList(from, to);
+            List<JobEntity> merged = new ArrayList<>(live.size() + archived.size());
+            merged.addAll(live);
+            merged.addAll(archived);
+            merged.sort(mergeComparator(filter));
+            int from = Math.min(offset, merged.size());
+            int to = Math.min(from + safeLimit, merged.size());
+            return new ArrayList<>(merged.subList(from, to));
+          });
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("search jobs with archive merge", e);
+    }
   }
 
   long countJobs(JobFilter filter) {
@@ -317,10 +327,19 @@ final class MongoJobQueryOperations {
   }
 
   private List<JobEntity> searchLive(JobFilter filter, int limit, int offset) {
+    return searchLive(null, filter, limit, offset);
+  }
+
+  private List<JobEntity> searchLive(
+      ClientSession session, JobFilter filter, int limit, int offset) {
     Bson query = buildFilter(filter);
     Bson sort = buildSort(filter);
     List<JobEntity> result = new ArrayList<>(limit);
-    for (Document doc : ctx.jobs().find(query).sort(sort).skip(offset).limit(limit)) {
+    Iterable<Document> documents =
+        session == null
+            ? ctx.jobs().find(query).sort(sort).skip(offset).limit(limit)
+            : ctx.jobs().find(session, query).sort(sort).skip(offset).limit(limit);
+    for (Document doc : documents) {
       JobEntity job = DocumentMapper.toJobEntity(doc);
       result.add(job);
     }
@@ -328,10 +347,18 @@ final class MongoJobQueryOperations {
   }
 
   private List<JobEntity> searchArchive(JobFilter filter, int limit) {
+    return searchArchive(null, filter, limit);
+  }
+
+  private List<JobEntity> searchArchive(ClientSession session, JobFilter filter, int limit) {
     Bson query = buildArchiveFilter(filter);
     Bson sort = buildArchiveSort(filter);
     List<JobEntity> result = new ArrayList<>(limit);
-    for (Document doc : ctx.archives().find(query).sort(sort).limit(limit)) {
+    Iterable<Document> documents =
+        session == null
+            ? ctx.archives().find(query).sort(sort).limit(limit)
+            : ctx.archives().find(session, query).sort(sort).limit(limit);
+    for (Document doc : documents) {
       JobEntity job = DocumentMapper.archivedDocToJobEntity(doc);
       if (job != null) {
         result.add(job);

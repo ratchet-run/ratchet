@@ -26,6 +26,8 @@ import run.ratchet.store.spi.TagStore;
  */
 final class MongoTagOperations implements TagStore {
 
+  private static final int MAX_STRING_COUNT_GROUPS = 1000;
+
   private final MongoStoreContext ctx;
 
   MongoTagOperations(MongoStoreContext ctx) {
@@ -84,6 +86,7 @@ final class MongoTagOperations implements TagStore {
                     new Document(
                         "$group",
                         new Document(ID, "$" + STATUS).append("count", new Document("$sum", 1L))),
+                    new Document("$limit", JobStatus.values().length),
                     new Document("$sort", new Document(ID, 1))))) {
       String status = doc.getString(ID);
       if (status != null) {
@@ -115,7 +118,8 @@ final class MongoTagOperations implements TagStore {
                         "$group",
                         new Document(ID, groupExpression)
                             .append("count", new Document("$sum", 1L))),
-                    new Document("$sort", new Document(ID, 1))))) {
+                    new Document("$sort", new Document(ID, 1)),
+                    new Document("$limit", MAX_STRING_COUNT_GROUPS)))) {
       Object keyValue = doc.get(ID);
       if (!(keyValue instanceof String key) || key.isBlank()) {
         continue;

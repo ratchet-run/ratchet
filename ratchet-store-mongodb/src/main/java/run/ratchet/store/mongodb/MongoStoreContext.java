@@ -1,5 +1,6 @@
 package run.ratchet.store.mongodb;
 
+import com.mongodb.MongoException;
 import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
@@ -81,7 +82,21 @@ final class MongoStoreContext {
       return new RatchetTransientStoreException(
           "Transient MongoDB store concurrency failure during " + operation, e);
     }
+    if (containsMongoException(e)) {
+      return new IllegalStateException("MongoDB store failure during " + operation, e);
+    }
     return e;
+  }
+
+  private static boolean containsMongoException(Throwable throwable) {
+    Throwable current = throwable;
+    while (current != null) {
+      if (current instanceof MongoException) {
+        return true;
+      }
+      current = current.getCause();
+    }
+    return false;
   }
 
   MongoCollection<Document> jobs() {

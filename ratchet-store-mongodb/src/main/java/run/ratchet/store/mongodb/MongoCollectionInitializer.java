@@ -44,7 +44,7 @@ class MongoCollectionInitializer {
       MongoCollection<Document> coll, Bson keys, IndexOptions options) {
     try {
       coll.createIndex(keys, options);
-    } catch (Exception e) {
+    } catch (MongoCommandException e) {
       throw new IllegalStateException(
           "Required MongoDB index "
               + options.getName()

@@ -43,6 +43,7 @@ import java.util.function.BooleanSupplier;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 import org.bson.Document;
+import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobPauseStore;
@@ -57,6 +58,8 @@ import run.ratchet.store.spi.JobTerminalStore;
  */
 final class MongoJobLifecycleOperations
     implements JobBatchStatusStore, JobPauseStore, JobRetryStore, JobTerminalStore {
+
+  private static final Logger log = Logger.getLogger(MongoJobLifecycleOperations.class);
 
   private final MongoStoreContext ctx;
   private final MongoBatchOperations batches;
@@ -115,6 +118,8 @@ final class MongoJobLifecycleOperations
                           inc(VERSION, 1)),
                       new FindOneAndUpdateOptions().returnDocument(ReturnDocument.AFTER));
           if (doc == null) {
+            log.debugf(
+                "Retry attempt was not incremented because job %s is missing or not retryable", id);
             return -1;
           }
           return doc.getInteger(ATTEMPTS);

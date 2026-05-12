@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import org.bson.Document;
+import org.jboss.logging.Logger;
 import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.spi.LockStore;
 import run.ratchet.store.spi.NodeStore;
@@ -40,7 +41,9 @@ import run.ratchet.store.spi.NodeStore;
  */
 final class MongoNodeLockOperations implements LockStore, NodeStore {
 
+  private static final Logger log = Logger.getLogger(MongoNodeLockOperations.class);
   private static final int DUPLICATE_KEY_ERROR_CODE = 11000;
+  private static final int INACTIVE_NODE_WARNING_THRESHOLD = 1000;
 
   private final MongoStoreContext ctx;
 
@@ -131,6 +134,11 @@ final class MongoNodeLockOperations implements LockStore, NodeStore {
     List<NodeEntity> results = new ArrayList<>();
     for (Document doc : ctx.nodes().find(lt(HEARTBEAT_TS, DocumentMapper.toDate(cutoff)))) {
       results.add(DocumentMapper.toNodeEntity(doc));
+      if (results.size() == INACTIVE_NODE_WARNING_THRESHOLD + 1) {
+        log.warnf(
+            "MongoDB inactive-node query since %s returned more than %d rows",
+            cutoff, INACTIVE_NODE_WARNING_THRESHOLD);
+      }
     }
     return results;
   }
@@ -143,9 +151,14 @@ final class MongoNodeLockOperations implements LockStore, NodeStore {
 
   @Override
   public Instant getDatabaseTime() {
-    Document result =
-        ctx.database().runCommand(new Document("serverStatus", 1).append("localTime", 1));
-    Date localTime = result.getDate("localTime");
-    return localTime != null ? localTime.toInstant() : Instant.now();
+    try {
+      Document result =
+          ctx.database().runCommand(new Document("serverStatus", 1).append("localTime", 1));
+      Date localTime = result.getDate("localTime");
+      return localTime != null ? localTime.toInstant() : Instant.now();
+    } catch (RuntimeException e) {
+      log.warn("Could not read MongoDB server time; falling back to local clock", e);
+      return Instant.now();
+    }
   }
 }

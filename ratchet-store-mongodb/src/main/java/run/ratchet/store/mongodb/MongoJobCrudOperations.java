@@ -34,6 +34,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.TOTAL_ITEMS;
 import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
 
+import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.model.ReplaceOptions;
 import com.mongodb.client.result.DeleteResult;
@@ -425,7 +426,7 @@ final class MongoJobCrudOperations {
         return percentileValue.get();
       }
     } catch (Exception e) {
-      log.debug("$percentile aggregation not available, using sort+skip approximation");
+      log.debug("$percentile aggregation not available, using sort+skip approximation", e);
     }
     long total =
         ctx.jobs().countDocuments(and(ne(QUEUE_WAIT_MS, null), eq(STATUS, STATUS_SUCCEEDED)));
@@ -499,7 +500,15 @@ final class MongoJobCrudOperations {
       }
       docs.add(DocumentMapper.toDocument(job));
     }
-    ctx.jobs().insertMany(docs);
+    try {
+      ctx.jobs().insertMany(docs);
+    } catch (RuntimeException e) {
+      if (ctx.constraintDetector().isDuplicateBusinessKey(e)) {
+        throw new RatchetTransientStoreException(
+            "Active business key in use during bulk insert", e);
+      }
+      throw ctx.translateTransientStoreException("bulk insert jobs", e);
+    }
   }
 
   int deleteJobsByIds(List<UUID> ids) {
@@ -526,30 +535,41 @@ final class MongoJobCrudOperations {
     // Use Duration directly — toMinutes() truncates sub-minute values.
     Date cutoff = DocumentMapper.toDate(Instant.now().minus(grace));
 
-    List<String> activeNodeIds = new ArrayList<>();
-    for (Document doc : ctx.nodes().find(gte(HEARTBEAT_TS, cutoff))) {
-      activeNodeIds.add(doc.getString(ID));
-    }
+    try (ClientSession session = ctx.startSession()) {
+      return session.withTransaction(
+          () -> {
+            List<String> activeNodeIds = new ArrayList<>();
+            for (Document doc : ctx.nodes().find(session, gte(HEARTBEAT_TS, cutoff))) {
+              activeNodeIds.add(doc.getString(ID));
+            }
 
-    Bson filter;
-    if (activeNodeIds.isEmpty()) {
-      filter = and(eq(STATUS, STATUS_RUNNING), lt(PICKED_AT, cutoff));
-    } else {
-      filter =
-          and(eq(STATUS, STATUS_RUNNING), nin(PICKED_BY, activeNodeIds), lt(PICKED_AT, cutoff));
-    }
+            Bson filter;
+            if (activeNodeIds.isEmpty()) {
+              filter = and(eq(STATUS, STATUS_RUNNING), lt(PICKED_AT, cutoff));
+            } else {
+              filter =
+                  and(
+                      eq(STATUS, STATUS_RUNNING),
+                      nin(PICKED_BY, activeNodeIds),
+                      lt(PICKED_AT, cutoff));
+            }
 
-    UpdateResult result =
-        ctx.jobs()
-            .updateMany(
-                filter,
-                combine(
-                    set(STATUS, STATUS_PENDING),
-                    set(PICKED_BY, null),
-                    set(PICKED_AT, null),
-                    set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
-                    inc(VERSION, 1)));
-    return (int) result.getModifiedCount();
+            UpdateResult result =
+                ctx.jobs()
+                    .updateMany(
+                        session,
+                        filter,
+                        combine(
+                            set(STATUS, STATUS_PENDING),
+                            set(PICKED_BY, null),
+                            set(PICKED_AT, null),
+                            set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                            inc(VERSION, 1)));
+            return (int) result.getModifiedCount();
+          });
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("reset orphan jobs", e);
+    }
   }
 
   int resetOrphanJobsForNode(String nodeId) {

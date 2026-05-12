@@ -42,6 +42,17 @@ public final class DocumentMapper {
 
   private DocumentMapper() {}
 
+  /** Thrown when a MongoDB document cannot be mapped to or from Ratchet store entities. */
+  public static final class MappingException extends IllegalArgumentException {
+    MappingException(String message) {
+      super(message);
+    }
+
+    MappingException(String message, Throwable cause) {
+      super(message, cause);
+    }
+  }
+
   public static Document toDocument(JobEntity job) {
     Document doc = new Document();
     if (job.getId() != null) {
@@ -517,7 +528,11 @@ public final class DocumentMapper {
     if (payload == null) {
       return null;
     }
-    return PayloadSerializerHolder.get().serialize(payload);
+    try {
+      return PayloadSerializerHolder.get().serialize(payload);
+    } catch (RuntimeException e) {
+      throw new MappingException("Could not serialize MongoDB job payload", e);
+    }
   }
 
   static JobPayload storedValueToPayload(Object value) {
@@ -525,14 +540,18 @@ public final class DocumentMapper {
       return null;
     }
     if (value instanceof String json) {
-      return json.isEmpty()
-          ? null
-          : PayloadSerializerHolder.get().deserialize(json, JobPayload.class);
+      try {
+        return json.isEmpty()
+            ? null
+            : PayloadSerializerHolder.get().deserialize(json, JobPayload.class);
+      } catch (RuntimeException e) {
+        throw new MappingException("Could not deserialize MongoDB job payload", e);
+      }
     }
     if (value instanceof Document doc) {
       return documentToPayload(doc);
     }
-    throw new IllegalArgumentException("Unsupported MongoDB job payload type: " + value.getClass());
+    throw new MappingException("Unsupported MongoDB job payload type: " + value.getClass());
   }
 
   private static JobPayload documentToPayload(Document doc) {

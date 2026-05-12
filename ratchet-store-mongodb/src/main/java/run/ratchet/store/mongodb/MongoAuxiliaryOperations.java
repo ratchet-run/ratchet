@@ -48,6 +48,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.bson.Document;
+import org.jboss.logging.Logger;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.store.entity.DlqAlertEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
@@ -66,6 +67,8 @@ import run.ratchet.store.id.UuidV7Factory;
  */
 final class MongoAuxiliaryOperations {
 
+  private static final Logger log = Logger.getLogger(MongoAuxiliaryOperations.class);
+  private static final int WORKFLOW_CONDITION_WARNING_THRESHOLD = 1000;
   private static final int DEFAULT_PERMIT_RETRY_DELAY_MS = 5000;
 
   private final MongoStoreContext ctx;
@@ -143,6 +146,7 @@ final class MongoAuxiliaryOperations {
             .find(eq(PARENT_JOB_ID, parentJobId))
             .sort(ascending(CONDITION_PRIORITY))) {
       results.add(DocumentMapper.toWorkflowConditionEntity(doc));
+      warnIfLargeConditionResult("parent job", parentJobId, results.size());
     }
     return results;
   }
@@ -151,6 +155,7 @@ final class MongoAuxiliaryOperations {
     List<WorkflowConditionEntity> results = new ArrayList<>();
     for (Document doc : ctx.workflowConditions().find(eq(CHILD_JOB_ID, childJobId))) {
       results.add(DocumentMapper.toWorkflowConditionEntity(doc));
+      warnIfLargeConditionResult("child job", childJobId, results.size());
     }
     return results;
   }
@@ -162,8 +167,17 @@ final class MongoAuxiliaryOperations {
         ctx.workflowConditions()
             .find(and(eq(PARENT_JOB_ID, parentJobId), eq(CONDITION_TYPE, type.name())))) {
       results.add(DocumentMapper.toWorkflowConditionEntity(doc));
+      warnIfLargeConditionResult("parent job/type", parentJobId, results.size());
     }
     return results;
+  }
+
+  private static void warnIfLargeConditionResult(String query, UUID id, int resultSize) {
+    if (resultSize == WORKFLOW_CONDITION_WARNING_THRESHOLD + 1) {
+      log.warnf(
+          "MongoDB workflow-condition query by %s %s returned more than %d rows",
+          query, id, WORKFLOW_CONDITION_WARNING_THRESHOLD);
+    }
   }
 
   void deleteConditionById(UUID id) {
@@ -232,6 +246,10 @@ final class MongoAuxiliaryOperations {
             ctx.resourcePermits().insertOne(session, DocumentMapper.toDocument(permit));
             return true;
           });
+    } catch (IllegalArgumentException e) {
+      throw e;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("acquire resource permit", e);
     }
   }
 
@@ -247,6 +265,8 @@ final class MongoAuxiliaryOperations {
             }
             return Boolean.TRUE;
           });
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("release resource permit", e);
     }
   }
 

@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
 import java.util.List;
@@ -150,6 +151,28 @@ class DocumentMapperTest {
 
     assertNull(DocumentMapper.toJobEntity(missing).getPayload());
     assertNull(DocumentMapper.toJobEntity(empty).getPayload());
+  }
+
+  @Test
+  void wrapsUnsupportedPayloadStorageTypeWithMappingException() {
+    Document doc = DocumentMapper.toDocument(job(null));
+    doc.put("payload", 42);
+
+    DocumentMapper.MappingException thrown =
+        assertThrows(DocumentMapper.MappingException.class, () -> DocumentMapper.toJobEntity(doc));
+
+    assertTrue(thrown.getMessage().contains("Unsupported MongoDB job payload type"));
+  }
+
+  @Test
+  void wrapsMalformedSerializedPayloadWithMappingException() {
+    Document doc = DocumentMapper.toDocument(job(null));
+    doc.put("payload", "{not-json");
+
+    DocumentMapper.MappingException thrown =
+        assertThrows(DocumentMapper.MappingException.class, () -> DocumentMapper.toJobEntity(doc));
+
+    assertTrue(thrown.getMessage().contains("Could not deserialize MongoDB job payload"));
   }
 
   @Test
