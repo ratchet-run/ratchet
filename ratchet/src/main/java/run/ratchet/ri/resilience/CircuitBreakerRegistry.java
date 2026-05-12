@@ -40,16 +40,11 @@ public class CircuitBreakerRegistry {
 
   public CircuitBreaker getBreaker(String serviceName, CircuitBreakerProfile profile) {
     CircuitBreakerKey key = new CircuitBreakerKey(serviceName, profile);
-    return breakers.computeIfAbsent(
-        key,
-        k -> {
-          String configKey = profile.name().toLowerCase().replace('_', '-');
-          CircuitBreakerConfiguration config =
-              configs.getOrDefault(
-                  configKey,
-                  CircuitBreakerConfiguration.fromSpi(configProvider.configFor(profile)));
-          return createBreaker(serviceName, config);
-        });
+    String configKey = profile.name().toLowerCase().replace('_', '-');
+    CircuitBreakerConfiguration config =
+        configs.getOrDefault(
+            configKey, CircuitBreakerConfiguration.fromSpi(configProvider.configFor(profile)));
+    return breakers.computeIfAbsent(key, k -> createBreaker(serviceName, config));
   }
 
   public CircuitBreaker.State getBreakerState(String serviceName) {
@@ -65,11 +60,9 @@ public class CircuitBreakerRegistry {
   }
 
   public void openBreaker(String serviceName, CircuitBreakerProfile profile) {
-    CircuitBreaker breaker = breakers.get(new CircuitBreakerKey(serviceName, profile));
-    if (breaker != null) {
-      breaker.transitionToOpen();
-      log.warnf("Manually opened circuit breaker for service: %s", serviceName);
-    }
+    CircuitBreaker breaker = getBreaker(serviceName, profile);
+    breaker.transitionToOpen();
+    log.warnf("Manually opened circuit breaker for service: %s", serviceName);
   }
 
   public void resetBreaker(String serviceName) {

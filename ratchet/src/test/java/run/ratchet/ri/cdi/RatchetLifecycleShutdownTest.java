@@ -1,5 +1,6 @@
 package run.ratchet.ri.cdi;
 
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -46,6 +47,22 @@ class RatchetLifecycleShutdownTest {
     InOrder inOrder = inOrder(fixture.drainController, fixture.poller);
     inOrder.verify(fixture.drainController).setDraining(true);
     inOrder.verify(fixture.poller).stop();
+
+    verify(fixture.recurringScheduler).stop();
+    verify(fixture.orphanRecoveryTimer).stop();
+    verify(fixture.batchRecoveryTimer).stop();
+    verify(fixture.deadLetterService).stop();
+    verify(fixture.jobArchivingService).stop();
+    verify(fixture.logPurgeTimer).stop();
+    verify(fixture.jobExecutionCoordinator).shutdown();
+  }
+
+  @Test
+  void onShutdown_stopFailure_continuesStoppingRemainingServices() {
+    LifecycleFixture fixture = new LifecycleFixture(RatchetOptions.defaults());
+    doThrow(new IllegalStateException("poller failed")).when(fixture.poller).stop();
+
+    fixture.lifecycle.onShutdown();
 
     verify(fixture.recurringScheduler).stop();
     verify(fixture.orphanRecoveryTimer).stop();

@@ -6,6 +6,7 @@ import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 import org.jboss.logging.Logger;
 import run.ratchet.store.entity.JobPayload;
 
@@ -21,6 +22,11 @@ import run.ratchet.store.entity.JobPayload;
 public class JobPayloadInputValidator {
 
   private static final Logger log = Logger.getLogger(JobPayloadInputValidator.class);
+  private static final int MAX_CLASS_NAME_LENGTH = 512;
+  private static final Pattern CLASS_NAME =
+      Pattern.compile(
+          "[\\p{javaJavaIdentifierStart}][\\p{javaJavaIdentifierPart}]*"
+              + "(\\.[\\p{javaJavaIdentifierStart}][\\p{javaJavaIdentifierPart}]*)*");
 
   /** Map of primitive types to their corresponding wrapper types. */
   private static final Map<Class<?>, Class<?>> PRIMITIVE_TO_WRAPPER =
@@ -177,6 +183,8 @@ public class JobPayloadInputValidator {
         }
       }
     } catch (Exception e) {
+      log.errorf(
+          e, "Failed to validate method signature for %s.%s", payload.target(), payload.method());
       errors.add("Failed to validate method signature: " + e.getMessage());
     }
   }
@@ -187,6 +195,10 @@ public class JobPayloadInputValidator {
         || isNullOrEmpty(payload.methodDescriptor())) {
       return;
     }
+    String classNameError = classNameError(payload.target());
+    if (classNameError != null) {
+      return;
+    }
     try {
       Class<?> clazz =
           Class.forName(payload.target(), false, Thread.currentThread().getContextClassLoader());
@@ -194,6 +206,8 @@ public class JobPayloadInputValidator {
     } catch (ClassNotFoundException e) {
       // Already reported by validateTargetClass
     } catch (Exception e) {
+      log.errorf(
+          e, "Failed to validate method signature for %s.%s", payload.target(), payload.method());
       errors.add("Failed to validate method signature: " + e.getMessage());
     }
   }
@@ -203,6 +217,11 @@ public class JobPayloadInputValidator {
       errors.add("Target class cannot be null or empty");
       return;
     }
+    String classNameError = classNameError(payload.target());
+    if (classNameError != null) {
+      errors.add(classNameError);
+      return;
+    }
     try {
       Class.forName(payload.target(), false, Thread.currentThread().getContextClassLoader());
     } catch (ClassNotFoundException e) {
@@ -210,5 +229,17 @@ public class JobPayloadInputValidator {
     } catch (Exception e) {
       errors.add("Cannot load target class " + payload.target() + ": " + e.getMessage());
     }
+  }
+
+  private String classNameError(String className) {
+    if (className.length() > MAX_CLASS_NAME_LENGTH) {
+      return "Target class name is too long: " + className.length() + " characters";
+    }
+    if (className.indexOf('\0') >= 0
+        || className.contains("..")
+        || !CLASS_NAME.matcher(className).matches()) {
+      return "Target class name contains invalid characters: " + className;
+    }
+    return null;
   }
 }

@@ -1,6 +1,7 @@
 package run.ratchet.ri.security;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.context.Dependent;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.security.enterprise.SecurityContext;
@@ -48,12 +49,19 @@ public class CallerPrincipalProvider {
       if (!securityContexts.isResolvable()) {
         return Optional.empty();
       }
-      Principal principal = securityContexts.get().getCallerPrincipal();
-      if (principal == null) {
-        return Optional.empty();
+      Instance.Handle<SecurityContext> handle = securityContexts.getHandle();
+      try {
+        Principal principal = handle.get().getCallerPrincipal();
+        if (principal == null) {
+          return Optional.empty();
+        }
+        String name = principal.getName();
+        return (name == null || name.isEmpty()) ? Optional.empty() : Optional.of(name);
+      } finally {
+        if (handle.getBean().getScope().equals(Dependent.class)) {
+          handle.destroy();
+        }
       }
-      String name = principal.getName();
-      return (name == null || name.isEmpty()) ? Optional.empty() : Optional.of(name);
     } catch (RuntimeException e) {
       log.warnf(e, "SecurityContext lookup failed; capturing null caller principal");
       return Optional.empty();

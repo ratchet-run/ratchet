@@ -43,6 +43,15 @@ class CircuitBreakerRegistryTest {
     assertEquals(CircuitBreaker.State.CLOSED, registry.getBreakerState("shipping"));
   }
 
+  @Test
+  void openBreaker_createsMissingBreakerBeforeOpening() {
+    CircuitBreakerRegistry registry = defaultRegistry();
+
+    registry.openBreaker("maintenance-service");
+
+    assertEquals(CircuitBreaker.State.OPEN, registry.getBreakerState("maintenance-service"));
+  }
+
   @SuppressWarnings("unchecked")
   private static Map<Object, CircuitBreaker> registryKeyMap(CircuitBreakerRegistry registry)
       throws NoSuchFieldException, IllegalAccessException {

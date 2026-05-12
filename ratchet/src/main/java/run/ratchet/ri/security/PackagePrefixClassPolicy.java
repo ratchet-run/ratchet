@@ -21,6 +21,7 @@ import run.ratchet.spi.ClassPolicy;
 public class PackagePrefixClassPolicy implements ClassPolicy {
 
   private static final Logger log = Logger.getLogger(PackagePrefixClassPolicy.class);
+  private static final int MAX_LOGGED_CLASS_NAME_LENGTH = 256;
 
   /**
    * Fully-qualified class names that are NEVER allowed, regardless of the configured allowlist.
@@ -130,12 +131,15 @@ public class PackagePrefixClassPolicy implements ClassPolicy {
     }
 
     if (DENIED_EXACT.contains(className)) {
-      log.warnf("Class %s is on the hardcoded denylist (exact match)", className);
+      log.warnf(
+          "Class %s is on the hardcoded denylist (exact match)", loggableClassName(className));
       return false;
     }
     for (String deniedPrefix : DENIED_PREFIXES) {
       if (className.startsWith(deniedPrefix)) {
-        log.warnf("Class %s is on the hardcoded denylist (prefix: %s)", className, deniedPrefix);
+        log.warnf(
+            "Class %s is on the hardcoded denylist (prefix: %s)",
+            loggableClassName(className), deniedPrefix);
         return false;
       }
     }
@@ -146,7 +150,16 @@ public class PackagePrefixClassPolicy implements ClassPolicy {
       }
     }
 
-    log.warnf("Class %s is not in allowed packages: %s", className, allowedPackages);
+    log.warnf(
+        "Class %s is not in allowed packages: %s", loggableClassName(className), allowedPackages);
     return false;
+  }
+
+  private static String loggableClassName(String className) {
+    String sanitized = className.replaceAll("[^\\x20-\\x7E]", "?");
+    if (sanitized.length() <= MAX_LOGGED_CLASS_NAME_LENGTH) {
+      return sanitized;
+    }
+    return sanitized.substring(0, MAX_LOGGED_CLASS_NAME_LENGTH) + "...";
   }
 }

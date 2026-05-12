@@ -145,6 +145,17 @@ class JobPayloadInputValidatorTest {
   }
 
   @Test
+  void invalidTargetClassNameRejectedBeforeClassLoading() {
+    JobPayload payload = new JobPayload("java.lang..Runtime", "exec", "()V", false, List.of());
+
+    IllegalArgumentException ex =
+        assertThrows(IllegalArgumentException.class, () -> validator.validateAtCreation(payload));
+
+    assertTrue(ex.getMessage().contains("Target class name contains invalid characters"));
+    assertFalse(ex.getMessage().contains("Target class not found"));
+  }
+
+  @Test
   void nonExistentMethodReportsError() {
     JobPayload payload =
         new JobPayload(Target.class.getName(), "noSuchMethod", "()V", false, List.of());

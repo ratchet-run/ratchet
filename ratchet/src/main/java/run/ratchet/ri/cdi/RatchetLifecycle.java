@@ -51,7 +51,7 @@ public class RatchetLifecycle {
   private final RatchetOptions options;
   private final JobExecutionCoordinator jobExecutionCoordinator;
   private final Instance<SchedulerLifecycleHook> lifecycleHooks;
-  private List<SchedulerLifecycleHook> resolvedHooks;
+  private volatile List<SchedulerLifecycleHook> resolvedHooks;
 
   protected RatchetLifecycle() {
     this.poller = null;
@@ -188,29 +188,29 @@ public class RatchetLifecycle {
       defaultProvider.shutdown();
     }
 
-    poller.stop();
-    recurringScheduler.stop();
-    orphanRecoveryTimer.stop();
-    batchRecoveryTimer.stop();
-    deadLetterService.stop();
-    jobArchivingService.stop();
-    logPurgeTimer.stop();
+    stopService("poller", poller::stop);
+    stopService("recurring scheduler", recurringScheduler::stop);
+    stopService("orphan recovery timer", orphanRecoveryTimer::stop);
+    stopService("batch recovery timer", batchRecoveryTimer::stop);
+    stopService("dead letter service", deadLetterService::stop);
+    stopService("job archiving service", jobArchivingService::stop);
+    stopService("log purge timer", logPurgeTimer::stop);
     // Stop background resubmission before resetting RUNNING jobs to PENDING.
-    jobExecutionCoordinator.shutdown();
+    stopService("job execution coordinator", jobExecutionCoordinator::shutdown);
 
     JobTask.clearCaches();
     notifyHooks("afterStop", SchedulerLifecycleHook::afterStop, false);
     destroyHooks();
   }
 
-  private List<SchedulerLifecycleHook> hooks() {
+  private synchronized List<SchedulerLifecycleHook> hooks() {
     if (lifecycleHooks == null) {
       return List.of();
     }
     if (resolvedHooks == null) {
       List<SchedulerLifecycleHook> resolved = new ArrayList<>();
       lifecycleHooks.forEach(resolved::add);
-      resolvedHooks = resolved;
+      resolvedHooks = List.copyOf(resolved);
     }
     return resolvedHooks;
   }
@@ -231,6 +231,14 @@ public class RatchetLifecycle {
       } catch (Exception e) {
         log.warnf(e, "Scheduler lifecycle hook failed during %s: %s", phase, e.getMessage());
       }
+    }
+  }
+
+  private void stopService(String name, Runnable stopAction) {
+    try {
+      stopAction.run();
+    } catch (Exception e) {
+      log.warnf(e, "Failed to stop %s: %s", name, e.getMessage());
     }
   }
 

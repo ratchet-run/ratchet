@@ -27,7 +27,7 @@ public class DefaultErrorSanitizer implements ErrorSanitizer {
   private static final Pattern CREDENTIAL_KV =
       Pattern.compile(
           "(password|passwd|pwd|secret|token|apikey|api_key|access_key|private_key|credential)"
-              + "\\s*[=:]\\s*\\S+",
+              + "\\s*[=:]\\s*[^\\s,;)\\]>]+",
           Pattern.CASE_INSENSITIVE);
 
   /**

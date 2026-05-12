@@ -6,10 +6,12 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
+import java.util.function.Function;
 import org.jboss.logging.Logger;
 import org.objectweb.asm.Type;
 import run.ratchet.ri.payload.AsmLambdaAnalyzer.InspectionResult;
@@ -32,11 +34,13 @@ public final class JobPayloadFactory {
   private static final JobPayload NOOP =
       new JobPayload("run.ratchet.ri.util.JobPlaceholders", "noop", "()V", true, List.of());
 
-  private static final ConcurrentMap<MethodLookupKey, VisibilityVerdict> VISIBILITY_CACHE =
-      new ConcurrentHashMap<>();
+  private static final int REFLECTION_CACHE_MAX_ENTRIES = 512;
 
-  private static final ConcurrentMap<MethodLookupKey, Boolean> FUNCTIONAL_INTERFACE_METHOD_CACHE =
-      new ConcurrentHashMap<>();
+  private static final Map<MethodLookupKey, VisibilityVerdict> VISIBILITY_CACHE =
+      boundedReflectionCache();
+
+  private static final Map<MethodLookupKey, Boolean> FUNCTIONAL_INTERFACE_METHOD_CACHE =
+      boundedReflectionCache();
 
   /**
    * Maximum depth for unwrapping nested functional-interface adapter lambdas (e.g. a {@code
@@ -131,8 +135,7 @@ public final class JobPayloadFactory {
             step.methodName(),
             step.methodDescriptor(),
             Thread.currentThread().getContextClassLoader());
-    VisibilityVerdict verdict =
-        VISIBILITY_CACHE.computeIfAbsent(key, JobPayloadFactory::resolveVisibility);
+    VisibilityVerdict verdict = cached(VISIBILITY_CACHE, key, JobPayloadFactory::resolveVisibility);
 
     if (!verdict.publicOrUnknown()) {
       throw new IllegalArgumentException(
@@ -269,8 +272,10 @@ public final class JobPayloadFactory {
             step.methodDescriptor(),
             Thread.currentThread().getContextClassLoader());
 
-    return FUNCTIONAL_INTERFACE_METHOD_CACHE.computeIfAbsent(
-        key, JobPayloadFactory::resolveSerializableFunctionalInterfaceMethod);
+    return cached(
+        FUNCTIONAL_INTERFACE_METHOD_CACHE,
+        key,
+        JobPayloadFactory::resolveSerializableFunctionalInterfaceMethod);
   }
 
   private static boolean resolveSerializableFunctionalInterfaceMethod(MethodLookupKey key) {
@@ -304,6 +309,29 @@ public final class JobPayloadFactory {
 
   private record VisibilityVerdict(boolean publicOrUnknown, String visibility) {
     private static final VisibilityVerdict PUBLIC_OR_UNKNOWN = new VisibilityVerdict(true, null);
+  }
+
+  private static <V> Map<MethodLookupKey, V> boundedReflectionCache() {
+    return Collections.synchronizedMap(
+        new LinkedHashMap<>(64, 0.75f, true) {
+          @Override
+          protected boolean removeEldestEntry(Map.Entry<MethodLookupKey, V> eldest) {
+            return size() > REFLECTION_CACHE_MAX_ENTRIES;
+          }
+        });
+  }
+
+  private static <V> V cached(
+      Map<MethodLookupKey, V> cache, MethodLookupKey key, Function<MethodLookupKey, V> resolver) {
+    synchronized (cache) {
+      V cached = cache.get(key);
+      if (cached != null) {
+        return cached;
+      }
+      V resolved = resolver.apply(key);
+      cache.put(key, resolved);
+      return resolved;
+    }
   }
 
   private static SerializedLambda tryToSerializedLambda(Serializable value) {

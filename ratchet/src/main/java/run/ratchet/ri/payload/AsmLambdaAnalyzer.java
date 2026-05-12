@@ -66,7 +66,11 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
     Object leftOperand =
         resolveValue(popOperand(operandStack, "reading integer operand"), new Object[0]);
     if (leftOperand instanceof Integer leftInt && rightOperand instanceof Integer rightInt) {
-      operandStack.push(new ConstantValue(operation.applyAsInt(leftInt, rightInt)));
+      try {
+        operandStack.push(new ConstantValue(operation.applyAsInt(leftInt, rightInt)));
+      } catch (ArithmeticException e) {
+        operandStack.push(UnknownValue.INSTANCE);
+      }
     } else {
       operandStack.push(UnknownValue.INSTANCE);
     }
@@ -316,6 +320,9 @@ public final class AsmLambdaAnalyzer implements LambdaAnalyzer {
     String classFileResource = classInternalName + ".class";
 
     ClassLoader contextClassLoader = Thread.currentThread().getContextClassLoader();
+    if (contextClassLoader == null) {
+      contextClassLoader = AsmLambdaAnalyzer.class.getClassLoader();
+    }
 
     try (InputStream classFileStream = contextClassLoader.getResourceAsStream(classFileResource)) {
       if (classFileStream == null) {

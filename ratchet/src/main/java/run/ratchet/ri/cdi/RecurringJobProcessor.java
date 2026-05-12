@@ -242,6 +242,8 @@ public class RecurringJobProcessor {
     //     registered in the last N seconds (but after this node's startTime) are exempt.
     //     Closes a race window on rolling deploys where Node A's newer registration commits
     //     after Node B's startTime but before Node B's cleanup runs.
+    // A null coordinator is the explicit single-node/test path. Clustered deployments must wire a
+    // StartupCoordinator so destructive orphan cleanup is lease-guarded.
     boolean leaseAcquired = startupCoordinator == null;
     if (startupCoordinator != null) {
       leaseAcquired =

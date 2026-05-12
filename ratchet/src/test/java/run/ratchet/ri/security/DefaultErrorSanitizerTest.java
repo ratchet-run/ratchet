@@ -51,6 +51,19 @@ class DefaultErrorSanitizerTest {
   }
 
   @Test
+  void redactsAdjacentPlainCredentialKeyValuesSeparately() {
+    String out =
+        sanitizer.sanitize(
+            new RuntimeException("auth failed password=hunter2 token=abc123,host=db"));
+
+    assertFalse(out.contains("hunter2"));
+    assertFalse(out.contains("abc123"));
+    assertTrue(out.contains("password=***REDACTED***"));
+    assertTrue(out.contains("token=***REDACTED***"));
+    assertTrue(out.contains(",host=db"));
+  }
+
+  @Test
   void handlesSelfCyclingCauseWithoutInfiniteLoop() {
     // A Throwable whose cause is itself. Real cycles occur rarely but are possible via custom
     // exception subclasses. The walker must terminate.

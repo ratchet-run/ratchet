@@ -2,6 +2,7 @@ package run.ratchet.ri.cdi;
 
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.context.Dependent;
 import jakarta.enterprise.inject.Any;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
@@ -46,14 +47,21 @@ public class RecurringMethodInvoker {
       throw new IllegalStateException("No CDI bean found for class: " + beanClassName);
     }
 
-    Object bean = instance.get();
-    Method method = getOrResolveMethod(beanClass, methodName, hasJobContextParam);
+    Instance.Handle<?> handle = instance.getHandle();
+    Object bean = handle.get();
+    try {
+      Method method = getOrResolveMethod(beanClass, methodName, hasJobContextParam);
 
-    if (hasJobContextParam) {
-      JobContext context = JobContext.current();
-      invokeMethod(method, bean, context);
-    } else {
-      invokeMethod(method, bean);
+      if (hasJobContextParam) {
+        JobContext context = JobContext.current();
+        invokeMethod(method, bean, context);
+      } else {
+        invokeMethod(method, bean);
+      }
+    } finally {
+      if (handle.getBean().getScope().equals(Dependent.class)) {
+        handle.destroy();
+      }
     }
   }
 
@@ -115,7 +123,8 @@ public class RecurringMethodInvoker {
                   + " Cancel and re-register the recurring job, or redeploy to pick up the new"
                   + " signature.");
         }
-      } catch (NoSuchMethodException ignored) {
+      } catch (NoSuchMethodException signatureCheckFailure) {
+        // Method was not found under either supported signature; rethrow the original miss.
         throw e;
       }
     }

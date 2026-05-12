@@ -19,22 +19,25 @@ import run.ratchet.api.Recurring;
  */
 public class RecurringMethodDiscoveryExtension implements Extension {
 
-  private static final Set<Class<?>> RECURRING_BEAN_CLASSES = ConcurrentHashMap.newKeySet();
+  private final Set<Class<?>> recurringBeanClasses = ConcurrentHashMap.newKeySet();
+  private static volatile RecurringMethodDiscoveryExtension activeExtension;
 
   void clear(@Observes BeforeBeanDiscovery event) {
-    RECURRING_BEAN_CLASSES.clear();
+    activeExtension = this;
+    recurringBeanClasses.clear();
   }
 
   <T> void collectRecurringType(
       @Observes @WithAnnotations(Recurring.class) ProcessAnnotatedType<T> event) {
     AnnotatedType<T> annotatedType = event.getAnnotatedType();
     if (hasRecurringMethod(annotatedType)) {
-      RECURRING_BEAN_CLASSES.add(annotatedType.getJavaClass());
+      recurringBeanClasses.add(annotatedType.getJavaClass());
     }
   }
 
   static Set<Class<?>> recurringBeanClasses() {
-    return Set.copyOf(RECURRING_BEAN_CLASSES);
+    RecurringMethodDiscoveryExtension extension = activeExtension;
+    return extension == null ? Set.of() : Set.copyOf(extension.recurringBeanClasses);
   }
 
   private static boolean hasRecurringMethod(AnnotatedType<?> annotatedType) {

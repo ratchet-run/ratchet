@@ -22,7 +22,7 @@ import java.util.concurrent.locks.ReentrantLock;
  *   → After waitDuration expires → HALF_OPEN
  *
  * HALF_OPEN
- *   → Allow permittedCallsInHalfOpen calls through
+ *   → Allow up to permittedCallsInHalfOpen calls through concurrently
  *   → If all succeed → CLOSED
  *   → If any fail → OPEN
  * </pre>
@@ -138,6 +138,13 @@ public class CircuitBreaker {
 
   public long getWaitDurationMs() {
     return config.waitDurationMs();
+  }
+
+  public long getRemainingWaitDurationMs() {
+    if (getState() != State.OPEN) {
+      return 0L;
+    }
+    return Math.max(0L, openedAtMs + config.waitDurationMs() - clock.millis());
   }
 
   private <T> T executeInClosed(Callable<T> task) throws Exception {

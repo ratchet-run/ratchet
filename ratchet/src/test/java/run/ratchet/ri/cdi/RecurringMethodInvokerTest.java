@@ -2,10 +2,14 @@ package run.ratchet.ri.cdi;
 
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import jakarta.enterprise.context.Dependent;
 import jakarta.enterprise.inject.Instance;
+import jakarta.enterprise.inject.spi.Bean;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -50,12 +54,34 @@ class RecurringMethodInvokerTest {
     assertSame(bean.checkedFailure, thrown);
   }
 
+  @Test
+  void invoke_dependentScopedBean_destroysHandleAfterInvocation() throws Exception {
+    FailingBean bean = new FailingBean();
+    Instance.Handle<?> handle = selectBean(FailingBean.class, bean, Dependent.class);
+
+    invoker.invoke(FailingBean.class.getName(), "noop", false);
+
+    verify(handle).destroy();
+  }
+
   @SuppressWarnings({"rawtypes", "unchecked"})
-  private void selectBean(Class<?> beanClass, Object bean) {
+  private Instance.Handle<?> selectBean(Class<?> beanClass, Object bean) {
+    return selectBean(beanClass, bean, jakarta.enterprise.context.ApplicationScoped.class);
+  }
+
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  private Instance.Handle<?> selectBean(
+      Class<?> beanClass, Object bean, Class<? extends java.lang.annotation.Annotation> scope) {
     Instance selected = mock(Instance.class);
+    Instance.Handle handle = mock(Instance.Handle.class);
+    Bean cdiBean = mock(Bean.class);
     when(allBeans.select((Class) beanClass)).thenReturn(selected);
     when(selected.isUnsatisfied()).thenReturn(false);
-    when(selected.get()).thenReturn(bean);
+    when(selected.getHandle()).thenReturn(handle);
+    when(handle.get()).thenReturn(bean);
+    when(handle.getBean()).thenReturn(cdiBean);
+    doReturn(scope).when(cdiBean).getScope();
+    return handle;
   }
 
   public static final class FailingBean {
@@ -69,6 +95,8 @@ class RecurringMethodInvokerTest {
     public void failChecked() throws CheckedFailure {
       throw checkedFailure;
     }
+
+    public void noop() {}
   }
 
   private static final class CheckedFailure extends Exception {

@@ -3,10 +3,15 @@ package run.ratchet.ri.security;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.context.Dependent;
 import jakarta.enterprise.inject.Instance;
+import jakarta.enterprise.inject.spi.Bean;
 import jakarta.security.enterprise.SecurityContext;
 import java.security.Principal;
 import java.util.Optional;
@@ -26,7 +31,7 @@ class CallerPrincipalProviderTest {
     @SuppressWarnings("unchecked")
     Instance<SecurityContext> instance = mock(Instance.class);
     when(instance.isResolvable()).thenReturn(true);
-    when(instance.get()).thenReturn(context);
+    handle(instance, context, ApplicationScoped.class);
 
     Optional<String> result = new CallerPrincipalProvider(instance).currentPrincipal();
 
@@ -42,7 +47,7 @@ class CallerPrincipalProviderTest {
     @SuppressWarnings("unchecked")
     Instance<SecurityContext> instance = mock(Instance.class);
     when(instance.isResolvable()).thenReturn(true);
-    when(instance.get()).thenReturn(context);
+    handle(instance, context, ApplicationScoped.class);
 
     Optional<String> result = new CallerPrincipalProvider(instance).currentPrincipal();
 
@@ -65,7 +70,7 @@ class CallerPrincipalProviderTest {
     @SuppressWarnings("unchecked")
     Instance<SecurityContext> instance = mock(Instance.class);
     when(instance.isResolvable()).thenReturn(true);
-    when(instance.get()).thenThrow(new IllegalStateException("container is shutting down"));
+    when(instance.getHandle()).thenThrow(new IllegalStateException("container is shutting down"));
 
     Optional<String> result = new CallerPrincipalProvider(instance).currentPrincipal();
 
@@ -80,7 +85,7 @@ class CallerPrincipalProviderTest {
     @SuppressWarnings("unchecked")
     Instance<SecurityContext> instance = mock(Instance.class);
     when(instance.isResolvable()).thenReturn(true);
-    when(instance.get()).thenReturn(context);
+    handle(instance, context, ApplicationScoped.class);
 
     Optional<String> result = new CallerPrincipalProvider(instance).currentPrincipal();
 
@@ -107,10 +112,42 @@ class CallerPrincipalProviderTest {
     @SuppressWarnings("unchecked")
     Instance<SecurityContext> instance = mock(Instance.class);
     when(instance.isResolvable()).thenReturn(true);
-    when(instance.get()).thenReturn(context);
+    handle(instance, context, ApplicationScoped.class);
 
     Optional<String> result = new CallerPrincipalProvider(instance).currentPrincipal();
 
     assertTrue(result.isEmpty(), "Empty principal name should yield empty");
+  }
+
+  @Test
+  void currentPrincipal_dependentSecurityContext_destroysHandle() {
+    Principal principal = mock(Principal.class);
+    when(principal.getName()).thenReturn("alice");
+    SecurityContext context = mock(SecurityContext.class);
+    when(context.getCallerPrincipal()).thenReturn(principal);
+
+    @SuppressWarnings("unchecked")
+    Instance<SecurityContext> instance = mock(Instance.class);
+    when(instance.isResolvable()).thenReturn(true);
+    Instance.Handle<SecurityContext> handle = handle(instance, context, Dependent.class);
+
+    Optional<String> result = new CallerPrincipalProvider(instance).currentPrincipal();
+
+    assertEquals(Optional.of("alice"), result);
+    verify(handle).destroy();
+  }
+
+  @SuppressWarnings("unchecked")
+  private static Instance.Handle<SecurityContext> handle(
+      Instance<SecurityContext> instance,
+      SecurityContext context,
+      Class<? extends java.lang.annotation.Annotation> scope) {
+    Instance.Handle<SecurityContext> handle = mock(Instance.Handle.class);
+    Bean<SecurityContext> bean = mock(Bean.class);
+    when(instance.getHandle()).thenReturn(handle);
+    when(handle.get()).thenReturn(context);
+    when(handle.getBean()).thenReturn(bean);
+    doReturn(scope).when(bean).getScope();
+    return handle;
   }
 }

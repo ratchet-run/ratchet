@@ -26,9 +26,7 @@ class DefaultResilienceStrategyTest {
     String result = strategy.execute("my-service", () -> "hello");
     assertEquals("hello", result);
     assertTrue(strategy.isServiceAvailable("my-service"));
-    assertEquals(
-        Duration.ofMillis(registry.getBreaker("my-service").getWaitDurationMs()),
-        strategy.getRetryDelay("my-service"));
+    assertEquals(Duration.ZERO, strategy.getRetryDelay("my-service"));
   }
 
   @Test
@@ -70,9 +68,12 @@ class DefaultResilienceStrategyTest {
       }
     }
 
-    assertEquals(
-        Duration.ofMillis(registry.getBreaker("retry-delay-service").getWaitDurationMs()),
-        strategy.getRetryDelay("retry-delay-service"));
+    Duration retryDelay = strategy.getRetryDelay("retry-delay-service");
+    assertFalse(retryDelay.isNegative());
+    assertTrue(
+        retryDelay.compareTo(
+                Duration.ofMillis(registry.getBreaker("retry-delay-service").getWaitDurationMs()))
+            <= 0);
     assertFalse(strategy.isServiceAvailable("retry-delay-service"));
   }
 

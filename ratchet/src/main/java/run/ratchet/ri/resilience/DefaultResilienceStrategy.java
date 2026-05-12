@@ -56,6 +56,6 @@ public class DefaultResilienceStrategy implements ResilienceStrategy {
     if (!configProvider.isEnabled()) {
       return Duration.ZERO;
     }
-    return Duration.ofMillis(registry.getBreaker(serviceName).getWaitDurationMs());
+    return Duration.ofMillis(registry.getBreaker(serviceName).getRemainingWaitDurationMs());
   }
 }
