@@ -73,7 +73,7 @@ public final class BatchProgressRows {
     try {
       parsedHook = progressHookParser.apply(progressHook);
     } catch (RuntimeException e) {
-      throw new IllegalStateException("Could not parse batch progress hook", e);
+      throw new IllegalArgumentException("Could not parse batch progress hook", e);
     }
     return new BatchProgress(batchId, totalItems, completedItems, failedItems, parsedHook);
   }

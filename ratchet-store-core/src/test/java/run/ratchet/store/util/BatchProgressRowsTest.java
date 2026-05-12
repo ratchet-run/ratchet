@@ -100,9 +100,9 @@ class BatchProgressRowsTest {
 
   @Test
   void wrapsProgressHookParserFailuresWithContext() {
-    IllegalStateException ex =
+    IllegalArgumentException ex =
         assertThrows(
-            IllegalStateException.class,
+            IllegalArgumentException.class,
             () ->
                 BatchProgressRows.afterCompletedIncrement(
                     batchId,
