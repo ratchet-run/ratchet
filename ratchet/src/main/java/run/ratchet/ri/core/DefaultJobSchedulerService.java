@@ -364,26 +364,31 @@ public class DefaultJobSchedulerService
   }
 
   @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
   public JobBuilder enqueue(SerializableCheckedRunnable task) {
     return DefaultJobBuilder.create(jobCreationService, task, Duration.ZERO);
   }
 
   @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
   public JobBuilder schedule(Duration delay, SerializableCheckedRunnable task) {
     return DefaultJobBuilder.create(jobCreationService, task, delay);
   }
 
   @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
   public BatchBuilder enqueueBatch(String name) {
     return new DefaultBatchBuilder(name, jobCreationService, jobInvocationResolver);
   }
 
   @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
   public <T extends Serializable> StreamingBatchBuilder<T> streamingBatch(String name) {
     return new DefaultStreamingBatchBuilder<>(name, jobCreationService);
   }
 
   @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
   public RecurringJobBuilder scheduleRecurring(
       String cron, ZoneId zone, SerializableCheckedRunnable task) {
     return new DefaultRecurringJobBuilder(cron, zone, task, jobCreationService);
@@ -409,6 +414,11 @@ public class DefaultJobSchedulerService
               ? callerPrincipalProvider.currentPrincipal().orElse(null)
               : null;
       authorizationPolicy.checkCancel(jobId, existing.getCallerPrincipal(), currentPrincipal);
+    }
+    if (existing.getSupersededBy() != null) {
+      UUID replacementId = existing.getSupersededBy();
+      log.infof("Job %s was already replaced by job %s", jobId, replacementId);
+      return () -> replacementId;
     }
 
     JobBuilder builder = DefaultJobBuilder.create(jobCreationService, newTask, delay);
@@ -667,15 +677,21 @@ public class DefaultJobSchedulerService
   private TransactionSynchronizationRegistry resolveTxRegistry() {
     TransactionSynchronizationRegistry reg = txRegistry;
     if (reg == null) {
-      try {
-        reg = InitialContext.doLookup("java:comp/TransactionSynchronizationRegistry");
-        txRegistry = reg;
-      } catch (NamingException e) {
-        // No component context on this thread (e.g. CDI startup observers on Payara admin thread)
-        log.debugf(
-            "TransactionSynchronizationRegistry lookup unavailable on this thread; using immediate"
-                + " fallback publication: %s",
-            e.getMessage());
+      synchronized (this) {
+        reg = txRegistry;
+        if (reg == null) {
+          try {
+            reg = InitialContext.doLookup("java:comp/TransactionSynchronizationRegistry");
+            txRegistry = reg;
+          } catch (NamingException e) {
+            // No component context on this thread (e.g. CDI startup observers on Payara admin
+            // thread)
+            log.debugf(
+                "TransactionSynchronizationRegistry lookup unavailable on this thread; using immediate"
+                    + " fallback publication: %s",
+                e.getMessage());
+          }
+        }
       }
     }
     return reg;

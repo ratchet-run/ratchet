@@ -1,6 +1,8 @@
 package run.ratchet.ri.core;
 
 import java.time.Clock;
+import java.util.concurrent.TimeUnit;
+import java.util.function.LongSupplier;
 import org.jboss.logging.Logger;
 import run.ratchet.store.spi.JobCrudStore;
 
@@ -19,11 +21,12 @@ public class DynamicHeartbeatCalculator {
   private final long pollerMinDelayMs;
   private final long pollerMaxDelayMs;
   private final Clock clock;
+  private final LongSupplier ticker;
   private final Object cacheRefreshLock = new Object();
 
   private volatile long cachedNodes;
   private volatile long cachedPending;
-  private volatile long cacheTimestamp;
+  private volatile long cacheExpiresAtNanos = Long.MIN_VALUE;
 
   protected DynamicHeartbeatCalculator() {
     this.jobCrudStore = null;
@@ -31,6 +34,7 @@ public class DynamicHeartbeatCalculator {
     this.pollerMinDelayMs = 0;
     this.pollerMaxDelayMs = 0;
     this.clock = null;
+    this.ticker = null;
   }
 
   public DynamicHeartbeatCalculator(
@@ -52,11 +56,28 @@ public class DynamicHeartbeatCalculator {
       long pollerMinDelayMs,
       long pollerMaxDelayMs,
       Clock clock) {
+    this(
+        jobCrudStore,
+        baseHeartbeatIntervalSeconds,
+        pollerMinDelayMs,
+        pollerMaxDelayMs,
+        clock,
+        null);
+  }
+
+  DynamicHeartbeatCalculator(
+      JobCrudStore jobCrudStore,
+      long baseHeartbeatIntervalSeconds,
+      long pollerMinDelayMs,
+      long pollerMaxDelayMs,
+      Clock clock,
+      LongSupplier ticker) {
     this.jobCrudStore = jobCrudStore;
     this.baseHeartbeatIntervalSeconds = baseHeartbeatIntervalSeconds;
     this.pollerMinDelayMs = pollerMinDelayMs;
     this.pollerMaxDelayMs = pollerMaxDelayMs;
     this.clock = clock;
+    this.ticker = ticker;
   }
 
   /**
@@ -103,20 +124,20 @@ public class DynamicHeartbeatCalculator {
         return pollerMinDelayMs;
       }
     } catch (Exception e) {
-      log.error("Poller delay calculation error, using minimum", e);
-      return pollerMinDelayMs;
+      log.error("Poller delay calculation error, backing off to maximum", e);
+      return pollerMaxDelayMs;
     }
   }
 
   private CacheSnapshot refreshCacheIfStale() {
-    long now = effective().millis();
+    long now = effectiveTicker().getAsLong();
     synchronized (cacheRefreshLock) {
-      if (now - cacheTimestamp > CACHE_TTL_MS) {
-        long refreshedAt = effective().millis();
-        if (refreshedAt - cacheTimestamp > CACHE_TTL_MS) {
+      if (now >= cacheExpiresAtNanos) {
+        long refreshedAt = effectiveTicker().getAsLong();
+        if (refreshedAt >= cacheExpiresAtNanos) {
           cachedNodes = jobCrudStore.countActiveNodes();
           cachedPending = jobCrudStore.countPendingJobs();
-          cacheTimestamp = refreshedAt;
+          cacheExpiresAtNanos = refreshedAt + TimeUnit.MILLISECONDS.toNanos(CACHE_TTL_MS);
         }
       }
       return new CacheSnapshot(cachedNodes, cachedPending);
@@ -151,6 +172,10 @@ public class DynamicHeartbeatCalculator {
 
   private Clock effective() {
     return clock != null ? clock : Clock.systemUTC();
+  }
+
+  private LongSupplier effectiveTicker() {
+    return ticker != null ? ticker : System::nanoTime;
   }
 
   private record CacheSnapshot(long activeNodes, long pendingJobs) {}

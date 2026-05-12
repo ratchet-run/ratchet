@@ -14,7 +14,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -44,6 +46,7 @@ class DefaultNodeIdentityProviderTest {
 
   private DefaultNodeIdentityProvider provider;
   private TestHeartbeatCalculator heartbeatCalculator;
+  private Clock clock;
 
   private static class TestHeartbeatCalculator extends DynamicHeartbeatCalculator {
     private final AtomicInteger calls = new AtomicInteger();
@@ -67,12 +70,13 @@ class DefaultNodeIdentityProviderTest {
   @BeforeEach
   void setUp() {
     heartbeatCalculator = new TestHeartbeatCalculator();
+    clock = Clock.fixed(Instant.parse("2026-05-12T12:00:00Z"), ZoneOffset.UTC);
     when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
     doReturn(scheduledFuture)
         .when(scheduledExecutor)
         .schedule(runnableCaptor.capture(), anyLong(), eq(TimeUnit.SECONDS));
 
-    when(nodeStore.getDatabaseTime()).thenReturn(Instant.now());
+    when(nodeStore.getDatabaseTime()).thenReturn(clock.instant());
 
     provider =
         new DefaultNodeIdentityProvider(
@@ -83,7 +87,8 @@ class DefaultNodeIdentityProviderTest {
             5,
             30,
             false,
-            "test-node");
+            "test-node",
+            clock);
   }
 
   @Test
@@ -114,6 +119,19 @@ class DefaultNodeIdentityProviderTest {
 
     verify(nodeStore).upsertHeartbeat(eq("test-node"), any(Instant.class));
     verify(scheduledExecutor).schedule(any(Runnable.class), eq(5L), eq(TimeUnit.SECONDS));
+  }
+
+  @Test
+  void initAndHeartbeat_useInjectedClockForTimestamps() {
+    provider.init();
+    Runnable scheduledHeartbeat = runnableCaptor.getValue();
+
+    verify(nodeStore).upsertHeartbeat("test-node", clock.instant());
+
+    clearInvocations(nodeStore);
+    scheduledHeartbeat.run();
+
+    verify(nodeStore).upsertHeartbeat("test-node", clock.instant());
   }
 
   @Test
@@ -187,7 +205,8 @@ class DefaultNodeIdentityProviderTest {
             5,
             30,
             true,
-            "test-node");
+            "test-node",
+            clock);
 
     provider.init();
     Runnable scheduledHeartbeat = runnableCaptor.getValue();
@@ -216,7 +235,8 @@ class DefaultNodeIdentityProviderTest {
             5,
             30,
             true,
-            "test-node");
+            "test-node",
+            clock);
 
     clearInvocations(scheduledExecutor);
 

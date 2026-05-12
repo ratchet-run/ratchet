@@ -12,6 +12,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -30,14 +32,21 @@ class DynamicHeartbeatCalculatorTest {
   @Mock private JobCrudStore jobCrudStore;
 
   private MutableClock clock;
+  private AtomicLong ticker;
   private DynamicHeartbeatCalculator calculator;
 
   @BeforeEach
   void setUp() {
     clock = new MutableClock(FIXED_NOW);
+    ticker = new AtomicLong();
     calculator =
         new DynamicHeartbeatCalculator(
-            jobCrudStore, BASE_HEARTBEAT_SECONDS, POLLER_MIN_DELAY_MS, POLLER_MAX_DELAY_MS, clock);
+            jobCrudStore,
+            BASE_HEARTBEAT_SECONDS,
+            POLLER_MIN_DELAY_MS,
+            POLLER_MAX_DELAY_MS,
+            clock,
+            ticker::get);
   }
 
   @Test
@@ -160,7 +169,7 @@ class DynamicHeartbeatCalculatorTest {
     when(jobCrudStore.countPendingJobs()).thenReturn(0L, 300L);
 
     assertEquals(54, calculator.calculateHeartbeatInterval());
-    clock.advance(Duration.ofMillis(5001));
+    ticker.addAndGet(TimeUnit.MILLISECONDS.toNanos(5001));
 
     assertEquals(9, calculator.calculateHeartbeatInterval());
     verify(jobCrudStore, times(2)).countActiveNodes();
@@ -177,12 +186,27 @@ class DynamicHeartbeatCalculatorTest {
   }
 
   @Test
-  void storeException_pollerDelay_returnsMinDelay() {
+  void storeException_pollerDelay_returnsMaxDelay() {
     when(jobCrudStore.countActiveNodes()).thenThrow(new RuntimeException("DB down"));
 
     long delay = calculator.calculatePollerDelay();
 
-    assertEquals(POLLER_MIN_DELAY_MS, delay);
+    assertEquals(POLLER_MAX_DELAY_MS, delay);
+  }
+
+  @Test
+  void cacheTTL_backwardWallClockStep_doesNotPinStaleCounts() {
+    when(jobCrudStore.countActiveNodes()).thenReturn(1L, 8L);
+    when(jobCrudStore.countPendingJobs()).thenReturn(0L, 300L);
+
+    assertEquals(54, calculator.calculateHeartbeatInterval());
+
+    clock.advance(Duration.ofSeconds(-30));
+    ticker.addAndGet(TimeUnit.MILLISECONDS.toNanos(5001));
+
+    assertEquals(9, calculator.calculateHeartbeatInterval());
+    verify(jobCrudStore, times(2)).countActiveNodes();
+    verify(jobCrudStore, times(2)).countPendingJobs();
   }
 
   private static long heartbeatIntervalFor(long activeNodes, long pendingJobs) {

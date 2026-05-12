@@ -1,5 +1,6 @@
 package run.ratchet.ri.core;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -248,6 +249,25 @@ class DefaultJobSchedulerServiceAuthorizationTest {
         .compareAndSwapStatus(eq(JOB_ID), eq(JobStatus.WAITING), eq(JobStatus.CANCELED), eq(null));
     verify(jobBatchStatusStore, times(4))
         .compareAndSwapStatus(eq(JOB_ID), any(), eq(JobStatus.CANCELED), eq(null));
+  }
+
+  @Test
+  void replace_returnsExistingReplacementWhenOldJobAlreadySuperseded() {
+    UUID replacementId = new UUID(0L, 88L);
+    JobEntity oldJob = ownerJob();
+    oldJob.setSupersededBy(replacementId);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(oldJob));
+
+    assertEquals(
+        replacementId,
+        service
+            .replace(
+                JOB_ID, Duration.ZERO, DefaultJobSchedulerServiceAuthorizationTest::noopTask, null)
+            .id());
+
+    verify(jobCreationService, never()).submit(any(DefaultJobBuilder.class));
+    verify(jobBatchStatusStore, never()).compareAndSwapStatus(any(), any(), any(), any());
+    verify(jobCrudStore, never()).save(any(JobEntity.class));
   }
 
   @Test

@@ -2,6 +2,7 @@ package run.ratchet.ri.core;
 
 import java.lang.management.ManagementFactory;
 import java.net.InetAddress;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -53,6 +54,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
   private final long orphanGraceSeconds;
   private final boolean dynamicHeartbeatEnabled;
   private final String explicitNodeId;
+  private final Clock clock;
   private final Object heartbeatLifecycleMonitor = new Object();
 
   private volatile ScheduledFuture<?> heartbeatHandle;
@@ -67,6 +69,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
     this.orphanGraceSeconds = 0;
     this.dynamicHeartbeatEnabled = false;
     this.explicitNodeId = null;
+    this.clock = null;
   }
 
   public DefaultNodeIdentityProvider(
@@ -85,7 +88,8 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
         heartbeatIntervalSeconds,
         orphanGraceSeconds,
         dynamicHeartbeatEnabled,
-        null);
+        null,
+        Clock.systemUTC());
   }
 
   public DefaultNodeIdentityProvider(
@@ -97,6 +101,28 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
       long orphanGraceSeconds,
       boolean dynamicHeartbeatEnabled,
       String explicitNodeId) {
+    this(
+        nodeStore,
+        jobBulkStore,
+        heartbeatCalculator,
+        executorProvider,
+        heartbeatIntervalSeconds,
+        orphanGraceSeconds,
+        dynamicHeartbeatEnabled,
+        explicitNodeId,
+        Clock.systemUTC());
+  }
+
+  public DefaultNodeIdentityProvider(
+      NodeStore nodeStore,
+      JobBulkStore jobBulkStore,
+      DynamicHeartbeatCalculator heartbeatCalculator,
+      ExecutorProvider executorProvider,
+      long heartbeatIntervalSeconds,
+      long orphanGraceSeconds,
+      boolean dynamicHeartbeatEnabled,
+      String explicitNodeId,
+      Clock clock) {
     this.nodeStore = nodeStore;
     this.jobBulkStore = jobBulkStore;
     this.heartbeatCalculator = heartbeatCalculator;
@@ -105,6 +131,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
     this.orphanGraceSeconds = orphanGraceSeconds;
     this.dynamicHeartbeatEnabled = dynamicHeartbeatEnabled;
     this.explicitNodeId = explicitNodeId;
+    this.clock = clock;
   }
 
   private static boolean isContainerShutdownException(Throwable throwable) {
@@ -145,7 +172,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
 
     checkClockSkew();
 
-    nodeStore.upsertHeartbeat(nodeId, Instant.now());
+    nodeStore.upsertHeartbeat(nodeId, effective().instant());
 
     // Startup self-recovery: unconditionally reclaim RUNNING jobs owned by THIS nodeId. A node
     // that crashes and restarts inside the steady-state grace window would otherwise leave its
@@ -167,11 +194,12 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
   /** Shuts down the heartbeat scheduler. */
   public void shutdown() {
     initialized.set(false);
-    ScheduledFuture<?> handle = heartbeatHandle;
-    if (handle != null) {
-      handle.cancel(true);
-    }
     synchronized (heartbeatLifecycleMonitor) {
+      initialized.set(false);
+      ScheduledFuture<?> handle = heartbeatHandle;
+      if (handle != null) {
+        handle.cancel(true);
+      }
       // Wait for any in-flight heartbeat callback to observe initialized=false and exit.
       heartbeatHandle = null;
     }
@@ -184,7 +212,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
   private void checkClockSkew() {
     try {
       Instant dbTime = nodeStore.getDatabaseTime();
-      Instant appTime = Instant.now();
+      Instant appTime = effective().instant();
       long skewSeconds = Math.abs(Duration.between(dbTime, appTime).toSeconds());
 
       if (skewSeconds > 5) {
@@ -195,7 +223,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
         log.debugf("Clock skew check passed: %ss difference", skewSeconds);
       }
     } catch (Exception e) {
-      log.warnf("Clock skew check skipped: %s", e.getMessage());
+      log.warnf(e, "Clock skew check skipped: %s", e.getMessage());
     }
   }
 
@@ -228,42 +256,46 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
   }
 
   private void scheduleHeartbeatWithDelay(long delaySeconds) {
-    if (!initialized.get()) {
-      return;
-    }
+    synchronized (heartbeatLifecycleMonitor) {
+      if (!initialized.get()) {
+        return;
+      }
 
-    heartbeatHandle =
-        executorProvider
-            .getScheduledExecutor()
-            .schedule(
-                () -> runHeartbeat("Heartbeat retry failed", delaySeconds, false),
-                delaySeconds,
-                TimeUnit.SECONDS);
+      heartbeatHandle =
+          executorProvider
+              .getScheduledExecutor()
+              .schedule(
+                  () -> runHeartbeat("Heartbeat retry failed", delaySeconds, false),
+                  delaySeconds,
+                  TimeUnit.SECONDS);
+    }
   }
 
   private void scheduleNextHeartbeat() {
-    if (!initialized.get()) {
-      return;
-    }
+    synchronized (heartbeatLifecycleMonitor) {
+      if (!initialized.get()) {
+        return;
+      }
 
-    if (heartbeatHandle != null && !heartbeatHandle.isDone()) {
-      heartbeatHandle.cancel(false);
-    }
+      if (heartbeatHandle != null && !heartbeatHandle.isDone()) {
+        heartbeatHandle.cancel(false);
+      }
 
-    long intervalSeconds;
-    if (dynamicHeartbeatEnabled) {
-      intervalSeconds = heartbeatCalculator.calculateHeartbeatInterval();
-    } else {
-      intervalSeconds = heartbeatIntervalSeconds;
-    }
+      long intervalSeconds;
+      if (dynamicHeartbeatEnabled) {
+        intervalSeconds = heartbeatCalculator.calculateHeartbeatInterval();
+      } else {
+        intervalSeconds = heartbeatIntervalSeconds;
+      }
 
-    heartbeatHandle =
-        executorProvider
-            .getScheduledExecutor()
-            .schedule(
-                () -> runHeartbeat("Heartbeat failed", intervalSeconds, true),
-                intervalSeconds,
-                TimeUnit.SECONDS);
+      heartbeatHandle =
+          executorProvider
+              .getScheduledExecutor()
+              .schedule(
+                  () -> runHeartbeat("Heartbeat failed", intervalSeconds, true),
+                  intervalSeconds,
+                  TimeUnit.SECONDS);
+    }
   }
 
   private void runHeartbeat(String failureMessage, long failureDelaySeconds, boolean logSuccess) {
@@ -273,7 +305,7 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
       }
 
       try {
-        nodeStore.upsertHeartbeat(nodeId, Instant.now());
+        nodeStore.upsertHeartbeat(nodeId, effective().instant());
         if (logSuccess) {
           log.debugf("Heartbeat sent for node %s", nodeId);
         }
@@ -294,5 +326,9 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
         scheduleHeartbeatWithDelay(cappedDelay);
       }
     }
+  }
+
+  private Clock effective() {
+    return clock != null ? clock : Clock.systemUTC();
   }
 }
