@@ -3,6 +3,7 @@ package run.ratchet.ri.core;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -275,17 +276,47 @@ class WorkflowSchedulerTest {
     when(jobBatchStatusStore.tryPickUpJob(
             parent.getId(), DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID))
         .thenReturn(true);
+    when(jobTerminalStore.markJobFailedTerminal(
+            parent.getId(),
+            "Workflow condition evaluation failed: predicate exploded",
+            parent.getAttempts()))
+        .thenReturn(true);
     when(jobCrudStore.findDependants(parent.getId())).thenReturn(List.of());
     when(jobCrudStore.findById(child.getId())).thenReturn(Optional.of(child));
     when(jobTerminalStore.cancelJob(child.getId())).thenReturn(true);
 
-    assertFalse(scheduler.scheduleNext(parent));
+    IllegalStateException thrown =
+        assertThrows(IllegalStateException.class, () -> scheduler.scheduleNext(parent));
 
     assertEquals(JobStatus.FAILED, parent.getStatus());
     assertEquals("Workflow condition evaluation failed: predicate exploded", parent.getLastError());
+    assertEquals(failure, thrown.getCause());
     verify(jobTerminalStore)
         .markJobFailedTerminal(parent.getId(), parent.getLastError(), parent.getAttempts());
     verify(jobTerminalStore).cancelJob(child.getId());
+  }
+
+  @Test
+  void scheduleNext_conditionEvaluatorExceptionDoesNotMutateParentWhenRecoveryPickupFails() {
+    JobEntity parent = job(new UUID(0L, 62L), JobStatus.PENDING);
+    parent.setAttempts(1);
+    JobEntity child = job(new UUID(0L, 63L), JobStatus.WAITING);
+    WorkflowConditionEntity condition = condition(parent.getId(), child.getId(), 0);
+    RuntimeException failure = new RuntimeException("predicate exploded");
+    when(conditionStore.findConditionsByParentJobId(parent.getId())).thenReturn(List.of(condition));
+    when(conditionEvaluator.evaluate(condition, parent)).thenThrow(failure);
+    when(jobBatchStatusStore.tryPickUpJob(
+            parent.getId(), DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID))
+        .thenReturn(false);
+    when(jobCrudStore.findById(child.getId())).thenReturn(Optional.of(child));
+
+    IllegalStateException thrown =
+        assertThrows(IllegalStateException.class, () -> scheduler.scheduleNext(parent));
+
+    assertEquals(JobStatus.PENDING, parent.getStatus());
+    assertEquals(failure, thrown.getCause());
+    verify(jobTerminalStore, never()).markJobFailedTerminal(any(), any(), anyInt());
+    verify(jobTerminalStore, never()).cancelJob(child.getId());
   }
 
   @Test

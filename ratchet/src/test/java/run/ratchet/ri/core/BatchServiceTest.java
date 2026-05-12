@@ -93,6 +93,8 @@ class BatchServiceTest {
     when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent));
     when(jobBatchStatusStore.tryPickUpJob(parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID))
         .thenReturn(true);
+    when(jobTerminalStore.markJobSucceededMinimal(parentId, FIXED_NOW, FIXED_NOW, 0L, 0L))
+        .thenReturn(true);
     when(metricsStore.findBatchMetrics(parentId)).thenReturn(Optional.empty());
     when(workflowScheduler.scheduleNext(any(JobEntity.class))).thenReturn(false);
 
@@ -142,6 +144,38 @@ class BatchServiceTest {
   }
 
   @Test
+  void completedBatchResetsSyntheticPickupWhenTerminalTransitionDoesNotApply() {
+    UUID parentId = UUID.randomUUID();
+    JobEntity child = new JobEntity();
+    child.setDependsOn(parentId);
+
+    BatchProgress progress = new BatchProgress(parentId, 1, 1, 0, null);
+    JobEntity parent = new JobEntity();
+    parent.setId(parentId);
+    parent.setStatus(JobStatus.PENDING);
+    parent.setJobType(JobExecutionType.BATCH_PARENT);
+
+    when(batchStore.incrementCompletedAtomic(parentId)).thenReturn(progress);
+    when(batchStore.markBatchCompleteIfReady(parentId)).thenReturn(true);
+    when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent));
+    when(jobBatchStatusStore.tryPickUpJob(parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID))
+        .thenReturn(true);
+    when(jobTerminalStore.markJobSucceededMinimal(parentId, FIXED_NOW, FIXED_NOW, 0L, 0L))
+        .thenReturn(false);
+    when(jobBatchStatusStore.resetRunningJob(parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID))
+        .thenReturn(true);
+
+    batchService.markChildSucceeded(child);
+
+    assertEquals(JobStatus.PENDING, parent.getStatus());
+    verify(jobBatchStatusStore)
+        .resetRunningJob(parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID);
+    verify(metricsStore, never()).finalizeBatchMetrics(any());
+    verify(eventPublisher, never()).publish(any());
+    verify(workflowScheduler, never()).scheduleNext(any());
+  }
+
+  @Test
   void recoverStuckBatchesBulkLoadsCompletedParents() {
     UUID firstId = new UUID(0L, 101L);
     UUID secondId = new UUID(0L, 102L);
@@ -159,6 +193,10 @@ class BatchServiceTest {
         .thenReturn(List.of(firstParent, secondParent));
     when(jobBatchStatusStore.tryPickUpJob(eq(firstId), any())).thenReturn(true);
     when(jobBatchStatusStore.tryPickUpJob(eq(secondId), any())).thenReturn(true);
+    when(jobTerminalStore.markJobSucceededMinimal(eq(firstId), any(), any(), eq(0L), eq(0L)))
+        .thenReturn(true);
+    when(jobTerminalStore.markJobSucceededMinimal(eq(secondId), any(), any(), eq(0L), eq(0L)))
+        .thenReturn(true);
 
     assertEquals(2, batchService.recoverStuckBatches());
 

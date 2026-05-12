@@ -166,17 +166,7 @@ public class WorkflowScheduler extends ChainScheduler {
             condition.getId(),
             parentJob.getId(),
             e.getMessage());
-        // Mark parent FAILED through the explicit terminal pathway. The parent is BATCH_PARENT
-        // sitting at PENDING; we synthesize the picker so the gate matches before mark-failed.
-        String error = "Workflow condition evaluation failed: " + e.getMessage();
-        if (jobBatchStatusStore.tryPickUpJob(
-            parentJob.getId(), DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID)) {
-          jobTerminalStore.markJobFailedTerminal(parentJob.getId(), error, parentJob.getAttempts());
-        }
-        parentJob.setStatus(JobStatus.FAILED);
-        parentJob.setLastError(error);
-        cancelChain(parentJob);
-        return false;
+        throw failWorkflowCondition(parentJob, e);
       }
     }
 
@@ -194,6 +184,55 @@ public class WorkflowScheduler extends ChainScheduler {
       super.cancelChain(parentJob);
     }
     return false;
+  }
+
+  private IllegalStateException failWorkflowCondition(JobEntity parentJob, Exception cause) {
+    String error = "Workflow condition evaluation failed: " + cause.getMessage();
+
+    if (!jobBatchStatusStore.tryPickUpJob(
+        parentJob.getId(), DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID)) {
+      return new IllegalStateException(
+          "Workflow condition evaluation failed, and parent "
+              + parentJob.getId()
+              + " could not be claimed for terminal failure recovery",
+          cause);
+    }
+
+    boolean marked =
+        jobTerminalStore.markJobFailedTerminal(parentJob.getId(), error, parentJob.getAttempts());
+    if (!marked) {
+      resetWorkflowFailurePickup(parentJob.getId(), cause);
+      return new IllegalStateException(
+          "Workflow condition evaluation failed, and parent "
+              + parentJob.getId()
+              + " could not be marked failed",
+          cause);
+    }
+
+    parentJob.setStatus(JobStatus.FAILED);
+    parentJob.setLastError(error);
+    cancelChain(parentJob);
+    return new IllegalStateException(error, cause);
+  }
+
+  private void resetWorkflowFailurePickup(UUID parentId, Exception cause) {
+    try {
+      if (jobBatchStatusStore.resetRunningJob(
+          parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID)) {
+        return;
+      }
+    } catch (RuntimeException resetFailure) {
+      resetFailure.addSuppressed(cause);
+      throw resetFailure;
+    }
+
+    IllegalStateException failure =
+        new IllegalStateException(
+            "Workflow parent "
+                + parentId
+                + " synthetic pickup could not be reset after terminal transition failure");
+    failure.addSuppressed(cause);
+    throw failure;
   }
 
   private void cancelUnscheduledBranches(

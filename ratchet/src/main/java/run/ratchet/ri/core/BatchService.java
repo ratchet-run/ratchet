@@ -260,14 +260,12 @@ public class BatchService {
 
     boolean succeeded = batch.getFailedItems() == 0;
     Instant nowTs = effective().instant();
-    if (succeeded) {
-      jobTerminalStore.markJobSucceededMinimal(parentId, nowTs, nowTs, 0L, 0L);
-      parent.setStatus(JobStatus.SUCCEEDED);
-    } else {
-      jobTerminalStore.markJobFailedTerminal(
-          parentId, "Batch completed with " + batch.getFailedItems() + " failed children", 0);
-      parent.setStatus(JobStatus.FAILED);
+    JobStatus terminalStatus = succeeded ? JobStatus.SUCCEEDED : JobStatus.FAILED;
+    if (!markBatchParentTerminal(parentId, batch, succeeded, nowTs)) {
+      resetSyntheticBatchPickup(parentId);
+      return false;
     }
+    parent.setStatus(terminalStatus);
 
     metricsStore.finalizeBatchMetrics(parentId);
 
@@ -286,6 +284,48 @@ public class BatchService {
         parentId, batch.getTotalItems(), batch.getCompletedItems(), batch.getFailedItems());
 
     return workflowScheduler.scheduleNext(parent);
+  }
+
+  private boolean markBatchParentTerminal(
+      UUID parentId, BatchEntity batch, boolean succeeded, Instant nowTs) {
+    try {
+      if (succeeded) {
+        return jobTerminalStore.markJobSucceededMinimal(parentId, nowTs, nowTs, 0L, 0L);
+      }
+      return jobTerminalStore.markJobFailedTerminal(
+          parentId, "Batch completed with " + batch.getFailedItems() + " failed children", 0);
+    } catch (RuntimeException e) {
+      resetSyntheticBatchPickup(parentId, e);
+      throw e;
+    }
+  }
+
+  private void resetSyntheticBatchPickup(UUID parentId) {
+    resetSyntheticBatchPickup(parentId, null);
+  }
+
+  private void resetSyntheticBatchPickup(UUID parentId, RuntimeException cause) {
+    try {
+      if (jobBatchStatusStore.resetRunningJob(
+          parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID)) {
+        return;
+      }
+    } catch (RuntimeException resetFailure) {
+      if (cause != null) {
+        resetFailure.addSuppressed(cause);
+      }
+      throw resetFailure;
+    }
+
+    IllegalStateException failure =
+        new IllegalStateException(
+            "Batch parent "
+                + parentId
+                + " synthetic pickup could not be reset after terminal transition failure");
+    if (cause != null) {
+      failure.addSuppressed(cause);
+    }
+    throw failure;
   }
 
   private void publishBatchEvent(BatchEntity batch, JobEntity parent) {
@@ -317,7 +357,7 @@ public class BatchService {
     try {
       executeProgressHook(hookPayload, ctx);
     } catch (Exception ex) {
-      log.warnf("Progress hook for batch %s threw exception: %s", batch.getId(), ex.getMessage());
+      log.warnf(ex, "Progress hook for batch %s threw exception", batch.getId());
     }
   }
 
@@ -336,8 +376,7 @@ public class BatchService {
     try {
       executeProgressHook(hookPayload, ctx);
     } catch (Exception ex) {
-      log.warnf(
-          "Progress hook for batch %s threw exception: %s", progress.batchId(), ex.getMessage());
+      log.warnf(ex, "Progress hook for batch %s threw exception", progress.batchId());
     }
   }
 
