@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import java.lang.reflect.Field;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -241,5 +242,32 @@ class ThreadPoolManagerTest {
     assertEquals(0, manager.getActiveThreadCount());
     assertEquals(0.0, manager.getOverallUtilization());
     assertTrue(manager.getThreadPoolHealth().isEmpty());
+  }
+
+  @Test
+  void tryAcquirePermit_afterVirtualShutdown_declinesWork() {
+    ThreadPoolManager manager = virtualThreadManager(1);
+
+    manager.shutdown();
+
+    assertFalse(manager.tryAcquirePermit(JobExecutionType.SINGLE));
+    assertEquals(0, manager.getAvailableCapacity(JobExecutionType.SINGLE));
+  }
+
+  @Test
+  void tryAcquirePermit_whenShutdownClearsActiveCounter_declinesWork() throws Exception {
+    ThreadPoolManager manager = semaphoreManager(1);
+    removeActiveCounter(manager, JobExecutionType.SINGLE);
+
+    assertFalse(manager.tryAcquirePermit(JobExecutionType.SINGLE));
+    assertEquals(1, manager.getAvailableCapacity(JobExecutionType.SINGLE));
+  }
+
+  @SuppressWarnings("unchecked")
+  private static void removeActiveCounter(ThreadPoolManager manager, JobExecutionType jobType)
+      throws Exception {
+    Field field = ThreadPoolManager.class.getDeclaredField("activeCounts");
+    field.setAccessible(true);
+    ((Map<JobExecutionType, ?>) field.get(manager)).remove(jobType);
   }
 }
