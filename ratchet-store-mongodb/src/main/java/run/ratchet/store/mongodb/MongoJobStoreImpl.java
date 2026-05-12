@@ -777,12 +777,14 @@ class MongoJobStoreImpl implements MongoJobStore {
    */
   private void validateUuidRepresentation() {
     Codec<UUID> codec = database.getCodecRegistry().get(UUID.class);
-    BasicOutputBuffer buffer = new BasicOutputBuffer();
-    try (BsonBinaryWriter writer = new BsonBinaryWriter(buffer)) {
+    byte[] bytes;
+    try (BasicOutputBuffer buffer = new BasicOutputBuffer();
+        BsonBinaryWriter writer = new BsonBinaryWriter(buffer)) {
       writer.writeStartDocument();
       writer.writeName("u");
       codec.encode(writer, new UUID(0L, 0L), EncoderContext.builder().build());
       writer.writeEndDocument();
+      bytes = buffer.toByteArray();
     }
     // BSON layout for {"u": <binary>}:
     //   [0-3]  int32 totalSize
@@ -793,7 +795,6 @@ class MongoJobStoreImpl implements MongoJobStore {
     //   [11]   subtype  <-- byte we care about
     //   [12-27] 16 bytes of UUID data
     //   [28]   0x00  (document terminator)
-    byte[] bytes = buffer.toByteArray();
     int subtype = bytes[11] & 0xFF;
     if (subtype != 4) {
       throw new RatchetConfigurationException(

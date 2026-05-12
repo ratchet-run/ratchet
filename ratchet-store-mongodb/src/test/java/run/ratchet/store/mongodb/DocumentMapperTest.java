@@ -1,6 +1,7 @@
 package run.ratchet.store.mongodb;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -162,6 +163,8 @@ class DocumentMapperTest {
         assertThrows(DocumentMapper.MappingException.class, () -> DocumentMapper.toJobEntity(doc));
 
     assertTrue(thrown.getMessage().contains("Unsupported MongoDB job payload type"));
+    assertTrue(thrown.getMessage().contains("Integer"));
+    assertFalse(thrown.getMessage().contains("java.lang.Integer"));
   }
 
   @Test

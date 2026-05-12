@@ -38,6 +38,21 @@ class MysqlJobRecurringAndResetOperationsTest {
     assertTrue(sqlStatements.get(2).contains("terminal_status = 'CANCELED'"));
   }
 
+  @Test
+  void cancelRecurringJobByBusinessKeyLimitsSingleKeyLookup() {
+    List<String> sqlStatements = new ArrayList<>();
+    EntityManager em =
+        recordingEntityManager(
+            sqlStatements, List.of(UUID.fromString("00000000-0000-0000-0000-000000000001")));
+    MysqlStoreContext ctx = new MysqlStoreContext(em, noopMetrics());
+    MysqlJobRecurringAndResetOperations recurring =
+        new MysqlJobRecurringAndResetOperations(ctx, new MysqlBusinessKeyReservations(ctx));
+
+    recurring.cancelRecurringJobByBusinessKey("billing-cycle");
+
+    assertTrue(sqlStatements.get(0).contains("LIMIT 1"));
+  }
+
   private static EntityManager recordingEntityManager(List<String> sqlStatements, List<UUID> ids) {
     return (EntityManager)
         Proxy.newProxyInstance(

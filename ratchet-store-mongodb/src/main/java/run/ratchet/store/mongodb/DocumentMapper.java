@@ -551,7 +551,8 @@ public final class DocumentMapper {
     if (value instanceof Document doc) {
       return documentToPayload(doc);
     }
-    throw new MappingException("Unsupported MongoDB job payload type: " + value.getClass());
+    throw new MappingException(
+        "Unsupported MongoDB job payload type: " + value.getClass().getSimpleName());
   }
 
   private static JobPayload documentToPayload(Document doc) {

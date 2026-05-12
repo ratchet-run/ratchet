@@ -22,6 +22,12 @@ public final class MongoClientFactory {
 
   private MongoClientFactory() {}
 
+  /**
+   * Create a {@link MongoClient} with Ratchet's required UUID settings.
+   *
+   * <p>The caller owns the returned client and must close it, usually from {@code @PreDestroy}, to
+   * stop MongoDB connection-pool threads during undeploy or test teardown.
+   */
   public static MongoClient create(String connectionString) {
     Objects.requireNonNull(connectionString, "connectionString");
     if (connectionString.isBlank()) {

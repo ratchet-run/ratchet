@@ -171,6 +171,7 @@ final class MysqlJobRecurringAndResetOperations {
         SELECT job_id FROM scheduler_job
         WHERE business_key = ? AND job_type = 'RECURRING'
           AND rec_status IS NOT NULL AND terminal_status IS NULL
+        LIMIT 1
         """;
     @SuppressWarnings("unchecked")
     List<?> ids = ctx.em().createNativeQuery(sql).setParameter(1, businessKey).getResultList();

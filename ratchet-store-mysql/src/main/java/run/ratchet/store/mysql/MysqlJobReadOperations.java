@@ -1,7 +1,6 @@
 package run.ratchet.store.mysql;
 
 import jakarta.persistence.Query;
-import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -252,9 +251,13 @@ final class MysqlJobReadOperations {
         return Optional.empty();
       }
       Object val = results.get(0);
-      if (val instanceof Timestamp ts) {
-        return Optional.of(ts.toInstant());
+      Instant nextFire = MysqlJobRowMapper.toInstant(val);
+      if (nextFire != null) {
+        return Optional.of(nextFire);
       }
+      log.warnf(
+          "Unexpected scheduler_job.next_fire result type from MySQL driver: %s",
+          val.getClass().getName());
       return Optional.empty();
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("find earliest recurring next fire", e);

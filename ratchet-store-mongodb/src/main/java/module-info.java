@@ -11,5 +11,6 @@ module run.ratchet.store.mongodb {
 
   exports run.ratchet.store.mongodb;
 
-  opens run.ratchet.store.mongodb;
+  opens run.ratchet.store.mongodb to
+      jakarta.cdi;
 }
