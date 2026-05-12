@@ -35,6 +35,8 @@ public class JobStateManager {
   /**
    * Resets a RUNNING job owned by this node back to PENDING. On success, the in-memory entity is
    * updated to match.
+   *
+   * <p>Transaction attribute: REQUIRED.
    */
   public boolean resetJobToPending(JobEntity job) {
     if (resetJobToPending(job.getId())) {
@@ -46,6 +48,11 @@ public class JobStateManager {
     return false;
   }
 
+  /**
+   * Resets a RUNNING job owned by this node back to PENDING.
+   *
+   * <p>Transaction attribute: REQUIRED.
+   */
   public boolean resetJobToPending(UUID jobId) {
     try {
       boolean reset = jobBatchStatusStore.resetRunningJob(jobId, nodeIdentityProvider.getNodeId());
@@ -62,7 +69,11 @@ public class JobStateManager {
     return false;
   }
 
-  /** Resets all RUNNING jobs owned by this node to PENDING. */
+  /**
+   * Resets all RUNNING jobs owned by this node to PENDING.
+   *
+   * <p>Transaction attribute: REQUIRED.
+   */
   public int resetRunningJobsForNode() {
     return jobBatchStatusStore.resetRunningJobs(nodeIdentityProvider.getNodeId());
   }

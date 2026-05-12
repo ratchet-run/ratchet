@@ -4,23 +4,15 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import org.junit.jupiter.api.Test;
 
 /**
- * Verifies that {@link JobTask#newBoundedCache(int)} produces a thread-safe LRU map that evicts the
- * eldest (least-recently-accessed) entry once the size cap is exceeded — protecting reflection
- * caches from unbounded growth across the lifetime of a long-running deployment.
+ * Verifies that {@link JobTask#newBoundedCache(int)} produces an LRU map that evicts the eldest
+ * (least-recently-accessed) entry once the size cap is exceeded, keeping reflection caches bounded
+ * across the lifetime of a long-running deployment.
  */
 class JobTaskBoundedCacheTest {
 
@@ -93,51 +85,5 @@ class JobTaskBoundedCacheTest {
     assertEquals(1, cache.size());
     assertFalse(cache.containsKey(2));
     assertEquals("c", cache.get(3));
-  }
-
-  @Test
-  void remainsBoundedUnderConcurrentAccess() {
-    assertTimeoutPreemptively(
-        Duration.ofSeconds(5),
-        () -> {
-          int maxEntries = 32;
-          int threadCount = 8;
-          int iterationsPerThread = 2_000;
-          Map<Integer, String> cache = JobTask.newBoundedCache(maxEntries);
-          CountDownLatch start = new CountDownLatch(1);
-          ExecutorService executor = Executors.newFixedThreadPool(threadCount);
-
-          try {
-            List<Future<?>> futures = new ArrayList<>();
-            for (int thread = 0; thread < threadCount; thread++) {
-              int threadOffset = thread;
-              futures.add(
-                  executor.submit(
-                      () -> {
-                        start.await();
-                        for (int i = 0; i < iterationsPerThread; i++) {
-                          int key = (i + threadOffset) % (maxEntries * 4);
-                          cache.put(key, "v" + key);
-                          cache.get((key + maxEntries) % (maxEntries * 4));
-                          cache.containsKey((key + 1) % (maxEntries * 4));
-                          assertTrue(cache.size() <= maxEntries);
-                        }
-                        return null;
-                      }));
-            }
-
-            start.countDown();
-            for (Future<?> future : futures) {
-              future.get();
-            }
-
-            assertTrue(cache.size() <= maxEntries, "Cache must remain bounded after contention");
-            synchronized (cache) {
-              cache.forEach((key, value) -> assertEquals("v" + key, value));
-            }
-          } finally {
-            executor.shutdownNow();
-          }
-        });
   }
 }

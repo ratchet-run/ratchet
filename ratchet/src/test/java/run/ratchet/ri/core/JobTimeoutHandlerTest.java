@@ -2,6 +2,8 @@ package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -11,11 +13,14 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.FutureTask;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -52,6 +57,48 @@ class JobTimeoutHandlerTest {
   @BeforeEach
   void setUp() {
     handler = newHandler(null, null, JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE);
+  }
+
+  @Test
+  void constructorRejectsNullClock() {
+    assertThrows(
+        NullPointerException.class,
+        () ->
+            new JobTimeoutHandler(
+                jobCrudStore,
+                jobRetryStore,
+                jobBatchStatusStore,
+                lifecycleFacade,
+                80,
+                60L,
+                null,
+                null,
+                null,
+                signalStore,
+                metricsCollector,
+                JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE));
+  }
+
+  @Test
+  void hardTimeoutPostProcessingFailureRethrowsAfterCancellingFuture() throws Exception {
+    when(jobCrudStore.findById(JOB_ID)).thenThrow(new IllegalStateException("store down"));
+    FutureTask<Void> future = new FutureTask<>(() -> null);
+    Method method =
+        JobTimeoutHandler.class.getDeclaredMethod(
+            "handleHardTimeoutById",
+            UUID.class,
+            java.util.concurrent.Future.class,
+            Instant.class,
+            long.class);
+    method.setAccessible(true);
+
+    InvocationTargetException thrown =
+        assertThrows(
+            InvocationTargetException.class,
+            () -> method.invoke(handler, JOB_ID, future, Instant.EPOCH, TIMEOUT_SEC));
+
+    assertInstanceOf(IllegalStateException.class, thrown.getCause());
+    assertTrue(future.isCancelled());
   }
 
   @Test

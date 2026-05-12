@@ -79,6 +79,30 @@ class JobTaskTest {
     return "done";
   }
 
+  @Test
+  void constructorRejectsNullClock() {
+    Assertions.assertThrows(
+        NullPointerException.class,
+        () ->
+            new JobTask(
+                jobStore,
+                resourcePermitService,
+                lifecycleFacade,
+                nodeIdProvider,
+                observabilityFacade,
+                validationFacade,
+                beanResolver,
+                retryPolicy,
+                resilienceStrategy,
+                errorSanitizer,
+                classPolicy,
+                context -> null,
+                null,
+                null,
+                null,
+                null));
+  }
+
   private static JobLogger noopLogger() {
     return new JobLogger() {
       @Override

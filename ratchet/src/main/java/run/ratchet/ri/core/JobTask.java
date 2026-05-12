@@ -9,10 +9,10 @@ import java.lang.reflect.Modifier;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ThreadLocalRandom;
@@ -183,25 +183,23 @@ public class JobTask implements Callable<Void> {
     this.resultPersistenceStrategy = resultPersistenceStrategy;
     this.authorizationPolicy = authorizationPolicy;
     this.payloadSerializer = payloadSerializer;
-    this.clock = clock;
+    this.clock = Objects.requireNonNull(clock, "clock must not be null");
   }
 
   /**
-   * Creates a thread-safe LRU map bounded to {@code maxEntries}. Access-order ({@code get()}
-   * promotes entries to the most-recently-used position) ensures hot entries survive eviction
-   * pressure. Backed by {@link Collections#synchronizedMap} since {@link LinkedHashMap} is not
-   * thread-safe and access-order mutates internal state on read.
+   * Creates an LRU map bounded to {@code maxEntries}. Access-order ({@code get()}) promotes entries
+   * to the most-recently-used position so hot entries survive eviction pressure. Callers must guard
+   * all access with {@code REFLECTION_CACHE_LOCK}; access-order reads mutate the map.
    */
   static <K, V> Map<K, V> newBoundedCache(int maxEntries) {
-    return Collections.synchronizedMap(
-        new LinkedHashMap<K, V>(16, 0.75f, true) {
-          @Serial private static final long serialVersionUID = 1L;
+    return new LinkedHashMap<K, V>(16, 0.75f, true) {
+      @Serial private static final long serialVersionUID = 1L;
 
-          @Override
-          protected boolean removeEldestEntry(Map.Entry<K, V> eldest) {
-            return size() > maxEntries;
-          }
-        });
+      @Override
+      protected boolean removeEldestEntry(Map.Entry<K, V> eldest) {
+        return size() > maxEntries;
+      }
+    };
   }
 
   /**
@@ -508,7 +506,7 @@ public class JobTask implements Callable<Void> {
         resourcePermitService.release(resourceName, job.getId());
         log.infof("Job %s released permit for resource '%s'", job.getId(), resourceName);
       } catch (Exception e) {
-        log.warnf("Permit release error for job %s: %s", job.getId(), e.getMessage());
+        log.warnf(e, "Permit release error for job %s", job.getId());
       }
     }
   }
@@ -1065,7 +1063,10 @@ public class JobTask implements Callable<Void> {
   }
 
   private Clock effective() {
-    return clock != null ? clock : Clock.systemUTC();
+    if (clock == null) {
+      throw new IllegalStateException("JobTask clock was not initialized");
+    }
+    return clock;
   }
 
   private enum SuccessFinalizationState {

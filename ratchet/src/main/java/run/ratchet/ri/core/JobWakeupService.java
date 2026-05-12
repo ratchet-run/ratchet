@@ -124,7 +124,7 @@ public class JobWakeupService {
           });
       return true;
     } catch (Exception e) {
-      log.warnf(failureMessage, e.getMessage());
+      log.warnf(e, failureMessage, e.getMessage());
       return false;
     }
   }
@@ -135,7 +135,7 @@ public class JobWakeupService {
       clusterCoordinator.notifyNewWork(priority);
       log.debugf("Published wakeup notification: priority=%s", priority);
     } catch (Exception e) {
-      log.warnf("Wakeup notification error: %s", e.getMessage());
+      log.warnf(e, "Wakeup notification error: %s", e.getMessage());
     }
   }
 
@@ -150,7 +150,7 @@ public class JobWakeupService {
       }
       pollerSchedulerInstance.get().wakeup();
     } catch (Exception e) {
-      log.warnf("Local wakeup error: %s", e.getMessage());
+      log.warnf(e, "Local wakeup error: %s", e.getMessage());
     }
   }
 }

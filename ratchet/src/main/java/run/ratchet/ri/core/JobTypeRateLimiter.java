@@ -100,7 +100,7 @@ public class JobTypeRateLimiter {
       this.windowStart = clockMillis.getAsLong();
     }
 
-    int getCurrentCount() {
+    synchronized int getCurrentCount() {
       long now = clockMillis.getAsLong();
       if (now - windowStart >= 60000) {
         return 0;

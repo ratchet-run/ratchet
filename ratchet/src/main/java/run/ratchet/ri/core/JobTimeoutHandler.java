@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
@@ -77,7 +78,7 @@ public class JobTimeoutHandler {
     this.lifecycleFacade = lifecycleFacade;
     this.softTimeoutPercent = softTimeoutPercent;
     this.defaultTimeoutSeconds = defaultTimeoutSeconds;
-    this.clock = clock;
+    this.clock = Objects.requireNonNull(clock, "clock must not be null");
     this.eventPublisher = eventPublisher;
     this.chainScheduler = chainScheduler;
     this.signalStore = signalStore;
@@ -247,7 +248,10 @@ public class JobTimeoutHandler {
   }
 
   private Clock effective() {
-    return clock != null ? clock : Clock.systemUTC();
+    if (clock == null) {
+      throw new IllegalStateException("JobTimeoutHandler clock was not initialized");
+    }
+    return clock;
   }
 
   private void publishSignalTimedOutEvent(JobEntity job, Instant now) {
@@ -314,6 +318,7 @@ public class JobTimeoutHandler {
       processHardTimeout(jobId, timeoutSec);
     } catch (Exception e) {
       log.errorf(e, "Timeout post-processing error for job %s", jobId);
+      throw new IllegalStateException("Timeout post-processing failed for job " + jobId, e);
     }
   }
 
