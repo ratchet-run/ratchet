@@ -49,11 +49,13 @@ public class CircuitBreakerInterceptor {
   /** Wraps the intercepted method in circuit breaker protection. */
   @AroundInvoke
   public Object intercept(InvocationContext ctx) throws Exception {
-    Method method = ctx.getMethod();
-    CircuitBreakerProtected annotation = resolveAnnotation(method);
+    ResolvedCircuitBreakerAnnotation resolved = resolveAnnotation(ctx);
+    if (resolved == null) {
+      return ctx.proceed();
+    }
 
-    String serviceName = resolveServiceName(annotation, method);
-    CircuitBreakerProfile profile = annotation.profile();
+    String serviceName = resolveServiceName(resolved.annotation(), resolved.method());
+    CircuitBreakerProfile profile = resolved.annotation().profile();
 
     if (!configProvider.isEnabled()) {
       return ctx.proceed();
@@ -63,13 +65,35 @@ public class CircuitBreakerInterceptor {
     return breaker.execute(ctx::proceed);
   }
 
-  private CircuitBreakerProtected resolveAnnotation(Method method) {
+  private ResolvedCircuitBreakerAnnotation resolveAnnotation(InvocationContext ctx) {
+    Method method = ctx.getMethod();
     // Method-level annotation takes precedence over class-level
     CircuitBreakerProtected annotation = method.getAnnotation(CircuitBreakerProtected.class);
     if (annotation == null) {
       annotation = method.getDeclaringClass().getAnnotation(CircuitBreakerProtected.class);
     }
-    return annotation;
+    if (annotation != null) {
+      return new ResolvedCircuitBreakerAnnotation(annotation, method);
+    }
+
+    Object target = ctx.getTarget();
+    if (target == null) {
+      return null;
+    }
+    Class<?> targetClass = target.getClass();
+    Method targetMethod = method;
+    try {
+      targetMethod = targetClass.getMethod(method.getName(), method.getParameterTypes());
+      annotation = targetMethod.getAnnotation(CircuitBreakerProtected.class);
+    } catch (NoSuchMethodException ignored) {
+      annotation = null;
+    }
+    if (annotation == null) {
+      annotation = targetClass.getAnnotation(CircuitBreakerProtected.class);
+    }
+    return annotation != null
+        ? new ResolvedCircuitBreakerAnnotation(annotation, targetMethod)
+        : null;
   }
 
   private String resolveServiceName(CircuitBreakerProtected annotation, Method method) {
@@ -79,4 +103,7 @@ public class CircuitBreakerInterceptor {
     }
     return service;
   }
+
+  private record ResolvedCircuitBreakerAnnotation(
+      CircuitBreakerProtected annotation, Method method) {}
 }

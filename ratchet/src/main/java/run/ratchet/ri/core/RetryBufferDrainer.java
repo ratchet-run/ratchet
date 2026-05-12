@@ -68,7 +68,10 @@ public class RetryBufferDrainer {
         executorProvider
             .getScheduledExecutor()
             .scheduleAtFixedRate(
-                this::drainRetryBuffers, drainIntervalMs, drainIntervalMs, TimeUnit.MILLISECONDS);
+                this::drainRetryBuffersSafely,
+                drainIntervalMs,
+                drainIntervalMs,
+                TimeUnit.MILLISECONDS);
   }
 
   void shutdown() {
@@ -76,6 +79,14 @@ public class RetryBufferDrainer {
     if (drainerTask != null && !drainerTask.isCancelled()) {
       drainerTask.cancel(false);
       log.info("RetryBufferDrainer shutdown complete");
+    }
+  }
+
+  private void drainRetryBuffersSafely() {
+    try {
+      drainRetryBuffers();
+    } catch (Exception e) {
+      log.error("Retry buffer drain failed", e);
     }
   }
 
@@ -97,14 +108,31 @@ public class RetryBufferDrainer {
           break;
         }
 
-        for (BufferedClaim buffered : bufferedJobs) {
+        boolean stopDrainingType = false;
+        for (int i = 0; i < bufferedJobs.size(); i++) {
+          BufferedClaim buffered = bufferedJobs.get(i);
           if (drainController.isDraining() || !threadPoolManager.canAcceptWork(jobType)) {
-            retryBufferManager.forceOffer(buffered.toClaimDto());
-            continue;
+            requeueRemaining(bufferedJobs, i);
+            stopDrainingType = true;
+            break;
           }
-          jobSubmissionService.submitBuffered(buffered.toClaimDto());
+          try {
+            jobSubmissionService.submitBuffered(buffered.toClaimDto());
+          } catch (Exception e) {
+            requeueRemaining(bufferedJobs, i);
+            throw e;
+          }
+        }
+        if (stopDrainingType) {
+          break;
         }
       }
+    }
+  }
+
+  private void requeueRemaining(List<BufferedClaim> bufferedJobs, int fromIndex) {
+    for (int i = fromIndex; i < bufferedJobs.size(); i++) {
+      retryBufferManager.forceOffer(bufferedJobs.get(i).toClaimDto());
     }
   }
 }

@@ -227,6 +227,7 @@ public class WorkflowConditionEvaluator {
       if (payload == null) {
         return false;
       }
+      verifyClassAllowed(payload.target(), "condition expression target");
       Class<?> cls =
           Class.forName(payload.target(), false, Thread.currentThread().getContextClassLoader());
       Method method = findMethod(cls, payload);
@@ -258,6 +259,8 @@ public class WorkflowConditionEvaluator {
           "Workflow condition expression cannot be invoked with the stored metadata: "
               + e.getMessage(),
           e);
+    } catch (SecurityException e) {
+      throw e;
     } catch (RuntimeException e) {
       throw new WorkflowConditionConfigurationException(
           "Workflow condition expression metadata could not be loaded: " + e.getMessage(), e);
@@ -273,6 +276,12 @@ public class WorkflowConditionEvaluator {
       result[i] = stored.get(i) != null ? stored.get(i) : contextArg;
     }
     return result;
+  }
+
+  private void verifyClassAllowed(String className, String usage) {
+    if (classPolicy != null && !classPolicy.isAllowed(className)) {
+      throw new SecurityException("Class " + className + " is not allowed for " + usage + ".");
+    }
   }
 
   private static Method findMethod(Class<?> cls, JobPayload payload) throws NoSuchMethodException {

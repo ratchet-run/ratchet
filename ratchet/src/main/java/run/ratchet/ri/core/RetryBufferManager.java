@@ -231,17 +231,37 @@ public class RetryBufferManager {
       lock.unlock();
     }
     if (moveToDlq) {
-      log.errorf(
-          "CRITICAL: Retry buffer hard cap (%d) reached for job type %s. "
-              + "Job %s moving to DLQ to prevent loss. "
-              + "This indicates sustained system failure - investigate immediately.",
-          HARD_CAP_PER_TYPE, claim.jobType(), claim.jobId());
+      return moveHardCapOverflow(claim, buffer, lock);
+    }
+    return false;
+  }
+
+  private boolean moveHardCapOverflow(
+      BufferedClaim claim, Queue<BufferedClaim> buffer, ReentrantLock lock) {
+    log.errorf(
+        "CRITICAL: Retry buffer hard cap (%d) reached for job type %s. "
+            + "Job %s moving to DLQ to prevent loss. "
+            + "This indicates sustained system failure - investigate immediately.",
+        HARD_CAP_PER_TYPE, claim.jobType(), claim.jobId());
+    try {
       deadLetterService.moveToDlq(
           toDlqJob(claim),
           new IllegalStateException(
               "Retry buffer hard cap exceeded for job type " + claim.jobType()));
+      return false;
+    } catch (Exception e) {
+      log.errorf(
+          e,
+          "CRITICAL: Failed to move job %s to DLQ after retry buffer hard cap. "
+              + "Force-buffering beyond hard cap to avoid losing the claimed job.",
+          claim.jobId());
+      lock.lock();
+      try {
+        return buffer.offer(claim);
+      } finally {
+        lock.unlock();
+      }
     }
-    return false;
   }
 
   private boolean offer(BufferedClaim claim) {

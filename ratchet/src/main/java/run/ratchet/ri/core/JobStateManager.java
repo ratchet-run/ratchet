@@ -56,6 +56,7 @@ public class JobStateManager {
       log.warnf("Failed to reset job %s - scheduling for retry buffer", jobId);
     } catch (Exception e) {
       log.errorf(e, "Reset to PENDING error for job %s", jobId);
+      throw new IllegalStateException("Failed to reset job " + jobId + " to PENDING", e);
     }
 
     return false;

@@ -3,6 +3,8 @@ package run.ratchet.ri.core;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -97,14 +99,15 @@ class JobStateManagerTest {
   }
 
   @Test
-  void resetJobToPending_byId_storeThrows_returnsFalse() {
+  void resetJobToPending_byId_storeThrows_propagatesFailure() {
+    RuntimeException storeFailure = new RuntimeException("DB error");
     when(nodeIdentityProvider.getNodeId()).thenReturn(NODE_ID);
-    when(jobBatchStatusStore.resetRunningJob(JOB_ID, NODE_ID))
-        .thenThrow(new RuntimeException("DB error"));
+    when(jobBatchStatusStore.resetRunningJob(JOB_ID, NODE_ID)).thenThrow(storeFailure);
 
-    boolean result = manager.resetJobToPending(JOB_ID);
+    IllegalStateException thrown =
+        assertThrows(IllegalStateException.class, () -> manager.resetJobToPending(JOB_ID));
 
-    assertFalse(result);
+    assertSame(storeFailure, thrown.getCause());
   }
 
   @Test

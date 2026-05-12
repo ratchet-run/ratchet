@@ -200,6 +200,25 @@ class RetryBufferManagerTest {
   }
 
   @Test
+  void forceOffer_atHardCap_dlqFailureKeepsClaimBuffered() {
+    for (int i = 0; i < RetryBufferManager.HARD_CAP_PER_TYPE; i++) {
+      manager.forceOffer(standardJob(i));
+    }
+    doThrow(new RuntimeException("dlq unavailable"))
+        .when(deadLetterService)
+        .moveToDlq(any(JobEntity.class), any(IllegalStateException.class));
+
+    JobEntity overflow = standardJob(99999L);
+    assertTrue(manager.forceOffer(overflow));
+
+    verify(deadLetterService).moveToDlq(any(JobEntity.class), any(IllegalStateException.class));
+    assertEquals(RetryBufferManager.HARD_CAP_PER_TYPE + 1, manager.totalSize());
+    assertTrue(
+        manager.getBuffer(JobExecutionType.SINGLE).stream()
+            .anyMatch(claim -> overflow.getId().equals(claim.jobId())));
+  }
+
+  @Test
   void forceOffer_atHardCap_releasesBufferLockBeforeMovingToDlq() throws Exception {
     for (int i = 0; i < RetryBufferManager.HARD_CAP_PER_TYPE; i++) {
       manager.forceOffer(standardJob(i));

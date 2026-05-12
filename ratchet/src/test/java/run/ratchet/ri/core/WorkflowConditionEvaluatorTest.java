@@ -45,6 +45,10 @@ class WorkflowConditionEvaluatorTest {
     public static boolean isHighValue(Object value) {
       return ((Number) value).intValue() > 100;
     }
+
+    public static boolean jobSucceeded(JobResult<?> result) {
+      return result.isSuccess();
+    }
   }
 
   public static final class BeanCondition {
@@ -294,6 +298,28 @@ class WorkflowConditionEvaluatorTest {
             evaluator.evaluate(
                 conditionWithExpression(WorkflowCondition.ConditionType.CUSTOM, expression),
                 parentJob(JobStatus.SUCCEEDED)));
+  }
+
+  @Test
+  void customCondition_classPolicyDeniedTarget_returnsFalse() {
+    ClassPolicy denyConditionTarget =
+        className -> !TestConditions.class.getName().equals(className);
+    WorkflowConditionEvaluator restrictedEvaluator =
+        new WorkflowConditionEvaluator(
+            batchStore, beanResolver, denyConditionTarget, payloadSerializer);
+    String expression =
+        payloadSerializer.serialize(
+            new JobPayload(
+                TestConditions.class.getName(),
+                "jobSucceeded",
+                "(Lrun/ratchet/api/JobResult;)Z",
+                true,
+                List.of()));
+
+    assertFalse(
+        restrictedEvaluator.evaluate(
+            conditionWithExpression(WorkflowCondition.ConditionType.CUSTOM, expression),
+            parentJob(JobStatus.SUCCEEDED)));
   }
 
   @Test

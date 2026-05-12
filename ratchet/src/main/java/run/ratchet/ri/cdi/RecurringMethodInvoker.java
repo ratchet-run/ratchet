@@ -5,6 +5,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Any;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -50,9 +51,9 @@ public class RecurringMethodInvoker {
 
     if (hasJobContextParam) {
       JobContext context = JobContext.current();
-      method.invoke(bean, context);
+      invokeMethod(method, bean, context);
     } else {
-      method.invoke(bean);
+      invokeMethod(method, bean);
     }
   }
 
@@ -121,6 +122,21 @@ public class RecurringMethodInvoker {
 
     methodCache.put(key, resolved);
     return resolved;
+  }
+
+  private static void invokeMethod(Method method, Object bean, Object... args) throws Exception {
+    try {
+      method.invoke(bean, args);
+    } catch (InvocationTargetException e) {
+      Throwable cause = e.getCause();
+      if (cause instanceof Exception exception) {
+        throw exception;
+      }
+      if (cause instanceof Error error) {
+        throw error;
+      }
+      throw new IllegalStateException("Recurring method threw an unrecoverable Throwable", cause);
+    }
   }
 
   private record MethodCacheKey(String className, String methodName, boolean hasJobContextParam) {}
