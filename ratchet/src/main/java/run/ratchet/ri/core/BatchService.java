@@ -2,12 +2,12 @@ package run.ratchet.ri.core;
 
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import java.lang.reflect.Method;
 import java.time.Clock;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -42,9 +42,8 @@ public class BatchService {
 
   private static final Logger log = Logger.getLogger(BatchService.class);
 
-  private static final ConcurrentHashMap<String, Method> HOOK_METHOD_CACHE =
-      new ConcurrentHashMap<>();
-  private static final ConcurrentHashMap<String, Class<?>> CLASS_CACHE = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<String, Method> hookMethodCache = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<String, Class<?>> classCache = new ConcurrentHashMap<>();
   private final BatchStore batchStore;
   private final JobCrudStore jobCrudStore;
   private final JobBatchStatusStore jobBatchStatusStore;
@@ -56,6 +55,7 @@ public class BatchService {
   private final ClassPolicy classPolicy;
   private final BeanResolver beanResolver;
   private final Clock clock;
+  private final Instance<BatchService> self;
 
   protected BatchService() {
     this.batchStore = null;
@@ -69,6 +69,7 @@ public class BatchService {
     this.classPolicy = null;
     this.beanResolver = null;
     this.clock = null;
+    this.self = null;
   }
 
   public BatchService(
@@ -93,7 +94,8 @@ public class BatchService {
         workflowScheduler,
         classPolicy,
         beanResolver,
-        Clock.systemUTC());
+        Clock.systemUTC(),
+        null);
   }
 
   @Inject
@@ -108,7 +110,8 @@ public class BatchService {
       WorkflowScheduler workflowScheduler,
       ClassPolicy classPolicy,
       BeanResolver beanResolver,
-      Clock clock) {
+      Clock clock,
+      Instance<BatchService> self) {
     this.batchStore = batchStore;
     this.jobCrudStore = jobCrudStore;
     this.jobBatchStatusStore = jobBatchStatusStore;
@@ -120,12 +123,40 @@ public class BatchService {
     this.classPolicy = classPolicy;
     this.beanResolver = beanResolver;
     this.clock = clock;
+    this.self = self;
+  }
+
+  public BatchService(
+      BatchStore batchStore,
+      JobCrudStore jobCrudStore,
+      JobBatchStatusStore jobBatchStatusStore,
+      JobTerminalStore jobTerminalStore,
+      BatchMetricsStore metricsStore,
+      MetricsCollector metricsCollector,
+      InternalEventPublisher eventPublisher,
+      WorkflowScheduler workflowScheduler,
+      ClassPolicy classPolicy,
+      BeanResolver beanResolver,
+      Clock clock) {
+    this(
+        batchStore,
+        jobCrudStore,
+        jobBatchStatusStore,
+        jobTerminalStore,
+        metricsStore,
+        metricsCollector,
+        eventPublisher,
+        workflowScheduler,
+        classPolicy,
+        beanResolver,
+        clock,
+        null);
   }
 
   @PreDestroy
   public void clearCaches() {
-    HOOK_METHOD_CACHE.clear();
-    CLASS_CACHE.clear();
+    hookMethodCache.clear();
+    classCache.clear();
   }
 
   public boolean markChildFailed(JobEntity child) {
@@ -142,6 +173,7 @@ public class BatchService {
    *
    * @return the number of batches recovered
    */
+  @Transactional(Transactional.TxType.NOT_SUPPORTED)
   public int recoverStuckBatches() {
     List<UUID> recoverableIds = batchStore.findRecoverableBatchIds(100);
     if (recoverableIds.isEmpty()) {
@@ -153,37 +185,39 @@ public class BatchService {
             .collect(Collectors.toMap(BatchEntity::getId, Function.identity()));
 
     int recovered = 0;
-    List<UUID> completedIds = new ArrayList<>();
+    Map<UUID, JobEntity> parentMap =
+        jobCrudStore.findByIds(recoverableIds).stream()
+            .collect(Collectors.toMap(JobEntity::getId, Function.identity()));
     for (UUID batchId : recoverableIds) {
       BatchEntity batch = batchMap.get(batchId);
-      if (batch == null) {
-        continue;
-      }
-
-      if (batchStore.markBatchCompleteIfReady(batchId)) {
-        completedIds.add(batchId);
-        recovered++;
-      }
-    }
-    if (!completedIds.isEmpty()) {
-      Map<UUID, JobEntity> parentMap =
-          jobCrudStore.findByIds(completedIds).stream()
-              .collect(Collectors.toMap(JobEntity::getId, Function.identity()));
-      for (UUID batchId : completedIds) {
-        BatchEntity batch = batchMap.get(batchId);
-        JobEntity parent = parentMap.get(batchId);
-        if (batch != null && parent != null) {
-          processBatchCompletion(batchId, batch, parent);
+      JobEntity parent = parentMap.get(batchId);
+      if (batch != null && parent != null) {
+        try {
+          if (recoveryDelegate().recoverCompletedBatch(batchId, batch, parent)) {
+            recovered++;
+          }
+        } catch (RuntimeException ex) {
+          log.warnf(ex, "Failed to recover completed batch %s", batchId);
         }
       }
     }
     return recovered;
   }
 
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
+  public boolean recoverCompletedBatch(UUID batchId, BatchEntity batch, JobEntity parent) {
+    if (!batchStore.markBatchCompleteIfReady(batchId)) {
+      return false;
+    }
+    JobStatus before = parent.getStatus();
+    boolean scheduledNext = processBatchCompletion(batchId, batch, parent);
+    return scheduledNext || before == JobStatus.PENDING && parent.getStatus() != JobStatus.PENDING;
+  }
+
   private Method resolveHookMethod(Class<?> clazz, JobPayload payload)
       throws NoSuchMethodException {
     String cacheKey = clazz.getName() + "#" + payload.method() + ":" + payload.methodDescriptor();
-    Method cached = HOOK_METHOD_CACHE.get(cacheKey);
+    Method cached = hookMethodCache.get(cacheKey);
     if (cached != null) {
       return cached;
     }
@@ -191,7 +225,7 @@ public class BatchService {
     for (Method m : clazz.getMethods()) {
       if (m.getName().equals(payload.method())
           && Type.getMethodDescriptor(m).equals(payload.methodDescriptor())) {
-        HOOK_METHOD_CACHE.put(cacheKey, m);
+        hookMethodCache.put(cacheKey, m);
         return m;
       }
     }
@@ -225,7 +259,7 @@ public class BatchService {
   }
 
   private Class<?> loadProgressHookClass(String targetName) {
-    Class<?> cached = CLASS_CACHE.get(targetName);
+    Class<?> cached = classCache.get(targetName);
     if (cached != null) {
       return cached;
     }
@@ -235,7 +269,7 @@ public class BatchService {
     } catch (ClassNotFoundException e) {
       throw new IllegalStateException("Progress hook target class not found: " + targetName, e);
     }
-    Class<?> existing = CLASS_CACHE.putIfAbsent(targetName, loaded);
+    Class<?> existing = classCache.putIfAbsent(targetName, loaded);
     return existing == null ? loaded : existing;
   }
 
@@ -405,6 +439,8 @@ public class BatchService {
     triggerWithProgress(progress.progressHook(), progress);
 
     if (batchStore.markBatchCompleteIfReady(parentId)) {
+      // markBatchCompleteIfReady can have more than one apparent winner under concurrent commits.
+      // The parent pickup CAS in processBatchCompletion is the exactly-once gate.
       return processBatchCompletion(parentId, batchFromProgress(progress));
     }
     return false;
@@ -422,5 +458,9 @@ public class BatchService {
 
   private Clock effective() {
     return clock != null ? clock : Clock.systemUTC();
+  }
+
+  private BatchService recoveryDelegate() {
+    return self != null && !self.isUnsatisfied() ? self.get() : this;
   }
 }

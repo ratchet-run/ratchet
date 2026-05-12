@@ -1,6 +1,8 @@
 package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
@@ -8,6 +10,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import jakarta.transaction.Transactional;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -71,6 +76,30 @@ class BatchServiceTest {
             classPolicy,
             beanResolver,
             FIXED_CLOCK);
+  }
+
+  @Test
+  void hookCachesAreScopedToTheBeanInstance() throws NoSuchFieldException {
+    Field hookCache = BatchService.class.getDeclaredField("hookMethodCache");
+    Field classCache = BatchService.class.getDeclaredField("classCache");
+
+    assertFalse(Modifier.isStatic(hookCache.getModifiers()));
+    assertFalse(Modifier.isStatic(classCache.getModifiers()));
+  }
+
+  @Test
+  void recoverySweepDoesNotOpenOneTransactionForTheWholeBatchSet() throws NoSuchMethodException {
+    Transactional sweep =
+        BatchService.class.getMethod("recoverStuckBatches").getAnnotation(Transactional.class);
+    Transactional unit =
+        BatchService.class
+            .getMethod("recoverCompletedBatch", UUID.class, BatchEntity.class, JobEntity.class)
+            .getAnnotation(Transactional.class);
+
+    assertNotNull(sweep);
+    assertNotNull(unit);
+    assertEquals(Transactional.TxType.NOT_SUPPORTED, sweep.value());
+    assertEquals(Transactional.TxType.REQUIRES_NEW, unit.value());
   }
 
   @Test
@@ -203,6 +232,39 @@ class BatchServiceTest {
     verify(jobCrudStore).findByIds(List.of(firstId, secondId));
     verify(jobCrudStore, never()).findById(firstId);
     verify(jobCrudStore, never()).findById(secondId);
+  }
+
+  @Test
+  void recoverStuckBatchesContinuesAfterOneBatchCompletionFails() {
+    UUID failingId = new UUID(0L, 201L);
+    UUID succeedingId = new UUID(0L, 202L);
+    BatchEntity failingBatch = batch(failingId, 1, 1, 0);
+    BatchEntity succeedingBatch = batch(succeedingId, 1, 1, 0);
+    JobEntity failingParent = parent(failingId);
+    JobEntity succeedingParent = parent(succeedingId);
+
+    when(batchStore.findRecoverableBatchIds(100)).thenReturn(List.of(failingId, succeedingId));
+    when(batchStore.findBatchesByIds(List.of(failingId, succeedingId)))
+        .thenReturn(List.of(failingBatch, succeedingBatch));
+    when(jobCrudStore.findByIds(List.of(failingId, succeedingId)))
+        .thenReturn(List.of(failingParent, succeedingParent));
+    when(batchStore.markBatchCompleteIfReady(failingId)).thenReturn(true);
+    when(batchStore.markBatchCompleteIfReady(succeedingId)).thenReturn(true);
+    when(jobBatchStatusStore.tryPickUpJob(eq(failingId), any())).thenReturn(true);
+    when(jobBatchStatusStore.tryPickUpJob(eq(succeedingId), any())).thenReturn(true);
+    when(jobBatchStatusStore.resetRunningJob(
+            failingId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID))
+        .thenReturn(true);
+    when(jobTerminalStore.markJobSucceededMinimal(eq(failingId), any(), any(), eq(0L), eq(0L)))
+        .thenThrow(new IllegalStateException("store down"));
+    when(jobTerminalStore.markJobSucceededMinimal(eq(succeedingId), any(), any(), eq(0L), eq(0L)))
+        .thenReturn(true);
+
+    assertEquals(1, batchService.recoverStuckBatches());
+
+    verify(jobTerminalStore).markJobSucceededMinimal(eq(failingId), any(), any(), eq(0L), eq(0L));
+    verify(jobTerminalStore)
+        .markJobSucceededMinimal(eq(succeedingId), any(), any(), eq(0L), eq(0L));
   }
 
   private static BatchEntity batch(UUID id, int total, int completed, int failed) {

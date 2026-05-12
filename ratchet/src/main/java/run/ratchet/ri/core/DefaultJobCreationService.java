@@ -162,6 +162,10 @@ public class DefaultJobCreationService
     this.clock = clock;
   }
 
+  /**
+   * @implSpec Transaction attribute: REQUIRED. A caller transaction is joined; otherwise the
+   *     container starts one for the submission.
+   */
   @Override
   @Transactional
   public JobHandle submit(JobBuilder builder) {
@@ -267,6 +271,10 @@ public class DefaultJobCreationService
     return () -> jobId;
   }
 
+  /**
+   * @implSpec Transaction attribute: REQUIRED. A caller transaction is joined; otherwise the
+   *     container starts one for the batch submission.
+   */
   @Override
   @Transactional
   public JobHandle submit(DefaultBatchBuilder builder) {
@@ -321,6 +329,10 @@ public class DefaultJobCreationService
     return () -> parentId;
   }
 
+  /**
+   * @implSpec Transaction attribute: REQUIRED. A caller transaction is joined; otherwise the
+   *     container starts one for the streaming batch submission.
+   */
   @Override
   @Transactional
   public <T extends Serializable> JobHandle submit(DefaultStreamingBatchBuilder<T> builder) {
@@ -334,6 +346,15 @@ public class DefaultJobCreationService
     int totalItems = 0;
     int chunksInserted = 0;
     List<T> chunk = builder.newChunk();
+    BatchEntity batch = new BatchEntity();
+    batch.setId(parentId);
+    batch.setTotalItems(0);
+    batch.setCompletedItems(0);
+    batch.setFailedItems(0);
+    if (builder.batchProgressHook() != null) {
+      batch.setProgressHook(payload(builder.batchProgressHook()));
+    }
+    batchStore.saveBatch(batch);
 
     try {
       var iterator = builder.stream().iterator();
@@ -355,16 +376,7 @@ public class DefaultJobCreationService
     } finally {
       builder.stream().close();
     }
-
-    BatchEntity batch = new BatchEntity();
-    batch.setId(parentId);
-    batch.setTotalItems(totalItems);
-    batch.setCompletedItems(0);
-    batch.setFailedItems(0);
-    if (builder.batchProgressHook() != null) {
-      batch.setProgressHook(payload(builder.batchProgressHook()));
-    }
-    batchStore.saveBatch(batch);
+    batchStore.updateBatchTotalItems(parentId, totalItems);
 
     for (WorkflowBranch branch : builder.workflowBranches()) {
       createWorkflowBranch(parentId, branch);
@@ -378,6 +390,10 @@ public class DefaultJobCreationService
     return () -> parentId;
   }
 
+  /**
+   * @implSpec Transaction attribute: REQUIRED. A caller transaction is joined; otherwise the
+   *     container starts one for the recurring submission.
+   */
   @Override
   @Transactional
   public JobHandle submit(DefaultRecurringJobBuilder builder) {
@@ -451,8 +467,8 @@ public class DefaultJobCreationService
     if (jobBatchStatusStore.tryPickUpJob(parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID)) {
       Instant now = effective().instant();
       jobTerminalStore.markJobSucceededMinimal(parentId, now, now, 0L, 0L);
+      batchStore.markBatchCompleteIfReady(parentId);
     }
-    batchStore.markBatchCompleteIfReady(parentId);
   }
 
   private void createChainSteps(

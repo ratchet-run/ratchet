@@ -14,7 +14,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -52,6 +54,9 @@ import run.ratchet.store.spi.JobQueryStore;
 @ExtendWith(MockitoExtension.class)
 class DefaultJobQueryServiceTest {
 
+  private static final Instant FIXED_NOW = Instant.parse("2026-05-12T12:00:00Z");
+  private static final Clock FIXED_CLOCK = Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
+
   @Mock private JobQueryStore queryStore;
   @Mock private JobCrudStore crudStore;
   @Mock private ExecutionStore executionStore;
@@ -87,7 +92,7 @@ class DefaultJobQueryServiceTest {
   void setUp() {
     service =
         new DefaultJobQueryService(
-            queryStore, crudStore, executionStore, authPolicy, principalProvider);
+            queryStore, crudStore, executionStore, authPolicy, principalProvider, FIXED_CLOCK);
     lenient().when(principalProvider.currentPrincipal()).thenReturn(Optional.empty());
     lenient()
         .when(authPolicy.filterForPrincipal(any(), any()))
@@ -441,6 +446,25 @@ class DefaultJobQueryServiceTest {
     verify(crudStore, never()).countJobsByStatus(any());
     verify(crudStore, never()).countPendingJobsByType(any());
     verify(crudStore, never()).countPendingJobsByPriority(any());
+  }
+
+  @Test
+  void getQueueHealth_usesInjectedClockForTimeWindows() {
+    when(crudStore.countJobsByStatuses()).thenReturn(Map.of());
+    when(crudStore.countPendingJobsByTypes()).thenReturn(Map.of());
+    when(crudStore.countPendingJobsByPriorities()).thenReturn(Map.of());
+    when(crudStore.countStuckJobs(any())).thenReturn(0L);
+    when(crudStore.countReadyJobs(any())).thenReturn(0L);
+    when(crudStore.getRetryRateStats(any())).thenReturn(0.0);
+    when(crudStore.getAverageProcessingTime(any())).thenReturn(0.0);
+    when(crudStore.getOldestPendingJobTime()).thenReturn(Optional.empty());
+
+    service.getQueueHealth();
+
+    verify(crudStore).countStuckJobs(FIXED_NOW.minusSeconds(300));
+    verify(crudStore).countReadyJobs(FIXED_NOW);
+    verify(crudStore).getRetryRateStats(FIXED_NOW.minusSeconds(3600));
+    verify(crudStore).getAverageProcessingTime(FIXED_NOW.minusSeconds(3600));
   }
 
   // ── helpers ─────────────────────────────────────────────────────────────

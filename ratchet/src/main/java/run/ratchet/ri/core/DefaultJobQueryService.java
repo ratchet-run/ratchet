@@ -2,6 +2,7 @@ package run.ratchet.ri.core;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.EnumMap;
 import java.util.List;
@@ -38,6 +39,7 @@ public class DefaultJobQueryService implements JobQueryService {
   private final ExecutionStore executionStore;
   private final JobAuthorizationPolicy authPolicy;
   private final CallerPrincipalProvider principalProvider;
+  private final Clock clock;
 
   protected DefaultJobQueryService() {
     this.queryStore = null;
@@ -45,6 +47,16 @@ public class DefaultJobQueryService implements JobQueryService {
     this.executionStore = null;
     this.authPolicy = null;
     this.principalProvider = null;
+    this.clock = null;
+  }
+
+  public DefaultJobQueryService(
+      JobQueryStore queryStore,
+      JobCrudStore crudStore,
+      ExecutionStore executionStore,
+      JobAuthorizationPolicy authPolicy,
+      CallerPrincipalProvider principalProvider) {
+    this(queryStore, crudStore, executionStore, authPolicy, principalProvider, Clock.systemUTC());
   }
 
   @Inject
@@ -53,12 +65,14 @@ public class DefaultJobQueryService implements JobQueryService {
       JobCrudStore crudStore,
       ExecutionStore executionStore,
       JobAuthorizationPolicy authPolicy,
-      CallerPrincipalProvider principalProvider) {
+      CallerPrincipalProvider principalProvider,
+      Clock clock) {
     this.queryStore = queryStore;
     this.crudStore = crudStore;
     this.executionStore = executionStore;
     this.authPolicy = authPolicy;
     this.principalProvider = principalProvider;
+    this.clock = clock;
   }
 
   private static String extractSortValue(JobEntity last, JobQuerySortField field) {
@@ -179,7 +193,7 @@ public class DefaultJobQueryService implements JobQueryService {
 
   @Override
   public QueueHealthSnapshot getQueueHealth() {
-    Instant now = Instant.now();
+    Instant now = effective().instant();
     Instant stuckThreshold = now.minusSeconds(300);
     Instant since = now.minusSeconds(3600);
 
@@ -245,5 +259,9 @@ public class DefaultJobQueryService implements JobQueryService {
 
   private String currentPrincipal() {
     return principalProvider != null ? principalProvider.currentPrincipal().orElse(null) : null;
+  }
+
+  private Clock effective() {
+    return clock != null ? clock : Clock.systemUTC();
   }
 }

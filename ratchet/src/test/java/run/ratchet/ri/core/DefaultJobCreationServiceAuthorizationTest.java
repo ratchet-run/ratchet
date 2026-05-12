@@ -439,6 +439,41 @@ class DefaultJobCreationServiceAuthorizationTest {
   }
 
   @Test
+  void streamingBatchSubmit_savesBatchBeforeChildrenAndUpdatesFinalTotal() {
+    JobEntity saved = savedEntity();
+    when(jobCrudStore.create(any())).thenReturn(saved);
+
+    DefaultStreamingBatchBuilder<String> builder =
+        new DefaultStreamingBatchBuilder<>("test-batch", service);
+    builder.fromStream(Stream.of("one", "two", "three"));
+    builder.withChunkSize(2);
+    builder.process(DefaultJobCreationServiceAuthorizationTest::consumeString);
+
+    service.submit(builder);
+
+    InOrder inOrder = Mockito.inOrder(batchStore, jobBulkStore);
+    inOrder.verify(batchStore).saveBatch(any());
+    inOrder.verify(jobBulkStore, times(2)).bulkInsert(any());
+    inOrder.verify(batchStore).updateBatchTotalItems(saved.getId(), 3);
+  }
+
+  @Test
+  void emptyBatchSubmit_marksBatchCompleteOnlyAfterSyntheticPickupWins() {
+    JobEntity saved = savedEntity();
+    when(jobCrudStore.create(any())).thenReturn(saved);
+    when(jobBatchStatusStore.tryPickUpJob(
+            saved.getId(), DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID))
+        .thenReturn(false);
+
+    DefaultBatchBuilder builder = new DefaultBatchBuilder("empty-batch", service);
+
+    service.submit(builder);
+
+    verify(jobTerminalStore, never()).markJobSucceededMinimal(any(), any(), any(), any(), any());
+    verify(batchStore, never()).markBatchCompleteIfReady(saved.getId());
+  }
+
+  @Test
   void checkCreate_skippedForDuplicateIdempotencyKey() {
     UUID existingId = UUID.randomUUID();
     JobEntity existing = savedEntity();
