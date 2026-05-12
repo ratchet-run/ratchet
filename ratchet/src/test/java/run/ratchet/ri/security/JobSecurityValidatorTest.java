@@ -62,11 +62,14 @@ class JobSecurityValidatorTest {
   }
 
   @Test
-  void nonExistentMethodThrows() {
+  void nonExistentMethodThrowsSecurityExceptionWithReflectiveCause() {
     JobSecurityValidator validator = validatorAllowing(THIS_PACKAGE);
     JobPayload payload =
         new JobPayload(SampleTarget.class.getName(), "noSuchMethod", "()V", false, List.of());
-    assertThrows(NoSuchMethodException.class, () -> validator.validate(payload));
+
+    SecurityException ex = assertThrows(SecurityException.class, () -> validator.validate(payload));
+
+    assertInstanceOf(NoSuchMethodException.class, ex.getCause());
   }
 
   @Test

@@ -4,9 +4,11 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -23,6 +25,7 @@ import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
@@ -161,6 +164,20 @@ class DeadLetterServiceTest {
             any(Runnable.class),
             eq(Duration.between(FIXED_NOW, next).toMillis()),
             eq(TimeUnit.MILLISECONDS));
+  }
+
+  @Test
+  void runDoesNotPropagateWhenRescheduleIsRejectedDuringShutdown() {
+    when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
+    when(singletonLeaseService.tryAcquire(eq("dlqPurger"), any(Duration.class)))
+        .thenReturn(Optional.empty());
+    service.init(7, parsedCron());
+
+    reset(scheduledExecutor);
+    when(scheduledExecutor.schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS)))
+        .thenThrow(new RejectedExecutionException("executor stopping"));
+
+    assertDoesNotThrow(service::run);
   }
 
   private static JobEntity jobWithAttempts(int attempts) {

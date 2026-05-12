@@ -113,6 +113,12 @@ public class DeadLetterService {
     this.clock = clock;
   }
 
+  /**
+   * Moves a job to the terminal DLQ state.
+   *
+   * <p><b>Transaction attribute:</b> {@code REQUIRED}, inherited from the class-level {@link
+   * Transactional}.
+   */
   public void moveToDlq(JobEntity job, Throwable cause) {
     // Post hot/cold-split: setStatus(FAILED)+save() is rejected by the MySQL store's hot-mutation
     // guard. The terminal transition (DELETE hot + UPDATE cold to FAILED + DELETE bkres) is now
@@ -126,10 +132,22 @@ public class DeadLetterService {
     log.warnf("Job %s moved to DLQ", job.getId());
   }
 
+  /**
+   * Stops future DLQ purge scheduling.
+   *
+   * <p><b>Transaction attribute:</b> {@code REQUIRED}, inherited from the class-level {@link
+   * Transactional}. The method only flips an in-memory lifecycle flag.
+   */
   public void stop() {
     stopped = true;
   }
 
+  /**
+   * Configures DLQ retention and schedules the first purge tick.
+   *
+   * <p><b>Transaction attribute:</b> {@code REQUIRED}, inherited from the class-level {@link
+   * Transactional}.
+   */
   public void init(long purgeDays, Cron cronExpression) {
     this.purgeAfter = Duration.ofDays(purgeDays);
     this.cron = cronExpression;
@@ -140,14 +158,27 @@ public class DeadLetterService {
     log.infof("DeadLetterService scheduled DLQ purge (retention=%s days)", purgeDays);
   }
 
+  /**
+   * Runs one scheduled purge tick.
+   *
+   * <p><b>Transaction attribute:</b> {@code REQUIRED} when invoked through a CDI proxy. Scheduled
+   * executor callbacks invoke this instance directly, so this method does not rely on the
+   * interceptor boundary for correctness.
+   */
   void run() {
     try {
       purge();
     } finally {
-      scheduleNext();
+      scheduleNextAfterRun();
     }
   }
 
+  /**
+   * Deletes expired DLQ rows when this node holds the purge lease.
+   *
+   * <p><b>Transaction attribute:</b> {@code REQUIRED} when invoked through a CDI proxy. The
+   * scheduled callback path is direct and treats purge failures as logged background-task failures.
+   */
   void purge() {
     try {
       Optional<SingletonLease> lease = singletonLeaseService.tryAcquire(LEASE_NAME, LEASE_TTL);
@@ -165,6 +196,14 @@ public class DeadLetterService {
       }
     } catch (Exception e) {
       log.error("DLQ purge failed", e);
+    }
+  }
+
+  private void scheduleNextAfterRun() {
+    try {
+      scheduleNext();
+    } catch (RuntimeException e) {
+      log.warnf(e, "DLQ purge reschedule failed");
     }
   }
 

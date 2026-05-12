@@ -22,7 +22,7 @@ public class PreExecutionValidator {
     this.doNotRetryPolicy = doNotRetryPolicy;
   }
 
-  public void validateSecurity(JobPayload payload) throws NoSuchMethodException {
+  public void validateSecurity(JobPayload payload) {
     securityValidator.validate(payload);
   }
 
@@ -32,7 +32,7 @@ public class PreExecutionValidator {
 
   @FunctionalInterface
   public interface SecurityValidator {
-    void validate(JobPayload payload) throws NoSuchMethodException;
+    void validate(JobPayload payload);
   }
 
   @FunctionalInterface

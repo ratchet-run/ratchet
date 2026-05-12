@@ -2,7 +2,6 @@ package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -12,7 +11,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -28,6 +29,9 @@ import run.ratchet.store.spi.JobCrudStore;
 
 @ExtendWith(MockitoExtension.class)
 class ChainSchedulerTest {
+
+  private static final Instant FIXED_NOW = Instant.parse("2026-05-12T12:34:56Z");
+  private static final Clock FIXED_CLOCK = Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
 
   @Mock private JobCrudStore jobCrudStore;
 
@@ -48,7 +52,7 @@ class ChainSchedulerTest {
 
   @BeforeEach
   void setUp() {
-    scheduler = new ChainScheduler(jobCrudStore);
+    scheduler = new ChainScheduler(jobCrudStore, FIXED_CLOCK);
     lenient()
         .when(jobCrudStore.findDependants(any(UUID.class), anyInt(), anyInt()))
         .thenAnswer(inv -> jobCrudStore.findDependants(inv.getArgument(0)));
@@ -71,22 +75,11 @@ class ChainSchedulerTest {
 
     when(jobCrudStore.findDependants(finished.getId())).thenReturn(List.of(child));
 
-    Instant before = Instant.now();
     assertTrue(scheduler.scheduleNext(finished));
-    Instant after = Instant.now();
 
     ArgumentCaptor<JobEntity> saved = ArgumentCaptor.forClass(JobEntity.class);
     verify(jobCrudStore).save(saved.capture());
-    assertNotEquals(
-        ChainScheduler.CHAIN_LOCK_TIME,
-        saved.getValue().getScheduledTime(),
-        "scheduleNext must replace CHAIN_LOCK_TIME with a real instant");
-    assertFalse(
-        saved.getValue().getScheduledTime().isBefore(before),
-        "replacement scheduledTime should not be before scheduleNext started");
-    assertFalse(
-        saved.getValue().getScheduledTime().isAfter(after),
-        "replacement scheduledTime should come from the scheduleNext call");
+    assertEquals(FIXED_NOW, saved.getValue().getScheduledTime());
   }
 
   @Test
@@ -130,7 +123,7 @@ class ChainSchedulerTest {
 
     verify(jobCrudStore).save(child);
     assertEquals(JobStatus.WAITING, child.getStatus());
-    assertNotEquals(ChainScheduler.CHAIN_LOCK_TIME, child.getScheduledTime());
+    assertEquals(FIXED_NOW, child.getScheduledTime());
   }
 
   @Test

@@ -1,6 +1,7 @@
 package run.ratchet.ri.core;
 
 import jakarta.transaction.Transactional;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -31,13 +32,20 @@ public class ChainScheduler {
   private static final int DEPENDANT_PAGE_SIZE = JobCrudStore.DEFAULT_PAGE_LIMIT;
 
   protected final JobCrudStore jobCrudStore;
+  private final Clock clock;
 
   protected ChainScheduler() {
     this.jobCrudStore = null;
+    this.clock = null;
   }
 
   public ChainScheduler(JobCrudStore jobCrudStore) {
+    this(jobCrudStore, Clock.systemUTC());
+  }
+
+  ChainScheduler(JobCrudStore jobCrudStore, Clock clock) {
     this.jobCrudStore = jobCrudStore;
+    this.clock = clock != null ? clock : Clock.systemUTC();
   }
 
   public void cancelChain(JobEntity failed) {
@@ -68,7 +76,7 @@ public class ChainScheduler {
     boolean scheduled = false;
     for (JobEntity c : children) {
       if (c.getStatus() == JobStatus.PENDING && CHAIN_LOCK_TIME.equals(c.getScheduledTime())) {
-        c.setScheduledTime(Instant.now());
+        c.setScheduledTime(effective().instant());
         jobCrudStore.save(c);
         log.infof("Chain step %s unlocked (prev=%s)", c.getId(), finished.getId());
         scheduled = true;
@@ -76,7 +84,7 @@ public class ChainScheduler {
           && CHAIN_LOCK_TIME.equals(c.getScheduledTime())) {
         // Signal-waiting chain step: unlock scheduledTime so it runs once the signal arrives,
         // but leave it WAITING — the signal delivery path sets it to PENDING independently.
-        c.setScheduledTime(Instant.now());
+        c.setScheduledTime(effective().instant());
         jobCrudStore.save(c);
         log.infof(
             "Signal-waiting chain step %s unlocked (signal still pending, prev=%s)",
@@ -85,6 +93,10 @@ public class ChainScheduler {
       }
     }
     return scheduled;
+  }
+
+  private Clock effective() {
+    return clock != null ? clock : Clock.systemUTC();
   }
 
   private List<JobEntity> findAllDependants(UUID parentId) {

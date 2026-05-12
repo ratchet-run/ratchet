@@ -2,6 +2,7 @@ package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.UUID;
@@ -65,14 +66,17 @@ class DefaultResultPersistenceStrategyTest {
   }
 
   @Test
-  void serializationFailureFallsBackToEmptyResult() {
+  void serializationFailureIsPropagated() {
     DefaultResultPersistenceStrategy strategy =
         new DefaultResultPersistenceStrategy(defaultOptions(), new ThrowingPayloadSerializer());
 
-    SerializedJobResult result = strategy.serialize(new UUID(0L, 44L), "unserializable");
+    IllegalStateException failure =
+        assertThrows(
+            IllegalStateException.class,
+            () -> strategy.serialize(new UUID(0L, 44L), "unserializable"));
 
-    assertNull(result.json());
-    assertNull(result.type());
+    assertTrue(failure.getMessage().contains("Result serialization failed"));
+    assertEquals("cannot serialize", failure.getCause().getMessage());
   }
 
   private static RatchetOptions defaultOptions() {

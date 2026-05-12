@@ -44,9 +44,8 @@ public class JobSecurityValidator {
 
   /**
    * @throws SecurityException if the class or method fails policy or visibility checks
-   * @throws NoSuchMethodException if the method does not exist
    */
-  public void validate(JobPayload payload) throws NoSuchMethodException {
+  public void validate(JobPayload payload) {
     if (payload == null) {
       throw new SecurityException("Job payload cannot be null");
     }
@@ -87,13 +86,15 @@ public class JobSecurityValidator {
                 + " -- only public methods can be scheduled as jobs. "
                 + "Change the method visibility to public.");
       }
-      throw new NoSuchMethodException(
-          "Method "
-              + payload.method()
-              + " with descriptor "
-              + payload.methodDescriptor()
-              + " not found in class "
-              + targetClass);
+      NoSuchMethodException missing =
+          new NoSuchMethodException(
+              "Method "
+                  + payload.method()
+                  + " with descriptor "
+                  + payload.methodDescriptor()
+                  + " not found in class "
+                  + targetClass);
+      throw new SecurityException(missing.getMessage(), missing);
     }
 
     int modifiers = method.getModifiers();

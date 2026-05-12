@@ -12,13 +12,17 @@ import run.ratchet.store.entity.JobEntity;
  *
  * <h2>Transaction semantics</h2>
  *
- * <p>Each public method runs in its own transaction ({@link TxType#REQUIRES_NEW}) with rollback on
- * any exception ({@code rollbackOn = Exception.class}). The {@code REQUIRES_NEW} attribute is load
- * bearing: {@link JobTask} is submitted to a {@code ManagedExecutorService} which, per Jakarta
- * Concurrency 3.0 §3.4.4, propagates JTA context from the submitting thread by default. Without
- * {@code REQUIRES_NEW} the post-execution commit would join that inherited transaction, and any
- * rollback of the outer transaction would silently discard the job-completion ack — the job would
- * be re-executed after it had already succeeded.
+ * <p>External calls to public methods run in their own transaction ({@link TxType#REQUIRES_NEW})
+ * with rollback on any exception ({@code rollbackOn = Exception.class}). Composite handlers such as
+ * {@link #handlePermanentFailure(JobEntity, Throwable)} call local helper methods directly, so
+ * those helper calls intentionally share the composite handler's transaction instead of re-entering
+ * the CDI proxy.
+ *
+ * <p>The {@code REQUIRES_NEW} attribute is load bearing: {@link JobTask} is submitted to a {@code
+ * ManagedExecutorService} which, per Jakarta Concurrency 3.0 §3.4.4, propagates JTA context from
+ * the submitting thread by default. Without {@code REQUIRES_NEW} the post-execution commit would
+ * join that inherited transaction, and any rollback of the outer transaction would silently discard
+ * the job-completion ack — the job would be re-executed after it had already succeeded.
  *
  * <p>{@code rollbackOn = Exception.class} covers the {@code ExecutionException} wrapping that
  * {@code ManagedExecutorService} applies to failures from submitted {@code Callable}s. The default

@@ -57,8 +57,8 @@ public class DefaultResultPersistenceStrategy implements ResultPersistenceStrate
       }
       return new SerializedJobResult(resultJson, resultType);
     } catch (Exception e) {
-      log.warnf("Result serialization error for job %s: %s", jobId, e.getMessage());
-      return SerializedJobResult.empty();
+      log.warnf(e, "Result serialization error for job %s", jobId);
+      throw new IllegalStateException("Result serialization failed for job " + jobId, e);
     }
   }
 }

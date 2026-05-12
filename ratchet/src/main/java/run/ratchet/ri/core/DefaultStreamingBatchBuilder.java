@@ -121,7 +121,7 @@ public class DefaultStreamingBatchBuilder<T extends Serializable>
     try {
       localProgressHook.accept(new StreamingBatchContext(batchId, processedItems, chunksInserted));
     } catch (Exception e) {
-      log.warnf("Streaming progress hook threw exception: %s", e.getMessage());
+      log.warn("Streaming progress hook threw exception", e);
     }
   }
 
