@@ -229,6 +229,7 @@ public final class SchemaMigrator {
 
     try (Connection connection = dataSource.getConnection()) {
       acquireLock(connection);
+      Throwable migrationFailure = null;
       try {
         ensureSchemaVersionTable(connection);
         verifyBaselineCompatible(connection);
@@ -249,8 +250,11 @@ public final class SchemaMigrator {
           applyMigration(connection, script);
           applied.add(script);
         }
+      } catch (SQLException | RuntimeException | Error e) {
+        migrationFailure = e;
+        throw e;
       } finally {
-        releaseLock(connection);
+        releaseLock(connection, migrationFailure);
       }
     }
 
@@ -322,6 +326,18 @@ public final class SchemaMigrator {
         case POSTGRESQL ->
             statement.execute("SELECT pg_advisory_unlock(" + POSTGRESQL_LOCK_KEY + ")");
       }
+    }
+  }
+
+  private void releaseLock(Connection connection, Throwable primaryFailure) throws SQLException {
+    try {
+      releaseLock(connection);
+    } catch (SQLException e) {
+      if (primaryFailure != null) {
+        primaryFailure.addSuppressed(e);
+        return;
+      }
+      throw e;
     }
   }
 

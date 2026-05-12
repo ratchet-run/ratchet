@@ -232,6 +232,24 @@ class SchemaMigratorTest {
   }
 
   @Test
+  void keepsMigrationFailureWhenMysqlReleaseLockAlsoFails() throws Exception {
+    ResultSet firstMissingVersion = missingVersion();
+    when(selectVersion.executeQuery()).thenReturn(firstMissingVersion);
+    when(statement.execute(contains("CREATE TABLE ratchet_test_order")))
+        .thenThrow(new java.sql.SQLException("migration failed"));
+    when(mysqlRelease.getInt(1)).thenReturn(0);
+
+    java.sql.SQLException ex =
+        assertThrows(java.sql.SQLException.class, () -> migrator("schema-migrator").migrate());
+
+    assertEquals("migration failed", ex.getMessage());
+    assertEquals(1, ex.getSuppressed().length);
+    assertTrue(ex.getSuppressed()[0].getMessage().contains("Failed to release MySQL"));
+    verify(connection).rollback();
+    verify(statement).executeQuery("SELECT RELEASE_LOCK('ratchet_schema_migration')");
+  }
+
+  @Test
   void dialectFromMetadataMapsKnownProducts() throws Exception {
     DatabaseMetaData mysqlMeta = mock(DatabaseMetaData.class);
     when(mysqlMeta.getDatabaseProductName()).thenReturn("MySQL");

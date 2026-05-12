@@ -35,6 +35,12 @@ public interface SignalStore {
    */
   List<JobEntity> findTimedOutSignalJobs(Instant now, int limit);
 
+  /**
+   * Delivers a signal to one WAITING job.
+   *
+   * <p><b>Transaction attribute:</b> {@code REQUIRED}. The WAITING-to-PENDING update and delivery
+   * metadata write must be atomic.
+   */
   int deliverSignalById(
       UUID jobId,
       String payload,
@@ -45,6 +51,13 @@ public interface SignalStore {
       Instant deliveredAt,
       String deliveryId);
 
+  /**
+   * Delivers a signal to all WAITING jobs with the same signal key.
+   *
+   * <p><b>Transaction attribute:</b> {@code REQUIRED}. Implementations must use one atomic bulk
+   * update, or the store's closest equivalent, so concurrent deliveries cannot unblock the same
+   * jobs twice.
+   */
   int deliverSignalByKey(
       String signalKey,
       String payload,
@@ -57,6 +70,9 @@ public interface SignalStore {
 
   /**
    * Returns jobs updated by a signal delivery token. Used for per-job events after bulk delivery.
+   *
+   * <p><b>Transaction attribute:</b> {@code SUPPORTS}. This method reads the result of a completed
+   * delivery and must not start its own write transaction.
    *
    * @return an empty list if {@code deliveryId} is unknown; never null
    */

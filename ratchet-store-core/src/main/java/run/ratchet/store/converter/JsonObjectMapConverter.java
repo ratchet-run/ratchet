@@ -13,21 +13,31 @@ import java.util.Map;
 @Converter
 public class JsonObjectMapConverter extends AbstractJsonAttributeConverter<Map<String, Object>> {
 
-  private static final Jsonb JSONB = JsonbBuilder.create();
-
   public String convertToDatabaseColumn(Map<String, Object> attribute) {
     return super.convertToDatabaseColumn(attribute);
   }
 
   @Override
   protected String serialize(Map<String, Object> attribute) {
-    return JSONB.toJson(attribute);
+    try (Jsonb jsonb = JsonbBuilder.create()) {
+      return jsonb.toJson(attribute);
+    } catch (JsonbException e) {
+      throw e;
+    } catch (Exception e) {
+      throw new JsonbException("JSON-B object-map serializer close failed", e);
+    }
   }
 
   @SuppressWarnings("unchecked")
   @Override
   protected Map<String, Object> deserialize(String dbData) {
-    return (Map<String, Object>) JSONB.fromJson(dbData, Map.class);
+    try (Jsonb jsonb = JsonbBuilder.create()) {
+      return (Map<String, Object>) jsonb.fromJson(dbData, Map.class);
+    } catch (JsonbException e) {
+      throw e;
+    } catch (Exception e) {
+      throw new JsonbException("JSON-B object-map deserializer close failed", e);
+    }
   }
 
   @Override
