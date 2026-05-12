@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import run.ratchet.spi.MetricsCollector;
 
 class MysqlJobRecurringAndResetOperationsTest {
 
@@ -21,10 +22,10 @@ class MysqlJobRecurringAndResetOperationsTest {
     UUID second = UUID.fromString("00000000-0000-0000-0000-000000000002");
     List<String> sqlStatements = new ArrayList<>();
     EntityManager em = recordingEntityManager(sqlStatements, List.of(first, second));
-    MysqlBusinessKeyReservations reservations =
-        new MysqlBusinessKeyReservations(new MysqlStoreContext(em, null));
+    MysqlStoreContext ctx = new MysqlStoreContext(em, noopMetrics());
+    MysqlBusinessKeyReservations reservations = new MysqlBusinessKeyReservations(ctx);
     MysqlJobRecurringAndResetOperations recurring =
-        new MysqlJobRecurringAndResetOperations(new MysqlStoreContext(em, null), reservations);
+        new MysqlJobRecurringAndResetOperations(ctx, reservations);
 
     int cancelled =
         recurring.cancelOrphanedRecurringAnnotationJobs(
@@ -81,5 +82,13 @@ class MysqlJobRecurringAndResetOperationsTest {
                 default -> throw new UnsupportedOperationException(method.getName());
               };
             });
+  }
+
+  private static MetricsCollector noopMetrics() {
+    return (MetricsCollector)
+        Proxy.newProxyInstance(
+            MetricsCollector.class.getClassLoader(),
+            new Class<?>[] {MetricsCollector.class},
+            (proxy, method, args) -> null);
   }
 }

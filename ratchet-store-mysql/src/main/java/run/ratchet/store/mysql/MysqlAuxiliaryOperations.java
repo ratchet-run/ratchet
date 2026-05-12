@@ -29,6 +29,8 @@ final class MysqlAuxiliaryOperations
         DlqAlertStore,
         ResourcePermitStore {
 
+  private static final int PERMIT_CLEANUP_CHUNK_SIZE = 500;
+
   private final MysqlStoreContext ctx;
 
   MysqlAuxiliaryOperations(MysqlStoreContext ctx) {
@@ -310,7 +312,7 @@ final class MysqlAuxiliaryOperations
       return ((Number) ctx.em().createNativeQuery(sql).setParameter(1, resource).getSingleResult())
           .intValue();
     } catch (NoResultException e) {
-      return 5000;
+      throw new IllegalArgumentException("Resource is not configured: " + resource, e);
     }
   }
 
@@ -343,6 +345,17 @@ final class MysqlAuxiliaryOperations
     if (staleNodeIds.isEmpty()) {
       return 0;
     }
+    int deleted = 0;
+    for (int start = 0; start < staleNodeIds.size(); start += PERMIT_CLEANUP_CHUNK_SIZE) {
+      deleted +=
+          cleanupOrphanedPermitsChunk(
+              staleNodeIds.subList(
+                  start, Math.min(start + PERMIT_CLEANUP_CHUNK_SIZE, staleNodeIds.size())));
+    }
+    return deleted;
+  }
+
+  private int cleanupOrphanedPermitsChunk(List<String> staleNodeIds) {
     String placeholders = String.join(",", Collections.nCopies(staleNodeIds.size(), "?"));
     // language=MySQL
     String sql = "DELETE FROM scheduler_resource_permit WHERE node_id IN (" + placeholders + ")";

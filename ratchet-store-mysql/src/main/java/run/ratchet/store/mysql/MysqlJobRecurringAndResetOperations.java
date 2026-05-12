@@ -15,6 +15,8 @@ import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 // dialect-local.
 final class MysqlJobRecurringAndResetOperations {
 
+  private static final int RECURRING_CANCEL_CHUNK_SIZE = 500;
+
   private final MysqlStoreContext ctx;
   private final MysqlBusinessKeyReservations reservations;
 
@@ -92,7 +94,10 @@ final class MysqlJobRecurringAndResetOperations {
             AND j.terminal_status = 'CANCELED'
         )
         """;
-    ctx.em().createNativeQuery(reservationsSql).setParameter(1, tag).executeUpdate();
+    ctx.timedStoreOperation(
+        "cancel_recurring_by_tag_reservations",
+        () -> ctx.em().createNativeQuery(reservationsSql).setParameter(1, tag).executeUpdate(),
+        updated -> updated > 0 ? "updated" : "miss");
     return cancelled;
   }
 
@@ -135,7 +140,10 @@ final class MysqlJobRecurringAndResetOperations {
               AND j.terminal_status = 'CANCELED'
           )
         """;
-    ctx.em().createNativeQuery(hotSql).setParameter(1, tag).executeUpdate();
+    ctx.timedStoreOperation(
+        "cancel_jobs_by_tag_hot_delete",
+        () -> ctx.em().createNativeQuery(hotSql).setParameter(1, tag).executeUpdate(),
+        deleted -> deleted > 0 ? "updated" : "miss");
     // Reservations housekeeping.
     // language=MySQL
     String reservationsSql =
@@ -149,7 +157,10 @@ final class MysqlJobRecurringAndResetOperations {
             AND j.terminal_status = 'CANCELED'
         )
         """;
-    ctx.em().createNativeQuery(reservationsSql).setParameter(1, tag).executeUpdate();
+    ctx.timedStoreOperation(
+        "cancel_jobs_by_tag_reservations",
+        () -> ctx.em().createNativeQuery(reservationsSql).setParameter(1, tag).executeUpdate(),
+        deleted -> deleted > 0 ? "updated" : "miss");
     return cancelled;
   }
 
@@ -204,6 +215,7 @@ final class MysqlJobRecurringAndResetOperations {
           AND rec_status IS NOT NULL AND terminal_status IS NULL
           AND created_at < ? AND business_key IS NOT NULL
           AND business_key NOT IN (%s)
+        LIMIT ?
         """
             .formatted(placeholders);
     Query query = ctx.em().createNativeQuery(sql);
@@ -212,9 +224,15 @@ final class MysqlJobRecurringAndResetOperations {
     for (String registeredId : idsList) {
       query.setParameter(parameter++, registeredId);
     }
-    @SuppressWarnings("unchecked")
-    List<?> ids = query.getResultList();
-    return cancelRecurringByIds(ids);
+    int limitParameter = parameter;
+    int cancelled = 0;
+    List<?> ids;
+    do {
+      query.setParameter(limitParameter, RECURRING_CANCEL_CHUNK_SIZE);
+      ids = query.getResultList();
+      cancelled += cancelRecurringByIds(ids);
+    } while (ids.size() == RECURRING_CANCEL_CHUNK_SIZE);
+    return cancelled;
   }
 
   boolean pauseRecurring(UUID id) {
@@ -226,10 +244,14 @@ final class MysqlJobRecurringAndResetOperations {
           AND rec_status = 'P' AND terminal_status IS NULL
         """;
     int updated =
-        ctx.em()
-            .createNativeQuery(sql)
-            .setParameter(1, UuidByteArrayConverter.toBytes(id))
-            .executeUpdate();
+        ctx.timedStoreOperation(
+            "pause_recurring",
+            () ->
+                ctx.em()
+                    .createNativeQuery(sql)
+                    .setParameter(1, UuidByteArrayConverter.toBytes(id))
+                    .executeUpdate(),
+            count -> count > 0 ? "updated" : "miss");
     return updated > 0;
   }
 
@@ -242,10 +264,14 @@ final class MysqlJobRecurringAndResetOperations {
           AND rec_status = 'A' AND terminal_status IS NULL
         """;
     int updated =
-        ctx.em()
-            .createNativeQuery(sql)
-            .setParameter(1, UuidByteArrayConverter.toBytes(id))
-            .executeUpdate();
+        ctx.timedStoreOperation(
+            "resume_recurring",
+            () ->
+                ctx.em()
+                    .createNativeQuery(sql)
+                    .setParameter(1, UuidByteArrayConverter.toBytes(id))
+                    .executeUpdate(),
+            count -> count > 0 ? "updated" : "miss");
     return updated > 0;
   }
 
@@ -263,6 +289,16 @@ final class MysqlJobRecurringAndResetOperations {
     if (ids.isEmpty()) {
       return 0;
     }
+    int updated = 0;
+    for (int start = 0; start < ids.size(); start += RECURRING_CANCEL_CHUNK_SIZE) {
+      updated +=
+          cancelRecurringByIdsChunk(
+              ids.subList(start, Math.min(start + RECURRING_CANCEL_CHUNK_SIZE, ids.size())));
+    }
+    return updated;
+  }
+
+  private int cancelRecurringByIdsChunk(List<UUID> ids) {
     String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
     // language=MySQL
     String sql =
@@ -278,7 +314,11 @@ final class MysqlJobRecurringAndResetOperations {
     for (UUID id : ids) {
       query.setParameter(parameter++, UuidByteArrayConverter.toBytes(id));
     }
-    int updated = query.executeUpdate();
+    int updated =
+        ctx.timedStoreOperation(
+            "cancel_recurring_by_ids",
+            query::executeUpdate,
+            count -> count > 0 ? "updated" : "miss");
     if (updated > 0) {
       deleteReservationsForCanceledRecurringIds(ids);
     }
@@ -302,6 +342,9 @@ final class MysqlJobRecurringAndResetOperations {
     for (UUID id : ids) {
       query.setParameter(parameter++, UuidByteArrayConverter.toBytes(id));
     }
-    query.executeUpdate();
+    ctx.timedStoreOperation(
+        "cancel_recurring_by_ids_reservations",
+        query::executeUpdate,
+        count -> count > 0 ? "updated" : "miss");
   }
 }

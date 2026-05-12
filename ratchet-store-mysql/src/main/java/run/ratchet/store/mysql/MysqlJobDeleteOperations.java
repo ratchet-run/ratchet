@@ -52,6 +52,10 @@ final class MysqlJobDeleteOperations {
   }
 
   int deleteDlqOlderThan(Instant cutoff) {
+    /*
+     * Transaction contract: this method is reached through MysqlJobStoreImpl's REQUIRED boundary.
+     * The reservation cleanup and cold-row delete must commit or roll back together.
+     */
     try {
       // language=MySQL
       String selectSql =

@@ -80,16 +80,14 @@ final class MysqlJobCountOperations {
   }
 
   long countStuckJobs(Instant stuckThreshold) {
-    // language=MySQL
-    String sql =
-        """
-        SELECT COUNT(*) FROM scheduler_job_queue
-        WHERE status = 'RUNNING' AND picked_at < ?
-        """;
-    return ctx.countByNative(sql, Timestamp.from(stuckThreshold));
+    return countRunningJobsPickedBefore(stuckThreshold);
   }
 
   long countLongRunningJobs(Instant threshold) {
+    return countRunningJobsPickedBefore(threshold);
+  }
+
+  private long countRunningJobsPickedBefore(Instant threshold) {
     // language=MySQL
     String sql =
         """
@@ -259,29 +257,21 @@ final class MysqlJobCountOperations {
       throw new IllegalArgumentException("percentile must be in [0.0, 1.0]: " + percentile);
     }
     // language=MySQL
-    String countSql =
-        """
-        SELECT COUNT(*) FROM scheduler_job
-        WHERE queue_wait_ms IS NOT NULL AND terminal_status = 'SUCCEEDED'
-        """;
-    Number countResult = (Number) ctx.em().createNativeQuery(countSql).getSingleResult();
-    long total = countResult.longValue();
-    if (total == 0) {
-      return 0L;
-    }
-    long offset = Math.max(0L, Math.min(total - 1, (long) Math.ceil(percentile * total) - 1L));
-    // language=MySQL
     String percentileSql =
         """
-        SELECT COALESCE(queue_wait_ms, 0)
-        FROM scheduler_job
-        WHERE queue_wait_ms IS NOT NULL AND terminal_status = 'SUCCEEDED'
+        SELECT queue_wait_ms
+        FROM (
+          SELECT queue_wait_ms, CUME_DIST() OVER (ORDER BY queue_wait_ms ASC) AS percentile_rank
+          FROM scheduler_job
+          WHERE queue_wait_ms IS NOT NULL AND terminal_status = 'SUCCEEDED'
+        ) ranked
+        WHERE percentile_rank >= ?1
         ORDER BY queue_wait_ms ASC
-        LIMIT 1 OFFSET ?1
+        LIMIT 1
         """;
     @SuppressWarnings("unchecked")
     List<Object> percentileResults =
-        ctx.em().createNativeQuery(percentileSql).setParameter(1, offset).getResultList();
+        ctx.em().createNativeQuery(percentileSql).setParameter(1, percentile).getResultList();
     Object result = percentileResults.stream().findFirst().orElse(0L);
     return ((Number) result).longValue();
   }

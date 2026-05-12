@@ -138,6 +138,8 @@ final class MysqlJobTerminalOperations {
       if (updated == 0) {
         return -1;
       }
+      // LAST_INSERT_ID() is connection-local; the enclosing REQUIRED store transaction pins both
+      // native statements to the same MySQL connection.
       // language=MySQL
       String selectSql = "SELECT LAST_INSERT_ID()";
       Object result = ctx.em().createNativeQuery(selectSql).getSingleResult();
@@ -453,6 +455,8 @@ final class MysqlJobTerminalOperations {
             .setParameter(3, UuidByteArrayConverter.toBytes(id))
             .executeUpdate();
     if (coldUpdated == 0) {
+      // Invariant violation: the hot row was deleted in this transaction, but the cold row no
+      // longer matched the expected non-terminal state.
       throw new IllegalStateException(
           "terminal failure removed hot row but did not update cold row for job " + id);
     }

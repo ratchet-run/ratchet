@@ -3,7 +3,7 @@ package run.ratchet.store.mysql;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -143,7 +143,7 @@ final class MysqlJobRowMapper {
       return inst;
     }
     if (val instanceof LocalDateTime ldt) {
-      return ldt.atZone(ZoneId.systemDefault()).toInstant();
+      return ldt.toInstant(ZoneOffset.UTC);
     }
     if (val instanceof Date date) {
       return date.toInstant();

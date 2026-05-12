@@ -20,6 +20,10 @@ final class MysqlNodeLockOperations implements NodeStore, LockStore {
 
   @Override
   public boolean tryLock(String name, Duration ttl, String nodeId) {
+    /*
+     * Transaction contract: MysqlJobStoreImpl invokes this under REQUIRED, keeping the UPDATE and
+     * fallback INSERT IGNORE in one transaction. The INSERT row count still decides the race.
+     */
     try {
       requireLockName(name);
       requirePositiveDuration(ttl, "ttl");
@@ -162,7 +166,7 @@ final class MysqlNodeLockOperations implements NodeStore, LockStore {
   public List<NodeEntity> findInactiveNodesSince(Instant cutoff) {
     try {
       // language=MySQL
-      String sql = "SELECT * FROM scheduler_node WHERE heartbeat_ts < ?";
+      String sql = "SELECT * FROM scheduler_node WHERE heartbeat_ts < ? LIMIT 1000";
       return ctx.em()
           .createNativeQuery(sql, NodeEntity.class)
           .setParameter(1, Timestamp.from(cutoff))

@@ -46,6 +46,10 @@ final class MysqlStoreContext {
     return e;
   }
 
+  /**
+   * Executes a trusted, package-local SQL count query. Callers must pass hard-coded SQL templates
+   * only; runtime values belong in {@code params}.
+   */
   long countByNative(String sql, Object... params) {
     var query = em.createNativeQuery(sql);
     for (int i = 0; i < params.length; i++) {
@@ -54,6 +58,10 @@ final class MysqlStoreContext {
     return ((Number) query.getSingleResult()).longValue();
   }
 
+  /**
+   * Executes a trusted, package-local SQL scalar query. Callers must pass hard-coded SQL templates
+   * only; runtime values belong in {@code params}.
+   */
   double doubleByNativeOrZero(String sql, Object... params) {
     var query = em.createNativeQuery(sql);
     for (int i = 0; i < params.length; i++) {

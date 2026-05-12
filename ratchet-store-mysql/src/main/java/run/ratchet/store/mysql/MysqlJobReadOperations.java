@@ -17,6 +17,7 @@ import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 final class MysqlJobReadOperations {
 
   private static final Logger log = Logger.getLogger(MysqlJobReadOperations.class);
+  private static final int FIND_BY_IDS_CHUNK_SIZE = 500;
 
   // language=MySQL
   private static final String HYDRATION_FROM =
@@ -110,31 +111,42 @@ final class MysqlJobReadOperations {
       if (ids.isEmpty()) {
         return List.of();
       }
-      String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
-      // language=MySQL
-      String sql =
-          "SELECT "
-              + MysqlJobRowMapper.HYDRATION_SELECT
-              + " "
-              + HYDRATION_FROM
-              + " WHERE c.job_id IN ("
-              + placeholders
-              + ")";
-      Query idsQuery = ctx.em().createNativeQuery(sql);
-      int parameter = 1;
-      for (UUID id : ids) {
-        idsQuery.setParameter(parameter++, UuidByteArrayConverter.toBytes(id));
-      }
-      List<Object[]> rows = idsQuery.getResultList();
-      List<JobEntity> jobs = new ArrayList<>(rows.size());
-      for (Object[] row : rows) {
-        jobs.add(mapper.hydrateJobEntity(row));
+      List<JobEntity> jobs = new ArrayList<>(ids.size());
+      for (int start = 0; start < ids.size(); start += FIND_BY_IDS_CHUNK_SIZE) {
+        jobs.addAll(
+            findByIdsChunk(
+                ids.subList(start, Math.min(start + FIND_BY_IDS_CHUNK_SIZE, ids.size()))));
       }
       tags.hydrateTagsBatch(jobs);
       return jobs;
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("find jobs by ids", e);
     }
+  }
+
+  @SuppressWarnings("unchecked")
+  private List<JobEntity> findByIdsChunk(List<UUID> ids) {
+    String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+    // language=MySQL
+    String sql =
+        "SELECT "
+            + MysqlJobRowMapper.HYDRATION_SELECT
+            + " "
+            + HYDRATION_FROM
+            + " WHERE c.job_id IN ("
+            + placeholders
+            + ")";
+    Query idsQuery = ctx.em().createNativeQuery(sql);
+    int parameter = 1;
+    for (UUID id : ids) {
+      idsQuery.setParameter(parameter++, UuidByteArrayConverter.toBytes(id));
+    }
+    List<Object[]> rows = idsQuery.getResultList();
+    List<JobEntity> jobs = new ArrayList<>(rows.size());
+    for (Object[] row : rows) {
+      jobs.add(mapper.hydrateJobEntity(row));
+    }
+    return jobs;
   }
 
   @SuppressWarnings("unchecked")

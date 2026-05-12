@@ -443,6 +443,8 @@ final class MysqlJobWriteOperations {
     if (updated == 0) {
       throw new RatchetOptimisticLockException("Concurrent modification on job " + id);
     }
+    // Mirrors the committed value for normal callers. If the surrounding JTA transaction rolls
+    // back, callers must discard or reload this entity instance.
     incoming.setVersion(expectedVersion + 1);
   }
 
@@ -473,6 +475,8 @@ final class MysqlJobWriteOperations {
         .setParameter(3, UuidByteArrayConverter.toBytes(id))
         .executeUpdate();
     reservations.deleteReservationByOwner(id);
+    // Mirrors the committed value for normal callers. If the surrounding JTA transaction rolls
+    // back, callers must discard or reload this entity instance.
     incoming.setVersion(expectedVersion + 1);
     incoming.setTerminalStatus(incoming.getStatus());
   }
@@ -488,6 +492,7 @@ final class MysqlJobWriteOperations {
         FROM scheduler_job c
         LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
         WHERE c.job_id = ?
+        FOR UPDATE
         """;
     List<Object[]> rows =
         ctx.em()

@@ -132,106 +132,127 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   }
 
   @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
   public Optional<Instant> findEarliestRecurringNextFire() {
     return jobs.findEarliestRecurringNextFire();
   }
 
   @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
   public long countPendingJobs() {
     return jobs.countPendingJobs();
   }
 
   @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
   public long countJobsByStatus(JobStatus status) {
     return jobs.countJobsByStatus(status);
   }
 
   @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
   public Map<JobStatus, Long> countJobsByStatuses() {
     return jobs.countJobsByStatuses();
   }
 
   @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
   public long countActiveJobs(JobExecutionType jobType) {
     return jobs.countActiveJobs(jobType);
   }
 
   @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
   public long countActiveNodes() {
     return jobs.countActiveNodes();
   }
 
   @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
   public long countReadyJobs(Instant now) {
     return jobs.countReadyJobs(now);
   }
 
   @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
   public long countStuckJobs(Instant stuckThreshold) {
     return jobs.countStuckJobs(stuckThreshold);
   }
 
   @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
   public long countLongRunningJobs(Instant threshold) {
     return jobs.countLongRunningJobs(threshold);
   }
 
   @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
   public long countPendingBatchChildren() {
     return jobs.countPendingBatchChildren();
   }
 
   @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
   public long countPendingJobsByPriority(JobPriority priority) {
     return jobs.countPendingJobsByPriority(priority);
   }
 
   @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
   public Map<JobPriority, Long> countPendingJobsByPriorities() {
     return jobs.countPendingJobsByPriorities();
   }
 
   @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
   public long countPendingJobsByType(JobExecutionType jobType) {
     return jobs.countPendingJobsByType(jobType);
   }
 
   @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
   public Map<JobExecutionType, Long> countPendingJobsByTypes() {
     return jobs.countPendingJobsByTypes();
   }
 
   @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
   public long countJobsByStatusSince(JobStatus status, Instant since) {
     return jobs.countJobsByStatusSince(status, since);
   }
 
   @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
   public long countJobsWithRetries() {
     return jobs.countJobsWithRetries();
   }
 
   @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
   public double getRetryRateStats(Instant since) {
     return jobs.getRetryRateStats(since);
   }
 
   @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
   public double getAverageProcessingTime(Instant since) {
     return jobs.getAverageProcessingTime(since);
   }
 
   @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
   public double getAverageBatchSize(Instant since) {
     return jobs.getAverageBatchSize(since);
   }
 
   @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
   public Optional<Instant> getOldestPendingJobTime() {
     return jobs.getOldestPendingJobTime();
   }
 
   @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
   public long getQueueWaitTimePercentile(double percentile) {
     return jobs.getQueueWaitTimePercentile(percentile);
   }
@@ -498,11 +519,13 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   }
 
   @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
   public Optional<NodeEntity> findNodeById(String nodeId) {
     return nodeLocks.findNodeById(nodeId);
   }
 
   @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
   public List<NodeEntity> findInactiveNodesSince(Instant cutoff) {
     return nodeLocks.findInactiveNodesSince(cutoff);
   }
@@ -513,6 +536,7 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   }
 
   @Override
+  @Transactional(Transactional.TxType.SUPPORTS)
   public Instant getDatabaseTime() {
     return nodeLocks.getDatabaseTime();
   }
@@ -758,6 +782,7 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   }
 
   @PostConstruct
+  @Transactional(Transactional.TxType.NOT_SUPPORTED)
   void checkIsolationLevel() {
     if (em == null) {
       em = entityManagerProvider.getEntityManager();

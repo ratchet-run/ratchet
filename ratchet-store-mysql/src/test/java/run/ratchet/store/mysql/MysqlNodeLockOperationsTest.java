@@ -63,7 +63,8 @@ class MysqlNodeLockOperationsTest {
     List<NodeEntity> result = locks.findInactiveNodesSince(Instant.parse("2026-05-09T12:00:00Z"));
 
     assertEquals(List.of(inactive), result);
-    assertEquals(List.of("SELECT * FROM scheduler_node WHERE heartbeat_ts < ?"), sqlStatements);
+    assertEquals(
+        List.of("SELECT * FROM scheduler_node WHERE heartbeat_ts < ? LIMIT 1000"), sqlStatements);
   }
 
   @Test

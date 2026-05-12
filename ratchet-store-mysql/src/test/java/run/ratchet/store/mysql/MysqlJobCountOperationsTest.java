@@ -36,14 +36,14 @@ class MysqlJobCountOperationsTest {
   }
 
   @Test
-  void queueWaitPercentileClampsP100ToLastRow() {
-    AtomicReference<Object> offset = new AtomicReference<>();
+  void queueWaitPercentileUsesWindowPercentileQuery() {
+    AtomicReference<Object> percentile = new AtomicReference<>();
     MysqlJobCountOperations counts =
         new MysqlJobCountOperations(
-            new MysqlStoreContext(entityManagerForPercentile(offset), null));
+            new MysqlStoreContext(entityManagerForPercentile(percentile), null));
 
     assertEquals(900L, counts.getQueueWaitTimePercentile(1.0));
-    assertEquals(2L, offset.get());
+    assertEquals(1.0, percentile.get());
   }
 
   @Test
@@ -91,19 +91,7 @@ class MysqlJobCountOperationsTest {
             });
   }
 
-  private static EntityManager entityManagerForPercentile(AtomicReference<Object> offset) {
-    AtomicReference<Integer> queryIndex = new AtomicReference<>(0);
-    Query countQuery =
-        (Query)
-            Proxy.newProxyInstance(
-                Query.class.getClassLoader(),
-                new Class<?>[] {Query.class},
-                (proxy, method, args) -> {
-                  if (method.getName().equals("getSingleResult")) {
-                    return 3L;
-                  }
-                  throw new UnsupportedOperationException(method.getName());
-                });
+  private static EntityManager entityManagerForPercentile(AtomicReference<Object> percentile) {
     Query percentileQuery =
         (Query)
             Proxy.newProxyInstance(
@@ -111,7 +99,7 @@ class MysqlJobCountOperationsTest {
                 new Class<?>[] {Query.class},
                 (proxy, method, args) -> {
                   if (method.getName().equals("setParameter")) {
-                    offset.set(args[1]);
+                    percentile.set(args[1]);
                     return proxy;
                   }
                   if (method.getName().equals("getResultList")) {
@@ -126,9 +114,7 @@ class MysqlJobCountOperationsTest {
             new Class<?>[] {EntityManager.class},
             (proxy, method, args) -> {
               if (method.getName().equals("createNativeQuery")) {
-                return queryIndex.getAndSet(queryIndex.get() + 1) == 0
-                    ? countQuery
-                    : percentileQuery;
+                return percentileQuery;
               }
               throw new UnsupportedOperationException(method.getName());
             });

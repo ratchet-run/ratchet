@@ -77,31 +77,18 @@ final class MysqlJobClaimOperations implements JobClaimStore {
   @Override
   @SuppressWarnings("unchecked")
   public List<JobEntity> claimNextBatch(int limit, String nodeId, NodeTagFilter tagFilter) {
+    List<Object[]> candidateRows;
     try {
-      int boostInterval = ctx.priorityBoostIntervalMinutes();
-      String tagSql = JobClaimSqlSupport.buildTagFilterSql(tagFilter, "scheduler_job_queue");
-      var query =
-          ctx.em()
-              .createNativeQuery(
-                  buildClaimSql(
-                      CLAIM_SELECT_COLUMNS,
-                      EXECUTABLE_JOB_TYPE_FILTER,
-                      tagSql,
-                      "scheduled_time",
-                      boostInterval));
-      int parameter = 1;
-      parameter = JobClaimSqlSupport.bindTagFilter(query, tagFilter, parameter);
-      if (boostInterval > 0) {
-        query.setParameter(parameter++, boostInterval);
-      }
-      query.setParameter(parameter, limit);
+      candidateRows = selectClaimCandidates(limit, tagFilter);
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("claim jobs select", e);
+    }
 
-      List<Object[]> candidateRows = query.getResultList();
+    if (candidateRows.isEmpty()) {
+      return List.of();
+    }
 
-      if (candidateRows.isEmpty()) {
-        return List.of();
-      }
-
+    try {
       List<UUID> candidateIds = new ArrayList<>(candidateRows.size());
       for (Object[] row : candidateRows) {
         candidateIds.add(new ClaimRow(row).jobId());
@@ -120,8 +107,30 @@ final class MysqlJobClaimOperations implements JobClaimStore {
       return JobClaimSqlSupport.reorderById(
           jobs.findByIds(claimedIds), claimedIds, JobEntity::getId);
     } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("claim jobs", e);
+      throw ctx.translateTransientStoreException("claim jobs update", e);
     }
+  }
+
+  @SuppressWarnings("unchecked")
+  private List<Object[]> selectClaimCandidates(int limit, NodeTagFilter tagFilter) {
+    int boostInterval = ctx.priorityBoostIntervalMinutes();
+    String tagSql = JobClaimSqlSupport.buildTagFilterSql(tagFilter, "scheduler_job_queue");
+    var query =
+        ctx.em()
+            .createNativeQuery(
+                buildClaimSql(
+                    CLAIM_SELECT_COLUMNS,
+                    EXECUTABLE_JOB_TYPE_FILTER,
+                    tagSql,
+                    "scheduled_time",
+                    boostInterval));
+    int parameter = 1;
+    parameter = JobClaimSqlSupport.bindTagFilter(query, tagFilter, parameter);
+    if (boostInterval > 0) {
+      query.setParameter(parameter++, boostInterval);
+    }
+    query.setParameter(parameter, limit);
+    return query.getResultList();
   }
 
   @Override
@@ -184,6 +193,7 @@ final class MysqlJobClaimOperations implements JobClaimStore {
           LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
           WHERE c.job_type = 'RECURRING'
             AND c.rec_status = 'P'
+            AND q.job_id IS NULL
             AND c.next_fire <= NOW(3)%s
           ORDER BY %s
           LIMIT ?

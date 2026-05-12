@@ -105,6 +105,10 @@ final class MysqlJobStatusTransitions {
   }
 
   JobStatus transitionFromPausedAtomic(UUID id) {
+    /*
+     * Transaction contract: MysqlJobStoreImpl calls this through REQUIRED, so the SELECT ... FOR
+     * UPDATE lock spans the following UPDATE.
+     */
     try {
       // language=MySQL
       String selectSql =

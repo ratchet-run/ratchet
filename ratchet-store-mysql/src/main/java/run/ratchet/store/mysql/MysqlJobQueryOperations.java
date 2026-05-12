@@ -10,6 +10,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.jboss.logging.Logger;
 import run.ratchet.api.JobFilter;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobQuerySortField;
@@ -38,6 +39,8 @@ import run.ratchet.store.query.JobQueryCursor;
  * includeArchived=false} (the default).
  */
 final class MysqlJobQueryOperations {
+
+  private static final Logger log = Logger.getLogger(MysqlJobQueryOperations.class);
 
   /*
    * Keep this builder dialect-local. It mirrors the PostgreSQL builder in shape, but the
@@ -562,8 +565,8 @@ final class MysqlJobQueryOperations {
       params.add(sortVal);
       params.add(sortVal);
       params.add(UuidByteArrayConverter.toBytes(c.jobId()));
-    } catch (IllegalArgumentException ignored) {
-      // Malformed cursor — ignore and fall through to offset-based pagination
+    } catch (IllegalArgumentException e) {
+      log.warnf(e, "Ignoring malformed job-query cursor; falling back to offset pagination");
     }
   }
 }

@@ -3,9 +3,14 @@ package run.ratchet.store.mysql;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.Query;
+import java.lang.reflect.Proxy;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.NodeTagFilter;
 
 class MysqlJobClaimOperationsTest {
 
@@ -51,5 +56,45 @@ class MysqlJobClaimOperationsTest {
 
     assertTrue(operations.claimDueRecurring(0, "node-1", null).isEmpty());
     assertTrue(operations.claimDueRecurring(-1, "node-1", null).isEmpty());
+  }
+
+  @Test
+  void claimDueRecurringExcludesMastersWithActiveQueueRows() {
+    List<String> sqlStatements = new ArrayList<>();
+    MysqlJobClaimOperations operations =
+        new MysqlJobClaimOperations(
+            new MysqlStoreContext(entityManagerReturningEmpty(sqlStatements), null), null);
+
+    assertTrue(operations.claimDueRecurring(10, "node-1", NodeTagFilter.NONE).isEmpty());
+
+    assertTrue(sqlStatements.get(0).contains("AND q.job_id IS NULL"));
+  }
+
+  private static EntityManager entityManagerReturningEmpty(List<String> sqlStatements) {
+    return (EntityManager)
+        Proxy.newProxyInstance(
+            EntityManager.class.getClassLoader(),
+            new Class<?>[] {EntityManager.class},
+            (proxy, method, args) -> {
+              if ("createNativeQuery".equals(method.getName())) {
+                sqlStatements.add((String) args[0]);
+                return queryReturningEmpty();
+              }
+              throw new UnsupportedOperationException(method.getName());
+            });
+  }
+
+  private static Query queryReturningEmpty() {
+    return (Query)
+        Proxy.newProxyInstance(
+            Query.class.getClassLoader(),
+            new Class<?>[] {Query.class},
+            (proxy, method, args) -> {
+              return switch (method.getName()) {
+                case "setParameter" -> proxy;
+                case "getResultList" -> List.of();
+                default -> throw new UnsupportedOperationException(method.getName());
+              };
+            });
   }
 }
