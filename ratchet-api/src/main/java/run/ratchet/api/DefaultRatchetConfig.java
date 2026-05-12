@@ -48,6 +48,7 @@ final class DefaultRatchetConfig implements RatchetConfig {
     } catch (RuntimeException e) {
       LOG.log(
           Level.WARNING,
+          e,
           () ->
               "Ratchet config source "
                   + source.getClass().getName()
@@ -55,9 +56,7 @@ final class DefaultRatchetConfig implements RatchetConfig {
                   + propertyName
                   + "' (env '"
                   + environmentVariable
-                  + "'): "
-                  + e
-                  + "; trying the next source");
+                  + "'); trying the next source");
       return Optional.empty();
     }
   }

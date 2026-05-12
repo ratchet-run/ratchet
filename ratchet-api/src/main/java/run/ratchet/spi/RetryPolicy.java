@@ -22,6 +22,8 @@ public interface RetryPolicy {
    * @param attempt 1-based attempt number being scheduled
    * @return non-null delay. {@link Duration#ZERO} means retry immediately or fall back to the job's
    *     configured backoff policy, depending on the caller.
+   * @apiNote Returning {@code null} violates the SPI contract and may fail the retry path with a
+   *     {@link NullPointerException}.
    */
   Duration getDelay(int attempt);
 }

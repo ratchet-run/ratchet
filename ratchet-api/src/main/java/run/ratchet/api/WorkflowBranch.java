@@ -2,6 +2,7 @@ package run.ratchet.api;
 
 import java.io.Serial;
 import java.io.Serializable;
+import java.util.Objects;
 
 /**
  * A condition-action pair in a job workflow. When the condition evaluates to true after a parent
@@ -20,6 +21,10 @@ public record WorkflowBranch(WorkflowCondition condition, Serializable task, Str
     implements Serializable {
 
   @Serial private static final long serialVersionUID = -5529141024148855247L;
+
+  public WorkflowBranch {
+    Objects.requireNonNull(condition, "condition");
+  }
 
   /** Creates a workflow branch without a description. */
   public WorkflowBranch(WorkflowCondition condition, Serializable task) {

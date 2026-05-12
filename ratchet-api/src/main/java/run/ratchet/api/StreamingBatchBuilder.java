@@ -53,21 +53,32 @@ public interface StreamingBatchBuilder<T extends Serializable> {
   /**
    * Submits the configured streaming batch for execution.
    *
-   * @return a {@link JobHandle} for the submitted batch job
+   * @return a {@link JobHandle} for the submitted batch job; never {@code null}
+   * @throws run.ratchet.api.exception.RatchetTransientStoreException if the backing store is
+   *     temporarily unavailable while the batch is submitted
    * @throws IllegalStateException if no input stream or processing action has been configured
    */
   JobHandle start();
 
-  /** Executes the given task when a batch completes successfully. */
+  /**
+   * Executes the given task when a batch completes successfully.
+   *
+   * @param next task to schedule; must not be {@code null}
+   */
   StreamingBatchBuilder<T> thenOnBatchSuccess(SerializableCheckedRunnable next);
 
-  /** Executes the given task when a batch fails. */
+  /**
+   * Executes the given task when a batch fails.
+   *
+   * @param next task to schedule; must not be {@code null}
+   */
   StreamingBatchBuilder<T> thenOnBatchFailure(SerializableCheckedRunnable next);
 
   /**
    * Executes the given task when a custom batch condition is met.
    *
    * @param condition predicate evaluated against the {@link BatchContext}
+   * @param next task to schedule; must not be {@code null}
    */
   StreamingBatchBuilder<T> thenWhenBatch(
       SerializablePredicate<BatchContext> condition, SerializableCheckedRunnable next);
@@ -77,6 +88,7 @@ public interface StreamingBatchBuilder<T extends Serializable> {
    * maxFailures}.
    *
    * @param maxFailures maximum allowed failures, must be non-negative
+   * @param next task to schedule; must not be {@code null}
    * @throws IllegalArgumentException if {@code maxFailures} is negative
    */
   StreamingBatchBuilder<T> thenWhenFailureCount(int maxFailures, SerializableCheckedRunnable next);
@@ -85,6 +97,7 @@ public interface StreamingBatchBuilder<T extends Serializable> {
    * Executes the given task when the success rate meets or exceeds the threshold.
    *
    * @param minRate minimum success rate (0.0 to 1.0)
+   * @param next task to schedule; must not be {@code null}
    */
   StreamingBatchBuilder<T> thenWhenSuccessRate(double minRate, SerializableCheckedRunnable next);
 }

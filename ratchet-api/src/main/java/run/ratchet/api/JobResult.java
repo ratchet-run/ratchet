@@ -65,7 +65,24 @@ public class JobResult<T> implements Serializable {
     return new JobResult<>(false, null, error, exception, null, null, null, null);
   }
 
-  /** Creates a JobResult with all fields specified. */
+  /**
+   * Creates a result with every persisted field specified.
+   *
+   * <p>This factory is intended for deserialization and persistence adapters. It does not validate
+   * cross-field consistency: successful results should pass {@code null} for {@code error} and
+   * {@code exception}, while failed results should usually pass {@code null} for {@code value}.
+   *
+   * @param <T> result value type
+   * @param success whether the job completed successfully
+   * @param value returned value, or {@code null}
+   * @param error sanitized error message, or {@code null}
+   * @param exception failure cause, or {@code null}
+   * @param executionTimeMs execution duration in milliseconds, or {@code null}
+   * @param startTime execution start time, or {@code null}
+   * @param endTime execution end time, or {@code null}
+   * @param metadata custom metadata, or {@code null}
+   * @return a result instance
+   */
   public static <T> JobResult<T> of(
       boolean success,
       T value,
@@ -120,6 +137,15 @@ public class JobResult<T> implements Serializable {
     return executionTimeMs != null ? executionTimeMs : 0L;
   }
 
+  /**
+   * Returns a metadata value by key.
+   *
+   * <p>The raw value is returned as stored and may require a cast. Prefer {@link
+   * #getMetadata(String, Object)} when a typed default is available.
+   *
+   * @param key metadata key to look up
+   * @return stored value, or {@code null} when metadata is absent or the key is not present
+   */
   public Object getMetadata(String key) {
     return metadata != null ? metadata.get(key) : null;
   }

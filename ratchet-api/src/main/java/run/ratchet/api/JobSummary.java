@@ -18,7 +18,7 @@ import java.util.UUID;
  * @param idempotencyKey caller-supplied idempotency key, or null
  * @param targetClass scheduled target class name
  * @param methodName scheduled target method name
- * @param tags job tags, or null if the store projection did not include tags
+ * @param tags job tags; empty if the store projection did not include tags
  * @param resourceName resource permit name, or null
  * @param pickedBy worker node currently running the job, or null
  * @param createdAt persisted creation time
@@ -52,6 +52,6 @@ public record JobSummary(
     int maxRetries,
     UUID dependsOn) {
   public JobSummary {
-    tags = tags == null ? null : List.copyOf(tags);
+    tags = tags == null ? List.of() : List.copyOf(tags);
   }
 }

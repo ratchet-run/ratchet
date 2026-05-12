@@ -34,6 +34,9 @@ public class JobCompletedEvent extends AbstractJobSchedulerEvent {
   /**
    * Creates a completion event using the current system clock instant.
    *
+   * <p>Use the constructor that accepts an explicit {@link Instant} for tests, replay, or any path
+   * that already has a scheduler-provided timestamp.
+   *
    * @param executionTimeMs wall-clock execution duration in milliseconds, or {@code null} if not
    *     recorded
    */

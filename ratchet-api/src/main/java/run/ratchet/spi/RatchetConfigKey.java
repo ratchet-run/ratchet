@@ -34,24 +34,56 @@ public record RatchetConfigKey<T>(
     Objects.requireNonNull(parser, "parser must not be null");
   }
 
+  /**
+   * Creates a strict boolean key.
+   *
+   * @param name dotted property name
+   * @param environmentVariable environment variable fallback
+   * @param defaultValue value returned when no valid raw value is available
+   * @return boolean configuration key
+   */
   public static RatchetConfigKey<Boolean> bool(
       String name, String environmentVariable, boolean defaultValue) {
     return new RatchetConfigKey<>(
         name, environmentVariable, defaultValue, RatchetConfigKey::parseStrictBoolean);
   }
 
+  /**
+   * Creates a non-negative floating-point key.
+   *
+   * @param name dotted property name
+   * @param environmentVariable environment variable fallback
+   * @param defaultValue non-negative finite default value
+   * @return floating-point configuration key
+   * @throws IllegalArgumentException if {@code defaultValue} is negative or not finite
+   */
   public static RatchetConfigKey<Float> floating(
       String name, String environmentVariable, float defaultValue) {
+    requireNonNegative(defaultValue);
     return new RatchetConfigKey<>(
         name, environmentVariable, defaultValue, raw -> requireNonNegative(Float.parseFloat(raw)));
   }
 
+  /**
+   * Creates a floating-point key constrained to an inclusive range.
+   *
+   * @param name dotted property name
+   * @param environmentVariable environment variable fallback
+   * @param defaultValue finite default value within the inclusive range
+   * @param minInclusive minimum accepted value
+   * @param maxInclusive maximum accepted value
+   * @return floating-point configuration key
+   * @throws IllegalArgumentException if the bounds are inverted or non-finite, or if {@code
+   *     defaultValue} is outside the range
+   */
   public static RatchetConfigKey<Float> floatingRange(
       String name,
       String environmentVariable,
       float defaultValue,
       float minInclusive,
       float maxInclusive) {
+    requireValidRange(minInclusive, maxInclusive);
+    requireRange(defaultValue, minInclusive, maxInclusive);
     return new RatchetConfigKey<>(
         name,
         environmentVariable,
@@ -59,14 +91,35 @@ public record RatchetConfigKey<T>(
         raw -> requireRange(Float.parseFloat(raw), minInclusive, maxInclusive));
   }
 
+  /**
+   * Creates a non-negative integer key.
+   *
+   * @param name dotted property name
+   * @param environmentVariable environment variable fallback
+   * @param defaultValue non-negative default value
+   * @return integer configuration key
+   * @throws IllegalArgumentException if {@code defaultValue} is negative
+   */
   public static RatchetConfigKey<Integer> integer(
       String name, String environmentVariable, int defaultValue) {
+    requireNonNegative(defaultValue);
     return new RatchetConfigKey<>(
         name, environmentVariable, defaultValue, raw -> requireNonNegative(Integer.parseInt(raw)));
   }
 
+  /**
+   * Creates an integer key constrained to a minimum value.
+   *
+   * @param name dotted property name
+   * @param environmentVariable environment variable fallback
+   * @param defaultValue default value greater than or equal to {@code minInclusive}
+   * @param minInclusive minimum accepted value
+   * @return integer configuration key
+   * @throws IllegalArgumentException if {@code defaultValue} is below {@code minInclusive}
+   */
   public static RatchetConfigKey<Integer> integerAtLeast(
       String name, String environmentVariable, int defaultValue, int minInclusive) {
+    requireAtLeast(defaultValue, minInclusive);
     return new RatchetConfigKey<>(
         name,
         environmentVariable,
@@ -74,14 +127,35 @@ public record RatchetConfigKey<T>(
         raw -> requireAtLeast(Integer.parseInt(raw), minInclusive));
   }
 
+  /**
+   * Creates a non-negative long key.
+   *
+   * @param name dotted property name
+   * @param environmentVariable environment variable fallback
+   * @param defaultValue non-negative default value
+   * @return long configuration key
+   * @throws IllegalArgumentException if {@code defaultValue} is negative
+   */
   public static RatchetConfigKey<Long> longValue(
       String name, String environmentVariable, long defaultValue) {
+    requireNonNegative(defaultValue);
     return new RatchetConfigKey<>(
         name, environmentVariable, defaultValue, raw -> requireNonNegative(Long.parseLong(raw)));
   }
 
+  /**
+   * Creates a long key constrained to a minimum value.
+   *
+   * @param name dotted property name
+   * @param environmentVariable environment variable fallback
+   * @param defaultValue default value greater than or equal to {@code minInclusive}
+   * @param minInclusive minimum accepted value
+   * @return long configuration key
+   * @throws IllegalArgumentException if {@code defaultValue} is below {@code minInclusive}
+   */
   public static RatchetConfigKey<Long> longAtLeast(
       String name, String environmentVariable, long defaultValue, long minInclusive) {
+    requireAtLeast(defaultValue, minInclusive);
     return new RatchetConfigKey<>(
         name,
         environmentVariable,
@@ -89,6 +163,14 @@ public record RatchetConfigKey<T>(
         raw -> requireAtLeast(Long.parseLong(raw), minInclusive));
   }
 
+  /**
+   * Creates a string key.
+   *
+   * @param name dotted property name
+   * @param environmentVariable environment variable fallback
+   * @param defaultValue default value returned when no valid raw value is available
+   * @return string configuration key
+   */
   public static RatchetConfigKey<String> string(
       String name, String environmentVariable, String defaultValue) {
     return new RatchetConfigKey<>(name, environmentVariable, defaultValue, Function.identity());
@@ -123,6 +205,15 @@ public record RatchetConfigKey<T>(
               + " inclusive");
     }
     return value;
+  }
+
+  private static void requireValidRange(float minInclusive, float maxInclusive) {
+    if (!Float.isFinite(minInclusive)
+        || !Float.isFinite(maxInclusive)
+        || minInclusive > maxInclusive) {
+      throw new IllegalArgumentException(
+          "Minimum value must be less than or equal to maximum value");
+    }
   }
 
   private static int requireNonNegative(int value) {

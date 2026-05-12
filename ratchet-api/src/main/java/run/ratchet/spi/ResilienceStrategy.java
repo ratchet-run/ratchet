@@ -17,7 +17,9 @@ public interface ResilienceStrategy {
    *
    * @param serviceName identifies the service being protected (must be from a bounded vocabulary)
    * @param <T> the return type
-   * @throws Exception if the task fails or the service is unavailable
+   * @throws Exception if the task fails or the service is unavailable. Implementations that reject
+   *     a call because a circuit is open should throw a distinct runtime exception so callers can
+   *     tell circuit rejection from task failure.
    */
   <T> T execute(String serviceName, Callable<T> task) throws Exception;
 

@@ -344,6 +344,12 @@ public class RatchetOptions {
       profiles = Map.copyOf(profiles);
     }
 
+    /**
+     * Returns the configured options for a profile.
+     *
+     * @param profile profile to look up
+     * @return configured options, or {@code null} if no options were configured for the profile
+     */
     public @Nullable CircuitBreakerProfileOptions profile(CircuitBreakerProfile profile) {
       return profiles.get(profile);
     }
@@ -440,6 +446,7 @@ public class RatchetOptions {
       return this;
     }
 
+    @Incubating
     public Builder circuitBreaker(Consumer<CircuitBreakerBuilder> customizer) {
       customizer.accept(circuitBreaker);
       return this;

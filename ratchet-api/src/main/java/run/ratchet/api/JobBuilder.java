@@ -177,7 +177,12 @@ public interface JobBuilder {
   /** Returns the chain tasks in addition order. The list is unmodifiable. */
   List<SerializableCheckedRunnable> chainTasks();
 
-  /** Returns the delay duration; never null (may be {@link Duration#ZERO}). */
+  /**
+   * Returns the delay duration; never null (may be {@link Duration#ZERO}).
+   *
+   * <p>The delay is fixed when this builder is created by a {@link JobSubmitter} enqueue overload;
+   * this fluent builder does not expose a delay mutator.
+   */
   Duration delay();
 
   /**

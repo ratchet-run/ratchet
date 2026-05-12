@@ -18,4 +18,26 @@ public record CircuitBreakerConfig(
     int slidingWindowSize,
     long waitDurationMs,
     int permittedCallsInHalfOpen,
-    int minimumCalls) {}
+    int minimumCalls) {
+
+  public CircuitBreakerConfig {
+    if (!Float.isFinite(failureRateThreshold)
+        || failureRateThreshold < 0.0f
+        || failureRateThreshold > 100.0f) {
+      throw new IllegalArgumentException(
+          "failureRateThreshold must be between 0.0 and 100.0 inclusive");
+    }
+    if (slidingWindowSize <= 0) {
+      throw new IllegalArgumentException("slidingWindowSize must be greater than 0");
+    }
+    if (waitDurationMs < 0) {
+      throw new IllegalArgumentException("waitDurationMs must be greater than or equal to 0");
+    }
+    if (permittedCallsInHalfOpen <= 0) {
+      throw new IllegalArgumentException("permittedCallsInHalfOpen must be greater than 0");
+    }
+    if (minimumCalls <= 0) {
+      throw new IllegalArgumentException("minimumCalls must be greater than 0");
+    }
+  }
+}

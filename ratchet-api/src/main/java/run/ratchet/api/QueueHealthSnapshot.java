@@ -21,8 +21,8 @@ import java.util.Map;
  * @param avgProcessingTimeMs average execution duration for recently succeeded jobs, in ms
  * @param p95QueueWaitMs 95th-percentile queue wait time for recently succeeded jobs, in ms
  * @param oldestPendingJobTime scheduled time of the oldest pending job, or null if no pending jobs
- * @param pendingByType pending job count keyed by public job type
- * @param pendingByPriority pending job count keyed by priority
+ * @param pendingByType pending job count keyed by public job type; never {@code null}
+ * @param pendingByPriority pending job count keyed by priority; never {@code null}
  */
 @Incubating
 public record QueueHealthSnapshot(
@@ -41,7 +41,7 @@ public record QueueHealthSnapshot(
     Map<JobType, Long> pendingByType,
     Map<JobPriority, Long> pendingByPriority) {
   public QueueHealthSnapshot {
-    pendingByType = pendingByType == null ? null : Map.copyOf(pendingByType);
-    pendingByPriority = pendingByPriority == null ? null : Map.copyOf(pendingByPriority);
+    pendingByType = pendingByType == null ? Map.of() : Map.copyOf(pendingByType);
+    pendingByPriority = pendingByPriority == null ? Map.of() : Map.copyOf(pendingByPriority);
   }
 }

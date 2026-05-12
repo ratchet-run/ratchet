@@ -53,6 +53,16 @@ class ApiValueImmutabilityTest {
   }
 
   @Test
+  void jobDetailDefaultsNullCollectionsToEmptyLists() {
+    JobDetail detail =
+        new JobDetail(
+            summary(List.of("blue")), null, null, null, null, null, null, null, null, null, null);
+
+    assertEquals(List.of(), detail.executionHistory());
+    assertEquals(List.of(), detail.dependantJobIds());
+  }
+
+  @Test
   void jobSummaryDefensivelyCopiesTags() {
     List<String> tags = new ArrayList<>(List.of("alpha"));
 
@@ -61,6 +71,11 @@ class ApiValueImmutabilityTest {
 
     assertEquals(List.of("alpha"), summary.tags());
     assertThrows(UnsupportedOperationException.class, () -> summary.tags().add("gamma"));
+  }
+
+  @Test
+  void jobSummaryDefaultsNullTagsToEmptyList() {
+    assertEquals(List.of(), summary(null).tags());
   }
 
   @Test
@@ -79,6 +94,15 @@ class ApiValueImmutabilityTest {
     assertEquals(Map.of(JobPriority.NORMAL, 2L), snapshot.pendingByPriority());
     assertThrows(
         UnsupportedOperationException.class, () -> snapshot.pendingByType().put(JobType.BATCH, 3L));
+  }
+
+  @Test
+  void queueHealthSnapshotDefaultsNullBreakdownsToEmptyMaps() {
+    QueueHealthSnapshot snapshot =
+        new QueueHealthSnapshot(1, 0, 0, 0, 0, 0, 0, 1, 0.0, 0.0, 0, null, null, null);
+
+    assertEquals(Map.of(), snapshot.pendingByType());
+    assertEquals(Map.of(), snapshot.pendingByPriority());
   }
 
   @Test

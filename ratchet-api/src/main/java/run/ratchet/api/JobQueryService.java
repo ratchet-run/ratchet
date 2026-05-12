@@ -103,6 +103,9 @@ public interface JobQueryService {
   /**
    * Returns the first page of child jobs for the given batch parent.
    *
+   * <p>This convenience overload returns a {@link JobPage} so callers can inspect pagination
+   * metadata. Use {@code getBatchChildren(id).items()} when only the child list is needed.
+   *
    * @param batchParentId the batch parent job id
    * @return batch children page; empty if none or if the job is not a batch parent
    */

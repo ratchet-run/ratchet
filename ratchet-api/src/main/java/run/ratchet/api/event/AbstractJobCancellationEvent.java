@@ -47,7 +47,13 @@ public abstract class AbstractJobCancellationEvent extends AbstractJobSchedulerE
     this.executionTimeMs = executionTimeMs;
   }
 
-  /** Returns the status observed before the cancellation transition. */
+  /**
+   * Returns the status observed before the cancellation transition.
+   *
+   * <p>The value is the persisted {@link run.ratchet.api.JobStatus#name()} string. It is kept as a
+   * string so event consumers can read events produced by newer schedulers that introduce
+   * additional statuses.
+   */
   public String getPreviousStatus() {
     return previousStatus;
   }

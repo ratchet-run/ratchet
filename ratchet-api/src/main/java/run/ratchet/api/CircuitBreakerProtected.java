@@ -15,6 +15,11 @@ import java.lang.annotation.Target;
  * interceptor wraps the invocation in the built-in circuit breaker selected by {@link #service()}
  * and {@link #profile()}.
  *
+ * <p>When the breaker is open, the RI rejects the invocation before the target method runs. The
+ * rejection is surfaced as the RI resilience exception used by the configured interceptor; portable
+ * callers should treat it as a runtime circuit-open failure rather than as an exception thrown by
+ * the annotated method body.
+ *
  * <h2>Usage</h2>
  *
  * <pre>{@code

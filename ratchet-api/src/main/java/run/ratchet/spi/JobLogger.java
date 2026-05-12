@@ -2,7 +2,12 @@ package run.ratchet.spi;
 
 import run.ratchet.api.Incubating;
 
-/** Per-job logging facade. Implementations must be thread-safe. */
+/**
+ * Per-job logging facade. Implementations must be thread-safe.
+ *
+ * <p>The default level checks return {@code true} so simple implementations log everything.
+ * Production implementations should override them to avoid unnecessary message formatting.
+ */
 @Incubating
 public interface JobLogger {
 

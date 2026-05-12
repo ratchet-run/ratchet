@@ -345,6 +345,7 @@ public interface JobSchedulerService {
    *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}.
    *
+   * @param tag the tag identifying recurring jobs to cancel
    * @return the number of jobs canceled
    */
   int cancelRecurringJobsByTag(String tag);

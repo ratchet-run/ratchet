@@ -141,9 +141,11 @@ public final class RatchetOptionsFactory {
   @Incubating
   public static RatchetOptions fromEnvironment(RatchetConfigSource... additional) {
     List<RatchetConfigSource> sources = new ArrayList<>();
-    for (RatchetConfigSource source : additional) {
-      if (source != null) {
-        sources.add(source);
+    if (additional != null) {
+      for (RatchetConfigSource source : additional) {
+        if (source != null) {
+          sources.add(source);
+        }
       }
     }
     MicroProfileRatchetConfigSource.create().ifPresent(sources::add);

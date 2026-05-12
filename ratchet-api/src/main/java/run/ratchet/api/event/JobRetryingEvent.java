@@ -42,6 +42,9 @@ public class JobRetryingEvent extends AbstractJobSchedulerEvent {
   /**
    * Creates a retry event using the current system clock instant.
    *
+   * <p>Use the constructor that accepts an explicit {@link Instant} for tests, replay, or any retry
+   * path that already has a scheduler-provided timestamp.
+   *
    * @param errorMessage sanitized failure message that caused the retry, or {@code null} if no
    *     message was recorded
    * @param retryAttempt 1-based execution attempt count being scheduled for retry

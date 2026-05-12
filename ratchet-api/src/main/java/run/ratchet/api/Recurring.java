@@ -63,7 +63,11 @@ public @interface Recurring {
   /** Display name for monitoring and logs; defaults to the method name if not specified. */
   String name() default "";
 
-  /** Execution priority on a 1-10 scale where 1 is lowest and 10 is highest. Default is 5. */
+  /**
+   * Execution priority on a 1-10 scale where 1 is lowest and 10 is highest. Default is 5.
+   *
+   * <p>Values outside this range cause {@link IllegalArgumentException} during job registration.
+   */
   int priority() default 5;
 
   /** Tags for filtering and categorization. */

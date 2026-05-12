@@ -21,7 +21,8 @@ public interface JobInvocationResolver {
    *
    * @param callback serializable user callback; never {@code null}
    * @param runtimeArguments arguments appended or substituted by the caller; use an empty list when
-   *     there are no runtime arguments
+   *     there are no runtime arguments. Implementations must treat this list as read-only and must
+   *     not retain it unless they make their own copy.
    * @return invocation descriptor suitable for persistence; never {@code null}
    */
   JobInvocation resolve(Serializable callback, List<Object> runtimeArguments);

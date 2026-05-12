@@ -3,10 +3,15 @@ package run.ratchet.api;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.Optional;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import run.ratchet.spi.RatchetConfigSource;
 
 /** Optional MicroProfile Config adapter loaded reflectively when MP Config is present. */
 final class MicroProfileRatchetConfigSource implements RatchetConfigSource {
+
+  private static final Logger LOG =
+      Logger.getLogger(MicroProfileRatchetConfigSource.class.getName());
 
   private final Object config;
   private final Method getOptionalValue;
@@ -29,6 +34,7 @@ final class MicroProfileRatchetConfigSource implements RatchetConfigSource {
         | InvocationTargetException
         | NoSuchMethodException
         | RuntimeException e) {
+      LOG.log(Level.WARNING, e, () -> "MicroProfile Config is present but could not be loaded");
       return Optional.empty();
     }
   }

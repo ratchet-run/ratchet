@@ -24,7 +24,13 @@ public interface BatchBuilder {
   <T extends Serializable> BatchBuilder forEach(
       Collection<T> items, SerializableConsumer<T> action);
 
-  /** Registers a hook invoked after each child job completes with current batch progress. */
+  /**
+   * Registers a hook invoked after each child job completes with current batch progress.
+   *
+   * @param hook progress callback; must not be {@code null}
+   * @return this builder
+   * @throws NullPointerException if {@code hook} is null
+   */
   BatchBuilder onProgress(SerializableConsumer<BatchContext> hook);
 
   /**
@@ -35,27 +41,64 @@ public interface BatchBuilder {
    */
   JobHandle submit();
 
-  /** Adds a conditional workflow branch with a description for debugging. */
+  /**
+   * Adds a conditional workflow branch with a description for debugging.
+   *
+   * @param condition branch predicate; must not be {@code null}
+   * @param next task scheduled when the condition matches; must not be {@code null}
+   * @param description optional label for monitoring and debugging
+   * @return this builder
+   * @throws NullPointerException if {@code condition} or {@code next} is null
+   */
   BatchBuilder thenBranch(
       WorkflowCondition condition, SerializableCheckedRunnable next, String description);
 
-  /** Schedules a task to run if the batch fails. */
+  /**
+   * Schedules a task to run if the batch fails.
+   *
+   * @param next task to schedule; must not be {@code null}
+   * @return this builder
+   * @throws NullPointerException if {@code next} is null
+   */
   BatchBuilder thenOnBatchFailure(SerializableCheckedRunnable next);
 
-  /** Schedules a task to run if the batch succeeds. */
+  /**
+   * Schedules a task to run if the batch succeeds.
+   *
+   * @param next task to schedule; must not be {@code null}
+   * @return this builder
+   * @throws NullPointerException if {@code next} is null
+   */
   BatchBuilder thenOnBatchSuccess(SerializableCheckedRunnable next);
 
-  /** Schedules a task when a custom predicate on {@link BatchContext} is true. */
+  /**
+   * Schedules a task when a custom predicate on {@link BatchContext} is true.
+   *
+   * @param condition predicate evaluated against the batch context; must not be {@code null}
+   * @param next task to schedule; must not be {@code null}
+   * @return this builder
+   * @throws NullPointerException if {@code condition} or {@code next} is null
+   */
   BatchBuilder thenWhenBatch(
       SerializablePredicate<BatchContext> condition, SerializableCheckedRunnable next);
 
-  /** Schedules a task when the failure count reaches {@code maxFailures}. */
+  /**
+   * Schedules a task when the failure count reaches {@code maxFailures}.
+   *
+   * @param maxFailures failure threshold
+   * @param next task to schedule; must not be {@code null}
+   * @return this builder
+   * @throws NullPointerException if {@code next} is null
+   */
   BatchBuilder thenWhenFailureCount(int maxFailures, SerializableCheckedRunnable next);
 
   /**
    * Schedules a task when the success rate meets or exceeds {@code minRate}.
    *
    * @param minRate 0.0 to 1.0
+   * @param next task to schedule; must not be {@code null}
+   * @return this builder
+   * @throws NullPointerException if {@code next} is null
    */
   BatchBuilder thenWhenSuccessRate(double minRate, SerializableCheckedRunnable next);
 }

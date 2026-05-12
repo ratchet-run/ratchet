@@ -27,6 +27,9 @@ public interface ClusterCoordinator {
    * threads, or scheduler threads. The listener must be fast, non-blocking, and thread-safe.
    * Registering the same listener more than once may produce duplicate callbacks.
    *
+   * <p>The SPI has no unregister method. Callers that need shutdown behavior should register a
+   * wrapper that checks local lifecycle state before dispatching.
+   *
    * @param listener callback to invoke when another node reports available work; never {@code null}
    */
   void registerWakeupListener(Runnable listener);

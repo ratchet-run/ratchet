@@ -31,7 +31,8 @@ public interface PollingDelayStrategy {
    * Records the result of a poll cycle.
    *
    * @param jobCount number of jobs claimed during the poll; never negative
-   * @param pollStartTime epoch millisecond timestamp captured when the poll began
+   * @param pollStartTime epoch millisecond timestamp captured from the scheduler's time source when
+   *     the poll began
    * @return the next poll delay in milliseconds
    */
   long recordPollResult(int jobCount, long pollStartTime);

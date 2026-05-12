@@ -24,8 +24,8 @@ import java.util.UUID;
  * @param executionDurationMs execution duration in milliseconds, or null if unavailable
  * @param queueWaitMs time from scheduled availability to execution start in milliseconds, or null
  *     if unavailable
- * @param executionHistory bounded execution history for this job
- * @param dependantJobIds bounded IDs of jobs that directly depend on this job
+ * @param executionHistory bounded execution history for this job; never {@code null}
+ * @param dependantJobIds bounded IDs of jobs that directly depend on this job; never {@code null}
  */
 @Incubating
 public record JobDetail(
@@ -43,7 +43,7 @@ public record JobDetail(
   public JobDetail {
     params = params == null ? null : Map.copyOf(params);
     traceContext = traceContext == null ? null : Map.copyOf(traceContext);
-    executionHistory = executionHistory == null ? null : List.copyOf(executionHistory);
-    dependantJobIds = dependantJobIds == null ? null : List.copyOf(dependantJobIds);
+    executionHistory = executionHistory == null ? List.of() : List.copyOf(executionHistory);
+    dependantJobIds = dependantJobIds == null ? List.of() : List.copyOf(dependantJobIds);
   }
 }

@@ -6,6 +6,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.spi.RatchetConfig;
@@ -127,5 +131,63 @@ class DefaultRatchetConfigTest {
 
     assertTrue(exception.getMessage().contains("4"));
     assertTrue(exception.getMessage().contains("5"));
+  }
+
+  @Test
+  void sourceFailureLogRecordCarriesThrownException() {
+    Logger logger = Logger.getLogger(DefaultRatchetConfig.class.getName());
+    CapturingHandler handler = new CapturingHandler();
+    logger.addHandler(handler);
+    logger.setUseParentHandlers(false);
+    Level previousLevel = logger.getLevel();
+    logger.setLevel(Level.ALL);
+    IllegalStateException failure = new IllegalStateException("source down");
+    try {
+      RatchetConfig config =
+          new DefaultRatchetConfig(
+              List.of(
+                  (propertyName, environmentVariable) -> {
+                    throw failure;
+                  }));
+
+      assertEquals(7, config.get(KEY));
+      assertEquals(failure, handler.record.getThrown());
+    } finally {
+      logger.removeHandler(handler);
+      logger.setLevel(previousLevel);
+      logger.setUseParentHandlers(true);
+    }
+  }
+
+  @Test
+  void configKeyFactoriesRejectInvalidDefaults() {
+    assertThrows(IllegalArgumentException.class, () -> RatchetConfigKey.integer("n", "E", -1));
+    assertThrows(
+        IllegalArgumentException.class, () -> RatchetConfigKey.integerAtLeast("n", "E", 2, 3));
+    assertThrows(IllegalArgumentException.class, () -> RatchetConfigKey.longValue("n", "E", -1L));
+    assertThrows(
+        IllegalArgumentException.class, () -> RatchetConfigKey.longAtLeast("n", "E", 2L, 3L));
+    assertThrows(IllegalArgumentException.class, () -> RatchetConfigKey.floating("n", "E", -1.0f));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> RatchetConfigKey.floatingRange("n", "E", 0.5f, 1.0f, 0.0f));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> RatchetConfigKey.floatingRange("n", "E", 2.0f, 0.0f, 1.0f));
+  }
+
+  private static final class CapturingHandler extends Handler {
+    private LogRecord record;
+
+    @Override
+    public void publish(LogRecord record) {
+      this.record = record;
+    }
+
+    @Override
+    public void flush() {}
+
+    @Override
+    public void close() {}
   }
 }

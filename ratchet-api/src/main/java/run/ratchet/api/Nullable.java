@@ -6,7 +6,11 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
-/** Marks a public API element whose value may be null. */
+/**
+ * Marks a public API element whose value may be null.
+ *
+ * @since 1.0
+ */
 @Documented
 @Retention(RetentionPolicy.RUNTIME)
 @Target({

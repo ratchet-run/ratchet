@@ -62,6 +62,13 @@ class RatchetOptionsFactoryTest {
   }
 
   @Test
+  void fromEnvironmentTreatsNullAdditionalArrayAsNoOverlays() {
+    RatchetOptions options = RatchetOptionsFactory.fromEnvironment((RatchetConfigSource[]) null);
+
+    assertMatchesDefaults(RatchetOptions.defaults(), options);
+  }
+
+  @Test
   void mapsRepresentativeConfigurationKeysAcrossOptionGroups() {
     RatchetOptions options =
         optionsFrom(

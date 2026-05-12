@@ -35,13 +35,13 @@ public class JobsBulkSignaledEvent implements Serializable {
       SignalDecision.Outcome outcome,
       String rejectionReason,
       Instant signaledAt) {
-    this.signalKey = signalKey;
+    this.signalKey = Objects.requireNonNull(signalKey, "signalKey");
     this.count = count;
     this.signalDeliveredBy = signalDeliveredBy;
     this.outcome = Objects.requireNonNull(outcome, "outcome");
     this.rejectionReason =
         rejectionReason == null || rejectionReason.isBlank() ? null : rejectionReason.trim();
-    this.signaledAt = signaledAt;
+    this.signaledAt = Objects.requireNonNull(signaledAt, "signaledAt");
   }
 
   public String getSignalKey() {

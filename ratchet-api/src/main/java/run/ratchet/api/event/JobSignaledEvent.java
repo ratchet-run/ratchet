@@ -70,11 +70,14 @@ public class JobSignaledEvent extends AbstractJobSchedulerEvent {
       SignalDecision.Outcome outcome,
       String rejectionReason) {
     super(jobId, businessKey, jobType, priority, nodeId);
-    this.signalKey = signalKey;
-    this.signalDeliveredBy = signalDeliveredBy;
+    this.signalKey = Objects.requireNonNull(signalKey, "signalKey");
+    this.signalDeliveredBy = Objects.requireNonNull(signalDeliveredBy, "signalDeliveredBy");
     this.outcome = Objects.requireNonNull(outcome, "outcome");
     this.rejectionReason =
         rejectionReason == null || rejectionReason.isBlank() ? null : rejectionReason.trim();
+    if (this.outcome == SignalDecision.Outcome.APPROVED && this.rejectionReason != null) {
+      throw new IllegalArgumentException("approved events cannot carry a rejection reason");
+    }
   }
 
   /** Returns the signal key delivered to the waiting job. */

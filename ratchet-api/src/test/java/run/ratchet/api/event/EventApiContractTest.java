@@ -48,10 +48,49 @@ class EventApiContractTest {
                 JobType.SINGLE,
                 JobPriority.NORMAL,
                 "node-a",
+                null,
+                "operator",
+                SignalDecision.Outcome.APPROVED,
+                null));
+    assertThrows(
+        NullPointerException.class,
+        () ->
+            new JobSignaledEvent(
+                JOB_ID,
+                "business-key",
+                JobType.SINGLE,
+                JobPriority.NORMAL,
+                "node-a",
+                "signal-key",
+                null,
+                SignalDecision.Outcome.APPROVED,
+                null));
+    assertThrows(
+        NullPointerException.class,
+        () ->
+            new JobSignaledEvent(
+                JOB_ID,
+                "business-key",
+                JobType.SINGLE,
+                JobPriority.NORMAL,
+                "node-a",
                 "signal-key",
                 "operator",
                 null,
                 null));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new JobSignaledEvent(
+                JOB_ID,
+                "business-key",
+                JobType.SINGLE,
+                JobPriority.NORMAL,
+                "node-a",
+                "signal-key",
+                "operator",
+                SignalDecision.Outcome.APPROVED,
+                "not allowed"));
 
     JobSignaledEvent event =
         new JobSignaledEvent(
@@ -73,7 +112,17 @@ class EventApiContractTest {
   void bulkSignalEventNormalizesOutcomeAndRejectionReason() {
     assertThrows(
         NullPointerException.class,
+        () ->
+            new JobsBulkSignaledEvent(
+                null, 2, "operator", SignalDecision.Outcome.APPROVED, null, TIMESTAMP));
+    assertThrows(
+        NullPointerException.class,
         () -> new JobsBulkSignaledEvent("signal-key", 2, "operator", null, null, TIMESTAMP));
+    assertThrows(
+        NullPointerException.class,
+        () ->
+            new JobsBulkSignaledEvent(
+                "signal-key", 2, "operator", SignalDecision.Outcome.APPROVED, null, null));
 
     JobsBulkSignaledEvent event =
         new JobsBulkSignaledEvent(

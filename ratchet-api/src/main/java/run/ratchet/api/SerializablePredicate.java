@@ -16,6 +16,8 @@ import java.util.function.Predicate;
 @FunctionalInterface
 public interface SerializablePredicate<T> extends Predicate<T>, Serializable {
 
+  long serialVersionUID = 1L;
+
   /** {@inheritDoc} */
   @Override
   boolean test(T t);
