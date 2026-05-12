@@ -45,8 +45,8 @@ public class SubmissionFailureHandler {
   public void handleGateFailure(JobEntity job, GateCheckResult result, boolean isFirstAttempt) {
     recordGateRejected(job.getJobType(), result);
     if (isFirstAttempt) {
-      resetToPendingOrBuffer(job);
-      log.info(result.reason());
+      ResetOutcome outcome = resetToPendingOrBuffer(job);
+      logFirstAttemptGateFailure(job, result, outcome);
     } else {
       if (!retryBufferManager.offer(job)) {
         resetToPendingOrBuffer(job);
@@ -122,12 +122,29 @@ public class SubmissionFailureHandler {
     jobStateManager.resetJobToPending(claim.id());
   }
 
-  private void resetToPendingOrBuffer(JobEntity job) {
-    if (!jobStateManager.resetJobToPending(job)) {
-      boolean buffered = retryBufferManager.forceOffer(job);
-      if (!buffered) {
-        log.warnf("Job %s was neither reset to PENDING nor buffered", job.getId());
-      }
+  private ResetOutcome resetToPendingOrBuffer(JobEntity job) {
+    if (jobStateManager.resetJobToPending(job)) {
+      return ResetOutcome.RESET_TO_PENDING;
+    }
+    boolean buffered = retryBufferManager.forceOffer(job);
+    if (buffered) {
+      return ResetOutcome.BUFFERED;
+    }
+    log.warnf("Job %s was neither reset to PENDING nor buffered", job.getId());
+    return ResetOutcome.NOT_RECOVERED;
+  }
+
+  private void logFirstAttemptGateFailure(
+      JobEntity job, GateCheckResult result, ResetOutcome outcome) {
+    switch (outcome) {
+      case RESET_TO_PENDING ->
+          log.infof("%s - returned job %s to PENDING", result.reason(), job.getId());
+      case BUFFERED ->
+          log.infof(
+              "%s - buffered job %s because reset to PENDING did not apply",
+              result.reason(), job.getId());
+      case NOT_RECOVERED ->
+          log.warnf("%s - job %s was neither reset nor buffered", result.reason(), job.getId());
     }
   }
 
@@ -144,5 +161,11 @@ public class SubmissionFailureHandler {
 
   private boolean bufferClaim(JobClaimDto claim) {
     return retryBufferManager.offer(claim);
+  }
+
+  private enum ResetOutcome {
+    RESET_TO_PENDING,
+    BUFFERED,
+    NOT_RECOVERED
   }
 }

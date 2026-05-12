@@ -26,6 +26,10 @@ import java.util.concurrent.locks.ReentrantLock;
  *   → If all succeed → CLOSED
  *   → If any fail → OPEN
  * </pre>
+ *
+ * <p>Once the breaker is OPEN, normal successes cannot close it because calls are rejected.
+ * Recovery happens only after the wait duration permits HALF_OPEN probes, or through an explicit
+ * {@link #reset()}.
  */
 public class CircuitBreaker {
 

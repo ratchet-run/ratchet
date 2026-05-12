@@ -76,15 +76,10 @@ public class JobSecurityValidator {
             Modifier.isPrivate(nonPublic.getModifiers())
                 ? "private"
                 : Modifier.isProtected(nonPublic.getModifiers()) ? "protected" : "package-private";
-        throw new SecurityException(
-            "Method "
-                + payload.method()
-                + " in class "
-                + targetClass
-                + " is "
-                + visibility
-                + " -- only public methods can be scheduled as jobs. "
-                + "Change the method visibility to public.");
+        log.debugf(
+            "Rejected non-public job method %s.%s%s (%s)",
+            targetClass, payload.method(), payload.methodDescriptor(), visibility);
+        throw new SecurityException("Only public methods can be scheduled as jobs.");
       }
       NoSuchMethodException missing =
           new NoSuchMethodException(
@@ -99,12 +94,10 @@ public class JobSecurityValidator {
 
     int modifiers = method.getModifiers();
     if (!Modifier.isPublic(modifiers)) {
-      throw new SecurityException(
-          "Method "
-              + payload.method()
-              + " in class "
-              + targetClass
-              + " is not public. Only public methods can be scheduled.");
+      log.debugf(
+          "Rejected non-public job method %s.%s%s",
+          targetClass, payload.method(), payload.methodDescriptor());
+      throw new SecurityException("Only public methods can be scheduled as jobs.");
     }
 
     log.debugf("Validated: %s.%s", targetClass, payload.method());

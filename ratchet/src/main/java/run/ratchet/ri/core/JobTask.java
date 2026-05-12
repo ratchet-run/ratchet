@@ -679,6 +679,7 @@ public class JobTask implements Callable<Void> {
       lifecycleFacade.handleJobSuccess(job);
     } catch (Exception e) {
       log.warnf(
+          e,
           "Job %s [type=%s, key=%s] succeeded but post-success lifecycle processing failed: %s: %s",
           job.getId(),
           job.getJobType(),

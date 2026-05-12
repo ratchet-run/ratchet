@@ -16,6 +16,10 @@ import run.ratchet.store.entity.JobLogEntity.LogLevel;
  *
  * <p>Created by {@link DefaultJobLoggerFactory} and bound into {@code JobContext} by {@link
  * JobTask}.
+ *
+ * <p>The {@code isXxxEnabled()} methods return {@code true} when either the underlying logger level
+ * is enabled or an {@link InternalEventPublisher} is present. A publisher means the line will be
+ * persisted as a job log even when the backend logger would drop that level.
  */
 public class JBossLoggingJobLogger implements JobLogger {
 

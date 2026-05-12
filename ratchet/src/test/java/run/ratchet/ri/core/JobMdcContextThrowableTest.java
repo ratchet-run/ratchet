@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import org.jboss.logging.MDC;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -90,5 +91,20 @@ class JobMdcContextThrowableTest {
     // Defensive: bind() never called, but clear() must still be a no-op.
     JobMdcContext.clear();
     assertNull(MDC.get(JobMdcContext.MDC_JOB_ID));
+  }
+
+  @Test
+  void mdcValuesDoNotPropagateToDifferentThread() throws Exception {
+    UUID jobId = new UUID(0L, 8L);
+    JobMdcContext.bindJobContext(jobId, Map.of(), "node-D", "dana");
+    AtomicReference<Object> workerJobId = new AtomicReference<>();
+
+    Thread worker = new Thread(() -> workerJobId.set(MDC.get(JobMdcContext.MDC_JOB_ID)));
+    worker.start();
+    worker.join();
+
+    assertNull(workerJobId.get());
+    assertEquals(jobId.toString(), MDC.get(JobMdcContext.MDC_JOB_ID));
+    JobMdcContext.clear();
   }
 }

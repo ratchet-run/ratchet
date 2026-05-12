@@ -168,7 +168,7 @@ public class JobTimeoutHandler {
 
     // Step 2: Retries remain? Try to reschedule.
     if (newAttempts <= job.getMaxRetries()) {
-      Instant retryTime = effective().instant().plusSeconds(timeoutSec);
+      Instant retryTime = hardTimeoutRetryTime(jobId, timeoutSec, newAttempts);
       boolean rescheduled =
           jobRetryStore.scheduleJobRetry(jobId, timeoutEx.getMessage(), retryTime, newAttempts);
       if (rescheduled) {
@@ -252,6 +252,12 @@ public class JobTimeoutHandler {
       throw new IllegalStateException("JobTimeoutHandler clock was not initialized");
     }
     return clock;
+  }
+
+  private Instant hardTimeoutRetryTime(UUID jobId, long timeoutSec, int attempt) {
+    long jitterBoundMs = Math.max(1L, TimeUnit.SECONDS.toMillis(timeoutSec) / 4L);
+    long jitterMs = 1L + Math.floorMod((long) Objects.hash(jobId, attempt), jitterBoundMs);
+    return effective().instant().plusSeconds(timeoutSec).plusMillis(jitterMs);
   }
 
   private void publishSignalTimedOutEvent(JobEntity job, Instant now) {

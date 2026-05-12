@@ -26,6 +26,10 @@ import run.ratchet.spi.JobLogger;
  * Servlet filter or JAX-RS interceptor) before the job was submitted, and {@code MDC.clear()} would
  * wipe them.
  *
+ * <p>{@code bindJobContext(...)} and {@link #clear()} must run on the same execution thread. Both
+ * {@link JobContext} and JBoss Logging {@link MDC} use thread-local storage. Code that hands a job
+ * to an executor must bind and clear inside the worker thread's try/finally block.
+ *
  * <h2>Backend rendering</h2>
  *
  * <p>JBoss Logging is a facade. At runtime it auto-detects an installed backend in this priority

@@ -145,6 +145,23 @@ class JobPayloadInputValidatorTest {
   }
 
   @Test
+  void targetClassLinkageFailureIsReportedAsValidationError() {
+    ClassLoader original = Thread.currentThread().getContextClassLoader();
+    Thread.currentThread().setContextClassLoader(new LinkageFailureClassLoader(original));
+    try {
+      JobPayload payload = new JobPayload("example.Broken", "run", "()V", false, List.of());
+
+      IllegalArgumentException ex =
+          assertThrows(IllegalArgumentException.class, () -> validator.validateAtCreation(payload));
+
+      assertTrue(ex.getMessage().contains("Cannot load target class example.Broken"));
+      assertTrue(ex.getMessage().contains("java.lang.NoClassDefFoundError"));
+    } finally {
+      Thread.currentThread().setContextClassLoader(original);
+    }
+  }
+
+  @Test
   void invalidTargetClassNameRejectedBeforeClassLoading() {
     JobPayload payload = new JobPayload("java.lang..Runtime", "exec", "()V", false, List.of());
 
@@ -191,5 +208,19 @@ class JobPayloadInputValidatorTest {
     protected void guarded() {}
 
     void local() {}
+  }
+
+  private static final class LinkageFailureClassLoader extends ClassLoader {
+    private LinkageFailureClassLoader(ClassLoader parent) {
+      super(parent);
+    }
+
+    @Override
+    protected Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+      if ("example.Broken".equals(name)) {
+        throw new NoClassDefFoundError("missing dependency");
+      }
+      return super.loadClass(name, resolve);
+    }
   }
 }

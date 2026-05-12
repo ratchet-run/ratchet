@@ -1,6 +1,9 @@
 package run.ratchet.ri.payload;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.Serializable;
 import java.lang.reflect.Field;
@@ -44,6 +47,19 @@ class JobPayloadFactoryTest {
     assertEquals(1, cacheSize("FUNCTIONAL_INTERFACE_METHOD_CACHE"));
   }
 
+  @Test
+  void lambdaSerializationRejectsSerializableReplacementObjectsWithClearMessage() {
+    IllegalStateException thrown =
+        assertThrows(
+            IllegalStateException.class,
+            () ->
+                LambdaSerialization.toSerializedLambda(
+                    new SerializableReplacement(), "Expected a serializable lambda"));
+
+    assertTrue(thrown.getMessage().contains("Expected a serializable lambda"));
+    assertInstanceOf(ClassCastException.class, thrown.getCause());
+  }
+
   @SuppressWarnings("unchecked")
   private static Map<?, ?> cache(String name) throws ReflectiveOperationException {
     Field field = JobPayloadFactory.class.getDeclaredField(name);
@@ -62,6 +78,13 @@ class JobPayloadFactoryTest {
   @FunctionalInterface
   interface StringFunction extends Serializable {
     String apply(String value);
+  }
+
+  private static final class SerializableReplacement implements Serializable {
+    @SuppressWarnings("unused")
+    private Object writeReplace() {
+      return "replacement";
+    }
   }
 
   public static final class PayloadTarget {

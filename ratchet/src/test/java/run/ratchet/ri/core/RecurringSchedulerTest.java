@@ -1,6 +1,8 @@
 package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -10,6 +12,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.time.Clock;
 import java.time.Duration;
@@ -55,6 +58,18 @@ class RecurringSchedulerTest {
     RecurringScheduler scheduler = scheduler(mock(JobCrudStore.class));
 
     assertEquals(1000L, calculateNextDelay(scheduler, 1));
+  }
+
+  @Test
+  void effectiveClockFailsFastWhenProxyConstructorInstanceIsUsed() throws Exception {
+    RecurringScheduler scheduler = new RecurringScheduler();
+    Method method = RecurringScheduler.class.getDeclaredMethod("effective");
+    method.setAccessible(true);
+
+    InvocationTargetException thrown =
+        assertThrows(InvocationTargetException.class, () -> method.invoke(scheduler));
+
+    assertInstanceOf(IllegalStateException.class, thrown.getCause());
   }
 
   @Test

@@ -1,6 +1,7 @@
 package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -164,5 +165,16 @@ class JBossLoggingJobLoggerTest {
                   String msg = ((JobLogLine) line).message();
                   return msg.contains("x") && msg.contains("3");
                 }));
+  }
+
+  @Test
+  void levelChecksAreEnabledWhenPublisherPersistsJobLogLines() {
+    JBossLoggingJobLogger logger = new JBossLoggingJobLogger(UUID.randomUUID(), eventPublisher);
+
+    assertTrue(logger.isInfoEnabled());
+    assertTrue(logger.isDebugEnabled());
+    assertTrue(logger.isWarnEnabled());
+    assertTrue(logger.isErrorEnabled());
+    assertTrue(logger.isTraceEnabled());
   }
 }

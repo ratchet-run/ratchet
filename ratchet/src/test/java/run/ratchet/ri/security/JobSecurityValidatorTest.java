@@ -58,7 +58,9 @@ class JobSecurityValidatorTest {
     JobPayload payload =
         new JobPayload(SampleTarget.class.getName(), "secretMethod", "()V", false, List.of());
     SecurityException ex = assertThrows(SecurityException.class, () -> validator.validate(payload));
-    assertTrue(ex.getMessage().contains("private"));
+    assertEquals("Only public methods can be scheduled as jobs.", ex.getMessage());
+    assertFalse(ex.getMessage().contains("private"));
+    assertFalse(ex.getMessage().contains("secretMethod"));
   }
 
   @Test
@@ -112,7 +114,7 @@ class JobSecurityValidatorTest {
 
     SecurityException ex = assertThrows(SecurityException.class, () -> validator.validate(payload));
 
-    assertTrue(ex.getMessage().contains("private"));
+    assertEquals("Only public methods can be scheduled as jobs.", ex.getMessage());
     assertEquals(
         before,
         CLINIT_COUNTER.get(),

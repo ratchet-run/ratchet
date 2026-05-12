@@ -50,11 +50,19 @@ public class RecurringRegistrationState {
    * @param keys business keys discovered for {@code @Recurring} annotated methods on this node
    */
   public void markRegistrationComplete(Set<String> keys) {
-    knownAnnotationKeys = Set.copyOf(keys);
+    boolean reregistration = registrationCompletedAt != null;
+    Set<String> snapshot = Set.copyOf(keys);
+    knownAnnotationKeys = snapshot;
     registrationCompletedAt = Instant.now(clock);
+    if (reregistration && snapshot.isEmpty()) {
+      log.warn(
+          "Recurring annotation re-registration completed with no keys; annotation-created masters"
+              + " will be held during the startup grace window");
+      return;
+    }
     log.debugf(
         "RecurringRegistrationState: marked %s known annotation key(s) at %s",
-        keys.size(), registrationCompletedAt);
+        snapshot.size(), registrationCompletedAt);
   }
 
   /**

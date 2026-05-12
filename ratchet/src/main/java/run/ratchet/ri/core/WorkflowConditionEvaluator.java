@@ -316,7 +316,7 @@ public class WorkflowConditionEvaluator {
     } catch (SecurityException e) {
       throw e;
     } catch (Exception e) {
-      log.warnf("Job result JSON parse error: %s", e.getMessage());
+      log.warnf(e, "Job result JSON parse error: %s", e.getMessage());
       return jobResultJson;
     }
   }

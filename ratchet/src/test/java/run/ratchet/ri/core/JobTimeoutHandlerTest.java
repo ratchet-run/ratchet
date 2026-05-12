@@ -17,6 +17,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -115,6 +116,32 @@ class JobTimeoutHandlerTest {
         .scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1));
     verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
     verify(jobBatchStatusStore, never()).compareAndSwapStatus(any(UUID.class), any(), any(), any());
+  }
+
+  @Test
+  void hardTimeoutRetryAddsJitterToTimeoutDelay() {
+    Instant now = Instant.parse("2026-05-09T12:00:00Z");
+    handler =
+        newHandler(
+            null,
+            null,
+            JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE,
+            Clock.fixed(now, ZoneOffset.UTC));
+    JobEntity job = jobWithMaxRetries(3);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1)))
+        .thenReturn(true);
+    ArgumentCaptor<Instant> retryTimeCaptor = ArgumentCaptor.forClass(Instant.class);
+
+    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
+
+    verify(jobRetryStore)
+        .scheduleJobRetry(eq(JOB_ID), anyString(), retryTimeCaptor.capture(), eq(1));
+    Instant baseRetryTime = now.plusSeconds(TIMEOUT_SEC);
+    Instant maxRetryTime = baseRetryTime.plusMillis((TIMEOUT_SEC * 1000L) / 4);
+    assertTrue(retryTimeCaptor.getValue().isAfter(baseRetryTime));
+    assertTrue(!retryTimeCaptor.getValue().isAfter(maxRetryTime));
   }
 
   @Test
@@ -303,6 +330,14 @@ class JobTimeoutHandlerTest {
 
   private JobTimeoutHandler newHandler(
       SignalStore signalStore, MetricsCollector metricsCollector, int signalTimeoutBatchSize) {
+    return newHandler(signalStore, metricsCollector, signalTimeoutBatchSize, Clock.systemUTC());
+  }
+
+  private JobTimeoutHandler newHandler(
+      SignalStore signalStore,
+      MetricsCollector metricsCollector,
+      int signalTimeoutBatchSize,
+      Clock clock) {
     return new JobTimeoutHandler(
         jobCrudStore,
         jobRetryStore,
@@ -310,7 +345,7 @@ class JobTimeoutHandlerTest {
         lifecycleFacade,
         80,
         60L,
-        Clock.systemUTC(),
+        clock,
         null,
         null,
         signalStore,

@@ -342,6 +342,10 @@ public final class JobPayloadFactory {
     try {
       return toSerializedLambda(value);
     } catch (IllegalStateException e) {
+      log.debugf(
+          e,
+          "Failed to unwrap nested lambda receiver %s; treating it as a regular receiver",
+          value.getClass().getName());
       return null;
     }
   }

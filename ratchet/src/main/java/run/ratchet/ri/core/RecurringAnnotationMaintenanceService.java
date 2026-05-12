@@ -14,6 +14,8 @@ public interface RecurringAnnotationMaintenanceService {
    * Cancels recurring annotation jobs that were previously registered but were not seen during the
    * current startup scan.
    *
+   * @implSpec Transaction attribute: REQUIRED. Implementations run inside the registration
+   *     transaction that performs the startup annotation cleanup.
    * @param registeredIds active business keys discovered during startup
    * @param nodeStartTime startup timestamp used as a grace cutoff
    * @return the number of canceled orphaned jobs

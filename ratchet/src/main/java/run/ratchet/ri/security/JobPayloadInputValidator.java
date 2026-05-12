@@ -46,10 +46,10 @@ public class JobPayloadInputValidator {
     }
 
     List<String> errors = new ArrayList<>();
-    validateTargetClass(payload, errors);
+    Class<?> targetClass = validateTargetClass(payload, errors);
     validateMethodName(payload, errors);
     validateMethodDescriptor(payload, errors);
-    validateSignatureIfPossible(payload, errors);
+    validateSignatureIfPossible(payload, targetClass, errors);
     throwIfErrors(errors, payload);
   }
 
@@ -182,14 +182,15 @@ public class JobPayloadInputValidator {
           }
         }
       }
-    } catch (Exception e) {
+    } catch (Exception | LinkageError e) {
       log.errorf(
           e, "Failed to validate method signature for %s.%s", payload.target(), payload.method());
-      errors.add("Failed to validate method signature: " + e.getMessage());
+      errors.add("Failed to validate method signature: " + e);
     }
   }
 
-  private void validateSignatureIfPossible(JobPayload payload, List<String> errors) {
+  private void validateSignatureIfPossible(
+      JobPayload payload, Class<?> targetClass, List<String> errors) {
     if (isNullOrEmpty(payload.target())
         || isNullOrEmpty(payload.method())
         || isNullOrEmpty(payload.methodDescriptor())) {
@@ -199,36 +200,37 @@ public class JobPayloadInputValidator {
     if (classNameError != null) {
       return;
     }
+    if (targetClass == null) {
+      return;
+    }
     try {
-      Class<?> clazz =
-          Class.forName(payload.target(), false, Thread.currentThread().getContextClassLoader());
-      validateMethodSignature(clazz, payload, errors);
-    } catch (ClassNotFoundException e) {
-      // Already reported by validateTargetClass
-    } catch (Exception e) {
+      validateMethodSignature(targetClass, payload, errors);
+    } catch (Exception | LinkageError e) {
       log.errorf(
           e, "Failed to validate method signature for %s.%s", payload.target(), payload.method());
-      errors.add("Failed to validate method signature: " + e.getMessage());
+      errors.add("Failed to validate method signature: " + e);
     }
   }
 
-  private void validateTargetClass(JobPayload payload, List<String> errors) {
+  private Class<?> validateTargetClass(JobPayload payload, List<String> errors) {
     if (isNullOrEmpty(payload.target())) {
       errors.add("Target class cannot be null or empty");
-      return;
+      return null;
     }
     String classNameError = classNameError(payload.target());
     if (classNameError != null) {
       errors.add(classNameError);
-      return;
+      return null;
     }
     try {
-      Class.forName(payload.target(), false, Thread.currentThread().getContextClassLoader());
+      return Class.forName(payload.target(), false, Thread.currentThread().getContextClassLoader());
     } catch (ClassNotFoundException e) {
       errors.add("Target class not found: " + payload.target() + " - " + e.getMessage());
-    } catch (Exception e) {
-      errors.add("Cannot load target class " + payload.target() + ": " + e.getMessage());
+    } catch (Exception | LinkageError e) {
+      log.errorf(e, "Cannot load target class %s", payload.target());
+      errors.add("Cannot load target class " + payload.target() + ": " + e);
     }
+    return null;
   }
 
   private String classNameError(String className) {

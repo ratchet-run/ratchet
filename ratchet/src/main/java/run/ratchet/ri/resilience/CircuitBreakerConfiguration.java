@@ -59,7 +59,7 @@ public record CircuitBreakerConfiguration(
       case CRITICAL -> CRITICAL;
       case EXTERNAL_API -> EXTERNAL_API;
       case CLAIM_PATH -> CLAIM_PATH;
-      default -> DEFAULT;
+      case DEFAULT -> DEFAULT;
     };
   }
 

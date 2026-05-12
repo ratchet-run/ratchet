@@ -69,6 +69,12 @@ public class CircuitBreakerRegistry {
     resetBreaker(serviceName, CircuitBreakerProfile.DEFAULT);
   }
 
+  /**
+   * Resets the breaker for {@code serviceName} and {@code profile}, if it exists.
+   *
+   * <p>This is an administrative reset. It forces the breaker directly to CLOSED and clears the
+   * sliding window, skipping HALF_OPEN trial calls.
+   */
   public void resetBreaker(String serviceName, CircuitBreakerProfile profile) {
     CircuitBreaker breaker = breakers.get(new CircuitBreakerKey(serviceName, profile));
     if (breaker != null) {

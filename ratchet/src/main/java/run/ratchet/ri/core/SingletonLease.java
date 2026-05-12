@@ -47,7 +47,7 @@ public final class SingletonLease implements AutoCloseable {
     try {
       lockStore.unlock(name, ownerNode);
     } catch (Exception e) {
-      log.debugf(e, "Failed to release singleton lease %s for node %s", name, ownerNode);
+      log.warnf(e, "Failed to release singleton lease %s for node %s", name, ownerNode);
     }
   }
 }

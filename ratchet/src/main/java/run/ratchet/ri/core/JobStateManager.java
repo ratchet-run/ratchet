@@ -36,6 +36,9 @@ public class JobStateManager {
    * Resets a RUNNING job owned by this node back to PENDING. On success, the in-memory entity is
    * updated to match.
    *
+   * <p>The entity update is optimistic. If the surrounding transaction rolls back after this method
+   * returns, callers must discard or reload the entity before using its status fields.
+   *
    * <p>Transaction attribute: REQUIRED.
    */
   public boolean resetJobToPending(JobEntity job) {

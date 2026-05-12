@@ -8,6 +8,7 @@ import jakarta.inject.Inject;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
@@ -77,7 +78,7 @@ public class RecurringScheduler {
     this.nodeIdentityProvider = nodeIdentityProvider;
     this.recurringJobExecutor = recurringJobExecutor;
     this.pollerScheduler = pollerScheduler;
-    this.clock = clock;
+    this.clock = Objects.requireNonNull(clock, "clock must not be null");
   }
 
   public long getCurrentDelayMs() {
@@ -212,7 +213,10 @@ public class RecurringScheduler {
   }
 
   private Clock effective() {
-    return clock != null ? clock : Clock.systemUTC();
+    if (clock == null) {
+      throw new IllegalStateException("RecurringScheduler clock was not initialized");
+    }
+    return clock;
   }
 
   private void renewLease(SingletonLease lease, AtomicBoolean leaseValid) {
