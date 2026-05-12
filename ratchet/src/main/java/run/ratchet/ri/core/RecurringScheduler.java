@@ -149,11 +149,17 @@ public class RecurringScheduler {
       }
 
       SingletonLease acquiredLease = lease.get();
+      AtomicBoolean leaseValid = new AtomicBoolean(true);
       renewalTask =
-          executor.scheduleAtFixedRate(() -> renewLease(acquiredLease), 2, 2, TimeUnit.MINUTES);
+          executor.scheduleAtFixedRate(
+              () -> renewLease(acquiredLease, leaseValid), 2, 2, TimeUnit.MINUTES);
 
       int processedCount =
           recurringJobExecutor.process(batchLimit, nodeIdentityProvider.getNodeId());
+
+      if (!leaseValid.get()) {
+        return;
+      }
 
       if (processedCount > 0) {
         pollerScheduler.wakeup();
@@ -207,13 +213,19 @@ public class RecurringScheduler {
     return clock != null ? clock : Clock.systemUTC();
   }
 
-  private void renewLease(SingletonLease lease) {
+  private void renewLease(SingletonLease lease, AtomicBoolean leaseValid) {
     try {
       if (!lease.renew(LEASE_TTL)) {
         log.warnf("RecurringScheduler could not renew singleton lease %s", lease.name());
+        leaseValid.set(false);
+        lease.close();
+        stop();
       }
     } catch (Exception e) {
       log.warnf(e, "RecurringScheduler lease renewal failed for %s", lease.name());
+      leaseValid.set(false);
+      lease.close();
+      stop();
     }
   }
 

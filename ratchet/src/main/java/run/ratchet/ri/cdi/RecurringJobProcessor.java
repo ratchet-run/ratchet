@@ -204,11 +204,10 @@ public class RecurringJobProcessor {
     log.info("Starting registration of @Recurring annotated jobs");
 
     List<RecurringMethodRegistration> registrations = discoverRecurringMethods();
-    Set<String> jobIds =
+    Set<String> discoveredJobIds =
         registrations.stream()
             .map(RecurringMethodRegistration::jobId)
             .collect(Collectors.toCollection(LinkedHashSet::new));
-    cancelExistingJobs(jobIds);
     for (RecurringMethodRegistration registration : registrations) {
       try {
         registerJob(registration);
@@ -227,13 +226,13 @@ public class RecurringJobProcessor {
     // so the executor's shouldFire gate is armed even if cleanup is delayed (e.g. another node
     // holds the startup lease, or cleanup throws and is retried).
     if (registrationState != null) {
-      registrationState.markRegistrationComplete(registeredJobIds.keySet());
+      registrationState.markRegistrationComplete(discoveredJobIds);
     }
 
-    cleanupOrphanedRecurringJobs(startTime);
+    cleanupOrphanedRecurringJobs(startTime, discoveredJobIds);
   }
 
-  private void cleanupOrphanedRecurringJobs(Instant startTime) {
+  private void cleanupOrphanedRecurringJobs(Instant startTime, Set<String> discoveredJobIds) {
     // Cleanup is DESTRUCTIVE — cancel jobs whose business_key is not in this node's local
     // annotation set. Two guards are required for multi-node safety:
     //
@@ -254,10 +253,9 @@ public class RecurringJobProcessor {
     }
     Instant cutoff = startTime.minusSeconds(options.recurring().convergenceWindowSeconds());
     try {
-      Set<String> registeredIds = registeredJobIds.keySet();
       int canceled =
           recurringAnnotationMaintenanceService.cancelOrphanedRecurringAnnotationJobs(
-              registeredIds, cutoff);
+              discoveredJobIds, cutoff);
       if (canceled > 0) {
         log.infof(
             "Canceled %s orphaned recurring jobs (annotations removed from codebase)", canceled);
@@ -272,19 +270,6 @@ public class RecurringJobProcessor {
           log.debug("Failed to release orphan cleanup startup lease", e);
         }
       }
-    }
-  }
-
-  private void cancelExistingJobs(Set<String> jobIds) {
-    if (jobIds.isEmpty()) {
-      return;
-    }
-    // Calls the store SPI directly: cancellation is a pure persistence-layer state flip with no
-    // events, observers, or scheduling-side orchestration. Routing through JobSchedulerService
-    // would just re-enter the same SPI method one stack frame deeper.
-    int canceled = jobBatchStatusStore.cancelRecurringJobsByBusinessKeys(jobIds);
-    if (canceled > 0) {
-      log.infof("Canceled %s existing recurring job(s) with IDs: %s", canceled, jobIds);
     }
   }
 

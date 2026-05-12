@@ -1,6 +1,8 @@
 package run.ratchet.ri.cdi;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -29,6 +31,7 @@ import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.SchedulerLifecycleHook;
+import run.ratchet.store.migration.SchemaInitializationException;
 
 /**
  * Verifies that {@link RatchetLifecycle} releases each resolved {@link SchedulerLifecycleHook} via
@@ -74,6 +77,47 @@ class RatchetLifecycleHookTest {
     RatchetLifecycle lifecycle = newLifecycleNoCdi();
     lifecycle.onShutdown();
     // No assertion needed: just verifying no NPE on null lifecycleHooks field.
+  }
+
+  @Test
+  void beforeStart_schemaInitializationExceptionAbortsStartup() {
+    SchedulerLifecycleHook hook =
+        new SchedulerLifecycleHook() {
+          @Override
+          public void beforeStart() {
+            throw new SchemaInitializationException("schema not ready");
+          }
+        };
+
+    RatchetLifecycle lifecycle = newLifecycle(new RecordingInstance<>(List.of(hook)));
+
+    assertThrows(SchemaInitializationException.class, () -> lifecycle.onStartup(new Object()));
+  }
+
+  @Test
+  void nonStartupPhases_swallowSchemaInitializationExceptionLikeOtherHookFailures() {
+    SchedulerLifecycleHook hook =
+        new SchedulerLifecycleHook() {
+          @Override
+          public void afterStart() {
+            throw new SchemaInitializationException("late hook failure");
+          }
+
+          @Override
+          public void beforeStop() {
+            throw new SchemaInitializationException("shutdown hook failure");
+          }
+
+          @Override
+          public void afterStop() {
+            throw new SchemaInitializationException("post-shutdown hook failure");
+          }
+        };
+
+    RatchetLifecycle lifecycle = newLifecycle(new RecordingInstance<>(List.of(hook)));
+
+    assertDoesNotThrow(() -> lifecycle.onStartup(new Object()));
+    assertDoesNotThrow(lifecycle::onShutdown);
   }
 
   private RatchetLifecycle newLifecycle(Instance<SchedulerLifecycleHook> hooks) {

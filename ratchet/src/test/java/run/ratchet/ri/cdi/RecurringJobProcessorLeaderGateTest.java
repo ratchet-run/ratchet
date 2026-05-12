@@ -70,7 +70,6 @@ class RecurringJobProcessorLeaderGateTest {
     processor.registerRecurringJobs();
 
     verify(schedulerService).scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
-    verify(jobBatchStatusStore).cancelRecurringJobsByBusinessKeys(Set.of("leader-gate-job"));
     verify(recurringJobBuilder).withBusinessKey("leader-gate-job");
     verify(recurringJobBuilder).submit();
     assertTrue(registrationState.shouldFire("leader-gate-job"));
@@ -107,7 +106,6 @@ class RecurringJobProcessorLeaderGateTest {
 
     verify(beanManager).getBeans(eq(LeaderGateBean.class), any());
     verify(beanManager, never()).getBeans(eq(Object.class), any());
-    verify(jobBatchStatusStore).cancelRecurringJobsByBusinessKeys(Set.of("leader-gate-job"));
     verify(schedulerService).scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any());
   }
 
@@ -195,6 +193,36 @@ class RecurringJobProcessorLeaderGateTest {
     verify(coordinator).tryAcquire("recurring-annotation-orphan-cleanup", Duration.ofMinutes(5));
     verify(coordinator).release("recurring-annotation-orphan-cleanup");
     verifyNoMoreInteractions(coordinator);
+  }
+
+  @Test
+  void registerRecurringJobs_doesNotCancelExistingJobWhenSubmitFails() throws Exception {
+    var maintenance = mock(RecurringAnnotationMaintenanceService.class);
+    var schedulerService = mock(JobSchedulerService.class);
+    var jobBatchStatusStore = mock(JobBatchStatusStore.class);
+    var recurringJobBuilder = mockRecurringJobBuilder();
+    var beanManager = mock(BeanManager.class);
+    Set<Bean<?>> beans = Set.of(beanFor(LeaderGateBean.class));
+    when(beanManager.getBeans(any(), any())).thenReturn(beans);
+    when(schedulerService.scheduleRecurring(eq("0 0/5 * * * ?"), eq(ZoneId.of("UTC")), any()))
+        .thenReturn(recurringJobBuilder);
+    when(recurringJobBuilder.submit()).thenThrow(new IllegalStateException("store unavailable"));
+
+    var processor =
+        new RecurringJobProcessor(
+            schedulerService,
+            jobBatchStatusStore,
+            maintenance,
+            beanManager,
+            mock(RecurringMethodInvoker.class),
+            null,
+            new RecurringRegistrationState());
+
+    assertDoesNotThrow(processor::registerRecurringJobs);
+
+    verify(jobBatchStatusStore, never()).cancelRecurringJobsByBusinessKeys(anySet());
+    verify(recurringJobBuilder).submit();
+    verify(maintenance).cancelOrphanedRecurringAnnotationJobs(eq(Set.of("leader-gate-job")), any());
   }
 
   private static Bean<?> beanFor(Class<?> beanClass) {

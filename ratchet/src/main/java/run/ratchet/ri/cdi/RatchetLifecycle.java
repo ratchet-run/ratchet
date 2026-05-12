@@ -138,7 +138,7 @@ public class RatchetLifecycle {
           @Priority(Interceptor.Priority.APPLICATION + 500)
           @Initialized(ApplicationScoped.class) Object init) {
     log.info("Ratchet starting");
-    notifyHooks("beforeStart", SchedulerLifecycleHook::beforeStart);
+    notifyHooks("beforeStart", SchedulerLifecycleHook::beforeStart, true);
 
     recurringScheduler.configure(
         options.recurring().pollMs(),
@@ -173,14 +173,14 @@ public class RatchetLifecycle {
     pollerWakeupListener.init();
     jobExecutionCoordinator.initRetryBufferDrainer();
 
-    notifyHooks("afterStart", SchedulerLifecycleHook::afterStart);
+    notifyHooks("afterStart", SchedulerLifecycleHook::afterStart, false);
     log.info("Ratchet started");
   }
 
   @PreDestroy
   void onShutdown() {
     log.info("Ratchet stopping");
-    notifyHooks("beforeStop", SchedulerLifecycleHook::beforeStop);
+    notifyHooks("beforeStop", SchedulerLifecycleHook::beforeStop, false);
     // Drain before stop to prevent new claims
     drainController.setDraining(true);
 
@@ -199,7 +199,7 @@ public class RatchetLifecycle {
     jobExecutionCoordinator.shutdown();
 
     JobTask.clearCaches();
-    notifyHooks("afterStop", SchedulerLifecycleHook::afterStop);
+    notifyHooks("afterStop", SchedulerLifecycleHook::afterStop, false);
     destroyHooks();
   }
 
@@ -215,15 +215,19 @@ public class RatchetLifecycle {
     return resolvedHooks;
   }
 
-  private void notifyHooks(String phase, Consumer<SchedulerLifecycleHook> callback) {
+  private void notifyHooks(
+      String phase, Consumer<SchedulerLifecycleHook> callback, boolean abortOnSchemaFailure) {
     for (SchedulerLifecycleHook hook : hooks()) {
       try {
         callback.accept(hook);
       } catch (SchemaInitializationException e) {
-        // Schema initialization failures must abort startup so the scheduler does not begin
-        // claiming jobs against an unmigrated or incompatible schema.
-        log.errorf(e, "Scheduler lifecycle hook failed during %s: %s", phase, e.getMessage());
-        throw e;
+        if (abortOnSchemaFailure) {
+          // Schema initialization failures must abort startup so the scheduler does not begin
+          // claiming jobs against an unmigrated or incompatible schema.
+          log.errorf(e, "Scheduler lifecycle hook failed during %s: %s", phase, e.getMessage());
+          throw e;
+        }
+        log.warnf(e, "Scheduler lifecycle hook failed during %s: %s", phase, e.getMessage());
       } catch (Exception e) {
         log.warnf(e, "Scheduler lifecycle hook failed during %s: %s", phase, e.getMessage());
       }
