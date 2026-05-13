@@ -135,9 +135,11 @@ public class DeadLetterService {
   /**
    * Stops future DLQ purge scheduling.
    *
-   * <p><b>Transaction attribute:</b> {@code REQUIRED}, inherited from the class-level {@link
-   * Transactional}. The method only flips an in-memory lifecycle flag.
+   * <p><b>Transaction attribute:</b> {@code NOT_SUPPORTED}. Called from {@code @PreDestroy} during
+   * shutdown to flip a volatile lifecycle flag; opening a JDBC transaction just for that risks
+   * spurious connection-pool activity when the pool is already tearing down.
    */
+  @Transactional(Transactional.TxType.NOT_SUPPORTED)
   public void stop() {
     stopped = true;
   }

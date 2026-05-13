@@ -57,14 +57,16 @@ class JobSubmissionServiceTest {
   }
 
   @Test
-  void submitBuffered_claimStillChecksFirstAttemptGate() {
+  void submitBuffered_claimChecksRetryGate() {
+    // Buffered claims represent already-claimed work; the retry gate must apply (not the
+    // first-attempt gate), matching the entity-overload contract.
     JobClaimDto claim = singleClaim();
     GateCheckResult gateResult = GateCheckResult.noPermits(JobExecutionType.SINGLE, claim.id());
-    when(gateChecker.check(claim, true)).thenReturn(gateResult);
+    when(gateChecker.check(claim, false)).thenReturn(gateResult);
 
     service.submitBuffered(claim);
 
-    verify(gateChecker).check(claim, true);
+    verify(gateChecker).check(claim, false);
     verify(failureHandler).handleGateFailure(claim, gateResult);
     verify(executorService, never()).execute(claim);
   }

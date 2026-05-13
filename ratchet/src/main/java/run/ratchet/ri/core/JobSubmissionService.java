@@ -123,7 +123,9 @@ public class JobSubmissionService {
   }
 
   void submitBuffered(JobClaimDto claim) {
-    trySubmit(claim, true, claimSubmissionOperations);
+    // Buffered claims represent already-claimed work owned by this node; they must bypass the
+    // drain-mode gate the same way submitBuffered(JobEntity) does.
+    trySubmit(claim, false, claimSubmissionOperations);
   }
 
   private <T> void trySubmit(

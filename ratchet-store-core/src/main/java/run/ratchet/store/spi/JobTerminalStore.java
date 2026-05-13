@@ -68,6 +68,12 @@ public interface JobTerminalStore {
    * pattern that is incompatible with the hot/cold split (hot DELETE + cold UPDATE + bkres DELETE
    * in one tx).
    *
+   * <p><b>Caller contract:</b> the target job must be in {@code RUNNING} status when this is
+   * invoked. Implementations may match the hot row on {@code status = 'RUNNING'} and return {@code
+   * false} (silent no-op) for any other status, including {@code WAITING}. To fail a WAITING job
+   * (e.g. on signal timeout), use {@code compareAndSwapStatus} with an expected status of {@code
+   * WAITING}, which dispatches to the matching {@code WAITING}-aware path internally.
+   *
    * @throws RatchetTransientStoreException if the backing store cannot complete the transition
    *     <p>Transaction attribute: {@code REQUIRED}.
    */
