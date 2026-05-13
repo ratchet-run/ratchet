@@ -23,9 +23,19 @@ public final class ArchiveHelper {
 
   private ArchiveHelper() {}
 
-  /** Populates an {@link ArchivedJobEntity} from the given job, reason, and archivedBy fields. */
-  public static ArchivedJobEntity buildArchive(JobEntity job, String reason, String archivedBy) {
+  /**
+   * Populates an {@link ArchivedJobEntity} from the given job, reason, archivedBy, and a
+   * caller-supplied timestamp.
+   *
+   * <p>Callers that have access to a {@link java.time.Clock} (e.g. the RI archival service) should
+   * pass {@code clock.instant()} so the archive timestamp is testable and deterministic. Callers
+   * without clock access may use the convenience overload {@link #buildArchive(JobEntity, String,
+   * String)}, which falls back to {@link Instant#now()}.
+   */
+  public static ArchivedJobEntity buildArchive(
+      JobEntity job, String reason, String archivedBy, Instant archivedAt) {
     Objects.requireNonNull(job, "job");
+    Objects.requireNonNull(archivedAt, "archivedAt");
     ArchivedJobEntity a = new ArchivedJobEntity();
     a.setOriginalJobId(job.getId());
     a.setFinalStatus(job.getStatus());
@@ -47,7 +57,7 @@ public final class ArchiveHelper {
     a.setCompletionTime(job.getExecutionEndTime());
     a.setTotalExecutionTimeMs(job.getExecutionDurationMs());
     a.setQueueWaitMs(job.getQueueWaitMs());
-    a.setArchivedAt(Instant.now());
+    a.setArchivedAt(archivedAt);
     a.setArchivedBy(archivedBy);
     a.setArchiveReason(reason);
     a.setJobResult(job.getJobResult());
@@ -62,5 +72,14 @@ public final class ArchiveHelper {
       a.setTags(String.join(",", job.getTags()));
     }
     return a;
+  }
+
+  /**
+   * Convenience overload that uses {@link Instant#now()} as the archive timestamp. Prefer {@link
+   * #buildArchive(JobEntity, String, String, Instant)} when a {@link java.time.Clock} is available
+   * so the timestamp is testable.
+   */
+  public static ArchivedJobEntity buildArchive(JobEntity job, String reason, String archivedBy) {
+    return buildArchive(job, reason, archivedBy, Instant.now());
   }
 }

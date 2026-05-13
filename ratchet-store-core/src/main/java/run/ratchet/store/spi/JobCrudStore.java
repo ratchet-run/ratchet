@@ -79,8 +79,13 @@ public interface JobCrudStore {
   /**
    * Counts jobs grouped by status.
    *
-   * <p>Transaction attribute: {@code SUPPORTS}. Production stores should override this fallback
-   * with one grouped query.
+   * <p>Transaction attribute: {@code SUPPORTS}.
+   *
+   * <p><b>Performance note:</b> the default implementation issues one {@link
+   * #countJobsByStatus(JobStatus)} call per {@link JobStatus} constant (currently 8+). Production
+   * store implementations MUST override this with a single grouped query (e.g. {@code SELECT
+   * status, COUNT(*) FROM scheduler_job GROUP BY status}) to avoid N database round-trips on every
+   * metrics collection cycle.
    */
   default Map<JobStatus, Long> countJobsByStatuses() {
     Map<JobStatus, Long> counts = new EnumMap<>(JobStatus.class);
@@ -116,8 +121,12 @@ public interface JobCrudStore {
   /**
    * Counts pending jobs grouped by priority.
    *
-   * <p>Transaction attribute: {@code SUPPORTS}. Production stores should override this fallback
-   * with one grouped query.
+   * <p>Transaction attribute: {@code SUPPORTS}.
+   *
+   * <p><b>Performance note:</b> the default implementation issues one {@link
+   * #countPendingJobsByPriority(JobPriority)} call per {@link JobPriority} constant. Production
+   * store implementations MUST override this with a single grouped query to avoid N database
+   * round-trips on every metrics collection cycle.
    */
   default Map<JobPriority, Long> countPendingJobsByPriorities() {
     Map<JobPriority, Long> counts = new EnumMap<>(JobPriority.class);
@@ -136,8 +145,12 @@ public interface JobCrudStore {
   /**
    * Counts pending jobs grouped by internal execution type.
    *
-   * <p>Transaction attribute: {@code SUPPORTS}. Production stores should override this fallback
-   * with one grouped query.
+   * <p>Transaction attribute: {@code SUPPORTS}.
+   *
+   * <p><b>Performance note:</b> the default implementation issues one {@link
+   * #countPendingJobsByType(JobExecutionType)} call per {@link JobExecutionType} constant.
+   * Production store implementations MUST override this with a single grouped query to avoid N
+   * database round-trips on every metrics collection cycle.
    */
   default Map<JobExecutionType, Long> countPendingJobsByTypes() {
     Map<JobExecutionType, Long> counts = new EnumMap<>(JobExecutionType.class);

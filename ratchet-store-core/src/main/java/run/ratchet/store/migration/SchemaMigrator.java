@@ -474,6 +474,9 @@ public final class SchemaMigrator {
     }
   }
 
+  @SuppressWarnings(
+      "resource") // JarFile is a JVM-cached handle; closing it breaks concurrent callers (see
+  // comment)
   private List<String> jarResourceNames(URL root) throws IOException {
     // Do NOT close the JarFile returned by JarURLConnection — it is a process-wide cached handle
     // (see JarURLConnection.getJarFile()), and closing it sabotages concurrent callers reading the

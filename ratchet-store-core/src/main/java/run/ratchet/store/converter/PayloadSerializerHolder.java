@@ -51,6 +51,16 @@ public final class PayloadSerializerHolder {
     return FallbackHolder.INSTANCE;
   }
 
+  /**
+   * Returns the lazily-created fallback {@link Jsonb} instance, constructing it on first use.
+   *
+   * <p>The fallback instance is intentionally held for the lifetime of the JVM process and is never
+   * closed. {@code Jsonb} implements {@link AutoCloseable}, but closing a JVM-lifetime singleton
+   * would leak its {@link jakarta.json.bind.JsonbConfig} and provider resources to GC without any
+   * practical benefit in a long-running server process. In OSGi or repeated test-class scenarios,
+   * the CDI path ({@link #set(PayloadSerializer)}) should be used instead of triggering the
+   * fallback.
+   */
   private static Jsonb fallbackJsonb() {
     // Double-checked locking keeps the common converter path out of the synchronized block.
     Jsonb jsonb = fallbackJsonb;
