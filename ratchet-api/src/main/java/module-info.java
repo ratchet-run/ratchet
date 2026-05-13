@@ -32,18 +32,11 @@ module run.ratchet.api {
   exports run.ratchet.api;
   exports run.ratchet.api.event;
   exports run.ratchet.api.exception;
-  // Qualified export: spi is @Incubating and subject to change between minor releases.
-  // Module-path consumers that want to ship their own SPI implementations must be listed here.
-  // Classpath consumers are unaffected — the restriction applies only on the module path.
-  exports run.ratchet.spi to
-      run.ratchet.ri,
-      run.ratchet.store.core,
-      run.ratchet.store.mysql,
-      run.ratchet.store.postgresql,
-      run.ratchet.store.mongodb,
-      run.ratchet.tck.store,
-      run.ratchet.tck.api,
-      run.ratchet.micrometer,
-      run.ratchet.otel,
-      ratchet.testsuite.jpms;
+  // run.ratchet.spi is open to all module-path consumers. Every type in this package carries
+  // @Incubating, which is the stability contract — method signatures and contracts may change
+  // between minor releases without a semver major bump. The qualified allowlist was removed
+  // because it blocked third-party store, retry-policy, and metrics implementations from
+  // compiling against the module path, contradicting the spec-candidacy posture.
+  // Classpath consumers are unaffected either way.
+  exports run.ratchet.spi;
 }
