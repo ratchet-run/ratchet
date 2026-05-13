@@ -77,7 +77,9 @@ public abstract class AbstractSignalDecisionContract {
     return Duration.ofSeconds(10);
   }
 
+  // 1 s comfortably exceeds a typical poll cycle so spurious early execution is reliably caught
+  // on loaded CI runners, while 300 ms was narrow enough to produce false passes under load.
   protected Duration quietWindow() {
-    return Duration.ofMillis(300);
+    return Duration.ofMillis(1000);
   }
 }

@@ -39,9 +39,12 @@ public abstract class AbstractSimpleWorkflowContract {
     // The probe handle covers only step-A. Chained tasks (step-B, step-C) execute as separate
     // jobs whose handles aren't returned by the API; wait for the full chain by polling the
     // recorded events until all three are observed or the timeout elapses.
+    // 200 ms per poll reduces spin overhead vs the old 50 ms interval. On a loaded CI runner
+    // each sleep overshoots to ~100-250 ms anyway; a larger nominal interval avoids burning the
+    // 30 s budget 6x faster than intended without changing when the assertion fires.
     long deadlineNanos = System.nanoTime() + defaultTimeout().toNanos();
     while (TckJobs.chainEvents().size() < 3 && System.nanoTime() < deadlineNanos) {
-      Thread.sleep(50L);
+      Thread.sleep(200L);
     }
 
     assertEquals(

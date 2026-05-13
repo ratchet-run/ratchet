@@ -26,7 +26,11 @@ public abstract class AbstractArchiveStoreContract implements JobStoreContractFi
   void archiveJob_createsArchiveRecord() {
     var job = persist(newPendingJob());
     store().compareAndSwapStatus(job.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
-    store().markJobSucceeded(job.getId(), null, null, Instant.now(), Instant.now(), 100L, 50L);
+    // Fixed instants avoid wall-clock resolution hazards on fast CI machines where two
+    // Instant.now() calls within the same millisecond produce equal start/end times.
+    store()
+        .markJobSucceeded(
+            job.getId(), null, null, Instant.EPOCH, Instant.EPOCH.plusSeconds(1), 100L, 50L);
     var completed = store().findById(job.getId()).orElseThrow();
 
     var archived = store().archiveJob(completed, "test", "tck");
@@ -42,7 +46,9 @@ public abstract class AbstractArchiveStoreContract implements JobStoreContractFi
   void findArchivedJobs_returnsByTargetClass() {
     var job = persist(newPendingJob());
     store().compareAndSwapStatus(job.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
-    store().markJobSucceeded(job.getId(), null, null, Instant.now(), Instant.now(), 100L, 50L);
+    store()
+        .markJobSucceeded(
+            job.getId(), null, null, Instant.EPOCH, Instant.EPOCH.plusSeconds(1), 100L, 50L);
     var completed = store().findById(job.getId()).orElseThrow();
     store().archiveJob(completed, "test", "tck");
 
@@ -125,7 +131,9 @@ public abstract class AbstractArchiveStoreContract implements JobStoreContractFi
 
   private JobEntity completeJob(JobEntity job) {
     store().compareAndSwapStatus(job.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
-    store().markJobSucceeded(job.getId(), null, null, Instant.now(), Instant.now(), 100L, 50L);
+    store()
+        .markJobSucceeded(
+            job.getId(), null, null, Instant.EPOCH, Instant.EPOCH.plusSeconds(1), 100L, 50L);
     return store().findById(job.getId()).orElseThrow();
   }
 }

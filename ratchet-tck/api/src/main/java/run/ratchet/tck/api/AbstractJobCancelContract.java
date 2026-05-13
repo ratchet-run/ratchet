@@ -22,7 +22,10 @@ import run.ratchet.api.JobHandle;
  */
 public abstract class AbstractJobCancelContract {
 
-  private static final Duration CHAIN_CHILD_QUIET_WINDOW = Duration.ofMillis(500);
+  // 1 s gives the scheduler one full poll cycle of headroom on loaded CI runners before we conclude
+  // the chain child was suppressed. 500 ms was tight enough to produce false passes when the child
+  // was queued but not yet dispatched within the observation window.
+  private static final Duration CHAIN_CHILD_QUIET_WINDOW = Duration.ofMillis(1000);
   private static final Duration CHAIN_CHILD_POLL_INTERVAL = Duration.ofMillis(50);
 
   @AfterEach

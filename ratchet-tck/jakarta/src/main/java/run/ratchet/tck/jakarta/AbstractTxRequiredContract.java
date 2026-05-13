@@ -113,10 +113,11 @@ public abstract class AbstractTxRequiredContract {
     assumeTrue(
         !"mongodb".equals(System.getProperty("ratchet.test.db.type", "")),
         "MongoDB does not participate in JTA rollback");
-    // 500 ms delay: short enough that the job executes during the test window; long enough to
-    // issue begin → pause → rollback before the scheduler can claim it.
+    // 2 s delay: comfortably exceeds a typical poll cycle so the begin → pause → rollback
+    // sequence completes before the scheduler can claim the job. The old 500 ms budget was
+    // narrower than a single poll interval on loaded CI runners, causing vacuous passes.
     JobHandle handle =
-        runtime().scheduler().schedule(Duration.ofMillis(500), TckJobs::noop).submit();
+        runtime().scheduler().schedule(Duration.ofSeconds(2), TckJobs::noop).submit();
     runtime().probe().track(handle);
 
     tx.begin();
