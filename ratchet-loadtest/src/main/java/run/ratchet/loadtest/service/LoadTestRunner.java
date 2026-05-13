@@ -8,6 +8,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobSchedulerService;
@@ -29,6 +31,11 @@ public class LoadTestRunner {
   @Inject MeterRegistry registry;
   @Inject RunRegistry runRegistry;
   @Inject NodeIdentityProvider nodeIdentityProvider;
+
+  // Counters are cached per (workload, source) so we register each combination at most once.
+  // PrometheusMeterRegistry rejects duplicate registration; even idempotent registries pay an
+  // O(n) lookup on every increment, which inflates the harness's own measured overhead.
+  private final ConcurrentMap<String, Counter> submittedCounters = new ConcurrentHashMap<>();
 
   private static int validateJobs(int jobs) {
     if (jobs <= 0) {
@@ -148,11 +155,15 @@ public class LoadTestRunner {
   }
 
   private void recordSubmitted(String workloadName, String source, int jobs) {
-    Counter.builder("ratchet.loadtest.jobs.submitted")
-        .description("Load-test jobs submitted")
-        .tag("workload", workloadName)
-        .tag("source", source)
-        .register(registry)
+    submittedCounters
+        .computeIfAbsent(
+            workloadName + '|' + source,
+            key ->
+                Counter.builder("ratchet.loadtest.jobs.submitted")
+                    .description("Load-test jobs submitted")
+                    .tag("workload", workloadName)
+                    .tag("source", source)
+                    .register(registry))
         .increment(jobs);
   }
 

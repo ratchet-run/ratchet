@@ -71,12 +71,18 @@ class JobRetryIT extends BaseRatchetIT {
     List<JobRetryingEvent> retryEvents = eventCapture.getEvents(JobRetryingEvent.class);
     assertEquals(2, retryEvents.size(), "Expected one retry event per configured retry");
     retryEvents.forEach(
-        event ->
-            assertTrue(
-                Duration.between(event.getTimestamp(), event.getScheduledTime())
-                        .compareTo(FIXED_BACKOFF.minus(BACKOFF_TOLERANCE))
-                    >= 0,
-                "Retry should be scheduled using the configured fixed backoff"));
+        event -> {
+          Duration gap = Duration.between(event.getTimestamp(), event.getScheduledTime());
+          // Floor: at least FIXED_BACKOFF minus tolerance.
+          assertTrue(
+              gap.compareTo(FIXED_BACKOFF.minus(BACKOFF_TOLERANCE)) >= 0,
+              "Retry scheduled sooner than the configured backoff: gap=" + gap);
+          // Ceiling: no more than FIXED_BACKOFF plus tolerance. Catches regressions that schedule
+          // retries arbitrarily far in the future (e.g., misconfigured backoff multipliers).
+          assertTrue(
+              gap.compareTo(FIXED_BACKOFF.plus(BACKOFF_TOLERANCE)) <= 0,
+              "Retry scheduled later than the configured backoff: gap=" + gap);
+        });
   }
 
   @Test

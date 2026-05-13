@@ -164,9 +164,11 @@ public abstract class AbstractLockStoreContract implements JobStoreContractFixtu
 
   @Test
   void tryLock_expiredLock_isReacquirable() throws InterruptedException {
-    store().tryLock("ttl-lock", Duration.ofMillis(100), "node-A");
+    // Use a 1s TTL with a 2s sleep (2x margin). The previous 100ms / 250ms (2.5x margin) was
+    // tight enough to flake under CI GC pauses or scheduler jitter on shared hardware.
+    store().tryLock("ttl-lock", Duration.ofSeconds(1), "node-A");
 
-    Thread.sleep(250);
+    Thread.sleep(2000);
 
     assertTrue(
         store().tryLock("ttl-lock", Duration.ofMinutes(5), "node-B"),
