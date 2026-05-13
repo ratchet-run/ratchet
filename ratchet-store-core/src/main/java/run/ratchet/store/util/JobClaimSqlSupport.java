@@ -21,6 +21,7 @@ public final class JobClaimSqlSupport {
    * Guards each list independently to avoid empty {@code IN ()}.
    */
   public static String buildTagFilterSql(NodeTagFilter filter, String tableAlias) {
+    requireSafeSqlFragment(tableAlias, "tableAlias");
     if (filter.isUnfiltered()) {
       return "";
     }

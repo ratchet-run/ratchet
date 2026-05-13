@@ -35,9 +35,17 @@ public interface JobBulkStore {
    * Resets orphaned RUNNING jobs using a caller-supplied cutoff. Implementations should compare
    * node heartbeat and job claim timestamps to this exact instant. Transaction attribute: {@code
    * REQUIRED}.
+   *
+   * <p>If {@code cutoff} is in the future (e.g. due to clock skew between nodes), the computed
+   * grace duration is negative. In that case this method returns {@code 0} immediately — a future
+   * cutoff means no jobs are old enough to be orphaned yet.
    */
   default int resetOrphanJobsBefore(Instant cutoff) {
-    return resetOrphanJobs(Duration.between(cutoff, Instant.now()));
+    Duration grace = Duration.between(cutoff, Instant.now());
+    if (grace.isNegative()) {
+      return 0;
+    }
+    return resetOrphanJobs(grace);
   }
 
   /**

@@ -22,7 +22,25 @@ public class JsonMapConverter extends AbstractJsonAttributeConverter<Map<String,
   @SuppressWarnings("unchecked")
   @Override
   protected Map<String, String> deserialize(String dbData) {
-    return (Map<String, String>) PayloadSerializerHolder.get().deserialize(dbData, Map.class);
+    Map<?, ?> raw = PayloadSerializerHolder.get().deserialize(dbData, Map.class);
+    if (raw == null) {
+      return null;
+    }
+    for (Map.Entry<?, ?> entry : raw.entrySet()) {
+      if (!(entry.getKey() instanceof String) || !(entry.getValue() instanceof String)) {
+        throw new IllegalArgumentException(
+            "JSON map column contains non-String entry: key="
+                + entry.getKey()
+                + " ("
+                + (entry.getKey() == null ? "null" : entry.getKey().getClass().getSimpleName())
+                + "), value="
+                + entry.getValue()
+                + " ("
+                + (entry.getValue() == null ? "null" : entry.getValue().getClass().getSimpleName())
+                + ")");
+      }
+    }
+    return (Map<String, String>) raw;
   }
 
   @Override

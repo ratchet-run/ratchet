@@ -96,7 +96,7 @@ public final class PayloadMasker {
       return false;
     }
     String lowerFieldName = fieldName.toLowerCase(Locale.ROOT);
-    return SENSITIVE_FIELDS.stream().anyMatch(lowerFieldName::contains);
+    return SENSITIVE_FIELDS.contains(lowerFieldName);
   }
 
   private static JsonObjectBuilder maskObject(JsonObject object) {
