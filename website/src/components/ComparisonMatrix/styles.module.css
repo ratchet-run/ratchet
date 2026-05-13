@@ -25,20 +25,30 @@
   font-weight: 600;
   padding: 0.65rem 0.75rem;
   background: var(--ifm-color-emphasis-200);
+  color: #1c1e21;
   border-radius: 6px;
   white-space: nowrap;
 }
+[data-theme='dark'] .capabilityHeader {
+  color: #e6e6e6;
+}
 
-.productHeader,
-.ratchetHeader {
+.productHeader {
   text-align: center;
   font-weight: 600;
   padding: 0.65rem 0.5rem;
   background: var(--ifm-color-emphasis-200);
+  color: #1c1e21;
   border-radius: 6px;
+}
+[data-theme='dark'] .productHeader {
+  color: #e6e6e6;
 }
 
 .ratchetHeader {
+  text-align: center;
+  padding: 0.65rem 0.5rem;
+  border-radius: 6px;
   background: var(--ifm-color-primary);
   color: #1a1a1a;
   font-weight: 700;
@@ -52,8 +62,12 @@
   font-weight: 500;
   padding: 0.75rem 0.75rem;
   background: var(--ifm-color-emphasis-100);
+  color: #1c1e21;
   border-radius: 6px;
   vertical-align: middle;
+}
+[data-theme='dark'] .capability {
+  color: #e6e6e6;
 }
 
 .cell {
