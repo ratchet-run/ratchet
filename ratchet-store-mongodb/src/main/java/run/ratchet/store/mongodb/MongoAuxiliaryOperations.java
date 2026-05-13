@@ -285,6 +285,8 @@ final class MongoAuxiliaryOperations {
             }
             return Boolean.TRUE;
           });
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("release all permits", e);
     }
   }
 
@@ -328,6 +330,8 @@ final class MongoAuxiliaryOperations {
             decrementResourceCounts(session, removedByResource);
             return (int) result.getDeletedCount();
           });
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("cleanup orphaned permits", e);
     }
   }
 

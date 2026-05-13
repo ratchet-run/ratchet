@@ -134,18 +134,30 @@ class MongoCollectionInitializer {
         coll,
         Indexes.compoundIndex(Indexes.ascending(STATUS), Indexes.descending(CREATED_AT)),
         "idx_job_status_created");
-    createIndex(
+    // Signal-waiting indexes are claim-correctness-critical: deliverSignalByKey filters on
+    // signal_key+status and the timeout scanner filters on status+signal_timeout. Fail startup
+    // rather than silently degrade signal delivery to a collection scan.
+    createRequiredIndex(
         coll,
         Indexes.compoundIndex(Indexes.ascending(SIGNAL_KEY), Indexes.ascending(STATUS)),
-        "idx_signal_key_status");
-    createIndex(
+        new IndexOptions().name("idx_signal_key_status"));
+    createRequiredIndex(
         coll,
         Indexes.compoundIndex(Indexes.ascending(STATUS), Indexes.ascending(SIGNAL_TIMEOUT)),
-        "idx_signal_timeout_status");
-    createIndex(coll, Indexes.ascending(SIGNAL_DELIVERY_ID), "idx_signal_delivery_id");
+        new IndexOptions().name("idx_signal_timeout_status"));
+    createRequiredIndex(
+        coll,
+        Indexes.ascending(SIGNAL_DELIVERY_ID),
+        new IndexOptions().name("idx_signal_delivery_id"));
   }
 
-  private void createBatchIndexes() {}
+  private void createBatchIndexes() {
+    var coll = database.getCollection("scheduler_batch");
+    // Backs findRecoverableBatchIds, which filters by completion_processed=false on a recurring
+    // timer. Without this index, recovery does a full collection scan over every batch ever
+    // created.
+    createIndex(coll, Indexes.ascending(COMPLETION_PROCESSED), "idx_batch_completion_processed");
+  }
 
   private void createBatchMetricsIndexes() {}
 
