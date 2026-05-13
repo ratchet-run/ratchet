@@ -190,11 +190,11 @@ class WorkflowSchedulerTest {
     when(conditionStore.findConditionsByParentJobId(parent.getId())).thenReturn(List.of());
     when(jobCrudStore.findDependants(parent.getId())).thenReturn(List.of(child));
     when(jobCrudStore.findDependants(child.getId())).thenReturn(List.of());
+    when(jobTerminalStore.cancelJob(child.getId())).thenReturn(true);
 
     assertFalse(scheduler.scheduleNext(parent));
 
-    verify(jobCrudStore).save(child);
-    assertEquals(JobStatus.CANCELED, child.getStatus());
+    verify(jobTerminalStore).cancelJob(child.getId());
   }
 
   @Test
@@ -209,12 +209,12 @@ class WorkflowSchedulerTest {
     when(jobTerminalStore.cancelJob(branch.getId())).thenReturn(true);
     when(jobCrudStore.findDependants(parent.getId())).thenReturn(List.of(linearChild));
     when(jobCrudStore.findDependants(linearChild.getId())).thenReturn(List.of());
+    when(jobTerminalStore.cancelJob(linearChild.getId())).thenReturn(true);
 
     assertFalse(scheduler.scheduleNext(parent));
 
     verify(jobTerminalStore).cancelJob(branch.getId());
-    verify(jobCrudStore).save(linearChild);
-    assertEquals(JobStatus.CANCELED, linearChild.getStatus());
+    verify(jobTerminalStore).cancelJob(linearChild.getId());
   }
 
   @Test
@@ -326,11 +326,11 @@ class WorkflowSchedulerTest {
     when(jobCrudStore.findDependants(parent.getId())).thenReturn(List.of(child));
     when(jobCrudStore.findDependants(child.getId())).thenReturn(List.of());
     when(conditionStore.findConditionsByParentJobId(parent.getId())).thenReturn(List.of());
+    when(jobTerminalStore.cancelJob(child.getId())).thenReturn(true);
 
     scheduler.cancelChain(parent);
 
-    verify(jobCrudStore).save(child);
-    assertEquals(JobStatus.CANCELED, child.getStatus());
+    verify(jobTerminalStore).cancelJob(child.getId());
   }
 
   @Test

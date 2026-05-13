@@ -73,7 +73,7 @@ public class WorkflowScheduler extends ChainScheduler {
       WorkflowConditionStore conditionStore,
       WorkflowConditionEvaluator conditionEvaluator,
       Clock clock) {
-    super(jobCrudStore, clock);
+    super(jobCrudStore, jobTerminalStore, clock);
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.jobTerminalStore = jobTerminalStore;
     this.conditionStore = conditionStore;

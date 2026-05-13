@@ -26,6 +26,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobTerminalStore;
 
 @ExtendWith(MockitoExtension.class)
 class ChainSchedulerTest {
@@ -34,6 +35,7 @@ class ChainSchedulerTest {
   private static final Clock FIXED_CLOCK = Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
 
   @Mock private JobCrudStore jobCrudStore;
+  @Mock private JobTerminalStore jobTerminalStore;
 
   private ChainScheduler scheduler;
 
@@ -52,10 +54,11 @@ class ChainSchedulerTest {
 
   @BeforeEach
   void setUp() {
-    scheduler = new ChainScheduler(jobCrudStore, FIXED_CLOCK);
+    scheduler = new ChainScheduler(jobCrudStore, jobTerminalStore, FIXED_CLOCK);
     lenient()
         .when(jobCrudStore.findDependants(any(UUID.class), anyInt(), anyInt()))
         .thenAnswer(inv -> jobCrudStore.findDependants(inv.getArgument(0)));
+    lenient().when(jobTerminalStore.cancelJob(any(UUID.class))).thenReturn(true);
   }
 
   @Test
@@ -149,7 +152,7 @@ class ChainSchedulerTest {
 
     scheduler.cancelChain(failed);
 
-    verify(jobCrudStore, never()).save(failed);
+    verify(jobTerminalStore, never()).cancelJob(any(UUID.class));
   }
 
   @Test
@@ -162,8 +165,7 @@ class ChainSchedulerTest {
 
     scheduler.cancelChain(failed);
 
-    verify(jobCrudStore).save(child);
-    assertEquals(JobStatus.CANCELED, child.getStatus());
+    verify(jobTerminalStore).cancelJob(child.getId());
   }
 
   @Test
@@ -179,8 +181,7 @@ class ChainSchedulerTest {
 
     scheduler.cancelChain(failed);
 
-    verify(jobCrudStore).save(child);
-    assertEquals(JobStatus.CANCELED, child.getStatus());
+    verify(jobTerminalStore).cancelJob(child.getId());
   }
 
   @Test
@@ -193,7 +194,7 @@ class ChainSchedulerTest {
 
     scheduler.cancelChain(failed);
 
-    verify(jobCrudStore, never()).save(child);
+    verify(jobTerminalStore, never()).cancelJob(child.getId());
     assertEquals(JobStatus.RUNNING, child.getStatus());
   }
 
@@ -207,8 +208,7 @@ class ChainSchedulerTest {
 
     scheduler.cancelChain(failed);
 
-    verify(jobCrudStore).save(child);
-    assertEquals(JobStatus.CANCELED, child.getStatus());
+    verify(jobTerminalStore).cancelJob(child.getId());
   }
 
   // ── helpers ───────────────────────────────────────────────────────────────
@@ -226,11 +226,9 @@ class ChainSchedulerTest {
 
     scheduler.cancelChain(failed);
 
-    InOrder order = inOrder(jobCrudStore);
-    order.verify(jobCrudStore).save(b);
-    order.verify(jobCrudStore).save(c);
-    assertEquals(JobStatus.CANCELED, b.getStatus());
-    assertEquals(JobStatus.CANCELED, c.getStatus());
+    InOrder order = inOrder(jobTerminalStore);
+    order.verify(jobTerminalStore).cancelJob(b.getId());
+    order.verify(jobTerminalStore).cancelJob(c.getId());
   }
 
   @Test
@@ -248,8 +246,8 @@ class ChainSchedulerTest {
 
     scheduler.cancelChain(failed);
 
-    assertEquals(JobStatus.CANCELED, b.getStatus());
-    assertEquals(JobStatus.RUNNING, c.getStatus());
-    assertEquals(JobStatus.SUCCEEDED, d.getStatus());
+    verify(jobTerminalStore).cancelJob(b.getId());
+    verify(jobTerminalStore, never()).cancelJob(c.getId());
+    verify(jobTerminalStore, never()).cancelJob(d.getId());
   }
 }

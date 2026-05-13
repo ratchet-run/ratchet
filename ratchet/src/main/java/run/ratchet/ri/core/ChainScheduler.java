@@ -12,6 +12,7 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.JobTerminalStore;
 
 /**
  * Propagates success/failure through chained job dependencies.
@@ -32,19 +33,22 @@ public class ChainScheduler {
   private static final int DEPENDANT_PAGE_SIZE = JobCrudStore.DEFAULT_PAGE_LIMIT;
 
   protected final JobCrudStore jobCrudStore;
+  protected final JobTerminalStore jobTerminalStore;
   private final Clock clock;
 
   protected ChainScheduler() {
     this.jobCrudStore = null;
+    this.jobTerminalStore = null;
     this.clock = null;
   }
 
-  public ChainScheduler(JobCrudStore jobCrudStore) {
-    this(jobCrudStore, Clock.systemUTC());
+  public ChainScheduler(JobCrudStore jobCrudStore, JobTerminalStore jobTerminalStore) {
+    this(jobCrudStore, jobTerminalStore, Clock.systemUTC());
   }
 
-  ChainScheduler(JobCrudStore jobCrudStore, Clock clock) {
+  ChainScheduler(JobCrudStore jobCrudStore, JobTerminalStore jobTerminalStore, Clock clock) {
     this.jobCrudStore = jobCrudStore;
+    this.jobTerminalStore = jobTerminalStore;
     this.clock = clock != null ? clock : Clock.systemUTC();
   }
 
@@ -58,9 +62,11 @@ public class ChainScheduler {
       for (JobEntity child : children) {
         JobStatus status = child.getStatus();
         if (status == JobStatus.PENDING || status == JobStatus.WAITING) {
-          child.setStatus(JobStatus.CANCELED);
-          jobCrudStore.save(child);
-          log.warnf("Chain step %s canceled (ancestor failed %s)", child.getId(), failed.getId());
+          // Terminal CANCELED transition: cancelJob runs DELETE hot + UPDATE cold +
+          // DELETE bkres atomically. setStatus()+save() is rejected by the hot guard.
+          if (jobTerminalStore.cancelJob(child.getId())) {
+            log.warnf("Chain step %s canceled (ancestor failed %s)", child.getId(), failed.getId());
+          }
         }
         stack.push(child.getId());
       }
