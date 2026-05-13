@@ -24,7 +24,7 @@ SELECT
     j.idempotency_key,
     j.business_key,
     j.created_at,
-    j.created_by,
+    j.caller_principal AS created_by,
     j.terminal_status,
     j.terminated_at
 FROM scheduler_job j;
