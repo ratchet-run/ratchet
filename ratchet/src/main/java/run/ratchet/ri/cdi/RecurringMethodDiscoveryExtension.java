@@ -16,14 +16,18 @@ import run.ratchet.api.Recurring;
  *
  * <p>The startup processor uses this metadata to query the BeanManager for only candidate recurring
  * bean classes instead of enumerating every bean in the deployment.
+ *
+ * <p>Callers retrieve the discovered set via {@link #getRecurringBeanClasses()} on the Extension
+ * instance obtained from the deployment's own {@link jakarta.enterprise.inject.spi.BeanManager}.
+ * This avoids the static-singleton pattern that breaks when multiple CDI containers share a JVM
+ * (e.g., multiple WildFly deployments), where a second {@code BeforeBeanDiscovery} event would
+ * overwrite a shared static field and lose the first deployment's discovered classes.
  */
 public class RecurringMethodDiscoveryExtension implements Extension {
 
   private final Set<Class<?>> recurringBeanClasses = ConcurrentHashMap.newKeySet();
-  private static volatile RecurringMethodDiscoveryExtension activeExtension;
 
   void clear(@Observes BeforeBeanDiscovery event) {
-    activeExtension = this;
     recurringBeanClasses.clear();
   }
 
@@ -35,9 +39,13 @@ public class RecurringMethodDiscoveryExtension implements Extension {
     }
   }
 
-  static Set<Class<?>> recurringBeanClasses() {
-    RecurringMethodDiscoveryExtension extension = activeExtension;
-    return extension == null ? Set.of() : Set.copyOf(extension.recurringBeanClasses);
+  /**
+   * Returns the set of bean classes that declare at least one {@link Recurring} method, as
+   * discovered for this CDI container. Obtain this Extension instance from the deployment's own
+   * {@link jakarta.enterprise.inject.spi.BeanManager} to ensure deployment-scoped isolation.
+   */
+  public Set<Class<?>> getRecurringBeanClasses() {
+    return Set.copyOf(recurringBeanClasses);
   }
 
   private static boolean hasRecurringMethod(AnnotatedType<?> annotatedType) {

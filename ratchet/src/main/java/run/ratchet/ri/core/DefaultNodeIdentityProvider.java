@@ -44,6 +44,17 @@ import run.ratchet.store.spi.NodeStore;
 public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
 
   private static final Logger log = Logger.getLogger(DefaultNodeIdentityProvider.class);
+
+  /**
+   * Heuristic message fragments used to suppress expected heartbeat failures during CDI container
+   * shutdown. The class-name check for {@code ContextNotActiveException} (a standard CDI type) is
+   * the primary portable guard; these strings catch implementations that wrap or rethrow with
+   * implementation-specific messages. The Weld-specific codes ({@code WELD-000229}, {@code
+   * WELD-001303}) are intentionally retained as secondary markers because Weld is the dominant EE
+   * runtime, but they are never the sole check — other CDI implementations that surface the
+   * portable {@code ContextNotActiveException} or the generic "No active contexts" phrase are also
+   * handled without any Weld dependency.
+   */
   private static final List<String> CONTAINER_SHUTDOWN_ERROR_MARKERS =
       List.of("WELD-000229", "WELD-001303", "after container", "No active contexts for scope type");
 

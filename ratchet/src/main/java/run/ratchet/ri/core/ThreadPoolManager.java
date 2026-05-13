@@ -62,16 +62,19 @@ public class ThreadPoolManager {
   }
 
   public int getAvailableCapacity(JobExecutionType jobType) {
-    synchronized (stateLock) {
-      if (useVirtualThreads) {
-        AtomicInteger counter = virtualThreadCounts.get(jobType);
-        if (counter == null) {
-          return 0;
-        }
-        int maxLimit = virtualThreadLimits.getOrDefault(jobType, DEFAULT_VIRTUAL_THREAD_LIMIT);
-        return Math.max(0, maxLimit - counter.get());
+    if (useVirtualThreads) {
+      // AtomicInteger.get() is intrinsically thread-safe; no lock needed for the virtual-thread
+      // path.
+      AtomicInteger counter = virtualThreadCounts.get(jobType);
+      if (counter == null) {
+        return 0;
       }
+      int maxLimit = virtualThreadLimits.getOrDefault(jobType, DEFAULT_VIRTUAL_THREAD_LIMIT);
+      return Math.max(0, maxLimit - counter.get());
+    }
 
+    // Semaphore.availablePermits() is not atomic with check-and-modify; retain lock for this path.
+    synchronized (stateLock) {
       Semaphore semaphore = concurrencyLimits.get(jobType);
       if (semaphore == null) {
         return 0;
@@ -81,15 +84,17 @@ public class ThreadPoolManager {
   }
 
   public int getActiveThreadCount() {
-    synchronized (stateLock) {
-      if (useVirtualThreads) {
-        int totalActive = 0;
-        for (AtomicInteger counter : virtualThreadCounts.values()) {
-          totalActive += counter.get();
-        }
-        return totalActive;
+    if (useVirtualThreads) {
+      // AtomicInteger.get() is intrinsically thread-safe; no lock needed for the virtual-thread
+      // path.
+      int totalActive = 0;
+      for (AtomicInteger counter : virtualThreadCounts.values()) {
+        totalActive += counter.get();
       }
+      return totalActive;
+    }
 
+    synchronized (stateLock) {
       int totalActive = 0;
       for (AtomicInteger activeCount : activeCounts.values()) {
         totalActive += activeCount.get();

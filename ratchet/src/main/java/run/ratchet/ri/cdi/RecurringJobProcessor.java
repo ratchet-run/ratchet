@@ -125,7 +125,7 @@ public class RecurringJobProcessor {
         startupCoordinator,
         registrationState,
         options,
-        RecurringMethodDiscoveryExtension.recurringBeanClasses(),
+        resolveRecurringBeanClasses(beanManager),
         clock);
   }
 
@@ -412,6 +412,25 @@ public class RecurringJobProcessor {
 
   private Clock effective() {
     return clock != null ? clock : Clock.systemUTC();
+  }
+
+  /**
+   * Resolves the set of bean classes that declare {@link Recurring} methods for this CDI container
+   * by looking up the {@link RecurringMethodDiscoveryExtension} instance from the provided {@link
+   * BeanManager}. Using the instance (rather than a static accessor) ensures deployment-scoped
+   * isolation when multiple CDI containers share a JVM.
+   */
+  private static Set<Class<?>> resolveRecurringBeanClasses(BeanManager bm) {
+    if (bm == null) {
+      return Set.of();
+    }
+    try {
+      RecurringMethodDiscoveryExtension ext =
+          bm.getExtension(RecurringMethodDiscoveryExtension.class);
+      return ext.getRecurringBeanClasses();
+    } catch (Exception e) {
+      return Set.of();
+    }
   }
 
   private record RecurringMethodRegistration(

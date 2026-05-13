@@ -45,16 +45,18 @@ final class MysqlTagOperations implements TagStore {
     if (tags == null || tags.isEmpty()) {
       return;
     }
+    // Build a single INSERT IGNORE with one VALUES row per tag to avoid N round-trips.
     // language=MySQL
-    String sql = "INSERT IGNORE INTO scheduler_job_tag (job_id, tag) VALUES (?, ?)";
+    String placeholders = String.join(",", Collections.nCopies(tags.size(), "(?,?)"));
+    String sql = "INSERT IGNORE INTO scheduler_job_tag (job_id, tag) VALUES " + placeholders;
     byte[] jobIdBytes = UuidByteArrayConverter.toBytes(jobId);
+    Query query = ctx.em().createNativeQuery(sql);
+    int param = 1;
     for (String tag : tags) {
-      ctx.em()
-          .createNativeQuery(sql)
-          .setParameter(1, jobIdBytes)
-          .setParameter(2, tag)
-          .executeUpdate();
+      query.setParameter(param++, jobIdBytes);
+      query.setParameter(param++, tag);
     }
+    query.executeUpdate();
   }
 
   @Override
