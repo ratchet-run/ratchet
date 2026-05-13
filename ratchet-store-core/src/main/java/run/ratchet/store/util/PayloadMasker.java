@@ -91,46 +91,38 @@ public final class PayloadMasker {
     }
   }
 
+  // Short markers that are common English substrings (e.g. "pin" inside "spinner")
+  // and so must match only on word boundaries; everything else uses plain substring.
+  private static final Set<String> SHORT_BOUNDARY_MARKERS = Set.of("pin", "cvv", "ssn");
+
   private static boolean isSensitiveField(String fieldName) {
     if (fieldName == null) {
       return false;
     }
-    String[] tokens = tokenize(fieldName);
-    if (tokens.length == 0) {
-      return false;
-    }
+    String lower = fieldName.toLowerCase(Locale.ROOT);
     for (String marker : SENSITIVE_FIELDS) {
-      String[] markerTokens = tokenize(marker);
-      if (containsSubsequence(tokens, markerTokens)) {
+      if (SHORT_BOUNDARY_MARKERS.contains(marker)) {
+        if (containsAsWord(lower, marker)) {
+          return true;
+        }
+      } else if (lower.contains(marker)) {
         return true;
       }
     }
     return false;
   }
 
-  // Split camelCase + snake_case into lowercase word tokens so substring matches
-  // do not produce false positives ("spinner" does not contain a "pin" token) while
-  // still flagging compound forms ("privateKeyPem" tokenizes to [private, key, pem]).
-  private static String[] tokenize(String fieldName) {
-    String spaced = fieldName.replaceAll("([a-z0-9])([A-Z])", "$1 $2");
-    return spaced.toLowerCase(Locale.ROOT).split("[^a-z0-9]+");
-  }
-
-  private static boolean containsSubsequence(String[] haystack, String[] needle) {
-    if (needle.length == 0 || needle.length > haystack.length) {
-      return false;
-    }
-    for (int i = 0; i <= haystack.length - needle.length; i++) {
-      boolean match = true;
-      for (int j = 0; j < needle.length; j++) {
-        if (!haystack[i + j].equals(needle[j])) {
-          match = false;
-          break;
-        }
-      }
-      if (match) {
+  private static boolean containsAsWord(String haystack, String needle) {
+    int idx = haystack.indexOf(needle);
+    while (idx >= 0) {
+      boolean leftOk = idx == 0 || !Character.isLetterOrDigit(haystack.charAt(idx - 1));
+      int after = idx + needle.length();
+      boolean rightOk =
+          after == haystack.length() || !Character.isLetterOrDigit(haystack.charAt(after));
+      if (leftOk && rightOk) {
         return true;
       }
+      idx = haystack.indexOf(needle, idx + 1);
     }
     return false;
   }

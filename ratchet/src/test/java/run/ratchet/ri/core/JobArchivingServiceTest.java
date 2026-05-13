@@ -21,6 +21,7 @@ import java.lang.reflect.Modifier;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.List;
@@ -365,7 +366,7 @@ class JobArchivingServiceTest {
 
     Instant next =
         ExecutionTime.forCron(cron)
-            .nextExecution(FIXED_NOW.atZone(ZoneOffset.UTC))
+            .nextExecution(FIXED_NOW.atZone(ZoneId.systemDefault()))
             .map(ZonedDateTime::toInstant)
             .orElseThrow();
     verify(scheduledExecutor)
