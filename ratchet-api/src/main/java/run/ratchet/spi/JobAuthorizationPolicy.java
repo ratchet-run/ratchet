@@ -36,6 +36,8 @@ import run.ratchet.api.exception.JobAuthorizationException;
  * run.ratchet.api.JobSchedulerService#cancelRecurringJobByBusinessKey(String)} are not subject to
  * per-job authorization checks. Use {@link run.ratchet.api.JobSchedulerService#cancelJob(UUID)} for
  * authorization-gated cancellation.
+ *
+ * @since 0.1
  */
 @Incubating
 public interface JobAuthorizationPolicy {

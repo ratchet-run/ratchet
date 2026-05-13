@@ -6,6 +6,8 @@ import java.util.Collection;
 /**
  * Fluent builder for batch job execution with progress monitoring, conditional branching, and
  * failure handling.
+ *
+ * @since 0.1
  */
 @Incubating
 public interface BatchBuilder {
@@ -95,9 +97,10 @@ public interface BatchBuilder {
   /**
    * Schedules a task when the success rate meets or exceeds {@code minRate}.
    *
-   * @param minRate 0.0 to 1.0
+   * @param minRate success rate threshold in the range 0.0 to 1.0
    * @param next task to schedule; must not be {@code null}
    * @return this builder
+   * @throws IllegalArgumentException if {@code minRate} is less than 0.0 or greater than 1.0
    * @throws NullPointerException if {@code next} is null
    */
   BatchBuilder thenWhenSuccessRate(double minRate, SerializableCheckedRunnable next);

@@ -44,26 +44,38 @@ public class JobsBulkSignaledEvent implements Serializable {
     this.signaledAt = Objects.requireNonNull(signaledAt, "signaledAt");
   }
 
+  /** Returns the signal key that was delivered. */
   public String getSignalKey() {
     return signalKey;
   }
 
+  /** Returns the number of WAITING jobs unblocked by this signal delivery. */
   public int getCount() {
     return count;
   }
 
+  /**
+   * Returns the principal that delivered the signal, or {@code null} if no security context was
+   * active.
+   */
   public String getSignalDeliveredBy() {
     return signalDeliveredBy;
   }
 
+  /** Returns the approval/rejection outcome of the signal. */
   public SignalDecision.Outcome getOutcome() {
     return outcome;
   }
 
+  /**
+   * Returns the rejection reason, or {@code null} when the outcome is {@link
+   * SignalDecision.Outcome#APPROVED}.
+   */
   public String getRejectionReason() {
     return rejectionReason;
   }
 
+  /** Returns the instant at which the signal was delivered. */
   public Instant getSignaledAt() {
     return signaledAt;
   }

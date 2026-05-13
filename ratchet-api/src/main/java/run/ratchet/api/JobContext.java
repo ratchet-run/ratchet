@@ -81,6 +81,7 @@ public final class JobContext {
     return ctx;
   }
 
+  /** Returns the UUID of the executing job. */
   public UUID jobId() {
     return jobId;
   }

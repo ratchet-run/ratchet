@@ -359,6 +359,7 @@ public interface JobSchedulerService {
    *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}.
    *
+   * @param businessKey the business key identifying the recurring job to cancel
    * @return the number of jobs canceled (0 or 1, since business keys are active-unique)
    */
   int cancelRecurringJobByBusinessKey(String businessKey);

@@ -2,7 +2,11 @@ package run.ratchet.spi;
 
 import run.ratchet.api.Incubating;
 
-/** Creates the polling delay strategy used by the RI poller. */
+/**
+ * Creates the polling delay strategy used by the RI poller.
+ *
+ * @since 0.1
+ */
 @Incubating
 public interface PollingStrategyProvider {
 

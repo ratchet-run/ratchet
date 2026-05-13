@@ -3,7 +3,11 @@ package run.ratchet.spi;
 import java.util.UUID;
 import run.ratchet.api.Incubating;
 
-/** Serializes job return values before they are stored on the job row. */
+/**
+ * Serializes job return values before they are stored on the job row.
+ *
+ * @since 0.1
+ */
 @Incubating
 public interface ResultPersistenceStrategy {
 

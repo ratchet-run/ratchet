@@ -2,7 +2,11 @@ package run.ratchet.spi;
 
 import run.ratchet.api.Incubating;
 
-/** Creates the {@link JobLogger} bound into {@code JobContext} for each execution. */
+/**
+ * Creates the {@link JobLogger} bound into {@code JobContext} for each execution.
+ *
+ * @since 0.1
+ */
 @Incubating
 public interface JobLoggerFactory {
 

@@ -38,6 +38,8 @@ import run.ratchet.api.JobType;
  * <p>The default no-op implementation captures no context and returns a no-op scope. Opt in to real
  * tracing by placing {@code ratchet-micrometer} (Micrometer Tracing bridge) or {@code ratchet-otel}
  * (OpenTelemetry direct) on the deployment classpath.
+ *
+ * @since 0.1
  */
 @Incubating
 public interface TracingCollector {

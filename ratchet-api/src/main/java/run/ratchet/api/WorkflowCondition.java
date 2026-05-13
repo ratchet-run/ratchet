@@ -89,8 +89,10 @@ public record WorkflowCondition(ConditionType type, Serializable expression, int
   }
 
   /**
-   * Creates a BATCH_FAILURE_COUNT condition (true when failures &lt;= maxFailures).
+   * Creates a BATCH_FAILURE_COUNT condition that is true when the number of child job failures does
+   * not exceed {@code maxFailures}.
    *
+   * @param maxFailures maximum number of allowed failures (inclusive)
    * @throws IllegalArgumentException if maxFailures is negative
    */
   public static WorkflowCondition failureCount(int maxFailures) {

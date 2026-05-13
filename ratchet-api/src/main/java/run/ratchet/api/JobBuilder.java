@@ -97,12 +97,15 @@ public interface JobBuilder {
   JobBuilder then(SerializableCheckedRunnable next);
 
   /** Schedules a separate job to run if this job fails. */
+  @Incubating
   JobBuilder thenOnFailure(SerializableCheckedRunnable next);
 
   /** Schedules a separate job to run if this job succeeds. */
+  @Incubating
   JobBuilder thenOnSuccess(SerializableCheckedRunnable next);
 
   /** Schedules a job when a predicate on {@link JobResult} is true. */
+  @Incubating
   <T> JobBuilder when(
       SerializablePredicate<JobResult<T>> condition, SerializableCheckedRunnable next);
 
@@ -111,12 +114,14 @@ public interface JobBuilder {
    *
    * @param priority evaluation order when multiple conditions overlap (lower = first)
    */
+  @Incubating
   <T> JobBuilder when(
       SerializablePredicate<JobResult<T>> condition,
       SerializableCheckedRunnable next,
       int priority);
 
   /** Schedules a job based on the job's return value. */
+  @Incubating
   <T> JobBuilder whenResult(
       SerializableFunction<T, Boolean> condition, SerializableCheckedRunnable next);
 
@@ -125,6 +130,7 @@ public interface JobBuilder {
    *
    * @param priority evaluation order when multiple conditions overlap (lower = first)
    */
+  @Incubating
   <T> JobBuilder whenResult(
       SerializableFunction<T, Boolean> condition, SerializableCheckedRunnable next, int priority);
 

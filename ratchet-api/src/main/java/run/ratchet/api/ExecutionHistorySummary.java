@@ -16,6 +16,7 @@ import java.util.UUID;
  * @param succeeded true if this attempt completed without error
  * @param errorMessage the error message if the attempt failed; null otherwise
  * @param errorClass the exception class name if the attempt failed; null otherwise
+ * @since 0.1
  */
 @Incubating
 public record ExecutionHistorySummary(

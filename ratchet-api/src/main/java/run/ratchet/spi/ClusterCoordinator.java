@@ -9,6 +9,8 @@ import run.ratchet.api.JobPriority;
  * <p>This interface is marked {@link Incubating} — the cluster coordination contract may evolve as
  * high-availability support matures. It is intentionally limited to cross-node wakeup
  * notifications; destructive startup coordination uses {@link StartupCoordinator}.
+ *
+ * @since 0.1
  */
 @Incubating
 public interface ClusterCoordinator {

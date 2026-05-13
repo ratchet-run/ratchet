@@ -45,6 +45,7 @@ import java.util.UUID;
  * @param skipCount true to skip the total-count query and return {@code -1} as total count
  * @param includeArchived true to include archived jobs when the backing store supports archives
  * @param cursor opaque keyset-pagination cursor, or null to use offset-based pagination
+ * @since 0.1
  */
 @Incubating
 public record JobFilter(

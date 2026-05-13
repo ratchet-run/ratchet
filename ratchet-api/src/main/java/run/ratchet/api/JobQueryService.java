@@ -20,6 +20,8 @@ import java.util.UUID;
  * backing store requires one for repeatable pagination, lazy hydration, or authorization checks.
  * Unlike {@link JobSchedulerService}, this incubating query API does not define Jakarta
  * Transactions attributes per method.
+ *
+ * @since 0.1
  */
 @Incubating
 public interface JobQueryService {

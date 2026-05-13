@@ -129,6 +129,10 @@ public class JobResult<T> implements Serializable {
     return endTime;
   }
 
+  /**
+   * Returns an unmodifiable view of the metadata map, or {@code null} if no metadata was set.
+   * Mutation attempts will throw {@link UnsupportedOperationException}.
+   */
   public Map<String, Object> getMetadata() {
     return metadata;
   }

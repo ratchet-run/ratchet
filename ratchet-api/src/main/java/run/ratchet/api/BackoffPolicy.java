@@ -3,6 +3,8 @@ package run.ratchet.api;
 /**
  * Retry backoff strategy applied between job execution attempts. Each policy uses the job's {@code
  * backoffParamMs} to compute actual delays.
+ *
+ * @since 0.1
  */
 public enum BackoffPolicy {
 

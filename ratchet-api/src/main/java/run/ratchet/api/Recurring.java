@@ -30,6 +30,7 @@ import java.lang.annotation.Target;
  *
  * @see JobContext
  * @see RecurringJobBuilder
+ * @since 0.1
  */
 @Target({ElementType.METHOD})
 @Retention(RetentionPolicy.RUNTIME)

@@ -176,58 +176,72 @@ public class RatchetOptions {
     }
   }
 
+  /** Returns the polling configuration. */
   public PollingOptions polling() {
     return polling;
   }
 
+  /** Returns the execution configuration. */
   public ExecutionOptions execution() {
     return execution;
   }
 
+  /** Returns the node configuration. */
   public NodeOptions node() {
     return node;
   }
 
+  /** Returns the recurring job configuration. */
   public RecurringOptions recurring() {
     return recurring;
   }
 
+  /** Returns the retry buffer configuration. */
   public RetryBufferOptions retryBuffer() {
     return retryBuffer;
   }
 
+  /** Returns the timeout configuration. */
   public TimeoutOptions timeout() {
     return timeout;
   }
 
+  /** Returns the maintenance configuration. */
   public MaintenanceOptions maintenance() {
     return maintenance;
   }
 
+  /** Returns the notification configuration. */
   public NotificationOptions notifications() {
     return notifications;
   }
 
+  /** Returns the schema migration configuration. */
   public SchemaOptions schema() {
     return schema;
   }
 
+  /** Returns the payload configuration. */
   public PayloadOptions payload() {
     return payload;
   }
 
+  /** Returns the metrics configuration. */
   public MetricsOptions metrics() {
     return metrics;
   }
 
+  /** Returns the security configuration. */
   public SecurityOptions security() {
     return security;
   }
 
+  /** Returns the store configuration. */
   public StoreOptions store() {
     return store;
   }
 
+  /** Returns the circuit breaker configuration. */
   public CircuitBreakerOptions circuitBreaker() {
     return circuitBreaker;
   }
