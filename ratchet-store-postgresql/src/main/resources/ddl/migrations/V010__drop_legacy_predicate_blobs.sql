@@ -11,3 +11,6 @@ DELETE FROM scheduler_workflow_condition
 WHERE condition_type IN ('CUSTOM', 'BATCH_CUSTOM', 'RESULT_VALUE')
   AND condition_expression IS NOT NULL
   AND condition_expression NOT LIKE '{%';
+
+INSERT INTO ratchet_schema_version (version, description)
+VALUES ('010', 'Drop legacy JDK-serialized predicate blobs from scheduler_workflow_condition');
