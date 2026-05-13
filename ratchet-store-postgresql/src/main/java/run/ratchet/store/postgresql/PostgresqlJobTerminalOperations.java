@@ -382,15 +382,24 @@ final class PostgresqlJobTerminalOperations {
     if (hotDeleted == 0) {
       return false;
     }
+    // WAITING jobs never started executing, so execution_end_time must stay null to avoid a
+    // non-null end with a null start, which would produce negative or null duration metrics.
     // language=PostgreSQL
     String updateColdSql =
-        """
-        UPDATE scheduler_job
-        SET terminal_status = 'FAILED', terminal_error = ?, total_attempts = ?,
-            terminated_at = statement_timestamp(),
-            execution_end_time = statement_timestamp()
-        WHERE job_id = ? AND terminal_status IS NULL
-        """;
+        expectedStatus == JobStatus.WAITING
+            ? """
+              UPDATE scheduler_job
+              SET terminal_status = 'FAILED', terminal_error = ?, total_attempts = ?,
+                  terminated_at = statement_timestamp()
+              WHERE job_id = ? AND terminal_status IS NULL
+              """
+            : """
+              UPDATE scheduler_job
+              SET terminal_status = 'FAILED', terminal_error = ?, total_attempts = ?,
+                  terminated_at = statement_timestamp(),
+                  execution_end_time = statement_timestamp()
+              WHERE job_id = ? AND terminal_status IS NULL
+              """;
     int coldUpdated =
         ctx.em()
             .createNativeQuery(updateColdSql)

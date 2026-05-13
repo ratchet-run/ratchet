@@ -439,14 +439,23 @@ final class MysqlJobTerminalOperations {
     if (hotDeleted == 0) {
       return false;
     }
+    // WAITING jobs never started executing, so execution_end_time must stay null to avoid a
+    // non-null end with a null start, which would produce negative or null duration metrics.
     // language=MySQL
     String updateColdSql =
-        """
-        UPDATE scheduler_job
-        SET terminal_status = 'FAILED', terminal_error = ?, total_attempts = ?,
-            terminated_at = NOW(3), execution_end_time = NOW(3)
-        WHERE job_id = ? AND terminal_status IS NULL
-        """;
+        expectedStatus == JobStatus.WAITING
+            ? """
+              UPDATE scheduler_job
+              SET terminal_status = 'FAILED', terminal_error = ?, total_attempts = ?,
+                  terminated_at = NOW(3)
+              WHERE job_id = ? AND terminal_status IS NULL
+              """
+            : """
+              UPDATE scheduler_job
+              SET terminal_status = 'FAILED', terminal_error = ?, total_attempts = ?,
+                  terminated_at = NOW(3), execution_end_time = NOW(3)
+              WHERE job_id = ? AND terminal_status IS NULL
+              """;
     int coldUpdated =
         ctx.em()
             .createNativeQuery(updateColdSql)
