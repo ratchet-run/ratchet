@@ -26,6 +26,7 @@ import run.ratchet.ri.core.OrphanRecoveryTimer;
 import run.ratchet.ri.core.Poller;
 import run.ratchet.ri.core.PollerWakeupListener;
 import run.ratchet.ri.core.RecurringScheduler;
+import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.SchedulerLifecycleHook;
@@ -199,6 +200,7 @@ public class RatchetLifecycle {
     stopService("job execution coordinator", jobExecutionCoordinator::shutdown);
 
     JobTask.clearCaches();
+    JobPayloadFactory.clearCaches();
     notifyHooks("afterStop", SchedulerLifecycleHook::afterStop, false);
     destroyHooks();
   }

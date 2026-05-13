@@ -220,17 +220,18 @@ public class RecurringScheduler {
   }
 
   private void renewLease(SingletonLease lease, AtomicBoolean leaseValid) {
+    // Don't close the lease here — the run() finally block holds the sole close site to avoid
+    // double-unlock on stores that don't ownership-verify (which could release a peer node's
+    // lock between our first close and the redundant second one).
     try {
       if (!lease.renew(LEASE_TTL)) {
         log.warnf("RecurringScheduler could not renew singleton lease %s", lease.name());
         leaseValid.set(false);
-        lease.close();
         stop();
       }
     } catch (Exception e) {
       log.warnf(e, "RecurringScheduler lease renewal failed for %s", lease.name());
       leaseValid.set(false);
-      lease.close();
       stop();
     }
   }

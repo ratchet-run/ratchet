@@ -56,6 +56,17 @@ public final class JobPayloadFactory {
 
   private JobPayloadFactory() {}
 
+  /**
+   * Drops cached reflection results. The cache keys hold strong references to {@link ClassLoader}
+   * instances; in redeployable EE containers (WildFly, Payara) the old loader and its classes
+   * remain reachable across hot redeploys until evicted by LRU, preventing GC of the previous
+   * deployment. Called from the scheduler shutdown path alongside {@code JobTask.clearCaches()}.
+   */
+  public static void clearCaches() {
+    VISIBILITY_CACHE.clear();
+    FUNCTIONAL_INTERFACE_METHOD_CACHE.clear();
+  }
+
   /** Creates a {@link JobPayload} from a lambda. */
   public static JobPayload fromLambda(Serializable lambda) {
     return fromInvocation(toInvocation(lambda));
