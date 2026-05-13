@@ -16,7 +16,10 @@ import java.util.function.Predicate;
 @FunctionalInterface
 public interface SerializablePredicate<T> extends Predicate<T>, Serializable {
 
-  long serialVersionUID = 1L;
+  // Intentionally no serialVersionUID. Interface fields are implicitly public static final, and
+  // the JVM serialization spec only honors serialVersionUID when declared as private static final
+  // on a class. Lambda instances derive their UID from the JVM-synthesized implementation class,
+  // not from this interface.
 
   /** {@inheritDoc} */
   @Override

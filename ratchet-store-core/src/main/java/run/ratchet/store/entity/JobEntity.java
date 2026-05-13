@@ -119,6 +119,11 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   @Column(name = "trace_context")
   private Map<String, String> traceContext;
 
+  // target_class and method_name are populated outside JPA so they remain queryable for
+  // dashboards without round-tripping the JobPayload converter. Store implementations must
+  // populate these columns through a DDL-level generated column or a native INSERT path —
+  // a JPA-only insert that respects these annotations would leave the columns NULL and
+  // break idx_target_class / idx_method_name.
   @Column(name = "target_class", insertable = false, updatable = false)
   private String targetClass;
 

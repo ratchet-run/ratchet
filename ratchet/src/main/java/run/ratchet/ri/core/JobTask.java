@@ -1024,8 +1024,13 @@ public class JobTask implements Callable<Void> {
       observabilityFacade.saveExecution(currentExecution);
     }
 
-    // Consult RetryPolicy for delay; fall back to job-level backoff configuration
-    Duration policyDelay = retryPolicy.getDelay(attempt);
+    // Consult RetryPolicy for delay; fall back to job-level backoff configuration. The SPI
+    // contract requires a non-null Duration; enforce at the boundary so a misbehaving
+    // implementation produces a meaningful error instead of an uninformative NPE deeper in.
+    Duration policyDelay =
+        Objects.requireNonNull(
+            retryPolicy.getDelay(attempt),
+            "RetryPolicy.getDelay must not return null (attempt=" + attempt + ")");
     long backoff =
         policyDelay.isZero()
             ? BackoffPolicyHandler.computeDelay(
