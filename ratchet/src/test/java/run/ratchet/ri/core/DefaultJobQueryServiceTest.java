@@ -413,7 +413,8 @@ class DefaultJobQueryServiceTest {
                 JobStatus.FAILED, 3L,
                 JobStatus.SUCCEEDED, 2L,
                 JobStatus.CANCELED, 1L,
-                JobStatus.PAUSED, 6L));
+                JobStatus.PAUSED, 6L,
+                JobStatus.WAITING, 9L));
     when(crudStore.countStuckJobs(any())).thenReturn(1L);
     when(crudStore.countReadyJobs(any())).thenReturn(3L);
     when(crudStore.getRetryRateStats(any())).thenReturn(0.1);
@@ -433,6 +434,7 @@ class DefaultJobQueryServiceTest {
     assertEquals(2L, snapshot.succeededCount());
     assertEquals(1L, snapshot.canceledCount());
     assertEquals(6L, snapshot.pausedCount());
+    assertEquals(9L, snapshot.waitingCount());
     assertEquals(1L, snapshot.stuckCount());
     assertEquals(3L, snapshot.readyCount());
     assertEquals(0.1, snapshot.retryRate());

@@ -15,6 +15,7 @@ import java.util.Map;
  * @param succeededCount jobs in terminal SUCCEEDED state
  * @param canceledCount jobs in terminal CANCELED state
  * @param pausedCount jobs currently paused
+ * @param waitingCount jobs blocked on a signal (non-terminal WAITING status)
  * @param stuckCount running jobs whose pickup timestamp is suspiciously old
  * @param readyCount pending jobs whose scheduled time is &lt;= now
  * @param retryRate fraction of recently updated jobs that have retried at least once (0.0–1.0)
@@ -32,6 +33,7 @@ public record QueueHealthSnapshot(
     long succeededCount,
     long canceledCount,
     long pausedCount,
+    long waitingCount,
     long stuckCount,
     long readyCount,
     double retryRate,

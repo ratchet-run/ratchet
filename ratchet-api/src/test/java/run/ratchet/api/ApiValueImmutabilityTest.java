@@ -86,7 +86,7 @@ class ApiValueImmutabilityTest {
     byPriority.put(JobPriority.NORMAL, 2L);
 
     QueueHealthSnapshot snapshot =
-        new QueueHealthSnapshot(1, 0, 0, 0, 0, 0, 0, 1, 0.0, 0.0, 0, null, byType, byPriority);
+        new QueueHealthSnapshot(1, 0, 0, 0, 0, 0, 0, 0, 1, 0.0, 0.0, 0, null, byType, byPriority);
     byType.put(JobType.RECURRING, 9L);
     byPriority.put(JobPriority.HIGH, 9L);
 
@@ -99,7 +99,7 @@ class ApiValueImmutabilityTest {
   @Test
   void queueHealthSnapshotDefaultsNullBreakdownsToEmptyMaps() {
     QueueHealthSnapshot snapshot =
-        new QueueHealthSnapshot(1, 0, 0, 0, 0, 0, 0, 1, 0.0, 0.0, 0, null, null, null);
+        new QueueHealthSnapshot(1, 0, 0, 0, 0, 0, 0, 0, 1, 0.0, 0.0, 0, null, null, null);
 
     assertEquals(Map.of(), snapshot.pendingByType());
     assertEquals(Map.of(), snapshot.pendingByPriority());

@@ -213,6 +213,7 @@ public class DefaultJobQueryService implements JobQueryService {
         countsByStatus.getOrDefault(JobStatus.SUCCEEDED, 0L),
         countsByStatus.getOrDefault(JobStatus.CANCELED, 0L),
         countsByStatus.getOrDefault(JobStatus.PAUSED, 0L),
+        countsByStatus.getOrDefault(JobStatus.WAITING, 0L),
         crudStore.countStuckJobs(stuckThreshold),
         crudStore.countReadyJobs(now),
         crudStore.getRetryRateStats(since),
