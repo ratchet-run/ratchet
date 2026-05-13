@@ -1,8 +1,6 @@
 package run.ratchet.api.event;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -32,18 +30,18 @@ class JobCancellationEventTest {
   }
 
   @Test
-  void cancelledDefaultTimestampConstructorStillInitializesSharedCancellationValues() {
-    Instant before = Instant.now();
+  void cancelledShortConstructorMapsAllCancellationFields() {
     JobCancelledEvent event =
         new JobCancelledEvent(
-            JOB_ID, "business-key", JobType.SINGLE, JobPriority.HIGH, "node-a", "PENDING", 7L);
-    Instant after = Instant.now();
+            JOB_ID,
+            "business-key",
+            JobType.SINGLE,
+            JobPriority.HIGH,
+            "node-a",
+            TIMESTAMP,
+            "PENDING",
+            7L);
 
-    assertDefaultTimestampConstructorValues(event, before, after);
-  }
-
-  private static void assertDefaultTimestampConstructorValues(
-      AbstractJobCancellationEvent event, Instant before, Instant after) {
     assertEquals(JOB_ID, event.getJobId());
     assertEquals("business-key", event.getBusinessKey());
     assertEquals(JobType.SINGLE, event.getJobType());
@@ -51,9 +49,7 @@ class JobCancellationEventTest {
     assertEquals("node-a", event.getNodeId());
     assertEquals("PENDING", event.getPreviousStatus());
     assertEquals(7L, event.getExecutionTimeMs());
-    assertNotNull(event.getTimestamp());
-    assertFalse(event.getTimestamp().isBefore(before));
-    assertFalse(event.getTimestamp().isAfter(after));
+    assertEquals(TIMESTAMP, event.getTimestamp());
   }
 
   private static void assertCancellationValues(AbstractJobCancellationEvent event) {

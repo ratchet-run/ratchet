@@ -56,6 +56,7 @@ final class MicroProfileRatchetConfigSource implements RatchetConfigSource {
       Optional<?> value = (Optional<?>) getOptionalValue.invoke(config, name, String.class);
       return value.map(Object::toString).filter(raw -> !raw.isBlank());
     } catch (IllegalAccessException | InvocationTargetException | RuntimeException e) {
+      LOG.log(Level.FINE, e, () -> "MicroProfile Config lookup failed for property: " + name);
       return Optional.empty();
     }
   }
