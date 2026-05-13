@@ -147,8 +147,13 @@ final class MongoSignalOperations implements SignalStore {
     if (deliveryId == null || deliveryId.isBlank()) {
       return List.of();
     }
+    // Limit the cursor to one beyond the warning threshold so the driver never fetches an
+    // unbounded result set. The sentinel (+1) document triggers the warning without OOM risk.
     List<JobEntity> result = new ArrayList<>();
-    for (Document doc : ctx.jobs().find(eq(SIGNAL_DELIVERY_ID, deliveryId))) {
+    for (Document doc :
+        ctx.jobs()
+            .find(eq(SIGNAL_DELIVERY_ID, deliveryId))
+            .limit(SIGNAL_DELIVERY_RESULT_WARNING_THRESHOLD + 1)) {
       result.add(DocumentMapper.toJobEntity(doc));
       if (result.size() == SIGNAL_DELIVERY_RESULT_WARNING_THRESHOLD + 1) {
         log.warnf(

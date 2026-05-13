@@ -49,10 +49,24 @@ final class MongoArchiveOperations {
     this.clock = Objects.requireNonNull(clock, "clock");
   }
 
+  /**
+   * Archives one terminal job and atomically deletes it from the active collection. Consistent with
+   * the batch variant: both insert and delete succeed together or neither does.
+   */
   ArchivedJobEntity archiveJob(JobEntity job, String reason, String archivedBy) {
     ArchivedJobEntity archive = buildArchive(job, reason, archivedBy);
     archive.setId(UuidV7Factory.create());
-    ctx.archives().insertOne(DocumentMapper.toDocument(archive));
+    Document doc = DocumentMapper.toDocument(archive);
+    try (ClientSession session = ctx.startSession()) {
+      session.withTransaction(
+          () -> {
+            ctx.archives().insertOne(session, doc);
+            ctx.jobs().deleteOne(session, eq(ID, job.getId()));
+            return null;
+          });
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("archive job", e);
+    }
     return archive;
   }
 

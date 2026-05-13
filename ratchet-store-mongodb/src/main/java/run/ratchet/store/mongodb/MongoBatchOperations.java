@@ -27,11 +27,13 @@ import com.mongodb.client.model.FindOneAndUpdateOptions;
 import com.mongodb.client.model.ReplaceOptions;
 import com.mongodb.client.model.ReturnDocument;
 import com.mongodb.client.result.UpdateResult;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import org.bson.Document;
@@ -46,9 +48,15 @@ import run.ratchet.store.entity.BatchMetricsEntity;
 final class MongoBatchOperations {
 
   private final MongoStoreContext ctx;
+  private final Clock clock;
 
   MongoBatchOperations(MongoStoreContext ctx) {
+    this(ctx, Clock.systemUTC());
+  }
+
+  MongoBatchOperations(MongoStoreContext ctx, Clock clock) {
     this.ctx = ctx;
+    this.clock = Objects.requireNonNull(clock, "clock");
   }
 
   BatchEntity saveBatch(BatchEntity batch) {
@@ -174,7 +182,7 @@ final class MongoBatchOperations {
     if (doc == null) {
       return;
     }
-    Instant now = Instant.now();
+    Instant now = Instant.now(clock);
     Date startedAt = doc.getDate(STARTED_AT);
     Long childExecutionMs = doc.getLong(CHILD_EXECUTION_MS);
 
