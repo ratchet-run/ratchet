@@ -92,21 +92,24 @@ public class JobLogEntity implements UuidV7EntityListener.UuidV7Assignable {
     return copyMdc(mdc);
   }
 
+  // Identity-based equality on the assigned primary key. Content-based equality (jobId/ts/
+  // level/message) silently deduplicates distinct audit-log entries that share content,
+  // which is unsafe for a log entity.
   @Override
   public int hashCode() {
-    return Objects.hash(jobId, ts, level, message);
+    return Objects.hashCode(id);
   }
 
   @Override
   public boolean equals(Object o) {
+    if (this == o) {
+      return true;
+    }
     if (o == null || getClass() != o.getClass()) {
       return false;
     }
     JobLogEntity that = (JobLogEntity) o;
-    return Objects.equals(jobId, that.jobId)
-        && Objects.equals(ts, that.ts)
-        && Objects.equals(level, that.level)
-        && Objects.equals(message, that.message);
+    return Objects.equals(id, that.id);
   }
 
   /** Log severity levels for job execution events, ordered from least to most severe. */

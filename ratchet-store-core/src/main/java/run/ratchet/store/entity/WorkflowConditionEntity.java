@@ -142,6 +142,9 @@ public class WorkflowConditionEntity
     this.childJob = childJob;
   }
 
+  // Identity-based equality on the assigned primary key. Including mutable fields (notably
+  // createdAt, which @PrePersist mutates on flush) would corrupt collections that hold the
+  // entity across persist.
   @Override
   public boolean equals(Object o) {
     if (this == o) {
@@ -151,25 +154,12 @@ public class WorkflowConditionEntity
       return false;
     }
     WorkflowConditionEntity that = (WorkflowConditionEntity) o;
-    return Objects.equals(id, that.id)
-        && Objects.equals(parentJobId, that.parentJobId)
-        && Objects.equals(childJobId, that.childJobId)
-        && conditionType == that.conditionType
-        && Objects.equals(conditionExpression, that.conditionExpression)
-        && Objects.equals(conditionPriority, that.conditionPriority)
-        && Objects.equals(createdAt, that.createdAt);
+    return Objects.equals(id, that.id);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(
-        id,
-        parentJobId,
-        childJobId,
-        conditionType,
-        conditionExpression,
-        conditionPriority,
-        createdAt);
+    return Objects.hashCode(id);
   }
 
   @Override

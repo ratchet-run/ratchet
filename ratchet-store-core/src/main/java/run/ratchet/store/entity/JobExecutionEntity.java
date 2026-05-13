@@ -9,6 +9,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
 import run.ratchet.store.id.UuidV7EntityListener;
 
@@ -193,6 +194,23 @@ public class JobExecutionEntity implements UuidV7EntityListener.UuidV7Assignable
       throw new IllegalStateException("Execution start time is not set");
     }
     return endedAt.toEpochMilli() - startedAt.toEpochMilli();
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (this == o) {
+      return true;
+    }
+    if (o == null || getClass() != o.getClass()) {
+      return false;
+    }
+    JobExecutionEntity that = (JobExecutionEntity) o;
+    return Objects.equals(id, that.id);
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hashCode(id);
   }
 
   public enum ExecutionStatus {

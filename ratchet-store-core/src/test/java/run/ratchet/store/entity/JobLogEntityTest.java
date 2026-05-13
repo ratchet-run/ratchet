@@ -2,6 +2,7 @@ package run.ratchet.store.entity;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.time.Instant;
@@ -13,7 +14,9 @@ import org.junit.jupiter.api.Test;
 class JobLogEntityTest {
 
   @Test
-  void equalLogEntriesHaveSameHashCodeWhenIdsDiffer() {
+  void distinctIdsAreNotEqualEvenWhenContentMatches() {
+    // Distinct log rows must remain distinct in collections, even if they share content
+    // (e.g., the same job emitting two INFO messages with identical text in the same tick).
     Instant timestamp = Instant.parse("2026-05-07T12:34:56Z");
     UUID jobId = UUID.fromString("0196b171-3f80-7000-8000-000000000001");
 
@@ -21,6 +24,16 @@ class JobLogEntityTest {
         logEntry(UUID.fromString("0196b171-3f80-7000-8000-000000000101"), jobId, timestamp);
     JobLogEntity second =
         logEntry(UUID.fromString("0196b171-3f80-7000-8000-000000000202"), jobId, timestamp);
+
+    assertNotEquals(first, second);
+  }
+
+  @Test
+  void sameIdImpliesEqual() {
+    UUID id = UUID.fromString("0196b171-3f80-7000-8000-000000000505");
+    UUID jobId = UUID.fromString("0196b171-3f80-7000-8000-000000000001");
+    JobLogEntity first = logEntry(id, jobId, Instant.parse("2026-05-07T12:34:56Z"));
+    JobLogEntity second = logEntry(id, jobId, Instant.parse("2026-05-07T12:34:56Z"));
 
     assertEquals(first, second);
     assertEquals(first.hashCode(), second.hashCode());
