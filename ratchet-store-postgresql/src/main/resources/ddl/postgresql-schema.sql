@@ -139,7 +139,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job_queue
     version            INT          NOT NULL DEFAULT 0,
     updated_at         TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     signal_key              VARCHAR(255),
-    signal_timeout          TIMESTAMPTZ,
+    signal_timeout          TIMESTAMPTZ(6),
     signal_payload          TEXT,
     signal_payload_type     VARCHAR(16),
     signal_outcome          VARCHAR(32),

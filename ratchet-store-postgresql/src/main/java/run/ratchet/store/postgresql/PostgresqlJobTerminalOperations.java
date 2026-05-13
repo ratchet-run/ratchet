@@ -207,11 +207,11 @@ final class PostgresqlJobTerminalOperations {
     // language=PostgreSQL
     String gateSql =
         """
-	        SELECT job_id
-	        FROM scheduler_job_queue
-	        WHERE job_id = ? AND status = ?
-	        FOR UPDATE
-	        """;
+        SELECT job_id
+        FROM scheduler_job_queue
+        WHERE job_id = ? AND status = ?
+        FOR UPDATE
+        """;
     @SuppressWarnings("unchecked")
     List<Object> rows =
         ctx.em()
@@ -227,11 +227,11 @@ final class PostgresqlJobTerminalOperations {
       // language=PostgreSQL
       String selectSql =
           """
-		        SELECT job_type, terminal_status, rec_status
-		        FROM scheduler_job
-		        WHERE job_id = ?
-		        FOR UPDATE
-		        """;
+          SELECT job_type, terminal_status, rec_status
+          FROM scheduler_job
+          WHERE job_id = ?
+          FOR UPDATE
+          """;
       @SuppressWarnings("unchecked")
       List<Object[]> rows =
           ctx.em().createNativeQuery(selectSql).setParameter(1, id).getResultList();

@@ -48,7 +48,7 @@ class PostgresqlSignalOperationsTest {
                 new Class<?>[] {Query.class},
                 (proxy, method, args) -> {
                   return switch (method.getName()) {
-                    case "setParameter" -> proxy;
+                    case "setParameter", "setMaxResults" -> proxy;
                     case "getResultList" -> Collections.singletonList(row);
                     default -> throw new UnsupportedOperationException(method.getName());
                   };

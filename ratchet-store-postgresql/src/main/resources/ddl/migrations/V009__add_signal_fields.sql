@@ -11,7 +11,7 @@
 
 ALTER TABLE scheduler_job_queue
     ADD COLUMN IF NOT EXISTS signal_key VARCHAR(255),
-    ADD COLUMN IF NOT EXISTS signal_timeout TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS signal_timeout TIMESTAMPTZ(6),
     ADD COLUMN IF NOT EXISTS signal_payload TEXT,
     ADD COLUMN IF NOT EXISTS signal_payload_type VARCHAR(16),
     ADD COLUMN IF NOT EXISTS signal_outcome VARCHAR(32),

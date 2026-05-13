@@ -62,11 +62,13 @@ final class PostgresqlSignalOperations implements SignalStore {
           AND q.signal_timeout IS NOT NULL
           AND q.signal_timeout <= ?
         ORDER BY q.signal_timeout ASC, q.job_id ASC
-        LIMIT """
-            + " "
-            + safeLimit;
+        """;
     List<Object[]> rows =
-        ctx.em().createNativeQuery(sql).setParameter(1, Timestamp.from(now)).getResultList();
+        ctx.em()
+            .createNativeQuery(sql)
+            .setParameter(1, Timestamp.from(now))
+            .setMaxResults(safeLimit)
+            .getResultList();
 
     List<JobEntity> result = new ArrayList<>(rows.size());
     for (Object[] row : rows) {
