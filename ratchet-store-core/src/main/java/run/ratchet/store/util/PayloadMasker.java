@@ -95,8 +95,44 @@ public final class PayloadMasker {
     if (fieldName == null) {
       return false;
     }
-    String lowerFieldName = fieldName.toLowerCase(Locale.ROOT);
-    return SENSITIVE_FIELDS.contains(lowerFieldName);
+    String[] tokens = tokenize(fieldName);
+    if (tokens.length == 0) {
+      return false;
+    }
+    for (String marker : SENSITIVE_FIELDS) {
+      String[] markerTokens = tokenize(marker);
+      if (containsSubsequence(tokens, markerTokens)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Split camelCase + snake_case into lowercase word tokens so substring matches
+  // do not produce false positives ("spinner" does not contain a "pin" token) while
+  // still flagging compound forms ("privateKeyPem" tokenizes to [private, key, pem]).
+  private static String[] tokenize(String fieldName) {
+    String spaced = fieldName.replaceAll("([a-z0-9])([A-Z])", "$1 $2");
+    return spaced.toLowerCase(Locale.ROOT).split("[^a-z0-9]+");
+  }
+
+  private static boolean containsSubsequence(String[] haystack, String[] needle) {
+    if (needle.length == 0 || needle.length > haystack.length) {
+      return false;
+    }
+    for (int i = 0; i <= haystack.length - needle.length; i++) {
+      boolean match = true;
+      for (int j = 0; j < needle.length; j++) {
+        if (!haystack[i + j].equals(needle[j])) {
+          match = false;
+          break;
+        }
+      }
+      if (match) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private static JsonObjectBuilder maskObject(JsonObject object) {

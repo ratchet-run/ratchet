@@ -68,20 +68,12 @@ public class MicrometerMetricsCollector implements MetricsCollector {
   private final Map<MeterKey, Timer> timers = new ConcurrentHashMap<>();
   private final Map<String, AtomicInteger> pollerBreakerStates = new ConcurrentHashMap<>();
 
-  // Pre-registered meters for the fixed-tag metrics on the hot poller path. These are null only
-  // in the CDI proxy instance (registry == null). All other instances populate them at construction
-  // time, eliminating a ConcurrentHashMap lookup + MeterKey allocation on every job event.
-  private final Counter jobsCompletedCounter;
-  private final Timer jobsDurationTimer;
-
   // Required by CDI proxy. The CDI proxy never invokes business methods on this instance —
   // every real call goes to the @Inject constructor below. We still guard the field below
   // so a misconfigured deployment doesn't NPE on first use; instead it logs and no-ops.
   protected MicrometerMetricsCollector() {
     this.registry = null;
     this.tagPolicy = DEFAULT_TAG_POLICY;
-    this.jobsCompletedCounter = null;
-    this.jobsDurationTimer = null;
   }
 
   @Inject
@@ -100,9 +92,6 @@ public class MicrometerMetricsCollector implements MetricsCollector {
     this.registry = registry;
     this.tagPolicy =
         DEFAULT_TAG_POLICY.and(Objects.requireNonNull(tagPolicy, "tagPolicy must not be null"));
-    // Pre-register the high-frequency fixed-tag meters so jobCompleted() never hits the map.
-    this.jobsCompletedCounter = Counter.builder("ratchet.jobs.completed").register(registry);
-    this.jobsDurationTimer = Timer.builder("ratchet.jobs.duration").register(registry);
   }
 
   @Override
@@ -118,19 +107,8 @@ public class MicrometerMetricsCollector implements MetricsCollector {
     if (registry == null) {
       return;
     }
-    // Use pre-registered meters to avoid ConcurrentHashMap lookup + MeterKey allocation on the
-    // hot poller path. The per-type variant still goes through the map for less-frequent types.
-    if (jobsCompletedCounter != null) {
-      jobsCompletedCounter.increment();
-    } else {
-      counter("ratchet.jobs.completed", "type", type.name()).increment();
-    }
-    if (jobsDurationTimer != null) {
-      jobsDurationTimer.record(Duration.ofMillis(executionTimeMs));
-    } else {
-      timer("ratchet.jobs.duration", "type", type.name())
-          .record(Duration.ofMillis(executionTimeMs));
-    }
+    counter("ratchet.jobs.completed", "type", type.name()).increment();
+    timer("ratchet.jobs.duration", "type", type.name()).record(Duration.ofMillis(executionTimeMs));
   }
 
   @Override
