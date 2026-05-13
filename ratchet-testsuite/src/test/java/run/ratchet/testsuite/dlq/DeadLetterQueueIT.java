@@ -55,7 +55,7 @@ class DeadLetterQueueIT extends BaseRatchetIT {
   }
 
   @Test
-  void failingJob_afterExhaustingRetries_shouldMoveToDlqAndFireEvent() throws InterruptedException {
+  void failingJob_afterExhaustingRetries_shouldMoveToDlqAndFireEvent() {
     JobHandle handle =
         jobService
             .enqueue(FailingJob::execute)

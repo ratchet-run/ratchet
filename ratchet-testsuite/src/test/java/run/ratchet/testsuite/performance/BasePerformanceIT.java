@@ -43,7 +43,15 @@ import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 public abstract class BasePerformanceIT extends BaseRatchetIT {
 
   protected static final Duration PERF_TIMEOUT = Duration.ofSeconds(180);
-  protected static final Duration PERF_POLL_INTERVAL = Duration.ofMillis(200);
+
+  /**
+   * Poll interval used when waiting for job completion. Defaults to 200ms, but can be overridden
+   * via the {@code perf.poll.interval.ms} system property to reduce flakiness on slow CI hosts
+   * where JVM scheduling delays can cause polling to miss the completion window.
+   */
+  protected static final Duration PERF_POLL_INTERVAL =
+      Duration.ofMillis(Long.getLong("perf.poll.interval.ms", 200));
+
   private static final Duration POLLER_STOP_TIMEOUT = Duration.ofSeconds(5);
   private static final Duration POLLER_STOP_POLL_INTERVAL = Duration.ofMillis(10);
   private static final ConcurrentMap<Class<?>, PerformanceBaseline> BASELINES =

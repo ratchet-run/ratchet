@@ -7,6 +7,13 @@ import java.time.Duration;
 import java.util.concurrent.atomic.AtomicInteger;
 import run.ratchet.spi.RetryPolicy;
 
+/**
+ * A {@link RetryPolicy} that always vetoes retries, used by tests that need to assert a job fails
+ * without retrying.
+ *
+ * <p><strong>Test lifecycle:</strong> {@link #resetCounts()} must be called in an
+ * {@code @BeforeEach} method to prevent retry counts from one test bleeding into the next.
+ */
 @Alternative
 @Priority(1)
 @ApplicationScoped

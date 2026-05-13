@@ -16,8 +16,7 @@ public interface PerformanceTestHelper {
   /**
    * Returns the queue wait time in milliseconds at the given percentile.
    *
-   * @return the percentile value, {@code 0} when no matching completed jobs exist, or {@code -1}
-   *     when the backend-specific query is unavailable or fails
+   * @return the percentile value, or {@code 0} when no matching completed jobs exist
    */
   long queryQueueWaitPercentileForClass(String targetClass, double percentile);
 

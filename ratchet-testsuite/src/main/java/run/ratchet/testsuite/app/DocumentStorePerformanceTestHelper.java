@@ -3,6 +3,7 @@ package run.ratchet.testsuite.app;
 import com.mongodb.client.MongoDatabase;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
@@ -28,6 +29,8 @@ public class DocumentStorePerformanceTestHelper implements PerformanceTestHelper
 
   @Inject private MongoDatabase mongoDb;
 
+  @Inject private Clock clock;
+
   @Override
   public void insertBackgroundRows(int count, String keyPrefix) {
     int chunkSize = 10_000;
@@ -36,7 +39,8 @@ public class DocumentStorePerformanceTestHelper implements PerformanceTestHelper
       int batchCount = Math.min(chunkSize, count - offset);
 
       List<Document> docs = new ArrayList<>(batchCount);
-      Instant past = Instant.now().minusSeconds(3600);
+      Instant now = clock.instant();
+      Instant past = now.minusSeconds(3600);
       for (int i = 0; i < batchCount; i++) {
         docs.add(
             new Document()
@@ -55,8 +59,8 @@ public class DocumentStorePerformanceTestHelper implements PerformanceTestHelper
                 .append("business_key", keyPrefix + "-" + (offset + i + 1))
                 .append("execution_start_time", Date.from(past))
                 .append("execution_end_time", Date.from(past.plusMillis(10)))
-                .append("created_at", Date.from(Instant.now()))
-                .append("updated_at", Date.from(Instant.now())));
+                .append("created_at", Date.from(now))
+                .append("updated_at", Date.from(now)));
       }
       mongoDb.getCollection("scheduler_job").insertMany(docs);
 

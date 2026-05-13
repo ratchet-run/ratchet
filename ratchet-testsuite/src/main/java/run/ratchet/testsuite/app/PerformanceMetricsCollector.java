@@ -3,6 +3,8 @@ package run.ratchet.testsuite.app;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Alternative;
+import jakarta.inject.Inject;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.UUID;
@@ -18,6 +20,10 @@ import run.ratchet.api.JobType;
  *
  * <p>Uses {@code @Priority(2)} to win over {@link CountingMetricsCollector} ({@code @Priority(1)})
  * when both are deployed in the same archive.
+ *
+ * <p><strong>Test lifecycle:</strong> Static state is shared across all test methods in the same
+ * container deployment. Call {@link #reset()} in an {@code @BeforeEach} method to prevent metrics
+ * from one test bleeding into the next.
  */
 @Alternative
 @Priority(2)
@@ -30,6 +36,8 @@ public class PerformanceMetricsCollector extends TestMetricsCollectorAdapter {
   private static final AtomicLong FAILED_COUNT = new AtomicLong(0);
   private static final AtomicReference<Instant> FIRST_START = new AtomicReference<>();
   private static final AtomicReference<Instant> LAST_COMPLETION = new AtomicReference<>();
+
+  @Inject private Clock clock;
 
   public static PerformanceSnapshot snapshot() {
     long[] times = EXECUTION_TIMES.stream().mapToLong(Long::longValue).toArray();
@@ -77,14 +85,14 @@ public class PerformanceMetricsCollector extends TestMetricsCollectorAdapter {
   @Override
   public void jobStarted(UUID jobId, JobType type, JobPriority priority) {
     STARTED_COUNT.incrementAndGet();
-    FIRST_START.compareAndSet(null, Instant.now());
+    FIRST_START.compareAndSet(null, clock.instant());
   }
 
   @Override
   public void jobCompleted(UUID jobId, JobType type, long executionTimeMs) {
     COMPLETED_COUNT.incrementAndGet();
     EXECUTION_TIMES.add(executionTimeMs);
-    LAST_COMPLETION.set(Instant.now());
+    LAST_COMPLETION.set(clock.instant());
   }
 
   @Override
