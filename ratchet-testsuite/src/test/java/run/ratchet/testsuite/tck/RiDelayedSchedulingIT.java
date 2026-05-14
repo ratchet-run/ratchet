@@ -54,6 +54,7 @@ class RiDelayedSchedulingIT extends AbstractDelayedSchedulingContract {
                 SteppingTestClock.class,
                 ThrowingJobStoreBase.class,
                 InMemoryJobStore.class,
+                RiRatchetTckRuntime.class,
                 RiClockedTckRuntime.class,
                 ClockedTestProducers.class)
             .addStoreInfrastructure()

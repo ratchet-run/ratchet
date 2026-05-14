@@ -54,6 +54,9 @@ public class DefaultJobSchedulerService
 
   static final String SIGNAL_PAYLOAD_TYPE_DECISION = "DECISION";
   static final String SIGNAL_PAYLOAD_TYPE_RAW = "RAW";
+  // Used when the caller principal can't be resolved (e.g. no Elytron context in tests).
+  // JobSignaledEvent's contract requires non-null signalDeliveredBy.
+  private static final String DEFAULT_SIGNAL_DELIVERED_BY = "system";
   private static final Logger log = Logger.getLogger(DefaultJobSchedulerService.class);
   private final InternalEventPublisher eventPublisher;
   private final JobBatchStatusStore jobBatchStatusStore;
@@ -718,6 +721,7 @@ public class DefaultJobSchedulerService
     Instant now = effective().instant();
     String deliveryId = UUID.randomUUID().toString();
 
+    String deliveredBy = principal != null ? principal : DEFAULT_SIGNAL_DELIVERED_BY;
     int unblocked =
         signalStore.deliverSignalById(
             jobId,
@@ -725,13 +729,13 @@ public class DefaultJobSchedulerService
             SIGNAL_PAYLOAD_TYPE_RAW,
             SignalDecision.Outcome.APPROVED.name(),
             null,
-            principal,
+            deliveredBy,
             now,
             deliveryId);
     if (unblocked > 0) {
       JobEntity job = jobCrudStore.findById(jobId).orElse(null);
-      publishSignaledEvent(jobId, job, principal, SignalDecision.Outcome.APPROVED, null);
-      log.debugf("Signal delivered to job %s by %s", jobId, principal);
+      publishSignaledEvent(jobId, job, deliveredBy, SignalDecision.Outcome.APPROVED, null);
+      log.debugf("Signal delivered to job %s by %s", jobId, deliveredBy);
     }
     return unblocked;
   }
@@ -749,6 +753,7 @@ public class DefaultJobSchedulerService
     Instant now = effective().instant();
     String deliveryId = UUID.randomUUID().toString();
 
+    String deliveredBy = principal != null ? principal : DEFAULT_SIGNAL_DELIVERED_BY;
     int unblocked =
         signalStore.deliverSignalById(
             jobId,
@@ -756,13 +761,13 @@ public class DefaultJobSchedulerService
             SIGNAL_PAYLOAD_TYPE_DECISION,
             decision.outcome().name(),
             decision.rejectionReason(),
-            principal,
+            deliveredBy,
             now,
             deliveryId);
     if (unblocked > 0) {
       JobEntity job = jobCrudStore.findById(jobId).orElse(null);
-      publishSignaledEvent(jobId, job, principal, decision.outcome(), decision.rejectionReason());
-      log.debugf("Signal decision delivered to job %s by %s", jobId, principal);
+      publishSignaledEvent(jobId, job, deliveredBy, decision.outcome(), decision.rejectionReason());
+      log.debugf("Signal decision delivered to job %s by %s", jobId, deliveredBy);
     }
     return unblocked;
   }

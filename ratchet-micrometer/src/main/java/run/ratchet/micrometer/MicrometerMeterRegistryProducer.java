@@ -5,6 +5,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Default;
 import jakarta.enterprise.inject.Produces;
+import jakarta.inject.Singleton;
 
 /**
  * Default {@link MeterRegistry} producer for the {@code ratchet-micrometer} module.
@@ -31,9 +32,12 @@ public class MicrometerMeterRegistryProducer {
 
   private final MeterRegistry defaultRegistry = new SimpleMeterRegistry();
 
+  // Producer scope is @Singleton rather than @ApplicationScoped so Weld doesn't need
+  // a proxy on MeterRegistry — the abstract base class has no no-args constructor
+  // (WELD-001435). @Singleton still hands out the same instance to every injection point.
   @Produces
   @Default
-  @ApplicationScoped
+  @Singleton
   public MeterRegistry defaultRegistry() {
     return defaultRegistry;
   }
