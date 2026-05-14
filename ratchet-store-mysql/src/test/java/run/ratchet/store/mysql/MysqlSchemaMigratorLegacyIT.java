@@ -68,6 +68,17 @@ class MysqlSchemaMigratorLegacyIT {
     }
 
     applyLegacySchema();
+    // mysql-schema.sql pre-seeds ratchet_schema_version for clean installs so the auto-migrator
+    // does not trip its legacy fail-loud guard. Clear it here to faithfully reproduce a
+    // pre-migrator legacy install (populated scheduler_* tables, empty version ledger).
+    clearVersionLedger();
+  }
+
+  private static void clearVersionLedger() throws SQLException {
+    try (Connection c = newJdbcConnection();
+        Statement s = c.createStatement()) {
+      s.execute("DELETE FROM ratchet_schema_version");
+    }
   }
 
   private static void applyLegacySchema() throws Exception {
