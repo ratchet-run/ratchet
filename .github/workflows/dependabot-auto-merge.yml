@@ -1,0 +1,32 @@
+name: Dependabot auto-merge
+
+# Auto-merges Dependabot PRs that touch only the /website directory.
+# Scope is enforced by matching dependabot/fetch-metadata's `directory`
+# output against the value configured in .github/dependabot.yml.
+# Major updates are excluded so breaking changes still require human review.
+
+on: pull_request_target
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    steps:
+      - name: Fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable auto-merge for /website non-major updates
+        if: >-
+          steps.meta.outputs.directory == '/website' &&
+          steps.meta.outputs.update-type != 'version-update:semver-major'
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr merge --auto --merge "$PR_URL"
