@@ -61,3 +61,14 @@ updates:
         update-types:
           - minor
           - patch
+
+  - package-ecosystem: npm
+    directory: /website
+    schedule:
+      interval: daily
+    open-pull-requests-limit: 5
+    groups:
+      website-minor-and-patch:
+        update-types:
+          - minor
+          - patch
