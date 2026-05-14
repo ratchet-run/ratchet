@@ -414,38 +414,48 @@
                 <configuration>
                   <target>
                     <chmod file="${payara.home}/bin/asadmin" perm="755"/>
+                    <!--
+                      Payara 6's domain.xml writes attributes in an order
+                      that the original element-specific patterns (which
+                      hardcoded protocol-before-port, lazy-init-before-id,
+                      etc.) did not match, leaving the listeners on their
+                      defaults. Mirror the GlassFish-style flexible regex
+                      ([^&gt;]* between element name, port, and the
+                      identifying attribute) so attribute order does not
+                      matter.
+                    -->
                     <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
-                                   match="(&lt;network-listener protocol=&quot;http-listener-1&quot; port=&quot;)[^&quot;]+(&quot; name=&quot;http-listener-1&quot;)"
+                                   match="(&lt;network-listener[^&gt;]* port=&quot;)[^&quot;]+(&quot;[^&gt;]*name=&quot;http-listener-1&quot;)"
                                    replace="\1${payara.http.port}\2"
                                    flags="g"
                                    byline="true"/>
                     <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
-                                   match="(&lt;network-listener protocol=&quot;http-listener-2&quot; port=&quot;)[^&quot;]+(&quot; name=&quot;http-listener-2&quot;)"
+                                   match="(&lt;network-listener[^&gt;]* port=&quot;)[^&quot;]+(&quot;[^&gt;]*name=&quot;http-listener-2&quot;)"
                                    replace="\1${payara.https.port}\2"
                                    flags="g"
                                    byline="true"/>
                     <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
-                                   match="(&lt;network-listener protocol=&quot;[^&quot;]+&quot; port=&quot;)[^&quot;]+(&quot; name=&quot;admin-listener&quot;)"
+                                   match="(&lt;network-listener[^&gt;]* port=&quot;)[^&quot;]+(&quot;[^&gt;]*name=&quot;admin-listener&quot;)"
                                    replace="\1${payara.admin.port}\2"
                                    flags="g"
                                    byline="true"/>
                     <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
-                                   match="(&lt;iiop-listener address=&quot;0\.0\.0\.0&quot; port=&quot;)[^&quot;]+(&quot; lazy-init=&quot;true&quot; id=&quot;orb-listener-1&quot;)"
+                                   match="(&lt;iiop-listener[^&gt;]* port=&quot;)[^&quot;]+(&quot;[^&gt;]*id=&quot;orb-listener-1&quot;)"
                                    replace="\1${payara.iiop.port}\2"
                                    flags="g"
                                    byline="true"/>
                     <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
-                                   match="(&lt;iiop-listener address=&quot;0\.0\.0\.0&quot; port=&quot;)[^&quot;]+(&quot; id=&quot;SSL&quot;)"
+                                   match="(&lt;iiop-listener[^&gt;]* port=&quot;)[^&quot;]+(&quot;[^&gt;]*id=&quot;SSL&quot;)"
                                    replace="\1${payara.iiop.ssl.port}\2"
                                    flags="g"
                                    byline="true"/>
                     <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
-                                   match="(&lt;iiop-listener address=&quot;0\.0\.0\.0&quot; port=&quot;)[^&quot;]+(&quot; id=&quot;SSL_MUTUALAUTH&quot;)"
+                                   match="(&lt;iiop-listener[^&gt;]* port=&quot;)[^&quot;]+(&quot;[^&gt;]*id=&quot;SSL_MUTUALAUTH&quot;)"
                                    replace="\1${payara.iiop.mutualauth.port}\2"
                                    flags="g"
                                    byline="true"/>
                     <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
-                                   match="(&lt;jmx-connector address=&quot;0\.0\.0\.0&quot; port=&quot;)[^&quot;]+(&quot; name=&quot;system&quot;)"
+                                   match="(&lt;jmx-connector[^&gt;]* port=&quot;)[^&quot;]+(&quot;[^&gt;]*name=&quot;system&quot;)"
                                    replace="\1${payara.jmx.port}\2"
                                    flags="g"
                                    byline="true"/>
@@ -464,18 +474,33 @@
                                    replace="\1  &lt;jvm-options&gt;-Dratchet.test.db.type=${ratchet.test.db.type}&lt;/jvm-options&gt;\1  &lt;jvm-options&gt;-Dtestsuite.profile=${testsuite.profile}&lt;/jvm-options&gt;\1&lt;/java-config&gt;"
                                    flags="g"
                                    byline="true"/>
-                    <replace
-                        file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
-                        token="&lt;hazelcast-runtime-configuration&gt;"
-                        value="&lt;hazelcast-runtime-configuration das-port=&quot;${payara.hazelcast.das.port}&quot; start-port=&quot;${payara.hazelcast.start.port}&quot; auto-increment-port=&quot;true&quot;&gt;"/>
+                    <!--
+                      Hazelcast tags in Payara 6's domain.xml already ship
+                      with attributes (and the HZ_LISTENER_PORT entry uses
+                      a self-closing form), so the literal &lt;replace&gt;
+                      tokens never matched. Rewrite the port attributes
+                      directly and toggle clustering off on the empty
+                      hazelcast-config-specific-configuration element.
+                    -->
+                    <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;hazelcast-runtime-configuration[^&gt;]* start-port=&quot;)[^&quot;]+(&quot;)"
+                                   replace="\1${payara.hazelcast.start.port}\2"
+                                   flags="g"
+                                   byline="true"/>
+                    <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;hazelcast-runtime-configuration[^&gt;]* das-port=&quot;)[^&quot;]+(&quot;)"
+                                   replace="\1${payara.hazelcast.das.port}\2"
+                                   flags="g"
+                                   byline="true"/>
                     <replace
                         file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
                         token="&lt;hazelcast-config-specific-configuration&gt;&lt;/hazelcast-config-specific-configuration&gt;"
                         value="&lt;hazelcast-config-specific-configuration enabled=&quot;false&quot; clustering-enabled=&quot;false&quot;&gt;&lt;/hazelcast-config-specific-configuration&gt;"/>
-                    <replace
-                        file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
-                        token="&lt;system-property name=&quot;HZ_LISTENER_PORT&quot; value=&quot;5900&quot;&gt;&lt;/system-property&gt;"
-                        value="&lt;system-property name=&quot;HZ_LISTENER_PORT&quot; value=&quot;${payara.hazelcast.start.port}&quot;&gt;&lt;/system-property&gt;"/>
+                    <replaceregexp file="${payara.home}/glassfish/domains/domain1/config/domain.xml"
+                                   match="(&lt;system-property name=&quot;HZ_LISTENER_PORT&quot; value=&quot;)[^&quot;]+(&quot;\s*/?&gt;)"
+                                   replace="\1${payara.hazelcast.start.port}\2"
+                                   flags="g"
+                                   byline="true"/>
                   </target>
                 </configuration>
               </execution>
