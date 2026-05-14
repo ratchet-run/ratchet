@@ -42,5 +42,16 @@ jobs:
           EOF
 
       - name: Eclipse Dash license check
-        run: >
-          mvn org.eclipse.dash:license-tool-plugin:1.1.0:license-check -Ddash.summary=target/dash-DEPENDENCIES
+        # api.eclipse.org occasionally times out under load. Retry once
+        # after 60s to absorb transient failures without masking real
+        # outages. Inline loop is used instead of a third-party retry
+        # action to avoid pinning a mutable tag on a PR-trigger workflow.
+        run: |
+          for attempt in 1 2; do
+            mvn org.eclipse.dash:license-tool-plugin:1.1.0:license-check \
+              -Ddash.summary=target/dash-DEPENDENCIES && exit 0
+            echo "Attempt $attempt failed; sleeping 60s before retry..."
+            sleep 60
+          done
+          echo "Eclipse Dash license check failed after 2 attempts."
+          exit 1
