@@ -249,6 +249,14 @@ public final class JobPayloadFactory {
      * the complete target argument list, the arity fallback below keeps those wrapper values instead
      * of dropping them as leftovers.
      */
+    int nestedParamCount = Type.getArgumentTypes(nestedStep.methodDescriptor()).length;
+
+    // Target method takes no arguments — wrapperArgs are loop variables or other
+    // values the lambda never forwards, so drop them rather than leak into the payload.
+    if (nestedParamCount == 0) {
+      return List.of();
+    }
+
     if (wrapperArgs.isEmpty()) {
       return nestedStep.arguments();
     }
@@ -270,7 +278,6 @@ public final class JobPayloadFactory {
       return List.copyOf(merged);
     }
 
-    int nestedParamCount = Type.getArgumentTypes(nestedStep.methodDescriptor()).length;
     if (wrapperArgs.size() == nestedParamCount) {
       return List.copyOf(wrapperArgs);
     }
