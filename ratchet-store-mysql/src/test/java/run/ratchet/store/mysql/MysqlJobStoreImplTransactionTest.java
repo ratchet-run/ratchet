@@ -1,37 +1,13 @@
-package run.ratchet.store.postgresql;
+package run.ratchet.store.mysql;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 import jakarta.transaction.Transactional;
-import java.time.Duration;
 import org.junit.jupiter.api.Test;
-import run.ratchet.api.JobFilter;
 
-class PostgresqlJobStoreImplTransactionTest {
-
-  @Test
-  void unlockUsesIndependentTransactionBoundary() throws NoSuchMethodException {
-    Transactional transactional =
-        PostgresqlJobStoreImpl.class
-            .getMethod("unlock", String.class, String.class)
-            .getAnnotation(Transactional.class);
-
-    assertNotNull(transactional);
-    assertEquals(Transactional.TxType.REQUIRES_NEW, transactional.value());
-  }
-
-  @Test
-  void tryLockUsesIndependentTransactionBoundary() throws NoSuchMethodException {
-    Transactional transactional =
-        PostgresqlJobStoreImpl.class
-            .getMethod("tryLock", String.class, Duration.class, String.class)
-            .getAnnotation(Transactional.class);
-
-    assertNotNull(transactional);
-    assertEquals(Transactional.TxType.REQUIRES_NEW, transactional.value());
-  }
+class MysqlJobStoreImplTransactionTest {
 
   @Test
   void classLevelTransactionalDefaultsToRequired() {
@@ -39,7 +15,7 @@ class PostgresqlJobStoreImplTransactionTest {
     // method declares its own. Lock the contract here: if the class-level annotation ever gets
     // removed, read methods would silently fall into a no-tx code path on JTA-managed
     // EclipseLink containers and re-introduce the connection leak this test is guarding against.
-    Transactional classLevel = PostgresqlJobStoreImpl.class.getAnnotation(Transactional.class);
+    Transactional classLevel = MysqlJobStoreImpl.class.getAnnotation(Transactional.class);
     assertNotNull(classLevel);
     assertEquals(Transactional.TxType.REQUIRED, classLevel.value());
   }
@@ -49,21 +25,21 @@ class PostgresqlJobStoreImplTransactionTest {
     // Read methods used to carry an explicit @Transactional(SUPPORTS), but on JTA-managed
     // EclipseLink containers (Payara, GlassFish, OpenLiberty) calling a SUPPORTS method outside
     // an outer JTA tx leaked the borrowed pool connection with auto-commit disabled, leaving an
-    // open transaction holding metadata locks on subsequent writes. Reverting to the class-level
-    // @Transactional default (REQUIRED) makes each read have a clean tx boundary that commits
-    // before returning the connection to the pool.
+    // open InnoDB transaction holding metadata locks on subsequent writes. Reverting to the
+    // class-level @Transactional default (REQUIRED) makes each read have a clean tx boundary
+    // that commits before returning the connection to the pool.
     //
     // getDatabaseTime is the specific read that triggered the original hang — it runs during
     // startup via DefaultNodeIdentityProvider.checkClockSkew before any outer JTA tx exists.
     assertNoMethodLevelTransactional("getDatabaseTime");
-    assertNoMethodLevelTransactional("searchJobs", JobFilter.class, int.class, int.class);
-    assertNoMethodLevelTransactional("countJobs", JobFilter.class);
+    assertNoMethodLevelTransactional("countPendingJobs");
+    assertNoMethodLevelTransactional("countActiveNodes");
   }
 
   private static void assertNoMethodLevelTransactional(
       String methodName, Class<?>... parameterTypes) throws NoSuchMethodException {
     Transactional annotation =
-        PostgresqlJobStoreImpl.class
+        MysqlJobStoreImpl.class
             .getMethod(methodName, parameterTypes)
             .getAnnotation(Transactional.class);
     assertNull(annotation);
