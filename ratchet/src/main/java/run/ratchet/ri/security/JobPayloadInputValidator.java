@@ -137,7 +137,10 @@ public class JobPayloadInputValidator {
         return;
       }
 
-      if (args.size() != methodParamTypes.length) {
+      // args.size() == 0 with a non-zero-arg method is the "all arguments supplied at runtime"
+      // case (progress hooks, onSuccess/onFailure callbacks, etc.) where the framework injects
+      // the call argument when invoking. Only flag a true count mismatch.
+      if (args.size() != 0 && args.size() != methodParamTypes.length) {
         errors.add(
             "Argument count mismatch: expected "
                 + methodParamTypes.length
