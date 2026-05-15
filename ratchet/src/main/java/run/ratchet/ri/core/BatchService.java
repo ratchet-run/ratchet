@@ -441,9 +441,21 @@ public class BatchService {
     if (batchStore.markBatchCompleteIfReady(parentId)) {
       // markBatchCompleteIfReady can have more than one apparent winner under concurrent commits.
       // The parent pickup CAS in processBatchCompletion is the exactly-once gate.
-      return processBatchCompletion(parentId, batchFromProgress(progress));
+      return processBatchCompletion(parentId, completionSnapshot(parentId, progress));
     }
     return false;
+  }
+
+  private BatchEntity completionSnapshot(UUID parentId, BatchProgress progress) {
+    return batchStore
+        .findBatchById(parentId)
+        .orElseGet(
+            () -> {
+              log.warnf(
+                  "Batch %s not found after completion marker was set; using progress snapshot",
+                  parentId);
+              return batchFromProgress(progress);
+            });
   }
 
   private BatchEntity batchFromProgress(BatchProgress progress) {
