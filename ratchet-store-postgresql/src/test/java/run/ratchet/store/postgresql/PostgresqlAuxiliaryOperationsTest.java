@@ -1,30 +1,25 @@
 package run.ratchet.store.postgresql;
 
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.NoResultException;
 import jakarta.persistence.Query;
 import java.lang.reflect.Proxy;
 import org.junit.jupiter.api.Test;
+import run.ratchet.store.entity.ResourceLimitEntity;
 
 class PostgresqlAuxiliaryOperationsTest {
 
   @Test
-  void getPermitRetryDelayRejectsUnknownResource() {
+  void getPermitRetryDelayUsesDefaultForMissingResource() {
     PostgresqlAuxiliaryOperations operations =
         new PostgresqlAuxiliaryOperations(
             new PostgresqlStoreContext(entityManagerThrowingNoResult()));
 
-    IllegalArgumentException thrown =
-        assertThrows(
-            IllegalArgumentException.class,
-            () -> operations.getPermitRetryDelay("missing-resource"));
-
-    assertTrue(thrown.getMessage().contains("Resource is not configured"));
-    assertInstanceOf(NoResultException.class, thrown.getCause());
+    assertEquals(
+        ResourceLimitEntity.DEFAULT_RETRY_DELAY_MS,
+        operations.getPermitRetryDelay("missing-resource"));
   }
 
   private static EntityManager entityManagerThrowingNoResult() {
