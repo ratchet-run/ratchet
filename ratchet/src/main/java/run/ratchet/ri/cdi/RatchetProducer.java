@@ -1,6 +1,7 @@
 package run.ratchet.ri.cdi;
 
 import jakarta.annotation.PreDestroy;
+import jakarta.annotation.Resource;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.Dependent;
 import jakarta.enterprise.context.Initialized;
@@ -88,6 +89,8 @@ public class RatchetProducer {
   private final CircuitBreakerConfigProvider circuitBreakerConfigProvider;
   private volatile Instance.Handle<PayloadSerializer> dependentPayloadSerializerHandle;
 
+  @Resource private TransactionSynchronizationRegistry txRegistry;
+
   protected RatchetProducer() {
     this.executorProvider = null;
     this.metricsCollector = null;
@@ -156,8 +159,7 @@ public class RatchetProducer {
       Clock clock,
       InternalEventPublisher eventPublisher,
       WorkflowScheduler workflowScheduler,
-      SignalStore signalStore,
-      TransactionSynchronizationRegistry txRegistry) {
+      SignalStore signalStore) {
     int softTimeoutPercent = options.timeout().softTimeoutPercent();
     long defaultTimeoutSeconds = options.timeout().defaultSlaSeconds();
     int signalTimeoutBatchSize = options.timeout().signalTimeoutBatchSize();
