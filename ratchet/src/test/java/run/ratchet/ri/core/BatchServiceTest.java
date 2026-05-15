@@ -175,6 +175,52 @@ class BatchServiceTest {
   }
 
   @Test
+  void completedBatchReloadsCountersBeforeFinalizingParent() {
+    UUID parentId = UUID.randomUUID();
+    JobEntity child = new JobEntity();
+    child.setDependsOn(parentId);
+
+    BatchProgress staleProgress = new BatchProgress(parentId, 3, 2, 0, null);
+    BatchEntity currentBatch = batch(parentId, 3, 2, 1);
+    JobEntity parent = new JobEntity();
+    parent.setId(parentId);
+    parent.setStatus(JobStatus.PENDING);
+    parent.setJobType(JobExecutionType.BATCH_PARENT);
+    parent.setPriority(JobPriority.NORMAL);
+
+    when(batchStore.incrementCompletedAtomic(parentId)).thenReturn(staleProgress);
+    when(batchStore.markBatchCompleteIfReady(parentId)).thenReturn(true);
+    when(batchStore.findBatchById(parentId)).thenReturn(Optional.of(currentBatch));
+    when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent));
+    when(jobBatchStatusStore.tryPickUpJob(parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID))
+        .thenReturn(true);
+    when(jobTerminalStore.markJobFailedTerminal(
+            parentId, "Batch completed with 1 failed children", 0))
+        .thenReturn(true);
+    when(metricsStore.findBatchMetrics(parentId)).thenReturn(Optional.empty());
+    when(workflowScheduler.scheduleNext(any(JobEntity.class))).thenReturn(false);
+
+    batchService.markChildSucceeded(child);
+
+    assertEquals(JobStatus.FAILED, parent.getStatus());
+    verify(jobTerminalStore, never()).markJobSucceededMinimal(any(), any(), any(), any(), any());
+    verify(jobTerminalStore)
+        .markJobFailedTerminal(parentId, "Batch completed with 1 failed children", 0);
+
+    ArgumentCaptor<Object> event = ArgumentCaptor.forClass(Object.class);
+    verify(eventPublisher, times(3)).publish(event.capture());
+    BatchCompletingEvent completingEvent =
+        event.getAllValues().stream()
+            .filter(BatchCompletingEvent.class::isInstance)
+            .map(BatchCompletingEvent.class::cast)
+            .findFirst()
+            .orElseThrow();
+    assertEquals(3, completingEvent.getTotalItems());
+    assertEquals(2, completingEvent.getCompletedItems());
+    assertEquals(1, completingEvent.getFailedItems());
+  }
+
+  @Test
   void completedBatchEventPublishesAfterCommit() {
     batchService.setTxRegistryForTesting(txRegistry);
     when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
@@ -239,6 +285,18 @@ class BatchServiceTest {
     verify(jobTerminalStore, never()).markJobSucceededMinimal(any(), any(), any(), any(), any());
     verify(jobTerminalStore)
         .markJobFailedTerminal(parentId, "Batch completed with 1 failed children", 0);
+
+    ArgumentCaptor<Object> event = ArgumentCaptor.forClass(Object.class);
+    verify(eventPublisher, times(3)).publish(event.capture());
+    BatchCompletingEvent completingEvent =
+        event.getAllValues().stream()
+            .filter(BatchCompletingEvent.class::isInstance)
+            .map(BatchCompletingEvent.class::cast)
+            .findFirst()
+            .orElseThrow();
+    assertEquals(3, completingEvent.getTotalItems());
+    assertEquals(2, completingEvent.getCompletedItems());
+    assertEquals(1, completingEvent.getFailedItems());
   }
 
   @Test
