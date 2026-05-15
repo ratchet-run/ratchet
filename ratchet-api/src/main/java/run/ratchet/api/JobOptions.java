@@ -23,9 +23,9 @@ public record JobOptions(
     int timeoutSec) {
 
   public JobOptions {
-    priority = Objects.requireNonNull(priority, "priority must not be null");
-    backoffPolicy = Objects.requireNonNull(backoffPolicy, "backoffPolicy must not be null");
-    backoffParam = Objects.requireNonNull(backoffParam, "backoffParam must not be null");
+    Objects.requireNonNull(priority, "priority must not be null");
+    Objects.requireNonNull(backoffPolicy, "backoffPolicy must not be null");
+    Objects.requireNonNull(backoffParam, "backoffParam must not be null");
     if (maxRetries < 0) {
       throw new IllegalArgumentException("maxRetries must be >= 0");
     }
