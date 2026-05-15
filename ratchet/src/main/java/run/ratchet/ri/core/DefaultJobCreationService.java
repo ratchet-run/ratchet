@@ -2,7 +2,6 @@ package run.ratchet.ri.core;
 
 import com.cronutils.model.Cron;
 import com.cronutils.model.time.ExecutionTime;
-import jakarta.annotation.Resource;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.TransactionSynchronizationRegistry;
@@ -77,7 +76,7 @@ public class DefaultJobCreationService
   private final MetricsCollector metricsCollector;
   private final Clock clock;
 
-  @Resource private TransactionSynchronizationRegistry txRegistry;
+  private volatile TransactionSynchronizationRegistry txRegistry;
 
   protected DefaultJobCreationService() {
     this.jobBatchStatusStore = null;
@@ -607,10 +606,24 @@ public class DefaultJobCreationService
 
   private boolean registerAfterCommit(Runnable action) {
     return JobWakeupService.registerAfterCommit(
-        txRegistry,
+        resolveTxRegistry(),
         action,
         log,
         "After-commit signal waiting event registration failed; publishing immediately: %s");
+  }
+
+  private TransactionSynchronizationRegistry resolveTxRegistry() {
+    TransactionSynchronizationRegistry reg = txRegistry;
+    if (reg == null) {
+      synchronized (this) {
+        reg = txRegistry;
+        if (reg == null) {
+          reg = JobWakeupService.lookupTxRegistry(log);
+          txRegistry = reg;
+        }
+      }
+    }
+    return reg;
   }
 
   void setTxRegistryForTesting(TransactionSynchronizationRegistry txRegistry) {

@@ -320,10 +320,14 @@ public class JobTimeoutHandler {
 
   private boolean registerAfterCommit(Runnable action) {
     return JobWakeupService.registerAfterCommit(
-        txRegistry,
+        resolveTxRegistry(),
         action,
         log,
         "After-commit signal timeout event registration failed; publishing immediately: %s");
+  }
+
+  private TransactionSynchronizationRegistry resolveTxRegistry() {
+    return txRegistry != null ? txRegistry : JobWakeupService.lookupTxRegistry(log);
   }
 
   private String formatDuration(Duration duration) {

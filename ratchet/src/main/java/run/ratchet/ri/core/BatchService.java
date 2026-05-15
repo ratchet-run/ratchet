@@ -1,7 +1,6 @@
 package run.ratchet.ri.core;
 
 import jakarta.annotation.PreDestroy;
-import jakarta.annotation.Resource;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
@@ -59,7 +58,7 @@ public class BatchService {
   private final Clock clock;
   private final Instance<BatchService> self;
 
-  @Resource private TransactionSynchronizationRegistry txRegistry;
+  private volatile TransactionSynchronizationRegistry txRegistry;
 
   protected BatchService() {
     this.batchStore = null;
@@ -384,10 +383,24 @@ public class BatchService {
 
   private boolean registerAfterCommit(Runnable action) {
     return JobWakeupService.registerAfterCommit(
-        txRegistry,
+        resolveTxRegistry(),
         action,
         log,
         "After-commit batch completing event registration failed; publishing immediately: %s");
+  }
+
+  private TransactionSynchronizationRegistry resolveTxRegistry() {
+    TransactionSynchronizationRegistry reg = txRegistry;
+    if (reg == null) {
+      synchronized (this) {
+        reg = txRegistry;
+        if (reg == null) {
+          reg = JobWakeupService.lookupTxRegistry(log);
+          txRegistry = reg;
+        }
+      }
+    }
+    return reg;
   }
 
   void setTxRegistryForTesting(TransactionSynchronizationRegistry txRegistry) {
@@ -460,9 +473,21 @@ public class BatchService {
     if (batchStore.markBatchCompleteIfReady(parentId)) {
       // markBatchCompleteIfReady can have more than one apparent winner under concurrent commits.
       // The parent pickup CAS in processBatchCompletion is the exactly-once gate.
-      return processBatchCompletion(parentId, batchFromProgress(progress));
+      return processBatchCompletion(parentId, completionSnapshot(parentId, progress));
     }
     return false;
+  }
+
+  private BatchEntity completionSnapshot(UUID parentId, BatchProgress progress) {
+    return batchStore
+        .findBatchById(parentId)
+        .orElseGet(
+            () -> {
+              log.warnf(
+                  "Batch %s not found after completion marker was set; using progress snapshot",
+                  parentId);
+              return batchFromProgress(progress);
+            });
   }
 
   private BatchEntity batchFromProgress(BatchProgress progress) {

@@ -1,7 +1,6 @@
 package run.ratchet.ri.cdi;
 
 import jakarta.annotation.PreDestroy;
-import jakarta.annotation.Resource;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.Dependent;
 import jakarta.enterprise.context.Initialized;
@@ -25,6 +24,7 @@ import run.ratchet.ri.core.ExecutionObserver;
 import run.ratchet.ri.core.InternalEventPublisher;
 import run.ratchet.ri.core.JobExecutionCoordinator;
 import run.ratchet.ri.core.JobTimeoutHandler;
+import run.ratchet.ri.core.JobWakeupService;
 import run.ratchet.ri.core.OrphanRecoveryTimer;
 import run.ratchet.ri.core.Poller;
 import run.ratchet.ri.core.PollerScheduler;
@@ -89,7 +89,7 @@ public class RatchetProducer {
   private final CircuitBreakerConfigProvider circuitBreakerConfigProvider;
   private volatile Instance.Handle<PayloadSerializer> dependentPayloadSerializerHandle;
 
-  @Resource private TransactionSynchronizationRegistry txRegistry;
+  private volatile TransactionSynchronizationRegistry txRegistry;
 
   protected RatchetProducer() {
     this.executorProvider = null;
@@ -177,7 +177,21 @@ public class RatchetProducer {
         signalStore,
         metricsCollector,
         signalTimeoutBatchSize,
-        txRegistry);
+        resolveTxRegistry());
+  }
+
+  private TransactionSynchronizationRegistry resolveTxRegistry() {
+    TransactionSynchronizationRegistry reg = txRegistry;
+    if (reg == null) {
+      synchronized (this) {
+        reg = txRegistry;
+        if (reg == null) {
+          reg = JobWakeupService.lookupTxRegistry(log);
+          txRegistry = reg;
+        }
+      }
+    }
+    return reg;
   }
 
   @Produces
