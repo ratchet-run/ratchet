@@ -123,6 +123,7 @@ class BatchServiceTest {
 
     when(batchStore.incrementCompletedAtomic(parentId)).thenReturn(progress);
     when(batchStore.markBatchCompleteIfReady(parentId)).thenReturn(true);
+    when(batchStore.findBatchById(parentId)).thenReturn(Optional.of(batch(parentId, 3, 3, 0)));
     when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent));
     when(jobBatchStatusStore.tryPickUpJob(parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID))
         .thenReturn(true);
@@ -146,6 +147,47 @@ class BatchServiceTest {
     assertEquals(0, completingEvent.getFailedItems());
     verify(batchStore).findBatchById(parentId);
     verify(jobTerminalStore).markJobSucceededMinimal(parentId, FIXED_NOW, FIXED_NOW, 0L, 0L);
+  }
+
+  @Test
+  void completedBatchReloadsCountersBeforeFinalizingParent() {
+    UUID parentId = UUID.randomUUID();
+    JobEntity child = new JobEntity();
+    child.setDependsOn(parentId);
+
+    BatchProgress staleProgress = new BatchProgress(parentId, 3, 2, 0, null);
+    BatchEntity currentBatch = batch(parentId, 3, 2, 1);
+    JobEntity parent = new JobEntity();
+    parent.setId(parentId);
+    parent.setStatus(JobStatus.PENDING);
+    parent.setJobType(JobExecutionType.BATCH_PARENT);
+    parent.setPriority(JobPriority.NORMAL);
+
+    when(batchStore.incrementCompletedAtomic(parentId)).thenReturn(staleProgress);
+    when(batchStore.markBatchCompleteIfReady(parentId)).thenReturn(true);
+    when(batchStore.findBatchById(parentId)).thenReturn(Optional.of(currentBatch));
+    when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent));
+    when(jobBatchStatusStore.tryPickUpJob(parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID))
+        .thenReturn(true);
+    when(jobTerminalStore.markJobFailedTerminal(
+            parentId, "Batch completed with 1 failed children", 0))
+        .thenReturn(true);
+    when(metricsStore.findBatchMetrics(parentId)).thenReturn(Optional.empty());
+    when(workflowScheduler.scheduleNext(any(JobEntity.class))).thenReturn(false);
+
+    batchService.markChildSucceeded(child);
+
+    assertEquals(JobStatus.FAILED, parent.getStatus());
+    verify(jobTerminalStore, never()).markJobSucceededMinimal(any(), any(), any(), any(), any());
+    verify(jobTerminalStore)
+        .markJobFailedTerminal(parentId, "Batch completed with 1 failed children", 0);
+
+    ArgumentCaptor<Object> event = ArgumentCaptor.forClass(Object.class);
+    verify(eventPublisher).publish(event.capture());
+    BatchCompletingEvent completingEvent = (BatchCompletingEvent) event.getValue();
+    assertEquals(3, completingEvent.getTotalItems());
+    assertEquals(2, completingEvent.getCompletedItems());
+    assertEquals(1, completingEvent.getFailedItems());
   }
 
   @Test
@@ -213,6 +255,13 @@ class BatchServiceTest {
     verify(jobTerminalStore, never()).markJobSucceededMinimal(any(), any(), any(), any(), any());
     verify(jobTerminalStore)
         .markJobFailedTerminal(parentId, "Batch completed with 1 failed children", 0);
+
+    ArgumentCaptor<Object> event = ArgumentCaptor.forClass(Object.class);
+    verify(eventPublisher).publish(event.capture());
+    BatchCompletingEvent completingEvent = (BatchCompletingEvent) event.getValue();
+    assertEquals(3, completingEvent.getTotalItems());
+    assertEquals(2, completingEvent.getCompletedItems());
+    assertEquals(1, completingEvent.getFailedItems());
   }
 
   @Test
@@ -229,6 +278,7 @@ class BatchServiceTest {
 
     when(batchStore.incrementCompletedAtomic(parentId)).thenReturn(progress);
     when(batchStore.markBatchCompleteIfReady(parentId)).thenReturn(true);
+    when(batchStore.findBatchById(parentId)).thenReturn(Optional.of(batch(parentId, 1, 1, 0)));
     when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent));
     when(jobBatchStatusStore.tryPickUpJob(parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID))
         .thenReturn(false);
@@ -257,6 +307,7 @@ class BatchServiceTest {
 
     when(batchStore.incrementCompletedAtomic(parentId)).thenReturn(progress);
     when(batchStore.markBatchCompleteIfReady(parentId)).thenReturn(true);
+    when(batchStore.findBatchById(parentId)).thenReturn(Optional.of(batch(parentId, 1, 1, 0)));
     when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent));
     when(jobBatchStatusStore.tryPickUpJob(parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID))
         .thenReturn(true);
