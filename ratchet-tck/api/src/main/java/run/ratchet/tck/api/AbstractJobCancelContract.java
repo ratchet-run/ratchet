@@ -113,9 +113,11 @@ public abstract class AbstractJobCancelContract {
     return Duration.ofSeconds(5);
   }
 
+  @SuppressWarnings("BusyWait")
   private void assertNoChainEventsWithin(Duration quietWindow) throws InterruptedException {
     // The API does not expose handles for child chain jobs. After the parent cancellation event is
     // visible, observe a short, bounded quiet window and fail fast if a child records execution.
+    // No event is available to wait on, so polling at CHAIN_CHILD_POLL_INTERVAL is intentional.
     long deadlineNanos = System.nanoTime() + quietWindow.toNanos();
     while (System.nanoTime() < deadlineNanos) {
       assertTrue(

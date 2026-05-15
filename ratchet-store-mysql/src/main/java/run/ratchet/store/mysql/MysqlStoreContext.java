@@ -50,6 +50,9 @@ final class MysqlStoreContext {
    * Executes a trusted, package-local SQL count query. Callers must pass hard-coded SQL templates
    * only; runtime values belong in {@code params}.
    */
+  // SQL template is a compile-time constant defined in this package; runtime values are bound as
+  // JDBC parameters via setParameter.
+  @SuppressWarnings("SqlSourceToSinkFlow")
   long countByNative(String sql, Object... params) {
     var query = em.createNativeQuery(sql);
     for (int i = 0; i < params.length; i++) {
@@ -62,6 +65,9 @@ final class MysqlStoreContext {
    * Executes a trusted, package-local SQL scalar query. Callers must pass hard-coded SQL templates
    * only; runtime values belong in {@code params}.
    */
+  // SQL template is a compile-time constant defined in this package; runtime values are bound as
+  // JDBC parameters via setParameter.
+  @SuppressWarnings("SqlSourceToSinkFlow")
   double doubleByNativeOrZero(String sql, Object... params) {
     var query = em.createNativeQuery(sql);
     for (int i = 0; i < params.length; i++) {

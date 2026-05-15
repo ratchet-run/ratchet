@@ -343,6 +343,11 @@ public final class JobPayloadFactory {
         });
   }
 
+  // All callers pass either VISIBILITY_CACHE or FUNCTIONAL_INTERFACE_METHOD_CACHE — both static
+  // final fields — so the parameter holds a stable identity. External sync is required because
+  // the LinkedHashMap LRU promotion in get() makes get-then-put non-atomic on the underlying
+  // synchronizedMap.
+  @SuppressWarnings("SynchronizationOnLocalVariableOrMethodParameter")
   private static <V> V cached(
       Map<MethodLookupKey, V> cache, MethodLookupKey key, Function<MethodLookupKey, V> resolver) {
     synchronized (cache) {

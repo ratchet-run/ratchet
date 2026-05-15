@@ -53,6 +53,7 @@ public abstract class AbstractSchemaMigratorContract {
   }
 
   @Test
+  @SuppressWarnings("AutoCloseableResource")
   void parallelMigratorsConvergeUnderAdvisoryLock() throws Exception {
     resetDatabase();
 
@@ -64,6 +65,8 @@ public abstract class AbstractSchemaMigratorContract {
           go.await();
           return newMigrator().migrate();
         };
+    // Java 17 ExecutorService is not AutoCloseable; the finally block below already shuts the
+    // pool down and awaits termination.
     ExecutorService pool = Executors.newFixedThreadPool(2);
     List<Future<SchemaMigrator.MigrationResult>> futures = new ArrayList<>();
     int totalApplied = 0;
