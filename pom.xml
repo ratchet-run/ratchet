@@ -93,7 +93,7 @@
     <testcontainers.version>2.0.5</testcontainers.version>
     <micrometer.version>1.14.4</micrometer.version>
     <micrometer.tracing.version>1.4.4</micrometer.tracing.version>
-    <opentelemetry.version>1.48.0</opentelemetry.version>
+    <opentelemetry.version>1.62.0</opentelemetry.version>
     <mockito.version>5.23.0</mockito.version>
     <awaitility.version>4.3.0</awaitility.version>
     <shrinkwrap-resolver.version>3.3.6</shrinkwrap-resolver.version>

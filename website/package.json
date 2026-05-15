@@ -31,8 +31,10 @@
     "typescript": "~6.0.3"
   },
   "overrides": {
+    "@babel/plugin-transform-modules-systemjs": "^7.29.4",
     "copy-webpack-plugin": "^14.0.0",
     "css-minimizer-webpack-plugin": "^8.0.0",
+    "fast-uri": "^3.1.2",
     "follow-redirects": "^1.16.0",
     "http-proxy-middleware": "^3.0.5",
     "lodash": "^4.18.1",
