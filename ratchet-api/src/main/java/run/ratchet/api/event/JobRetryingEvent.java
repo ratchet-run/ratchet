@@ -35,8 +35,8 @@ public class JobRetryingEvent extends AbstractJobSchedulerEvent {
       Instant scheduledTime) {
     super(jobId, businessKey, jobType, priority, nodeId, timestamp);
     this.errorMessage = errorMessage;
-    this.retryAttempt = retryAttempt;
-    this.scheduledTime = scheduledTime;
+    this.retryAttempt = EventContract.requirePositive(retryAttempt, "retryAttempt");
+    this.scheduledTime = EventContract.requireNonNull(scheduledTime, "scheduledTime");
   }
 
   /**
@@ -61,8 +61,8 @@ public class JobRetryingEvent extends AbstractJobSchedulerEvent {
       Instant scheduledTime) {
     super(jobId, businessKey, jobType, priority, nodeId);
     this.errorMessage = errorMessage;
-    this.retryAttempt = retryAttempt;
-    this.scheduledTime = scheduledTime;
+    this.retryAttempt = EventContract.requirePositive(retryAttempt, "retryAttempt");
+    this.scheduledTime = EventContract.requireNonNull(scheduledTime, "scheduledTime");
   }
 
   /** Returns the sanitized failure message that caused the retry, or {@code null} if absent. */

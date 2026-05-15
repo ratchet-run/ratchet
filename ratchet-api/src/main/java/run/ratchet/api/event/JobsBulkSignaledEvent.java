@@ -3,7 +3,6 @@ package run.ratchet.api.event;
 import java.io.Serial;
 import java.io.Serializable;
 import java.time.Instant;
-import java.util.Objects;
 import run.ratchet.api.SignalDecision;
 
 /**
@@ -35,13 +34,16 @@ public class JobsBulkSignaledEvent implements Serializable {
       SignalDecision.Outcome outcome,
       String rejectionReason,
       Instant signaledAt) {
-    this.signalKey = Objects.requireNonNull(signalKey, "signalKey");
-    this.count = count;
+    this.signalKey = EventContract.requireNonBlank(signalKey, "signalKey");
+    this.count = EventContract.requirePositive(count, "count");
     this.signalDeliveredBy = signalDeliveredBy;
-    this.outcome = Objects.requireNonNull(outcome, "outcome");
+    this.outcome = EventContract.requireNonNull(outcome, "outcome");
     this.rejectionReason =
         rejectionReason == null || rejectionReason.isBlank() ? null : rejectionReason.trim();
-    this.signaledAt = Objects.requireNonNull(signaledAt, "signaledAt");
+    if (this.outcome == SignalDecision.Outcome.APPROVED && this.rejectionReason != null) {
+      throw new IllegalArgumentException("approved events cannot carry a rejection reason");
+    }
+    this.signaledAt = EventContract.requireNonNull(signaledAt, "signaledAt");
   }
 
   /** Returns the signal key that was delivered. */

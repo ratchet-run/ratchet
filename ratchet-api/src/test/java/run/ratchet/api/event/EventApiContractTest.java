@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.lang.reflect.Constructor;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
@@ -53,6 +54,182 @@ class EventApiContractTest {
     assertEquals(TIMESTAMP, event.getTimestamp());
     assertEquals("failed", event.getErrorMessage());
     assertEquals(3, event.getRetryAttempt());
+  }
+
+  @Test
+  void perJobEventsRequireJobIdAndTimestamp() {
+    assertThrows(
+        NullPointerException.class,
+        () -> new JobStartedEvent(null, "business-key", JobType.SINGLE, JobPriority.NORMAL, null));
+    assertThrows(
+        NullPointerException.class,
+        () ->
+            new JobStartedEvent(
+                JOB_ID, "business-key", JobType.SINGLE, JobPriority.NORMAL, null, null));
+
+    JobStartedEvent event = new JobStartedEvent(JOB_ID, null, null, null, null, TIMESTAMP);
+
+    assertEquals(JOB_ID, event.getJobId());
+    assertEquals(TIMESTAMP, event.getTimestamp());
+  }
+
+  @Test
+  void signalEventsPreserveExplicitTimestamps() {
+    JobSignalWaitingEvent waiting =
+        new JobSignalWaitingEvent(
+            JOB_ID,
+            "business-key",
+            JobType.SINGLE,
+            JobPriority.NORMAL,
+            "node-a",
+            TIMESTAMP,
+            "signal-key",
+            Duration.ofMinutes(5));
+    JobSignalTimedOutEvent timedOut =
+        new JobSignalTimedOutEvent(
+            JOB_ID,
+            "business-key",
+            JobType.SINGLE,
+            JobPriority.NORMAL,
+            "node-a",
+            TIMESTAMP,
+            "signal-key",
+            Duration.ofMinutes(5));
+    JobSignaledEvent signaled =
+        new JobSignaledEvent(
+            JOB_ID,
+            "business-key",
+            JobType.SINGLE,
+            JobPriority.NORMAL,
+            "node-a",
+            TIMESTAMP,
+            "signal-key",
+            "operator",
+            SignalDecision.Outcome.APPROVED,
+            null);
+
+    assertEquals(TIMESTAMP, waiting.getTimestamp());
+    assertEquals(TIMESTAMP, timedOut.getTimestamp());
+    assertEquals(TIMESTAMP, signaled.getTimestamp());
+  }
+
+  @Test
+  void eventSpecificRequiredFieldsAreValidated() {
+    assertThrows(
+        NullPointerException.class,
+        () ->
+            new ChainStartedEvent(
+                JOB_ID, "business-key", JobType.CHAIN, JobPriority.NORMAL, "node-a", null));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new ChainFailedEvent(
+                JOB_ID,
+                "business-key",
+                JobType.CHAIN,
+                JobPriority.NORMAL,
+                "node-a",
+                NEXT_JOB_ID,
+                " "));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new WorkflowBranchTriggeredEvent(
+                JOB_ID,
+                "business-key",
+                JobType.WORKFLOW,
+                JobPriority.NORMAL,
+                "node-a",
+                " ",
+                NEXT_JOB_ID));
+    assertThrows(
+        NullPointerException.class,
+        () ->
+            new WorkflowBranchTriggeredEvent(
+                JOB_ID,
+                "business-key",
+                JobType.WORKFLOW,
+                JobPriority.NORMAL,
+                "node-a",
+                "result == true",
+                null));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new JobSignalWaitingEvent(
+                JOB_ID, "business-key", JobType.SINGLE, JobPriority.NORMAL, "node-a", " ", null));
+    assertThrows(
+        NullPointerException.class,
+        () ->
+            new JobSignalTimedOutEvent(
+                JOB_ID,
+                "business-key",
+                JobType.SINGLE,
+                JobPriority.NORMAL,
+                "node-a",
+                "signal-key",
+                null));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new JobCancelledEvent(
+                JOB_ID, "business-key", JobType.SINGLE, JobPriority.NORMAL, "node-a", " ", null));
+  }
+
+  @Test
+  void countsAttemptsAndDurationsRejectInvalidRanges() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new BatchCompletedEvent(
+                JOB_ID, "business-key", JobType.BATCH, JobPriority.NORMAL, "node-a", 0, 0, 0));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new BatchCompletingEvent(
+                JOB_ID, "business-key", JobType.BATCH, JobPriority.NORMAL, "node-a", 3, 2, 2));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new JobFailedEvent(
+                JOB_ID, "business-key", JobType.SINGLE, JobPriority.NORMAL, "node-a", "failed", 0));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new JobCallbackFailedEvent(
+                JOB_ID,
+                "business-key",
+                JobType.SINGLE,
+                JobPriority.NORMAL,
+                "node-a",
+                JobCallbackFailedEvent.CallbackType.ON_FAILURE,
+                "failed",
+                "java.lang.IllegalStateException",
+                0));
+    assertThrows(
+        NullPointerException.class,
+        () ->
+            new JobRetryingEvent(
+                JOB_ID,
+                "business-key",
+                JobType.SINGLE,
+                JobPriority.NORMAL,
+                "node-a",
+                "failed",
+                1,
+                null));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new JobCompletedEvent(
+                JOB_ID, "business-key", JobType.SINGLE, JobPriority.NORMAL, "node-a", -1L));
+    assertThrows(
+        IllegalArgumentException.class, () -> new JobsBulkCancelledEvent("tag-a", 0, TIMESTAMP));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new JobsBulkSignaledEvent(
+                "signal-key", 0, "operator", SignalDecision.Outcome.APPROVED, null, TIMESTAMP));
   }
 
   @Test
@@ -109,6 +286,19 @@ class EventApiContractTest {
                 "operator",
                 SignalDecision.Outcome.APPROVED,
                 "not allowed"));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new JobSignaledEvent(
+                JOB_ID,
+                "business-key",
+                JobType.SINGLE,
+                JobPriority.NORMAL,
+                "node-a",
+                " ",
+                "operator",
+                SignalDecision.Outcome.APPROVED,
+                null));
 
     JobSignaledEvent event =
         new JobSignaledEvent(
@@ -141,6 +331,16 @@ class EventApiContractTest {
         () ->
             new JobsBulkSignaledEvent(
                 "signal-key", 2, "operator", SignalDecision.Outcome.APPROVED, null, null));
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new JobsBulkSignaledEvent(
+                "signal-key",
+                2,
+                "operator",
+                SignalDecision.Outcome.APPROVED,
+                "not allowed",
+                TIMESTAMP));
 
     JobsBulkSignaledEvent event =
         new JobsBulkSignaledEvent(

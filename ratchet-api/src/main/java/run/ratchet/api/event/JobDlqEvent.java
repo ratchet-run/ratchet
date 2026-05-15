@@ -30,8 +30,8 @@ public class JobDlqEvent extends AbstractJobSchedulerEvent {
       String errorMessage,
       int retryAttempt) {
     super(jobId, businessKey, jobType, priority, nodeId, timestamp);
-    this.errorMessage = errorMessage;
-    this.retryAttempt = retryAttempt;
+    this.errorMessage = EventContract.requireNonBlank(errorMessage, "errorMessage");
+    this.retryAttempt = EventContract.requirePositive(retryAttempt, "retryAttempt");
   }
 
   /**
@@ -52,8 +52,8 @@ public class JobDlqEvent extends AbstractJobSchedulerEvent {
       String errorMessage,
       int retryAttempt) {
     super(jobId, businessKey, jobType, priority, nodeId);
-    this.errorMessage = errorMessage;
-    this.retryAttempt = retryAttempt;
+    this.errorMessage = EventContract.requireNonBlank(errorMessage, "errorMessage");
+    this.retryAttempt = EventContract.requirePositive(retryAttempt, "retryAttempt");
   }
 
   /** Returns the sanitized final failure message. */
