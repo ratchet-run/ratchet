@@ -1,12 +1,18 @@
 package run.ratchet.tck.store;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.time.Instant;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
+import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 
 /** Base contract tests for {@code JobPauseStore}. */
 public abstract class AbstractJobPauseStoreContract implements JobStoreContractFixture {
@@ -36,5 +42,71 @@ public abstract class AbstractJobPauseStoreContract implements JobStoreContractF
 
     var resumedJob = store().findById(saved.getId()).orElseThrow();
     assertEquals(JobStatus.PENDING, resumedJob.getStatus());
+  }
+
+  @Test
+  void transitionFromPausedAtomic_restoresStoredStatusAndClearsPauseMetadata() {
+    var saved = persist(newPendingJob());
+
+    assertTrue(store().transitionToPaused(saved.getId(), JobStatus.PENDING));
+
+    JobStatus restored = store().transitionFromPausedAtomic(saved.getId());
+
+    assertEquals(JobStatus.PENDING, restored);
+    var resumed = store().findById(saved.getId()).orElseThrow();
+    assertEquals(JobStatus.PENDING, resumed.getStatus());
+    assertNull(resumed.getPausedFromStatus(), "resume must clear pausedFromStatus");
+  }
+
+  @Test
+  void transitionFromPausedAtomic_nonPausedJob_returnsNull() {
+    var saved = persist(newPendingJob());
+
+    JobStatus restored = store().transitionFromPausedAtomic(saved.getId());
+
+    assertNull(restored, "non-PAUSED rows should not be resumed atomically");
+    assertEquals(JobStatus.PENDING, store().getJobStatus(saved.getId()));
+  }
+
+  @Test
+  void transitionFromPausedAtomic_unknownJob_returnsNull() {
+    assertNull(store().transitionFromPausedAtomic(new UUID(0L, Long.MAX_VALUE)));
+  }
+
+  @Test
+  void pauseRecurring_andResumeRecurring_onlyOperateOnRecurringMasters() {
+    var recurring = persist(recurringJob());
+    var oneShot = persist(newPendingJob());
+
+    assertFalse(
+        store().pauseRecurring(oneShot.getId()), "one-shot jobs must not use recurring pause");
+    assertTrue(store().pauseRecurring(recurring.getId()), "recurring master should pause");
+    assertEquals(JobStatus.PAUSED, store().getJobStatus(recurring.getId()));
+
+    assertFalse(
+        store().resumeRecurring(oneShot.getId()), "one-shot jobs must not use recurring resume");
+    assertTrue(store().resumeRecurring(recurring.getId()), "paused recurring master should resume");
+    assertEquals(JobStatus.PENDING, store().getJobStatus(recurring.getId()));
+  }
+
+  @Test
+  void pauseRecurring_resumeRecurring_areIdempotentForWrongState() {
+    var recurring = persist(recurringJob());
+
+    assertTrue(store().pauseRecurring(recurring.getId()));
+    assertFalse(
+        store().pauseRecurring(recurring.getId()), "already-paused master should not pause");
+
+    assertTrue(store().resumeRecurring(recurring.getId()));
+    assertFalse(
+        store().resumeRecurring(recurring.getId()), "already-pending master should not resume");
+  }
+
+  private JobEntity recurringJob() {
+    JobEntity job = newPendingJob();
+    job.setJobType(JobExecutionType.RECURRING);
+    job.setCronExpr("0 * * * *");
+    job.setNextFire(Instant.now().plusSeconds(60));
+    return job;
   }
 }

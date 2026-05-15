@@ -31,10 +31,10 @@ import run.ratchet.api.event.JobDlqEvent;
 import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobStartedEvent;
+import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.api.exception.JobTimeoutException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.ri.cdi.JsonbPayloadSerializer;
-import run.ratchet.ri.resilience.ServiceUnavailableException;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.ErrorSanitizer;
@@ -370,6 +370,11 @@ public class JobTask implements Callable<Void> {
       } else {
         handleSuccess(start, jobResult);
       }
+    } catch (CircuitBreakerOpenException e) {
+      log.infof(
+          "Job %s rescheduled - circuit breaker OPEN for service: %s",
+          jobId, resilienceServiceName);
+      rescheduleForCircuitBreaker(jobEntity, resilienceServiceName, e);
     } catch (Throwable t) {
       try {
         handleFailure(t);
@@ -518,12 +523,19 @@ public class JobTask implements Callable<Void> {
    * delay matching the circuit breaker's typical OPEN-to-HALF_OPEN transition window.
    */
   private void rescheduleForCircuitBreaker(JobEntity jobEntity, String serviceName) {
+    rescheduleForCircuitBreaker(
+        jobEntity,
+        serviceName,
+        new CircuitBreakerOpenException("Circuit breaker OPEN for service: " + serviceName));
+  }
+
+  private void rescheduleForCircuitBreaker(
+      JobEntity jobEntity, String serviceName, CircuitBreakerOpenException rejection) {
     long delayMs = resilienceStrategy.getRetryDelay(serviceName).toMillis();
     Instant newScheduledTime = effective().instant().plusMillis(delayMs);
 
     if (currentExecution != null) {
-      currentExecution.markFailed(
-          new ServiceUnavailableException("Circuit breaker OPEN for service: " + serviceName));
+      currentExecution.markFailed(rejection);
       observabilityFacade.saveExecution(currentExecution);
     }
 

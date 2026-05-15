@@ -30,8 +30,8 @@ public class ChainFailedEvent extends AbstractJobSchedulerEvent {
       UUID parentJobId,
       String errorMessage) {
     super(jobId, businessKey, jobType, priority, nodeId, timestamp);
-    this.parentJobId = parentJobId;
-    this.errorMessage = errorMessage;
+    this.parentJobId = EventContract.requireNonNull(parentJobId, "parentJobId");
+    this.errorMessage = EventContract.requireNonBlank(errorMessage, "errorMessage");
   }
 
   /**
@@ -49,8 +49,8 @@ public class ChainFailedEvent extends AbstractJobSchedulerEvent {
       UUID parentJobId,
       String errorMessage) {
     super(jobId, businessKey, jobType, priority, nodeId);
-    this.parentJobId = parentJobId;
-    this.errorMessage = errorMessage;
+    this.parentJobId = EventContract.requireNonNull(parentJobId, "parentJobId");
+    this.errorMessage = EventContract.requireNonBlank(errorMessage, "errorMessage");
   }
 
   /** Returns the root or parent job whose chain failed. */

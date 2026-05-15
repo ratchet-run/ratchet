@@ -4,6 +4,7 @@ import com.mongodb.client.MongoDatabase;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.List;
+import java.util.Objects;
 import java.util.logging.Logger;
 import org.bson.Document;
 
@@ -53,5 +54,12 @@ public class DocumentStoreTestCleanupStrategy implements TestCleanupStrategy {
         log.fine("Truncate skipped for " + collection + ": " + e.getMessage());
       }
     }
+  }
+
+  @Override
+  public void deleteSchedulerLock(String name) {
+    mongoDb
+        .getCollection("scheduler_lock")
+        .deleteOne(new Document("_id", Objects.requireNonNull(name, "name")));
   }
 }

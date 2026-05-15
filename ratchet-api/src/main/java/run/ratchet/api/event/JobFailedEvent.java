@@ -37,7 +37,7 @@ public class JobFailedEvent extends AbstractJobSchedulerEvent {
       int retryAttempt) {
     super(jobId, businessKey, jobType, priority, nodeId, timestamp);
     this.errorMessage = errorMessage;
-    this.retryAttempt = retryAttempt;
+    this.retryAttempt = EventContract.requirePositive(retryAttempt, "retryAttempt");
   }
 
   /**
@@ -56,7 +56,7 @@ public class JobFailedEvent extends AbstractJobSchedulerEvent {
       int retryAttempt) {
     super(jobId, businessKey, jobType, priority, nodeId);
     this.errorMessage = errorMessage;
-    this.retryAttempt = retryAttempt;
+    this.retryAttempt = EventContract.requirePositive(retryAttempt, "retryAttempt");
   }
 
   /** Returns the sanitized failure message, or {@code null} when no message was recorded. */

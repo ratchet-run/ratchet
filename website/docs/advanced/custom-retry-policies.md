@@ -224,7 +224,7 @@ Combine retry policy with circuit breaker awareness to stop retrying when the do
 ```java
 import run.ratchet.spi.RetryPolicy;
 import run.ratchet.spi.ResilienceStrategy;
-import run.ratchet.ri.resilience.ServiceUnavailableException;
+import run.ratchet.api.exception.CircuitBreakerOpenException;
 
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -244,7 +244,7 @@ public class CircuitBreakerAwareRetryPolicy implements RetryPolicy {
     @Override
     public boolean shouldRetry(int attempt, Throwable cause) {
         // Don't retry if the circuit breaker rejected the call
-        if (cause instanceof ServiceUnavailableException) {
+        if (cause instanceof CircuitBreakerOpenException) {
             return false;
         }
         // Allow up to 5 retries for other failures

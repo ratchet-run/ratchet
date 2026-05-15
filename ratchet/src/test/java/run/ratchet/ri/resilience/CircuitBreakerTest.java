@@ -13,6 +13,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.exception.CircuitBreakerOpenException;
 
 class CircuitBreakerTest {
 
@@ -83,7 +84,7 @@ class CircuitBreakerTest {
     breaker.transitionToOpen();
     assertEquals(CircuitBreaker.State.OPEN, breaker.getState());
 
-    assertThrows(ServiceUnavailableException.class, () -> breaker.execute(() -> "should not run"));
+    assertThrows(CircuitBreakerOpenException.class, () -> breaker.execute(() -> "should not run"));
   }
 
   @Test
@@ -122,8 +123,8 @@ class CircuitBreakerTest {
       Future<String> second = executor.submit(() -> blockingHalfOpenCall(started, release));
       assertTrue(started.await(1, java.util.concurrent.TimeUnit.SECONDS));
 
-      ServiceUnavailableException thrown =
-          assertThrows(ServiceUnavailableException.class, () -> breaker.execute(() -> "extra"));
+      CircuitBreakerOpenException thrown =
+          assertThrows(CircuitBreakerOpenException.class, () -> breaker.execute(() -> "extra"));
       assertTrue(thrown.getMessage().contains("HALF_OPEN"));
 
       release.countDown();
