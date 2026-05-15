@@ -88,6 +88,25 @@ final class MongoJobLifecycleOperations
   public boolean compareAndSwapStatus(
       UUID id, JobStatus expected, JobStatus newStatus, String error) {
     try {
+      if ((newStatus == JobStatus.FAILED || newStatus == JobStatus.CANCELED)
+          && expected == JobStatus.RUNNING) {
+        Instant now = Instant.now();
+        UpdateResult result =
+            ctx.jobs()
+                .updateOne(
+                    and(eq(ID, id), eq(STATUS, expected.name())),
+                    combine(
+                        set(STATUS, newStatus.name()),
+                        set(LAST_ERROR, error),
+                        set(EXECUTION_START_TIME, DocumentMapper.toDate(now)),
+                        set(EXECUTION_END_TIME, DocumentMapper.toDate(now)),
+                        set(EXECUTION_DURATION_MS, 0L),
+                        set(PICKED_BY, null),
+                        set(PICKED_AT, null),
+                        set(UPDATED_AT, DocumentMapper.toDate(now)),
+                        inc(VERSION, 1)));
+        return result.getModifiedCount() > 0;
+      }
       UpdateResult result =
           ctx.jobs()
               .updateOne(
@@ -303,6 +322,7 @@ final class MongoJobLifecycleOperations
     return booleanMutation(
         "mark job failed terminal",
         () -> {
+          Instant now = Instant.now();
           UpdateResult result =
               ctx.jobs()
                   .updateOne(
@@ -311,9 +331,12 @@ final class MongoJobLifecycleOperations
                           set(STATUS, "FAILED"),
                           set(LAST_ERROR, terminalError),
                           set(ATTEMPTS, totalAttempts),
+                          set(EXECUTION_START_TIME, DocumentMapper.toDate(now)),
+                          set(EXECUTION_END_TIME, DocumentMapper.toDate(now)),
+                          set(EXECUTION_DURATION_MS, 0L),
                           set(PICKED_BY, null),
                           set(PICKED_AT, null),
-                          set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                          set(UPDATED_AT, DocumentMapper.toDate(now)),
                           inc(VERSION, 1)));
           return result.getModifiedCount() > 0;
         });
@@ -324,12 +347,27 @@ final class MongoJobLifecycleOperations
     return booleanMutation(
         "cancel job",
         () -> {
+          Instant now = Instant.now();
+          UpdateResult runningResult =
+              ctx.jobs()
+                  .updateOne(
+                      and(eq(ID, id), eq(STATUS, "RUNNING")),
+                      combine(
+                          set(STATUS, "CANCELED"),
+                          set(EXECUTION_START_TIME, DocumentMapper.toDate(now)),
+                          set(EXECUTION_END_TIME, DocumentMapper.toDate(now)),
+                          set(EXECUTION_DURATION_MS, 0L),
+                          set(PICKED_BY, null),
+                          set(PICKED_AT, null),
+                          set(UPDATED_AT, DocumentMapper.toDate(now)),
+                          inc(VERSION, 1)));
+          if (runningResult.getModifiedCount() > 0) {
+            return true;
+          }
           UpdateResult result =
               ctx.jobs()
                   .updateOne(
-                      and(
-                          eq(ID, id),
-                          in(STATUS, List.of("PENDING", "RUNNING", "PAUSED", "WAITING"))),
+                      and(eq(ID, id), in(STATUS, List.of("PENDING", "PAUSED", "WAITING"))),
                       combine(
                           set(STATUS, "CANCELED"),
                           set(PICKED_BY, null),
