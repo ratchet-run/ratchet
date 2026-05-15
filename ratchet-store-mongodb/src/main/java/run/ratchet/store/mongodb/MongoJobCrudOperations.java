@@ -2,12 +2,14 @@ package run.ratchet.store.mongodb;
 
 import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
+import static com.mongodb.client.model.Filters.exists;
 import static com.mongodb.client.model.Filters.gte;
 import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Filters.lt;
 import static com.mongodb.client.model.Filters.lte;
 import static com.mongodb.client.model.Filters.ne;
 import static com.mongodb.client.model.Filters.nin;
+import static com.mongodb.client.model.Filters.or;
 import static com.mongodb.client.model.Sorts.ascending;
 import static com.mongodb.client.model.Updates.combine;
 import static com.mongodb.client.model.Updates.inc;
@@ -30,6 +32,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.PRIORITY;
 import static run.ratchet.store.mongodb.MongoFieldNames.QUEUE_WAIT_MS;
 import static run.ratchet.store.mongodb.MongoFieldNames.SCHEDULED_TIME;
 import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
+import static run.ratchet.store.mongodb.MongoFieldNames.TERMINATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.TOTAL_ITEMS;
 import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
@@ -536,7 +539,11 @@ final class MongoJobCrudOperations {
                     eq(STATUS, STATUS_FAILED),
                     new Document(
                         "$expr", new Document("$gte", List.of("$" + ATTEMPTS, "$" + MAX_RETRIES))),
-                    lt(UPDATED_AT, DocumentMapper.toDate(cutoff))));
+                    or(
+                        lt(TERMINATED_AT, DocumentMapper.toDate(cutoff)),
+                        and(
+                            exists(TERMINATED_AT, false),
+                            lt(UPDATED_AT, DocumentMapper.toDate(cutoff))))));
     return (int) result.getDeletedCount();
   }
 

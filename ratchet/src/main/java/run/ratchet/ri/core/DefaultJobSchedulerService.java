@@ -26,6 +26,8 @@ import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.SignalDecision;
 import run.ratchet.api.StreamingBatchBuilder;
 import run.ratchet.api.event.JobCancelledEvent;
+import run.ratchet.api.event.JobPausedEvent;
+import run.ratchet.api.event.JobResumedEvent;
 import run.ratchet.api.event.JobSignaledEvent;
 import run.ratchet.api.event.JobsBulkCancelledEvent;
 import run.ratchet.api.event.JobsBulkSignaledEvent;
@@ -292,9 +294,9 @@ public class DefaultJobSchedulerService
       return true;
     }
 
-    // Try RUNNING → CANCELED (the executor will publish JobCancelledEvent itself when the
-    // running task observes the status flip — see JobTask. We do NOT publish here for the
-    // RUNNING path to avoid duplicate events.)
+    // Try RUNNING → CANCELED. RUNNING cancellation events are executor-owned so JobTask can
+    // include execution duration. If the worker dies before observing the status flip, the
+    // durable state is still CANCELED but no per-job RUNNING cancellation event is emitted.
     if (jobBatchStatusStore.compareAndSwapStatus(
         jobId, JobStatus.RUNNING, JobStatus.CANCELED, null)) {
       log.debugf("Canceled running job %s", jobId);
@@ -434,16 +436,13 @@ public class DefaultJobSchedulerService
     }
     JobHandle newHandle = builder.submit();
 
-    // Cancel the old job using CAS to avoid conflicting with concurrent executors.
-    // Try each cancellable state in order; if all fail, the job is already terminal.
-    boolean canceled =
-        jobBatchStatusStore.compareAndSwapStatus(jobId, JobStatus.PENDING, JobStatus.CANCELED, null)
-            || jobBatchStatusStore.compareAndSwapStatus(
-                jobId, JobStatus.RUNNING, JobStatus.CANCELED, null)
-            || jobBatchStatusStore.compareAndSwapStatus(
-                jobId, JobStatus.PAUSED, JobStatus.CANCELED, null)
-            || jobBatchStatusStore.compareAndSwapStatus(
-                jobId, JobStatus.WAITING, JobStatus.CANCELED, null);
+    JobStatus cancelledFrom = cancelForReplacement(jobId);
+    if (cancelledFrom == JobStatus.WAITING && metricsCollector != null) {
+      metricsCollector.signalCancelled(jobId, existing.getPublicJobType(), existing.getSignalKey());
+    }
+    if (cancelledFrom != null && cancelledFrom != JobStatus.RUNNING) {
+      publishCancelledEvent(jobId, cancelledFrom, existing);
+    }
 
     // Reload after CAS: compareAndSwapStatus bumps the optimistic-lock version; writing the
     // pre-CAS entity would throw. The intent is to annotate a terminal CANCELED row with
@@ -458,7 +457,7 @@ public class DefaultJobSchedulerService
     fresh.setSupersededBy(newHandle.id());
     jobCrudStore.save(fresh);
 
-    if (canceled) {
+    if (cancelledFrom != null) {
       log.infof("Replaced job %s with new job %s", jobId, newHandle.id());
     } else {
       log.infof(
@@ -494,6 +493,7 @@ public class DefaultJobSchedulerService
     if (job.getJobType() == JobExecutionType.RECURRING) {
       if (jobPauseStore.pauseRecurring(jobId)) {
         log.debugf("Paused recurring master %s", jobId);
+        publishPausedEvent(jobId, job);
         return true;
       }
       log.debugf("Cannot pause recurring master %s — current rec_status %s", jobId, current);
@@ -503,6 +503,7 @@ public class DefaultJobSchedulerService
     // Executable jobs: try PENDING → PAUSED on hot.
     if (jobPauseStore.transitionToPaused(jobId, JobStatus.PENDING)) {
       log.debugf("Paused pending job %s", jobId);
+      publishPausedEvent(jobId, job);
       return true;
     }
 
@@ -534,6 +535,7 @@ public class DefaultJobSchedulerService
     if (job.getJobType() == JobExecutionType.RECURRING) {
       if (jobPauseStore.resumeRecurring(jobId)) {
         log.debugf("Resumed recurring master %s", jobId);
+        publishResumedEvent(jobId, job);
         recurringScheduler.kick();
         return true;
       }
@@ -548,6 +550,7 @@ public class DefaultJobSchedulerService
       return false;
     }
     log.debugf("Resumed job %s to %s", jobId, target);
+    publishResumedEvent(jobId, job);
     if (target == JobStatus.PENDING) {
       recurringScheduler.kick();
     }
@@ -657,21 +660,75 @@ public class DefaultJobSchedulerService
    * get for running-cancellations.
    */
   private void publishCancelledEvent(UUID jobId, JobStatus previousStatus, JobEntity job) {
+    Instant timestamp = effective().instant();
     JobCancelledEvent event =
         job == null
             // Race: job was deleted between CAS and our lookup. Fire a minimal event so observers
             // at least know the cancellation happened.
-            ? new JobCancelledEvent(jobId, null, null, null, null, previousStatus.name(), null)
+            ? new JobCancelledEvent(
+                jobId, null, null, null, null, timestamp, previousStatus.name(), null)
             : new JobCancelledEvent(
                 jobId,
                 job.getBusinessKey(),
                 job.getPublicJobType(),
                 job.getPriority(),
                 job.getPickedBy(),
+                timestamp,
                 previousStatus.name(),
                 null);
     // Defer publication until after the surrounding TX commits so a rollback does not produce a
     // spurious CANCELLED event. Falls back to immediate publication when no TX is active.
+    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+      eventPublisher.publish(event);
+    }
+  }
+
+  private JobStatus cancelForReplacement(UUID jobId) {
+    if (jobBatchStatusStore.compareAndSwapStatus(
+        jobId, JobStatus.PENDING, JobStatus.CANCELED, null)) {
+      return JobStatus.PENDING;
+    }
+    if (jobBatchStatusStore.compareAndSwapStatus(
+        jobId, JobStatus.RUNNING, JobStatus.CANCELED, null)) {
+      // RUNNING cancellation events are executor-owned. JobTask publishes the event with execution
+      // duration when it observes the status flip; publishing here would create a duplicate. This
+      // carries the same dropped-event risk as cancelJob if the worker dies before that check.
+      return JobStatus.RUNNING;
+    }
+    if (jobBatchStatusStore.compareAndSwapStatus(
+        jobId, JobStatus.PAUSED, JobStatus.CANCELED, null)) {
+      return JobStatus.PAUSED;
+    }
+    if (jobBatchStatusStore.compareAndSwapStatus(
+        jobId, JobStatus.WAITING, JobStatus.CANCELED, null)) {
+      return JobStatus.WAITING;
+    }
+    return null;
+  }
+
+  private void publishPausedEvent(UUID jobId, JobEntity job) {
+    JobPausedEvent event =
+        new JobPausedEvent(
+            jobId,
+            job.getBusinessKey(),
+            job.getPublicJobType(),
+            job.getPriority(),
+            job.getPickedBy(),
+            effective().instant());
+    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+      eventPublisher.publish(event);
+    }
+  }
+
+  private void publishResumedEvent(UUID jobId, JobEntity job) {
+    JobResumedEvent event =
+        new JobResumedEvent(
+            jobId,
+            job.getBusinessKey(),
+            job.getPublicJobType(),
+            job.getPriority(),
+            job.getPickedBy(),
+            effective().instant());
     if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
       eventPublisher.publish(event);
     }

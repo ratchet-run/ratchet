@@ -1,6 +1,6 @@
 package run.ratchet.store.mysql;
 
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import jakarta.persistence.EntityManager;
@@ -10,6 +10,7 @@ import java.lang.reflect.Proxy;
 import java.util.Collections;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import run.ratchet.store.entity.ResourceLimitEntity;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 
 class MysqlAuxiliaryOperationsTest {
@@ -24,11 +25,12 @@ class MysqlAuxiliaryOperationsTest {
   }
 
   @Test
-  void getPermitRetryDelayRejectsMissingResource() {
+  void getPermitRetryDelayUsesDefaultForMissingResource() {
     MysqlAuxiliaryOperations operations =
         new MysqlAuxiliaryOperations(new MysqlStoreContext(entityManagerWithNoResult(), null));
 
-    assertThrows(IllegalArgumentException.class, () -> operations.getPermitRetryDelay("missing"));
+    assertEquals(
+        ResourceLimitEntity.DEFAULT_RETRY_DELAY_MS, operations.getPermitRetryDelay("missing"));
   }
 
   private static EntityManager entityManagerWithNoResult() {

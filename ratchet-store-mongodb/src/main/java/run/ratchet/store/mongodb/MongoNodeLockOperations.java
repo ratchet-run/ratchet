@@ -4,6 +4,7 @@ import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Filters.lt;
+import static com.mongodb.client.model.Filters.or;
 import static com.mongodb.client.model.Updates.combine;
 import static com.mongodb.client.model.Updates.set;
 import static com.mongodb.client.model.Updates.setOnInsert;
@@ -66,7 +67,7 @@ final class MongoNodeLockOperations implements LockStore, NodeStore {
       Document result =
           ctx.locks()
               .findOneAndUpdate(
-                  and(eq(ID, name), lt(EXPIRES_AT, now)),
+                  and(eq(ID, name), or(lt(EXPIRES_AT, now), eq(OWNER_NODE, nodeId))),
                   combine(
                       set(OWNER_NODE, nodeId),
                       set(LOCKED_AT, now),

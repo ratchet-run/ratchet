@@ -85,6 +85,10 @@ public class MongoTestFixture implements JobStoreContractFixture, AutoCloseable 
     return new MongoArchiveOperations(ctx, clock);
   }
 
+  MongoDatabase database() {
+    return database;
+  }
+
   @Override
   public JobStore store() {
     return store;

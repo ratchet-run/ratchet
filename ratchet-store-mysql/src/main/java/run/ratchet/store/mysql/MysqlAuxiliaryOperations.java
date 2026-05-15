@@ -12,6 +12,7 @@ import run.ratchet.api.WorkflowCondition;
 import run.ratchet.store.entity.DlqAlertEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobLogEntity;
+import run.ratchet.store.entity.ResourceLimitEntity;
 import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7Factory;
@@ -312,7 +313,7 @@ final class MysqlAuxiliaryOperations
       return ((Number) ctx.em().createNativeQuery(sql).setParameter(1, resource).getSingleResult())
           .intValue();
     } catch (NoResultException e) {
-      throw new IllegalArgumentException("Resource is not configured: " + resource, e);
+      return ResourceLimitEntity.DEFAULT_RETRY_DELAY_MS;
     }
   }
 
