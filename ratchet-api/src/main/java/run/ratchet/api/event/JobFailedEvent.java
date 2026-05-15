@@ -6,7 +6,13 @@ import java.util.UUID;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 
-/** Fired when a job fails. */
+/**
+ * Fired when a job reaches terminal FAILED state.
+ *
+ * <p>Retryable per-attempt failures are reported through the metrics SPI and {@link
+ * JobRetryingEvent}; they do not publish this event unless the failed attempt exhausts retry
+ * handling and terminalizes the job.
+ */
 public class JobFailedEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = -8745178784765705117L;
@@ -18,7 +24,7 @@ public class JobFailedEvent extends AbstractJobSchedulerEvent {
    * Creates a failure event with an explicit timestamp.
    *
    * @param errorMessage sanitized failure message, or {@code null} when no message was recorded
-   * @param retryAttempt 1-based execution attempt count that failed
+   * @param retryAttempt recorded retry count when the job failed; zero means no retry was consumed
    */
   public JobFailedEvent(
       UUID jobId,
@@ -31,14 +37,14 @@ public class JobFailedEvent extends AbstractJobSchedulerEvent {
       int retryAttempt) {
     super(jobId, businessKey, jobType, priority, nodeId, timestamp);
     this.errorMessage = errorMessage;
-    this.retryAttempt = EventContract.requirePositive(retryAttempt, "retryAttempt");
+    this.retryAttempt = EventContract.requireNonNegative(retryAttempt, "retryAttempt");
   }
 
   /**
    * Creates a failure event using the current system clock instant.
    *
    * @param errorMessage sanitized failure message, or {@code null} when no message was recorded
-   * @param retryAttempt 1-based execution attempt count that failed
+   * @param retryAttempt recorded retry count when the job failed; zero means no retry was consumed
    */
   public JobFailedEvent(
       UUID jobId,
@@ -50,7 +56,7 @@ public class JobFailedEvent extends AbstractJobSchedulerEvent {
       int retryAttempt) {
     super(jobId, businessKey, jobType, priority, nodeId);
     this.errorMessage = errorMessage;
-    this.retryAttempt = EventContract.requirePositive(retryAttempt, "retryAttempt");
+    this.retryAttempt = EventContract.requireNonNegative(retryAttempt, "retryAttempt");
   }
 
   /** Returns the sanitized failure message, or {@code null} when no message was recorded. */
@@ -58,7 +64,7 @@ public class JobFailedEvent extends AbstractJobSchedulerEvent {
     return errorMessage;
   }
 
-  /** Returns the 1-based execution attempt count that failed. */
+  /** Returns the recorded retry count when the job failed. */
   public int getRetryAttempt() {
     return retryAttempt;
   }

@@ -24,7 +24,11 @@ import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.event.ChainCompletedEvent;
+import run.ratchet.api.event.ChainFailedEvent;
+import run.ratchet.api.event.ChainStartedEvent;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobTerminalStore;
 
@@ -36,6 +40,7 @@ class ChainSchedulerTest {
 
   @Mock private JobCrudStore jobCrudStore;
   @Mock private JobTerminalStore jobTerminalStore;
+  @Mock private InternalEventPublisher eventPublisher;
 
   private ChainScheduler scheduler;
 
@@ -71,6 +76,27 @@ class ChainSchedulerTest {
   }
 
   @Test
+  void scheduleNext_finalChainStepPublishesChainCompletedEvent() {
+    scheduler = new ChainScheduler(jobCrudStore, jobTerminalStore, FIXED_CLOCK, eventPublisher);
+    JobEntity root = pendingJob();
+    root.setJobType(JobExecutionType.SINGLE);
+    JobEntity finished = pendingJob();
+    finished.setJobType(JobExecutionType.CHAIN_STEP);
+    finished.setDependsOn(root.getId());
+
+    when(jobCrudStore.findDependants(finished.getId())).thenReturn(List.of());
+    when(jobCrudStore.findById(root.getId())).thenReturn(java.util.Optional.of(root));
+
+    assertFalse(scheduler.scheduleNext(finished));
+
+    ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
+    verify(eventPublisher).publish(eventCaptor.capture());
+    ChainCompletedEvent event = (ChainCompletedEvent) eventCaptor.getValue();
+    assertEquals(finished.getId(), event.getJobId());
+    assertEquals(root.getId(), event.getParentJobId());
+  }
+
+  @Test
   void scheduleNext_pendingChildWithSentinel_setsScheduledTimeAndReturnsTrue() {
     JobEntity finished = pendingJob();
     JobEntity child = pendingJob();
@@ -83,6 +109,26 @@ class ChainSchedulerTest {
     ArgumentCaptor<JobEntity> saved = ArgumentCaptor.forClass(JobEntity.class);
     verify(jobCrudStore).save(saved.capture());
     assertEquals(FIXED_NOW, saved.getValue().getScheduledTime());
+  }
+
+  @Test
+  void scheduleNext_firstChainStepPublishesChainStartedEvent() {
+    scheduler = new ChainScheduler(jobCrudStore, jobTerminalStore, FIXED_CLOCK, eventPublisher);
+    JobEntity root = pendingJob();
+    root.setJobType(JobExecutionType.SINGLE);
+    JobEntity child = pendingJob();
+    child.setJobType(JobExecutionType.CHAIN_STEP);
+    child.setScheduledTime(ChainScheduler.CHAIN_LOCK_TIME);
+
+    when(jobCrudStore.findDependants(root.getId())).thenReturn(List.of(child));
+
+    assertTrue(scheduler.scheduleNext(root));
+
+    ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
+    verify(eventPublisher).publish(eventCaptor.capture());
+    ChainStartedEvent event = (ChainStartedEvent) eventCaptor.getValue();
+    assertEquals(child.getId(), event.getJobId());
+    assertEquals(root.getId(), event.getParentJobId());
   }
 
   @Test
@@ -209,6 +255,28 @@ class ChainSchedulerTest {
     scheduler.cancelChain(failed);
 
     verify(jobTerminalStore).cancelJob(child.getId());
+  }
+
+  @Test
+  void cancelChain_publishesChainFailedEventWhenDependantsAreCanceled() {
+    scheduler = new ChainScheduler(jobCrudStore, jobTerminalStore, FIXED_CLOCK, eventPublisher);
+    JobEntity failed = pendingJob();
+    failed.setJobType(JobExecutionType.SINGLE);
+    failed.setLastError("boom");
+    JobEntity child = pendingJob();
+    child.setJobType(JobExecutionType.CHAIN_STEP);
+
+    when(jobCrudStore.findDependants(failed.getId())).thenReturn(List.of(child));
+    when(jobCrudStore.findDependants(child.getId())).thenReturn(List.of());
+
+    scheduler.cancelChain(failed);
+
+    ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
+    verify(eventPublisher).publish(eventCaptor.capture());
+    ChainFailedEvent event = (ChainFailedEvent) eventCaptor.getValue();
+    assertEquals(failed.getId(), event.getJobId());
+    assertEquals(failed.getId(), event.getParentJobId());
+    assertEquals("boom", event.getErrorMessage());
   }
 
   // ── helpers ───────────────────────────────────────────────────────────────

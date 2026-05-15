@@ -188,11 +188,21 @@ class EventApiContractTest {
         () ->
             new BatchCompletingEvent(
                 JOB_ID, "business-key", JobType.BATCH, JobPriority.NORMAL, "node-a", 3, 2, 2));
+    JobFailedEvent firstAttemptFailure =
+        new JobFailedEvent(
+            JOB_ID, "business-key", JobType.SINGLE, JobPriority.NORMAL, "node-a", "failed", 0);
+    assertEquals(0, firstAttemptFailure.getRetryAttempt());
     assertThrows(
         IllegalArgumentException.class,
         () ->
             new JobFailedEvent(
-                JOB_ID, "business-key", JobType.SINGLE, JobPriority.NORMAL, "node-a", "failed", 0));
+                JOB_ID,
+                "business-key",
+                JobType.SINGLE,
+                JobPriority.NORMAL,
+                "node-a",
+                "failed",
+                -1));
     assertThrows(
         IllegalArgumentException.class,
         () ->

@@ -6,11 +6,17 @@ import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.event.ChainCompletedEvent;
+import run.ratchet.api.event.ChainFailedEvent;
+import run.ratchet.api.event.ChainStartedEvent;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobTerminalStore;
 
@@ -34,27 +40,39 @@ public class ChainScheduler {
 
   protected final JobCrudStore jobCrudStore;
   protected final JobTerminalStore jobTerminalStore;
+  protected final InternalEventPublisher eventPublisher;
   private final Clock clock;
 
   protected ChainScheduler() {
     this.jobCrudStore = null;
     this.jobTerminalStore = null;
+    this.eventPublisher = null;
     this.clock = null;
   }
 
   public ChainScheduler(JobCrudStore jobCrudStore, JobTerminalStore jobTerminalStore) {
-    this(jobCrudStore, jobTerminalStore, Clock.systemUTC());
+    this(jobCrudStore, jobTerminalStore, Clock.systemUTC(), null);
   }
 
   ChainScheduler(JobCrudStore jobCrudStore, JobTerminalStore jobTerminalStore, Clock clock) {
+    this(jobCrudStore, jobTerminalStore, clock, null);
+  }
+
+  ChainScheduler(
+      JobCrudStore jobCrudStore,
+      JobTerminalStore jobTerminalStore,
+      Clock clock,
+      InternalEventPublisher eventPublisher) {
     this.jobCrudStore = jobCrudStore;
     this.jobTerminalStore = jobTerminalStore;
     this.clock = clock != null ? clock : Clock.systemUTC();
+    this.eventPublisher = eventPublisher;
   }
 
   public void cancelChain(JobEntity failed) {
     Deque<UUID> stack = new ArrayDeque<>();
     stack.push(failed.getId());
+    boolean canceled = false;
 
     while (!stack.isEmpty()) {
       UUID parentId = stack.pop();
@@ -66,16 +84,23 @@ public class ChainScheduler {
           // DELETE bkres atomically. setStatus()+save() is rejected by the hot guard.
           if (jobTerminalStore.cancelJob(child.getId())) {
             log.warnf("Chain step %s canceled (ancestor failed %s)", child.getId(), failed.getId());
+            canceled = true;
           }
         }
         stack.push(child.getId());
       }
+    }
+    if (canceled || failed.getJobType() == JobExecutionType.CHAIN_STEP) {
+      publishChainFailed(failed);
     }
   }
 
   public boolean scheduleNext(JobEntity finished) {
     List<JobEntity> children = findAllDependants(finished.getId());
     if (children.isEmpty()) {
+      if (finished.getJobType() == JobExecutionType.CHAIN_STEP) {
+        publishChainCompleted(finished);
+      }
       return false;
     }
 
@@ -85,6 +110,7 @@ public class ChainScheduler {
         c.setScheduledTime(effective().instant());
         jobCrudStore.save(c);
         log.infof("Chain step %s unlocked (prev=%s)", c.getId(), finished.getId());
+        publishChainStartedIfFirstStep(finished, c);
         scheduled = true;
       } else if (c.getStatus() == JobStatus.WAITING
           && CHAIN_LOCK_TIME.equals(c.getScheduledTime())) {
@@ -95,6 +121,7 @@ public class ChainScheduler {
         log.infof(
             "Signal-waiting chain step %s unlocked (signal still pending, prev=%s)",
             c.getId(), finished.getId());
+        publishChainStartedIfFirstStep(finished, c);
         scheduled = true;
       }
     }
@@ -116,5 +143,65 @@ public class ChainScheduler {
       }
       offset += page.size();
     }
+  }
+
+  private void publishChainStartedIfFirstStep(JobEntity finished, JobEntity child) {
+    if (eventPublisher == null
+        || child.getJobType() != JobExecutionType.CHAIN_STEP
+        || finished.getJobType() == JobExecutionType.CHAIN_STEP) {
+      return;
+    }
+    eventPublisher.publish(
+        new ChainStartedEvent(
+            child.getId(),
+            child.getBusinessKey(),
+            child.getPublicJobType(),
+            child.getPriority(),
+            child.getPickedBy(),
+            findRootJobId(finished)));
+  }
+
+  private void publishChainCompleted(JobEntity finished) {
+    if (eventPublisher == null) {
+      return;
+    }
+    eventPublisher.publish(
+        new ChainCompletedEvent(
+            finished.getId(),
+            finished.getBusinessKey(),
+            finished.getPublicJobType(),
+            finished.getPriority(),
+            finished.getPickedBy(),
+            findRootJobId(finished)));
+  }
+
+  private void publishChainFailed(JobEntity failed) {
+    if (eventPublisher == null) {
+      return;
+    }
+    eventPublisher.publish(
+        new ChainFailedEvent(
+            failed.getId(),
+            failed.getBusinessKey(),
+            failed.getPublicJobType(),
+            failed.getPriority(),
+            failed.getPickedBy(),
+            findRootJobId(failed),
+            failed.getLastError()));
+  }
+
+  private UUID findRootJobId(JobEntity job) {
+    UUID rootId = job.getId();
+    UUID parentId = job.getDependsOn();
+    Set<UUID> seen = new HashSet<>();
+    while (parentId != null && seen.add(parentId)) {
+      JobEntity parent = jobCrudStore.findById(parentId).orElse(null);
+      if (parent == null) {
+        return parentId;
+      }
+      rootId = parent.getId();
+      parentId = parent.getDependsOn();
+    }
+    return rootId;
   }
 }

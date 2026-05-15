@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -31,7 +32,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
+import run.ratchet.api.event.BatchCompletedEvent;
 import run.ratchet.api.event.BatchCompletingEvent;
+import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.MetricsCollector;
@@ -135,8 +138,13 @@ class BatchServiceTest {
     batchService.markChildSucceeded(child);
 
     ArgumentCaptor<Object> event = ArgumentCaptor.forClass(Object.class);
-    verify(eventPublisher).publish(event.capture());
-    BatchCompletingEvent completingEvent = (BatchCompletingEvent) event.getValue();
+    verify(eventPublisher, times(3)).publish(event.capture());
+    BatchCompletingEvent completingEvent =
+        event.getAllValues().stream()
+            .filter(BatchCompletingEvent.class::isInstance)
+            .map(BatchCompletingEvent.class::cast)
+            .findFirst()
+            .orElseThrow();
     assertEquals(parentId, completingEvent.getJobId());
     assertEquals("invoice-run", completingEvent.getBusinessKey());
     assertEquals(JobType.BATCH, completingEvent.getJobType());
@@ -145,6 +153,23 @@ class BatchServiceTest {
     assertEquals(3, completingEvent.getTotalItems());
     assertEquals(3, completingEvent.getCompletedItems());
     assertEquals(0, completingEvent.getFailedItems());
+    BatchCompletedEvent completedEvent =
+        event.getAllValues().stream()
+            .filter(BatchCompletedEvent.class::isInstance)
+            .map(BatchCompletedEvent.class::cast)
+            .findFirst()
+            .orElseThrow();
+    assertEquals(parentId, completedEvent.getJobId());
+    assertEquals(3, completedEvent.getTotalItems());
+    assertEquals(3, completedEvent.getCompletedItems());
+    assertEquals(0, completedEvent.getFailedItems());
+    JobCompletedEvent jobCompletedEvent =
+        event.getAllValues().stream()
+            .filter(JobCompletedEvent.class::isInstance)
+            .map(JobCompletedEvent.class::cast)
+            .findFirst()
+            .orElseThrow();
+    assertEquals(parentId, jobCompletedEvent.getJobId());
     verify(batchStore).findBatchById(parentId);
     verify(jobTerminalStore).markJobSucceededMinimal(parentId, FIXED_NOW, FIXED_NOW, 0L, 0L);
   }
@@ -183,8 +208,13 @@ class BatchServiceTest {
         .markJobFailedTerminal(parentId, "Batch completed with 1 failed children", 0);
 
     ArgumentCaptor<Object> event = ArgumentCaptor.forClass(Object.class);
-    verify(eventPublisher).publish(event.capture());
-    BatchCompletingEvent completingEvent = (BatchCompletingEvent) event.getValue();
+    verify(eventPublisher, times(3)).publish(event.capture());
+    BatchCompletingEvent completingEvent =
+        event.getAllValues().stream()
+            .filter(BatchCompletingEvent.class::isInstance)
+            .map(BatchCompletingEvent.class::cast)
+            .findFirst()
+            .orElseThrow();
     assertEquals(3, completingEvent.getTotalItems());
     assertEquals(2, completingEvent.getCompletedItems());
     assertEquals(1, completingEvent.getFailedItems());
@@ -257,8 +287,13 @@ class BatchServiceTest {
         .markJobFailedTerminal(parentId, "Batch completed with 1 failed children", 0);
 
     ArgumentCaptor<Object> event = ArgumentCaptor.forClass(Object.class);
-    verify(eventPublisher).publish(event.capture());
-    BatchCompletingEvent completingEvent = (BatchCompletingEvent) event.getValue();
+    verify(eventPublisher, times(3)).publish(event.capture());
+    BatchCompletingEvent completingEvent =
+        event.getAllValues().stream()
+            .filter(BatchCompletingEvent.class::isInstance)
+            .map(BatchCompletingEvent.class::cast)
+            .findFirst()
+            .orElseThrow();
     assertEquals(3, completingEvent.getTotalItems());
     assertEquals(2, completingEvent.getCompletedItems());
     assertEquals(1, completingEvent.getFailedItems());

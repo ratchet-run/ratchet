@@ -35,6 +35,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.event.JobDlqEvent;
+import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.api.event.JobSignalTimedOutEvent;
 import run.ratchet.api.exception.SignalTimeoutException;
 import run.ratchet.spi.MetricsCollector;
@@ -166,6 +168,46 @@ class JobTimeoutHandlerTest {
     verify(jobBatchStatusStore, times(1))
         .compareAndSwapStatus(eq(JOB_ID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), anyString());
     verify(lifecycleFacade, times(1)).handlePermanentFailure(eq(job), any());
+  }
+
+  @Test
+  void hardTimeoutTerminalFailurePublishesFailedAndDlqEvents() {
+    handler =
+        newHandler(
+            null,
+            null,
+            JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE,
+            Clock.systemUTC(),
+            eventPublisher);
+    JobEntity job = jobWithMaxRetries(0);
+    job.setBusinessKey("timeout-key");
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            eq(JOB_ID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), anyString()))
+        .thenReturn(true);
+
+    handler.processHardTimeout(JOB_ID, TIMEOUT_SEC);
+
+    ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
+    verify(eventPublisher, times(2)).publish(eventCaptor.capture());
+    JobFailedEvent failedEvent =
+        eventCaptor.getAllValues().stream()
+            .filter(JobFailedEvent.class::isInstance)
+            .map(JobFailedEvent.class::cast)
+            .findFirst()
+            .orElseThrow();
+    assertEquals(JOB_ID, failedEvent.getJobId());
+    assertEquals("timeout-key", failedEvent.getBusinessKey());
+    assertEquals(1, failedEvent.getRetryAttempt());
+    JobDlqEvent dlqEvent =
+        eventCaptor.getAllValues().stream()
+            .filter(JobDlqEvent.class::isInstance)
+            .map(JobDlqEvent.class::cast)
+            .findFirst()
+            .orElseThrow();
+    assertEquals(JOB_ID, dlqEvent.getJobId());
+    assertEquals(1, dlqEvent.getRetryAttempt());
   }
 
   @Test
@@ -403,6 +445,16 @@ class JobTimeoutHandlerTest {
       int signalTimeoutBatchSize,
       Clock clock) {
     return newHandler(signalStore, metricsCollector, signalTimeoutBatchSize, clock, null, null);
+  }
+
+  private JobTimeoutHandler newHandler(
+      SignalStore signalStore,
+      MetricsCollector metricsCollector,
+      int signalTimeoutBatchSize,
+      Clock clock,
+      InternalEventPublisher eventPublisher) {
+    return newHandler(
+        signalStore, metricsCollector, signalTimeoutBatchSize, clock, eventPublisher, null);
   }
 
   private JobTimeoutHandler newHandler(
