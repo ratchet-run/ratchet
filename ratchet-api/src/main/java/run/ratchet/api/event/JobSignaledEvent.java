@@ -1,7 +1,7 @@
 package run.ratchet.api.event;
 
 import java.io.Serial;
-import java.util.Objects;
+import java.time.Instant;
 import java.util.UUID;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
@@ -45,6 +45,7 @@ public class JobSignaledEvent extends AbstractJobSchedulerEvent {
         jobType,
         priority,
         nodeId,
+        Instant.now(),
         signalKey,
         signalDeliveredBy,
         SignalDecision.Outcome.APPROVED,
@@ -65,19 +66,51 @@ public class JobSignaledEvent extends AbstractJobSchedulerEvent {
       JobType jobType,
       JobPriority priority,
       String nodeId,
+      Instant timestamp,
       String signalKey,
       String signalDeliveredBy,
       SignalDecision.Outcome outcome,
       String rejectionReason) {
-    super(jobId, businessKey, jobType, priority, nodeId);
-    this.signalKey = Objects.requireNonNull(signalKey, "signalKey");
-    this.signalDeliveredBy = Objects.requireNonNull(signalDeliveredBy, "signalDeliveredBy");
-    this.outcome = Objects.requireNonNull(outcome, "outcome");
+    super(jobId, businessKey, jobType, priority, nodeId, timestamp);
+    this.signalKey = EventContract.requireNonBlank(signalKey, "signalKey");
+    this.signalDeliveredBy = EventContract.requireNonBlank(signalDeliveredBy, "signalDeliveredBy");
+    this.outcome = EventContract.requireNonNull(outcome, "outcome");
     this.rejectionReason =
         rejectionReason == null || rejectionReason.isBlank() ? null : rejectionReason.trim();
     if (this.outcome == SignalDecision.Outcome.APPROVED && this.rejectionReason != null) {
       throw new IllegalArgumentException("approved events cannot carry a rejection reason");
     }
+  }
+
+  /**
+   * Creates a signal-delivered event using the current system clock instant.
+   *
+   * @param signalKey signal key delivered to the waiting job
+   * @param signalDeliveredBy principal or system component that delivered the signal
+   * @param outcome approval/rejection outcome; must not be {@code null}
+   * @param rejectionReason optional rejection reason; blank values are normalized to {@code null}
+   */
+  public JobSignaledEvent(
+      UUID jobId,
+      String businessKey,
+      JobType jobType,
+      JobPriority priority,
+      String nodeId,
+      String signalKey,
+      String signalDeliveredBy,
+      SignalDecision.Outcome outcome,
+      String rejectionReason) {
+    this(
+        jobId,
+        businessKey,
+        jobType,
+        priority,
+        nodeId,
+        Instant.now(),
+        signalKey,
+        signalDeliveredBy,
+        outcome,
+        rejectionReason);
   }
 
   /** Returns the signal key delivered to the waiting job. */

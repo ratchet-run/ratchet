@@ -24,11 +24,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import run.ratchet.api.CircuitBreakerProfile;
 import run.ratchet.api.CircuitBreakerProtected;
+import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.ri.cdi.CircuitBreakerInterceptor;
 import run.ratchet.ri.resilience.CircuitBreaker;
 import run.ratchet.ri.resilience.CircuitBreakerConfiguration;
 import run.ratchet.ri.resilience.CircuitBreakerRegistry;
-import run.ratchet.ri.resilience.ServiceUnavailableException;
 import run.ratchet.spi.CircuitBreakerConfig;
 import run.ratchet.spi.CircuitBreakerConfigProvider;
 import run.ratchet.testsuite.app.CircuitBreakerTestService;
@@ -75,7 +75,7 @@ public class CircuitBreakerIT {
             CircuitBreaker.class,
             CircuitBreakerConfiguration.class,
             CircuitBreakerRegistry.class,
-            ServiceUnavailableException.class)
+            CircuitBreakerOpenException.class)
         .addAsLibraries(
             Maven.configureResolver()
                 .loadPomFromFile("pom.xml")
@@ -105,8 +105,8 @@ public class CircuitBreakerIT {
       assertThrows(RuntimeException.class, () -> service.callService());
     }
 
-    // Circuit should now be OPEN — next call should throw ServiceUnavailableException
-    assertThrows(ServiceUnavailableException.class, () -> service.callService());
+    // Circuit should now be OPEN — next call should throw CircuitBreakerOpenException
+    assertThrows(CircuitBreakerOpenException.class, () -> service.callService());
     assertEquals(
         3,
         CircuitBreakerTestService.getCallCount(),
@@ -114,7 +114,7 @@ public class CircuitBreakerIT {
 
     // Verify the breaker state
     CircuitBreaker breaker = registry.getBreaker(TEST_SERVICE, CircuitBreakerProfile.FAST);
-    // After ServiceUnavailableException, state is either OPEN or transitioning
+    // After CircuitBreakerOpenException, state is either OPEN or transitioning
     assertEquals(
         CircuitBreaker.State.OPEN,
         breaker.getState(),
@@ -188,8 +188,8 @@ public class CircuitBreakerIT {
       Future<String> second = executor.submit(() -> service.callService());
       assertTrue(started.await(1, TimeUnit.SECONDS), "Expected both trial calls to start");
 
-      ServiceUnavailableException thrown =
-          assertThrows(ServiceUnavailableException.class, () -> service.callService());
+      CircuitBreakerOpenException thrown =
+          assertThrows(CircuitBreakerOpenException.class, () -> service.callService());
       assertTrue(thrown.getMessage().contains("HALF_OPEN"));
 
       release.countDown();

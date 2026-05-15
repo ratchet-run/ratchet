@@ -24,8 +24,8 @@ public abstract class AbstractJobCancellationEvent extends AbstractJobSchedulerE
       String previousStatus,
       Long executionTimeMs) {
     super(jobId, businessKey, jobType, priority, nodeId, timestamp);
-    this.previousStatus = previousStatus;
-    this.executionTimeMs = executionTimeMs;
+    this.previousStatus = EventContract.requireNonBlank(previousStatus, "previousStatus");
+    this.executionTimeMs = EventContract.requireNonNegative(executionTimeMs, "executionTimeMs");
   }
 
   /**
@@ -43,8 +43,8 @@ public abstract class AbstractJobCancellationEvent extends AbstractJobSchedulerE
       String previousStatus,
       Long executionTimeMs) {
     super(jobId, businessKey, jobType, priority, nodeId);
-    this.previousStatus = previousStatus;
-    this.executionTimeMs = executionTimeMs;
+    this.previousStatus = EventContract.requireNonBlank(previousStatus, "previousStatus");
+    this.executionTimeMs = EventContract.requireNonNegative(executionTimeMs, "executionTimeMs");
   }
 
   /**

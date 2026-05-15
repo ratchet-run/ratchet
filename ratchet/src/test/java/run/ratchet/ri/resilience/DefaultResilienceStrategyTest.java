@@ -7,6 +7,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.CircuitBreakerProfile;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.spi.CircuitBreakerConfig;
 import run.ratchet.spi.CircuitBreakerConfigProvider;
 
@@ -49,7 +50,7 @@ class DefaultResilienceStrategyTest {
     }
 
     assertThrows(
-        ServiceUnavailableException.class,
+        CircuitBreakerOpenException.class,
         () -> strategy.execute("failing-service", () -> "should not run"));
     assertFalse(strategy.isServiceAvailable("failing-service"));
   }

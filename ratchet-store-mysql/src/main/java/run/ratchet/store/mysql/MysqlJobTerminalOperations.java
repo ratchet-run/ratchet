@@ -102,7 +102,7 @@ final class MysqlJobTerminalOperations {
               if (expected != JobStatus.RUNNING && expected != JobStatus.WAITING) {
                 return false;
               }
-              return markJobFailedTerminalFromStatus(id, error, 0, expected);
+              return markJobFailedTerminalFromStatus(id, error, null, expected);
             }
             throw new IllegalArgumentException("Unsupported CAS target newStatus: " + newStatus);
           } catch (RuntimeException e) {
@@ -286,9 +286,27 @@ final class MysqlJobTerminalOperations {
     // language=MySQL
     String cancelNonRecurringSql =
         """
-        UPDATE scheduler_job
-        SET terminal_status = 'CANCELED', terminated_at = NOW(3)
-        WHERE job_id = ? AND job_type <> 'RECURRING' AND terminal_status IS NULL
+        UPDATE scheduler_job c
+        JOIN scheduler_job_queue q ON q.job_id = c.job_id
+        SET c.terminal_status = 'CANCELED',
+            c.terminated_at = NOW(3),
+            c.execution_start_time =
+                CASE WHEN q.status = 'RUNNING'
+                     THEN COALESCE(c.execution_start_time, q.picked_at, NOW(3))
+                     ELSE c.execution_start_time END,
+            c.execution_end_time =
+                CASE WHEN q.status = 'RUNNING' THEN NOW(3) ELSE c.execution_end_time END,
+            c.execution_duration_ms =
+                CASE WHEN q.status = 'RUNNING'
+                     THEN GREATEST(
+                         0,
+                         TIMESTAMPDIFF(
+                             MICROSECOND,
+                             COALESCE(c.execution_start_time, q.picked_at, NOW(3)),
+                             NOW(3)) DIV 1000)
+                     ELSE c.execution_duration_ms END
+        WHERE c.job_id = ? AND c.job_type <> 'RECURRING' AND c.terminal_status IS NULL
+          AND q.status IN ('PENDING','RUNNING','PAUSED','WAITING')
         """;
     int nonRecurringUpdated =
         ctx.em()
@@ -302,10 +320,15 @@ final class MysqlJobTerminalOperations {
           DELETE FROM scheduler_job_queue
           WHERE job_id = ? AND status IN ('PENDING','RUNNING','PAUSED','WAITING')
           """;
-      ctx.em()
-          .createNativeQuery(deleteHotSql)
-          .setParameter(1, UuidByteArrayConverter.toBytes(id))
-          .executeUpdate();
+      int hotDeleted =
+          ctx.em()
+              .createNativeQuery(deleteHotSql)
+              .setParameter(1, UuidByteArrayConverter.toBytes(id))
+              .executeUpdate();
+      if (hotDeleted == 0) {
+        throw new IllegalStateException(
+            "cancel updated cold row but did not remove hot row for job " + id);
+      }
       reservations.deleteReservationByOwner(id);
       return true;
     }
@@ -438,7 +461,48 @@ final class MysqlJobTerminalOperations {
   }
 
   private boolean markJobFailedTerminalFromStatus(
-      UUID id, String terminalError, int totalAttempts, JobStatus expectedStatus) {
+      UUID id, String terminalError, Integer totalAttempts, JobStatus expectedStatus) {
+    String attemptsExpression = totalAttempts == null ? "q.attempts" : "?";
+    // language=MySQL
+    String updateColdSql =
+        """
+        UPDATE scheduler_job c
+        JOIN scheduler_job_queue q ON q.job_id = c.job_id
+        SET c.terminal_status = 'FAILED',
+            c.terminal_error = ?,
+            c.total_attempts = %s,
+            c.terminated_at = NOW(3),
+            c.execution_start_time =
+                CASE WHEN q.status = 'RUNNING'
+                     THEN COALESCE(c.execution_start_time, q.picked_at, NOW(3))
+                     ELSE c.execution_start_time END,
+            c.execution_end_time =
+                CASE WHEN q.status = 'RUNNING' THEN NOW(3) ELSE c.execution_end_time END,
+            c.execution_duration_ms =
+                CASE WHEN q.status = 'RUNNING'
+                     THEN GREATEST(
+                         0,
+                         TIMESTAMPDIFF(
+                             MICROSECOND,
+                             COALESCE(c.execution_start_time, q.picked_at, NOW(3)),
+                             NOW(3)) DIV 1000)
+                     ELSE c.execution_duration_ms END
+        WHERE c.job_id = ? AND c.terminal_status IS NULL AND q.status = ?
+        """
+            .formatted(attemptsExpression);
+    var query = ctx.em().createNativeQuery(updateColdSql).setParameter(1, terminalError);
+    int parameter = 2;
+    if (totalAttempts != null) {
+      query.setParameter(parameter++, totalAttempts);
+    }
+    int coldUpdated =
+        query
+            .setParameter(parameter++, UuidByteArrayConverter.toBytes(id))
+            .setParameter(parameter, expectedStatus.name())
+            .executeUpdate();
+    if (coldUpdated == 0) {
+      return false;
+    }
     // language=MySQL
     String deleteHotSql = "DELETE FROM scheduler_job_queue WHERE job_id = ? AND status = ?";
     int hotDeleted =
@@ -448,37 +512,8 @@ final class MysqlJobTerminalOperations {
             .setParameter(2, expectedStatus.name())
             .executeUpdate();
     if (hotDeleted == 0) {
-      return false;
-    }
-    // WAITING jobs never started executing, so execution_end_time must stay null to avoid a
-    // non-null end with a null start, which would produce negative or null duration metrics.
-    // language=MySQL
-    String updateColdSql =
-        expectedStatus == JobStatus.WAITING
-            ? """
-              UPDATE scheduler_job
-              SET terminal_status = 'FAILED', terminal_error = ?, total_attempts = ?,
-                  terminated_at = NOW(3)
-              WHERE job_id = ? AND terminal_status IS NULL
-              """
-            : """
-              UPDATE scheduler_job
-              SET terminal_status = 'FAILED', terminal_error = ?, total_attempts = ?,
-                  terminated_at = NOW(3), execution_end_time = NOW(3)
-              WHERE job_id = ? AND terminal_status IS NULL
-              """;
-    int coldUpdated =
-        ctx.em()
-            .createNativeQuery(updateColdSql)
-            .setParameter(1, terminalError)
-            .setParameter(2, totalAttempts)
-            .setParameter(3, UuidByteArrayConverter.toBytes(id))
-            .executeUpdate();
-    if (coldUpdated == 0) {
-      // Invariant violation: the hot row was deleted in this transaction, but the cold row no
-      // longer matched the expected non-terminal state.
       throw new IllegalStateException(
-          "terminal failure removed hot row but did not update cold row for job " + id);
+          "terminal failure updated cold row but did not remove hot row for job " + id);
     }
     reservations.deleteReservationByOwner(id);
     return true;

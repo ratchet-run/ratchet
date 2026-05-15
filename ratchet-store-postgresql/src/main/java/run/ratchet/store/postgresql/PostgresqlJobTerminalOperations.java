@@ -93,7 +93,7 @@ final class PostgresqlJobTerminalOperations {
             if (expected != JobStatus.RUNNING && expected != JobStatus.WAITING) {
               return false;
             }
-            return markJobFailedTerminalFromStatus(id, error, 0, expected);
+            return markJobFailedTerminalFromStatus(id, error, null, expected);
           }
           throw new IllegalArgumentException("Unsupported CAS target newStatus: " + newStatus);
         },
@@ -271,22 +271,47 @@ final class PostgresqlJobTerminalOperations {
           DELETE FROM scheduler_job_queue
           WHERE job_id = ? AND status IN ('PENDING','RUNNING','PAUSED','WAITING')
           """;
-      int hotDeleted = ctx.em().createNativeQuery(deleteHotSql).setParameter(1, id).executeUpdate();
-      if (hotDeleted == 0) {
-        return false;
-      }
       // language=PostgreSQL
       String updateColdSql =
           """
-          UPDATE scheduler_job
-          SET terminal_status = 'CANCELED', terminated_at = statement_timestamp()
-          WHERE job_id = ? AND terminal_status IS NULL
+          UPDATE scheduler_job c
+          SET terminal_status = 'CANCELED',
+              terminated_at = statement_timestamp(),
+              execution_start_time =
+                  CASE WHEN q.status = 'RUNNING'
+                       THEN COALESCE(c.execution_start_time, q.picked_at, statement_timestamp())
+                       ELSE c.execution_start_time END,
+              execution_end_time =
+                  CASE WHEN q.status = 'RUNNING'
+                       THEN statement_timestamp()
+                       ELSE c.execution_end_time END,
+              execution_duration_ms =
+                  CASE WHEN q.status = 'RUNNING'
+                       THEN GREATEST(
+                           0,
+                           FLOOR(
+                               EXTRACT(
+                                   EPOCH FROM statement_timestamp()
+                                     - COALESCE(
+                                         c.execution_start_time,
+                                         q.picked_at,
+                                         statement_timestamp()))
+                               * 1000)::bigint)
+                       ELSE c.execution_duration_ms END
+          FROM scheduler_job_queue q
+          WHERE c.job_id = ? AND q.job_id = c.job_id
+            AND c.terminal_status IS NULL
+            AND q.status IN ('PENDING','RUNNING','PAUSED','WAITING')
           """;
       int coldUpdated =
           ctx.em().createNativeQuery(updateColdSql).setParameter(1, id).executeUpdate();
       if (coldUpdated == 0) {
+        return false;
+      }
+      int hotDeleted = ctx.em().createNativeQuery(deleteHotSql).setParameter(1, id).executeUpdate();
+      if (hotDeleted == 0) {
         throw new IllegalStateException(
-            "cancel removed hot row but did not update cold row for job " + id);
+            "cancel updated cold row but did not remove hot row for job " + id);
       }
       reservations.deleteReservationByOwner(id);
       return coldUpdated > 0;
@@ -373,7 +398,55 @@ final class PostgresqlJobTerminalOperations {
   }
 
   private boolean markJobFailedTerminalFromStatus(
-      UUID id, String terminalError, int totalAttempts, JobStatus expectedStatus) {
+      UUID id, String terminalError, Integer totalAttempts, JobStatus expectedStatus) {
+    String attemptsExpression = totalAttempts == null ? "q.attempts" : "?";
+    // language=PostgreSQL
+    String updateColdSql =
+        """
+        UPDATE scheduler_job c
+        SET terminal_status = 'FAILED',
+            terminal_error = ?,
+            total_attempts = %s,
+            terminated_at = statement_timestamp(),
+            execution_start_time =
+                CASE WHEN q.status = 'RUNNING'
+                     THEN COALESCE(c.execution_start_time, q.picked_at, statement_timestamp())
+                     ELSE c.execution_start_time END,
+            execution_end_time =
+                CASE WHEN q.status = 'RUNNING'
+                     THEN statement_timestamp()
+                     ELSE c.execution_end_time END,
+            execution_duration_ms =
+                CASE WHEN q.status = 'RUNNING'
+                     THEN GREATEST(
+                         0,
+                         FLOOR(
+                             EXTRACT(
+                                 EPOCH FROM statement_timestamp()
+                                   - COALESCE(
+                                       c.execution_start_time,
+                                       q.picked_at,
+                                       statement_timestamp()))
+                             * 1000)::bigint)
+                     ELSE c.execution_duration_ms END
+        FROM scheduler_job_queue q
+        WHERE c.job_id = ? AND q.job_id = c.job_id
+          AND c.terminal_status IS NULL AND q.status = ?
+        """
+            .formatted(attemptsExpression);
+    var query = ctx.em().createNativeQuery(updateColdSql).setParameter(1, terminalError);
+    int parameter = 2;
+    if (totalAttempts != null) {
+      query.setParameter(parameter++, totalAttempts);
+    }
+    int coldUpdated =
+        query
+            .setParameter(parameter++, id)
+            .setParameter(parameter, expectedStatus.name())
+            .executeUpdate();
+    if (coldUpdated == 0) {
+      return false;
+    }
     // language=PostgreSQL
     String deleteHotSql = "DELETE FROM scheduler_job_queue WHERE job_id = ? AND status = ?";
     int hotDeleted =
@@ -383,36 +456,8 @@ final class PostgresqlJobTerminalOperations {
             .setParameter(2, expectedStatus.name())
             .executeUpdate();
     if (hotDeleted == 0) {
-      return false;
-    }
-    // WAITING jobs never started executing, so execution_end_time must stay null to avoid a
-    // non-null end with a null start, which would produce negative or null duration metrics.
-    // language=PostgreSQL
-    String updateColdSql =
-        expectedStatus == JobStatus.WAITING
-            ? """
-              UPDATE scheduler_job
-              SET terminal_status = 'FAILED', terminal_error = ?, total_attempts = ?,
-                  terminated_at = statement_timestamp()
-              WHERE job_id = ? AND terminal_status IS NULL
-              """
-            : """
-              UPDATE scheduler_job
-              SET terminal_status = 'FAILED', terminal_error = ?, total_attempts = ?,
-                  terminated_at = statement_timestamp(),
-                  execution_end_time = statement_timestamp()
-              WHERE job_id = ? AND terminal_status IS NULL
-              """;
-    int coldUpdated =
-        ctx.em()
-            .createNativeQuery(updateColdSql)
-            .setParameter(1, terminalError)
-            .setParameter(2, totalAttempts)
-            .setParameter(3, id)
-            .executeUpdate();
-    if (coldUpdated == 0) {
       throw new IllegalStateException(
-          "terminal failure removed hot row but did not update cold row for job " + id);
+          "terminal failure updated cold row but did not remove hot row for job " + id);
     }
     reservations.deleteReservationByOwner(id);
     return true;

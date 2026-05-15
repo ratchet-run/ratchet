@@ -32,7 +32,7 @@ CLOSED                    OPEN
 
 **CLOSED** -- The circuit is healthy. All calls pass through normally. Success and failure outcomes are tracked in a sliding window (ring buffer of the last N calls). When the failure rate exceeds the configured threshold and the minimum call count has been reached, the circuit transitions to OPEN.
 
-**OPEN** -- The circuit has tripped. All calls are rejected immediately with a `ServiceUnavailableException`, avoiding wasted work against a failing service. After the configured wait duration, the circuit transitions to HALF_OPEN.
+**OPEN** -- The circuit has tripped. All calls are rejected immediately with a `CircuitBreakerOpenException`, avoiding wasted work against a failing service. After the configured wait duration, the circuit transitions to HALF_OPEN.
 
 **HALF_OPEN** -- The circuit is testing recovery. A limited number of trial calls are permitted. If all trial calls succeed, the circuit resets to CLOSED. If any trial call fails, the circuit returns to OPEN.
 
@@ -205,6 +205,7 @@ For cases where annotation-based protection is insufficient, inject the `Circuit
 import run.ratchet.ri.resilience.CircuitBreakerRegistry;
 import run.ratchet.ri.resilience.CircuitBreaker;
 import run.ratchet.api.CircuitBreakerProfile;
+import run.ratchet.api.exception.CircuitBreakerOpenException;
 
 @ApplicationScoped
 public class AdaptiveJobService {
@@ -220,7 +221,7 @@ public class AdaptiveJobService {
                 work.run();
                 return null;
             });
-        } catch (ServiceUnavailableException e) {
+        } catch (CircuitBreakerOpenException e) {
             // Circuit is OPEN -- queue for later or use fallback
             log.warning("Service " + serviceName + " unavailable, queuing for retry");
         }
@@ -323,16 +324,16 @@ public class Resilience4jStrategy implements ResilienceStrategy {
 }
 ```
 
-## Handling ServiceUnavailableException
+## Handling CircuitBreakerOpenException
 
-When a circuit breaker is OPEN, calls throw `ServiceUnavailableException`. The Ratchet job engine handles this automatically by deferring the job and respecting the `getRetryDelay()` value from the `ResilienceStrategy`. For direct programmatic use, you should catch and handle this exception:
+When a circuit breaker is OPEN, calls throw `CircuitBreakerOpenException`. The Ratchet job engine handles this automatically by deferring the job and respecting the `getRetryDelay()` value from the `ResilienceStrategy`. For direct programmatic use, you should catch and handle this exception:
 
 ```java
-import run.ratchet.ri.resilience.ServiceUnavailableException;
+import run.ratchet.api.exception.CircuitBreakerOpenException;
 
 try {
     breaker.execute(() -> externalApi.call());
-} catch (ServiceUnavailableException e) {
+} catch (CircuitBreakerOpenException e) {
     // Service is down -- use a fallback or queue for later
     return cachedResult;
 }

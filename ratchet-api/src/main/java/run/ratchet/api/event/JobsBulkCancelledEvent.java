@@ -32,9 +32,9 @@ public class JobsBulkCancelledEvent implements Serializable {
    * @param cancelledAt instant when the bulk operation completed
    */
   public JobsBulkCancelledEvent(String tag, int count, Instant cancelledAt) {
-    this.tag = tag;
-    this.count = count;
-    this.cancelledAt = cancelledAt;
+    this.tag = EventContract.requireNonBlank(tag, "tag");
+    this.count = EventContract.requirePositive(count, "count");
+    this.cancelledAt = EventContract.requireNonNull(cancelledAt, "cancelledAt");
   }
 
   /** Returns the tag used to select jobs for cancellation. */

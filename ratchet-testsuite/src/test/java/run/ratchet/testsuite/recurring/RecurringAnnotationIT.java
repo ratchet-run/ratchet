@@ -16,6 +16,7 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.testsuite.app.TestCleanupStrategy;
 import run.ratchet.testsuite.app.TestJobService;
 import run.ratchet.testsuite.app.TestRecurringJobs;
 import run.ratchet.testsuite.util.BaseRatchetIT;
@@ -27,9 +28,13 @@ import run.ratchet.testsuite.util.RatchetArchiveBuilder;
  */
 class RecurringAnnotationIT extends BaseRatchetIT {
 
+  private static final String RECURRING_SCHEDULER_LEASE = "recurringScheduler";
+
   @Inject private JobCrudStore jobCrudStore;
 
   @Inject private RecurringScheduler recurringScheduler;
+
+  @Inject private TestCleanupStrategy cleanupStrategy;
 
   @Deployment
   public static WebArchive createDeployment() {
@@ -79,8 +84,8 @@ class RecurringAnnotationIT extends BaseRatchetIT {
   @Override
   @BeforeEach
   protected void truncateAll() {
-    // Skip table truncation — the @Recurring job registered during CDI startup is the
-    // subject under test. Truncating scheduler_job would destroy the recurring master
-    // that RecurringJobProcessor registered at deployment time.
+    // The @Recurring master is registered during CDI startup, so keep scheduler_job intact.
+    // Clear only this singleton lease so residue from a previous deployment cannot block polling.
+    cleanupStrategy.deleteSchedulerLock(RECURRING_SCHEDULER_LEASE);
   }
 }

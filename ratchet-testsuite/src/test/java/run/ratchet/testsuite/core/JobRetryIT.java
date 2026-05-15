@@ -25,13 +25,10 @@ import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 /** Validates retry behavior: failure → retry with backoff, configurable retry count. */
 class JobRetryIT extends BaseRatchetIT {
 
-  // The gap assertion measures scheduledTime − event.timestamp. Emission-lag between scheduling
-  // the retry and publishing the event eats into the gap, so the backoff must be large enough
-  // that a slow CI runner (GC pause, DB write latency) can't push the gap below the floor. 100ms
-  // was too tight — observed −42ms gap on a CI runner, i.e. ~142ms of emission lag. 500ms with a
-  // 150ms tolerance gives ~350ms of headroom while still catching real backoff regressions.
-  private static final Duration FIXED_BACKOFF = Duration.ofMillis(500);
-  private static final Duration BACKOFF_TOLERANCE = Duration.ofMillis(150);
+  // The gap assertion measures scheduledTime - event.timestamp. Event-publish lag on slow
+  // CI runners eats into that gap, so keep the backoff large enough to test a real delay.
+  private static final Duration FIXED_BACKOFF = Duration.ofMillis(1000);
+  private static final Duration BACKOFF_TOLERANCE = Duration.ofMillis(350);
 
   @Inject private TestJobService jobService;
 
