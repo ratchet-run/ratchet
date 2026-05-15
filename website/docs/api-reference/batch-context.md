@@ -133,7 +133,7 @@ scheduler.enqueueBatch("Data Import")
     .submit();
 ```
 
-## StreamingBatchContext {#streamingbatchcontext}
+## StreamingBatchContext {/* #streamingbatchcontext */}
 
 A Java record providing progress information during the **streaming phase** -- when items are being read from the source stream and inserted as child jobs in chunks.
 

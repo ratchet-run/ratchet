@@ -431,7 +431,7 @@ scheduler.addEventListener(listener);
 scheduler.removeEventListener(listener);
 ```
 
-## JobHandle {#jobhandle}
+## JobHandle {/* #jobhandle */}
 
 `JobHandle` is the return type of all submission methods. It is a `@FunctionalInterface` with a single method:
 

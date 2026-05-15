@@ -303,7 +303,7 @@ public void onBatchCompleted(@Observes BatchCompletedEvent event) {
 }
 ```
 
-## Chain Event Types {#chainevent-types}
+## Chain Event Types {/* #chainevent-types */}
 
 ### ChainStartedEvent
 
