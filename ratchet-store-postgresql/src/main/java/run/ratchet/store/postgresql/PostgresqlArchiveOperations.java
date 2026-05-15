@@ -206,7 +206,10 @@ final class PostgresqlArchiveOperations implements ArchiveStore {
     return ctx.countByNative(sql, Timestamp.from(olderThan));
   }
 
+  // SQL template is assembled from a compile-time-constant column list and AND-clauses defined in
+  // this package; runtime values are bound as JDBC parameters via setParameter.
   @Override
+  @SuppressWarnings("SqlSourceToSinkFlow")
   public List<ArchivedJobEntity> findArchivedJobs(
       String targetClass, String businessKey, Instant from, Instant to, int limit) {
     var searchQuery =

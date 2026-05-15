@@ -29,8 +29,8 @@ final class MysqlArchiveOperations implements ArchiveStore {
       original_created_at, first_execution_time, completion_time,
       total_execution_time_ms, queue_wait_ms, archived_at, archived_by, archive_reason,
       job_result, result_type, final_error, payload_summary, depended_on, superseded_by,
-	      tags
-	      """;
+      tags
+      """;
 
   private static final String ARCHIVE_VALUE_PLACEHOLDERS =
       "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
@@ -228,7 +228,10 @@ final class MysqlArchiveOperations implements ArchiveStore {
     }
   }
 
+  // SQL template is assembled from a compile-time-constant column list and AND-clauses defined in
+  // this package; runtime values are bound as JDBC parameters via setParameter.
   @Override
+  @SuppressWarnings("SqlSourceToSinkFlow")
   public List<ArchivedJobEntity> findArchivedJobs(
       String targetClass, String businessKey, Instant from, Instant to, int limit) {
     try {

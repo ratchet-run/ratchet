@@ -232,29 +232,22 @@ public class RetryBufferManager {
   private boolean forceOffer(BufferedClaim claim) {
     Queue<BufferedClaim> buffer = retryBuffers.get(claim.jobType());
     ReentrantLock lock = bufferLocks.get(claim.jobType());
-    boolean moveToDlq;
 
     lock.lock();
     try {
-      if (buffer.size() >= HARD_CAP_PER_TYPE) {
-        moveToDlq = true;
-      } else {
+      if (buffer.size() < HARD_CAP_PER_TYPE) {
         if (buffer.size() >= MAX_BUFFER_SIZE_PER_TYPE) {
           log.warnf(
               "Retry buffer exceeding normal limit (%d) for job type %s. "
                   + "Current size: %d. Force-buffering job %s.",
               MAX_BUFFER_SIZE_PER_TYPE, claim.jobType(), buffer.size(), claim.jobId());
         }
-
         return buffer.offer(claim);
       }
     } finally {
       lock.unlock();
     }
-    if (moveToDlq) {
-      return moveHardCapOverflow(claim, buffer, lock);
-    }
-    return false;
+    return moveHardCapOverflow(claim, buffer, lock);
   }
 
   private boolean moveHardCapOverflow(

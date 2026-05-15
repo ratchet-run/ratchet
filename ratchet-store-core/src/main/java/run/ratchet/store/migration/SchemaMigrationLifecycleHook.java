@@ -5,6 +5,7 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.Objects;
 import javax.sql.DataSource;
 import org.jboss.logging.Logger;
 import run.ratchet.api.RatchetOptions;
@@ -58,7 +59,8 @@ public class SchemaMigrationLifecycleHook implements SchedulerLifecycleHook {
 
   @Override
   public void beforeStart() {
-    RatchetOptions.SchemaOptions schemaOptions = options.schema();
+    RatchetOptions.SchemaOptions schemaOptions =
+        Objects.requireNonNull(options, "options must be injected").schema();
     if (!schemaOptions.autoMigrate()) {
       log.info(
           "Ratchet schema auto-migration disabled (default). Manage ratchet_* and scheduler_*"
