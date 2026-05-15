@@ -113,7 +113,10 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
         : "q.priority DESC, " + timeColumn + " ASC, q.job_id ASC";
   }
 
+  // SQL template is a compile-time constant defined in this package; runtime values are bound as
+  // JDBC parameters via setParameter.
   @Override
+  @SuppressWarnings("SqlSourceToSinkFlow")
   public List<JobEntity> claimNextBatch(int limit, String nodeId, NodeTagFilter tagFilter) {
     if (limit <= 0) {
       return List.of();
@@ -159,7 +162,10 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
     }
   }
 
+  // SQL template is a compile-time constant defined in this package; runtime values are bound as
+  // JDBC parameters via setParameter.
   @Override
+  @SuppressWarnings("SqlSourceToSinkFlow")
   public List<JobClaimDto> claimNextBatchOptimized(
       JobExecutionType jobType, int limit, String nodeId, NodeTagFilter tagFilter) {
     if (limit <= 0 || !PostgresqlStoreContext.isPollerExecutable(jobType)) {
@@ -326,8 +332,10 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
     }
   }
 
+  // SQL template is a compile-time constant defined in this package; runtime values are bound as
+  // JDBC parameters via setParameter.
   @Override
-  @SuppressWarnings("unchecked")
+  @SuppressWarnings({"unchecked", "SqlSourceToSinkFlow"})
   public List<JobEntity> claimDueRecurring(int limit, String nodeId, NodeTagFilter tagFilter) {
     if (limit <= 0) {
       return List.of();

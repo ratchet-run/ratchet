@@ -133,8 +133,10 @@ final class MysqlJobClaimOperations implements JobClaimStore {
     return query.getResultList();
   }
 
+  // SQL template is a compile-time constant defined in this package; runtime values are bound as
+  // JDBC parameters via setParameter.
   @Override
-  @SuppressWarnings("unchecked")
+  @SuppressWarnings({"unchecked", "SqlSourceToSinkFlow"})
   public List<JobClaimDto> claimNextBatchOptimized(
       JobExecutionType jobType, int limit, String nodeId, NodeTagFilter tagFilter) {
     if (limit <= 0 || !MysqlJobRowMapper.isPollerExecutable(jobType)) {
@@ -175,8 +177,10 @@ final class MysqlJobClaimOperations implements JobClaimStore {
     }
   }
 
+  // SQL template is a compile-time constant defined in this package; runtime values are bound as
+  // JDBC parameters via setParameter.
   @Override
-  @SuppressWarnings("unchecked")
+  @SuppressWarnings({"unchecked", "SqlSourceToSinkFlow"})
   public List<JobEntity> claimDueRecurring(int limit, String nodeId, NodeTagFilter tagFilter) {
     if (limit <= 0) {
       return List.of();
