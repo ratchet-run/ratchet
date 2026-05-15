@@ -1,5 +1,6 @@
 package run.ratchet.store.mysql;
 
+import jakarta.persistence.NoResultException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -138,6 +139,8 @@ final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
           .executeUpdate();
 
       return counter.progressAfterIncrement(batchId, locked, this::parseProgressHook);
+    } catch (NoResultException e) {
+      throw new IllegalStateException("Batch not found: " + batchId, e);
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("increment batch counter", e);
     }

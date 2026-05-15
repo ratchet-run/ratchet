@@ -124,6 +124,7 @@ class MongoCollectionInitializer {
     createIndex(coll, Indexes.ascending(METHOD_NAME), "idx_job_method_name");
     createIndex(coll, Indexes.ascending(CREATED_AT), "idx_job_created_at");
     createIndex(coll, Indexes.ascending(UPDATED_AT), "idx_job_updated_at");
+    createIndex(coll, Indexes.ascending(TERMINATED_AT), "idx_job_terminated_at");
     createIndex(coll, Indexes.ascending(JOB_TYPE), "idx_job_type");
     createIndex(coll, Indexes.ascending(SUPERSEDED_BY), "idx_job_superseded_by");
 

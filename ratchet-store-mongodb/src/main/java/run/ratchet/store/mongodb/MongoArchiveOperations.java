@@ -2,10 +2,12 @@ package run.ratchet.store.mongodb;
 
 import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
+import static com.mongodb.client.model.Filters.exists;
 import static com.mongodb.client.model.Filters.gte;
 import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Filters.lt;
 import static com.mongodb.client.model.Filters.lte;
+import static com.mongodb.client.model.Filters.or;
 import static com.mongodb.client.model.Sorts.ascending;
 import static com.mongodb.client.model.Sorts.descending;
 import static run.ratchet.store.mongodb.MongoFieldNames.ARCHIVED_AT;
@@ -13,6 +15,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.BUSINESS_KEY;
 import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
 import static run.ratchet.store.mongodb.MongoFieldNames.TARGET_CLASS;
+import static run.ratchet.store.mongodb.MongoFieldNames.TERMINATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
 
 import com.mongodb.client.ClientSession;
@@ -108,11 +111,8 @@ final class MongoArchiveOperations {
     List<JobEntity> results = new ArrayList<>();
     for (Document doc :
         ctx.jobs()
-            .find(
-                and(
-                    in(STATUS, MongoStoreContext.TERMINAL_STATUSES),
-                    lt(UPDATED_AT, DocumentMapper.toDate(olderThan))))
-            .sort(ascending(UPDATED_AT))
+            .find(terminalOlderThan(olderThan))
+            .sort(ascending(TERMINATED_AT, UPDATED_AT))
             .limit(limit)) {
       results.add(DocumentMapper.toJobEntity(doc));
     }
@@ -120,11 +120,7 @@ final class MongoArchiveOperations {
   }
 
   long countJobsForArchiving(Instant olderThan) {
-    return ctx.jobs()
-        .countDocuments(
-            and(
-                in(STATUS, MongoStoreContext.TERMINAL_STATUSES),
-                lt(UPDATED_AT, DocumentMapper.toDate(olderThan))));
+    return ctx.jobs().countDocuments(terminalOlderThan(olderThan));
   }
 
   List<ArchivedJobEntity> findArchivedJobs(
@@ -155,6 +151,13 @@ final class MongoArchiveOperations {
     DeleteResult result =
         ctx.archives().deleteMany(lt(ARCHIVED_AT, DocumentMapper.toDate(olderThan)));
     return (int) result.getDeletedCount();
+  }
+
+  static Bson terminalOlderThan(Instant olderThan) {
+    var cutoff = DocumentMapper.toDate(olderThan);
+    return and(
+        in(STATUS, MongoStoreContext.TERMINAL_STATUSES),
+        or(lt(TERMINATED_AT, cutoff), and(exists(TERMINATED_AT, false), lt(UPDATED_AT, cutoff))));
   }
 
   private ArchivedJobEntity buildArchive(JobEntity job, String reason, String archivedBy) {

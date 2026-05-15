@@ -12,6 +12,7 @@ import run.ratchet.api.WorkflowCondition;
 import run.ratchet.store.entity.DlqAlertEntity;
 import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobLogEntity;
+import run.ratchet.store.entity.ResourceLimitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.DlqAlertStore;
@@ -232,6 +233,22 @@ final class PostgresqlAuxiliaryOperations
       throw new IllegalArgumentException("Resource is not configured: " + resource);
     }
 
+    // language=PostgreSQL
+    String existingSql =
+        """
+        SELECT COUNT(*) FROM scheduler_resource_permit
+        WHERE resource_name = ? AND job_id = ?
+        """;
+    Object existing =
+        ctx.em()
+            .createNativeQuery(existingSql)
+            .setParameter(1, resource)
+            .setParameter(2, jobId)
+            .getSingleResult();
+    if (((Number) existing).intValue() > 0) {
+      return true;
+    }
+
     // PostgreSQL uses one statement snapshot even after waiting on FOR UPDATE. Keep the lock
     // acquisition as its own statement, then count and insert together with a fresh snapshot.
     // language=PostgreSQL
@@ -286,7 +303,7 @@ final class PostgresqlAuxiliaryOperations
       Object result = ctx.em().createNativeQuery(sql).setParameter(1, resource).getSingleResult();
       return ((Number) result).intValue();
     } catch (NoResultException e) {
-      throw new IllegalArgumentException("Resource is not configured: " + resource, e);
+      return ResourceLimitEntity.DEFAULT_RETRY_DELAY_MS;
     }
   }
 

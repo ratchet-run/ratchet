@@ -43,6 +43,34 @@ public abstract class AbstractLockStoreContract implements JobStoreContractFixtu
   }
 
   @Test
+  void tryLock_sameOwnerLiveLock_reacquiresIdempotently() {
+    assertTrue(
+        store().tryLock("same-owner-lock", Duration.ofMinutes(5), "node-A"),
+        "First tryLock should succeed");
+
+    assertTrue(
+        store().tryLock("same-owner-lock", Duration.ofMinutes(5), "node-A"),
+        "Same owner should be able to refresh a live lock");
+  }
+
+  @Test
+  void tryLock_subSecondTtlRemainsLiveUntilExpiry() throws InterruptedException {
+    assertTrue(
+        store().tryLock("subsecond-lock", Duration.ofMillis(500), "node-A"),
+        "Sub-second tryLock should succeed");
+
+    assertFalse(
+        store().tryLock("subsecond-lock", Duration.ofMinutes(5), "node-B"),
+        "Sub-second TTL must not be rounded down to an immediately expired lease");
+
+    Thread.sleep(800);
+
+    assertTrue(
+        store().tryLock("subsecond-lock", Duration.ofMinutes(5), "node-B"),
+        "Lock should be reacquirable after the sub-second TTL expires");
+  }
+
+  @Test
   void tryLock_rejectsNullParameters() {
     Duration ttl = Duration.ofMinutes(5);
 
