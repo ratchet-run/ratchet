@@ -5,6 +5,7 @@ import java.util.Arrays;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
+import run.ratchet.api.exception.CircuitBreakerOpenException;
 
 /**
  * Lightweight circuit breaker state machine.
@@ -18,7 +19,7 @@ import java.util.concurrent.locks.ReentrantLock;
  *   → When failure rate >= threshold AND calls >= minimumCalls → OPEN
  *
  * OPEN
- *   → All calls throw ServiceUnavailableException immediately
+ *   → All calls throw CircuitBreakerOpenException immediately
  *   → After waitDuration expires → HALF_OPEN
  *
  * HALF_OPEN
@@ -88,14 +89,14 @@ public class CircuitBreaker {
   /**
    * Executes the task with circuit breaker protection.
    *
-   * @throws ServiceUnavailableException if the circuit is OPEN
+   * @throws run.ratchet.api.exception.CircuitBreakerOpenException if the circuit is OPEN
    * @throws Exception if the task throws
    */
   public <T> T execute(Callable<T> task) throws Exception {
     State current = getState();
 
     if (current == State.OPEN) {
-      throw new ServiceUnavailableException(
+      throw new CircuitBreakerOpenException(
           "Circuit breaker '" + name + "' is OPEN — service unavailable");
     }
 
@@ -167,7 +168,7 @@ public class CircuitBreaker {
     try {
       int attempt = ++halfOpenAttempts;
       if (attempt > config.permittedCallsInHalfOpen()) {
-        throw new ServiceUnavailableException(
+        throw new CircuitBreakerOpenException(
             "Circuit breaker '" + name + "' is HALF_OPEN — trial calls exhausted");
       }
     } finally {
