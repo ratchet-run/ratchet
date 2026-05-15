@@ -11,6 +11,9 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import jakarta.transaction.Status;
+import jakarta.transaction.Synchronization;
+import jakarta.transaction.TransactionSynchronizationRegistry;
 import jakarta.transaction.Transactional;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
@@ -61,6 +64,7 @@ class BatchServiceTest {
   @Mock private WorkflowScheduler workflowScheduler;
   @Mock private ClassPolicy classPolicy;
   @Mock private BeanResolver beanResolver;
+  @Mock private TransactionSynchronizationRegistry txRegistry;
 
   private BatchService batchService;
 
@@ -122,6 +126,7 @@ class BatchServiceTest {
 
     when(batchStore.incrementCompletedAtomic(parentId)).thenReturn(progress);
     when(batchStore.markBatchCompleteIfReady(parentId)).thenReturn(true);
+    when(batchStore.findBatchById(parentId)).thenReturn(Optional.of(batch(parentId, 3, 3, 0)));
     when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent));
     when(jobBatchStatusStore.tryPickUpJob(parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID))
         .thenReturn(true);
@@ -165,8 +170,75 @@ class BatchServiceTest {
             .findFirst()
             .orElseThrow();
     assertEquals(parentId, jobCompletedEvent.getJobId());
-    verify(batchStore, never()).findBatchById(parentId);
+    verify(batchStore).findBatchById(parentId);
     verify(jobTerminalStore).markJobSucceededMinimal(parentId, FIXED_NOW, FIXED_NOW, 0L, 0L);
+  }
+
+  @Test
+  void completedBatchEventPublishesAfterCommit() {
+    batchService.setTxRegistryForTesting(txRegistry);
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
+    ArgumentCaptor<Synchronization> synchronizationCaptor =
+        ArgumentCaptor.forClass(Synchronization.class);
+    UUID parentId = UUID.randomUUID();
+    JobEntity child = new JobEntity();
+    child.setDependsOn(parentId);
+    BatchProgress progress = new BatchProgress(parentId, 1, 1, 0, null);
+    JobEntity parent = new JobEntity();
+    parent.setId(parentId);
+    parent.setStatus(JobStatus.PENDING);
+    parent.setJobType(JobExecutionType.BATCH_PARENT);
+    parent.setPriority(JobPriority.NORMAL);
+
+    when(batchStore.incrementCompletedAtomic(parentId)).thenReturn(progress);
+    when(batchStore.markBatchCompleteIfReady(parentId)).thenReturn(true);
+    when(batchStore.findBatchById(parentId)).thenReturn(Optional.of(batch(parentId, 1, 1, 0)));
+    when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent));
+    when(jobBatchStatusStore.tryPickUpJob(parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID))
+        .thenReturn(true);
+    when(jobTerminalStore.markJobSucceededMinimal(parentId, FIXED_NOW, FIXED_NOW, 0L, 0L))
+        .thenReturn(true);
+    when(metricsStore.findBatchMetrics(parentId)).thenReturn(Optional.empty());
+    when(workflowScheduler.scheduleNext(any(JobEntity.class))).thenReturn(false);
+
+    batchService.markChildSucceeded(child);
+
+    verify(txRegistry).registerInterposedSynchronization(synchronizationCaptor.capture());
+    verify(eventPublisher, never()).publish(any());
+
+    synchronizationCaptor.getValue().afterCompletion(Status.STATUS_COMMITTED);
+
+    verify(eventPublisher).publish(any(BatchCompletingEvent.class));
+  }
+
+  @Test
+  void completedBatchUsesFreshBatchSnapshotAfterReadinessRace() {
+    UUID parentId = UUID.randomUUID();
+    JobEntity child = new JobEntity();
+    child.setDependsOn(parentId);
+
+    BatchProgress staleSuccessProgress = new BatchProgress(parentId, 3, 2, 0, null);
+    BatchEntity freshCompletedBatch = batch(parentId, 3, 2, 1);
+    JobEntity parent = parent(parentId);
+
+    when(batchStore.incrementCompletedAtomic(parentId)).thenReturn(staleSuccessProgress);
+    when(batchStore.markBatchCompleteIfReady(parentId)).thenReturn(true);
+    when(batchStore.findBatchById(parentId)).thenReturn(Optional.of(freshCompletedBatch));
+    when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent));
+    when(jobBatchStatusStore.tryPickUpJob(parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID))
+        .thenReturn(true);
+    when(jobTerminalStore.markJobFailedTerminal(
+            parentId, "Batch completed with 1 failed children", 0))
+        .thenReturn(true);
+    when(metricsStore.findBatchMetrics(parentId)).thenReturn(Optional.empty());
+    when(workflowScheduler.scheduleNext(any(JobEntity.class))).thenReturn(false);
+
+    batchService.markChildSucceeded(child);
+
+    assertEquals(JobStatus.FAILED, parent.getStatus());
+    verify(jobTerminalStore, never()).markJobSucceededMinimal(any(), any(), any(), any(), any());
+    verify(jobTerminalStore)
+        .markJobFailedTerminal(parentId, "Batch completed with 1 failed children", 0);
   }
 
   @Test
@@ -183,6 +255,7 @@ class BatchServiceTest {
 
     when(batchStore.incrementCompletedAtomic(parentId)).thenReturn(progress);
     when(batchStore.markBatchCompleteIfReady(parentId)).thenReturn(true);
+    when(batchStore.findBatchById(parentId)).thenReturn(Optional.of(batch(parentId, 1, 1, 0)));
     when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent));
     when(jobBatchStatusStore.tryPickUpJob(parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID))
         .thenReturn(false);
@@ -194,7 +267,7 @@ class BatchServiceTest {
     verify(metricsStore, never()).finalizeBatchMetrics(any());
     verify(eventPublisher, never()).publish(any());
     verify(workflowScheduler, never()).scheduleNext(any());
-    verify(batchStore, never()).findBatchById(parentId);
+    verify(batchStore).findBatchById(parentId);
   }
 
   @Test
@@ -211,6 +284,7 @@ class BatchServiceTest {
 
     when(batchStore.incrementCompletedAtomic(parentId)).thenReturn(progress);
     when(batchStore.markBatchCompleteIfReady(parentId)).thenReturn(true);
+    when(batchStore.findBatchById(parentId)).thenReturn(Optional.of(batch(parentId, 1, 1, 0)));
     when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent));
     when(jobBatchStatusStore.tryPickUpJob(parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID))
         .thenReturn(true);

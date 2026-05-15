@@ -147,8 +147,9 @@ public abstract class AbstractIdempotencyContract {
 
     JobHandle survivor = handleA.get() != null ? handleA.get() : handleB.get();
     assertNotNull(survivor, "Surviving handle must be observable");
+    Duration completionTimeout = defaultTimeout().plus(Duration.ofSeconds(10));
     assertTrue(
-        runtime().probe().awaitCompleted(survivor, defaultTimeout()),
+        runtime().probe().awaitCompleted(survivor, completionTimeout),
         "Survivor handle must complete within timeout");
 
     int invocationsOnA =

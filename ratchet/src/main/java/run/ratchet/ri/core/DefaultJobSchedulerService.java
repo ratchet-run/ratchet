@@ -717,6 +717,11 @@ public class DefaultJobSchedulerService
         callerPrincipalProvider != null
             ? callerPrincipalProvider.currentPrincipal().orElse(null)
             : null;
+    if (authorizationPolicy != null) {
+      JobEntity job = jobCrudStore.findById(jobId).orElse(null);
+      String ownerPrincipal = job != null ? job.getCallerPrincipal() : null;
+      authorizationPolicy.checkDeliverSignal(jobId, ownerPrincipal, principal);
+    }
     String serializedPayload = serializeSignalPayload(payload);
     Instant now = effective().instant();
     String deliveryId = UUID.randomUUID().toString();
@@ -749,6 +754,11 @@ public class DefaultJobSchedulerService
         callerPrincipalProvider != null
             ? callerPrincipalProvider.currentPrincipal().orElse(null)
             : null;
+    if (authorizationPolicy != null) {
+      JobEntity job = jobCrudStore.findById(jobId).orElse(null);
+      String ownerPrincipal = job != null ? job.getCallerPrincipal() : null;
+      authorizationPolicy.checkDeliverSignal(jobId, ownerPrincipal, principal);
+    }
     String serializedPayload = serializeSignalPayload(decision.payload());
     Instant now = effective().instant();
     String deliveryId = UUID.randomUUID().toString();
@@ -781,6 +791,10 @@ public class DefaultJobSchedulerService
         callerPrincipalProvider != null
             ? callerPrincipalProvider.currentPrincipal().orElse(null)
             : null;
+    if (authorizationPolicy != null) {
+      authorizationPolicy.checkDeliverSignal(signalKey, principal);
+    }
+    String deliveredBy = principal != null ? principal : DEFAULT_SIGNAL_DELIVERED_BY;
     String serializedPayload = serializeSignalPayload(payload);
     Instant now = effective().instant();
     String deliveryId = UUID.randomUUID().toString();
@@ -792,13 +806,13 @@ public class DefaultJobSchedulerService
             SIGNAL_PAYLOAD_TYPE_RAW,
             SignalDecision.Outcome.APPROVED.name(),
             null,
-            principal,
+            deliveredBy,
             now,
             deliveryId);
     if (unblocked > 0) {
       publishBulkSignaledEvent(
-          signalKey, unblocked, principal, SignalDecision.Outcome.APPROVED, null);
-      log.debugf("Signal '%s' broadcast to %s job(s) by %s", signalKey, unblocked, principal);
+          signalKey, unblocked, deliveredBy, SignalDecision.Outcome.APPROVED, null);
+      log.debugf("Signal '%s' broadcast to %s job(s) by %s", signalKey, unblocked, deliveredBy);
     }
     return unblocked;
   }
@@ -812,6 +826,10 @@ public class DefaultJobSchedulerService
         callerPrincipalProvider != null
             ? callerPrincipalProvider.currentPrincipal().orElse(null)
             : null;
+    if (authorizationPolicy != null) {
+      authorizationPolicy.checkDeliverSignal(signalKey, principal);
+    }
+    String deliveredBy = principal != null ? principal : DEFAULT_SIGNAL_DELIVERED_BY;
     String serializedPayload = serializeSignalPayload(decision.payload());
     Instant now = effective().instant();
     String deliveryId = UUID.randomUUID().toString();
@@ -823,14 +841,14 @@ public class DefaultJobSchedulerService
             SIGNAL_PAYLOAD_TYPE_DECISION,
             decision.outcome().name(),
             decision.rejectionReason(),
-            principal,
+            deliveredBy,
             now,
             deliveryId);
     if (unblocked > 0) {
       publishBulkSignaledEvent(
-          signalKey, unblocked, principal, decision.outcome(), decision.rejectionReason());
+          signalKey, unblocked, deliveredBy, decision.outcome(), decision.rejectionReason());
       log.debugf(
-          "Signal decision '%s' broadcast to %s job(s) by %s", signalKey, unblocked, principal);
+          "Signal decision '%s' broadcast to %s job(s) by %s", signalKey, unblocked, deliveredBy);
     }
     return unblocked;
   }

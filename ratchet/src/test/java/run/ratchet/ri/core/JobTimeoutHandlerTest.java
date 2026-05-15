@@ -13,9 +13,13 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import jakarta.transaction.Status;
+import jakarta.transaction.Synchronization;
+import jakarta.transaction.TransactionSynchronizationRegistry;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -33,6 +37,7 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.event.JobDlqEvent;
 import run.ratchet.api.event.JobFailedEvent;
+import run.ratchet.api.event.JobSignalTimedOutEvent;
 import run.ratchet.api.exception.SignalTimeoutException;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
@@ -55,6 +60,7 @@ class JobTimeoutHandlerTest {
   @Mock private MetricsCollector metricsCollector;
   @Mock private SignalStore signalStore;
   @Mock private InternalEventPublisher eventPublisher;
+  @Mock private TransactionSynchronizationRegistry txRegistry;
 
   private JobTimeoutHandler handler;
 
@@ -263,6 +269,27 @@ class JobTimeoutHandlerTest {
   }
 
   @Test
+  void signalTimeoutRetryRescheduleDoesNotPublishTimedOutEvent() {
+    JobTimeoutHandler eventHandler =
+        newHandler(
+            null,
+            metricsCollector,
+            JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE,
+            Clock.systemUTC(),
+            eventPublisher,
+            null);
+    JobEntity job = waitingJobWithMaxRetries(3);
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
+    when(jobRetryStore.scheduleJobRetry(eq(JOB_ID), anyString(), any(Instant.class), eq(1)))
+        .thenReturn(true);
+
+    eventHandler.processSignalTimeout(job, Instant.now());
+
+    verify(eventPublisher, never()).publish(any());
+    verify(metricsCollector, never()).signalTimedOut(any(), any(), anyString());
+  }
+
+  @Test
   void signalTimeoutRetriesExhaustedFailsAndEscalatesDlq() {
     JobEntity job = waitingJobWithMaxRetries(0);
     Instant now = Instant.now();
@@ -320,6 +347,42 @@ class JobTimeoutHandlerTest {
     metricsHandler.processSignalTimeout(job, Instant.now());
 
     verify(metricsCollector).signalTimedOut(JOB_ID, job.getPublicJobType(), "approval");
+  }
+
+  @Test
+  void signalTimeoutEventPublishesAfterCommitWithConfiguredTimeout() {
+    Instant createdAt = Instant.parse("2026-05-09T12:00:00Z");
+    JobTimeoutHandler txHandler =
+        newHandler(
+            null,
+            metricsCollector,
+            JobTimeoutHandler.DEFAULT_SIGNAL_TIMEOUT_BATCH_SIZE,
+            Clock.fixed(createdAt.plusSeconds(31), ZoneOffset.UTC),
+            eventPublisher,
+            txRegistry);
+    JobEntity job = waitingJobWithMaxRetries(0);
+    job.setCreatedAt(createdAt);
+    job.setSignalTimeout(createdAt.plusSeconds(30));
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
+    ArgumentCaptor<Synchronization> synchronizationCaptor =
+        ArgumentCaptor.forClass(Synchronization.class);
+    when(jobRetryStore.incrementRetryAttempt(JOB_ID)).thenReturn(1);
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            eq(JOB_ID), eq(JobStatus.WAITING), eq(JobStatus.FAILED), anyString()))
+        .thenReturn(true);
+
+    txHandler.processSignalTimeout(job, createdAt.plusSeconds(31));
+
+    verify(txRegistry).registerInterposedSynchronization(synchronizationCaptor.capture());
+    verify(eventPublisher, never()).publish(any());
+
+    synchronizationCaptor.getValue().afterCompletion(Status.STATUS_COMMITTED);
+
+    ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
+    verify(eventPublisher).publish(eventCaptor.capture());
+    JobSignalTimedOutEvent event =
+        assertInstanceOf(JobSignalTimedOutEvent.class, eventCaptor.getValue());
+    assertEquals(Duration.ofSeconds(30), event.getSignalTimeout());
   }
 
   @Test
@@ -381,7 +444,7 @@ class JobTimeoutHandlerTest {
       MetricsCollector metricsCollector,
       int signalTimeoutBatchSize,
       Clock clock) {
-    return newHandler(signalStore, metricsCollector, signalTimeoutBatchSize, clock, null);
+    return newHandler(signalStore, metricsCollector, signalTimeoutBatchSize, clock, null, null);
   }
 
   private JobTimeoutHandler newHandler(
@@ -390,6 +453,17 @@ class JobTimeoutHandlerTest {
       int signalTimeoutBatchSize,
       Clock clock,
       InternalEventPublisher eventPublisher) {
+    return newHandler(
+        signalStore, metricsCollector, signalTimeoutBatchSize, clock, eventPublisher, null);
+  }
+
+  private JobTimeoutHandler newHandler(
+      SignalStore signalStore,
+      MetricsCollector metricsCollector,
+      int signalTimeoutBatchSize,
+      Clock clock,
+      InternalEventPublisher eventPublisher,
+      TransactionSynchronizationRegistry txRegistry) {
     return new JobTimeoutHandler(
         jobCrudStore,
         jobRetryStore,
@@ -402,6 +476,7 @@ class JobTimeoutHandlerTest {
         null,
         signalStore,
         metricsCollector,
-        signalTimeoutBatchSize);
+        signalTimeoutBatchSize,
+        txRegistry);
   }
 }

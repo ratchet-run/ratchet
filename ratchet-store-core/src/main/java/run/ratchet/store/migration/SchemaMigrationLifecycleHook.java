@@ -1,8 +1,10 @@
 package run.ratchet.store.migration;
 
+import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
+import jakarta.interceptor.Interceptor;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.Objects;
@@ -38,6 +40,7 @@ import run.ratchet.spi.SchedulerLifecycleHook;
  * queries (correctness-critical, not operational).
  */
 @ApplicationScoped
+@Priority(Interceptor.Priority.LIBRARY_BEFORE)
 public class SchemaMigrationLifecycleHook implements SchedulerLifecycleHook {
 
   private static final Logger log = Logger.getLogger(SchemaMigrationLifecycleHook.class);
