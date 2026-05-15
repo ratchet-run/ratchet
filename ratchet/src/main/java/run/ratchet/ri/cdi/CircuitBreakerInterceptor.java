@@ -18,7 +18,7 @@ import run.ratchet.spi.CircuitBreakerConfigProvider;
  *
  * <p>The interceptor resolves the circuit breaker instance from the {@link CircuitBreakerRegistry}
  * using the service name and profile from the annotation. If the circuit is OPEN, the invocation
- * fails immediately with a {@link run.ratchet.ri.resilience.ServiceUnavailableException}.
+ * fails immediately with a {@link run.ratchet.api.exception.CircuitBreakerOpenException}.
  *
  * <p>Service name defaults to {@code ClassName.methodName} if not specified in the annotation.
  */
@@ -26,7 +26,7 @@ import run.ratchet.spi.CircuitBreakerConfigProvider;
 @CircuitBreakerProtected
 // Run before @Transactional (Jakarta Transactions interceptor priority =
 // PLATFORM_BEFORE + 200 = 200). PLATFORM_BEFORE + 100 = 100 fires first, so an OPEN
-// circuit short-circuits with ServiceUnavailableException before a transaction is opened
+// circuit short-circuits with CircuitBreakerOpenException before a transaction is opened
 // and a connection is borrowed.
 @Priority(Interceptor.Priority.PLATFORM_BEFORE + 100)
 public class CircuitBreakerInterceptor {

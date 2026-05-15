@@ -2,6 +2,7 @@ package run.ratchet.api.event;
 
 import java.io.Serial;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.UUID;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
@@ -26,11 +27,29 @@ public class JobSignalTimedOutEvent extends AbstractJobSchedulerEvent {
       JobType jobType,
       JobPriority priority,
       String nodeId,
+      Instant timestamp,
       String signalKey,
       Duration signalTimeout) {
-    super(jobId, businessKey, jobType, priority, nodeId);
-    this.signalKey = signalKey;
-    this.signalTimeout = signalTimeout;
+    super(jobId, businessKey, jobType, priority, nodeId, timestamp);
+    this.signalKey = EventContract.requireNonBlank(signalKey, "signalKey");
+    this.signalTimeout = EventContract.requireNonNull(signalTimeout, "signalTimeout");
+  }
+
+  /**
+   * Creates a signal-timeout event using the current system clock instant.
+   *
+   * @param signalKey signal key the job was waiting on
+   * @param signalTimeout configured maximum wait duration that elapsed
+   */
+  public JobSignalTimedOutEvent(
+      UUID jobId,
+      String businessKey,
+      JobType jobType,
+      JobPriority priority,
+      String nodeId,
+      String signalKey,
+      Duration signalTimeout) {
+    this(jobId, businessKey, jobType, priority, nodeId, Instant.now(), signalKey, signalTimeout);
   }
 
   /** Returns the signal key the job was waiting on. */

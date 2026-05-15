@@ -82,10 +82,39 @@ public abstract class AbstractTagStoreContract implements JobStoreContractFixtur
 
     assertDoesNotThrow(
         () -> {
-          store().insertTags(saved.getId(), List.of("dup-tag"));
+          store().insertTags(saved.getId(), List.of("dup-tag", "dup-tag"));
           store().insertTags(saved.getId(), List.of("dup-tag"));
         },
         "Inserting the same tag twice should not throw");
+
+    assertEquals(
+        List.of(saved.getId()),
+        store().findJobIdsByTag("dup-tag", 10, 0),
+        "Duplicate tag insertion must leave a single association");
+  }
+
+  @Test
+  void findJobIdsByTag_returnsDeterministicIdOrder() {
+    var third = newPendingJob();
+    third.setId(new UUID(0L, 3L));
+    store().create(third);
+
+    var first = newPendingJob();
+    first.setId(new UUID(0L, 1L));
+    store().create(first);
+
+    var second = newPendingJob();
+    second.setId(new UUID(0L, 2L));
+    store().create(second);
+
+    store().insertTags(third.getId(), List.of("ordered-tag"));
+    store().insertTags(first.getId(), List.of("ordered-tag"));
+    store().insertTags(second.getId(), List.of("ordered-tag"));
+
+    assertEquals(
+        List.of(first.getId(), second.getId(), third.getId()),
+        store().findJobIdsByTag("ordered-tag", 10, 0),
+        "tag scans should return deterministic ascending job IDs");
   }
 
   @Test

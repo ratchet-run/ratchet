@@ -18,12 +18,21 @@ public interface JobCrudStore {
 
   int DEFAULT_PAGE_LIMIT = 100;
 
-  /** Inserts a new job row and returns the persisted entity view. */
+  /**
+   * Inserts a new job row and returns the persisted entity view.
+   *
+   * <p>Transaction attribute: {@code REQUIRED}.
+   */
   JobEntity create(JobEntity job);
 
-  /** Updates an existing job row and returns the persisted entity view. */
+  /**
+   * Updates an existing job row and returns the persisted entity view.
+   *
+   * <p>Transaction attribute: {@code REQUIRED}.
+   */
   JobEntity save(JobEntity job);
 
+  /** Finds a job by primary key. Transaction attribute: {@code SUPPORTS}. */
   Optional<JobEntity> findById(UUID id);
 
   /**
@@ -31,30 +40,46 @@ public interface JobCrudStore {
    * — backends rely on optimistic version checks at the actual mutation site ({@code
    * findOneAndUpdate} on Mongo, {@code WHERE version = ?} on SQL). Callers MUST use a
    * version-checked update path; this method is read-only.
+   *
+   * <p>Transaction attribute: {@code SUPPORTS}.
    */
   Optional<JobEntity> findByIdLatest(UUID id);
 
+  /** Deletes a job row by primary key. Transaction attribute: {@code REQUIRED}. */
   void delete(UUID id);
 
   /**
    * Returns the current persisted status for a job.
+   *
+   * <p>Transaction attribute: {@code SUPPORTS}.
    *
    * @param id job id to inspect
    * @return current status, or {@code null} when no job exists for {@code id}
    */
   JobStatus getJobStatus(UUID id);
 
-  /** Batch-loads jobs by primary key for hot-path recovery and draining flows. */
+  /**
+   * Batch-loads jobs by primary key for hot-path recovery and draining flows.
+   *
+   * <p>Transaction attribute: {@code SUPPORTS}.
+   */
   List<JobEntity> findByIds(List<UUID> ids);
 
-  /** Finds the active job currently associated with a business key, if any. */
+  /**
+   * Finds the active job currently associated with a business key, if any.
+   *
+   * <p>Transaction attribute: {@code SUPPORTS}.
+   */
   Optional<JobEntity> findActiveByBusinessKey(String businessKey);
 
+  /** Finds a job by idempotency key. Transaction attribute: {@code SUPPORTS}. */
   Optional<JobEntity> findByIdempotencyKey(String idempotencyKey);
 
   /**
    * Returns the first page of direct dependant jobs whose {@code dependsOn} points at the supplied
    * parent.
+   *
+   * <p>Transaction attribute: {@code SUPPORTS}.
    *
    * @deprecated use {@link #findDependants(UUID, int, int)} when callers need to walk more than the
    *     default page.
@@ -66,14 +91,22 @@ public interface JobCrudStore {
 
   /**
    * Returns a page of direct dependant jobs whose {@code dependsOn} points at the supplied parent.
+   *
+   * <p>Transaction attribute: {@code SUPPORTS}.
    */
   List<JobEntity> findDependants(UUID parentJobId, int limit, int offset);
 
-  /** Returns the next fire time of the earliest pending recurring master job. */
+  /**
+   * Returns the next fire time of the earliest pending recurring master job.
+   *
+   * <p>Transaction attribute: {@code SUPPORTS}.
+   */
   Optional<Instant> findEarliestRecurringNextFire();
 
+  /** Counts pending jobs. Transaction attribute: {@code SUPPORTS}. */
   long countPendingJobs();
 
+  /** Counts jobs at the supplied status. Transaction attribute: {@code SUPPORTS}. */
   long countJobsByStatus(JobStatus status);
 
   /**
@@ -98,24 +131,36 @@ public interface JobCrudStore {
     return counts;
   }
 
-  /** Counts active jobs of the supplied type. */
+  /** Counts active jobs of the supplied type. Transaction attribute: {@code SUPPORTS}. */
   long countActiveJobs(JobExecutionType jobType);
 
-  /** Counts currently registered scheduler nodes. */
+  /** Counts currently registered scheduler nodes. Transaction attribute: {@code SUPPORTS}. */
   long countActiveNodes();
 
-  /** Counts jobs ready to execute at or before the supplied instant. */
+  /**
+   * Counts jobs ready to execute at or before the supplied instant. Transaction attribute: {@code
+   * SUPPORTS}.
+   */
   long countReadyJobs(Instant now);
 
-  /** Counts running jobs whose pickup timestamp is older than the supplied threshold. */
+  /**
+   * Counts running jobs whose pickup timestamp is older than the supplied threshold.
+   *
+   * <p>Transaction attribute: {@code SUPPORTS}.
+   */
   long countStuckJobs(Instant stuckThreshold);
 
-  /** Counts running jobs whose execution start time is older than the supplied threshold. */
+  /**
+   * Counts running jobs whose execution start time is older than the supplied threshold.
+   *
+   * <p>Transaction attribute: {@code SUPPORTS}.
+   */
   long countLongRunningJobs(Instant threshold);
 
+  /** Counts pending batch-child jobs. Transaction attribute: {@code SUPPORTS}. */
   long countPendingBatchChildren();
 
-  /** Counts pending jobs at the supplied priority. */
+  /** Counts pending jobs at the supplied priority. Transaction attribute: {@code SUPPORTS}. */
   long countPendingJobsByPriority(JobPriority priority);
 
   /**
@@ -139,7 +184,7 @@ public interface JobCrudStore {
     return counts;
   }
 
-  /** Counts pending jobs of the supplied type. */
+  /** Counts pending jobs of the supplied type. Transaction attribute: {@code SUPPORTS}. */
   long countPendingJobsByType(JobExecutionType jobType);
 
   /**
@@ -163,26 +208,49 @@ public interface JobCrudStore {
     return counts;
   }
 
-  /** Counts jobs in a status whose last update was at or after the supplied instant. */
+  /**
+   * Counts jobs in a status whose last update was at or after the supplied instant.
+   *
+   * <p>Transaction attribute: {@code SUPPORTS}.
+   */
   long countJobsByStatusSince(JobStatus status, Instant since);
 
-  /** Counts jobs that have recorded at least one retry attempt. */
+  /**
+   * Counts jobs that have recorded at least one retry attempt. Transaction attribute: {@code
+   * SUPPORTS}.
+   */
   long countJobsWithRetries();
 
-  /** Returns the fraction of recently updated jobs that have retried at least once. */
+  /**
+   * Returns the fraction of recently updated jobs that have retried at least once.
+   *
+   * <p>Transaction attribute: {@code SUPPORTS}.
+   */
   double getRetryRateStats(Instant since);
 
-  /** Returns average execution duration for jobs included in the store's metric definition. */
+  /**
+   * Returns average execution duration for jobs included in the store's metric definition.
+   *
+   * <p>Transaction attribute: {@code SUPPORTS}.
+   */
   double getAverageProcessingTime(Instant since);
 
-  /** Returns the average number of child items for batches updated since the cutoff. */
+  /**
+   * Returns the average number of child items for batches updated since the cutoff.
+   *
+   * <p>Transaction attribute: {@code SUPPORTS}.
+   */
   double getAverageBatchSize(Instant since);
 
-  /** Returns the scheduled time of the oldest pending job. */
+  /**
+   * Returns the scheduled time of the oldest pending job. Transaction attribute: {@code SUPPORTS}.
+   */
   Optional<Instant> getOldestPendingJobTime();
 
   /**
    * Returns the queue wait time at the given percentile for succeeded jobs.
+   *
+   * <p>Transaction attribute: {@code SUPPORTS}.
    *
    * @param percentile a fraction in the range [0.0, 1.0], e.g. 0.95 for p95
    * @return queue wait time in milliseconds at the requested percentile, or 0 if no data

@@ -32,10 +32,10 @@ public class JobCallbackFailedEvent extends AbstractJobSchedulerEvent {
       String causeClassName,
       int callbackAttempt) {
     super(jobId, businessKey, jobType, priority, nodeId, timestamp);
-    this.callbackType = callbackType;
+    this.callbackType = EventContract.requireNonNull(callbackType, "callbackType");
     this.errorMessage = errorMessage;
-    this.causeClassName = causeClassName;
-    this.callbackAttempt = callbackAttempt;
+    this.causeClassName = EventContract.requireNonBlank(causeClassName, "causeClassName");
+    this.callbackAttempt = EventContract.requirePositive(callbackAttempt, "callbackAttempt");
   }
 
   /**
@@ -54,10 +54,10 @@ public class JobCallbackFailedEvent extends AbstractJobSchedulerEvent {
       String causeClassName,
       int callbackAttempt) {
     super(jobId, businessKey, jobType, priority, nodeId);
-    this.callbackType = callbackType;
+    this.callbackType = EventContract.requireNonNull(callbackType, "callbackType");
     this.errorMessage = errorMessage;
-    this.causeClassName = causeClassName;
-    this.callbackAttempt = callbackAttempt;
+    this.causeClassName = EventContract.requireNonBlank(causeClassName, "causeClassName");
+    this.callbackAttempt = EventContract.requirePositive(callbackAttempt, "callbackAttempt");
   }
 
   /** Returns which lifecycle callback failed. */

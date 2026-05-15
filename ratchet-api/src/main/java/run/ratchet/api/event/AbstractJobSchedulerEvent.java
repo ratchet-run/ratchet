@@ -32,12 +32,12 @@ public abstract class AbstractJobSchedulerEvent implements Serializable {
       JobPriority priority,
       String nodeId,
       Instant timestamp) {
-    this.jobId = jobId;
+    this.jobId = EventContract.requireNonNull(jobId, "jobId");
     this.businessKey = businessKey;
     this.jobType = jobType;
     this.priority = priority;
     this.nodeId = nodeId;
-    this.timestamp = timestamp;
+    this.timestamp = EventContract.requireNonNull(timestamp, "timestamp");
   }
 
   /**

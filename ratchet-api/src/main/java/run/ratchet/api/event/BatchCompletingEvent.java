@@ -33,6 +33,7 @@ public class BatchCompletingEvent extends AbstractJobSchedulerEvent {
       int completedItems,
       int failedItems) {
     super(jobId, businessKey, jobType, priority, nodeId, timestamp);
+    EventContract.requireBatchCounts(totalItems, completedItems, failedItems);
     this.totalItems = totalItems;
     this.completedItems = completedItems;
     this.failedItems = failedItems;
@@ -55,6 +56,7 @@ public class BatchCompletingEvent extends AbstractJobSchedulerEvent {
       int completedItems,
       int failedItems) {
     super(jobId, businessKey, jobType, priority, nodeId);
+    EventContract.requireBatchCounts(totalItems, completedItems, failedItems);
     this.totalItems = totalItems;
     this.completedItems = completedItems;
     this.failedItems = failedItems;

@@ -10,10 +10,20 @@ import run.ratchet.store.entity.JobEntity;
 @Incubating
 public interface ArchiveStore {
 
-  /** Archives one terminal job. Transaction attribute: {@code REQUIRED}. */
+  /**
+   * Archives one terminal job in the caller's store transaction.
+   *
+   * <p>Transaction attribute: {@code REQUIRED}. Implementations must insert the archive row in the
+   * same transaction as any caller-managed active-job cleanup.
+   */
   ArchivedJobEntity archiveJob(JobEntity job, String reason, String archivedBy);
 
-  /** Archives terminal jobs as one batch. Transaction attribute: {@code REQUIRED}. */
+  /**
+   * Archives terminal jobs as one batch in the caller's store transaction.
+   *
+   * <p>Transaction attribute: {@code REQUIRED}. Implementations must insert all archive rows in the
+   * same transaction as any caller-managed active-job cleanup.
+   */
   int archiveJobsBatch(List<JobEntity> jobs, String reason, String archivedBy);
 
   /** Finds active terminal jobs old enough to archive. Transaction attribute: {@code SUPPORTS}. */

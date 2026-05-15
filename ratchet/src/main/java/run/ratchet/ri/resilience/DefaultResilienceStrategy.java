@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.util.concurrent.Callable;
 import org.jboss.logging.Logger;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.spi.CircuitBreakerConfigProvider;
 import run.ratchet.spi.ResilienceStrategy;
 
@@ -36,7 +37,7 @@ public class DefaultResilienceStrategy implements ResilienceStrategy {
     CircuitBreaker breaker = registry.getBreaker(serviceName);
     try {
       return breaker.execute(task);
-    } catch (ServiceUnavailableException e) {
+    } catch (CircuitBreakerOpenException e) {
       log.warnv("Circuit breaker OPEN for service: {0}", serviceName);
       throw e;
     }

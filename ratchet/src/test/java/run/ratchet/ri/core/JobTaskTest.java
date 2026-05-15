@@ -32,6 +32,7 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.SignalDecision;
 import run.ratchet.api.event.JobCancelledEvent;
 import run.ratchet.api.event.JobCompletedEvent;
+import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
@@ -244,6 +245,33 @@ class JobTaskTest {
 
     verify(resilienceStrategy, never()).execute(anyString(), any(Callable.class));
     verify(jobStore).scheduleJobRetry(eq(JOB_UUID), anyString(), any(), anyInt());
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void call_executeOpenCircuitException_reschedulesWithoutCountingTaskFailure() throws Exception {
+    JobEntity job = createTestJob();
+    job.setAttempts(2);
+    initJobTaskWithDefaultStubs(job);
+    String serviceName = JobTaskTest.class.getSimpleName() + ".testJobMethod";
+    CircuitBreakerOpenException rejection =
+        new CircuitBreakerOpenException("Circuit breaker OPEN for service: " + serviceName);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(serviceName)).thenReturn(true);
+    when(resilienceStrategy.execute(eq(serviceName), any(Callable.class))).thenThrow(rejection);
+    when(resilienceStrategy.getRetryDelay(serviceName)).thenReturn(Duration.ofMillis(250));
+
+    jobTask.call();
+
+    verify(resilienceStrategy).getRetryDelay(serviceName);
+    verify(jobStore)
+        .scheduleJobRetry(
+            eq(JOB_UUID), eq("Circuit breaker OPEN for service: " + serviceName), any(), eq(2));
+    verify(observabilityFacade).saveExecution(any(JobExecutionEntity.class));
+    verify(jobStore, never()).incrementRetryAttempt(any(UUID.class));
+    verify(retryPolicy, never()).shouldRetry(anyInt(), any());
+    verify(lifecycleFacade, never()).moveToDlq(any(), any());
+    verify(observabilityFacade, never()).recordJobFailure(any(), any(), anyInt());
   }
 
   @Test
