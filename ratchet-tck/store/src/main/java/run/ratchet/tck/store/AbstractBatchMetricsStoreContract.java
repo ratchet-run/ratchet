@@ -89,6 +89,61 @@ public abstract class AbstractBatchMetricsStoreContract implements JobStoreContr
   }
 
   @Test
+  void finalizeBatchMetrics_preservesSubSecondPrecision() {
+    var parent = persist(newBatchParentJob());
+    persistBatch(parent.getId(), 1);
+
+    BatchMetricsEntity metrics = newMetrics(parent.getId());
+    metrics.setStartedAt(Instant.now().minusMillis(1_500));
+    store().saveBatchMetrics(metrics);
+    store().addChildExecutionTime(parent.getId(), 250L);
+
+    store().finalizeBatchMetrics(parent.getId());
+
+    var found = store().findBatchMetrics(parent.getId()).orElseThrow();
+    assertTrue(
+        found.getTotalDurationMs() >= 1_200L,
+        "finalizeBatchMetrics should preserve elapsed milliseconds, not truncate to seconds");
+    assertEquals(
+        found.getTotalDurationMs() - 250L,
+        found.getOverheadMs(),
+        "overheadMs should be totalDurationMs minus accumulated child execution time");
+  }
+
+  @Test
+  void finalizeBatchMetrics_isIdempotent() throws InterruptedException {
+    var parent = persist(newBatchParentJob());
+    persistBatch(parent.getId(), 1);
+
+    BatchMetricsEntity metrics = newMetrics(parent.getId());
+    metrics.setStartedAt(Instant.now().minusSeconds(5));
+    store().saveBatchMetrics(metrics);
+    store().addChildExecutionTime(parent.getId(), 100L);
+
+    store().finalizeBatchMetrics(parent.getId());
+    var first = store().findBatchMetrics(parent.getId()).orElseThrow();
+    Instant completedAt = first.getCompletedAt();
+    Long totalDurationMs = first.getTotalDurationMs();
+    Long overheadMs = first.getOverheadMs();
+
+    Thread.sleep(25);
+    store().finalizeBatchMetrics(parent.getId());
+
+    var second = store().findBatchMetrics(parent.getId()).orElseThrow();
+    assertEquals(completedAt, second.getCompletedAt(), "completedAt should not be rewritten");
+    assertEquals(
+        totalDurationMs, second.getTotalDurationMs(), "totalDurationMs should not be rewritten");
+    assertEquals(overheadMs, second.getOverheadMs(), "overheadMs should not be rewritten");
+  }
+
+  @Test
+  void finalizeBatchMetrics_unknownBatch_isNoOp() {
+    assertDoesNotThrow(
+        () -> store().finalizeBatchMetrics(new UUID(0L, Long.MAX_VALUE)),
+        "finalizeBatchMetrics for unknown batch should not throw");
+  }
+
+  @Test
   void updateBatchMetricsChildCount_updatesCount() {
     var parent = persist(newBatchParentJob());
     persistBatch(parent.getId(), 5);

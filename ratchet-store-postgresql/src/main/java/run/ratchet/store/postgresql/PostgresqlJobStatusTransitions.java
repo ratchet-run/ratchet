@@ -16,25 +16,24 @@ final class PostgresqlJobStatusTransitions {
   }
 
   boolean tryPickUpJob(UUID id, String nodeId) {
-    try {
-      // language=PostgreSQL
-      String sql =
-          """
-          UPDATE scheduler_job_queue
-          SET status = 'RUNNING', picked_by = ?, picked_at = statement_timestamp(),
-              updated_at = statement_timestamp()
-          WHERE job_id = ? AND status = 'PENDING'
-          """;
-      int updated =
-          ctx.em()
-              .createNativeQuery(sql)
-              .setParameter(1, nodeId)
-              .setParameter(2, id)
-              .executeUpdate();
-      return updated > 0;
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("try pick up job", e);
-    }
+    // language=PostgreSQL
+    String sql =
+        """
+        UPDATE scheduler_job_queue
+        SET status = 'RUNNING', picked_by = ?, picked_at = statement_timestamp(),
+            updated_at = statement_timestamp()
+        WHERE job_id = ? AND status = 'PENDING'
+        """;
+    return ctx.timedStoreOperation(
+            "pickup_job",
+            () ->
+                ctx.em()
+                    .createNativeQuery(sql)
+                    .setParameter(1, nodeId)
+                    .setParameter(2, id)
+                    .executeUpdate(),
+            updated -> updated > 0 ? "updated" : "miss")
+        > 0;
   }
 
   boolean transitionToPaused(UUID id, JobStatus expected) {

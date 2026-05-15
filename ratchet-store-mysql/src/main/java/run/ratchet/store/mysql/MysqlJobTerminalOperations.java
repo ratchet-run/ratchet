@@ -234,11 +234,17 @@ final class MysqlJobTerminalOperations {
   }
 
   boolean markJobFailedTerminal(UUID id, String terminalError, int totalAttempts) {
-    try {
-      return markJobFailedTerminalFromStatus(id, terminalError, totalAttempts, JobStatus.RUNNING);
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("mark job failed terminal", e);
-    }
+    return ctx.timedStoreOperation(
+        "mark_failed_terminal",
+        () -> {
+          try {
+            return markJobFailedTerminalFromStatus(
+                id, terminalError, totalAttempts, JobStatus.RUNNING);
+          } catch (RuntimeException e) {
+            throw ctx.translateTransientStoreException("mark job failed terminal", e);
+          }
+        },
+        updated -> updated ? "updated" : "miss");
   }
 
   private boolean lockExpectedQueueStatusForTerminalCas(UUID id, JobStatus expected) {
@@ -264,11 +270,16 @@ final class MysqlJobTerminalOperations {
   }
 
   boolean cancelJob(UUID id) {
-    try {
-      return doCancelJob(id);
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("cancel job", e);
-    }
+    return ctx.timedStoreOperation(
+        "cancel_job",
+        () -> {
+          try {
+            return doCancelJob(id);
+          } catch (RuntimeException e) {
+            throw ctx.translateTransientStoreException("cancel job", e);
+          }
+        },
+        updated -> updated ? "updated" : "miss");
   }
 
   private boolean doCancelJob(UUID id) {

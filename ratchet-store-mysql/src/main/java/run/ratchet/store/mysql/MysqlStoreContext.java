@@ -88,8 +88,12 @@ final class MysqlStoreContext {
       recordStoreOperation(operation, "transient_failure", startNanos);
       throw e;
     } catch (RuntimeException e) {
-      recordStoreOperation(operation, "failure", startNanos);
-      throw e;
+      RuntimeException translated = translateTransientStoreException(operation, e);
+      recordStoreOperation(
+          operation,
+          translated instanceof RatchetTransientStoreException ? "transient_failure" : "failure",
+          startNanos);
+      throw translated;
     }
   }
 

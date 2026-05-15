@@ -71,7 +71,9 @@ public interface MetricsCollector {
    * @param transport cluster transport, e.g. {@code jms}
    * @param outcome publish outcome, e.g. {@code success}, {@code failure}, {@code skipped}
    */
-  void clusterWakeupPublished(String transport, String outcome);
+  default void clusterWakeupPublished(String transport, String outcome) {
+    // default no-op
+  }
 
   /**
    * Called when a cluster wakeup message is observed on the receiving side.
@@ -79,7 +81,9 @@ public interface MetricsCollector {
    * @param transport cluster transport, e.g. {@code jms}
    * @param outcome receive outcome, e.g. {@code delivered}, {@code ignored_self}
    */
-  void clusterWakeupReceived(String transport, String outcome);
+  default void clusterWakeupReceived(String transport, String outcome) {
+    // default no-op
+  }
 
   /**
    * Called when a lifecycle callback ({@code onSuccess}/{@code onFailure}) throws. Callback
@@ -112,6 +116,13 @@ public interface MetricsCollector {
 
   /**
    * Called when the store finishes a timed operation on the hot path.
+   *
+   * <p>Store implementations should cover claim lookup and claim marking, direct pickup, terminal
+   * success/failure/cancel/retry transitions, running-job reset, recurring pause/resume and
+   * cancellation, and other store-specific write paths that can dominate poller or executor
+   * latency. Implementations should use stable operation names and classify outcomes as {@code
+   * updated}, {@code miss}, {@code empty}, {@code success}, {@code transient_failure}, or {@code
+   * failure} where those labels fit the operation.
    *
    * @param store backend/store identifier, e.g. {@code mysql}
    * @param operation logical operation, e.g. {@code claim_lookup} or {@code mark_succeeded}

@@ -253,7 +253,7 @@ final class MysqlBatchOperations implements BatchStore, BatchMetricsStore {
               total_duration_ms = TIMESTAMPDIFF(MICROSECOND, started_at, NOW(3)) / 1000,
               overhead_ms = COALESCE(
                 TIMESTAMPDIFF(MICROSECOND, started_at, NOW(3)) / 1000 - child_execution_ms, 0)
-          WHERE batch_id = ?
+          WHERE batch_id = ? AND completed_at IS NULL
           """;
       ctx.em()
           .createNativeQuery(sql)
