@@ -10,6 +10,7 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.interceptor.Interceptor;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.function.Consumer;
 import org.jboss.logging.Logger;
@@ -53,6 +54,12 @@ public class RatchetLifecycle {
   private final JobExecutionCoordinator jobExecutionCoordinator;
   private final Instance<SchedulerLifecycleHook> lifecycleHooks;
   private volatile List<SchedulerLifecycleHook> resolvedHooks;
+  private volatile List<SchedulerLifecycleHook> startedHooks = List.of();
+  private volatile boolean shutdownComplete;
+
+  private static final Comparator<SchedulerLifecycleHook> HOOK_ORDER =
+      Comparator.comparingInt(RatchetLifecycle::priorityValue)
+          .thenComparing(RatchetLifecycle::hookSortName);
 
   protected RatchetLifecycle() {
     this.poller = null;
@@ -139,7 +146,8 @@ public class RatchetLifecycle {
           @Priority(Interceptor.Priority.APPLICATION + 500)
           @Initialized(ApplicationScoped.class) Object init) {
     log.info("Ratchet starting");
-    notifyHooks("beforeStart", SchedulerLifecycleHook::beforeStart, true);
+    List<SchedulerLifecycleHook> beforeStartSucceeded =
+        notifyHooks("beforeStart", hooks(), SchedulerLifecycleHook::beforeStart, true);
 
     recurringScheduler.configure(
         options.recurring().pollMs(),
@@ -174,14 +182,25 @@ public class RatchetLifecycle {
     pollerWakeupListener.init();
     jobExecutionCoordinator.initRetryBufferDrainer();
 
-    notifyHooks("afterStart", SchedulerLifecycleHook::afterStart, false);
+    startedHooks =
+        notifyHooks("afterStart", beforeStartSucceeded, SchedulerLifecycleHook::afterStart, false);
     log.info("Ratchet started");
   }
 
   @PreDestroy
   void onShutdown() {
+    List<SchedulerLifecycleHook> hooksToStop;
+    synchronized (this) {
+      if (shutdownComplete) {
+        return;
+      }
+      shutdownComplete = true;
+      hooksToStop = startedHooks;
+    }
+
     log.info("Ratchet stopping");
-    notifyHooks("beforeStop", SchedulerLifecycleHook::beforeStop, false);
+    List<SchedulerLifecycleHook> beforeStopSucceeded =
+        notifyHooks("beforeStop", hooksToStop, SchedulerLifecycleHook::beforeStop, false);
     // Drain before stop to prevent new claims
     drainController.setDraining(true);
 
@@ -201,7 +220,7 @@ public class RatchetLifecycle {
 
     JobTask.clearCaches();
     JobPayloadFactory.clearCaches();
-    notifyHooks("afterStop", SchedulerLifecycleHook::afterStop, false);
+    notifyHooks("afterStop", beforeStopSucceeded, SchedulerLifecycleHook::afterStop, false);
     destroyHooks();
   }
 
@@ -212,16 +231,22 @@ public class RatchetLifecycle {
     if (resolvedHooks == null) {
       List<SchedulerLifecycleHook> resolved = new ArrayList<>();
       lifecycleHooks.forEach(resolved::add);
+      resolved.sort(HOOK_ORDER);
       resolvedHooks = List.copyOf(resolved);
     }
     return resolvedHooks;
   }
 
-  private void notifyHooks(
-      String phase, Consumer<SchedulerLifecycleHook> callback, boolean abortOnSchemaFailure) {
-    for (SchedulerLifecycleHook hook : hooks()) {
+  private List<SchedulerLifecycleHook> notifyHooks(
+      String phase,
+      List<SchedulerLifecycleHook> phaseHooks,
+      Consumer<SchedulerLifecycleHook> callback,
+      boolean abortOnSchemaFailure) {
+    List<SchedulerLifecycleHook> succeeded = new ArrayList<>(phaseHooks.size());
+    for (SchedulerLifecycleHook hook : phaseHooks) {
       try {
         callback.accept(hook);
+        succeeded.add(hook);
       } catch (SchemaInitializationException e) {
         if (abortOnSchemaFailure) {
           // Schema initialization failures must abort startup so the scheduler does not begin
@@ -236,6 +261,46 @@ public class RatchetLifecycle {
         log.warnf(e, "Scheduler lifecycle hook failed during %s: %s", phase, e.getMessage());
       }
     }
+    return List.copyOf(succeeded);
+  }
+
+  private static int priorityValue(SchedulerLifecycleHook hook) {
+    Priority priority = findPriority(hook.getClass());
+    return priority == null ? Integer.MAX_VALUE : priority.value();
+  }
+
+  private static Priority findPriority(Class<?> type) {
+    for (Class<?> current = type;
+        current != null && current != Object.class;
+        current = current.getSuperclass()) {
+      Priority priority = current.getAnnotation(Priority.class);
+      if (priority != null) {
+        return priority;
+      }
+      priority = findInterfacePriority(current);
+      if (priority != null) {
+        return priority;
+      }
+    }
+    return null;
+  }
+
+  private static Priority findInterfacePriority(Class<?> type) {
+    for (Class<?> iface : type.getInterfaces()) {
+      Priority priority = iface.getAnnotation(Priority.class);
+      if (priority != null) {
+        return priority;
+      }
+      priority = findInterfacePriority(iface);
+      if (priority != null) {
+        return priority;
+      }
+    }
+    return null;
+  }
+
+  private static String hookSortName(SchedulerLifecycleHook hook) {
+    return hook.getClass().getName();
   }
 
   private void stopService(String name, Runnable stopAction) {
