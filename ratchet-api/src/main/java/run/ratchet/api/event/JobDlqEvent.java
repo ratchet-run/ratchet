@@ -18,7 +18,7 @@ public class JobDlqEvent extends AbstractJobSchedulerEvent {
    * Creates an event with an explicit timestamp.
    *
    * @param errorMessage sanitized final failure message
-   * @param retryAttempt final 1-based execution attempt count before DLQ
+   * @param retryAttempt final recorded retry attempt count before DLQ
    */
   public JobDlqEvent(
       UUID jobId,
@@ -30,8 +30,8 @@ public class JobDlqEvent extends AbstractJobSchedulerEvent {
       String errorMessage,
       int retryAttempt) {
     super(jobId, businessKey, jobType, priority, nodeId, timestamp);
-    this.errorMessage = EventContract.requireNonBlank(errorMessage, "errorMessage");
-    this.retryAttempt = EventContract.requirePositive(retryAttempt, "retryAttempt");
+    this.errorMessage = errorMessage;
+    this.retryAttempt = EventContract.requireNonNegative(retryAttempt, "retryAttempt");
   }
 
   /**
@@ -41,7 +41,7 @@ public class JobDlqEvent extends AbstractJobSchedulerEvent {
    * {@link Instant}.
    *
    * @param errorMessage sanitized final failure message
-   * @param retryAttempt final 1-based execution attempt count before DLQ
+   * @param retryAttempt final recorded retry attempt count before DLQ
    */
   public JobDlqEvent(
       UUID jobId,
@@ -52,8 +52,8 @@ public class JobDlqEvent extends AbstractJobSchedulerEvent {
       String errorMessage,
       int retryAttempt) {
     super(jobId, businessKey, jobType, priority, nodeId);
-    this.errorMessage = EventContract.requireNonBlank(errorMessage, "errorMessage");
-    this.retryAttempt = EventContract.requirePositive(retryAttempt, "retryAttempt");
+    this.errorMessage = errorMessage;
+    this.retryAttempt = EventContract.requireNonNegative(retryAttempt, "retryAttempt");
   }
 
   /** Returns the sanitized final failure message. */
