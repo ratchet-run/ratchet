@@ -15,6 +15,8 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.event.JobDlqEvent;
+import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.api.event.JobSignalTimedOutEvent;
 import run.ratchet.api.exception.SignalTimeoutException;
 import run.ratchet.spi.MetricsCollector;
@@ -229,6 +231,9 @@ public class JobTimeoutHandler {
       return;
     }
     log.infof("Job %s marked as FAILED due to hard timeout (retries exhausted)", jobId);
+    job.setAttempts(newAttempts);
+    job.setStatus(JobStatus.FAILED);
+    publishHardTimeoutFailureEvents(job, timeoutEx.getMessage(), newAttempts);
     lifecycleFacade.handlePermanentFailure(job, timeoutEx);
   }
 
@@ -328,6 +333,31 @@ public class JobTimeoutHandler {
 
   private TransactionSynchronizationRegistry resolveTxRegistry() {
     return txRegistry != null ? txRegistry : JobWakeupService.lookupTxRegistry(log);
+  }
+
+  private void publishHardTimeoutFailureEvents(
+      JobEntity job, String errorMessage, int retryAttempt) {
+    if (eventPublisher == null) {
+      return;
+    }
+    eventPublisher.publish(
+        new JobFailedEvent(
+            job.getId(),
+            job.getBusinessKey(),
+            job.getPublicJobType(),
+            job.getPriority(),
+            job.getPickedBy(),
+            errorMessage,
+            retryAttempt));
+    eventPublisher.publish(
+        new JobDlqEvent(
+            job.getId(),
+            job.getBusinessKey(),
+            job.getPublicJobType(),
+            job.getPriority(),
+            job.getPickedBy(),
+            errorMessage,
+            retryAttempt));
   }
 
   private String formatDuration(Duration duration) {

@@ -28,6 +28,7 @@ import run.ratchet.api.event.JobCallbackFailedEvent;
 import run.ratchet.api.event.JobCancelledEvent;
 import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.api.event.JobDlqEvent;
+import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobStartedEvent;
 import run.ratchet.api.exception.CircuitBreakerOpenException;
@@ -806,7 +807,7 @@ public class JobTask implements Callable<Void> {
         job.getId(), JobStatus.RUNNING, JobStatus.FAILED, errorSanitizer.sanitize(ex))) {
       job.setAttempts(attempt);
       job.setStatus(JobStatus.FAILED);
-      publishDlqEvent(ex, attempt);
+      publishTerminalFailureEvents(ex, attempt);
       lifecycleFacade.moveToDlq(job, ex);
       handleBatchOrWorkflowPermanentFailure();
       invokeCallback(job.getOnFailurePayload(), "onFailure");
@@ -815,7 +816,17 @@ public class JobTask implements Callable<Void> {
     return false;
   }
 
-  private void publishDlqEvent(Throwable ex, int attempt) {
+  private void publishTerminalFailureEvents(Throwable ex, int attempt) {
+    String sanitized = errorSanitizer.sanitize(ex);
+    observabilityFacade.publishEvent(
+        new JobFailedEvent(
+            job.getId(),
+            job.getBusinessKey(),
+            job.getPublicJobType(),
+            job.getPriority(),
+            job.getPickedBy(),
+            sanitized,
+            attempt));
     observabilityFacade.publishEvent(
         new JobDlqEvent(
             job.getId(),
@@ -823,7 +834,7 @@ public class JobTask implements Callable<Void> {
             job.getPublicJobType(),
             job.getPriority(),
             job.getPickedBy(),
-            errorSanitizer.sanitize(ex),
+            sanitized,
             attempt));
   }
 
