@@ -1,9 +1,15 @@
 package run.ratchet.ri.resilience;
 
 import java.io.Serial;
+import run.ratchet.api.exception.CircuitBreakerOpenException;
 
-/** Thrown when a circuit breaker is OPEN and calls are not permitted. */
-public class ServiceUnavailableException extends RuntimeException {
+/**
+ * RI compatibility alias for open-circuit rejections.
+ *
+ * @deprecated use {@link CircuitBreakerOpenException}
+ */
+@Deprecated(since = "1.0", forRemoval = false)
+public class ServiceUnavailableException extends CircuitBreakerOpenException {
 
   @Serial private static final long serialVersionUID = -2077185964269635004L;
 

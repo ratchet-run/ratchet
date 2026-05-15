@@ -119,7 +119,7 @@ Executes the task with resilience protection.
 
 **Returns:** the result of the task.
 
-**Throws:** `Exception` if the task fails or the service is unavailable.
+**Throws:** `CircuitBreakerOpenException` if a circuit-open rejection prevents the task from running; `Exception` if the task itself fails.
 
 ### isServiceAvailable
 
@@ -127,7 +127,7 @@ Executes the task with resilience protection.
 boolean isServiceAvailable(String serviceName)
 ```
 
-Checks whether calls to the named service are currently permitted (circuit not open).
+Checks whether calls to the named service are currently permitted (circuit not open). This is an advisory pre-check; callers still need to handle `CircuitBreakerOpenException` from `execute()`.
 
 ### getRetryDelay
 
@@ -135,7 +135,7 @@ Checks whether calls to the named service are currently permitted (circuit not o
 default Duration getRetryDelay(String serviceName)
 ```
 
-Returns the recommended delay before retrying work rejected because the service is unavailable. Default implementation returns 30 seconds.
+Returns the recommended delay before retrying work rejected because the circuit is open. Implementations must not return `null` or a negative duration. Default implementation returns 30 seconds.
 
 ### Example
 
