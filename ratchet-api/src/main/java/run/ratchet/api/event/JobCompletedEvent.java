@@ -28,7 +28,7 @@ public class JobCompletedEvent extends AbstractJobSchedulerEvent {
       Instant timestamp,
       Long executionTimeMs) {
     super(jobId, businessKey, jobType, priority, nodeId, timestamp);
-    this.executionTimeMs = executionTimeMs;
+    this.executionTimeMs = EventContract.requireNonNegative(executionTimeMs, "executionTimeMs");
   }
 
   /**
@@ -48,7 +48,7 @@ public class JobCompletedEvent extends AbstractJobSchedulerEvent {
       String nodeId,
       Long executionTimeMs) {
     super(jobId, businessKey, jobType, priority, nodeId);
-    this.executionTimeMs = executionTimeMs;
+    this.executionTimeMs = EventContract.requireNonNegative(executionTimeMs, "executionTimeMs");
   }
 
   /** Returns the wall-clock execution duration in milliseconds, or {@code null} if not recorded. */

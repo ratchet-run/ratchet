@@ -35,8 +35,8 @@ public class WorkflowBranchTriggeredEvent extends AbstractJobSchedulerEvent {
       String branchCondition,
       UUID nextJobId) {
     super(jobId, businessKey, jobType, priority, nodeId, timestamp);
-    this.branchCondition = branchCondition;
-    this.nextJobId = nextJobId;
+    this.branchCondition = EventContract.requireNonBlank(branchCondition, "branchCondition");
+    this.nextJobId = EventContract.requireNonNull(nextJobId, "nextJobId");
   }
 
   /**
@@ -54,8 +54,8 @@ public class WorkflowBranchTriggeredEvent extends AbstractJobSchedulerEvent {
       String branchCondition,
       UUID nextJobId) {
     super(jobId, businessKey, jobType, priority, nodeId);
-    this.branchCondition = branchCondition;
-    this.nextJobId = nextJobId;
+    this.branchCondition = EventContract.requireNonBlank(branchCondition, "branchCondition");
+    this.nextJobId = EventContract.requireNonNull(nextJobId, "nextJobId");
   }
 
   /** Returns the persisted condition description or expression that matched. */

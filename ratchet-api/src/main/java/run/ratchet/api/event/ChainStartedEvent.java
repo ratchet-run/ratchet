@@ -27,7 +27,7 @@ public class ChainStartedEvent extends AbstractJobSchedulerEvent {
       Instant timestamp,
       UUID parentJobId) {
     super(jobId, businessKey, jobType, priority, nodeId, timestamp);
-    this.parentJobId = parentJobId;
+    this.parentJobId = EventContract.requireNonNull(parentJobId, "parentJobId");
   }
 
   public ChainStartedEvent(
@@ -38,7 +38,7 @@ public class ChainStartedEvent extends AbstractJobSchedulerEvent {
       String nodeId,
       UUID parentJobId) {
     super(jobId, businessKey, jobType, priority, nodeId);
-    this.parentJobId = parentJobId;
+    this.parentJobId = EventContract.requireNonNull(parentJobId, "parentJobId");
   }
 
   /** Returns the root job that triggered the chain. */
