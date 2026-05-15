@@ -227,7 +227,7 @@ JobHandle handle = scheduler.enqueueBatch("My Batch")
 log.info("Batch submitted with ID {}", handle.id());
 ```
 
-## StreamingBatchBuilder {#streamingbatchbuilder}
+## StreamingBatchBuilder {/* #streamingbatchbuilder */}
 
 Obtained from [`JobSchedulerService.streamingBatch()`](./job-scheduler-service#streamingbatch). Designed for large datasets where items are read from a `Stream` and inserted in configurable chunks.
 
