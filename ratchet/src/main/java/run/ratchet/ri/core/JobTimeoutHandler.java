@@ -1,5 +1,6 @@
 package run.ratchet.ri.core;
 
+import jakarta.transaction.TransactionSynchronizationRegistry;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -43,6 +44,7 @@ public class JobTimeoutHandler {
   private final long defaultTimeoutSeconds;
   private final Clock clock;
   private final int signalTimeoutBatchSize;
+  private final TransactionSynchronizationRegistry txRegistry;
 
   protected JobTimeoutHandler() {
     this.jobCrudStore = null;
@@ -57,6 +59,7 @@ public class JobTimeoutHandler {
     this.defaultTimeoutSeconds = 0;
     this.clock = null;
     this.signalTimeoutBatchSize = 0;
+    this.txRegistry = null;
   }
 
   public JobTimeoutHandler(
@@ -72,6 +75,36 @@ public class JobTimeoutHandler {
       SignalStore signalStore,
       MetricsCollector metricsCollector,
       int signalTimeoutBatchSize) {
+    this(
+        jobCrudStore,
+        jobRetryStore,
+        jobBatchStatusStore,
+        lifecycleFacade,
+        softTimeoutPercent,
+        defaultTimeoutSeconds,
+        clock,
+        eventPublisher,
+        chainScheduler,
+        signalStore,
+        metricsCollector,
+        signalTimeoutBatchSize,
+        null);
+  }
+
+  public JobTimeoutHandler(
+      JobCrudStore jobCrudStore,
+      JobRetryStore jobRetryStore,
+      JobBatchStatusStore jobBatchStatusStore,
+      PostExecutionHandler lifecycleFacade,
+      int softTimeoutPercent,
+      long defaultTimeoutSeconds,
+      Clock clock,
+      InternalEventPublisher eventPublisher,
+      ChainScheduler chainScheduler,
+      SignalStore signalStore,
+      MetricsCollector metricsCollector,
+      int signalTimeoutBatchSize,
+      TransactionSynchronizationRegistry txRegistry) {
     this.jobCrudStore = jobCrudStore;
     this.jobRetryStore = jobRetryStore;
     this.jobBatchStatusStore = jobBatchStatusStore;
@@ -84,6 +117,7 @@ public class JobTimeoutHandler {
     this.signalStore = signalStore;
     this.metricsCollector = metricsCollector;
     this.signalTimeoutBatchSize = Math.max(1, signalTimeoutBatchSize);
+    this.txRegistry = txRegistry;
   }
 
   public TimeoutHandles scheduleTimeoutMonitoring(
@@ -218,7 +252,6 @@ public class JobTimeoutHandler {
       Instant retryTime = now.plusMillis(backoffMs);
       boolean rescheduled = jobRetryStore.scheduleJobRetry(jobId, message, retryTime, newAttempts);
       if (rescheduled) {
-        publishSignalTimedOutEvent(job, now);
         log.warnf(
             "Job %s signal timed out but has retries remaining (%s/%s) — rescheduled for %s",
             jobId, newAttempts, job.getMaxRetries(), retryTime);
@@ -239,7 +272,7 @@ public class JobTimeoutHandler {
     }
 
     log.infof("Job %s FAILED due to signal timeout (key=%s)", jobId, job.getSignalKey());
-    publishSignalTimedOutEvent(job, now);
+    publishSignalTimedOutEvent(job);
     lifecycleFacade.handlePermanentFailure(job, timeoutEx);
 
     if (chainScheduler != null) {
@@ -260,16 +293,18 @@ public class JobTimeoutHandler {
     return effective().instant().plusSeconds(timeoutSec).plusMillis(jitterMs);
   }
 
-  private void publishSignalTimedOutEvent(JobEntity job, Instant now) {
+  private void publishSignalTimedOutEvent(JobEntity job) {
     if (metricsCollector != null) {
       metricsCollector.signalTimedOut(job.getId(), job.getPublicJobType(), job.getSignalKey());
     }
     if (eventPublisher == null) {
       return;
     }
-    Duration elapsed =
-        job.getSignalTimeout() != null ? Duration.between(job.getSignalTimeout(), now) : null;
-    eventPublisher.publish(
+    Duration configuredTimeout =
+        job.getCreatedAt() != null && job.getSignalTimeout() != null
+            ? Duration.between(job.getCreatedAt(), job.getSignalTimeout())
+            : null;
+    JobSignalTimedOutEvent event =
         new JobSignalTimedOutEvent(
             job.getId(),
             job.getBusinessKey(),
@@ -277,7 +312,22 @@ public class JobTimeoutHandler {
             job.getPriority(),
             null,
             job.getSignalKey(),
-            elapsed != null ? elapsed.abs() : null));
+            configuredTimeout);
+    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+      eventPublisher.publish(event);
+    }
+  }
+
+  private boolean registerAfterCommit(Runnable action) {
+    return JobWakeupService.registerAfterCommit(
+        resolveTxRegistry(),
+        action,
+        log,
+        "After-commit signal timeout event registration failed; publishing immediately: %s");
+  }
+
+  private TransactionSynchronizationRegistry resolveTxRegistry() {
+    return txRegistry != null ? txRegistry : JobWakeupService.lookupTxRegistry(log);
   }
 
   private String formatDuration(Duration duration) {

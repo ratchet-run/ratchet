@@ -13,6 +13,9 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import jakarta.transaction.Status;
+import jakarta.transaction.Synchronization;
+import jakarta.transaction.TransactionSynchronizationRegistry;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -68,6 +71,7 @@ class DefaultJobCreationServiceAuthorizationTest {
   @Mock private JobAuthorizationPolicy authorizationPolicy;
   @Mock private InternalEventPublisher eventPublisher;
   @Mock private MetricsCollector metricsCollector;
+  @Mock private TransactionSynchronizationRegistry txRegistry;
 
   private DefaultJobCreationService service;
   private JobWakeupService wakeupService;
@@ -304,6 +308,31 @@ class DefaultJobCreationServiceAuthorizationTest {
     service.submit(builder);
 
     verify(metricsCollector).signalWaiting(saved.getId(), JobType.SINGLE, "approval");
+    verify(eventPublisher).publish(any(JobSignalWaitingEvent.class));
+  }
+
+  @Test
+  void signalWaitingEventPublishesAfterCommit() {
+    service.setTxRegistryForTesting(txRegistry);
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
+    ArgumentCaptor<Synchronization> synchronizationCaptor =
+        ArgumentCaptor.forClass(Synchronization.class);
+    JobEntity saved = savedEntity();
+    when(jobCrudStore.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
+    when(jobCrudStore.create(any(JobEntity.class))).thenReturn(saved);
+    DefaultJobBuilder builder =
+        (DefaultJobBuilder)
+            DefaultJobBuilder.create(
+                    service, DefaultJobCreationServiceAuthorizationTest::noopTask, Duration.ZERO)
+                .awaitSignal("approval", Duration.ofSeconds(30));
+
+    service.submit(builder);
+
+    verify(txRegistry).registerInterposedSynchronization(synchronizationCaptor.capture());
+    verify(eventPublisher, never()).publish(any(JobSignalWaitingEvent.class));
+
+    synchronizationCaptor.getValue().afterCompletion(Status.STATUS_COMMITTED);
+
     verify(eventPublisher).publish(any(JobSignalWaitingEvent.class));
   }
 
