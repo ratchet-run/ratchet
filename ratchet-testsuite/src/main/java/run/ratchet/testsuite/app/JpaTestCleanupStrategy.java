@@ -6,6 +6,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.logging.Logger;
 import run.ratchet.store.spi.RatchetEntityManagerProvider;
 
@@ -80,6 +81,14 @@ public class JpaTestCleanupStrategy implements TestCleanupStrategy {
         }
       }
     }
+  }
+
+  @Override
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
+  public void deleteSchedulerLock(String name) {
+    em().createNativeQuery("DELETE FROM scheduler_lock WHERE lock_name = ?")
+        .setParameter(1, Objects.requireNonNull(name, "name"))
+        .executeUpdate();
   }
 
   private EntityManager em() {

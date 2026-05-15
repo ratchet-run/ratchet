@@ -8,10 +8,10 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.CircuitBreakerProfile;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.ri.resilience.CircuitBreaker;
 import run.ratchet.ri.resilience.CircuitBreakerRegistry;
-import run.ratchet.ri.resilience.ServiceUnavailableException;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.NodeTagAffinityProvider;
@@ -243,7 +243,7 @@ public class Poller {
     } catch (RatchetTransientStoreException e) {
       publishClaimBreakerState();
       return handleTransientClaimFailure(pollStartTime, e);
-    } catch (ServiceUnavailableException e) {
+    } catch (CircuitBreakerOpenException e) {
       publishClaimBreakerState();
       return handleOpenCircuit(pollStartTime, e);
     }
@@ -318,8 +318,8 @@ public class Poller {
       if (e instanceof RatchetTransientStoreException transientStoreException) {
         throw transientStoreException;
       }
-      if (e instanceof ServiceUnavailableException serviceUnavailableException) {
-        throw serviceUnavailableException;
+      if (e instanceof CircuitBreakerOpenException circuitBreakerOpenException) {
+        throw circuitBreakerOpenException;
       }
       if (e instanceof RuntimeException runtimeException) {
         throw runtimeException;
@@ -335,7 +335,7 @@ public class Poller {
     return Math.min(options.polling().maxDelayMs(), Math.max(baseDelay, 1L) * 2L);
   }
 
-  private long handleOpenCircuit(long pollStartTime, ServiceUnavailableException e) {
+  private long handleOpenCircuit(long pollStartTime, CircuitBreakerOpenException e) {
     updateSystemLoadFactor();
     log.warnf("Claim path circuit breaker open: %s", e.getMessage());
     long baseDelay = strategy.recordPollResult(0, pollStartTime);

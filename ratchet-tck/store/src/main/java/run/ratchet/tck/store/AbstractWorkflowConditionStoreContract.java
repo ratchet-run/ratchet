@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -54,6 +55,46 @@ public abstract class AbstractWorkflowConditionStoreContract implements JobStore
 
     var conditions = store().findConditionsByParentJobId(parent.getId());
     assertEquals(2, conditions.size(), "findConditionsByParentJobId should return both conditions");
+  }
+
+  @Test
+  void findConditionsByParentJobId_ordersByConditionPriority() {
+    var parent = persist(newPendingJob());
+    var lowPriorityChild = persist(newPendingJob());
+    var highPriorityChild = persist(newPendingJob());
+    var middlePriorityChild = persist(newPendingJob());
+
+    store()
+        .saveCondition(
+            newCondition(
+                parent.getId(),
+                lowPriorityChild.getId(),
+                WorkflowCondition.ConditionType.SUCCESS,
+                20));
+    store()
+        .saveCondition(
+            newCondition(
+                parent.getId(),
+                highPriorityChild.getId(),
+                WorkflowCondition.ConditionType.SUCCESS,
+                5));
+    store()
+        .saveCondition(
+            newCondition(
+                parent.getId(),
+                middlePriorityChild.getId(),
+                WorkflowCondition.ConditionType.SUCCESS,
+                10));
+
+    var orderedChildIds =
+        store().findConditionsByParentJobId(parent.getId()).stream()
+            .map(WorkflowConditionEntity::getChildJobId)
+            .toList();
+
+    assertEquals(
+        List.of(highPriorityChild.getId(), middlePriorityChild.getId(), lowPriorityChild.getId()),
+        orderedChildIds,
+        "parent condition scans should evaluate lower priority numbers first");
   }
 
   @Test
