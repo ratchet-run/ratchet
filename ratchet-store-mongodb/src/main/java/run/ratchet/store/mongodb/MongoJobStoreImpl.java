@@ -22,6 +22,7 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.WorkflowCondition;
+import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.RatchetConfigurationException;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.dto.JobClaimDto;
@@ -59,13 +60,22 @@ class MongoJobStoreImpl implements MongoJobStore {
   private final MongoJobQueryOperations query;
   private final MongoSignalOperations signals;
 
-  @Inject
   MongoJobStoreImpl(MongoClient client, MongoDatabase database, RatchetOptions options) {
+    this(client, database, options, MongoStoreContext.noopMetricsCollector());
+  }
+
+  @Inject
+  MongoJobStoreImpl(
+      MongoClient client,
+      MongoDatabase database,
+      RatchetOptions options,
+      MetricsCollector metricsCollector) {
     this.database = database;
     // Mongo operation delegates are pure synchronous wrappers around the injected client/database.
     // Startup validation and index creation remain in @PostConstruct because they touch the server.
     this.ctx =
-        new MongoStoreContext(client, database, options.store().priorityBoostIntervalMinutes());
+        new MongoStoreContext(
+            client, database, metricsCollector, options.store().priorityBoostIntervalMinutes());
     this.tags = new MongoTagOperations(ctx);
     this.crud = new MongoJobCrudOperations(ctx);
     this.batches = new MongoBatchOperations(ctx);

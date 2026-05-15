@@ -29,77 +29,75 @@ final class PostgresqlJobTerminalOperations {
   }
 
   void updateJobStatus(UUID id, JobStatus status, String errorMessage) {
-    try {
-      if (PostgresqlJobRowMapper.isLiveStatus(status)) {
-        // language=PostgreSQL
-        String sql =
-            """
-            UPDATE scheduler_job_queue
-            SET status = ?, last_error = ?, updated_at = statement_timestamp()
-            WHERE job_id = ?
-            """;
-        ctx.em()
-            .createNativeQuery(sql)
-            .setParameter(1, status.name())
-            .setParameter(2, errorMessage)
-            .setParameter(3, id)
-            .executeUpdate();
-        return;
-      }
-      if (status == JobStatus.CANCELED) {
-        cancelJob(id);
-        return;
-      }
-      if (status == JobStatus.FAILED) {
-        markJobFailedTerminal(id, errorMessage, 0);
-        return;
-      }
-      if (status == JobStatus.SUCCEEDED) {
-        markJobSucceededMinimal(id, null, null, null, null);
-        return;
-      }
-      throw new IllegalArgumentException("Unsupported status target: " + status);
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("update job status", e);
-    }
+    ctx.timedStoreOperation(
+        "update_status",
+        () -> {
+          if (PostgresqlJobRowMapper.isLiveStatus(status)) {
+            // language=PostgreSQL
+            String sql =
+                """
+                UPDATE scheduler_job_queue
+                SET status = ?, last_error = ?, updated_at = statement_timestamp()
+                WHERE job_id = ?
+                """;
+            return ctx.em()
+                .createNativeQuery(sql)
+                .setParameter(1, status.name())
+                .setParameter(2, errorMessage)
+                .setParameter(3, id)
+                .executeUpdate();
+          }
+          if (status == JobStatus.CANCELED) {
+            return cancelJob(id) ? 1 : 0;
+          }
+          if (status == JobStatus.FAILED) {
+            return markJobFailedTerminal(id, errorMessage, 0) ? 1 : 0;
+          }
+          if (status == JobStatus.SUCCEEDED) {
+            return markJobSucceededMinimal(id, null, null, null, null) ? 1 : 0;
+          }
+          throw new IllegalArgumentException("Unsupported status target: " + status);
+        },
+        updated -> updated > 0 ? "updated" : "miss");
   }
 
   boolean compareAndSwapStatus(UUID id, JobStatus expected, JobStatus newStatus, String error) {
-    try {
-      if (!PostgresqlJobRowMapper.isLiveStatus(expected)) {
-        throw new IllegalArgumentException(
-            "compareAndSwapStatus expected must be a live status; got " + expected);
-      }
-      if (PostgresqlJobRowMapper.isLiveStatus(newStatus)) {
-        // language=PostgreSQL
-        String sql =
-            """
-            UPDATE scheduler_job_queue
-            SET status = ?, last_error = ?, updated_at = statement_timestamp()
-            WHERE job_id = ? AND status = ?
-            """;
-        return ctx.em()
-                .createNativeQuery(sql)
-                .setParameter(1, newStatus.name())
-                .setParameter(2, error)
-                .setParameter(3, id)
-                .setParameter(4, expected.name())
-                .executeUpdate()
-            > 0;
-      }
-      if (newStatus == JobStatus.CANCELED) {
-        return lockExpectedQueueStatusForTerminalCas(id, expected) && cancelJob(id);
-      }
-      if (newStatus == JobStatus.FAILED) {
-        if (expected != JobStatus.RUNNING && expected != JobStatus.WAITING) {
-          return false;
-        }
-        return markJobFailedTerminalFromStatus(id, error, null, expected);
-      }
-      throw new IllegalArgumentException("Unsupported CAS target newStatus: " + newStatus);
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("compare-and-swap status", e);
-    }
+    return ctx.timedStoreOperation(
+        "compare_and_swap_status",
+        () -> {
+          if (!PostgresqlJobRowMapper.isLiveStatus(expected)) {
+            throw new IllegalArgumentException(
+                "compareAndSwapStatus expected must be a live status; got " + expected);
+          }
+          if (PostgresqlJobRowMapper.isLiveStatus(newStatus)) {
+            // language=PostgreSQL
+            String sql =
+                """
+                UPDATE scheduler_job_queue
+                SET status = ?, last_error = ?, updated_at = statement_timestamp()
+                WHERE job_id = ? AND status = ?
+                """;
+            return ctx.em()
+                    .createNativeQuery(sql)
+                    .setParameter(1, newStatus.name())
+                    .setParameter(2, error)
+                    .setParameter(3, id)
+                    .setParameter(4, expected.name())
+                    .executeUpdate()
+                > 0;
+          }
+          if (newStatus == JobStatus.CANCELED) {
+            return lockExpectedQueueStatusForTerminalCas(id, expected) && cancelJob(id);
+          }
+          if (newStatus == JobStatus.FAILED) {
+            if (expected != JobStatus.RUNNING && expected != JobStatus.WAITING) {
+              return false;
+            }
+            return markJobFailedTerminalFromStatus(id, error, null, expected);
+          }
+          throw new IllegalArgumentException("Unsupported CAS target newStatus: " + newStatus);
+        },
+        updated -> updated ? "updated" : "miss");
   }
 
   int incrementRetryAttempt(UUID id) {
@@ -111,14 +109,17 @@ final class PostgresqlJobTerminalOperations {
         WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')
         RETURNING attempts
         """;
-    try {
-      Object result = ctx.em().createNativeQuery(sql).setParameter(1, id).getSingleResult();
-      return ((Number) result).intValue();
-    } catch (NoResultException e) {
-      return -1;
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("increment retry attempt", e);
-    }
+    return ctx.timedStoreOperation(
+        "increment_retry_attempt",
+        () -> {
+          try {
+            Object result = ctx.em().createNativeQuery(sql).setParameter(1, id).getSingleResult();
+            return ((Number) result).intValue();
+          } catch (NoResultException e) {
+            return -1;
+          }
+        },
+        attempts -> attempts > 0 ? "updated" : "miss");
   }
 
   boolean markJobSucceeded(
@@ -129,21 +130,20 @@ final class PostgresqlJobTerminalOperations {
       Instant end,
       Long durationMs,
       Long queueWaitMs) {
-    try {
-      return doMarkTerminalSuccessWithResult(
-          id, resultJson, resultType, start, end, durationMs, queueWaitMs);
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("mark job succeeded", e);
-    }
+    return ctx.timedStoreOperation(
+        "mark_succeeded",
+        () ->
+            doMarkTerminalSuccessWithResult(
+                id, resultJson, resultType, start, end, durationMs, queueWaitMs),
+        updated -> updated ? "updated" : "miss");
   }
 
   boolean markJobSucceededMinimal(
       UUID id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
-    try {
-      return doMarkTerminalSuccessMinimal(id, start, end, durationMs, queueWaitMs);
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("mark job succeeded minimally", e);
-    }
+    return ctx.timedStoreOperation(
+        "mark_succeeded_minimal",
+        () -> doMarkTerminalSuccessMinimal(id, start, end, durationMs, queueWaitMs),
+        updated -> updated ? "updated" : "miss");
   }
 
   boolean markJobSucceededAndUpdateBatch(
@@ -169,35 +169,33 @@ final class PostgresqlJobTerminalOperations {
   }
 
   boolean scheduleJobRetry(UUID id, String error, Instant newScheduledTime, int attempts) {
-    try {
-      // language=PostgreSQL
-      String sql =
-          """
-          UPDATE scheduler_job_queue
-          SET status = 'PENDING', last_error = ?, scheduled_time = ?, attempts = ?,
-              picked_by = NULL, picked_at = NULL, updated_at = statement_timestamp()
-          WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')
-          """;
-      int updated =
-          ctx.em()
-              .createNativeQuery(sql)
-              .setParameter(1, error)
-              .setParameter(2, Timestamp.from(newScheduledTime))
-              .setParameter(3, attempts)
-              .setParameter(4, id)
-              .executeUpdate();
-      return updated > 0;
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("schedule job retry", e);
-    }
+    // language=PostgreSQL
+    String sql =
+        """
+        UPDATE scheduler_job_queue
+        SET status = 'PENDING', last_error = ?, scheduled_time = ?, attempts = ?,
+            picked_by = NULL, picked_at = NULL, updated_at = statement_timestamp()
+        WHERE job_id = ? AND status IN ('RUNNING', 'WAITING')
+        """;
+    return ctx.timedStoreOperation(
+            "schedule_retry",
+            () ->
+                ctx.em()
+                    .createNativeQuery(sql)
+                    .setParameter(1, error)
+                    .setParameter(2, Timestamp.from(newScheduledTime))
+                    .setParameter(3, attempts)
+                    .setParameter(4, id)
+                    .executeUpdate(),
+            updated -> updated > 0 ? "updated" : "miss")
+        > 0;
   }
 
   boolean markJobFailedTerminal(UUID id, String terminalError, int totalAttempts) {
-    try {
-      return markJobFailedTerminalFromStatus(id, terminalError, totalAttempts, JobStatus.RUNNING);
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("mark job failed terminal", e);
-    }
+    return ctx.timedStoreOperation(
+        "mark_failed_terminal",
+        () -> markJobFailedTerminalFromStatus(id, terminalError, totalAttempts, JobStatus.RUNNING),
+        updated -> updated ? "updated" : "miss");
   }
 
   private boolean lockExpectedQueueStatusForTerminalCas(UUID id, JobStatus expected) {
@@ -223,6 +221,11 @@ final class PostgresqlJobTerminalOperations {
   }
 
   boolean cancelJob(UUID id) {
+    return ctx.timedStoreOperation(
+        "cancel_job", () -> doCancelJob(id), updated -> updated ? "updated" : "miss");
+  }
+
+  private boolean doCancelJob(UUID id) {
     try {
       // language=PostgreSQL
       String selectSql =

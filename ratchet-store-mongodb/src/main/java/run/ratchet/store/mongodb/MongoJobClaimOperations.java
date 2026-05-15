@@ -84,54 +84,57 @@ final class MongoJobClaimOperations {
     if (limit <= 0 || jobTypes.isEmpty()) {
       return List.of();
     }
+    String operation = NEXT_FIRE.equals(timeColumn) ? "claim_recurring_lookup" : "claim_lookup";
 
-    Date now = DocumentMapper.toDate(Instant.now());
-    // Build conditions as a list to avoid Document.append() overwriting the same key twice
-    // when both requireTags and excludeTags are set.
-    List<Bson> conditions = new ArrayList<>();
-    conditions.add(
-        new Document(STATUS, "PENDING")
-            .append(JOB_TYPE, new Document("$in", jobTypes))
-            .append(timeColumn, new Document("$lte", now)));
-    if (!tagFilter.requireTags().isEmpty()) {
-      conditions.add(new Document(TAGS, new Document("$in", tagFilter.requireTags())));
-    }
-    if (!tagFilter.excludeTags().isEmpty()) {
-      conditions.add(new Document(TAGS, new Document("$nin", tagFilter.excludeTags())));
-    }
-    Bson match =
-        new Document("$match", conditions.size() == 1 ? conditions.get(0) : and(conditions));
-    Bson project =
-        new Document(
-            "$project",
-            new Document(ID, 1)
-                .append(timeColumn, 1)
-                .append("effective_priority", effectivePriorityExpression(timeColumn, now)));
-    Bson sort =
-        new Document(
-            "$sort", new Document("effective_priority", -1).append(timeColumn, 1).append(ID, 1));
-    Bson batchLimit = new Document("$limit", limit);
+    return ctx.timedStoreOperation(
+        operation,
+        () -> {
+          Date now = DocumentMapper.toDate(Instant.now());
+          // Build conditions as a list to avoid Document.append() overwriting the same key twice
+          // when both requireTags and excludeTags are set.
+          List<Bson> conditions = new ArrayList<>();
+          conditions.add(
+              new Document(STATUS, "PENDING")
+                  .append(JOB_TYPE, new Document("$in", jobTypes))
+                  .append(timeColumn, new Document("$lte", now)));
+          if (!tagFilter.requireTags().isEmpty()) {
+            conditions.add(new Document(TAGS, new Document("$in", tagFilter.requireTags())));
+          }
+          if (!tagFilter.excludeTags().isEmpty()) {
+            conditions.add(new Document(TAGS, new Document("$nin", tagFilter.excludeTags())));
+          }
+          Bson match =
+              new Document("$match", conditions.size() == 1 ? conditions.get(0) : and(conditions));
+          Bson project =
+              new Document(
+                  "$project",
+                  new Document(ID, 1)
+                      .append(timeColumn, 1)
+                      .append("effective_priority", effectivePriorityExpression(timeColumn, now)));
+          Bson sort =
+              new Document(
+                  "$sort",
+                  new Document("effective_priority", -1).append(timeColumn, 1).append(ID, 1));
+          Bson batchLimit = new Document("$limit", limit);
 
-    try {
-      var query =
-          ctx.jobs().aggregate(List.of(match, project, sort, batchLimit)).allowDiskUse(true);
+          var query =
+              ctx.jobs().aggregate(List.of(match, project, sort, batchLimit)).allowDiskUse(true);
 
-      if (NEXT_FIRE.equals(timeColumn)) {
-        query.hintString(MongoIndexHints.JOB_CLAIM_RECURRING);
-      } else {
-        query.hintString(MongoIndexHints.JOB_CLAIM_EXEC);
-      }
+          if (NEXT_FIRE.equals(timeColumn)) {
+            query.hintString(MongoIndexHints.JOB_CLAIM_RECURRING);
+          } else {
+            query.hintString(MongoIndexHints.JOB_CLAIM_EXEC);
+          }
 
-      List<UUID> ids = new ArrayList<>(limit);
-      try (MongoCursor<Document> cursor = query.cursor()) {
-        while (cursor.hasNext()) {
-          ids.add(cursor.next().get(ID, UUID.class));
-        }
-      }
-      return ids;
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("find claim candidates", e);
-    }
+          List<UUID> ids = new ArrayList<>(limit);
+          try (MongoCursor<Document> cursor = query.cursor()) {
+            while (cursor.hasNext()) {
+              ids.add(cursor.next().get(ID, UUID.class));
+            }
+          }
+          return ids;
+        },
+        ids -> ids.isEmpty() ? "empty" : "hit");
   }
 
   private Object effectivePriorityExpression(String timeColumn, Date now) {
@@ -174,62 +177,64 @@ final class MongoJobClaimOperations {
       return List.of();
     }
 
-    try {
-      Date nowDate = DocumentMapper.toDate(Instant.now());
-      List<UpdateOneModel<Document>> ops = new ArrayList<>(ids.size());
-      for (UUID id : ids) {
-        ops.add(
-            new UpdateOneModel<>(
-                and(eq(ID, id), eq(STATUS, "PENDING")),
-                combine(
-                    set(STATUS, "RUNNING"),
-                    set(PICKED_BY, nodeId),
-                    set(PICKED_AT, nowDate),
-                    set(UPDATED_AT, nowDate),
-                    inc(VERSION, 1))));
-      }
+    return ctx.timedStoreOperation(
+        "claim_mark_running_batch",
+        () -> {
+          Date nowDate = DocumentMapper.toDate(Instant.now());
+          List<UpdateOneModel<Document>> ops = new ArrayList<>(ids.size());
+          for (UUID id : ids) {
+            ops.add(
+                new UpdateOneModel<>(
+                    and(eq(ID, id), eq(STATUS, "PENDING")),
+                    combine(
+                        set(STATUS, "RUNNING"),
+                        set(PICKED_BY, nodeId),
+                        set(PICKED_AT, nowDate),
+                        set(UPDATED_AT, nowDate),
+                        inc(VERSION, 1))));
+          }
 
-      long matched;
-      try {
-        BulkWriteResult result = ctx.jobs().bulkWrite(ops, new BulkWriteOptions().ordered(false));
-        matched = result.getMatchedCount();
-      } catch (MongoBulkWriteException e) {
-        // ordered=false: server applied every op; partial successes are durable. Log per-op
-        // failures and continue with the read-back of whatever did succeed.
-        matched = e.getWriteResult().getMatchedCount();
-        for (BulkWriteError err : e.getWriteErrors()) {
-          log.warnf("Bulk claim error at index %d: %s", err.getIndex(), err.getMessage());
-        }
-      }
+          long matched;
+          try {
+            BulkWriteResult result =
+                ctx.jobs().bulkWrite(ops, new BulkWriteOptions().ordered(false));
+            matched = result.getMatchedCount();
+          } catch (MongoBulkWriteException e) {
+            // ordered=false: server applied every op; partial successes are durable. Log per-op
+            // failures and continue with the read-back of whatever did succeed.
+            matched = e.getWriteResult().getMatchedCount();
+            for (BulkWriteError err : e.getWriteErrors()) {
+              log.warnf("Bulk claim error at index %d: %s", err.getIndex(), err.getMessage());
+            }
+          }
 
-      if (matched == 0) {
-        return List.of();
-      }
+          if (matched == 0) {
+            return List.<T>of();
+          }
 
-      Map<UUID, T> byId = new HashMap<>(ids.size());
-      try (MongoCursor<Document> cursor =
-          ctx.jobs()
-              .find(
-                  and(
-                      new Document(ID, new Document("$in", ids)),
-                      eq(PICKED_BY, nodeId),
-                      eq(STATUS, "RUNNING")))
-              .iterator()) {
-        while (cursor.hasNext()) {
-          Document doc = cursor.next();
-          byId.put(doc.get(ID, UUID.class), mapper.apply(doc));
-        }
-      }
-      List<T> ordered = new ArrayList<>(byId.size());
-      for (UUID id : ids) {
-        T claim = byId.get(id);
-        if (claim != null) {
-          ordered.add(claim);
-        }
-      }
-      return ordered;
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("claim batch", e);
-    }
+          Map<UUID, T> byId = new HashMap<>(ids.size());
+          try (MongoCursor<Document> cursor =
+              ctx.jobs()
+                  .find(
+                      and(
+                          new Document(ID, new Document("$in", ids)),
+                          eq(PICKED_BY, nodeId),
+                          eq(STATUS, "RUNNING")))
+                  .iterator()) {
+            while (cursor.hasNext()) {
+              Document doc = cursor.next();
+              byId.put(doc.get(ID, UUID.class), mapper.apply(doc));
+            }
+          }
+          List<T> ordered = new ArrayList<>(byId.size());
+          for (UUID id : ids) {
+            T claim = byId.get(id);
+            if (claim != null) {
+              ordered.add(claim);
+            }
+          }
+          return ordered;
+        },
+        claims -> claims.isEmpty() ? "miss" : "updated");
   }
 }

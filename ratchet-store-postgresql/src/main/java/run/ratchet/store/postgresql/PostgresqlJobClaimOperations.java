@@ -140,7 +140,11 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
       }
       selectQuery.setParameter(parameter, limit);
       @SuppressWarnings("unchecked")
-      List<Object[]> rows = selectQuery.getResultList();
+      List<Object[]> rows =
+          ctx.timedStoreOperation(
+              "claim_lookup",
+              selectQuery::getResultList,
+              result -> result.isEmpty() ? "empty" : "hit");
       if (rows.isEmpty()) {
         return List.of();
       }
@@ -200,31 +204,40 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
       for (Object[] row : rows) {
         ids.add(new ClaimRow(row).jobId());
       }
-      Instant now = Instant.now();
-      markPendingClaimsRunning(ids, nodeId, now);
-
-      List<JobClaimDto> claims = new ArrayList<>(rows.size());
-      for (int i = 0; i < rows.size(); i++) {
-        ClaimRow row = new ClaimRow(rows.get(i));
-        claims.add(
-            new JobClaimDto(
-                ids.get(i),
-                JobStatus.RUNNING,
-                row.jobType(),
-                row.priority(),
-                row.scheduledTime(),
-                row.version(),
-                row.timeoutSeconds(),
-                nodeId,
-                now,
-                row.businessKey(),
-                row.attempts(),
-                row.maxRetries()));
-      }
-      return claims;
+      return claimOptimizedRows(rows, ids, nodeId);
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("optimized claim", e);
     }
+  }
+
+  private List<JobClaimDto> claimOptimizedRows(List<Object[]> rows, List<UUID> ids, String nodeId) {
+    return ctx.timedStoreOperation(
+        "claim_mark_running_batch",
+        () -> {
+          Instant now = Instant.now();
+          markPendingClaimsRunning(ids, nodeId, now);
+
+          List<JobClaimDto> claims = new ArrayList<>(rows.size());
+          for (int i = 0; i < rows.size(); i++) {
+            ClaimRow row = new ClaimRow(rows.get(i));
+            claims.add(
+                new JobClaimDto(
+                    ids.get(i),
+                    JobStatus.RUNNING,
+                    row.jobType(),
+                    row.priority(),
+                    row.scheduledTime(),
+                    row.version(),
+                    row.timeoutSeconds(),
+                    nodeId,
+                    now,
+                    row.businessKey(),
+                    row.attempts(),
+                    row.maxRetries()));
+          }
+          return claims;
+        },
+        claims -> claims.isEmpty() ? "miss" : "updated");
   }
 
   private void markPendingClaimsRunning(List<UUID> ids, String nodeId, Instant now) {

@@ -272,13 +272,13 @@ final class PostgresqlBatchOperations implements BatchStore, BatchMetricsStore {
         UPDATE scheduler_batch_metrics
         SET completed_at = statement_timestamp(),
             total_duration_ms = CASE WHEN started_at IS NOT NULL
-              THEN EXTRACT(EPOCH FROM (statement_timestamp() - started_at))::bigint * 1000
+              THEN ROUND(EXTRACT(EPOCH FROM (statement_timestamp() - started_at)) * 1000)::bigint
               ELSE NULL END,
             overhead_ms = CASE WHEN started_at IS NOT NULL AND child_execution_ms IS NOT NULL
-              THEN EXTRACT(EPOCH FROM (statement_timestamp() - started_at))::bigint * 1000
+              THEN ROUND(EXTRACT(EPOCH FROM (statement_timestamp() - started_at)) * 1000)::bigint
                    - child_execution_ms
               ELSE NULL END
-        WHERE batch_id = ?
+        WHERE batch_id = ? AND completed_at IS NULL
         """;
     ctx.em().createNativeQuery(sql).setParameter(1, batchId).executeUpdate();
   }

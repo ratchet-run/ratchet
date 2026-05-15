@@ -74,7 +74,7 @@ final class MongoJobLifecycleOperations
   @Override
   public void updateJobStatus(UUID id, JobStatus status, String errorMessage) {
     runMutation(
-        "update job status",
+        "update_status",
         () -> {
           Instant now = Instant.now();
           ctx.jobs()
@@ -92,47 +92,48 @@ final class MongoJobLifecycleOperations
   @Override
   public boolean compareAndSwapStatus(
       UUID id, JobStatus expected, JobStatus newStatus, String error) {
-    try {
-      Instant now = Instant.now();
-      if ((newStatus == JobStatus.FAILED || newStatus == JobStatus.CANCELED)
-          && expected == JobStatus.RUNNING) {
-        UpdateResult result =
-            ctx.jobs()
-                .updateOne(
-                    and(eq(ID, id), eq(STATUS, expected.name())),
-                    combine(
-                        set(STATUS, newStatus.name()),
-                        set(LAST_ERROR, error),
-                        set(EXECUTION_START_TIME, DocumentMapper.toDate(now)),
-                        set(EXECUTION_END_TIME, DocumentMapper.toDate(now)),
-                        set(EXECUTION_DURATION_MS, 0L),
-                        set(PICKED_BY, null),
-                        set(PICKED_AT, null),
-                        set(UPDATED_AT, DocumentMapper.toDate(now)),
-                        set(TERMINATED_AT, terminalDate(newStatus, now)),
-                        inc(VERSION, 1)));
-        return result.getModifiedCount() > 0;
-      }
-      UpdateResult result =
-          ctx.jobs()
-              .updateOne(
-                  and(eq(ID, id), eq(STATUS, expected.name())),
-                  combine(
-                      set(STATUS, newStatus.name()),
-                      set(LAST_ERROR, error),
-                      set(UPDATED_AT, DocumentMapper.toDate(now)),
-                      set(TERMINATED_AT, terminalDate(newStatus, now)),
-                      inc(VERSION, 1)));
-      return result.getModifiedCount() > 0;
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("compare-and-swap status", e);
-    }
+    return ctx.timedStoreOperation(
+        "compare_and_swap_status",
+        () -> {
+          Instant now = Instant.now();
+          if ((newStatus == JobStatus.FAILED || newStatus == JobStatus.CANCELED)
+              && expected == JobStatus.RUNNING) {
+            UpdateResult result =
+                ctx.jobs()
+                    .updateOne(
+                        and(eq(ID, id), eq(STATUS, expected.name())),
+                        combine(
+                            set(STATUS, newStatus.name()),
+                            set(LAST_ERROR, error),
+                            set(EXECUTION_START_TIME, DocumentMapper.toDate(now)),
+                            set(EXECUTION_END_TIME, DocumentMapper.toDate(now)),
+                            set(EXECUTION_DURATION_MS, 0L),
+                            set(PICKED_BY, null),
+                            set(PICKED_AT, null),
+                            set(UPDATED_AT, DocumentMapper.toDate(now)),
+                            set(TERMINATED_AT, terminalDate(newStatus, now)),
+                            inc(VERSION, 1)));
+            return result.getModifiedCount() > 0;
+          }
+          UpdateResult result =
+              ctx.jobs()
+                  .updateOne(
+                      and(eq(ID, id), eq(STATUS, expected.name())),
+                      combine(
+                          set(STATUS, newStatus.name()),
+                          set(LAST_ERROR, error),
+                          set(UPDATED_AT, DocumentMapper.toDate(now)),
+                          set(TERMINATED_AT, terminalDate(newStatus, now)),
+                          inc(VERSION, 1)));
+          return result.getModifiedCount() > 0;
+        },
+        updated -> updated ? "updated" : "miss");
   }
 
   @Override
   public int incrementRetryAttempt(UUID id) {
     return intMutation(
-        "increment retry attempt",
+        "increment_retry_attempt",
         () -> {
           Document doc =
               ctx.jobs()
@@ -155,7 +156,7 @@ final class MongoJobLifecycleOperations
   @Override
   public boolean tryPickUpJob(UUID id, String nodeId) {
     return booleanMutation(
-        "pick up job",
+        "pickup_job",
         () -> {
           Instant now = Instant.now();
           UpdateResult result =
@@ -181,53 +182,55 @@ final class MongoJobLifecycleOperations
       Instant end,
       Long durationMs,
       Long queueWaitMs) {
-    try {
-      Instant now = Instant.now();
-      UpdateResult result =
-          ctx.jobs()
-              .updateOne(
-                  and(eq(ID, id), eq(STATUS, "RUNNING")),
-                  combine(
-                      set(STATUS, "SUCCEEDED"),
-                      set(JOB_RESULT, resultJson),
-                      set(RESULT_TYPE, resultType),
-                      set(EXECUTION_START_TIME, DocumentMapper.toDate(start)),
-                      set(EXECUTION_END_TIME, DocumentMapper.toDate(end)),
-                      set(TERMINATED_AT, DocumentMapper.toDate(now)),
-                      set(EXECUTION_DURATION_MS, durationMs),
-                      set(QUEUE_WAIT_MS, queueWaitMs),
-                      set(LAST_ERROR, null),
-                      set(UPDATED_AT, DocumentMapper.toDate(now)),
-                      inc(VERSION, 1)));
-      return result.getModifiedCount() > 0;
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("mark job succeeded", e);
-    }
+    return ctx.timedStoreOperation(
+        "mark_succeeded",
+        () -> {
+          Instant now = Instant.now();
+          UpdateResult result =
+              ctx.jobs()
+                  .updateOne(
+                      and(eq(ID, id), eq(STATUS, "RUNNING")),
+                      combine(
+                          set(STATUS, "SUCCEEDED"),
+                          set(JOB_RESULT, resultJson),
+                          set(RESULT_TYPE, resultType),
+                          set(EXECUTION_START_TIME, DocumentMapper.toDate(start)),
+                          set(EXECUTION_END_TIME, DocumentMapper.toDate(end)),
+                          set(TERMINATED_AT, DocumentMapper.toDate(now)),
+                          set(EXECUTION_DURATION_MS, durationMs),
+                          set(QUEUE_WAIT_MS, queueWaitMs),
+                          set(LAST_ERROR, null),
+                          set(UPDATED_AT, DocumentMapper.toDate(now)),
+                          inc(VERSION, 1)));
+          return result.getModifiedCount() > 0;
+        },
+        updated -> updated ? "updated" : "miss");
   }
 
   @Override
   public boolean markJobSucceededMinimal(
       UUID id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
-    try {
-      Instant now = Instant.now();
-      UpdateResult result =
-          ctx.jobs()
-              .updateOne(
-                  and(eq(ID, id), eq(STATUS, "RUNNING")),
-                  combine(
-                      set(STATUS, "SUCCEEDED"),
-                      set(EXECUTION_START_TIME, DocumentMapper.toDate(start)),
-                      set(EXECUTION_END_TIME, DocumentMapper.toDate(end)),
-                      set(TERMINATED_AT, DocumentMapper.toDate(now)),
-                      set(EXECUTION_DURATION_MS, durationMs),
-                      set(QUEUE_WAIT_MS, queueWaitMs),
-                      set(LAST_ERROR, null),
-                      set(UPDATED_AT, DocumentMapper.toDate(now)),
-                      inc(VERSION, 1)));
-      return result.getModifiedCount() > 0;
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("mark job succeeded minimally", e);
-    }
+    return ctx.timedStoreOperation(
+        "mark_succeeded_minimal",
+        () -> {
+          Instant now = Instant.now();
+          UpdateResult result =
+              ctx.jobs()
+                  .updateOne(
+                      and(eq(ID, id), eq(STATUS, "RUNNING")),
+                      combine(
+                          set(STATUS, "SUCCEEDED"),
+                          set(EXECUTION_START_TIME, DocumentMapper.toDate(start)),
+                          set(EXECUTION_END_TIME, DocumentMapper.toDate(end)),
+                          set(TERMINATED_AT, DocumentMapper.toDate(now)),
+                          set(EXECUTION_DURATION_MS, durationMs),
+                          set(QUEUE_WAIT_MS, queueWaitMs),
+                          set(LAST_ERROR, null),
+                          set(UPDATED_AT, DocumentMapper.toDate(now)),
+                          inc(VERSION, 1)));
+          return result.getModifiedCount() > 0;
+        },
+        updated -> updated ? "updated" : "miss");
   }
 
   @Override
@@ -240,42 +243,45 @@ final class MongoJobLifecycleOperations
       Long durationMs,
       Long queueWaitMs,
       UUID batchId) {
-    try (ClientSession session = ctx.startSession()) {
-      return session.withTransaction(
-          () -> {
-            Instant now = Instant.now();
-            UpdateResult result =
-                ctx.jobs()
-                    .updateOne(
-                        session,
-                        and(eq(ID, jobId), eq(STATUS, "RUNNING")),
-                        combine(
-                            set(STATUS, "SUCCEEDED"),
-                            set(JOB_RESULT, resultJson),
-                            set(RESULT_TYPE, resultType),
-                            set(EXECUTION_START_TIME, DocumentMapper.toDate(start)),
-                            set(EXECUTION_END_TIME, DocumentMapper.toDate(end)),
-                            set(TERMINATED_AT, DocumentMapper.toDate(now)),
-                            set(EXECUTION_DURATION_MS, durationMs),
-                            set(QUEUE_WAIT_MS, queueWaitMs),
-                            set(LAST_ERROR, null),
-                            set(UPDATED_AT, DocumentMapper.toDate(now)),
-                            inc(VERSION, 1)));
-            if (result.getModifiedCount() == 0) {
-              return false;
-            }
-            batches.incrementCompletedAtomic(session, batchId);
-            return true;
-          });
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("mark job succeeded and update batch", e);
-    }
+    return ctx.timedStoreOperation(
+        "mark_succeeded_and_update_batch",
+        () -> {
+          try (ClientSession session = ctx.startSession()) {
+            return session.withTransaction(
+                () -> {
+                  Instant now = Instant.now();
+                  UpdateResult result =
+                      ctx.jobs()
+                          .updateOne(
+                              session,
+                              and(eq(ID, jobId), eq(STATUS, "RUNNING")),
+                              combine(
+                                  set(STATUS, "SUCCEEDED"),
+                                  set(JOB_RESULT, resultJson),
+                                  set(RESULT_TYPE, resultType),
+                                  set(EXECUTION_START_TIME, DocumentMapper.toDate(start)),
+                                  set(EXECUTION_END_TIME, DocumentMapper.toDate(end)),
+                                  set(TERMINATED_AT, DocumentMapper.toDate(now)),
+                                  set(EXECUTION_DURATION_MS, durationMs),
+                                  set(QUEUE_WAIT_MS, queueWaitMs),
+                                  set(LAST_ERROR, null),
+                                  set(UPDATED_AT, DocumentMapper.toDate(now)),
+                                  inc(VERSION, 1)));
+                  if (result.getModifiedCount() == 0) {
+                    return false;
+                  }
+                  batches.incrementCompletedAtomic(session, batchId);
+                  return true;
+                });
+          }
+        },
+        updated -> updated ? "updated" : "miss");
   }
 
   @Override
   public boolean scheduleJobRetry(UUID id, String error, Instant newScheduledTime, int attempts) {
     return booleanMutation(
-        "schedule job retry",
+        "schedule_retry",
         () -> {
           UpdateResult result =
               ctx.jobs()
@@ -298,7 +304,7 @@ final class MongoJobLifecycleOperations
   @Override
   public boolean pauseRecurring(UUID id) {
     return booleanMutation(
-        "pause recurring job",
+        "pause_recurring",
         () -> {
           UpdateResult result =
               ctx.jobs()
@@ -316,7 +322,7 @@ final class MongoJobLifecycleOperations
   @Override
   public boolean resumeRecurring(UUID id) {
     return booleanMutation(
-        "resume recurring job",
+        "resume_recurring",
         () -> {
           UpdateResult result =
               ctx.jobs()
@@ -334,7 +340,7 @@ final class MongoJobLifecycleOperations
   @Override
   public boolean markJobFailedTerminal(UUID id, String terminalError, int totalAttempts) {
     return booleanMutation(
-        "mark job failed terminal",
+        "mark_failed_terminal",
         () -> {
           Instant now = Instant.now();
           UpdateResult result =
@@ -360,7 +366,7 @@ final class MongoJobLifecycleOperations
   @Override
   public boolean cancelJob(UUID id) {
     return booleanMutation(
-        "cancel job",
+        "cancel_job",
         () -> {
           Instant now = Instant.now();
           UpdateResult runningResult =
@@ -398,7 +404,7 @@ final class MongoJobLifecycleOperations
   @Override
   public boolean resetRunningJob(UUID id, String nodeId) {
     return booleanMutation(
-        "reset running job",
+        "reset_running_job",
         () -> {
           UpdateResult result =
               ctx.jobs()
@@ -417,7 +423,7 @@ final class MongoJobLifecycleOperations
   @Override
   public int resetRunningJobs(String nodeId) {
     return intMutation(
-        "reset running jobs",
+        "reset_running_jobs",
         () -> {
           UpdateResult result =
               ctx.jobs()
@@ -436,7 +442,7 @@ final class MongoJobLifecycleOperations
   @Override
   public int cancelJobsByTag(String tag) {
     return intMutation(
-        "cancel jobs by tag",
+        "cancel_jobs_by_tag",
         () -> {
           Instant now = Instant.now();
           // Explicit 3-status filter: ACTIVE_STATUSES includes RUNNING.
@@ -461,7 +467,7 @@ final class MongoJobLifecycleOperations
   @Override
   public int cancelRecurringJobsByTag(String tag) {
     return intMutation(
-        "cancel recurring jobs by tag",
+        "cancel_recurring_by_tag",
         () -> {
           Instant now = Instant.now();
           UpdateResult result =
@@ -483,7 +489,7 @@ final class MongoJobLifecycleOperations
   @Override
   public int cancelRecurringJobByBusinessKey(String businessKey) {
     return intMutation(
-        "cancel recurring job by business key",
+        "cancel_recurring_by_business_key",
         () -> {
           Instant now = Instant.now();
           UpdateResult result =
@@ -508,7 +514,7 @@ final class MongoJobLifecycleOperations
       return 0;
     }
     return intMutation(
-        "cancel recurring jobs by business keys",
+        "cancel_recurring_by_business_keys",
         () -> {
           Instant now = Instant.now();
           UpdateResult result =
@@ -534,7 +540,7 @@ final class MongoJobLifecycleOperations
       return 0;
     }
     return intMutation(
-        "cancel orphaned recurring annotation jobs",
+        "cancel_orphaned_recurring_annotations",
         () -> {
           Instant now = Instant.now();
           UpdateResult result =
@@ -558,7 +564,7 @@ final class MongoJobLifecycleOperations
   @Override
   public boolean resetFailedToPending(UUID id) {
     return booleanMutation(
-        "reset failed job to pending",
+        "reset_failed_to_pending",
         () -> {
           UpdateResult result =
               ctx.jobs()
@@ -581,7 +587,7 @@ final class MongoJobLifecycleOperations
   @Override
   public boolean transitionToPaused(UUID id, JobStatus expected) {
     return booleanMutation(
-        "transition job to paused",
+        "transition_to_paused",
         () -> {
           UpdateResult result =
               ctx.jobs()
@@ -599,7 +605,7 @@ final class MongoJobLifecycleOperations
   @Override
   public boolean transitionFromPaused(UUID id, JobStatus target) {
     return booleanMutation(
-        "transition job from paused",
+        "transition_from_paused",
         () -> {
           UpdateResult result =
               ctx.jobs()
@@ -617,7 +623,7 @@ final class MongoJobLifecycleOperations
   @Override
   public JobStatus transitionFromPausedAtomic(UUID id) {
     return mutation(
-        "transition job from paused atomically",
+        "transition_from_paused_atomic",
         () -> {
           Document before =
               ctx.jobs()
@@ -649,35 +655,28 @@ final class MongoJobLifecycleOperations
   }
 
   private void runMutation(String operation, Runnable mutation) {
-    try {
-      mutation.run();
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException(operation, e);
-    }
+    ctx.timedStoreOperation(
+        operation,
+        () -> {
+          mutation.run();
+          return Boolean.TRUE;
+        },
+        ignored -> "success");
   }
 
   private boolean booleanMutation(String operation, BooleanSupplier mutation) {
-    try {
-      return mutation.getAsBoolean();
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException(operation, e);
-    }
+    return ctx.timedStoreOperation(
+        operation, mutation::getAsBoolean, updated -> updated ? "updated" : "miss");
   }
 
   private int intMutation(String operation, IntSupplier mutation) {
-    try {
-      return mutation.getAsInt();
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException(operation, e);
-    }
+    return ctx.timedStoreOperation(
+        operation, mutation::getAsInt, updated -> updated > 0 ? "updated" : "miss");
   }
 
   private <T> T mutation(String operation, Supplier<T> mutation) {
-    try {
-      return mutation.get();
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException(operation, e);
-    }
+    return ctx.timedStoreOperation(
+        operation, mutation, result -> result == null ? "miss" : "updated");
   }
 
   private static Date terminalDate(JobStatus status, Instant now) {
