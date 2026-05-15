@@ -441,7 +441,11 @@ public class BatchService {
     if (batchStore.markBatchCompleteIfReady(parentId)) {
       // markBatchCompleteIfReady can have more than one apparent winner under concurrent commits.
       // The parent pickup CAS in processBatchCompletion is the exactly-once gate.
-      return processBatchCompletion(parentId, batchFromProgress(progress));
+      // Reload counters after winning the gate: another child can update failed/completed counts
+      // between this child's increment snapshot and the live readiness check.
+      BatchEntity completedBatch =
+          batchStore.findBatchById(parentId).orElseGet(() -> batchFromProgress(progress));
+      return processBatchCompletion(parentId, completedBatch);
     }
     return false;
   }
