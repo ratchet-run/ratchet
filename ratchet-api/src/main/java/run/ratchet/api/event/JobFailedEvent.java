@@ -6,7 +6,13 @@ import java.util.UUID;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 
-/** Fired when a job fails. */
+/**
+ * Fired when a job reaches terminal FAILED state.
+ *
+ * <p>Retryable per-attempt failures are reported through the metrics SPI and {@link
+ * JobRetryingEvent}; they do not publish this event unless the failed attempt exhausts retry
+ * handling and terminalizes the job.
+ */
 public class JobFailedEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = -8745178784765705117L;

@@ -18,12 +18,16 @@ import org.jboss.logging.Logger;
 import org.objectweb.asm.Type;
 import run.ratchet.api.BatchContext;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.event.BatchCompletedEvent;
 import run.ratchet.api.event.BatchCompletingEvent;
+import run.ratchet.api.event.JobCompletedEvent;
+import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.entity.BatchEntity;
+import run.ratchet.store.entity.BatchMetricsEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.BatchMetricsStore;
@@ -303,15 +307,16 @@ public class BatchService {
 
     metricsStore.finalizeBatchMetrics(parentId);
 
-    metricsStore
-        .findBatchMetrics(parentId)
-        .filter(metrics -> metrics.getTotalDurationMs() != null)
-        .ifPresent(
-            metrics ->
-                metricsCollector.jobCompleted(
-                    parentId, parent.getPublicJobType(), metrics.getTotalDurationMs()));
+    Long totalDurationMs =
+        metricsStore
+            .findBatchMetrics(parentId)
+            .map(BatchMetricsEntity::getTotalDurationMs)
+            .orElse(null);
+    if (totalDurationMs != null) {
+      metricsCollector.jobCompleted(parentId, parent.getPublicJobType(), totalDurationMs);
+    }
 
-    publishBatchEvent(batch, parent);
+    publishBatchEvents(batch, parent, succeeded, totalDurationMs);
 
     log.infof(
         "Batch %s completed: %d total, %d succeeded, %d failed",
@@ -362,7 +367,8 @@ public class BatchService {
     throw failure;
   }
 
-  private void publishBatchEvent(BatchEntity batch, JobEntity parent) {
+  private void publishBatchEvents(
+      BatchEntity batch, JobEntity parent, boolean succeeded, Long totalDurationMs) {
     eventPublisher.publish(
         new BatchCompletingEvent(
             batch.getId(),
@@ -373,6 +379,36 @@ public class BatchService {
             batch.getTotalItems(),
             batch.getCompletedItems(),
             batch.getFailedItems()));
+    eventPublisher.publish(
+        new BatchCompletedEvent(
+            batch.getId(),
+            parent.getBusinessKey(),
+            parent.getPublicJobType(),
+            parent.getPriority(),
+            parent.getPickedBy(),
+            batch.getTotalItems(),
+            batch.getCompletedItems(),
+            batch.getFailedItems()));
+    if (succeeded) {
+      eventPublisher.publish(
+          new JobCompletedEvent(
+              parent.getId(),
+              parent.getBusinessKey(),
+              parent.getPublicJobType(),
+              parent.getPriority(),
+              parent.getPickedBy(),
+              totalDurationMs));
+      return;
+    }
+    eventPublisher.publish(
+        new JobFailedEvent(
+            parent.getId(),
+            parent.getBusinessKey(),
+            parent.getPublicJobType(),
+            parent.getPriority(),
+            parent.getPickedBy(),
+            "Batch completed with " + batch.getFailedItems() + " failed children",
+            parent.getAttempts()));
   }
 
   private void trigger(BatchEntity batch) {

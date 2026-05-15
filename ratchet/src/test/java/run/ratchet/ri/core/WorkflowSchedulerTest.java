@@ -23,10 +23,12 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.WorkflowCondition;
+import run.ratchet.api.event.WorkflowBranchTriggeredEvent;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.WorkflowConditionEntity;
@@ -46,6 +48,7 @@ class WorkflowSchedulerTest {
   @Mock private JobTerminalStore jobTerminalStore;
   @Mock private WorkflowConditionStore conditionStore;
   @Mock private WorkflowConditionEvaluator conditionEvaluator;
+  @Mock private InternalEventPublisher eventPublisher;
 
   private WorkflowScheduler scheduler;
 
@@ -167,6 +170,35 @@ class WorkflowSchedulerTest {
     assertEquals(JobStatus.PENDING, child.getStatus());
     assertEquals(JobExecutionType.WORKFLOW_BRANCH, child.getJobType());
     assertEquals(FIXED_NOW, child.getScheduledTime());
+  }
+
+  @Test
+  void scheduleNext_matchedBranchPublishesWorkflowBranchTriggeredEvent() {
+    scheduler =
+        new WorkflowScheduler(
+            jobCrudStore,
+            jobBatchStatusStore,
+            jobTerminalStore,
+            conditionStore,
+            conditionEvaluator,
+            FIXED_CLOCK,
+            eventPublisher);
+    JobEntity parent = job(new UUID(0L, 18L), JobStatus.SUCCEEDED);
+    JobEntity child = job(new UUID(0L, 19L), JobStatus.PENDING);
+    WorkflowConditionEntity condition = condition(parent.getId(), child.getId(), 0);
+    condition.setConditionExpression("result.ok == true");
+    when(conditionStore.findConditionsByParentJobId(parent.getId())).thenReturn(List.of(condition));
+    when(conditionEvaluator.evaluate(condition, parent)).thenReturn(true);
+    when(jobCrudStore.findById(child.getId())).thenReturn(Optional.of(child));
+
+    assertTrue(scheduler.scheduleNext(parent));
+
+    ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
+    verify(eventPublisher).publish(eventCaptor.capture());
+    WorkflowBranchTriggeredEvent event = (WorkflowBranchTriggeredEvent) eventCaptor.getValue();
+    assertEquals(parent.getId(), event.getJobId());
+    assertEquals("result.ok == true", event.getBranchCondition());
+    assertEquals(child.getId(), event.getNextJobId());
   }
 
   @Test

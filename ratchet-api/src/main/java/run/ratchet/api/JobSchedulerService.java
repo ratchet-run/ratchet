@@ -175,7 +175,7 @@ public interface JobSchedulerService {
    *       ChainFailedEvent}, {@code WorkflowBranchTriggeredEvent}
    *   <li><b>Signals:</b> {@code JobSignalWaitingEvent}, {@code JobSignaledEvent}, {@code
    *       JobsBulkSignaledEvent}, {@code JobSignalTimedOutEvent}
-   *   <li><b>Observability:</b> {@code JobDlqEvent}, {@code PerformanceMetricsEvent}
+   *   <li><b>Observability:</b> {@code JobDlqEvent}
    * </ul>
    *
    * <p><b>Transaction attribute:</b> {@code NOT_SUPPORTED}. Listener registration is an in-memory

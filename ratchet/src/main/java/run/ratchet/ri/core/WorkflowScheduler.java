@@ -13,6 +13,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.event.WorkflowBranchTriggeredEvent;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.WorkflowConditionEntity;
@@ -65,7 +66,6 @@ public class WorkflowScheduler extends ChainScheduler {
         Clock.systemUTC());
   }
 
-  @Inject
   public WorkflowScheduler(
       JobCrudStore jobCrudStore,
       JobBatchStatusStore jobBatchStatusStore,
@@ -73,7 +73,26 @@ public class WorkflowScheduler extends ChainScheduler {
       WorkflowConditionStore conditionStore,
       WorkflowConditionEvaluator conditionEvaluator,
       Clock clock) {
-    super(jobCrudStore, jobTerminalStore, clock);
+    this(
+        jobCrudStore,
+        jobBatchStatusStore,
+        jobTerminalStore,
+        conditionStore,
+        conditionEvaluator,
+        clock,
+        null);
+  }
+
+  @Inject
+  public WorkflowScheduler(
+      JobCrudStore jobCrudStore,
+      JobBatchStatusStore jobBatchStatusStore,
+      JobTerminalStore jobTerminalStore,
+      WorkflowConditionStore conditionStore,
+      WorkflowConditionEvaluator conditionEvaluator,
+      Clock clock,
+      InternalEventPublisher eventPublisher) {
+    super(jobCrudStore, jobTerminalStore, clock, eventPublisher);
     this.jobBatchStatusStore = jobBatchStatusStore;
     this.jobTerminalStore = jobTerminalStore;
     this.conditionStore = conditionStore;
@@ -173,6 +192,7 @@ public class WorkflowScheduler extends ChainScheduler {
     cancelUnscheduledBranches(conditions, scheduledCondition, childJobs);
 
     if (scheduledCondition != null) {
+      publishWorkflowBranchTriggered(parentJob, scheduledCondition);
       log.infof(
           "Scheduled workflow branch job %s for parent job %s",
           scheduledCondition.getChildJobId(), parentJob.getId());
@@ -284,6 +304,30 @@ public class WorkflowScheduler extends ChainScheduler {
     childJob.setJobType(JobExecutionType.WORKFLOW_BRANCH);
     jobCrudStore.save(childJob);
     return true;
+  }
+
+  private void publishWorkflowBranchTriggered(
+      JobEntity parentJob, WorkflowConditionEntity condition) {
+    if (eventPublisher == null) {
+      return;
+    }
+    eventPublisher.publish(
+        new WorkflowBranchTriggeredEvent(
+            parentJob.getId(),
+            parentJob.getBusinessKey(),
+            parentJob.getPublicJobType(),
+            parentJob.getPriority(),
+            parentJob.getPickedBy(),
+            describeCondition(condition),
+            condition.getChildJobId()));
+  }
+
+  private String describeCondition(WorkflowConditionEntity condition) {
+    if (condition.getConditionExpression() != null
+        && !condition.getConditionExpression().isBlank()) {
+      return condition.getConditionExpression();
+    }
+    return condition.getConditionType().name();
   }
 
   private Map<UUID, JobEntity> loadChildJobs(List<WorkflowConditionEntity> conditions) {
