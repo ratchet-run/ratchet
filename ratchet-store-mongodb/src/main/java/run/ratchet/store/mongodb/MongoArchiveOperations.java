@@ -62,7 +62,7 @@ final class MongoArchiveOperations {
           () -> {
             ctx.archives().insertOne(session, doc);
             ctx.jobs().deleteOne(session, eq(ID, job.getId()));
-            return null;
+            return Boolean.TRUE;
           });
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("archive job", e);

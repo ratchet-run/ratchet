@@ -30,6 +30,7 @@ import java.util.stream.Collectors;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobOptions;
+import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.Recurring;
@@ -362,11 +363,11 @@ public class RecurringJobProcessor {
         return Optional.empty();
       }
 
-      RecurringAnnotationParser.mapPriority(annotation.priority());
+      JobPriority priority = RecurringAnnotationParser.mapPriority(annotation.priority());
 
       return Optional.of(
           new RecurringMethodRegistration(
-              beanClass, methodName, hasJobContextParam, annotation, jobId, zone));
+              beanClass, methodName, hasJobContextParam, annotation, jobId, zone, priority));
     } catch (Exception e) {
       log.errorf(e, "@Recurring registration error: %s.%s", beanClass.getName(), methodName);
       return Optional.empty();
@@ -389,7 +390,7 @@ public class RecurringJobProcessor {
 
     JobOptions options =
         JobOptions.defaults()
-            .withPriority(RecurringAnnotationParser.mapPriority(annotation.priority()))
+            .withPriority(registration.priority())
             .withMaxRetries(annotation.maxRetries())
             .withBackoff(annotation.backoffPolicy(), Duration.ofMillis(annotation.backoffDelayMs()))
             .withTimeout(Duration.ofSeconds(annotation.timeoutSeconds()));
@@ -439,5 +440,6 @@ public class RecurringJobProcessor {
       boolean hasJobContextParam,
       Recurring annotation,
       String jobId,
-      ZoneId zone) {}
+      ZoneId zone,
+      JobPriority priority) {}
 }

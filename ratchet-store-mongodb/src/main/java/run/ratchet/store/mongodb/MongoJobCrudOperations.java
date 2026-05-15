@@ -236,7 +236,10 @@ final class MongoJobCrudOperations {
     for (Document doc : ctx.jobs().aggregate(pipeline)) {
       Object rawStatus = doc.get(ID);
       if (rawStatus instanceof String status) {
-        counts.put(JobStatus.valueOf(status), numberField(doc, "count").longValue());
+        Number count = numberField(doc, "count");
+        if (count != null) {
+          counts.put(JobStatus.valueOf(status), count.longValue());
+        }
       }
     }
     return counts;
@@ -296,7 +299,10 @@ final class MongoJobCrudOperations {
       if (rawPriority instanceof Number priority) {
         int ordinal = priority.intValue();
         if (ordinal >= 0 && ordinal < values.length) {
-          counts.put(values[ordinal], numberField(doc, "count").longValue());
+          Number count = numberField(doc, "count");
+          if (count != null) {
+            counts.put(values[ordinal], count.longValue());
+          }
         }
       }
     }
@@ -318,7 +324,10 @@ final class MongoJobCrudOperations {
     for (Document doc : ctx.jobs().aggregate(pipeline)) {
       Object rawType = doc.get(ID);
       if (rawType instanceof String type) {
-        counts.put(JobExecutionType.valueOf(type), numberField(doc, "count").longValue());
+        Number count = numberField(doc, "count");
+        if (count != null) {
+          counts.put(JobExecutionType.valueOf(type), count.longValue());
+        }
       }
     }
     return counts;
