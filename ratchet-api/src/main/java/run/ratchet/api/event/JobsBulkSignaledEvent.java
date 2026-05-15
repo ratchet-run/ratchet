@@ -37,7 +37,7 @@ public class JobsBulkSignaledEvent implements Serializable {
       Instant signaledAt) {
     this.signalKey = Objects.requireNonNull(signalKey, "signalKey");
     this.count = count;
-    this.signalDeliveredBy = signalDeliveredBy;
+    this.signalDeliveredBy = Objects.requireNonNull(signalDeliveredBy, "signalDeliveredBy");
     this.outcome = Objects.requireNonNull(outcome, "outcome");
     this.rejectionReason =
         rejectionReason == null || rejectionReason.isBlank() ? null : rejectionReason.trim();
@@ -54,10 +54,7 @@ public class JobsBulkSignaledEvent implements Serializable {
     return count;
   }
 
-  /**
-   * Returns the principal that delivered the signal, or {@code null} if no security context was
-   * active.
-   */
+  /** Returns the principal or system component that delivered the signal. */
   public String getSignalDeliveredBy() {
     return signalDeliveredBy;
   }

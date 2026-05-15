@@ -40,12 +40,14 @@ import org.bson.Document;
 import run.ratchet.store.dto.BatchProgress;
 import run.ratchet.store.entity.BatchEntity;
 import run.ratchet.store.entity.BatchMetricsEntity;
+import run.ratchet.store.spi.BatchMetricsStore;
+import run.ratchet.store.spi.BatchStore;
 
 /**
  * Batch and batch-metrics collection operations. Batches drive fan-out/fan-in accounting for {@code
  * BATCH_CHILD} jobs; metrics accumulate overhead/execution splits for dashboards.
  */
-final class MongoBatchOperations {
+final class MongoBatchOperations implements BatchStore, BatchMetricsStore {
 
   private final MongoStoreContext ctx;
   private final Clock clock;
@@ -59,18 +61,21 @@ final class MongoBatchOperations {
     this.clock = Objects.requireNonNull(clock, "clock");
   }
 
-  BatchEntity saveBatch(BatchEntity batch) {
+  @Override
+  public BatchEntity saveBatch(BatchEntity batch) {
     Document doc = DocumentMapper.toDocument(batch);
     ctx.batches().replaceOne(eq(ID, batch.getId()), doc, new ReplaceOptions().upsert(true));
     return batch;
   }
 
-  Optional<BatchEntity> findBatchById(UUID batchId) {
+  @Override
+  public Optional<BatchEntity> findBatchById(UUID batchId) {
     Document doc = ctx.batches().find(eq(ID, batchId)).first();
     return doc == null ? Optional.empty() : Optional.of(DocumentMapper.toBatchEntity(doc));
   }
 
-  List<BatchEntity> findBatchesByIds(List<UUID> batchIds) {
+  @Override
+  public List<BatchEntity> findBatchesByIds(List<UUID> batchIds) {
     if (batchIds == null || batchIds.isEmpty()) {
       return List.of();
     }
@@ -81,7 +86,8 @@ final class MongoBatchOperations {
     return result;
   }
 
-  BatchProgress incrementCompletedAtomic(UUID batchId) {
+  @Override
+  public BatchProgress incrementCompletedAtomic(UUID batchId) {
     return incrementCompletedAtomic(null, batchId);
   }
 
@@ -99,7 +105,8 @@ final class MongoBatchOperations {
     return DocumentMapper.toBatchProgress(doc, batchId);
   }
 
-  BatchProgress incrementFailedAtomic(UUID batchId) {
+  @Override
+  public BatchProgress incrementFailedAtomic(UUID batchId) {
     Document doc =
         ctx.batches()
             .findOneAndUpdate(
@@ -112,7 +119,8 @@ final class MongoBatchOperations {
     return DocumentMapper.toBatchProgress(doc, batchId);
   }
 
-  boolean markBatchCompleteIfReady(UUID batchId) {
+  @Override
+  public boolean markBatchCompleteIfReady(UUID batchId) {
     UpdateResult result =
         ctx.batches()
             .updateOne(
@@ -131,7 +139,8 @@ final class MongoBatchOperations {
     return result.getModifiedCount() > 0;
   }
 
-  List<UUID> findRecoverableBatchIds(int limit) {
+  @Override
+  public List<UUID> findRecoverableBatchIds(int limit) {
     List<UUID> ids = new ArrayList<>();
     FindIterable<Document> results =
         ctx.batches()
@@ -154,30 +163,35 @@ final class MongoBatchOperations {
     return ids;
   }
 
-  boolean updateBatchTotalItems(UUID batchId, int totalItems) {
+  @Override
+  public boolean updateBatchTotalItems(UUID batchId, int totalItems) {
     UpdateResult result = ctx.batches().updateOne(eq(ID, batchId), set(TOTAL_ITEMS, totalItems));
     return result.getModifiedCount() > 0;
   }
 
-  BatchMetricsEntity saveBatchMetrics(BatchMetricsEntity metrics) {
+  @Override
+  public BatchMetricsEntity saveBatchMetrics(BatchMetricsEntity metrics) {
     Document doc = DocumentMapper.toDocument(metrics);
     ctx.batchMetrics()
         .replaceOne(eq(ID, metrics.getBatchId()), doc, new ReplaceOptions().upsert(true));
     return metrics;
   }
 
-  Optional<BatchMetricsEntity> findBatchMetrics(UUID batchId) {
+  @Override
+  public Optional<BatchMetricsEntity> findBatchMetrics(UUID batchId) {
     Document doc = ctx.batchMetrics().find(eq(ID, batchId)).first();
     return doc == null ? Optional.empty() : Optional.of(DocumentMapper.toBatchMetricsEntity(doc));
   }
 
-  void addChildExecutionTime(UUID batchId, long durationMs) {
+  @Override
+  public void addChildExecutionTime(UUID batchId, long durationMs) {
     ctx.batchMetrics()
         .updateOne(
             eq(ID, batchId), combine(inc(CHILD_EXECUTION_MS, durationMs), inc(SUCCESS_COUNT, 1)));
   }
 
-  void finalizeBatchMetrics(UUID batchId) {
+  @Override
+  public void finalizeBatchMetrics(UUID batchId) {
     Document doc = ctx.batchMetrics().find(eq(ID, batchId)).first();
     if (doc == null) {
       return;
@@ -204,7 +218,8 @@ final class MongoBatchOperations {
                 set(OVERHEAD_MS, overheadMs)));
   }
 
-  void updateBatchMetricsChildCount(UUID batchId, int childCount) {
+  @Override
+  public void updateBatchMetricsChildCount(UUID batchId, int childCount) {
     ctx.batchMetrics().updateOne(eq(ID, batchId), set(CHILD_COUNT, childCount));
   }
 }

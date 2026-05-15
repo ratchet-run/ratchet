@@ -1,9 +1,11 @@
 package run.ratchet.tck.store;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -73,5 +75,33 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
     assertTrue(reset, "resetFailedToPending should succeed for a FAILED job");
     var reloaded = store().findById(saved.getId()).orElseThrow();
     assertEquals(JobStatus.PENDING, reloaded.getStatus());
+  }
+
+  @Test
+  void incrementRetryAttempt_unknownJob_returnsMinusOne() {
+    assertEquals(-1, store().incrementRetryAttempt(new UUID(0L, Long.MAX_VALUE)));
+  }
+
+  @Test
+  void scheduleJobRetry_rejectsNonRetryableOrMissingRows() {
+    var pending = persist(newPendingJob());
+    Instant retryTime = Instant.now().plusSeconds(300);
+
+    assertFalse(
+        store().scheduleJobRetry(pending.getId(), "not running", retryTime, 1),
+        "PENDING jobs should not be rescheduled through retry");
+    assertFalse(
+        store().scheduleJobRetry(new UUID(0L, Long.MAX_VALUE), "missing", retryTime, 1),
+        "missing jobs should not be rescheduled through retry");
+  }
+
+  @Test
+  void resetFailedToPending_rejectsNonFailedOrMissingRows() {
+    var pending = persist(newPendingJob());
+
+    assertFalse(
+        store().resetFailedToPending(pending.getId()),
+        "resetFailedToPending should only reset FAILED jobs");
+    assertFalse(store().resetFailedToPending(new UUID(0L, Long.MAX_VALUE)));
   }
 }

@@ -53,6 +53,16 @@ class PermitAllJobAuthorizationPolicyTest {
   }
 
   @Test
+  void checkDeliverSignalById_permitsAlways() {
+    assertDoesNotThrow(() -> policy.checkDeliverSignal(UUID.randomUUID(), "owner", "actor"));
+  }
+
+  @Test
+  void checkDeliverSignalByKey_permitsAlways() {
+    assertDoesNotThrow(() -> policy.checkDeliverSignal("approval", "actor"));
+  }
+
+  @Test
   void checkRead_permitsAlways() {
     assertDoesNotThrow(() -> policy.checkRead(UUID.randomUUID(), "actor"));
   }
