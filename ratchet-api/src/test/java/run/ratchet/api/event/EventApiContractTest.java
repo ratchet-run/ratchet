@@ -330,6 +330,11 @@ class EventApiContractTest {
         NullPointerException.class,
         () ->
             new JobsBulkSignaledEvent(
+                "signal-key", 2, null, SignalDecision.Outcome.APPROVED, null, TIMESTAMP));
+    assertThrows(
+        NullPointerException.class,
+        () ->
+            new JobsBulkSignaledEvent(
                 "signal-key", 2, "operator", SignalDecision.Outcome.APPROVED, null, null));
     assertThrows(
         IllegalArgumentException.class,
