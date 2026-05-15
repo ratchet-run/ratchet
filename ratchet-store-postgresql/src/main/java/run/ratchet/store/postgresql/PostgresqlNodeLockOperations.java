@@ -27,17 +27,17 @@ final class PostgresqlNodeLockOperations implements LockStore, NodeStore {
     requireLockName(name);
     requirePositiveDuration(ttl, "ttl");
     Objects.requireNonNull(nodeId, "nodeId");
-    long ttlSeconds = ttl.toSeconds();
+    long ttlMicros = durationMicros(ttl);
     // language=PostgreSQL
     String sql =
         """
         INSERT INTO scheduler_lock (lock_name, owner_node, locked_at, expires_at)
         VALUES (?, ?, statement_timestamp(),
-                statement_timestamp() + ? * interval '1 second')
+                statement_timestamp() + ? * interval '1 microsecond')
         ON CONFLICT (lock_name) DO UPDATE SET
           owner_node = EXCLUDED.owner_node,
           locked_at = statement_timestamp(),
-          expires_at = statement_timestamp() + ? * interval '1 second'
+          expires_at = statement_timestamp() + ? * interval '1 microsecond'
         WHERE scheduler_lock.expires_at < statement_timestamp()
            OR scheduler_lock.owner_node = ?
         """;
@@ -46,8 +46,8 @@ final class PostgresqlNodeLockOperations implements LockStore, NodeStore {
             .createNativeQuery(sql)
             .setParameter(1, name)
             .setParameter(2, nodeId)
-            .setParameter(3, ttlSeconds)
-            .setParameter(4, ttlSeconds)
+            .setParameter(3, ttlMicros)
+            .setParameter(4, ttlMicros)
             .setParameter(5, nodeId)
             .executeUpdate();
     return updated > 0;
@@ -67,18 +67,18 @@ final class PostgresqlNodeLockOperations implements LockStore, NodeStore {
     requireLockName(name);
     requirePositiveDuration(extension, "extension");
     Objects.requireNonNull(nodeId, "nodeId");
-    long extensionSeconds = extension.toSeconds();
+    long extensionMicros = durationMicros(extension);
     // language=PostgreSQL
     String sql =
         """
         UPDATE scheduler_lock
-        SET expires_at = statement_timestamp() + ? * interval '1 second'
+        SET expires_at = statement_timestamp() + ? * interval '1 microsecond'
         WHERE lock_name = ? AND owner_node = ?
         """;
     int updated =
         ctx.em()
             .createNativeQuery(sql)
-            .setParameter(1, extensionSeconds)
+            .setParameter(1, extensionMicros)
             .setParameter(2, name)
             .setParameter(3, nodeId)
             .executeUpdate();
@@ -97,6 +97,15 @@ final class PostgresqlNodeLockOperations implements LockStore, NodeStore {
     if (duration.isZero() || duration.isNegative()) {
       throw new IllegalArgumentException(parameterName + " must be positive");
     }
+  }
+
+  private static long durationMicros(Duration duration) {
+    long seconds = duration.getSeconds();
+    long microsFromNanos = (duration.getNano() + 999L) / 1_000L;
+    if (seconds > (Long.MAX_VALUE - microsFromNanos) / 1_000_000L) {
+      return Long.MAX_VALUE;
+    }
+    return Math.max(1L, seconds * 1_000_000L + microsFromNanos);
   }
 
   @Override

@@ -99,6 +99,13 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
   }
 
   @Test
+  void getPermitRetryDelay_unknownResource_returnsDefaultDelay() {
+    int delay = store().getPermitRetryDelay("missing-resource");
+
+    assertEquals(5000, delay, "Unknown resources should use the default retry delay");
+  }
+
+  @Test
   void tryAcquirePermit_concurrent_respectsCapacity() {
     int capacity = 3;
     store().configureResource("res-cap", capacity, 1000, "capacity test");
@@ -162,13 +169,11 @@ public abstract class AbstractResourcePermitStoreContract implements JobStoreCon
     boolean second = store().tryAcquirePermit("res-idem", job.getId(), "node-1");
 
     assertTrue(first, "First acquire should succeed");
-    // Second acquire for same job should either succeed (idempotent) or fail,
-    // but must not consume an additional permit slot
+    assertTrue(second, "Second acquire for the same job should be idempotent");
+
     var otherJob = persist(newPendingJob());
-    // If capacity is 1 and same-job re-acquire is idempotent, this should fail
-    // If same-job re-acquire consumed a slot, the resource would be at capacity
     assertFalse(
         store().tryAcquirePermit("res-idem", otherJob.getId(), "node-1"),
-        "Resource capacity should still be exhausted — same-job re-acquire must not free a slot");
+        "Resource capacity should remain exhausted by the one idempotent permit");
   }
 }

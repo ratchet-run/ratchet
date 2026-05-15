@@ -1,6 +1,8 @@
 package run.ratchet.testsuite.app;
 
+import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
+import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Updates.set;
 
 import com.mongodb.client.MongoDatabase;
@@ -9,6 +11,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.time.Instant;
 import java.util.Date;
+import java.util.List;
 import java.util.UUID;
 import java.util.logging.Logger;
 
@@ -25,6 +28,7 @@ public class DocumentStoreTestDataManipulator implements TestDataManipulator {
 
   private static final Logger log =
       Logger.getLogger(DocumentStoreTestDataManipulator.class.getName());
+  private static final List<String> TERMINAL_STATUSES = List.of("SUCCEEDED", "FAILED", "CANCELED");
 
   @Inject private MongoDatabase mongoDb;
 
@@ -34,8 +38,18 @@ public class DocumentStoreTestDataManipulator implements TestDataManipulator {
         mongoDb
             .getCollection("scheduler_job")
             .updateOne(eq("_id", jobId), set("updated_at", Date.from(updatedAt)));
+    UpdateResult terminalResult =
+        mongoDb
+            .getCollection("scheduler_job")
+            .updateOne(
+                and(eq("_id", jobId), in("status", TERMINAL_STATUSES)),
+                set("terminated_at", Date.from(updatedAt)));
     if (!result.wasAcknowledged()) {
       throw new IllegalStateException("MongoDB did not acknowledge updated_at update for " + jobId);
+    }
+    if (!terminalResult.wasAcknowledged()) {
+      throw new IllegalStateException(
+          "MongoDB did not acknowledge terminated_at update for " + jobId);
     }
     if (result.getMatchedCount() == 0) {
       throw new IllegalStateException("No scheduler_job document found for " + jobId);

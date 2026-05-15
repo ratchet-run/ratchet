@@ -351,6 +351,7 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
           LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
           WHERE c.job_type = 'RECURRING'
             AND c.rec_status = 'P'
+            AND q.job_id IS NULL
             AND c.next_fire <= statement_timestamp()%s
           ORDER BY %s
           LIMIT ?

@@ -40,7 +40,12 @@ public interface ResourcePermitStore {
    */
   void releaseAllPermits(UUID jobId);
 
-  /** Reads the retry delay for a resource. Transaction attribute: {@code SUPPORTS}. */
+  /**
+   * Reads the retry delay for a resource.
+   *
+   * @return the configured delay, or the store default delay when {@code resource} is unknown
+   *     <p>Transaction attribute: {@code SUPPORTS}.
+   */
   int getPermitRetryDelay(String resource);
 
   /** Creates or updates a resource limit. Transaction attribute: {@code REQUIRED}. */

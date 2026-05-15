@@ -219,6 +219,13 @@ final class MongoAuxiliaryOperations {
     try (ClientSession session = ctx.startSession()) {
       return session.withTransaction(
           () -> {
+            if (ctx.resourcePermits()
+                    .find(session, and(eq(RESOURCE_NAME, resource), eq(JOB_ID, jobId)))
+                    .first()
+                != null) {
+              return true;
+            }
+
             Document result =
                 ctx.resourceLimits()
                     .findOneAndUpdate(

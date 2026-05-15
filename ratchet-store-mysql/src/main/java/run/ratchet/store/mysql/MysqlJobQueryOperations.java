@@ -197,6 +197,16 @@ final class MysqlJobQueryOperations {
     };
   }
 
+  private static String archiveSortColumn(JobQuerySortField field) {
+    return switch (field) {
+      case CREATED_AT -> "a.original_created_at";
+      case SCHEDULED_TIME -> "a.original_scheduled_time";
+      case UPDATED_AT -> "a.archived_at";
+      case PRIORITY -> "a.priority";
+      case STATUS -> "a.final_status";
+    };
+  }
+
   private static int unionSortColumnPosition(JobFilter filter) {
     JobQuerySortField field =
         (filter == null || filter.sortField() == null)
@@ -362,6 +372,7 @@ final class MysqlJobQueryOperations {
     appendInstantGte("a.original_scheduled_time", filter.scheduledAfter(), where, params);
     appendInstantLt("a.original_scheduled_time", filter.scheduledBefore(), where, params);
     appendInstantGte("a.archived_at", filter.updatedAfter(), where, params);
+    appendArchiveCursorCondition(filter, where, params);
 
     return where.length() == 0 ? "" : " WHERE " + where;
   }
@@ -571,6 +582,28 @@ final class MysqlJobQueryOperations {
       params.add(UuidByteArrayConverter.toBytes(c.jobId()));
     } catch (IllegalArgumentException e) {
       log.warnf(e, "Ignoring malformed job-query cursor; falling back to offset pagination");
+    }
+  }
+
+  private void appendArchiveCursorCondition(
+      JobFilter filter, StringBuilder where, List<Object> params) {
+    if (filter == null || filter.cursor() == null) {
+      return;
+    }
+    try {
+      JobQueryCursor c = JobQueryCursor.decode(filter.cursor());
+      String sortCol = archiveSortColumn(c.sortField());
+      String op = filter.sortAscending() ? ">" : "<";
+      and(
+          where,
+          "(" + sortCol + " " + op + " ? OR (" + sortCol + " = ? AND a.original_job_id > ?))");
+      Object sortVal = parseSortValue(c);
+      params.add(sortVal);
+      params.add(sortVal);
+      params.add(UuidByteArrayConverter.toBytes(c.jobId()));
+    } catch (IllegalArgumentException e) {
+      log.warnf(
+          e, "Ignoring malformed archive job-query cursor; falling back to offset pagination");
     }
   }
 }

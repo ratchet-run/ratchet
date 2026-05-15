@@ -23,6 +23,7 @@ final class MongoFieldNames {
   static final String CREATED_AT = "created_at";
   static final String CALLER_PRINCIPAL = "caller_principal";
   static final String UPDATED_AT = "updated_at";
+  static final String TERMINATED_AT = "terminated_at";
   // Scheduling
   static final String SCHEDULED_TIME = "scheduled_time";
   static final String NEXT_FIRE = "next_fire";

@@ -1,6 +1,10 @@
 package run.ratchet.store.mongodb;
 
+import static com.mongodb.client.model.Filters.eq;
+import static com.mongodb.client.model.Updates.combine;
+import static com.mongodb.client.model.Updates.set;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -56,5 +60,29 @@ class MongoArchiveStoreContractTest extends AbstractArchiveStoreContract {
             .archiveJob(completed, "test", "tck");
 
     assertEquals(ARCHIVE_NOW, archived.getArchivedAt());
+  }
+
+  @Test
+  void findJobsForArchiving_usesTerminatedAtInsteadOfUpdatedAt() {
+    var job = persist(newPendingJob());
+    store().compareAndSwapStatus(job.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+    store()
+        .markJobSucceeded(
+            job.getId(), null, null, ARCHIVE_NOW, ARCHIVE_NOW.plusSeconds(1), 100L, 50L);
+
+    fixture
+        .database()
+        .getCollection("scheduler_job")
+        .updateOne(
+            eq("_id", job.getId()),
+            combine(
+                set("updated_at", DocumentMapper.toDate(ARCHIVE_NOW.minusSeconds(3600))),
+                set("terminated_at", DocumentMapper.toDate(ARCHIVE_NOW))));
+
+    var candidates = store().findJobsForArchiving(ARCHIVE_NOW.minusSeconds(1800), 10);
+
+    assertTrue(
+        candidates.isEmpty(),
+        "Mongo archiving must use terminated_at, not an older updated_at value");
   }
 }

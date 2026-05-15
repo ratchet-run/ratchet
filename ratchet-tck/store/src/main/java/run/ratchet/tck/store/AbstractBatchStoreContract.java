@@ -2,6 +2,7 @@ package run.ratchet.tck.store;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
@@ -60,6 +61,14 @@ public abstract class AbstractBatchStoreContract implements JobStoreContractFixt
     assertEquals(2, progress.totalItems());
     assertEquals(0, progress.completedItems());
     assertEquals(1, progress.failedItems());
+  }
+
+  @Test
+  void incrementCompletedAtomic_unknownBatch_throwsIllegalStateException() {
+    assertThrows(
+        IllegalStateException.class,
+        () -> store().incrementCompletedAtomic(new UUID(0L, Long.MAX_VALUE)),
+        "Missing batch increments should fail with the BatchStore contract exception");
   }
 
   @Test

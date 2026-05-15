@@ -9,6 +9,7 @@ import static com.mongodb.client.model.Filters.nin;
 import static com.mongodb.client.model.Updates.combine;
 import static com.mongodb.client.model.Updates.inc;
 import static com.mongodb.client.model.Updates.set;
+import static com.mongodb.client.model.Updates.unset;
 import static run.ratchet.store.mongodb.MongoFieldNames.ATTEMPTS;
 import static run.ratchet.store.mongodb.MongoFieldNames.BUSINESS_KEY;
 import static run.ratchet.store.mongodb.MongoFieldNames.CREATED_AT;
@@ -27,6 +28,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.RESULT_TYPE;
 import static run.ratchet.store.mongodb.MongoFieldNames.SCHEDULED_TIME;
 import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
 import static run.ratchet.store.mongodb.MongoFieldNames.TAGS;
+import static run.ratchet.store.mongodb.MongoFieldNames.TERMINATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.UPDATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.VERSION;
 
@@ -73,24 +75,27 @@ final class MongoJobLifecycleOperations
   public void updateJobStatus(UUID id, JobStatus status, String errorMessage) {
     runMutation(
         "update job status",
-        () ->
-            ctx.jobs()
-                .updateOne(
-                    eq(ID, id),
-                    combine(
-                        set(STATUS, status.name()),
-                        set(LAST_ERROR, errorMessage),
-                        set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
-                        inc(VERSION, 1))));
+        () -> {
+          Instant now = Instant.now();
+          ctx.jobs()
+              .updateOne(
+                  eq(ID, id),
+                  combine(
+                      set(STATUS, status.name()),
+                      set(LAST_ERROR, errorMessage),
+                      set(UPDATED_AT, DocumentMapper.toDate(now)),
+                      set(TERMINATED_AT, terminalDate(status, now)),
+                      inc(VERSION, 1)));
+        });
   }
 
   @Override
   public boolean compareAndSwapStatus(
       UUID id, JobStatus expected, JobStatus newStatus, String error) {
     try {
+      Instant now = Instant.now();
       if ((newStatus == JobStatus.FAILED || newStatus == JobStatus.CANCELED)
           && expected == JobStatus.RUNNING) {
-        Instant now = Instant.now();
         UpdateResult result =
             ctx.jobs()
                 .updateOne(
@@ -104,6 +109,7 @@ final class MongoJobLifecycleOperations
                         set(PICKED_BY, null),
                         set(PICKED_AT, null),
                         set(UPDATED_AT, DocumentMapper.toDate(now)),
+                        set(TERMINATED_AT, terminalDate(newStatus, now)),
                         inc(VERSION, 1)));
         return result.getModifiedCount() > 0;
       }
@@ -114,7 +120,8 @@ final class MongoJobLifecycleOperations
                   combine(
                       set(STATUS, newStatus.name()),
                       set(LAST_ERROR, error),
-                      set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                      set(UPDATED_AT, DocumentMapper.toDate(now)),
+                      set(TERMINATED_AT, terminalDate(newStatus, now)),
                       inc(VERSION, 1)));
       return result.getModifiedCount() > 0;
     } catch (RuntimeException e) {
@@ -175,6 +182,7 @@ final class MongoJobLifecycleOperations
       Long durationMs,
       Long queueWaitMs) {
     try {
+      Instant now = Instant.now();
       UpdateResult result =
           ctx.jobs()
               .updateOne(
@@ -185,10 +193,11 @@ final class MongoJobLifecycleOperations
                       set(RESULT_TYPE, resultType),
                       set(EXECUTION_START_TIME, DocumentMapper.toDate(start)),
                       set(EXECUTION_END_TIME, DocumentMapper.toDate(end)),
+                      set(TERMINATED_AT, DocumentMapper.toDate(now)),
                       set(EXECUTION_DURATION_MS, durationMs),
                       set(QUEUE_WAIT_MS, queueWaitMs),
                       set(LAST_ERROR, null),
-                      set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                      set(UPDATED_AT, DocumentMapper.toDate(now)),
                       inc(VERSION, 1)));
       return result.getModifiedCount() > 0;
     } catch (RuntimeException e) {
@@ -200,6 +209,7 @@ final class MongoJobLifecycleOperations
   public boolean markJobSucceededMinimal(
       UUID id, Instant start, Instant end, Long durationMs, Long queueWaitMs) {
     try {
+      Instant now = Instant.now();
       UpdateResult result =
           ctx.jobs()
               .updateOne(
@@ -208,10 +218,11 @@ final class MongoJobLifecycleOperations
                       set(STATUS, "SUCCEEDED"),
                       set(EXECUTION_START_TIME, DocumentMapper.toDate(start)),
                       set(EXECUTION_END_TIME, DocumentMapper.toDate(end)),
+                      set(TERMINATED_AT, DocumentMapper.toDate(now)),
                       set(EXECUTION_DURATION_MS, durationMs),
                       set(QUEUE_WAIT_MS, queueWaitMs),
                       set(LAST_ERROR, null),
-                      set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                      set(UPDATED_AT, DocumentMapper.toDate(now)),
                       inc(VERSION, 1)));
       return result.getModifiedCount() > 0;
     } catch (RuntimeException e) {
@@ -232,6 +243,7 @@ final class MongoJobLifecycleOperations
     try (ClientSession session = ctx.startSession()) {
       return session.withTransaction(
           () -> {
+            Instant now = Instant.now();
             UpdateResult result =
                 ctx.jobs()
                     .updateOne(
@@ -243,10 +255,11 @@ final class MongoJobLifecycleOperations
                             set(RESULT_TYPE, resultType),
                             set(EXECUTION_START_TIME, DocumentMapper.toDate(start)),
                             set(EXECUTION_END_TIME, DocumentMapper.toDate(end)),
+                            set(TERMINATED_AT, DocumentMapper.toDate(now)),
                             set(EXECUTION_DURATION_MS, durationMs),
                             set(QUEUE_WAIT_MS, queueWaitMs),
                             set(LAST_ERROR, null),
-                            set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                            set(UPDATED_AT, DocumentMapper.toDate(now)),
                             inc(VERSION, 1)));
             if (result.getModifiedCount() == 0) {
               return false;
@@ -275,6 +288,7 @@ final class MongoJobLifecycleOperations
                           set(LAST_ERROR, error),
                           set(PICKED_BY, null),
                           set(PICKED_AT, null),
+                          unset(TERMINATED_AT),
                           set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
                           inc(VERSION, 1)));
           return result.getModifiedCount() > 0;
@@ -337,6 +351,7 @@ final class MongoJobLifecycleOperations
                           set(PICKED_BY, null),
                           set(PICKED_AT, null),
                           set(UPDATED_AT, DocumentMapper.toDate(now)),
+                          set(TERMINATED_AT, DocumentMapper.toDate(now)),
                           inc(VERSION, 1)));
           return result.getModifiedCount() > 0;
         });
@@ -360,6 +375,7 @@ final class MongoJobLifecycleOperations
                           set(PICKED_BY, null),
                           set(PICKED_AT, null),
                           set(UPDATED_AT, DocumentMapper.toDate(now)),
+                          set(TERMINATED_AT, DocumentMapper.toDate(now)),
                           inc(VERSION, 1)));
           if (runningResult.getModifiedCount() > 0) {
             return true;
@@ -372,7 +388,8 @@ final class MongoJobLifecycleOperations
                           set(STATUS, "CANCELED"),
                           set(PICKED_BY, null),
                           set(PICKED_AT, null),
-                          set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                          set(UPDATED_AT, DocumentMapper.toDate(now)),
+                          set(TERMINATED_AT, DocumentMapper.toDate(now)),
                           inc(VERSION, 1)));
           return result.getModifiedCount() > 0;
         });
@@ -421,6 +438,7 @@ final class MongoJobLifecycleOperations
     return intMutation(
         "cancel jobs by tag",
         () -> {
+          Instant now = Instant.now();
           // Explicit 3-status filter: ACTIVE_STATUSES includes RUNNING.
           UpdateResult result =
               ctx.jobs()
@@ -433,7 +451,8 @@ final class MongoJobLifecycleOperations
                           set(STATUS, "CANCELED"),
                           set(PICKED_BY, null),
                           set(PICKED_AT, null),
-                          set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                          set(UPDATED_AT, DocumentMapper.toDate(now)),
+                          set(TERMINATED_AT, DocumentMapper.toDate(now)),
                           inc(VERSION, 1)));
           return (int) result.getModifiedCount();
         });
@@ -444,6 +463,7 @@ final class MongoJobLifecycleOperations
     return intMutation(
         "cancel recurring jobs by tag",
         () -> {
+          Instant now = Instant.now();
           UpdateResult result =
               ctx.jobs()
                   .updateMany(
@@ -453,7 +473,8 @@ final class MongoJobLifecycleOperations
                           in(STATUS, MongoStoreContext.ACTIVE_STATUSES)),
                       combine(
                           set(STATUS, "CANCELED"),
-                          set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                          set(UPDATED_AT, DocumentMapper.toDate(now)),
+                          set(TERMINATED_AT, DocumentMapper.toDate(now)),
                           inc(VERSION, 1)));
           return (int) result.getModifiedCount();
         });
@@ -464,6 +485,7 @@ final class MongoJobLifecycleOperations
     return intMutation(
         "cancel recurring job by business key",
         () -> {
+          Instant now = Instant.now();
           UpdateResult result =
               ctx.jobs()
                   .updateMany(
@@ -473,7 +495,8 @@ final class MongoJobLifecycleOperations
                           in(STATUS, MongoStoreContext.ACTIVE_STATUSES)),
                       combine(
                           set(STATUS, "CANCELED"),
-                          set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                          set(UPDATED_AT, DocumentMapper.toDate(now)),
+                          set(TERMINATED_AT, DocumentMapper.toDate(now)),
                           inc(VERSION, 1)));
           return (int) result.getModifiedCount();
         });
@@ -487,6 +510,7 @@ final class MongoJobLifecycleOperations
     return intMutation(
         "cancel recurring jobs by business keys",
         () -> {
+          Instant now = Instant.now();
           UpdateResult result =
               ctx.jobs()
                   .updateMany(
@@ -496,7 +520,8 @@ final class MongoJobLifecycleOperations
                           in(STATUS, MongoStoreContext.ACTIVE_STATUSES)),
                       combine(
                           set(STATUS, "CANCELED"),
-                          set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                          set(UPDATED_AT, DocumentMapper.toDate(now)),
+                          set(TERMINATED_AT, DocumentMapper.toDate(now)),
                           inc(VERSION, 1)));
           return (int) result.getModifiedCount();
         });
@@ -511,6 +536,7 @@ final class MongoJobLifecycleOperations
     return intMutation(
         "cancel orphaned recurring annotation jobs",
         () -> {
+          Instant now = Instant.now();
           UpdateResult result =
               ctx.jobs()
                   .updateMany(
@@ -522,7 +548,8 @@ final class MongoJobLifecycleOperations
                           nin(BUSINESS_KEY, registeredIds)),
                       combine(
                           set(STATUS, "CANCELED"),
-                          set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
+                          set(UPDATED_AT, DocumentMapper.toDate(now)),
+                          set(TERMINATED_AT, DocumentMapper.toDate(now)),
                           inc(VERSION, 1)));
           return (int) result.getModifiedCount();
         });
@@ -544,6 +571,7 @@ final class MongoJobLifecycleOperations
                           set(SCHEDULED_TIME, DocumentMapper.toDate(Instant.now())),
                           set(PICKED_BY, null),
                           set(PICKED_AT, null),
+                          unset(TERMINATED_AT),
                           set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
                           inc(VERSION, 1)));
           return result.getModifiedCount() > 0;
@@ -650,5 +678,11 @@ final class MongoJobLifecycleOperations
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException(operation, e);
     }
+  }
+
+  private static Date terminalDate(JobStatus status, Instant now) {
+    return MongoStoreContext.TERMINAL_STATUSES.contains(status.name())
+        ? DocumentMapper.toDate(now)
+        : null;
   }
 }
