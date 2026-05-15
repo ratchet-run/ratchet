@@ -7,14 +7,7 @@ import run.ratchet.api.Incubating;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 
-/**
- * Reserved for a future pause notification contract.
- *
- * <p>The current reference implementation does not publish this event. Treat it as an incubating
- * API type until pause event delivery is specified.
- *
- * @since 0.1
- */
+/** Fired when a job is paused. @since 0.1 */
 @Incubating
 public class JobPausedEvent extends AbstractJobSchedulerEvent {
 
