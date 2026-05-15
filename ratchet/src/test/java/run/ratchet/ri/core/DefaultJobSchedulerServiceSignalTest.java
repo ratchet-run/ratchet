@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -31,7 +32,9 @@ import run.ratchet.api.SignalDecision;
 import run.ratchet.api.event.JobSignaledEvent;
 import run.ratchet.api.event.JobsBulkCancelledEvent;
 import run.ratchet.api.event.JobsBulkSignaledEvent;
+import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.ri.security.CallerPrincipalProvider;
+import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.store.entity.JobEntity;
@@ -65,6 +68,7 @@ class DefaultJobSchedulerServiceSignalTest {
   @Mock private JobWakeupService wakeupService;
   @Mock private RecurringScheduler recurringScheduler;
   @Mock private DefaultJobCreationService jobCreationService;
+  @Mock private JobAuthorizationPolicy authorizationPolicy;
   @Mock private SignalStore signalStore;
   @Mock private PayloadSerializer payloadSerializer;
   @Mock private MetricsCollector metricsCollector;
@@ -229,6 +233,77 @@ class DefaultJobSchedulerServiceSignalTest {
   }
 
   @Test
+  void deliverSignalByIdChecksAuthorizationBeforeStoreUpdate() {
+    DefaultJobSchedulerService authorizedService =
+        newService(payloadSerializer, authorizationPolicy);
+    JobEntity job = job(JOB_ID, "approval-key");
+    job.setCallerPrincipal("alice");
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(signalStore.deliverSignalById(
+            eq(JOB_ID),
+            isNull(),
+            eq(DefaultJobSchedulerService.SIGNAL_PAYLOAD_TYPE_RAW),
+            eq("APPROVED"),
+            isNull(),
+            eq("bob"),
+            eq(FIXED_NOW),
+            anyString()))
+        .thenReturn(1);
+
+    assertEquals(1, authorizedService.deliverSignal(JOB_ID, (Serializable) null));
+
+    verify(authorizationPolicy).checkDeliverSignal(JOB_ID, "alice", "bob");
+    verify(signalStore)
+        .deliverSignalById(
+            eq(JOB_ID), isNull(), eq("RAW"), eq("APPROVED"), isNull(), eq("bob"), any(), any());
+  }
+
+  @Test
+  void deliverSignalByIdAuthorizationDenialSkipsStoreUpdate() {
+    DefaultJobSchedulerService authorizedService =
+        newService(payloadSerializer, authorizationPolicy);
+    JobEntity job = job(JOB_ID, "approval-key");
+    job.setCallerPrincipal("alice");
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    doThrow(new JobAuthorizationException(JOB_ID, "deliverSignal", "bob", "denied"))
+        .when(authorizationPolicy)
+        .checkDeliverSignal(JOB_ID, "alice", "bob");
+
+    assertThrows(
+        JobAuthorizationException.class,
+        () -> authorizedService.deliverSignal(JOB_ID, (Serializable) null));
+
+    verify(signalStore, never())
+        .deliverSignalById(eq(JOB_ID), any(), any(), any(), any(), any(), any(), any());
+    verify(eventPublisher, never()).publish(any());
+  }
+
+  @Test
+  void deliverSignalByKeyWithNullPrincipalPersistsAndPublishesSystemActor() {
+    DefaultJobSchedulerService systemService =
+        newService(payloadSerializer, metricsCollector, authorizationPolicy, Optional.empty());
+    when(signalStore.deliverSignalByKey(
+            eq("approval-key"),
+            isNull(),
+            eq(DefaultJobSchedulerService.SIGNAL_PAYLOAD_TYPE_RAW),
+            eq("APPROVED"),
+            isNull(),
+            eq("system"),
+            eq(FIXED_NOW),
+            anyString()))
+        .thenReturn(2);
+
+    assertEquals(2, systemService.deliverSignal("approval-key", (Serializable) null));
+
+    verify(authorizationPolicy).checkDeliverSignal("approval-key", null);
+    ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
+    verify(eventPublisher).publish(eventCaptor.capture());
+    JobsBulkSignaledEvent event =
+        assertInstanceOf(JobsBulkSignaledEvent.class, eventCaptor.getValue());
+    assertEquals("system", event.getSignalDeliveredBy());
+  }
+
+  @Test
   void deliverSignalRawWithPayloadWithoutSerializerThrowsBeforeStoreUpdate() {
     DefaultJobSchedulerService noSerializer = newService(null);
 
@@ -251,7 +326,7 @@ class DefaultJobSchedulerServiceSignalTest {
 
   @Test
   void deliverSignalWithoutMetricsCollectorStillPublishesEvent() {
-    DefaultJobSchedulerService noMetrics = newService(payloadSerializer, null);
+    DefaultJobSchedulerService noMetrics = newService(payloadSerializer, (MetricsCollector) null);
     SignalDecision decision = SignalDecision.approved("approved-payload");
     JobEntity job = job(JOB_ID, "approval-key");
     when(payloadSerializer.serialize("approved-payload")).thenReturn("serialized-payload");
@@ -292,11 +367,24 @@ class DefaultJobSchedulerServiceSignalTest {
 
   private DefaultJobSchedulerService newService(
       PayloadSerializer serializer, MetricsCollector signalMetricsCollector) {
+    return newService(serializer, signalMetricsCollector, null, Optional.of("bob"));
+  }
+
+  private DefaultJobSchedulerService newService(
+      PayloadSerializer serializer, JobAuthorizationPolicy signalAuthorizationPolicy) {
+    return newService(serializer, metricsCollector, signalAuthorizationPolicy, Optional.of("bob"));
+  }
+
+  private DefaultJobSchedulerService newService(
+      PayloadSerializer serializer,
+      MetricsCollector signalMetricsCollector,
+      JobAuthorizationPolicy signalAuthorizationPolicy,
+      Optional<String> currentPrincipal) {
     CallerPrincipalProvider callerProvider =
         new CallerPrincipalProvider(null) {
           @Override
           public Optional<String> currentPrincipal() {
-            return Optional.of("bob");
+            return currentPrincipal;
           }
         };
 
@@ -315,7 +403,7 @@ class DefaultJobSchedulerServiceSignalTest {
         null,
         jobCreationService,
         callerProvider,
-        null,
+        signalAuthorizationPolicy,
         signalStore,
         serializer,
         signalMetricsCollector,

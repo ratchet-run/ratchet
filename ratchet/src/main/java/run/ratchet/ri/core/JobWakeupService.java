@@ -1,6 +1,5 @@
 package run.ratchet.ri.core;
 
-import jakarta.annotation.Resource;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
@@ -8,6 +7,8 @@ import jakarta.transaction.Status;
 import jakarta.transaction.Synchronization;
 import jakarta.transaction.TransactionSynchronizationRegistry;
 import java.time.Duration;
+import javax.naming.InitialContext;
+import javax.naming.NamingException;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobPriority;
 import run.ratchet.spi.ClusterCoordinator;
@@ -29,7 +30,7 @@ public class JobWakeupService {
   private final Instance<PollerScheduler> pollerSchedulerInstance;
   private final MetricsCollector metricsCollector;
 
-  @Resource private TransactionSynchronizationRegistry txRegistry;
+  private volatile TransactionSynchronizationRegistry txRegistry;
 
   protected JobWakeupService() {
     this.clusterCoordinator = null;
@@ -93,7 +94,32 @@ public class JobWakeupService {
 
   private boolean registerAfterCommit(Runnable action) {
     return registerAfterCommit(
-        txRegistry, action, log, "After-commit wakeup registration error; firing now: %s");
+        resolveTxRegistry(), action, log, "After-commit wakeup registration error; firing now: %s");
+  }
+
+  private TransactionSynchronizationRegistry resolveTxRegistry() {
+    TransactionSynchronizationRegistry reg = txRegistry;
+    if (reg == null) {
+      synchronized (this) {
+        reg = txRegistry;
+        if (reg == null) {
+          reg = lookupTxRegistry(log);
+          txRegistry = reg;
+        }
+      }
+    }
+    return reg;
+  }
+
+  public static TransactionSynchronizationRegistry lookupTxRegistry(Logger log) {
+    try {
+      return InitialContext.doLookup("java:comp/TransactionSynchronizationRegistry");
+    } catch (NamingException e) {
+      log.debugf(
+          "TransactionSynchronizationRegistry lookup unavailable; using immediate fallback: %s",
+          e.getMessage());
+      return null;
+    }
   }
 
   static boolean registerAfterCommit(

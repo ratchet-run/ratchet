@@ -130,6 +130,42 @@ public interface JobAuthorizationPolicy {
       throws JobAuthorizationException;
 
   /**
+   * Called before delivering a signal to a specific job, within the {@code REQUIRED} transaction.
+   *
+   * <p>Note: same TOCTOU caveat as {@link #checkCancel} — {@code ownerPrincipal} may be {@code
+   * null} if the job was deleted between the pre-load and the signal delivery CAS.
+   *
+   * <p>The default implementation is a no-op for compatibility. Override to enforce who may unblock
+   * a WAITING job.
+   *
+   * @param jobId the job to signal
+   * @param ownerPrincipal the principal who created the job; {@code null} for system jobs
+   * @param currentPrincipal the principal delivering the signal; {@code null} if no security
+   *     context is active
+   * @throws JobAuthorizationException if signal delivery is denied
+   */
+  default void checkDeliverSignal(UUID jobId, String ownerPrincipal, String currentPrincipal)
+      throws JobAuthorizationException {}
+
+  /**
+   * Called before bulk delivery of a named signal, within the {@code REQUIRED} transaction.
+   *
+   * <p>Key-based delivery is an atomic bulk operation, so this hook receives the signal key instead
+   * of per-job owner principals. Policies that need owner-scoped authorization should require
+   * callers to use the job-id overload.
+   *
+   * <p>The default implementation is a no-op for compatibility. Override to restrict who may
+   * broadcast signals by key.
+   *
+   * @param signalKey the named signal being delivered
+   * @param currentPrincipal the principal delivering the signal; {@code null} if no security
+   *     context is active
+   * @throws JobAuthorizationException if signal delivery is denied
+   */
+  default void checkDeliverSignal(String signalKey, String currentPrincipal)
+      throws JobAuthorizationException {}
+
+  /**
    * Called before returning a single job's detail to the caller via {@link
    * run.ratchet.api.JobQueryService#getJobDetail}.
    *

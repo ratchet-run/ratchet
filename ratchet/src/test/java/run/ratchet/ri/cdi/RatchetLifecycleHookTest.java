@@ -4,9 +4,11 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import jakarta.annotation.Priority;
 import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.Instance.Handle;
 import jakarta.enterprise.util.TypeLiteral;
@@ -72,6 +74,84 @@ class RatchetLifecycleHookTest {
   }
 
   @Test
+  void hooksRunInPriorityThenClassNameOrder() {
+    List<String> events = new ArrayList<>();
+    SchedulerLifecycleHook zulu = new ZuluFallbackHook(events);
+    SchedulerLifecycleHook lowPriority = new LowPriorityHook(events);
+    SchedulerLifecycleHook alpha = new AlphaFallbackHook(events);
+    SchedulerLifecycleHook highPriority = new HighPriorityHook(events);
+
+    RatchetLifecycle lifecycle =
+        newLifecycle(new RecordingInstance<>(List.of(zulu, lowPriority, alpha, highPriority)));
+
+    lifecycle.onStartup(new Object());
+
+    assertEquals(
+        List.of(
+            "high.beforeStart",
+            "low.beforeStart",
+            "alpha.beforeStart",
+            "zulu.beforeStart",
+            "high.afterStart",
+            "low.afterStart",
+            "alpha.afterStart",
+            "zulu.afterStart"),
+        events);
+  }
+
+  @Test
+  void failedBeforeStartHookDoesNotReceivePairedLifecyclePhases() {
+    List<String> events = new ArrayList<>();
+    SchedulerLifecycleHook failing = new FailingBeforeStartHook(events);
+    SchedulerLifecycleHook successful = new SuccessfulHook(events);
+
+    RatchetLifecycle lifecycle =
+        newLifecycle(new RecordingInstance<>(List.of(successful, failing)));
+
+    assertDoesNotThrow(() -> lifecycle.onStartup(new Object()));
+    lifecycle.onShutdown();
+
+    assertEquals(
+        List.of(
+            "failing.beforeStart",
+            "successful.beforeStart",
+            "successful.afterStart",
+            "successful.beforeStop",
+            "successful.afterStop"),
+        events);
+  }
+
+  @Test
+  void failedBeforeStopHookDoesNotReceiveAfterStop() {
+    List<String> events = new ArrayList<>();
+    SchedulerLifecycleHook hook = new FailingBeforeStopHook(events);
+
+    RatchetLifecycle lifecycle = newLifecycle(new RecordingInstance<>(List.of(hook)));
+
+    lifecycle.onStartup(new Object());
+    assertDoesNotThrow(lifecycle::onShutdown);
+
+    assertEquals(
+        List.of("failingStop.beforeStart", "failingStop.afterStart", "failingStop.beforeStop"),
+        events);
+  }
+
+  @Test
+  void onShutdown_isIdempotent() {
+    SchedulerLifecycleHook hook = mock(SchedulerLifecycleHook.class);
+    RecordingInstance<SchedulerLifecycleHook> hookInstance = new RecordingInstance<>(List.of(hook));
+
+    RatchetLifecycle lifecycle = newLifecycle(hookInstance);
+    lifecycle.onStartup(new Object());
+    lifecycle.onShutdown();
+    lifecycle.onShutdown();
+
+    verify(hook, times(1)).beforeStop();
+    verify(hook, times(1)).afterStop();
+    assertEquals(List.of(hook), hookInstance.destroyed);
+  }
+
+  @Test
   void onShutdown_withNullInstance_doesNotThrow() {
     // Non-CDI construction path — no Instance available; destroyHooks must be a safe no-op.
     RatchetLifecycle lifecycle = newLifecycleNoCdi();
@@ -96,25 +176,34 @@ class RatchetLifecycleHookTest {
 
   @Test
   void nonStartupPhases_swallowSchemaInitializationExceptionLikeOtherHookFailures() {
-    SchedulerLifecycleHook hook =
+    SchedulerLifecycleHook afterStartFailure =
         new SchedulerLifecycleHook() {
           @Override
           public void afterStart() {
             throw new SchemaInitializationException("late hook failure");
           }
+        };
 
+    SchedulerLifecycleHook beforeStopFailure =
+        new SchedulerLifecycleHook() {
           @Override
           public void beforeStop() {
             throw new SchemaInitializationException("shutdown hook failure");
           }
+        };
 
+    SchedulerLifecycleHook afterStopFailure =
+        new SchedulerLifecycleHook() {
           @Override
           public void afterStop() {
             throw new SchemaInitializationException("post-shutdown hook failure");
           }
         };
 
-    RatchetLifecycle lifecycle = newLifecycle(new RecordingInstance<>(List.of(hook)));
+    RatchetLifecycle lifecycle =
+        newLifecycle(
+            new RecordingInstance<>(
+                List.of(afterStartFailure, beforeStopFailure, afterStopFailure)));
 
     assertDoesNotThrow(() -> lifecycle.onStartup(new Object()));
     assertDoesNotThrow(lifecycle::onShutdown);
@@ -238,6 +327,168 @@ class RatchetLifecycleHookTest {
     @Override
     public Stream<Handle<T>> handlesStream() {
       throw new UnsupportedOperationException();
+    }
+  }
+
+  private static final class AlphaFallbackHook implements SchedulerLifecycleHook {
+    private final List<String> events;
+
+    AlphaFallbackHook(List<String> events) {
+      this.events = events;
+    }
+
+    @Override
+    public void beforeStart() {
+      events.add("alpha.beforeStart");
+    }
+
+    @Override
+    public void afterStart() {
+      events.add("alpha.afterStart");
+    }
+  }
+
+  private static final class ZuluFallbackHook implements SchedulerLifecycleHook {
+    private final List<String> events;
+
+    ZuluFallbackHook(List<String> events) {
+      this.events = events;
+    }
+
+    @Override
+    public void beforeStart() {
+      events.add("zulu.beforeStart");
+    }
+
+    @Override
+    public void afterStart() {
+      events.add("zulu.afterStart");
+    }
+  }
+
+  @Priority(10)
+  private static final class HighPriorityHook implements SchedulerLifecycleHook {
+    private final List<String> events;
+
+    HighPriorityHook(List<String> events) {
+      this.events = events;
+    }
+
+    @Override
+    public void beforeStart() {
+      events.add("high.beforeStart");
+    }
+
+    @Override
+    public void afterStart() {
+      events.add("high.afterStart");
+    }
+  }
+
+  @Priority(20)
+  private static final class LowPriorityHook implements SchedulerLifecycleHook {
+    private final List<String> events;
+
+    LowPriorityHook(List<String> events) {
+      this.events = events;
+    }
+
+    @Override
+    public void beforeStart() {
+      events.add("low.beforeStart");
+    }
+
+    @Override
+    public void afterStart() {
+      events.add("low.afterStart");
+    }
+  }
+
+  @Priority(10)
+  private static final class FailingBeforeStartHook implements SchedulerLifecycleHook {
+    private final List<String> events;
+
+    FailingBeforeStartHook(List<String> events) {
+      this.events = events;
+    }
+
+    @Override
+    public void beforeStart() {
+      events.add("failing.beforeStart");
+      throw new IllegalStateException("hook failed");
+    }
+
+    @Override
+    public void afterStart() {
+      events.add("failing.afterStart");
+    }
+
+    @Override
+    public void beforeStop() {
+      events.add("failing.beforeStop");
+    }
+
+    @Override
+    public void afterStop() {
+      events.add("failing.afterStop");
+    }
+  }
+
+  @Priority(20)
+  private static final class SuccessfulHook implements SchedulerLifecycleHook {
+    private final List<String> events;
+
+    SuccessfulHook(List<String> events) {
+      this.events = events;
+    }
+
+    @Override
+    public void beforeStart() {
+      events.add("successful.beforeStart");
+    }
+
+    @Override
+    public void afterStart() {
+      events.add("successful.afterStart");
+    }
+
+    @Override
+    public void beforeStop() {
+      events.add("successful.beforeStop");
+    }
+
+    @Override
+    public void afterStop() {
+      events.add("successful.afterStop");
+    }
+  }
+
+  private static final class FailingBeforeStopHook implements SchedulerLifecycleHook {
+    private final List<String> events;
+
+    FailingBeforeStopHook(List<String> events) {
+      this.events = events;
+    }
+
+    @Override
+    public void beforeStart() {
+      events.add("failingStop.beforeStart");
+    }
+
+    @Override
+    public void afterStart() {
+      events.add("failingStop.afterStart");
+    }
+
+    @Override
+    public void beforeStop() {
+      events.add("failingStop.beforeStop");
+      throw new IllegalStateException("stop hook failed");
+    }
+
+    @Override
+    public void afterStop() {
+      events.add("failingStop.afterStop");
     }
   }
 }

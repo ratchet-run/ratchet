@@ -1,8 +1,10 @@
 module run.ratchet.store.core {
   requires transitive run.ratchet.api;
   requires transitive jakarta.persistence;
+  requires jakarta.annotation;
   requires jakarta.cdi;
   requires jakarta.inject;
+  requires jakarta.interceptor;
   requires jakarta.json;
   requires jakarta.json.bind;
   requires java.sql;
