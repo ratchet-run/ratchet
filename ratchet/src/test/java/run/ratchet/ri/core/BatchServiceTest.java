@@ -10,6 +10,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import jakarta.transaction.Status;
+import jakarta.transaction.Synchronization;
+import jakarta.transaction.TransactionSynchronizationRegistry;
 import jakarta.transaction.Transactional;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
@@ -58,6 +61,7 @@ class BatchServiceTest {
   @Mock private WorkflowScheduler workflowScheduler;
   @Mock private ClassPolicy classPolicy;
   @Mock private BeanResolver beanResolver;
+  @Mock private TransactionSynchronizationRegistry txRegistry;
 
   private BatchService batchService;
 
@@ -142,6 +146,42 @@ class BatchServiceTest {
     assertEquals(0, completingEvent.getFailedItems());
     verify(batchStore, never()).findBatchById(parentId);
     verify(jobTerminalStore).markJobSucceededMinimal(parentId, FIXED_NOW, FIXED_NOW, 0L, 0L);
+  }
+
+  @Test
+  void completedBatchEventPublishesAfterCommit() {
+    batchService.setTxRegistryForTesting(txRegistry);
+    when(txRegistry.getTransactionStatus()).thenReturn(Status.STATUS_ACTIVE);
+    ArgumentCaptor<Synchronization> synchronizationCaptor =
+        ArgumentCaptor.forClass(Synchronization.class);
+    UUID parentId = UUID.randomUUID();
+    JobEntity child = new JobEntity();
+    child.setDependsOn(parentId);
+    BatchProgress progress = new BatchProgress(parentId, 1, 1, 0, null);
+    JobEntity parent = new JobEntity();
+    parent.setId(parentId);
+    parent.setStatus(JobStatus.PENDING);
+    parent.setJobType(JobExecutionType.BATCH_PARENT);
+    parent.setPriority(JobPriority.NORMAL);
+
+    when(batchStore.incrementCompletedAtomic(parentId)).thenReturn(progress);
+    when(batchStore.markBatchCompleteIfReady(parentId)).thenReturn(true);
+    when(jobCrudStore.findById(parentId)).thenReturn(Optional.of(parent));
+    when(jobBatchStatusStore.tryPickUpJob(parentId, DefaultBatchBuilder.BATCH_LIFECYCLE_NODE_ID))
+        .thenReturn(true);
+    when(jobTerminalStore.markJobSucceededMinimal(parentId, FIXED_NOW, FIXED_NOW, 0L, 0L))
+        .thenReturn(true);
+    when(metricsStore.findBatchMetrics(parentId)).thenReturn(Optional.empty());
+    when(workflowScheduler.scheduleNext(any(JobEntity.class))).thenReturn(false);
+
+    batchService.markChildSucceeded(child);
+
+    verify(txRegistry).registerInterposedSynchronization(synchronizationCaptor.capture());
+    verify(eventPublisher, never()).publish(any());
+
+    synchronizationCaptor.getValue().afterCompletion(Status.STATUS_COMMITTED);
+
+    verify(eventPublisher).publish(any(BatchCompletingEvent.class));
   }
 
   @Test

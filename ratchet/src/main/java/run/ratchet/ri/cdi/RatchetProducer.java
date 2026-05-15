@@ -10,6 +10,7 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.enterprise.inject.Produces;
 import jakarta.enterprise.inject.spi.DeploymentException;
 import jakarta.inject.Inject;
+import jakarta.transaction.TransactionSynchronizationRegistry;
 import java.time.Clock;
 import java.util.EnumMap;
 import java.util.Map;
@@ -155,7 +156,8 @@ public class RatchetProducer {
       Clock clock,
       InternalEventPublisher eventPublisher,
       WorkflowScheduler workflowScheduler,
-      SignalStore signalStore) {
+      SignalStore signalStore,
+      TransactionSynchronizationRegistry txRegistry) {
     int softTimeoutPercent = options.timeout().softTimeoutPercent();
     long defaultTimeoutSeconds = options.timeout().defaultSlaSeconds();
     int signalTimeoutBatchSize = options.timeout().signalTimeoutBatchSize();
@@ -172,7 +174,8 @@ public class RatchetProducer {
         workflowScheduler,
         signalStore,
         metricsCollector,
-        signalTimeoutBatchSize);
+        signalTimeoutBatchSize,
+        txRegistry);
   }
 
   @Produces

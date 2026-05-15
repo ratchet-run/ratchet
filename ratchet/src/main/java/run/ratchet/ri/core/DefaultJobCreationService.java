@@ -2,8 +2,10 @@ package run.ratchet.ri.core;
 
 import com.cronutils.model.Cron;
 import com.cronutils.model.time.ExecutionTime;
+import jakarta.annotation.Resource;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.transaction.TransactionSynchronizationRegistry;
 import jakarta.transaction.Transactional;
 import java.io.Serializable;
 import java.time.Clock;
@@ -74,6 +76,8 @@ public class DefaultJobCreationService
   private final InternalEventPublisher eventPublisher;
   private final MetricsCollector metricsCollector;
   private final Clock clock;
+
+  @Resource private TransactionSynchronizationRegistry txRegistry;
 
   protected DefaultJobCreationService() {
     this.jobBatchStatusStore = null;
@@ -230,15 +234,7 @@ public class DefaultJobCreationService
     UUID jobId = saved.getId();
 
     if (isSignalWaiting && eventPublisher != null) {
-      eventPublisher.publish(
-          new JobSignalWaitingEvent(
-              jobId,
-              saved.getBusinessKey(),
-              saved.getPublicJobType(),
-              saved.getPriority(),
-              null,
-              signalKey,
-              signalTimeout));
+      publishSignalWaitingEvent(saved, signalKey, signalTimeout);
     }
     if (isSignalWaiting && metricsCollector != null) {
       metricsCollector.signalWaiting(jobId, saved.getPublicJobType(), signalKey);
@@ -591,6 +587,34 @@ public class DefaultJobCreationService
       job.setId(UuidV7Factory.create());
     }
     authorizationPolicy.checkCreate(job.getId(), job.getCallerPrincipal());
+  }
+
+  private void publishSignalWaitingEvent(
+      JobEntity saved, String signalKey, Duration signalTimeout) {
+    JobSignalWaitingEvent event =
+        new JobSignalWaitingEvent(
+            saved.getId(),
+            saved.getBusinessKey(),
+            saved.getPublicJobType(),
+            saved.getPriority(),
+            null,
+            signalKey,
+            signalTimeout);
+    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+      eventPublisher.publish(event);
+    }
+  }
+
+  private boolean registerAfterCommit(Runnable action) {
+    return JobWakeupService.registerAfterCommit(
+        txRegistry,
+        action,
+        log,
+        "After-commit signal waiting event registration failed; publishing immediately: %s");
+  }
+
+  void setTxRegistryForTesting(TransactionSynchronizationRegistry txRegistry) {
+    this.txRegistry = txRegistry;
   }
 
   /**

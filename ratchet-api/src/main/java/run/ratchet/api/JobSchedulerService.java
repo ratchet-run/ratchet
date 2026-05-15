@@ -248,6 +248,9 @@ public interface JobSchedulerService {
    * <p>The signal payload is serialized and stored on the job entity; it is accessible to the
    * executing task via {@link JobContext#signalPayload(Class)}.
    *
+   * <p>Subject to {@link run.ratchet.spi.JobAuthorizationPolicy#checkDeliverSignal(UUID, String,
+   * String)}.
+   *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}.
    *
    * @param jobId UUIDv7 job id of the WAITING job
@@ -264,6 +267,9 @@ public interface JobSchedulerService {
    *
    * <p>Idempotent: if the job is already in a non-WAITING state (including terminal states), this
    * method returns {@code 0} without modifying the job.
+   *
+   * <p>Subject to {@link run.ratchet.spi.JobAuthorizationPolicy#checkDeliverSignal(UUID, String,
+   * String)}.
    *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}.
    *
@@ -285,6 +291,10 @@ public interface JobSchedulerService {
    * <p>Idempotent: jobs already past WAITING are not affected and do not count toward the return
    * value.
    *
+   * <p>Subject to {@link run.ratchet.spi.JobAuthorizationPolicy#checkDeliverSignal(String,
+   * String)}. Because this is an atomic bulk operation, the policy receives the signal key rather
+   * than per-job owner principals.
+   *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}.
    *
    * @param signalKey the named signal to broadcast
@@ -297,6 +307,10 @@ public interface JobSchedulerService {
   /**
    * Delivers a structured approval/rejection decision to all WAITING jobs whose {@code signalKey}
    * matches, transitioning each to PENDING.
+   *
+   * <p>Subject to {@link run.ratchet.spi.JobAuthorizationPolicy#checkDeliverSignal(String,
+   * String)}. Because this is an atomic bulk operation, the policy receives the signal key rather
+   * than per-job owner principals.
    *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}.
    *
