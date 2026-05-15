@@ -31,6 +31,7 @@ import org.bson.conversions.Bson;
 import run.ratchet.store.entity.ArchivedJobEntity;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.id.UuidV7Factory;
+import run.ratchet.store.spi.ArchiveStore;
 
 /**
  * Archive operations over {@code scheduler_job_archive}. Terminal-state jobs matching the retention
@@ -38,7 +39,7 @@ import run.ratchet.store.id.UuidV7Factory;
  * inside one Mongo transaction because the Jakarta transaction on the caller cannot enlist this
  * driver session.
  */
-final class MongoArchiveOperations {
+final class MongoArchiveOperations implements ArchiveStore {
 
   private final MongoStoreContext ctx;
   private final Clock clock;
@@ -56,7 +57,8 @@ final class MongoArchiveOperations {
    * Archives one terminal job and atomically deletes it from the active collection. Consistent with
    * the batch variant: both insert and delete succeed together or neither does.
    */
-  ArchivedJobEntity archiveJob(JobEntity job, String reason, String archivedBy) {
+  @Override
+  public ArchivedJobEntity archiveJob(JobEntity job, String reason, String archivedBy) {
     ArchivedJobEntity archive = buildArchive(job, reason, archivedBy);
     archive.setId(UuidV7Factory.create());
     Document doc = DocumentMapper.toDocument(archive);
@@ -73,7 +75,8 @@ final class MongoArchiveOperations {
     return archive;
   }
 
-  int archiveJobsBatch(List<JobEntity> jobList, String reason, String archivedBy) {
+  @Override
+  public int archiveJobsBatch(List<JobEntity> jobList, String reason, String archivedBy) {
     if (jobList.isEmpty()) {
       return 0;
     }
@@ -107,7 +110,8 @@ final class MongoArchiveOperations {
     return docs.size();
   }
 
-  List<JobEntity> findJobsForArchiving(Instant olderThan, int limit) {
+  @Override
+  public List<JobEntity> findJobsForArchiving(Instant olderThan, int limit) {
     List<JobEntity> results = new ArrayList<>();
     for (Document doc :
         ctx.jobs()
@@ -119,11 +123,13 @@ final class MongoArchiveOperations {
     return results;
   }
 
-  long countJobsForArchiving(Instant olderThan) {
+  @Override
+  public long countJobsForArchiving(Instant olderThan) {
     return ctx.jobs().countDocuments(terminalOlderThan(olderThan));
   }
 
-  List<ArchivedJobEntity> findArchivedJobs(
+  @Override
+  public List<ArchivedJobEntity> findArchivedJobs(
       String targetClass, String businessKey, Instant from, Instant to, int limit) {
     List<Bson> filters = new ArrayList<>();
     if (targetClass != null) {
@@ -147,7 +153,8 @@ final class MongoArchiveOperations {
     return results;
   }
 
-  int purgeArchivedJobs(Instant olderThan) {
+  @Override
+  public int purgeArchivedJobs(Instant olderThan) {
     DeleteResult result =
         ctx.archives().deleteMany(lt(ARCHIVED_AT, DocumentMapper.toDate(olderThan)));
     return (int) result.getDeletedCount();

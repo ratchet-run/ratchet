@@ -4,6 +4,7 @@ import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
+import jakarta.transaction.TransactionSynchronizationRegistry;
 import jakarta.transaction.Transactional;
 import java.lang.reflect.Method;
 import java.time.Clock;
@@ -56,6 +57,8 @@ public class BatchService {
   private final BeanResolver beanResolver;
   private final Clock clock;
   private final Instance<BatchService> self;
+
+  private volatile TransactionSynchronizationRegistry txRegistry;
 
   protected BatchService() {
     this.batchStore = null;
@@ -363,7 +366,7 @@ public class BatchService {
   }
 
   private void publishBatchEvent(BatchEntity batch, JobEntity parent) {
-    eventPublisher.publish(
+    BatchCompletingEvent event =
         new BatchCompletingEvent(
             batch.getId(),
             parent.getBusinessKey(),
@@ -372,7 +375,36 @@ public class BatchService {
             parent.getPickedBy(),
             batch.getTotalItems(),
             batch.getCompletedItems(),
-            batch.getFailedItems()));
+            batch.getFailedItems());
+    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+      eventPublisher.publish(event);
+    }
+  }
+
+  private boolean registerAfterCommit(Runnable action) {
+    return JobWakeupService.registerAfterCommit(
+        resolveTxRegistry(),
+        action,
+        log,
+        "After-commit batch completing event registration failed; publishing immediately: %s");
+  }
+
+  private TransactionSynchronizationRegistry resolveTxRegistry() {
+    TransactionSynchronizationRegistry reg = txRegistry;
+    if (reg == null) {
+      synchronized (this) {
+        reg = txRegistry;
+        if (reg == null) {
+          reg = JobWakeupService.lookupTxRegistry(log);
+          txRegistry = reg;
+        }
+      }
+    }
+    return reg;
+  }
+
+  void setTxRegistryForTesting(TransactionSynchronizationRegistry txRegistry) {
+    this.txRegistry = txRegistry;
   }
 
   private void trigger(BatchEntity batch) {
@@ -441,9 +473,21 @@ public class BatchService {
     if (batchStore.markBatchCompleteIfReady(parentId)) {
       // markBatchCompleteIfReady can have more than one apparent winner under concurrent commits.
       // The parent pickup CAS in processBatchCompletion is the exactly-once gate.
-      return processBatchCompletion(parentId, batchFromProgress(progress));
+      return processBatchCompletion(parentId, completionSnapshot(parentId, progress));
     }
     return false;
+  }
+
+  private BatchEntity completionSnapshot(UUID parentId, BatchProgress progress) {
+    return batchStore
+        .findBatchById(parentId)
+        .orElseGet(
+            () -> {
+              log.warnf(
+                  "Batch %s not found after completion marker was set; using progress snapshot",
+                  parentId);
+              return batchFromProgress(progress);
+            });
   }
 
   private BatchEntity batchFromProgress(BatchProgress progress) {
