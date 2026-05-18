@@ -16,10 +16,11 @@ import run.ratchet.api.Incubating;
  *
  * <p>Exceptions thrown from {@link #beforeStart()}, {@link #afterStart()}, {@link #beforeStop()},
  * or {@link #afterStop()} are logged at {@code WARN} and swallowed by the lifecycle observer so a
- * single misbehaving hook does not block deployment. The one exception is {@code
- * run.ratchet.store.migration.SchemaInitializationException} thrown from {@link #beforeStart()},
- * which propagates and aborts startup; an unmigrated or incompatible schema must not silently
- * become a runtime failure on the first store call.
+ * single misbehaving hook does not block deployment. Store-provided schema initialization hooks may
+ * throw a store-specific startup-abort exception from {@link #beforeStart()}, which propagates and
+ * aborts startup; an unmigrated or incompatible schema must not silently become a runtime failure
+ * on the first store call. API-only hook implementations should treat other exceptions as
+ * best-effort warnings.
  */
 @Incubating
 public interface SchedulerLifecycleHook {
@@ -27,8 +28,8 @@ public interface SchedulerLifecycleHook {
   /**
    * Runs before Ratchet starts pollers, recurring registration, or maintenance work.
    *
-   * <p>Throw {@code SchemaInitializationException} here to abort startup for an incompatible
-   * schema.
+   * <p>Store modules may throw their startup-abort exception here to stop deployment for an
+   * incompatible schema.
    */
   default void beforeStart() {}
 

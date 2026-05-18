@@ -105,6 +105,18 @@ class DefaultNodeIdentityProviderTest {
   }
 
   @Test
+  void getNodeId_returnsStableValueBeforeInitAndInitReusesIt() {
+    assertEquals("test-node", provider.getNodeId());
+    assertEquals("test-node", provider.getNodeId());
+
+    provider.init();
+
+    verify(nodeStore).upsertHeartbeat("test-node", clock.instant());
+    verify(jobBulkStore).resetOrphanJobsForNode("test-node");
+    verify(scheduledExecutor).schedule(any(Runnable.class), eq(5L), eq(TimeUnit.SECONDS));
+  }
+
+  @Test
   void shutdown_preventsScheduledHeartbeatFromTouchingStore() {
     provider.init();
     Runnable scheduledHeartbeat = runnableCaptor.getValue();

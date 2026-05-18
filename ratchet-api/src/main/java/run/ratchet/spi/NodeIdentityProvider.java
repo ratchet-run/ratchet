@@ -11,6 +11,6 @@ import run.ratchet.api.Incubating;
 @Incubating
 public interface NodeIdentityProvider {
 
-  /** Returns the non-null node identifier. Must be immutable for the node's lifecycle. */
+  /** Returns the non-null node identifier. Must be immutable for the provider lifecycle. */
   String getNodeId();
 }

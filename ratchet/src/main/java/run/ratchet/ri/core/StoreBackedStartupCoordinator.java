@@ -37,9 +37,18 @@ public class StoreBackedStartupCoordinator implements StartupCoordinator {
     return LOCK_PREFIX + normalized;
   }
 
+  private static Duration positiveLeaseTtl(Duration leaseTtl) {
+    Duration ttl = Objects.requireNonNull(leaseTtl, "leaseTtl must not be null");
+    if (ttl.isZero() || ttl.isNegative()) {
+      throw new IllegalArgumentException("leaseTtl must be positive");
+    }
+    return ttl;
+  }
+
   @Override
   public boolean tryAcquire(String actionName, Duration leaseTtl) {
-    return lockStore.tryLock(lockName(actionName), leaseTtl, nodeIdentityProvider.getNodeId());
+    return lockStore.tryLock(
+        lockName(actionName), positiveLeaseTtl(leaseTtl), nodeIdentityProvider.getNodeId());
   }
 
   @Override

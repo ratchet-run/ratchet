@@ -18,6 +18,9 @@ public interface ClusterCoordinator {
   /**
    * Signals that new work is available somewhere in the cluster.
    *
+   * <p>Wakeups are best-effort hints. Implementations should tolerate transport failures without
+   * throwing to the caller; the local poll loop remains the source of truth.
+   *
    * @param priority priority of the newly available work; never {@code null}
    */
   void notifyNewWork(JobPriority priority);
@@ -27,7 +30,9 @@ public interface ClusterCoordinator {
    *
    * <p>Implementations may invoke listeners from coordinator-owned threads, transport callback
    * threads, or scheduler threads. The listener must be fast, non-blocking, and thread-safe.
-   * Registering the same listener more than once may produce duplicate callbacks.
+   * Implementations must isolate listener failures so one throwing listener does not prevent other
+   * listeners or future wakeups. Registering the same listener more than once may produce duplicate
+   * callbacks.
    *
    * <p>The SPI has no unregister method. Callers that need shutdown behavior should register a
    * wrapper that checks local lifecycle state before dispatching.
