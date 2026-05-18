@@ -7,6 +7,7 @@ import jakarta.persistence.PersistenceException;
 import jakarta.persistence.Query;
 import java.lang.reflect.Proxy;
 import java.sql.SQLException;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
@@ -121,6 +122,40 @@ class PostgresqlExceptionTranslationTest {
             new PostgresqlStoreContext(entityManager(queryThrowingOnExecute())));
 
     assertThrows(RatchetTransientStoreException.class, () -> tags.deleteTagsByJobId(JOB_ID));
+  }
+
+  @Test
+  void nodeLockOperationsTranslateDeadlock() {
+    var locks =
+        new PostgresqlNodeLockOperations(
+            new PostgresqlStoreContext(entityManager(queryThrowingOnExecute())));
+
+    assertThrows(
+        RatchetTransientStoreException.class,
+        () -> locks.tryLock("scheduler", Duration.ofSeconds(30), "node-1"));
+  }
+
+  @Test
+  void signalOperationsTranslateDeadlock() {
+    var signals =
+        new PostgresqlSignalOperations(
+            new PostgresqlStoreContext(entityManager(queryThrowingOnExecute())));
+
+    assertThrows(
+        RatchetTransientStoreException.class,
+        () ->
+            signals.deliverSignalByKey(
+                "approval", "{}", "json", "APPROVED", null, "node-1", Instant.EPOCH, "delivery-1"));
+  }
+
+  @Test
+  void resourcePermitReleaseTranslatesDeadlock() {
+    var auxiliary =
+        new PostgresqlAuxiliaryOperations(
+            new PostgresqlStoreContext(entityManager(queryThrowingOnExecute())));
+
+    assertThrows(
+        RatchetTransientStoreException.class, () -> auxiliary.releasePermit("api", JOB_ID));
   }
 
   private static EntityManager entityManager(Query... queries) {

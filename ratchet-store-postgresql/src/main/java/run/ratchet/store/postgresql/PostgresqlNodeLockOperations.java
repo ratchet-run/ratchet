@@ -27,39 +27,47 @@ final class PostgresqlNodeLockOperations implements LockStore, NodeStore {
     requireLockName(name);
     requirePositiveDuration(ttl, "ttl");
     Objects.requireNonNull(nodeId, "nodeId");
-    long ttlMicros = durationMicros(ttl);
-    // language=PostgreSQL
-    String sql =
-        """
-        INSERT INTO scheduler_lock (lock_name, owner_node, locked_at, expires_at)
-        VALUES (?, ?, statement_timestamp(),
-                statement_timestamp() + ? * interval '1 microsecond')
-        ON CONFLICT (lock_name) DO UPDATE SET
-          owner_node = EXCLUDED.owner_node,
-          locked_at = statement_timestamp(),
-          expires_at = statement_timestamp() + ? * interval '1 microsecond'
-        WHERE scheduler_lock.expires_at < statement_timestamp()
-           OR scheduler_lock.owner_node = ?
-        """;
-    int updated =
-        ctx.em()
-            .createNativeQuery(sql)
-            .setParameter(1, name)
-            .setParameter(2, nodeId)
-            .setParameter(3, ttlMicros)
-            .setParameter(4, ttlMicros)
-            .setParameter(5, nodeId)
-            .executeUpdate();
-    return updated > 0;
+    try {
+      long ttlMicros = durationMicros(ttl);
+      // language=PostgreSQL
+      String sql =
+          """
+          INSERT INTO scheduler_lock (lock_name, owner_node, locked_at, expires_at)
+          VALUES (?, ?, statement_timestamp(),
+                  statement_timestamp() + ? * interval '1 microsecond')
+          ON CONFLICT (lock_name) DO UPDATE SET
+            owner_node = EXCLUDED.owner_node,
+            locked_at = statement_timestamp(),
+            expires_at = statement_timestamp() + ? * interval '1 microsecond'
+          WHERE scheduler_lock.expires_at < statement_timestamp()
+             OR scheduler_lock.owner_node = ?
+          """;
+      int updated =
+          ctx.em()
+              .createNativeQuery(sql)
+              .setParameter(1, name)
+              .setParameter(2, nodeId)
+              .setParameter(3, ttlMicros)
+              .setParameter(4, ttlMicros)
+              .setParameter(5, nodeId)
+              .executeUpdate();
+      return updated > 0;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("try lock", e);
+    }
   }
 
   @Override
   public void unlock(String name, String nodeId) {
     requireLockName(name);
     Objects.requireNonNull(nodeId, "nodeId");
-    // language=PostgreSQL
-    String sql = "DELETE FROM scheduler_lock WHERE lock_name = ? AND owner_node = ?";
-    ctx.em().createNativeQuery(sql).setParameter(1, name).setParameter(2, nodeId).executeUpdate();
+    try {
+      // language=PostgreSQL
+      String sql = "DELETE FROM scheduler_lock WHERE lock_name = ? AND owner_node = ?";
+      ctx.em().createNativeQuery(sql).setParameter(1, name).setParameter(2, nodeId).executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("unlock", e);
+    }
   }
 
   @Override
@@ -67,22 +75,26 @@ final class PostgresqlNodeLockOperations implements LockStore, NodeStore {
     requireLockName(name);
     requirePositiveDuration(extension, "extension");
     Objects.requireNonNull(nodeId, "nodeId");
-    long extensionMicros = durationMicros(extension);
-    // language=PostgreSQL
-    String sql =
-        """
-        UPDATE scheduler_lock
-        SET expires_at = statement_timestamp() + ? * interval '1 microsecond'
-        WHERE lock_name = ? AND owner_node = ?
-        """;
-    int updated =
-        ctx.em()
-            .createNativeQuery(sql)
-            .setParameter(1, extensionMicros)
-            .setParameter(2, name)
-            .setParameter(3, nodeId)
-            .executeUpdate();
-    return updated > 0;
+    try {
+      long extensionMicros = durationMicros(extension);
+      // language=PostgreSQL
+      String sql =
+          """
+          UPDATE scheduler_lock
+          SET expires_at = statement_timestamp() + ? * interval '1 microsecond'
+          WHERE lock_name = ? AND owner_node = ?
+          """;
+      int updated =
+          ctx.em()
+              .createNativeQuery(sql)
+              .setParameter(1, extensionMicros)
+              .setParameter(2, name)
+              .setParameter(3, nodeId)
+              .executeUpdate();
+      return updated > 0;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("renew lock", e);
+    }
   }
 
   private static void requireLockName(String name) {
@@ -112,43 +124,62 @@ final class PostgresqlNodeLockOperations implements LockStore, NodeStore {
   public void upsertHeartbeat(String nodeId, Instant ts) {
     Objects.requireNonNull(nodeId, "nodeId");
     Objects.requireNonNull(ts, "ts");
-    // language=PostgreSQL
-    String sql =
-        """
-        INSERT INTO scheduler_node (node_id, heartbeat_ts, started_at)
-        VALUES (?, ?, ?)
-        ON CONFLICT (node_id) DO UPDATE SET heartbeat_ts = EXCLUDED.heartbeat_ts
-        """;
-    ctx.em()
-        .createNativeQuery(sql)
-        .setParameter(1, nodeId)
-        .setParameter(2, Timestamp.from(ts))
-        .setParameter(3, Timestamp.from(ts))
-        .executeUpdate();
+    try {
+      // language=PostgreSQL
+      String sql =
+          """
+          INSERT INTO scheduler_node (node_id, heartbeat_ts, started_at)
+          VALUES (?, ?, ?)
+          ON CONFLICT (node_id) DO UPDATE SET heartbeat_ts = EXCLUDED.heartbeat_ts
+          """;
+      ctx.em()
+          .createNativeQuery(sql)
+          .setParameter(1, nodeId)
+          .setParameter(2, Timestamp.from(ts))
+          .setParameter(3, Timestamp.from(ts))
+          .executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("upsert heartbeat", e);
+    }
   }
 
   @Override
   public Optional<NodeEntity> findNodeById(String nodeId) {
-    return Optional.ofNullable(ctx.em().find(NodeEntity.class, nodeId));
+    try {
+      return Optional.ofNullable(ctx.em().find(NodeEntity.class, nodeId));
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("find node by id", e);
+    }
   }
 
   @Override
   @SuppressWarnings("unchecked")
   public List<NodeEntity> findInactiveNodesSince(Instant cutoff) {
-    // language=PostgreSQL
-    String sql = "SELECT * FROM scheduler_node WHERE heartbeat_ts < ? LIMIT ?";
-    return ctx.em()
-        .createNativeQuery(sql, NodeEntity.class)
-        .setParameter(1, Timestamp.from(cutoff))
-        .setParameter(2, MAX_INACTIVE_NODES)
-        .getResultList();
+    try {
+      // language=PostgreSQL
+      String sql = "SELECT * FROM scheduler_node WHERE heartbeat_ts < ? LIMIT ?";
+      return ctx.em()
+          .createNativeQuery(sql, NodeEntity.class)
+          .setParameter(1, Timestamp.from(cutoff))
+          .setParameter(2, MAX_INACTIVE_NODES)
+          .getResultList();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("find inactive nodes", e);
+    }
   }
 
   @Override
   public int deleteInactiveNodesSince(Instant cutoff) {
-    // language=PostgreSQL
-    String sql = "DELETE FROM scheduler_node WHERE heartbeat_ts < ?";
-    return ctx.em().createNativeQuery(sql).setParameter(1, Timestamp.from(cutoff)).executeUpdate();
+    try {
+      // language=PostgreSQL
+      String sql = "DELETE FROM scheduler_node WHERE heartbeat_ts < ?";
+      return ctx.em()
+          .createNativeQuery(sql)
+          .setParameter(1, Timestamp.from(cutoff))
+          .executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("delete inactive nodes", e);
+    }
   }
 
   @Override
@@ -156,27 +187,35 @@ final class PostgresqlNodeLockOperations implements LockStore, NodeStore {
     if (nodeIds.isEmpty()) {
       return 0;
     }
-    String placeholders = String.join(",", Collections.nCopies(nodeIds.size(), "?"));
-    // language=PostgreSQL
-    String sql = "DELETE FROM scheduler_node WHERE node_id IN (" + placeholders + ")";
-    var query = ctx.em().createNativeQuery(sql);
-    int parameter = 1;
-    for (String nodeId : nodeIds) {
-      query.setParameter(parameter++, nodeId);
+    try {
+      String placeholders = String.join(",", Collections.nCopies(nodeIds.size(), "?"));
+      // language=PostgreSQL
+      String sql = "DELETE FROM scheduler_node WHERE node_id IN (" + placeholders + ")";
+      var query = ctx.em().createNativeQuery(sql);
+      int parameter = 1;
+      for (String nodeId : nodeIds) {
+        query.setParameter(parameter++, nodeId);
+      }
+      return query.executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("delete inactive nodes by id", e);
     }
-    return query.executeUpdate();
   }
 
   @Override
   public Instant getDatabaseTime() {
-    // language=PostgreSQL
-    String sql = "SELECT (EXTRACT(EPOCH FROM statement_timestamp()) * 1000)::bigint";
-    Object epochMillis = ctx.em().createNativeQuery(sql).getSingleResult();
-    if (epochMillis instanceof Number n) {
-      return Instant.ofEpochMilli(n.longValue());
+    try {
+      // language=PostgreSQL
+      String sql = "SELECT (EXTRACT(EPOCH FROM statement_timestamp()) * 1000)::bigint";
+      Object epochMillis = ctx.em().createNativeQuery(sql).getSingleResult();
+      if (epochMillis instanceof Number n) {
+        return Instant.ofEpochMilli(n.longValue());
+      }
+      throw new IllegalStateException(
+          "Unexpected database epoch millis result type: "
+              + (epochMillis == null ? "null" : epochMillis.getClass().getName()));
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("get database time", e);
     }
-    throw new IllegalStateException(
-        "Unexpected database epoch millis result type: "
-            + (epochMillis == null ? "null" : epochMillis.getClass().getName()));
   }
 }

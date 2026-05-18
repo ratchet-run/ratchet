@@ -105,6 +105,22 @@ class MysqlTransientExceptionTranslationTest {
                 "signal", "{}", "json", "ACCEPTED", null, "node-1", Instant.EPOCH, "delivery"));
   }
 
+  @Test
+  void tagOperationsTranslateTransientWriteFailure() {
+    MysqlTagOperations tags = new MysqlTagOperations(throwingContext("executeUpdate"));
+
+    assertThrows(RatchetTransientStoreException.class, () -> tags.deleteTagsByJobId(JOB_ID));
+  }
+
+  @Test
+  void resourcePermitReleaseTranslatesTransientWriteFailure() {
+    MysqlAuxiliaryOperations auxiliary =
+        new MysqlAuxiliaryOperations(throwingContext("executeUpdate"));
+
+    assertThrows(
+        RatchetTransientStoreException.class, () -> auxiliary.releasePermit("api", JOB_ID));
+  }
+
   private static MysqlStoreContext throwingContext(String throwingQueryMethod) {
     EntityManager em =
         (EntityManager)

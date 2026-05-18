@@ -232,6 +232,27 @@ class MongoExceptionTranslationTest {
   }
 
   @Test
+  void tagOperationsTranslateTransientMongoFailure() {
+    MongoSocketException failure = transientFailure();
+    MongoCollection<Document> jobs =
+        mongoCollection(
+            (proxy, method, args) -> {
+              if ("updateOne".equals(method.getName())) {
+                throw failure;
+              }
+              return defaultValue(method);
+            });
+    MongoTagOperations tags = new MongoTagOperations(contextWithJobs(jobs));
+
+    RatchetTransientStoreException thrown =
+        assertThrows(
+            RatchetTransientStoreException.class,
+            () -> tags.insertTags(UUID.randomUUID(), List.of("urgent")));
+
+    assertSame(failure, thrown.getCause());
+  }
+
+  @Test
   void translateStoreExceptionWrapsNonTransientMongoFailures() {
     MongoException failure = new MongoException("plain command failure");
     MongoStoreContext ctx = contextWithJobs(null);

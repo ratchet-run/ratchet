@@ -286,59 +286,73 @@ final class MysqlAuxiliaryOperations
 
   @Override
   public void releasePermit(String resource, UUID jobId) {
-    // language=MySQL
-    String sql = "DELETE FROM scheduler_resource_permit WHERE resource_name = ? AND job_id = ?";
-    ctx.em()
-        .createNativeQuery(sql)
-        .setParameter(1, resource)
-        .setParameter(2, UuidByteArrayConverter.toBytes(jobId))
-        .executeUpdate();
+    try {
+      // language=MySQL
+      String sql = "DELETE FROM scheduler_resource_permit WHERE resource_name = ? AND job_id = ?";
+      ctx.em()
+          .createNativeQuery(sql)
+          .setParameter(1, resource)
+          .setParameter(2, UuidByteArrayConverter.toBytes(jobId))
+          .executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("release resource permit", e);
+    }
   }
 
   @Override
   public void releaseAllPermits(UUID jobId) {
-    // language=MySQL
-    String sql = "DELETE FROM scheduler_resource_permit WHERE job_id = ?";
-    ctx.em()
-        .createNativeQuery(sql)
-        .setParameter(1, UuidByteArrayConverter.toBytes(jobId))
-        .executeUpdate();
+    try {
+      // language=MySQL
+      String sql = "DELETE FROM scheduler_resource_permit WHERE job_id = ?";
+      ctx.em()
+          .createNativeQuery(sql)
+          .setParameter(1, UuidByteArrayConverter.toBytes(jobId))
+          .executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("release all permits", e);
+    }
   }
 
   @Override
   public int getPermitRetryDelay(String resource) {
-    // language=MySQL
-    String sql = "SELECT retry_delay_ms FROM scheduler_resource_limit WHERE resource_name = ?";
     try {
+      // language=MySQL
+      String sql = "SELECT retry_delay_ms FROM scheduler_resource_limit WHERE resource_name = ?";
       return ((Number) ctx.em().createNativeQuery(sql).setParameter(1, resource).getSingleResult())
           .intValue();
     } catch (NoResultException e) {
       return ResourceLimitEntity.DEFAULT_RETRY_DELAY_MS;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("get permit retry delay", e);
     }
   }
 
   @Override
   public void configureResource(
       String name, int maxConcurrent, int retryDelayMs, String description) {
-    // language=MySQL
-    String sql =
-        """
-        INSERT INTO scheduler_resource_limit
-          (resource_name, max_concurrent, retry_delay_ms, description, created_at, updated_at)
-        VALUES (?, ?, ?, ?, NOW(3), NOW(3))
-        ON DUPLICATE KEY UPDATE
-          max_concurrent = VALUES(max_concurrent),
-          retry_delay_ms = VALUES(retry_delay_ms),
-          description = VALUES(description),
-          updated_at = NOW(3)
-        """;
-    ctx.em()
-        .createNativeQuery(sql)
-        .setParameter(1, name)
-        .setParameter(2, maxConcurrent)
-        .setParameter(3, retryDelayMs)
-        .setParameter(4, description)
-        .executeUpdate();
+    try {
+      // language=MySQL
+      String sql =
+          """
+          INSERT INTO scheduler_resource_limit
+            (resource_name, max_concurrent, retry_delay_ms, description, created_at, updated_at)
+          VALUES (?, ?, ?, ?, NOW(3), NOW(3))
+          ON DUPLICATE KEY UPDATE
+            max_concurrent = VALUES(max_concurrent),
+            retry_delay_ms = VALUES(retry_delay_ms),
+            description = VALUES(description),
+            updated_at = NOW(3)
+          """;
+      ctx.em()
+          .createNativeQuery(sql)
+          .setParameter(1, name)
+          .setParameter(2, maxConcurrent)
+          .setParameter(3, retryDelayMs)
+          .setParameter(4, description)
+          .executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("configure resource", e);
+    }
   }
 
   @Override
@@ -346,14 +360,18 @@ final class MysqlAuxiliaryOperations
     if (staleNodeIds.isEmpty()) {
       return 0;
     }
-    int deleted = 0;
-    for (int start = 0; start < staleNodeIds.size(); start += PERMIT_CLEANUP_CHUNK_SIZE) {
-      deleted +=
-          cleanupOrphanedPermitsChunk(
-              staleNodeIds.subList(
-                  start, Math.min(start + PERMIT_CLEANUP_CHUNK_SIZE, staleNodeIds.size())));
+    try {
+      int deleted = 0;
+      for (int start = 0; start < staleNodeIds.size(); start += PERMIT_CLEANUP_CHUNK_SIZE) {
+        deleted +=
+            cleanupOrphanedPermitsChunk(
+                staleNodeIds.subList(
+                    start, Math.min(start + PERMIT_CLEANUP_CHUNK_SIZE, staleNodeIds.size())));
+      }
+      return deleted;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("cleanup orphaned permits", e);
     }
-    return deleted;
   }
 
   private int cleanupOrphanedPermitsChunk(List<String> staleNodeIds) {
