@@ -25,7 +25,6 @@ import run.ratchet.api.JobType;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.SignalDecision;
 import run.ratchet.api.event.JobCallbackFailedEvent;
-import run.ratchet.api.event.JobCancelledEvent;
 import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.api.event.JobDlqEvent;
 import run.ratchet.api.event.JobFailedEvent;
@@ -391,8 +390,10 @@ public class JobTask implements Callable<Void> {
           safeError = t.getClass().getName();
         }
         try {
-          jobStore.compareAndSwapStatus(
-              job.getId(), JobStatus.RUNNING, JobStatus.FAILED, safeError);
+          if (jobStore.compareAndSwapStatus(
+              job.getId(), JobStatus.RUNNING, JobStatus.FAILED, safeError)) {
+            publishForcedTerminalFailure(t, safeError);
+          }
         } catch (Throwable lastResort) {
           log.errorf(
               lastResort,
@@ -572,17 +573,6 @@ public class JobTask implements Callable<Void> {
     }
 
     observabilityFacade.recordJobCancellation(job);
-
-    observabilityFacade.publishEvent(
-        new JobCancelledEvent(
-            job.getId(),
-            job.getBusinessKey(),
-            job.getPublicJobType(),
-            job.getPriority(),
-            job.getPickedBy(),
-            endTime,
-            JobStatus.RUNNING.name(),
-            executionMs));
 
     handleBatchOrWorkflowCancellation();
   }
@@ -842,6 +832,38 @@ public class JobTask implements Callable<Void> {
             timestamp,
             sanitized,
             attempt));
+  }
+
+  private void publishForcedTerminalFailure(Throwable ex, String safeError) {
+    job.setStatus(JobStatus.FAILED);
+    int attempt = Math.max(1, job.getAttempts());
+    try {
+      observabilityFacade.publishEvent(
+          new JobFailedEvent(
+              job.getId(),
+              job.getBusinessKey(),
+              job.getPublicJobType(),
+              job.getPriority(),
+              job.getPickedBy(),
+              safeError,
+              attempt));
+      observabilityFacade.publishEvent(
+          new JobDlqEvent(
+              job.getId(),
+              job.getBusinessKey(),
+              job.getPublicJobType(),
+              job.getPriority(),
+              job.getPickedBy(),
+              safeError,
+              attempt));
+    } catch (Throwable eventError) {
+      log.warnf(eventError, "Fallback failure event publish failed for job %s", job.getId());
+    }
+    try {
+      lifecycleFacade.moveToDlq(job, ex);
+    } catch (Throwable dlqError) {
+      log.warnf(dlqError, "Fallback DLQ handling failed for job %s", job.getId());
+    }
   }
 
   private void invokeCallback(JobPayload callbackPayload, String callbackName) {

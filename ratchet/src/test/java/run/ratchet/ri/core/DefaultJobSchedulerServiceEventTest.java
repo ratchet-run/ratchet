@@ -31,6 +31,7 @@ import run.ratchet.api.JobType;
 import run.ratchet.api.event.JobCancelledEvent;
 import run.ratchet.api.event.JobPausedEvent;
 import run.ratchet.api.event.JobResumedEvent;
+import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -132,7 +133,7 @@ class DefaultJobSchedulerServiceEventTest {
   }
 
   @Test
-  void replaceRunningCancellationLeavesEventToExecutor() {
+  void replaceRunningCancellationPublishesCancelledEventAfterStateChange() {
     JobEntity job = job(JobStatus.RUNNING, JobExecutionType.SINGLE);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
     when(jobCreationService.submit(any(DefaultJobBuilder.class))).thenReturn(() -> REPLACEMENT_ID);
@@ -147,7 +148,9 @@ class DefaultJobSchedulerServiceEventTest {
             .replace(JOB_ID, Duration.ZERO, DefaultJobSchedulerServiceEventTest::noopTask, null)
             .id());
 
-    verify(eventPublisher, never()).publish(any());
+    JobCancelledEvent event = published(JobCancelledEvent.class);
+    assertEquals(JobStatus.RUNNING.name(), event.getPreviousStatus());
+    assertEquals(FIXED_NOW, event.getTimestamp());
     verify(metricsCollector, never()).signalCancelled(any(), any(), any());
   }
 
@@ -179,7 +182,7 @@ class DefaultJobSchedulerServiceEventTest {
   }
 
   @Test
-  void cancelJobRunningCancellationLeavesEventToExecutor() {
+  void cancelJobRunningCancellationPublishesCancelledEventAfterStateChange() {
     JobEntity job = job(JobStatus.RUNNING, JobExecutionType.SINGLE);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
     when(jobBatchStatusStore.compareAndSwapStatus(
@@ -188,7 +191,32 @@ class DefaultJobSchedulerServiceEventTest {
 
     assertTrue(service.cancelJob(JOB_ID));
 
-    verify(eventPublisher, never()).publish(any());
+    JobCancelledEvent event = published(JobCancelledEvent.class);
+    assertEquals(JobStatus.RUNNING.name(), event.getPreviousStatus());
+    assertEquals(FIXED_NOW, event.getTimestamp());
+    assertEquals("business-90", event.getBusinessKey());
+  }
+
+  @Test
+  void retryJobPublishesRetryingEventAndWakesPoller() {
+    JobEntity job = job(JobStatus.FAILED, JobExecutionType.SINGLE);
+    job.setLastError("boom");
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobRetryStore.resetFailedToPending(JOB_ID)).thenReturn(true);
+
+    assertTrue(service.retryJob(JOB_ID));
+
+    JobRetryingEvent event = published(JobRetryingEvent.class);
+    assertEquals(JOB_ID, event.getJobId());
+    assertEquals("business-90", event.getBusinessKey());
+    assertEquals(JobType.SINGLE, event.getJobType());
+    assertEquals(JobPriority.HIGH, event.getPriority());
+    assertEquals("node-a", event.getNodeId());
+    assertEquals(FIXED_NOW, event.getTimestamp());
+    assertEquals("boom", event.getErrorMessage());
+    assertEquals(1, event.getRetryAttempt());
+    assertEquals(FIXED_NOW, event.getScheduledTime());
+    verify(wakeupService).notifyIfNeeded(JobExecutionType.SINGLE, JobPriority.HIGH, Duration.ZERO);
   }
 
   @Test

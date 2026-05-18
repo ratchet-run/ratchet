@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -32,8 +33,9 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.SignalDecision;
 import run.ratchet.api.event.JobCallbackFailedEvent;
-import run.ratchet.api.event.JobCancelledEvent;
 import run.ratchet.api.event.JobCompletedEvent;
+import run.ratchet.api.event.JobDlqEvent;
+import run.ratchet.api.event.JobFailedEvent;
 import run.ratchet.api.exception.CircuitBreakerOpenException;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.spi.BeanResolver;
@@ -358,6 +360,33 @@ class JobTaskTest {
 
   @Test
   @SuppressWarnings("unchecked")
+  void handleFailureFallbackPublishesTerminalEventsWhenFailureHandlingThrows() throws Exception {
+    JobEntity job = createTestJob();
+    initJobTaskWithDefaultStubs(job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+
+    RuntimeException error = new RuntimeException("original");
+    when(resilienceStrategy.execute(anyString(), any(Callable.class))).thenThrow(error);
+    when(validationFacade.shouldNotRetry(error)).thenReturn(false);
+    when(jobStore.incrementRetryAttempt(JOB_UUID)).thenReturn(1);
+    doThrow(new IllegalStateException("observer failed"))
+        .when(observabilityFacade)
+        .recordJobFailure(job, error, 1);
+    when(errorSanitizer.sanitize(error)).thenReturn("safe original");
+    when(jobStore.compareAndSwapStatus(
+            eq(JOB_UUID), eq(JobStatus.RUNNING), eq(JobStatus.FAILED), eq("safe original")))
+        .thenReturn(true);
+
+    jobTask.call();
+
+    verify(observabilityFacade).publishEvent(any(JobFailedEvent.class));
+    verify(observabilityFacade).publishEvent(any(JobDlqEvent.class));
+    verify(lifecycleFacade).moveToDlq(job, error);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
   void handleFailure_batchChild_marksBatchChildFailedInsteadOfSchedulingNext() throws Exception {
     JobEntity job = createTestJob();
     job.setJobType(JobExecutionType.BATCH_CHILD);
@@ -412,7 +441,6 @@ class JobTaskTest {
     verify(jobStore, never())
         .markJobSucceeded(any(UUID.class), any(), any(), any(), any(), anyLong(), anyLong());
     verify(observabilityFacade).recordJobCancellation(job);
-    verify(observabilityFacade).publishEvent(any(JobCancelledEvent.class));
     verify(observabilityFacade, never()).publishEvent(any(JobCompletedEvent.class));
     verify(observabilityFacade, never()).recordJobSuccess(any(), anyLong());
     verify(lifecycleFacade).cancelChain(job);

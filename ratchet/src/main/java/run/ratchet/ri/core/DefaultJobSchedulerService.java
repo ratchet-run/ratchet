@@ -19,6 +19,7 @@ import run.ratchet.api.BatchBuilder;
 import run.ratchet.api.JobBuilder;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobOptions;
+import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.RecurringJobBuilder;
@@ -28,6 +29,7 @@ import run.ratchet.api.StreamingBatchBuilder;
 import run.ratchet.api.event.JobCancelledEvent;
 import run.ratchet.api.event.JobPausedEvent;
 import run.ratchet.api.event.JobResumedEvent;
+import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobSignaledEvent;
 import run.ratchet.api.event.JobsBulkCancelledEvent;
 import run.ratchet.api.event.JobsBulkSignaledEvent;
@@ -294,12 +296,12 @@ public class DefaultJobSchedulerService
       return true;
     }
 
-    // Try RUNNING → CANCELED. RUNNING cancellation events are executor-owned so JobTask can
-    // include execution duration. If the worker dies before observing the status flip, the
-    // durable state is still CANCELED but no per-job RUNNING cancellation event is emitted.
+    // Try RUNNING → CANCELED. The scheduler publishes the durable state-transition event here so
+    // observers do not lose cancellation if the worker dies before it notices the status flip.
     if (jobBatchStatusStore.compareAndSwapStatus(
         jobId, JobStatus.RUNNING, JobStatus.CANCELED, null)) {
       log.debugf("Canceled running job %s", jobId);
+      publishCancelledEvent(jobId, JobStatus.RUNNING, job);
       return true;
     }
 
@@ -440,7 +442,7 @@ public class DefaultJobSchedulerService
     if (cancelledFrom == JobStatus.WAITING && metricsCollector != null) {
       metricsCollector.signalCancelled(jobId, existing.getPublicJobType(), existing.getSignalKey());
     }
-    if (cancelledFrom != null && cancelledFrom != JobStatus.RUNNING) {
+    if (cancelledFrom != null) {
       publishCancelledEvent(jobId, cancelledFrom, existing);
     }
 
@@ -563,10 +565,10 @@ public class DefaultJobSchedulerService
   @Override
   @Transactional
   public boolean retryJob(UUID jobId) {
+    JobEntity job = jobCrudStore.findById(jobId).orElse(null);
     if (authorizationPolicy != null) {
       // Pre-load to obtain ownerPrincipal. TOCTOU: if the job is deleted between this load
       // and the CAS below, ownerPrincipal will be null — the policy must tolerate null.
-      JobEntity job = jobCrudStore.findById(jobId).orElse(null);
       String ownerPrincipal = job != null ? job.getCallerPrincipal() : null;
       String currentPrincipal =
           callerPrincipalProvider != null
@@ -577,6 +579,7 @@ public class DefaultJobSchedulerService
 
     if (jobRetryStore.resetFailedToPending(jobId)) {
       log.debugf("Retried failed job %s — reset to PENDING", jobId);
+      publishRetryingEventAndWakeup(jobId, job);
       return true;
     }
 
@@ -655,12 +658,10 @@ public class DefaultJobSchedulerService
   }
 
   /**
-   * Publishes a {@link JobCancelledEvent} for a job that was cancelled outside the executor (i.e.,
-   * from PENDING or PAUSED state). The RUNNING path publishes its own event from within {@code
-   * JobTask} when the running task observes the status flip; we skip publication there to avoid
-   * duplicate events. Uses the pre-CAS entity snapshot to populate businessKey / jobType / priority
-   * / nodeId on the event so downstream observers (audit logs, monitoring) see the same shape they
-   * get for running-cancellations.
+   * Publishes a {@link JobCancelledEvent} for a successful cancellation CAS. Uses the pre-CAS
+   * entity snapshot to populate businessKey / jobType / priority / nodeId on the event so
+   * downstream observers (audit logs, monitoring) get the same shape for each cancellable source
+   * state.
    */
   private void publishCancelledEvent(UUID jobId, JobStatus previousStatus, JobEntity job) {
     Instant timestamp = effective().instant();
@@ -686,6 +687,37 @@ public class DefaultJobSchedulerService
     }
   }
 
+  private void publishRetryingEventAndWakeup(UUID jobId, JobEntity job) {
+    Instant retryAt = effective().instant();
+    if (eventPublisher != null) {
+      JobRetryingEvent event =
+          job == null
+              ? new JobRetryingEvent(jobId, null, null, null, null, retryAt, null, 1, retryAt)
+              : new JobRetryingEvent(
+                  jobId,
+                  job.getBusinessKey(),
+                  job.getPublicJobType(),
+                  job.getPriority(),
+                  job.getPickedBy(),
+                  retryAt,
+                  job.getLastError(),
+                  1,
+                  retryAt);
+      if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+        eventPublisher.publish(event);
+      }
+    }
+
+    if (wakeupService == null) {
+      return;
+    }
+    if (job == null) {
+      wakeupService.notify(JobPriority.NORMAL, true);
+    } else {
+      wakeupService.notifyIfNeeded(job.getJobType(), job.getPriority(), Duration.ZERO);
+    }
+  }
+
   private JobStatus cancelForReplacement(UUID jobId, JobEntity existing) {
     if (existing.getJobType() == JobExecutionType.RECURRING) {
       JobStatus previousStatus = existing.getStatus();
@@ -697,9 +729,6 @@ public class DefaultJobSchedulerService
     }
     if (jobBatchStatusStore.compareAndSwapStatus(
         jobId, JobStatus.RUNNING, JobStatus.CANCELED, null)) {
-      // RUNNING cancellation events are executor-owned. JobTask publishes the event with execution
-      // duration when it observes the status flip; publishing here would create a duplicate. This
-      // carries the same dropped-event risk as cancelJob if the worker dies before that check.
       return JobStatus.RUNNING;
     }
     if (jobBatchStatusStore.compareAndSwapStatus(

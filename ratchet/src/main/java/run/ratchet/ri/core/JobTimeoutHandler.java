@@ -257,6 +257,10 @@ public class JobTimeoutHandler {
       Instant retryTime = now.plusMillis(backoffMs);
       boolean rescheduled = jobRetryStore.scheduleJobRetry(jobId, message, retryTime, newAttempts);
       if (rescheduled) {
+        job.setAttempts(newAttempts);
+        job.setLastError(message);
+        job.setScheduledTime(retryTime);
+        job.setStatus(JobStatus.PENDING);
         log.warnf(
             "Job %s signal timed out but has retries remaining (%s/%s) — rescheduled for %s",
             jobId, newAttempts, job.getMaxRetries(), retryTime);
@@ -277,6 +281,9 @@ public class JobTimeoutHandler {
     }
 
     log.infof("Job %s FAILED due to signal timeout (key=%s)", jobId, job.getSignalKey());
+    job.setAttempts(newAttempts);
+    job.setLastError(message);
+    job.setStatus(JobStatus.FAILED);
     publishSignalTimedOutEvent(job);
     lifecycleFacade.handlePermanentFailure(job, timeoutEx);
 

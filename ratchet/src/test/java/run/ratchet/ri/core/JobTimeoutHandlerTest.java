@@ -264,6 +264,10 @@ class JobTimeoutHandlerTest {
     verify(jobRetryStore, times(1))
         .scheduleJobRetry(eq(JOB_ID), anyString(), retryTimeCaptor.capture(), eq(1));
     assertEquals(now.plusMillis(2_500), retryTimeCaptor.getValue());
+    assertEquals(JobStatus.PENDING, job.getStatus());
+    assertEquals(1, job.getAttempts());
+    assertEquals("Signal timeout exceeded for key: approval", job.getLastError());
+    assertEquals(now.plusMillis(2_500), job.getScheduledTime());
     verify(jobBatchStatusStore, never()).compareAndSwapStatus(any(UUID.class), any(), any(), any());
     verify(lifecycleFacade, never()).handlePermanentFailure(any(), any());
   }
@@ -303,6 +307,9 @@ class JobTimeoutHandlerTest {
     verify(jobRetryStore, never()).scheduleJobRetry(any(UUID.class), anyString(), any(), anyInt());
     verify(jobBatchStatusStore, times(1))
         .compareAndSwapStatus(eq(JOB_ID), eq(JobStatus.WAITING), eq(JobStatus.FAILED), anyString());
+    assertEquals(JobStatus.FAILED, job.getStatus());
+    assertEquals(1, job.getAttempts());
+    assertEquals("Signal timeout exceeded for key: approval", job.getLastError());
     verify(lifecycleFacade, times(1)).handlePermanentFailure(eq(job), any());
   }
 
