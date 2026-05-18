@@ -39,72 +39,97 @@ final class MongoTagOperations implements TagStore {
     if (tags == null || tags.isEmpty()) {
       return;
     }
-    ctx.jobs()
-        .updateOne(
-            eq(ID, jobId),
-            new Document("$addToSet", new Document(TAGS, new Document("$each", tags))));
+    try {
+      ctx.jobs()
+          .updateOne(
+              eq(ID, jobId),
+              new Document("$addToSet", new Document(TAGS, new Document("$each", tags))));
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("insert job tags", e);
+    }
   }
 
   @Override
   public int deleteTagsByJobId(UUID jobId) {
-    Document before =
-        ctx.jobs()
-            .findOneAndUpdate(
-                eq(ID, jobId),
-                set(TAGS, List.of()),
-                new FindOneAndUpdateOptions().returnDocument(ReturnDocument.BEFORE));
-    if (before == null) {
-      return 0;
+    try {
+      Document before =
+          ctx.jobs()
+              .findOneAndUpdate(
+                  eq(ID, jobId),
+                  set(TAGS, List.of()),
+                  new FindOneAndUpdateOptions().returnDocument(ReturnDocument.BEFORE));
+      if (before == null) {
+        return 0;
+      }
+      List<String> oldTags = before.getList(TAGS, String.class);
+      return oldTags == null ? 0 : oldTags.size();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("delete job tags", e);
     }
-    List<String> oldTags = before.getList(TAGS, String.class);
-    return oldTags == null ? 0 : oldTags.size();
   }
 
   @Override
   public List<UUID> findJobIdsByTag(String tag, int limit, int offset) {
-    List<UUID> ids = new ArrayList<>();
-    for (Document doc :
-        ctx.jobs()
-            .find(eq(TAGS, tag))
-            .projection(new Document(ID, 1))
-            .sort(ascending(ID))
-            .skip(offset)
-            .limit(limit)) {
-      ids.add(doc.get(ID, UUID.class));
+    try {
+      List<UUID> ids = new ArrayList<>();
+      for (Document doc :
+          ctx.jobs()
+              .find(eq(TAGS, tag))
+              .projection(new Document(ID, 1))
+              .sort(ascending(ID))
+              .skip(offset)
+              .limit(limit)) {
+        ids.add(doc.get(ID, UUID.class));
+      }
+      return ids;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("find job ids by tag", e);
     }
-    return ids;
   }
 
   @Override
   public Map<JobStatus, Long> countJobsByStatusForTag(String tag) {
-    Map<JobStatus, Long> counts = new EnumMap<>(JobStatus.class);
-    for (Document doc :
-        ctx.jobs()
-            .aggregate(
-                List.of(
-                    new Document("$match", new Document(TAGS, tag)),
-                    new Document(
-                        "$group",
-                        new Document(ID, "$" + STATUS).append("count", new Document("$sum", 1L))),
-                    new Document("$limit", JobStatus.values().length),
-                    new Document("$sort", new Document(ID, 1))))) {
-      String status = doc.getString(ID);
-      if (status != null) {
-        counts.put(JobStatus.valueOf(status), ((Number) doc.get("count")).longValue());
+    try {
+      Map<JobStatus, Long> counts = new EnumMap<>(JobStatus.class);
+      for (Document doc :
+          ctx.jobs()
+              .aggregate(
+                  List.of(
+                      new Document("$match", new Document(TAGS, tag)),
+                      new Document(
+                          "$group",
+                          new Document(ID, "$" + STATUS).append("count", new Document("$sum", 1L))),
+                      new Document("$limit", JobStatus.values().length),
+                      new Document("$sort", new Document(ID, 1))))) {
+        String status = doc.getString(ID);
+        if (status != null) {
+          counts.put(JobStatus.valueOf(status), ((Number) doc.get("count")).longValue());
+        }
       }
+      return counts;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("count jobs by status for tag", e);
     }
-    return counts;
   }
 
   @Override
   public Map<String, Long> countJobsByParamForTag(String tag, String paramKey) {
-    return aggregateStringCountsByTag(
-        tag, new Document("$getField", new Document("field", paramKey).append("input", "$params")));
+    try {
+      return aggregateStringCountsByTag(
+          tag,
+          new Document("$getField", new Document("field", paramKey).append("input", "$params")));
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("count jobs by param for tag", e);
+    }
   }
 
   @Override
   public Map<String, Long> countJobsByExecutionNodeForTag(String tag) {
-    return aggregateStringCountsByTag(tag, "$" + PICKED_BY);
+    try {
+      return aggregateStringCountsByTag(tag, "$" + PICKED_BY);
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("count jobs by execution node for tag", e);
+    }
   }
 
   private Map<String, Long> aggregateStringCountsByTag(String tag, Object groupExpression) {

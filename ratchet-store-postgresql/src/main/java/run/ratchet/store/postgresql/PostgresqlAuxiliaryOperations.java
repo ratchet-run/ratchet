@@ -219,116 +219,136 @@ final class PostgresqlAuxiliaryOperations
 
   @Override
   public boolean tryAcquirePermit(String resource, UUID jobId, String nodeId) {
-    // language=PostgreSQL
-    String lockSql =
-        """
-        SELECT resource_name FROM scheduler_resource_limit
-        WHERE resource_name = ?
-        FOR UPDATE
-        """;
-    @SuppressWarnings("unchecked")
-    List<Object> lockedLimits =
-        ctx.em().createNativeQuery(lockSql).setParameter(1, resource).getResultList();
-    if (lockedLimits.isEmpty()) {
-      throw new IllegalArgumentException("Resource is not configured: " + resource);
-    }
+    try {
+      // language=PostgreSQL
+      String lockSql =
+          """
+          SELECT resource_name FROM scheduler_resource_limit
+          WHERE resource_name = ?
+          FOR UPDATE
+          """;
+      @SuppressWarnings("unchecked")
+      List<Object> lockedLimits =
+          ctx.em().createNativeQuery(lockSql).setParameter(1, resource).getResultList();
+      if (lockedLimits.isEmpty()) {
+        throw new IllegalArgumentException("Resource is not configured: " + resource);
+      }
 
-    // language=PostgreSQL
-    String existingSql =
-        """
-        SELECT COUNT(*) FROM scheduler_resource_permit
-        WHERE resource_name = ? AND job_id = ?
-        """;
-    Object existing =
-        ctx.em()
-            .createNativeQuery(existingSql)
-            .setParameter(1, resource)
-            .setParameter(2, jobId)
-            .getSingleResult();
-    if (((Number) existing).intValue() > 0) {
-      return true;
-    }
+      // language=PostgreSQL
+      String existingSql =
+          """
+          SELECT COUNT(*) FROM scheduler_resource_permit
+          WHERE resource_name = ? AND job_id = ?
+          """;
+      Object existing =
+          ctx.em()
+              .createNativeQuery(existingSql)
+              .setParameter(1, resource)
+              .setParameter(2, jobId)
+              .getSingleResult();
+      if (((Number) existing).intValue() > 0) {
+        return true;
+      }
 
-    // PostgreSQL uses one statement snapshot even after waiting on FOR UPDATE. Keep the lock
-    // acquisition as its own statement, then count and insert together with a fresh snapshot.
-    // language=PostgreSQL
-    String insertSql =
-        """
-        INSERT INTO scheduler_resource_permit
-          (id, resource_name, job_id, node_id, acquired_at)
-        SELECT ?, resource_name, ?, ?, ?
-        FROM scheduler_resource_limit
-        WHERE resource_name = ?
-          AND (
-            SELECT COUNT(*) FROM scheduler_resource_permit
-            WHERE resource_name = ?
-          ) < max_concurrent
-        """;
-    int inserted =
-        ctx.em()
-            .createNativeQuery(insertSql)
-            .setParameter(1, UuidV7Factory.create())
-            .setParameter(2, jobId)
-            .setParameter(3, nodeId)
-            .setParameter(4, Timestamp.from(Instant.now()))
-            .setParameter(5, resource)
-            .setParameter(6, resource)
-            .executeUpdate();
-    return inserted > 0;
+      // PostgreSQL uses one statement snapshot even after waiting on FOR UPDATE. Keep the lock
+      // acquisition as its own statement, then count and insert together with a fresh snapshot.
+      // language=PostgreSQL
+      String insertSql =
+          """
+          INSERT INTO scheduler_resource_permit
+            (id, resource_name, job_id, node_id, acquired_at)
+          SELECT ?, resource_name, ?, ?, ?
+          FROM scheduler_resource_limit
+          WHERE resource_name = ?
+            AND (
+              SELECT COUNT(*) FROM scheduler_resource_permit
+              WHERE resource_name = ?
+            ) < max_concurrent
+          """;
+      int inserted =
+          ctx.em()
+              .createNativeQuery(insertSql)
+              .setParameter(1, UuidV7Factory.create())
+              .setParameter(2, jobId)
+              .setParameter(3, nodeId)
+              .setParameter(4, Timestamp.from(Instant.now()))
+              .setParameter(5, resource)
+              .setParameter(6, resource)
+              .executeUpdate();
+      return inserted > 0;
+    } catch (IllegalArgumentException e) {
+      throw e;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("try acquire permit", e);
+    }
   }
 
   @Override
   public void releasePermit(String resource, UUID jobId) {
-    // language=PostgreSQL
-    String sql = "DELETE FROM scheduler_resource_permit WHERE resource_name = ? AND job_id = ?";
-    ctx.em()
-        .createNativeQuery(sql)
-        .setParameter(1, resource)
-        .setParameter(2, jobId)
-        .executeUpdate();
+    try {
+      // language=PostgreSQL
+      String sql = "DELETE FROM scheduler_resource_permit WHERE resource_name = ? AND job_id = ?";
+      ctx.em()
+          .createNativeQuery(sql)
+          .setParameter(1, resource)
+          .setParameter(2, jobId)
+          .executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("release resource permit", e);
+    }
   }
 
   @Override
   public void releaseAllPermits(UUID jobId) {
-    // language=PostgreSQL
-    String sql = "DELETE FROM scheduler_resource_permit WHERE job_id = ?";
-    ctx.em().createNativeQuery(sql).setParameter(1, jobId).executeUpdate();
+    try {
+      // language=PostgreSQL
+      String sql = "DELETE FROM scheduler_resource_permit WHERE job_id = ?";
+      ctx.em().createNativeQuery(sql).setParameter(1, jobId).executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("release all permits", e);
+    }
   }
 
   @Override
   public int getPermitRetryDelay(String resource) {
-    // language=PostgreSQL
-    String sql = "SELECT retry_delay_ms FROM scheduler_resource_limit WHERE resource_name = ?";
     try {
+      // language=PostgreSQL
+      String sql = "SELECT retry_delay_ms FROM scheduler_resource_limit WHERE resource_name = ?";
       Object result = ctx.em().createNativeQuery(sql).setParameter(1, resource).getSingleResult();
       return ((Number) result).intValue();
     } catch (NoResultException e) {
       return ResourceLimitEntity.DEFAULT_RETRY_DELAY_MS;
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("get permit retry delay", e);
     }
   }
 
   @Override
   public void configureResource(
       String name, int maxConcurrent, int retryDelayMs, String description) {
-    // language=PostgreSQL
-    String sql =
-        """
-        INSERT INTO scheduler_resource_limit
-          (resource_name, max_concurrent, retry_delay_ms, description, created_at, updated_at)
-        VALUES (?, ?, ?, ?, statement_timestamp(), statement_timestamp())
-        ON CONFLICT (resource_name) DO UPDATE SET
-          max_concurrent = EXCLUDED.max_concurrent,
-          retry_delay_ms = EXCLUDED.retry_delay_ms,
-          description = EXCLUDED.description,
-          updated_at = statement_timestamp()
-        """;
-    ctx.em()
-        .createNativeQuery(sql)
-        .setParameter(1, name)
-        .setParameter(2, maxConcurrent)
-        .setParameter(3, retryDelayMs)
-        .setParameter(4, description)
-        .executeUpdate();
+    try {
+      // language=PostgreSQL
+      String sql =
+          """
+          INSERT INTO scheduler_resource_limit
+            (resource_name, max_concurrent, retry_delay_ms, description, created_at, updated_at)
+          VALUES (?, ?, ?, ?, statement_timestamp(), statement_timestamp())
+          ON CONFLICT (resource_name) DO UPDATE SET
+            max_concurrent = EXCLUDED.max_concurrent,
+            retry_delay_ms = EXCLUDED.retry_delay_ms,
+            description = EXCLUDED.description,
+            updated_at = statement_timestamp()
+          """;
+      ctx.em()
+          .createNativeQuery(sql)
+          .setParameter(1, name)
+          .setParameter(2, maxConcurrent)
+          .setParameter(3, retryDelayMs)
+          .setParameter(4, description)
+          .executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("configure resource", e);
+    }
   }
 
   @Override
@@ -336,15 +356,19 @@ final class PostgresqlAuxiliaryOperations
     if (staleNodeIds.isEmpty()) {
       return 0;
     }
-    String placeholders = String.join(",", Collections.nCopies(staleNodeIds.size(), "?"));
-    // language=PostgreSQL
-    String sql = "DELETE FROM scheduler_resource_permit WHERE node_id IN (" + placeholders + ")";
-    Query query = ctx.em().createNativeQuery(sql);
-    int parameter = 1;
-    for (String nodeId : staleNodeIds) {
-      query.setParameter(parameter++, nodeId);
+    try {
+      String placeholders = String.join(",", Collections.nCopies(staleNodeIds.size(), "?"));
+      // language=PostgreSQL
+      String sql = "DELETE FROM scheduler_resource_permit WHERE node_id IN (" + placeholders + ")";
+      Query query = ctx.em().createNativeQuery(sql);
+      int parameter = 1;
+      for (String nodeId : staleNodeIds) {
+        query.setParameter(parameter++, nodeId);
+      }
+      return query.executeUpdate();
+    } catch (RuntimeException e) {
+      throw ctx.translateTransientStoreException("cleanup orphaned permits", e);
     }
-    return query.executeUpdate();
   }
 
   private void prepareCondition(WorkflowConditionEntity condition) {
