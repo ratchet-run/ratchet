@@ -152,6 +152,33 @@ class DefaultJobSchedulerServiceEventTest {
   }
 
   @Test
+  void replaceRecurringMasterUsesTerminalCancelAndRecordsCanceledSupersession() {
+    JobEntity job = job(JobStatus.PENDING, JobExecutionType.RECURRING);
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
+    when(jobCreationService.submit(any(DefaultJobBuilder.class))).thenReturn(() -> REPLACEMENT_ID);
+    when(jobTerminalStore.cancelJob(JOB_ID)).thenReturn(true);
+    when(jobCrudStore.save(any(JobEntity.class))).thenAnswer(inv -> inv.getArgument(0));
+
+    assertEquals(
+        REPLACEMENT_ID,
+        service
+            .replace(JOB_ID, Duration.ZERO, DefaultJobSchedulerServiceEventTest::noopTask, null)
+            .id());
+
+    verify(jobTerminalStore).cancelJob(JOB_ID);
+    verify(jobBatchStatusStore, never()).compareAndSwapStatus(any(), any(), any(), any());
+
+    ArgumentCaptor<JobEntity> saved = ArgumentCaptor.forClass(JobEntity.class);
+    verify(jobCrudStore).save(saved.capture());
+    assertEquals(JobStatus.CANCELED, saved.getValue().getStatus());
+    assertEquals(REPLACEMENT_ID, saved.getValue().getSupersededBy());
+
+    JobCancelledEvent event = published(JobCancelledEvent.class);
+    assertEquals(JobStatus.PENDING.name(), event.getPreviousStatus());
+    assertCommonJobEvent(event, JobType.RECURRING);
+  }
+
+  @Test
   void cancelJobRunningCancellationLeavesEventToExecutor() {
     JobEntity job = job(JobStatus.RUNNING, JobExecutionType.SINGLE);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));

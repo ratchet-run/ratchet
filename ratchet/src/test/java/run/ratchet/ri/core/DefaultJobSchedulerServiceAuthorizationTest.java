@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -17,6 +18,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobPriority;
@@ -245,6 +247,11 @@ class DefaultJobSchedulerServiceAuthorizationTest {
     service.replace(
         JOB_ID, Duration.ZERO, DefaultJobSchedulerServiceAuthorizationTest::noopTask, null);
 
+    InOrder order = inOrder(jobCreationService, jobBatchStatusStore);
+    order.verify(jobCreationService).submit(any(DefaultJobBuilder.class));
+    order
+        .verify(jobBatchStatusStore)
+        .compareAndSwapStatus(eq(JOB_ID), eq(JobStatus.PENDING), eq(JobStatus.CANCELED), eq(null));
     verify(jobBatchStatusStore)
         .compareAndSwapStatus(eq(JOB_ID), eq(JobStatus.WAITING), eq(JobStatus.CANCELED), eq(null));
     verify(jobBatchStatusStore, times(4))

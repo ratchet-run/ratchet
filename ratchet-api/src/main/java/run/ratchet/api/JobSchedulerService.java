@@ -123,6 +123,8 @@ public interface JobSchedulerService {
    *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}. The existence check, the submission of the
    * replacement, and the cancellation of the old job MUST execute within a single transaction.
+   * Authorization is checked against the old job using the same per-job cancellation policy as
+   * {@link #cancelJob(UUID)} before the replacement is submitted.
    *
    * @param jobId UUIDv7 job id of the job to replace
    * @param delay delay before the replacement job becomes eligible to run

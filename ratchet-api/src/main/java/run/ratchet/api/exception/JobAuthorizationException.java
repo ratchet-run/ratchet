@@ -24,8 +24,8 @@ public class JobAuthorizationException extends RuntimeException {
    * Creates an authorization-denied exception.
    *
    * @param jobId job that was denied, or {@code null} when denial occurs before a job id exists
-   * @param operation denied operation name, such as {@code create}, {@code cancel}, or {@code
-   *     execute}
+   * @param operation denied operation name, such as {@code create}, {@code cancel}, {@code
+   *     replace}, or {@code execute}
    * @param principal caller principal, or {@code null} when no caller security context is active
    * @param message human-readable denial message
    */
