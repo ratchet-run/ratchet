@@ -436,7 +436,7 @@ public class DefaultJobSchedulerService
     }
     JobHandle newHandle = builder.submit();
 
-    JobStatus cancelledFrom = cancelForReplacement(jobId);
+    JobStatus cancelledFrom = cancelForReplacement(jobId, existing);
     if (cancelledFrom == JobStatus.WAITING && metricsCollector != null) {
       metricsCollector.signalCancelled(jobId, existing.getPublicJobType(), existing.getSignalKey());
     }
@@ -454,6 +454,9 @@ public class DefaultJobSchedulerService
                 () ->
                     new IllegalStateException(
                         "Job " + jobId + " vanished mid-replace (deleted between load and save)"));
+    if (cancelledFrom != null) {
+      fresh.setStatus(JobStatus.CANCELED);
+    }
     fresh.setSupersededBy(newHandle.id());
     jobCrudStore.save(fresh);
 
@@ -683,7 +686,11 @@ public class DefaultJobSchedulerService
     }
   }
 
-  private JobStatus cancelForReplacement(UUID jobId) {
+  private JobStatus cancelForReplacement(UUID jobId, JobEntity existing) {
+    if (existing.getJobType() == JobExecutionType.RECURRING) {
+      JobStatus previousStatus = existing.getStatus();
+      return jobTerminalStore.cancelJob(jobId) ? previousStatus : null;
+    }
     if (jobBatchStatusStore.compareAndSwapStatus(
         jobId, JobStatus.PENDING, JobStatus.CANCELED, null)) {
       return JobStatus.PENDING;

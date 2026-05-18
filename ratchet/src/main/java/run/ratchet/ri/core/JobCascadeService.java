@@ -2,7 +2,10 @@ package run.ratchet.ri.core;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.transaction.TransactionSynchronizationRegistry;
 import jakarta.transaction.Transactional;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedList;
@@ -10,7 +13,12 @@ import java.util.List;
 import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
+import javax.naming.InitialContext;
+import javax.naming.NamingException;
+import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.event.JobPausedEvent;
+import run.ratchet.api.event.JobResumedEvent;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobPauseStore;
@@ -27,19 +35,36 @@ import run.ratchet.store.spi.JobPauseStore;
 public class JobCascadeService {
 
   private static final int DEPENDANT_PAGE_SIZE = JobCrudStore.DEFAULT_PAGE_LIMIT;
+  private static final Logger log = Logger.getLogger(JobCascadeService.class);
 
   private final JobCrudStore jobCrudStore;
   private final JobPauseStore jobPauseStore;
+  private final InternalEventPublisher eventPublisher;
+  private final Clock clock;
+
+  private volatile TransactionSynchronizationRegistry txRegistry;
 
   protected JobCascadeService() {
     this.jobCrudStore = null;
     this.jobPauseStore = null;
+    this.eventPublisher = null;
+    this.clock = null;
+  }
+
+  public JobCascadeService(JobCrudStore jobCrudStore, JobPauseStore jobPauseStore) {
+    this(jobCrudStore, jobPauseStore, null, null);
   }
 
   @Inject
-  public JobCascadeService(JobCrudStore jobCrudStore, JobPauseStore jobPauseStore) {
+  public JobCascadeService(
+      JobCrudStore jobCrudStore,
+      JobPauseStore jobPauseStore,
+      InternalEventPublisher eventPublisher,
+      Clock clock) {
     this.jobCrudStore = jobCrudStore;
     this.jobPauseStore = jobPauseStore;
+    this.eventPublisher = eventPublisher;
+    this.clock = clock;
   }
 
   /**
@@ -81,6 +106,7 @@ public class JobCascadeService {
           if (child.getStatus() == JobStatus.PENDING
               && jobPauseStore.transitionToPaused(child.getId(), JobStatus.PENDING)) {
             pausedCount++;
+            publishPausedEvent(child);
           } else {
             skippedCount++;
           }
@@ -129,6 +155,7 @@ public class JobCascadeService {
           if (child.getStatus() == JobStatus.PAUSED
               && jobPauseStore.transitionFromPaused(child.getId(), JobStatus.PENDING)) {
             resumedCount++;
+            publishResumedEvent(child);
           } else {
             skippedCount++;
           }
@@ -154,5 +181,70 @@ public class JobCascadeService {
       }
       offset += page.size();
     }
+  }
+
+  private void publishPausedEvent(JobEntity job) {
+    if (eventPublisher == null) {
+      return;
+    }
+    JobPausedEvent event =
+        new JobPausedEvent(
+            job.getId(),
+            job.getBusinessKey(),
+            job.getPublicJobType(),
+            job.getPriority(),
+            job.getPickedBy(),
+            now());
+    publishAfterCommit(event);
+  }
+
+  private void publishResumedEvent(JobEntity job) {
+    if (eventPublisher == null) {
+      return;
+    }
+    JobResumedEvent event =
+        new JobResumedEvent(
+            job.getId(),
+            job.getBusinessKey(),
+            job.getPublicJobType(),
+            job.getPriority(),
+            job.getPickedBy(),
+            now());
+    publishAfterCommit(event);
+  }
+
+  private Instant now() {
+    return clock != null ? clock.instant() : Instant.now();
+  }
+
+  private void publishAfterCommit(Object event) {
+    if (!JobWakeupService.registerAfterCommit(
+        resolveTxRegistry(),
+        () -> eventPublisher.publish(event),
+        log,
+        "After-commit cascade event registration failed; publishing immediately: %s")) {
+      eventPublisher.publish(event);
+    }
+  }
+
+  private TransactionSynchronizationRegistry resolveTxRegistry() {
+    TransactionSynchronizationRegistry reg = txRegistry;
+    if (reg == null) {
+      synchronized (this) {
+        reg = txRegistry;
+        if (reg == null) {
+          try {
+            reg = InitialContext.doLookup("java:comp/TransactionSynchronizationRegistry");
+            txRegistry = reg;
+          } catch (NamingException e) {
+            log.debugf(
+                "TransactionSynchronizationRegistry lookup unavailable on this thread; using immediate"
+                    + " fallback cascade event publication: %s",
+                e.getMessage());
+          }
+        }
+      }
+    }
+    return reg;
   }
 }

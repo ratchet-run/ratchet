@@ -1,6 +1,8 @@
 package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
@@ -9,23 +11,37 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.JobType;
+import run.ratchet.api.event.AbstractJobSchedulerEvent;
+import run.ratchet.api.event.JobPausedEvent;
+import run.ratchet.api.event.JobResumedEvent;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobPauseStore;
 
 @ExtendWith(MockitoExtension.class)
 class JobCascadeServiceTest {
 
+  private static final Instant FIXED_NOW = Instant.parse("2026-05-18T12:00:00Z");
+  private static final Clock FIXED_CLOCK = Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
+
   @Mock private JobCrudStore jobCrudStore;
   @Mock private JobPauseStore jobPauseStore;
+  @Mock private InternalEventPublisher eventPublisher;
 
   private JobCascadeService cascadeService;
 
@@ -39,12 +55,17 @@ class JobCascadeServiceTest {
     JobEntity job = new JobEntity();
     job.setId(UUID.randomUUID());
     job.setStatus(status);
+    job.setJobType(JobExecutionType.SINGLE);
+    job.setBusinessKey("cascade-key");
+    job.setPriority(JobPriority.HIGH);
+    job.setPickedBy("node-a");
     return job;
   }
 
   @BeforeEach
   void setUp() {
-    cascadeService = new JobCascadeService(jobCrudStore, jobPauseStore);
+    cascadeService =
+        new JobCascadeService(jobCrudStore, jobPauseStore, eventPublisher, FIXED_CLOCK);
     lenient()
         .when(jobCrudStore.findDependants(any(UUID.class), anyInt(), anyInt()))
         .thenAnswer(inv -> jobCrudStore.findDependants(inv.getArgument(0)));
@@ -68,6 +89,7 @@ class JobCascadeServiceTest {
     when(jobPauseStore.transitionToPaused(child.getId(), JobStatus.PENDING)).thenReturn(true);
 
     assertArrayEquals(new int[] {1, 0}, cascadeService.pauseChildrenIterative(rootId));
+    assertCommonEvent(published(JobPausedEvent.class), child.getId());
   }
 
   @Test
@@ -186,6 +208,7 @@ class JobCascadeServiceTest {
     when(jobPauseStore.transitionFromPaused(child.getId(), JobStatus.PENDING)).thenReturn(true);
 
     assertArrayEquals(new int[] {1, 0}, cascadeService.resumeChildrenIterative(rootId));
+    assertCommonEvent(published(JobResumedEvent.class), child.getId());
   }
 
   @Test
@@ -260,5 +283,20 @@ class JobCascadeServiceTest {
 
     assertArrayEquals(new int[] {3, 0}, result);
     verify(jobPauseStore).transitionFromPaused(eq(c.getId()), eq(JobStatus.PENDING));
+  }
+
+  private <T> T published(Class<T> type) {
+    ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
+    verify(eventPublisher).publish(eventCaptor.capture());
+    return assertInstanceOf(type, eventCaptor.getValue());
+  }
+
+  private static void assertCommonEvent(AbstractJobSchedulerEvent event, UUID jobId) {
+    assertEquals(jobId, event.getJobId());
+    assertEquals("cascade-key", event.getBusinessKey());
+    assertEquals(JobType.SINGLE, event.getJobType());
+    assertEquals(JobPriority.HIGH, event.getPriority());
+    assertEquals("node-a", event.getNodeId());
+    assertEquals(FIXED_NOW, event.getTimestamp());
   }
 }
