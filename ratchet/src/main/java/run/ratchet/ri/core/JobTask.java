@@ -312,13 +312,15 @@ public class JobTask implements Callable<Void> {
     currentExecution =
         observabilityFacade.startExecution(jobId, attemptNumber, nodeIdProvider.getNodeId());
 
+    Instant start = effective().instant();
     observabilityFacade.publishEvent(
         new JobStartedEvent(
             jobEntity.getId(),
             jobEntity.getBusinessKey(),
             jobEntity.getPublicJobType(),
             jobEntity.getPriority(),
-            jobEntity.getPickedBy()));
+            jobEntity.getPickedBy(),
+            start));
 
     if (log.isInfoEnabled()) {
       log.infov(
@@ -332,7 +334,6 @@ public class JobTask implements Callable<Void> {
           jobEntity.getPayload().method());
     }
 
-    Instant start = effective().instant();
     Object jobResult;
     permitAcquired = false;
     String resilienceServiceName = resolveResilienceServiceName(jobEntity.getPayload());
@@ -579,6 +580,7 @@ public class JobTask implements Callable<Void> {
             job.getPublicJobType(),
             job.getPriority(),
             job.getPickedBy(),
+            endTime,
             JobStatus.RUNNING.name(),
             executionMs));
 
@@ -686,6 +688,7 @@ public class JobTask implements Callable<Void> {
             job.getPublicJobType(),
             job.getPriority(),
             job.getPickedBy(),
+            endTime,
             executionMs));
 
     try {
@@ -818,6 +821,7 @@ public class JobTask implements Callable<Void> {
 
   private void publishTerminalFailureEvents(Throwable ex, int attempt) {
     String sanitized = errorSanitizer.sanitize(ex);
+    Instant timestamp = effective().instant();
     observabilityFacade.publishEvent(
         new JobFailedEvent(
             job.getId(),
@@ -825,6 +829,7 @@ public class JobTask implements Callable<Void> {
             job.getPublicJobType(),
             job.getPriority(),
             job.getPickedBy(),
+            timestamp,
             sanitized,
             attempt));
     observabilityFacade.publishEvent(
@@ -834,6 +839,7 @@ public class JobTask implements Callable<Void> {
             job.getPublicJobType(),
             job.getPriority(),
             job.getPickedBy(),
+            timestamp,
             sanitized,
             attempt));
   }
@@ -880,6 +886,7 @@ public class JobTask implements Callable<Void> {
                 job.getPublicJobType(),
                 job.getPriority(),
                 job.getPickedBy(),
+                effective().instant(),
                 type,
                 e.getMessage(),
                 e.getClass().getName(),
@@ -1059,7 +1066,8 @@ public class JobTask implements Callable<Void> {
             ? BackoffPolicyHandler.computeDelay(
                 job.getBackoffPolicy(), job.getBackoffParamMs(), attempt)
             : policyDelay.toMillis();
-    Instant newScheduledTime = effective().instant().plusMillis(backoff);
+    Instant timestamp = effective().instant();
+    Instant newScheduledTime = timestamp.plusMillis(backoff);
     String sanitizedError = errorSanitizer.sanitize(ex);
 
     if (jobStore.scheduleJobRetry(job.getId(), sanitizedError, newScheduledTime, attempt)) {
@@ -1075,6 +1083,7 @@ public class JobTask implements Callable<Void> {
               job.getPublicJobType(),
               job.getPriority(),
               job.getPickedBy(),
+              timestamp,
               sanitizedError,
               attempt,
               newScheduledTime));

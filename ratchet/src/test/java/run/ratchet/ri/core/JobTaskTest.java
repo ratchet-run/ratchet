@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -30,6 +31,7 @@ import run.ratchet.api.JobContext;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.SignalDecision;
+import run.ratchet.api.event.JobCallbackFailedEvent;
 import run.ratchet.api.event.JobCancelledEvent;
 import run.ratchet.api.event.JobCompletedEvent;
 import run.ratchet.api.exception.CircuitBreakerOpenException;
@@ -56,6 +58,8 @@ import run.ratchet.store.spi.JobStore;
 class JobTaskTest {
 
   private static final UUID JOB_UUID = new UUID(0L, 42L);
+  private static final Instant FIXED_NOW = Instant.parse("2026-05-05T12:00:00Z");
+  private static final Clock FIXED_CLOCK = Clock.fixed(FIXED_NOW, java.time.ZoneOffset.UTC);
   private static final ThreadLocal<SignalDecision> OBSERVED_SIGNAL_DECISION = new ThreadLocal<>();
 
   private final ClassPolicy classPolicy = className -> true;
@@ -78,6 +82,10 @@ class JobTaskTest {
   public static String captureSignalDecision() {
     OBSERVED_SIGNAL_DECISION.set(JobContext.current().signalPayload(SignalDecision.class));
     return "done";
+  }
+
+  public static void failingCallback() {
+    throw new IllegalStateException("callback boom");
   }
 
   @Test
@@ -430,6 +438,45 @@ class JobTaskTest {
 
   @Test
   @SuppressWarnings("unchecked")
+  void handleSuccessPublishesCompletionAndCallbackFailureEventsWithInjectedClock()
+      throws Exception {
+    JobTask fixedClockTask = newJobTaskWithClock(FIXED_CLOCK);
+    JobEntity job = createTestJob();
+    job.setOnSuccessPayload(
+        new JobPayload(JobTaskTest.class.getName(), "failingCallback", "()V", true, List.of()));
+    initJobTaskWithDefaultStubs(fixedClockTask, job);
+    when(jobStore.getJobStatus(JOB_UUID)).thenReturn(JobStatus.RUNNING);
+    when(resilienceStrategy.isServiceAvailable(anyString())).thenReturn(true);
+    when(resilienceStrategy.execute(anyString(), any(Callable.class)))
+        .thenAnswer(inv -> ((Callable<?>) inv.getArgument(1)).call());
+    when(jobStore.markJobSucceeded(
+            any(UUID.class), any(), any(), any(), any(), anyLong(), anyLong()))
+        .thenReturn(true);
+
+    fixedClockTask.call();
+
+    ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
+    verify(observabilityFacade, atLeastOnce()).publishEvent(eventCaptor.capture());
+    JobCompletedEvent completedEvent =
+        eventCaptor.getAllValues().stream()
+            .filter(JobCompletedEvent.class::isInstance)
+            .map(JobCompletedEvent.class::cast)
+            .findFirst()
+            .orElseThrow();
+    JobCallbackFailedEvent callbackEvent =
+        eventCaptor.getAllValues().stream()
+            .filter(JobCallbackFailedEvent.class::isInstance)
+            .map(JobCallbackFailedEvent.class::cast)
+            .findFirst()
+            .orElseThrow();
+
+    Assertions.assertEquals(FIXED_NOW, completedEvent.getTimestamp());
+    Assertions.assertEquals(FIXED_NOW, callbackEvent.getTimestamp());
+    Assertions.assertEquals(1, callbackEvent.getCallbackAttempt());
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
   void call_releasesResourcePermit_onSuccess() throws Exception {
     JobEntity job = createTestJob();
     job.setResourceName("api-gateway");
@@ -692,6 +739,28 @@ class JobTaskTest {
         .thenReturn(JobExecutionEntity.start(job.getId(), 1, "node-1"));
     when(observabilityFacade.startExecutionScope(any(JobEntity.class)))
         .thenReturn(TracingCollector.NoOpExecutionScope.INSTANCE);
+  }
+
+  private JobTask newJobTaskWithClock(Clock taskClock) {
+    ResultPersistenceStrategy resultPersistenceStrategy =
+        (jobId, result) -> SerializedJobResult.empty();
+    return new JobTask(
+        jobStore,
+        resourcePermitService,
+        lifecycleFacade,
+        nodeIdProvider,
+        observabilityFacade,
+        validationFacade,
+        beanResolver,
+        retryPolicy,
+        resilienceStrategy,
+        errorSanitizer,
+        classPolicy,
+        context -> noopLogger(),
+        resultPersistenceStrategy,
+        null,
+        null,
+        taskClock);
   }
 
   public static class AnnotatedJobTarget {

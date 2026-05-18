@@ -124,6 +124,7 @@ class DefaultJobSchedulerServiceSignalTest {
     assertEquals("bob", event.getSignalDeliveredBy());
     assertEquals(SignalDecision.Outcome.APPROVED, event.getOutcome());
     assertNull(event.getRejectionReason());
+    assertEquals(FIXED_NOW, event.getTimestamp());
   }
 
   @Test
@@ -156,6 +157,37 @@ class DefaultJobSchedulerServiceSignalTest {
     assertEquals("bob", event.getSignalDeliveredBy());
     assertEquals(SignalDecision.Outcome.REJECTED, event.getOutcome());
     assertEquals("denied", event.getRejectionReason());
+    assertEquals(FIXED_NOW, event.getTimestamp());
+  }
+
+  @Test
+  void deliverSignalByIdPublishesFromPreCasSnapshotWhenPostCasReloadWouldMiss() {
+    DefaultJobSchedulerService authorizedService =
+        newService(payloadSerializer, authorizationPolicy);
+    SignalDecision decision = SignalDecision.approved("approved-payload");
+    JobEntity job = job(JOB_ID, "approval-key");
+    job.setCallerPrincipal("alice");
+    when(payloadSerializer.serialize("approved-payload")).thenReturn("serialized-payload");
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job), Optional.empty());
+    when(signalStore.deliverSignalById(
+            eq(JOB_ID),
+            eq("serialized-payload"),
+            eq(DefaultJobSchedulerService.SIGNAL_PAYLOAD_TYPE_DECISION),
+            eq("APPROVED"),
+            isNull(),
+            eq("bob"),
+            eq(FIXED_NOW),
+            anyString()))
+        .thenReturn(1);
+
+    assertEquals(1, authorizedService.deliverSignal(JOB_ID, decision));
+
+    verify(authorizationPolicy).checkDeliverSignal(JOB_ID, "alice", "bob");
+    ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
+    verify(eventPublisher).publish(eventCaptor.capture());
+    JobSignaledEvent event = assertInstanceOf(JobSignaledEvent.class, eventCaptor.getValue());
+    assertEquals("approval-key", event.getSignalKey());
+    assertEquals(FIXED_NOW, event.getTimestamp());
   }
 
   @Test
