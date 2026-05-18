@@ -77,6 +77,27 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
   }
 
   @Test
+  void resetOrphanJobsBefore_usesExactCutoff() {
+    var old = persist(newPendingJob());
+    old.setStatus(JobStatus.RUNNING);
+    old.setPickedBy("phantom-node-" + old.getId());
+    old.setPickedAt(Instant.now().minusSeconds(45));
+    store().save(old);
+
+    var recent = persist(newPendingJob());
+    recent.setStatus(JobStatus.RUNNING);
+    recent.setPickedBy("phantom-node-" + recent.getId());
+    recent.setPickedAt(Instant.now().minusSeconds(10));
+    store().save(recent);
+
+    int reset = store().resetOrphanJobsBefore(Instant.now().minusSeconds(30));
+
+    assertEquals(1, reset, "Only rows picked before the cutoff should be reset");
+    assertEquals(JobStatus.PENDING, store().findById(old.getId()).orElseThrow().getStatus());
+    assertEquals(JobStatus.RUNNING, store().findById(recent.getId()).orElseThrow().getStatus());
+  }
+
+  @Test
   void deleteJobsByIds_removesSpecifiedJobs() {
     var first = persist(newPendingJob());
     var second = persist(newPendingJob());

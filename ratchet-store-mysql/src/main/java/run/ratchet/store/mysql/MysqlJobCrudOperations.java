@@ -208,6 +208,11 @@ final class MysqlJobCrudOperations implements JobCrudStore, JobBulkStore {
   }
 
   @Override
+  public int resetOrphanJobsBefore(Instant cutoff) {
+    return deletes.resetOrphanJobsBefore(cutoff);
+  }
+
+  @Override
   public int resetOrphanJobsForNode(String nodeId) {
     return deletes.resetOrphanJobsForNode(nodeId);
   }

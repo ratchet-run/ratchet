@@ -76,6 +76,16 @@ public abstract class AbstractExecutionStoreContract implements JobStoreContract
   }
 
   @Test
+  void findExecutionsByJobId_zeroLimit_returnsEmptyPage() {
+    var job = persist(newPendingJob());
+    store().saveExecution(JobExecutionEntity.start(job.getId(), 1, "node-1"));
+
+    var executions = store().findExecutionsByJobId(job.getId(), 0, 0);
+
+    assertTrue(executions.isEmpty(), "limit=0 should return an empty execution page");
+  }
+
+  @Test
   void findExecutionsByJobId_unknownJob_returnsEmpty() {
     var executions = store().findExecutionsByJobId(new UUID(0L, Long.MAX_VALUE));
 
