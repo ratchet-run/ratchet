@@ -371,6 +371,8 @@ class EventApiContractTest {
 
   @Test
   void performanceMetricsDefensivelyCopiesInputMap() {
+    assertThrows(NullPointerException.class, () -> new PerformanceMetricsEvent(null));
+
     Map<String, Object> data = new HashMap<>();
     data.put("queued", 1);
 

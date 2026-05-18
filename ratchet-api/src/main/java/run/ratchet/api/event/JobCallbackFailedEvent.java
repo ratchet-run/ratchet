@@ -18,7 +18,8 @@ public class JobCallbackFailedEvent extends AbstractJobSchedulerEvent {
   /**
    * Creates an event with an explicit timestamp.
    *
-   * @param callbackAttempt 1-based callback attempt number
+   * @param callbackAttempt 1-based callback invocation attempt. Ratchet currently invokes each
+   *     lifecycle callback once, so RI producers pass {@code 1}.
    */
   public JobCallbackFailedEvent(
       UUID jobId,
@@ -41,7 +42,8 @@ public class JobCallbackFailedEvent extends AbstractJobSchedulerEvent {
   /**
    * Creates an event using the current system clock instant.
    *
-   * @param callbackAttempt 1-based callback attempt number
+   * @param callbackAttempt 1-based callback invocation attempt. Ratchet currently invokes each
+   *     lifecycle callback once, so RI producers pass {@code 1}.
    */
   public JobCallbackFailedEvent(
       UUID jobId,
@@ -75,7 +77,7 @@ public class JobCallbackFailedEvent extends AbstractJobSchedulerEvent {
     return causeClassName;
   }
 
-  /** Returns the 1-based callback attempt number. */
+  /** Returns the 1-based callback invocation attempt. */
   public int getCallbackAttempt() {
     return callbackAttempt;
   }

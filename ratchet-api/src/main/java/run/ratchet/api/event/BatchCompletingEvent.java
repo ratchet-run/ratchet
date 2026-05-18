@@ -6,7 +6,9 @@ import java.util.UUID;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 
-/** Fired when a batch is about to complete (before callbacks). */
+/**
+ * Fired after all batch children are terminal and before the batch completion event is published.
+ */
 public class BatchCompletingEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = 2629383623872540166L;
@@ -19,8 +21,8 @@ public class BatchCompletingEvent extends AbstractJobSchedulerEvent {
    * Creates a batch-completing event with an explicit timestamp.
    *
    * @param totalItems total number of child jobs in the batch
-   * @param completedItems number of successful child jobs observed before callbacks run
-   * @param failedItems number of failed child jobs observed before callbacks run
+   * @param completedItems number of successful child jobs in the completed batch
+   * @param failedItems number of failed child jobs in the completed batch
    */
   public BatchCompletingEvent(
       UUID jobId,
@@ -43,8 +45,8 @@ public class BatchCompletingEvent extends AbstractJobSchedulerEvent {
    * Creates a batch-completing event using the current system clock instant.
    *
    * @param totalItems total number of child jobs in the batch
-   * @param completedItems number of successful child jobs observed before callbacks run
-   * @param failedItems number of failed child jobs observed before callbacks run
+   * @param completedItems number of successful child jobs in the completed batch
+   * @param failedItems number of failed child jobs in the completed batch
    */
   public BatchCompletingEvent(
       UUID jobId,
@@ -67,12 +69,12 @@ public class BatchCompletingEvent extends AbstractJobSchedulerEvent {
     return totalItems;
   }
 
-  /** Returns the number of child jobs completed before callbacks run. */
+  /** Returns the number of successful child jobs in the completed batch. */
   public int getCompletedItems() {
     return completedItems;
   }
 
-  /** Returns the number of child jobs that failed before callbacks run. */
+  /** Returns the number of failed child jobs in the completed batch. */
   public int getFailedItems() {
     return failedItems;
   }

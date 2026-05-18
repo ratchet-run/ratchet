@@ -3,6 +3,7 @@ package run.ratchet.api.event;
 import java.io.Serial;
 import java.io.Serializable;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Legacy placeholder for dashboard-level aggregate metrics.
@@ -10,8 +11,9 @@ import java.util.Map;
  * <p>The RI does not publish this event. Use the {@code MetricsCollector} SPI for scheduler
  * telemetry instead. This type is retained only for source compatibility with early API drafts.
  *
- * <p>The {@code performanceData} map is defensively copied and is immutable after construction. All
- * keys and values must be non-null and serializable by the event transport used by the application.
+ * <p>The {@code performanceData} map must be non-null, is defensively copied, and is immutable
+ * after construction. All keys and values must be non-null and serializable by the event transport
+ * used by the application.
  *
  * @deprecated no scheduler producer exists; use {@code MetricsCollector} instead
  */
@@ -21,6 +23,6 @@ public record PerformanceMetricsEvent(Map<String, Object> performanceData) imple
   @Serial private static final long serialVersionUID = 1L;
 
   public PerformanceMetricsEvent {
-    performanceData = Map.copyOf(performanceData);
+    performanceData = Map.copyOf(Objects.requireNonNull(performanceData, "performanceData"));
   }
 }

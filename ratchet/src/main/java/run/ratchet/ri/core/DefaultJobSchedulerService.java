@@ -770,12 +770,12 @@ public class DefaultJobSchedulerService
       log.warn("deliverSignal called but no SignalStore is wired — returning 0");
       return 0;
     }
+    JobEntity job = jobCrudStore.findById(jobId).orElse(null);
     String principal =
         callerPrincipalProvider != null
             ? callerPrincipalProvider.currentPrincipal().orElse(null)
             : null;
     if (authorizationPolicy != null) {
-      JobEntity job = jobCrudStore.findById(jobId).orElse(null);
       String ownerPrincipal = job != null ? job.getCallerPrincipal() : null;
       authorizationPolicy.checkDeliverSignal(jobId, ownerPrincipal, principal);
     }
@@ -795,8 +795,7 @@ public class DefaultJobSchedulerService
             now,
             deliveryId);
     if (unblocked > 0) {
-      JobEntity job = jobCrudStore.findById(jobId).orElse(null);
-      publishSignaledEvent(jobId, job, deliveredBy, SignalDecision.Outcome.APPROVED, null);
+      publishSignaledEvent(jobId, job, deliveredBy, now, SignalDecision.Outcome.APPROVED, null);
       log.debugf("Signal delivered to job %s by %s", jobId, deliveredBy);
     }
     return unblocked;
@@ -807,12 +806,12 @@ public class DefaultJobSchedulerService
       log.warn("deliverSignal called but no SignalStore is wired — returning 0");
       return 0;
     }
+    JobEntity job = jobCrudStore.findById(jobId).orElse(null);
     String principal =
         callerPrincipalProvider != null
             ? callerPrincipalProvider.currentPrincipal().orElse(null)
             : null;
     if (authorizationPolicy != null) {
-      JobEntity job = jobCrudStore.findById(jobId).orElse(null);
       String ownerPrincipal = job != null ? job.getCallerPrincipal() : null;
       authorizationPolicy.checkDeliverSignal(jobId, ownerPrincipal, principal);
     }
@@ -832,8 +831,8 @@ public class DefaultJobSchedulerService
             now,
             deliveryId);
     if (unblocked > 0) {
-      JobEntity job = jobCrudStore.findById(jobId).orElse(null);
-      publishSignaledEvent(jobId, job, deliveredBy, decision.outcome(), decision.rejectionReason());
+      publishSignaledEvent(
+          jobId, job, deliveredBy, now, decision.outcome(), decision.rejectionReason());
       log.debugf("Signal decision delivered to job %s by %s", jobId, deliveredBy);
     }
     return unblocked;
@@ -868,7 +867,7 @@ public class DefaultJobSchedulerService
             deliveryId);
     if (unblocked > 0) {
       publishBulkSignaledEvent(
-          signalKey, unblocked, deliveredBy, SignalDecision.Outcome.APPROVED, null);
+          signalKey, unblocked, deliveredBy, now, SignalDecision.Outcome.APPROVED, null);
       log.debugf("Signal '%s' broadcast to %s job(s) by %s", signalKey, unblocked, deliveredBy);
     }
     return unblocked;
@@ -903,7 +902,7 @@ public class DefaultJobSchedulerService
             deliveryId);
     if (unblocked > 0) {
       publishBulkSignaledEvent(
-          signalKey, unblocked, deliveredBy, decision.outcome(), decision.rejectionReason());
+          signalKey, unblocked, deliveredBy, now, decision.outcome(), decision.rejectionReason());
       log.debugf(
           "Signal decision '%s' broadcast to %s job(s) by %s", signalKey, unblocked, deliveredBy);
     }
@@ -914,11 +913,11 @@ public class DefaultJobSchedulerService
       String signalKey,
       int count,
       String principal,
+      Instant timestamp,
       SignalDecision.Outcome outcome,
       String rejectionReason) {
     JobsBulkSignaledEvent event =
-        new JobsBulkSignaledEvent(
-            signalKey, count, principal, outcome, rejectionReason, effective().instant());
+        new JobsBulkSignaledEvent(signalKey, count, principal, outcome, rejectionReason, timestamp);
     if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
       eventPublisher.publish(event);
     }
@@ -928,6 +927,7 @@ public class DefaultJobSchedulerService
       UUID jobId,
       JobEntity job,
       String principal,
+      Instant timestamp,
       SignalDecision.Outcome outcome,
       String rejectionReason) {
     if (metricsCollector != null && job != null) {
@@ -940,6 +940,7 @@ public class DefaultJobSchedulerService
             job != null ? job.getPublicJobType() : null,
             job != null ? job.getPriority() : null,
             null,
+            timestamp,
             job != null ? job.getSignalKey() : null,
             principal,
             outcome,
