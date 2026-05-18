@@ -31,7 +31,9 @@ public interface ExecutionStore {
   /**
    * Returns a page of execution records for a job, ordered by attempt ascending.
    *
-   * <p>Transaction attribute: {@code SUPPORTS}.
+   * @param limit maximum number of rows to return; {@code 0} returns an empty page
+   * @param offset number of matching rows to skip
+   *     <p>Transaction attribute: {@code SUPPORTS}.
    */
   List<JobExecutionEntity> findExecutionsByJobId(UUID jobId, int limit, int offset);
 

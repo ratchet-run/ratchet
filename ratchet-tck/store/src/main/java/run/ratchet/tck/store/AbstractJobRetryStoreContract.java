@@ -65,6 +65,20 @@ public abstract class AbstractJobRetryStoreContract implements JobStoreContractF
   }
 
   @Test
+  void scheduleJobRetry_rejectsFailedTerminalRows() {
+    var saved = persist(newPendingJob());
+    store().compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+    store().compareAndSwapStatus(saved.getId(), JobStatus.RUNNING, JobStatus.FAILED, "boom");
+
+    boolean retried =
+        store()
+            .scheduleJobRetry(saved.getId(), "already terminal", Instant.now().plusSeconds(300), 1);
+
+    assertFalse(retried, "FAILED terminal jobs should not be rescheduled through retry");
+    assertEquals(JobStatus.FAILED, store().getJobStatus(saved.getId()));
+  }
+
+  @Test
   void resetFailedToPending_transitionsAndResetsMetadata() {
     var saved = persist(newPendingJob());
     store().compareAndSwapStatus(saved.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);

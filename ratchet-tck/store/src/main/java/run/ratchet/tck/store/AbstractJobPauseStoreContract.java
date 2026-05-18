@@ -3,6 +3,7 @@ package run.ratchet.tck.store;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
@@ -71,6 +72,47 @@ public abstract class AbstractJobPauseStoreContract implements JobStoreContractF
   @Test
   void transitionFromPausedAtomic_unknownJob_returnsNull() {
     assertNull(store().transitionFromPausedAtomic(new UUID(0L, Long.MAX_VALUE)));
+  }
+
+  @Test
+  void transitionToPaused_rejectsAlreadyPausedExpectedStatus() {
+    var saved = persist(newPendingJob());
+    assertTrue(store().transitionToPaused(saved.getId(), JobStatus.PENDING));
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> store().transitionToPaused(saved.getId(), JobStatus.PAUSED));
+  }
+
+  @Test
+  void transitionToPaused_returnsFalseForNonPausableExpectedStatuses() {
+    var waiting = newPendingJob();
+    waiting.setStatus(JobStatus.WAITING);
+    waiting = persist(waiting);
+
+    assertFalse(store().transitionToPaused(waiting.getId(), JobStatus.WAITING));
+
+    var terminal = persist(newPendingJob());
+    store().compareAndSwapStatus(terminal.getId(), JobStatus.PENDING, JobStatus.RUNNING, null);
+    store().compareAndSwapStatus(terminal.getId(), JobStatus.RUNNING, JobStatus.FAILED, "boom");
+
+    assertFalse(store().transitionToPaused(terminal.getId(), JobStatus.FAILED));
+  }
+
+  @Test
+  void transitionFromPaused_rejectsPausedWaitingAndTerminalTargets() {
+    var saved = persist(newPendingJob());
+    assertTrue(store().transitionToPaused(saved.getId(), JobStatus.PENDING));
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> store().transitionFromPaused(saved.getId(), JobStatus.PAUSED));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> store().transitionFromPaused(saved.getId(), JobStatus.WAITING));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> store().transitionFromPaused(saved.getId(), JobStatus.FAILED));
   }
 
   @Test

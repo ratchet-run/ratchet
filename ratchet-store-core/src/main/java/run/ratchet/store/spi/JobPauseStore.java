@@ -15,13 +15,16 @@ public interface JobPauseStore {
 
   /**
    * Atomically transitions to PAUSED, recording the original status for later resume in the same
-   * operation to avoid TOCTOU gaps. Transaction attribute: {@code REQUIRED}.
+   * operation to avoid TOCTOU gaps. Returns {@code false} when {@code expected} is WAITING or
+   * terminal. Throws {@link IllegalArgumentException} when {@code expected} is PAUSED. Transaction
+   * attribute: {@code REQUIRED}.
    */
   boolean transitionToPaused(UUID id, JobStatus expected);
 
   /**
    * Atomically transitions from PAUSED to the target status, clearing the stored paused-from
-   * status. Transaction attribute: {@code REQUIRED}.
+   * status. The target must be a non-PAUSED, non-WAITING live status. Transaction attribute: {@code
+   * REQUIRED}.
    */
   boolean transitionFromPaused(UUID id, JobStatus target);
 

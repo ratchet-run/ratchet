@@ -87,6 +87,9 @@ final class MongoAuxiliaryOperations {
   }
 
   List<JobExecutionEntity> findExecutionsByJobId(UUID jobId, int limit, int offset) {
+    if (limit == 0) {
+      return List.of();
+    }
     List<JobExecutionEntity> results = new ArrayList<>();
     for (Document doc :
         ctx.executions()
@@ -153,7 +156,10 @@ final class MongoAuxiliaryOperations {
 
   List<WorkflowConditionEntity> findConditionsByChildJobId(UUID childJobId) {
     List<WorkflowConditionEntity> results = new ArrayList<>();
-    for (Document doc : ctx.workflowConditions().find(eq(CHILD_JOB_ID, childJobId))) {
+    for (Document doc :
+        ctx.workflowConditions()
+            .find(eq(CHILD_JOB_ID, childJobId))
+            .sort(ascending(CONDITION_PRIORITY))) {
       results.add(DocumentMapper.toWorkflowConditionEntity(doc));
       warnIfLargeConditionResult("child job", childJobId, results.size());
     }
@@ -165,7 +171,8 @@ final class MongoAuxiliaryOperations {
     List<WorkflowConditionEntity> results = new ArrayList<>();
     for (Document doc :
         ctx.workflowConditions()
-            .find(and(eq(PARENT_JOB_ID, parentJobId), eq(CONDITION_TYPE, type.name())))) {
+            .find(and(eq(PARENT_JOB_ID, parentJobId), eq(CONDITION_TYPE, type.name())))
+            .sort(ascending(CONDITION_PRIORITY))) {
       results.add(DocumentMapper.toWorkflowConditionEntity(doc));
       warnIfLargeConditionResult("parent job/type", parentJobId, results.size());
     }

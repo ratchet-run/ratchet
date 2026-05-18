@@ -16,7 +16,11 @@ public interface JobRetryStore {
    */
   int incrementRetryAttempt(UUID id);
 
-  /** Schedules the next retry attempt. Transaction attribute: {@code REQUIRED}. */
+  /**
+   * Schedules the next retry attempt for a RUNNING or WAITING job. Implementations return {@code
+   * false} for missing rows and for jobs in every other status, including FAILED terminal rows.
+   * Transaction attribute: {@code REQUIRED}.
+   */
   boolean scheduleJobRetry(UUID id, String error, Instant newScheduledTime, int attempts);
 
   /**

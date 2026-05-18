@@ -33,7 +33,8 @@ public interface WorkflowConditionStore {
 
   /**
    * Returns every condition pointing at the child job. This is intentionally not paged because the
-   * result represents the complete stored workflow graph for the child.
+   * result represents the complete stored workflow graph for the child. Results are ordered by
+   * condition priority ascending.
    *
    * <p>Transaction attribute: {@code SUPPORTS}.
    */
@@ -41,7 +42,8 @@ public interface WorkflowConditionStore {
 
   /**
    * Returns every condition of the requested type for the parent job. This is intentionally not
-   * paged because workflow routing evaluates the complete matching set.
+   * paged because workflow routing evaluates the complete matching set. Results are ordered by
+   * condition priority ascending.
    *
    * <p>Transaction attribute: {@code SUPPORTS}.
    */

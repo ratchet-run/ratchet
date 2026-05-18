@@ -286,7 +286,7 @@ final class MongoJobLifecycleOperations
           UpdateResult result =
               ctx.jobs()
                   .updateOne(
-                      and(eq(ID, id), in(STATUS, List.of("RUNNING", "WAITING", "FAILED"))),
+                      and(eq(ID, id), in(STATUS, List.of("RUNNING", "WAITING"))),
                       combine(
                           set(STATUS, "PENDING"),
                           set(SCHEDULED_TIME, DocumentMapper.toDate(newScheduledTime)),
@@ -586,6 +586,13 @@ final class MongoJobLifecycleOperations
 
   @Override
   public boolean transitionToPaused(UUID id, JobStatus expected) {
+    if (expected == JobStatus.PAUSED) {
+      throw new IllegalArgumentException("transitionToPaused expects expected != PAUSED");
+    }
+    if (expected == JobStatus.WAITING
+        || MongoStoreContext.TERMINAL_STATUSES.contains(expected.name())) {
+      return false;
+    }
     return booleanMutation(
         "transition_to_paused",
         () -> {
@@ -604,6 +611,12 @@ final class MongoJobLifecycleOperations
 
   @Override
   public boolean transitionFromPaused(UUID id, JobStatus target) {
+    if (!MongoStoreContext.ACTIVE_STATUSES.contains(target.name())
+        || target == JobStatus.PAUSED
+        || target == JobStatus.WAITING) {
+      throw new IllegalArgumentException(
+          "transitionFromPaused expects a non-PAUSED live status; got " + target);
+    }
     return booleanMutation(
         "transition_from_paused",
         () -> {

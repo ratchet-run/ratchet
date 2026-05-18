@@ -128,6 +128,38 @@ public abstract class AbstractWorkflowConditionStoreContract implements JobStore
   }
 
   @Test
+  void findConditionsByChildJobId_ordersByConditionPriority() {
+    var highPriorityParent = persist(newPendingJob());
+    var lowPriorityParent = persist(newPendingJob());
+    var child = persist(newPendingJob());
+
+    store()
+        .saveCondition(
+            newCondition(
+                lowPriorityParent.getId(),
+                child.getId(),
+                WorkflowCondition.ConditionType.SUCCESS,
+                20));
+    store()
+        .saveCondition(
+            newCondition(
+                highPriorityParent.getId(),
+                child.getId(),
+                WorkflowCondition.ConditionType.SUCCESS,
+                5));
+
+    var orderedParentIds =
+        store().findConditionsByChildJobId(child.getId()).stream()
+            .map(WorkflowConditionEntity::getParentJobId)
+            .toList();
+
+    assertEquals(
+        List.of(highPriorityParent.getId(), lowPriorityParent.getId()),
+        orderedParentIds,
+        "child condition scans should evaluate lower priority numbers first");
+  }
+
+  @Test
   void findConditionsByType_filtersCorrectly() {
     var parent = persist(newPendingJob());
     var childA = persist(newPendingJob());
@@ -146,6 +178,40 @@ public abstract class AbstractWorkflowConditionStoreContract implements JobStore
 
     assertEquals(1, successConditions.size(), "Should return only SUCCESS conditions");
     assertEquals(childA.getId(), successConditions.get(0).getChildJobId());
+  }
+
+  @Test
+  void findConditionsByType_ordersByConditionPriority() {
+    var parent = persist(newPendingJob());
+    var lowPriorityChild = persist(newPendingJob());
+    var highPriorityChild = persist(newPendingJob());
+
+    store()
+        .saveCondition(
+            newCondition(
+                parent.getId(),
+                lowPriorityChild.getId(),
+                WorkflowCondition.ConditionType.SUCCESS,
+                20));
+    store()
+        .saveCondition(
+            newCondition(
+                parent.getId(),
+                highPriorityChild.getId(),
+                WorkflowCondition.ConditionType.SUCCESS,
+                5));
+
+    var orderedChildIds =
+        store()
+            .findConditionsByType(parent.getId(), WorkflowCondition.ConditionType.SUCCESS)
+            .stream()
+            .map(WorkflowConditionEntity::getChildJobId)
+            .toList();
+
+    assertEquals(
+        List.of(highPriorityChild.getId(), lowPriorityChild.getId()),
+        orderedChildIds,
+        "type condition scans should evaluate lower priority numbers first");
   }
 
   @Test
