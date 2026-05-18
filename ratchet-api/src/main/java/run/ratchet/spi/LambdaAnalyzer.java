@@ -14,7 +14,9 @@ public interface LambdaAnalyzer {
   /**
    * Analyzes a serializable lambda and returns its target-method metadata.
    *
-   * @throws IllegalArgumentException if the lambda is null or cannot be analyzed
+   * @throws NullPointerException if {@code lambda} is {@code null}
+   * @throws IllegalStateException if the lambda cannot be serialized or its bytecode cannot be
+   *     analyzed
    */
   LambdaDescriptor analyze(Serializable lambda);
 }

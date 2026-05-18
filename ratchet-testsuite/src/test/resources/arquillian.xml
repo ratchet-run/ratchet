@@ -27,7 +27,7 @@
         -Dratchet.test.mongo.uri=${ratchet.test.mongo.uri}
         -Dratchet.test.mongo.database=${ratchet.test.mongo.database}
         -DPOLLER_DEEP_IDLE_THRESHOLD_MS=5000
-        -DPOLLER_DEEP_IDLE_DELAY_MS=1000
+        -DPOLLER_DEEP_IDLE_DELAY_MS=2000
         -DPOLLER_MAX_DELAY_MS=2000
       </property>
       <property name="managementPort">29990</property>
@@ -104,7 +104,7 @@
         -Dratchet.test.mongo.uri=${ratchet.test.mongo.uri}
         -Dratchet.test.mongo.database=${ratchet.test.mongo.database}
         -DPOLLER_DEEP_IDLE_THRESHOLD_MS=5000
-        -DPOLLER_DEEP_IDLE_DELAY_MS=1000
+        -DPOLLER_DEEP_IDLE_DELAY_MS=2000
         -DPOLLER_MAX_DELAY_MS=2000
       </property>
       <property name="allowConnectingToRunningServer">false</property>

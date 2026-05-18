@@ -16,7 +16,8 @@ public interface ResilienceStrategy {
   /**
    * Executes the given task with resilience protection.
    *
-   * @param serviceName identifies the service being protected (must be from a bounded vocabulary)
+   * @param serviceName identifies the service being protected. Implementations should bound or
+   *     normalize service-name cardinality before using it as a circuit-breaker key or metrics tag.
    * @param <T> the return type
    * @throws CircuitBreakerOpenException if the call is rejected because the circuit is open. This
    *     rejection is distinct from task failure; scheduler implementations should delay/reschedule

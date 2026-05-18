@@ -67,4 +67,21 @@ class StoreBackedStartupCoordinatorTest {
     assertThrows(
         IllegalArgumentException.class, () -> coordinator.tryAcquire("   ", Duration.ofMinutes(5)));
   }
+
+  @Test
+  void tryAcquire_rejectsNonPositiveLeaseTtl() {
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> coordinator.tryAcquire("recurring-annotation-orphan-cleanup", Duration.ZERO));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> coordinator.tryAcquire("recurring-annotation-orphan-cleanup", Duration.ofNanos(-1)));
+  }
+
+  @Test
+  void tryAcquire_rejectsNullLeaseTtl() {
+    assertThrows(
+        NullPointerException.class,
+        () -> coordinator.tryAcquire("recurring-annotation-orphan-cleanup", null));
+  }
 }

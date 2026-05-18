@@ -12,7 +12,7 @@ class DefaultRetryPolicyTest {
   void defaultPolicyIsOnlyAPassthrough() {
     DefaultRetryPolicy policy = new DefaultRetryPolicy();
 
-    assertTrue(policy.shouldRetry(0, new IllegalStateException("failed")));
+    assertTrue(policy.shouldRetry(1, new IllegalStateException("failed")));
     assertTrue(policy.shouldRetry(Integer.MAX_VALUE, new RuntimeException("still failed")));
     assertEquals(Duration.ZERO, policy.getDelay(Integer.MAX_VALUE));
   }

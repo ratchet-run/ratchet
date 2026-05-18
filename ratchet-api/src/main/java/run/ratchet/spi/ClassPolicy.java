@@ -14,7 +14,7 @@ public interface ClassPolicy {
   /**
    * Returns whether a class name may be used during payload restoration or invocation.
    *
-   * @param className fully qualified binary class name; never {@code null} or blank
+   * @param className fully qualified binary class name; {@code null} or blank input must be denied
    * @return {@code true} to allow the class, {@code false} to deny it
    */
   boolean isAllowed(String className);

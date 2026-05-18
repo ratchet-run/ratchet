@@ -19,7 +19,13 @@ public interface ErrorSanitizer {
   /**
    * Converts a throwable into text safe for persistence and event publication.
    *
-   * @param ex throwable to sanitize; never {@code null}
+   * <p>Implementations must inspect the throwable cause chain, must tolerate cyclic cause graphs,
+   * must return bounded text, and should not throw. If sanitization itself fails, returning the
+   * throwable class name or another conservative fallback is preferable to surfacing the sanitizer
+   * failure to the job execution path.
+   *
+   * @param ex throwable to sanitize; {@code null} input returns a bounded representation of {@code
+   *     "null"}
    * @return sanitized, bounded error text; never {@code null}
    */
   String sanitize(Throwable ex);

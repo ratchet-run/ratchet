@@ -198,7 +198,16 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
 
   @Override
   public String getNodeId() {
-    return nodeId;
+    String current = nodeId;
+    if (current != null) {
+      return current;
+    }
+    synchronized (this) {
+      if (nodeId == null) {
+        nodeId = resolveNodeId();
+      }
+      return nodeId;
+    }
   }
 
   /** Resolves the node ID, sends an initial heartbeat, and schedules periodic heartbeats. */
@@ -208,19 +217,20 @@ public class DefaultNodeIdentityProvider implements NodeIdentityProvider {
       return;
     }
 
-    nodeId = resolveNodeId();
-    log.infof("Scheduler nodeId=%s", nodeId);
+    String resolvedNodeId = getNodeId();
+    log.infof("Scheduler nodeId=%s", resolvedNodeId);
 
     checkClockSkew();
 
-    nodeStore.upsertHeartbeat(nodeId, effective().instant());
+    nodeStore.upsertHeartbeat(resolvedNodeId, effective().instant());
 
     // Startup self-recovery: unconditionally reclaim RUNNING jobs owned by THIS nodeId. A node
     // that crashes and restarts inside the steady-state grace window would otherwise leave its
     // own prior RUNNING rows in place until the heartbeat aged out.
-    int ownReset = jobBulkStore.resetOrphanJobsForNode(nodeId);
+    int ownReset = jobBulkStore.resetOrphanJobsForNode(resolvedNodeId);
     if (ownReset > 0) {
-      log.infof("Reset %s RUNNING job(s) owned by this node (%s) at startup", ownReset, nodeId);
+      log.infof(
+          "Reset %s RUNNING job(s) owned by this node (%s) at startup", ownReset, resolvedNodeId);
     }
 
     // Also run the normal grace-based sweep to pick up any other nodes' rows that have aged out.
