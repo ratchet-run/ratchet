@@ -10,8 +10,11 @@
 -- CONSTRAINT syntax for FOREIGN KEY and CHECK constraints, which was added in 8.0.19.
 -- Earlier 8.0.x releases would need DROP FOREIGN KEY / DROP CHECK in separate ALTER
 -- TABLE statements. Ratchet's IT matrix exercises 8.0.32+, MariaDB 10.6+.
-
-START TRANSACTION;
+--
+-- No transaction wrapper: every DDL statement in this migration implicitly commits, so
+-- a START TRANSACTION / COMMIT block would be misleading rather than atomic. If any
+-- individual statement fails, the prior ones are already durable; the migration must be
+-- re-runnable from the point of failure.
 
 -- 1. New definition table.
 CREATE TABLE IF NOT EXISTS scheduler_recurring_job
@@ -94,5 +97,3 @@ ALTER TABLE scheduler_job_tag
 -- 6. Record version.
 INSERT IGNORE INTO ratchet_schema_version (version, description) VALUES
     ('010', 'CP2 recurring-master split: scheduler_recurring_job + scheduler_recurring_job_archive + recurring_master_id');
-
-COMMIT;

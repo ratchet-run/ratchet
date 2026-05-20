@@ -179,19 +179,9 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
   @Override
   public int cancelOrphanedRecurringAnnotationJobs(
       Set<String> knownBusinessKeys, Instant nodeStartTime) {
+    Bson base = and(ne(BUSINESS_KEY, null), lt(CREATED_AT, Date.from(nodeStartTime)));
     Bson filter =
-        and(
-            ne(BUSINESS_KEY, null),
-            lt(CREATED_AT, Date.from(nodeStartTime)),
-            knownBusinessKeys.isEmpty()
-                ? eq("_no_match_", false)
-                : nin(BUSINESS_KEY, knownBusinessKeys));
-    // Mongo's nin is awkward when the set is empty; the eq("_no_match_", false) above is a safe
-    // tautology — there's nothing to NOT-IN against, so cancel nothing.
-    if (knownBusinessKeys.isEmpty()) {
-      // Cancel every annotation-owned recurring whose business_key is non-null and old.
-      filter = and(ne(BUSINESS_KEY, null), lt(CREATED_AT, Date.from(nodeStartTime)));
-    }
+        knownBusinessKeys.isEmpty() ? base : and(base, nin(BUSINESS_KEY, knownBusinessKeys));
     return cancelMatching(filter);
   }
 
