@@ -71,6 +71,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   private PostgresqlArchiveOperations archives;
   private PostgresqlAuxiliaryOperations auxiliary;
   private PostgresqlSignalOperations signals;
+  private PostgresqlRecurringJobOperations recurringJobs;
 
   /** No-arg constructor required by CDI normal-scope proxying. Not for direct use. */
   protected PostgresqlJobStoreImpl() {
@@ -819,5 +820,62 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
     archives = new PostgresqlArchiveOperations(ctx, reads);
     auxiliary = new PostgresqlAuxiliaryOperations(ctx);
     signals = new PostgresqlSignalOperations(ctx);
+    recurringJobs = new PostgresqlRecurringJobOperations(ctx, reservations);
+  }
+
+  // ---------- RecurringJobStore (CP2) delegates ----------
+
+  @Override
+  public List<run.ratchet.store.spi.RecurringJobDefinition> claimDueRecurringDefs(
+      int limit, String nodeId, NodeTagFilter tagFilter) {
+    return recurringJobs.claimDueRecurringDefs(limit, nodeId, tagFilter);
+  }
+
+  @Override
+  public void advanceNextFire(UUID id, Instant nextFire) {
+    recurringJobs.advanceNextFire(id, nextFire);
+  }
+
+  // findEarliestRecurringNextFire / pauseRecurring / resumeRecurring /
+  // cancelOrphanedRecurringAnnotationJobs / cancelRecurringJobsByTag /
+  // cancelRecurringJobsByBusinessKeys: identical signatures on JobCrudStore/JobPauseStore/
+  // JobBatchStatusStore and RecurringJobStore. The pre-CP2 delegates (jobs, lifecycle) satisfy
+  // both interfaces. Re-routed to recurringJobs in the RI rewire commit.
+
+  @Override
+  public boolean cancelRecurringAndArchive(
+      UUID id, run.ratchet.store.spi.RecurringJobStore.ArchiveReason reason) {
+    return recurringJobs.cancelRecurringAndArchive(id, reason);
+  }
+
+  @Override
+  public boolean cancelRecurringByBusinessKey(String businessKey) {
+    return recurringJobs.cancelRecurringByBusinessKey(businessKey);
+  }
+
+  @Override
+  public UUID createRecurring(run.ratchet.store.spi.RecurringJobDefinition definition) {
+    return recurringJobs.createRecurring(definition);
+  }
+
+  @Override
+  public boolean updateRecurring(UUID id, run.ratchet.store.spi.RecurringJobDefinition definition) {
+    return recurringJobs.updateRecurring(id, definition);
+  }
+
+  @Override
+  public Optional<run.ratchet.store.spi.RecurringJobDefinition> getRecurring(UUID id) {
+    return recurringJobs.getRecurring(id);
+  }
+
+  @Override
+  public Optional<run.ratchet.store.spi.RecurringJobDefinition> findRecurringByBusinessKey(
+      String businessKey) {
+    return recurringJobs.findRecurringByBusinessKey(businessKey);
+  }
+
+  @Override
+  public List<run.ratchet.store.spi.RecurringJobDefinition> listAll() {
+    return recurringJobs.listAll();
   }
 }
