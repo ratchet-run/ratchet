@@ -120,6 +120,16 @@ public class DefaultJobQueryService implements JobQueryService {
 
     JobFilter scoped = scopeFilter(filter);
 
+    // A filter that targets ONLY recurring masters has to hit RecurringJobStore — the executable
+    // queryStore reads scheduler_job + scheduler_job_queue, which no longer hold recurring rows
+    // post-CP2 split. Mixed-type filters still go through the executable path so non-recurring
+    // results land correctly; recurring-only results need the dedicated route.
+    if (scoped.types() != null
+        && scoped.types().size() == 1
+        && scoped.types().contains(JobType.RECURRING)) {
+      return getRecurringMasters(limit, offset);
+    }
+
     boolean cursorMode = scoped.cursor() != null && !scoped.cursor().isBlank();
     boolean probeMode = scoped.skipCount() || cursorMode;
     int fetchLimit = probeMode ? limit + 1 : limit;

@@ -65,8 +65,11 @@ class RecurringJobExecutorGraceTest {
 
     assertEquals(0, fired, "orphaned master must not fire during startup grace");
 
-    // Grace skip is a no-op continue — the FOR UPDATE SKIP LOCKED row lock drops at tx end.
-    verify(recurringJobStore, never()).advanceNextFire(any(UUID.class), any(Instant.class));
+    // Lease release: SQL row locks auto-drop at tx commit, but Mongo's claim mutated next_fire
+    // as a lease — the skip path restores the original next_fire so the row is eligible on the
+    // next claim cycle. advanceNextFire with the master's pre-claim next_fire is the SPI call
+    // that achieves both semantics.
+    verify(recurringJobStore).advanceNextFire(orphan.id(), orphan.nextFire());
     verify(recurringJobStore, never()).cancelRecurringAndArchive(any(UUID.class), any());
     verify(jobBulkStore, never()).bulkInsert(any());
   }
@@ -125,6 +128,9 @@ class RecurringJobExecutorGraceTest {
     assertEquals(1, fired);
     verify(jobBulkStore).bulkInsert(any());
     verify(recurringJobStore).advanceNextFire(eq(known.id()), any(Instant.class));
+    // Both orphaned masters have their lease restored to the original next_fire.
+    verify(recurringJobStore).advanceNextFire(orphan1.id(), orphan1.nextFire());
+    verify(recurringJobStore).advanceNextFire(orphan2.id(), orphan2.nextFire());
   }
 
   @Test
@@ -177,6 +183,9 @@ class RecurringJobExecutorGraceTest {
     assertEquals(1, fired, "malformed recurring masters must not abort the batch");
     verify(jobBulkStore).bulkInsert(any());
     verify(recurringJobStore).advanceNextFire(eq(known.id()), any(Instant.class));
+    // Malformed-cron skip restores the lease; otherwise the bad master would sit idle for the
+    // Mongo lease window before the next operator-fix attempt could observe it.
+    verify(recurringJobStore).advanceNextFire(malformed.id(), malformed.nextFire());
   }
 
   @Test

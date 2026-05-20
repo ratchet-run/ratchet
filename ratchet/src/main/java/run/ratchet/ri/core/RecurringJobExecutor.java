@@ -95,14 +95,16 @@ public class RecurringJobExecutor {
       // node finished its @Recurring registration pass, refuse to fire any master whose business
       // key is not in the local known-keys set. This closes the rolling-deploy race where Node
       // B's newer JAR removes an annotation but Node A (or even Node B itself, before cleanup
-      // runs) might claim and fire the orphaned master between scan cycles. The
-      // FOR UPDATE SKIP LOCKED lock on scheduler_recurring_job releases when the tx commits;
-      // we just continue without advancing next_fire so the master is eligible next cycle.
+      // runs) might claim and fire the orphaned master between scan cycles. SQL stores hold the
+      // row lock until tx commit (auto-released on continue); Mongo bumped next_fire forward as
+      // its claim lease, so we have to restore the original next_fire explicitly or the master
+      // would sit idle for the lease window before becoming eligible again.
       if (registrationState != null && !registrationState.shouldFire(master.businessKey())) {
         log.debugf(
             "Recurring master %s (businessKey=%s) skipped — within startup grace and key not"
                 + " in local known set",
             master.id(), master.businessKey());
+        releaseClaim(master);
         continue;
       }
       Cron cron;
@@ -111,8 +113,9 @@ public class RecurringJobExecutor {
         cron = RecurringScheduler.PARSER.parse(master.cronExpr());
         zone = ZoneId.of(master.zoneId());
       } catch (RuntimeException e) {
-        // claim holds a row lock only; there is no picked_by state to clear here.
+        // SQL stores release the row lock on tx commit; Mongo needs the lease undone.
         log.warnf(e, "Recurring job %s skipped after scheduling error", master.id());
+        releaseClaim(master);
         continue;
       }
       ExecutionTime execTime = ExecutionTime.forCron(cron);
@@ -155,6 +158,18 @@ public class RecurringJobExecutor {
       jobBulkStore.bulkInsert(children);
     }
     return firedCount;
+  }
+
+  /**
+   * Restore the master's original next_fire so a skipped row becomes eligible on the next claim
+   * cycle. SQL claim implementations don't mutate next_fire so this is effectively a no-op there
+   * (the row lock auto-releases on tx commit). Mongo claim bumps next_fire forward as its lease;
+   * skipping without releasing would leave the row invisible for the lease window.
+   */
+  private void releaseClaim(RecurringJobDefinition master) {
+    if (master.nextFire() != null) {
+      recurringJobStore.advanceNextFire(master.id(), master.nextFire());
+    }
   }
 
   private JobEntity createChildFromMaster(RecurringJobDefinition master, Instant fireTs) {
