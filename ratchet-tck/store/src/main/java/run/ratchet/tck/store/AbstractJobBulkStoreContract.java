@@ -267,6 +267,7 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
   }
 
   @Test
+  @org.junit.jupiter.api.Disabled("Superseded by AbstractRecurringJobStoreContract after CP2.")
   void cancelRecurringJobsByTag_bulkUpdate() {
     String tag = "recurring-tag";
 

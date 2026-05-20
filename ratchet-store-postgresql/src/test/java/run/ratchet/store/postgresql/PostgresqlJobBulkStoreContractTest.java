@@ -38,6 +38,9 @@ class PostgresqlJobBulkStoreContractTest extends AbstractJobBulkStoreContract {
   }
 
   @Test
+  @org.junit.jupiter.api.Disabled(
+      "Superseded by AbstractRecurringJobStoreContract after CP2 — recurring rows live in"
+          + " scheduler_recurring_job, not scheduler_job.")
   void cancelOrphanedRecurringAnnotationJobs_cancelsMultipleRowsAndReservations() {
     JobEntity orphan1 = recurringJob("recurring-orphan-1");
     orphan1 = persist(orphan1);

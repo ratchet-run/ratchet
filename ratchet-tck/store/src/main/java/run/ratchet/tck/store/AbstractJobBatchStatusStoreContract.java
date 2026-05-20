@@ -151,6 +151,10 @@ public abstract class AbstractJobBatchStatusStoreContract implements JobStoreCon
   }
 
   @Test
+  @org.junit.jupiter.api.Disabled(
+      "Superseded by AbstractRecurringJobStoreContract after CP2: recurring rows live in"
+          + " scheduler_recurring_job, not scheduler_job, so the legacy JobBatchStatusStore"
+          + " test fixtures no longer match the new persistence path.")
   void cancelRecurringJobsByTag_cancelsOnlyTaggedRecurringJobs() {
     var tagged = recurringJob("recurring-tag", "recurring-key-1");
     var secondTagged = recurringJob("recurring-tag", "recurring-key-2");
@@ -167,6 +171,7 @@ public abstract class AbstractJobBatchStatusStoreContract implements JobStoreCon
   }
 
   @Test
+  @org.junit.jupiter.api.Disabled("Superseded by AbstractRecurringJobStoreContract.")
   void cancelRecurringJobByBusinessKey_cancelsMatchingRecurringJob() {
     var matching = recurringJob("tag-a", "business-key-target");
     var other = recurringJob("tag-b", "business-key-other");
@@ -179,6 +184,7 @@ public abstract class AbstractJobBatchStatusStoreContract implements JobStoreCon
   }
 
   @Test
+  @org.junit.jupiter.api.Disabled("Superseded by AbstractRecurringJobStoreContract.")
   void cancelRecurringJobsByBusinessKeys_cancelsMatchingRecurringJobsInBulk() {
     var first = recurringJob("tag-a", "business-key-first");
     var second = recurringJob("tag-b", "business-key-second");
@@ -197,6 +203,7 @@ public abstract class AbstractJobBatchStatusStoreContract implements JobStoreCon
   }
 
   @Test
+  @org.junit.jupiter.api.Disabled("Superseded by AbstractRecurringJobStoreContract.")
   void cancelOrphanedRecurringAnnotationJobs_cancelsOnlyOldUnregisteredRecurringJobs() {
     var orphan = recurringJob("tag-a", "annotation-missing");
     var registered = recurringJob("tag-b", "annotation-registered");

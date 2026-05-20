@@ -116,6 +116,9 @@ public abstract class AbstractJobPauseStoreContract implements JobStoreContractF
   }
 
   @Test
+  @org.junit.jupiter.api.Disabled(
+      "Superseded by AbstractRecurringJobStoreContract after CP2: recurring masters no longer"
+          + " live in scheduler_job. The legacy semantics are obsolete.")
   void pauseRecurring_andResumeRecurring_onlyOperateOnRecurringMasters() {
     var recurring = persist(recurringJob());
     var oneShot = persist(newPendingJob());
@@ -132,6 +135,8 @@ public abstract class AbstractJobPauseStoreContract implements JobStoreContractF
   }
 
   @Test
+  @org.junit.jupiter.api.Disabled(
+      "Superseded by AbstractRecurringJobStoreContract after CP2.")
   void pauseRecurring_resumeRecurring_areIdempotentForWrongState() {
     var recurring = persist(recurringJob());
 
