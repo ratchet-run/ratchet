@@ -40,15 +40,11 @@ import run.ratchet.store.id.UuidV7EntityListener;
       @Index(name = "idx_job_picked_by", columnList = "picked_by"),
       @Index(name = "idx_target_class", columnList = "target_class"),
       @Index(name = "idx_method_name", columnList = "method_name"),
-      @Index(name = "idx_recurring_due", columnList = "status, next_fire"),
       @Index(name = "idx_job_poll_composite", columnList = "status, priority, scheduled_time"),
       @Index(
           name = "idx_job_claim_cover",
           columnList = "status, job_type, priority, scheduled_time, job_id"),
       @Index(name = "idx_job_type", columnList = "job_type"),
-      @Index(
-          name = "idx_job_recurring_composite",
-          columnList = "status, job_type, priority, next_fire, job_id"),
       @Index(name = "idx_job_depends_on", columnList = "depends_on"),
       @Index(name = "idx_job_superseded_by", columnList = "superseded_by"),
       @Index(name = "idx_job_business_key", columnList = "business_key"),
@@ -105,8 +101,11 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   @Column(name = "zone_id", length = 32, nullable = false)
   private String zoneId = "UTC";
 
-  @Column(name = "next_fire")
-  private Instant nextFire;
+  // CP2 split: scheduler_job no longer carries a next_fire column (it moved with the recurring
+  // master to scheduler_recurring_job). The field stays as a transient carrier for the
+  // authorization-policy gate, which still inspects next_fire on the transient recurring entity
+  // it builds for the type-aware policy check.
+  @jakarta.persistence.Transient private Instant nextFire;
 
   @Convert(converter = JobPayloadConverter.class)
   @Column(nullable = false)

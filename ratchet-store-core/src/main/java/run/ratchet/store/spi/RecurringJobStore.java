@@ -101,11 +101,6 @@ public interface RecurringJobStore {
   /**
    * Cancels the single recurring master matching {@code businessKey}, if any. Returns {@code true}
    * when a row was canceled. Transaction attribute: {@code REQUIRED}.
-   *
-   * <p>Named {@code cancelRecurringJobByBusinessKey} (not {@code cancelRecurringJobByBusinessKey})
-   * to avoid signature collision with the pre-CP2 {@code int} return on {@code
-   * JobBatchStatusStore}. After the legacy method is removed in the final CP2 commit, this can be
-   * renamed if a consumer expects the historical name.
    */
   boolean cancelRecurringJobByBusinessKey(String businessKey);
 
