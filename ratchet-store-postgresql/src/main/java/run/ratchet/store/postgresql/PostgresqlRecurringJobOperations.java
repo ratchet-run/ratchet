@@ -51,7 +51,7 @@ final class PostgresqlRecurringJobOperations implements RecurringJobStore {
       return List.of();
     }
     try {
-      String tagSql = JobClaimSqlSupport.buildTagFilterSql(tagFilter, "r");
+      String tagSql = JobClaimSqlSupport.buildTagFilterSql(tagFilter, "r", "id");
       // language=PostgreSQL
       String sql =
           "SELECT "

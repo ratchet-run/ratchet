@@ -13,11 +13,13 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.BackoffPolicy;
+import run.ratchet.api.NodeTagFilter;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.id.UuidV7Factory;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.RecurringJobStore.ArchiveReason;
+import run.ratchet.store.spi.TagStore;
 
 /**
  * TCK contract for {@link RecurringJobStore} — the CP2 dedicated recurring-master store.
@@ -41,6 +43,13 @@ public abstract class AbstractRecurringJobStoreContract {
 
   /** Returns the {@link RecurringJobStore} under test. */
   protected abstract RecurringJobStore recurringStore();
+
+  /**
+   * Returns the {@link TagStore} that backs the same underlying schema as {@link
+   * #recurringStore()}. Used by the tag-routing contracts (TCK 8 / 9): in production, recurring
+   * masters acquire their tags through this SPI after {@code createRecurring}.
+   */
+  protected abstract TagStore tagStore();
 
   /** Builds a no-op {@link JobPayload} so the contract is store-impl agnostic. */
   protected abstract JobPayload noopPayload();
@@ -196,6 +205,54 @@ public abstract class AbstractRecurringJobStoreContract {
     Optional<RecurringJobDefinition> def = recurringStore().getRecurring(id);
     assertTrue(def.isPresent());
     assertEquals(id, def.get().id(), "master id round-trips for child lineage attribution");
+  }
+
+  /**
+   * TCK 8 — claim honors require/exclude tag filters. Tags persist via {@link TagStore} after
+   * {@code createRecurring}, and {@code claimDueRecurring} must filter on them the same way the
+   * one-shot claim path does.
+   */
+  @Test
+  void claimDueRecurring_honorsRequireAndExcludeTagFilters() {
+    UUID gpuMaster = UuidV7Factory.create();
+    UUID cpuMaster = UuidV7Factory.create();
+    Instant pastDue = Instant.now().minusSeconds(60);
+    recurringStore().createRecurring(definition(gpuMaster, "0 * * * * ?", pastDue));
+    recurringStore().createRecurring(definition(cpuMaster, "0 * * * * ?", pastDue));
+    tagStore().insertTags(gpuMaster, List.of("gpu"));
+    tagStore().insertTags(cpuMaster, List.of("cpu"));
+
+    NodeTagFilter requireGpu = new NodeTagFilter(List.of("gpu"), List.of());
+    List<RecurringJobDefinition> required =
+        recurringStore().claimDueRecurring(10, "node-gpu", requireGpu);
+    assertEquals(1, required.size(), "only the gpu master matches a gpu require-filter");
+    assertEquals(gpuMaster, required.get(0).id());
+
+    NodeTagFilter excludeGpu = new NodeTagFilter(List.of(), List.of("gpu"));
+    List<RecurringJobDefinition> filtered =
+        recurringStore().claimDueRecurring(10, "node-no-gpu", excludeGpu);
+    assertEquals(1, filtered.size(), "only the cpu master remains when gpu is excluded");
+    assertEquals(cpuMaster, filtered.get(0).id());
+  }
+
+  /**
+   * TCK 9 — {@code cancelRecurringJobsByTag} finds masters whose tags were added through {@link
+   * TagStore} and leaves untagged masters alone. Catches the Mongo-side regression where {@code
+   * insertTags} wrote to the wrong collection and the cancel-by-tag query saw zero rows.
+   */
+  @Test
+  void cancelRecurringJobsByTag_cancelsTaggedMastersOnly() {
+    UUID legacy = UuidV7Factory.create();
+    UUID survivor = UuidV7Factory.create();
+    Instant future = Instant.now().plusSeconds(60);
+    recurringStore().createRecurring(definition(legacy, "0 * * * * ?", future));
+    recurringStore().createRecurring(definition(survivor, "0 * * * * ?", future));
+    tagStore().insertTags(legacy, List.of("legacy"));
+
+    int canceled = recurringStore().cancelRecurringJobsByTag("legacy");
+    assertEquals(1, canceled, "only the legacy-tagged master is canceled");
+    assertTrue(recurringStore().getRecurring(legacy).isEmpty());
+    assertTrue(recurringStore().getRecurring(survivor).isPresent());
   }
 
   private RecurringJobDefinition definition(UUID id, String cron, Instant nextFire) {

@@ -50,7 +50,7 @@ final class MysqlRecurringJobOperations implements RecurringJobStore {
       return List.of();
     }
     try {
-      String tagSql = JobClaimSqlSupport.buildTagFilterSql(tagFilter, "r");
+      String tagSql = JobClaimSqlSupport.buildTagFilterSql(tagFilter, "r", "id");
       // language=MySQL
       String sql =
           ("SELECT "

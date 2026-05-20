@@ -7,6 +7,7 @@ import static com.mongodb.client.model.Filters.lt;
 import static com.mongodb.client.model.Filters.lte;
 import static com.mongodb.client.model.Filters.ne;
 import static com.mongodb.client.model.Filters.nin;
+import static com.mongodb.client.model.Filters.nor;
 import static com.mongodb.client.model.Updates.combine;
 import static com.mongodb.client.model.Updates.set;
 import static run.ratchet.store.mongodb.MongoFieldNames.ARCHIVED_AT;
@@ -28,6 +29,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.PAUSED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.PAYLOAD;
 import static run.ratchet.store.mongodb.MongoFieldNames.PRIORITY_FIELD;
 import static run.ratchet.store.mongodb.MongoFieldNames.RESOURCE_NAME;
+import static run.ratchet.store.mongodb.MongoFieldNames.TAGS;
 import static run.ratchet.store.mongodb.MongoFieldNames.TIMEOUT_SEC;
 import static run.ratchet.store.mongodb.MongoFieldNames.ZONE_ID;
 
@@ -72,11 +74,24 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
       return List.of();
     }
     Date now = Date.from(Instant.now());
-    Bson filter = and(eq(IS_PAUSED, false), lte(NEXT_FIRE, now));
+    List<Bson> clauses = new ArrayList<>();
+    clauses.add(eq(IS_PAUSED, false));
+    clauses.add(lte(NEXT_FIRE, now));
+    if (tagFilter != null && !tagFilter.isUnfiltered()) {
+      if (!tagFilter.requireTags().isEmpty()) {
+        clauses.add(in(TAGS, tagFilter.requireTags()));
+      }
+      if (!tagFilter.excludeTags().isEmpty()) {
+        // nor(in(TAGS, excludes)) matches docs whose tags array contains none of the excluded tags,
+        // and also matches docs that have no tags field at all — same semantics as the SQL
+        // NOT EXISTS guard against scheduler_job_tag.
+        clauses.add(nor(in(TAGS, tagFilter.excludeTags())));
+      }
+    }
+    Bson filter = and(clauses);
     FindIterable<Document> iter =
         ctx.recurringJobs()
             .find(filter)
-            .hint(new Document(IS_PAUSED, 1).append(NEXT_FIRE, 1))
             .sort(new Document(PRIORITY_FIELD, -1).append(NEXT_FIRE, 1).append(ID, 1))
             .limit(limit);
     List<RecurringJobDefinition> defs = new ArrayList<>();

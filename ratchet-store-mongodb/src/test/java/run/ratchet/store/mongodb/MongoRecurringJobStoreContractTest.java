@@ -4,6 +4,7 @@ import java.util.List;
 import org.junit.jupiter.api.AfterAll;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.RecurringJobStore;
+import run.ratchet.store.spi.TagStore;
 import run.ratchet.tck.store.AbstractRecurringJobStoreContract;
 
 class MongoRecurringJobStoreContractTest extends AbstractRecurringJobStoreContract {
@@ -18,6 +19,11 @@ class MongoRecurringJobStoreContractTest extends AbstractRecurringJobStoreContra
   @Override
   protected RecurringJobStore recurringStore() {
     return (RecurringJobStore) fixture.store();
+  }
+
+  @Override
+  protected TagStore tagStore() {
+    return (TagStore) fixture.store();
   }
 
   @Override
