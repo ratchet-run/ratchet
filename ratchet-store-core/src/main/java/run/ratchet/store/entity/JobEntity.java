@@ -161,6 +161,14 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   @Column(name = "superseded_by")
   private UUID supersededBy;
 
+  /**
+   * Set on child rows spawned by a recurring master. The pre-CP2 model overloaded {@code dependsOn}
+   * for this; post-CP2 it points to the master's id in {@code scheduler_recurring_job} via FK with
+   * {@code ON DELETE SET NULL}.
+   */
+  @Column(name = "recurring_master_id")
+  private UUID recurringMasterId;
+
   @Column(name = "picked_by", length = 64)
   private String pickedBy;
 
@@ -438,6 +446,14 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
 
   public UUID getDependsOn() {
     return dependsOn;
+  }
+
+  public UUID getRecurringMasterId() {
+    return recurringMasterId;
+  }
+
+  public void setRecurringMasterId(UUID recurringMasterId) {
+    this.recurringMasterId = recurringMasterId;
   }
 
   public void setDependsOn(UUID dependsOn) {

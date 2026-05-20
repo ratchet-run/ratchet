@@ -20,9 +20,9 @@ import run.ratchet.spi.NodeTagAffinityProvider;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobBulkStore;
-import run.ratchet.store.spi.JobClaimStore;
-import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.JobTerminalStore;
+import run.ratchet.store.spi.RecurringJobDefinition;
+import run.ratchet.store.spi.RecurringJobStore;
+import run.ratchet.store.spi.RecurringJobStore.ArchiveReason;
 
 /** Claims due recurring masters, spawns child jobs, and advances next-fire times. */
 @ApplicationScoped
@@ -34,60 +34,44 @@ public class RecurringJobExecutor {
   // Caps catch-up executions per recurring job to prevent thundering herd after downtime.
   private static final int MAX_CATCHUP_COUNT = 10;
 
-  private final JobCrudStore jobCrudStore;
   private final JobBulkStore jobBulkStore;
-  private final JobClaimStore jobClaimStore;
-  private final JobTerminalStore jobTerminalStore;
+  private final RecurringJobStore recurringJobStore;
   private final RecurringRegistrationState registrationState;
   private final NodeTagAffinityProvider tagAffinityProvider;
   private final Clock clock;
 
   protected RecurringJobExecutor() {
-    this.jobCrudStore = null;
     this.jobBulkStore = null;
-    this.jobClaimStore = null;
-    this.jobTerminalStore = null;
+    this.recurringJobStore = null;
     this.registrationState = null;
     this.tagAffinityProvider = null;
     this.clock = null;
   }
 
   public RecurringJobExecutor(
-      JobCrudStore jobCrudStore,
       JobBulkStore jobBulkStore,
-      JobClaimStore jobClaimStore,
-      JobTerminalStore jobTerminalStore,
+      RecurringJobStore recurringJobStore,
       RecurringRegistrationState registrationState,
       NodeTagAffinityProvider tagAffinityProvider) {
     this(
-        jobCrudStore,
-        jobBulkStore,
-        jobClaimStore,
-        jobTerminalStore,
-        registrationState,
-        tagAffinityProvider,
-        Clock.systemUTC());
+        jobBulkStore, recurringJobStore, registrationState, tagAffinityProvider, Clock.systemUTC());
   }
 
   @Inject
   public RecurringJobExecutor(
-      JobCrudStore jobCrudStore,
       JobBulkStore jobBulkStore,
-      JobClaimStore jobClaimStore,
-      JobTerminalStore jobTerminalStore,
+      RecurringJobStore recurringJobStore,
       RecurringRegistrationState registrationState,
       NodeTagAffinityProvider tagAffinityProvider,
       Clock clock) {
-    this.jobCrudStore = jobCrudStore;
     this.jobBulkStore = jobBulkStore;
-    this.jobClaimStore = jobClaimStore;
-    this.jobTerminalStore = jobTerminalStore;
+    this.recurringJobStore = recurringJobStore;
     this.registrationState = registrationState;
     this.tagAffinityProvider = tagAffinityProvider;
     this.clock = clock;
   }
 
-  void enqueueChild(JobEntity master, Instant fireTs) {
+  void enqueueChild(RecurringJobDefinition master, Instant fireTs) {
     JobEntity child = createChildFromMaster(master, fireTs);
     jobBulkStore.bulkInsert(List.of(child));
   }
@@ -101,39 +85,39 @@ public class RecurringJobExecutor {
   int process(int batchLimit, String nodeId) {
     NodeTagFilter tagFilter =
         tagAffinityProvider != null ? tagAffinityProvider.tagFilter() : NodeTagFilter.NONE;
-    List<JobEntity> masters = jobClaimStore.claimDueRecurring(batchLimit, nodeId, tagFilter);
+    List<RecurringJobDefinition> masters =
+        recurringJobStore.claimDueRecurringDefs(batchLimit, nodeId, tagFilter);
     Instant now = effective().instant();
     List<JobEntity> children = new ArrayList<>();
     int firedCount = 0;
-    for (JobEntity master : masters) {
+    for (RecurringJobDefinition master : masters) {
       // Startup grace gate: during the first ratchet.recurring.startup-grace-seconds after this
       // node finished its @Recurring registration pass, refuse to fire any master whose business
       // key is not in the local known-keys set. This closes the rolling-deploy race where Node
       // B's newer JAR removes an annotation but Node A (or even Node B itself, before cleanup
-      // runs) might claim and fire the orphaned master between scan cycles. Post hot/cold-split,
-      // recurring masters have no hot row and no picked_by/picked_at to clear — releasing means
-      // letting the FOR UPDATE SKIP LOCKED row lock drop at tx end. We just continue without
-      // advancing next_fire so the master is eligible next cycle.
-      if (registrationState != null && !registrationState.shouldFire(master.getBusinessKey())) {
+      // runs) might claim and fire the orphaned master between scan cycles. The
+      // FOR UPDATE SKIP LOCKED lock on scheduler_recurring_job releases when the tx commits;
+      // we just continue without advancing next_fire so the master is eligible next cycle.
+      if (registrationState != null && !registrationState.shouldFire(master.businessKey())) {
         log.debugf(
             "Recurring master %s (businessKey=%s) skipped — within startup grace and key not"
                 + " in local known set",
-            master.getId(), master.getBusinessKey());
+            master.id(), master.businessKey());
         continue;
       }
       Cron cron;
       ZoneId zone;
       try {
-        cron = RecurringScheduler.PARSER.parse(master.getCronExpr());
-        zone = ZoneId.of(master.getZoneId());
+        cron = RecurringScheduler.PARSER.parse(master.cronExpr());
+        zone = ZoneId.of(master.zoneId());
       } catch (RuntimeException e) {
-        // claimDueRecurring holds a row lock only; there is no picked_by state to clear here.
-        log.warnf(e, "Recurring job %s skipped after scheduling error", master.getId());
+        // claim holds a row lock only; there is no picked_by state to clear here.
+        log.warnf(e, "Recurring job %s skipped after scheduling error", master.id());
         continue;
       }
       ExecutionTime execTime = ExecutionTime.forCron(cron);
 
-      Instant baseTime = master.getNextFire() != null ? master.getNextFire() : now;
+      Instant baseTime = master.nextFire() != null ? master.nextFire() : now;
 
       children.add(createChildFromMaster(master, baseTime));
       firedCount++;
@@ -151,8 +135,7 @@ public class RecurringJobExecutor {
       }
 
       if (catchupCount > 0) {
-        log.infof(
-            "Recurring job %s caught up on %s missed executions", master.getId(), catchupCount);
+        log.infof("Recurring job %s caught up on %s missed executions", master.id(), catchupCount);
       }
 
       if (nextOpt.isPresent() && nextOpt.get().isBefore(now)) {
@@ -160,18 +143,13 @@ public class RecurringJobExecutor {
       }
 
       if (nextOpt.isPresent()) {
-        // Cold-only metadata UPDATE — save() is allowed for next_fire advance.
-        master.setNextFire(nextOpt.get());
-        master.setStatus(JobStatus.PENDING);
-        jobCrudStore.save(master);
+        recurringJobStore.advanceNextFire(master.id(), nextOpt.get());
+        log.infof("Recurring job %s fired; next=%s", master.id(), nextOpt.get());
       } else {
-        // Cron exhausted — explicit cancel pathway runs the recurring-cancel SQL atomically
-        // (clear rec_status, set terminal_status='CANCELED', drop bkres). Routing through
-        // save() would trip the hot-mutation guard since save() can't represent the rec_status
-        // / terminal_status transition.
-        jobTerminalStore.cancelJob(master.getId());
+        // Cron exhausted — atomic archive + live-delete + bkres-cleanup.
+        recurringJobStore.cancelRecurringAndArchive(master.id(), ArchiveReason.EXHAUSTED);
+        log.infof("Recurring job %s exhausted; archived as EXHAUSTED", master.id());
       }
-      log.infof("Recurring job %s fired; next=%s", master.getId(), master.getNextFire());
     }
     if (!children.isEmpty()) {
       jobBulkStore.bulkInsert(children);
@@ -179,18 +157,21 @@ public class RecurringJobExecutor {
     return firedCount;
   }
 
-  private JobEntity createChildFromMaster(JobEntity master, Instant fireTs) {
+  private JobEntity createChildFromMaster(RecurringJobDefinition master, Instant fireTs) {
     JobEntity child = new JobEntity();
-    child.setPayload(master.getPayload());
+    child.setPayload(master.payload());
     child.setJobType(JobExecutionType.SINGLE);
     child.setStatus(JobStatus.PENDING);
     child.setScheduledTime(fireTs);
-    child.setPriority(master.getPriority());
-    child.setMaxRetries(master.getMaxRetries());
-    child.setBackoffPolicy(master.getBackoffPolicy());
-    child.setBackoffParamMs(master.getBackoffParamMs());
-    child.setTimeoutSec(master.getTimeoutSec());
-    child.setDependsOn(master.getId());
+    child.setPriority(run.ratchet.api.JobPriority.values()[Math.min(master.priority(), 4)]);
+    child.setMaxRetries(master.maxRetries());
+    child.setBackoffPolicy(master.backoffPolicy());
+    child.setBackoffParamMs(master.backoffParamMs());
+    child.setTimeoutSec(master.timeoutSec());
+    child.setRecurringMasterId(master.id());
+    child.setOnSuccessPayload(master.onSuccessPayload());
+    child.setOnFailurePayload(master.onFailurePayload());
+    child.setResourceName(master.resourceName());
     child.setIdempotencyKey(UUID.randomUUID().toString());
     return child;
   }

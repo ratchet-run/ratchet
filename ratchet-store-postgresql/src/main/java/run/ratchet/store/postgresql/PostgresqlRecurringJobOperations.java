@@ -19,8 +19,8 @@ import run.ratchet.store.spi.RecurringJobStore.ArchiveReason;
 import run.ratchet.store.util.JobClaimSqlSupport;
 
 /**
- * PostgreSQL implementation of {@link RecurringJobStore} against the dedicated
- * {@code scheduler_recurring_job} table (CP2 split).
+ * PostgreSQL implementation of {@link RecurringJobStore} against the dedicated {@code
+ * scheduler_recurring_job} table (CP2 split).
  */
 final class PostgresqlRecurringJobOperations implements RecurringJobStore {
 
@@ -275,9 +275,7 @@ final class PostgresqlRecurringJobOperations implements RecurringJobStore {
   public Optional<RecurringJobDefinition> findRecurringByBusinessKey(String businessKey) {
     // language=PostgreSQL
     String sql =
-        "SELECT "
-            + SELECT_COLUMNS
-            + " FROM scheduler_recurring_job WHERE business_key = ? LIMIT 1";
+        "SELECT " + SELECT_COLUMNS + " FROM scheduler_recurring_job WHERE business_key = ? LIMIT 1";
     List<Object[]> rows =
         ctx.em().createNativeQuery(sql).setParameter(1, businessKey).getResultList();
     if (rows.isEmpty()) {

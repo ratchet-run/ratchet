@@ -4,13 +4,13 @@ import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.in;
 import static com.mongodb.client.model.Filters.lt;
+import static com.mongodb.client.model.Filters.lte;
 import static com.mongodb.client.model.Filters.ne;
 import static com.mongodb.client.model.Filters.nin;
-import static com.mongodb.client.model.Filters.lte;
 import static com.mongodb.client.model.Updates.combine;
 import static com.mongodb.client.model.Updates.set;
-import static run.ratchet.store.mongodb.MongoFieldNames.ARCHIVE_REASON;
 import static run.ratchet.store.mongodb.MongoFieldNames.ARCHIVED_AT;
+import static run.ratchet.store.mongodb.MongoFieldNames.ARCHIVE_REASON;
 import static run.ratchet.store.mongodb.MongoFieldNames.BACKOFF_PARAM_MS;
 import static run.ratchet.store.mongodb.MongoFieldNames.BACKOFF_POLICY;
 import static run.ratchet.store.mongodb.MongoFieldNames.BUSINESS_KEY;
@@ -77,10 +77,7 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
         ctx.recurringJobs()
             .find(filter)
             .hint(new Document(IS_PAUSED, 1).append(NEXT_FIRE, 1))
-            .sort(
-                new Document(PRIORITY_FIELD, -1)
-                    .append(NEXT_FIRE, 1)
-                    .append(ID, 1))
+            .sort(new Document(PRIORITY_FIELD, -1).append(NEXT_FIRE, 1).append(ID, 1))
             .limit(limit);
     List<RecurringJobDefinition> defs = new ArrayList<>();
     for (Document doc : iter) {
@@ -195,7 +192,9 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
                 combine(
                     set(PRIORITY_FIELD, d.priority()),
                     set(MAX_RETRIES_FIELD, d.maxRetries()),
-                    set(BACKOFF_POLICY, d.backoffPolicy() != null ? d.backoffPolicy().name() : "NONE"),
+                    set(
+                        BACKOFF_POLICY,
+                        d.backoffPolicy() != null ? d.backoffPolicy().name() : "NONE"),
                     set(BACKOFF_PARAM_MS, d.backoffParamMs()),
                     set(TIMEOUT_SEC, d.timeoutSec()),
                     set(CRON_EXPR, d.cronExpr()),
@@ -291,10 +290,8 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
     doc.put(PAUSED_AT, d.pausedAt() != null ? Date.from(d.pausedAt()) : null);
     doc.put(PAYLOAD, DocumentMapper.payloadToStoredValue(d.payload()));
     doc.put(PARAMS, DocumentMapper.payloadToStoredValue(d.params()));
-    doc.put(
-        ON_SUCCESS_PAYLOAD, DocumentMapper.payloadToStoredValue(d.onSuccessPayload()));
-    doc.put(
-        ON_FAILURE_PAYLOAD, DocumentMapper.payloadToStoredValue(d.onFailurePayload()));
+    doc.put(ON_SUCCESS_PAYLOAD, DocumentMapper.payloadToStoredValue(d.onSuccessPayload()));
+    doc.put(ON_FAILURE_PAYLOAD, DocumentMapper.payloadToStoredValue(d.onFailurePayload()));
     doc.put(BUSINESS_KEY, d.businessKey());
     doc.put(RESOURCE_NAME, d.resourceName());
     doc.put(CREATED_AT, Date.from(d.createdAt() != null ? d.createdAt() : Instant.now()));
@@ -307,7 +304,8 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
     Number priority = (Number) doc.get(PRIORITY_FIELD);
     Number maxRetries = (Number) doc.get(MAX_RETRIES_FIELD);
     BackoffPolicy backoffPolicy =
-        BackoffPolicy.valueOf(doc.getString(BACKOFF_POLICY) != null ? doc.getString(BACKOFF_POLICY) : "NONE");
+        BackoffPolicy.valueOf(
+            doc.getString(BACKOFF_POLICY) != null ? doc.getString(BACKOFF_POLICY) : "NONE");
     Number backoffParamMs = (Number) doc.get(BACKOFF_PARAM_MS);
     Number timeoutSec = (Number) doc.get(TIMEOUT_SEC);
     Instant nextFire = doc.getDate(NEXT_FIRE) != null ? doc.getDate(NEXT_FIRE).toInstant() : null;

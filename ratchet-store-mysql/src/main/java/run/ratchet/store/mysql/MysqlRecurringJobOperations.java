@@ -92,8 +92,7 @@ final class MysqlRecurringJobOperations implements RecurringJobStore {
   @SuppressWarnings("unchecked")
   public Optional<Instant> findEarliestRecurringNextFire() {
     // language=MySQL
-    String sql =
-        "SELECT MIN(next_fire) FROM scheduler_recurring_job WHERE is_paused = FALSE";
+    String sql = "SELECT MIN(next_fire) FROM scheduler_recurring_job WHERE is_paused = FALSE";
     List<?> rows = ctx.em().createNativeQuery(sql).getResultList();
     if (rows.isEmpty() || rows.get(0) == null) {
       return Optional.empty();
@@ -277,8 +276,7 @@ final class MysqlRecurringJobOperations implements RecurringJobStore {
   @SuppressWarnings("unchecked")
   public Optional<RecurringJobDefinition> getRecurring(UUID id) {
     // language=MySQL
-    String sql =
-        "SELECT " + SELECT_COLUMNS + " FROM scheduler_recurring_job WHERE id = ?";
+    String sql = "SELECT " + SELECT_COLUMNS + " FROM scheduler_recurring_job WHERE id = ?";
     List<Object[]> rows =
         ctx.em()
             .createNativeQuery(sql)
@@ -323,7 +321,9 @@ final class MysqlRecurringJobOperations implements RecurringJobStore {
     }
     int total = 0;
     for (int start = 0; start < ids.size(); start += CANCEL_CHUNK) {
-      total += archiveAndDeleteChunk(ids.subList(start, Math.min(start + CANCEL_CHUNK, ids.size())), reason);
+      total +=
+          archiveAndDeleteChunk(
+              ids.subList(start, Math.min(start + CANCEL_CHUNK, ids.size())), reason);
     }
     return total;
   }
@@ -354,8 +354,7 @@ final class MysqlRecurringJobOperations implements RecurringJobStore {
 
     // 3. Delete live rows.
     // language=MySQL
-    String deleteSql =
-        "DELETE FROM scheduler_recurring_job WHERE id IN (" + placeholders + ")";
+    String deleteSql = "DELETE FROM scheduler_recurring_job WHERE id IN (" + placeholders + ")";
     Query deleteQ = ctx.em().createNativeQuery(deleteSql);
     p = 1;
     for (UUID id : ids) {
