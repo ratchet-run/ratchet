@@ -383,11 +383,6 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   }
 
   @Override
-  public int cancelRecurringJobByBusinessKey(String businessKey) {
-    return lifecycle.cancelRecurringJobByBusinessKey(businessKey);
-  }
-
-  @Override
   public int cancelRecurringJobsByBusinessKeys(Set<String> businessKeys) {
     return recurringJobs.cancelRecurringJobsByBusinessKeys(businessKeys);
   }

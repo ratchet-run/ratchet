@@ -5,10 +5,9 @@ import run.ratchet.api.Incubating;
 import run.ratchet.api.JobStatus;
 
 /**
- * Pause / resume transitions for executable jobs and recurring masters.
+ * Pause / resume transitions for executable jobs.
  *
- * <p>{@code pauseRecurring} / {@code resumeRecurring} ONLY operate on recurring masters; executable
- * pauses use the {@code transition*} methods.
+ * <p>Post-CP2 recurring-master pause/resume lives on {@link RecurringJobStore}.
  */
 @Incubating
 public interface JobPauseStore {
@@ -39,19 +38,4 @@ public interface JobPauseStore {
    *     <p>Transaction attribute: {@code REQUIRED}.
    */
   JobStatus transitionFromPausedAtomic(UUID id);
-
-  /**
-   * Pauses a recurring master. ONLY operates on recurring masters. Post hot/cold-split, recurring
-   * masters live in cold with the rec_status shim ('P' PENDING, 'A' PAUSED) and have no hot row.
-   * Single-table store implementations may treat this as a status flip on the live row. Returns
-   * true iff the master transitioned from PENDING to PAUSED. Transaction attribute: {@code
-   * REQUIRED}.
-   */
-  boolean pauseRecurring(UUID id);
-
-  /**
-   * Resumes a recurring master. ONLY operates on recurring masters. Returns true iff the master
-   * transitioned from PAUSED to PENDING. Transaction attribute: {@code REQUIRED}.
-   */
-  boolean resumeRecurring(UUID id);
 }

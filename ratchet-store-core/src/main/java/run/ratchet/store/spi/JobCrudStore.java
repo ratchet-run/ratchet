@@ -96,13 +96,6 @@ public interface JobCrudStore {
    */
   List<JobEntity> findDependants(UUID parentJobId, int limit, int offset);
 
-  /**
-   * Returns the next fire time of the earliest pending recurring master job.
-   *
-   * <p>Transaction attribute: {@code SUPPORTS}.
-   */
-  Optional<Instant> findEarliestRecurringNextFire();
-
   /** Counts pending jobs. Transaction attribute: {@code SUPPORTS}. */
   long countPendingJobs();
 

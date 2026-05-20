@@ -511,11 +511,6 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
     return 1L;
   }
 
-  @Override
-  public synchronized Optional<java.time.Instant> findEarliestRecurringNextFire() {
-    return Optional.empty();
-  }
-
   // ----- ResourcePermitStore (no-op so production permit-check is permissive) -----
 
   @Override

@@ -5,7 +5,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
@@ -92,11 +91,6 @@ public abstract class ThrowingJobStoreBase implements JobStore {
   @Override
   public List<JobEntity> findDependants(UUID parentJobId, int limit, int offset) {
     return fail("findDependants");
-  }
-
-  @Override
-  public Optional<Instant> findEarliestRecurringNextFire() {
-    return fail("findEarliestRecurringNextFire");
   }
 
   @Override
@@ -279,16 +273,6 @@ public abstract class ThrowingJobStoreBase implements JobStore {
     return fail("transitionFromPausedAtomic");
   }
 
-  @Override
-  public boolean pauseRecurring(UUID id) {
-    return fail("pauseRecurring");
-  }
-
-  @Override
-  public boolean resumeRecurring(UUID id) {
-    return fail("resumeRecurring");
-  }
-
   // ----- JobBatchStatusStore -----
 
   @Override
@@ -320,27 +304,6 @@ public abstract class ThrowingJobStoreBase implements JobStore {
   @Override
   public int cancelJobsByTag(String tag) {
     return fail("cancelJobsByTag");
-  }
-
-  @Override
-  public int cancelRecurringJobsByTag(String tag) {
-    return fail("cancelRecurringJobsByTag");
-  }
-
-  @Override
-  public int cancelRecurringJobByBusinessKey(String businessKey) {
-    return fail("cancelRecurringJobByBusinessKey");
-  }
-
-  @Override
-  public int cancelRecurringJobsByBusinessKeys(Set<String> businessKeys) {
-    return fail("cancelRecurringJobsByBusinessKeys");
-  }
-
-  @Override
-  public int cancelOrphanedRecurringAnnotationJobs(
-      Set<String> registeredIds, Instant nodeStartTime) {
-    return fail("cancelOrphanedRecurringAnnotationJobs");
   }
 
   // ----- JobBulkStore -----

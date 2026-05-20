@@ -198,13 +198,12 @@ public final class RatchetSchemaCatalog {
   }
 
   private static Table schedulerJobTag() {
+    // CP2: fk_job_tag_job is intentionally omitted. job_id is polymorphic — tags can be owned by
+    // either scheduler_job rows or scheduler_recurring_job rows — so a single FK is not possible.
     return Table.builder("scheduler_job_tag")
         .column(required("job_id", UUID))
         .column(required("tag", TEXT))
         .primaryKey("job_id", "tag")
-        .foreignKey(
-            new ForeignKey(
-                "fk_job_tag_job", "job_id", "scheduler_job", "job_id", OnDeleteAction.CASCADE))
         .index(Index.of("idx_job_tag_tag_job", "tag", "job_id"))
         .build();
   }

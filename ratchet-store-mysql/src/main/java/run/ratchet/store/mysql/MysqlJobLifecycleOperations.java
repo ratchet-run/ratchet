@@ -1,7 +1,6 @@
 package run.ratchet.store.mysql;
 
 import java.time.Instant;
-import java.util.Set;
 import java.util.UUID;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.spi.JobBatchStatusStore;
@@ -110,27 +109,6 @@ final class MysqlJobLifecycleOperations
   }
 
   @Override
-  public int cancelRecurringJobsByTag(String tag) {
-    return recurring.cancelRecurringJobsByTag(tag);
-  }
-
-  @Override
-  public int cancelRecurringJobByBusinessKey(String businessKey) {
-    return recurring.cancelRecurringJobByBusinessKey(businessKey);
-  }
-
-  @Override
-  public int cancelRecurringJobsByBusinessKeys(Set<String> businessKeys) {
-    return recurring.cancelRecurringJobsByBusinessKeys(businessKeys);
-  }
-
-  @Override
-  public int cancelOrphanedRecurringAnnotationJobs(
-      Set<String> registeredIds, Instant nodeStartTime) {
-    return recurring.cancelOrphanedRecurringAnnotationJobs(registeredIds, nodeStartTime);
-  }
-
-  @Override
   public boolean resetFailedToPending(UUID id) {
     return terminals.resetFailedToPending(id);
   }
@@ -143,16 +121,6 @@ final class MysqlJobLifecycleOperations
   @Override
   public boolean transitionFromPaused(UUID id, JobStatus target) {
     return transitions.transitionFromPaused(id, target);
-  }
-
-  @Override
-  public boolean pauseRecurring(UUID id) {
-    return recurring.pauseRecurring(id);
-  }
-
-  @Override
-  public boolean resumeRecurring(UUID id) {
-    return recurring.resumeRecurring(id);
   }
 
   @Override

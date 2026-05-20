@@ -83,11 +83,6 @@ final class MysqlJobCrudOperations implements JobCrudStore, JobBulkStore {
   }
 
   @Override
-  public Optional<Instant> findEarliestRecurringNextFire() {
-    return reads.findEarliestRecurringNextFire();
-  }
-
-  @Override
   public long countPendingJobs() {
     return counts.countPendingJobs();
   }

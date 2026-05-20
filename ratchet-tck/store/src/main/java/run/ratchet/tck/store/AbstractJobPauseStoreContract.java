@@ -6,14 +6,11 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
-import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
 
 /** Base contract tests for {@code JobPauseStore}. */
 public abstract class AbstractJobPauseStoreContract implements JobStoreContractFixture {
@@ -113,46 +110,5 @@ public abstract class AbstractJobPauseStoreContract implements JobStoreContractF
     assertThrows(
         IllegalArgumentException.class,
         () -> store().transitionFromPaused(saved.getId(), JobStatus.FAILED));
-  }
-
-  @Test
-  @org.junit.jupiter.api.Disabled(
-      "Superseded by AbstractRecurringJobStoreContract after CP2: recurring masters no longer"
-          + " live in scheduler_job. The legacy semantics are obsolete.")
-  void pauseRecurring_andResumeRecurring_onlyOperateOnRecurringMasters() {
-    var recurring = persist(recurringJob());
-    var oneShot = persist(newPendingJob());
-
-    assertFalse(
-        store().pauseRecurring(oneShot.getId()), "one-shot jobs must not use recurring pause");
-    assertTrue(store().pauseRecurring(recurring.getId()), "recurring master should pause");
-    assertEquals(JobStatus.PAUSED, store().getJobStatus(recurring.getId()));
-
-    assertFalse(
-        store().resumeRecurring(oneShot.getId()), "one-shot jobs must not use recurring resume");
-    assertTrue(store().resumeRecurring(recurring.getId()), "paused recurring master should resume");
-    assertEquals(JobStatus.PENDING, store().getJobStatus(recurring.getId()));
-  }
-
-  @Test
-  @org.junit.jupiter.api.Disabled("Superseded by AbstractRecurringJobStoreContract after CP2.")
-  void pauseRecurring_resumeRecurring_areIdempotentForWrongState() {
-    var recurring = persist(recurringJob());
-
-    assertTrue(store().pauseRecurring(recurring.getId()));
-    assertFalse(
-        store().pauseRecurring(recurring.getId()), "already-paused master should not pause");
-
-    assertTrue(store().resumeRecurring(recurring.getId()));
-    assertFalse(
-        store().resumeRecurring(recurring.getId()), "already-pending master should not resume");
-  }
-
-  private JobEntity recurringJob() {
-    JobEntity job = newPendingJob();
-    job.setJobType(JobExecutionType.RECURRING);
-    job.setCronExpr("0 * * * *");
-    job.setNextFire(Instant.now().plusSeconds(60));
-    return job;
   }
 }

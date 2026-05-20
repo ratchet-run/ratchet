@@ -1,7 +1,6 @@
 package run.ratchet.store.postgresql;
 
 import jakarta.persistence.Query;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -212,26 +211,6 @@ final class PostgresqlJobReadOperations {
       return jobs;
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("find dependant jobs", e);
-    }
-  }
-
-  @SuppressWarnings("unchecked")
-  Optional<Instant> findEarliestRecurringNextFire() {
-    try {
-      // language=PostgreSQL
-      String sql =
-          """
-          SELECT MIN(next_fire) FROM scheduler_job
-          WHERE job_type = 'RECURRING' AND rec_status = 'P'
-            AND next_fire IS NOT NULL
-          """;
-      List<Object> results = ctx.em().createNativeQuery(sql).getResultList();
-      if (results.isEmpty() || results.get(0) == null) {
-        return Optional.empty();
-      }
-      return Optional.ofNullable(PostgresqlJobRowMapper.toInstant(results.get(0)));
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("find earliest recurring next fire", e);
     }
   }
 

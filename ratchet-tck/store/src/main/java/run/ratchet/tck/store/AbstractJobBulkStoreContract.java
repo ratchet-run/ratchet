@@ -267,34 +267,6 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
   }
 
   @Test
-  @org.junit.jupiter.api.Disabled("Superseded by AbstractRecurringJobStoreContract after CP2.")
-  void cancelRecurringJobsByTag_bulkUpdate() {
-    String tag = "recurring-tag";
-
-    JobEntity rec1 = newPendingJob(tag);
-    rec1.setJobType(JobExecutionType.RECURRING);
-    rec1 = persist(rec1);
-
-    JobEntity rec2 = newPendingJob(tag);
-    rec2.setJobType(JobExecutionType.RECURRING);
-    rec2 = persist(rec2);
-
-    JobEntity untaggedRecurring = newPendingJob();
-    untaggedRecurring.setJobType(JobExecutionType.RECURRING);
-    untaggedRecurring = persist(untaggedRecurring);
-
-    int count = store().cancelRecurringJobsByTag(tag);
-
-    assertEquals(2, count, "Should cancel both tagged recurring jobs in a single bulk operation");
-    assertEquals(JobStatus.CANCELED, store().getJobStatus(rec1.getId()));
-    assertEquals(JobStatus.CANCELED, store().getJobStatus(rec2.getId()));
-    assertEquals(
-        JobStatus.PENDING,
-        store().getJobStatus(untaggedRecurring.getId()),
-        "Untagged recurring job remains active");
-  }
-
-  @Test
   void resetOrphanJobs_ignoresNonRunningJobs() {
     // PENDING job — should not be touched by orphan reset
     var pending = persist(newPendingJob());

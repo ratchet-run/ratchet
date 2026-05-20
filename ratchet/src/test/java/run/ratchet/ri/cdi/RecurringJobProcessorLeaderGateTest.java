@@ -220,7 +220,6 @@ class RecurringJobProcessorLeaderGateTest {
 
     assertDoesNotThrow(processor::registerRecurringJobs);
 
-    verify(jobBatchStatusStore, never()).cancelRecurringJobsByBusinessKeys(anySet());
     verify(recurringJobBuilder).submit();
     verify(maintenance).cancelOrphanedRecurringAnnotationJobs(eq(Set.of("leader-gate-job")), any());
   }

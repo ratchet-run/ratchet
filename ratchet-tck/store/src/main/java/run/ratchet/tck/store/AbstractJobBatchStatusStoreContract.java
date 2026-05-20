@@ -6,8 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
-import java.time.Instant;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
@@ -15,7 +13,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.tck.util.ConcurrentTestRunner;
 
 /** Base contract tests for {@code JobBatchStatusStore}. */
@@ -150,88 +147,9 @@ public abstract class AbstractJobBatchStatusStoreContract implements JobStoreCon
     assertEquals(JobStatus.RUNNING, store().getJobStatus(otherNode.getId()));
   }
 
-  @Test
-  @org.junit.jupiter.api.Disabled(
-      "Superseded by AbstractRecurringJobStoreContract after CP2: recurring rows live in"
-          + " scheduler_recurring_job, not scheduler_job, so the legacy JobBatchStatusStore"
-          + " test fixtures no longer match the new persistence path.")
-  void cancelRecurringJobsByTag_cancelsOnlyTaggedRecurringJobs() {
-    var tagged = recurringJob("recurring-tag", "recurring-key-1");
-    var secondTagged = recurringJob("recurring-tag", "recurring-key-2");
-    var untagged = recurringJob("other-tag", "recurring-key-3");
-    var oneShot = persist(newPendingJob("recurring-tag"));
-
-    int canceled = store().cancelRecurringJobsByTag("recurring-tag");
-
-    assertEquals(2, canceled);
-    assertEquals(JobStatus.CANCELED, store().getJobStatus(tagged.getId()));
-    assertEquals(JobStatus.CANCELED, store().getJobStatus(secondTagged.getId()));
-    assertEquals(JobStatus.PENDING, store().getJobStatus(untagged.getId()));
-    assertEquals(JobStatus.PENDING, store().getJobStatus(oneShot.getId()));
-  }
-
-  @Test
-  @org.junit.jupiter.api.Disabled("Superseded by AbstractRecurringJobStoreContract.")
-  void cancelRecurringJobByBusinessKey_cancelsMatchingRecurringJob() {
-    var matching = recurringJob("tag-a", "business-key-target");
-    var other = recurringJob("tag-b", "business-key-other");
-
-    int canceled = store().cancelRecurringJobByBusinessKey("business-key-target");
-
-    assertEquals(1, canceled);
-    assertEquals(JobStatus.CANCELED, store().getJobStatus(matching.getId()));
-    assertEquals(JobStatus.PENDING, store().getJobStatus(other.getId()));
-  }
-
-  @Test
-  @org.junit.jupiter.api.Disabled("Superseded by AbstractRecurringJobStoreContract.")
-  void cancelRecurringJobsByBusinessKeys_cancelsMatchingRecurringJobsInBulk() {
-    var first = recurringJob("tag-a", "business-key-first");
-    var second = recurringJob("tag-b", "business-key-second");
-    var other = recurringJob("tag-c", "business-key-other");
-    var oneShot = persist(newPendingJob("tag-a"));
-
-    int canceled =
-        store()
-            .cancelRecurringJobsByBusinessKeys(Set.of("business-key-first", "business-key-second"));
-
-    assertEquals(2, canceled);
-    assertEquals(JobStatus.CANCELED, store().getJobStatus(first.getId()));
-    assertEquals(JobStatus.CANCELED, store().getJobStatus(second.getId()));
-    assertEquals(JobStatus.PENDING, store().getJobStatus(other.getId()));
-    assertEquals(JobStatus.PENDING, store().getJobStatus(oneShot.getId()));
-  }
-
-  @Test
-  @org.junit.jupiter.api.Disabled("Superseded by AbstractRecurringJobStoreContract.")
-  void cancelOrphanedRecurringAnnotationJobs_cancelsOnlyOldUnregisteredRecurringJobs() {
-    var orphan = recurringJob("tag-a", "annotation-missing");
-    var registered = recurringJob("tag-b", "annotation-registered");
-    var noBusinessKey = recurringJob("tag-c", null);
-
-    int canceled =
-        store()
-            .cancelOrphanedRecurringAnnotationJobs(
-                Set.of("annotation-registered"), Instant.now().plusSeconds(60));
-
-    assertEquals(1, canceled);
-    assertEquals(JobStatus.CANCELED, store().getJobStatus(orphan.getId()));
-    assertEquals(JobStatus.PENDING, store().getJobStatus(registered.getId()));
-    assertEquals(JobStatus.PENDING, store().getJobStatus(noBusinessKey.getId()));
-  }
-
   private JobEntity runningJob(String nodeId) {
     var job = persist(newPendingJob());
     assertTrue(store().tryPickUpJob(job.getId(), nodeId));
     return store().findById(job.getId()).orElseThrow();
-  }
-
-  private JobEntity recurringJob(String tag, String businessKey) {
-    JobEntity job = newPendingJob(tag);
-    job.setJobType(JobExecutionType.RECURRING);
-    job.setBusinessKey(businessKey);
-    job.setCronExpr("0 * * * *");
-    job.setNextFire(Instant.now().plusSeconds(60));
-    return persist(job);
   }
 }
