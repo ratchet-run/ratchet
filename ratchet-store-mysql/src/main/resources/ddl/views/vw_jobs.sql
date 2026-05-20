@@ -20,6 +20,7 @@ SELECT
     j.job_type,
     j.priority,
     j.max_retries,
+    j.next_fire,
     j.payload,
     j.idempotency_key,
     j.business_key,

@@ -129,6 +129,8 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     timeout_sec           INT         NOT NULL DEFAULT 0,
     cron_expr             VARCHAR(64) NOT NULL DEFAULT '',
     zone_id               VARCHAR(32) NOT NULL DEFAULT 'UTC',
+    -- CP2 transitional: retained until impl code stops writing it.
+    next_fire             TIMESTAMPTZ(6),
     -- Payload + params (insert-once; never mutated after enqueue).
     payload               JSONB NOT NULL,
     params                JSONB,
@@ -168,6 +170,8 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     -- master; NULL elsewhere. ON DELETE SET NULL so cancel of a master does not
     -- cascade-delete in-flight children.
     recurring_master_id   uuid,
+    -- CP2 transitional shim: retained until impl code stops referencing it.
+    rec_status            CHAR(1),
     CONSTRAINT pk_scheduler_job PRIMARY KEY (job_id),
     CONSTRAINT uk_idempotency_key UNIQUE (idempotency_key),
     CONSTRAINT chk_job_type CHECK (job_type IN
@@ -176,6 +180,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     CONSTRAINT chk_job_priority CHECK (priority BETWEEN 0 AND 4),
     CONSTRAINT chk_backoff_policy CHECK (backoff_policy IN ('NONE', 'FIXED', 'EXPONENTIAL')),
     CONSTRAINT chk_terminal_status CHECK (terminal_status IS NULL OR terminal_status IN ('SUCCEEDED', 'FAILED', 'CANCELED')),
+    CONSTRAINT chk_rec_status CHECK (rec_status IS NULL OR rec_status IN ('P', 'A')),
     CONSTRAINT fk_job_recurring_master FOREIGN KEY (recurring_master_id)
         REFERENCES scheduler_recurring_job (id) ON DELETE SET NULL
 );
@@ -251,10 +256,10 @@ CREATE TABLE IF NOT EXISTS scheduler_business_key_reservation
     owner_table TEXT NOT NULL,
     reserved_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT pk_scheduler_business_key_reservation PRIMARY KEY (business_key),
-    CONSTRAINT chk_bk_owner_table CHECK (owner_table IN ('QUEUE', 'RECURRING'))
-    -- CP2: fk_bk_owner_job dropped — owner_job_id is polymorphic (QUEUE → scheduler_job,
-    -- RECURRING → scheduler_recurring_job). Cancel paths DELETE bkres rows explicitly;
-    -- the TCK orphan-absence contract enforces the app-level invariant.
+    CONSTRAINT chk_bk_owner_table CHECK (owner_table IN ('QUEUE', 'RECURRING')),
+    -- CP2 transitional: retained while recurring rows still live in scheduler_job.
+    -- Dropped in the CP2 cleanup commit.
+    CONSTRAINT fk_bk_owner_job FOREIGN KEY (owner_job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_bk_owner ON scheduler_business_key_reservation (owner_job_id);
@@ -270,6 +275,9 @@ CREATE INDEX IF NOT EXISTS idx_job_created_at ON scheduler_job (created_at);
 CREATE INDEX IF NOT EXISTS idx_job_terminal ON scheduler_job (terminal_status, terminated_at);
 -- CP2: child lineage pointer to recurring master.
 CREATE INDEX IF NOT EXISTS idx_job_recurring_master_id ON scheduler_job (recurring_master_id);
+-- CP2 transitional: retained until impl stops referencing it.
+CREATE INDEX IF NOT EXISTS idx_job_recurring_pending
+    ON scheduler_job (job_type, rec_status, next_fire);
 -- DROPPED: idx_target_class and idx_method_name were debug-only and added measurable
 -- write amplification on the hot insert path. See ddl/postgresql-debug-indexes.sql for
 -- the optional companion file that adds them back when needed.
