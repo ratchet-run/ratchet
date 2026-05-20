@@ -55,6 +55,7 @@ class DefaultJobSchedulerServiceAuthorizationTest {
   @Mock private TagStore tagStore;
   @Mock private WorkflowConditionStore workflowConditionStore;
   @Mock private JobWakeupService wakeupService;
+  @Mock private run.ratchet.store.spi.RecurringJobStore recurringJobStore;
   @Mock private RecurringScheduler recurringScheduler;
   @Mock private JobInvocationResolver jobInvocationResolver;
   @Mock private DefaultJobCreationService jobCreationService;
@@ -97,6 +98,7 @@ class DefaultJobSchedulerServiceAuthorizationTest {
             batchStore,
             tagStore,
             workflowConditionStore,
+            recurringJobStore,
             wakeupService,
             recurringScheduler,
             jobInvocationResolver,
@@ -290,6 +292,7 @@ class DefaultJobSchedulerServiceAuthorizationTest {
             batchStore,
             tagStore,
             workflowConditionStore,
+            recurringJobStore,
             wakeupService,
             recurringScheduler,
             jobInvocationResolver,
@@ -311,14 +314,14 @@ class DefaultJobSchedulerServiceAuthorizationTest {
 
   @Test
   void cancelRecurringJobsByTag_doesNotCheckAuthorization() {
-    when(jobBatchStatusStore.cancelRecurringJobsByTag("tag")).thenReturn(2);
+    when(recurringJobStore.cancelRecurringJobsByTag("tag")).thenReturn(2);
     service.cancelRecurringJobsByTag("tag");
     verify(authorizationPolicy, never()).checkCancel(any(), any(), any());
   }
 
   @Test
   void cancelRecurringJobByBusinessKey_doesNotCheckAuthorization() {
-    when(jobBatchStatusStore.cancelRecurringJobByBusinessKey("key")).thenReturn(1);
+    when(recurringJobStore.cancelRecurringByBusinessKey("key")).thenReturn(true);
     service.cancelRecurringJobByBusinessKey("key");
     verify(authorizationPolicy, never()).checkCancel(any(), any(), any());
   }

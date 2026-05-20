@@ -62,6 +62,7 @@ class DefaultJobSchedulerServiceEventTest {
   @Mock private BatchStore batchStore;
   @Mock private TagStore tagStore;
   @Mock private WorkflowConditionStore workflowConditionStore;
+  @Mock private run.ratchet.store.spi.RecurringJobStore recurringJobStore;
   @Mock private JobWakeupService wakeupService;
   @Mock private RecurringScheduler recurringScheduler;
   @Mock private DefaultJobCreationService jobCreationService;
@@ -85,6 +86,7 @@ class DefaultJobSchedulerServiceEventTest {
             batchStore,
             tagStore,
             workflowConditionStore,
+            recurringJobStore,
             wakeupService,
             recurringScheduler,
             null,
@@ -233,14 +235,18 @@ class DefaultJobSchedulerServiceEventTest {
 
   @Test
   void pauseJobRecurringPublishesPausedEvent() {
-    JobEntity job = job(JobStatus.PENDING, JobExecutionType.RECURRING);
-    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
-    when(jobPauseStore.pauseRecurring(JOB_ID)).thenReturn(true);
+    when(recurringJobStore.getRecurring(JOB_ID))
+        .thenReturn(Optional.of(recurringDef(false)));
+    when(recurringJobStore.pauseRecurring(JOB_ID)).thenReturn(true);
 
     assertTrue(service.pauseJob(JOB_ID));
 
     JobPausedEvent event = published(JobPausedEvent.class);
-    assertCommonJobEvent(event, JobType.RECURRING);
+    assertEquals(JOB_ID, event.getJobId());
+    assertEquals("business-90", event.getBusinessKey());
+    assertEquals(JobType.RECURRING, event.getJobType());
+    assertEquals(JobPriority.HIGH, event.getPriority());
+    assertEquals(FIXED_NOW, event.getTimestamp());
   }
 
   @Test
@@ -268,14 +274,17 @@ class DefaultJobSchedulerServiceEventTest {
 
   @Test
   void resumeJobRecurringPublishesResumedEvent() {
-    JobEntity job = job(JobStatus.PAUSED, JobExecutionType.RECURRING);
-    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
-    when(jobPauseStore.resumeRecurring(JOB_ID)).thenReturn(true);
+    when(recurringJobStore.getRecurring(JOB_ID))
+        .thenReturn(Optional.of(recurringDef(true)));
+    when(recurringJobStore.resumeRecurring(JOB_ID)).thenReturn(true);
 
     assertTrue(service.resumeJob(JOB_ID));
 
     JobResumedEvent event = published(JobResumedEvent.class);
-    assertCommonJobEvent(event, JobType.RECURRING);
+    assertEquals(JOB_ID, event.getJobId());
+    assertEquals("business-90", event.getBusinessKey());
+    assertEquals(JobType.RECURRING, event.getJobType());
+    assertEquals(JobPriority.HIGH, event.getPriority());
     verify(recurringScheduler).kick();
   }
 
@@ -287,6 +296,29 @@ class DefaultJobSchedulerServiceEventTest {
     assertFalse(service.resumeJob(JOB_ID));
 
     verify(eventPublisher, never()).publish(any());
+  }
+
+  private static run.ratchet.store.spi.RecurringJobDefinition recurringDef(boolean paused) {
+    return new run.ratchet.store.spi.RecurringJobDefinition(
+        JOB_ID,
+        "0 * * * * ?",
+        "UTC",
+        FIXED_NOW.plusSeconds(60),
+        paused,
+        paused ? FIXED_NOW : null,
+        JobPriority.HIGH.ordinal(),
+        0,
+        run.ratchet.api.BackoffPolicy.NONE,
+        0,
+        0,
+        null,
+        null,
+        null,
+        null,
+        "business-90",
+        null,
+        FIXED_NOW,
+        null);
   }
 
   private static JobEntity job(JobStatus status, JobExecutionType type) {

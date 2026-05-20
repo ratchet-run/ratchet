@@ -47,6 +47,9 @@ import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobPauseStore;
 import run.ratchet.store.spi.JobRetryStore;
 import run.ratchet.store.spi.JobTerminalStore;
+import run.ratchet.store.spi.RecurringJobDefinition;
+import run.ratchet.store.spi.RecurringJobStore;
+import run.ratchet.store.spi.RecurringJobStore.ArchiveReason;
 import run.ratchet.store.spi.SignalStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
@@ -71,6 +74,7 @@ public class DefaultJobSchedulerService
   private final BatchStore batchStore;
   private final TagStore tagStore;
   private final WorkflowConditionStore workflowConditionStore;
+  private final RecurringJobStore recurringJobStore;
   private final JobWakeupService wakeupService;
   private final RecurringScheduler recurringScheduler;
   private final JobInvocationResolver jobInvocationResolver;
@@ -96,6 +100,7 @@ public class DefaultJobSchedulerService
     this.batchStore = null;
     this.tagStore = null;
     this.workflowConditionStore = null;
+    this.recurringJobStore = null;
     this.wakeupService = null;
     this.recurringScheduler = null;
     this.jobInvocationResolver = null;
@@ -118,6 +123,7 @@ public class DefaultJobSchedulerService
       BatchStore batchStore,
       TagStore tagStore,
       WorkflowConditionStore workflowConditionStore,
+      RecurringJobStore recurringJobStore,
       JobWakeupService wakeupService,
       RecurringScheduler recurringScheduler) {
     this(
@@ -130,6 +136,7 @@ public class DefaultJobSchedulerService
         batchStore,
         tagStore,
         workflowConditionStore,
+        recurringJobStore,
         wakeupService,
         recurringScheduler,
         new DefaultJobInvocationResolver(),
@@ -140,6 +147,7 @@ public class DefaultJobSchedulerService
             batchStore,
             tagStore,
             workflowConditionStore,
+            recurringJobStore,
             wakeupService,
             recurringScheduler),
         null,
@@ -160,6 +168,7 @@ public class DefaultJobSchedulerService
       BatchStore batchStore,
       TagStore tagStore,
       WorkflowConditionStore workflowConditionStore,
+      RecurringJobStore recurringJobStore,
       JobWakeupService wakeupService,
       RecurringScheduler recurringScheduler,
       JobInvocationResolver jobInvocationResolver,
@@ -178,6 +187,7 @@ public class DefaultJobSchedulerService
         batchStore,
         tagStore,
         workflowConditionStore,
+        recurringJobStore,
         wakeupService,
         recurringScheduler,
         jobInvocationResolver,
@@ -200,6 +210,7 @@ public class DefaultJobSchedulerService
       BatchStore batchStore,
       TagStore tagStore,
       WorkflowConditionStore workflowConditionStore,
+      RecurringJobStore recurringJobStore,
       JobWakeupService wakeupService,
       RecurringScheduler recurringScheduler,
       JobInvocationResolver jobInvocationResolver,
@@ -219,6 +230,7 @@ public class DefaultJobSchedulerService
         batchStore,
         tagStore,
         workflowConditionStore,
+        recurringJobStore,
         wakeupService,
         recurringScheduler,
         jobInvocationResolver,
@@ -242,6 +254,7 @@ public class DefaultJobSchedulerService
       BatchStore batchStore,
       TagStore tagStore,
       WorkflowConditionStore workflowConditionStore,
+      RecurringJobStore recurringJobStore,
       JobWakeupService wakeupService,
       RecurringScheduler recurringScheduler,
       JobInvocationResolver jobInvocationResolver,
@@ -261,6 +274,7 @@ public class DefaultJobSchedulerService
     this.batchStore = batchStore;
     this.tagStore = tagStore;
     this.workflowConditionStore = workflowConditionStore;
+    this.recurringJobStore = recurringJobStore;
     this.wakeupService = wakeupService;
     this.recurringScheduler = recurringScheduler;
     this.jobInvocationResolver = jobInvocationResolver;
@@ -475,6 +489,29 @@ public class DefaultJobSchedulerService
   @Override
   @Transactional
   public boolean pauseJob(UUID jobId) {
+    // Recurring masters live in their own table post-CP2.
+    var recurring = recurringJobStore.getRecurring(jobId);
+    if (recurring.isPresent()) {
+      if (authorizationPolicy != null) {
+        String currentPrincipal =
+            callerPrincipalProvider != null
+                ? callerPrincipalProvider.currentPrincipal().orElse(null)
+                : null;
+        authorizationPolicy.checkPause(jobId, recurring.get().callerPrincipal(), currentPrincipal);
+      }
+      if (recurring.get().paused()) {
+        log.debugf("Recurring master %s is already paused", jobId);
+        return true;
+      }
+      if (recurringJobStore.pauseRecurring(jobId)) {
+        log.debugf("Paused recurring master %s", jobId);
+        publishPausedEventForRecurring(jobId, recurring.get());
+        return true;
+      }
+      log.debugf("Cannot pause recurring master %s — concurrent state transition", jobId);
+      return false;
+    }
+
     // Idempotent: already paused is a no-op success
     JobEntity job = jobCrudStore.findById(jobId).orElse(null);
     if (job == null) {
@@ -494,17 +531,6 @@ public class DefaultJobSchedulerService
       return true;
     }
 
-    // Recurring masters use the rec_status shim (cold-only) — no hot row.
-    if (job.getJobType() == JobExecutionType.RECURRING) {
-      if (jobPauseStore.pauseRecurring(jobId)) {
-        log.debugf("Paused recurring master %s", jobId);
-        publishPausedEvent(jobId, job);
-        return true;
-      }
-      log.debugf("Cannot pause recurring master %s — current rec_status %s", jobId, current);
-      return false;
-    }
-
     // Executable jobs: try PENDING → PAUSED on hot.
     if (jobPauseStore.transitionToPaused(jobId, JobStatus.PENDING)) {
       log.debugf("Paused pending job %s", jobId);
@@ -512,9 +538,6 @@ public class DefaultJobSchedulerService
       return true;
     }
 
-    // Post hot/cold-split: pause-of-FAILED is no longer supported. FAILED is terminal-only and
-    // has no hot row, so paused_from_status has nowhere to live. transitionToPaused returns
-    // false for terminal expected statuses.
     log.debugf(
         "Cannot pause job %s — current status %s is not pausable (only PENDING is eligible)",
         jobId, current);
@@ -524,7 +547,26 @@ public class DefaultJobSchedulerService
   @Override
   @Transactional
   public boolean resumeJob(UUID jobId) {
-    // Recurring masters: rec_status 'A' → 'P'.
+    // Recurring masters: dedicated CAS resume on scheduler_recurring_job.
+    var recurring = recurringJobStore.getRecurring(jobId);
+    if (recurring.isPresent()) {
+      if (authorizationPolicy != null) {
+        String currentPrincipal =
+            callerPrincipalProvider != null
+                ? callerPrincipalProvider.currentPrincipal().orElse(null)
+                : null;
+        authorizationPolicy.checkResume(jobId, recurring.get().callerPrincipal(), currentPrincipal);
+      }
+      if (recurringJobStore.resumeRecurring(jobId)) {
+        log.debugf("Resumed recurring master %s", jobId);
+        publishResumedEventForRecurring(jobId, recurring.get());
+        recurringScheduler.kick();
+        return true;
+      }
+      log.debugf("Cannot resume recurring master %s — not paused", jobId);
+      return false;
+    }
+
     JobEntity job = jobCrudStore.findById(jobId).orElse(null);
     if (job == null) {
       log.debugf("Cannot resume job %s — not found", jobId);
@@ -536,16 +578,6 @@ public class DefaultJobSchedulerService
               ? callerPrincipalProvider.currentPrincipal().orElse(null)
               : null;
       authorizationPolicy.checkResume(jobId, job.getCallerPrincipal(), currentPrincipal);
-    }
-    if (job.getJobType() == JobExecutionType.RECURRING) {
-      if (jobPauseStore.resumeRecurring(jobId)) {
-        log.debugf("Resumed recurring master %s", jobId);
-        publishResumedEvent(jobId, job);
-        recurringScheduler.kick();
-        return true;
-      }
-      log.debugf("Cannot resume recurring master %s — not paused", jobId);
-      return false;
     }
 
     JobStatus target = jobPauseStore.transitionFromPausedAtomic(jobId);
@@ -619,7 +651,7 @@ public class DefaultJobSchedulerService
   @Override
   @Transactional
   public int cancelRecurringJobsByTag(String tag) {
-    int count = jobBatchStatusStore.cancelRecurringJobsByTag(tag);
+    int count = recurringJobStore.cancelRecurringJobsByTag(tag);
     if (count > 0) {
       publishBulkCancelledEvent(tag, count);
     }
@@ -636,13 +668,13 @@ public class DefaultJobSchedulerService
   @Override
   @Transactional
   public int cancelRecurringJobByBusinessKey(String businessKey) {
-    return jobBatchStatusStore.cancelRecurringJobByBusinessKey(businessKey);
+    return recurringJobStore.cancelRecurringByBusinessKey(businessKey) ? 1 : 0;
   }
 
   @Transactional
   public int cancelOrphanedRecurringAnnotationJobs(
       Set<String> registeredIds, Instant nodeStartTime) {
-    return jobBatchStatusStore.cancelOrphanedRecurringAnnotationJobs(registeredIds, nodeStartTime);
+    return recurringJobStore.cancelOrphanedRecurringAnnotationJobs(registeredIds, nodeStartTime);
   }
 
   /**
@@ -764,6 +796,34 @@ public class DefaultJobSchedulerService
             job.getPublicJobType(),
             job.getPriority(),
             job.getPickedBy(),
+            effective().instant());
+    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+      eventPublisher.publish(event);
+    }
+  }
+
+  private void publishPausedEventForRecurring(UUID jobId, RecurringJobDefinition def) {
+    JobPausedEvent event =
+        new JobPausedEvent(
+            jobId,
+            def.businessKey(),
+            run.ratchet.api.JobType.RECURRING,
+            run.ratchet.api.JobPriority.values()[Math.min(def.priority(), 4)],
+            null,
+            effective().instant());
+    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+      eventPublisher.publish(event);
+    }
+  }
+
+  private void publishResumedEventForRecurring(UUID jobId, RecurringJobDefinition def) {
+    JobResumedEvent event =
+        new JobResumedEvent(
+            jobId,
+            def.businessKey(),
+            run.ratchet.api.JobType.RECURRING,
+            run.ratchet.api.JobPriority.values()[Math.min(def.priority(), 4)],
+            null,
             effective().instant());
     if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
       eventPublisher.publish(event);

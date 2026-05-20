@@ -26,7 +26,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
-import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.LockStore;
 
 class RecurringSchedulerTest {
@@ -35,7 +35,7 @@ class RecurringSchedulerTest {
 
   @Test
   void calculateNextDelay_usesInjectedClock() throws Exception {
-    JobCrudStore jobCrudStore = mock(JobCrudStore.class);
+    RecurringJobStore jobCrudStore = mock(RecurringJobStore.class);
     when(jobCrudStore.findEarliestRecurringNextFire()).thenReturn(Optional.of(NOW.plusSeconds(10)));
 
     RecurringScheduler scheduler = scheduler(jobCrudStore);
@@ -45,7 +45,7 @@ class RecurringSchedulerTest {
 
   @Test
   void calculateNextDelay_noRecurringJobsUsesMaxPoll() throws Exception {
-    JobCrudStore jobCrudStore = mock(JobCrudStore.class);
+    RecurringJobStore jobCrudStore = mock(RecurringJobStore.class);
     when(jobCrudStore.findEarliestRecurringNextFire()).thenReturn(Optional.empty());
 
     RecurringScheduler scheduler = scheduler(jobCrudStore);
@@ -55,7 +55,7 @@ class RecurringSchedulerTest {
 
   @Test
   void calculateNextDelay_processedJobsUsesMinPoll() throws Exception {
-    RecurringScheduler scheduler = scheduler(mock(JobCrudStore.class));
+    RecurringScheduler scheduler = scheduler(mock(RecurringJobStore.class));
 
     assertEquals(1000L, calculateNextDelay(scheduler, 1));
   }
@@ -110,7 +110,7 @@ class RecurringSchedulerTest {
     RecurringScheduler scheduler =
         new RecurringScheduler(
             executorProvider,
-            mock(JobCrudStore.class),
+            mock(run.ratchet.store.spi.RecurringJobStore.class),
             singletonLeaseService,
             nodeIdentityProvider,
             recurringJobExecutor,
@@ -128,11 +128,11 @@ class RecurringSchedulerTest {
     verify(executor, never()).schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS));
   }
 
-  private static RecurringScheduler scheduler(JobCrudStore jobCrudStore) {
+  private static RecurringScheduler scheduler(run.ratchet.store.spi.RecurringJobStore recurringJobStore) {
     RecurringScheduler scheduler =
         new RecurringScheduler(
             mock(ExecutorProvider.class),
-            jobCrudStore,
+            recurringJobStore,
             mock(SingletonLeaseService.class),
             mock(NodeIdentityProvider.class),
             mock(RecurringJobExecutor.class),

@@ -66,6 +66,7 @@ class DefaultJobCreationServiceAuthorizationTest {
   @Mock private BatchStore batchStore;
   @Mock private TagStore tagStore;
   @Mock private WorkflowConditionStore workflowConditionStore;
+  @Mock private run.ratchet.store.spi.RecurringJobStore recurringJobStore;
   @Mock private RecurringScheduler recurringScheduler;
   @Mock private TracingCollector tracingCollector;
   @Mock private JobAuthorizationPolicy authorizationPolicy;
@@ -128,6 +129,7 @@ class DefaultJobCreationServiceAuthorizationTest {
         batchStore,
         tagStore,
         workflowConditionStore,
+        recurringJobStore,
         wakeupService,
         recurringScheduler,
         new DefaultJobInvocationResolver(),
@@ -148,6 +150,7 @@ class DefaultJobCreationServiceAuthorizationTest {
         batchStore,
         tagStore,
         workflowConditionStore,
+        recurringJobStore,
         wakeupService,
         recurringScheduler);
   }
@@ -370,7 +373,7 @@ class DefaultJobCreationServiceAuthorizationTest {
 
   @Test
   void checkCreate_calledForRecurringJob() {
-    when(jobCrudStore.create(any())).thenReturn(savedEntity());
+    when(recurringJobStore.createRecurring(any())).thenAnswer(inv -> UUID.randomUUID());
 
     DefaultRecurringJobBuilder builder =
         new DefaultRecurringJobBuilder(

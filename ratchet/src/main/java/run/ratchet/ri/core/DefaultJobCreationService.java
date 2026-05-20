@@ -48,6 +48,8 @@ import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobTerminalStore;
+import run.ratchet.store.spi.RecurringJobDefinition;
+import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
 
@@ -65,6 +67,7 @@ public class DefaultJobCreationService
   private final BatchStore batchStore;
   private final TagStore tagStore;
   private final WorkflowConditionStore workflowConditionStore;
+  private final RecurringJobStore recurringJobStore;
   private final JobWakeupService wakeupService;
   private final RecurringScheduler recurringScheduler;
   private final JobInvocationResolver jobInvocationResolver;
@@ -86,6 +89,7 @@ public class DefaultJobCreationService
     this.batchStore = null;
     this.tagStore = null;
     this.workflowConditionStore = null;
+    this.recurringJobStore = null;
     this.wakeupService = null;
     this.recurringScheduler = null;
     this.jobInvocationResolver = null;
@@ -105,6 +109,7 @@ public class DefaultJobCreationService
       BatchStore batchStore,
       TagStore tagStore,
       WorkflowConditionStore workflowConditionStore,
+      RecurringJobStore recurringJobStore,
       JobWakeupService wakeupService,
       RecurringScheduler recurringScheduler) {
     this(
@@ -115,6 +120,7 @@ public class DefaultJobCreationService
         batchStore,
         tagStore,
         workflowConditionStore,
+        recurringJobStore,
         wakeupService,
         recurringScheduler,
         new DefaultJobInvocationResolver(),
@@ -136,6 +142,7 @@ public class DefaultJobCreationService
       BatchStore batchStore,
       TagStore tagStore,
       WorkflowConditionStore workflowConditionStore,
+      RecurringJobStore recurringJobStore,
       JobWakeupService wakeupService,
       RecurringScheduler recurringScheduler,
       JobInvocationResolver jobInvocationResolver,
@@ -153,6 +160,7 @@ public class DefaultJobCreationService
     this.batchStore = batchStore;
     this.tagStore = tagStore;
     this.workflowConditionStore = workflowConditionStore;
+    this.recurringJobStore = recurringJobStore;
     this.wakeupService = wakeupService;
     this.recurringScheduler = recurringScheduler;
     this.jobInvocationResolver = jobInvocationResolver;
@@ -410,33 +418,67 @@ public class DefaultJobCreationService
                             + "' has no future execution time"));
 
     JobOptions options = builder.options();
-    JobEntity job = new JobEntity();
-    job.setJobType(JobExecutionType.RECURRING);
-    job.setStatus(JobStatus.PENDING);
-    job.setPriority(options.priority());
-    job.setScheduledTime(base);
-    job.setPayload(payload(builder.task()));
-    job.setIdempotencyKey(UUID.randomUUID().toString());
-    job.setBusinessKey(builder.businessKey());
-    job.setCronExpr(builder.cronExpr());
-    job.setZoneId(builder.zone().getId());
-    job.setNextFire(nextFire);
-    applyOptions(job, options);
-    stampCallerPrincipal(job);
-    checkCreateAuthorization(job);
+    UUID id = UuidV7Factory.create();
+    JobPayload validatedPayload = payload(builder.task());
+    String callerPrincipal = resolveCallerPrincipal();
+    // Authorization is type-aware: build a transient JobEntity for the policy gate (it inspects
+    // job_type, priority, business key, target class). The transient entity is discarded — only
+    // the new RecurringJobStore writes happen.
+    JobEntity gate = new JobEntity();
+    gate.setId(id);
+    gate.setJobType(JobExecutionType.RECURRING);
+    gate.setStatus(JobStatus.PENDING);
+    gate.setPriority(options.priority());
+    gate.setPayload(validatedPayload);
+    gate.setBusinessKey(builder.businessKey());
+    gate.setIdempotencyKey(UUID.randomUUID().toString());
+    gate.setCronExpr(builder.cronExpr());
+    gate.setZoneId(builder.zone().getId());
+    gate.setNextFire(nextFire);
+    gate.setCallerPrincipal(callerPrincipal);
+    applyOptions(gate, options);
+    checkCreateAuthorization(gate);
 
-    JobEntity saved = jobCrudStore.create(job);
+    RecurringJobDefinition definition =
+        new RecurringJobDefinition(
+            id,
+            builder.cronExpr(),
+            builder.zone().getId(),
+            nextFire,
+            /* paused */ false,
+            /* pausedAt */ null,
+            options.priority().ordinal(),
+            options.maxRetries(),
+            options.backoffPolicy(),
+            (int) options.backoffParam().toMillis(),
+            options.timeoutSec(),
+            validatedPayload,
+            /* params */ null,
+            /* onSuccessPayload */ null,
+            /* onFailurePayload */ null,
+            builder.businessKey(),
+            /* resourceName */ null,
+            base,
+            callerPrincipal);
+
+    UUID saved = recurringJobStore.createRecurring(definition);
 
     if (!builder.tags().isEmpty()) {
-      tagStore.insertTags(saved.getId(), builder.tags());
+      tagStore.insertTags(saved, builder.tags());
     }
 
     log.infof(
         "Recurring job submitted (id=%s, cron=%s, zone=%s, nextFire=%s)",
-        saved.getId(), builder.cronExpr(), builder.zone(), nextFire);
+        saved, builder.cronExpr(), builder.zone(), nextFire);
 
     recurringScheduler.kick();
-    return () -> saved.getId();
+    return () -> saved;
+  }
+
+  private String resolveCallerPrincipal() {
+    return callerPrincipalProvider == null
+        ? null
+        : callerPrincipalProvider.currentPrincipal().orElse(null);
   }
 
   private void applyOptions(JobEntity job, JobOptions opts) {
