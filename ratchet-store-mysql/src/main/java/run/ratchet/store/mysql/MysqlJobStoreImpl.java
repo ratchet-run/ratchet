@@ -68,6 +68,7 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   private MysqlAuxiliaryOperations auxiliary;
   private MysqlTagOperations tags;
   private MysqlSignalOperations signals;
+  private MysqlRecurringJobOperations recurringJobs;
 
   /** No-arg constructor required by CDI normal-scope proxying. Not for direct use. */
   protected MysqlJobStoreImpl() {
@@ -811,5 +812,69 @@ class MysqlJobStoreImpl implements MysqlJobStore {
     archives = new MysqlArchiveOperations(ctx, mapper, tags, jobs);
     auxiliary = new MysqlAuxiliaryOperations(ctx);
     signals = new MysqlSignalOperations(ctx);
+    recurringJobs = new MysqlRecurringJobOperations(ctx, reservations);
+  }
+
+  // ---------- RecurringJobStore (CP2) delegates ----------
+
+  @Override
+  public List<run.ratchet.store.spi.RecurringJobDefinition> claimDueRecurringDefs(
+      int limit, String nodeId, NodeTagFilter tagFilter) {
+    return recurringJobs.claimDueRecurringDefs(limit, nodeId, tagFilter);
+  }
+
+  @Override
+  public void advanceNextFire(UUID id, Instant nextFire) {
+    recurringJobs.advanceNextFire(id, nextFire);
+  }
+
+  // findEarliestRecurringNextFire() is already implemented above (JobCrudStore legacy delegation).
+  // Identical signature on RecurringJobStore — the single legacy delegate satisfies both
+  // interfaces. Will be re-routed to recurringJobs.findEarliestRecurringNextFire() when RI is
+  // rewired in a later commit.
+
+  // pauseRecurring / resumeRecurring have identical signatures on JobPauseStore and
+  // RecurringJobStore. The legacy `lifecycle` delegate satisfies both. Re-routed to new ops
+  // class in the RI rewire commit.
+
+  @Override
+  public boolean cancelRecurringAndArchive(
+      UUID id, run.ratchet.store.spi.RecurringJobStore.ArchiveReason reason) {
+    return recurringJobs.cancelRecurringAndArchive(id, reason);
+  }
+
+  // cancelOrphanedRecurringAnnotationJobs / cancelRecurringJobsByTag /
+  // cancelRecurringJobsByBusinessKeys: identical signatures on JobBatchStatusStore and
+  // RecurringJobStore; legacy delegates satisfy both.
+
+  @Override
+  public boolean cancelRecurringByBusinessKey(String businessKey) {
+    return recurringJobs.cancelRecurringByBusinessKey(businessKey);
+  }
+
+  @Override
+  public UUID createRecurring(run.ratchet.store.spi.RecurringJobDefinition definition) {
+    return recurringJobs.createRecurring(definition);
+  }
+
+  @Override
+  public boolean updateRecurring(UUID id, run.ratchet.store.spi.RecurringJobDefinition definition) {
+    return recurringJobs.updateRecurring(id, definition);
+  }
+
+  @Override
+  public Optional<run.ratchet.store.spi.RecurringJobDefinition> getRecurring(UUID id) {
+    return recurringJobs.getRecurring(id);
+  }
+
+  @Override
+  public Optional<run.ratchet.store.spi.RecurringJobDefinition> findRecurringByBusinessKey(
+      String businessKey) {
+    return recurringJobs.findRecurringByBusinessKey(businessKey);
+  }
+
+  @Override
+  public List<run.ratchet.store.spi.RecurringJobDefinition> listAll() {
+    return recurringJobs.listAll();
   }
 }

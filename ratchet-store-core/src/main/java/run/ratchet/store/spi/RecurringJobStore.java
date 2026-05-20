@@ -41,11 +41,12 @@ public interface RecurringJobStore {
    * locking semantics equivalent to {@code FOR UPDATE SKIP LOCKED}. Mongo uses single-document
    * atomicity via {@code findOneAndUpdate}. Transaction attribute: {@code REQUIRED}.
    */
-  List<RecurringJobDefinition> claimDueRecurring(int limit, String nodeId, NodeTagFilter tagFilter);
+  List<RecurringJobDefinition> claimDueRecurringDefs(
+      int limit, String nodeId, NodeTagFilter tagFilter);
 
   /** {@link NodeTagFilter#NONE} overload. */
-  default List<RecurringJobDefinition> claimDueRecurring(int limit, String nodeId) {
-    return claimDueRecurring(limit, nodeId, NodeTagFilter.NONE);
+  default List<RecurringJobDefinition> claimDueRecurringDefs(int limit, String nodeId) {
+    return claimDueRecurringDefs(limit, nodeId, NodeTagFilter.NONE);
   }
 
   /**
@@ -76,9 +77,9 @@ public interface RecurringJobStore {
 
   /**
    * Hard-deletes the live row and inserts the denormalized snapshot into {@code
-   * scheduler_recurring_job_archive} in a single transaction. Also deletes the associated bkres
-   * row when present. Returns {@code true} iff the live row was deleted. Idempotent: returns
-   * {@code false} when the id is unknown. Transaction attribute: {@code REQUIRED}.
+   * scheduler_recurring_job_archive} in a single transaction. Also deletes the associated bkres row
+   * when present. Returns {@code true} iff the live row was deleted. Idempotent: returns {@code
+   * false} when the id is unknown. Transaction attribute: {@code REQUIRED}.
    */
   boolean cancelRecurringAndArchive(UUID id, ArchiveReason reason);
 
@@ -86,8 +87,8 @@ public interface RecurringJobStore {
    * Node-startup cleanup. Cancels (with reason {@link ArchiveReason#CANCELED}) every recurring
    * master whose {@code business_key} no longer appears in the supplied {@code knownBusinessKeys}
    * set AND was created before {@code nodeStartTime}. Used to retire {@code @Recurring} annotation
-   * jobs whose backing method has been removed or renamed. Returns the number of masters
-   * canceled. Transaction attribute: {@code REQUIRED}.
+   * jobs whose backing method has been removed or renamed. Returns the number of masters canceled.
+   * Transaction attribute: {@code REQUIRED}.
    */
   int cancelOrphanedRecurringAnnotationJobs(Set<String> knownBusinessKeys, Instant nodeStartTime);
 
@@ -101,12 +102,17 @@ public interface RecurringJobStore {
   /**
    * Cancels the single recurring master matching {@code businessKey}, if any. Returns {@code true}
    * when a row was canceled. Transaction attribute: {@code REQUIRED}.
+   *
+   * <p>Named {@code cancelRecurringByBusinessKey} (not {@code cancelRecurringJobByBusinessKey}) to
+   * avoid signature collision with the pre-CP2 {@code int} return on {@code JobBatchStatusStore}.
+   * After the legacy method is removed in the final CP2 commit, this can be renamed if a consumer
+   * expects the historical name.
    */
-  boolean cancelRecurringJobByBusinessKey(String businessKey);
+  boolean cancelRecurringByBusinessKey(String businessKey);
 
   /**
-   * Bulk cancel by business key set. Returns the number of masters canceled. Transaction
-   * attribute: {@code REQUIRED}.
+   * Bulk cancel by business key set. Returns the number of masters canceled. Transaction attribute:
+   * {@code REQUIRED}.
    */
   int cancelRecurringJobsByBusinessKeys(Set<String> businessKeys);
 
@@ -118,24 +124,20 @@ public interface RecurringJobStore {
 
   /**
    * Updates an existing recurring definition (cron, zone, template fields, etc.). The id of {@code
-   * definition} identifies the target row. Returns {@code true} iff a row was updated.
-   * Transaction attribute: {@code REQUIRED}.
+   * definition} identifies the target row. Returns {@code true} iff a row was updated. Transaction
+   * attribute: {@code REQUIRED}.
    */
   boolean updateRecurring(UUID id, RecurringJobDefinition definition);
 
-  /**
-   * Reads a single recurring definition by id. Transaction attribute: {@code SUPPORTS}.
-   */
+  /** Reads a single recurring definition by id. Transaction attribute: {@code SUPPORTS}. */
   Optional<RecurringJobDefinition> getRecurring(UUID id);
 
-  /**
-   * Registration-path lookup by business key. Transaction attribute: {@code SUPPORTS}.
-   */
+  /** Registration-path lookup by business key. Transaction attribute: {@code SUPPORTS}. */
   Optional<RecurringJobDefinition> findRecurringByBusinessKey(String businessKey);
 
   /**
-   * Lists every live recurring master (used by {@code JobQueryService.getRecurringMasters()} and
-   * by recurring-flow integration tests). Transaction attribute: {@code SUPPORTS}.
+   * Lists every live recurring master (used by {@code JobQueryService.getRecurringMasters()} and by
+   * recurring-flow integration tests). Transaction attribute: {@code SUPPORTS}.
    */
   List<RecurringJobDefinition> listAll();
 }
