@@ -12,10 +12,8 @@ import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import run.ratchet.api.JobStatus;
 import run.ratchet.ri.core.RecurringScheduler;
-import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.testsuite.app.TestCleanupStrategy;
 import run.ratchet.testsuite.app.TestJobService;
 import run.ratchet.testsuite.app.TestRecurringJobs;
@@ -30,7 +28,7 @@ class RecurringAnnotationIT extends BaseRatchetIT {
 
   private static final String RECURRING_SCHEDULER_LEASE = "recurringScheduler";
 
-  @Inject private JobCrudStore jobCrudStore;
+  @Inject private RecurringJobStore recurringJobStore;
 
   @Inject private RecurringScheduler recurringScheduler;
 
@@ -72,13 +70,12 @@ class RecurringAnnotationIT extends BaseRatchetIT {
                     "Expected @Recurring method to fire at least twice but count was "
                         + TestRecurringJobs.getEveryFiveSecondsCount()));
 
-    var recurringJob =
-        jobCrudStore
-            .findActiveByBusinessKey(TestRecurringJobs.EVERY_FIVE_SECONDS_JOB_ID)
+    var def =
+        recurringJobStore
+            .findRecurringByBusinessKey(TestRecurringJobs.EVERY_FIVE_SECONDS_JOB_ID)
             .orElseThrow();
-    assertEquals(JobExecutionType.RECURRING, recurringJob.getJobType());
-    assertEquals(JobStatus.PENDING, recurringJob.getStatus());
-    assertNotNull(recurringJob.getNextFire());
+    assertEquals(TestRecurringJobs.EVERY_FIVE_SECONDS_JOB_ID, def.businessKey());
+    assertNotNull(def.nextFire());
   }
 
   @Override

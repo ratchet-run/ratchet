@@ -135,8 +135,7 @@ public abstract class AbstractJobPauseStoreContract implements JobStoreContractF
   }
 
   @Test
-  @org.junit.jupiter.api.Disabled(
-      "Superseded by AbstractRecurringJobStoreContract after CP2.")
+  @org.junit.jupiter.api.Disabled("Superseded by AbstractRecurringJobStoreContract after CP2.")
   void pauseRecurring_resumeRecurring_areIdempotentForWrongState() {
     var recurring = persist(recurringJob());
 

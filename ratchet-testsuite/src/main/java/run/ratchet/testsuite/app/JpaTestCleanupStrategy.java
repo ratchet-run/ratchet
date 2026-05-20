@@ -41,6 +41,8 @@ public class JpaTestCleanupStrategy implements TestCleanupStrategy {
           "scheduler_business_key_reservation",
           "scheduler_job_queue",
           "scheduler_job",
+          "scheduler_recurring_job_archive",
+          "scheduler_recurring_job",
           "scheduler_lock",
           "scheduler_resource_limit",
           "scheduler_node");
