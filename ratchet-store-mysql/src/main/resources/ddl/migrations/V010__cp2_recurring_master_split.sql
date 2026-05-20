@@ -5,6 +5,11 @@
 -- columns from scheduler_job. Drops the fk_bk_owner_job FK from
 -- scheduler_business_key_reservation (owner_job_id is now polymorphic). Pre-release —
 -- no data-bearing environments to migrate.
+--
+-- Requires MySQL 8.0.19 or later. The migration uses the unified ALTER TABLE ... DROP
+-- CONSTRAINT syntax for FOREIGN KEY and CHECK constraints, which was added in 8.0.19.
+-- Earlier 8.0.x releases would need DROP FOREIGN KEY / DROP CHECK in separate ALTER
+-- TABLE statements. Ratchet's IT matrix exercises 8.0.32+, MariaDB 10.6+.
 
 START TRANSACTION;
 
