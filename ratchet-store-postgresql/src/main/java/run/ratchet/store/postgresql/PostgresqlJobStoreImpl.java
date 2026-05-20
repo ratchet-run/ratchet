@@ -142,7 +142,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
 
   @Override
   public Optional<Instant> findEarliestRecurringNextFire() {
-    return jobs.findEarliestRecurringNextFire();
+    return recurringJobs.findEarliestRecurringNextFire();
   }
 
   @Override
@@ -382,7 +382,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
 
   @Override
   public int cancelRecurringJobsByTag(String tag) {
-    return lifecycle.cancelRecurringJobsByTag(tag);
+    return recurringJobs.cancelRecurringJobsByTag(tag);
   }
 
   @Override
@@ -392,13 +392,13 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
 
   @Override
   public int cancelRecurringJobsByBusinessKeys(Set<String> businessKeys) {
-    return lifecycle.cancelRecurringJobsByBusinessKeys(businessKeys);
+    return recurringJobs.cancelRecurringJobsByBusinessKeys(businessKeys);
   }
 
   @Override
   public int cancelOrphanedRecurringAnnotationJobs(
       Set<String> registeredIds, Instant nodeStartTime) {
-    return lifecycle.cancelOrphanedRecurringAnnotationJobs(registeredIds, nodeStartTime);
+    return recurringJobs.cancelOrphanedRecurringAnnotationJobs(registeredIds, nodeStartTime);
   }
 
   @Override
@@ -418,12 +418,12 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
 
   @Override
   public boolean pauseRecurring(UUID id) {
-    return lifecycle.pauseRecurring(id);
+    return recurringJobs.pauseRecurring(id);
   }
 
   @Override
   public boolean resumeRecurring(UUID id) {
-    return lifecycle.resumeRecurring(id);
+    return recurringJobs.resumeRecurring(id);
   }
 
   @Override

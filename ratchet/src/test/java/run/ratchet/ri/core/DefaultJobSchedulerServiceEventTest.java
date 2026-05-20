@@ -235,8 +235,7 @@ class DefaultJobSchedulerServiceEventTest {
 
   @Test
   void pauseJobRecurringPublishesPausedEvent() {
-    when(recurringJobStore.getRecurring(JOB_ID))
-        .thenReturn(Optional.of(recurringDef(false)));
+    when(recurringJobStore.getRecurring(JOB_ID)).thenReturn(Optional.of(recurringDef(false)));
     when(recurringJobStore.pauseRecurring(JOB_ID)).thenReturn(true);
 
     assertTrue(service.pauseJob(JOB_ID));
@@ -274,8 +273,7 @@ class DefaultJobSchedulerServiceEventTest {
 
   @Test
   void resumeJobRecurringPublishesResumedEvent() {
-    when(recurringJobStore.getRecurring(JOB_ID))
-        .thenReturn(Optional.of(recurringDef(true)));
+    when(recurringJobStore.getRecurring(JOB_ID)).thenReturn(Optional.of(recurringDef(true)));
     when(recurringJobStore.resumeRecurring(JOB_ID)).thenReturn(true);
 
     assertTrue(service.resumeJob(JOB_ID));

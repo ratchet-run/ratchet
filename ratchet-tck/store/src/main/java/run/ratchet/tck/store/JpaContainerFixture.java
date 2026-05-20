@@ -229,7 +229,7 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
     return (JobStore)
         Proxy.newProxyInstance(
             JobStore.class.getClassLoader(),
-            new Class<?>[] {JobStore.class},
+            new Class<?>[] {JobStore.class, run.ratchet.store.spi.RecurringJobStore.class},
             (proxy, method, args) -> {
               EntityManager em = threadEm.get();
               EntityTransaction tx = em.getTransaction();

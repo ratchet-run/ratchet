@@ -26,8 +26,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
-import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.LockStore;
+import run.ratchet.store.spi.RecurringJobStore;
 
 class RecurringSchedulerTest {
 
@@ -128,7 +128,8 @@ class RecurringSchedulerTest {
     verify(executor, never()).schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS));
   }
 
-  private static RecurringScheduler scheduler(run.ratchet.store.spi.RecurringJobStore recurringJobStore) {
+  private static RecurringScheduler scheduler(
+      run.ratchet.store.spi.RecurringJobStore recurringJobStore) {
     RecurringScheduler scheduler =
         new RecurringScheduler(
             mock(ExecutorProvider.class),

@@ -49,7 +49,6 @@ import run.ratchet.store.spi.JobRetryStore;
 import run.ratchet.store.spi.JobTerminalStore;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
-import run.ratchet.store.spi.RecurringJobStore.ArchiveReason;
 import run.ratchet.store.spi.SignalStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;

@@ -139,7 +139,7 @@ class MysqlJobStoreImpl implements MysqlJobStore {
 
   @Override
   public Optional<Instant> findEarliestRecurringNextFire() {
-    return jobs.findEarliestRecurringNextFire();
+    return recurringJobs.findEarliestRecurringNextFire();
   }
 
   @Override
@@ -379,7 +379,7 @@ class MysqlJobStoreImpl implements MysqlJobStore {
 
   @Override
   public int cancelRecurringJobsByTag(String tag) {
-    return lifecycle.cancelRecurringJobsByTag(tag);
+    return recurringJobs.cancelRecurringJobsByTag(tag);
   }
 
   @Override
@@ -389,13 +389,13 @@ class MysqlJobStoreImpl implements MysqlJobStore {
 
   @Override
   public int cancelRecurringJobsByBusinessKeys(Set<String> businessKeys) {
-    return lifecycle.cancelRecurringJobsByBusinessKeys(businessKeys);
+    return recurringJobs.cancelRecurringJobsByBusinessKeys(businessKeys);
   }
 
   @Override
   public int cancelOrphanedRecurringAnnotationJobs(
       Set<String> registeredIds, Instant nodeStartTime) {
-    return lifecycle.cancelOrphanedRecurringAnnotationJobs(registeredIds, nodeStartTime);
+    return recurringJobs.cancelOrphanedRecurringAnnotationJobs(registeredIds, nodeStartTime);
   }
 
   @Override
@@ -415,12 +415,12 @@ class MysqlJobStoreImpl implements MysqlJobStore {
 
   @Override
   public boolean pauseRecurring(UUID id) {
-    return lifecycle.pauseRecurring(id);
+    return recurringJobs.pauseRecurring(id);
   }
 
   @Override
   public boolean resumeRecurring(UUID id) {
-    return lifecycle.resumeRecurring(id);
+    return recurringJobs.resumeRecurring(id);
   }
 
   @Override

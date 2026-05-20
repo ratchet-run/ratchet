@@ -142,7 +142,7 @@ class MongoJobStoreImpl implements MongoJobStore {
 
   @Override
   public Optional<Instant> findEarliestRecurringNextFire() {
-    return crud.findEarliestRecurringNextFire();
+    return recurringJobs.findEarliestRecurringNextFire();
   }
 
   @Override
@@ -322,12 +322,12 @@ class MongoJobStoreImpl implements MongoJobStore {
 
   @Override
   public boolean pauseRecurring(UUID id) {
-    return lifecycle.pauseRecurring(id);
+    return recurringJobs.pauseRecurring(id);
   }
 
   @Override
   public boolean resumeRecurring(UUID id) {
-    return lifecycle.resumeRecurring(id);
+    return recurringJobs.resumeRecurring(id);
   }
 
   @Override
@@ -357,7 +357,7 @@ class MongoJobStoreImpl implements MongoJobStore {
 
   @Override
   public int cancelRecurringJobsByTag(String tag) {
-    return lifecycle.cancelRecurringJobsByTag(tag);
+    return recurringJobs.cancelRecurringJobsByTag(tag);
   }
 
   @Override
@@ -367,13 +367,13 @@ class MongoJobStoreImpl implements MongoJobStore {
 
   @Override
   public int cancelRecurringJobsByBusinessKeys(Set<String> businessKeys) {
-    return lifecycle.cancelRecurringJobsByBusinessKeys(businessKeys);
+    return recurringJobs.cancelRecurringJobsByBusinessKeys(businessKeys);
   }
 
   @Override
   public int cancelOrphanedRecurringAnnotationJobs(
       Set<String> registeredIds, Instant nodeStartTime) {
-    return lifecycle.cancelOrphanedRecurringAnnotationJobs(registeredIds, nodeStartTime);
+    return recurringJobs.cancelOrphanedRecurringAnnotationJobs(registeredIds, nodeStartTime);
   }
 
   @Override
