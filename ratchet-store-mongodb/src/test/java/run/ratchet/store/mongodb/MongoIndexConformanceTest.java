@@ -11,7 +11,6 @@ import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.IDEMPOTENCY_KEY;
 import static run.ratchet.store.mongodb.MongoFieldNames.JOB_ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.JOB_TYPE;
-import static run.ratchet.store.mongodb.MongoFieldNames.NEXT_FIRE;
 import static run.ratchet.store.mongodb.MongoFieldNames.PRIORITY;
 import static run.ratchet.store.mongodb.MongoFieldNames.SCHEDULED_TIME;
 import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
