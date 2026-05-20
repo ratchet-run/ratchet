@@ -45,7 +45,7 @@ final class PostgresqlRecurringJobOperations implements RecurringJobStore {
 
   @Override
   @SuppressWarnings({"unchecked", "SqlSourceToSinkFlow"})
-  public List<RecurringJobDefinition> claimDueRecurringDefs(
+  public List<RecurringJobDefinition> claimDueRecurring(
       int limit, String nodeId, NodeTagFilter tagFilter) {
     if (limit <= 0) {
       return List.of();
@@ -168,7 +168,7 @@ final class PostgresqlRecurringJobOperations implements RecurringJobStore {
   }
 
   @Override
-  public boolean cancelRecurringByBusinessKey(String businessKey) {
+  public boolean cancelRecurringJobByBusinessKey(String businessKey) {
     return cancelRecurringJobsByBusinessKeys(Set.of(businessKey)) > 0;
   }
 

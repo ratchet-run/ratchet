@@ -213,12 +213,6 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
     return Collections.emptyList();
   }
 
-  @Override
-  public synchronized List<JobEntity> claimDueRecurring(
-      int limit, String nodeId, NodeTagFilter tagFilter) {
-    return Collections.emptyList();
-  }
-
   private static boolean matchesTagFilter(JobEntity job, NodeTagFilter filter) {
     if (filter.isUnfiltered()) {
       return true;

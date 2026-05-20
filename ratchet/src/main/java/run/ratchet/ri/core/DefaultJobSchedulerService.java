@@ -667,7 +667,7 @@ public class DefaultJobSchedulerService
   @Override
   @Transactional
   public int cancelRecurringJobByBusinessKey(String businessKey) {
-    return recurringJobStore.cancelRecurringByBusinessKey(businessKey) ? 1 : 0;
+    return recurringJobStore.cancelRecurringJobByBusinessKey(businessKey) ? 1 : 0;
   }
 
   @Transactional

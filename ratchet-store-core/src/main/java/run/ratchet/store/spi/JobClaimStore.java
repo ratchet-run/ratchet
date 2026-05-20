@@ -22,9 +22,6 @@ public interface JobClaimStore {
   List<JobClaimDto> claimNextBatchOptimized(
       JobExecutionType jobType, int limit, String nodeId, NodeTagFilter tagFilter);
 
-  /** Claims due recurring masters. Transaction attribute: {@code REQUIRED}. */
-  List<JobEntity> claimDueRecurring(int limit, String nodeId, NodeTagFilter tagFilter);
-
   default List<JobEntity> claimNextBatch(int limit, String nodeId) {
     return claimNextBatch(limit, nodeId, NodeTagFilter.NONE);
   }
@@ -32,9 +29,5 @@ public interface JobClaimStore {
   default List<JobClaimDto> claimNextBatchOptimized(
       JobExecutionType jobType, int limit, String nodeId) {
     return claimNextBatchOptimized(jobType, limit, nodeId, NodeTagFilter.NONE);
-  }
-
-  default List<JobEntity> claimDueRecurring(int limit, String nodeId) {
-    return claimDueRecurring(limit, nodeId, NodeTagFilter.NONE);
   }
 }

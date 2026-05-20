@@ -66,7 +66,7 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
   }
 
   @Override
-  public List<RecurringJobDefinition> claimDueRecurringDefs(
+  public List<RecurringJobDefinition> claimDueRecurring(
       int limit, String nodeId, NodeTagFilter tagFilter) {
     if (limit <= 0) {
       return List.of();
@@ -164,7 +164,7 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
   }
 
   @Override
-  public boolean cancelRecurringByBusinessKey(String businessKey) {
+  public boolean cancelRecurringJobByBusinessKey(String businessKey) {
     return cancelMatching(eq(BUSINESS_KEY, businessKey)) > 0;
   }
 

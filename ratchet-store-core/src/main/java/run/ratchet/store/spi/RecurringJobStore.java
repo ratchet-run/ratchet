@@ -41,12 +41,11 @@ public interface RecurringJobStore {
    * locking semantics equivalent to {@code FOR UPDATE SKIP LOCKED}. Mongo uses single-document
    * atomicity via {@code findOneAndUpdate}. Transaction attribute: {@code REQUIRED}.
    */
-  List<RecurringJobDefinition> claimDueRecurringDefs(
-      int limit, String nodeId, NodeTagFilter tagFilter);
+  List<RecurringJobDefinition> claimDueRecurring(int limit, String nodeId, NodeTagFilter tagFilter);
 
   /** {@link NodeTagFilter#NONE} overload. */
-  default List<RecurringJobDefinition> claimDueRecurringDefs(int limit, String nodeId) {
-    return claimDueRecurringDefs(limit, nodeId, NodeTagFilter.NONE);
+  default List<RecurringJobDefinition> claimDueRecurring(int limit, String nodeId) {
+    return claimDueRecurring(limit, nodeId, NodeTagFilter.NONE);
   }
 
   /**
@@ -103,12 +102,12 @@ public interface RecurringJobStore {
    * Cancels the single recurring master matching {@code businessKey}, if any. Returns {@code true}
    * when a row was canceled. Transaction attribute: {@code REQUIRED}.
    *
-   * <p>Named {@code cancelRecurringByBusinessKey} (not {@code cancelRecurringJobByBusinessKey}) to
-   * avoid signature collision with the pre-CP2 {@code int} return on {@code JobBatchStatusStore}.
-   * After the legacy method is removed in the final CP2 commit, this can be renamed if a consumer
-   * expects the historical name.
+   * <p>Named {@code cancelRecurringJobByBusinessKey} (not {@code cancelRecurringJobByBusinessKey})
+   * to avoid signature collision with the pre-CP2 {@code int} return on {@code
+   * JobBatchStatusStore}. After the legacy method is removed in the final CP2 commit, this can be
+   * renamed if a consumer expects the historical name.
    */
-  boolean cancelRecurringByBusinessKey(String businessKey);
+  boolean cancelRecurringJobByBusinessKey(String businessKey);
 
   /**
    * Bulk cancel by business key set. Returns the number of masters canceled. Transaction attribute:

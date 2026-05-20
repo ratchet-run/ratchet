@@ -58,7 +58,7 @@ class RecurringJobExecutorGraceTest {
     state.markRegistrationComplete(Set.of("known-key"));
 
     RecurringJobDefinition orphan = recurringMaster(42L, "orphan-key");
-    when(recurringJobStore.claimDueRecurringDefs(anyInt(), anyString(), any()))
+    when(recurringJobStore.claimDueRecurring(anyInt(), anyString(), any()))
         .thenReturn(List.of(orphan));
 
     int fired = executor.process(10, "node-A");
@@ -77,7 +77,7 @@ class RecurringJobExecutorGraceTest {
     state.markRegistrationComplete(Set.of("known-key"));
 
     RecurringJobDefinition known = recurringMaster(7L, "known-key");
-    when(recurringJobStore.claimDueRecurringDefs(anyInt(), anyString(), any()))
+    when(recurringJobStore.claimDueRecurring(anyInt(), anyString(), any()))
         .thenReturn(List.of(known));
 
     int fired = executor.process(10, "node-A");
@@ -102,7 +102,7 @@ class RecurringJobExecutorGraceTest {
     state.markRegistrationComplete(Set.of("known-key"));
 
     RecurringJobDefinition unknown = recurringMaster(99L, "unknown-key");
-    when(recurringJobStore.claimDueRecurringDefs(anyInt(), anyString(), any()))
+    when(recurringJobStore.claimDueRecurring(anyInt(), anyString(), any()))
         .thenReturn(List.of(unknown));
 
     int fired = executor.process(10, "node-A");
@@ -117,7 +117,7 @@ class RecurringJobExecutorGraceTest {
     RecurringJobDefinition orphan1 = recurringMaster(1L, "orphan-1");
     RecurringJobDefinition orphan2 = recurringMaster(2L, "orphan-2");
     RecurringJobDefinition known = recurringMaster(3L, "known");
-    when(recurringJobStore.claimDueRecurringDefs(anyInt(), anyString(), any()))
+    when(recurringJobStore.claimDueRecurring(anyInt(), anyString(), any()))
         .thenReturn(List.of(orphan1, orphan2, known));
 
     int fired = executor.process(10, "node-A");
@@ -132,7 +132,7 @@ class RecurringJobExecutorGraceTest {
     state.markRegistrationComplete(Set.of("annotation-only-key"));
 
     RecurringJobDefinition programmatic = recurringMaster(50L, null);
-    when(recurringJobStore.claimDueRecurringDefs(anyInt(), anyString(), any()))
+    when(recurringJobStore.claimDueRecurring(anyInt(), anyString(), any()))
         .thenReturn(List.of(programmatic));
 
     int fired = executor.process(10, "node-A");
@@ -143,7 +143,7 @@ class RecurringJobExecutorGraceTest {
   @Test
   void firesAllMastersBeforeRegistrationCompletes() {
     RecurringJobDefinition orphan = recurringMaster(11L, "any-key");
-    when(recurringJobStore.claimDueRecurringDefs(anyInt(), anyString(), any()))
+    when(recurringJobStore.claimDueRecurring(anyInt(), anyString(), any()))
         .thenReturn(List.of(orphan));
 
     int fired = executor.process(10, "node-A");
@@ -154,8 +154,7 @@ class RecurringJobExecutorGraceTest {
   @Test
   void noMastersClaimedReturnsZero() {
     state.markRegistrationComplete(Set.of("any"));
-    when(recurringJobStore.claimDueRecurringDefs(anyInt(), anyString(), any()))
-        .thenReturn(List.of());
+    when(recurringJobStore.claimDueRecurring(anyInt(), anyString(), any())).thenReturn(List.of());
 
     int fired = executor.process(10, "node-A");
 
@@ -170,7 +169,7 @@ class RecurringJobExecutorGraceTest {
 
     RecurringJobDefinition malformed = recurringMaster(12L, "bad-key", "not a cron");
     RecurringJobDefinition known = recurringMaster(13L, "known-key");
-    when(recurringJobStore.claimDueRecurringDefs(anyInt(), anyString(), any()))
+    when(recurringJobStore.claimDueRecurring(anyInt(), anyString(), any()))
         .thenReturn(List.of(malformed, known));
 
     int fired = executor.process(10, "node-A");
@@ -187,7 +186,7 @@ class RecurringJobExecutorGraceTest {
 
     RecurringJobDefinition stale =
         recurringMasterWithFire(14L, "known-key", "0/1 * * * * ?", FIXED_NOW.minusSeconds(3600));
-    when(recurringJobStore.claimDueRecurringDefs(anyInt(), anyString(), any()))
+    when(recurringJobStore.claimDueRecurring(anyInt(), anyString(), any()))
         .thenReturn(List.of(stale));
 
     int fired = executor.process(10, "node-A");

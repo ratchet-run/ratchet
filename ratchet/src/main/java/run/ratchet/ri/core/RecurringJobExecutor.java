@@ -86,7 +86,7 @@ public class RecurringJobExecutor {
     NodeTagFilter tagFilter =
         tagAffinityProvider != null ? tagAffinityProvider.tagFilter() : NodeTagFilter.NONE;
     List<RecurringJobDefinition> masters =
-        recurringJobStore.claimDueRecurringDefs(batchLimit, nodeId, tagFilter);
+        recurringJobStore.claimDueRecurring(batchLimit, nodeId, tagFilter);
     Instant now = effective().instant();
     List<JobEntity> children = new ArrayList<>();
     int firedCount = 0;

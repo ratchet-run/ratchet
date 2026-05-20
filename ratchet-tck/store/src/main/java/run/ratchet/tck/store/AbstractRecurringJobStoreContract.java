@@ -64,11 +64,11 @@ public abstract class AbstractRecurringJobStoreContract {
     // store impls open a fresh transaction per call; in containers with shared connections, both
     // calls run sequentially. Either way the second call must NOT also observe the master because
     // claim advances next_fire well into the future as part of the same fire-path operation.
-    List<RecurringJobDefinition> firstBatch = recurringStore().claimDueRecurringDefs(10, "node-1");
+    List<RecurringJobDefinition> firstBatch = recurringStore().claimDueRecurring(10, "node-1");
     assertEquals(1, firstBatch.size());
     recurringStore().advanceNextFire(id, Instant.now().plusSeconds(3600));
 
-    List<RecurringJobDefinition> secondBatch = recurringStore().claimDueRecurringDefs(10, "node-2");
+    List<RecurringJobDefinition> secondBatch = recurringStore().claimDueRecurring(10, "node-2");
     assertTrue(secondBatch.isEmpty(), "post-advance, the master must not re-claim");
   }
 
@@ -111,7 +111,7 @@ public abstract class AbstractRecurringJobStoreContract {
     // The contract validates the primitive: after advanceNextFire to the future, claim is empty.
     recurringStore().advanceNextFire(id, Instant.now().plusSeconds(3600));
     assertTrue(
-        recurringStore().claimDueRecurringDefs(10, "node-1").isEmpty(),
+        recurringStore().claimDueRecurring(10, "node-1").isEmpty(),
         "post-catchup advance should empty the claim batch");
   }
 
@@ -123,12 +123,12 @@ public abstract class AbstractRecurringJobStoreContract {
 
     assertTrue(recurringStore().pauseRecurring(id));
     assertTrue(
-        recurringStore().claimDueRecurringDefs(10, "node-1").isEmpty(),
+        recurringStore().claimDueRecurring(10, "node-1").isEmpty(),
         "paused masters must not appear in claim");
 
     assertTrue(recurringStore().resumeRecurring(id));
     assertFalse(
-        recurringStore().claimDueRecurringDefs(10, "node-1").isEmpty(),
+        recurringStore().claimDueRecurring(10, "node-1").isEmpty(),
         "resumed past-due masters must reappear in claim");
   }
 

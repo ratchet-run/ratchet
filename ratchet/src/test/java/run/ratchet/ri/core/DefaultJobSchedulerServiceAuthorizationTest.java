@@ -321,7 +321,7 @@ class DefaultJobSchedulerServiceAuthorizationTest {
 
   @Test
   void cancelRecurringJobByBusinessKey_doesNotCheckAuthorization() {
-    when(recurringJobStore.cancelRecurringByBusinessKey("key")).thenReturn(true);
+    when(recurringJobStore.cancelRecurringJobByBusinessKey("key")).thenReturn(true);
     service.cancelRecurringJobByBusinessKey("key");
     verify(authorizationPolicy, never()).checkCancel(any(), any(), any());
   }

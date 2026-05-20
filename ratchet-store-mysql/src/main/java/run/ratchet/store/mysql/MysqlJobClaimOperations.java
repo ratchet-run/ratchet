@@ -177,59 +177,6 @@ final class MysqlJobClaimOperations implements JobClaimStore {
     }
   }
 
-  // SQL template is a compile-time constant defined in this package; runtime values are bound as
-  // JDBC parameters via setParameter.
-  @Override
-  @SuppressWarnings({"unchecked", "SqlSourceToSinkFlow"})
-  public List<JobEntity> claimDueRecurring(int limit, String nodeId, NodeTagFilter tagFilter) {
-    if (limit <= 0) {
-      return List.of();
-    }
-
-    try {
-      int boostInterval = ctx.priorityBoostIntervalMinutes();
-      String tagSql = JobClaimSqlSupport.buildTagFilterSql(tagFilter, "c");
-      // language=MySQL
-      String sql =
-          """
-          SELECT %s
-          FROM scheduler_job c
-          LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
-          WHERE c.job_type = 'RECURRING'
-            AND c.rec_status = 'P'
-            AND q.job_id IS NULL
-            AND c.next_fire <= NOW(3)%s
-          ORDER BY %s
-          LIMIT ?
-          FOR UPDATE SKIP LOCKED
-          """
-              .formatted(
-                  MysqlJobRowMapper.HYDRATION_SELECT,
-                  tagSql,
-                  buildRecurringBoostedOrderBy(boostInterval));
-      var query = ctx.em().createNativeQuery(sql);
-      int parameter = 1;
-      parameter = JobClaimSqlSupport.bindTagFilter(query, tagFilter, parameter);
-      if (boostInterval > 0) {
-        query.setParameter(parameter++, boostInterval);
-      }
-      List<Object[]> rows = query.setParameter(parameter, limit).getResultList();
-      if (rows.isEmpty()) {
-        return List.of();
-      }
-      List<JobEntity> ordered = MysqlJobRowMapper.hydrateRows(rows);
-      Instant now = Instant.now();
-      for (JobEntity job : ordered) {
-        job.setStatus(JobStatus.RUNNING);
-        job.setPickedBy(nodeId);
-        job.setPickedAt(now);
-      }
-      return ordered;
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("claim recurring jobs", e);
-    }
-  }
-
   private List<JobClaimDto> claimOptimizedRows(List<Object[]> rows, String nodeId) {
     return ctx.timedStoreOperation(
         "claim_mark_running_batch",

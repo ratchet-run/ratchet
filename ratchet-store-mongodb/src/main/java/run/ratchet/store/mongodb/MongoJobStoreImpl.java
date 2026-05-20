@@ -257,11 +257,6 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
-  public List<JobEntity> claimDueRecurring(int limit, String nodeId, NodeTagFilter tagFilter) {
-    return claims.claimDueRecurring(limit, nodeId, tagFilter);
-  }
-
-  @Override
   public void updateJobStatus(UUID id, JobStatus status, String errorMessage) {
     lifecycle.updateJobStatus(id, status, errorMessage);
   }
@@ -818,9 +813,9 @@ class MongoJobStoreImpl implements MongoJobStore {
   // ---------- RecurringJobStore (CP2) delegates ----------
 
   @Override
-  public List<run.ratchet.store.spi.RecurringJobDefinition> claimDueRecurringDefs(
+  public List<run.ratchet.store.spi.RecurringJobDefinition> claimDueRecurring(
       int limit, String nodeId, NodeTagFilter tagFilter) {
-    return recurringJobs.claimDueRecurringDefs(limit, nodeId, tagFilter);
+    return recurringJobs.claimDueRecurring(limit, nodeId, tagFilter);
   }
 
   @Override
@@ -835,8 +830,8 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
-  public boolean cancelRecurringByBusinessKey(String businessKey) {
-    return recurringJobs.cancelRecurringByBusinessKey(businessKey);
+  public boolean cancelRecurringJobByBusinessKey(String businessKey) {
+    return recurringJobs.cancelRecurringJobByBusinessKey(businessKey);
   }
 
   @Override
