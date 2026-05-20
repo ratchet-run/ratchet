@@ -32,12 +32,12 @@ class PostgresqlJobRowMapperTest {
   @Test
   void hydrateRejectsRowsWithNoEffectiveStatus() {
     Object[] row = liveRow();
-    row[35] = null;
+    row[PostgresqlJobRowMapper.IDX_Q_STATUS] = null;
 
     IllegalStateException thrown =
         assertThrows(IllegalStateException.class, () -> PostgresqlJobRowMapper.hydrate(row));
 
-    assertTrue(thrown.getMessage().contains("no live, recurring, or terminal status"));
+    assertTrue(thrown.getMessage().contains("no live or terminal status"));
   }
 
   private static Object[] liveRow() {
@@ -50,14 +50,14 @@ class PostgresqlJobRowMapperTest {
     row[4] = BackoffPolicy.NONE.name();
     row[5] = 0;
     row[6] = 60;
-    row[12] = "example.Job";
-    row[13] = "run";
-    row[21] = now;
-    row[35] = "PENDING";
-    row[36] = now;
-    row[37] = 0;
-    row[42] = 0;
-    row[43] = now;
+    row[11] = "example.Job"; // target_class (was index 12 pre-CP2 column drop)
+    row[12] = "run"; // method_name
+    row[20] = now; // created_at
+    row[PostgresqlJobRowMapper.IDX_Q_STATUS] = "PENDING";
+    row[PostgresqlJobRowMapper.IDX_Q_STATUS + 1] = now; // q.scheduled_time
+    row[PostgresqlJobRowMapper.IDX_Q_STATUS + 2] = 0; // q.attempts
+    row[PostgresqlJobRowMapper.IDX_Q_STATUS + 7] = 0; // q.version
+    row[PostgresqlJobRowMapper.IDX_Q_STATUS + 8] = now; // q.updated_at
     return row;
   }
 }

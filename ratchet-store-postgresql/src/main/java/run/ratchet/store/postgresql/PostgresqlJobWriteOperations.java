@@ -23,16 +23,16 @@ final class PostgresqlJobWriteOperations {
       """
       INSERT INTO scheduler_job (
         job_id, job_type, priority, max_retries, backoff_policy, backoff_param_ms,
-        timeout_sec, cron_expr, zone_id, next_fire, payload, params, idempotency_key,
+        timeout_sec, cron_expr, zone_id, payload, params, idempotency_key,
         business_key, resource_name, on_success_payload, on_failure_payload, depends_on,
-        superseded_by, created_at, caller_principal, rec_status, trace_context)
+        superseded_by, created_at, caller_principal, trace_context)
       VALUES
       """;
 
   private static final String COLD_INSERT_VALUES =
       """
-      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), CAST(? AS jsonb), ?, ?, ?,
-              CAST(? AS jsonb), CAST(? AS jsonb), ?, ?, ?, ?, ?, CAST(? AS jsonb))
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), CAST(? AS jsonb), ?, ?, ?,
+              CAST(? AS jsonb), CAST(? AS jsonb), ?, ?, ?, ?, CAST(? AS jsonb))
       """;
 
   private static final String COLD_INSERT_SQL = COLD_INSERT_PREFIX + COLD_INSERT_VALUES;
@@ -73,7 +73,6 @@ final class PostgresqlJobWriteOperations {
   private static final int IDX_HOT_LAST_ERROR = 6;
   private static final int IDX_HOT_VERSION = 7;
   private static final int IDX_HOT_TERMINAL_STATUS = 8;
-  private static final int IDX_HOT_REC_STATUS = 9;
 
   private final PostgresqlStoreContext ctx;
   private final PostgresqlBusinessKeyReservations reservations;
@@ -240,7 +239,6 @@ final class PostgresqlJobWriteOperations {
     q.setParameter(i++, job.getTimeoutSec());
     q.setParameter(i++, job.getCronExpr() == null ? "" : job.getCronExpr());
     q.setParameter(i++, job.getZoneId() == null ? "UTC" : job.getZoneId());
-    q.setParameter(i++, job.getNextFire() != null ? Timestamp.from(job.getNextFire()) : null);
     q.setParameter(i++, PostgresqlJobRowMapper.payloadToJson(job));
     q.setParameter(i++, PostgresqlJobRowMapper.paramsToJson(job));
     q.setParameter(i++, job.getIdempotencyKey());
@@ -252,13 +250,6 @@ final class PostgresqlJobWriteOperations {
     q.setParameter(i++, job.getSupersededBy());
     q.setParameter(i++, job.getCreatedAt() != null ? Timestamp.from(job.getCreatedAt()) : nowTs);
     q.setParameter(i++, job.getCallerPrincipal());
-    String recStatus = null;
-    if (job.getJobType() == JobExecutionType.RECURRING) {
-      JobStatus s = job.getStatus() != null ? job.getStatus() : JobStatus.PENDING;
-      String r = PostgresqlJobRowMapper.recStatusForLiveStatus(s);
-      recStatus = r != null ? r : "P";
-    }
-    q.setParameter(i++, recStatus);
     q.setParameter(i, PostgresqlJobRowMapper.traceContextToJson(job));
     return i + 1;
   }
@@ -431,8 +422,7 @@ final class PostgresqlJobWriteOperations {
     String sql =
         """
         UPDATE scheduler_job
-        SET next_fire = ?,
-            params = CAST(? AS jsonb),
+        SET params = CAST(? AS jsonb),
             on_success_payload = CAST(? AS jsonb),
             on_failure_payload = CAST(? AS jsonb),
             depends_on = ?,
@@ -442,14 +432,13 @@ final class PostgresqlJobWriteOperations {
         """;
     ctx.em()
         .createNativeQuery(sql)
-        .setParameter(1, job.getNextFire() != null ? Timestamp.from(job.getNextFire()) : null)
-        .setParameter(2, PostgresqlJobRowMapper.paramsToJson(job))
-        .setParameter(3, PostgresqlJobRowMapper.callbackPayloadToJson(job.getOnSuccessPayload()))
-        .setParameter(4, PostgresqlJobRowMapper.callbackPayloadToJson(job.getOnFailurePayload()))
-        .setParameter(5, job.getDependsOn())
-        .setParameter(6, job.getSupersededBy())
-        .setParameter(7, job.getResourceName())
-        .setParameter(8, job.getId())
+        .setParameter(1, PostgresqlJobRowMapper.paramsToJson(job))
+        .setParameter(2, PostgresqlJobRowMapper.callbackPayloadToJson(job.getOnSuccessPayload()))
+        .setParameter(3, PostgresqlJobRowMapper.callbackPayloadToJson(job.getOnFailurePayload()))
+        .setParameter(4, job.getDependsOn())
+        .setParameter(5, job.getSupersededBy())
+        .setParameter(6, job.getResourceName())
+        .setParameter(7, job.getId())
         .executeUpdate();
   }
 
@@ -575,7 +564,7 @@ final class PostgresqlJobWriteOperations {
         """
         SELECT q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at,
                q.paused_from_status, q.last_error, q.version,
-               c.terminal_status, c.rec_status
+               c.terminal_status
         FROM scheduler_job c
         LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
         WHERE c.job_id = ?
@@ -591,7 +580,6 @@ final class PostgresqlJobWriteOperations {
     }
     String qStatus = (String) row[IDX_HOT_STATUS];
     String terminal = (String) row[IDX_HOT_TERMINAL_STATUS];
-    String recStatus = PostgresqlJobRowMapper.stringOrNull(row[IDX_HOT_REC_STATUS]);
 
     if (qStatus != null) {
       JobStatus storedStatus = JobStatus.valueOf(qStatus);
@@ -636,22 +624,6 @@ final class PostgresqlJobWriteOperations {
       }
       return;
     }
-
-    if (recStatus != null) {
-      JobStatus decoded = PostgresqlJobRowMapper.recStatusDecode(recStatus);
-      JobStatus incomingStatus = incoming.getStatus();
-      if (incomingStatus != null && incomingStatus != decoded) {
-        throw new IllegalStateException(
-            "save() rejected: recurring master id="
-                + id
-                + " status mutation requires explicit pause/resume API "
-                + "(stored rec_status="
-                + recStatus
-                + ", incoming.status="
-                + incomingStatus
-                + ")");
-      }
-    }
   }
 
   private boolean tryHotMutationDispatch(JobEntity incoming, Object[] row) {
@@ -661,8 +633,7 @@ final class PostgresqlJobWriteOperations {
     }
     String hotStatusStr = (String) row[IDX_HOT_STATUS];
     String terminalStr = (String) row[IDX_HOT_TERMINAL_STATUS];
-    String recStatus = PostgresqlJobRowMapper.stringOrNull(row[IDX_HOT_REC_STATUS]);
-    if (terminalStr != null || recStatus != null || hotStatusStr == null) {
+    if (terminalStr != null || hotStatusStr == null) {
       return false;
     }
 

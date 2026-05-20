@@ -12,7 +12,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.id.UuidV7Factory;
 
 /** Base contract tests for {@code JobBulkStore}. */
@@ -230,11 +229,6 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
 
     var untagged = persist(newPendingJob());
 
-    JobEntity recurring = newPendingJob(tag);
-    recurring.setJobType(JobExecutionType.RECURRING);
-    recurring = persist(recurring);
-    UUID recurringId = recurring.getId();
-
     int count = store().cancelJobsByTag(tag);
 
     assertEquals(5, count, "Should cancel 3 PENDING + 1 PAUSED + 1 WAITING tagged one-shot jobs");
@@ -251,10 +245,9 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
         JobStatus.PENDING,
         store().getJobStatus(untagged.getId()),
         "Untagged jobs are not affected");
-    assertEquals(
-        JobStatus.PENDING,
-        store().getJobStatus(recurringId),
-        "Recurring jobs are not affected by cancelJobsByTag");
+    // Recurring masters now live in scheduler_recurring_job; the bulk JobBatchStatusStore tag
+    // cancel only walks scheduler_job_queue, so recurring masters are filtered by virtue of not
+    // existing on the executable path — covered by AbstractRecurringJobStoreContract.
   }
 
   @Test

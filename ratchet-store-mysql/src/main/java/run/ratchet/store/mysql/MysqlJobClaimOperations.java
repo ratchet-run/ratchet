@@ -67,13 +67,6 @@ final class MysqlJobClaimOperations implements JobClaimStore {
         timeColumn, "TIMESTAMPDIFF(MINUTE, " + timeColumn + ", NOW(3))", boostInterval);
   }
 
-  private static String buildRecurringBoostedOrderBy(int boostInterval) {
-    return boostInterval > 0
-        ? "(c.priority + FLOOR(GREATEST(0, TIMESTAMPDIFF(MINUTE, c.next_fire, NOW(3))) / ?))"
-            + " DESC, c.next_fire ASC, c.job_id ASC"
-        : "c.priority DESC, c.next_fire ASC, c.job_id ASC";
-  }
-
   @Override
   @SuppressWarnings("unchecked")
   public List<JobEntity> claimNextBatch(int limit, String nodeId, NodeTagFilter tagFilter) {

@@ -134,10 +134,6 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     timeout_sec           INT                                                                                                                 NOT NULL DEFAULT 0,
     cron_expr             VARCHAR(64)                                                                                                         NOT NULL DEFAULT '',
     zone_id               VARCHAR(32)                                                                                                         NOT NULL DEFAULT 'UTC',
-    -- CP2 transitional: next_fire stays NULLable on scheduler_job until impl code stops writing
-    -- it. Recurring rows now live in scheduler_recurring_job; this column is unused but retained
-    -- to keep the impl compilable until the final cleanup commit drops it.
-    next_fire             DATETIME(6)                                                                                                         NULL,
     -- Payload + params (insert-once; never mutated after enqueue).
     payload               JSON                                                                                                                NOT NULL,
     params                JSON                                                                                                                NULL,
@@ -180,13 +176,9 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     -- batch / workflow same-table parent pointers). ON DELETE SET NULL so cancel of the master
     -- does not cascade-delete in-flight children.
     recurring_master_id   BINARY(16)                                                                                                          NULL,
-    -- CP2 transitional shim columns retained until impl code stops writing them. Dropped in
-    -- the final CP2 cleanup commit.
-    rec_status            CHAR(1)                                                                                                             NULL,
     PRIMARY KEY (job_id),
     UNIQUE KEY uk_idempotency_key (idempotency_key),
     CONSTRAINT chk_job_priority CHECK (priority BETWEEN 0 AND 4),
-    CONSTRAINT chk_rec_status CHECK (rec_status IS NULL OR rec_status IN ('P','A')),
     CONSTRAINT fk_job_recurring_master FOREIGN KEY (recurring_master_id) REFERENCES scheduler_recurring_job (id) ON DELETE SET NULL,
     -- Lookup/relationship indexes.
     INDEX idx_job_depends_on (depends_on),
@@ -197,9 +189,7 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     -- Audit / archival indexes.
     INDEX idx_job_created_at (created_at),
     -- Archival / deleteDlqOlderThan scan (terminal_status, terminated_at).
-    INDEX idx_job_terminal (terminal_status, terminated_at),
-    -- CP2 transitional: legacy recurring claim index, retained until impl stops referencing it.
-    INDEX idx_job_recurring_pending (job_type, rec_status, next_fire)
+    INDEX idx_job_terminal (terminal_status, terminated_at)
     -- DROPPED: idx_target_class and idx_method_name were debug-only and added measurable
     -- write amplification on the hot insert path. Operators who need them can apply
     -- ddl/mysql-debug-indexes.sql (optional companion file).

@@ -82,20 +82,6 @@ class MongoIndexConformanceTest {
   }
 
   @Test
-  void schedulerJob_hasClaimRecurringIndex() {
-    assertIndex(
-        "scheduler_job",
-        MongoIndexHints.JOB_CLAIM_RECURRING,
-        new Document(STATUS, 1)
-            .append(JOB_TYPE, 1)
-            .append(PRIORITY, -1)
-            .append(NEXT_FIRE, 1)
-            .append(ID, 1),
-        false,
-        null);
-  }
-
-  @Test
   void schedulerJob_hasIdempotencyKeyUniqueIndex() {
     assertIndex(
         "scheduler_job", "idx_job_idempotency_key", new Document(IDEMPOTENCY_KEY, 1), true, null);

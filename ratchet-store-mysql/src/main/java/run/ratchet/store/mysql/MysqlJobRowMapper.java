@@ -26,20 +26,20 @@ final class MysqlJobRowMapper {
   static final String HYDRATION_SELECT =
       """
       c.job_id, c.job_type, c.priority, c.max_retries, c.backoff_policy, c.backoff_param_ms,
-      c.timeout_sec, c.cron_expr, c.zone_id, c.next_fire, c.payload, c.params,
+      c.timeout_sec, c.cron_expr, c.zone_id, c.payload, c.params,
       c.target_class, c.method_name, c.idempotency_key, c.business_key, c.resource_name,
       c.on_success_payload, c.on_failure_payload, c.depends_on, c.superseded_by,
       c.created_at, c.caller_principal, c.terminal_status, c.terminal_error,
       c.total_attempts, c.terminated_at, c.execution_start_time, c.execution_end_time,
-      c.execution_duration_ms, c.queue_wait_ms, c.job_result, c.result_type, c.rec_status,
+      c.execution_duration_ms, c.queue_wait_ms, c.job_result, c.result_type,
       c.trace_context, q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at,
       q.paused_from_status, q.last_error, q.version, q.updated_at,
       q.signal_key, q.signal_timeout, q.signal_payload, q.signal_payload_type,
       q.signal_outcome, q.signal_rejection_reason, q.signal_delivered_at,
       q.signal_delivered_by, q.signal_delivery_id\
       """;
-  static final int HYDRATION_COL_COUNT = 53;
-  static final int IDX_Q_STATUS = 35;
+  static final int HYDRATION_COL_COUNT = 51;
+  static final int IDX_Q_STATUS = 33;
   private static final Logger log = Logger.getLogger(MysqlJobRowMapper.class);
   private static final JobPayloadConverter JOB_PAYLOAD_CONVERTER = new JobPayloadConverter();
   private static final JsonMapConverter JSON_MAP_CONVERTER = new JsonMapConverter();
@@ -52,49 +52,47 @@ final class MysqlJobRowMapper {
   private static final int IDX_TIMEOUT_SEC = 6;
   private static final int IDX_CRON_EXPR = 7;
   private static final int IDX_ZONE_ID = 8;
-  private static final int IDX_NEXT_FIRE = 9;
-  private static final int IDX_PAYLOAD = 10;
-  private static final int IDX_PARAMS = 11;
-  private static final int IDX_TARGET_CLASS = 12;
-  private static final int IDX_METHOD_NAME = 13;
-  private static final int IDX_IDEMPOTENCY_KEY = 14;
-  private static final int IDX_BUSINESS_KEY = 15;
-  private static final int IDX_RESOURCE_NAME = 16;
-  private static final int IDX_ON_SUCCESS = 17;
-  private static final int IDX_ON_FAILURE = 18;
-  private static final int IDX_DEPENDS_ON = 19;
-  private static final int IDX_SUPERSEDED_BY = 20;
-  private static final int IDX_CREATED_AT = 21;
-  private static final int IDX_CALLER_PRINCIPAL = 22;
-  private static final int IDX_TERMINAL_STATUS = 23;
-  private static final int IDX_TERMINAL_ERROR = 24;
-  private static final int IDX_TOTAL_ATTEMPTS = 25;
-  private static final int IDX_TERMINATED_AT = 26;
-  private static final int IDX_EXEC_START = 27;
-  private static final int IDX_EXEC_END = 28;
-  private static final int IDX_EXEC_DURATION = 29;
-  private static final int IDX_QUEUE_WAIT = 30;
-  private static final int IDX_JOB_RESULT = 31;
-  private static final int IDX_RESULT_TYPE = 32;
-  private static final int IDX_REC_STATUS = 33;
-  private static final int IDX_TRACE_CONTEXT = 34;
-  private static final int IDX_Q_SCHEDULED_TIME = 36;
-  private static final int IDX_Q_ATTEMPTS = 37;
-  private static final int IDX_Q_PICKED_BY = 38;
-  private static final int IDX_Q_PICKED_AT = 39;
-  private static final int IDX_Q_PAUSED = 40;
-  private static final int IDX_Q_LAST_ERROR = 41;
-  private static final int IDX_Q_VERSION = 42;
-  private static final int IDX_Q_UPDATED_AT = 43;
-  private static final int IDX_Q_SIGNAL_KEY = 44;
-  private static final int IDX_Q_SIGNAL_TIMEOUT = 45;
-  private static final int IDX_Q_SIGNAL_PAYLOAD = 46;
-  private static final int IDX_Q_SIGNAL_PAYLOAD_TYPE = 47;
-  private static final int IDX_Q_SIGNAL_OUTCOME = 48;
-  private static final int IDX_Q_SIGNAL_REJECTION_REASON = 49;
-  private static final int IDX_Q_SIGNAL_DELIVERED_AT = 50;
-  private static final int IDX_Q_SIGNAL_DELIVERED_BY = 51;
-  private static final int IDX_Q_SIGNAL_DELIVERY_ID = 52;
+  private static final int IDX_PAYLOAD = 9;
+  private static final int IDX_PARAMS = 10;
+  private static final int IDX_TARGET_CLASS = 11;
+  private static final int IDX_METHOD_NAME = 12;
+  private static final int IDX_IDEMPOTENCY_KEY = 13;
+  private static final int IDX_BUSINESS_KEY = 14;
+  private static final int IDX_RESOURCE_NAME = 15;
+  private static final int IDX_ON_SUCCESS = 16;
+  private static final int IDX_ON_FAILURE = 17;
+  private static final int IDX_DEPENDS_ON = 18;
+  private static final int IDX_SUPERSEDED_BY = 19;
+  private static final int IDX_CREATED_AT = 20;
+  private static final int IDX_CALLER_PRINCIPAL = 21;
+  private static final int IDX_TERMINAL_STATUS = 22;
+  private static final int IDX_TERMINAL_ERROR = 23;
+  private static final int IDX_TOTAL_ATTEMPTS = 24;
+  private static final int IDX_TERMINATED_AT = 25;
+  private static final int IDX_EXEC_START = 26;
+  private static final int IDX_EXEC_END = 27;
+  private static final int IDX_EXEC_DURATION = 28;
+  private static final int IDX_QUEUE_WAIT = 29;
+  private static final int IDX_JOB_RESULT = 30;
+  private static final int IDX_RESULT_TYPE = 31;
+  private static final int IDX_TRACE_CONTEXT = 32;
+  private static final int IDX_Q_SCHEDULED_TIME = 34;
+  private static final int IDX_Q_ATTEMPTS = 35;
+  private static final int IDX_Q_PICKED_BY = 36;
+  private static final int IDX_Q_PICKED_AT = 37;
+  private static final int IDX_Q_PAUSED = 38;
+  private static final int IDX_Q_LAST_ERROR = 39;
+  private static final int IDX_Q_VERSION = 40;
+  private static final int IDX_Q_UPDATED_AT = 41;
+  private static final int IDX_Q_SIGNAL_KEY = 42;
+  private static final int IDX_Q_SIGNAL_TIMEOUT = 43;
+  private static final int IDX_Q_SIGNAL_PAYLOAD = 44;
+  private static final int IDX_Q_SIGNAL_PAYLOAD_TYPE = 45;
+  private static final int IDX_Q_SIGNAL_OUTCOME = 46;
+  private static final int IDX_Q_SIGNAL_REJECTION_REASON = 47;
+  private static final int IDX_Q_SIGNAL_DELIVERED_AT = 48;
+  private static final int IDX_Q_SIGNAL_DELIVERED_BY = 49;
+  private static final int IDX_Q_SIGNAL_DELIVERY_ID = 50;
 
   static boolean isTerminalStatus(JobStatus s) {
     return StatusClassifier.isTerminalStatus(s);
@@ -110,14 +108,6 @@ final class MysqlJobRowMapper {
 
   static JobPriority safeJobPriority(int ordinal) {
     return RowValues.safeJobPriority(ordinal);
-  }
-
-  static String recStatusForLiveStatus(JobStatus s) {
-    return StatusClassifier.recStatusForLiveStatus(s);
-  }
-
-  static JobStatus recStatusDecode(String c) {
-    return StatusClassifier.recStatusDecode(c);
   }
 
   static String stringOrNull(Object val) {
@@ -172,7 +162,6 @@ final class MysqlJobRowMapper {
     j.setTimeoutSec(requiredNumber(row, IDX_TIMEOUT_SEC, "timeout_sec").intValue());
     j.setCronExpr((String) row[IDX_CRON_EXPR]);
     j.setZoneId((String) row[IDX_ZONE_ID]);
-    j.setNextFire(toInstant(row[IDX_NEXT_FIRE]));
     j.setPayload(JOB_PAYLOAD_CONVERTER.convertToEntityAttribute(stringOrNull(row[IDX_PAYLOAD])));
     j.setParams(JSON_MAP_CONVERTER.convertToEntityAttribute(stringOrNull(row[IDX_PARAMS])));
     j.setTargetClass((String) row[IDX_TARGET_CLASS]);
@@ -211,20 +200,15 @@ final class MysqlJobRowMapper {
     j.setSignalDeliveredBy((String) row[IDX_Q_SIGNAL_DELIVERED_BY]);
     j.setSignalDeliveryId(stringOrNull(row[IDX_Q_SIGNAL_DELIVERY_ID]));
 
-    String recStatus = stringOrNull(row[IDX_REC_STATUS]);
     JobStatus live = enumValueOrNull(row, IDX_Q_STATUS, "q.status", JobStatus.class);
 
     JobStatus resolved;
     if (live != null) {
       resolved = live;
-    } else if (recStatus != null) {
-      resolved = recStatusDecode(recStatus);
     } else if (terminal != null) {
       resolved = terminal;
     } else {
-      log.errorf(
-          "Job %s has no live, recurring, or terminal status — possible invariant violation",
-          j.getId());
+      log.errorf("Job %s has no live or terminal status — possible invariant violation", j.getId());
       resolved = null;
     }
     j.setStatus(resolved);
@@ -242,10 +226,6 @@ final class MysqlJobRowMapper {
       if (queueUpdatedAt != null) {
         j.setUpdatedAt(queueUpdatedAt);
       }
-    } else if (recStatus != null) {
-      j.setScheduledTime(toInstant(row[IDX_NEXT_FIRE]));
-      j.setAttempts(0);
-      j.setVersion(0);
     } else {
       Number ta = numberOrNull(row, IDX_TOTAL_ATTEMPTS, "total_attempts");
       j.setAttempts(ta != null ? ta.intValue() : 0);

@@ -70,7 +70,7 @@ final class MysqlJobReadOperations {
       // language=MySQL
       String sql =
           """
-          SELECT q.status, c.rec_status, c.terminal_status
+          SELECT q.status, c.terminal_status
           FROM scheduler_job c
           LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
           WHERE c.job_id = ?
@@ -88,15 +88,11 @@ final class MysqlJobReadOperations {
       if (live != null) {
         return JobStatus.valueOf(live);
       }
-      JobStatus rec = MysqlJobRowMapper.recStatusDecode(MysqlJobRowMapper.stringOrNull(row[1]));
-      if (rec != null) {
-        return rec;
-      }
-      String terminal = (String) row[2];
+      String terminal = (String) row[1];
       if (terminal != null) {
         return JobStatus.valueOf(terminal);
       }
-      log.errorf("Job %s has no live, recurring, or terminal status — invariant violation", id);
+      log.errorf("Job %s has no live or terminal status — invariant violation", id);
       return null;
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("get job status", e);

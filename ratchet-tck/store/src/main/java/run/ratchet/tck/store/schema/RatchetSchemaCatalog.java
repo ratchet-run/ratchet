@@ -3,7 +3,6 @@ package run.ratchet.tck.store.schema;
 import static run.ratchet.tck.store.schema.Column.nullable;
 import static run.ratchet.tck.store.schema.Column.required;
 import static run.ratchet.tck.store.schema.LogicalType.BOOLEAN;
-import static run.ratchet.tck.store.schema.LogicalType.CHAR_1;
 import static run.ratchet.tck.store.schema.LogicalType.INT32;
 import static run.ratchet.tck.store.schema.LogicalType.INT64;
 import static run.ratchet.tck.store.schema.LogicalType.JSON;
@@ -68,7 +67,6 @@ public final class RatchetSchemaCatalog {
         .column(required("timeout_sec", INT32))
         .column(required("cron_expr", TEXT))
         .column(required("zone_id", TEXT))
-        .column(nullable("next_fire", TIMESTAMP_TZ))
         .column(required("payload", JSON))
         .column(nullable("params", JSON))
         .column(required("idempotency_key", TEXT))
@@ -91,7 +89,6 @@ public final class RatchetSchemaCatalog {
         .column(nullable("queue_wait_ms", INT64))
         .column(nullable("job_result", JSON))
         .column(nullable("result_type", TEXT))
-        .column(nullable("rec_status", CHAR_1))
         .primaryKey("job_id")
         .index(Index.unique("uk_idempotency_key", "idempotency_key"))
         .index(Index.of("idx_job_depends_on", "depends_on"))
@@ -99,7 +96,6 @@ public final class RatchetSchemaCatalog {
         .index(Index.of("idx_job_business_key", "business_key"))
         .index(Index.of("idx_job_created_at", "created_at"))
         .index(Index.of("idx_job_terminal", "terminal_status", "terminated_at"))
-        .index(Index.of("idx_job_recurring_pending", "job_type", "rec_status", "next_fire"))
         .build();
   }
 

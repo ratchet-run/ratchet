@@ -247,14 +247,14 @@ class PostgresqlExceptionTranslationTest {
     row[4] = BackoffPolicy.NONE.name();
     row[5] = 0;
     row[6] = 60;
-    row[12] = "example.Job";
-    row[13] = "run";
-    row[21] = now;
-    row[23] = JobStatus.SUCCEEDED.name();
-    row[25] = 1;
-    row[26] = now;
-    row[27] = now;
-    row[28] = now;
+    row[11] = "example.Job"; // target_class
+    row[12] = "run"; // method_name
+    row[20] = now; // created_at
+    row[22] = JobStatus.SUCCEEDED.name(); // terminal_status
+    row[24] = 1; // total_attempts
+    row[25] = now; // terminated_at
+    row[26] = now; // execution_start_time
+    row[27] = now; // execution_end_time
     return row;
   }
 }

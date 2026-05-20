@@ -19,14 +19,14 @@ class PostgresqlJobReadOperationsTest {
   void getJobStatusRejectsRowsWithNoEffectiveStatus() {
     PostgresqlStoreContext ctx =
         new PostgresqlStoreContext(
-            entityManagerReturningRows(Collections.singletonList(new Object[] {null, null, null})));
+            entityManagerReturningRows(Collections.singletonList(new Object[] {null, null})));
     PostgresqlJobReadOperations operations =
         new PostgresqlJobReadOperations(ctx, new PostgresqlTagOperations(ctx));
 
     IllegalStateException thrown =
         assertThrows(IllegalStateException.class, () -> operations.getJobStatus(JOB_ID));
 
-    assertTrue(thrown.getMessage().contains("no live, recurring, or terminal status"));
+    assertTrue(thrown.getMessage().contains("no live or terminal status"));
   }
 
   private static EntityManager entityManagerReturningRows(List<?> rows) {
