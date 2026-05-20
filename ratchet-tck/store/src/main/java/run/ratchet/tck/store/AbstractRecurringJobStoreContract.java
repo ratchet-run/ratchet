@@ -311,6 +311,31 @@ public abstract class AbstractRecurringJobStoreContract {
   }
 
   /**
+   * Tag rows attached to a recurring master are removed when the master is canceled. The SQL stores
+   * lost their {@code fk_job_tag_job} foreign key in CP2 because tags are polymorphic across {@code
+   * scheduler_job} and {@code scheduler_recurring_job}; the cancel path must delete the tag rows
+   * explicitly. Mongo embeds tags in the doc, so this is automatic — both impls must satisfy the
+   * contract.
+   */
+  @Test
+  void cancelRecurringAndArchive_removesAttachedTagRows() {
+    UUID id = UuidV7Factory.create();
+    recurringStore().createRecurring(definition(id, "0 * * * * ?", Instant.now().plusSeconds(60)));
+    tagStore().insertTags(id, List.of("orphan-test"));
+
+    assertTrue(recurringStore().cancelRecurringAndArchive(id, ArchiveReason.CANCELED));
+
+    // Re-tagging a fresh master with the same tag should find only that master, never the
+    // canceled one (which would happen if tag rows were leaking from prior cancels).
+    UUID fresh = UuidV7Factory.create();
+    recurringStore()
+        .createRecurring(definition(fresh, "0 * * * * ?", Instant.now().plusSeconds(60)));
+    tagStore().insertTags(fresh, List.of("orphan-test"));
+    int canceledByTag = recurringStore().cancelRecurringJobsByTag("orphan-test");
+    assertEquals(1, canceledByTag, "tag query must see only the live master, not the orphaned id");
+  }
+
+  /**
    * TCK 9 — {@code cancelRecurringJobsByTag} finds masters whose tags were added through {@link
    * TagStore} and leaves untagged masters alone. Catches the Mongo-side regression where {@code
    * insertTags} wrote to the wrong collection and the cancel-by-tag query saw zero rows.

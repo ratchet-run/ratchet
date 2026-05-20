@@ -365,7 +365,20 @@ final class MysqlRecurringJobOperations implements RecurringJobStore {
     // 2. Delete bkres rows owned by these recurring masters.
     reservations.deleteReservationsByOwners(ids);
 
-    // 3. Delete live rows.
+    // 3. Delete recurring-master tag rows. scheduler_job_tag.job_id is polymorphic since
+    // fk_job_tag_job was dropped; the SQL FK no longer cascades, so cancel must explicitly drop
+    // the rows or they'd outlive the master row.
+    // language=MySQL
+    String tagDeleteSql =
+        "DELETE FROM scheduler_job_tag WHERE job_id IN (" + placeholders + ")";
+    Query tagDeleteQ = ctx.em().createNativeQuery(tagDeleteSql);
+    int tp = 1;
+    for (UUID id : ids) {
+      tagDeleteQ.setParameter(tp++, UuidByteArrayConverter.toBytes(id));
+    }
+    tagDeleteQ.executeUpdate();
+
+    // 4. Delete live rows.
     // language=MySQL
     String deleteSql = "DELETE FROM scheduler_recurring_job WHERE id IN (" + placeholders + ")";
     Query deleteQ = ctx.em().createNativeQuery(deleteSql);
