@@ -1,9 +1,11 @@
 package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -20,15 +22,14 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import run.ratchet.api.JobStatus;
+import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.JobBulkStore;
-import run.ratchet.store.spi.JobClaimStore;
-import run.ratchet.store.spi.JobCrudStore;
-import run.ratchet.store.spi.JobTerminalStore;
+import run.ratchet.store.spi.RecurringJobDefinition;
+import run.ratchet.store.spi.RecurringJobStore;
+import run.ratchet.store.spi.RecurringJobStore.ArchiveReason;
 
 // Verifies startup-grace gating in RecurringJobExecutor: orphaned masters are skipped until grace
 // expires.
@@ -38,10 +39,8 @@ class RecurringJobExecutorGraceTest {
   private static final Instant FIXED_NOW = Instant.parse("2026-05-12T12:00:00Z");
   private static final Clock FIXED_CLOCK = Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
 
-  @Mock private JobCrudStore jobCrudStore;
   @Mock private JobBulkStore jobBulkStore;
-  @Mock private JobClaimStore jobClaimStore;
-  @Mock private JobTerminalStore jobTerminalStore;
+  @Mock private RecurringJobStore recurringJobStore;
 
   private RecurringRegistrationState state;
   private RecurringJobExecutor executor;
@@ -51,31 +50,24 @@ class RecurringJobExecutorGraceTest {
     state = new RecurringRegistrationState();
     executor =
         new RecurringJobExecutor(
-            jobCrudStore,
-            jobBulkStore,
-            jobClaimStore,
-            jobTerminalStore,
-            state,
-            () -> NodeTagFilter.NONE,
-            FIXED_CLOCK);
+            jobBulkStore, recurringJobStore, state, () -> NodeTagFilter.NONE, FIXED_CLOCK);
   }
 
   @Test
   void skipsUnknownMasterWithinGraceAndReleasesClaim() {
     state.markRegistrationComplete(Set.of("known-key"));
 
-    JobEntity orphan = recurringMaster(42L, "orphan-key");
-    when(jobClaimStore.claimDueRecurring(anyInt(), anyString(), any())).thenReturn(List.of(orphan));
+    RecurringJobDefinition orphan = recurringMaster(42L, "orphan-key");
+    when(recurringJobStore.claimDueRecurringDefs(anyInt(), anyString(), any()))
+        .thenReturn(List.of(orphan));
 
     int fired = executor.process(10, "node-A");
 
     assertEquals(0, fired, "orphaned master must not fire during startup grace");
 
-    // Post hot/cold-split: recurring masters have no hot row to release. The grace skip is a
-    // no-op continue — the FOR UPDATE SKIP LOCKED row lock from claimDueRecurring drops at
-    // tx end. No save() call is expected, and the master's next_fire stays unchanged so it's
-    // eligible on the next claim cycle.
-    verify(jobCrudStore, never()).save(any(JobEntity.class));
+    // Grace skip is a no-op continue — the FOR UPDATE SKIP LOCKED row lock drops at tx end.
+    verify(recurringJobStore, never()).advanceNextFire(any(UUID.class), any(Instant.class));
+    verify(recurringJobStore, never()).cancelRecurringAndArchive(any(UUID.class), any());
     verify(jobBulkStore, never()).bulkInsert(any());
   }
 
@@ -84,17 +76,17 @@ class RecurringJobExecutorGraceTest {
   void firesKnownMasterWithinGrace() {
     state.markRegistrationComplete(Set.of("known-key"));
 
-    JobEntity known = recurringMaster(7L, "known-key");
-    when(jobClaimStore.claimDueRecurring(anyInt(), anyString(), any())).thenReturn(List.of(known));
+    RecurringJobDefinition known = recurringMaster(7L, "known-key");
+    when(recurringJobStore.claimDueRecurringDefs(anyInt(), anyString(), any()))
+        .thenReturn(List.of(known));
 
     int fired = executor.process(10, "node-A");
 
     assertEquals(1, fired);
-    // One child bulk insert, one save for the master next_fire update.
     ArgumentCaptor<List<JobEntity>> childrenCaptor = ArgumentCaptor.forClass(List.class);
     verify(jobBulkStore).bulkInsert(childrenCaptor.capture());
     assertEquals(FIXED_NOW.plusSeconds(60), childrenCaptor.getValue().get(0).getScheduledTime());
-    verify(jobCrudStore).save(any(JobEntity.class));
+    verify(recurringJobStore).advanceNextFire(eq(known.id()), any(Instant.class));
   }
 
   @Test
@@ -106,17 +98,11 @@ class RecurringJobExecutorGraceTest {
                 .build());
     executor =
         new RecurringJobExecutor(
-            jobCrudStore,
-            jobBulkStore,
-            jobClaimStore,
-            jobTerminalStore,
-            state,
-            () -> NodeTagFilter.NONE,
-            FIXED_CLOCK);
+            jobBulkStore, recurringJobStore, state, () -> NodeTagFilter.NONE, FIXED_CLOCK);
     state.markRegistrationComplete(Set.of("known-key"));
 
-    JobEntity unknown = recurringMaster(99L, "unknown-key");
-    when(jobClaimStore.claimDueRecurring(anyInt(), anyString(), any()))
+    RecurringJobDefinition unknown = recurringMaster(99L, "unknown-key");
+    when(recurringJobStore.claimDueRecurringDefs(anyInt(), anyString(), any()))
         .thenReturn(List.of(unknown));
 
     int fired = executor.process(10, "node-A");
@@ -128,28 +114,25 @@ class RecurringJobExecutorGraceTest {
   void skipReleasesEachOrphanedMasterIndependently() {
     state.markRegistrationComplete(Set.of("known"));
 
-    JobEntity orphan1 = recurringMaster(1L, "orphan-1");
-    JobEntity orphan2 = recurringMaster(2L, "orphan-2");
-    JobEntity known = recurringMaster(3L, "known");
-    when(jobClaimStore.claimDueRecurring(anyInt(), anyString(), any()))
+    RecurringJobDefinition orphan1 = recurringMaster(1L, "orphan-1");
+    RecurringJobDefinition orphan2 = recurringMaster(2L, "orphan-2");
+    RecurringJobDefinition known = recurringMaster(3L, "known");
+    when(recurringJobStore.claimDueRecurringDefs(anyInt(), anyString(), any()))
         .thenReturn(List.of(orphan1, orphan2, known));
 
     int fired = executor.process(10, "node-A");
 
     assertEquals(1, fired);
-    // Post hot/cold-split: orphans skip without save() (no hot row to release). Only the
-    // known master triggers one child bulk insert and one next_fire cold-only update on the master.
     verify(jobBulkStore).bulkInsert(any());
-    verify(jobCrudStore).save(any(JobEntity.class));
+    verify(recurringJobStore).advanceNextFire(eq(known.id()), any(Instant.class));
   }
 
   @Test
   void firesProgrammaticMasterWithNullBusinessKey() {
     state.markRegistrationComplete(Set.of("annotation-only-key"));
 
-    // Programmatically-submitted recurring jobs may have null business key.
-    JobEntity programmatic = recurringMaster(50L, null);
-    when(jobClaimStore.claimDueRecurring(anyInt(), anyString(), any()))
+    RecurringJobDefinition programmatic = recurringMaster(50L, null);
+    when(recurringJobStore.claimDueRecurringDefs(anyInt(), anyString(), any()))
         .thenReturn(List.of(programmatic));
 
     int fired = executor.process(10, "node-A");
@@ -159,9 +142,9 @@ class RecurringJobExecutorGraceTest {
 
   @Test
   void firesAllMastersBeforeRegistrationCompletes() {
-    // markRegistrationComplete never called — registration hasn't run.
-    JobEntity orphan = recurringMaster(11L, "any-key");
-    when(jobClaimStore.claimDueRecurring(anyInt(), anyString(), any())).thenReturn(List.of(orphan));
+    RecurringJobDefinition orphan = recurringMaster(11L, "any-key");
+    when(recurringJobStore.claimDueRecurringDefs(anyInt(), anyString(), any()))
+        .thenReturn(List.of(orphan));
 
     int fired = executor.process(10, "node-A");
 
@@ -171,12 +154,13 @@ class RecurringJobExecutorGraceTest {
   @Test
   void noMastersClaimedReturnsZero() {
     state.markRegistrationComplete(Set.of("any"));
-    when(jobClaimStore.claimDueRecurring(anyInt(), anyString(), any())).thenReturn(List.of());
+    when(recurringJobStore.claimDueRecurringDefs(anyInt(), anyString(), any()))
+        .thenReturn(List.of());
 
     int fired = executor.process(10, "node-A");
 
     assertEquals(0, fired);
-    verify(jobCrudStore, never()).save(any(JobEntity.class));
+    verify(recurringJobStore, never()).advanceNextFire(any(UUID.class), any(Instant.class));
     verify(jobBulkStore, never()).bulkInsert(any());
   }
 
@@ -184,17 +168,16 @@ class RecurringJobExecutorGraceTest {
   void malformedCronSkipsMasterAndContinuesBatch() {
     state.markRegistrationComplete(Set.of("bad-key", "known-key"));
 
-    JobEntity malformed = recurringMaster(12L, "bad-key");
-    malformed.setCronExpr("not a cron");
-    JobEntity known = recurringMaster(13L, "known-key");
-    when(jobClaimStore.claimDueRecurring(anyInt(), anyString(), any()))
+    RecurringJobDefinition malformed = recurringMaster(12L, "bad-key", "not a cron");
+    RecurringJobDefinition known = recurringMaster(13L, "known-key");
+    when(recurringJobStore.claimDueRecurringDefs(anyInt(), anyString(), any()))
         .thenReturn(List.of(malformed, known));
 
     int fired = executor.process(10, "node-A");
 
     assertEquals(1, fired, "malformed recurring masters must not abort the batch");
     verify(jobBulkStore).bulkInsert(any());
-    verify(jobCrudStore).save(any(JobEntity.class));
+    verify(recurringJobStore).advanceNextFire(eq(known.id()), any(Instant.class));
   }
 
   @Test
@@ -202,10 +185,10 @@ class RecurringJobExecutorGraceTest {
   void longDowntimeCatchupAdvancesDirectlyToNextFutureFire() {
     state.markRegistrationComplete(Set.of("known-key"));
 
-    JobEntity stale = recurringMaster(14L, "known-key");
-    stale.setCronExpr("0/1 * * * * ?");
-    stale.setNextFire(FIXED_NOW.minusSeconds(3600));
-    when(jobClaimStore.claimDueRecurring(anyInt(), anyString(), any())).thenReturn(List.of(stale));
+    RecurringJobDefinition stale =
+        recurringMasterWithFire(14L, "known-key", "0/1 * * * * ?", FIXED_NOW.minusSeconds(3600));
+    when(recurringJobStore.claimDueRecurringDefs(anyInt(), anyString(), any()))
+        .thenReturn(List.of(stale));
 
     int fired = executor.process(10, "node-A");
 
@@ -213,22 +196,42 @@ class RecurringJobExecutorGraceTest {
     ArgumentCaptor<List<JobEntity>> childrenCaptor = ArgumentCaptor.forClass(List.class);
     verify(jobBulkStore).bulkInsert(childrenCaptor.capture());
     assertEquals(11, childrenCaptor.getValue().size());
-    verify(jobTerminalStore, never()).cancelJob(stale.getId());
-    verify(jobCrudStore).save(stale);
-    assertEquals(FIXED_NOW.plusSeconds(1), stale.getNextFire());
+    verify(recurringJobStore, never())
+        .cancelRecurringAndArchive(eq(stale.id()), eq(ArchiveReason.EXHAUSTED));
+    ArgumentCaptor<Instant> next = ArgumentCaptor.forClass(Instant.class);
+    verify(recurringJobStore).advanceNextFire(eq(stale.id()), next.capture());
+    assertNotNull(next.getValue());
   }
 
-  private JobEntity recurringMaster(long id, String businessKey) {
-    JobEntity master = new JobEntity();
-    master.setId(new UUID(0L, id));
-    master.setBusinessKey(businessKey);
-    master.setJobType(JobExecutionType.RECURRING);
-    master.setStatus(JobStatus.PENDING);
-    master.setCronExpr("0 0 12 * * ?"); // noon daily
-    master.setZoneId("UTC");
-    master.setNextFire(FIXED_NOW.plusSeconds(60));
-    master.setPickedBy("node-A");
-    master.setPickedAt(FIXED_NOW);
-    return master;
+  private static RecurringJobDefinition recurringMaster(long id, String businessKey) {
+    return recurringMasterWithFire(id, businessKey, "0 0 12 * * ?", FIXED_NOW.plusSeconds(60));
+  }
+
+  private static RecurringJobDefinition recurringMaster(long id, String businessKey, String cron) {
+    return recurringMasterWithFire(id, businessKey, cron, FIXED_NOW.plusSeconds(60));
+  }
+
+  private static RecurringJobDefinition recurringMasterWithFire(
+      long id, String businessKey, String cron, Instant nextFire) {
+    return new RecurringJobDefinition(
+        new UUID(0L, id),
+        cron,
+        "UTC",
+        nextFire,
+        false,
+        null,
+        2,
+        0,
+        BackoffPolicy.NONE,
+        0,
+        0,
+        null,
+        null,
+        null,
+        null,
+        businessKey,
+        null,
+        FIXED_NOW,
+        null);
   }
 }
