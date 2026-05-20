@@ -81,6 +81,11 @@ ALTER TABLE scheduler_job
 ALTER TABLE scheduler_business_key_reservation
     DROP CONSTRAINT fk_bk_owner_job;
 
+-- 5b. Drop the job_tag FK — job_id is now polymorphic (annotation-registered recurring masters
+-- carry tags whose job_id refers to scheduler_recurring_job, not scheduler_job).
+ALTER TABLE scheduler_job_tag
+    DROP CONSTRAINT fk_job_tag_job;
+
 -- 6. Record version.
 INSERT IGNORE INTO ratchet_schema_version (version, description) VALUES
     ('010', 'CP2 recurring-master split: scheduler_recurring_job + scheduler_recurring_job_archive + recurring_master_id');

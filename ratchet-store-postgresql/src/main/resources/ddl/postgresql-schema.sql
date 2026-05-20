@@ -291,8 +291,9 @@ CREATE TABLE IF NOT EXISTS scheduler_job_tag
 (
     job_id uuid        NOT NULL,
     tag    VARCHAR(64) NOT NULL,
-    CONSTRAINT pk_scheduler_job_tag PRIMARY KEY (job_id, tag),
-    CONSTRAINT fk_job_tag_job FOREIGN KEY (job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
+    CONSTRAINT pk_scheduler_job_tag PRIMARY KEY (job_id, tag)
+    -- CP2: fk_job_tag_job dropped — job_id is polymorphic between scheduler_job (executable
+    -- jobs) and scheduler_recurring_job (annotation-registered recurring masters carry tags).
 );
 
 -- Support run-status and other tag-first aggregations.

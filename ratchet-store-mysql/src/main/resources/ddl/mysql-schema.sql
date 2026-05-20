@@ -288,8 +288,11 @@ CREATE TABLE IF NOT EXISTS scheduler_job_tag
     job_id BINARY(16)      NOT NULL,
     tag    VARCHAR(64)     NOT NULL,
     PRIMARY KEY (job_id, tag),
-    INDEX idx_job_tag_tag_job (tag, job_id),
-    CONSTRAINT fk_job_tag_job FOREIGN KEY (job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
+    INDEX idx_job_tag_tag_job (tag, job_id)
+    -- CP2: fk_job_tag_job dropped. job_id is polymorphic (executable jobs → scheduler_job,
+    -- recurring masters → scheduler_recurring_job). Cancel paths DELETE associated tag rows
+    -- explicitly; the @Recurring registration path now writes tags whose job_id refers to
+    -- scheduler_recurring_job, which would violate the original FK.
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci;
