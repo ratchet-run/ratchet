@@ -290,10 +290,17 @@ public class DefaultJobSchedulerService
   @Transactional
   public boolean cancelJob(UUID jobId) {
     JobEntity job = jobCrudStore.findById(jobId).orElse(null);
+    // Recurring masters do not live in scheduler_job. Fall back to RecurringJobStore so the
+    // authorization policy sees the master's captured callerPrincipal instead of a null owner.
+    String recurringOwner = null;
+    if (job == null && recurringJobStore != null) {
+      recurringOwner =
+          recurringJobStore.getRecurring(jobId).map(d -> d.callerPrincipal()).orElse(null);
+    }
     if (authorizationPolicy != null) {
       // Pre-load to obtain ownerPrincipal. TOCTOU: if the job is deleted between this load
       // and the CAS below, ownerPrincipal will be null — the policy must tolerate null.
-      String ownerPrincipal = job != null ? job.getCallerPrincipal() : null;
+      String ownerPrincipal = job != null ? job.getCallerPrincipal() : recurringOwner;
       String currentPrincipal =
           callerPrincipalProvider != null
               ? callerPrincipalProvider.currentPrincipal().orElse(null)
