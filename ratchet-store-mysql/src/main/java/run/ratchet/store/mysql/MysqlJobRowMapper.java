@@ -32,14 +32,15 @@ final class MysqlJobRowMapper {
       c.created_at, c.caller_principal, c.terminal_status, c.terminal_error,
       c.total_attempts, c.terminated_at, c.execution_start_time, c.execution_end_time,
       c.execution_duration_ms, c.queue_wait_ms, c.job_result, c.result_type,
-      c.trace_context, q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at,
+      c.trace_context, c.recurring_master_id,
+      q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at,
       q.paused_from_status, q.last_error, q.version, q.updated_at,
       q.signal_key, q.signal_timeout, q.signal_payload, q.signal_payload_type,
       q.signal_outcome, q.signal_rejection_reason, q.signal_delivered_at,
       q.signal_delivered_by, q.signal_delivery_id\
       """;
-  static final int HYDRATION_COL_COUNT = 51;
-  static final int IDX_Q_STATUS = 33;
+  static final int HYDRATION_COL_COUNT = 52;
+  static final int IDX_Q_STATUS = 34;
   private static final Logger log = Logger.getLogger(MysqlJobRowMapper.class);
   private static final JobPayloadConverter JOB_PAYLOAD_CONVERTER = new JobPayloadConverter();
   private static final JsonMapConverter JSON_MAP_CONVERTER = new JsonMapConverter();
@@ -76,23 +77,24 @@ final class MysqlJobRowMapper {
   private static final int IDX_JOB_RESULT = 30;
   private static final int IDX_RESULT_TYPE = 31;
   private static final int IDX_TRACE_CONTEXT = 32;
-  private static final int IDX_Q_SCHEDULED_TIME = 34;
-  private static final int IDX_Q_ATTEMPTS = 35;
-  private static final int IDX_Q_PICKED_BY = 36;
-  private static final int IDX_Q_PICKED_AT = 37;
-  private static final int IDX_Q_PAUSED = 38;
-  private static final int IDX_Q_LAST_ERROR = 39;
-  private static final int IDX_Q_VERSION = 40;
-  private static final int IDX_Q_UPDATED_AT = 41;
-  private static final int IDX_Q_SIGNAL_KEY = 42;
-  private static final int IDX_Q_SIGNAL_TIMEOUT = 43;
-  private static final int IDX_Q_SIGNAL_PAYLOAD = 44;
-  private static final int IDX_Q_SIGNAL_PAYLOAD_TYPE = 45;
-  private static final int IDX_Q_SIGNAL_OUTCOME = 46;
-  private static final int IDX_Q_SIGNAL_REJECTION_REASON = 47;
-  private static final int IDX_Q_SIGNAL_DELIVERED_AT = 48;
-  private static final int IDX_Q_SIGNAL_DELIVERED_BY = 49;
-  private static final int IDX_Q_SIGNAL_DELIVERY_ID = 50;
+  private static final int IDX_RECURRING_MASTER_ID = 33;
+  private static final int IDX_Q_SCHEDULED_TIME = 35;
+  private static final int IDX_Q_ATTEMPTS = 36;
+  private static final int IDX_Q_PICKED_BY = 37;
+  private static final int IDX_Q_PICKED_AT = 38;
+  private static final int IDX_Q_PAUSED = 39;
+  private static final int IDX_Q_LAST_ERROR = 40;
+  private static final int IDX_Q_VERSION = 41;
+  private static final int IDX_Q_UPDATED_AT = 42;
+  private static final int IDX_Q_SIGNAL_KEY = 43;
+  private static final int IDX_Q_SIGNAL_TIMEOUT = 44;
+  private static final int IDX_Q_SIGNAL_PAYLOAD = 45;
+  private static final int IDX_Q_SIGNAL_PAYLOAD_TYPE = 46;
+  private static final int IDX_Q_SIGNAL_OUTCOME = 47;
+  private static final int IDX_Q_SIGNAL_REJECTION_REASON = 48;
+  private static final int IDX_Q_SIGNAL_DELIVERED_AT = 49;
+  private static final int IDX_Q_SIGNAL_DELIVERED_BY = 50;
+  private static final int IDX_Q_SIGNAL_DELIVERY_ID = 51;
 
   static boolean isTerminalStatus(JobStatus s) {
     return StatusClassifier.isTerminalStatus(s);
@@ -190,6 +192,7 @@ final class MysqlJobRowMapper {
     j.setResultType((String) row[IDX_RESULT_TYPE]);
     j.setTraceContext(
         JSON_MAP_CONVERTER.convertToEntityAttribute(stringOrNull(row[IDX_TRACE_CONTEXT])));
+    j.setRecurringMasterId(uuidOrNull(row[IDX_RECURRING_MASTER_ID]));
     j.setSignalKey((String) row[IDX_Q_SIGNAL_KEY]);
     j.setSignalTimeout(toInstant(row[IDX_Q_SIGNAL_TIMEOUT]));
     j.setSignalPayload(stringOrNull(row[IDX_Q_SIGNAL_PAYLOAD]));

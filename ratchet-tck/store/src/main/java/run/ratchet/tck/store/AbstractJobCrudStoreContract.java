@@ -15,10 +15,14 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.entity.JobPayload;
+import run.ratchet.store.id.UuidV7Factory;
+import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.tck.util.ConcurrentTestRunner;
 
 /** Base contract tests for {@code JobCrudStore}. */
@@ -330,6 +334,46 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
         RuntimeException.class,
         () -> store().create(job),
         "create() must reject a duplicate ID (insert-only semantics)");
+  }
+
+  @Test
+  void create_persistsRecurringMasterId() {
+    UUID masterId = UuidV7Factory.create();
+    store().createRecurring(recurringMaster(masterId));
+
+    JobEntity child = newPendingJob();
+    child.setRecurringMasterId(masterId);
+
+    JobEntity created = store().create(child);
+
+    JobEntity reread = store().findById(created.getId()).orElseThrow();
+    assertEquals(
+        masterId,
+        reread.getRecurringMasterId(),
+        "recurring_master_id must round-trip through the cold-table INSERT and the row mapper");
+  }
+
+  private RecurringJobDefinition recurringMaster(UUID id) {
+    return new RecurringJobDefinition(
+        id,
+        "0 * * * * ?",
+        "UTC",
+        Instant.now().plusSeconds(3600),
+        false,
+        null,
+        2,
+        0,
+        BackoffPolicy.NONE,
+        0,
+        0,
+        new JobPayload("run.ratchet.tck.store.NoopTask", "run", "()V", true, List.of()),
+        null,
+        null,
+        null,
+        null,
+        null,
+        Instant.now(),
+        null);
   }
 
   @Test

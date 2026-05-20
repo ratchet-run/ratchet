@@ -25,14 +25,14 @@ final class PostgresqlJobWriteOperations {
         job_id, job_type, priority, max_retries, backoff_policy, backoff_param_ms,
         timeout_sec, cron_expr, zone_id, payload, params, idempotency_key,
         business_key, resource_name, on_success_payload, on_failure_payload, depends_on,
-        superseded_by, created_at, caller_principal, trace_context)
+        superseded_by, created_at, caller_principal, trace_context, recurring_master_id)
       VALUES
       """;
 
   private static final String COLD_INSERT_VALUES =
       """
       (?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), CAST(? AS jsonb), ?, ?, ?,
-              CAST(? AS jsonb), CAST(? AS jsonb), ?, ?, ?, ?, CAST(? AS jsonb))
+              CAST(? AS jsonb), CAST(? AS jsonb), ?, ?, ?, ?, CAST(? AS jsonb), ?)
       """;
 
   private static final String COLD_INSERT_SQL = COLD_INSERT_PREFIX + COLD_INSERT_VALUES;
@@ -250,7 +250,8 @@ final class PostgresqlJobWriteOperations {
     q.setParameter(i++, job.getSupersededBy());
     q.setParameter(i++, job.getCreatedAt() != null ? Timestamp.from(job.getCreatedAt()) : nowTs);
     q.setParameter(i++, job.getCallerPrincipal());
-    q.setParameter(i, PostgresqlJobRowMapper.traceContextToJson(job));
+    q.setParameter(i++, PostgresqlJobRowMapper.traceContextToJson(job));
+    q.setParameter(i, job.getRecurringMasterId());
     return i + 1;
   }
 

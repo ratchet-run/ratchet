@@ -86,6 +86,7 @@ public final class DocumentMapper {
     doc.append("on_failure_payload", payloadToStoredValue(job.getOnFailurePayload()));
     doc.append("depends_on", job.getDependsOn());
     doc.append("superseded_by", job.getSupersededBy());
+    doc.append("recurring_master_id", job.getRecurringMasterId());
     doc.append("picked_by", job.getPickedBy());
     doc.append("picked_at", toDate(job.getPickedAt()));
     doc.append("last_error", job.getLastError());
@@ -142,6 +143,7 @@ public final class DocumentMapper {
     job.setOnFailurePayload(storedValueToPayload(doc.get("on_failure_payload")));
     job.setDependsOn(doc.get("depends_on", UUID.class));
     job.setSupersededBy(doc.get("superseded_by", UUID.class));
+    job.setRecurringMasterId(doc.get("recurring_master_id", UUID.class));
     job.setPickedBy(doc.getString("picked_by"));
     job.setPickedAt(toInstant(doc.getDate("picked_at")));
     job.setLastError(doc.getString("last_error"));

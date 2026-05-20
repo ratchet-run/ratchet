@@ -26,14 +26,14 @@ final class MysqlJobWriteOperations {
         job_id, job_type, priority, max_retries, backoff_policy, backoff_param_ms,
         timeout_sec, cron_expr, zone_id, payload, params, idempotency_key,
         business_key, resource_name, on_success_payload, on_failure_payload, depends_on,
-        superseded_by, created_at, caller_principal, trace_context)
+        superseded_by, created_at, caller_principal, trace_context, recurring_master_id)
       VALUES
       """;
 
   private static final String COLD_INSERT_VALUES =
       """
       (?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?,
-              CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, ?, CAST(? AS JSON))
+              CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, ?, CAST(? AS JSON), ?)
       """;
 
   private static final String COLD_INSERT_SQL = COLD_INSERT_PREFIX + COLD_INSERT_VALUES;
@@ -260,7 +260,8 @@ final class MysqlJobWriteOperations {
     q.setParameter(i++, UuidByteArrayConverter.toBytes(job.getSupersededBy()));
     q.setParameter(i++, nowTs);
     q.setParameter(i++, job.getCallerPrincipal());
-    q.setParameter(i, MysqlJobRowMapper.traceContextToJson(job));
+    q.setParameter(i++, MysqlJobRowMapper.traceContextToJson(job));
+    q.setParameter(i, UuidByteArrayConverter.toBytes(job.getRecurringMasterId()));
     return i + 1;
   }
 
