@@ -251,10 +251,10 @@ CREATE TABLE IF NOT EXISTS scheduler_business_key_reservation
     owner_table TEXT NOT NULL,
     reserved_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT pk_scheduler_business_key_reservation PRIMARY KEY (business_key),
-    CONSTRAINT chk_bk_owner_table CHECK (owner_table IN ('QUEUE', 'RECURRING')),
-    -- CP2 transitional: retained while recurring rows still live in scheduler_job.
-    -- Dropped in the CP2 cleanup commit.
-    CONSTRAINT fk_bk_owner_job FOREIGN KEY (owner_job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
+    CONSTRAINT chk_bk_owner_table CHECK (owner_table IN ('QUEUE', 'RECURRING'))
+    -- owner_job_id is polymorphic across scheduler_job (QUEUE owner) and
+    -- scheduler_recurring_job (RECURRING owner); the FK is dropped at the application layer
+    -- because no single parent table exists. Cancel paths DELETE the reservation rows.
 );
 
 CREATE INDEX IF NOT EXISTS idx_bk_owner ON scheduler_business_key_reservation (owner_job_id);

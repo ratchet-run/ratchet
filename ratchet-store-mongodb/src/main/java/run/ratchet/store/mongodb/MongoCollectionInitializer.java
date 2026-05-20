@@ -148,7 +148,17 @@ class MongoCollectionInitializer {
         coll,
         Indexes.compoundIndex(Indexes.ascending(IS_PAUSED), Indexes.ascending(NEXT_FIRE)),
         new IndexOptions().name(MongoIndexHints.RECURRING_JOB_CLAIM));
-    createIndex(coll, Indexes.ascending(BUSINESS_KEY), "idx_rec_business_key");
+    // business_key uniqueness mirrors the SQL stores' UNIQUE index on
+    // scheduler_recurring_job.business_key, so concurrent createRecurring calls with the same key
+    // collide instead of silently double-registering. partialFilterExpression excludes nulls so
+    // anonymous masters still coexist.
+    createRequiredIndex(
+        coll,
+        Indexes.ascending(BUSINESS_KEY),
+        new IndexOptions()
+            .name("uk_rec_business_key")
+            .unique(true)
+            .partialFilterExpression(new Document(BUSINESS_KEY, new Document("$type", "string"))));
     createIndex(coll, Indexes.ascending(TARGET_CLASS), "idx_rec_target_class");
   }
 

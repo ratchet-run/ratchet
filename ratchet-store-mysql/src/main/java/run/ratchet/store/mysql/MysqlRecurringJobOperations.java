@@ -11,6 +11,7 @@ import java.util.Set;
 import java.util.UUID;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.NodeTagFilter;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.converter.JobPayloadConverter;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
@@ -238,7 +239,19 @@ final class MysqlRecurringJobOperations implements RecurringJobStore {
     q.setParameter(i++, d.resourceName());
     q.setParameter(i++, Timestamp.from(created));
     q.setParameter(i, d.callerPrincipal());
-    q.executeUpdate();
+    try {
+      q.executeUpdate();
+      if (d.businessKey() != null) {
+        reservations.insertReservation(
+            d.businessKey(), d.id(), MysqlBusinessKeyReservations.OWNER_TABLE_RECURRING);
+      }
+    } catch (RuntimeException e) {
+      if (ctx.constraintDetector().isDuplicateBusinessKey(e)) {
+        throw new RatchetTransientStoreException(
+            "Active business key in use for recurring master " + d.id(), e);
+      }
+      throw e;
+    }
     return d.id();
   }
 

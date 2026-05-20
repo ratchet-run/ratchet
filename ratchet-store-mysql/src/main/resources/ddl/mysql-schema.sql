@@ -263,11 +263,10 @@ CREATE TABLE IF NOT EXISTS scheduler_business_key_reservation
     owner_table  ENUM ('QUEUE','RECURRING')   NOT NULL,
     reserved_at  DATETIME(6)                  NOT NULL,
     PRIMARY KEY (business_key),
-    INDEX idx_bk_owner (owner_job_id),
-    -- CP2 transitional: FK retained while recurring rows still live in scheduler_job.
-    -- Dropped in the CP2 cleanup commit when ownership goes polymorphic across the new
-    -- scheduler_recurring_job table.
-    CONSTRAINT fk_bk_owner_job FOREIGN KEY (owner_job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
+    INDEX idx_bk_owner (owner_job_id)
+    -- owner_job_id is polymorphic across scheduler_job (QUEUE owner) and
+    -- scheduler_recurring_job (RECURRING owner); the FK is dropped at the application layer
+    -- because no single parent table exists. Cancel paths DELETE the reservation rows.
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci;

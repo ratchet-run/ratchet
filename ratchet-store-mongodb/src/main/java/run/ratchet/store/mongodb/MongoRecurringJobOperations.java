@@ -47,6 +47,7 @@ import org.bson.Document;
 import org.bson.conversions.Bson;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.NodeTagFilter;
+import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
@@ -194,7 +195,15 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
   @Override
   public UUID createRecurring(RecurringJobDefinition d) {
     Document doc = toDocument(d);
-    ctx.recurringJobs().insertOne(doc);
+    try {
+      ctx.recurringJobs().insertOne(doc);
+    } catch (RuntimeException e) {
+      if (ctx.constraintDetector().isDuplicateBusinessKey(e)) {
+        throw new RatchetTransientStoreException(
+            "Active business key in use for recurring master " + d.id(), e);
+      }
+      throw ctx.translateTransientStoreException("create recurring", e);
+    }
     return d.id();
   }
 

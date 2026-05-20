@@ -174,21 +174,15 @@ public final class RatchetSchemaCatalog {
   }
 
   private static Table schedulerBusinessKeyReservation() {
-    // Plan 06 added fk_bk_owner_job to MySQL DDL so it now matches PG. The catalog asserts the
-    // FK on both stores.
+    // CP2: fk_bk_owner_job is intentionally omitted. owner_job_id is polymorphic — reservations
+    // can be owned by either scheduler_job rows (QUEUE) or scheduler_recurring_job rows
+    // (RECURRING) — so a single FK is not possible. Cancel paths DELETE the reservation rows.
     return Table.builder("scheduler_business_key_reservation")
         .column(required("business_key", TEXT))
         .column(required("owner_job_id", UUID))
         .column(required("owner_table", TEXT))
         .column(required("reserved_at", TIMESTAMP_TZ))
         .primaryKey("business_key")
-        .foreignKey(
-            new ForeignKey(
-                "fk_bk_owner_job",
-                "owner_job_id",
-                "scheduler_job",
-                "job_id",
-                OnDeleteAction.CASCADE))
         .index(Index.of("idx_bk_owner", "owner_job_id"))
         .build();
   }

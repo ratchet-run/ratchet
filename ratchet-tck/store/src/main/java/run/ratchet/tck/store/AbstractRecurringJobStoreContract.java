@@ -3,6 +3,7 @@ package run.ratchet.tck.store;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
@@ -205,6 +206,29 @@ public abstract class AbstractRecurringJobStoreContract {
     Optional<RecurringJobDefinition> def = recurringStore().getRecurring(id);
     assertTrue(def.isPresent());
     assertEquals(id, def.get().id(), "master id round-trips for child lineage attribution");
+  }
+
+  /**
+   * Business-key uniqueness: two concurrent {@code createRecurring} calls with the same business
+   * key must not both succeed. SQL stores enforce via {@code scheduler_business_key_reservation};
+   * MongoDB enforces via a unique partial index on {@code scheduler_recurring_job.business_key}.
+   * The contract is store-agnostic: the second create raises.
+   */
+  @Test
+  void createRecurring_rejectsDuplicateActiveBusinessKey() {
+    String key = "tck-dup-" + UUID.randomUUID();
+    recurringStore()
+        .createRecurring(
+            definitionWithBusinessKey(UuidV7Factory.create(), key, "0 * * * * ?", Instant.now()));
+
+    assertThrows(
+        RuntimeException.class,
+        () ->
+            recurringStore()
+                .createRecurring(
+                    definitionWithBusinessKey(
+                        UuidV7Factory.create(), key, "0 * * * * ?", Instant.now())),
+        "second createRecurring with the same active business key must be rejected");
   }
 
   /**
