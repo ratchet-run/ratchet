@@ -10,6 +10,11 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -80,6 +85,52 @@ public abstract class AbstractRecurringJobStoreContract {
 
     List<RecurringJobDefinition> secondBatch = recurringStore().claimDueRecurring(10, "node-2");
     assertTrue(secondBatch.isEmpty(), "post-advance, the master must not re-claim");
+  }
+
+  /**
+   * TCK 1b — real-thread concurrency: two workers calling {@code claimDueRecurring} in parallel
+   * before either calls {@code advanceNextFire} must observe each master at most once across the
+   * union of their batches. SQL stores rely on {@code FOR UPDATE SKIP LOCKED}; Mongo relies on
+   * per-row {@code findOneAndUpdate} bumping next_fire into a lease window.
+   */
+  @Test
+  void claimDueRecurring_parallelClaimersDoNotDoubleObserve() throws Exception {
+    int masterCount = 8;
+    Instant pastDue = Instant.now().minusSeconds(60);
+    for (int i = 0; i < masterCount; i++) {
+      recurringStore().createRecurring(definition(UuidV7Factory.create(), "0 * * * * ?", pastDue));
+    }
+
+    ExecutorService executor = Executors.newFixedThreadPool(2);
+    try {
+      CompletableFuture<List<RecurringJobDefinition>> batchA =
+          CompletableFuture.supplyAsync(
+              () -> recurringStore().claimDueRecurring(masterCount, "node-a"), executor);
+      CompletableFuture<List<RecurringJobDefinition>> batchB =
+          CompletableFuture.supplyAsync(
+              () -> recurringStore().claimDueRecurring(masterCount, "node-b"), executor);
+
+      List<UUID> idsA;
+      List<UUID> idsB;
+      try {
+        idsA = batchA.get().stream().map(RecurringJobDefinition::id).toList();
+        idsB = batchB.get().stream().map(RecurringJobDefinition::id).toList();
+      } catch (ExecutionException e) {
+        throw new IllegalStateException("claim threw asynchronously", e.getCause());
+      }
+
+      java.util.Set<UUID> overlap = new java.util.HashSet<>(idsA);
+      overlap.retainAll(idsB);
+      assertTrue(
+          overlap.isEmpty(), () -> "two claimers must not share any master id; overlap=" + overlap);
+      assertEquals(
+          masterCount,
+          idsA.size() + idsB.size(),
+          "every master should appear in exactly one of the two batches");
+    } finally {
+      executor.shutdown();
+      executor.awaitTermination(5, TimeUnit.SECONDS);
+    }
   }
 
   /** TCK 2 — atomic next-fire advance: the master's next_fire strictly increases. */

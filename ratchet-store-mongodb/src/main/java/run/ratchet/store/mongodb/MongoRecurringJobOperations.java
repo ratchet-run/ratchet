@@ -33,7 +33,8 @@ import static run.ratchet.store.mongodb.MongoFieldNames.TAGS;
 import static run.ratchet.store.mongodb.MongoFieldNames.TIMEOUT_SEC;
 import static run.ratchet.store.mongodb.MongoFieldNames.ZONE_ID;
 
-import com.mongodb.client.FindIterable;
+import com.mongodb.client.model.FindOneAndUpdateOptions;
+import com.mongodb.client.model.ReturnDocument;
 import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.result.UpdateResult;
 import java.time.Instant;
@@ -62,6 +63,12 @@ import run.ratchet.store.spi.RecurringJobStore;
  */
 final class MongoRecurringJobOperations implements RecurringJobStore {
 
+  // Window during which a claimed row is invisible to other claimers. The worker is expected to
+  // advanceNextFire with the real cron-derived next_fire before the lease expires; if the worker
+  // crashes mid-process, the lease times out and the row becomes claimable again automatically.
+  // 5 minutes matches the upper bound of a typical RecurringJobExecutor tick + child enqueue.
+  private static final long CLAIM_LEASE_SECONDS = 300L;
+
   private final MongoStoreContext ctx;
 
   MongoRecurringJobOperations(MongoStoreContext ctx) {
@@ -74,10 +81,12 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
     if (limit <= 0) {
       return List.of();
     }
-    Date now = Date.from(Instant.now());
+    Instant now = Instant.now();
+    Date nowDate = Date.from(now);
+    Date leaseUntil = Date.from(now.plusSeconds(CLAIM_LEASE_SECONDS));
     List<Bson> clauses = new ArrayList<>();
     clauses.add(eq(IS_PAUSED, false));
-    clauses.add(lte(NEXT_FIRE, now));
+    clauses.add(lte(NEXT_FIRE, nowDate));
     if (tagFilter != null && !tagFilter.isUnfiltered()) {
       if (!tagFilter.requireTags().isEmpty()) {
         clauses.add(in(TAGS, tagFilter.requireTags()));
@@ -90,14 +99,23 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
       }
     }
     Bson filter = and(clauses);
-    FindIterable<Document> iter =
-        ctx.recurringJobs()
-            .find(filter)
-            .sort(new Document(PRIORITY_FIELD, -1).append(NEXT_FIRE, 1).append(ID, 1))
-            .limit(limit);
+    Bson sort = new Document(PRIORITY_FIELD, -1).append(NEXT_FIRE, 1).append(ID, 1);
+    Bson lease = new Document("$set", new Document(NEXT_FIRE, leaseUntil));
+    FindOneAndUpdateOptions options =
+        new FindOneAndUpdateOptions().sort(sort).returnDocument(ReturnDocument.BEFORE);
+
+    // Per-row findOneAndUpdate replaces find()+iterate so two nodes can never observe the same
+    // master in the same window. The update bumps next_fire forward by CLAIM_LEASE_SECONDS, which
+    // hides the row from peers; the worker must call advanceNextFire with the real cron-derived
+    // value before the lease expires. The returned BEFORE document carries the original next_fire
+    // so the worker has accurate catch-up state.
     List<RecurringJobDefinition> defs = new ArrayList<>();
-    for (Document doc : iter) {
-      defs.add(hydrate(doc));
+    for (int i = 0; i < limit; i++) {
+      Document before = ctx.recurringJobs().findOneAndUpdate(filter, lease, options);
+      if (before == null) {
+        break;
+      }
+      defs.add(hydrate(before));
     }
     return defs;
   }
