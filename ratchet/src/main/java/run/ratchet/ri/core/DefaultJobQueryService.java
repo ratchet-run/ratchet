@@ -25,10 +25,13 @@ import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.query.JobQueryCursor;
 import run.ratchet.store.spi.ExecutionStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobQueryStore;
+import run.ratchet.store.spi.RecurringJobDefinition;
+import run.ratchet.store.spi.RecurringJobStore;
 
 /** Default {@link JobQueryService} implementation backed by the store SPI. */
 @ApplicationScoped
@@ -37,6 +40,7 @@ public class DefaultJobQueryService implements JobQueryService {
   private final JobQueryStore queryStore;
   private final JobCrudStore crudStore;
   private final ExecutionStore executionStore;
+  private final RecurringJobStore recurringJobStore;
   private final JobAuthorizationPolicy authPolicy;
   private final CallerPrincipalProvider principalProvider;
   private final Clock clock;
@@ -45,6 +49,7 @@ public class DefaultJobQueryService implements JobQueryService {
     this.queryStore = null;
     this.crudStore = null;
     this.executionStore = null;
+    this.recurringJobStore = null;
     this.authPolicy = null;
     this.principalProvider = null;
     this.clock = null;
@@ -54,9 +59,17 @@ public class DefaultJobQueryService implements JobQueryService {
       JobQueryStore queryStore,
       JobCrudStore crudStore,
       ExecutionStore executionStore,
+      RecurringJobStore recurringJobStore,
       JobAuthorizationPolicy authPolicy,
       CallerPrincipalProvider principalProvider) {
-    this(queryStore, crudStore, executionStore, authPolicy, principalProvider, Clock.systemUTC());
+    this(
+        queryStore,
+        crudStore,
+        executionStore,
+        recurringJobStore,
+        authPolicy,
+        principalProvider,
+        Clock.systemUTC());
   }
 
   @Inject
@@ -64,12 +77,14 @@ public class DefaultJobQueryService implements JobQueryService {
       JobQueryStore queryStore,
       JobCrudStore crudStore,
       ExecutionStore executionStore,
+      RecurringJobStore recurringJobStore,
       JobAuthorizationPolicy authPolicy,
       CallerPrincipalProvider principalProvider,
       Clock clock) {
     this.queryStore = queryStore;
     this.crudStore = crudStore;
     this.executionStore = executionStore;
+    this.recurringJobStore = recurringJobStore;
     this.authPolicy = authPolicy;
     this.principalProvider = principalProvider;
     this.clock = clock;
@@ -237,7 +252,47 @@ public class DefaultJobQueryService implements JobQueryService {
 
   @Override
   public JobPage<JobSummary> getRecurringMasters(int limit, int offset) {
-    return findJobs(JobFilter.builder().types(JobType.RECURRING).build(), limit, offset);
+    validatePageRequest(limit, offset);
+    if (recurringJobStore == null) {
+      return new JobPage<>(List.<JobSummary>of(), 0L, limit, offset, false, null);
+    }
+    // RecurringJobStore.listAll has no native pagination; recurring-master populations are small
+    // by design (one per business key) so the slice happens in memory. Sort is stable by id to
+    // keep page boundaries deterministic across calls.
+    List<RecurringJobDefinition> all = recurringJobStore.listAll();
+    all.sort((a, b) -> a.id().compareTo(b.id()));
+    long total = all.size();
+    int from = Math.min(offset, all.size());
+    int to = Math.min(offset + limit, all.size());
+    List<JobSummary> page = new java.util.ArrayList<>(to - from);
+    for (RecurringJobDefinition def : all.subList(from, to)) {
+      page.add(toRecurringSummary(def));
+    }
+    return new JobPage<>(page, total, limit, offset, to < all.size(), null);
+  }
+
+  private static JobSummary toRecurringSummary(RecurringJobDefinition def) {
+    JobPayload payload = def.payload();
+    return new JobSummary(
+        def.id(),
+        def.paused() ? JobStatus.PAUSED : JobStatus.PENDING,
+        JobType.RECURRING,
+        JobPriority.values()[Math.min(def.priority(), JobPriority.values().length - 1)],
+        def.businessKey(),
+        /* idempotencyKey */ null,
+        payload != null ? payload.target() : null,
+        payload != null ? payload.method() : null,
+        List.of(),
+        def.resourceName(),
+        /* pickedBy */ null,
+        def.createdAt(),
+        def.nextFire(),
+        def.createdAt(),
+        def.callerPrincipal(),
+        /* lastError */ null,
+        /* attempts */ 0,
+        def.maxRetries(),
+        /* dependsOn */ null);
   }
 
   private static void validatePageRequest(int limit, int offset) {
