@@ -162,14 +162,17 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
 
   @Override
   public boolean cancelRecurringAndArchive(UUID id, ArchiveReason reason) {
-    Document doc = ctx.recurringJobs().find(eq(ID, id)).first();
-    if (doc == null) {
+    // findOneAndDelete atomically claims and removes the live doc in one round trip, so two
+    // concurrent cancel calls can't both archive the same master. The losing call sees null and
+    // returns false. The archive insert follows the delete; if Mongo crashes between the two,
+    // the live row is already gone — same failure mode as a SQL-store DELETE that commits before
+    // the application-side archive insert. Worth pairing with the cluster's WAL durability
+    // settings.
+    Document deleted = ctx.recurringJobs().findOneAndDelete(eq(ID, id));
+    if (deleted == null) {
       return false;
     }
-    archive(doc, reason);
-    // Cancel any bkres for this recurring master.
-    ctx.jobs(); // touch — not needed; bkres collection lives elsewhere
-    ctx.recurringJobs().deleteOne(eq(ID, id));
+    archive(deleted, reason);
     return true;
   }
 
