@@ -337,6 +337,17 @@ public class DefaultJobSchedulerService
       return true;
     }
 
+    // Recurring masters live in scheduler_recurring_job, not the executable queue. Fall through to
+    // the dedicated SPI so callers holding a recurring master's UUID can cancel it the same way
+    // they cancel an executable job. cancelRecurringAndArchive returns false if the id is unknown.
+    if (recurringJobStore != null
+        && recurringJobStore.getRecurring(jobId).isPresent()
+        && recurringJobStore.cancelRecurringAndArchive(
+            jobId, RecurringJobStore.ArchiveReason.CANCELED)) {
+      log.debugf("Canceled recurring master %s", jobId);
+      return true;
+    }
+
     log.debugf("Cannot cancel job %s — already in terminal state or not found", jobId);
     return false;
   }

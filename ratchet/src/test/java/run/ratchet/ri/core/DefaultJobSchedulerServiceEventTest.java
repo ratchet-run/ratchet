@@ -184,6 +184,23 @@ class DefaultJobSchedulerServiceEventTest {
   }
 
   @Test
+  void cancelJobOnRecurringMasterRoutesToRecurringStore() {
+    when(jobBatchStatusStore.compareAndSwapStatus(
+            eq(JOB_ID), any(JobStatus.class), eq(JobStatus.CANCELED), isNull()))
+        .thenReturn(false);
+    when(recurringJobStore.getRecurring(JOB_ID)).thenReturn(Optional.of(recurringDef(false)));
+    when(recurringJobStore.cancelRecurringAndArchive(
+            JOB_ID, run.ratchet.store.spi.RecurringJobStore.ArchiveReason.CANCELED))
+        .thenReturn(true);
+
+    assertTrue(service.cancelJob(JOB_ID));
+
+    verify(recurringJobStore)
+        .cancelRecurringAndArchive(
+            JOB_ID, run.ratchet.store.spi.RecurringJobStore.ArchiveReason.CANCELED);
+  }
+
+  @Test
   void cancelJobRunningCancellationPublishesCancelledEventAfterStateChange() {
     JobEntity job = job(JobStatus.RUNNING, JobExecutionType.SINGLE);
     when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.of(job));
