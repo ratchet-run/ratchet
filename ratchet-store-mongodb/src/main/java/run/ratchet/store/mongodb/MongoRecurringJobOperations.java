@@ -162,18 +162,23 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
 
   @Override
   public boolean cancelRecurringAndArchive(UUID id, ArchiveReason reason) {
-    // findOneAndDelete atomically claims and removes the live doc in one round trip, so two
-    // concurrent cancel calls can't both archive the same master. The losing call sees null and
-    // returns false. The archive insert follows the delete; if Mongo crashes between the two,
-    // the live row is already gone — same failure mode as a SQL-store DELETE that commits before
-    // the application-side archive insert. Worth pairing with the cluster's WAL durability
-    // settings.
-    Document deleted = ctx.recurringJobs().findOneAndDelete(eq(ID, id));
-    if (deleted == null) {
-      return false;
+    // Wrap archive + live-delete in a Mongo transaction so concurrent cancels can't double-
+    // archive and a mid-flight crash can't leave the archive without its live counterpart.
+    // Requires a replica set or sharded cluster (standalone mongod does not support sessions);
+    // production deployments must use one.
+    try (com.mongodb.client.ClientSession session = ctx.startSession()) {
+      return Boolean.TRUE.equals(
+          session.withTransaction(
+              () -> {
+                Document doc = ctx.recurringJobs().find(session, eq(ID, id)).first();
+                if (doc == null) {
+                  return Boolean.FALSE;
+                }
+                archive(session, doc, reason);
+                ctx.recurringJobs().deleteOne(session, eq(ID, id));
+                return Boolean.TRUE;
+              }));
     }
-    archive(deleted, reason);
-    return true;
   }
 
   @Override
@@ -270,30 +275,43 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
   }
 
   private int cancelMatching(Bson filter) {
-    List<Document> docs = new ArrayList<>();
-    for (Document doc : ctx.recurringJobs().find(filter)) {
-      docs.add(doc);
+    // Bulk cancel must satisfy the same atomicity contract as the single-id path: archive
+    // every matched doc and delete every matched doc, or neither, with no possibility of a
+    // partial commit. Wrap both writes in a Mongo transaction.
+    try (com.mongodb.client.ClientSession session = ctx.startSession()) {
+      Integer result =
+          session.withTransaction(
+              () -> {
+                List<Document> docs = new ArrayList<>();
+                for (Document doc : ctx.recurringJobs().find(session, filter)) {
+                  docs.add(doc);
+                }
+                if (docs.isEmpty()) {
+                  return 0;
+                }
+                List<UUID> ids = new ArrayList<>(docs.size());
+                for (Document doc : docs) {
+                  archive(session, doc, ArchiveReason.CANCELED);
+                  UUID id = doc.get(ID, UUID.class);
+                  if (id != null) {
+                    ids.add(id);
+                  }
+                }
+                if (!ids.isEmpty()) {
+                  ctx.recurringJobs().deleteMany(session, in(ID, ids));
+                }
+                return docs.size();
+              });
+      return result == null ? 0 : result;
     }
-    if (docs.isEmpty()) {
-      return 0;
-    }
-    int n = 0;
-    List<UUID> ids = new ArrayList<>(docs.size());
-    for (Document doc : docs) {
-      archive(doc, ArchiveReason.CANCELED);
-      UUID id = doc.get(ID, UUID.class);
-      if (id != null) {
-        ids.add(id);
-      }
-      n++;
-    }
-    if (!ids.isEmpty()) {
-      ctx.recurringJobs().deleteMany(in(ID, ids));
-    }
-    return n;
   }
 
-  private void archive(Document live, ArchiveReason reason) {
+  private void archive(
+      com.mongodb.client.ClientSession session, Document live, ArchiveReason reason) {
+    ctx.recurringJobArchive().insertOne(session, archiveSnapshot(live, reason));
+  }
+
+  private Document archiveSnapshot(Document live, ArchiveReason reason) {
     Document archive = new Document();
     archive.put(ID, live.get(ID));
     archive.put(CRON_EXPR, live.get(CRON_EXPR));
@@ -307,7 +325,7 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
     archive.put(CALLER_PRINCIPAL, live.get(CALLER_PRINCIPAL));
     archive.put(ARCHIVED_AT, new Date());
     archive.put(ARCHIVE_REASON, reason.name());
-    ctx.recurringJobArchive().insertOne(archive);
+    return archive;
   }
 
   private static Document toDocument(RecurringJobDefinition d) {

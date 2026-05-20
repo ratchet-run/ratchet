@@ -223,6 +223,33 @@ public abstract class AbstractRecurringJobStoreContract {
     assertFalse(recurringStore().cancelRecurringAndArchive(id, ArchiveReason.CANCELED));
   }
 
+  /**
+   * TCK 5b — archive snapshot correctness: the row that lands in the archive carries the same
+   * identifying state the live row had. The implementor projects every column relevant to a
+   * post-mortem (id, businessKey, cron, archive reason, principal). The contract verifies the
+   * smallest visible projection: businessKey survives the archive write, and a re-create with the
+   * same businessKey succeeds because the bkres slot is freed by the same cancel.
+   */
+  @Test
+  void cancelRecurringAndArchive_archivedRowMatchesLiveSnapshot() {
+    String key = "tck-archive-snapshot-" + UUID.randomUUID();
+    UUID first = UuidV7Factory.create();
+    recurringStore()
+        .createRecurring(
+            definitionWithBusinessKey(first, key, "0 0 * * * ?", Instant.now().plusSeconds(60)));
+
+    assertTrue(recurringStore().cancelRecurringAndArchive(first, ArchiveReason.CANCELED));
+    assertTrue(recurringStore().findRecurringByBusinessKey(key).isEmpty());
+
+    // Re-registering the same key on a fresh id must succeed because the archive snapshot
+    // does NOT keep the bkres slot occupied — that's the whole point of moving the row off the
+    // live table. If the archive carried a phantom uniqueness lock, this create would fail.
+    UUID second = UuidV7Factory.create();
+    assertNotNull(
+        recurringStore()
+            .createRecurring(definitionWithBusinessKey(second, key, "0 0 * * * ?", Instant.now())));
+  }
+
   /** TCK 6 — orphan-absence: the bkres entry is removed in the same cancel transaction. */
   @Test
   void cancelRecurringAndArchive_removesAssociatedBkresEntry() {
@@ -243,11 +270,13 @@ public abstract class AbstractRecurringJobStoreContract {
   }
 
   /**
-   * TCK 7 — child lineage: spawned executable child rows reference the master via {@code
-   * recurring_master_id}. This contract intentionally does NOT touch {@code scheduler_job} because
-   * the master <-> child relationship is the RI's responsibility (RecurringJobExecutor sets {@code
-   * recurringMasterId} on the spawned {@link run.ratchet.store.entity.JobEntity}). The contract
-   * validates that {@link RecurringJobStore} can produce the definition needed by the executor.
+   * TCK 7 — child lineage (master half): the recurring master's id round-trips so the executor has
+   * the value it needs to stamp onto every spawned child's {@code recurring_master_id} column. The
+   * child-side half of this contract — actually writing a {@link
+   * run.ratchet.store.entity.JobEntity} with {@code recurringMasterId} set and re-reading it
+   * through the cold-table mapper — lives in {@link
+   * AbstractJobCrudStoreContract#create_persistsRecurringMasterId} because the write touches {@code
+   * scheduler_job}, not {@code scheduler_recurring_job}.
    */
   @Test
   void getRecurring_returnsCompleteDefinitionForChildLineage() {
