@@ -57,6 +57,8 @@ class MongoCollectionInitializer {
   void initialize() {
     log.debug("Initializing MongoDB collections and indexes");
     createJobIndexes();
+    createRecurringJobIndexes();
+    createRecurringJobArchiveIndexes();
     createBatchIndexes();
     createBatchMetricsIndexes();
     createExecutionIndexes();
@@ -150,6 +152,24 @@ class MongoCollectionInitializer {
         coll,
         Indexes.ascending(SIGNAL_DELIVERY_ID),
         new IndexOptions().name("idx_signal_delivery_id"));
+  }
+
+  private void createRecurringJobIndexes() {
+    var coll = database.getCollection("scheduler_recurring_job");
+    // Claim path: filter unpaused rows by next_fire. findOneAndUpdate provides single-document
+    // atomicity, equivalent to SQL FOR UPDATE SKIP LOCKED on one row at a time.
+    createRequiredIndex(
+        coll,
+        Indexes.compoundIndex(Indexes.ascending(IS_PAUSED), Indexes.ascending(NEXT_FIRE)),
+        new IndexOptions().name(MongoIndexHints.RECURRING_JOB_CLAIM));
+    createIndex(coll, Indexes.ascending(BUSINESS_KEY), "idx_rec_business_key");
+    createIndex(coll, Indexes.ascending(TARGET_CLASS), "idx_rec_target_class");
+  }
+
+  private void createRecurringJobArchiveIndexes() {
+    var coll = database.getCollection("scheduler_recurring_job_archive");
+    createIndex(coll, Indexes.ascending(BUSINESS_KEY), "idx_archive_rec_business_key");
+    createIndex(coll, Indexes.ascending(ARCHIVED_AT), "idx_archive_rec_archived_at");
   }
 
   private void createBatchIndexes() {

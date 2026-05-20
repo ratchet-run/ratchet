@@ -28,5 +28,8 @@ public interface JobStore
         DlqAlertStore,
         ResourcePermitStore,
         SignalStore {
+  // RecurringJobStore is composed here once the legacy recurring methods are removed from
+  // JobClaimStore / JobPauseStore / JobBatchStatusStore / JobCrudStore. Until then, store
+  // impls implement RecurringJobStore directly as a sibling interface.
   // Marker interface — all methods inherited from sub-interfaces
 }

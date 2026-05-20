@@ -44,6 +44,74 @@ CREATE TABLE IF NOT EXISTS scheduler_resource_limit
     CONSTRAINT pk_scheduler_resource_limit PRIMARY KEY (resource_name)
 );
 
+-- 3a. scheduler_recurring_job — recurring-master definitions (CP2 split).
+-- Long-lived rows holding cron schedule, payload template, and runtime anchor
+-- (next_fire) for each repeating job. Pre-CP2 these lived on scheduler_job with
+-- shim columns; post-CP2 they live here. Never executed itself — spawns child
+-- rows on scheduler_job at fire time.
+CREATE TABLE IF NOT EXISTS scheduler_recurring_job
+(
+    id                    uuid           NOT NULL,
+    priority              INT            NOT NULL DEFAULT 2,
+    max_retries           INT            NOT NULL DEFAULT 0,
+    backoff_policy        TEXT           NOT NULL DEFAULT 'NONE',
+    backoff_param_ms      INT            NOT NULL DEFAULT 0,
+    timeout_sec           INT            NOT NULL DEFAULT 0,
+    cron_expr             VARCHAR(64)    NOT NULL,
+    zone_id               VARCHAR(32)    NOT NULL DEFAULT 'UTC',
+    next_fire             TIMESTAMPTZ(6) NOT NULL,
+    is_paused             BOOLEAN        NOT NULL DEFAULT FALSE,
+    paused_at             TIMESTAMPTZ(6),
+    payload               JSONB          NOT NULL,
+    params                JSONB,
+    on_success_payload    JSONB,
+    on_failure_payload    JSONB,
+    business_key          TEXT,
+    resource_name         VARCHAR(100),
+    target_class          TEXT GENERATED ALWAYS AS (payload ->> 'target') STORED,
+    method_name           TEXT GENERATED ALWAYS AS (payload ->> 'method') STORED,
+    created_at            TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    caller_principal      VARCHAR(255),
+    CONSTRAINT pk_scheduler_recurring_job PRIMARY KEY (id),
+    CONSTRAINT chk_rec_priority CHECK (priority BETWEEN 0 AND 4),
+    CONSTRAINT chk_rec_backoff_policy CHECK (backoff_policy IN ('NONE', 'FIXED', 'EXPONENTIAL'))
+);
+
+-- Claim index: partial on unpaused rows for FOR UPDATE SKIP LOCKED scan efficiency.
+CREATE INDEX IF NOT EXISTS idx_rec_claim
+    ON scheduler_recurring_job (next_fire)
+    WHERE is_paused = FALSE;
+CREATE INDEX IF NOT EXISTS idx_rec_business_key
+    ON scheduler_recurring_job (business_key);
+CREATE INDEX IF NOT EXISTS idx_rec_target_class
+    ON scheduler_recurring_job (target_class);
+
+-- 3b. scheduler_recurring_job_archive (CP2 split).
+-- Denormalized snapshot written atomically with the DELETE from
+-- scheduler_recurring_job. No FK back to the live table.
+CREATE TABLE IF NOT EXISTS scheduler_recurring_job_archive
+(
+    id                    uuid           NOT NULL,
+    cron_expr             VARCHAR(64)    NOT NULL,
+    zone_id               VARCHAR(32)    NOT NULL,
+    payload               JSONB          NOT NULL,
+    params                JSONB,
+    on_success_payload    JSONB,
+    on_failure_payload    JSONB,
+    business_key          TEXT,
+    created_at            TIMESTAMPTZ(6) NOT NULL,
+    caller_principal      VARCHAR(255),
+    archived_at           TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    archive_reason        TEXT           NOT NULL,
+    CONSTRAINT pk_scheduler_recurring_job_archive PRIMARY KEY (id),
+    CONSTRAINT chk_recurring_archive_reason CHECK (archive_reason IN ('CANCELED', 'EXHAUSTED'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_archive_rec_business_key
+    ON scheduler_recurring_job_archive (business_key);
+CREATE INDEX IF NOT EXISTS idx_archive_rec_archived_at
+    ON scheduler_recurring_job_archive (archived_at);
+
 -- 4. scheduler_job — COLD metadata + terminal fields.
 -- Live queue state (status, scheduled_time, picked_*, attempts, version, last_error,
 -- paused_from_status, updated_at) lives on scheduler_job_queue instead. Immutable
@@ -61,9 +129,6 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     timeout_sec           INT         NOT NULL DEFAULT 0,
     cron_expr             VARCHAR(64) NOT NULL DEFAULT '',
     zone_id               VARCHAR(32) NOT NULL DEFAULT 'UTC',
-    -- next_fire is the recurring-master schedule anchor; transitional home — moves
-    -- to scheduler_recurring_job in a future migration. NULL for executable jobs.
-    next_fire TIMESTAMPTZ(6),
     -- Payload + params (insert-once; never mutated after enqueue).
     payload               JSONB NOT NULL,
     params                JSONB,
@@ -99,11 +164,10 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     queue_wait_ms         BIGINT,
     job_result JSONB,
     result_type           VARCHAR(100),
-    -- TRANSITIONAL: shim column so recurring masters (which still live in this
-    -- table during the hot/cold split) can be filtered by the recurring claim index without the full
-    -- status column. 'P' = PENDING, 'A' = PAUSED, NULL for non-recurring rows. Dropped
-    -- when recurring masters move to scheduler_recurring_job.
-    rec_status            CHAR(1),
+    -- Recurring-child lineage pointer (CP2). Set for child rows spawned by a recurring
+    -- master; NULL elsewhere. ON DELETE SET NULL so cancel of a master does not
+    -- cascade-delete in-flight children.
+    recurring_master_id   uuid,
     CONSTRAINT pk_scheduler_job PRIMARY KEY (job_id),
     CONSTRAINT uk_idempotency_key UNIQUE (idempotency_key),
     CONSTRAINT chk_job_type CHECK (job_type IN
@@ -112,7 +176,8 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     CONSTRAINT chk_job_priority CHECK (priority BETWEEN 0 AND 4),
     CONSTRAINT chk_backoff_policy CHECK (backoff_policy IN ('NONE', 'FIXED', 'EXPONENTIAL')),
     CONSTRAINT chk_terminal_status CHECK (terminal_status IS NULL OR terminal_status IN ('SUCCEEDED', 'FAILED', 'CANCELED')),
-    CONSTRAINT chk_rec_status CHECK (rec_status IS NULL OR rec_status IN ('P', 'A'))
+    CONSTRAINT fk_job_recurring_master FOREIGN KEY (recurring_master_id)
+        REFERENCES scheduler_recurring_job (id) ON DELETE SET NULL
 );
 
 -- 4a. Hot authoritative queue state for executable jobs.
@@ -186,8 +251,10 @@ CREATE TABLE IF NOT EXISTS scheduler_business_key_reservation
     owner_table TEXT NOT NULL,
     reserved_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT pk_scheduler_business_key_reservation PRIMARY KEY (business_key),
-    CONSTRAINT chk_bk_owner_table CHECK (owner_table IN ('QUEUE', 'RECURRING')),
-    CONSTRAINT fk_bk_owner_job FOREIGN KEY (owner_job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
+    CONSTRAINT chk_bk_owner_table CHECK (owner_table IN ('QUEUE', 'RECURRING'))
+    -- CP2: fk_bk_owner_job dropped — owner_job_id is polymorphic (QUEUE → scheduler_job,
+    -- RECURRING → scheduler_recurring_job). Cancel paths DELETE bkres rows explicitly;
+    -- the TCK orphan-absence contract enforces the app-level invariant.
 );
 
 CREATE INDEX IF NOT EXISTS idx_bk_owner ON scheduler_business_key_reservation (owner_job_id);
@@ -201,9 +268,8 @@ CREATE INDEX IF NOT EXISTS idx_job_business_key ON scheduler_job (business_key);
 CREATE INDEX IF NOT EXISTS idx_job_created_at ON scheduler_job (created_at);
 -- Archival / deleteDlqOlderThan scan (terminal_status, terminated_at).
 CREATE INDEX IF NOT EXISTS idx_job_terminal ON scheduler_job (terminal_status, terminated_at);
--- TRANSITIONAL: recurring-master claim. Dropped with rec_status in a future migration.
-CREATE INDEX IF NOT EXISTS idx_job_recurring_pending
-    ON scheduler_job (job_type, rec_status, next_fire);
+-- CP2: child lineage pointer to recurring master.
+CREATE INDEX IF NOT EXISTS idx_job_recurring_master_id ON scheduler_job (recurring_master_id);
 -- DROPPED: idx_target_class and idx_method_name were debug-only and added measurable
 -- write amplification on the hot insert path. See ddl/postgresql-debug-indexes.sql for
 -- the optional companion file that adds them back when needed.

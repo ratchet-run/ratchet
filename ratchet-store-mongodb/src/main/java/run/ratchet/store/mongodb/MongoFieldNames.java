@@ -92,6 +92,23 @@ final class MongoFieldNames {
   static final String MAX_CONCURRENT = "max_concurrent";
   static final String RETRY_DELAY_MS = "retry_delay_ms";
   static final String DESCRIPTION = "description";
+  // Recurring-master split (CP2)
+  static final String CRON_EXPR = "cron_expr";
+  static final String ZONE_ID = "zone_id";
+  static final String IS_PAUSED = "is_paused";
+  static final String PAUSED_AT = "paused_at";
+  static final String PAYLOAD = "payload";
+  static final String PARAMS = "params";
+  static final String ON_SUCCESS_PAYLOAD = "on_success_payload";
+  static final String ON_FAILURE_PAYLOAD = "on_failure_payload";
+  static final String RECURRING_MASTER_ID = "recurring_master_id";
+  static final String ARCHIVE_REASON = "archive_reason";
+  static final String PRIORITY_FIELD = "priority";
+  static final String MAX_RETRIES_FIELD = "max_retries";
+  static final String BACKOFF_POLICY = "backoff_policy";
+  static final String BACKOFF_PARAM_MS = "backoff_param_ms";
+  static final String TIMEOUT_SEC = "timeout_sec";
+
   // Signal-waiting jobs
   static final String SIGNAL_KEY = "signal_key";
   static final String SIGNAL_TIMEOUT = "signal_timeout";
