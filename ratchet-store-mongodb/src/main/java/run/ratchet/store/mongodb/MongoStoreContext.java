@@ -193,6 +193,14 @@ final class MongoStoreContext {
     return database.getCollection("scheduler_resource_permit");
   }
 
+  MongoCollection<Document> recurringJobs() {
+    return database.getCollection("scheduler_recurring_job");
+  }
+
+  MongoCollection<Document> recurringJobArchive() {
+    return database.getCollection("scheduler_recurring_job_archive");
+  }
+
   private static final class NoopMetricsCollector implements MetricsCollector {
     @Override
     public void jobStarted(UUID jobId, JobType type, JobPriority priority) {}
