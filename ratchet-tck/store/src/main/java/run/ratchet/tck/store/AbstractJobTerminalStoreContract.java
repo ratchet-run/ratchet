@@ -1,6 +1,7 @@
 package run.ratchet.tck.store;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -145,6 +146,6 @@ public abstract class AbstractJobTerminalStoreContract implements JobStoreContra
   private static void assertTerminalTiming(Instant start, Instant end) {
     assertNotNull(start, "Terminal start time should be persisted");
     assertNotNull(end, "Terminal end time should be persisted");
-    assertTrue(!end.isBefore(start), "Terminal end time should not precede start time");
+    assertFalse(end.isBefore(start), "Terminal end time should not precede start time");
   }
 }

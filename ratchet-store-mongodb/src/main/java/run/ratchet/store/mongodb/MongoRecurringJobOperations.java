@@ -192,17 +192,16 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
     // Requires a replica set or sharded cluster (standalone mongod does not support sessions);
     // production deployments must use one.
     try (com.mongodb.client.ClientSession session = ctx.startSession()) {
-      return Boolean.TRUE.equals(
-          session.withTransaction(
-              () -> {
-                Document doc = ctx.recurringJobs().find(session, eq(ID, id)).first();
-                if (doc == null) {
-                  return Boolean.FALSE;
-                }
-                archive(session, doc, reason);
-                ctx.recurringJobs().deleteOne(session, eq(ID, id));
-                return Boolean.TRUE;
-              }));
+      return session.withTransaction(
+          () -> {
+            Document doc = ctx.recurringJobs().find(session, eq(ID, id)).first();
+            if (doc == null) {
+              return Boolean.FALSE;
+            }
+            archive(session, doc, reason);
+            ctx.recurringJobs().deleteOne(session, eq(ID, id));
+            return Boolean.TRUE;
+          });
     }
   }
 
@@ -327,7 +326,7 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
                 }
                 return docs.size();
               });
-      return result == null ? 0 : result;
+      return result;
     }
   }
 

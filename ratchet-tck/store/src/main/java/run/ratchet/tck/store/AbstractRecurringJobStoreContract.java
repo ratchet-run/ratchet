@@ -129,7 +129,9 @@ public abstract class AbstractRecurringJobStoreContract {
           "every master should appear in exactly one of the two batches");
     } finally {
       executor.shutdown();
-      executor.awaitTermination(5, TimeUnit.SECONDS);
+      if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+        executor.shutdownNow();
+      }
     }
   }
 
@@ -173,8 +175,8 @@ public abstract class AbstractRecurringJobStoreContract {
 
     Optional<RecurringJobDefinition> reread = recurringStore().getRecurring(id);
     assertTrue(reread.isPresent());
-    assertTrue(
-        !reread.get().nextFire().isBefore(nextFire),
+    assertFalse(
+        reread.get().nextFire().isBefore(nextFire),
         () ->
             "next_fire must reflect the advanced value; expected >= "
                 + nextFire
