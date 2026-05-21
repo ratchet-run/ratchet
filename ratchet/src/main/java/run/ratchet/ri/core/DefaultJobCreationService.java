@@ -453,7 +453,6 @@ public class DefaultJobCreationService
             (int) options.backoffParam().toMillis(),
             options.timeoutSec(),
             validatedPayload,
-            /* params */ null,
             /* onSuccessPayload */ null,
             /* onFailurePayload */ null,
             builder.businessKey(),

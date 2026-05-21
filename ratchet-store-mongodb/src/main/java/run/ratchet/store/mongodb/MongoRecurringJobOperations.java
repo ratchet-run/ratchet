@@ -26,7 +26,6 @@ import static run.ratchet.store.mongodb.MongoFieldNames.MAX_RETRIES_FIELD;
 import static run.ratchet.store.mongodb.MongoFieldNames.NEXT_FIRE;
 import static run.ratchet.store.mongodb.MongoFieldNames.ON_FAILURE_PAYLOAD;
 import static run.ratchet.store.mongodb.MongoFieldNames.ON_SUCCESS_PAYLOAD;
-import static run.ratchet.store.mongodb.MongoFieldNames.PARAMS;
 import static run.ratchet.store.mongodb.MongoFieldNames.PAUSED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.PAYLOAD;
 import static run.ratchet.store.mongodb.MongoFieldNames.PRIORITY_FIELD;
@@ -265,7 +264,6 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
                     set(ZONE_ID, d.zoneId() != null ? d.zoneId() : "UTC"),
                     set(NEXT_FIRE, Date.from(d.nextFire())),
                     set(PAYLOAD, DocumentMapper.payloadToStoredValue(d.payload())),
-                    set(PARAMS, DocumentMapper.payloadToStoredValue(d.params())),
                     set(
                         ON_SUCCESS_PAYLOAD,
                         DocumentMapper.payloadToStoredValue(d.onSuccessPayload())),
@@ -341,7 +339,6 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
     archive.put(CRON_EXPR, live.get(CRON_EXPR));
     archive.put(ZONE_ID, live.get(ZONE_ID));
     archive.put(PAYLOAD, live.get(PAYLOAD));
-    archive.put(PARAMS, live.get(PARAMS));
     archive.put(ON_SUCCESS_PAYLOAD, live.get(ON_SUCCESS_PAYLOAD));
     archive.put(ON_FAILURE_PAYLOAD, live.get(ON_FAILURE_PAYLOAD));
     archive.put(BUSINESS_KEY, live.get(BUSINESS_KEY));
@@ -368,7 +365,6 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
     doc.put(IS_PAUSED, d.paused());
     doc.put(PAUSED_AT, d.pausedAt() != null ? Date.from(d.pausedAt()) : null);
     doc.put(PAYLOAD, DocumentMapper.payloadToStoredValue(d.payload()));
-    doc.put(PARAMS, DocumentMapper.payloadToStoredValue(d.params()));
     doc.put(ON_SUCCESS_PAYLOAD, DocumentMapper.payloadToStoredValue(d.onSuccessPayload()));
     doc.put(ON_FAILURE_PAYLOAD, DocumentMapper.payloadToStoredValue(d.onFailurePayload()));
     doc.put(BUSINESS_KEY, d.businessKey());
@@ -391,7 +387,6 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
     boolean isPaused = doc.getBoolean(IS_PAUSED, false);
     Instant pausedAt = doc.getDate(PAUSED_AT) != null ? doc.getDate(PAUSED_AT).toInstant() : null;
     JobPayload payload = DocumentMapper.storedValueToPayload(doc.get(PAYLOAD));
-    JobPayload params = DocumentMapper.storedValueToPayload(doc.get(PARAMS));
     JobPayload onSuccess = DocumentMapper.storedValueToPayload(doc.get(ON_SUCCESS_PAYLOAD));
     JobPayload onFailure = DocumentMapper.storedValueToPayload(doc.get(ON_FAILURE_PAYLOAD));
     Instant createdAt =
@@ -410,7 +405,6 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
         backoffParamMs != null ? backoffParamMs.intValue() : 0,
         timeoutSec != null ? timeoutSec.intValue() : 0,
         payload,
-        params,
         onSuccess,
         onFailure,
         doc.getString(BUSINESS_KEY),

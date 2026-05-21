@@ -235,7 +235,6 @@ class RecurringJobExecutorGraceTest {
         null,
         null,
         null,
-        null,
         businessKey,
         null,
         FIXED_NOW,

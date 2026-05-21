@@ -98,7 +98,6 @@ final class MongoFieldNames {
   static final String IS_PAUSED = "is_paused";
   static final String PAUSED_AT = "paused_at";
   static final String PAYLOAD = "payload";
-  static final String PARAMS = "params";
   static final String ON_SUCCESS_PAYLOAD = "on_success_payload";
   static final String ON_FAILURE_PAYLOAD = "on_failure_payload";
   static final String RECURRING_MASTER_ID = "recurring_master_id";

@@ -429,7 +429,6 @@ public abstract class AbstractRecurringJobStoreContract {
         null,
         null,
         null,
-        null,
         Instant.now(),
         null);
   }
@@ -449,7 +448,6 @@ public abstract class AbstractRecurringJobStoreContract {
         0,
         0,
         noopPayload(),
-        null,
         null,
         null,
         businessKey,

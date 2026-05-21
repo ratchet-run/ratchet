@@ -165,7 +165,6 @@ class DefaultJobSchedulerServiceAuthorizationTest {
             null,
             null,
             null,
-            null,
             java.time.Instant.parse("2026-05-19T00:00:00Z"),
             OWNER);
     when(recurringJobStore.getRecurring(JOB_ID)).thenReturn(Optional.of(def));

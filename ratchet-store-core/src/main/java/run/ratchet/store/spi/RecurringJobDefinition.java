@@ -13,9 +13,9 @@ import run.ratchet.store.entity.JobPayload;
  * <p>Lives in {@code run.ratchet.store.spi} rather than {@code run.ratchet.api} because {@link
  * JobPayload} is a store-core type. Other SPI sub-interfaces follow the same convention.
  *
- * <p>{@code params}, {@code onSuccessPayload}, {@code onFailurePayload}, {@code businessKey},
- * {@code resourceName}, and {@code callerPrincipal} are nullable. {@code pausedAt} is nullable and
- * must be {@code null} iff {@code paused} is {@code false}.
+ * <p>{@code onSuccessPayload}, {@code onFailurePayload}, {@code businessKey}, {@code resourceName},
+ * and {@code callerPrincipal} are nullable. {@code pausedAt} is nullable and must be {@code null}
+ * iff {@code paused} is {@code false}.
  */
 @Incubating
 public record RecurringJobDefinition(
@@ -31,7 +31,6 @@ public record RecurringJobDefinition(
     int backoffParamMs,
     int timeoutSec,
     JobPayload payload,
-    JobPayload params,
     JobPayload onSuccessPayload,
     JobPayload onFailurePayload,
     String businessKey,

@@ -164,7 +164,7 @@ public class RecurringJobExecutor {
     child.setJobType(JobExecutionType.SINGLE);
     child.setStatus(JobStatus.PENDING);
     child.setScheduledTime(fireTs);
-    child.setPriority(run.ratchet.api.JobPriority.values()[Math.min(master.priority(), 4)]);
+    child.setPriority(JobPriorityMapper.fromOrdinal(master.priority()));
     child.setMaxRetries(master.maxRetries());
     child.setBackoffPolicy(master.backoffPolicy());
     child.setBackoffParamMs(master.backoffParamMs());

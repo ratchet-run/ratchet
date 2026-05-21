@@ -31,7 +31,7 @@ final class PostgresqlRecurringJobOperations implements RecurringJobStore {
   // language=PostgreSQL
   private static final String SELECT_COLUMNS =
       "id, priority, max_retries, backoff_policy, backoff_param_ms, timeout_sec, cron_expr,"
-          + " zone_id, next_fire, is_paused, paused_at, payload::text, params::text,"
+          + " zone_id, next_fire, is_paused, paused_at, payload::text,"
           + " on_success_payload::text, on_failure_payload::text, business_key, resource_name,"
           + " created_at, caller_principal";
 
@@ -198,10 +198,10 @@ final class PostgresqlRecurringJobOperations implements RecurringJobStore {
     String sql =
         "INSERT INTO scheduler_recurring_job ("
             + "id, priority, max_retries, backoff_policy, backoff_param_ms, timeout_sec,"
-            + " cron_expr, zone_id, next_fire, is_paused, paused_at, payload, params,"
+            + " cron_expr, zone_id, next_fire, is_paused, paused_at, payload,"
             + " on_success_payload, on_failure_payload, business_key, resource_name, created_at,"
             + " caller_principal)"
-            + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSONB), CAST(? AS JSONB),"
+            + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSONB),"
             + " CAST(? AS JSONB), CAST(? AS JSONB), ?, ?, ?, ?)";
     Instant created = d.createdAt() != null ? d.createdAt() : Instant.now();
     Query q = ctx.em().createNativeQuery(sql);
@@ -218,7 +218,6 @@ final class PostgresqlRecurringJobOperations implements RecurringJobStore {
     q.setParameter(i++, d.paused());
     q.setParameter(i++, d.pausedAt() != null ? Timestamp.from(d.pausedAt()) : null);
     q.setParameter(i++, PAYLOAD_CONVERTER.convertToDatabaseColumn(d.payload()));
-    q.setParameter(i++, PAYLOAD_CONVERTER.convertToDatabaseColumn(d.params()));
     q.setParameter(i++, PAYLOAD_CONVERTER.convertToDatabaseColumn(d.onSuccessPayload()));
     q.setParameter(i++, PAYLOAD_CONVERTER.convertToDatabaseColumn(d.onFailurePayload()));
     q.setParameter(i++, d.businessKey());
@@ -248,7 +247,7 @@ final class PostgresqlRecurringJobOperations implements RecurringJobStore {
         "UPDATE scheduler_recurring_job SET"
             + " priority = ?, max_retries = ?, backoff_policy = ?, backoff_param_ms = ?,"
             + " timeout_sec = ?, cron_expr = ?, zone_id = ?, next_fire = ?,"
-            + " payload = CAST(? AS JSONB), params = CAST(? AS JSONB),"
+            + " payload = CAST(? AS JSONB),"
             + " on_success_payload = CAST(? AS JSONB), on_failure_payload = CAST(? AS JSONB),"
             + " resource_name = ?"
             + " WHERE id = ?";
@@ -263,7 +262,6 @@ final class PostgresqlRecurringJobOperations implements RecurringJobStore {
     q.setParameter(i++, d.zoneId() != null ? d.zoneId() : "UTC");
     q.setParameter(i++, Timestamp.from(d.nextFire()));
     q.setParameter(i++, PAYLOAD_CONVERTER.convertToDatabaseColumn(d.payload()));
-    q.setParameter(i++, PAYLOAD_CONVERTER.convertToDatabaseColumn(d.params()));
     q.setParameter(i++, PAYLOAD_CONVERTER.convertToDatabaseColumn(d.onSuccessPayload()));
     q.setParameter(i++, PAYLOAD_CONVERTER.convertToDatabaseColumn(d.onFailurePayload()));
     q.setParameter(i++, d.resourceName());
@@ -326,16 +324,20 @@ final class PostgresqlRecurringJobOperations implements RecurringJobStore {
   private int archiveAndDeleteChunk(List<UUID> ids, ArchiveReason reason) {
     String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
     // language=PostgreSQL
+    // ON CONFLICT DO NOTHING keeps cancel idempotent under concurrent cancels for the same id:
+    // the loser of the race no-ops on the archive insert instead of throwing a PK violation,
+    // and the DELETE below is naturally idempotent.
     String archiveSql =
         "INSERT INTO scheduler_recurring_job_archive ("
-            + "id, cron_expr, zone_id, payload, params, on_success_payload, on_failure_payload,"
+            + "id, cron_expr, zone_id, payload, on_success_payload, on_failure_payload,"
             + " business_key, created_at, caller_principal, archived_at, archive_reason)"
-            + " SELECT id, cron_expr, zone_id, payload, params, on_success_payload,"
+            + " SELECT id, cron_expr, zone_id, payload, on_success_payload,"
             + " on_failure_payload, business_key, created_at, caller_principal,"
             + " statement_timestamp(), ?"
             + " FROM scheduler_recurring_job WHERE id IN ("
             + placeholders
-            + ")";
+            + ")"
+            + " ON CONFLICT (id) DO NOTHING";
     Query archiveQ = ctx.em().createNativeQuery(archiveSql);
     int p = 1;
     archiveQ.setParameter(p++, reason.name());
@@ -392,13 +394,12 @@ final class PostgresqlRecurringJobOperations implements RecurringJobStore {
     boolean isPaused = (Boolean) row[9];
     Instant pausedAt = toInstant(row[10]);
     JobPayload payload = PAYLOAD_CONVERTER.convertToEntityAttribute((String) row[11]);
-    JobPayload params = PAYLOAD_CONVERTER.convertToEntityAttribute((String) row[12]);
-    JobPayload onSuccess = PAYLOAD_CONVERTER.convertToEntityAttribute((String) row[13]);
-    JobPayload onFailure = PAYLOAD_CONVERTER.convertToEntityAttribute((String) row[14]);
-    String businessKey = (String) row[15];
-    String resourceName = (String) row[16];
-    Instant createdAt = toInstant(row[17]);
-    String callerPrincipal = (String) row[18];
+    JobPayload onSuccess = PAYLOAD_CONVERTER.convertToEntityAttribute((String) row[12]);
+    JobPayload onFailure = PAYLOAD_CONVERTER.convertToEntityAttribute((String) row[13]);
+    String businessKey = (String) row[14];
+    String resourceName = (String) row[15];
+    Instant createdAt = toInstant(row[16]);
+    String callerPrincipal = (String) row[17];
 
     return new RecurringJobDefinition(
         id,
@@ -413,7 +414,6 @@ final class PostgresqlRecurringJobOperations implements RecurringJobStore {
         backoffParamMs,
         timeoutSec,
         payload,
-        params,
         onSuccess,
         onFailure,
         businessKey,

@@ -32,7 +32,7 @@ final class MysqlRecurringJobOperations implements RecurringJobStore {
   // language=MySQL
   private static final String SELECT_COLUMNS =
       "id, priority, max_retries, backoff_policy, backoff_param_ms, timeout_sec, cron_expr,"
-          + " zone_id, next_fire, is_paused, paused_at, payload, params, on_success_payload,"
+          + " zone_id, next_fire, is_paused, paused_at, payload, on_success_payload,"
           + " on_failure_payload, business_key, resource_name, created_at, caller_principal";
 
   private final MysqlStoreContext ctx;
@@ -212,10 +212,10 @@ final class MysqlRecurringJobOperations implements RecurringJobStore {
     String sql =
         "INSERT INTO scheduler_recurring_job ("
             + "id, priority, max_retries, backoff_policy, backoff_param_ms, timeout_sec,"
-            + " cron_expr, zone_id, next_fire, is_paused, paused_at, payload, params,"
+            + " cron_expr, zone_id, next_fire, is_paused, paused_at, payload,"
             + " on_success_payload, on_failure_payload, business_key, resource_name, created_at,"
             + " caller_principal)"
-            + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON),"
+            + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON),"
             + " CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, ?)";
     Instant created = d.createdAt() != null ? d.createdAt() : Instant.now();
     Query q = ctx.em().createNativeQuery(sql);
@@ -232,7 +232,6 @@ final class MysqlRecurringJobOperations implements RecurringJobStore {
     q.setParameter(i++, d.paused());
     q.setParameter(i++, d.pausedAt() != null ? Timestamp.from(d.pausedAt()) : null);
     q.setParameter(i++, PAYLOAD_CONVERTER.convertToDatabaseColumn(d.payload()));
-    q.setParameter(i++, PAYLOAD_CONVERTER.convertToDatabaseColumn(d.params()));
     q.setParameter(i++, PAYLOAD_CONVERTER.convertToDatabaseColumn(d.onSuccessPayload()));
     q.setParameter(i++, PAYLOAD_CONVERTER.convertToDatabaseColumn(d.onFailurePayload()));
     q.setParameter(i++, d.businessKey());
@@ -262,7 +261,7 @@ final class MysqlRecurringJobOperations implements RecurringJobStore {
         "UPDATE scheduler_recurring_job SET"
             + " priority = ?, max_retries = ?, backoff_policy = ?, backoff_param_ms = ?,"
             + " timeout_sec = ?, cron_expr = ?, zone_id = ?, next_fire = ?,"
-            + " payload = CAST(? AS JSON), params = CAST(? AS JSON),"
+            + " payload = CAST(? AS JSON),"
             + " on_success_payload = CAST(? AS JSON), on_failure_payload = CAST(? AS JSON),"
             + " resource_name = ?"
             + " WHERE id = ?";
@@ -277,7 +276,6 @@ final class MysqlRecurringJobOperations implements RecurringJobStore {
     q.setParameter(i++, d.zoneId() != null ? d.zoneId() : "UTC");
     q.setParameter(i++, Timestamp.from(d.nextFire()));
     q.setParameter(i++, PAYLOAD_CONVERTER.convertToDatabaseColumn(d.payload()));
-    q.setParameter(i++, PAYLOAD_CONVERTER.convertToDatabaseColumn(d.params()));
     q.setParameter(i++, PAYLOAD_CONVERTER.convertToDatabaseColumn(d.onSuccessPayload()));
     q.setParameter(i++, PAYLOAD_CONVERTER.convertToDatabaseColumn(d.onFailurePayload()));
     q.setParameter(i++, d.resourceName());
@@ -343,13 +341,16 @@ final class MysqlRecurringJobOperations implements RecurringJobStore {
 
   private int archiveAndDeleteChunk(List<UUID> ids, ArchiveReason reason) {
     String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
-    // 1. Insert archive rows from live rows.
+    // 1. Insert archive rows from live rows. INSERT IGNORE keeps cancel idempotent under
+    // concurrent cancels for the same id: the loser of the race silently skips the duplicate
+    // archive row, and the DELETE below is naturally idempotent (0 rows affected on a row
+    // someone else already removed).
     // language=MySQL
     String archiveSql =
-        "INSERT INTO scheduler_recurring_job_archive ("
-            + "id, cron_expr, zone_id, payload, params, on_success_payload, on_failure_payload,"
+        "INSERT IGNORE INTO scheduler_recurring_job_archive ("
+            + "id, cron_expr, zone_id, payload, on_success_payload, on_failure_payload,"
             + " business_key, created_at, caller_principal, archived_at, archive_reason)"
-            + " SELECT id, cron_expr, zone_id, payload, params, on_success_payload,"
+            + " SELECT id, cron_expr, zone_id, payload, on_success_payload,"
             + " on_failure_payload, business_key, created_at, caller_principal, NOW(3), ?"
             + " FROM scheduler_recurring_job WHERE id IN ("
             + placeholders
@@ -402,16 +403,14 @@ final class MysqlRecurringJobOperations implements RecurringJobStore {
     Instant pausedAt = MysqlJobRowMapper.toInstant(row[10]);
     JobPayload payload =
         PAYLOAD_CONVERTER.convertToEntityAttribute(MysqlJobRowMapper.stringOrNull(row[11]));
-    JobPayload params =
-        PAYLOAD_CONVERTER.convertToEntityAttribute(MysqlJobRowMapper.stringOrNull(row[12]));
     JobPayload onSuccess =
-        PAYLOAD_CONVERTER.convertToEntityAttribute(MysqlJobRowMapper.stringOrNull(row[13]));
+        PAYLOAD_CONVERTER.convertToEntityAttribute(MysqlJobRowMapper.stringOrNull(row[12]));
     JobPayload onFailure =
-        PAYLOAD_CONVERTER.convertToEntityAttribute(MysqlJobRowMapper.stringOrNull(row[14]));
-    String businessKey = (String) row[15];
-    String resourceName = (String) row[16];
-    Instant createdAt = MysqlJobRowMapper.toInstant(row[17]);
-    String callerPrincipal = (String) row[18];
+        PAYLOAD_CONVERTER.convertToEntityAttribute(MysqlJobRowMapper.stringOrNull(row[13]));
+    String businessKey = (String) row[14];
+    String resourceName = (String) row[15];
+    Instant createdAt = MysqlJobRowMapper.toInstant(row[16]);
+    String callerPrincipal = (String) row[17];
 
     return new RecurringJobDefinition(
         id,
@@ -426,7 +425,6 @@ final class MysqlRecurringJobOperations implements RecurringJobStore {
         backoffParamMs,
         timeoutSec,
         payload,
-        params,
         onSuccess,
         onFailure,
         businessKey,

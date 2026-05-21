@@ -126,7 +126,6 @@ class DefaultJobQueryServiceTest {
                 "com.example.Recurring", "tick", "()V", true, List.of()),
             null,
             null,
-            null,
             "bk-rec",
             null,
             Instant.parse("2026-05-19T00:00:00Z"),
@@ -239,6 +238,43 @@ class DefaultJobQueryServiceTest {
 
     assertTrue(page.items().isEmpty());
     verify(queryStore).searchJobs(eq(filter), eq(10), eq(0));
+  }
+
+  @Test
+  void findJobs_recurringOnly_appliesPrincipalScopingInMemory() {
+    // Two recurring masters owned by different principals.
+    var aliceMaster = recurringDefWithPrincipal(UUID.randomUUID(), "alice");
+    var bobMaster = recurringDefWithPrincipal(UUID.randomUUID(), "bob");
+    when(recurringJobStore.listAll())
+        .thenReturn(new java.util.ArrayList<>(List.of(aliceMaster, bobMaster)));
+
+    // Auth policy scopes the query to the current caller (bob).
+    when(principalProvider.currentPrincipal()).thenReturn(Optional.of("bob"));
+    when(authPolicy.filterForPrincipal(any(), eq("bob")))
+        .thenAnswer(
+            inv -> ((JobFilter) inv.getArgument(0)).toBuilder().callerPrincipal("bob").build());
+
+    JobPage<JobSummary> page =
+        service.findJobs(JobFilter.builder().types(JobType.RECURRING).build(), 10, 0);
+
+    // alice's master must NOT appear in bob's view.
+    assertEquals(1, page.items().size(), "principal scoping must filter the recurring listing");
+    assertEquals(bobMaster.id(), page.items().get(0).id());
+  }
+
+  @Test
+  void findJobs_recurringOnly_appliesBusinessKeyFilterInMemory() {
+    var matching = recurringDefWithBusinessKey(UUID.randomUUID(), "bk-keep");
+    var skipped = recurringDefWithBusinessKey(UUID.randomUUID(), "bk-drop");
+    when(recurringJobStore.listAll())
+        .thenReturn(new java.util.ArrayList<>(List.of(matching, skipped)));
+
+    JobPage<JobSummary> page =
+        service.findJobs(
+            JobFilter.builder().types(JobType.RECURRING).businessKey("bk-keep").build(), 10, 0);
+
+    assertEquals(1, page.items().size());
+    assertEquals(matching.id(), page.items().get(0).id());
   }
 
   @Test
@@ -590,6 +626,53 @@ class DefaultJobQueryServiceTest {
         null,
         null,
         null,
+        Instant.parse("2026-05-19T00:00:00Z"),
+        null);
+  }
+
+  private static run.ratchet.store.spi.RecurringJobDefinition recurringDefWithPrincipal(
+      UUID id, String principal) {
+    return new run.ratchet.store.spi.RecurringJobDefinition(
+        id,
+        "0 * * * * ?",
+        "UTC",
+        Instant.parse("2026-05-20T12:00:00Z"),
+        false,
+        null,
+        run.ratchet.api.JobPriority.NORMAL.ordinal(),
+        0,
+        run.ratchet.api.BackoffPolicy.NONE,
+        0,
+        0,
+        new run.ratchet.store.entity.JobPayload(
+            "com.example.Recurring", "tick", "()V", true, List.of()),
+        null,
+        null,
+        null,
+        null,
+        Instant.parse("2026-05-19T00:00:00Z"),
+        principal);
+  }
+
+  private static run.ratchet.store.spi.RecurringJobDefinition recurringDefWithBusinessKey(
+      UUID id, String businessKey) {
+    return new run.ratchet.store.spi.RecurringJobDefinition(
+        id,
+        "0 * * * * ?",
+        "UTC",
+        Instant.parse("2026-05-20T12:00:00Z"),
+        false,
+        null,
+        run.ratchet.api.JobPriority.NORMAL.ordinal(),
+        0,
+        run.ratchet.api.BackoffPolicy.NONE,
+        0,
+        0,
+        new run.ratchet.store.entity.JobPayload(
+            "com.example.Recurring", "tick", "()V", true, List.of()),
+        null,
+        null,
+        businessKey,
         null,
         Instant.parse("2026-05-19T00:00:00Z"),
         null);

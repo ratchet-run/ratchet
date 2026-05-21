@@ -9,6 +9,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -506,8 +507,12 @@ public class DefaultJobSchedulerService
   @Override
   @Transactional
   public boolean pauseJob(UUID jobId) {
-    // Recurring masters live in their own table post-CP2.
-    var recurring = recurringJobStore.getRecurring(jobId);
+    // Recurring masters live in their own table post-CP2. recurringJobStore is optional in test
+    // wiring (the no-arg constructor leaves it null), so guard before the lookup.
+    var recurring =
+        recurringJobStore != null
+            ? recurringJobStore.getRecurring(jobId)
+            : Optional.<RecurringJobDefinition>empty();
     if (recurring.isPresent()) {
       if (authorizationPolicy != null) {
         String currentPrincipal =
@@ -564,8 +569,12 @@ public class DefaultJobSchedulerService
   @Override
   @Transactional
   public boolean resumeJob(UUID jobId) {
-    // Recurring masters: dedicated CAS resume on scheduler_recurring_job.
-    var recurring = recurringJobStore.getRecurring(jobId);
+    // Recurring masters: dedicated CAS resume on scheduler_recurring_job. recurringJobStore is
+    // optional in test wiring; guard before the lookup.
+    var recurring =
+        recurringJobStore != null
+            ? recurringJobStore.getRecurring(jobId)
+            : Optional.<RecurringJobDefinition>empty();
     if (recurring.isPresent()) {
       if (authorizationPolicy != null) {
         String currentPrincipal =
@@ -825,7 +834,7 @@ public class DefaultJobSchedulerService
             jobId,
             def.businessKey(),
             run.ratchet.api.JobType.RECURRING,
-            run.ratchet.api.JobPriority.values()[Math.min(def.priority(), 4)],
+            JobPriorityMapper.fromOrdinal(def.priority()),
             null,
             effective().instant());
     if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
@@ -839,7 +848,7 @@ public class DefaultJobSchedulerService
             jobId,
             def.businessKey(),
             run.ratchet.api.JobType.RECURRING,
-            run.ratchet.api.JobPriority.values()[Math.min(def.priority(), 4)],
+            JobPriorityMapper.fromOrdinal(def.priority()),
             null,
             effective().instant());
     if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
