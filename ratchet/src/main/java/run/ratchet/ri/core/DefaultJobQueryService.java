@@ -334,7 +334,7 @@ public class DefaultJobQueryService implements JobQueryService {
         def.id(),
         def.paused() ? JobStatus.PAUSED : JobStatus.PENDING,
         JobType.RECURRING,
-        JobPriority.values()[Math.min(def.priority(), JobPriority.values().length - 1)],
+        JobPriorityMapper.fromOrdinal(def.priority()),
         def.businessKey(),
         /* idempotencyKey */ null,
         payload != null ? payload.target() : null,

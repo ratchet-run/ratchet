@@ -348,12 +348,15 @@ public class DefaultJobSchedulerService
     // Recurring masters live in scheduler_recurring_job, not the executable queue. Fall through to
     // the dedicated SPI so callers holding a recurring master's UUID can cancel it the same way
     // they cancel an executable job. cancelRecurringAndArchive returns false if the id is unknown.
-    if (recurringJobStore != null
-        && recurringJobStore.getRecurring(jobId).isPresent()
-        && recurringJobStore.cancelRecurringAndArchive(
-            jobId, RecurringJobStore.ArchiveReason.CANCELED)) {
-      log.debugf("Canceled recurring master %s", jobId);
-      return true;
+    if (recurringJobStore != null) {
+      Optional<RecurringJobDefinition> def = recurringJobStore.getRecurring(jobId);
+      if (def.isPresent()
+          && recurringJobStore.cancelRecurringAndArchive(
+              jobId, RecurringJobStore.ArchiveReason.CANCELED)) {
+        log.debugf("Canceled recurring master %s", jobId);
+        publishCancelledEventForRecurring(jobId, def.get());
+        return true;
+      }
     }
 
     log.debugf("Cannot cancel job %s — already in terminal state or not found", jobId);
@@ -740,6 +743,23 @@ public class DefaultJobSchedulerService
                 null);
     // Defer publication until after the surrounding TX commits so a rollback does not produce a
     // spurious CANCELLED event. Falls back to immediate publication when no TX is active.
+    if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
+      eventPublisher.publish(event);
+    }
+  }
+
+  private void publishCancelledEventForRecurring(UUID jobId, RecurringJobDefinition def) {
+    JobStatus previousStatus = def.paused() ? JobStatus.PAUSED : JobStatus.PENDING;
+    JobCancelledEvent event =
+        new JobCancelledEvent(
+            jobId,
+            def.businessKey(),
+            run.ratchet.api.JobType.RECURRING,
+            JobPriorityMapper.fromOrdinal(def.priority()),
+            null,
+            effective().instant(),
+            previousStatus.name(),
+            null);
     if (!registerAfterCommit(() -> eventPublisher.publish(event))) {
       eventPublisher.publish(event);
     }

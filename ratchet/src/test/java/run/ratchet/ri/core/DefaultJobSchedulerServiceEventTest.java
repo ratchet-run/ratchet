@@ -217,6 +217,41 @@ class DefaultJobSchedulerServiceEventTest {
   }
 
   @Test
+  void cancelJobRecurringPublishesCancelledEvent() {
+    // Recurring master cancellation goes through RecurringJobStore, not the CAS chain. The
+    // event must still fire so audit/monitoring sees the same shape regardless of source state.
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.empty());
+    when(recurringJobStore.getRecurring(JOB_ID)).thenReturn(Optional.of(recurringDef(false)));
+    when(recurringJobStore.cancelRecurringAndArchive(
+            JOB_ID, run.ratchet.store.spi.RecurringJobStore.ArchiveReason.CANCELED))
+        .thenReturn(true);
+
+    assertTrue(service.cancelJob(JOB_ID));
+
+    JobCancelledEvent event = published(JobCancelledEvent.class);
+    assertEquals(JOB_ID, event.getJobId());
+    assertEquals("business-90", event.getBusinessKey());
+    assertEquals(JobType.RECURRING, event.getJobType());
+    assertEquals(JobPriority.HIGH, event.getPriority());
+    assertEquals(JobStatus.PENDING.name(), event.getPreviousStatus());
+    assertEquals(FIXED_NOW, event.getTimestamp());
+  }
+
+  @Test
+  void cancelJobRecurringPausedReportsPausedAsPreviousStatus() {
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.empty());
+    when(recurringJobStore.getRecurring(JOB_ID)).thenReturn(Optional.of(recurringDef(true)));
+    when(recurringJobStore.cancelRecurringAndArchive(
+            JOB_ID, run.ratchet.store.spi.RecurringJobStore.ArchiveReason.CANCELED))
+        .thenReturn(true);
+
+    assertTrue(service.cancelJob(JOB_ID));
+
+    JobCancelledEvent event = published(JobCancelledEvent.class);
+    assertEquals(JobStatus.PAUSED.name(), event.getPreviousStatus());
+  }
+
+  @Test
   void retryJobPublishesRetryingEventAndWakesPoller() {
     JobEntity job = job(JobStatus.FAILED, JobExecutionType.SINGLE);
     job.setLastError("boom");

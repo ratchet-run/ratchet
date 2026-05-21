@@ -818,15 +818,6 @@ class MysqlJobStoreImpl implements MysqlJobStore {
     recurringJobs.advanceNextFire(id, nextFire);
   }
 
-  // findEarliestRecurringNextFire() is already implemented above (JobCrudStore legacy delegation).
-  // Identical signature on RecurringJobStore — the single legacy delegate satisfies both
-  // interfaces. Will be re-routed to recurringJobs.findEarliestRecurringNextFire() when RI is
-  // rewired in a later commit.
-
-  // pauseRecurring / resumeRecurring have identical signatures on JobPauseStore and
-  // RecurringJobStore. The legacy `lifecycle` delegate satisfies both. Re-routed to new ops
-  // class in the RI rewire commit.
-
   @Override
   public boolean cancelRecurringAndArchive(
       UUID id, run.ratchet.store.spi.RecurringJobStore.ArchiveReason reason) {

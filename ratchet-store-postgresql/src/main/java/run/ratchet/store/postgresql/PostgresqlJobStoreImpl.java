@@ -826,12 +826,6 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
     recurringJobs.advanceNextFire(id, nextFire);
   }
 
-  // findEarliestRecurringNextFire / pauseRecurring / resumeRecurring /
-  // cancelOrphanedRecurringAnnotationJobs / cancelRecurringJobsByTag /
-  // cancelRecurringJobsByBusinessKeys: identical signatures on JobCrudStore/JobPauseStore/
-  // JobBatchStatusStore and RecurringJobStore. The pre-CP2 delegates (jobs, lifecycle) satisfy
-  // both interfaces. Re-routed to recurringJobs in the RI rewire commit.
-
   @Override
   public boolean cancelRecurringAndArchive(
       UUID id, run.ratchet.store.spi.RecurringJobStore.ArchiveReason reason) {
