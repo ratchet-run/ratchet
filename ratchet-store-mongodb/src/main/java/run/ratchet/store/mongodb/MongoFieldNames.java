@@ -92,7 +92,7 @@ final class MongoFieldNames {
   static final String MAX_CONCURRENT = "max_concurrent";
   static final String RETRY_DELAY_MS = "retry_delay_ms";
   static final String DESCRIPTION = "description";
-  // Recurring-master split (CP2)
+  // Recurring-master fields
   static final String CRON_EXPR = "cron_expr";
   static final String ZONE_ID = "zone_id";
   static final String IS_PAUSED = "is_paused";

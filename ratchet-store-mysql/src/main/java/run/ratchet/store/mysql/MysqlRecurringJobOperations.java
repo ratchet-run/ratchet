@@ -22,7 +22,7 @@ import run.ratchet.store.util.JobClaimSqlSupport;
 
 /**
  * MySQL implementation of {@link RecurringJobStore} against the dedicated {@code
- * scheduler_recurring_job} table (CP2 split).
+ * scheduler_recurring_job} table.
  */
 final class MysqlRecurringJobOperations implements RecurringJobStore {
 

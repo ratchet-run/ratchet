@@ -10,9 +10,9 @@ import run.ratchet.api.NodeTagFilter;
 
 /**
  * Dedicated SPI for recurring-master persistence. Recurring masters live in their own table /
- * collection ({@code scheduler_recurring_job}) post CP2 split, and have no executable-queue
- * lifecycle. Every method on this sub-interface has a concrete consumer in the RI executor,
- * scheduler, registration path, admin path, or query layer.
+ * collection ({@code scheduler_recurring_job}) and have no executable-queue lifecycle. Every method
+ * on this sub-interface has a concrete consumer in the RI executor, scheduler, registration path,
+ * admin path, or query layer.
  *
  * <p>Cancellation never updates the live master in-place; it deletes the live row and inserts a
  * denormalized snapshot into {@code scheduler_recurring_job_archive} atomically.

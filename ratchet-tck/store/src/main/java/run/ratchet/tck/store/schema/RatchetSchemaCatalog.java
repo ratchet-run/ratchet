@@ -174,9 +174,9 @@ public final class RatchetSchemaCatalog {
   }
 
   private static Table schedulerBusinessKeyReservation() {
-    // CP2: fk_bk_owner_job is intentionally omitted. owner_job_id is polymorphic — reservations
-    // can be owned by either scheduler_job rows (QUEUE) or scheduler_recurring_job rows
-    // (RECURRING) — so a single FK is not possible. Cancel paths DELETE the reservation rows.
+    // fk_bk_owner_job is intentionally omitted. owner_job_id is polymorphic — reservations can be
+    // owned by either scheduler_job rows (QUEUE) or scheduler_recurring_job rows (RECURRING) — so
+    // a single FK is not possible. Cancel paths DELETE the reservation rows.
     return Table.builder("scheduler_business_key_reservation")
         .column(required("business_key", TEXT))
         .column(required("owner_job_id", UUID))
@@ -188,7 +188,7 @@ public final class RatchetSchemaCatalog {
   }
 
   private static Table schedulerJobTag() {
-    // CP2: fk_job_tag_job is intentionally omitted. job_id is polymorphic — tags can be owned by
+    // fk_job_tag_job is intentionally omitted. job_id is polymorphic — tags can be owned by
     // either scheduler_job rows or scheduler_recurring_job rows — so a single FK is not possible.
     return Table.builder("scheduler_job_tag")
         .column(required("job_id", UUID))

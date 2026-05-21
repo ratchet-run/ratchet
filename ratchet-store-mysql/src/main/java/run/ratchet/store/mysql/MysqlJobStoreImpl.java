@@ -805,7 +805,7 @@ class MysqlJobStoreImpl implements MysqlJobStore {
     recurringJobs = new MysqlRecurringJobOperations(ctx, reservations);
   }
 
-  // ---------- RecurringJobStore (CP2) delegates ----------
+  // ---------- RecurringJobStore delegates ----------
 
   @Override
   public List<run.ratchet.store.spi.RecurringJobDefinition> claimDueRecurring(

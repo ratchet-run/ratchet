@@ -16,8 +16,8 @@ final class MongoIndexHints {
   static final String JOB_CLAIM_RECURRING = "idx_job_claim_recurring";
 
   /**
-   * Covering claim index on the post-CP2 dedicated {@code scheduler_recurring_job} collection,
-   * filtered by {@code is_paused} and sorted by {@code next_fire}.
+   * Covering claim index on the dedicated {@code scheduler_recurring_job} collection, filtered by
+   * {@code is_paused} and sorted by {@code next_fire}.
    */
   static final String RECURRING_JOB_CLAIM = "idx_rec_claim";
 

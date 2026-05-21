@@ -101,10 +101,10 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   @Column(name = "zone_id", length = 32, nullable = false)
   private String zoneId = "UTC";
 
-  // CP2 split: scheduler_job no longer carries a next_fire column (it moved with the recurring
-  // master to scheduler_recurring_job). The field stays as a transient carrier for the
-  // authorization-policy gate, which still inspects next_fire on the transient recurring entity
-  // it builds for the type-aware policy check.
+  // scheduler_job does not carry a next_fire column — that anchor lives on
+  // scheduler_recurring_job. The field stays as a transient carrier for the authorization-policy
+  // gate, which inspects next_fire on the transient recurring entity it builds for the type-aware
+  // policy check.
   @jakarta.persistence.Transient private Instant nextFire;
 
   @Convert(converter = JobPayloadConverter.class)
@@ -161,9 +161,8 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   private UUID supersededBy;
 
   /**
-   * Set on child rows spawned by a recurring master. The pre-CP2 model overloaded {@code dependsOn}
-   * for this; post-CP2 it points to the master's id in {@code scheduler_recurring_job} via FK with
-   * {@code ON DELETE SET NULL}.
+   * Set on child rows spawned by a recurring master. Points to the master's id in {@code
+   * scheduler_recurring_job} via FK with {@code ON DELETE SET NULL}.
    */
   @Column(name = "recurring_master_id")
   private UUID recurringMasterId;

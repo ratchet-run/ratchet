@@ -7,7 +7,7 @@ import run.ratchet.api.JobStatus;
 /**
  * Pause / resume transitions for executable jobs.
  *
- * <p>Post-CP2 recurring-master pause/resume lives on {@link RecurringJobStore}.
+ * <p>Recurring-master pause/resume lives on {@link RecurringJobStore}.
  */
 @Incubating
 public interface JobPauseStore {

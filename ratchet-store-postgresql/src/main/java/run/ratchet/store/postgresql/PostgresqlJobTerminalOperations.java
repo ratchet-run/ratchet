@@ -244,8 +244,8 @@ final class PostgresqlJobTerminalOperations {
       if (existingTerminal != null) {
         return false;
       }
-      // Post-CP2 recurring masters live in scheduler_recurring_job — cancel-by-id of a recurring
-      // master routes through RecurringJobStore.cancelRecurringAndArchive, not through here.
+      // Recurring masters live in scheduler_recurring_job — cancel-by-id of a recurring master
+      // routes through RecurringJobStore.cancelRecurringAndArchive, not through here.
       // language=PostgreSQL
       String deleteHotSql =
           """

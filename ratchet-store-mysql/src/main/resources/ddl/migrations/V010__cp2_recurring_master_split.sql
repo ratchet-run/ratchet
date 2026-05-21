@@ -1,4 +1,4 @@
--- V010: CP2 recurring-master split.
+-- V010: Recurring-master split.
 -- Moves recurring-master persistence out of scheduler_job into the dedicated
 -- scheduler_recurring_job table. Adds scheduler_recurring_job_archive for cancel /
 -- exhaust forensics. Drops the rec_status / next_fire / idx_job_recurring_pending shim
@@ -94,4 +94,4 @@ ALTER TABLE scheduler_job_tag
 
 -- 6. Record version.
 INSERT IGNORE INTO ratchet_schema_version (version, description) VALUES
-    ('010', 'CP2 recurring-master split: scheduler_recurring_job + scheduler_recurring_job_archive + recurring_master_id');
+    ('010', 'Recurring-master split: scheduler_recurring_job + scheduler_recurring_job_archive + recurring_master_id');

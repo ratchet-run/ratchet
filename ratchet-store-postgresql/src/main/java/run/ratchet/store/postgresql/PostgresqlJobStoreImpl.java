@@ -813,7 +813,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
     recurringJobs = new PostgresqlRecurringJobOperations(ctx, reservations);
   }
 
-  // ---------- RecurringJobStore (CP2) delegates ----------
+  // ---------- RecurringJobStore delegates ----------
 
   @Override
   public List<run.ratchet.store.spi.RecurringJobDefinition> claimDueRecurring(

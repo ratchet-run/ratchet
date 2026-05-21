@@ -510,8 +510,8 @@ public class DefaultJobSchedulerService
   @Override
   @Transactional
   public boolean pauseJob(UUID jobId) {
-    // Recurring masters live in their own table post-CP2. recurringJobStore is optional in test
-    // wiring (the no-arg constructor leaves it null), so guard before the lookup.
+    // Recurring masters live in their own table. recurringJobStore is optional in test wiring
+    // (the no-arg constructor leaves it null), so guard before the lookup.
     var recurring =
         recurringJobStore != null
             ? recurringJobStore.getRecurring(jobId)

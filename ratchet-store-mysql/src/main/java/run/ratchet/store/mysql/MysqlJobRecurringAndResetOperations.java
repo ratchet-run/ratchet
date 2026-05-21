@@ -3,9 +3,9 @@ package run.ratchet.store.mysql;
 import java.util.UUID;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 
-// Survivors of CP2: only the reset / cancel-by-tag operations remain. Recurring-master pause /
-// resume / cancel / orphan-cleanup moved to MysqlRecurringJobOperations once the shim columns
-// (rec_status, next_fire on scheduler_job) were retired.
+// Reset + cancel-by-tag operations against the executable scheduler_job table. Recurring-master
+// pause / resume / cancel / orphan-cleanup live on MysqlRecurringJobOperations against
+// scheduler_recurring_job.
 final class MysqlJobRecurringAndResetOperations {
 
   private final MysqlStoreContext ctx;

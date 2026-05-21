@@ -29,7 +29,7 @@ SELECT
     j.terminated_at
 FROM scheduler_job j;
 
--- Operator view for recurring-master definitions (CP2).
+-- Operator view for recurring-master definitions.
 CREATE OR REPLACE VIEW vw_recurring_jobs AS
 SELECT
     BIN_TO_UUID(r.id) AS id,
@@ -48,7 +48,7 @@ SELECT
     r.caller_principal
 FROM scheduler_recurring_job r;
 
--- Operator view for archived recurring definitions (CP2).
+-- Operator view for archived recurring definitions.
 CREATE OR REPLACE VIEW vw_recurring_jobs_archive AS
 SELECT
     BIN_TO_UUID(a.id) AS id,

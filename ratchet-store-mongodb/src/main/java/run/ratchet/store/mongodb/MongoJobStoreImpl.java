@@ -810,7 +810,7 @@ class MongoJobStoreImpl implements MongoJobStore {
     }
   }
 
-  // ---------- RecurringJobStore (CP2) delegates ----------
+  // ---------- RecurringJobStore delegates ----------
 
   @Override
   public List<run.ratchet.store.spi.RecurringJobDefinition> claimDueRecurring(

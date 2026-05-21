@@ -28,9 +28,9 @@ import run.ratchet.store.spi.RecurringJobStore.ArchiveReason;
 import run.ratchet.store.spi.TagStore;
 
 /**
- * TCK contract for {@link RecurringJobStore} — the CP2 dedicated recurring-master store.
+ * TCK contract for {@link RecurringJobStore} — the dedicated recurring-master store.
  *
- * <p>Covers the seven mandatory contracts from the CP2 PRD:
+ * <p>Covers the seven mandatory contracts:
  *
  * <ol>
  *   <li>Concurrent claim safety — exactly-once observation across nodes.
@@ -368,7 +368,7 @@ public abstract class AbstractRecurringJobStoreContract {
 
   /**
    * Tag rows attached to a recurring master are removed when the master is canceled. The SQL stores
-   * lost their {@code fk_job_tag_job} foreign key in CP2 because tags are polymorphic across {@code
+   * do not carry a {@code fk_job_tag_job} foreign key because tags are polymorphic across {@code
    * scheduler_job} and {@code scheduler_recurring_job}; the cancel path must delete the tag rows
    * explicitly. Mongo embeds tags in the doc, so this is automatic — both impls must satisfy the
    * contract.

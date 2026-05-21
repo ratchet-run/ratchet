@@ -333,9 +333,9 @@ final class MysqlJobTerminalOperations {
       return true;
     }
 
-    // Post-CP2 recurring masters live in scheduler_recurring_job, not scheduler_job, so a job
-    // missing from the hot queue with no terminal row is either a terminal-only survivor (no-op)
-    // or a missing id. Either way, the cancel is a no-op here; recurring cancel routes through
+    // Recurring masters live in scheduler_recurring_job, not scheduler_job, so a job missing
+    // from the hot queue with no terminal row is either a terminal-only survivor (no-op) or a
+    // missing id. Either way, the cancel is a no-op here; recurring cancel routes through
     // RecurringJobStore.cancelRecurringAndArchive.
     return false;
   }

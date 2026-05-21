@@ -44,10 +44,9 @@ CREATE TABLE IF NOT EXISTS scheduler_resource_limit
     CONSTRAINT pk_scheduler_resource_limit PRIMARY KEY (resource_name)
 );
 
--- 3a. scheduler_recurring_job — recurring-master definitions (CP2 split).
+-- 3a. scheduler_recurring_job — recurring-master definitions.
 -- Long-lived rows holding cron schedule, payload template, and runtime anchor
--- (next_fire) for each repeating job. Pre-CP2 these lived on scheduler_job with
--- shim columns; post-CP2 they live here. Never executed itself — spawns child
+-- (next_fire) for each repeating job. Never executed itself — spawns child
 -- rows on scheduler_job at fire time.
 CREATE TABLE IF NOT EXISTS scheduler_recurring_job
 (
@@ -85,7 +84,7 @@ CREATE INDEX IF NOT EXISTS idx_rec_business_key
 CREATE INDEX IF NOT EXISTS idx_rec_target_class
     ON scheduler_recurring_job (target_class);
 
--- 3b. scheduler_recurring_job_archive (CP2 split).
+-- 3b. scheduler_recurring_job_archive.
 -- Denormalized snapshot written atomically with the DELETE from
 -- scheduler_recurring_job. No FK back to the live table.
 CREATE TABLE IF NOT EXISTS scheduler_recurring_job_archive
@@ -162,9 +161,9 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     queue_wait_ms         BIGINT,
     job_result JSONB,
     result_type           VARCHAR(100),
-    -- Recurring-child lineage pointer (CP2). Set for child rows spawned by a recurring
-    -- master; NULL elsewhere. ON DELETE SET NULL so cancel of a master does not
-    -- cascade-delete in-flight children.
+    -- Recurring-child lineage pointer. Set for child rows spawned by a recurring master; NULL
+    -- elsewhere. ON DELETE SET NULL so cancel of a master does not cascade-delete in-flight
+    -- children.
     recurring_master_id   uuid,
     CONSTRAINT pk_scheduler_job PRIMARY KEY (job_id),
     CONSTRAINT uk_idempotency_key UNIQUE (idempotency_key),
@@ -266,7 +265,7 @@ CREATE INDEX IF NOT EXISTS idx_job_business_key ON scheduler_job (business_key);
 CREATE INDEX IF NOT EXISTS idx_job_created_at ON scheduler_job (created_at);
 -- Archival / deleteDlqOlderThan scan (terminal_status, terminated_at).
 CREATE INDEX IF NOT EXISTS idx_job_terminal ON scheduler_job (terminal_status, terminated_at);
--- CP2: child lineage pointer to recurring master.
+-- Child lineage pointer to recurring master.
 CREATE INDEX IF NOT EXISTS idx_job_recurring_master_id ON scheduler_job (recurring_master_id);
 -- DROPPED: idx_target_class and idx_method_name were debug-only and added measurable
 -- write amplification on the hot insert path. See ddl/postgresql-debug-indexes.sql for
@@ -282,8 +281,8 @@ CREATE TABLE IF NOT EXISTS scheduler_job_tag
     job_id uuid        NOT NULL,
     tag    VARCHAR(64) NOT NULL,
     CONSTRAINT pk_scheduler_job_tag PRIMARY KEY (job_id, tag)
-    -- CP2: fk_job_tag_job dropped — job_id is polymorphic between scheduler_job (executable
-    -- jobs) and scheduler_recurring_job (annotation-registered recurring masters carry tags).
+    -- No fk_job_tag_job — job_id is polymorphic between scheduler_job (executable jobs) and
+    -- scheduler_recurring_job (annotation-registered recurring masters carry tags).
 );
 
 -- Support run-status and other tag-first aggregations.

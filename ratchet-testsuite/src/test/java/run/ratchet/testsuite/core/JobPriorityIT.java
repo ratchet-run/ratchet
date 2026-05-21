@@ -70,9 +70,8 @@ class JobPriorityIT extends BaseRatchetIT {
         List.of(boostedLow.getId(), normal.getId()), claims.stream().map(JobClaimDto::id).toList());
   }
 
-  // Recurring-master claim ordering moved to RecurringJobStore; AbstractRecurringJobStoreContract
-  // (CP2) covers the priority + age-boost behavior across all stores. Recurring masters no longer
-  // live in scheduler_job, so the legacy JobClaimStore-based assertion was obsolete.
+  // Recurring-master claim ordering lives in RecurringJobStore; AbstractRecurringJobStoreContract
+  // covers the priority + age-boost behavior across all stores.
 
   private JobEntity persistJob(
       JobExecutionType jobType, JobPriority priority, Instant scheduledTime, Instant nextFire) {

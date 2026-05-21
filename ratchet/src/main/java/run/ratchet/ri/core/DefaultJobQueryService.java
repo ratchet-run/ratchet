@@ -121,9 +121,9 @@ public class DefaultJobQueryService implements JobQueryService {
     JobFilter scoped = scopeFilter(filter);
 
     // A filter that targets ONLY recurring masters has to hit RecurringJobStore — the executable
-    // queryStore reads scheduler_job + scheduler_job_queue, which no longer hold recurring rows
-    // post-CP2 split. The scoped filter includes any principal-scoping the auth policy injected,
-    // so we apply it in-memory against the master rows rather than dropping straight to listAll.
+    // queryStore reads scheduler_job + scheduler_job_queue, which don't hold recurring rows. The
+    // scoped filter includes any principal-scoping the auth policy injected, so we apply it in-
+    // memory against the master rows rather than dropping straight to listAll.
     if (scoped.types() != null
         && scoped.types().size() == 1
         && scoped.types().contains(JobType.RECURRING)) {

@@ -53,11 +53,10 @@ CREATE TABLE IF NOT EXISTS scheduler_resource_limit
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci;
 
--- 3a. Recurring job masters (CP2 split).
+-- 3a. Recurring job masters.
 -- Long-lived definition rows holding the cron schedule, payload template, and runtime anchor
--- (next_fire) for each repeating job. Pre-CP2 these lived on scheduler_job with shim columns;
--- post-CP2 they live here. A recurring master is never executed itself — it spawns child rows
--- on scheduler_job at fire time. Pause / resume / cancel use single-table primitives.
+-- (next_fire) for each repeating job. A recurring master is never executed itself — it spawns
+-- child rows on scheduler_job at fire time. Pause / resume / cancel use single-table primitives.
 CREATE TABLE IF NOT EXISTS scheduler_recurring_job
 (
     id                    BINARY(16)                                                        NOT NULL,
@@ -90,7 +89,7 @@ CREATE TABLE IF NOT EXISTS scheduler_recurring_job
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci;
 
--- 3b. Archived recurring definitions (CP2 split).
+-- 3b. Archived recurring definitions.
 -- Denormalized snapshot written atomically in the same transaction as the DELETE from
 -- scheduler_recurring_job. CANCELED rows are explicit cancels (admin command or annotation
 -- orphan cleanup); EXHAUSTED rows are cron schedules that yielded no next fire.
@@ -169,10 +168,10 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     queue_wait_ms         BIGINT                                                                                                              NULL,
     job_result            JSON                                                                                                                NULL,
     result_type           VARCHAR(100)                                                                                                        NULL,
-    -- Recurring-child lineage pointer (CP2). Set for child rows spawned by a recurring master;
-    -- NULL for all other rows. Recurring children stop setting depends_on (reserved for chain /
-    -- batch / workflow same-table parent pointers). ON DELETE SET NULL so cancel of the master
-    -- does not cascade-delete in-flight children.
+    -- Recurring-child lineage pointer. Set for child rows spawned by a recurring master; NULL
+    -- for all other rows. depends_on is reserved for chain / batch / workflow same-table parent
+    -- pointers. ON DELETE SET NULL so cancel of the master does not cascade-delete in-flight
+    -- children.
     recurring_master_id   BINARY(16)                                                                                                          NULL,
     PRIMARY KEY (job_id),
     UNIQUE KEY uk_idempotency_key (idempotency_key),
@@ -276,10 +275,10 @@ CREATE TABLE IF NOT EXISTS scheduler_job_tag
     tag    VARCHAR(64)     NOT NULL,
     PRIMARY KEY (job_id, tag),
     INDEX idx_job_tag_tag_job (tag, job_id)
-    -- CP2: fk_job_tag_job dropped. job_id is polymorphic (executable jobs → scheduler_job,
-    -- recurring masters → scheduler_recurring_job). Cancel paths DELETE associated tag rows
-    -- explicitly; the @Recurring registration path now writes tags whose job_id refers to
-    -- scheduler_recurring_job, which would violate the original FK.
+    -- No fk_job_tag_job. job_id is polymorphic (executable jobs → scheduler_job, recurring
+    -- masters → scheduler_recurring_job). Cancel paths DELETE associated tag rows explicitly;
+    -- the @Recurring registration path writes tags whose job_id refers to
+    -- scheduler_recurring_job, which would violate any single-FK constraint.
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci;
@@ -475,4 +474,4 @@ INSERT IGNORE INTO ratchet_schema_version (version, description) VALUES
     ('007', 'Query-layer generated column for traceCorrelationId + dashboard indexes'),
     ('008', 'Signal-waiting job columns, decision metadata, and indexes on scheduler_job_queue'),
     ('009', 'Drop legacy JDK-serialized predicate blobs from scheduler_workflow_condition'),
-    ('010', 'CP2 recurring-master split: scheduler_recurring_job + scheduler_recurring_job_archive + recurring_master_id');
+    ('010', 'Recurring-master split: scheduler_recurring_job + scheduler_recurring_job_archive + recurring_master_id');

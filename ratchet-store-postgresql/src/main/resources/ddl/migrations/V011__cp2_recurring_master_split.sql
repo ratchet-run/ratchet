@@ -1,4 +1,4 @@
--- V011: CP2 recurring-master split.
+-- V011: Recurring-master split.
 -- Moves recurring-master persistence out of scheduler_job into the dedicated
 -- scheduler_recurring_job table. Adds scheduler_recurring_job_archive for cancel /
 -- exhaust forensics. Drops the rec_status / next_fire / idx_job_recurring_pending shim
@@ -82,15 +82,15 @@ ALTER TABLE scheduler_job
     DROP COLUMN IF EXISTS rec_status,
     DROP COLUMN IF EXISTS next_fire;
 
--- 5. Drop the bkres FK (owner_job_id is polymorphic post-CP2).
+-- 5. Drop the bkres FK (owner_job_id is polymorphic).
 ALTER TABLE scheduler_business_key_reservation
     DROP CONSTRAINT IF EXISTS fk_bk_owner_job;
 
--- 5b. Drop the job_tag FK — job_id is polymorphic post-CP2.
+-- 5b. Drop the job_tag FK — job_id is polymorphic.
 ALTER TABLE scheduler_job_tag
     DROP CONSTRAINT IF EXISTS fk_job_tag_job;
 
 INSERT INTO ratchet_schema_version (version, description)
-VALUES ('011', 'CP2 recurring-master split: scheduler_recurring_job + scheduler_recurring_job_archive + recurring_master_id');
+VALUES ('011', 'Recurring-master split: scheduler_recurring_job + scheduler_recurring_job_archive + recurring_master_id');
 
 COMMIT;

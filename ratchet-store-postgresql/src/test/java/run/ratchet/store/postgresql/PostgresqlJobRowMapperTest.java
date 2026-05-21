@@ -50,7 +50,7 @@ class PostgresqlJobRowMapperTest {
     row[4] = BackoffPolicy.NONE.name();
     row[5] = 0;
     row[6] = 60;
-    row[11] = "example.Job"; // target_class (was index 12 pre-CP2 column drop)
+    row[11] = "example.Job"; // target_class
     row[12] = "run"; // method_name
     row[20] = now; // created_at
     row[PostgresqlJobRowMapper.IDX_Q_STATUS] = "PENDING";

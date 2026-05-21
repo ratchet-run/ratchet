@@ -2,9 +2,9 @@ package run.ratchet.store.postgresql;
 
 import java.util.UUID;
 
-// Survivors of CP2: only the reset / cancel-by-tag operations remain. Recurring-master pause /
-// resume / cancel / orphan-cleanup moved to PostgresqlRecurringJobOperations once the shim
-// columns (rec_status, next_fire on scheduler_job) were retired.
+// Reset + cancel-by-tag operations against the executable scheduler_job table. Recurring-master
+// pause / resume / cancel / orphan-cleanup live on PostgresqlRecurringJobOperations against
+// scheduler_recurring_job.
 final class PostgresqlJobRecurringAndResetOperations {
 
   private final PostgresqlStoreContext ctx;

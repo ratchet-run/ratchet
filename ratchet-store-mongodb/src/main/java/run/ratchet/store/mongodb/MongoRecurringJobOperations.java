@@ -56,7 +56,7 @@ import run.ratchet.store.spi.RecurringJobStore;
 
 /**
  * MongoDB implementation of {@link RecurringJobStore} over the dedicated {@code
- * scheduler_recurring_job} and {@code scheduler_recurring_job_archive} collections (CP2 split).
+ * scheduler_recurring_job} and {@code scheduler_recurring_job_archive} collections.
  *
  * <p>Single-document atomicity replaces {@code FOR UPDATE SKIP LOCKED}: claim and advance use
  * {@code findOneAndUpdate} per row. Cancel + archive uses a transaction when the cluster supports
