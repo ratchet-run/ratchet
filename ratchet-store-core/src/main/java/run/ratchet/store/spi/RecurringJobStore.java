@@ -50,9 +50,25 @@ public interface RecurringJobStore {
 
   /**
    * Advances the master's {@code next_fire} atomically within the claim transaction. Called once
-   * per fire after the child job is enqueued. Transaction attribute: {@code REQUIRED}.
+   * per fire after the child job is enqueued. Implementations that hold a claim lease alongside
+   * {@code next_fire} must clear the lease in the same write so the row becomes claimable again.
+   * Transaction attribute: {@code REQUIRED}.
    */
   void advanceNextFire(UUID id, Instant nextFire);
+
+  /**
+   * Drops the claim held by {@link #claimDueRecurring} without changing {@code next_fire}. Called
+   * by the executor when a claimed master is skipped (e.g. startup grace, malformed cron) — the row
+   * needs to become claimable again on the next cycle without being scheduled at a new time.
+   *
+   * <p>SQL stores use transaction-scoped row locks via {@code FOR UPDATE SKIP LOCKED}; the lock
+   * drops at transaction commit, so the default implementation is a no-op. Stores that durably mark
+   * a claim (MongoDB sets {@code claim_token} + {@code claim_expires_at}) must override.
+   * Transaction attribute: {@code REQUIRED}.
+   */
+  default void releaseClaim(UUID id) {
+    // No-op for stores whose claim is transaction-scoped.
+  }
 
   /**
    * Returns the earliest pending {@code next_fire} across all unpaused recurring masters. Used by

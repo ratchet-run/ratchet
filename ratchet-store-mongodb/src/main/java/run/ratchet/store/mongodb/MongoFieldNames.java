@@ -103,6 +103,8 @@ final class MongoFieldNames {
   static final String ON_FAILURE_PAYLOAD = "on_failure_payload";
   static final String RECURRING_MASTER_ID = "recurring_master_id";
   static final String ARCHIVE_REASON = "archive_reason";
+  static final String CLAIM_TOKEN = "claim_token";
+  static final String CLAIM_EXPIRES_AT = "claim_expires_at";
   static final String PRIORITY_FIELD = "priority";
   static final String MAX_RETRIES_FIELD = "max_retries";
   static final String BACKOFF_POLICY = "backoff_policy";

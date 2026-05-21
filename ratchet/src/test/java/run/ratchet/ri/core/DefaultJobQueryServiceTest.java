@@ -229,7 +229,8 @@ class DefaultJobQueryServiceTest {
   @Test
   void findJobs_withoutAuthOrPrincipalUsesOriginalFilter() {
     DefaultJobQueryService permissive =
-        new DefaultJobQueryService(queryStore, crudStore, executionStore, recurringJobStore, null, null);
+        new DefaultJobQueryService(
+            queryStore, crudStore, executionStore, recurringJobStore, null, null);
     JobFilter filter = JobFilter.builder().businessKey("bk-1").build();
     when(queryStore.searchJobs(eq(filter), eq(10), eq(0))).thenReturn(Collections.emptyList());
     when(queryStore.countJobs(eq(filter))).thenReturn(0L);
@@ -394,7 +395,8 @@ class DefaultJobQueryServiceTest {
   @Test
   void getJobDetail_withoutAuthOrPrincipalReturnsDetail() {
     DefaultJobQueryService permissive =
-        new DefaultJobQueryService(queryStore, crudStore, executionStore, recurringJobStore, null, null);
+        new DefaultJobQueryService(
+            queryStore, crudStore, executionStore, recurringJobStore, null, null);
     UUID jobId = UUID.randomUUID();
     when(crudStore.findById(jobId)).thenReturn(Optional.of(minimalJobWithId(jobId)));
     when(executionStore.findExecutionsByJobId(eq(jobId), anyInt(), anyInt()))

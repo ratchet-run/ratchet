@@ -369,8 +369,7 @@ final class MysqlRecurringJobOperations implements RecurringJobStore {
     // fk_job_tag_job was dropped; the SQL FK no longer cascades, so cancel must explicitly drop
     // the rows or they'd outlive the master row.
     // language=MySQL
-    String tagDeleteSql =
-        "DELETE FROM scheduler_job_tag WHERE job_id IN (" + placeholders + ")";
+    String tagDeleteSql = "DELETE FROM scheduler_job_tag WHERE job_id IN (" + placeholders + ")";
     Query tagDeleteQ = ctx.em().createNativeQuery(tagDeleteSql);
     int tp = 1;
     for (UUID id : ids) {

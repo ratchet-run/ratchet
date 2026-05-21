@@ -16,6 +16,8 @@ import static run.ratchet.store.mongodb.MongoFieldNames.BACKOFF_PARAM_MS;
 import static run.ratchet.store.mongodb.MongoFieldNames.BACKOFF_POLICY;
 import static run.ratchet.store.mongodb.MongoFieldNames.BUSINESS_KEY;
 import static run.ratchet.store.mongodb.MongoFieldNames.CALLER_PRINCIPAL;
+import static run.ratchet.store.mongodb.MongoFieldNames.CLAIM_EXPIRES_AT;
+import static run.ratchet.store.mongodb.MongoFieldNames.CLAIM_TOKEN;
 import static run.ratchet.store.mongodb.MongoFieldNames.CREATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.CRON_EXPR;
 import static run.ratchet.store.mongodb.MongoFieldNames.ID;
@@ -64,10 +66,16 @@ import run.ratchet.store.spi.RecurringJobStore;
 final class MongoRecurringJobOperations implements RecurringJobStore {
 
   // Window during which a claimed row is invisible to other claimers. The worker is expected to
-  // advanceNextFire with the real cron-derived next_fire before the lease expires; if the worker
-  // crashes mid-process, the lease times out and the row becomes claimable again automatically.
-  // 5 minutes matches the upper bound of a typical RecurringJobExecutor tick + child enqueue.
+  // call advanceNextFire (which clears the claim token) or releaseClaim before the lease expires;
+  // if the worker crashes mid-process, the lease times out and the row becomes claimable again
+  // automatically. 5 minutes matches the upper bound of a typical executor tick + child enqueue.
   private static final long CLAIM_LEASE_SECONDS = 300L;
+
+  // Sentinel for unclaimed rows: claim_expires_at = epoch is always strictly less than now, so
+  // the claim filter (lte(claim_expires_at, now)) trivially matches. Sticking with a date
+  // sentinel avoids the null-vs-missing-field comparison quirks that bit the first cut of this
+  // implementation.
+  private static final Date UNCLAIMED = new Date(0L);
 
   private final MongoStoreContext ctx;
 
@@ -84,9 +92,13 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
     Instant now = Instant.now();
     Date nowDate = Date.from(now);
     Date leaseUntil = Date.from(now.plusSeconds(CLAIM_LEASE_SECONDS));
+    UUID claimToken = UUID.randomUUID();
     List<Bson> clauses = new ArrayList<>();
     clauses.add(eq(IS_PAUSED, false));
     clauses.add(lte(NEXT_FIRE, nowDate));
+    // Unclaimed or lease expired: claim_expires_at is the epoch sentinel (set on create / release
+    // / advance) or a past timestamp (lease aged out after a crash).
+    clauses.add(lte(CLAIM_EXPIRES_AT, nowDate));
     if (tagFilter != null && !tagFilter.isUnfiltered()) {
       if (!tagFilter.requireTags().isEmpty()) {
         clauses.add(in(TAGS, tagFilter.requireTags()));
@@ -100,15 +112,15 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
     }
     Bson filter = and(clauses);
     Bson sort = new Document(PRIORITY_FIELD, -1).append(NEXT_FIRE, 1).append(ID, 1);
-    Bson lease = new Document("$set", new Document(NEXT_FIRE, leaseUntil));
+    Bson lease = combine(set(CLAIM_TOKEN, claimToken), set(CLAIM_EXPIRES_AT, leaseUntil));
     FindOneAndUpdateOptions options =
         new FindOneAndUpdateOptions().sort(sort).returnDocument(ReturnDocument.BEFORE);
 
     // Per-row findOneAndUpdate replaces find()+iterate so two nodes can never observe the same
-    // master in the same window. The update bumps next_fire forward by CLAIM_LEASE_SECONDS, which
-    // hides the row from peers; the worker must call advanceNextFire with the real cron-derived
-    // value before the lease expires. The returned BEFORE document carries the original next_fire
-    // so the worker has accurate catch-up state.
+    // master in the same window. The update stamps a claim_token + claim_expires_at lease on the
+    // row, hiding it from peers. The worker calls advanceNextFire (which clears the lease and
+    // sets the real next_fire) or releaseClaim (which clears the lease without changing
+    // next_fire). If the worker crashes the lease expires naturally after CLAIM_LEASE_SECONDS.
     List<RecurringJobDefinition> defs = new ArrayList<>();
     for (int i = 0; i < limit; i++) {
       Document before = ctx.recurringJobs().findOneAndUpdate(filter, lease, options);
@@ -122,7 +134,20 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
 
   @Override
   public void advanceNextFire(UUID id, Instant nextFire) {
-    ctx.recurringJobs().updateOne(eq(ID, id), set(NEXT_FIRE, Date.from(nextFire)));
+    // Advance also clears the claim lease so peers can see the row at its new next_fire.
+    ctx.recurringJobs()
+        .updateOne(
+            eq(ID, id),
+            combine(
+                set(NEXT_FIRE, Date.from(nextFire)),
+                set(CLAIM_TOKEN, null),
+                set(CLAIM_EXPIRES_AT, UNCLAIMED)));
+  }
+
+  @Override
+  public void releaseClaim(UUID id) {
+    ctx.recurringJobs()
+        .updateOne(eq(ID, id), combine(set(CLAIM_TOKEN, null), set(CLAIM_EXPIRES_AT, UNCLAIMED)));
   }
 
   @Override
@@ -339,6 +364,8 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
     doc.put(CRON_EXPR, d.cronExpr());
     doc.put(ZONE_ID, d.zoneId() != null ? d.zoneId() : "UTC");
     doc.put(NEXT_FIRE, Date.from(d.nextFire()));
+    doc.put(CLAIM_TOKEN, null);
+    doc.put(CLAIM_EXPIRES_AT, UNCLAIMED);
     doc.put(IS_PAUSED, d.paused());
     doc.put(PAUSED_AT, d.pausedAt() != null ? Date.from(d.pausedAt()) : null);
     doc.put(PAYLOAD, DocumentMapper.payloadToStoredValue(d.payload()));

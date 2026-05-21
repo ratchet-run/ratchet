@@ -349,8 +349,7 @@ final class PostgresqlRecurringJobOperations implements RecurringJobStore {
     // scheduler_job_tag.job_id is polymorphic since fk_job_tag_job was dropped; cancel must
     // delete recurring master tag rows explicitly so they don't outlive the master row.
     // language=PostgreSQL
-    String tagDeleteSql =
-        "DELETE FROM scheduler_job_tag WHERE job_id IN (" + placeholders + ")";
+    String tagDeleteSql = "DELETE FROM scheduler_job_tag WHERE job_id IN (" + placeholders + ")";
     Query tagDeleteQ = ctx.em().createNativeQuery(tagDeleteSql);
     int tp = 1;
     for (UUID id : ids) {

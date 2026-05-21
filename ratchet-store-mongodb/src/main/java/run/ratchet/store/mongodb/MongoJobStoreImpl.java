@@ -824,6 +824,11 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
+  public void releaseClaim(UUID id) {
+    recurringJobs.releaseClaim(id);
+  }
+
+  @Override
   public boolean cancelRecurringAndArchive(
       UUID id, run.ratchet.store.spi.RecurringJobStore.ArchiveReason reason) {
     return recurringJobs.cancelRecurringAndArchive(id, reason);

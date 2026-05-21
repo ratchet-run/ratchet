@@ -133,6 +133,31 @@ public abstract class AbstractRecurringJobStoreContract {
     }
   }
 
+  /**
+   * TCK 1c — releaseClaim returns the row to the eligible pool without changing next_fire. SQL
+   * stores satisfy this trivially (transaction-scoped row lock); Mongo must clear the claim_token /
+   * claim_expires_at so peers can see the row again.
+   */
+  @Test
+  void releaseClaim_makesClaimedRowImmediatelyEligibleAgain() {
+    UUID id = UuidV7Factory.create();
+    Instant pastDue = Instant.now().minusSeconds(60);
+    recurringStore().createRecurring(definition(id, "0 * * * * ?", pastDue));
+
+    List<RecurringJobDefinition> firstBatch = recurringStore().claimDueRecurring(10, "node-1");
+    assertEquals(1, firstBatch.size(), "the past-due master must be claimable initially");
+
+    // Without releaseClaim a Mongo lease would hide the row for CLAIM_LEASE_SECONDS; calling
+    // releaseClaim drops the lease so the next claim cycle sees it again immediately. The
+    // next_fire value must be unchanged — the row goes back to its original schedule.
+    recurringStore().releaseClaim(id);
+
+    List<RecurringJobDefinition> secondBatch = recurringStore().claimDueRecurring(10, "node-2");
+    assertEquals(1, secondBatch.size(), "released claim must be observable on the next cycle");
+    assertEquals(
+        id, secondBatch.get(0).id(), "the same master id must reappear in the second claim");
+  }
+
   /** TCK 2 — atomic next-fire advance: the master's next_fire strictly increases. */
   @Test
   void advanceNextFire_makesFutureClaimsSkipTheRow() {
