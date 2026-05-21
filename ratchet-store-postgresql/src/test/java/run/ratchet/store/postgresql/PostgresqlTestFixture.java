@@ -56,6 +56,8 @@ public class PostgresqlTestFixture extends JpaContainerFixture {
     executeNativeSql("DELETE FROM scheduler_batch_metrics");
     executeNativeSql("DELETE FROM scheduler_job_archive");
     executeNativeSql("DELETE FROM scheduler_job");
+    executeNativeSql("DELETE FROM scheduler_recurring_job_archive");
+    executeNativeSql("DELETE FROM scheduler_recurring_job");
     executeNativeSql("DELETE FROM scheduler_batch");
     executeNativeSql("DELETE FROM scheduler_resource_limit");
     executeNativeSql("DELETE FROM scheduler_lock");

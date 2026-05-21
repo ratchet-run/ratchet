@@ -213,12 +213,6 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
     return Collections.emptyList();
   }
 
-  @Override
-  public synchronized List<JobEntity> claimDueRecurring(
-      int limit, String nodeId, NodeTagFilter tagFilter) {
-    return Collections.emptyList();
-  }
-
   private static boolean matchesTagFilter(JobEntity job, NodeTagFilter filter) {
     if (filter.isUnfiltered()) {
       return true;
@@ -509,11 +503,6 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   @Override
   public synchronized long countActiveNodes() {
     return 1L;
-  }
-
-  @Override
-  public synchronized Optional<java.time.Instant> findEarliestRecurringNextFire() {
-    return Optional.empty();
   }
 
   // ----- ResourcePermitStore (no-op so production permit-check is permissive) -----

@@ -14,12 +14,10 @@ import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
-import run.ratchet.api.JobStatus;
-import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.testsuite.app.CronTestJobs;
 import run.ratchet.testsuite.app.TestJobService;
 import run.ratchet.testsuite.util.BaseRatchetIT;
-import run.ratchet.testsuite.util.JobAssertions;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /**
@@ -31,7 +29,7 @@ class RecurringPauseResumeIT extends BaseRatchetIT {
 
   @Inject private TestJobService jobService;
 
-  @Inject private JobCrudStore jobCrudStore;
+  @Inject private RecurringJobStore recurringJobStore;
 
   @Deployment
   public static WebArchive createDeployment() {
@@ -67,7 +65,9 @@ class RecurringPauseResumeIT extends BaseRatchetIT {
     boolean paused = jobService.pauseJob(handle.id());
     assertTrue(paused, "Expected pauseJob to return true");
 
-    JobAssertions.assertJobStatus(jobCrudStore, handle, JobStatus.PAUSED);
+    assertTrue(
+        recurringJobStore.getRecurring(handle.id()).orElseThrow().paused(),
+        "Expected recurring master to be paused");
 
     // Record tick count at pause time and verify it remains stable while paused.
     int ticksAtPause = CronTestJobs.tickCount();
@@ -98,7 +98,9 @@ class RecurringPauseResumeIT extends BaseRatchetIT {
                     "Expected at least 1 tick but got " + CronTestJobs.tickCount()));
 
     assertTrue(jobService.pauseJob(handle.id()));
-    JobAssertions.assertJobStatus(jobCrudStore, handle, JobStatus.PAUSED);
+    assertTrue(
+        recurringJobStore.getRecurring(handle.id()).orElseThrow().paused(),
+        "Expected recurring master to be paused");
 
     int ticksBeforeResume = CronTestJobs.tickCount();
 
@@ -122,7 +124,9 @@ class RecurringPauseResumeIT extends BaseRatchetIT {
     assertTrue(jobService.pauseJob(handle.id()), "Expected initial pauseJob to return true");
     assertTrue(jobService.pauseJob(handle.id()), "Expected repeated pauseJob to return true");
 
-    JobAssertions.assertJobStatus(jobCrudStore, handle, JobStatus.PAUSED);
+    assertTrue(
+        recurringJobStore.getRecurring(handle.id()).orElseThrow().paused(),
+        "Expected recurring master to be paused");
   }
 
   @Test
@@ -132,7 +136,9 @@ class RecurringPauseResumeIT extends BaseRatchetIT {
     assertFalse(
         jobService.resumeJob(handle.id()), "Expected resumeJob on active recurring job to fail");
 
-    JobAssertions.assertJobStatus(jobCrudStore, handle, JobStatus.PENDING);
+    assertFalse(
+        recurringJobStore.getRecurring(handle.id()).orElseThrow().paused(),
+        "Expected recurring master to remain active");
   }
 
   @Test

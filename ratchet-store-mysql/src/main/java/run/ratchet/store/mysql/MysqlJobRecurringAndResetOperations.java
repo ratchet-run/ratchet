@@ -1,29 +1,18 @@
 package run.ratchet.store.mysql;
 
-import jakarta.persistence.Query;
-import java.sql.Timestamp;
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 
-// Keep this class aligned with PostgresqlJobRecurringAndResetOperations. The control flow is
-// intentionally parallel, while SQL syntax, timestamp functions, and UUID binding stay
-// dialect-local.
+// Reset + cancel-by-tag operations against the executable scheduler_job table. Recurring-master
+// pause / resume / cancel / orphan-cleanup live on MysqlRecurringJobOperations against
+// scheduler_recurring_job.
 final class MysqlJobRecurringAndResetOperations {
 
-  private static final int RECURRING_CANCEL_CHUNK_SIZE = 500;
-
   private final MysqlStoreContext ctx;
-  private final MysqlBusinessKeyReservations reservations;
 
   MysqlJobRecurringAndResetOperations(
       MysqlStoreContext ctx, MysqlBusinessKeyReservations reservations) {
     this.ctx = ctx;
-    this.reservations = reservations;
   }
 
   boolean resetRunningJob(UUID id, String nodeId) {
@@ -60,50 +49,7 @@ final class MysqlJobRecurringAndResetOperations {
         updated -> updated > 0 ? "updated" : "miss");
   }
 
-  int cancelRecurringJobsByTag(String tag) {
-    // language=MySQL
-    String coldSql =
-        """
-        UPDATE scheduler_job j
-          JOIN scheduler_job_tag t ON t.job_id = j.job_id
-        SET j.rec_status = NULL,
-            j.terminal_status = 'CANCELED',
-            j.terminated_at = NOW(3)
-        WHERE t.tag = ?
-          AND j.job_type = 'RECURRING'
-          AND j.rec_status IS NOT NULL
-          AND j.terminal_status IS NULL
-        """;
-    int cancelled =
-        ctx.timedStoreOperation(
-            "cancel_recurring_by_tag",
-            () -> ctx.em().createNativeQuery(coldSql).setParameter(1, tag).executeUpdate(),
-            updated -> updated > 0 ? "updated" : "miss");
-    if (cancelled == 0) {
-      return 0;
-    }
-    // language=MySQL
-    String reservationsSql =
-        """
-        DELETE r FROM scheduler_business_key_reservation r
-        WHERE r.owner_job_id IN (
-          SELECT j.job_id FROM scheduler_job j
-            JOIN scheduler_job_tag t ON t.job_id = j.job_id
-          WHERE t.tag = ?
-            AND j.job_type = 'RECURRING'
-            AND j.terminal_status = 'CANCELED'
-        )
-        """;
-    ctx.timedStoreOperation(
-        "cancel_recurring_by_tag_reservations",
-        () -> ctx.em().createNativeQuery(reservationsSql).setParameter(1, tag).executeUpdate(),
-        updated -> updated > 0 ? "updated" : "miss");
-    return cancelled;
-  }
-
   int cancelJobsByTag(String tag) {
-    // Cold UPDATE drives off the hot row's status so RUNNING jobs are skipped (their cold row is
-    // not flipped to terminal until the executor finishes them). Rowcount is the return value.
     // language=MySQL
     String coldSql =
         """
@@ -125,8 +71,6 @@ final class MysqlJobRecurringAndResetOperations {
     if (cancelled == 0) {
       return 0;
     }
-    // Hot DELETE drives off the cold rows we just flipped — this guarantees the hot housekeeping
-    // matches exactly what the cold UPDATE counted, even under concurrent writers.
     // language=MySQL
     String hotSql =
         """
@@ -144,7 +88,6 @@ final class MysqlJobRecurringAndResetOperations {
         "cancel_jobs_by_tag_hot_delete",
         () -> ctx.em().createNativeQuery(hotSql).setParameter(1, tag).executeUpdate(),
         deleted -> deleted > 0 ? "updated" : "miss");
-    // Reservations housekeeping.
     // language=MySQL
     String reservationsSql =
         """
@@ -162,190 +105,5 @@ final class MysqlJobRecurringAndResetOperations {
         () -> ctx.em().createNativeQuery(reservationsSql).setParameter(1, tag).executeUpdate(),
         deleted -> deleted > 0 ? "updated" : "miss");
     return cancelled;
-  }
-
-  int cancelRecurringJobByBusinessKey(String businessKey) {
-    // language=MySQL
-    String sql =
-        """
-        SELECT job_id FROM scheduler_job
-        WHERE business_key = ? AND job_type = 'RECURRING'
-          AND rec_status IS NOT NULL AND terminal_status IS NULL
-        LIMIT 1
-        """;
-    @SuppressWarnings("unchecked")
-    List<?> ids = ctx.em().createNativeQuery(sql).setParameter(1, businessKey).getResultList();
-    return cancelRecurringByIds(ids);
-  }
-
-  int cancelRecurringJobsByBusinessKeys(Set<String> businessKeys) {
-    if (businessKeys.isEmpty()) {
-      return 0;
-    }
-    List<String> keysList = new ArrayList<>(businessKeys);
-    String placeholders = String.join(",", Collections.nCopies(keysList.size(), "?"));
-    // language=MySQL
-    String sql =
-        """
-        SELECT job_id FROM scheduler_job
-        WHERE business_key IN (%s) AND job_type = 'RECURRING'
-          AND rec_status IS NOT NULL AND terminal_status IS NULL
-        """
-            .formatted(placeholders);
-    Query query = ctx.em().createNativeQuery(sql);
-    int parameter = 1;
-    for (String businessKey : keysList) {
-      query.setParameter(parameter++, businessKey);
-    }
-    @SuppressWarnings("unchecked")
-    List<?> ids = query.getResultList();
-    return cancelRecurringByIds(ids);
-  }
-
-  int cancelOrphanedRecurringAnnotationJobs(Set<String> registeredIds, Instant nodeStartTime) {
-    if (registeredIds.isEmpty()) {
-      return 0;
-    }
-    List<String> idsList = new ArrayList<>(registeredIds);
-    String placeholders = String.join(",", Collections.nCopies(idsList.size(), "?"));
-    // language=MySQL
-    String sql =
-        """
-        SELECT job_id FROM scheduler_job
-        WHERE job_type = 'RECURRING'
-          AND rec_status IS NOT NULL AND terminal_status IS NULL
-          AND created_at < ? AND business_key IS NOT NULL
-          AND business_key NOT IN (%s)
-        LIMIT ?
-        """
-            .formatted(placeholders);
-    Query query = ctx.em().createNativeQuery(sql);
-    int parameter = 1;
-    query.setParameter(parameter++, Timestamp.from(nodeStartTime));
-    for (String registeredId : idsList) {
-      query.setParameter(parameter++, registeredId);
-    }
-    int limitParameter = parameter;
-    int cancelled = 0;
-    List<?> ids;
-    do {
-      query.setParameter(limitParameter, RECURRING_CANCEL_CHUNK_SIZE);
-      ids = query.getResultList();
-      cancelled += cancelRecurringByIds(ids);
-    } while (ids.size() == RECURRING_CANCEL_CHUNK_SIZE);
-    return cancelled;
-  }
-
-  boolean pauseRecurring(UUID id) {
-    // language=MySQL
-    String sql =
-        """
-        UPDATE scheduler_job SET rec_status = 'A'
-        WHERE job_id = ? AND job_type = 'RECURRING'
-          AND rec_status = 'P' AND terminal_status IS NULL
-        """;
-    int updated =
-        ctx.timedStoreOperation(
-            "pause_recurring",
-            () ->
-                ctx.em()
-                    .createNativeQuery(sql)
-                    .setParameter(1, UuidByteArrayConverter.toBytes(id))
-                    .executeUpdate(),
-            count -> count > 0 ? "updated" : "miss");
-    return updated > 0;
-  }
-
-  boolean resumeRecurring(UUID id) {
-    // language=MySQL
-    String sql =
-        """
-        UPDATE scheduler_job SET rec_status = 'P'
-        WHERE job_id = ? AND job_type = 'RECURRING'
-          AND rec_status = 'A' AND terminal_status IS NULL
-        """;
-    int updated =
-        ctx.timedStoreOperation(
-            "resume_recurring",
-            () ->
-                ctx.em()
-                    .createNativeQuery(sql)
-                    .setParameter(1, UuidByteArrayConverter.toBytes(id))
-                    .executeUpdate(),
-            count -> count > 0 ? "updated" : "miss");
-    return updated > 0;
-  }
-
-  private int cancelRecurringByIds(List<?> idRows) {
-    if (idRows.isEmpty()) {
-      return 0;
-    }
-    List<UUID> ids = new ArrayList<>(idRows.size());
-    for (Object row : idRows) {
-      UUID id = MysqlJobRowMapper.uuidOrNull(row);
-      if (id != null) {
-        ids.add(id);
-      }
-    }
-    if (ids.isEmpty()) {
-      return 0;
-    }
-    int updated = 0;
-    for (int start = 0; start < ids.size(); start += RECURRING_CANCEL_CHUNK_SIZE) {
-      updated +=
-          cancelRecurringByIdsChunk(
-              ids.subList(start, Math.min(start + RECURRING_CANCEL_CHUNK_SIZE, ids.size())));
-    }
-    return updated;
-  }
-
-  private int cancelRecurringByIdsChunk(List<UUID> ids) {
-    String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
-    // language=MySQL
-    String sql =
-        """
-        UPDATE scheduler_job SET rec_status = NULL, terminal_status = 'CANCELED',
-            terminated_at = NOW(3)
-        WHERE job_id IN (%s) AND job_type = 'RECURRING'
-          AND rec_status IS NOT NULL AND terminal_status IS NULL
-        """
-            .formatted(placeholders);
-    Query query = ctx.em().createNativeQuery(sql);
-    int parameter = 1;
-    for (UUID id : ids) {
-      query.setParameter(parameter++, UuidByteArrayConverter.toBytes(id));
-    }
-    int updated =
-        ctx.timedStoreOperation(
-            "cancel_recurring_by_ids",
-            query::executeUpdate,
-            count -> count > 0 ? "updated" : "miss");
-    if (updated > 0) {
-      deleteReservationsForCanceledRecurringIds(ids);
-    }
-    return updated;
-  }
-
-  private void deleteReservationsForCanceledRecurringIds(List<UUID> ids) {
-    String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
-    // language=MySQL
-    String sql =
-        """
-        DELETE r FROM scheduler_business_key_reservation r
-          JOIN scheduler_job j ON j.job_id = r.owner_job_id
-        WHERE r.owner_job_id IN (%s)
-          AND j.job_type = 'RECURRING'
-          AND j.terminal_status = 'CANCELED'
-        """
-            .formatted(placeholders);
-    Query query = ctx.em().createNativeQuery(sql);
-    int parameter = 1;
-    for (UUID id : ids) {
-      query.setParameter(parameter++, UuidByteArrayConverter.toBytes(id));
-    }
-    ctx.timedStoreOperation(
-        "cancel_recurring_by_ids_reservations",
-        query::executeUpdate,
-        count -> count > 0 ? "updated" : "miss");
   }
 }

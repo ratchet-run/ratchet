@@ -16,9 +16,7 @@ import org.jboss.shrinkwrap.api.spec.WebArchive;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
-import run.ratchet.api.JobStatus;
-import run.ratchet.store.entity.JobExecutionType;
-import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.testsuite.app.CronTestJobs;
 import run.ratchet.testsuite.app.TestJobService;
 import run.ratchet.testsuite.util.BaseRatchetIT;
@@ -29,7 +27,7 @@ class CronScheduleIT extends BaseRatchetIT {
 
   @Inject private TestJobService jobService;
 
-  @Inject private JobCrudStore jobCrudStore;
+  @Inject private RecurringJobStore recurringJobStore;
 
   @Deployment
   public static WebArchive createDeployment() {
@@ -65,13 +63,12 @@ class CronScheduleIT extends BaseRatchetIT {
                     CronTestJobs.tickCount() >= 2,
                     "Expected at least 2 ticks but got " + CronTestJobs.tickCount()));
 
-    var recurringJob = jobCrudStore.findById(handle.id()).orElseThrow();
-    assertEquals(JobExecutionType.RECURRING, recurringJob.getJobType());
-    assertEquals(JobStatus.PENDING, recurringJob.getStatus());
-    assertNotNull(recurringJob.getNextFire());
+    var def = recurringJobStore.getRecurring(handle.id()).orElseThrow();
+    assertEquals(handle.id(), def.id());
+    assertNotNull(def.nextFire());
     assertTrue(
-        recurringJob.getNextFire().isAfter(Instant.now()),
-        "Next fire should be scheduled in the future but was " + recurringJob.getNextFire());
+        def.nextFire().isAfter(Instant.now()),
+        "Next fire should be scheduled in the future but was " + def.nextFire());
   }
 
   @Test

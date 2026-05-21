@@ -219,73 +219,6 @@ public abstract class AbstractJobClaimStoreContract implements JobStoreContractF
   }
 
   @Test
-  void claimDueRecurring_claimsDueJobs() {
-    JobEntity recurring = newPendingJob();
-    recurring.setJobType(JobExecutionType.RECURRING);
-    recurring.setCronExpr("0 * * * *");
-    recurring.setNextFire(Instant.now().minusSeconds(60));
-    persist(recurring);
-
-    var claimed = store().claimDueRecurring(10, "node-1");
-
-    assertEquals(1, claimed.size(), "claimDueRecurring should claim job with past nextFire");
-    assertEquals(JobStatus.RUNNING, claimed.get(0).getStatus());
-  }
-
-  @Test
-  void claimDueRecurring_skipsNotYetDue() {
-    JobEntity recurring = newPendingJob();
-    recurring.setJobType(JobExecutionType.RECURRING);
-    recurring.setCronExpr("0 * * * *");
-    recurring.setNextFire(Instant.now().plusSeconds(3600));
-    persist(recurring);
-
-    var claimed = store().claimDueRecurring(10, "node-1");
-
-    assertTrue(claimed.isEmpty(), "claimDueRecurring should skip job with future nextFire");
-  }
-
-  @Test
-  void claimDueRecurring_respectsLimit() {
-    for (int i = 0; i < 3; i++) {
-      JobEntity recurring = newPendingJob();
-      recurring.setJobType(JobExecutionType.RECURRING);
-      recurring.setCronExpr("0 * * * *");
-      recurring.setNextFire(Instant.now().minusSeconds(60));
-      persist(recurring);
-    }
-
-    var claimed = store().claimDueRecurring(2, "node-1");
-
-    assertEquals(2, claimed.size(), "claimDueRecurring should respect the limit parameter");
-  }
-
-  @Test
-  void claimDueRecurring_usesAgeBoostedEffectivePriority() {
-    JobEntity oldLow = newPendingJob();
-    oldLow.setJobType(JobExecutionType.RECURRING);
-    oldLow.setCronExpr("0 * * * *");
-    oldLow.setPriority(JobPriority.LOWEST);
-    oldLow.setNextFire(oldEnoughForLowestToBeatCritical());
-    oldLow = persist(oldLow);
-
-    JobEntity freshCritical = newPendingJob();
-    freshCritical.setJobType(JobExecutionType.RECURRING);
-    freshCritical.setCronExpr("0 * * * *");
-    freshCritical.setPriority(JobPriority.CRITICAL);
-    freshCritical.setNextFire(Instant.now().minusSeconds(1));
-    persist(freshCritical);
-
-    var claimed = store().claimDueRecurring(1, "node-1");
-
-    assertEquals(1, claimed.size(), "claimDueRecurring should return the requested job");
-    assertEquals(
-        oldLow.getId(),
-        claimed.get(0).getId(),
-        "age-boosted recurring LOWEST job should outrank a fresh CRITICAL job");
-  }
-
-  @Test
   void claimNextBatchOptimized_filtersByRequestedExecutionType() {
     persist(newPendingJob());
 
@@ -359,47 +292,5 @@ public abstract class AbstractJobClaimStoreContract implements JobStoreContractF
     List<JobEntity> claimed = store().claimNextBatch(10, "node-nb-req", filter);
 
     assertEquals(1, claimed.size(), "claimNextBatch requireTags should only claim matching job");
-  }
-
-  @Test
-  void claimDueRecurring_withRequireTags_skipsUntaggedRecurring() {
-    JobEntity taggedRecurring = newPendingJob("gpu");
-    taggedRecurring.setJobType(JobExecutionType.RECURRING);
-    taggedRecurring.setCronExpr("0 * * * *");
-    taggedRecurring.setNextFire(Instant.now().minusSeconds(60));
-    persist(taggedRecurring);
-
-    JobEntity untaggedRecurring = newPendingJob();
-    untaggedRecurring.setJobType(JobExecutionType.RECURRING);
-    untaggedRecurring.setCronExpr("0 * * * *");
-    untaggedRecurring.setNextFire(Instant.now().minusSeconds(60));
-    persist(untaggedRecurring);
-
-    NodeTagFilter filter = new NodeTagFilter(List.of("gpu"), List.of());
-    List<JobEntity> claimed = store().claimDueRecurring(10, "node-rec", filter);
-
-    assertEquals(1, claimed.size(), "claimDueRecurring with requireTags should skip untagged");
-    assertEquals(taggedRecurring.getId(), claimed.get(0).getId());
-  }
-
-  @Test
-  void claimDueRecurring_withExcludeTags_skipsExcludedRecurring() {
-    JobEntity gpuRecurring = newPendingJob("gpu");
-    gpuRecurring.setJobType(JobExecutionType.RECURRING);
-    gpuRecurring.setCronExpr("0 * * * *");
-    gpuRecurring.setNextFire(Instant.now().minusSeconds(60));
-    persist(gpuRecurring);
-
-    JobEntity generalRecurring = newPendingJob();
-    generalRecurring.setJobType(JobExecutionType.RECURRING);
-    generalRecurring.setCronExpr("0 * * * *");
-    generalRecurring.setNextFire(Instant.now().minusSeconds(60));
-    persist(generalRecurring);
-
-    NodeTagFilter filter = new NodeTagFilter(List.of(), List.of("gpu"));
-    List<JobEntity> claimed = store().claimDueRecurring(10, "node-rec-exc", filter);
-
-    assertEquals(1, claimed.size(), "claimDueRecurring with excludeTags should skip gpu-tagged");
-    assertEquals(generalRecurring.getId(), claimed.get(0).getId());
   }
 }

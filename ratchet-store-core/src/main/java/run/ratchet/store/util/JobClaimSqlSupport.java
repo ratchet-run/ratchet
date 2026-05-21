@@ -18,10 +18,23 @@ public final class JobClaimSqlSupport {
 
   /**
    * Builds a SQL fragment (empty string or starting with newline+AND) for tag affinity filtering.
-   * Guards each list independently to avoid empty {@code IN ()}.
+   * Guards each list independently to avoid empty {@code IN ()}. Assumes the joined table's
+   * primary-key column is named {@code job_id}.
    */
   public static String buildTagFilterSql(NodeTagFilter filter, String tableAlias) {
+    return buildTagFilterSql(filter, tableAlias, "job_id");
+  }
+
+  /**
+   * Builds a tag-affinity SQL fragment against the join table {@code scheduler_job_tag} where the
+   * joined table aliased by {@code tableAlias} carries its primary key in {@code idColumn}.
+   *
+   * <p>The recurring-master table uses {@code id} as its PK column, not {@code job_id}; callers
+   * filtering recurring rows must pass {@code "id"}.
+   */
+  public static String buildTagFilterSql(NodeTagFilter filter, String tableAlias, String idColumn) {
     requireSafeSqlFragment(tableAlias, "tableAlias");
+    requireSafeSqlFragment(idColumn, "idColumn");
     if (filter.isUnfiltered()) {
       return "";
     }
@@ -30,7 +43,9 @@ public final class JobClaimSqlSupport {
       String placeholders = "?,".repeat(filter.requireTags().size());
       sb.append("\n  AND EXISTS (SELECT 1 FROM scheduler_job_tag t WHERE t.job_id = ")
           .append(tableAlias)
-          .append(".job_id AND t.tag IN (")
+          .append('.')
+          .append(idColumn)
+          .append(" AND t.tag IN (")
           .append(placeholders, 0, placeholders.length() - 1)
           .append("))");
     }
@@ -38,7 +53,9 @@ public final class JobClaimSqlSupport {
       String placeholders = "?,".repeat(filter.excludeTags().size());
       sb.append("\n  AND NOT EXISTS (SELECT 1 FROM scheduler_job_tag t WHERE t.job_id = ")
           .append(tableAlias)
-          .append(".job_id AND t.tag IN (")
+          .append('.')
+          .append(idColumn)
+          .append(" AND t.tag IN (")
           .append(placeholders, 0, placeholders.length() - 1)
           .append("))");
     }

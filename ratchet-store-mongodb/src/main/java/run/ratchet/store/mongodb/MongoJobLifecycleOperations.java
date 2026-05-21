@@ -3,16 +3,12 @@ package run.ratchet.store.mongodb;
 import static com.mongodb.client.model.Filters.and;
 import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Filters.in;
-import static com.mongodb.client.model.Filters.lt;
 import static com.mongodb.client.model.Filters.ne;
-import static com.mongodb.client.model.Filters.nin;
 import static com.mongodb.client.model.Updates.combine;
 import static com.mongodb.client.model.Updates.inc;
 import static com.mongodb.client.model.Updates.set;
 import static com.mongodb.client.model.Updates.unset;
 import static run.ratchet.store.mongodb.MongoFieldNames.ATTEMPTS;
-import static run.ratchet.store.mongodb.MongoFieldNames.BUSINESS_KEY;
-import static run.ratchet.store.mongodb.MongoFieldNames.CREATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.EXECUTION_DURATION_MS;
 import static run.ratchet.store.mongodb.MongoFieldNames.EXECUTION_END_TIME;
 import static run.ratchet.store.mongodb.MongoFieldNames.EXECUTION_START_TIME;
@@ -39,7 +35,6 @@ import com.mongodb.client.result.UpdateResult;
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 import java.util.function.BooleanSupplier;
 import java.util.function.IntSupplier;
@@ -302,42 +297,6 @@ final class MongoJobLifecycleOperations
   }
 
   @Override
-  public boolean pauseRecurring(UUID id) {
-    return booleanMutation(
-        "pause_recurring",
-        () -> {
-          UpdateResult result =
-              ctx.jobs()
-                  .updateOne(
-                      and(eq(ID, id), eq(JOB_TYPE, "RECURRING"), eq(STATUS, "PENDING")),
-                      combine(
-                          set(STATUS, "PAUSED"),
-                          set(PAUSED_FROM_STATUS, "PENDING"),
-                          set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
-                          inc(VERSION, 1)));
-          return result.getModifiedCount() > 0;
-        });
-  }
-
-  @Override
-  public boolean resumeRecurring(UUID id) {
-    return booleanMutation(
-        "resume_recurring",
-        () -> {
-          UpdateResult result =
-              ctx.jobs()
-                  .updateOne(
-                      and(eq(ID, id), eq(JOB_TYPE, "RECURRING"), eq(STATUS, "PAUSED")),
-                      combine(
-                          set(STATUS, "PENDING"),
-                          set(PAUSED_FROM_STATUS, null),
-                          set(UPDATED_AT, DocumentMapper.toDate(Instant.now())),
-                          inc(VERSION, 1)));
-          return result.getModifiedCount() > 0;
-        });
-  }
-
-  @Override
   public boolean markJobFailedTerminal(UUID id, String terminalError, int totalAttempts) {
     return booleanMutation(
         "mark_failed_terminal",
@@ -457,103 +416,6 @@ final class MongoJobLifecycleOperations
                           set(STATUS, "CANCELED"),
                           set(PICKED_BY, null),
                           set(PICKED_AT, null),
-                          set(UPDATED_AT, DocumentMapper.toDate(now)),
-                          set(TERMINATED_AT, DocumentMapper.toDate(now)),
-                          inc(VERSION, 1)));
-          return (int) result.getModifiedCount();
-        });
-  }
-
-  @Override
-  public int cancelRecurringJobsByTag(String tag) {
-    return intMutation(
-        "cancel_recurring_by_tag",
-        () -> {
-          Instant now = Instant.now();
-          UpdateResult result =
-              ctx.jobs()
-                  .updateMany(
-                      and(
-                          eq(TAGS, tag),
-                          eq(JOB_TYPE, "RECURRING"),
-                          in(STATUS, MongoStoreContext.ACTIVE_STATUSES)),
-                      combine(
-                          set(STATUS, "CANCELED"),
-                          set(UPDATED_AT, DocumentMapper.toDate(now)),
-                          set(TERMINATED_AT, DocumentMapper.toDate(now)),
-                          inc(VERSION, 1)));
-          return (int) result.getModifiedCount();
-        });
-  }
-
-  @Override
-  public int cancelRecurringJobByBusinessKey(String businessKey) {
-    return intMutation(
-        "cancel_recurring_by_business_key",
-        () -> {
-          Instant now = Instant.now();
-          UpdateResult result =
-              ctx.jobs()
-                  .updateMany(
-                      and(
-                          eq(BUSINESS_KEY, businessKey),
-                          eq(JOB_TYPE, "RECURRING"),
-                          in(STATUS, MongoStoreContext.ACTIVE_STATUSES)),
-                      combine(
-                          set(STATUS, "CANCELED"),
-                          set(UPDATED_AT, DocumentMapper.toDate(now)),
-                          set(TERMINATED_AT, DocumentMapper.toDate(now)),
-                          inc(VERSION, 1)));
-          return (int) result.getModifiedCount();
-        });
-  }
-
-  @Override
-  public int cancelRecurringJobsByBusinessKeys(Set<String> businessKeys) {
-    if (businessKeys.isEmpty()) {
-      return 0;
-    }
-    return intMutation(
-        "cancel_recurring_by_business_keys",
-        () -> {
-          Instant now = Instant.now();
-          UpdateResult result =
-              ctx.jobs()
-                  .updateMany(
-                      and(
-                          in(BUSINESS_KEY, businessKeys),
-                          eq(JOB_TYPE, "RECURRING"),
-                          in(STATUS, MongoStoreContext.ACTIVE_STATUSES)),
-                      combine(
-                          set(STATUS, "CANCELED"),
-                          set(UPDATED_AT, DocumentMapper.toDate(now)),
-                          set(TERMINATED_AT, DocumentMapper.toDate(now)),
-                          inc(VERSION, 1)));
-          return (int) result.getModifiedCount();
-        });
-  }
-
-  @Override
-  public int cancelOrphanedRecurringAnnotationJobs(
-      Set<String> registeredIds, Instant nodeStartTime) {
-    if (registeredIds.isEmpty()) {
-      return 0;
-    }
-    return intMutation(
-        "cancel_orphaned_recurring_annotations",
-        () -> {
-          Instant now = Instant.now();
-          UpdateResult result =
-              ctx.jobs()
-                  .updateMany(
-                      and(
-                          eq(JOB_TYPE, "RECURRING"),
-                          in(STATUS, MongoStoreContext.ACTIVE_STATUSES),
-                          lt(CREATED_AT, DocumentMapper.toDate(nodeStartTime)),
-                          ne(BUSINESS_KEY, null),
-                          nin(BUSINESS_KEY, registeredIds)),
-                      combine(
-                          set(STATUS, "CANCELED"),
                           set(UPDATED_AT, DocumentMapper.toDate(now)),
                           set(TERMINATED_AT, DocumentMapper.toDate(now)),
                           inc(VERSION, 1)));

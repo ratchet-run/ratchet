@@ -68,6 +68,7 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   private MysqlAuxiliaryOperations auxiliary;
   private MysqlTagOperations tags;
   private MysqlSignalOperations signals;
+  private MysqlRecurringJobOperations recurringJobs;
 
   /** No-arg constructor required by CDI normal-scope proxying. Not for direct use. */
   protected MysqlJobStoreImpl() {
@@ -138,7 +139,7 @@ class MysqlJobStoreImpl implements MysqlJobStore {
 
   @Override
   public Optional<Instant> findEarliestRecurringNextFire() {
-    return jobs.findEarliestRecurringNextFire();
+    return recurringJobs.findEarliestRecurringNextFire();
   }
 
   @Override
@@ -283,11 +284,6 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   }
 
   @Override
-  public List<JobEntity> claimDueRecurring(int limit, String nodeId, NodeTagFilter tagFilter) {
-    return claims.claimDueRecurring(limit, nodeId, tagFilter);
-  }
-
-  @Override
   public void updateJobStatus(UUID id, JobStatus status, String errorMessage) {
     lifecycle.updateJobStatus(id, status, errorMessage);
   }
@@ -378,23 +374,18 @@ class MysqlJobStoreImpl implements MysqlJobStore {
 
   @Override
   public int cancelRecurringJobsByTag(String tag) {
-    return lifecycle.cancelRecurringJobsByTag(tag);
-  }
-
-  @Override
-  public int cancelRecurringJobByBusinessKey(String businessKey) {
-    return lifecycle.cancelRecurringJobByBusinessKey(businessKey);
+    return recurringJobs.cancelRecurringJobsByTag(tag);
   }
 
   @Override
   public int cancelRecurringJobsByBusinessKeys(Set<String> businessKeys) {
-    return lifecycle.cancelRecurringJobsByBusinessKeys(businessKeys);
+    return recurringJobs.cancelRecurringJobsByBusinessKeys(businessKeys);
   }
 
   @Override
   public int cancelOrphanedRecurringAnnotationJobs(
       Set<String> registeredIds, Instant nodeStartTime) {
-    return lifecycle.cancelOrphanedRecurringAnnotationJobs(registeredIds, nodeStartTime);
+    return recurringJobs.cancelOrphanedRecurringAnnotationJobs(registeredIds, nodeStartTime);
   }
 
   @Override
@@ -414,12 +405,12 @@ class MysqlJobStoreImpl implements MysqlJobStore {
 
   @Override
   public boolean pauseRecurring(UUID id) {
-    return lifecycle.pauseRecurring(id);
+    return recurringJobs.pauseRecurring(id);
   }
 
   @Override
   public boolean resumeRecurring(UUID id) {
-    return lifecycle.resumeRecurring(id);
+    return recurringJobs.resumeRecurring(id);
   }
 
   @Override
@@ -811,5 +802,60 @@ class MysqlJobStoreImpl implements MysqlJobStore {
     archives = new MysqlArchiveOperations(ctx, mapper, tags, jobs);
     auxiliary = new MysqlAuxiliaryOperations(ctx);
     signals = new MysqlSignalOperations(ctx);
+    recurringJobs = new MysqlRecurringJobOperations(ctx, reservations);
+  }
+
+  // ---------- RecurringJobStore delegates ----------
+
+  @Override
+  public List<run.ratchet.store.spi.RecurringJobDefinition> claimDueRecurring(
+      int limit, String nodeId, NodeTagFilter tagFilter) {
+    return recurringJobs.claimDueRecurring(limit, nodeId, tagFilter);
+  }
+
+  @Override
+  public void advanceNextFire(UUID id, Instant nextFire) {
+    recurringJobs.advanceNextFire(id, nextFire);
+  }
+
+  @Override
+  public boolean cancelRecurringAndArchive(
+      UUID id, run.ratchet.store.spi.RecurringJobStore.ArchiveReason reason) {
+    return recurringJobs.cancelRecurringAndArchive(id, reason);
+  }
+
+  // cancelOrphanedRecurringAnnotationJobs / cancelRecurringJobsByTag /
+  // cancelRecurringJobsByBusinessKeys: identical signatures on JobBatchStatusStore and
+  // RecurringJobStore; legacy delegates satisfy both.
+
+  @Override
+  public boolean cancelRecurringJobByBusinessKey(String businessKey) {
+    return recurringJobs.cancelRecurringJobByBusinessKey(businessKey);
+  }
+
+  @Override
+  public UUID createRecurring(run.ratchet.store.spi.RecurringJobDefinition definition) {
+    return recurringJobs.createRecurring(definition);
+  }
+
+  @Override
+  public boolean updateRecurring(UUID id, run.ratchet.store.spi.RecurringJobDefinition definition) {
+    return recurringJobs.updateRecurring(id, definition);
+  }
+
+  @Override
+  public Optional<run.ratchet.store.spi.RecurringJobDefinition> getRecurring(UUID id) {
+    return recurringJobs.getRecurring(id);
+  }
+
+  @Override
+  public Optional<run.ratchet.store.spi.RecurringJobDefinition> findRecurringByBusinessKey(
+      String businessKey) {
+    return recurringJobs.findRecurringByBusinessKey(businessKey);
+  }
+
+  @Override
+  public List<run.ratchet.store.spi.RecurringJobDefinition> listAll() {
+    return recurringJobs.listAll();
   }
 }

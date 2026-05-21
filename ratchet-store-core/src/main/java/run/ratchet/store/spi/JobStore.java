@@ -27,6 +27,7 @@ public interface JobStore
         BatchMetricsStore,
         DlqAlertStore,
         ResourcePermitStore,
-        SignalStore {
-  // Marker interface — all methods inherited from sub-interfaces
+        SignalStore,
+        RecurringJobStore {
+  // Marker interface — all methods inherited from sub-interfaces.
 }

@@ -1,7 +1,6 @@
 package run.ratchet.store.postgresql;
 
 import jakarta.persistence.Query;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -62,7 +61,7 @@ final class PostgresqlJobReadOperations {
       // language=PostgreSQL
       String sql =
           """
-          SELECT q.status, c.rec_status, c.terminal_status
+          SELECT q.status, c.terminal_status
           FROM scheduler_job c
           LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
           WHERE c.job_id = ?
@@ -76,16 +75,11 @@ final class PostgresqlJobReadOperations {
       if (live != null) {
         return JobStatus.valueOf(live);
       }
-      JobStatus rec =
-          PostgresqlJobRowMapper.recStatusDecode(PostgresqlJobRowMapper.stringOrNull(row[1]));
-      if (rec != null) {
-        return rec;
-      }
-      String terminal = (String) row[2];
+      String terminal = (String) row[1];
       if (terminal != null) {
         return JobStatus.valueOf(terminal);
       }
-      throw new IllegalStateException("Job " + id + " has no live, recurring, or terminal status");
+      throw new IllegalStateException("Job " + id + " has no live or terminal status");
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("get job status", e);
     }
@@ -212,26 +206,6 @@ final class PostgresqlJobReadOperations {
       return jobs;
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("find dependant jobs", e);
-    }
-  }
-
-  @SuppressWarnings("unchecked")
-  Optional<Instant> findEarliestRecurringNextFire() {
-    try {
-      // language=PostgreSQL
-      String sql =
-          """
-          SELECT MIN(next_fire) FROM scheduler_job
-          WHERE job_type = 'RECURRING' AND rec_status = 'P'
-            AND next_fire IS NOT NULL
-          """;
-      List<Object> results = ctx.em().createNativeQuery(sql).getResultList();
-      if (results.isEmpty() || results.get(0) == null) {
-        return Optional.empty();
-      }
-      return Optional.ofNullable(PostgresqlJobRowMapper.toInstant(results.get(0)));
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("find earliest recurring next fire", e);
     }
   }
 

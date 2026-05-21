@@ -66,6 +66,7 @@ class DefaultJobSchedulerServiceSignalTest {
   @Mock private TagStore tagStore;
   @Mock private WorkflowConditionStore workflowConditionStore;
   @Mock private JobWakeupService wakeupService;
+  @Mock private run.ratchet.store.spi.RecurringJobStore recurringJobStore;
   @Mock private RecurringScheduler recurringScheduler;
   @Mock private DefaultJobCreationService jobCreationService;
   @Mock private JobAuthorizationPolicy authorizationPolicy;
@@ -430,6 +431,7 @@ class DefaultJobSchedulerServiceSignalTest {
         batchStore,
         tagStore,
         workflowConditionStore,
+        recurringJobStore,
         wakeupService,
         recurringScheduler,
         null,

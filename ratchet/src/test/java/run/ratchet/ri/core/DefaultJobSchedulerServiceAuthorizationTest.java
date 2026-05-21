@@ -55,6 +55,7 @@ class DefaultJobSchedulerServiceAuthorizationTest {
   @Mock private TagStore tagStore;
   @Mock private WorkflowConditionStore workflowConditionStore;
   @Mock private JobWakeupService wakeupService;
+  @Mock private run.ratchet.store.spi.RecurringJobStore recurringJobStore;
   @Mock private RecurringScheduler recurringScheduler;
   @Mock private JobInvocationResolver jobInvocationResolver;
   @Mock private DefaultJobCreationService jobCreationService;
@@ -97,6 +98,7 @@ class DefaultJobSchedulerServiceAuthorizationTest {
             batchStore,
             tagStore,
             workflowConditionStore,
+            recurringJobStore,
             wakeupService,
             recurringScheduler,
             jobInvocationResolver,
@@ -140,6 +142,38 @@ class DefaultJobSchedulerServiceAuthorizationTest {
 
     // checkCancel called with null ownerPrincipal because entity not found
     verify(authorizationPolicy).checkCancel(eq(JOB_ID), eq(null), eq(CALLER));
+  }
+
+  @Test
+  void cancelJob_recurringMaster_authorizesWithRecurringCallerPrincipal() {
+    when(jobCrudStore.findById(JOB_ID)).thenReturn(Optional.empty());
+    var def =
+        new run.ratchet.store.spi.RecurringJobDefinition(
+            JOB_ID,
+            "0 * * * * ?",
+            "UTC",
+            java.time.Instant.parse("2026-05-20T12:00:00Z"),
+            false,
+            null,
+            2,
+            0,
+            run.ratchet.api.BackoffPolicy.NONE,
+            0,
+            0,
+            null,
+            null,
+            null,
+            null,
+            null,
+            java.time.Instant.parse("2026-05-19T00:00:00Z"),
+            OWNER);
+    when(recurringJobStore.getRecurring(JOB_ID)).thenReturn(Optional.of(def));
+
+    service.cancelJob(JOB_ID);
+
+    // Recurring masters live in scheduler_recurring_job. The policy must see the
+    // master's captured callerPrincipal, not a null owner.
+    verify(authorizationPolicy).checkCancel(eq(JOB_ID), eq(OWNER), eq(CALLER));
   }
 
   // ---- resumeJob ----
@@ -290,6 +324,7 @@ class DefaultJobSchedulerServiceAuthorizationTest {
             batchStore,
             tagStore,
             workflowConditionStore,
+            recurringJobStore,
             wakeupService,
             recurringScheduler,
             jobInvocationResolver,
@@ -311,14 +346,14 @@ class DefaultJobSchedulerServiceAuthorizationTest {
 
   @Test
   void cancelRecurringJobsByTag_doesNotCheckAuthorization() {
-    when(jobBatchStatusStore.cancelRecurringJobsByTag("tag")).thenReturn(2);
+    when(recurringJobStore.cancelRecurringJobsByTag("tag")).thenReturn(2);
     service.cancelRecurringJobsByTag("tag");
     verify(authorizationPolicy, never()).checkCancel(any(), any(), any());
   }
 
   @Test
   void cancelRecurringJobByBusinessKey_doesNotCheckAuthorization() {
-    when(jobBatchStatusStore.cancelRecurringJobByBusinessKey("key")).thenReturn(1);
+    when(recurringJobStore.cancelRecurringJobByBusinessKey("key")).thenReturn(true);
     service.cancelRecurringJobByBusinessKey("key");
     verify(authorizationPolicy, never()).checkCancel(any(), any(), any());
   }

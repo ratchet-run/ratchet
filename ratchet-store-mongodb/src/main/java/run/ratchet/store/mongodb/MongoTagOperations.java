@@ -8,8 +8,10 @@ import static run.ratchet.store.mongodb.MongoFieldNames.PICKED_BY;
 import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
 import static run.ratchet.store.mongodb.MongoFieldNames.TAGS;
 
+import com.mongodb.client.MongoCollection;
 import com.mongodb.client.model.FindOneAndUpdateOptions;
 import com.mongodb.client.model.ReturnDocument;
+import com.mongodb.client.result.UpdateResult;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
@@ -23,6 +25,10 @@ import run.ratchet.store.spi.TagStore;
 /**
  * Tag operations. Thin because tags are embedded directly in the job document as a BSON array
  * rather than stored in a join collection.
+ *
+ * <p>Recurring masters live in a separate collection ({@code scheduler_recurring_job}) but share
+ * the same UUID space as one-shot jobs; insert/delete probe the executable collection first and
+ * fall back to the recurring collection so callers don't need to know which collection owns the id.
  */
 final class MongoTagOperations implements TagStore {
 
@@ -40,10 +46,11 @@ final class MongoTagOperations implements TagStore {
       return;
     }
     try {
-      ctx.jobs()
-          .updateOne(
-              eq(ID, jobId),
-              new Document("$addToSet", new Document(TAGS, new Document("$each", tags))));
+      Document update = new Document("$addToSet", new Document(TAGS, new Document("$each", tags)));
+      UpdateResult primary = ctx.jobs().updateOne(eq(ID, jobId), update);
+      if (primary.getMatchedCount() == 0) {
+        ctx.recurringJobs().updateOne(eq(ID, jobId), update);
+      }
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("insert job tags", e);
     }
@@ -52,20 +59,33 @@ final class MongoTagOperations implements TagStore {
   @Override
   public int deleteTagsByJobId(UUID jobId) {
     try {
-      Document before =
-          ctx.jobs()
-              .findOneAndUpdate(
-                  eq(ID, jobId),
-                  set(TAGS, List.of()),
-                  new FindOneAndUpdateOptions().returnDocument(ReturnDocument.BEFORE));
-      if (before == null) {
-        return 0;
+      int removed = clearTagsIn(ctx.jobs(), jobId, -1);
+      if (removed >= 0) {
+        return removed;
       }
-      List<String> oldTags = before.getList(TAGS, String.class);
-      return oldTags == null ? 0 : oldTags.size();
+      int removedRecurring = clearTagsIn(ctx.recurringJobs(), jobId, -1);
+      return Math.max(removedRecurring, 0);
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("delete job tags", e);
     }
+  }
+
+  /**
+   * Clears the tag array on a single document, returning the previous tag count, or {@code
+   * notFound} when no document matched. Used by {@link #deleteTagsByJobId} to probe both
+   * collections without raising on the miss case.
+   */
+  private int clearTagsIn(MongoCollection<Document> collection, UUID jobId, int notFound) {
+    Document before =
+        collection.findOneAndUpdate(
+            eq(ID, jobId),
+            set(TAGS, List.of()),
+            new FindOneAndUpdateOptions().returnDocument(ReturnDocument.BEFORE));
+    if (before == null) {
+      return notFound;
+    }
+    List<String> oldTags = before.getList(TAGS, String.class);
+    return oldTags == null ? 0 : oldTags.size();
   }
 
   @Override

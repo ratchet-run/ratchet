@@ -57,6 +57,8 @@ class MongoCollectionInitializer {
   void initialize() {
     log.debug("Initializing MongoDB collections and indexes");
     createJobIndexes();
+    createRecurringJobIndexes();
+    createRecurringJobArchiveIndexes();
     createBatchIndexes();
     createBatchMetricsIndexes();
     createExecutionIndexes();
@@ -88,20 +90,6 @@ class MongoCollectionInitializer {
             Indexes.ascending(SCHEDULED_TIME),
             Indexes.ascending(ID)),
         new IndexOptions().name(MongoIndexHints.JOB_CLAIM_EXEC));
-    createIndex(
-        coll,
-        Indexes.compoundIndex(
-            Indexes.ascending(JOB_TYPE), Indexes.ascending(STATUS), Indexes.ascending(NEXT_FIRE)),
-        "idx_job_recurring_composite");
-    createRequiredIndex(
-        coll,
-        Indexes.compoundIndex(
-            Indexes.ascending(STATUS),
-            Indexes.ascending(JOB_TYPE),
-            Indexes.descending(PRIORITY),
-            Indexes.ascending(NEXT_FIRE),
-            Indexes.ascending(ID)),
-        new IndexOptions().name(MongoIndexHints.JOB_CLAIM_RECURRING));
     createRequiredIndex(
         coll,
         Indexes.ascending(IDEMPOTENCY_KEY),
@@ -150,6 +138,34 @@ class MongoCollectionInitializer {
         coll,
         Indexes.ascending(SIGNAL_DELIVERY_ID),
         new IndexOptions().name("idx_signal_delivery_id"));
+  }
+
+  private void createRecurringJobIndexes() {
+    var coll = database.getCollection("scheduler_recurring_job");
+    // Claim path: filter unpaused rows by next_fire. findOneAndUpdate provides single-document
+    // atomicity, equivalent to SQL FOR UPDATE SKIP LOCKED on one row at a time.
+    createRequiredIndex(
+        coll,
+        Indexes.compoundIndex(Indexes.ascending(IS_PAUSED), Indexes.ascending(NEXT_FIRE)),
+        new IndexOptions().name(MongoIndexHints.RECURRING_JOB_CLAIM));
+    // business_key uniqueness mirrors the SQL stores' UNIQUE index on
+    // scheduler_recurring_job.business_key, so concurrent createRecurring calls with the same key
+    // collide instead of silently double-registering. partialFilterExpression excludes nulls so
+    // anonymous masters still coexist.
+    createRequiredIndex(
+        coll,
+        Indexes.ascending(BUSINESS_KEY),
+        new IndexOptions()
+            .name("uk_rec_business_key")
+            .unique(true)
+            .partialFilterExpression(new Document(BUSINESS_KEY, new Document("$type", "string"))));
+    createIndex(coll, Indexes.ascending(TARGET_CLASS), "idx_rec_target_class");
+  }
+
+  private void createRecurringJobArchiveIndexes() {
+    var coll = database.getCollection("scheduler_recurring_job_archive");
+    createIndex(coll, Indexes.ascending(BUSINESS_KEY), "idx_archive_rec_business_key");
+    createIndex(coll, Indexes.ascending(ARCHIVED_AT), "idx_archive_rec_archived_at");
   }
 
   private void createBatchIndexes() {

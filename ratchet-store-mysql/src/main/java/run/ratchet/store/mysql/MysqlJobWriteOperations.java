@@ -24,16 +24,16 @@ final class MysqlJobWriteOperations {
       """
       INSERT INTO scheduler_job (
         job_id, job_type, priority, max_retries, backoff_policy, backoff_param_ms,
-        timeout_sec, cron_expr, zone_id, next_fire, payload, params, idempotency_key,
+        timeout_sec, cron_expr, zone_id, payload, params, idempotency_key,
         business_key, resource_name, on_success_payload, on_failure_payload, depends_on,
-        superseded_by, created_at, caller_principal, rec_status, trace_context)
+        superseded_by, created_at, caller_principal, trace_context, recurring_master_id)
       VALUES
       """;
 
   private static final String COLD_INSERT_VALUES =
       """
-      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?,
-              CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, ?, ?, CAST(? AS JSON))
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?,
+              CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, ?, CAST(? AS JSON), ?)
       """;
 
   private static final String COLD_INSERT_SQL = COLD_INSERT_PREFIX + COLD_INSERT_VALUES;
@@ -215,8 +215,7 @@ final class MysqlJobWriteOperations {
     String sql =
         """
         UPDATE scheduler_job
-        SET next_fire = ?,
-            params = CAST(? AS JSON),
+        SET params = CAST(? AS JSON),
             on_success_payload = CAST(? AS JSON),
             on_failure_payload = CAST(? AS JSON),
             depends_on = ?,
@@ -226,14 +225,13 @@ final class MysqlJobWriteOperations {
         """;
     ctx.em()
         .createNativeQuery(sql)
-        .setParameter(1, job.getNextFire() != null ? Timestamp.from(job.getNextFire()) : null)
-        .setParameter(2, MysqlJobRowMapper.paramsToJson(job))
-        .setParameter(3, MysqlJobRowMapper.callbackPayloadToJson(job.getOnSuccessPayload()))
-        .setParameter(4, MysqlJobRowMapper.callbackPayloadToJson(job.getOnFailurePayload()))
-        .setParameter(5, UuidByteArrayConverter.toBytes(job.getDependsOn()))
-        .setParameter(6, UuidByteArrayConverter.toBytes(job.getSupersededBy()))
-        .setParameter(7, job.getResourceName())
-        .setParameter(8, UuidByteArrayConverter.toBytes(job.getId()))
+        .setParameter(1, MysqlJobRowMapper.paramsToJson(job))
+        .setParameter(2, MysqlJobRowMapper.callbackPayloadToJson(job.getOnSuccessPayload()))
+        .setParameter(3, MysqlJobRowMapper.callbackPayloadToJson(job.getOnFailurePayload()))
+        .setParameter(4, UuidByteArrayConverter.toBytes(job.getDependsOn()))
+        .setParameter(5, UuidByteArrayConverter.toBytes(job.getSupersededBy()))
+        .setParameter(6, job.getResourceName())
+        .setParameter(7, UuidByteArrayConverter.toBytes(job.getId()))
         .executeUpdate();
   }
 
@@ -251,7 +249,6 @@ final class MysqlJobWriteOperations {
     q.setParameter(i++, job.getTimeoutSec());
     q.setParameter(i++, job.getCronExpr());
     q.setParameter(i++, job.getZoneId());
-    q.setParameter(i++, job.getNextFire() != null ? Timestamp.from(job.getNextFire()) : null);
     q.setParameter(i++, MysqlJobRowMapper.payloadToJson(job));
     q.setParameter(i++, MysqlJobRowMapper.paramsToJson(job));
     q.setParameter(i++, job.getIdempotencyKey());
@@ -263,14 +260,8 @@ final class MysqlJobWriteOperations {
     q.setParameter(i++, UuidByteArrayConverter.toBytes(job.getSupersededBy()));
     q.setParameter(i++, nowTs);
     q.setParameter(i++, job.getCallerPrincipal());
-    String recStatus = null;
-    if (job.getJobType() == JobExecutionType.RECURRING) {
-      JobStatus s = job.getStatus() != null ? job.getStatus() : JobStatus.PENDING;
-      String rec = MysqlJobRowMapper.recStatusForLiveStatus(s);
-      recStatus = rec != null ? rec : "P";
-    }
-    q.setParameter(i++, recStatus);
-    q.setParameter(i, MysqlJobRowMapper.traceContextToJson(job));
+    q.setParameter(i++, MysqlJobRowMapper.traceContextToJson(job));
+    q.setParameter(i, UuidByteArrayConverter.toBytes(job.getRecurringMasterId()));
     return i + 1;
   }
 
@@ -488,7 +479,7 @@ final class MysqlJobWriteOperations {
         """
         SELECT q.status, q.scheduled_time, q.attempts, q.picked_by, q.picked_at,
                q.paused_from_status, q.last_error, q.version,
-               c.terminal_status, c.rec_status
+               c.terminal_status
         FROM scheduler_job c
         LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
         WHERE c.job_id = ?
@@ -509,7 +500,6 @@ final class MysqlJobWriteOperations {
     }
     String qStatus = (String) row[0];
     String terminal = (String) row[8];
-    String recStatus = MysqlJobRowMapper.stringOrNull(row[9]);
 
     if (qStatus != null) {
       JobStatus storedStatus = JobStatus.valueOf(qStatus);
@@ -547,22 +537,6 @@ final class MysqlJobWriteOperations {
       }
       return;
     }
-
-    if (recStatus != null) {
-      JobStatus decoded = MysqlJobRowMapper.recStatusDecode(recStatus);
-      JobStatus incomingStatus = incoming.getStatus();
-      if (incomingStatus != null && incomingStatus != decoded) {
-        throw new IllegalStateException(
-            "save() rejected: recurring master id="
-                + id
-                + " status mutation requires explicit pause/resume API "
-                + "(stored rec_status="
-                + recStatus
-                + ", incoming.status="
-                + incomingStatus
-                + ")");
-      }
-    }
   }
 
   private boolean tryHotMutationDispatch(JobEntity incoming, Object[] row) {
@@ -572,8 +546,7 @@ final class MysqlJobWriteOperations {
     }
     String hotStatusStr = (String) row[0];
     String terminalStr = (String) row[8];
-    String recStatus = MysqlJobRowMapper.stringOrNull(row[9]);
-    if (terminalStr != null || recStatus != null || hotStatusStr == null) {
+    if (terminalStr != null || hotStatusStr == null) {
       return false;
     }
 

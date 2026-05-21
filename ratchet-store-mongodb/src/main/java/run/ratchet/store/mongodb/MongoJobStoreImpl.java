@@ -59,6 +59,7 @@ class MongoJobStoreImpl implements MongoJobStore {
   private final MongoAuxiliaryOperations auxiliary;
   private final MongoJobQueryOperations query;
   private final MongoSignalOperations signals;
+  private final MongoRecurringJobOperations recurringJobs;
 
   MongoJobStoreImpl(MongoClient client, MongoDatabase database, RatchetOptions options) {
     this(client, database, options, MongoStoreContext.noopMetricsCollector());
@@ -86,6 +87,7 @@ class MongoJobStoreImpl implements MongoJobStore {
     this.auxiliary = new MongoAuxiliaryOperations(ctx);
     this.query = new MongoJobQueryOperations(ctx);
     this.signals = new MongoSignalOperations(ctx);
+    this.recurringJobs = new MongoRecurringJobOperations(ctx);
   }
 
   @Override
@@ -140,7 +142,7 @@ class MongoJobStoreImpl implements MongoJobStore {
 
   @Override
   public Optional<Instant> findEarliestRecurringNextFire() {
-    return crud.findEarliestRecurringNextFire();
+    return recurringJobs.findEarliestRecurringNextFire();
   }
 
   @Override
@@ -255,11 +257,6 @@ class MongoJobStoreImpl implements MongoJobStore {
   }
 
   @Override
-  public List<JobEntity> claimDueRecurring(int limit, String nodeId, NodeTagFilter tagFilter) {
-    return claims.claimDueRecurring(limit, nodeId, tagFilter);
-  }
-
-  @Override
   public void updateJobStatus(UUID id, JobStatus status, String errorMessage) {
     lifecycle.updateJobStatus(id, status, errorMessage);
   }
@@ -320,12 +317,12 @@ class MongoJobStoreImpl implements MongoJobStore {
 
   @Override
   public boolean pauseRecurring(UUID id) {
-    return lifecycle.pauseRecurring(id);
+    return recurringJobs.pauseRecurring(id);
   }
 
   @Override
   public boolean resumeRecurring(UUID id) {
-    return lifecycle.resumeRecurring(id);
+    return recurringJobs.resumeRecurring(id);
   }
 
   @Override
@@ -355,23 +352,18 @@ class MongoJobStoreImpl implements MongoJobStore {
 
   @Override
   public int cancelRecurringJobsByTag(String tag) {
-    return lifecycle.cancelRecurringJobsByTag(tag);
-  }
-
-  @Override
-  public int cancelRecurringJobByBusinessKey(String businessKey) {
-    return lifecycle.cancelRecurringJobByBusinessKey(businessKey);
+    return recurringJobs.cancelRecurringJobsByTag(tag);
   }
 
   @Override
   public int cancelRecurringJobsByBusinessKeys(Set<String> businessKeys) {
-    return lifecycle.cancelRecurringJobsByBusinessKeys(businessKeys);
+    return recurringJobs.cancelRecurringJobsByBusinessKeys(businessKeys);
   }
 
   @Override
   public int cancelOrphanedRecurringAnnotationJobs(
       Set<String> registeredIds, Instant nodeStartTime) {
-    return lifecycle.cancelOrphanedRecurringAnnotationJobs(registeredIds, nodeStartTime);
+    return recurringJobs.cancelOrphanedRecurringAnnotationJobs(registeredIds, nodeStartTime);
   }
 
   @Override
@@ -816,5 +808,60 @@ class MongoJobStoreImpl implements MongoJobStore {
               + "MongoClientSettings.builder().uuidRepresentation(STANDARD) when supplying "
               + "your own MongoClient.");
     }
+  }
+
+  // ---------- RecurringJobStore delegates ----------
+
+  @Override
+  public List<run.ratchet.store.spi.RecurringJobDefinition> claimDueRecurring(
+      int limit, String nodeId, NodeTagFilter tagFilter) {
+    return recurringJobs.claimDueRecurring(limit, nodeId, tagFilter);
+  }
+
+  @Override
+  public void advanceNextFire(UUID id, Instant nextFire) {
+    recurringJobs.advanceNextFire(id, nextFire);
+  }
+
+  @Override
+  public void releaseClaim(UUID id) {
+    recurringJobs.releaseClaim(id);
+  }
+
+  @Override
+  public boolean cancelRecurringAndArchive(
+      UUID id, run.ratchet.store.spi.RecurringJobStore.ArchiveReason reason) {
+    return recurringJobs.cancelRecurringAndArchive(id, reason);
+  }
+
+  @Override
+  public boolean cancelRecurringJobByBusinessKey(String businessKey) {
+    return recurringJobs.cancelRecurringJobByBusinessKey(businessKey);
+  }
+
+  @Override
+  public UUID createRecurring(run.ratchet.store.spi.RecurringJobDefinition definition) {
+    return recurringJobs.createRecurring(definition);
+  }
+
+  @Override
+  public boolean updateRecurring(UUID id, run.ratchet.store.spi.RecurringJobDefinition definition) {
+    return recurringJobs.updateRecurring(id, definition);
+  }
+
+  @Override
+  public Optional<run.ratchet.store.spi.RecurringJobDefinition> getRecurring(UUID id) {
+    return recurringJobs.getRecurring(id);
+  }
+
+  @Override
+  public Optional<run.ratchet.store.spi.RecurringJobDefinition> findRecurringByBusinessKey(
+      String businessKey) {
+    return recurringJobs.findRecurringByBusinessKey(businessKey);
+  }
+
+  @Override
+  public List<run.ratchet.store.spi.RecurringJobDefinition> listAll() {
+    return recurringJobs.listAll();
   }
 }

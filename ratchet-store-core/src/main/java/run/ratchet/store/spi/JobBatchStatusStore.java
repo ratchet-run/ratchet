@@ -1,17 +1,16 @@
 package run.ratchet.store.spi;
 
-import java.time.Instant;
-import java.util.Set;
 import java.util.UUID;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.JobStatus;
 
 /**
- * Non-terminal status operations: generic status updates, CAS transitions, pickup, and batch /
- * orphan / recurring-cancel bulk operations.
+ * Non-terminal status operations: generic status updates, CAS transitions, pickup, and batch tag
+ * cancellation.
  *
  * <p>Terminal transitions live on {@link JobTerminalStore}; retry scheduling on {@link
- * JobRetryStore}; pause semantics on {@link JobPauseStore}.
+ * JobRetryStore}; pause semantics on {@link JobPauseStore}; recurring-master cancellation on {@link
+ * RecurringJobStore}.
  */
 @Incubating
 public interface JobBatchStatusStore {
@@ -41,16 +40,4 @@ public interface JobBatchStatusStore {
    *     <p>Transaction attribute: {@code REQUIRED}.
    */
   int cancelJobsByTag(String tag);
-
-  /** Cancels recurring jobs by tag. Transaction attribute: {@code REQUIRED}. */
-  int cancelRecurringJobsByTag(String tag);
-
-  /** Cancels a recurring job by business key. Transaction attribute: {@code REQUIRED}. */
-  int cancelRecurringJobByBusinessKey(String businessKey);
-
-  /** Cancels recurring jobs by business key. Transaction attribute: {@code REQUIRED}. */
-  int cancelRecurringJobsByBusinessKeys(Set<String> businessKeys);
-
-  /** Cancels unregistered recurring annotation jobs. Transaction attribute: {@code REQUIRED}. */
-  int cancelOrphanedRecurringAnnotationJobs(Set<String> registeredIds, Instant nodeStartTime);
 }

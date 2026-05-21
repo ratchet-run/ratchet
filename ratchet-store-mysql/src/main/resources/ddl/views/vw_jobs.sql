@@ -13,13 +13,13 @@
 
 CREATE OR REPLACE VIEW vw_jobs AS
 SELECT
-    BIN_TO_UUID(j.job_id)        AS job_id,
-    BIN_TO_UUID(j.depends_on)    AS depends_on,
-    BIN_TO_UUID(j.superseded_by) AS superseded_by,
+    BIN_TO_UUID(j.job_id)              AS job_id,
+    BIN_TO_UUID(j.depends_on)          AS depends_on,
+    BIN_TO_UUID(j.superseded_by)       AS superseded_by,
+    BIN_TO_UUID(j.recurring_master_id) AS recurring_master_id,
     j.job_type,
     j.priority,
     j.max_retries,
-    j.next_fire,
     j.payload,
     j.idempotency_key,
     j.business_key,
@@ -28,6 +28,38 @@ SELECT
     j.terminal_status,
     j.terminated_at
 FROM scheduler_job j;
+
+-- Operator view for recurring-master definitions.
+CREATE OR REPLACE VIEW vw_recurring_jobs AS
+SELECT
+    BIN_TO_UUID(r.id) AS id,
+    r.cron_expr,
+    r.zone_id,
+    r.next_fire,
+    r.is_paused,
+    r.paused_at,
+    r.priority,
+    r.max_retries,
+    r.business_key,
+    r.resource_name,
+    r.target_class,
+    r.method_name,
+    r.created_at,
+    r.caller_principal
+FROM scheduler_recurring_job r;
+
+-- Operator view for archived recurring definitions.
+CREATE OR REPLACE VIEW vw_recurring_jobs_archive AS
+SELECT
+    BIN_TO_UUID(a.id) AS id,
+    a.cron_expr,
+    a.zone_id,
+    a.business_key,
+    a.created_at,
+    a.caller_principal,
+    a.archived_at,
+    a.archive_reason
+FROM scheduler_recurring_job_archive a;
 
 -- Equivalent operator view for hot queue state.
 CREATE OR REPLACE VIEW vw_job_queue AS

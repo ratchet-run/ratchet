@@ -333,44 +333,10 @@ final class MysqlJobTerminalOperations {
       return true;
     }
 
-    // language=MySQL
-    String selectSql =
-        "SELECT job_type, terminal_status, rec_status FROM scheduler_job WHERE job_id = ?";
-    @SuppressWarnings("unchecked")
-    List<Object[]> rows =
-        ctx.em()
-            .createNativeQuery(selectSql)
-            .setParameter(1, UuidByteArrayConverter.toBytes(id))
-            .getResultList();
-    if (rows.isEmpty()) {
-      return false;
-    }
-    Object[] row = rows.get(0);
-    String jobType = (String) row[0];
-    String existingTerminal = (String) row[1];
-    if (existingTerminal != null) {
-      return false;
-    }
-    if ("RECURRING".equals(jobType)) {
-      // language=MySQL
-      String cancelRecurringSql =
-          """
-          UPDATE scheduler_job
-          SET rec_status = NULL, terminal_status = 'CANCELED', terminated_at = NOW(3)
-          WHERE job_id = ? AND job_type = 'RECURRING'
-            AND rec_status IS NOT NULL AND terminal_status IS NULL
-          """;
-      int updated =
-          ctx.em()
-              .createNativeQuery(cancelRecurringSql)
-              .setParameter(1, UuidByteArrayConverter.toBytes(id))
-              .executeUpdate();
-      if (updated == 0) {
-        return false;
-      }
-      reservations.deleteReservationByOwner(id);
-      return true;
-    }
+    // Recurring masters live in scheduler_recurring_job, not scheduler_job, so a job missing
+    // from the hot queue with no terminal row is either a terminal-only survivor (no-op) or a
+    // missing id. Either way, the cancel is a no-op here; recurring cancel routes through
+    // RecurringJobStore.cancelRecurringAndArchive.
     return false;
   }
 

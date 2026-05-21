@@ -53,6 +53,67 @@ CREATE TABLE IF NOT EXISTS scheduler_resource_limit
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci;
 
+-- 3a. Recurring job masters.
+-- Long-lived definition rows holding the cron schedule, payload template, and runtime anchor
+-- (next_fire) for each repeating job. A recurring master is never executed itself — it spawns
+-- child rows on scheduler_job at fire time. Pause / resume / cancel use single-table primitives.
+CREATE TABLE IF NOT EXISTS scheduler_recurring_job
+(
+    id                    BINARY(16)                                                        NOT NULL,
+    priority              TINYINT UNSIGNED                                                  NOT NULL DEFAULT 2,
+    max_retries           INT                                                               NOT NULL DEFAULT 0,
+    backoff_policy        ENUM ('NONE','FIXED','EXPONENTIAL')                               NOT NULL DEFAULT 'NONE',
+    backoff_param_ms      INT                                                               NOT NULL DEFAULT 0,
+    timeout_sec           INT                                                               NOT NULL DEFAULT 0,
+    cron_expr             VARCHAR(64)                                                       NOT NULL,
+    zone_id               VARCHAR(32)                                                       NOT NULL DEFAULT 'UTC',
+    next_fire             DATETIME(6)                                                       NOT NULL,
+    is_paused             BOOLEAN                                                           NOT NULL DEFAULT FALSE,
+    paused_at             DATETIME(6)                                                       NULL,
+    payload               JSON                                                              NOT NULL,
+    on_success_payload    JSON                                                              NULL,
+    on_failure_payload    JSON                                                              NULL,
+    business_key          VARCHAR(255)                                                      NULL,
+    resource_name         VARCHAR(100)                                                      NULL,
+    target_class          VARCHAR(255) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(payload, '$.target'))) STORED,
+    method_name           VARCHAR(128) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(payload, '$.method'))) STORED,
+    created_at            DATETIME(6)                                                       NOT NULL,
+    caller_principal      VARCHAR(255)                                                      NULL,
+    PRIMARY KEY (id),
+    CONSTRAINT chk_rec_priority CHECK (priority BETWEEN 0 AND 4),
+    -- Claim index: filter unpaused rows first, then order by next_fire.
+    INDEX idx_rec_claim (is_paused, next_fire),
+    INDEX idx_rec_business_key (business_key),
+    INDEX idx_rec_target_class (target_class)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_unicode_ci;
+
+-- 3b. Archived recurring definitions.
+-- Denormalized snapshot written atomically in the same transaction as the DELETE from
+-- scheduler_recurring_job. CANCELED rows are explicit cancels (admin command or annotation
+-- orphan cleanup); EXHAUSTED rows are cron schedules that yielded no next fire.
+-- No FK back to the live table — by construction the live row is gone when this row is written.
+CREATE TABLE IF NOT EXISTS scheduler_recurring_job_archive
+(
+    id                    BINARY(16)                            NOT NULL,
+    cron_expr             VARCHAR(64)                           NOT NULL,
+    zone_id               VARCHAR(32)                           NOT NULL,
+    payload               JSON                                  NOT NULL,
+    on_success_payload    JSON                                  NULL,
+    on_failure_payload    JSON                                  NULL,
+    business_key          VARCHAR(255)                          NULL,
+    created_at            DATETIME(6)                           NOT NULL,
+    caller_principal      VARCHAR(255)                          NULL,
+    archived_at           DATETIME(6)                           NOT NULL,
+    archive_reason        ENUM ('CANCELED','EXHAUSTED')         NOT NULL,
+    PRIMARY KEY (id),
+    INDEX idx_archive_rec_business_key (business_key),
+    INDEX idx_archive_rec_archived_at (archived_at)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_unicode_ci;
+
 -- 4. Main job table — COLD metadata + terminal fields.
 -- Live queue state (status, scheduled_time, picked_*, attempts, version, last_error,
 -- paused_from_status, updated_at) lives on scheduler_job_queue instead. See
@@ -70,9 +131,6 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     timeout_sec           INT                                                                                                                 NOT NULL DEFAULT 0,
     cron_expr             VARCHAR(64)                                                                                                         NOT NULL DEFAULT '',
     zone_id               VARCHAR(32)                                                                                                         NOT NULL DEFAULT 'UTC',
-    -- next_fire is the recurring-master schedule anchor; transitional home — moves to
-    -- scheduler_recurring_job in a future migration. NULL for executable jobs.
-    next_fire             DATETIME(6)                                                                                                         NULL,
     -- Payload + params (insert-once; never mutated after enqueue).
     payload               JSON                                                                                                                NOT NULL,
     params                JSON                                                                                                                NULL,
@@ -110,26 +168,25 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     queue_wait_ms         BIGINT                                                                                                              NULL,
     job_result            JSON                                                                                                                NULL,
     result_type           VARCHAR(100)                                                                                                        NULL,
-    -- TRANSITIONAL: shim column so recurring masters (which still live in this table
-    -- during the hot/cold split) can be filtered by the recurring claim index without the full status
-    -- column. 'P' = PENDING, 'A' = PAUSED, NULL for non-recurring rows. Dropped in a future migration
-    -- when recurring masters move to scheduler_recurring_job.
-    rec_status            CHAR(1)                                                                                                             NULL,
+    -- Recurring-child lineage pointer. Set for child rows spawned by a recurring master; NULL
+    -- for all other rows. depends_on is reserved for chain / batch / workflow same-table parent
+    -- pointers. ON DELETE SET NULL so cancel of the master does not cascade-delete in-flight
+    -- children.
+    recurring_master_id   BINARY(16)                                                                                                          NULL,
     PRIMARY KEY (job_id),
     UNIQUE KEY uk_idempotency_key (idempotency_key),
     CONSTRAINT chk_job_priority CHECK (priority BETWEEN 0 AND 4),
-    CONSTRAINT chk_rec_status CHECK (rec_status IS NULL OR rec_status IN ('P','A')),
+    CONSTRAINT fk_job_recurring_master FOREIGN KEY (recurring_master_id) REFERENCES scheduler_recurring_job (id) ON DELETE SET NULL,
     -- Lookup/relationship indexes.
     INDEX idx_job_depends_on (depends_on),
     INDEX idx_job_superseded_by (superseded_by),
+    INDEX idx_job_recurring_master_id (recurring_master_id),
     -- business_key is observability-only here; uniqueness is in scheduler_business_key_reservation.
     INDEX idx_job_business_key (business_key),
     -- Audit / archival indexes.
     INDEX idx_job_created_at (created_at),
     -- Archival / deleteDlqOlderThan scan (terminal_status, terminated_at).
-    INDEX idx_job_terminal (terminal_status, terminated_at),
-    -- TRANSITIONAL: recurring-master claim index. Dropped with rec_status in a future migration.
-    INDEX idx_job_recurring_pending (job_type, rec_status, next_fire)
+    INDEX idx_job_terminal (terminal_status, terminated_at)
     -- DROPPED: idx_target_class and idx_method_name were debug-only and added measurable
     -- write amplification on the hot insert path. Operators who need them can apply
     -- ddl/mysql-debug-indexes.sql (optional companion file).
@@ -203,8 +260,10 @@ CREATE TABLE IF NOT EXISTS scheduler_business_key_reservation
     owner_table  ENUM ('QUEUE','RECURRING')   NOT NULL,
     reserved_at  DATETIME(6)                  NOT NULL,
     PRIMARY KEY (business_key),
-    INDEX idx_bk_owner (owner_job_id),
-    CONSTRAINT fk_bk_owner_job FOREIGN KEY (owner_job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
+    INDEX idx_bk_owner (owner_job_id)
+    -- owner_job_id is polymorphic across scheduler_job (QUEUE owner) and
+    -- scheduler_recurring_job (RECURRING owner); the FK is dropped at the application layer
+    -- because no single parent table exists. Cancel paths DELETE the reservation rows.
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci;
@@ -215,8 +274,11 @@ CREATE TABLE IF NOT EXISTS scheduler_job_tag
     job_id BINARY(16)      NOT NULL,
     tag    VARCHAR(64)     NOT NULL,
     PRIMARY KEY (job_id, tag),
-    INDEX idx_job_tag_tag_job (tag, job_id),
-    CONSTRAINT fk_job_tag_job FOREIGN KEY (job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
+    INDEX idx_job_tag_tag_job (tag, job_id)
+    -- No fk_job_tag_job. job_id is polymorphic (executable jobs → scheduler_job, recurring
+    -- masters → scheduler_recurring_job). Cancel paths DELETE associated tag rows explicitly;
+    -- the @Recurring registration path writes tags whose job_id refers to
+    -- scheduler_recurring_job, which would violate any single-FK constraint.
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci;
@@ -411,4 +473,5 @@ INSERT IGNORE INTO ratchet_schema_version (version, description) VALUES
     ('006', 'Drop created_by column superseded by caller_principal'),
     ('007', 'Query-layer generated column for traceCorrelationId + dashboard indexes'),
     ('008', 'Signal-waiting job columns, decision metadata, and indexes on scheduler_job_queue'),
-    ('009', 'Drop legacy JDK-serialized predicate blobs from scheduler_workflow_condition');
+    ('009', 'Drop legacy JDK-serialized predicate blobs from scheduler_workflow_condition'),
+    ('010', 'Recurring-master split: scheduler_recurring_job + scheduler_recurring_job_archive + recurring_master_id');

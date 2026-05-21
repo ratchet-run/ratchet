@@ -70,20 +70,8 @@ class JobPriorityIT extends BaseRatchetIT {
         List.of(boostedLow.getId(), normal.getId()), claims.stream().map(JobClaimDto::id).toList());
   }
 
-  @Test
-  void claimDueRecurring_shouldPreferHigherPriorityRecurringMasters() {
-    Instant nextFire = Instant.now().minusSeconds(5);
-    JobEntity lowRecurring =
-        persistJob(JobExecutionType.RECURRING, JobPriority.LOW, Instant.now(), nextFire);
-    JobEntity highRecurring =
-        persistJob(JobExecutionType.RECURRING, JobPriority.HIGH, Instant.now(), nextFire);
-
-    List<JobEntity> claims = jobClaimStore.claimDueRecurring(10, "priority-it-node");
-
-    assertEquals(
-        List.of(highRecurring.getId(), lowRecurring.getId()),
-        claims.stream().map(JobEntity::getId).toList());
-  }
+  // Recurring-master claim ordering lives in RecurringJobStore; AbstractRecurringJobStoreContract
+  // covers the priority + age-boost behavior across all stores.
 
   private JobEntity persistJob(
       JobExecutionType jobType, JobPriority priority, Instant scheduledTime, Instant nextFire) {

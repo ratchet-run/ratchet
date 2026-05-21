@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.jboss.logging.Logger;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
-import run.ratchet.store.spi.JobCrudStore;
+import run.ratchet.store.spi.RecurringJobStore;
 
 /**
  * Polls for due recurring masters and delegates to {@link RecurringJobExecutor} to spawn children.
@@ -37,7 +37,7 @@ public class RecurringScheduler {
   private final AtomicBoolean started = new AtomicBoolean();
   private final Object scheduleLock = new Object();
   private final ExecutorProvider executorProvider;
-  private final JobCrudStore jobCrudStore;
+  private final RecurringJobStore recurringJobStore;
   private final SingletonLeaseService singletonLeaseService;
   private final NodeIdentityProvider nodeIdentityProvider;
   private final RecurringJobExecutor recurringJobExecutor;
@@ -55,7 +55,7 @@ public class RecurringScheduler {
 
   protected RecurringScheduler() {
     this.executorProvider = null;
-    this.jobCrudStore = null;
+    this.recurringJobStore = null;
     this.singletonLeaseService = null;
     this.nodeIdentityProvider = null;
     this.recurringJobExecutor = null;
@@ -66,14 +66,14 @@ public class RecurringScheduler {
   @Inject
   public RecurringScheduler(
       ExecutorProvider executorProvider,
-      JobCrudStore jobCrudStore,
+      RecurringJobStore recurringJobStore,
       SingletonLeaseService singletonLeaseService,
       NodeIdentityProvider nodeIdentityProvider,
       RecurringJobExecutor recurringJobExecutor,
       PollerScheduler pollerScheduler,
       Clock clock) {
     this.executorProvider = executorProvider;
-    this.jobCrudStore = jobCrudStore;
+    this.recurringJobStore = recurringJobStore;
     this.singletonLeaseService = singletonLeaseService;
     this.nodeIdentityProvider = nodeIdentityProvider;
     this.recurringJobExecutor = recurringJobExecutor;
@@ -199,7 +199,7 @@ public class RecurringScheduler {
       return snapshot.minPollMs();
     }
 
-    Optional<Instant> earliestNextFire = jobCrudStore.findEarliestRecurringNextFire();
+    Optional<Instant> earliestNextFire = recurringJobStore.findEarliestRecurringNextFire();
 
     if (earliestNextFire.isEmpty()) {
       return snapshot.maxPollMs();

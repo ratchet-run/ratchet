@@ -230,41 +230,22 @@ final class PostgresqlJobTerminalOperations {
       // language=PostgreSQL
       String selectSql =
           """
-          SELECT job_type, terminal_status, rec_status
+          SELECT terminal_status
           FROM scheduler_job
           WHERE job_id = ?
           FOR UPDATE
           """;
       @SuppressWarnings("unchecked")
-      List<Object[]> rows =
-          ctx.em().createNativeQuery(selectSql).setParameter(1, id).getResultList();
+      List<Object> rows = ctx.em().createNativeQuery(selectSql).setParameter(1, id).getResultList();
       if (rows.isEmpty()) {
         return false;
       }
-      Object[] row = rows.get(0);
-      String jobType = (String) row[0];
-      String existingTerminal = (String) row[1];
+      String existingTerminal = (String) rows.get(0);
       if (existingTerminal != null) {
         return false;
       }
-      if ("RECURRING".equals(jobType)) {
-        // language=PostgreSQL
-        String cancelRecurringSql =
-            """
-            UPDATE scheduler_job
-            SET rec_status = NULL, terminal_status = 'CANCELED',
-                terminated_at = statement_timestamp()
-            WHERE job_id = ? AND job_type = 'RECURRING'
-              AND rec_status IS NOT NULL AND terminal_status IS NULL
-            """;
-        int updated =
-            ctx.em().createNativeQuery(cancelRecurringSql).setParameter(1, id).executeUpdate();
-        if (updated == 0) {
-          return false;
-        }
-        reservations.deleteReservationByOwner(id);
-        return true;
-      }
+      // Recurring masters live in scheduler_recurring_job — cancel-by-id of a recurring master
+      // routes through RecurringJobStore.cancelRecurringAndArchive, not through here.
       // language=PostgreSQL
       String deleteHotSql =
           """

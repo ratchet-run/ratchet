@@ -25,7 +25,6 @@ import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.IDEMPOTENCY_KEY;
 import static run.ratchet.store.mongodb.MongoFieldNames.JOB_TYPE;
 import static run.ratchet.store.mongodb.MongoFieldNames.MAX_RETRIES;
-import static run.ratchet.store.mongodb.MongoFieldNames.NEXT_FIRE;
 import static run.ratchet.store.mongodb.MongoFieldNames.PICKED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.PICKED_BY;
 import static run.ratchet.store.mongodb.MongoFieldNames.PRIORITY;
@@ -205,21 +204,6 @@ final class MongoJobCrudOperations {
       results.add(DocumentMapper.toJobEntity(doc));
     }
     return results;
-  }
-
-  Optional<Instant> findEarliestRecurringNextFire() {
-    Document doc =
-        ctx.jobs()
-            .find(
-                and(eq(JOB_TYPE, TYPE_RECURRING), eq(STATUS, STATUS_PENDING), ne(NEXT_FIRE, null)))
-            .sort(ascending(NEXT_FIRE))
-            .projection(new Document(NEXT_FIRE, 1))
-            .limit(1)
-            .first();
-    if (doc == null || doc.getDate(NEXT_FIRE) == null) {
-      return Optional.empty();
-    }
-    return Optional.of(DocumentMapper.toInstant(doc.getDate(NEXT_FIRE)));
   }
 
   long countPendingJobs() {

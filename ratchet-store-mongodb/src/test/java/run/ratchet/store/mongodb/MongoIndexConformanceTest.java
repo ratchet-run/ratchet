@@ -11,7 +11,6 @@ import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.IDEMPOTENCY_KEY;
 import static run.ratchet.store.mongodb.MongoFieldNames.JOB_ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.JOB_TYPE;
-import static run.ratchet.store.mongodb.MongoFieldNames.NEXT_FIRE;
 import static run.ratchet.store.mongodb.MongoFieldNames.PRIORITY;
 import static run.ratchet.store.mongodb.MongoFieldNames.SCHEDULED_TIME;
 import static run.ratchet.store.mongodb.MongoFieldNames.STATUS;
@@ -76,20 +75,6 @@ class MongoIndexConformanceTest {
             .append(JOB_TYPE, 1)
             .append(PRIORITY, -1)
             .append(SCHEDULED_TIME, 1)
-            .append(ID, 1),
-        false,
-        null);
-  }
-
-  @Test
-  void schedulerJob_hasClaimRecurringIndex() {
-    assertIndex(
-        "scheduler_job",
-        MongoIndexHints.JOB_CLAIM_RECURRING,
-        new Document(STATUS, 1)
-            .append(JOB_TYPE, 1)
-            .append(PRIORITY, -1)
-            .append(NEXT_FIRE, 1)
             .append(ID, 1),
         false,
         null);

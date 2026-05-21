@@ -12,7 +12,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
-import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.id.UuidV7Factory;
 
 /** Base contract tests for {@code JobBulkStore}. */
@@ -230,11 +229,6 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
 
     var untagged = persist(newPendingJob());
 
-    JobEntity recurring = newPendingJob(tag);
-    recurring.setJobType(JobExecutionType.RECURRING);
-    recurring = persist(recurring);
-    UUID recurringId = recurring.getId();
-
     int count = store().cancelJobsByTag(tag);
 
     assertEquals(5, count, "Should cancel 3 PENDING + 1 PAUSED + 1 WAITING tagged one-shot jobs");
@@ -251,10 +245,9 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
         JobStatus.PENDING,
         store().getJobStatus(untagged.getId()),
         "Untagged jobs are not affected");
-    assertEquals(
-        JobStatus.PENDING,
-        store().getJobStatus(recurringId),
-        "Recurring jobs are not affected by cancelJobsByTag");
+    // Recurring masters now live in scheduler_recurring_job; the bulk JobBatchStatusStore tag
+    // cancel only walks scheduler_job_queue, so recurring masters are filtered by virtue of not
+    // existing on the executable path — covered by AbstractRecurringJobStoreContract.
   }
 
   @Test
@@ -264,33 +257,6 @@ public abstract class AbstractJobBulkStoreContract implements JobStoreContractFi
     int count = store().cancelJobsByTag("nonexistent");
 
     assertEquals(0, count, "No matching tag should produce zero cancellations");
-  }
-
-  @Test
-  void cancelRecurringJobsByTag_bulkUpdate() {
-    String tag = "recurring-tag";
-
-    JobEntity rec1 = newPendingJob(tag);
-    rec1.setJobType(JobExecutionType.RECURRING);
-    rec1 = persist(rec1);
-
-    JobEntity rec2 = newPendingJob(tag);
-    rec2.setJobType(JobExecutionType.RECURRING);
-    rec2 = persist(rec2);
-
-    JobEntity untaggedRecurring = newPendingJob();
-    untaggedRecurring.setJobType(JobExecutionType.RECURRING);
-    untaggedRecurring = persist(untaggedRecurring);
-
-    int count = store().cancelRecurringJobsByTag(tag);
-
-    assertEquals(2, count, "Should cancel both tagged recurring jobs in a single bulk operation");
-    assertEquals(JobStatus.CANCELED, store().getJobStatus(rec1.getId()));
-    assertEquals(JobStatus.CANCELED, store().getJobStatus(rec2.getId()));
-    assertEquals(
-        JobStatus.PENDING,
-        store().getJobStatus(untaggedRecurring.getId()),
-        "Untagged recurring job remains active");
   }
 
   @Test

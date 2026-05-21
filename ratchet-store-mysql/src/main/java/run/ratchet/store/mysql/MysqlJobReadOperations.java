@@ -1,7 +1,6 @@
 package run.ratchet.store.mysql;
 
 import jakarta.persistence.Query;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -71,7 +70,7 @@ final class MysqlJobReadOperations {
       // language=MySQL
       String sql =
           """
-          SELECT q.status, c.rec_status, c.terminal_status
+          SELECT q.status, c.terminal_status
           FROM scheduler_job c
           LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
           WHERE c.job_id = ?
@@ -89,15 +88,11 @@ final class MysqlJobReadOperations {
       if (live != null) {
         return JobStatus.valueOf(live);
       }
-      JobStatus rec = MysqlJobRowMapper.recStatusDecode(MysqlJobRowMapper.stringOrNull(row[1]));
-      if (rec != null) {
-        return rec;
-      }
-      String terminal = (String) row[2];
+      String terminal = (String) row[1];
       if (terminal != null) {
         return JobStatus.valueOf(terminal);
       }
-      log.errorf("Job %s has no live, recurring, or terminal status — invariant violation", id);
+      log.errorf("Job %s has no live or terminal status — invariant violation", id);
       return null;
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("get job status", e);
@@ -234,33 +229,6 @@ final class MysqlJobReadOperations {
       return jobs;
     } catch (RuntimeException e) {
       throw ctx.translateTransientStoreException("find dependants", e);
-    }
-  }
-
-  Optional<Instant> findEarliestRecurringNextFire() {
-    try {
-      // language=MySQL
-      String sql =
-          """
-          SELECT MIN(next_fire) FROM scheduler_job
-          WHERE job_type = 'RECURRING' AND rec_status = 'P'
-            AND next_fire IS NOT NULL
-          """;
-      List<?> results = ctx.em().createNativeQuery(sql).getResultList();
-      if (results.isEmpty() || results.get(0) == null) {
-        return Optional.empty();
-      }
-      Object val = results.get(0);
-      Instant nextFire = MysqlJobRowMapper.toInstant(val);
-      if (nextFire != null) {
-        return Optional.of(nextFire);
-      }
-      log.warnf(
-          "Unexpected scheduler_job.next_fire result type from MySQL driver: %s",
-          val.getClass().getName());
-      return Optional.empty();
-    } catch (RuntimeException e) {
-      throw ctx.translateTransientStoreException("find earliest recurring next fire", e);
     }
   }
 }

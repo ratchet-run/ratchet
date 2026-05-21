@@ -72,12 +72,6 @@ final class MongoJobClaimOperations {
     return claimByIds(candidateIds, nodeId, DocumentMapper::toJobClaimDto);
   }
 
-  List<JobEntity> claimDueRecurring(int limit, String nodeId, NodeTagFilter tagFilter) {
-    List<UUID> candidateIds =
-        findCandidatesByBoostedPriority(List.of("RECURRING"), NEXT_FIRE, limit, tagFilter);
-    return claimByIds(candidateIds, nodeId, DocumentMapper::toJobEntity);
-  }
-
   /** Finds candidate job IDs sorted by effective priority (raw priority + age-based boost). */
   private List<UUID> findCandidatesByBoostedPriority(
       List<String> jobTypes, String timeColumn, int limit, NodeTagFilter tagFilter) {

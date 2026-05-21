@@ -3,7 +3,6 @@ package run.ratchet.tck.store.schema;
 import static run.ratchet.tck.store.schema.Column.nullable;
 import static run.ratchet.tck.store.schema.Column.required;
 import static run.ratchet.tck.store.schema.LogicalType.BOOLEAN;
-import static run.ratchet.tck.store.schema.LogicalType.CHAR_1;
 import static run.ratchet.tck.store.schema.LogicalType.INT32;
 import static run.ratchet.tck.store.schema.LogicalType.INT64;
 import static run.ratchet.tck.store.schema.LogicalType.JSON;
@@ -68,7 +67,6 @@ public final class RatchetSchemaCatalog {
         .column(required("timeout_sec", INT32))
         .column(required("cron_expr", TEXT))
         .column(required("zone_id", TEXT))
-        .column(nullable("next_fire", TIMESTAMP_TZ))
         .column(required("payload", JSON))
         .column(nullable("params", JSON))
         .column(required("idempotency_key", TEXT))
@@ -91,7 +89,6 @@ public final class RatchetSchemaCatalog {
         .column(nullable("queue_wait_ms", INT64))
         .column(nullable("job_result", JSON))
         .column(nullable("result_type", TEXT))
-        .column(nullable("rec_status", CHAR_1))
         .primaryKey("job_id")
         .index(Index.unique("uk_idempotency_key", "idempotency_key"))
         .index(Index.of("idx_job_depends_on", "depends_on"))
@@ -99,7 +96,6 @@ public final class RatchetSchemaCatalog {
         .index(Index.of("idx_job_business_key", "business_key"))
         .index(Index.of("idx_job_created_at", "created_at"))
         .index(Index.of("idx_job_terminal", "terminal_status", "terminated_at"))
-        .index(Index.of("idx_job_recurring_pending", "job_type", "rec_status", "next_fire"))
         .build();
   }
 
@@ -178,33 +174,26 @@ public final class RatchetSchemaCatalog {
   }
 
   private static Table schedulerBusinessKeyReservation() {
-    // Plan 06 added fk_bk_owner_job to MySQL DDL so it now matches PG. The catalog asserts the
-    // FK on both stores.
+    // fk_bk_owner_job is intentionally omitted. owner_job_id is polymorphic — reservations can be
+    // owned by either scheduler_job rows (QUEUE) or scheduler_recurring_job rows (RECURRING) — so
+    // a single FK is not possible. Cancel paths DELETE the reservation rows.
     return Table.builder("scheduler_business_key_reservation")
         .column(required("business_key", TEXT))
         .column(required("owner_job_id", UUID))
         .column(required("owner_table", TEXT))
         .column(required("reserved_at", TIMESTAMP_TZ))
         .primaryKey("business_key")
-        .foreignKey(
-            new ForeignKey(
-                "fk_bk_owner_job",
-                "owner_job_id",
-                "scheduler_job",
-                "job_id",
-                OnDeleteAction.CASCADE))
         .index(Index.of("idx_bk_owner", "owner_job_id"))
         .build();
   }
 
   private static Table schedulerJobTag() {
+    // fk_job_tag_job is intentionally omitted. job_id is polymorphic — tags can be owned by
+    // either scheduler_job rows or scheduler_recurring_job rows — so a single FK is not possible.
     return Table.builder("scheduler_job_tag")
         .column(required("job_id", UUID))
         .column(required("tag", TEXT))
         .primaryKey("job_id", "tag")
-        .foreignKey(
-            new ForeignKey(
-                "fk_job_tag_job", "job_id", "scheduler_job", "job_id", OnDeleteAction.CASCADE))
         .index(Index.of("idx_job_tag_tag_job", "tag", "job_id"))
         .build();
   }
