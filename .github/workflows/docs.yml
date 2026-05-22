@@ -48,10 +48,10 @@ jobs:
       - name: Generate aggregate Javadoc
         run: mvn clean package -P javadoc-aggregate -DskipTests -B
 
-      - name: Copy Javadoc into Docusaurus static assets
+      - name: Copy Javadoc into VitePress public assets
         run: |
-          mkdir -p website/static/javadoc
-          cp -r target/reports/apidocs/* website/static/javadoc/
+          mkdir -p website/docs/public/javadoc
+          cp -r target/reports/apidocs/* website/docs/public/javadoc/
 
       # --- Conformance reports (downloaded from CI artifacts, workflow_run only) ---
       - name: Download TCK store conformance reports
@@ -149,7 +149,7 @@ jobs:
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:
-          path: website/build
+          path: website/docs/.vitepress/dist
 
   deploy:
     needs: build

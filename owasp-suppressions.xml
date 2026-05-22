@@ -35,4 +35,26 @@
         <cve>CVE-2026-0994</cve>
     </suppress>
 
+    <suppress>
+        <notes><![CDATA[
+        False positive: this package is the Micrometer Prometheus registry
+        (Java client library that emits metrics), not the Prometheus server
+        binary. Dependency-Check attaches the Prometheus server CPE because
+        the artifact name contains "prometheus".
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/io\.micrometer/micrometer-registry-prometheus@.*$</packageUrl>
+        <cpe>cpe:/a:prometheus:prometheus</cpe>
+    </suppress>
+
+    <suppress>
+        <notes><![CDATA[
+        False positive: this package is the Prometheus Java client library
+        (metrics emission), not the Prometheus server binary. Dependency-Check
+        attaches the Prometheus server CPE because the artifact name contains
+        "prometheus".
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/io\.prometheus/prometheus-metrics-core@.*$</packageUrl>
+        <cpe>cpe:/a:prometheus:prometheus</cpe>
+    </suppress>
+
 </suppressions>
