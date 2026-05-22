@@ -390,7 +390,7 @@ docker compose exec postgres psql -U ratchet -c "\dt scheduler_*"
 
 ## See Also
 
-- [Kubernetes Deployment](/docs/deployment/kubernetes) — Orchestrated container deployments
-- [Database Setup](/docs/deployment/database-setup) — Schema application details
-- [Configuration](/docs/deployment/configuration) — All Ratchet configuration properties
-- [Cluster Configuration](/docs/deployment/cluster-configuration) — Multi-node coordination
+- [Kubernetes Deployment](/deployment/kubernetes) — Orchestrated container deployments
+- [Database Setup](/deployment/database-setup) — Schema application details
+- [Configuration](/deployment/configuration) — All Ratchet configuration properties
+- [Cluster Configuration](/deployment/cluster-configuration) — Multi-node coordination

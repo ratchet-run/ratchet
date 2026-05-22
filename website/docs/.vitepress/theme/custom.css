@@ -1,204 +1,430 @@
 /**
- * Any CSS included here will be available to all pages.
+ * Ratchet — VitePress theme port of src/css/custom.css + src/pages/index.module.css
+ * Brand tokens, home hero, feature cards, doc diagrams, comparison matrix.
  */
 
-/* Docusaurus variables */
+/* Hide the language label in the top-right of every code block */
+.vp-doc [class*='language-'] > .lang,
+[class*='language-'] > .lang {
+  display: none !important;
+}
+
+/* Force an explicit color-scheme for light mode so that <img>-loaded SVGs
+   with @media (prefers-color-scheme) blocks respond to the page toggle,
+   not just OS preference. VitePress sets `color-scheme: dark` on html.dark
+   but leaves light mode at `normal`, which falls back to OS — that breaks
+   the logo on devices whose OS doesn't match the active theme. */
+html { color-scheme: light; }
+
+/* ------------------------------------------------------------------ */
+/* Brand tokens                                                        */
+/* ------------------------------------------------------------------ */
+
 :root {
-  --ifm-color-primary: #b45309;
-  --ifm-color-primary-dark: #92400e;
-  --ifm-color-primary-darker: #78350f;
-  --ifm-color-primary-darkest: #5f2a0c;
-  --ifm-color-primary-light: #d97706;
-  --ifm-color-primary-lighter: #f59e0b;
-  --ifm-color-primary-lightest: #fcd34d;
-  --ifm-code-font-size: 95%;
-  --ratchet-code-block-copy-space: 4rem;
-  --ratchet-code-block-padding-x: 1rem;
-  --ratchet-code-block-padding-y: 1rem;
-  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+  --vp-c-brand-1: #b45309;
+  --vp-c-brand-2: #92400e;
+  --vp-c-brand-3: #78350f;
+  --vp-c-brand-soft: rgba(180, 83, 9, 0.14);
+
+  --vp-button-brand-border: var(--vp-c-brand-1);
+  --vp-button-brand-text: #ffffff;
+  --vp-button-brand-bg: var(--vp-c-brand-1);
+  --vp-button-brand-hover-border: var(--vp-c-brand-2);
+  --vp-button-brand-hover-text: #ffffff;
+  --vp-button-brand-hover-bg: var(--vp-c-brand-2);
+  --vp-button-brand-active-border: var(--vp-c-brand-3);
+  --vp-button-brand-active-text: #ffffff;
+  --vp-button-brand-active-bg: var(--vp-c-brand-3);
+
+  --vp-button-alt-border: rgba(146, 64, 14, 0.28);
+  --vp-button-alt-text: #92400e;
+  --vp-button-alt-bg: rgba(255, 255, 255, 0.78);
+  --vp-button-alt-hover-border: var(--vp-c-brand-1);
+  --vp-button-alt-hover-text: #92400e;
+  --vp-button-alt-hover-bg: #fff7ed;
+  --vp-button-alt-active-border: var(--vp-c-brand-1);
+  --vp-button-alt-active-text: #92400e;
+  --vp-button-alt-active-bg: #ffedd5;
+
+  --ratchet-hero-bg: linear-gradient(180deg, rgba(255, 247, 237, 0.96), rgba(255, 255, 255, 0.98));
+  --ratchet-hero-title: #27140a;
+  --ratchet-hero-subtitle: #3f342a;
+  --ratchet-eyebrow: #0f766e;
 }
 
-/* For readability concerns, you should choose a lighter palette in the
-   dark colorscheme. Setting to `auto` will respect the prefers-color-scheme preference,
-   using light colors light mode and dark colors for dark mode. */
-[data-theme='dark'] {
-  --ifm-color-primary: #fbbf24;
-  --ifm-color-primary-dark: #f59e0b;
-  --ifm-color-primary-darker: #d97706;
-  --ifm-color-primary-darkest: #b45309;
-  --ifm-color-primary-light: #fcd34d;
-  --ifm-color-primary-lighter: #fde68a;
-  --ifm-color-primary-lightest: #fef3c7;
-  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+.dark {
+  --vp-c-brand-1: #fbbf24;
+  --vp-c-brand-2: #f59e0b;
+  --vp-c-brand-3: #d97706;
+  --vp-c-brand-soft: rgba(251, 191, 36, 0.18);
+
+  --vp-button-brand-text: #1f1306;
+  --vp-button-brand-hover-text: #1f1306;
+  --vp-button-brand-active-text: #1f1306;
+
+  --vp-button-alt-border: rgba(251, 191, 36, 0.42);
+  --vp-button-alt-text: #fef3c7;
+  --vp-button-alt-bg: rgba(31, 41, 55, 0.72);
+  --vp-button-alt-hover-border: #fbbf24;
+  --vp-button-alt-hover-text: #fef3c7;
+  --vp-button-alt-hover-bg: rgba(69, 46, 16, 0.82);
+
+  --ratchet-hero-bg: linear-gradient(180deg, rgba(17, 24, 39, 0.97), rgba(24, 31, 42, 0.99));
+  --ratchet-hero-title: #fff7ed;
+  --ratchet-hero-subtitle: #e7d8c9;
+  --ratchet-eyebrow: #5eead4;
 }
 
-/* Code highlighting */
-.docusaurus-highlight-code-line {
-  background-color: var(--docusaurus-highlighted-code-line-bg);
-  display: block;
-  margin: 0 calc(var(--ifm-pre-padding) * -1);
-  padding: 0 var(--ifm-pre-padding);
+/* ------------------------------------------------------------------ */
+/* Navbar — pack nav next to logo, push search to the right             */
+/* ------------------------------------------------------------------ */
+
+.VPNavBarMenu {
+  order: 1;
+  margin-right: auto;
+  margin-left: 1.5rem;
 }
 
-/* Ratchet-specific styling */
-.ratchet-hero {
-  text-align: center;
-  padding: 3rem 0;
+.VPNavBarSearch {
+  order: 2;
+  flex: 0 1 auto !important;
+  max-width: 240px;
 }
 
-.ratchet-features {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 2rem;
-  margin: 2rem 0;
+.VPNavBarSearch .DocSearch-Button {
+  margin-left: 0;
 }
 
-.ratchet-feature {
-  padding: 1.5rem;
-  border: 1px solid var(--ifm-color-emphasis-200);
-  border-radius: 8px;
-  text-align: center;
+.VPNavBarAppearance { display: none !important; }
+.VPSocialLinks.VPNavBarSocialLinks { order: 4; }
+.VPNavBarExtra { order: 5; }
+.VPNavBarHamburger { order: 6; }
+
+/* Our custom 3-state toggle sits in the right cluster, where the default
+   VPNavBarAppearance used to be (between search and social links). */
+.VPNavBar .ratchet-appearance {
+  order: 3;
+  margin-left: 0.5rem;
 }
 
-.ratchet-feature h3 {
+/* Tighten nav-menu spacing so links sit close to the logo */
+.VPNavBarMenu .VPNavBarMenuLink {
+  padding: 0 0.75rem !important;
+}
+
+/* ------------------------------------------------------------------ */
+/* Home hero                                                            */
+/* ------------------------------------------------------------------ */
+
+.VPHome {
+  background:
+    var(--ratchet-hero-bg),
+    var(--vp-c-bg);
+}
+
+.VPHero {
+  position: relative;
+  padding-top: 4.5rem !important;
+  padding-bottom: 3rem !important;
+  border-bottom: 1px solid var(--vp-c-divider);
+  overflow: hidden;
+}
+
+/* Faded star watermark behind right column — matches Docusaurus original */
+.VPHero::before {
+  content: '';
+  position: absolute;
+  top: 1.5rem;
+  right: -2rem;
+  width: 22rem;
+  height: 22rem;
+  background-image: url('/img/logo.svg');
+  background-repeat: no-repeat;
+  background-size: contain;
+  background-position: center;
+  opacity: 0.08;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.dark .VPHero::before {
+  opacity: 0.05;
+}
+
+.VPHero .container {
+  position: relative;
+  z-index: 1;
+}
+
+@media (max-width: 960px) {
+  .VPHero::before {
+    width: 9rem;
+    height: 9rem;
+    top: 1rem;
+    right: 0.5rem;
+    opacity: 0.12;
+  }
+}
+
+.VPHero .container {
+  max-width: 1120px !important;
+  min-height: min(640px, calc(100vh - var(--vp-nav-height, 64px) - 96px));
+  align-items: center !important;
+  column-gap: 4rem;
+}
+
+/* Solid dark-brown title — drop the gradient */
+.VPHero .name {
+  background: none !important;
+  -webkit-text-fill-color: initial !important;
+  color: var(--ratchet-hero-title) !important;
+  font-size: 64px !important;
+  line-height: 0.96 !important;
+  letter-spacing: -0.02em;
+  font-weight: 800;
+}
+
+@media (min-width: 960px) {
+  .VPHero .name {
+    font-size: 88px !important;
+  }
+}
+
+.VPHero .text {
+  display: none;
+}
+
+.VPHero .tagline {
+  color: var(--ratchet-hero-subtitle) !important;
+  font-size: 1.25rem !important;
+  line-height: 1.45;
+  max-width: 46rem;
+  margin-top: 1.25rem !important;
+}
+
+@media (min-width: 960px) {
+  .VPHero .tagline {
+    font-size: 1.35rem !important;
+  }
+}
+
+.VPHero .actions {
+  margin-top: 1.75rem !important;
+}
+
+/* The "image" column is replaced by HeroCode.vue; suppress default bloom */
+.VPHero .image-bg,
+.VPHero .image-src {
+  display: none !important;
+}
+
+.VPHero .image {
+  margin-left: 0 !important;
+}
+
+.VPHero .image-container {
+  width: 100% !important;
+  max-width: 520px !important;
+  height: auto !important;
+  background: transparent !important;
+  transform: none !important;
+}
+
+/* ------------------------------------------------------------------ */
+/* Feature cards                                                        */
+/* ------------------------------------------------------------------ */
+
+.VPFeatures {
+  background: var(--vp-c-bg);
+  padding: 2rem 0 !important;
+  border-bottom: 1px solid var(--vp-c-divider);
+}
+
+.VPFeatures .container {
+  max-width: 1120px !important;
+}
+
+.VPFeature {
+  border: 1px solid var(--vp-c-divider) !important;
+  background: var(--vp-c-bg) !important;
+  border-radius: 8px !important;
+  padding: 0 !important;
+}
+
+.VPFeature .box {
+  padding: 1.5rem !important;
+  justify-content: flex-start !important;
+}
+
+.VPFeature .title {
+  color: var(--vp-c-brand-1) !important;
   margin-top: 0;
-  color: var(--ifm-color-primary);
 }
 
-/* Table styling */
-table {
+.VPFeature .details {
+  color: var(--vp-c-text-2);
+}
+
+.dark .VPFeature {
+  background: var(--vp-c-bg-soft) !important;
+}
+
+/* ------------------------------------------------------------------ */
+/* Multi-column footer                                                  */
+/* ------------------------------------------------------------------ */
+
+.VPFooter {
+  background: #1a1a1a !important;
+  color: #e6e6e6 !important;
+  border-top: 0 !important;
+  padding: 0 !important;
+}
+
+.dark .VPFooter {
+  background: #0a0a0a !important;
+}
+
+.VPFooter .container {
+  max-width: 1120px !important;
+  flex-direction: column !important;
+}
+
+.ratchet-footer {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2rem;
+  padding: 2.5rem 0 1.5rem;
+  width: min(1120px, calc(100% - 2rem));
+  margin: 0 auto;
+}
+
+.ratchet-footer h4 {
+  margin: 0 0 0.85rem;
+  color: #fbbf24;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ratchet-footer ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.ratchet-footer li {
+  margin: 0.35rem 0;
+}
+
+.ratchet-footer a {
+  color: #d4d4d4;
+  text-decoration: none;
+  font-size: 0.92rem;
+}
+
+.ratchet-footer a:hover {
+  color: #fbbf24;
+}
+
+.ratchet-footer-copy {
+  width: min(1120px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: 1rem 0 1.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  color: #a3a3a3;
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+@media (min-width: 768px) {
+  .ratchet-footer {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Docs-page customisations — ported from src/css/custom.css            */
+/* ------------------------------------------------------------------ */
+
+/* Tables */
+.vp-doc table {
   width: 100%;
   border-collapse: collapse;
 }
 
-table th {
-  background-color: var(--ifm-color-primary);
+.vp-doc table th {
+  background-color: var(--vp-c-brand-1);
   color: white;
   padding: 0.75rem;
   text-align: left;
+  border: 0;
 }
 
-table td {
+/* In dark mode brand-1 becomes a bright amber — dark text reads better than white */
+.dark .vp-doc table th {
+  color: #1f1306;
+}
+
+.vp-doc table td {
   padding: 0.75rem;
-  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+  border-bottom: 1px solid var(--vp-c-divider);
+  border-top: 0;
+  border-left: 0;
+  border-right: 0;
 }
 
-table tr:hover {
-  background-color: var(--ifm-color-emphasis-100);
+.vp-doc table tr {
+  background-color: transparent !important;
 }
 
-/* Code blocks */
-pre {
-  background-color: var(--ifm-pre-background);
-  border-radius: 8px;
-  overflow-x: auto;
-}
-
-.theme-code-block {
-  border-radius: 8px;
-}
-
-.theme-code-block pre {
-  box-sizing: border-box;
-  min-height: 3.625rem;
-  margin: 0;
-  padding:
-    var(--ratchet-code-block-padding-y)
-    var(--ratchet-code-block-copy-space)
-    var(--ratchet-code-block-padding-y)
-    var(--ratchet-code-block-padding-x);
-}
-
-.theme-code-block pre code {
-  display: block;
-}
-
-pre code {
-  background: transparent;
-  padding: 0;
-  border-radius: 0;
-}
-
-:not(pre) > code {
-  font-family: 'Courier New', monospace;
-  background-color: var(--ifm-code-background);
-  padding: 0.1rem 0.3rem;
-  border-radius: 3px;
-}
-
-/* Links */
-a:not(.button) {
-  color: var(--ifm-color-primary);
-  text-decoration: none;
-}
-
-a:not(.button):hover {
-  text-decoration: underline;
-}
-
-/* Callout styling */
-.admonition {
-  border-left: 4px solid var(--ifm-color-primary);
-  padding: 1rem;
-  margin: 1rem 0;
-  background-color: var(--ifm-color-emphasis-100);
-  border-radius: 4px;
-}
-
-.admonition.note {
-  border-left-color: #3b82f6;
-}
-
-.admonition.warning {
-  border-left-color: #f59e0b;
-}
-
-.admonition.danger {
-  border-left-color: #ef4444;
+.vp-doc table tr:hover {
+  background-color: var(--vp-c-bg-soft);
 }
 
 /* API reference styling */
 .api-section {
   margin: 2rem 0;
   padding: 1.5rem;
-  background-color: var(--ifm-color-emphasis-50);
+  background-color: var(--vp-c-bg-soft);
   border-radius: 8px;
 }
 
 .api-section h3 {
   margin-top: 0;
+  border: 0;
+  padding: 0;
 }
 
 .method-signature {
-  background-color: var(--ifm-code-background);
+  background-color: var(--vp-c-bg-alt);
   padding: 1rem;
   border-radius: 4px;
   font-family: monospace;
   overflow-x: auto;
 }
 
+/* Ratchet "fit" diagram */
 .ratchet-fit-diagram {
   margin: 2rem 0;
   padding: 1.25rem;
-  border: 1px solid var(--ifm-color-emphasis-200);
+  border: 1px solid var(--vp-c-divider);
   border-radius: 12px;
   background:
     linear-gradient(180deg, rgba(255, 247, 237, 0.72), rgba(255, 255, 255, 0.96)),
-    var(--ifm-background-surface-color);
+    var(--vp-c-bg);
   box-shadow: 0 18px 48px rgba(31, 41, 55, 0.08);
 }
 
 .fit-layer,
 .fit-store,
 .fit-node {
-  border: 1px solid var(--ifm-color-emphasis-200);
+  border: 1px solid var(--vp-c-divider);
   border-radius: 8px;
-  background: var(--ifm-background-surface-color);
+  background: var(--vp-c-bg);
 }
 
-.fit-layer {
-  padding: 1.25rem;
-}
+.fit-layer { padding: 1.25rem; }
 
 .fit-layer-app {
   border-color: rgba(217, 119, 6, 0.34);
@@ -214,7 +440,7 @@ a:not(.button):hover {
 .fit-store span,
 .fit-node span {
   display: block;
-  color: var(--ifm-heading-color);
+  color: var(--vp-c-text-1);
   font-weight: 700;
 }
 
@@ -224,18 +450,20 @@ a:not(.button):hover {
   color: #0f766e;
   font-size: 0.78rem;
   font-weight: 700;
-  letter-spacing: 0;
   text-transform: uppercase;
 }
 
-.fit-layer code {
-  display: block;
+/* The .fit-layer used to host an unstyled inline <code>; now it hosts a
+   proper Shiki code block. Tighten margins and let the block soft-wrap so
+   long lines don't force horizontal scroll inside the narrow diagram. */
+.fit-layer [class*='language-'] {
   margin-top: 0.85rem;
-  padding: 0.85rem;
-  color: #f8fafc;
-  background: #1f2937;
-  border-radius: 8px;
-  white-space: normal;
+}
+
+.fit-layer [class*='language-'] pre,
+.fit-layer [class*='language-'] pre code {
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .fit-layer-header {
@@ -280,7 +508,7 @@ a:not(.button):hover {
 .fit-store small {
   display: block;
   margin-top: 0.5rem;
-  color: var(--ifm-color-emphasis-700);
+  color: var(--vp-c-text-2);
   line-height: 1.4;
 }
 
@@ -306,57 +534,53 @@ a:not(.button):hover {
   z-index: 1;
   padding: 0.35rem 0.75rem;
   color: #92400e;
-  background: var(--ifm-background-surface-color);
+  background: var(--vp-c-bg);
   border: 1px solid rgba(180, 83, 9, 0.22);
   border-radius: 999px;
   font-size: 0.86rem;
   font-weight: 700;
 }
 
-[data-theme='dark'] .ratchet-fit-diagram {
+.dark .ratchet-fit-diagram {
   background:
     linear-gradient(180deg, rgba(31, 41, 55, 0.72), rgba(17, 24, 39, 0.96)),
-    var(--ifm-background-surface-color);
+    var(--vp-c-bg);
   box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
 }
 
-[data-theme='dark'] .fit-layer-app {
+.dark .fit-layer-app {
   background: linear-gradient(135deg, rgba(69, 46, 16, 0.72), rgba(31, 41, 55, 0.9));
 }
 
-[data-theme='dark'] .fit-layer-engine {
+.dark .fit-layer-engine {
   background: linear-gradient(135deg, rgba(19, 78, 74, 0.52), rgba(31, 41, 55, 0.9));
 }
 
-[data-theme='dark'] .fit-store {
+.dark .fit-store {
   background: linear-gradient(135deg, rgba(46, 16, 101, 0.5), rgba(31, 41, 55, 0.9));
 }
 
-[data-theme='dark'] .fit-kicker {
-  color: #5eead4;
-}
+.dark .fit-kicker { color: #5eead4; }
 
-[data-theme='dark'] .fit-connector span {
+.dark .fit-connector span {
   color: #fef3c7;
   background: #1f2937;
   border-color: rgba(251, 191, 36, 0.32);
 }
 
+/* Generic docs diagram (used across many concept pages) */
 .docs-diagram {
   margin: 1.5rem 0 2rem;
   padding: 1.25rem;
-  border: 1px solid var(--ifm-color-emphasis-200);
+  border: 1px solid var(--vp-c-divider);
   border-radius: 12px;
   background:
     linear-gradient(180deg, rgba(248, 250, 252, 0.94), rgba(255, 255, 255, 0.98)),
-    var(--ifm-background-surface-color);
+    var(--vp-c-bg);
   box-shadow: 0 16px 40px rgba(31, 41, 55, 0.07);
 }
 
-.docs-diagram-grid {
-  display: grid;
-  gap: 0.75rem;
-}
+.docs-diagram-grid { display: grid; gap: 0.75rem; }
 
 .docs-diagram-row {
   display: grid;
@@ -373,23 +597,21 @@ a:not(.button):hover {
 .docs-diagram-state,
 .docs-diagram-step,
 .docs-diagram-table {
-  border: 1px solid var(--ifm-color-emphasis-200);
+  border: 1px solid var(--vp-c-divider);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.78);
 }
 
 .docs-diagram-card,
 .docs-diagram-state,
-.docs-diagram-step {
-  padding: 1rem;
-}
+.docs-diagram-step { padding: 1rem; }
 
 .docs-diagram-card strong,
 .docs-diagram-state strong,
 .docs-diagram-step strong,
 .docs-diagram-table strong {
   display: block;
-  color: var(--ifm-heading-color);
+  color: var(--vp-c-text-1);
   font-weight: 750;
 }
 
@@ -399,7 +621,7 @@ a:not(.button):hover {
 .docs-diagram-table small {
   display: block;
   margin-top: 0.45rem;
-  color: var(--ifm-color-emphasis-700);
+  color: var(--vp-c-text-2);
   line-height: 1.4;
 }
 
@@ -481,7 +703,7 @@ a:not(.button):hover {
   max-width: min(36rem, 90%);
   padding: 0.35rem 0.75rem;
   color: #92400e;
-  background: var(--ifm-background-surface-color);
+  background: var(--vp-c-bg);
   border: 1px solid rgba(180, 83, 9, 0.22);
   border-radius: 999px;
   font-size: 0.84rem;
@@ -495,9 +717,7 @@ a:not(.button):hover {
   gap: 0.75rem;
 }
 
-.docs-diagram-flow .docs-diagram-card {
-  position: relative;
-}
+.docs-diagram-flow .docs-diagram-card { position: relative; }
 
 .docs-diagram-flow .docs-diagram-card::after {
   content: '';
@@ -509,9 +729,7 @@ a:not(.button):hover {
   background: rgba(15, 118, 110, 0.36);
 }
 
-.docs-diagram-flow .docs-diagram-card:last-child::after {
-  display: none;
-}
+.docs-diagram-flow .docs-diagram-card:last-child::after { display: none; }
 
 .docs-diagram-split {
   display: grid;
@@ -547,10 +765,7 @@ a:not(.button):hover {
   font-weight: 800;
 }
 
-.docs-decision-grid {
-  display: grid;
-  gap: 0.75rem;
-}
+.docs-decision-grid { display: grid; gap: 0.75rem; }
 
 .docs-decision-row {
   display: grid;
@@ -559,17 +774,13 @@ a:not(.button):hover {
   align-items: stretch;
 }
 
-.docs-decision-row .docs-diagram-card {
-  min-height: 6.5rem;
-}
+.docs-decision-row .docs-diagram-card { min-height: 6.5rem; }
 
-.docs-diagram-table {
-  overflow: hidden;
-}
+.docs-diagram-table { overflow: hidden; }
 
 .docs-diagram-table-header {
   padding: 0.9rem 1rem;
-  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+  border-bottom: 1px solid var(--vp-c-divider);
 }
 
 .docs-diagram-fields {
@@ -581,7 +792,7 @@ a:not(.button):hover {
 
 .docs-diagram-fields span {
   padding: 0.35rem 0.5rem;
-  color: var(--ifm-color-emphasis-800);
+  color: var(--vp-c-text-1);
   background: rgba(148, 163, 184, 0.12);
   border-radius: 6px;
   font-size: 0.84rem;
@@ -611,14 +822,14 @@ a:not(.button):hover {
 .uuid-segment {
   min-width: 0;
   padding: 0.8rem 0.55rem;
-  border: 1px solid var(--ifm-color-emphasis-200);
+  border: 1px solid var(--vp-c-divider);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.78);
   text-align: center;
 }
 
 .uuid-segment strong {
-  color: var(--ifm-heading-color);
+  color: var(--vp-c-text-1);
   font-size: 0.84rem;
 }
 
@@ -627,62 +838,63 @@ a:not(.button):hover {
   font-size: 0.74rem;
 }
 
-[data-theme='dark'] .docs-diagram {
+.dark .docs-diagram {
   background:
     linear-gradient(180deg, rgba(31, 41, 55, 0.74), rgba(17, 24, 39, 0.96)),
-    var(--ifm-background-surface-color);
+    var(--vp-c-bg);
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.26);
 }
 
-[data-theme='dark'] .docs-diagram-card,
-[data-theme='dark'] .docs-diagram-state,
-[data-theme='dark'] .docs-diagram-step,
-[data-theme='dark'] .docs-diagram-table,
-[data-theme='dark'] .uuid-segment {
+.dark .docs-diagram-card,
+.dark .docs-diagram-state,
+.dark .docs-diagram-step,
+.dark .docs-diagram-table,
+.dark .uuid-segment {
   background: rgba(31, 41, 55, 0.84);
 }
 
-[data-theme='dark'] .docs-diagram-card--primary,
-[data-theme='dark'] .docs-diagram-state--primary {
+.dark .docs-diagram-card--primary,
+.dark .docs-diagram-state--primary {
   background: linear-gradient(135deg, rgba(69, 46, 16, 0.72), rgba(31, 41, 55, 0.9));
 }
 
-[data-theme='dark'] .docs-diagram-card--active,
-[data-theme='dark'] .docs-diagram-state--active {
+.dark .docs-diagram-card--active,
+.dark .docs-diagram-state--active {
   background: linear-gradient(135deg, rgba(19, 78, 74, 0.54), rgba(31, 41, 55, 0.9));
 }
 
-[data-theme='dark'] .docs-diagram-card--success,
-[data-theme='dark'] .docs-diagram-state--success {
+.dark .docs-diagram-card--success,
+.dark .docs-diagram-state--success {
   background: linear-gradient(135deg, rgba(20, 83, 45, 0.48), rgba(31, 41, 55, 0.9));
 }
 
-[data-theme='dark'] .docs-diagram-card--warning,
-[data-theme='dark'] .docs-diagram-state--warning {
+.dark .docs-diagram-card--warning,
+.dark .docs-diagram-state--warning {
   background: linear-gradient(135deg, rgba(113, 63, 18, 0.52), rgba(31, 41, 55, 0.9));
 }
 
-[data-theme='dark'] .docs-diagram-card--danger,
-[data-theme='dark'] .docs-diagram-state--danger {
+.dark .docs-diagram-card--danger,
+.dark .docs-diagram-state--danger {
   background: linear-gradient(135deg, rgba(127, 29, 29, 0.48), rgba(31, 41, 55, 0.9));
 }
 
-[data-theme='dark'] .docs-diagram-card--store,
-[data-theme='dark'] .docs-diagram-state--store {
+.dark .docs-diagram-card--store,
+.dark .docs-diagram-state--store {
   background: linear-gradient(135deg, rgba(46, 16, 101, 0.5), rgba(31, 41, 55, 0.9));
 }
 
-[data-theme='dark'] .docs-diagram-connector span {
+.dark .docs-diagram-connector span {
   color: #fef3c7;
   background: #1f2937;
   border-color: rgba(251, 191, 36, 0.32);
 }
 
-[data-theme='dark'] .docs-diagram-fields span {
-  color: var(--ifm-color-emphasis-800);
+.dark .docs-diagram-fields span {
+  color: var(--vp-c-text-1);
   background: rgba(148, 163, 184, 0.14);
 }
 
+/* Module inventory + dependency diagram */
 .module-inventory {
   display: grid;
   gap: 1rem;
@@ -691,15 +903,13 @@ a:not(.button):hover {
 
 .module-section,
 .module-dependency-diagram {
-  border: 1px solid var(--ifm-color-emphasis-200);
+  border: 1px solid var(--vp-c-divider);
   border-radius: 12px;
-  background: var(--ifm-background-surface-color);
+  background: var(--vp-c-bg);
   box-shadow: 0 16px 40px rgba(31, 41, 55, 0.06);
 }
 
-.module-section {
-  padding: 1.25rem;
-}
+.module-section { padding: 1.25rem; }
 
 .module-section-api {
   border-color: rgba(217, 119, 6, 0.32);
@@ -735,9 +945,7 @@ a:not(.button):hover {
   margin-bottom: 1rem;
 }
 
-.module-section-header strong {
-  color: var(--ifm-heading-color);
-}
+.module-section-header strong { color: var(--vp-c-text-1); }
 
 .module-chip-grid {
   display: grid;
@@ -747,7 +955,7 @@ a:not(.button):hover {
 
 .module-chip {
   padding: 0.95rem;
-  border: 1px solid var(--ifm-color-emphasis-200);
+  border: 1px solid var(--vp-c-divider);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.74);
 }
@@ -755,7 +963,7 @@ a:not(.button):hover {
 .module-chip code {
   display: inline;
   padding: 0 !important;
-  color: var(--ifm-heading-color);
+  color: var(--vp-c-text-1);
   background: transparent !important;
   border: 0 !important;
   box-shadow: none !important;
@@ -768,7 +976,7 @@ a:not(.button):hover {
 
 .module-chip p {
   margin: 0.55rem 0 0;
-  color: var(--ifm-color-emphasis-700);
+  color: var(--vp-c-text-2);
   font-size: 0.88rem;
   line-height: 1.45;
 }
@@ -795,7 +1003,7 @@ a:not(.button):hover {
   padding: 1.25rem;
   background:
     linear-gradient(180deg, rgba(248, 250, 252, 0.92), rgba(255, 255, 255, 0.96)),
-    var(--ifm-background-surface-color);
+    var(--vp-c-bg);
 }
 
 .dependency-layer {
@@ -812,7 +1020,6 @@ a:not(.button):hover {
   color: #0f766e;
   font-size: 0.78rem;
   font-weight: 800;
-  letter-spacing: 0;
   text-align: right;
   text-transform: uppercase;
 }
@@ -828,12 +1035,12 @@ a:not(.button):hover {
   padding: 1rem;
   border: 1px solid rgba(71, 85, 105, 0.22);
   border-radius: 8px;
-  background: var(--ifm-background-surface-color);
+  background: var(--vp-c-bg);
 }
 
 .dependency-node strong {
   display: block;
-  color: var(--ifm-heading-color);
+  color: var(--vp-c-text-1);
   font-weight: 750;
   overflow-wrap: anywhere;
 }
@@ -841,7 +1048,7 @@ a:not(.button):hover {
 .dependency-node small {
   display: block;
   margin-top: 0.45rem;
-  color: var(--ifm-color-emphasis-700);
+  color: var(--vp-c-text-2);
   line-height: 1.4;
 }
 
@@ -883,7 +1090,7 @@ a:not(.button):hover {
   max-width: min(34rem, 84%);
   padding: 0.35rem 0.75rem;
   color: #92400e;
-  background: var(--ifm-background-surface-color);
+  background: var(--vp-c-bg);
   border: 1px solid rgba(180, 83, 9, 0.22);
   border-radius: 999px;
   font-size: 0.84rem;
@@ -891,90 +1098,125 @@ a:not(.button):hover {
   text-align: center;
 }
 
-[data-theme='dark'] .module-section,
-[data-theme='dark'] .module-dependency-diagram {
+.dark .module-section,
+.dark .module-dependency-diagram {
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.24);
 }
 
-[data-theme='dark'] .module-section-api,
-[data-theme='dark'] .dependency-node-api {
+.dark .module-section-api,
+.dark .dependency-node-api {
   background: linear-gradient(135deg, rgba(69, 46, 16, 0.72), rgba(31, 41, 55, 0.9));
 }
 
-[data-theme='dark'] .module-section-runtime {
+.dark .module-section-runtime {
   background: linear-gradient(135deg, rgba(19, 78, 74, 0.52), rgba(31, 41, 55, 0.9));
 }
 
-[data-theme='dark'] .module-section-observability {
+.dark .module-section-observability {
   background: linear-gradient(135deg, rgba(30, 58, 138, 0.42), rgba(31, 41, 55, 0.9));
 }
 
-[data-theme='dark'] .module-section-validation,
-[data-theme='dark'] .dependency-node-store {
+.dark .module-section-validation,
+.dark .dependency-node-store {
   background: linear-gradient(135deg, rgba(46, 16, 101, 0.5), rgba(31, 41, 55, 0.9));
 }
 
-[data-theme='dark'] .module-section-distribution,
-[data-theme='dark'] .module-dependency-diagram {
+.dark .module-section-distribution,
+.dark .module-dependency-diagram {
   background:
     linear-gradient(180deg, rgba(31, 41, 55, 0.72), rgba(17, 24, 39, 0.96)),
-    var(--ifm-background-surface-color);
+    var(--vp-c-bg);
 }
 
-[data-theme='dark'] .module-chip,
-[data-theme='dark'] .dependency-node {
+.dark .module-chip,
+.dark .dependency-node {
   background: rgba(31, 41, 55, 0.82);
 }
 
-[data-theme='dark'] .module-tags span {
+.dark .module-tags span {
   color: #ccfbf1;
   background: rgba(15, 118, 110, 0.34);
   border-color: rgba(94, 234, 212, 0.24);
 }
 
-[data-theme='dark'] .dependency-layer-label {
-  color: #5eead4;
-}
+.dark .dependency-layer-label { color: #5eead4; }
 
-[data-theme='dark'] .dependency-bridge span {
+.dark .dependency-bridge span {
   color: #fef3c7;
   background: #1f2937;
   border-color: rgba(251, 191, 36, 0.32);
 }
 
-/* Navbar improvements */
-.navbar {
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+/* ------------------------------------------------------------------ */
+/* Mobile                                                               */
+/* ------------------------------------------------------------------ */
+
+@media (max-width: 960px) {
+  /* Lift hero below the navbar */
+  .VPHero {
+    padding-top: 5rem !important;
+    padding-bottom: 2rem !important;
+  }
+
+  .VPHero .container {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    text-align: left !important;
+  }
+
+  .VPHero .main {
+    text-align: left !important;
+    order: 1;
+  }
+
+  /* Title — smaller and tighter on mobile */
+  .VPHero .name {
+    font-size: 44px !important;
+    line-height: 1 !important;
+  }
+
+  .VPHero .tagline {
+    font-size: 1.05rem !important;
+    margin-top: 1rem !important;
+    text-align: left !important;
+  }
+
+  .VPHero .actions {
+    margin-top: 1.5rem !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0.6rem !important;
+  }
+
+  .VPHero .action {
+    width: 100% !important;
+  }
+
+  .VPHero .action .VPButton {
+    width: 100% !important;
+    justify-content: center;
+  }
+
+  /* Hide the empty image column space on mobile */
+  .VPHero .image {
+    display: none !important;
+  }
 }
 
-/* Mobile improvements */
+@media (max-width: 640px) {
+  .VPHero .name {
+    font-size: 38px !important;
+  }
+}
+
 @media (max-width: 768px) {
-  .ratchet-features {
-    grid-template-columns: 1fr;
-  }
-
-  table {
-    font-size: 0.875rem;
-  }
-
-  table th,
-  table td {
-    padding: 0.5rem;
-  }
-
   .fit-engine-grid,
-  .fit-store-grid {
-    grid-template-columns: 1fr;
-  }
+  .fit-store-grid { grid-template-columns: 1fr; }
 
   .fit-node,
-  .fit-store {
-    min-height: auto;
-  }
+  .fit-store { min-height: auto; }
 
-  .docs-diagram {
-    padding: 1rem;
-  }
+  .docs-diagram { padding: 1rem; }
 
   .docs-diagram-flow .docs-diagram-card::after {
     top: auto;
@@ -985,27 +1227,19 @@ a:not(.button):hover {
   }
 
   .docs-diagram-split,
-  .docs-decision-row {
-    grid-template-columns: 1fr;
-  }
+  .docs-decision-row { grid-template-columns: 1fr; }
 
   .docs-diagram-connector span {
     max-width: 100%;
     border-radius: 8px;
   }
 
-  .uuid-strip {
-    grid-template-columns: 1fr;
-  }
+  .uuid-strip { grid-template-columns: 1fr; }
 
-  .module-section-header {
-    display: block;
-  }
+  .module-section-header { display: block; }
 
   .module-chip,
-  .dependency-node {
-    min-height: auto;
-  }
+  .dependency-node { min-height: auto; }
 
   .dependency-layer {
     grid-template-columns: 1fr;
@@ -1017,10 +1251,7 @@ a:not(.button):hover {
     text-align: left;
   }
 
-  .dependency-node-grid,
-  .dependency-store-grid {
-    grid-template-columns: 1fr;
-  }
+  .dependency-node-grid { grid-template-columns: 1fr; }
 
   .dependency-bridge span {
     max-width: 100%;

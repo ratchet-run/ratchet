@@ -431,7 +431,7 @@ scheduler.addEventListener(listener);
 scheduler.removeEventListener(listener);
 ```
 
-## JobHandle {/* #jobhandle */}
+## JobHandle {#jobhandle}
 
 `JobHandle` is the return type of all submission methods. It is a `@FunctionalInterface` with a single method:
 
@@ -495,4 +495,4 @@ Finalizes configuration and submits the recurring job to the scheduler.
 - [JobBuilder Reference](./job-builder)
 - [BatchBuilder Reference](./batch-builder)
 - [Event System](./event-system)
-- [Job Lifecycle](/docs/concepts/job-lifecycle)
+- [Job Lifecycle](/concepts/job-lifecycle)

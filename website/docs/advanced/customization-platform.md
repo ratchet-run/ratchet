@@ -52,7 +52,7 @@ No string-based implementation class names are loaded by Ratchet. This keeps the
 
 ## Configuration Model
 
-Applications must produce an `@ApplicationScoped RatchetOptions` bean — Ratchet refuses to start otherwise. See [Configuration](/docs/getting-started/configuration) for the canonical patterns.
+Applications must produce an `@ApplicationScoped RatchetOptions` bean — Ratchet refuses to start otherwise. See [Configuration](/getting-started/configuration) for the canonical patterns.
 
 `RatchetConfigSource` is an advanced overlay: produce it only when your platform already owns raw configuration and you want a producer that calls `RatchetOptionsFactory.fromEnvironment(yourSource)` to fold that platform on top of the ambient `RATCHET_*` / MicroProfile Config chain.
 

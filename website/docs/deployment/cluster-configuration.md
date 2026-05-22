@@ -289,8 +289,8 @@ ORDER BY locked_at;
 
 ## See Also
 
-- [Deployment Overview](/docs/deployment/overview) — General deployment guidance
-- [Kubernetes Deployment](/docs/deployment/kubernetes) — StatefulSet and pod configuration
-- [Performance Tuning](/docs/deployment/performance-tuning) — Tuning polling and thread pools
-- [Clustering & Distributed Execution](/docs/deployment/clustering) — Conceptual overview of clustering
-- [Monitoring & Observability](/docs/deployment/monitoring) — Metrics and health checks
+- [Deployment Overview](/deployment/overview) — General deployment guidance
+- [Kubernetes Deployment](/deployment/kubernetes) — StatefulSet and pod configuration
+- [Performance Tuning](/deployment/performance-tuning) — Tuning polling and thread pools
+- [Clustering & Distributed Execution](/deployment/clustering) — Conceptual overview of clustering
+- [Monitoring & Observability](/deployment/monitoring) — Metrics and health checks

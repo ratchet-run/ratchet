@@ -390,4 +390,4 @@ scheduler.enqueue(() -> analyzeData())
 
 - [WorkflowCondition Reference](./workflow-condition)
 - [JobBuilder Workflow Methods](./job-builder#workflow-methods)
-- [Job Lifecycle](/docs/concepts/job-lifecycle)
+- [Job Lifecycle](/concepts/job-lifecycle)
