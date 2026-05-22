@@ -1,32 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { codeToHtml } from 'shiki'
-
-const code = `@Inject
-JobSchedulerService scheduler;
-
-public void placeOrder(UUID orderId) {
-    scheduler.enqueue(() -> orders.process(orderId))
-        .withMaxRetries(3)
-        .withBackoff(
-            BackoffPolicy.EXPONENTIAL,
-            Duration.ofSeconds(2))
-        .withTags("orders", "fulfillment")
-        .submit();
-}`
-
-const html = ref('')
-
-onMounted(async () => {
-  html.value = await codeToHtml(code, {
-    lang: 'java',
-    themes: {
-      light: 'github-light',
-      dark: 'dracula',
-    },
-    defaultColor: false,
-  })
-})
+// The HTML is pre-rendered through Shiki by heroCodePlugin.ts at build time
+// (see docs/.vitepress/heroCodePlugin.ts). Importing the virtual module here
+// keeps Shiki out of the client bundle and gives the hero code its final
+// markup during SSR so there is no flash of empty content on hydration.
+import html from 'virtual:ratchet-hero-code'
 </script>
 
 <template>

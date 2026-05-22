@@ -26,9 +26,15 @@ const onOsChange = (e: MediaQueryListEvent) => {
   document.documentElement.classList.toggle('dark', e.matches)
 }
 
+function readStoredMode(): Mode {
+  const raw = localStorage.getItem(KEY)
+  return raw === 'light' || raw === 'dark' || raw === 'auto' ? raw : 'auto'
+}
+
 onMounted(() => {
-  const stored = (localStorage.getItem(KEY) as Mode | null) || 'auto'
-  mode.value = stored
+  // Reapply on mount so the DOM .dark class and the toggle UI are guaranteed
+  // to agree with localStorage, even if a legacy or unknown value was stored.
+  applyMode(readStoredMode())
   mql = window.matchMedia('(prefers-color-scheme: dark)')
   mql.addEventListener('change', onOsChange)
 })

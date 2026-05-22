@@ -1,4 +1,5 @@
 import { defineConfig, type HeadConfig } from 'vitepress'
+import { heroCodePlugin } from './heroCodePlugin'
 
 const umamiHost = process.env.UMAMI_HOST
 const umamiSiteId = process.env.UMAMI_SITE_ID
@@ -243,11 +244,7 @@ export default defineConfig({
     },
   },
 
-  ignoreDeadLinks: true,
-
   vite: {
-    server: {
-      allowedHosts: true,
-    },
+    plugins: [heroCodePlugin()],
   },
 })

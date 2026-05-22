@@ -42,6 +42,20 @@ export function installUmamiTracking() {
     const href = link.getAttribute('href')
     if (!href) return
 
+    // Hero CTA buttons. The Docusaurus home page tagged these with
+    // data-umami-event=cta-click; VitePress's home frontmatter doesn't
+    // expose data-attributes, so we infer the event from the link target
+    // to keep analytics parity with the previous site.
+    if (link.classList.contains('VPButton') && link.closest('.VPHero')) {
+      const target = inferHeroCtaTarget(href)
+      window.umami?.track('cta-click', {
+        location: 'hero',
+        target,
+        path: window.location.pathname,
+      })
+      return
+    }
+
     // Sidebar click: VitePress sidebar links sit inside .VPSidebarItem
     if (link.closest('.VPSidebarItem')) {
       window.umami?.track('sidebar-click', {
@@ -66,6 +80,14 @@ export function installUmamiTracking() {
   })
 }
 
+function inferHeroCtaTarget(href: string): string {
+  // Map known hero links back to the same event-target labels the old
+  // Docusaurus index.tsx used (data-umami-event-target=...).
+  if (href.startsWith('/getting-started/')) return 'get-started'
+  if (href.startsWith('/api-reference/')) return 'api-reference'
+  return 'unknown'
+}
+
 // Anchor-view tracking via VitePress route hash changes.
 // Called from theme/index.ts inside a NavigationGuard-style mounted hook.
 let lastAnchor = ''
@@ -80,4 +102,22 @@ export function trackAnchorView(path: string, hash: string) {
     path,
     anchor: hash.replace(/^#/, ''),
   })
+}
+
+// 404 tracking. The Docusaurus 404.tsx fired a `not-found` umami event on
+// mount. VitePress shows its built-in NotFound layout when no route matches,
+// so we detect it via the body class VitePress sets on the 404 page.
+let lastNotFoundPath = ''
+export function trackNotFoundIfApplicable(path: string) {
+  if (typeof window === 'undefined') return
+  // Defer to next tick so VitePress has applied page metadata + classes.
+  setTimeout(() => {
+    const isNotFound =
+      document.body.classList.contains('NotFound') ||
+      document.querySelector('.NotFound') !== null
+    if (!isNotFound) return
+    if (path === lastNotFoundPath) return
+    lastNotFoundPath = path
+    window.umami?.track('not-found', { path })
+  }, 0)
 }

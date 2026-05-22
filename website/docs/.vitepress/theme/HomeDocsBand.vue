@@ -4,21 +4,25 @@ const docs = [
     title: 'Install Ratchet',
     href: '/getting-started/installation',
     description: 'Import the BOM, choose a store, apply schema, and produce runtime options.',
+    event: 'installation',
   },
   {
     title: 'Run a first job',
     href: '/getting-started/quickstart',
     description: 'A short path from CDI injection to an executed persisted job.',
+    event: 'quickstart',
   },
   {
     title: 'Check the API',
     href: '/api-reference/overview',
     description: 'Current public API, SPI, events, query service, and builder references.',
+    event: 'api-reference',
   },
   {
     title: 'Review conformance',
     href: '/conformance/',
     description: 'Store, API, and Jakarta runtime compatibility reports.',
+    event: 'conformance',
   },
 ]
 </script>
@@ -36,6 +40,9 @@ const docs = [
           :key="d.title"
           :href="d.href"
           class="doc-link"
+          data-umami-event="cta-click"
+          data-umami-event-location="docs-grid"
+          :data-umami-event-target="d.event"
         >
           <span>{{ d.title }}</span>
           <small>{{ d.description }}</small>

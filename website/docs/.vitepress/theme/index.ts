@@ -1,6 +1,5 @@
-import { h, watch } from 'vue'
+import { h } from 'vue'
 import type { Theme } from 'vitepress'
-import { useRoute } from 'vitepress'
 import DefaultTheme from 'vitepress/theme'
 import HeroCode from './HeroCode.vue'
 import HeroInfoTop from './HeroInfoTop.vue'
@@ -8,7 +7,7 @@ import HomeDocsBand from './HomeDocsBand.vue'
 import ComparisonMatrix from './ComparisonMatrix.vue'
 import SiteFooter from './SiteFooter.vue'
 import AppearanceToggle from './AppearanceToggle.vue'
-import { installUmamiTracking, trackAnchorView } from './umamiTracking'
+import { installUmamiTracking, trackAnchorView, trackNotFoundIfApplicable } from './umamiTracking'
 import './custom.css'
 
 export default {
@@ -32,6 +31,7 @@ export default {
         try {
           const url = new URL(to, window.location.origin)
           trackAnchorView(url.pathname, url.hash)
+          trackNotFoundIfApplicable(url.pathname)
         } catch {
           /* noop */
         }
