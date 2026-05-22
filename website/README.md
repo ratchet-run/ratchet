@@ -1,6 +1,6 @@
 # Website
 
-This website is built using [Docusaurus](https://docusaurus.io/), a modern static website generator.
+The Ratchet documentation site, built with [VitePress](https://vitepress.dev/).
 
 ## Installation
 
@@ -8,13 +8,13 @@ This website is built using [Docusaurus](https://docusaurus.io/), a modern stati
 npm install
 ```
 
-## Local Development
+## Local development
 
 ```bash
-npm run start
+npm run dev
 ```
 
-This command starts a local development server and opens up a browser window. Most changes are reflected live without having to restart the server.
+Starts the VitePress dev server with hot reload at `http://localhost:5173` by default.
 
 ## Build
 
@@ -22,20 +22,25 @@ This command starts a local development server and opens up a browser window. Mo
 npm run build
 ```
 
-This command generates static content into the `build` directory and can be served using any static contents hosting service.
+Produces a static site in `docs/.vitepress/dist/`.
 
-## Deployment
-
-Using SSH:
+## Preview the built site
 
 ```bash
-USE_SSH=true npm run deploy
+npm run preview
 ```
 
-Not using SSH:
+Serves the built `dist/` locally for a final sanity check before deploying.
 
-```bash
-GIT_USER=<Your GitHub username> npm run deploy
-```
+## Project layout
 
-If you are using GitHub pages for hosting, this command is a convenient way to build the website and push to the `gh-pages` branch.
+- `docs/` — source content
+  - `*.md` — pages, grouped by section (getting-started, concepts, api-reference, deployment, advanced, troubleshooting, comparison, conformance)
+  - `index.md` — landing page (uses VitePress's `layout: home` plus custom slots)
+  - `.vitepress/config.ts` — site title, nav, sidebar, theme config, edit-on-GitHub link
+  - `.vitepress/theme/` — custom theme: brand CSS, hero slots, footer, 3-state appearance toggle, Umami click tracking, Vue port of `ComparisonMatrix`
+  - `public/` — static assets (images, favicons, manifest); copied verbatim to the root of the built site
+
+## Analytics
+
+Umami pageview + replay tracking is gated on the `UMAMI_HOST` and `UMAMI_SITE_ID` environment variables and only enabled when `NODE_ENV=production`. The two `<script>` tags (`script.js` for events, `recorder.js` for session replay) are injected via `docs/.vitepress/config.ts`. Click-event tracking and anchor-view events are wired up in `docs/.vitepress/theme/umamiTracking.ts`.

@@ -283,7 +283,7 @@ public interface ResultPersistenceStrategy {
 
 ## RatchetConfig
 
-Typed runtime configuration facade used internally by `RatchetOptionsFactory` to resolve keys against a chain of `RatchetConfigSource` instances. Most applications never interact with this directly; they either build `RatchetOptions` programmatically or call `RatchetOptionsFactory.fromEnvironment()` from their producer (see [Configuration](/docs/getting-started/configuration)).
+Typed runtime configuration facade used internally by `RatchetOptionsFactory` to resolve keys against a chain of `RatchetConfigSource` instances. Most applications never interact with this directly; they either build `RatchetOptions` programmatically or call `RatchetOptionsFactory.fromEnvironment()` from their producer (see [Configuration](/getting-started/configuration)).
 
 ```java
 public interface RatchetConfig {

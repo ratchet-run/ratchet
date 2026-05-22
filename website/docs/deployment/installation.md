@@ -156,7 +156,7 @@ public class RatchetConfig {
 }
 ```
 
-See [Configuration](/docs/getting-started/configuration) for the programmatic builder alternative and custom sources. Common knobs:
+See [Configuration](/getting-started/configuration) for the programmatic builder alternative and custom sources. Common knobs:
 
 | Setting | Default | Purpose |
 |---------|---------|---------|
@@ -165,7 +165,7 @@ See [Configuration](/docs/getting-started/configuration) for the programmatic bu
 | `execution.maxConcurrency("SINGLE", ...)` | `20` | Worker threads for one-off jobs |
 | `maintenance.jobRetentionDays(...)` | `90` | Completed-job retention before archiving |
 
-SPI customizations such as `ClassPolicy`, `JobInvocationResolver`, `ResultPersistenceStrategy`, `ExecutionTuningProvider`, `ExecutorProvider`, `RatchetEntityManagerProvider`, and `ErrorSanitizer` are overridden with CDI `@Alternative` beans, not string property names. See [Configuration](/docs/getting-started/configuration).
+SPI customizations such as `ClassPolicy`, `JobInvocationResolver`, `ResultPersistenceStrategy`, `ExecutionTuningProvider`, `ExecutorProvider`, `RatchetEntityManagerProvider`, and `ErrorSanitizer` are overridden with CDI `@Alternative` beans, not string property names. See [Configuration](/getting-started/configuration).
 
 ## Step 6: Verify
 
@@ -192,9 +192,9 @@ SELECT COUNT(*) FROM scheduler_job;
 
 ## Next Steps
 
-- [Getting Started](/docs/getting-started/introduction)
-- [Configuration](/docs/deployment/configuration)
-- [Concepts](/docs/concepts/overview)
+- [Getting Started](/getting-started/introduction)
+- [Configuration](/deployment/configuration)
+- [Concepts](/concepts/overview)
 
 ## Troubleshooting
 

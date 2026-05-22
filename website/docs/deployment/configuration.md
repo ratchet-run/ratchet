@@ -12,7 +12,7 @@ Ratchet's Jakarta EE configuration model is CDI-first:
 - Produce store resources, such as `EntityManager`, `MongoDatabase`, and managed executors, as normal CDI resources.
 - Replace behavioral extension points with CDI `@Alternative` beans.
 
-The producer may either build options programmatically (see [RatchetOptions Producer](#ratchetoptions-producer) below) or read env vars + MicroProfile Config via `RatchetOptionsFactory.fromEnvironment()` (see [Source Chain](#source-chain) below). See the canonical [Configuration](/docs/getting-started/configuration) page for a deeper walkthrough.
+The producer may either build options programmatically (see [RatchetOptions Producer](#ratchetoptions-producer) below) or read env vars + MicroProfile Config via `RatchetOptionsFactory.fromEnvironment()` (see [Source Chain](#source-chain) below). See the canonical [Configuration](/getting-started/configuration) page for a deeper walkthrough.
 
 ## RatchetOptions Producer
 
@@ -37,7 +37,7 @@ public class AppSchedulerConfig {
 }
 ```
 
-This object is immutable and container-scoped. It avoids static runtime configuration, survives redeploys cleanly, and lets multiple applications in the same server use different settings. See [Configuration](/docs/getting-started/configuration) for the env-driven alternative.
+This object is immutable and container-scoped. It avoids static runtime configuration, survives redeploys cleanly, and lets multiple applications in the same server use different settings. See [Configuration](/getting-started/configuration) for the env-driven alternative.
 
 ## Store Resources
 
@@ -143,6 +143,6 @@ Security and behavior extension points are CDI beans, not class names in propert
 
 ## See Also
 
-- [Getting Started configuration](/docs/getting-started/configuration)
-- [Installation](/docs/deployment/installation)
-- [Troubleshooting](/docs/troubleshooting/common-issues)
+- [Getting Started configuration](/getting-started/configuration)
+- [Installation](/deployment/installation)
+- [Troubleshooting](/troubleshooting/common-issues)

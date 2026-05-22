@@ -147,6 +147,6 @@ The `ratchet-api` module has no runtime dependencies beyond Jakarta EE API types
 
 ## See Also
 
-- [Getting Started](/docs/getting-started/first-job)
-- [Concepts](/docs/concepts/job-lifecycle)
+- [Getting Started](/getting-started/first-job)
+- [Concepts](/concepts/job-lifecycle)
 - [SPI Interfaces](./spi-interfaces)

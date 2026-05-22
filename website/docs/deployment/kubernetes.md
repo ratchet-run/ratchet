@@ -461,7 +461,7 @@ spec:
 
 ## See Also
 
-- [Docker Deployment](/docs/deployment/docker) — Building container images
-- [Cluster Configuration](/docs/deployment/cluster-configuration) — ClusterCoordinator and node identity
-- [Performance Tuning](/docs/deployment/performance-tuning) — Tuning for high throughput
-- [Configuration](/docs/deployment/configuration) — Full configuration reference
+- [Docker Deployment](/deployment/docker) — Building container images
+- [Cluster Configuration](/deployment/cluster-configuration) — ClusterCoordinator and node identity
+- [Performance Tuning](/deployment/performance-tuning) — Tuning for high throughput
+- [Configuration](/deployment/configuration) — Full configuration reference

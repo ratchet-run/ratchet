@@ -413,7 +413,7 @@ WHERE status = 'PENDING'
 
 ## See Also
 
-- [Configuration](/docs/deployment/configuration) — Full configuration reference
-- [Monitoring & Observability](/docs/deployment/monitoring) — Metrics and alerting
-- [Cluster Configuration](/docs/deployment/cluster-configuration) — Multi-node tuning
-- [Troubleshooting](/docs/deployment/troubleshooting) — Diagnosing performance issues
+- [Configuration](/deployment/configuration) — Full configuration reference
+- [Monitoring & Observability](/deployment/monitoring) — Metrics and alerting
+- [Cluster Configuration](/deployment/cluster-configuration) — Multi-node tuning
+- [Troubleshooting](/deployment/troubleshooting) — Diagnosing performance issues

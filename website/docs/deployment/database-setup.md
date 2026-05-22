@@ -457,7 +457,7 @@ For all databases, schedule regular backups and test restoration periodically. I
 
 ## See Also
 
-- [PostgreSQL Deployment](/docs/deployment/postgresql) — PostgreSQL-specific tuning and monitoring
-- [MySQL Deployment](/docs/deployment/mysql) — MySQL-specific tuning and monitoring
-- [Configuration](/docs/deployment/configuration) — Full configuration reference
-- [Deployment Overview](/docs/deployment/overview) — General deployment guidance
+- [PostgreSQL Deployment](/deployment/postgresql) — PostgreSQL-specific tuning and monitoring
+- [MySQL Deployment](/deployment/mysql) — MySQL-specific tuning and monitoring
+- [Configuration](/deployment/configuration) — Full configuration reference
+- [Deployment Overview](/deployment/overview) — General deployment guidance

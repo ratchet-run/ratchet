@@ -303,7 +303,7 @@ public void onBatchCompleted(@Observes BatchCompletedEvent event) {
 }
 ```
 
-## Chain Event Types {/* #chainevent-types */}
+## Chain Event Types {#chainevent-types}
 
 ### ChainStartedEvent
 
@@ -456,5 +456,5 @@ public class SchedulerMonitoring {
 ## See Also
 
 - [JobSchedulerService Event Methods](./job-scheduler-service#event-listener-management)
-- [Job Lifecycle](/docs/concepts/job-lifecycle)
+- [Job Lifecycle](/concepts/job-lifecycle)
 - [SPI Interfaces](./spi-interfaces)

@@ -4,8 +4,6 @@ title: How Ratchet compares
 description: Side-by-side comparisons of Ratchet with Quartz, JobRunr, Spring Batch, jBeret, and db-scheduler, including where each competitor wins.
 ---
 
-import ComparisonMatrix from '@site/src/components/ComparisonMatrix';
-
 # How Ratchet compares
 
 Ratchet is not the right answer for every Java job-scheduling problem. This section lays out how it stacks up against the libraries you are most likely already considering, what each one does well, and when you should pick something else.

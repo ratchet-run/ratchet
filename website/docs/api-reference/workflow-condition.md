@@ -296,7 +296,7 @@ scheduler.enqueue(() -> processData())
     .submit();
 ```
 
-## WorkflowBranch {/* #workflowbranch */}
+## WorkflowBranch {#workflowbranch}
 
 `WorkflowBranch` pairs a `WorkflowCondition` with a task and optional description.
 

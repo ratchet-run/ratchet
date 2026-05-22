@@ -67,13 +67,13 @@ Multiple application instances share the same database. Ratchet uses database-le
 
 Recurring scans and destructive startup cleanup are already serialized through store-backed locks and leases. Implement `ClusterCoordinator` only if you want low-latency cross-node wakeups.
 
-See [Cluster Configuration](/docs/deployment/cluster-configuration) for details.
+See [Cluster Configuration](/deployment/cluster-configuration) for details.
 
 ### Containerized
 
 Ratchet runs in Docker or Kubernetes without any special configuration beyond what a standard Jakarta EE application needs. The database runs as a separate container or managed service.
 
-See [Docker Deployment](/docs/deployment/docker) and [Kubernetes Deployment](/docs/deployment/kubernetes).
+See [Docker Deployment](/deployment/docker) and [Kubernetes Deployment](/deployment/kubernetes).
 
 ## Database Schema
 
@@ -83,7 +83,7 @@ Ratchet ships SQL DDL as plain files — no Flyway or Liquibase dependency is re
 - `ratchet-store-postgresql` contains `ddl/postgresql-schema.sql`
 - `ratchet-store-mongodb` initializes collections and indexes at startup
 
-For SQL stores, apply the schema using whatever mechanism your team prefers: CLI tools, migration frameworks, or application startup scripts. MongoDB bootstraps collections and indexes automatically. See [Database Setup](/docs/deployment/database-setup) for step-by-step instructions.
+For SQL stores, apply the schema using whatever mechanism your team prefers: CLI tools, migration frameworks, or application startup scripts. MongoDB bootstraps collections and indexes automatically. See [Database Setup](/deployment/database-setup) for step-by-step instructions.
 
 ### Core Tables and Collections
 
@@ -112,7 +112,7 @@ The SQL schema creates these primary tables. MongoDB uses analogous collections 
 
 Ratchet **requires** a CDI-produced `RatchetOptions` bean. If no producer is found, CDI fails deployment with `UnsatisfiedResolutionException` and the scheduler never starts — a first-class kill-switch for any deployment that includes `ratchet` without wanting it active.
 
-The producer may build options programmatically or read `RATCHET_*` environment variables and MicroProfile Config via `RatchetOptionsFactory.fromEnvironment()`. See [Configuration](/docs/getting-started/configuration) for both patterns.
+The producer may build options programmatically or read `RATCHET_*` environment variables and MicroProfile Config via `RatchetOptionsFactory.fromEnvironment()`. See [Configuration](/getting-started/configuration) for both patterns.
 
 Key configuration areas:
 
@@ -124,7 +124,7 @@ Key configuration areas:
 | **Job retention** | `maintenance.jobRetentionDays(...)` | `90` |
 | **Clustering / node health** | `node.heartbeatIntervalSeconds(...)` | `10` |
 
-See [Configuration](/docs/deployment/configuration) for the full reference.
+See [Configuration](/deployment/configuration) for the full reference.
 
 ## Monitoring and Observability
 
@@ -135,7 +135,7 @@ Ratchet provides multiple monitoring integration points:
 - **MicroProfile Health** — Implement health checks against the job store
 - **Store queries** — Direct SQL queries or MongoDB queries against Ratchet storage for dashboards
 
-See [Monitoring & Observability](/docs/deployment/monitoring) for integration guides.
+See [Monitoring & Observability](/deployment/monitoring) for integration guides.
 
 ## Deployment Checklist
 
@@ -152,8 +152,8 @@ Before going to production:
 
 ## Next Steps
 
-- [Installation & Setup](/docs/deployment/installation) — Step-by-step getting started
-- [Database Setup](/docs/deployment/database-setup) — Schema application for all stores
-- [Configuration](/docs/deployment/configuration) — Full configuration reference
-- [Docker Deployment](/docs/deployment/docker) — Containerized deployments
-- [Kubernetes Deployment](/docs/deployment/kubernetes) — Orchestrated deployments
+- [Installation & Setup](/deployment/installation) — Step-by-step getting started
+- [Database Setup](/deployment/database-setup) — Schema application for all stores
+- [Configuration](/deployment/configuration) — Full configuration reference
+- [Docker Deployment](/deployment/docker) — Containerized deployments
+- [Kubernetes Deployment](/deployment/kubernetes) — Orchestrated deployments

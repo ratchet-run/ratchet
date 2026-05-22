@@ -340,6 +340,6 @@ Use Patroni or pg_auto_failover for automatic failover. Ratchet reconnects autom
 
 ## See Also
 
-- [MySQL Deployment](/docs/deployment/mysql)
-- [Database Setup](/docs/deployment/database-setup)
-- [Installation](/docs/deployment/installation)
+- [MySQL Deployment](/deployment/mysql)
+- [Database Setup](/deployment/database-setup)
+- [Installation](/deployment/installation)

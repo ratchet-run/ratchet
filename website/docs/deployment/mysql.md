@@ -308,6 +308,6 @@ mysql -u root -p ratchet < ratchet-backup.sql
 
 ## See Also
 
-- [PostgreSQL Deployment](/docs/deployment/postgresql)
-- [Database Setup](/docs/deployment/database-setup)
-- [Installation](/docs/deployment/installation)
+- [PostgreSQL Deployment](/deployment/postgresql)
+- [Database Setup](/deployment/database-setup)
+- [Installation](/deployment/installation)
