@@ -25,7 +25,6 @@ import run.ratchet.tck.store.JdbcDriverDataSource;
  */
 class MysqlSchemaMigratorIT extends AbstractSchemaMigratorContract {
 
-  // 8.0.29+ supports `ALTER TABLE ... DROP COLUMN IF EXISTS` used by V006.
   @SuppressWarnings({"resource", "rawtypes"})
   private static final MySQLContainer CONTAINER =
       new MySQLContainer("mysql:8.0.36")
