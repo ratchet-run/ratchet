@@ -18,7 +18,7 @@ import run.ratchet.store.util.RowValues;
 import run.ratchet.store.util.StatusClassifier;
 
 /**
- * Hydrates {@link JobEntity} from the post-V005 split schema:
+ * Hydrates {@link JobEntity} from the hot/cold split schema:
  *
  * <ul>
  *   <li>Cold metadata + terminal fields from {@code scheduler_job} (alias {@code c}).
