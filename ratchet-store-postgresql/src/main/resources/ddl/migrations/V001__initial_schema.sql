@@ -1,6 +1,10 @@
--- Ratchet PostgreSQL V001 — initial schema.
--- Single-table live + terminal design. Hot/cold split was applied in V005;
--- active business-key uniqueness is owned by scheduler_business_key_reservation.
+-- Ratchet PostgreSQL V001 — squashed baseline schema.
+--
+-- This file is the single baseline for the Ratchet PostgreSQL schema. It mirrors the
+-- canonical end-state in ddl/postgresql-schema.sql. Prior intermediate migrations
+-- (the historical V001 through V011 chain) were squashed before any production
+-- installs existed. Future schema changes ship as incremental migrations layered
+-- on top of this baseline.
 
 -- 0. ratchet_schema_version
 CREATE TABLE IF NOT EXISTS ratchet_schema_version
@@ -48,61 +52,201 @@ CREATE TABLE IF NOT EXISTS scheduler_resource_limit
     CONSTRAINT pk_scheduler_resource_limit PRIMARY KEY (resource_name)
 );
 
--- 4. scheduler_job
+-- 3a. scheduler_recurring_job — recurring-master definitions.
+-- Long-lived rows holding cron schedule, payload template, and runtime anchor
+-- (next_fire) for each repeating job. Never executed itself — spawns child
+-- rows on scheduler_job at fire time.
+CREATE TABLE IF NOT EXISTS scheduler_recurring_job
+(
+    id                    uuid           NOT NULL,
+    priority              INT            NOT NULL DEFAULT 2,
+    max_retries           INT            NOT NULL DEFAULT 0,
+    backoff_policy        TEXT           NOT NULL DEFAULT 'NONE',
+    backoff_param_ms      INT            NOT NULL DEFAULT 0,
+    timeout_sec           INT            NOT NULL DEFAULT 0,
+    cron_expr             VARCHAR(64)    NOT NULL,
+    zone_id               VARCHAR(32)    NOT NULL DEFAULT 'UTC',
+    next_fire             TIMESTAMPTZ(6) NOT NULL,
+    is_paused             BOOLEAN        NOT NULL DEFAULT FALSE,
+    paused_at             TIMESTAMPTZ(6),
+    payload               JSONB          NOT NULL,
+    on_success_payload    JSONB,
+    on_failure_payload    JSONB,
+    business_key          TEXT,
+    resource_name         VARCHAR(100),
+    target_class          TEXT GENERATED ALWAYS AS (payload ->> 'target') STORED,
+    method_name           TEXT GENERATED ALWAYS AS (payload ->> 'method') STORED,
+    created_at            TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    caller_principal      VARCHAR(255),
+    CONSTRAINT pk_scheduler_recurring_job PRIMARY KEY (id),
+    CONSTRAINT chk_rec_priority CHECK (priority BETWEEN 0 AND 4),
+    CONSTRAINT chk_rec_backoff_policy CHECK (backoff_policy IN ('NONE', 'FIXED', 'EXPONENTIAL'))
+);
+
+-- Claim index: partial on unpaused rows for FOR UPDATE SKIP LOCKED scan efficiency.
+CREATE INDEX IF NOT EXISTS idx_rec_claim
+    ON scheduler_recurring_job (next_fire)
+    WHERE is_paused = FALSE;
+CREATE INDEX IF NOT EXISTS idx_rec_business_key
+    ON scheduler_recurring_job (business_key);
+CREATE INDEX IF NOT EXISTS idx_rec_target_class
+    ON scheduler_recurring_job (target_class);
+
+-- 3b. scheduler_recurring_job_archive.
+-- Denormalized snapshot written atomically with the DELETE from
+-- scheduler_recurring_job. No FK back to the live table.
+CREATE TABLE IF NOT EXISTS scheduler_recurring_job_archive
+(
+    id                    uuid           NOT NULL,
+    cron_expr             VARCHAR(64)    NOT NULL,
+    zone_id               VARCHAR(32)    NOT NULL,
+    payload               JSONB          NOT NULL,
+    on_success_payload    JSONB,
+    on_failure_payload    JSONB,
+    business_key          TEXT,
+    created_at            TIMESTAMPTZ(6) NOT NULL,
+    caller_principal      VARCHAR(255),
+    archived_at           TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    archive_reason        TEXT           NOT NULL,
+    CONSTRAINT pk_scheduler_recurring_job_archive PRIMARY KEY (id),
+    CONSTRAINT chk_recurring_archive_reason CHECK (archive_reason IN ('CANCELED', 'EXHAUSTED'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_archive_rec_business_key
+    ON scheduler_recurring_job_archive (business_key);
+CREATE INDEX IF NOT EXISTS idx_archive_rec_archived_at
+    ON scheduler_recurring_job_archive (archived_at);
+
+-- 4. scheduler_job — COLD metadata + terminal fields.
+-- Live queue state (status, scheduled_time, picked_*, attempts, version, last_error,
+-- paused_from_status, updated_at) lives on scheduler_job_queue instead. Immutable
+-- job-shape fields are duplicated on scheduler_job_queue for the claim-path DTO —
+-- no mutation path writes them in both places.
 CREATE TABLE IF NOT EXISTS scheduler_job
 (
     job_id                uuid NOT NULL,
-    status                TEXT        NOT NULL DEFAULT 'PENDING',
-    paused_from_status    TEXT,
-    scheduled_time TIMESTAMPTZ(6) NOT NULL,
+    -- Immutable job-shape fields (duplicated on scheduler_job_queue per §duplication rule).
     job_type              TEXT        NOT NULL,
     priority              INT         NOT NULL DEFAULT 2,
-    attempts              INT         NOT NULL DEFAULT 0,
     max_retries           INT         NOT NULL DEFAULT 0,
     backoff_policy        TEXT        NOT NULL DEFAULT 'NONE',
     backoff_param_ms      INT         NOT NULL DEFAULT 0,
     timeout_sec           INT         NOT NULL DEFAULT 0,
     cron_expr             VARCHAR(64) NOT NULL DEFAULT '',
     zone_id               VARCHAR(32) NOT NULL DEFAULT 'UTC',
-    next_fire TIMESTAMPTZ(6),
+    -- Payload + params (insert-once; never mutated after enqueue).
     payload               JSONB NOT NULL,
     params                JSONB,
+    -- W3C TraceContext carrier captured at enqueue time; passed to TracingCollector at execution
+    -- start so distributed spans are parented to the submitting caller's trace.
+    trace_context         JSONB,
     target_class          TEXT GENERATED ALWAYS AS (payload ->> 'target') STORED,
     method_name           TEXT GENERATED ALWAYS AS (payload ->> 'method') STORED,
     idempotency_key       VARCHAR(36) NOT NULL,
+    -- business_key is immutable after enqueue; active-uniqueness owned by
+    -- scheduler_business_key_reservation (not a UNIQUE KEY here anymore).
     business_key          TEXT,
     resource_name         VARCHAR(100),
     on_success_payload    JSONB,
     on_failure_payload    JSONB,
     depends_on            uuid,
     superseded_by         uuid,
-    picked_by             VARCHAR(64),
-    picked_at TIMESTAMPTZ(6),
-    last_error            TEXT,
     created_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    created_by            VARCHAR(255),
-    updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- Captured at creation from jakarta.security.enterprise.SecurityContext when resolvable; null
+    -- otherwise. No enforcement performed — see JobSchedulerService Javadoc.
+    caller_principal      VARCHAR(255),
+    -- Terminal fields — NULL while live; set exactly once at terminal transition; only
+    -- cleared by resetFailedToPending. Archival / deleteDlqOlderThan use terminated_at.
+    -- terminal_error is the cold survivor of scheduler_job_queue.last_error: lifecycle
+    -- copies last_error → terminal_error before deleting the queue row.
+    terminal_status       TEXT,
+    terminal_error        TEXT,
+    total_attempts        INT,
+    terminated_at TIMESTAMPTZ(6),
     execution_start_time TIMESTAMPTZ(6),
     execution_end_time TIMESTAMPTZ(6),
     execution_duration_ms BIGINT,
     queue_wait_ms         BIGINT,
     job_result JSONB,
     result_type           VARCHAR(100),
-    version               INT         NOT NULL DEFAULT 0,
+    -- Recurring-child lineage pointer. Set for child rows spawned by a recurring master; NULL
+    -- elsewhere. ON DELETE SET NULL so cancel of a master does not cascade-delete in-flight
+    -- children.
+    recurring_master_id   uuid,
     CONSTRAINT pk_scheduler_job PRIMARY KEY (job_id),
     CONSTRAINT uk_idempotency_key UNIQUE (idempotency_key),
-    CONSTRAINT chk_job_status CHECK (status IN
-                                     ('PENDING', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELED',
-                                      'PAUSED')),
     CONSTRAINT chk_job_type CHECK (job_type IN
                                    ('SINGLE', 'RECURRING', 'BATCH_PARENT', 'BATCH_CHILD',
                                     'CHAIN_STEP', 'DLQ_ALERT', 'WORKFLOW_BRANCH', 'WORKFLOW_JOIN')),
     CONSTRAINT chk_job_priority CHECK (priority BETWEEN 0 AND 4),
     CONSTRAINT chk_backoff_policy CHECK (backoff_policy IN ('NONE', 'FIXED', 'EXPONENTIAL')),
-    CONSTRAINT chk_paused_from_status CHECK (paused_from_status IS NULL OR paused_from_status IN ('PENDING', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELED', 'PAUSED'))
+    CONSTRAINT chk_terminal_status CHECK (terminal_status IS NULL OR terminal_status IN ('SUCCEEDED', 'FAILED', 'CANCELED')),
+    CONSTRAINT fk_job_recurring_master FOREIGN KEY (recurring_master_id)
+        REFERENCES scheduler_recurring_job (id) ON DELETE SET NULL
 );
 
--- 4a. Business-key active-uniqueness reservation table.
+-- 4a. Hot authoritative queue state for executable jobs.
+-- Row exists iff the job is live (PENDING / RUNNING / PAUSED). DELETED at terminal.
+-- All claim, pickup, retry, orphan, pause, resume reads and writes target this table.
+-- Immutable job-shape fields (job_type, priority, business_key, timeout_sec,
+-- max_retries) are denormalized from scheduler_job for single-table claim DTO
+-- population — they are set at enqueue and never mutated.
+CREATE TABLE IF NOT EXISTS scheduler_job_queue
+(
+    job_id             uuid         NOT NULL,
+    status             TEXT         NOT NULL DEFAULT 'PENDING',
+    job_type           TEXT         NOT NULL,
+    priority           INT          NOT NULL DEFAULT 2,
+    scheduled_time     TIMESTAMPTZ(6) NOT NULL,
+    business_key       TEXT,
+    timeout_sec        INT          NOT NULL DEFAULT 0,
+    max_retries        INT          NOT NULL DEFAULT 0,
+    attempts           INT          NOT NULL DEFAULT 0,
+    picked_by          VARCHAR(64),
+    picked_at          TIMESTAMPTZ(6),
+    paused_from_status TEXT,
+    last_error         TEXT,
+    version            INT          NOT NULL DEFAULT 0,
+    updated_at         TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    signal_key              VARCHAR(255),
+    signal_timeout          TIMESTAMPTZ(6),
+    signal_payload          TEXT,
+    signal_payload_type     VARCHAR(16),
+    signal_outcome          VARCHAR(32),
+    signal_rejection_reason TEXT,
+    signal_delivered_at     TIMESTAMPTZ,
+    signal_delivered_by     VARCHAR(255),
+    signal_delivery_id      VARCHAR(36),
+    CONSTRAINT pk_scheduler_job_queue PRIMARY KEY (job_id),
+    CONSTRAINT chk_queue_status CHECK (status IN ('PENDING', 'RUNNING', 'PAUSED', 'WAITING')),
+    CONSTRAINT chk_queue_job_type CHECK (job_type IN
+                                         ('SINGLE', 'RECURRING', 'BATCH_PARENT', 'BATCH_CHILD',
+                                          'CHAIN_STEP', 'DLQ_ALERT', 'WORKFLOW_BRANCH', 'WORKFLOW_JOIN')),
+    CONSTRAINT chk_queue_priority CHECK (priority BETWEEN 0 AND 4),
+    CONSTRAINT chk_queue_paused_from_status CHECK (paused_from_status IS NULL OR paused_from_status IN ('PENDING', 'RUNNING', 'PAUSED')),
+    CONSTRAINT fk_job_queue_job FOREIGN KEY (job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
+);
+
+-- Hot-path claim index. Partial on PENDING — RUNNING and PAUSED rows are not claim
+-- candidates and inflate write amplification if covered.
+CREATE INDEX IF NOT EXISTS idx_claim_executable
+    ON scheduler_job_queue (job_type, scheduled_time ASC, priority DESC, job_id ASC)
+    WHERE status = 'PENDING';
+
+-- Orphan-detection scan: status='RUNNING' AND picked_at < cutoff AND picked_by NOT IN (alive).
+CREATE INDEX IF NOT EXISTS idx_queue_orphan
+    ON scheduler_job_queue (status, picked_at, picked_by);
+
+CREATE INDEX IF NOT EXISTS idx_signal_key_status
+    ON scheduler_job_queue (signal_key, status);
+
+CREATE INDEX IF NOT EXISTS idx_signal_timeout_status
+    ON scheduler_job_queue (status, signal_timeout);
+
+CREATE INDEX IF NOT EXISTS idx_signal_delivery_id
+    ON scheduler_job_queue (signal_delivery_id);
+
+-- 4b. Business-key active-uniqueness reservation table.
 -- Authoritative ownership lookup for active business keys. The main scheduler_job.business_key
 -- column remains for observability and archive/search projections; uniqueness is enforced here.
 CREATE TABLE IF NOT EXISTS scheduler_business_key_reservation
@@ -112,56 +256,41 @@ CREATE TABLE IF NOT EXISTS scheduler_business_key_reservation
     owner_table TEXT NOT NULL,
     reserved_at TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT pk_scheduler_business_key_reservation PRIMARY KEY (business_key),
-    CONSTRAINT chk_bk_owner_table CHECK (owner_table IN ('QUEUE', 'RECURRING')),
-    CONSTRAINT fk_bk_owner_job FOREIGN KEY (owner_job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
+    CONSTRAINT chk_bk_owner_table CHECK (owner_table IN ('QUEUE', 'RECURRING'))
+    -- owner_job_id is polymorphic across scheduler_job (QUEUE owner) and
+    -- scheduler_recurring_job (RECURRING owner); the FK is dropped at the application layer
+    -- because no single parent table exists. Cancel paths DELETE the reservation rows.
 );
 
 CREATE INDEX IF NOT EXISTS idx_bk_owner ON scheduler_business_key_reservation (owner_job_id);
 
--- Hot-path poller indexes — required, do NOT remove without re-running the perf suite.
-CREATE INDEX IF NOT EXISTS idx_job_poll_composite ON scheduler_job (status, priority, scheduled_time);
--- Match the executable claim filter used by PostgresqlJobStore:
---   WHERE status = 'PENDING' AND job_type = ?
---   AND scheduled_time <= statement_timestamp()
--- Computed age-boost ordering is sorted after the index scan.
--- The partial predicate removes the leading status column from the index key and keeps
--- write amplification lower than a full-table covering index.
-CREATE INDEX IF NOT EXISTS idx_job_claim_cover
-    ON scheduler_job (job_type, scheduled_time ASC, priority DESC, job_id ASC)
-    WHERE status = 'PENDING';
-CREATE INDEX IF NOT EXISTS idx_recurring_due ON scheduler_job (status, next_fire);
--- Match recurring claim order:
---   WHERE status = 'PENDING' AND job_type = 'RECURRING'
---   AND next_fire <= statement_timestamp()
-CREATE INDEX IF NOT EXISTS idx_job_recurring_composite
-    ON scheduler_job (next_fire ASC, priority DESC, job_id ASC)
-    WHERE status = 'PENDING' AND job_type = 'RECURRING';
--- TODO(perf-audit): idx_job_due (status, scheduled_time) is a left-prefix of idx_job_poll_composite
--- (status, priority, scheduled_time) and likely redundant for the planner. Confirm with
--- pg_stat_user_indexes on a representative workload before dropping to avoid an accidental
--- planner regression on narrow-index lookups.
-CREATE INDEX IF NOT EXISTS idx_job_due ON scheduler_job (status, scheduled_time);
-CREATE INDEX IF NOT EXISTS idx_job_priority_due ON scheduler_job (priority, scheduled_time);
--- Lookup/relationship indexes.
-CREATE INDEX IF NOT EXISTS idx_job_picked_by ON scheduler_job (picked_by);
+-- Lookup/relationship indexes (cold).
 CREATE INDEX IF NOT EXISTS idx_job_depends_on ON scheduler_job (depends_on);
 CREATE INDEX IF NOT EXISTS idx_job_superseded_by ON scheduler_job (superseded_by);
+-- business_key is observability-only here; uniqueness is in scheduler_business_key_reservation.
 CREATE INDEX IF NOT EXISTS idx_job_business_key ON scheduler_job (business_key);
--- Audit/archival indexes.
+-- Audit / archival indexes.
 CREATE INDEX IF NOT EXISTS idx_job_created_at ON scheduler_job (created_at);
-CREATE INDEX IF NOT EXISTS idx_job_updated_at ON scheduler_job (updated_at);
+-- Archival / deleteDlqOlderThan scan (terminal_status, terminated_at).
+CREATE INDEX IF NOT EXISTS idx_job_terminal ON scheduler_job (terminal_status, terminated_at);
+-- Child lineage pointer to recurring master.
+CREATE INDEX IF NOT EXISTS idx_job_recurring_master_id ON scheduler_job (recurring_master_id);
 -- DROPPED: idx_target_class and idx_method_name were debug-only and added measurable
 -- write amplification on the hot insert path. See ddl/postgresql-debug-indexes.sql for
 -- the optional companion file that adds them back when needed.
--- DROPPED: idx_job_active_business_key (ownership moved to scheduler_business_key_reservation).
+-- DROPPED (moved to scheduler_job_queue): idx_job_claim_cover, idx_recurring_due,
+-- idx_job_recurring_composite, idx_job_picked_by, idx_job_due, idx_job_priority_due,
+-- idx_job_updated_at, idx_job_poll_composite.
+-- DROPPED (ownership moved to scheduler_business_key_reservation): idx_job_active_business_key.
 
 -- 5. scheduler_job_tag
 CREATE TABLE IF NOT EXISTS scheduler_job_tag
 (
     job_id uuid        NOT NULL,
     tag    VARCHAR(64) NOT NULL,
-    CONSTRAINT pk_scheduler_job_tag PRIMARY KEY (job_id, tag),
-    CONSTRAINT fk_job_tag_job FOREIGN KEY (job_id) REFERENCES scheduler_job (job_id) ON DELETE CASCADE
+    CONSTRAINT pk_scheduler_job_tag PRIMARY KEY (job_id, tag)
+    -- No fk_job_tag_job — job_id is polymorphic between scheduler_job (executable jobs) and
+    -- scheduler_recurring_job (annotation-registered recurring masters carry tags).
 );
 
 -- Support run-status and other tag-first aggregations.
@@ -342,8 +471,3 @@ CREATE TABLE IF NOT EXISTS scheduler_resource_permit
 
 CREATE INDEX IF NOT EXISTS idx_resource_permit_resource ON scheduler_resource_permit (resource_name);
 CREATE INDEX IF NOT EXISTS idx_resource_permit_job ON scheduler_resource_permit (job_id);
-
--- Record this migration.
-INSERT INTO ratchet_schema_version (version, description)
-VALUES ('001', 'Initial schema (single-table live + terminal state)')
-ON CONFLICT (version) DO NOTHING;
