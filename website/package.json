@@ -11,7 +11,7 @@
     "serve": "vitepress preview docs"
   },
   "devDependencies": {
-    "shiki": "^2.5.0",
+    "shiki": "^4.1.0",
     "vitepress": "^1.6.0"
   },
   "engines": {
