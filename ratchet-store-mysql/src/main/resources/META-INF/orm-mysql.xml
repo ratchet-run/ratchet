@@ -4,11 +4,13 @@
   so EclipseLink (and any non-Hibernate JPA provider) produces 16 raw bytes for BINARY(16) instead
   of inserting the 36-character hyphenated form, which MySQL strict mode rejects with error 1406.
 
-  Hibernate's built-in UUID handler already produces standard-byte-order BINARY(16); applying the
-  converter is idempotent under Hibernate.
+  This file is for EclipseLink (and other non-Hibernate JPA providers) only. Do NOT reference it in
+  a Hibernate-backed deployment: Hibernate maps UUID to BINARY(16) natively on MySQL by default, and
+  Hibernate 7 rejects an AttributeConverter on an @Id attribute (org.hibernate.AnnotationException).
+  On Hibernate, omit this file entirely — no mapping file is needed.
 
-  Production users wiring ratchet-store-mysql into their own persistence-unit must reference this
-  file from their persistence.xml: <mapping-file>META-INF/orm-mysql.xml</mapping-file>.
+  Production users wiring ratchet-store-mysql into a non-Hibernate persistence-unit must reference
+  this file from their persistence.xml: <mapping-file>META-INF/orm-mysql.xml</mapping-file>.
 
   Native queries bypass AttributeConverter per JPA spec; in-store native-SQL call sites convert
   manually via UuidByteArrayConverter.toBytes(uuid).

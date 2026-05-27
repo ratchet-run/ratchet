@@ -85,7 +85,14 @@ public class DefaultExecutorProvider implements ExecutorProvider {
               lookup(context, scheduledExecutorJndi, ScheduledExecutorService.class);
         }
       }
-    } catch (RuntimeException e) {
+    } catch (IllegalStateException e) {
+      // Only a JNDI-naming failure (the name isn't bound yet) is safe to defer to the lazy
+      // getters. lookup()/newInitialContext() wrap NamingException as the cause in that case.
+      // Anything else — e.g. a ClassCastException from a wrong executor type — is a real
+      // misconfiguration; rethrow it so deployment fails loudly instead of at the first job.
+      if (!(e.getCause() instanceof NamingException)) {
+        throw e;
+      }
       log.debugf(
           e,
           "Eager managed-executor resolution deferred to first use (job=%s, scheduled=%s)",

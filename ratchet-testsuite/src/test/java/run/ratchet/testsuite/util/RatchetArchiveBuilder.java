@@ -72,12 +72,18 @@ public class RatchetArchiveBuilder {
     if (!dbType.equals("mysql") && !dbType.equals("postgresql")) {
       throw new IllegalArgumentException("Unsupported db type: " + dbType);
     }
-    // MySQL needs the orm-mysql.xml override so EclipseLink (and any other non-Hibernate JPA
-    // provider) routes UUID columns through UuidByteArrayConverter; Hibernate already produces
-    // standard-byte-order BINARY(16), so the override is idempotent there. PostgreSQL stores UUID
-    // natively and must NOT include the converter — it would re-encode native uuid as bytea.
+    // MySQL stores UUIDs in BINARY(16). EclipseLink's default would send the 36-char hyphenated
+    // string and overflow the column, so EclipseLink deployments route every UUID through
+    // UuidByteArrayConverter via orm-mysql.xml. Hibernate maps UUID -> BINARY(16) natively (its
+    // default on the MySQL dialect), and Hibernate 7 (WildFly 40 / EE 11) rejects an
+    // AttributeConverter on an @Id attribute outright, so Hibernate-7 deployments must NOT
+    // reference orm-mysql.xml — they need no mapping file at all. PostgreSQL stores UUID natively
+    // and must NOT include the converter — it would re-encode native uuid as bytea.
+    boolean hibernate7 = "wildfly-ee11-managed".equals(System.getProperty("arquillian.launch"));
     String mappingFile =
-        dbType.equals("mysql") ? "<mapping-file>META-INF/orm-mysql.xml</mapping-file>" : "";
+        dbType.equals("mysql") && !hibernate7
+            ? "<mapping-file>META-INF/orm-mysql.xml</mapping-file>"
+            : "";
     // No <provider> or hibernate.dialect pin — WildFly auto-discovers via ServiceLoader and the
     // JPA provider auto-detects the dialect from the JDBC URL exposed by RatchetDS. Remaining
     // property keys are opt-in Hibernate tuning and no-op under any other JPA provider.

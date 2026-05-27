@@ -193,7 +193,7 @@ RatchetOptions.builder()
 
 **Requirements:**
 - A Jakarta EE 11 container whose Jakarta Concurrency 3.1 implementation honors `virtual = true`, on Java 21+. Verified on Eclipse GlassFish 8 (the EE 11 reference implementation). Note: WildFly 40.0.0.Final accepts the definition and runs jobs on the configured executor, but does not yet create virtual threads for managed executors — jobs run on platform threads there until a later release implements it.
-- On Jakarta EE 10 the shipped virtual executor is not available; `useVirtualThreads(true)` still switches the backpressure model, but jobs run on virtual threads only if you point the JNDI name at an executor the container itself configures as virtual.
+- Jakarta EE 10 (Jakarta Concurrency 3.0) has no standard `virtual = true` attribute on `@ManagedExecutorDefinition`, so an application cannot portably declare a virtual-thread executor. `useVirtualThreads(true)` still switches the backpressure model, but jobs run on virtual threads only if you point the JNDI name at an executor the container itself configures as virtual through a vendor-specific mechanism.
 - Your jobs must not hold long `synchronized` blocks or call native methods that pin the carrier thread — prefer `ReentrantLock`.
 
 **When to use virtual threads:** They are most beneficial when your jobs spend the majority of their time waiting on I/O (database queries, HTTP calls, file operations). For CPU-bound workloads, platform threads with appropriate pool sizes are usually sufficient.

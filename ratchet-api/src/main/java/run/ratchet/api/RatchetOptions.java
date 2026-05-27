@@ -282,6 +282,8 @@ public class RatchetOptions {
       maxConcurrency = Map.copyOf(maxConcurrency);
       virtualThreadLimits = Map.copyOf(virtualThreadLimits);
       rateLimitsPerMinute = Map.copyOf(rateLimitsPerMinute);
+      jobExecutorJndi = requireNonBlank("jobExecutorJndi", jobExecutorJndi);
+      scheduledExecutorJndi = requireNonBlank("scheduledExecutorJndi", scheduledExecutorJndi);
     }
 
     public int maxConcurrency(String executionTypeName, int defaultValue) {
@@ -579,8 +581,8 @@ public class RatchetOptions {
     /**
      * Sets the JNDI name of the {@code ManagedExecutorService} that runs jobs. Defaults to the
      * container's {@code java:comp/DefaultManagedExecutorService}. Point this at a virtual-thread
-     * executor (e.g. an EE 11 {@code @ManagedExecutorDefinition(virtual = true)} such as {@code
-     * java:app/concurrent/RatchetVirtualExecutor}) to run jobs on virtual threads.
+     * executor that your application declares (e.g. an EE 11 {@code @ManagedExecutorDefinition(name
+     * = "java:app/concurrent/MyVirtualExecutor", virtual = true)}) to run jobs on virtual threads.
      */
     public ExecutionBuilder jobExecutorJndi(String jobExecutorJndi) {
       this.jobExecutorJndi = requireNonBlank("jobExecutorJndi", jobExecutorJndi);
