@@ -28,6 +28,16 @@ final class RatchetConfigKeys {
 
   static final RatchetConfigKey<Boolean> WORKER_USE_VIRTUAL_THREADS =
       boolKey("ratchet.worker.use-virtual-threads", "RATCHET_WORKER_USE_VIRTUAL_THREADS", false);
+  static final RatchetConfigKey<String> WORKER_JOB_EXECUTOR_JNDI =
+      stringKey(
+          "ratchet.worker.job-executor-jndi",
+          "RATCHET_WORKER_JOB_EXECUTOR_JNDI",
+          "java:comp/DefaultManagedExecutorService");
+  static final RatchetConfigKey<String> WORKER_SCHEDULED_EXECUTOR_JNDI =
+      stringKey(
+          "ratchet.worker.scheduled-executor-jndi",
+          "RATCHET_WORKER_SCHEDULED_EXECUTOR_JNDI",
+          "java:comp/DefaultManagedScheduledExecutorService");
   static final RatchetConfigKey<Integer> THREAD_POOL_QUEUE_SIZE =
       intKey("ratchet.thread-pool.queue-size", "RATCHET_THREAD_POOL_QUEUE_SIZE", 100, 0);
   static final RatchetConfigKey<Integer> THREAD_POOL_SIZE_SINGLE =

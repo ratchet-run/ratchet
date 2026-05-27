@@ -88,6 +88,7 @@
     <maven-war-plugin.version>3.5.1</maven-war-plugin.version>
     <maven-source-plugin.version>3.4.0</maven-source-plugin.version>
     <maven-javadoc-plugin.version>3.12.0</maven-javadoc-plugin.version>
+    <build-helper-maven-plugin.version>3.6.0</build-helper-maven-plugin.version>
     <spotless-maven-plugin.version>2.46.1</spotless-maven-plugin.version>
     <google-java-format.version>1.35.0</google-java-format.version>
     <testcontainers.version>2.0.5</testcontainers.version>
@@ -484,6 +485,47 @@
                       <message>
                         Jakarta EE 11 verification requires JDK 21 or higher.
                         Re-run with JDK 21+ on PATH (or via JAVA_HOME).
+                      </message>
+                    </requireJavaVersion>
+                  </rules>
+                  <fail>true</fail>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <!--
+      WildFly 40 / Jakarta EE 11 managed-server test profile. Enforces JDK 25 at
+      runtime so the WF40 integration tests run on the recommended LTS. The server
+      config and the EE 11-only test sources live in ratchet-testsuite's same-id
+      profile. The ratchet library itself is unaffected: it stays a single
+      EE-agnostic artifact built at the default JDK 17 baseline.
+    -->
+    <profile>
+      <id>wildfly-ee11-managed</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-enforcer-plugin</artifactId>
+            <version>3.5.0</version>
+            <executions>
+              <execution>
+                <id>enforce-jdk25-for-wildfly-ee11</id>
+                <phase>validate</phase>
+                <goals>
+                  <goal>enforce</goal>
+                </goals>
+                <configuration>
+                  <rules>
+                    <requireJavaVersion>
+                      <version>[25,)</version>
+                      <message>
+                        The wildfly-ee11-managed profile targets WildFly 40 on JDK 25.
+                        Re-run with JDK 25+ on PATH (or via JAVA_HOME).
                       </message>
                     </requireJavaVersion>
                   </rules>

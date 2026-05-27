@@ -34,10 +34,12 @@ Tools that handle binary IDs correctly (Hibernate, DataGrip's UUID-aware viewer,
 
 ## JPA mapping (production wiring)
 
-When wiring `ratchet-store-mysql` into a Jakarta application's `persistence.xml`, the persistence-unit must reference `META-INF/orm-mysql.xml` so UUID columns route through `UuidByteArrayConverter`:
+How you wire `ratchet-store-mysql` into a `persistence.xml` depends on the JPA provider, because UUID columns are stored as `BINARY(16)`. Give Ratchet its own persistence unit — its entity list is self-contained (`<exclude-unlisted-classes>true</exclude-unlisted-classes>`), and the `RatchetEntityManagerProvider` SPI lets a multi-unit application point Ratchet at it. Keeping Ratchet in its own unit means none of the provider settings below can touch your application's own entities or their columns.
+
+**EclipseLink, OpenJPA (any non-Hibernate provider):** reference `META-INF/orm-mysql.xml` so UUID columns route through `UuidByteArrayConverter`. These providers default to a 36-character hyphenated representation that overflows `BINARY(16)` with MySQL strict-mode error 1406 ("Data too long for column"); the mapping file forces the byte representation.
 
 ```xml
-<persistence-unit name="my-app">
+<persistence-unit name="ratchet">
   <jta-data-source>java:/jdbc/MyDS</jta-data-source>
   <mapping-file>META-INF/orm-mysql.xml</mapping-file>
   <class>run.ratchet.store.entity.JobEntity</class>
@@ -45,7 +47,15 @@ When wiring `ratchet-store-mysql` into a Jakarta application's `persistence.xml`
 </persistence-unit>
 ```
 
-Hibernate's built-in UUID handler already produces standard-byte-order `BINARY(16)`, so the converter is idempotent there. EclipseLink and OpenJPA default to a 36-character hyphenated representation that overflows `BINARY(16)` with MySQL strict mode error 1406 ("Data too long for column"); the mapping file forces the byte representation on every JPA provider.
+**Hibernate (ORM 6 or 7):** do NOT reference `orm-mysql.xml`. Hibernate maps `UUID` to `BINARY(16)` natively on MySQL by default (MySQL has no native UUID type), and Hibernate 7 rejects an `AttributeConverter` on an `@Id` attribute (`org.hibernate.AnnotationException`) — so referencing the mapping file would fail deployment. Use no mapping file at all:
+
+```xml
+<persistence-unit name="ratchet">
+  <jta-data-source>java:/jdbc/MyDS</jta-data-source>
+  <class>run.ratchet.store.entity.JobEntity</class>
+  ...
+</persistence-unit>
+```
 
 PostgreSQL's `ratchet-store-postgresql` does NOT need a mapping file — PostgreSQL's native `uuid` column type round-trips `java.util.UUID` directly through JDBC.
 
