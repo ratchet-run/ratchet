@@ -70,7 +70,7 @@ class PostgresqlListenNotifyCoordinatorIT {
             CONTAINER.getJdbcUrl(), CONTAINER.getUsername(), CONTAINER.getPassword());
     config =
         new PostgresqlCoordinatorConfig(
-            "ratchet_wakeup", Optional.empty(), 500L, 50L, 500L, 1, 3_000L);
+            "ratchet_wakeup", Optional.empty(), 500L, 50L, 500L, 16_384, 1, 3_000L);
   }
 
   @AfterAll
@@ -149,7 +149,8 @@ class PostgresqlListenNotifyCoordinatorIT {
     RecordingMetrics metrics = new RecordingMetrics();
     PostgresqlConnectionLifecycle lifecycle = new PostgresqlConnectionLifecycle(dataSource, config);
     PostgresqlListenNotifyCoordinator c =
-        new PostgresqlListenNotifyCoordinator(provider, config, lifecycle, metrics);
+        new PostgresqlListenNotifyCoordinator(
+            provider, config, lifecycle, dataSource::getConnection, metrics);
     c.init();
     c.afterStart();
     return new CoordinatorFixture(c, lifecycle, new NodeIdentity(nodeId), metrics);

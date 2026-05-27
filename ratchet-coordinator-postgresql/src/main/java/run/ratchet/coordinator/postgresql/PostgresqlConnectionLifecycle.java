@@ -194,6 +194,7 @@ final class PostgresqlConnectionLifecycle {
         if (state == State.CLOSED) {
           // close() raced us — drop the just-acquired connection without publishing.
           closeQuietly(raw);
+          raw = null;
           throw new SQLException("PostgreSQL coordinator lifecycle was CLOSED during acquire()");
         }
         this.rawConnection = raw;
@@ -219,7 +220,7 @@ final class PostgresqlConnectionLifecycle {
    * callers can blindly route every transport error through this method.
    */
   void markFailed(SQLException cause) {
-    Connection toClose = null;
+    Connection toClose;
     synchronized (lock) {
       if (state != State.CONNECTED) {
         return;

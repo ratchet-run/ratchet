@@ -1,5 +1,7 @@
 package run.ratchet.coordinator.infinispan;
 
+import static run.ratchet.coordinator.common.JsonProviders.requireJsonProvider;
+
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -8,8 +10,6 @@ import jakarta.enterprise.inject.Any;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.interceptor.Interceptor;
-import jakarta.json.JsonException;
-import jakarta.json.spi.JsonProvider;
 import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
@@ -26,7 +26,8 @@ import org.infinispan.manager.EmbeddedCacheManager;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.NodeIdentity;
-import run.ratchet.coordinator.infinispan.InfinispanNotifyPayloadCodec.NotifyPayload;
+import run.ratchet.coordinator.common.NotifyPayload;
+import run.ratchet.coordinator.common.NotifyPayloadCodec;
 import run.ratchet.spi.ClusterCoordinator;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
@@ -50,7 +51,7 @@ import run.ratchet.spi.SchedulerLifecycleHook;
  */
 @ApplicationScoped
 @Alternative
-@Priority(Interceptor.Priority.PLATFORM_BEFORE + 400)
+@Priority(Interceptor.Priority.PLATFORM_BEFORE + 100)
 // Coordinator @Priority order: see PostgresqlListenNotifyCoordinator. Operators MUST pull in
 // exactly one coordinator module; distinct priorities only prevent CDI ambiguity errors on a
 // transitive double-pull.
@@ -65,9 +66,9 @@ public class InfinispanClusterCoordinator implements ClusterCoordinator, Schedul
   @Inject NodeIdentityProvider identityProvider;
   @Inject InfinispanCoordinatorConfig config;
   @Inject @Any Instance<InfinispanCacheManagerProvider> providerInstance;
-  @Inject Instance<MetricsCollector> metricsInstance;
+  @Inject MetricsCollector metrics;
 
-  private final InfinispanNotifyPayloadCodec codec = new InfinispanNotifyPayloadCodec();
+  private final NotifyPayloadCodec codec = new NotifyPayloadCodec();
   private final AtomicLong sendSequence = new AtomicLong();
   private final CopyOnWriteArrayList<BiConsumer<JobPriority, NodeIdentity>> listeners =
       new CopyOnWriteArrayList<>();
@@ -77,7 +78,6 @@ public class InfinispanClusterCoordinator implements ClusterCoordinator, Schedul
   private InfinispanCacheLifecycle cacheLifecycle;
   private Cache<String, String> directCache;
   private ExecutorService listenerExecutor;
-  private MetricsCollector metrics;
   private final AtomicBoolean closed = new AtomicBoolean(false);
 
   protected InfinispanClusterCoordinator() {
@@ -109,12 +109,6 @@ public class InfinispanClusterCoordinator implements ClusterCoordinator, Schedul
       EmbeddedCacheManager cacheManager = provider.cacheManager();
       cache = cacheManager.getCache(config.effectiveCacheName());
     }
-    if (metrics == null && metricsInstance != null) {
-      metrics =
-          metricsInstance.isUnsatisfied() || metricsInstance.isAmbiguous()
-              ? null
-              : metricsInstance.get();
-    }
     cacheLifecycle =
         new InfinispanCacheLifecycle(
             cache, config, codec, this::onInboundNotification, this::onParseFailure);
@@ -142,8 +136,10 @@ public class InfinispanClusterCoordinator implements ClusterCoordinator, Schedul
     try {
       String key = source.value() + ":" + sendSequence.incrementAndGet();
       String value = codec.encode(NotifyPayload.current(source, priority));
-      cacheLifecycle.publish(key, value);
-      clusterWakeupPublished("success");
+      cacheLifecycle
+          .publish(key, value)
+          .whenComplete(
+              (v, throwable) -> clusterWakeupPublished(throwable == null ? "success" : "failure"));
     } catch (RuntimeException ex) {
       clusterWakeupPublished("failure");
       log.warnf(
@@ -239,6 +235,8 @@ public class InfinispanClusterCoordinator implements ClusterCoordinator, Schedul
     }
   }
 
+  // Counts as overflow regardless of the second offer's outcome — the boolean is irrelevant.
+  @SuppressWarnings("ResultOfMethodCallIgnored")
   private void bufferOrDropOldest(NotifyPayload msg) {
     if (preRegistrationBuffer.offer(msg)) {
       return;
@@ -261,41 +259,11 @@ public class InfinispanClusterCoordinator implements ClusterCoordinator, Schedul
   }
 
   private void clusterWakeupPublished(String outcome) {
-    if (metrics != null) {
-      try {
-        metrics.clusterWakeupPublished(COORDINATOR_KIND, outcome);
-      } catch (RuntimeException ignored) {
-        // metrics must never destabilize the coordinator
-      }
-    }
+    metrics.clusterWakeupPublished(COORDINATOR_KIND, outcome);
   }
 
   private void clusterWakeupReceived(String outcome) {
-    if (metrics != null) {
-      try {
-        metrics.clusterWakeupReceived(COORDINATOR_KIND, outcome);
-      } catch (RuntimeException ignored) {
-        // metrics must never destabilize the coordinator
-      }
-    }
-  }
-
-  /**
-   * Fails fast at startup if no JSON-P provider (e.g. parsson) is on the classpath. Without this
-   * probe the first {@link #notifyNewWork} call would throw {@link JsonException} from inside the
-   * codec; surfacing it here yields a deterministic startup error pointing operators at the missing
-   * dependency.
-   */
-  private static void requireJsonProvider() {
-    try {
-      JsonProvider.provider();
-    } catch (JsonException ex) {
-      throw new IllegalStateException(
-          "No JSON-P provider (jakarta.json.spi.JsonProvider) found on the classpath. Add"
-              + " org.eclipse.parsson:parsson (or another JSON-P 2.x implementation) at runtime"
-              + " scope, or deploy into a Jakarta EE container that supplies one.",
-          ex);
-    }
+    metrics.clusterWakeupReceived(COORDINATOR_KIND, outcome);
   }
 
   private InfinispanCacheManagerProvider resolveProvider() {

@@ -15,15 +15,16 @@ import java.util.concurrent.TimeUnit;
 import org.infinispan.Cache;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.coordinator.common.NotifyPayloadCodec;
 
 class InfinispanCacheLifecycleTest {
 
   @SuppressWarnings("unchecked")
   private final Cache<String, String> cache = mock(Cache.class);
 
-  private final InfinispanNotifyPayloadCodec codec = new InfinispanNotifyPayloadCodec();
+  private final NotifyPayloadCodec codec = new NotifyPayloadCodec();
   private final InfinispanCoordinatorConfig config =
-      new InfinispanCoordinatorConfig("wakeup", Optional.empty(), 60L, 2, 500L);
+      new InfinispanCoordinatorConfig("wakeup", Optional.empty(), 60L, 16_384, 2, 500L);
 
   @BeforeEach
   void setUp() {
@@ -48,7 +49,7 @@ class InfinispanCacheLifecycleTest {
   @Test
   void publishHonoursConfiguredTtlOverride() {
     InfinispanCoordinatorConfig overridden =
-        new InfinispanCoordinatorConfig("wakeup", Optional.empty(), 5L, 2, 500L);
+        new InfinispanCoordinatorConfig("wakeup", Optional.empty(), 5L, 16_384, 2, 500L);
     InfinispanCacheLifecycle lifecycle =
         new InfinispanCacheLifecycle(cache, overridden, codec, m -> {}, () -> {});
     lifecycle.publish("k", "v");

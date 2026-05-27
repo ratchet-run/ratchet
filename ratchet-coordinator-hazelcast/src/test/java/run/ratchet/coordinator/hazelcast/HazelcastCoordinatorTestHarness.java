@@ -29,7 +29,7 @@ public final class HazelcastCoordinatorTestHarness implements CoordinatorTestHar
 
   public HazelcastCoordinatorTestHarness() {
     this.topicName = "ratchet-wakeup-" + Long.toHexString(System.nanoTime());
-    this.config = new HazelcastCoordinatorConfig(topicName, Optional.empty(), 2, 1_500L);
+    this.config = new HazelcastCoordinatorConfig(topicName, Optional.empty(), 16_384, 2, 1_500L);
     this.cluster = new TwoNodeHazelcastCluster();
   }
 

@@ -22,13 +22,15 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import run.ratchet.api.NodeIdentity;
 import run.ratchet.api.SignalDecision;
-import run.ratchet.coordinator.hazelcast.HazelcastNotifyPayloadCodec.NotifyPayload;
+import run.ratchet.coordinator.common.NotifyPayload;
+import run.ratchet.coordinator.common.NotifyPayloadCodec;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
 
@@ -40,8 +42,8 @@ class HazelcastClusterCoordinatorTest {
   private final HazelcastInstance instance = mock(HazelcastInstance.class);
   private final NodeIdentityProvider identityProvider = () -> "nodeA";
   private final HazelcastCoordinatorConfig config =
-      new HazelcastCoordinatorConfig("ratchet-wakeup", Optional.empty(), 2, 1_000L);
-  private final HazelcastNotifyPayloadCodec codec = new HazelcastNotifyPayloadCodec();
+      new HazelcastCoordinatorConfig("ratchet-wakeup", Optional.empty(), 16_384, 2, 1_000L);
+  private final NotifyPayloadCodec codec = new NotifyPayloadCodec();
   private RecordingMetrics metrics;
 
   @BeforeEach
@@ -59,7 +61,7 @@ class HazelcastClusterCoordinatorTest {
     c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA"));
 
     verify(topic).publishAsync(anyString());
-    assertEquals(1, metrics.published("success"));
+    awaitUntil(() -> metrics.published("success") == 1);
   }
 
   @Test
@@ -86,6 +88,7 @@ class HazelcastClusterCoordinatorTest {
         0,
         metrics.published("success"),
         "async publish must not record success until completion resolves");
+    awaitUntil(() -> metrics.published("failure") == 1);
     assertEquals(1, metrics.published("failure"), "async completion recorded failure");
   }
 
@@ -103,6 +106,7 @@ class HazelcastClusterCoordinatorTest {
         metrics.published("success"),
         "success must not be counted before publishAsync resolves");
     pending.complete(null);
+    awaitUntil(() -> metrics.published("success") == 1);
     assertEquals(1, metrics.published("success"), "success recorded on async completion");
     assertEquals(0, metrics.published("failure"));
   }
@@ -175,6 +179,19 @@ class HazelcastClusterCoordinatorTest {
   }
 
   @Test
+  void onTopicMessageRejectsOversizedPayloadBeforeDecode() {
+    HazelcastClusterCoordinator c = newCoordinator();
+    c.init();
+    AtomicLong listenerCalls = new AtomicLong();
+    c.registerWakeupListener((p, src) -> listenerCalls.incrementAndGet());
+
+    c.onTopicMessage("x".repeat(config.maxInboundPayloadChars() + 1));
+
+    assertEquals(1, metrics.received("parse_failure"));
+    assertEquals(0, listenerCalls.get());
+  }
+
+  @Test
   void preRegistrationBufferDrainsToLateListener() throws Exception {
     HazelcastClusterCoordinator c = newCoordinator();
     c.init();
@@ -239,6 +256,21 @@ class HazelcastClusterCoordinatorTest {
 
   private HazelcastClusterCoordinator newCoordinator() {
     return new HazelcastClusterCoordinator(identityProvider, config, instance, metrics);
+  }
+
+  private static void awaitUntil(BooleanSupplier condition) {
+    long deadline = System.nanoTime() + 1_000_000_000L;
+    while (System.nanoTime() < deadline) {
+      if (condition.getAsBoolean()) {
+        return;
+      }
+      try {
+        Thread.sleep(10);
+      } catch (InterruptedException ie) {
+        Thread.currentThread().interrupt();
+        return;
+      }
+    }
   }
 
   static final class RecordingMetrics implements MetricsCollector {
@@ -318,8 +350,8 @@ class HazelcastClusterCoordinatorTest {
   }
 
   @Test
-  void priorityIsPlatformBeforePlus300() {
+  void priorityIsPlatformBeforePlus200() {
     Priority p = HazelcastClusterCoordinator.class.getAnnotation(Priority.class);
-    assertEquals(Interceptor.Priority.PLATFORM_BEFORE + 300, p.value());
+    assertEquals(Interceptor.Priority.PLATFORM_BEFORE + 200, p.value());
   }
 }

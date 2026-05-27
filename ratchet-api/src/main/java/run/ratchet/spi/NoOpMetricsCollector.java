@@ -1,13 +1,14 @@
-package run.ratchet.ri.cdi;
+package run.ratchet.spi;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Default;
 import java.util.UUID;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
-import run.ratchet.spi.MetricsCollector;
 
 /** Default no-op {@link MetricsCollector} for deployments without a monitoring integration. */
 @ApplicationScoped
+@Default
 public class NoOpMetricsCollector implements MetricsCollector {
 
   @Override

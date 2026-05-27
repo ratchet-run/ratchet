@@ -9,17 +9,18 @@ import org.infinispan.notifications.cachelistener.event.CacheEntryCreatedEvent;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.NodeIdentity;
-import run.ratchet.coordinator.infinispan.InfinispanNotifyPayloadCodec.NotifyPayload;
+import run.ratchet.coordinator.common.NotifyPayload;
+import run.ratchet.coordinator.common.NotifyPayloadCodec;
 
 class InfinispanWakeupListenerTest {
 
-  private final InfinispanNotifyPayloadCodec codec = new InfinispanNotifyPayloadCodec();
+  private final NotifyPayloadCodec codec = new NotifyPayloadCodec();
 
   @Test
   void postCommitEventDispatchesDecodedPayload() {
     AtomicInteger dispatched = new AtomicInteger();
     InfinispanWakeupListener listener =
-        new InfinispanWakeupListener(codec, p -> dispatched.incrementAndGet(), () -> {});
+        new InfinispanWakeupListener(codec, 16_384, p -> dispatched.incrementAndGet(), () -> {});
 
     listener.onEntryCreated(eventWithValue(codec.encode(payload("nodeA", JobPriority.HIGH))));
 
@@ -32,7 +33,7 @@ class InfinispanWakeupListenerTest {
     AtomicInteger parseFailures = new AtomicInteger();
     InfinispanWakeupListener listener =
         new InfinispanWakeupListener(
-            codec, p -> dispatched.incrementAndGet(), parseFailures::incrementAndGet);
+            codec, 16_384, p -> dispatched.incrementAndGet(), parseFailures::incrementAndGet);
 
     @SuppressWarnings("unchecked")
     CacheEntryCreatedEvent<String, String> event = mock(CacheEntryCreatedEvent.class);
@@ -49,7 +50,7 @@ class InfinispanWakeupListenerTest {
     AtomicInteger parseFailures = new AtomicInteger();
     InfinispanWakeupListener listener =
         new InfinispanWakeupListener(
-            codec, p -> dispatched.incrementAndGet(), parseFailures::incrementAndGet);
+            codec, 16_384, p -> dispatched.incrementAndGet(), parseFailures::incrementAndGet);
 
     listener.onEntryCreated(eventWithValue(null));
 
@@ -63,7 +64,7 @@ class InfinispanWakeupListenerTest {
     AtomicInteger parseFailures = new AtomicInteger();
     InfinispanWakeupListener listener =
         new InfinispanWakeupListener(
-            codec, p -> dispatched.incrementAndGet(), parseFailures::incrementAndGet);
+            codec, 16_384, p -> dispatched.incrementAndGet(), parseFailures::incrementAndGet);
 
     listener.onEntryCreated(eventWithValue("not json"));
 
@@ -77,9 +78,23 @@ class InfinispanWakeupListenerTest {
     AtomicInteger parseFailures = new AtomicInteger();
     InfinispanWakeupListener listener =
         new InfinispanWakeupListener(
-            codec, p -> dispatched.incrementAndGet(), parseFailures::incrementAndGet);
+            codec, 16_384, p -> dispatched.incrementAndGet(), parseFailures::incrementAndGet);
 
     listener.onEntryCreated(eventWithValue("{\"v\":2,\"node\":\"x\",\"prio\":\"HIGH\"}"));
+
+    assertEquals(0, dispatched.get());
+    assertEquals(1, parseFailures.get());
+  }
+
+  @Test
+  void oversizedPayloadIncrementsParseFailureBeforeDecode() {
+    AtomicInteger dispatched = new AtomicInteger();
+    AtomicInteger parseFailures = new AtomicInteger();
+    InfinispanWakeupListener listener =
+        new InfinispanWakeupListener(
+            codec, 4, p -> dispatched.incrementAndGet(), parseFailures::incrementAndGet);
+
+    listener.onEntryCreated(eventWithValue("{\"v\":1,\"node\":\"nodeA\",\"prio\":\"HIGH\"}"));
 
     assertEquals(0, dispatched.get());
     assertEquals(1, parseFailures.get());

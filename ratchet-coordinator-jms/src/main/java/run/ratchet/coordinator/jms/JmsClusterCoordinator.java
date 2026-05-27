@@ -1,5 +1,7 @@
 package run.ratchet.coordinator.jms;
 
+import static run.ratchet.coordinator.common.JsonProviders.requireJsonProvider;
+
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -9,15 +11,11 @@ import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.interceptor.Interceptor;
 import jakarta.jms.ConnectionFactory;
-import jakarta.jms.JMSContext;
 import jakarta.jms.JMSException;
-import jakarta.jms.JMSProducer;
 import jakarta.jms.JMSRuntimeException;
 import jakarta.jms.Message;
 import jakarta.jms.TextMessage;
 import jakarta.jms.Topic;
-import jakarta.json.JsonException;
-import jakarta.json.spi.JsonProvider;
 import java.util.Objects;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
@@ -32,7 +30,9 @@ import java.util.function.BiConsumer;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.NodeIdentity;
-import run.ratchet.coordinator.jms.JmsNotifyPayloadCodec.NotifyPayload;
+import run.ratchet.coordinator.common.DecodeException;
+import run.ratchet.coordinator.common.NotifyPayload;
+import run.ratchet.coordinator.common.NotifyPayloadCodec;
 import run.ratchet.spi.ClusterCoordinator;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
@@ -65,7 +65,7 @@ import run.ratchet.spi.SchedulerLifecycleHook;
  */
 @ApplicationScoped
 @Alternative
-@Priority(Interceptor.Priority.PLATFORM_BEFORE + 200)
+@Priority(Interceptor.Priority.PLATFORM_BEFORE + 300)
 // Coordinator @Priority order: see PostgresqlListenNotifyCoordinator. Operators MUST pull in
 // exactly one coordinator module; distinct priorities only prevent CDI ambiguity errors on a
 // transitive double-pull.
@@ -80,9 +80,9 @@ public class JmsClusterCoordinator implements ClusterCoordinator, SchedulerLifec
   @Inject NodeIdentityProvider identityProvider;
   @Inject JmsCoordinatorConfig config;
   @Inject @Any Instance<JmsConnectionFactoryProvider> providerInstance;
-  @Inject Instance<MetricsCollector> metricsInstance;
+  @Inject MetricsCollector metrics;
 
-  private final JmsNotifyPayloadCodec codec = new JmsNotifyPayloadCodec();
+  private final NotifyPayloadCodec codec = new NotifyPayloadCodec();
   private final CopyOnWriteArrayList<BiConsumer<JobPriority, NodeIdentity>> listeners =
       new CopyOnWriteArrayList<>();
   private final BlockingQueue<NotifyPayload> preRegistrationBuffer =
@@ -93,7 +93,6 @@ public class JmsClusterCoordinator implements ClusterCoordinator, SchedulerLifec
   private Topic topic;
   private NodeIdentity localIdentity;
   private ExecutorService listenerExecutor;
-  private MetricsCollector metrics;
   private final AtomicBoolean closed = new AtomicBoolean(false);
 
   protected JmsClusterCoordinator() {
@@ -155,12 +154,6 @@ public class JmsClusterCoordinator implements ClusterCoordinator, SchedulerLifec
           new JmsConnectionLifecycle(
               cf, topic, config, this::onJmsMessage, this::onConnectionTransportFailure);
     }
-    if (metrics == null && metricsInstance != null) {
-      metrics =
-          metricsInstance.isUnsatisfied() || metricsInstance.isAmbiguous()
-              ? null
-              : metricsInstance.get();
-    }
     listenerExecutor = newListenerExecutor();
     localIdentity = new NodeIdentity(identityProvider.getNodeId());
   }
@@ -183,19 +176,13 @@ public class JmsClusterCoordinator implements ClusterCoordinator, SchedulerLifec
     if (closed.get()) {
       return;
     }
-    JMSContext ctx = connectionLifecycle.currentContext();
-    JMSProducer producer = connectionLifecycle.currentProducer();
-    if (ctx == null || producer == null) {
-      // Reconnect is in flight or initial connect failed — degrade to no-op and metric.
-      clusterWakeupPublished("failure");
-      return;
-    }
     try {
       String body = codec.encode(NotifyPayload.current(source, priority));
-      TextMessage msg = ctx.createTextMessage(body);
-      msg.setStringProperty("node", source.value());
-      msg.setStringProperty("prio", priority.name());
-      producer.send(topic, msg);
+      if (!connectionLifecycle.sendTextMessage(body, source.value(), priority.name())) {
+        // Reconnect is in flight or initial connect failed — degrade to no-op and metric.
+        clusterWakeupPublished("failure");
+        return;
+      }
       clusterWakeupPublished("success");
     } catch (JMSException jmsEx) {
       // TextMessage.setStringProperty declares JMSException (checked); provider returns it for
@@ -287,7 +274,7 @@ public class JmsClusterCoordinator implements ClusterCoordinator, SchedulerLifec
         return;
       }
       payload = codec.decode(body);
-    } catch (JmsNotifyPayloadCodec.DecodeException ex) {
+    } catch (DecodeException ex) {
       clusterWakeupReceived("parse_failure");
       log.debugf("JMS coordinator dropped malformed payload: %s", ex.getMessage());
       return;
@@ -362,41 +349,11 @@ public class JmsClusterCoordinator implements ClusterCoordinator, SchedulerLifec
   }
 
   private void clusterWakeupPublished(String outcome) {
-    if (metrics != null) {
-      try {
-        metrics.clusterWakeupPublished(COORDINATOR_KIND, outcome);
-      } catch (RuntimeException ignored) {
-        // metrics must never destabilize the coordinator
-      }
-    }
+    metrics.clusterWakeupPublished(COORDINATOR_KIND, outcome);
   }
 
   private void clusterWakeupReceived(String outcome) {
-    if (metrics != null) {
-      try {
-        metrics.clusterWakeupReceived(COORDINATOR_KIND, outcome);
-      } catch (RuntimeException ignored) {
-        // metrics must never destabilize the coordinator
-      }
-    }
-  }
-
-  /**
-   * Fails fast at startup if no JSON-P provider (e.g. parsson) is on the classpath. Without this
-   * probe the first {@link #notifyNewWork} call would throw {@link JsonException} from inside the
-   * codec; surfacing it here yields a deterministic startup error pointing operators at the missing
-   * dependency.
-   */
-  private static void requireJsonProvider() {
-    try {
-      JsonProvider.provider();
-    } catch (JsonException ex) {
-      throw new IllegalStateException(
-          "No JSON-P provider (jakarta.json.spi.JsonProvider) found on the classpath. Add"
-              + " org.eclipse.parsson:parsson (or another JSON-P 2.x implementation) at runtime"
-              + " scope, or deploy into a Jakarta EE container that supplies one.",
-          ex);
-    }
+    metrics.clusterWakeupReceived(COORDINATOR_KIND, outcome);
   }
 
   private JmsConnectionFactoryProvider resolveProvider() {

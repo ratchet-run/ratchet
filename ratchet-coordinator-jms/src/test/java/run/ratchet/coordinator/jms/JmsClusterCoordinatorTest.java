@@ -2,19 +2,18 @@ package run.ratchet.coordinator.jms;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import jakarta.annotation.Priority;
 import jakarta.interceptor.Interceptor;
-import jakarta.jms.JMSContext;
-import jakarta.jms.JMSProducer;
 import jakarta.jms.JMSRuntimeException;
 import jakarta.jms.TextMessage;
 import jakarta.jms.Topic;
@@ -29,7 +28,8 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import run.ratchet.api.NodeIdentity;
 import run.ratchet.api.SignalDecision;
-import run.ratchet.coordinator.jms.JmsNotifyPayloadCodec.NotifyPayload;
+import run.ratchet.coordinator.common.NotifyPayload;
+import run.ratchet.coordinator.common.NotifyPayloadCodec;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
 
@@ -38,27 +38,19 @@ class JmsClusterCoordinatorTest {
   private NodeIdentityProvider identityProvider;
   private JmsCoordinatorConfig config;
   private JmsConnectionLifecycle lifecycle;
-  private JMSContext ctx;
-  private JMSProducer producer;
-  private TextMessage textMessage;
   private Topic topic;
   private RecordingMetrics metrics;
-  private JmsNotifyPayloadCodec codec;
+  private NotifyPayloadCodec codec;
 
   @BeforeEach
-  void setUp() {
+  void setUp() throws Exception {
     identityProvider = () -> "nodeA";
     config = newConfig();
     lifecycle = mock(JmsConnectionLifecycle.class);
-    ctx = mock(JMSContext.class);
-    producer = mock(JMSProducer.class);
-    textMessage = mock(TextMessage.class);
     topic = mock(Topic.class);
     metrics = new RecordingMetrics();
-    codec = new JmsNotifyPayloadCodec();
-    when(lifecycle.currentContext()).thenReturn(ctx);
-    when(lifecycle.currentProducer()).thenReturn(producer);
-    when(ctx.createTextMessage(anyString())).thenReturn(textMessage);
+    codec = new NotifyPayloadCodec();
+    when(lifecycle.sendTextMessage(anyString(), anyString(), anyString())).thenReturn(true);
   }
 
   @Test
@@ -77,16 +69,14 @@ class JmsClusterCoordinatorTest {
     c.init();
     c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA"));
 
-    verify(ctx).createTextMessage(anyString());
-    verify(textMessage).setStringProperty("node", "nodeA");
-    verify(textMessage).setStringProperty("prio", "HIGH");
-    verify(producer).send(any(Topic.class), any(TextMessage.class));
+    verify(lifecycle).sendTextMessage(anyString(), eq("nodeA"), eq("HIGH"));
     assertEquals(1, metrics.published("success"));
   }
 
   @Test
-  void notifyNewWorkSwallowsJmsRuntimeException() {
-    when(ctx.createTextMessage(anyString())).thenThrow(new JMSRuntimeException("send blew up"));
+  void notifyNewWorkSwallowsJmsRuntimeException() throws Exception {
+    when(lifecycle.sendTextMessage(anyString(), anyString(), anyString()))
+        .thenThrow(new JMSRuntimeException("send blew up"));
     JmsClusterCoordinator c = newCoordinator();
     c.init();
 
@@ -97,10 +87,9 @@ class JmsClusterCoordinatorTest {
 
   @Test
   void notifyNewWorkSwallowsRuntimeExceptionFromCodec() throws Exception {
-    // setStringProperty throws — emulates a codec-adjacent failure mid-encode.
     doThrow(new RuntimeException("encode blew up"))
-        .when(textMessage)
-        .setStringProperty(anyString(), anyString());
+        .when(lifecycle)
+        .sendTextMessage(anyString(), anyString(), anyString());
     JmsClusterCoordinator c = newCoordinator();
     c.init();
 
@@ -109,9 +98,8 @@ class JmsClusterCoordinatorTest {
   }
 
   @Test
-  void notifyNewWorkOnNullContextDegradesToNoOp() {
-    when(lifecycle.currentContext()).thenReturn(null);
-    when(lifecycle.currentProducer()).thenReturn(null);
+  void notifyNewWorkOnUnavailableLifecycleDegradesToNoOp() throws Exception {
+    when(lifecycle.sendTextMessage(anyString(), anyString(), anyString())).thenReturn(false);
     JmsClusterCoordinator c = newCoordinator();
     c.init();
 
@@ -120,13 +108,12 @@ class JmsClusterCoordinatorTest {
   }
 
   @Test
-  void notifyNewWorkAfterCloseIsNoOp() {
+  void notifyNewWorkAfterCloseIsNoOp() throws Exception {
     JmsClusterCoordinator c = newCoordinator();
     c.init();
     c.close();
     assertDoesNotThrow(() -> c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA")));
-    // Should not have called createTextMessage after close.
-    verify(ctx, times(0)).createTextMessage(anyString());
+    verify(lifecycle, never()).sendTextMessage(anyString(), anyString(), anyString());
   }
 
   @Test
@@ -356,15 +343,9 @@ class JmsClusterCoordinatorTest {
     public void pollerBreakerState(String breakerName, String state) {}
   }
 
-  // unused helper - silences "field unused" warnings if any future check is added
-  @SuppressWarnings("unused")
-  private void touchUnused() {
-    assertNotNull(textMessage);
-  }
-
   @Test
-  void priorityIsPlatformBeforePlus200() {
+  void priorityIsPlatformBeforePlus300() {
     Priority p = JmsClusterCoordinator.class.getAnnotation(Priority.class);
-    assertEquals(Interceptor.Priority.PLATFORM_BEFORE + 200, p.value());
+    assertEquals(Interceptor.Priority.PLATFORM_BEFORE + 300, p.value());
   }
 }

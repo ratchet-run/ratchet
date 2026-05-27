@@ -7,8 +7,9 @@ import java.util.function.Consumer;
 import org.jboss.logging.Logger;
 import org.postgresql.PGConnection;
 import org.postgresql.PGNotification;
-import run.ratchet.coordinator.postgresql.PostgresqlNotifyPayloadCodec.DecodeException;
-import run.ratchet.coordinator.postgresql.PostgresqlNotifyPayloadCodec.NotifyPayload;
+import run.ratchet.coordinator.common.DecodeException;
+import run.ratchet.coordinator.common.NotifyPayload;
+import run.ratchet.coordinator.common.NotifyPayloadCodec;
 
 /**
  * Single background daemon thread that pulls PostgreSQL {@code NOTIFY} messages off the dedicated
@@ -34,7 +35,7 @@ final class PostgresqlListenThread extends Thread {
   private static final AtomicLong THREAD_NUMBER = new AtomicLong();
 
   private final PostgresqlConnectionLifecycle lifecycle;
-  private final PostgresqlNotifyPayloadCodec codec;
+  private final NotifyPayloadCodec codec;
   private final PostgresqlCoordinatorConfig config;
   private final Consumer<NotifyPayload> dispatcher;
   private final Runnable onParseFailure;
@@ -43,7 +44,7 @@ final class PostgresqlListenThread extends Thread {
 
   PostgresqlListenThread(
       PostgresqlConnectionLifecycle lifecycle,
-      PostgresqlNotifyPayloadCodec codec,
+      NotifyPayloadCodec codec,
       PostgresqlCoordinatorConfig config,
       Consumer<NotifyPayload> dispatcher,
       Runnable onParseFailure,
@@ -101,10 +102,17 @@ final class PostgresqlListenThread extends Thread {
     }
   }
 
-  private void dispatchOne(PGNotification n) {
+  void dispatchOne(PGNotification n) {
     String parameter = n.getParameter();
     NotifyPayload payload;
     try {
+      if (parameter != null && parameter.length() > config.maxInboundPayloadChars()) {
+        onParseFailure.run();
+        log.warnf(
+            "PostgreSQL coordinator rejected oversized inbound payload (%d chars > cap %d)",
+            parameter.length(), config.maxInboundPayloadChars());
+        return;
+      }
       payload = codec.decode(parameter);
     } catch (DecodeException parseEx) {
       onParseFailure.run();

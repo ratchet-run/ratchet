@@ -231,7 +231,8 @@ public class RatchetLifecycle {
     // third-party implementations while routing the first-party coordinator close through one
     // consistent path. Coordinator close() is idempotent per SPI, so a hook implementation that
     // races a direct call is safe.
-    if (clusterCoordinator != null && !(clusterCoordinator instanceof SchedulerLifecycleHook)) {
+    if (clusterCoordinator != null
+        && (lifecycleHooks == null || !(clusterCoordinator instanceof SchedulerLifecycleHook))) {
       stopService("cluster coordinator", clusterCoordinator::close);
     }
 

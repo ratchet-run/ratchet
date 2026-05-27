@@ -7,6 +7,7 @@ import jakarta.jms.JMSException;
 import jakarta.jms.JMSProducer;
 import jakarta.jms.Message;
 import jakarta.jms.MessageListener;
+import jakarta.jms.TextMessage;
 import jakarta.jms.Topic;
 import java.util.Objects;
 import java.util.concurrent.ThreadLocalRandom;
@@ -18,11 +19,12 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.NodeIdentity;
 
 /**
- * Owns the {@link JMSContext}, {@link JMSProducer}, and {@link JMSConsumer} for one JMS coordinator
- * instance. Reads-after-write atomicity is preserved by holding each of the three references in an
- * {@link AtomicReference}: a reconnect path swaps the triple in one publish, and {@link
- * JmsClusterCoordinator#notifyNewWork} reads {@code contextRef} / {@code producerRef} once each at
- * entry, so a torn read can never call into a half-closed context.
+ * Owns the {@link JMSContext} and {@link JMSProducer} for one JMS coordinator instance. The {@code
+ * JMSConsumer} the lifecycle creates is registered with the context via {@code setMessageListener}
+ * and lives for the lifetime of that context — closing the context cascades to the consumer per the
+ * JMS spec, so we do not hold a separate reference. Reads-after-write atomicity is preserved by
+ * holding context and producer in a single {@link AtomicReference}: a reconnect path swaps both in
+ * one publish, and {@link JmsClusterCoordinator#notifyNewWork} never observes a mixed pair.
  *
  * <p>Reconnect is driven by two paths:
  *
@@ -54,9 +56,7 @@ final class JmsConnectionLifecycle {
   private final Consumer<Message> inboundHandler;
   private final Runnable onTransportFailure;
 
-  private final AtomicReference<JMSContext> contextRef = new AtomicReference<>();
-  private final AtomicReference<JMSProducer> producerRef = new AtomicReference<>();
-  private final AtomicReference<JMSConsumer> consumerRef = new AtomicReference<>();
+  private final AtomicReference<Pair> connectionRef = new AtomicReference<>();
   private final AtomicBoolean closed = new AtomicBoolean(false);
   private final AtomicBoolean reconnectInFlight = new AtomicBoolean(false);
   private final AtomicLong consecutiveFailures = new AtomicLong();
@@ -83,17 +83,37 @@ final class JmsConnectionLifecycle {
    */
   void start(NodeIdentity localIdentity) {
     this.localIdentity = Objects.requireNonNull(localIdentity, "localIdentity");
-    connectOnce(/* failureIsExpected= */ false);
+    if (!connectOnce(/* failureIsExpected= */ false)) {
+      triggerReconnect();
+    }
   }
 
   /** Current producer, or null if reconnect is in flight or the lifecycle is closed. */
   JMSProducer currentProducer() {
-    return producerRef.get();
+    Pair pair = connectionRef.get();
+    return pair == null ? null : pair.producer();
   }
 
   /** Current context, or null if reconnect is in flight or the lifecycle is closed. */
   JMSContext currentContext() {
-    return contextRef.get();
+    Pair pair = connectionRef.get();
+    return pair == null ? null : pair.context();
+  }
+
+  /**
+   * Send a text message on the current coherent context/producer pair. Returns false when reconnect
+   * is in flight or the initial connect has not yet succeeded.
+   */
+  boolean sendTextMessage(String body, String node, String priority) throws JMSException {
+    Pair pair = connectionRef.get();
+    if (pair == null) {
+      return false;
+    }
+    TextMessage msg = pair.context().createTextMessage(body);
+    msg.setStringProperty("node", node);
+    msg.setStringProperty("prio", priority);
+    pair.producer().send(topic, msg);
+    return true;
   }
 
   /** True after {@link #close()} has been called. */
@@ -152,9 +172,9 @@ final class JmsConnectionLifecycle {
           config.brokerSideSelfFilter()
               ? "node <> '" + escapeSelector(localIdentity.value()) + "'"
               : null;
-      JMSConsumer c =
+      JMSConsumer consumer =
           selector == null ? ctx.createConsumer(topic) : ctx.createConsumer(topic, selector);
-      c.setMessageListener(new InboundListener(inboundHandler));
+      consumer.setMessageListener(new InboundListener(inboundHandler));
 
       // Close-during-reconnect race: if close() flipped `closed` after our guard above but
       // before we got here, the freshly-built context would leak — close() has already drained
@@ -163,20 +183,10 @@ final class JmsConnectionLifecycle {
         closeQuietly(ctx);
         return false;
       }
-      // Atomic publish: writes go context → producer → consumer. A concurrent reader in
-      // notifyNewWork can see a non-null context written here while producerRef is still null
-      // (under the JMM, the contextRef write does not happen-before the producerRef write from
-      // the reader's perspective unless the reader synchronizes after reading contextRef). The
-      // reader's null-guard on producer (notifyNewWork lines 178-184) handles that case, and
-      // the JMSRuntimeException catch handles the orthogonal case where a stale producer is
-      // captured against a context being torn down. The atomic-references are about *avoiding
-      // NPE on a closed JMSContext*, not about guaranteeing a coherent (context, producer) pair.
-      JMSContext stale = contextRef.getAndSet(ctx);
-      producerRef.set(p);
-      consumerRef.set(c);
+      Pair stale = connectionRef.getAndSet(new Pair(ctx, p));
       consecutiveFailures.set(0);
       if (stale != null) {
-        closeQuietly(stale);
+        closeQuietly(stale.context());
       }
       return true;
     } catch (RuntimeException ex) {
@@ -188,10 +198,8 @@ final class JmsConnectionLifecycle {
       } else if (!failureIsExpected) {
         log.warnf("JMS coordinator initial connect failed: %s", ex.getMessage());
       }
-      // Leave refs null so notifyNewWork degrades to no-op; metric was already recorded.
-      contextRef.set(null);
-      producerRef.set(null);
-      consumerRef.set(null);
+      // Leave the ref null so notifyNewWork degrades to no-op; metric was already recorded.
+      connectionRef.set(null);
       return false;
     }
   }
@@ -202,11 +210,9 @@ final class JmsConnectionLifecycle {
     }
     onTransportFailure.run();
     log.warnf("JMS coordinator connection exception, scheduling reconnect: %s", ex.getMessage());
-    JMSContext stale = contextRef.getAndSet(null);
-    producerRef.set(null);
-    consumerRef.set(null);
+    Pair stale = connectionRef.getAndSet(null);
     if (stale != null) {
-      closeQuietly(stale);
+      closeQuietly(stale.context());
     }
     triggerReconnect();
   }
@@ -236,13 +242,13 @@ final class JmsConnectionLifecycle {
   }
 
   private void closeContextRef() {
-    JMSContext ctx = contextRef.getAndSet(null);
-    producerRef.set(null);
-    consumerRef.set(null);
-    if (ctx != null) {
-      closeQuietly(ctx);
+    Pair pair = connectionRef.getAndSet(null);
+    if (pair != null) {
+      closeQuietly(pair.context());
     }
   }
+
+  private record Pair(JMSContext context, JMSProducer producer) {}
 
   private static void closeQuietly(JMSContext ctx) {
     try {

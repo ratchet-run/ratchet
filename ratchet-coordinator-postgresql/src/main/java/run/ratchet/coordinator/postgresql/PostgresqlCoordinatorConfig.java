@@ -12,21 +12,19 @@ import java.util.regex.Pattern;
  * {@code cellId} is present, the effective channel becomes {@code channel + "_" + cellId} so
  * multi-cell deployments sharing a PG cluster can isolate wakeup traffic.
  *
- * <p>{@code receiveTimeoutMs} is the upper bound on outbound send contention: the LISTEN thread and
- * {@code pg_notify} share the dedicated connection, and an in-flight {@code getNotifications} call
- * blocks outbound sends for up to that interval. The trade-off is per-iteration syscall overhead
- * versus head-of-line latency for the next publish; 1000ms balances both for typical workloads.
- * Tighten further (~200ms) on submission-heavy nodes if the publish-side metric shows queueing. The
- * canonical fix is splitting LISTEN and publish onto separate connections — see the follow-up
- * issue.
+ * <p>{@code receiveTimeoutMs} controls only the LISTEN loop wait. The coordinator keeps the LISTEN
+ * connection single-purpose and borrows separate publish connections for {@code pg_notify}, so this
+ * timeout does not bound outbound send latency.
  *
  * @param channel base NOTIFY channel name; default {@code "ratchet_wakeup"}
  * @param cellId optional per-cell suffix appended to {@code channel}
- * @param receiveTimeoutMs upper bound on {@code getNotifications} wait per iteration; also caps
- *     outbound send contention. Default 1000.
+ * @param receiveTimeoutMs upper bound on {@code getNotifications} wait per iteration. Default 1000.
  * @param reconnectBackoffInitialMs delay applied after the first failed reconnect attempt; the
  *     first attempt fires immediately. Each subsequent failure doubles the delay. Default 200.
  * @param reconnectBackoffMaxMs cap on the doubled reconnect delay. Default 30000.
+ * @param maxInboundPayloadChars hard cap on the character length of an inbound NOTIFY payload
+ *     before the codec rejects it as malformed. Wakeup envelopes are ~80 chars; the default 16384
+ *     leaves three orders of magnitude of headroom for future fields while bounding malformed JSON.
  * @param listenerExecutorThreads worker threads for dispatching to registered wakeup listeners.
  *     Default 1.
  * @param shutdownGraceMs max wait for the listen thread and listener executor to drain on close.
@@ -38,6 +36,7 @@ public record PostgresqlCoordinatorConfig(
     long receiveTimeoutMs,
     long reconnectBackoffInitialMs,
     long reconnectBackoffMaxMs,
+    int maxInboundPayloadChars,
     int listenerExecutorThreads,
     long shutdownGraceMs) {
 
@@ -98,6 +97,9 @@ public record PostgresqlCoordinatorConfig(
       throw new IllegalArgumentException(
           "reconnectBackoffMaxMs must be >= reconnectBackoffInitialMs");
     }
+    if (maxInboundPayloadChars <= 0) {
+      throw new IllegalArgumentException("maxInboundPayloadChars must be > 0");
+    }
     if (listenerExecutorThreads < 1) {
       throw new IllegalArgumentException("listenerExecutorThreads must be >= 1");
     }
@@ -109,7 +111,7 @@ public record PostgresqlCoordinatorConfig(
   /** Default tuning suitable for typical deployments. */
   public static PostgresqlCoordinatorConfig defaults() {
     return new PostgresqlCoordinatorConfig(
-        DEFAULT_CHANNEL, Optional.empty(), 1_000L, 200L, 30_000L, 1, 5_000L);
+        DEFAULT_CHANNEL, Optional.empty(), 1_000L, 200L, 30_000L, 16_384, 1, 5_000L);
   }
 
   /** The fully-qualified channel name after applying the optional {@code cellId} suffix. */

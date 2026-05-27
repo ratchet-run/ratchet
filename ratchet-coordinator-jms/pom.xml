@@ -19,6 +19,10 @@
             <groupId>run.ratchet</groupId>
             <artifactId>ratchet-api</artifactId>
         </dependency>
+        <dependency>
+            <groupId>run.ratchet</groupId>
+            <artifactId>ratchet-coordinator-common</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>jakarta.jms</groupId>

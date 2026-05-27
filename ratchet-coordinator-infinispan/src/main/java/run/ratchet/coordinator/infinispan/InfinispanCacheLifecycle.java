@@ -1,6 +1,7 @@
 package run.ratchet.coordinator.infinispan;
 
 import java.util.Objects;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -8,17 +9,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import org.infinispan.Cache;
 import org.jboss.logging.Logger;
-import run.ratchet.coordinator.infinispan.InfinispanNotifyPayloadCodec.NotifyPayload;
+import run.ratchet.coordinator.common.NotifyPayload;
+import run.ratchet.coordinator.common.NotifyPayloadCodec;
 
 /**
  * Owns the cache reference and the {@link InfinispanWakeupListener} registration for one
  * coordinator instance.
  *
- * <p>Listener registration is awaited at startup ({@code join()}) so {@code afterStart} cannot
- * return until inbound events are wired — guarantees no events are lost to the pre-registration
- * buffer in steady state. Removal is best-effort because the {@code EmbeddedCacheManager} often
- * outlives the coordinator (WildFly subsystem-managed): explicit removal is hygiene, not
- * correctness.
+ * <p>Listener registration is awaited at startup so {@code afterStart} cannot return until inbound
+ * events are wired. Removal is best-effort because the {@code EmbeddedCacheManager} often outlives
+ * the coordinator (WildFly subsystem-managed): explicit removal is hygiene, not correctness.
  */
 final class InfinispanCacheLifecycle {
 
@@ -26,7 +26,7 @@ final class InfinispanCacheLifecycle {
 
   private final Cache<String, String> cache;
   private final InfinispanCoordinatorConfig config;
-  private final InfinispanNotifyPayloadCodec codec;
+  private final NotifyPayloadCodec codec;
   private final Consumer<NotifyPayload> inboundDispatch;
   private final Runnable onParseFailure;
   private final AtomicBoolean closed = new AtomicBoolean(false);
@@ -35,7 +35,7 @@ final class InfinispanCacheLifecycle {
   InfinispanCacheLifecycle(
       Cache<String, String> cache,
       InfinispanCoordinatorConfig config,
-      InfinispanNotifyPayloadCodec codec,
+      NotifyPayloadCodec codec,
       Consumer<NotifyPayload> inboundDispatch,
       Runnable onParseFailure) {
     this.cache = Objects.requireNonNull(cache, "cache");
@@ -50,19 +50,33 @@ final class InfinispanCacheLifecycle {
     if (closed.get()) {
       return;
     }
-    listener = new InfinispanWakeupListener(codec, inboundDispatch, onParseFailure);
-    cache.addListenerAsync(listener).toCompletableFuture().join();
+    listener =
+        new InfinispanWakeupListener(
+            codec, config.maxInboundPayloadChars(), inboundDispatch, onParseFailure);
+    try {
+      cache
+          .addListenerAsync(listener)
+          .toCompletableFuture()
+          .get(config.shutdownGraceMs(), TimeUnit.MILLISECONDS);
+    } catch (TimeoutException te) {
+      throw new IllegalStateException(
+          "Infinispan listener registration timed out after " + config.shutdownGraceMs() + "ms",
+          te);
+    } catch (InterruptedException ie) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException("Interrupted while registering Infinispan listener", ie);
+    } catch (ExecutionException ee) {
+      throw new IllegalStateException("Infinispan listener registration failed", ee);
+    }
   }
 
   /**
-   * Fire-and-forget put with a per-entry TTL — the caller does not wait on the returned future. The
-   * TTL is sourced from {@link InfinispanCoordinatorConfig#wakeupTtlSeconds()} so cache definitions
-   * that omit a lifespan still bound storage; without it, every {@code notifyNewWork} call would
-   * add a fresh key (keyed by source+sequence) that lives forever.
+   * Publish with a per-entry TTL and return the async completion so the caller can metric the real
+   * outcome. The TTL is sourced from {@link InfinispanCoordinatorConfig#wakeupTtlSeconds()} so
+   * cache definitions that omit a lifespan still bound storage.
    */
-  @SuppressWarnings("ResultOfMethodCallIgnored") // intentional fire-and-forget; see Javadoc
-  void publish(String key, String value) {
-    cache.putAsync(key, value, config.wakeupTtlSeconds(), TimeUnit.SECONDS);
+  CompletionStage<String> publish(String key, String value) {
+    return cache.putAsync(key, value, config.wakeupTtlSeconds(), TimeUnit.SECONDS);
   }
 
   /** True after {@link #close()} has been called. */

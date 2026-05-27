@@ -1,5 +1,7 @@
 package run.ratchet.coordinator.hazelcast;
 
+import static run.ratchet.coordinator.common.JsonProviders.requireJsonProvider;
+
 import com.hazelcast.core.HazelcastInstance;
 import com.hazelcast.topic.ITopic;
 import com.hazelcast.topic.Message;
@@ -12,8 +14,6 @@ import jakarta.enterprise.inject.Any;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.interceptor.Interceptor;
-import jakarta.json.JsonException;
-import jakarta.json.spi.JsonProvider;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -30,7 +30,8 @@ import java.util.function.BiConsumer;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.NodeIdentity;
-import run.ratchet.coordinator.hazelcast.HazelcastNotifyPayloadCodec.NotifyPayload;
+import run.ratchet.coordinator.common.NotifyPayload;
+import run.ratchet.coordinator.common.NotifyPayloadCodec;
 import run.ratchet.spi.ClusterCoordinator;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
@@ -54,7 +55,7 @@ import run.ratchet.spi.SchedulerLifecycleHook;
  */
 @ApplicationScoped
 @Alternative
-@Priority(Interceptor.Priority.PLATFORM_BEFORE + 300)
+@Priority(Interceptor.Priority.PLATFORM_BEFORE + 200)
 // Coordinator @Priority order: see PostgresqlListenNotifyCoordinator. Operators MUST pull in
 // exactly one coordinator module; distinct priorities only prevent CDI ambiguity errors on a
 // transitive double-pull.
@@ -69,9 +70,9 @@ public class HazelcastClusterCoordinator implements ClusterCoordinator, Schedule
   @Inject NodeIdentityProvider identityProvider;
   @Inject HazelcastCoordinatorConfig config;
   @Inject @Any Instance<HazelcastInstanceProvider> providerInstance;
-  @Inject Instance<MetricsCollector> metricsInstance;
+  @Inject MetricsCollector metrics;
 
-  private final HazelcastNotifyPayloadCodec codec = new HazelcastNotifyPayloadCodec();
+  private final NotifyPayloadCodec codec = new NotifyPayloadCodec();
   private final CopyOnWriteArrayList<BiConsumer<JobPriority, NodeIdentity>> listeners =
       new CopyOnWriteArrayList<>();
   private final BlockingQueue<NotifyPayload> preRegistrationBuffer =
@@ -81,7 +82,6 @@ public class HazelcastClusterCoordinator implements ClusterCoordinator, Schedule
   private ITopic<String> topic;
   private UUID listenerRegistrationId;
   private ExecutorService listenerExecutor;
-  private MetricsCollector metrics;
   private final AtomicBoolean closed = new AtomicBoolean(false);
 
   protected HazelcastClusterCoordinator() {
@@ -113,12 +113,6 @@ public class HazelcastClusterCoordinator implements ClusterCoordinator, Schedule
       hz = provider.hazelcastInstance();
     }
     topic = hz.getTopic(config.effectiveTopicName());
-    if (metrics == null && metricsInstance != null) {
-      metrics =
-          metricsInstance.isUnsatisfied() || metricsInstance.isAmbiguous()
-              ? null
-              : metricsInstance.get();
-    }
     listenerExecutor = newListenerExecutor();
   }
 
@@ -143,7 +137,7 @@ public class HazelcastClusterCoordinator implements ClusterCoordinator, Schedule
     try {
       String body = codec.encode(NotifyPayload.current(source, priority));
       CompletionStage<Void> stage = topic.publishAsync(body);
-      stage.whenComplete(
+      stage.whenCompleteAsync(
           (v, throwable) -> {
             if (throwable == null) {
               clusterWakeupPublished("success");
@@ -153,7 +147,8 @@ public class HazelcastClusterCoordinator implements ClusterCoordinator, Schedule
                   "Hazelcast coordinator async publish failed: %s — wakeup dropped",
                   throwable.getMessage());
             }
-          });
+          },
+          listenerExecutor);
     } catch (RuntimeException ex) {
       clusterWakeupPublished("failure");
       log.warnf(
@@ -212,6 +207,13 @@ public class HazelcastClusterCoordinator implements ClusterCoordinator, Schedule
   void onTopicMessage(String body) {
     NotifyPayload payload;
     try {
+      if (body != null && body.length() > config.maxInboundPayloadChars()) {
+        clusterWakeupReceived("parse_failure");
+        log.warnf(
+            "Hazelcast coordinator rejected oversized inbound payload (%d chars > cap %d)",
+            body.length(), config.maxInboundPayloadChars());
+        return;
+      }
       payload = codec.decode(body);
     } catch (RuntimeException parseEx) {
       clusterWakeupReceived("parse_failure");
@@ -281,41 +283,11 @@ public class HazelcastClusterCoordinator implements ClusterCoordinator, Schedule
   }
 
   private void clusterWakeupPublished(String outcome) {
-    if (metrics != null) {
-      try {
-        metrics.clusterWakeupPublished(COORDINATOR_KIND, outcome);
-      } catch (RuntimeException ignored) {
-        // metrics must never destabilize the coordinator
-      }
-    }
+    metrics.clusterWakeupPublished(COORDINATOR_KIND, outcome);
   }
 
   private void clusterWakeupReceived(String outcome) {
-    if (metrics != null) {
-      try {
-        metrics.clusterWakeupReceived(COORDINATOR_KIND, outcome);
-      } catch (RuntimeException ignored) {
-        // metrics must never destabilize the coordinator
-      }
-    }
-  }
-
-  /**
-   * Fails fast at startup if no JSON-P provider (e.g. parsson) is on the classpath. Without this
-   * probe the first {@link #notifyNewWork} call would throw {@link JsonException} from inside the
-   * codec; surfacing it here yields a deterministic startup error pointing operators at the missing
-   * dependency.
-   */
-  private static void requireJsonProvider() {
-    try {
-      JsonProvider.provider();
-    } catch (JsonException ex) {
-      throw new IllegalStateException(
-          "No JSON-P provider (jakarta.json.spi.JsonProvider) found on the classpath. Add"
-              + " org.eclipse.parsson:parsson (or another JSON-P 2.x implementation) at runtime"
-              + " scope, or deploy into a Jakarta EE container that supplies one.",
-          ex);
-    }
+    metrics.clusterWakeupReceived(COORDINATOR_KIND, outcome);
   }
 
   private HazelcastInstanceProvider resolveProvider() {

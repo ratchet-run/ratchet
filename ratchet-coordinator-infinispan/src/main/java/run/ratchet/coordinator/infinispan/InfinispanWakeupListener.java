@@ -6,7 +6,9 @@ import java.util.function.Consumer;
 import org.infinispan.notifications.Listener;
 import org.infinispan.notifications.cachelistener.annotation.CacheEntryCreated;
 import org.infinispan.notifications.cachelistener.event.CacheEntryCreatedEvent;
-import run.ratchet.coordinator.infinispan.InfinispanNotifyPayloadCodec.NotifyPayload;
+import org.jboss.logging.Logger;
+import run.ratchet.coordinator.common.NotifyPayload;
+import run.ratchet.coordinator.common.NotifyPayloadCodec;
 
 /**
  * Clustered Infinispan listener that decodes each created entry's value and forwards to the
@@ -25,15 +27,20 @@ import run.ratchet.coordinator.infinispan.InfinispanNotifyPayloadCodec.NotifyPay
 @Listener(clustered = true, includeCurrentState = false)
 public final class InfinispanWakeupListener {
 
-  private final InfinispanNotifyPayloadCodec codec;
+  private static final Logger log = Logger.getLogger(InfinispanWakeupListener.class);
+
+  private final NotifyPayloadCodec codec;
+  private final int maxInboundPayloadChars;
   private final Consumer<NotifyPayload> inboundDispatch;
   private final Runnable onParseFailure;
 
   InfinispanWakeupListener(
-      InfinispanNotifyPayloadCodec codec,
+      NotifyPayloadCodec codec,
+      int maxInboundPayloadChars,
       Consumer<NotifyPayload> inboundDispatch,
       Runnable onParseFailure) {
     this.codec = codec;
+    this.maxInboundPayloadChars = maxInboundPayloadChars;
     this.inboundDispatch = inboundDispatch;
     this.onParseFailure = onParseFailure;
   }
@@ -49,6 +56,13 @@ public final class InfinispanWakeupListener {
       // parse failure so the metric increments; do NOT let an NPE propagate, which can terminate
       // the listener registration under some Infinispan 14+ configurations.
       onParseFailure.run();
+      return CompletableFuture.completedFuture(null);
+    }
+    if (value.length() > maxInboundPayloadChars) {
+      onParseFailure.run();
+      log.warnf(
+          "Infinispan coordinator rejected oversized inbound payload (%d chars > cap %d)",
+          value.length(), maxInboundPayloadChars);
       return CompletableFuture.completedFuture(null);
     }
     try {

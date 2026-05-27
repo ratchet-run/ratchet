@@ -131,6 +131,34 @@ class RatchetLifecycleShutdownTest {
   }
 
   @Test
+  void onShutdown_nonCdiHookImplementingCoordinator_closesViaDirectFallback() {
+    HookCoordinator coordinator = new HookCoordinator();
+    RatchetLifecycle lifecycle =
+        new RatchetLifecycle(
+            mock(Poller.class),
+            mock(RecurringScheduler.class),
+            mock(OrphanRecoveryTimer.class),
+            mock(BatchRecoveryTimer.class),
+            mock(DeadLetterService.class),
+            mock(JobArchivingService.class),
+            mock(LogPurgeTimer.class),
+            mock(PollerWakeupListener.class),
+            executorProviderWithScheduler(),
+            mock(NodeIdentityProvider.class),
+            mock(DrainController.class),
+            quietOptions(),
+            mock(JobExecutionCoordinator.class),
+            coordinator);
+
+    lifecycle.onShutdown();
+
+    assertEquals(
+        1,
+        coordinator.closes.get(),
+        "non-CDI lifecycle must close a hook-capable coordinator via the direct fallback");
+  }
+
+  @Test
   void onShutdown_nonHookCoordinator_stillClosedViaDirectFallback() {
     // Backwards-compat: a coordinator that does NOT implement SchedulerLifecycleHook is closed
     // via the direct stopService call.

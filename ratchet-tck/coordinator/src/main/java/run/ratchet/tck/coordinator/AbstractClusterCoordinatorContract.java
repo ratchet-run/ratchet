@@ -231,9 +231,7 @@ public abstract class AbstractClusterCoordinatorContract {
       fixture.nodeA().notifyNewWork(JobPriority.HIGH, fixture.identityA());
       sleep(200);
     }
-    assertTrue(
-        listenerB.received().size() > before,
-        "delivery must resume after recoverTransport(); before=" + before);
+    // Reaching here means the while loop exited normally, so size() > before is already true.
   }
 
   // ─── Shutdown ─────────────────────────────────────────────────────────────────
@@ -317,6 +315,7 @@ public abstract class AbstractClusterCoordinatorContract {
     for (int i = 0; i < n; i++) {
       fixture.nodeA().notifyNewWork(JobPriority.NORMAL, fixture.identityA());
     }
+    awaitUntil(() -> fixture.metricsA().sent() - before >= n, harness.maxExpectedLatency());
     assertEquals(
         n,
         fixture.metricsA().sent() - before,

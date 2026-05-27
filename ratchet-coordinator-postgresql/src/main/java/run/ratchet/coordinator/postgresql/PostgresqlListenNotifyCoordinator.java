@@ -1,5 +1,7 @@
 package run.ratchet.coordinator.postgresql;
 
+import static run.ratchet.coordinator.common.JsonProviders.requireJsonProvider;
+
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Priority;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -8,8 +10,7 @@ import jakarta.enterprise.inject.Any;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.interceptor.Interceptor;
-import jakarta.json.JsonException;
-import jakarta.json.spi.JsonProvider;
+import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.Objects;
@@ -26,7 +27,8 @@ import javax.sql.DataSource;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.NodeIdentity;
-import run.ratchet.coordinator.postgresql.PostgresqlNotifyPayloadCodec.NotifyPayload;
+import run.ratchet.coordinator.common.NotifyPayload;
+import run.ratchet.coordinator.common.NotifyPayloadCodec;
 import run.ratchet.spi.ClusterCoordinator;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
@@ -40,11 +42,11 @@ import run.ratchet.spi.SchedulerLifecycleHook;
  * — per CDI 4.0 §4.1.1 a {@code @Priority}-annotated alternative is selected globally across all
  * archives, so consumers do not need to edit application-side {@code beans.xml}.
  *
- * <p>The dedicated {@link PGConnection} acquired in {@link #init()} is autocommit and never
- * returned to a pool. Outbound {@code pg_notify} and the LISTEN thread share that single
- * connection; the PostgreSQL JDBC driver serializes statement execution per-connection, so
- * concurrency is safe but outbound throughput is bounded by {@link
- * PostgresqlCoordinatorConfig#receiveTimeoutMs()} (see config Javadoc).
+ * <p>The dedicated {@link PGConnection} acquired in {@link #init()} is single-purpose: it is
+ * autocommit, never returned to a pool, and used only by the LISTEN thread. Outbound {@code
+ * pg_notify} calls borrow short-lived publish connections from the configured {@link DataSource} so
+ * publish statements cannot stall behind {@code getNotifications(receiveTimeoutMs)} on the LISTEN
+ * connection.
  *
  * <p>{@link #close()} releases only resources this coordinator allocated: the {@link
  * PostgresqlConnectionLifecycle} and the listener {@link ExecutorService}. The {@link DataSource}
@@ -52,9 +54,9 @@ import run.ratchet.spi.SchedulerLifecycleHook;
  */
 @ApplicationScoped
 @Alternative
-@Priority(Interceptor.Priority.PLATFORM_BEFORE + 100)
-// Coordinator @Priority order (lowest wins per CDI 4.0 §5.2.4):
-//   PG = PLATFORM_BEFORE + 100, JMS = +200, Hazelcast = +300, Infinispan = +400.
+@Priority(Interceptor.Priority.PLATFORM_BEFORE + 400)
+// Coordinator @Priority order (highest wins per CDI 4.0 §5.2.4):
+//   PG = PLATFORM_BEFORE + 400, JMS = +300, Hazelcast = +200, Infinispan = +100.
 // Operators MUST pull in exactly one coordinator module; distinct priorities only mean a
 // transitive double-pull picks PG over the others — it does not legitimize the configuration.
 public class PostgresqlListenNotifyCoordinator
@@ -70,18 +72,18 @@ public class PostgresqlListenNotifyCoordinator
   @Inject NodeIdentityProvider identityProvider;
   @Inject PostgresqlCoordinatorConfig config;
   @Inject @Any Instance<DataSource> dataSourceInstance;
-  @Inject Instance<MetricsCollector> metricsInstance;
+  @Inject MetricsCollector metrics;
 
-  private final PostgresqlNotifyPayloadCodec codec = new PostgresqlNotifyPayloadCodec();
+  private final NotifyPayloadCodec codec = new NotifyPayloadCodec();
   private final CopyOnWriteArrayList<BiConsumer<JobPriority, NodeIdentity>> listeners =
       new CopyOnWriteArrayList<>();
   private final BlockingQueue<NotifyPayload> preRegistrationBuffer =
       new ArrayBlockingQueue<>(PRE_REGISTRATION_BUFFER_CAPACITY);
 
   private PostgresqlConnectionLifecycle connectionLifecycle;
+  private PostgresqlConnectionLifecycle.ConnectionAcquirer publishConnectionAcquirer;
   private PostgresqlListenThread listenThread;
   private ExecutorService listenerExecutor;
-  private MetricsCollector metrics;
   private volatile boolean closed;
 
   protected PostgresqlListenNotifyCoordinator() {
@@ -98,9 +100,20 @@ public class PostgresqlListenNotifyCoordinator
       PostgresqlCoordinatorConfig config,
       PostgresqlConnectionLifecycle lifecycle,
       MetricsCollector metrics) {
+    this(identityProvider, config, lifecycle, lifecycle::currentRaw, metrics);
+  }
+
+  PostgresqlListenNotifyCoordinator(
+      NodeIdentityProvider identityProvider,
+      PostgresqlCoordinatorConfig config,
+      PostgresqlConnectionLifecycle lifecycle,
+      PostgresqlConnectionLifecycle.ConnectionAcquirer publishConnectionAcquirer,
+      MetricsCollector metrics) {
     this.identityProvider = Objects.requireNonNull(identityProvider, "identityProvider");
     this.config = Objects.requireNonNull(config, "config");
     this.connectionLifecycle = Objects.requireNonNull(lifecycle, "lifecycle");
+    this.publishConnectionAcquirer =
+        Objects.requireNonNull(publishConnectionAcquirer, "publishConnectionAcquirer");
     this.metrics = metrics;
   }
 
@@ -109,15 +122,16 @@ public class PostgresqlListenNotifyCoordinator
     Objects.requireNonNull(config, "config");
     Objects.requireNonNull(identityProvider, "identityProvider");
     requireJsonProvider();
+    DataSource ds = null;
+    if (connectionLifecycle == null || publishConnectionAcquirer == null) {
+      ds = resolveDataSource();
+    }
     if (connectionLifecycle == null) {
-      DataSource ds = resolveDataSource();
       connectionLifecycle = new PostgresqlConnectionLifecycle(ds, config);
     }
-    if (metrics == null && metricsInstance != null) {
-      metrics =
-          metricsInstance.isUnsatisfied() || metricsInstance.isAmbiguous()
-              ? null
-              : metricsInstance.get();
+    if (publishConnectionAcquirer == null) {
+      DataSource publishDataSource = ds;
+      publishConnectionAcquirer = publishDataSource::getConnection;
     }
     listenerExecutor = newListenerExecutor();
     listenThread =
@@ -152,9 +166,9 @@ public class PostgresqlListenNotifyCoordinator
       return;
     }
     try {
-      java.sql.Connection raw = connectionLifecycle.currentRaw();
       String payload = codec.encode(NotifyPayload.current(source, priority));
-      try (PreparedStatement ps = raw.prepareStatement("SELECT pg_notify(?, ?)")) {
+      try (Connection raw = publishConnectionAcquirer.acquire();
+          PreparedStatement ps = raw.prepareStatement("SELECT pg_notify(?, ?)")) {
         ps.setString(1, config.effectiveChannel());
         ps.setString(2, payload);
         ps.execute();
@@ -162,7 +176,6 @@ public class PostgresqlListenNotifyCoordinator
       clusterWakeupPublished("success");
     } catch (SQLException sqlEx) {
       clusterWakeupPublished("failure");
-      connectionLifecycle.markFailed(sqlEx);
       log.warnf(
           "PostgreSQL coordinator notifyNewWork transport failure: %s — wakeup dropped",
           sqlEx.getMessage());
@@ -291,12 +304,10 @@ public class PostgresqlListenNotifyCoordinator
   }
 
   private void drainPreRegistrationBuffer() {
-    // Drain after the listener has been added to {@code listeners}, so dispatchToListeners
-    // sees the new listener. A narrow concurrent-registration window remains: if a notify
-    // arrives between {@code listeners.isEmpty()} returning false in onInboundNotification
-    // and a second listener completing registration, that notify may land in the buffer and
-    // sit there until the next registerWakeupListener call. The SPI is a best-effort wakeup
-    // hint and the local poll loop is the correctness floor, so the delay is benign.
+    // Drain after the listener is visible so buffered wakeups reach the first subscriber.
+    // A notify can still arrive during concurrent listener registration and get buffered
+    // for the next registration cycle. The local poll loop is the correctness floor; the
+    // SPI wakeup signal is best-effort.
     NotifyPayload msg;
     while ((msg = preRegistrationBuffer.poll()) != null) {
       dispatchToListeners(msg);
@@ -312,41 +323,11 @@ public class PostgresqlListenNotifyCoordinator
   }
 
   private void clusterWakeupPublished(String outcome) {
-    if (metrics != null) {
-      try {
-        metrics.clusterWakeupPublished(COORDINATOR_KIND, outcome);
-      } catch (RuntimeException ignored) {
-        // metrics must never destabilize the coordinator
-      }
-    }
+    metrics.clusterWakeupPublished(COORDINATOR_KIND, outcome);
   }
 
   private void clusterWakeupReceived(String outcome) {
-    if (metrics != null) {
-      try {
-        metrics.clusterWakeupReceived(COORDINATOR_KIND, outcome);
-      } catch (RuntimeException ignored) {
-        // metrics must never destabilize the coordinator
-      }
-    }
-  }
-
-  /**
-   * Fails fast at startup if no JSON-P provider (e.g. parsson) is on the classpath. Without this
-   * probe the first {@link #notifyNewWork} call would throw {@link JsonException} from inside the
-   * codec; surfacing it here yields a deterministic startup error pointing operators at the missing
-   * dependency.
-   */
-  private static void requireJsonProvider() {
-    try {
-      JsonProvider.provider();
-    } catch (JsonException ex) {
-      throw new IllegalStateException(
-          "No JSON-P provider (jakarta.json.spi.JsonProvider) found on the classpath. Add"
-              + " org.eclipse.parsson:parsson (or another JSON-P 2.x implementation) at runtime"
-              + " scope, or deploy into a Jakarta EE container that supplies one.",
-          ex);
-    }
+    metrics.clusterWakeupReceived(COORDINATOR_KIND, outcome);
   }
 
   private DataSource resolveDataSource() {

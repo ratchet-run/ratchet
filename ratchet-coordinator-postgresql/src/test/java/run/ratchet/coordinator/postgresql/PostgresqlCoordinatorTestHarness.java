@@ -56,6 +56,7 @@ public final class PostgresqlCoordinatorTestHarness implements CoordinatorTestHa
             /* receiveTimeoutMs= */ 500L,
             /* reconnectBackoffInitialMs= */ 50L,
             /* reconnectBackoffMaxMs= */ 500L,
+            /* maxInboundPayloadChars= */ 16_384,
             /* listenerExecutorThreads= */ 1,
             /* shutdownGraceMs= */ 3_000L);
   }
@@ -123,7 +124,8 @@ public final class PostgresqlCoordinatorTestHarness implements CoordinatorTestHa
       String nodeId, PostgresqlConnectionLifecycle lifecycle, MetricsCollector metrics) {
     NodeIdentityProvider provider = new DeterministicNodeIdentityProvider(nodeId);
     PostgresqlListenNotifyCoordinator c =
-        new PostgresqlListenNotifyCoordinator(provider, config, lifecycle, metrics);
+        new PostgresqlListenNotifyCoordinator(
+            provider, config, lifecycle, dataSource::getConnection, metrics);
     c.init();
     c.afterStart();
     return c;

@@ -20,6 +20,9 @@ import java.util.Optional;
  *     regardless of cache-level lifespan configuration. Must be {@code > 0}. Default 60s — long
  *     enough to survive a slow replication round-trip, short enough that any stuck entry evicts
  *     within a minute.
+ * @param maxInboundPayloadChars hard cap on the character length of an inbound cache value before
+ *     the codec rejects it as malformed. Wakeup envelopes are ~80 chars; the default 16384 leaves
+ *     three orders of magnitude of headroom for future fields while bounding malformed JSON.
  * @param listenerExecutorThreads worker threads dispatching inbound cache events to registered
  *     listeners. Default 2 — keeps one slow listener from stalling all others.
  * @param shutdownGraceMs max wait for the @Listener removal on close. Default 5000.
@@ -28,6 +31,7 @@ public record InfinispanCoordinatorConfig(
     String cacheName,
     Optional<String> cellId,
     long wakeupTtlSeconds,
+    int maxInboundPayloadChars,
     int listenerExecutorThreads,
     long shutdownGraceMs) {
 
@@ -42,6 +46,9 @@ public record InfinispanCoordinatorConfig(
     if (wakeupTtlSeconds <= 0) {
       throw new IllegalArgumentException("wakeupTtlSeconds must be > 0");
     }
+    if (maxInboundPayloadChars <= 0) {
+      throw new IllegalArgumentException("maxInboundPayloadChars must be > 0");
+    }
     if (listenerExecutorThreads < 1) {
       throw new IllegalArgumentException("listenerExecutorThreads must be >= 1");
     }
@@ -52,7 +59,8 @@ public record InfinispanCoordinatorConfig(
 
   /** Default tuning suitable for WildFly + standalone Infinispan deployments. */
   public static InfinispanCoordinatorConfig defaults() {
-    return new InfinispanCoordinatorConfig(DEFAULT_CACHE_NAME, Optional.empty(), 60L, 2, 5_000L);
+    return new InfinispanCoordinatorConfig(
+        DEFAULT_CACHE_NAME, Optional.empty(), 60L, 16_384, 2, 5_000L);
   }
 
   /** The fully-qualified cache name after applying the optional {@code cellId} suffix. */

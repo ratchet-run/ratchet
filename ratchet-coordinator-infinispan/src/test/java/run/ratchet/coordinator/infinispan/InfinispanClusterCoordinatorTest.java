@@ -29,7 +29,8 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import run.ratchet.api.NodeIdentity;
 import run.ratchet.api.SignalDecision;
-import run.ratchet.coordinator.infinispan.InfinispanNotifyPayloadCodec.NotifyPayload;
+import run.ratchet.coordinator.common.NotifyPayload;
+import run.ratchet.coordinator.common.NotifyPayloadCodec;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
 
@@ -40,8 +41,8 @@ class InfinispanClusterCoordinatorTest {
 
   private final NodeIdentityProvider identityProvider = () -> "nodeA";
   private final InfinispanCoordinatorConfig config =
-      new InfinispanCoordinatorConfig("wakeup", Optional.empty(), 60L, 2, 1_000L);
-  private final InfinispanNotifyPayloadCodec codec = new InfinispanNotifyPayloadCodec();
+      new InfinispanCoordinatorConfig("wakeup", Optional.empty(), 60L, 16_384, 2, 1_000L);
+  private final NotifyPayloadCodec codec = new NotifyPayloadCodec();
   private RecordingMetrics metrics;
 
   @BeforeEach
@@ -278,8 +279,8 @@ class InfinispanClusterCoordinatorTest {
   }
 
   @Test
-  void priorityIsPlatformBeforePlus400() {
+  void priorityIsPlatformBeforePlus100() {
     Priority p = InfinispanClusterCoordinator.class.getAnnotation(Priority.class);
-    assertEquals(Interceptor.Priority.PLATFORM_BEFORE + 400, p.value());
+    assertEquals(Interceptor.Priority.PLATFORM_BEFORE + 100, p.value());
   }
 }
