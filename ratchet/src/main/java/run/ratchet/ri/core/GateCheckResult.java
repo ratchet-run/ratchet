@@ -5,17 +5,19 @@ import run.ratchet.store.entity.JobExecutionType;
 
 /**
  * Outcome of checking drain, rate-limit, and permit gates before job submission. A CLEAR result
- * means a permit was acquired and must be released through execution or explicit release.
+ * means a permit was acquired on the {@link #resolvedPoolName() resolved pool} and must be released
+ * through execution or explicit release against that same pool. Blocked results hold no permit and
+ * carry a null pool name.
  */
-record GateCheckResult(GateStatus status, String reason) {
+record GateCheckResult(GateStatus status, String reason, String resolvedPoolName) {
 
-  static GateCheckResult clear() {
-    return new GateCheckResult(GateStatus.CLEAR, null);
+  static GateCheckResult clear(String resolvedPoolName) {
+    return new GateCheckResult(GateStatus.CLEAR, null, resolvedPoolName);
   }
 
   static GateCheckResult draining(UUID jobId) {
     return new GateCheckResult(
-        GateStatus.DRAINING, "Node draining - returning job " + jobId + " to PENDING");
+        GateStatus.DRAINING, "Node draining - returning job " + jobId + " to PENDING", null);
   }
 
   static GateCheckResult noPermits(JobExecutionType jobType, UUID jobId) {
@@ -23,7 +25,8 @@ record GateCheckResult(GateStatus status, String reason) {
         GateStatus.NO_PERMITS,
         String.format(
             "Executor for %s saturated - returning job %s to PENDING for other nodes",
-            jobType, jobId));
+            jobType, jobId),
+        null);
   }
 
   static GateCheckResult rateLimited(
@@ -33,7 +36,8 @@ record GateCheckResult(GateStatus status, String reason) {
         String.format(
             "Rate limit exceeded for %s (current: %d/min, limit: %d/min) - "
                 + "returning job %s to PENDING",
-            jobType, currentCount, limit, jobId));
+            jobType, currentCount, limit, jobId),
+        null);
   }
 
   boolean isClear() {

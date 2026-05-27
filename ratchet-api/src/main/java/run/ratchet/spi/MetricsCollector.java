@@ -66,6 +66,18 @@ public interface MetricsCollector {
   void localWakeup(String source);
 
   /**
+   * Called when a job's requested execution target could not be honored and the router fell back to
+   * a different pool (today always platform). A high count signals a misconfiguration, such as
+   * {@code default-threading-mode=virtual} with no virtual executor configured.
+   *
+   * @param requested the execution target the job asked for
+   * @param effective the pool the job actually ran on
+   */
+  default void executionTargetFallback(String requested, String effective) {
+    // default no-op
+  }
+
+  /**
    * Called when a cluster wakeup publish attempt is observed.
    *
    * @param transport cluster transport, e.g. {@code jms}

@@ -48,7 +48,7 @@ class PollerTest {
   @Mock private JobClaimStore jobClaimStore;
   @Mock private JobExecutionCoordinator jobExecutionCoordinator;
   @Mock private NodeIdentityProvider nodeIdProvider;
-  @Mock private ThreadPoolManager threadPoolManager;
+  @Mock private PoolRegistry poolRegistry;
   @Mock private DrainController drainController;
   @Mock private PollerScheduler pollerScheduler;
   @Mock private MetricsCollector metricsCollector;
@@ -74,7 +74,7 @@ class PollerTest {
                         .idleThreshold(5))
             .build();
     lenient()
-        .when(threadPoolManager.getThreadPoolHealth())
+        .when(poolRegistry.getThreadPoolHealth())
         .thenReturn(new EnumMap<>(JobExecutionType.class));
     lenient().when(nodeIdProvider.getNodeId()).thenReturn("node-1");
     when(drainController.isDraining()).thenReturn(false);
@@ -96,16 +96,16 @@ class PollerTest {
 
     verify(jobClaimStore, never()).claimNextBatchOptimized(any(), anyInt(), anyString(), any());
     verify(jobExecutionCoordinator, never()).submit(any(JobClaimDto.class));
-    verify(threadPoolManager, never()).getAvailableCapacity(any());
+    verify(poolRegistry, never()).maxAvailableCapacity(any());
     assertEquals(2000L, nextDelay);
   }
 
   @Test
   void tick_claimsPerExecutionTypeCapacity() {
-    when(threadPoolManager.getAvailableCapacity(JobExecutionType.SINGLE)).thenReturn(2);
-    when(threadPoolManager.getAvailableCapacity(JobExecutionType.BATCH_CHILD)).thenReturn(1);
-    when(threadPoolManager.getAvailableCapacity(JobExecutionType.CHAIN_STEP)).thenReturn(0);
-    when(threadPoolManager.getAvailableCapacity(JobExecutionType.WORKFLOW_BRANCH)).thenReturn(0);
+    when(poolRegistry.maxAvailableCapacity(JobExecutionType.SINGLE)).thenReturn(2);
+    when(poolRegistry.maxAvailableCapacity(JobExecutionType.BATCH_CHILD)).thenReturn(1);
+    when(poolRegistry.maxAvailableCapacity(JobExecutionType.CHAIN_STEP)).thenReturn(0);
+    when(poolRegistry.maxAvailableCapacity(JobExecutionType.WORKFLOW_BRANCH)).thenReturn(0);
 
     JobClaimDto singleClaim = claim(1L, JobExecutionType.SINGLE, "single");
     JobClaimDto batchClaim = claim(2L, JobExecutionType.BATCH_CHILD, "batch");
@@ -138,7 +138,7 @@ class PollerTest {
 
   @Test
   void tick_transientClaimFailureBacksOff() {
-    when(threadPoolManager.getAvailableCapacity(JobExecutionType.SINGLE)).thenReturn(1);
+    when(poolRegistry.maxAvailableCapacity(JobExecutionType.SINGLE)).thenReturn(1);
     when(jobClaimStore.claimNextBatchOptimized(
             eq(JobExecutionType.SINGLE), eq(1), eq("node-1"), any()))
         .thenThrow(new RatchetTransientStoreException("deadlock"));
@@ -154,7 +154,7 @@ class PollerTest {
 
   @Test
   void tick_consecutiveTransientFailuresTripBreakerAndSkipSubsequentClaim() {
-    when(threadPoolManager.getAvailableCapacity(JobExecutionType.SINGLE)).thenReturn(1);
+    when(poolRegistry.maxAvailableCapacity(JobExecutionType.SINGLE)).thenReturn(1);
     when(jobClaimStore.claimNextBatchOptimized(
             eq(JobExecutionType.SINGLE), eq(1), eq("node-1"), any()))
         .thenThrow(new RatchetTransientStoreException("deadlock"));
@@ -173,7 +173,7 @@ class PollerTest {
 
   @Test
   void tick_emptyClaimBatchUpdatesLoadAndDoesNotSubmitJobs() {
-    when(threadPoolManager.getAvailableCapacity(JobExecutionType.SINGLE)).thenReturn(1);
+    when(poolRegistry.maxAvailableCapacity(JobExecutionType.SINGLE)).thenReturn(1);
     when(jobClaimStore.claimNextBatchOptimized(
             eq(JobExecutionType.SINGLE), eq(1), eq("node-1"), any()))
         .thenReturn(List.of());
@@ -184,7 +184,7 @@ class PollerTest {
         .claimNextBatchOptimized(eq(JobExecutionType.SINGLE), eq(1), eq("node-1"), any());
     verify(jobExecutionCoordinator, never()).submit(any(JobClaimDto.class));
     verify(metricsCollector, never()).jobsClaimed(anyString(), anyInt());
-    verify(threadPoolManager).getThreadPoolHealth();
+    verify(poolRegistry).getThreadPoolHealth();
     assertEquals(2000L, nextDelay);
   }
 
@@ -197,7 +197,7 @@ class PollerTest {
             jobClaimStore,
             jobExecutionCoordinator,
             nodeIdProvider,
-            threadPoolManager,
+            poolRegistry,
             drainController,
             pollerScheduler,
             options,
@@ -225,7 +225,7 @@ class PollerTest {
     poller = newPoller(true);
     poller.init();
 
-    when(threadPoolManager.getAvailableCapacity(JobExecutionType.SINGLE)).thenReturn(1);
+    when(poolRegistry.maxAvailableCapacity(JobExecutionType.SINGLE)).thenReturn(1);
     when(jobClaimStore.claimNextBatchOptimized(
             eq(JobExecutionType.SINGLE), eq(1), eq("node-1"), any()))
         .thenThrow(new RatchetTransientStoreException("deadlock"))
@@ -250,7 +250,7 @@ class PollerTest {
         jobClaimStore,
         jobExecutionCoordinator,
         nodeIdProvider,
-        threadPoolManager,
+        poolRegistry,
         drainController,
         pollerScheduler,
         options,

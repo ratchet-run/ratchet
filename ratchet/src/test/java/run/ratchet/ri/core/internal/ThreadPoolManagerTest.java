@@ -11,10 +11,10 @@ import static org.mockito.Mockito.when;
 import java.lang.reflect.Field;
 import java.util.EnumMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentMatchers;
-import run.ratchet.spi.ExecutionTuningProvider;
+import run.ratchet.api.ExecutorTargets;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobExecutionType;
@@ -27,7 +27,11 @@ class ThreadPoolManagerTest {
       limits.put(type, maxConcurrencyPerType);
     }
     return new ThreadPoolManager(
-        mock(ExecutorProvider.class), mock(MetricsCollector.class), false, limits, null);
+        ExecutorTargets.PLATFORM,
+        mock(ExecutorProvider.class),
+        mock(MetricsCollector.class),
+        ThreadPoolManager.AccountingMode.SEMAPHORE,
+        limits);
   }
 
   private static ThreadPoolManager virtualThreadManager(int limitPerType) {
@@ -35,11 +39,12 @@ class ThreadPoolManagerTest {
     for (JobExecutionType type : JobExecutionType.values()) {
       limits.put(type, limitPerType);
     }
-    ExecutionTuningProvider tuning = mock(ExecutionTuningProvider.class);
-    when(tuning.virtualThreadLimit(ArgumentMatchers.any(), ArgumentMatchers.anyInt()))
-        .thenReturn(limitPerType);
     return new ThreadPoolManager(
-        mock(ExecutorProvider.class), mock(MetricsCollector.class), true, limits, tuning);
+        ExecutorTargets.VIRTUAL,
+        mock(ExecutorProvider.class),
+        mock(MetricsCollector.class),
+        ThreadPoolManager.AccountingMode.COUNTER,
+        limits);
   }
 
   @Test
@@ -161,9 +166,7 @@ class ThreadPoolManagerTest {
   void getExecutor_whenNoArgConstructed_throwsClearError() {
     ThreadPoolManager manager = new ThreadPoolManager();
 
-    IllegalStateException error =
-        assertThrows(
-            IllegalStateException.class, () -> manager.getExecutor(JobExecutionType.SINGLE));
+    IllegalStateException error = assertThrows(IllegalStateException.class, manager::getExecutor);
 
     assertTrue(error.getMessage().contains("ExecutorProvider"));
   }
@@ -172,16 +175,16 @@ class ThreadPoolManagerTest {
   void getExecutor_delegatesToExecutorProvider() {
     ExecutorProvider provider = mock(ExecutorProvider.class);
     ExecutorService executor = mock(ExecutorService.class);
-    when(provider.getJobExecutor()).thenReturn(executor);
+    when(provider.getJobExecutor(ExecutorTargets.PLATFORM)).thenReturn(Optional.of(executor));
     ThreadPoolManager manager =
         new ThreadPoolManager(
+            ExecutorTargets.PLATFORM,
             provider,
             mock(MetricsCollector.class),
-            false,
-            Map.of(JobExecutionType.SINGLE, 1),
-            null);
+            ThreadPoolManager.AccountingMode.SEMAPHORE,
+            Map.of(JobExecutionType.SINGLE, 1));
 
-    assertSame(executor, manager.getExecutor(JobExecutionType.SINGLE));
+    assertSame(executor, manager.getExecutor());
   }
 
   @Test
@@ -216,7 +219,7 @@ class ThreadPoolManagerTest {
   @Test
   void virtualThreadHealthReportsVirtualPoolsAndUsage() {
     ThreadPoolManager manager = virtualThreadManager(2);
-    assertTrue(manager.isUseVirtualThreads());
+    assertEquals(ThreadPoolManager.AccountingMode.COUNTER, manager.accountingMode());
 
     manager.tryAcquirePermit(JobExecutionType.SINGLE);
 

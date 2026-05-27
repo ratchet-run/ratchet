@@ -3,6 +3,7 @@ package run.ratchet.ri.core;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -15,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobStatus;
 import run.ratchet.ri.core.internal.ThreadPoolManager;
 import run.ratchet.spi.MetricsCollector;
@@ -29,7 +31,8 @@ class SubmissionFailureHandlerTest {
 
   @Mock private JobStateManager jobStateManager;
   @Mock private RetryBufferManager retryBufferManager;
-  @Mock private ThreadPoolManager threadPoolManager;
+  @Mock private PoolRegistry poolRegistry;
+  @Mock private ThreadPoolManager pool;
   @Mock private PollerScheduler pollerScheduler;
   @Mock private MetricsCollector metricsCollector;
   @Mock private JobBatchStatusStore jobBatchStatusStore;
@@ -41,11 +44,8 @@ class SubmissionFailureHandlerTest {
   void setUp() {
     handler =
         new SubmissionFailureHandler(
-            jobStateManager,
-            retryBufferManager,
-            threadPoolManager,
-            pollerScheduler,
-            metricsCollector);
+            jobStateManager, retryBufferManager, poolRegistry, pollerScheduler, metricsCollector);
+    lenient().when(poolRegistry.pool(ExecutorTargets.PLATFORM)).thenReturn(pool);
   }
 
   @Test
@@ -80,10 +80,10 @@ class SubmissionFailureHandlerTest {
     JobEntity job = runningSingleJob(51L);
     SubmissionFailureHandler handlerWithoutMetrics =
         new SubmissionFailureHandler(
-            jobStateManager, retryBufferManager, threadPoolManager, pollerScheduler, null);
+            jobStateManager, retryBufferManager, poolRegistry, pollerScheduler, null);
     when(jobStateManager.resetJobToPending(job)).thenReturn(true);
 
-    handler.handleGateFailure(job, GateCheckResult.clear(), true);
+    handler.handleGateFailure(job, GateCheckResult.clear(ExecutorTargets.PLATFORM), true);
     handlerWithoutMetrics.handleGateFailure(
         job, GateCheckResult.noPermits(JobExecutionType.SINGLE, job.getId()), true);
 
@@ -165,9 +165,9 @@ class SubmissionFailureHandlerTest {
     JobEntity job = runningSingleJob(44L);
     when(jobStateManager.resetJobToPending(job)).thenReturn(true);
 
-    handler.handleRejection(job, JobExecutionType.SINGLE, true);
+    handler.handleRejection(job, JobExecutionType.SINGLE, "platform", true);
 
-    verify(threadPoolManager).releasePermit(JobExecutionType.SINGLE);
+    verify(pool).releasePermit(JobExecutionType.SINGLE);
     verify(pollerScheduler).wakeup();
     verify(jobStateManager).resetJobToPending(job);
     verify(retryBufferManager, never()).offer(job);
@@ -178,9 +178,9 @@ class SubmissionFailureHandlerTest {
     JobEntity job = runningSingleJob(52L);
     when(retryBufferManager.offer(job)).thenReturn(true);
 
-    handler.handleRejection(job, JobExecutionType.SINGLE, false);
+    handler.handleRejection(job, JobExecutionType.SINGLE, "platform", false);
 
-    verify(threadPoolManager).releasePermit(JobExecutionType.SINGLE);
+    verify(pool).releasePermit(JobExecutionType.SINGLE);
     verify(pollerScheduler).wakeup();
     verify(retryBufferManager).offer(job);
     verify(jobStateManager, never()).resetJobToPending(job);
@@ -192,9 +192,9 @@ class SubmissionFailureHandlerTest {
     when(retryBufferManager.offer(job)).thenReturn(false);
     when(jobStateManager.resetJobToPending(job)).thenReturn(true);
 
-    handler.handleRejection(job, JobExecutionType.SINGLE, false);
+    handler.handleRejection(job, JobExecutionType.SINGLE, "platform", false);
 
-    verify(threadPoolManager).releasePermit(JobExecutionType.SINGLE);
+    verify(pool).releasePermit(JobExecutionType.SINGLE);
     verify(pollerScheduler).wakeup();
     verify(retryBufferManager).offer(job);
     verify(jobStateManager).resetJobToPending(job);
@@ -221,9 +221,9 @@ class SubmissionFailureHandlerTest {
     when(retryBufferManager.offer(claim)).thenReturn(true, false, false);
     when(jobStateManager.resetJobToPending(claimJobId)).thenReturn(true, false);
 
-    assertDoesNotThrow(() -> handler.handleRejection(claim, JobExecutionType.SINGLE));
-    assertDoesNotThrow(() -> handler.handleRejection(claim, JobExecutionType.SINGLE));
-    assertDoesNotThrow(() -> handler.handleRejection(claim, JobExecutionType.SINGLE));
+    assertDoesNotThrow(() -> handler.handleRejection(claim, JobExecutionType.SINGLE, "platform"));
+    assertDoesNotThrow(() -> handler.handleRejection(claim, JobExecutionType.SINGLE, "platform"));
+    assertDoesNotThrow(() -> handler.handleRejection(claim, JobExecutionType.SINGLE, "platform"));
   }
 
   @Test
@@ -234,12 +234,12 @@ class SubmissionFailureHandlerTest {
     when(jobBatchStatusStore.resetRunningJob(job.getId(), "node-1")).thenReturn(true);
 
     realStateHandler.handleUnexpectedException(
-        job, JobExecutionType.SINGLE, true, new IllegalStateException("boom"));
+        job, JobExecutionType.SINGLE, "platform", true, new IllegalStateException("boom"));
 
     assertSame(JobStatus.PENDING, job.getStatus());
     assertNull(job.getPickedBy());
     assertNull(job.getPickedAt());
-    verify(threadPoolManager).releasePermit(JobExecutionType.SINGLE);
+    verify(pool).releasePermit(JobExecutionType.SINGLE);
     verify(pollerScheduler).wakeup();
     verify(jobBatchStatusStore).resetRunningJob(job.getId(), "node-1");
     verify(retryBufferManager, never()).offer(job);
@@ -253,10 +253,10 @@ class SubmissionFailureHandlerTest {
     when(retryBufferManager.offer(job)).thenReturn(true);
 
     realStateHandler.handleUnexpectedException(
-        job, JobExecutionType.SINGLE, false, new IllegalStateException("boom"));
+        job, JobExecutionType.SINGLE, "platform", false, new IllegalStateException("boom"));
 
     assertSame(JobStatus.RUNNING, job.getStatus());
-    verify(threadPoolManager).releasePermit(JobExecutionType.SINGLE);
+    verify(pool).releasePermit(JobExecutionType.SINGLE);
     verify(pollerScheduler).wakeup();
     verify(retryBufferManager).offer(job);
     verifyNoInteractions(jobBatchStatusStore, nodeIdentityProvider);
@@ -286,9 +286,9 @@ class SubmissionFailureHandlerTest {
     when(jobBatchStatusStore.resetRunningJob(claimJobId, "node-1")).thenReturn(true);
 
     realStateHandler.handleUnexpectedException(
-        claim, JobExecutionType.BATCH_CHILD, new IllegalStateException("boom"));
+        claim, JobExecutionType.BATCH_CHILD, "platform", new IllegalStateException("boom"));
 
-    verify(threadPoolManager).releasePermit(JobExecutionType.BATCH_CHILD);
+    verify(pool).releasePermit(JobExecutionType.BATCH_CHILD);
     verify(pollerScheduler).wakeup();
     verify(retryBufferManager).offer(claim);
     verify(jobBatchStatusStore).resetRunningJob(claimJobId, "node-1");
@@ -298,7 +298,7 @@ class SubmissionFailureHandlerTest {
     return new SubmissionFailureHandler(
         new JobStateManager(jobBatchStatusStore, nodeIdentityProvider),
         retryBufferManager,
-        threadPoolManager,
+        poolRegistry,
         pollerScheduler,
         metricsCollector);
   }

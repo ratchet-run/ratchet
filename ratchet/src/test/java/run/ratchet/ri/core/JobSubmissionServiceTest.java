@@ -33,14 +33,15 @@ class JobSubmissionServiceTest {
   @Test
   void submit_entityChecksFirstAttemptGateAndExecutes() {
     JobEntity job = singleJob();
-    when(gateChecker.check(job, true)).thenReturn(GateCheckResult.clear());
-    when(executorService.execute(job)).thenReturn(ExecutionResult.success(completedFuture()));
+    when(gateChecker.check(job, true)).thenReturn(GateCheckResult.clear("platform"));
+    when(executorService.execute(job, "platform"))
+        .thenReturn(ExecutionResult.success(completedFuture()));
 
     service.submit(job);
 
     verify(gateChecker).check(job, true);
-    verify(executorService).execute(job);
-    verify(failureHandler, never()).handleGateFailure(job, GateCheckResult.clear(), true);
+    verify(executorService).execute(job, "platform");
+    verify(failureHandler, never()).handleGateFailure(job, GateCheckResult.clear("platform"), true);
   }
 
   @Test
@@ -53,7 +54,7 @@ class JobSubmissionServiceTest {
 
     verify(gateChecker).check(job, false);
     verify(failureHandler).handleGateFailure(job, gateResult, false);
-    verify(executorService, never()).execute(job);
+    verify(executorService, never()).execute(job, "platform");
   }
 
   @Test
@@ -68,7 +69,7 @@ class JobSubmissionServiceTest {
 
     verify(gateChecker).check(claim, false);
     verify(failureHandler).handleGateFailure(claim, gateResult);
-    verify(executorService, never()).execute(claim);
+    verify(executorService, never()).execute(claim, "platform");
   }
 
   private static JobEntity singleJob() {

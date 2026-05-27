@@ -41,7 +41,7 @@ class RetryBufferDrainerTest {
   @Mock private ScheduledFuture<?> scheduledFuture;
   @Mock private RetryBufferManager retryBufferManager;
   @Mock private JobSubmissionService jobSubmissionService;
-  @Mock private ThreadPoolManager threadPoolManager;
+  @Mock private PoolRegistry poolRegistry;
   @Mock private DrainController drainController;
 
   @Test
@@ -59,10 +59,10 @@ class RetryBufferDrainerTest {
     Runnable task = startAndCaptureTask();
 
     when(drainController.isDraining()).thenReturn(false);
-    when(threadPoolManager.getAvailableCapacity(JobExecutionType.SINGLE)).thenReturn(2);
+    when(poolRegistry.maxAvailableCapacity(JobExecutionType.SINGLE)).thenReturn(2);
     when(retryBufferManager.pollBatchFromBuffer(JobExecutionType.SINGLE, 2))
         .thenReturn(List.of(first, second));
-    when(threadPoolManager.canAcceptWork(JobExecutionType.SINGLE)).thenReturn(true);
+    when(poolRegistry.canAcceptWork(JobExecutionType.SINGLE)).thenReturn(true);
     doThrow(new RuntimeException("submit failed"))
         .when(jobSubmissionService)
         .submitBuffered(first.toClaimDto());
@@ -80,10 +80,10 @@ class RetryBufferDrainerTest {
     Runnable task = startAndCaptureTask();
 
     when(drainController.isDraining()).thenReturn(false);
-    when(threadPoolManager.getAvailableCapacity(JobExecutionType.SINGLE)).thenReturn(2);
+    when(poolRegistry.maxAvailableCapacity(JobExecutionType.SINGLE)).thenReturn(2);
     when(retryBufferManager.pollBatchFromBuffer(JobExecutionType.SINGLE, 2))
         .thenReturn(List.of(first, second));
-    when(threadPoolManager.canAcceptWork(JobExecutionType.SINGLE)).thenReturn(false, true);
+    when(poolRegistry.canAcceptWork(JobExecutionType.SINGLE)).thenReturn(false, true);
 
     assertDoesNotThrow(task::run);
 
@@ -111,7 +111,7 @@ class RetryBufferDrainerTest {
             executorProvider,
             retryBufferManager,
             jobSubmissionService,
-            threadPoolManager,
+            poolRegistry,
             drainController,
             RatchetOptions.defaults());
     ExecutorService executor = Executors.newFixedThreadPool(2);
@@ -144,7 +144,7 @@ class RetryBufferDrainerTest {
             executorProvider,
             retryBufferManager,
             jobSubmissionService,
-            threadPoolManager,
+            poolRegistry,
             drainController,
             RatchetOptions.defaults());
     drainer.start();

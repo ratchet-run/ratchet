@@ -22,8 +22,8 @@ class DefaultExecutionTuningProvider implements ExecutionTuningProvider {
   }
 
   @Override
-  public boolean useVirtualThreads() {
-    return options().execution().useVirtualThreads();
+  public RatchetOptions.ThreadingMode defaultThreadingMode() {
+    return options().execution().defaultThreadingMode();
   }
 
   @Override

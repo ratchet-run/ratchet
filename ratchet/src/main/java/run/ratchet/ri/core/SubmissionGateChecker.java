@@ -20,55 +20,65 @@ class SubmissionGateChecker {
 
   private final DrainController drainController;
   private final JobTypeRateLimiter rateLimiter;
-  private final ThreadPoolManager threadPoolManager;
+  private final PoolRegistry poolRegistry;
+  private final ExecutionTargetRouter router;
 
   protected SubmissionGateChecker() {
     this.drainController = null;
     this.rateLimiter = null;
-    this.threadPoolManager = null;
+    this.poolRegistry = null;
+    this.router = null;
   }
 
   @Inject
   public SubmissionGateChecker(
       DrainController drainController,
       JobTypeRateLimiter rateLimiter,
-      ThreadPoolManager threadPoolManager) {
+      PoolRegistry poolRegistry,
+      ExecutionTargetRouter router) {
     this.drainController = drainController;
     this.rateLimiter = rateLimiter;
-    this.threadPoolManager = threadPoolManager;
+    this.poolRegistry = poolRegistry;
+    this.router = router;
   }
 
   /**
-   * Checks all gates for the given job. On success, ownership of one permit transfers to caller.
+   * Checks all gates for the given job. On success, ownership of one permit transfers to caller,
+   * acquired against the pool named on the returned {@link GateCheckResult#resolvedPoolName()}.
    *
    * <p>Retry submissions intentionally bypass drain mode because they already represent claimed
    * work owned by this node. The permit and rate-limit gates are separate best-effort checks; a
    * rate-limited job may hold a permit briefly before this method releases it.
    */
   public GateCheckResult check(JobEntity job, boolean isFirstAttempt) {
-    return checkInternal(job.getJobType(), job.getId(), isFirstAttempt);
+    return checkInternal(job.getJobType(), job.getId(), job.getExecutionTarget(), isFirstAttempt);
   }
 
   public GateCheckResult check(JobClaimDto claim, boolean isFirstAttempt) {
-    return checkInternal(claim.jobType(), claim.id(), isFirstAttempt);
+    return checkInternal(claim.jobType(), claim.id(), claim.executionTarget(), isFirstAttempt);
   }
 
   private GateCheckResult checkInternal(
-      JobExecutionType jobType, UUID jobId, boolean isFirstAttempt) {
+      JobExecutionType jobType, UUID jobId, String executionTarget, boolean isFirstAttempt) {
     if (isFirstAttempt && drainController.isDraining()) {
       return GateCheckResult.draining(jobId);
     }
 
-    if (!threadPoolManager.tryAcquirePermit(jobType)) {
+    // Resolve the effective pool exactly once, so permit acquire, release, and executor selection
+    // all agree even when a virtual target falls back to platform.
+    String poolName = router.resolve(executionTarget);
+    ThreadPoolManager pool = poolRegistry.pool(poolName);
+
+    if (!pool.tryAcquirePermit(jobType)) {
       return GateCheckResult.noPermits(jobType, jobId);
     }
 
     if (!rateLimiter.tryAcquire(jobType)) {
-      threadPoolManager.releasePermit(jobType);
+      pool.releasePermit(jobType);
       return GateCheckResult.rateLimited(
           jobType, jobId, rateLimiter.getCurrentCount(jobType), rateLimiter.getRateLimit(jobType));
     }
 
-    return GateCheckResult.clear();
+    return GateCheckResult.clear(poolName);
   }
 }

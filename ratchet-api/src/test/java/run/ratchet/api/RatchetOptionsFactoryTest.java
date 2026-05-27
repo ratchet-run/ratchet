@@ -40,9 +40,9 @@ class RatchetOptionsFactoryTest {
     RatchetOptions options =
         optionsFrom(
             new MapRatchetConfigSource(
-                Map.of("ratchet.worker.use-virtual-threads", "true"), Map.of()));
+                Map.of("ratchet.worker.default-threading-mode", "virtual"), Map.of()));
 
-    assertTrue(options.execution().useVirtualThreads());
+    assertEquals(RatchetOptions.ThreadingMode.VIRTUAL, options.execution().defaultThreadingMode());
   }
 
   @Test
@@ -245,9 +245,19 @@ class RatchetOptionsFactoryTest {
     RatchetOptions options =
         optionsFrom(
             new MapRatchetConfigSource(
-                Map.of("ratchet.worker.use-virtual-threads", "sometimes"), Map.of()));
+                Map.of("ratchet.worker.virtual-counter-accounting", "sometimes"), Map.of()));
 
-    assertFalse(options.execution().useVirtualThreads());
+    assertFalse(options.execution().virtualCounterAccounting());
+  }
+
+  @Test
+  void invalidThreadingModeFallsBackToPlatform() {
+    RatchetOptions options =
+        optionsFrom(
+            new MapRatchetConfigSource(
+                Map.of("ratchet.worker.default-threading-mode", "bogus"), Map.of()));
+
+    assertEquals(RatchetOptions.ThreadingMode.PLATFORM, options.execution().defaultThreadingMode());
   }
 
   @Test

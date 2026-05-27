@@ -1,7 +1,6 @@
 package run.ratchet.ri.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import org.junit.jupiter.api.Test;
@@ -28,11 +27,11 @@ class DefaultExecutionTuningProviderTest {
   }
 
   @Test
-  void defaultsVirtualThreadsToDisabled() {
+  void defaultsThreadingModeToPlatform() {
     ExecutionTuningProvider provider =
         new DefaultExecutionTuningProvider(RatchetOptions.defaults());
 
-    assertFalse(provider.useVirtualThreads());
+    assertEquals(RatchetOptions.ThreadingMode.PLATFORM, provider.defaultThreadingMode());
   }
 
   @Test
@@ -40,7 +39,7 @@ class DefaultExecutionTuningProviderTest {
     ExecutionTuningProvider provider = new DefaultExecutionTuningProvider();
 
     IllegalStateException thrown =
-        assertThrows(IllegalStateException.class, provider::useVirtualThreads);
+        assertThrows(IllegalStateException.class, provider::defaultThreadingMode);
 
     assertEquals("RatchetOptions were not injected", thrown.getMessage());
   }

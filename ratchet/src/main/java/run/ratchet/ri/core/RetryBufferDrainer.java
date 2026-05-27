@@ -29,7 +29,7 @@ public class RetryBufferDrainer {
   private final ExecutorProvider executorProvider;
   private final RetryBufferManager retryBufferManager;
   private final JobSubmissionService jobSubmissionService;
-  private final ThreadPoolManager threadPoolManager;
+  private final PoolRegistry poolRegistry;
   private final DrainController drainController;
   private final long drainIntervalMs;
 
@@ -40,7 +40,7 @@ public class RetryBufferDrainer {
     this.executorProvider = null;
     this.retryBufferManager = null;
     this.jobSubmissionService = null;
-    this.threadPoolManager = null;
+    this.poolRegistry = null;
     this.drainController = null;
     this.drainIntervalMs = 1000L;
   }
@@ -50,13 +50,13 @@ public class RetryBufferDrainer {
       ExecutorProvider executorProvider,
       RetryBufferManager retryBufferManager,
       JobSubmissionService jobSubmissionService,
-      ThreadPoolManager threadPoolManager,
+      PoolRegistry poolRegistry,
       DrainController drainController,
       RatchetOptions options) {
     this.executorProvider = executorProvider;
     this.retryBufferManager = retryBufferManager;
     this.jobSubmissionService = jobSubmissionService;
-    this.threadPoolManager = threadPoolManager;
+    this.poolRegistry = poolRegistry;
     this.drainController = drainController;
     this.drainIntervalMs = Math.max(50L, options.retryBuffer().drainIntervalMs());
   }
@@ -105,7 +105,7 @@ public class RetryBufferDrainer {
 
     for (JobExecutionType jobType : JobExecutionType.values()) {
       while (!drainController.isDraining()) {
-        int capacity = threadPoolManager.getAvailableCapacity(jobType);
+        int capacity = poolRegistry.maxAvailableCapacity(jobType);
         if (capacity <= 0) {
           break;
         }
@@ -119,7 +119,7 @@ public class RetryBufferDrainer {
         boolean stopDrainingType = false;
         for (int i = 0; i < bufferedJobs.size(); i++) {
           BufferedClaim buffered = bufferedJobs.get(i);
-          if (drainController.isDraining() || !threadPoolManager.canAcceptWork(jobType)) {
+          if (drainController.isDraining() || !poolRegistry.canAcceptWork(jobType)) {
             requeueRemaining(bufferedJobs, i);
             stopDrainingType = true;
             break;

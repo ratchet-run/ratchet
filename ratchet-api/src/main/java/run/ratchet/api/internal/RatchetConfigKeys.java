@@ -37,8 +37,12 @@ public final class RatchetConfigKeys {
   public static final RatchetConfigKey<Integer> POLLER_CLAIM_HEADROOM_FACTOR =
       intKey("ratchet.poller.claim-headroom-factor", "RATCHET_POLLER_CLAIM_HEADROOM_FACTOR", 0, 0);
 
-  public static final RatchetConfigKey<Boolean> WORKER_USE_VIRTUAL_THREADS =
-      boolKey("ratchet.worker.use-virtual-threads", "RATCHET_WORKER_USE_VIRTUAL_THREADS", false);
+  public static final RatchetConfigKey<RatchetOptions.ThreadingMode> WORKER_DEFAULT_THREADING_MODE =
+      new RatchetConfigKey<>(
+          "ratchet.worker.default-threading-mode",
+          "RATCHET_WORKER_DEFAULT_THREADING_MODE",
+          RatchetOptions.ThreadingMode.PLATFORM,
+          raw -> RatchetOptions.ThreadingMode.valueOf(raw.trim().toUpperCase(Locale.ROOT)));
   public static final RatchetConfigKey<String> WORKER_JOB_EXECUTOR_JNDI =
       stringKey(
           "ratchet.worker.job-executor-jndi",
@@ -49,6 +53,13 @@ public final class RatchetConfigKeys {
           "ratchet.worker.scheduled-executor-jndi",
           "RATCHET_WORKER_SCHEDULED_EXECUTOR_JNDI",
           "java:comp/DefaultManagedScheduledExecutorService");
+  public static final RatchetConfigKey<String> WORKER_VIRTUAL_EXECUTOR_JNDI =
+      stringKey("ratchet.worker.virtual-executor-jndi", "RATCHET_WORKER_VIRTUAL_EXECUTOR_JNDI", "");
+  public static final RatchetConfigKey<Boolean> WORKER_VIRTUAL_COUNTER_ACCOUNTING =
+      boolKey(
+          "ratchet.worker.virtual-counter-accounting",
+          "RATCHET_WORKER_VIRTUAL_COUNTER_ACCOUNTING",
+          false);
   public static final RatchetConfigKey<Integer> THREAD_POOL_QUEUE_SIZE =
       intKey("ratchet.thread-pool.queue-size", "RATCHET_THREAD_POOL_QUEUE_SIZE", 100, 0);
   public static final RatchetConfigKey<Integer> THREAD_POOL_SIZE_SINGLE =

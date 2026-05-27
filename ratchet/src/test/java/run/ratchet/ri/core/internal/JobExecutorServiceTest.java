@@ -41,7 +41,8 @@ class JobExecutorServiceTest {
   private static final Instant FIXED_NOW = Instant.parse("2026-05-12T12:00:00Z");
   private static final Clock FIXED_CLOCK = Clock.fixed(FIXED_NOW, ZoneOffset.UTC);
 
-  @Mock private ThreadPoolManager threadPoolManager;
+  @Mock private PoolRegistry poolRegistry;
+  @Mock private ThreadPoolManager pool;
   @Mock private JobTimeoutHandler timeoutHandler;
   @Mock private ExecutorProvider executorProvider;
   @Mock private ExecutorService jobExecutor;
@@ -55,7 +56,7 @@ class JobExecutorServiceTest {
   void setUp() {
     service =
         new DefaultJobExecutorService(
-            threadPoolManager,
+            poolRegistry,
             timeoutHandler,
             executorProvider,
             null,
@@ -79,7 +80,8 @@ class JobExecutorServiceTest {
 
   @Test
   void immediateCompletionCancelsWatchdogScheduledAfterSubmit() throws Exception {
-    when(executorProvider.getJobExecutor()).thenReturn(jobExecutor);
+    when(poolRegistry.pool(any())).thenReturn(pool);
+    when(pool.getExecutor()).thenReturn(jobExecutor);
     when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
     doAnswer(
             invocation -> {
@@ -123,7 +125,7 @@ class JobExecutorServiceTest {
     ExecutionResult result = invokeExecute(() -> null, new AtomicReference<>());
 
     assertTrue(result.isRejected());
-    verify(executorProvider, never()).getJobExecutor();
+    verify(pool, never()).getExecutor();
     verify(jobExecutor, never()).execute(any(Runnable.class));
   }
 
@@ -132,7 +134,8 @@ class JobExecutorServiceTest {
     CountDownLatch enteredExecute = new CountDownLatch(1);
     CountDownLatch releaseExecute = new CountDownLatch(1);
     when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
-    when(executorProvider.getJobExecutor()).thenReturn(jobExecutor);
+    when(poolRegistry.pool(any())).thenReturn(pool);
+    when(pool.getExecutor()).thenReturn(jobExecutor);
     when(timeoutHandler.scheduleTimeoutMonitoring(
             eq(JOB_ID), anyInt(), any(Future.class), eq(scheduledExecutor), any(Instant.class)))
         .thenReturn(new JobTimeoutHandler.TimeoutHandles(softTimeout, hardTimeout));
@@ -170,8 +173,13 @@ class JobExecutorServiceTest {
       throws Exception {
     Method method =
         DefaultJobExecutorService.class.getDeclaredMethod(
-            "execute", UUID.class, int.class, Callable.class, AtomicReference.class);
+            "execute",
+            UUID.class,
+            int.class,
+            Callable.class,
+            AtomicReference.class,
+            String.class);
     method.setAccessible(true);
-    return (ExecutionResult) method.invoke(service, JOB_ID, 30, callable, handlesRef);
+    return (ExecutionResult) method.invoke(service, JOB_ID, 30, callable, handlesRef, "platform");
   }
 }
