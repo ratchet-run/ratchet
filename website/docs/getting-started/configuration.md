@@ -146,6 +146,29 @@ public class OrdersRatchetEntityManagerProvider implements RatchetEntityManagerP
 }
 ```
 
+### Database timezone
+
+For SQL stores, configure the JDBC connection so it agrees with the database server on UTC.
+Ratchet stores `scheduled_time`, `next_fire`, and similar instants in zone-less `DATETIME` /
+`TIMESTAMP` columns, and selects due work by comparing them against the database's server-side
+clock (`NOW(3)` / `CURRENT_TIMESTAMP`). If the JDBC connection writes those columns in a different
+zone than the server evaluates the comparison in, due jobs are claimed late (or early) by the
+offset between the two zones.
+
+Most providers avoid this automatically — Hibernate, for example, negotiates `connectionTimeZone=UTC`
+with MySQL Connector/J. Others (notably EclipseLink) bind `java.sql.Timestamp` values in the JVM's
+default zone, so a non-UTC application JVM against a UTC database silently skews claim timing. To
+stay correct on any provider:
+
+- **MySQL / MariaDB:** add `connectionTimeZone=UTC` to the JDBC URL (or set it as a datasource
+  property).
+- **PostgreSQL:** run the application JVM in UTC, or pin the connection's session time zone to UTC.
+- **Any database:** running the application JVM in UTC (for example `-Duser.timezone=UTC`) also
+  resolves the mismatch.
+
+This requirement applies to the application's own datasource configuration; Ratchet ships only the
+DDL, not a datasource.
+
 ## Option Reference
 
 ### Polling

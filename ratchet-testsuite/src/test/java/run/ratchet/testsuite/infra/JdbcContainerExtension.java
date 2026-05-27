@@ -96,6 +96,21 @@ public class JdbcContainerExtension
           jdbcUrl = jdbcUrl.substring(0, queryStart);
         }
         jdbcUrl += "?stringtype=unspecified";
+      } else if ("mysql".equals(dbType)) {
+        // Force the driver to treat the zone-less DATETIME columns as UTC, matching the database
+        // container (whose server zone is UTC). Without this, mysql-connector-j interprets stored
+        // timestamps in the JVM-local zone, shifting round-tripped Instants by the JVM's offset
+        // from UTC and skewing the NOW(3)-based claim predicates on EclipseLink servers (Payara,
+        // GlassFish, OpenLiberty). This URL flows through config.url() into every server's
+        // datasource, so a single source keeps them consistent. See MysqlTestFixture for the
+        // unit-test analogue. One query param is used deliberately: the URL is interpolated into
+        // arquillian.xml attributes, where a literal `&` would be parsed as an XML entity and
+        // break deployment.
+        int queryStart = jdbcUrl.indexOf('?');
+        if (queryStart >= 0) {
+          jdbcUrl = jdbcUrl.substring(0, queryStart);
+        }
+        jdbcUrl += "?connectionTimeZone=UTC";
       }
 
       config =
