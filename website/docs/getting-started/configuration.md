@@ -187,7 +187,7 @@ DDL, not a datasource.
 
 | Builder method | Default | Description |
 |---|---:|---|
-| `useVirtualThreads(boolean)` | `false` | Use virtual threads where supported |
+| `useVirtualThreads(boolean)` | `false` | Use counter-based backpressure instead of semaphores (pair with a virtual-thread executor JNDI) |
 | `queueSize(int)` | `100` | Reserved for custom executor implementations |
 | `maxConcurrency("SINGLE", int)` | `20` | One-off job concurrency |
 | `maxConcurrency("RECURRING", int)` | `5` | Recurring child concurrency |

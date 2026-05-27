@@ -31,11 +31,14 @@ import run.ratchet.spi.ExecutorProvider;
  *
  * <p>The two JNDI names are configurable via {@code ratchet.worker.job-executor-jndi} and {@code
  * ratchet.worker.scheduled-executor-jndi} (defaulting to the well-known container names above).
- * Pointing {@code job-executor-jndi} at a virtual-thread-backed executor makes jobs run on virtual
- * threads. On Jakarta EE 11 the application declares one with
- * {@code @ManagedExecutorDefinition(name = "java:app/concurrent/MyVirtualExecutor", virtual =
- * true)} on any {@code @ApplicationScoped} bean and sets {@code job-executor-jndi} to that name.
- * The values flow in through {@link RatchetOptions#execution()}.
+ * Pointing {@code job-executor-jndi} at a virtual-thread-backed executor runs jobs on that
+ * executor; whether its threads are actually virtual is the container's decision, since {@code
+ * virtual = true} is a request a runtime may ignore (Eclipse GlassFish 8 honors it; WildFly 40 does
+ * not yet). Jakarta exposes no API to verify this at runtime. On Jakarta EE 11 the application
+ * declares one with {@code @ManagedExecutorDefinition(name =
+ * "java:app/concurrent/MyVirtualExecutor", virtual = true)} on any {@code @ApplicationScoped} bean
+ * and sets {@code job-executor-jndi} to that name. The values flow in through {@link
+ * RatchetOptions#execution()}.
  *
  * <p>Users can override by providing their own {@code @Alternative @Priority(APPLICATION)
  * ExecutorProvider} bean — for example {@link StandaloneExecutorProvider} for plain-CDI/SE runs.

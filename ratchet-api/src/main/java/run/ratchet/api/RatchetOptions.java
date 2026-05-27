@@ -580,9 +580,14 @@ public class RatchetOptions {
 
     /**
      * Sets the JNDI name of the {@code ManagedExecutorService} that runs jobs. Defaults to the
-     * container's {@code java:comp/DefaultManagedExecutorService}. Point this at a virtual-thread
-     * executor that your application declares (e.g. an EE 11 {@code @ManagedExecutorDefinition(name
-     * = "java:app/concurrent/MyVirtualExecutor", virtual = true)}) to run jobs on virtual threads.
+     * container's {@code java:comp/DefaultManagedExecutorService}. Point this at an executor your
+     * application declares (e.g. an EE 11 {@code @ManagedExecutorDefinition(name =
+     * "java:app/concurrent/MyVirtualExecutor", virtual = true)}); jobs then run on that executor.
+     *
+     * <p>Whether those jobs run on <em>virtual</em> threads is the container's decision: {@code
+     * virtual = true} is a request a runtime may ignore (Eclipse GlassFish 8 honors it; WildFly 40
+     * does not yet, so jobs run on platform threads there). Jakarta exposes no API to verify this
+     * at runtime, so Ratchet can neither warn nor guarantee it.
      */
     public ExecutionBuilder jobExecutorJndi(String jobExecutorJndi) {
       this.jobExecutorJndi = requireNonBlank("jobExecutorJndi", jobExecutorJndi);
