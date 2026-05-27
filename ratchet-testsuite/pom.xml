@@ -150,6 +150,35 @@
         <filtering>true</filtering>
       </testResource>
     </testResources>
+    <pluginManagement>
+      <plugins>
+        <!--
+          EE 11-only test source root (VirtualThreadExecutionIT). Added only when an
+          EE 11 server profile (wildfly-ee11-managed / glassfish-managed) switches this
+          plugin on. EE 10 server profiles never compile it, so the virtual-thread IT
+          is not "skipped" there — it simply isn't part of those builds.
+        -->
+        <plugin>
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>build-helper-maven-plugin</artifactId>
+          <version>${build-helper-maven-plugin.version}</version>
+          <executions>
+            <execution>
+              <id>add-ee11-test-source</id>
+              <phase>generate-test-sources</phase>
+              <goals>
+                <goal>add-test-source</goal>
+              </goals>
+              <configuration>
+                <sources>
+                  <source>${project.basedir}/src/test/java-ee11</source>
+                </sources>
+              </configuration>
+            </execution>
+          </executions>
+        </plugin>
+      </plugins>
+    </pluginManagement>
     <plugins>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -245,6 +274,150 @@
       </dependencies>
       <build>
         <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-dependency-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>unpack-wildfly</id>
+                <phase>pre-integration-test</phase>
+                <goals>
+                  <goal>unpack</goal>
+                </goals>
+                <configuration>
+                  <artifactItems>
+                    <artifactItem>
+                      <groupId>org.wildfly</groupId>
+                      <artifactId>wildfly-dist</artifactId>
+                      <version>${wildfly.version}</version>
+                      <type>zip</type>
+                      <overWrite>false</overWrite>
+                      <outputDirectory>${project.build.directory}</outputDirectory>
+                    </artifactItem>
+                  </artifactItems>
+                </configuration>
+              </execution>
+              <execution>
+                <id>copy-mysql-driver</id>
+                <phase>pre-integration-test</phase>
+                <goals>
+                  <goal>copy</goal>
+                </goals>
+                <configuration>
+                  <artifactItems>
+                    <artifactItem>
+                      <groupId>com.mysql</groupId>
+                      <artifactId>mysql-connector-j</artifactId>
+                      <version>${mysql-connector.version}</version>
+                      <outputDirectory>${wildfly.home}/modules/com/mysql/main</outputDirectory>
+                    </artifactItem>
+                  </artifactItems>
+                </configuration>
+              </execution>
+              <execution>
+                <id>copy-postgresql-driver</id>
+                <phase>pre-integration-test</phase>
+                <goals>
+                  <goal>copy</goal>
+                </goals>
+                <configuration>
+                  <artifactItems>
+                    <artifactItem>
+                      <groupId>org.postgresql</groupId>
+                      <artifactId>postgresql</artifactId>
+                      <version>${postgresql-driver.version}</version>
+                      <outputDirectory>${wildfly.home}/modules/org/postgresql/main</outputDirectory>
+                    </artifactItem>
+                  </artifactItems>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <version>3.1.0</version>
+            <executions>
+              <execution>
+                <id>install-wildfly-jdbc-modules</id>
+                <phase>pre-integration-test</phase>
+                <goals>
+                  <goal>run</goal>
+                </goals>
+                <configuration>
+                  <target>
+                    <echo file="${wildfly.home}/modules/com/mysql/main/module.xml">&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;module xmlns="urn:jboss:module:1.9" name="com.mysql"&gt;
+  &lt;resources&gt;
+    &lt;resource-root path="mysql-connector-j-${mysql-connector.version}.jar"/&gt;
+  &lt;/resources&gt;
+  &lt;dependencies&gt;
+    &lt;module name="java.sql"/&gt;
+    &lt;module name="java.naming"/&gt;
+    &lt;module name="java.logging"/&gt;
+    &lt;module name="java.security.sasl"/&gt;
+    &lt;module name="java.management"/&gt;
+    &lt;module name="java.xml"/&gt;
+    &lt;module name="jakarta.transaction.api"/&gt;
+  &lt;/dependencies&gt;
+&lt;/module&gt;</echo>
+                    <echo file="${wildfly.home}/modules/org/postgresql/main/module.xml">&lt;?xml version="1.0" encoding="UTF-8"?&gt;
+&lt;module xmlns="urn:jboss:module:1.9" name="org.postgresql"&gt;
+  &lt;resources&gt;
+    &lt;resource-root path="postgresql-${postgresql-driver.version}.jar"/&gt;
+  &lt;/resources&gt;
+  &lt;dependencies&gt;
+    &lt;module name="java.sql"/&gt;
+    &lt;module name="java.logging"/&gt;
+    &lt;module name="java.management"/&gt;
+    &lt;module name="jakarta.transaction.api"/&gt;
+  &lt;/dependencies&gt;
+&lt;/module&gt;</echo>
+                    <chmod file="${wildfly.home}/bin/jboss-cli.sh" perm="755"/>
+                    <exec executable="${wildfly.home}/bin/jboss-cli.sh" failonerror="true">
+                      <arg value="--file=${project.basedir}/src/test/resources/wildfly-setup.cli"/>
+                    </exec>
+                  </target>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <!--
+      WildFly 40 on Jakarta EE 11 / JDK 25. Mirrors wildfly-managed but pins the
+      EE 11 distribution and adds the EE 11 test source root (VirtualThreadExecutionIT).
+      The parent and ratchet same-id profiles supply the JDK 25 enforcer, Concurrency
+      3.1, and the shipped RatchetVirtualExecutor.
+    -->
+    <profile>
+      <id>wildfly-ee11-managed</id>
+      <properties>
+        <skipITs>false</skipITs>
+        <testsuite.profile>wildfly-ee11-managed</testsuite.profile>
+        <arquillian.launch>wildfly-ee11-managed</arquillian.launch>
+        <wildfly.version>40.0.0.Final</wildfly.version>
+        <wildfly.home>${project.build.directory}/wildfly-${wildfly.version}</wildfly.home>
+        <!-- EE 11 umbrella so the test source compiles against Jakarta Concurrency 3.1 (virtual = true). -->
+        <jakarta.ee.version>11.0.0</jakarta.ee.version>
+        <!-- Thread.isVirtual() in the test probe needs the JDK 21 SE API (test sources only). -->
+        <maven.compiler.release>21</maven.compiler.release>
+      </properties>
+      <dependencies>
+        <dependency>
+          <groupId>org.wildfly.arquillian</groupId>
+          <artifactId>wildfly-arquillian-container-managed</artifactId>
+          <scope>test</scope>
+        </dependency>
+      </dependencies>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>build-helper-maven-plugin</artifactId>
+          </plugin>
           <plugin>
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-dependency-plugin</artifactId>
@@ -546,6 +719,10 @@
         <glassfish.iiop.mutualauth.port>14920</glassfish.iiop.mutualauth.port>
         <glassfish.jmx.port>19686</glassfish.jmx.port>
         <glassfish.osgi.shell.port>17666</glassfish.osgi.shell.port>
+        <!-- EE 11 umbrella so the test source compiles against Jakarta Concurrency 3.1 (virtual = true). -->
+        <jakarta.ee.version>11.0.0</jakarta.ee.version>
+        <!-- Thread.isVirtual() in the test probe needs the JDK 21 SE API (test sources only). -->
+        <maven.compiler.release>21</maven.compiler.release>
       </properties>
       <dependencies>
         <dependency>
@@ -556,6 +733,11 @@
       </dependencies>
       <build>
         <plugins>
+          <!-- GlassFish 8 is the EE 11 RI: compile and run the EE 11 virtual-thread IT here too. -->
+          <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>build-helper-maven-plugin</artifactId>
+          </plugin>
           <plugin>
             <groupId>org.apache.maven.plugins</groupId>
             <artifactId>maven-enforcer-plugin</artifactId>

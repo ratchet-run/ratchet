@@ -2,10 +2,13 @@ package run.ratchet.ri.cdi;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import javax.naming.InitialContext;
 import javax.naming.NamingException;
+import org.jboss.logging.Logger;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.spi.ExecutorProvider;
 
 /**
@@ -26,29 +29,68 @@ import run.ratchet.spi.ExecutorProvider;
  * test paths still resolve lazily on first use. Resolved references are cached for the lifetime of
  * the bean.
  *
+ * <p>The two JNDI names are configurable via {@code ratchet.worker.job-executor-jndi} and {@code
+ * ratchet.worker.scheduled-executor-jndi} (defaulting to the well-known container names above).
+ * Pointing {@code job-executor-jndi} at a virtual-thread-backed executor makes jobs run on virtual
+ * threads. On Jakarta EE 11 the application declares one with
+ * {@code @ManagedExecutorDefinition(name = "java:app/concurrent/MyVirtualExecutor", virtual =
+ * true)} on any {@code @ApplicationScoped} bean and sets {@code job-executor-jndi} to that name.
+ * The values flow in through {@link RatchetOptions#execution()}.
+ *
  * <p>Users can override by providing their own {@code @Alternative @Priority(APPLICATION)
  * ExecutorProvider} bean — for example {@link StandaloneExecutorProvider} for plain-CDI/SE runs.
  */
 @ApplicationScoped
 public class DefaultExecutorProvider implements ExecutorProvider {
 
+  private static final Logger log = Logger.getLogger(DefaultExecutorProvider.class);
+
   static final String JOB_EXECUTOR_JNDI = "java:comp/DefaultManagedExecutorService";
   static final String SCHEDULED_EXECUTOR_JNDI = "java:comp/DefaultManagedScheduledExecutorService";
+
+  private final String jobExecutorJndi;
+  private final String scheduledExecutorJndi;
 
   private volatile ExecutorService resolvedJobExecutor;
   private volatile ScheduledExecutorService resolvedScheduledExecutor;
 
+  /** Direct-construction path (tests, plain-SE): uses the well-known container JNDI names. */
+  protected DefaultExecutorProvider() {
+    this.jobExecutorJndi = JOB_EXECUTOR_JNDI;
+    this.scheduledExecutorJndi = SCHEDULED_EXECUTOR_JNDI;
+  }
+
+  @Inject
+  public DefaultExecutorProvider(RatchetOptions options) {
+    this.jobExecutorJndi = options.execution().jobExecutorJndi();
+    this.scheduledExecutorJndi = options.execution().scheduledExecutorJndi();
+  }
+
   @PostConstruct
   void init() {
-    InitialContext context = newInitialContext();
-    synchronized (this) {
-      if (resolvedJobExecutor == null) {
-        resolvedJobExecutor = lookup(context, JOB_EXECUTOR_JNDI, ExecutorService.class);
+    // Best-effort eager resolution. A deployment-defined executor (e.g. an
+    // @ManagedExecutorDefinition or a web.xml <managed-executor>) may not be bound yet when CDI
+    // beans initialize on some containers (notably GlassFish, which binds such resources after
+    // CDI startup), whereas the well-known java:comp defaults always are. Rather than abort
+    // deployment, defer to lazy resolution on first use; a genuinely missing name still surfaces
+    // from the getters when the first job runs.
+    try {
+      InitialContext context = newInitialContext();
+      synchronized (this) {
+        if (resolvedJobExecutor == null) {
+          resolvedJobExecutor = lookup(context, jobExecutorJndi, ExecutorService.class);
+        }
+        if (resolvedScheduledExecutor == null) {
+          resolvedScheduledExecutor =
+              lookup(context, scheduledExecutorJndi, ScheduledExecutorService.class);
+        }
       }
-      if (resolvedScheduledExecutor == null) {
-        resolvedScheduledExecutor =
-            lookup(context, SCHEDULED_EXECUTOR_JNDI, ScheduledExecutorService.class);
-      }
+    } catch (RuntimeException e) {
+      log.debugf(
+          e,
+          "Eager managed-executor resolution deferred to first use (job=%s, scheduled=%s)",
+          jobExecutorJndi,
+          scheduledExecutorJndi);
     }
   }
 
@@ -92,7 +134,7 @@ public class DefaultExecutorProvider implements ExecutorProvider {
       synchronized (this) {
         executor = resolvedJobExecutor;
         if (executor == null) {
-          executor = lookup(JOB_EXECUTOR_JNDI, ExecutorService.class);
+          executor = lookup(jobExecutorJndi, ExecutorService.class);
           resolvedJobExecutor = executor;
         }
       }
@@ -107,7 +149,7 @@ public class DefaultExecutorProvider implements ExecutorProvider {
       synchronized (this) {
         executor = resolvedScheduledExecutor;
         if (executor == null) {
-          executor = lookup(SCHEDULED_EXECUTOR_JNDI, ScheduledExecutorService.class);
+          executor = lookup(scheduledExecutorJndi, ScheduledExecutorService.class);
           resolvedScheduledExecutor = executor;
         }
       }

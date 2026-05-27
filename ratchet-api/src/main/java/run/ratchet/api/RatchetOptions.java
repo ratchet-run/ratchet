@@ -162,6 +162,13 @@ public class RatchetOptions {
     return value;
   }
 
+  private static String requireNonBlank(String name, String value) {
+    if (value == null || value.isBlank()) {
+      throw new IllegalArgumentException(name + " must not be blank");
+    }
+    return value;
+  }
+
   private static long atLeast(String name, long value, long minInclusive) {
     if (value < minInclusive) {
       throw new IllegalArgumentException(name + " must be at least " + minInclusive);
@@ -267,7 +274,9 @@ public class RatchetOptions {
       int queueSize,
       Map<String, Integer> maxConcurrency,
       Map<String, Integer> virtualThreadLimits,
-      Map<String, Integer> rateLimitsPerMinute) {
+      Map<String, Integer> rateLimitsPerMinute,
+      String jobExecutorJndi,
+      String scheduledExecutorJndi) {
 
     public ExecutionOptions {
       maxConcurrency = Map.copyOf(maxConcurrency);
@@ -557,11 +566,33 @@ public class RatchetOptions {
     private final Map<String, Integer> rateLimitsPerMinute = new HashMap<>();
     private boolean useVirtualThreads;
     private int queueSize = 100;
+    private String jobExecutorJndi = "java:comp/DefaultManagedExecutorService";
+    private String scheduledExecutorJndi = "java:comp/DefaultManagedScheduledExecutorService";
 
     private ExecutionBuilder() {}
 
     public ExecutionBuilder useVirtualThreads(boolean useVirtualThreads) {
       this.useVirtualThreads = useVirtualThreads;
+      return this;
+    }
+
+    /**
+     * Sets the JNDI name of the {@code ManagedExecutorService} that runs jobs. Defaults to the
+     * container's {@code java:comp/DefaultManagedExecutorService}. Point this at a virtual-thread
+     * executor (e.g. an EE 11 {@code @ManagedExecutorDefinition(virtual = true)} such as {@code
+     * java:app/concurrent/RatchetVirtualExecutor}) to run jobs on virtual threads.
+     */
+    public ExecutionBuilder jobExecutorJndi(String jobExecutorJndi) {
+      this.jobExecutorJndi = requireNonBlank("jobExecutorJndi", jobExecutorJndi);
+      return this;
+    }
+
+    /**
+     * Sets the JNDI name of the {@code ManagedScheduledExecutorService} used for scheduled work.
+     * Defaults to the container's {@code java:comp/DefaultManagedScheduledExecutorService}.
+     */
+    public ExecutionBuilder scheduledExecutorJndi(String scheduledExecutorJndi) {
+      this.scheduledExecutorJndi = requireNonBlank("scheduledExecutorJndi", scheduledExecutorJndi);
       return this;
     }
 
@@ -588,7 +619,13 @@ public class RatchetOptions {
 
     private ExecutionOptions build() {
       return new ExecutionOptions(
-          useVirtualThreads, queueSize, maxConcurrency, virtualThreadLimits, rateLimitsPerMinute);
+          useVirtualThreads,
+          queueSize,
+          maxConcurrency,
+          virtualThreadLimits,
+          rateLimitsPerMinute,
+          jobExecutorJndi,
+          scheduledExecutorJndi);
     }
   }
 

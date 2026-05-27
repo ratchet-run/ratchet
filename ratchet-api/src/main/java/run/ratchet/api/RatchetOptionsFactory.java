@@ -157,6 +157,8 @@ public final class RatchetOptionsFactory {
       DefaultRatchetConfig config, RatchetOptions.ExecutionBuilder execution) {
     execution
         .useVirtualThreads(config.get(RatchetConfigKeys.WORKER_USE_VIRTUAL_THREADS))
+        .jobExecutorJndi(config.get(RatchetConfigKeys.WORKER_JOB_EXECUTOR_JNDI))
+        .scheduledExecutorJndi(config.get(RatchetConfigKeys.WORKER_SCHEDULED_EXECUTOR_JNDI))
         .queueSize(config.get(RatchetConfigKeys.THREAD_POOL_QUEUE_SIZE))
         .maxConcurrency("SINGLE", config.get(RatchetConfigKeys.THREAD_POOL_SIZE_SINGLE))
         .maxConcurrency("RECURRING", config.get(RatchetConfigKeys.THREAD_POOL_SIZE_RECURRING))

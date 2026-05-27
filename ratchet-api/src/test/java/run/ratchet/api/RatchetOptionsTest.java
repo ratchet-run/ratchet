@@ -17,6 +17,10 @@ class RatchetOptionsTest {
     assertEquals(20, options.execution().maxConcurrency("SINGLE", -1));
     assertEquals(5, options.execution().maxConcurrency("RECURRING", -1));
     assertFalse(options.execution().useVirtualThreads());
+    assertEquals("java:comp/DefaultManagedExecutorService", options.execution().jobExecutorJndi());
+    assertEquals(
+        "java:comp/DefaultManagedScheduledExecutorService",
+        options.execution().scheduledExecutorJndi());
     assertEquals(60L, options.recurring().startupGraceSeconds());
     assertEquals(500, options.timeout().signalTimeoutBatchSize());
     assertEquals(RatchetOptions.IsolationCheckMode.FAIL, options.store().isolationCheckMode());

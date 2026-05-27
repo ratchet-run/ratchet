@@ -8,7 +8,7 @@ public final class DataSourceStrategyFactory {
   public static DataSourceStrategy create() {
     String launch = System.getProperty("arquillian.launch", "wildfly-managed");
     return switch (launch) {
-      case "wildfly-managed" -> new WildflyDataSourceStrategy();
+      case "wildfly-managed", "wildfly-ee11-managed" -> new WildflyDataSourceStrategy();
       case "payara-managed" -> new PayaraDataSourceStrategy();
       case "glassfish-managed" -> new GlassFishDataSourceStrategy();
       case "openliberty-managed" -> new OpenLibertyDataSourceStrategy();

@@ -35,6 +35,45 @@
     </configuration>
   </container>
 
+  <!--
+    WildFly 40 on Jakarta EE 11 (JDK 25). Same managed-container wiring as
+    wildfly-managed, but a distinct port-offset (21000) and management port
+    (30990) so an EE 11 run never collides with a stray EE 10 server. The
+    wildfly-ee11-managed Maven profile overrides ${wildfly.version} to the
+    EE 11 distribution, so ${wildfly.version} below resolves to that version.
+  -->
+  <container qualifier="wildfly-ee11-managed">
+    <configuration>
+      <property name="jbossHome">${project.build.directory}/wildfly-${wildfly.version}</property>
+      <property name="serverConfig">standalone.xml</property>
+      <!--
+        Virtual-thread managed executors are a "preview"-stability feature in WildFly 40;
+        @ManagedExecutorDefinition(virtual = true) is silently honored as platform threads
+        at the default "community" level. Boot at preview so virtual=true takes effect.
+      -->
+      <property name="jbossArguments">--stability=preview</property>
+      <property name="javaVmArguments">
+        -Xms512m -Xmx1024m
+        -Djboss.socket.binding.port-offset=21000
+        ${jacoco.it.argLine}
+        -Dratchet.test.db.url=${ratchet.test.db.url}
+        -Dratchet.test.db.username=${ratchet.test.db.username}
+        -Dratchet.test.db.password=${ratchet.test.db.password}
+        -Dratchet.test.db.driver=${ratchet.test.db.driver}
+        -Dratchet.test.db.driver.name=${ratchet.test.db.driver.name}
+        -Dratchet.test.db.type=${ratchet.test.db.type}
+        -Dratchet.test.mongo.uri=${ratchet.test.mongo.uri}
+        -Dratchet.test.mongo.database=${ratchet.test.mongo.database}
+        -Dtestsuite.profile=${testsuite.profile}
+        -DPOLLER_DEEP_IDLE_THRESHOLD_MS=5000
+        -DPOLLER_DEEP_IDLE_DELAY_MS=2000
+        -DPOLLER_MAX_DELAY_MS=2000
+      </property>
+      <property name="managementPort">30990</property>
+      <property name="allowConnectingToRunningServer">false</property>
+    </configuration>
+  </container>
+
   <container qualifier="payara-managed">
     <configuration>
       <property name="payaraHome">${payara.home}</property>
