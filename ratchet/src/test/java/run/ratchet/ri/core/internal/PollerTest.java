@@ -276,7 +276,8 @@ class PollerTest {
         Instant.now(),
         type,
         0,
-        0);
+        0,
+        null);
   }
 
   private static final class RecordingDelayStrategy implements PollingDelayStrategy {

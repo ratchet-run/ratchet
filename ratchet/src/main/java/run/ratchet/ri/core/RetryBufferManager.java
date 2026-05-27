@@ -303,7 +303,8 @@ class RetryBufferManager {
       Instant pickedAt,
       String businessKey,
       int attempts,
-      int maxRetries) {
+      int maxRetries,
+      String executionTarget) {
 
     static BufferedClaim from(JobEntity job) {
       return new BufferedClaim(
@@ -316,7 +317,8 @@ class RetryBufferManager {
           job.getPickedAt(),
           job.getBusinessKey(),
           job.getAttempts(),
-          job.getMaxRetries());
+          job.getMaxRetries(),
+          job.getExecutionTarget());
     }
 
     static BufferedClaim from(JobClaimDto claim) {
@@ -330,7 +332,8 @@ class RetryBufferManager {
           claim.pickedAt(),
           claim.businessKey(),
           claim.attempts(),
-          claim.maxRetries());
+          claim.maxRetries(),
+          claim.executionTarget());
     }
 
     JobClaimDto toClaimDto() {
@@ -346,7 +349,8 @@ class RetryBufferManager {
           pickedAt,
           businessKey,
           attempts,
-          maxRetries);
+          maxRetries,
+          executionTarget);
     }
   }
 }

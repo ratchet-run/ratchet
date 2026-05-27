@@ -201,6 +201,7 @@ class DefaultJobCreationService
     job.setIdempotencyKey(idempotencyKey);
     job.setBusinessKey(businessKey);
     job.setResourceName(builder.resourceName());
+    job.setExecutionTarget(builder.executionTarget());
     if (builder.onSuccess() != null) {
       job.setOnSuccessPayload(payload(builder.onSuccess()));
     }

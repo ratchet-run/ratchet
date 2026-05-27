@@ -31,7 +31,7 @@ import run.ratchet.tck.store.schema.DeprecatedArtifact.DroppedIndex;
  */
 public final class RatchetSchemaCatalog {
 
-  public static final int CURRENT_VERSION = 6;
+  public static final int CURRENT_VERSION = 7;
 
   public static final SchemaSpec CURRENT =
       new SchemaSpec(
@@ -72,6 +72,7 @@ public final class RatchetSchemaCatalog {
         .column(required("idempotency_key", TEXT))
         .column(nullable("business_key", TEXT))
         .column(nullable("resource_name", TEXT))
+        .column(nullable("execution_target", TEXT))
         .column(nullable("on_success_payload", JSON))
         .column(nullable("on_failure_payload", JSON))
         .column(nullable("depends_on", UUID))
@@ -125,6 +126,7 @@ public final class RatchetSchemaCatalog {
         .column(nullable("signal_delivered_at", TIMESTAMP_TZ))
         .column(nullable("signal_delivered_by", TEXT))
         .column(nullable("signal_delivery_id", TEXT))
+        .column(nullable("execution_target", TEXT))
         .primaryKey("job_id")
         .foreignKey(
             new ForeignKey(

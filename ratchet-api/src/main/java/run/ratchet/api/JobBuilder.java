@@ -207,6 +207,34 @@ public interface JobBuilder {
   JobBuilder withResource(String resourceName);
 
   /**
+   * Routes this job to the virtual executor pool ({@link ExecutorTargets#VIRTUAL}).
+   *
+   * <p>Mutually exclusive with {@link #platform()}; last call wins. Calling neither leaves the job
+   * on the deployment's default threading mode. If no virtual executor is configured, the job falls
+   * back to the platform pool (observed via a metric and a one-time warning) — the target selects a
+   * configured pool, not a guaranteed thread type.
+   *
+   * <p>An execution target confers no scheduling priority: under platform saturation a poll tick
+   * may fill its batch with platform-targeted jobs and defer virtual-targeted ones by up to one
+   * poll interval. This is bounded, not starvation.
+   *
+   * @return this builder
+   */
+  @Incubating
+  JobBuilder virtual();
+
+  /**
+   * Routes this job to the platform executor pool ({@link ExecutorTargets#PLATFORM}).
+   *
+   * <p>Mutually exclusive with {@link #virtual()}; last call wins. Calling neither leaves the job
+   * on the deployment's default threading mode. The platform pool is always present.
+   *
+   * @return this builder
+   */
+  @Incubating
+  JobBuilder platform();
+
+  /**
    * Sets the backoff policy and base delay for retries.
    *
    * @param policy the backoff strategy applied between retry attempts
@@ -305,6 +333,15 @@ public interface JobBuilder {
    * @return the configured resource name, or {@code null}
    */
   String resourceName();
+
+  /**
+   * Returns the execution target ({@link ExecutorTargets#PLATFORM} or {@link
+   * ExecutorTargets#VIRTUAL}), or {@code null} to inherit the deployment's default threading mode.
+   *
+   * @return the configured execution target, or {@code null}
+   */
+  @Incubating
+  String executionTarget();
 
   /**
    * Returns {@code true} when this job should wake the poller immediately after persistence.

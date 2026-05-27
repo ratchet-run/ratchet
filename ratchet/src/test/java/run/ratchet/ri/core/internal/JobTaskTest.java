@@ -759,7 +759,8 @@ class JobTaskTest {
         Instant.EPOCH,
         null,
         0,
-        3);
+        3,
+        null);
   }
 
   private void initJobTaskWithDefaultStubs(JobEntity job) {

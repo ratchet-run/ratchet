@@ -162,6 +162,7 @@ class RetryBufferDrainerTest {
         Instant.parse("2026-01-01T00:00:00Z"),
         null,
         0,
-        3);
+        3,
+        null);
   }
 }

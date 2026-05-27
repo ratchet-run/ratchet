@@ -91,7 +91,8 @@ class JobSubmissionServiceTest {
         null,
         null,
         0,
-        0);
+        0,
+        null);
   }
 
   private static CompletableFuture<Void> completedFuture() {

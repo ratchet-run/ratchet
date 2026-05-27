@@ -82,6 +82,7 @@ public final class DocumentMapper {
     doc.append("business_key", job.getBusinessKey());
     doc.append("tags", listOrEmpty(job.getTags()));
     doc.append("resource_name", job.getResourceName());
+    doc.append("execution_target", job.getExecutionTarget());
     doc.append("on_success_payload", payloadToStoredValue(job.getOnSuccessPayload()));
     doc.append("on_failure_payload", payloadToStoredValue(job.getOnFailurePayload()));
     doc.append("depends_on", job.getDependsOn());
@@ -139,6 +140,7 @@ public final class DocumentMapper {
     job.setBusinessKey(doc.getString("business_key"));
     job.setTags(doc.getList("tags", String.class));
     job.setResourceName(doc.getString("resource_name"));
+    job.setExecutionTarget(doc.getString("execution_target"));
     job.setOnSuccessPayload(storedValueToPayload(doc.get("on_success_payload")));
     job.setOnFailurePayload(storedValueToPayload(doc.get("on_failure_payload")));
     job.setDependsOn(doc.get("depends_on", UUID.class));
@@ -183,7 +185,8 @@ public final class DocumentMapper {
         toInstant(doc.getDate("picked_at")),
         doc.getString("business_key"),
         doc.getInteger("attempts", DEFAULT_COUNT),
-        doc.getInteger("max_retries", DEFAULT_COUNT));
+        doc.getInteger("max_retries", DEFAULT_COUNT),
+        doc.getString("execution_target"));
   }
 
   public static Document toDocument(BatchEntity batch) {

@@ -202,7 +202,8 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
               job.getPickedAt(),
               job.getBusinessKey(),
               job.getAttempts(),
-              job.getMaxRetries()));
+              job.getMaxRetries(),
+              job.getExecutionTarget()));
     }
     return claimed;
   }

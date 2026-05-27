@@ -48,7 +48,8 @@ class SubmissionGateCheckerTest {
         null,
         null,
         0,
-        0);
+        0,
+        null);
   }
 
   @BeforeEach

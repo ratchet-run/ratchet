@@ -233,7 +233,8 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
                     now,
                     row.businessKey(),
                     row.attempts(),
-                    row.maxRetries()));
+                    row.maxRetries(),
+                    row.executionTarget()));
           }
           return claims;
         },
@@ -278,7 +279,8 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
     PICKED_AT("picked_at"),
     BUSINESS_KEY("business_key"),
     ATTEMPTS("attempts"),
-    MAX_RETRIES("max_retries");
+    MAX_RETRIES("max_retries"),
+    EXECUTION_TARGET("execution_target");
 
     private final String sqlName;
 
@@ -326,6 +328,10 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
 
     String businessKey() {
       return (String) value(ClaimColumn.BUSINESS_KEY);
+    }
+
+    String executionTarget() {
+      return (String) value(ClaimColumn.EXECUTION_TARGET);
     }
 
     int attempts() {

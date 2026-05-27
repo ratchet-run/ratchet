@@ -306,7 +306,8 @@ final class PostgresqlJobTerminalOperations {
       // language=PostgreSQL
       String selectSql =
           """
-          SELECT terminal_status, job_type, priority, business_key, timeout_sec, max_retries
+          SELECT terminal_status, job_type, priority, business_key, timeout_sec, max_retries,
+                 execution_target
           FROM scheduler_job
           WHERE job_id = ?
           FOR UPDATE
@@ -327,6 +328,7 @@ final class PostgresqlJobTerminalOperations {
       String businessKey = (String) row[3];
       int timeoutSec = ((Number) row[4]).intValue();
       int maxRetries = ((Number) row[5]).intValue();
+      String executionTarget = (String) row[6];
 
       // language=PostgreSQL
       String clearTerminalSql =
@@ -346,9 +348,9 @@ final class PostgresqlJobTerminalOperations {
           """
           INSERT INTO scheduler_job_queue
             (job_id, status, job_type, priority, scheduled_time, business_key,
-             timeout_sec, max_retries, attempts, version, updated_at)
+             timeout_sec, max_retries, attempts, version, updated_at, execution_target)
           VALUES (?, 'PENDING', ?, ?, statement_timestamp(), ?, ?, ?, 0, 0,
-                  statement_timestamp())
+                  statement_timestamp(), ?)
           """;
       ctx.em()
           .createNativeQuery(insertHotSql)
@@ -358,6 +360,7 @@ final class PostgresqlJobTerminalOperations {
           .setParameter(4, businessKey)
           .setParameter(5, timeoutSec)
           .setParameter(6, maxRetries)
+          .setParameter(7, executionTarget)
           .executeUpdate();
 
       if (businessKey != null) {
