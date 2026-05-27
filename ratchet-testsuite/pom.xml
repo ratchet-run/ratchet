@@ -197,6 +197,15 @@
           <environmentVariables>
             <DOCKER_HOST>${env.DOCKER_HOST}</DOCKER_HOST>
             <TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE>${env.TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE}</TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE>
+            <!--
+              Pin the test JVM and the Arquillian-spawned app-server JVMs (which inherit this
+              process environment) to UTC. The store's zone-less DATETIME/TIMESTAMP columns are
+              written via JDBC Timestamps and claimed against the database's server-side NOW(3);
+              when the JVM zone differs from the (UTC) database container, EclipseLink-based
+              servers (Payara/GlassFish) skew next_fire/scheduled_time and stall claims. CI already
+              runs in UTC, so this only aligns developer machines whose JVM zone is non-UTC.
+            -->
+            <TZ>UTC</TZ>
           </environmentVariables>
           <systemPropertyVariables>
             <ratchet.test.db.type>${ratchet.test.db.type}</ratchet.test.db.type>
