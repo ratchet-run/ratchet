@@ -28,6 +28,7 @@
     <module>ratchet-store-mongodb</module>
     <module>ratchet-coordinator-postgresql</module>
     <module>ratchet-coordinator-jms</module>
+    <module>ratchet-coordinator-infinispan</module>
     <module>ratchet-tck</module>
     <module>ratchet-testsuite</module>
     <module>ratchet-testsuite-jpms</module>
@@ -118,6 +119,7 @@
     <postgresql-driver.version>42.7.11</postgresql-driver.version>
     <jakarta.jms-api.version>3.1.0</jakarta.jms-api.version>
     <artemis.version>2.44.0</artemis.version>
+    <infinispan.version>15.1.7.Final</infinispan.version>
     <mongodb-driver.version>5.7.0</mongodb-driver.version>
     <hibernate.version>6.6.50.Final</hibernate.version>
     <jboss-logging.version>3.6.3.Final</jboss-logging.version>
@@ -200,6 +202,11 @@
         <groupId>org.apache.activemq</groupId>
         <artifactId>artemis-jakarta-client</artifactId>
         <version>${artemis.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.infinispan</groupId>
+        <artifactId>infinispan-core</artifactId>
+        <version>${infinispan.version}</version>
       </dependency>
       <dependency>
         <groupId>jakarta.security.enterprise</groupId>
@@ -311,6 +318,11 @@
       <dependency>
         <groupId>run.ratchet</groupId>
         <artifactId>ratchet-coordinator-jms</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>run.ratchet</groupId>
+        <artifactId>ratchet-coordinator-infinispan</artifactId>
         <version>${project.version}</version>
       </dependency>
       <dependency>
