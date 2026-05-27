@@ -76,7 +76,9 @@ public class OrdersRatchetEntityManagerProvider implements RatchetEntityManagerP
 | `polling.maxDelayMs(10000)` | `10000` | Maximum adaptive poll interval |
 | `execution.maxConcurrency("SINGLE", 20)` | `20` | Worker concurrency for one-off jobs |
 | `execution.maxConcurrency("BATCH_CHILD", 30)` | `30` | Worker concurrency for batch children |
-| `execution.useVirtualThreads(false)` | `false` | Use counter-based backpressure instead of semaphores (pair with a virtual-thread executor JNDI) |
+| `execution.defaultThreadingMode(PLATFORM)` | `PLATFORM` | Pool a job runs on when it sets no target of its own |
+| `execution.virtualExecutorJndi(name)` | _(none)_ | Adds a second managed executor as the virtual pool; absent means virtual-targeted jobs fall back to platform |
+| `execution.virtualCounterAccounting(false)` | `false` | Opt the virtual pool into counter-based backpressure instead of a bounded semaphore |
 | `node.heartbeatIntervalSeconds(10)` | `10` | Node heartbeat interval |
 | `node.orphanGraceSeconds(60)` | `60` | Grace period before reclaiming orphaned work |
 | `maintenance.jobRetentionDays(90)` | `90` | Completed-job retention before archiving |
@@ -84,6 +86,14 @@ public class OrdersRatchetEntityManagerProvider implements RatchetEntityManagerP
 | `payload.maxPayloadKb(100)` | `100` | Serialized job payload size cap |
 | `payload.maxResultBytes(65536)` | `65536` | Persisted result JSON cap; `0` disables truncation |
 | `store.priorityBoostIntervalMinutes(15)` | `15` | Starvation-prevention priority boost interval |
+
+## Per-job execution target
+
+A job picks its pool with `.virtual()` or `.platform()` on the builder; calling neither inherits `default-threading-mode`. The label selects a configured executor, not a guaranteed thread type. Set `ratchet.worker.virtual-executor-jndi` to a second managed executor to enable the virtual pool. When it is unset, a `.virtual()` job runs on platform instead, recorded with a one-time log warning and the `ratchet.execution.target.fallback` metric.
+
+Whether the virtual pool's threads are actually virtual is the container's decision. Pointing `virtual-executor-jndi` at an `@ManagedExecutorDefinition(virtual = true)` is a request the runtime may ignore: GlassFish 8 honors it, while WildFly 40 binds the executor but still runs jobs on platform threads. Jakarta exposes no API to check this at runtime, so Ratchet can neither warn about it nor guarantee it — confirm against your container's documentation.
+
+`ratchet.worker.use-virtual-threads` was removed. It only switched backpressure accounting and never selected an executor; a stale value is ignored with a startup warning. Use `default-threading-mode` and `virtual-executor-jndi` instead.
 
 ## Source Chain
 

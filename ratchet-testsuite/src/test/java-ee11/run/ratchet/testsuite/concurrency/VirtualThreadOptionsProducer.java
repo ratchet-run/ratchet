@@ -37,18 +37,20 @@ public class VirtualThreadOptionsProducer {
   }
 
   /**
-   * Highest-precedence config source returning only the virtual-thread keys. Only the <em>job</em>
-   * executor is redirected to the virtual one; the scheduled executor stays at the container
-   * default, because Ratchet uses it during CDI startup (node heartbeat) before an app-defined
-   * executor is bound on some containers (GlassFish). Jobs — the thing under test — run on the
-   * virtual executor, resolved lazily after deployment completes.
+   * Highest-precedence config source returning only the threading keys. It adds the virtual pool
+   * (backed by {@link VirtualThreadTestExecutor}) and makes it the default, so plain jobs route
+   * there. The platform pool stays at the container default executor, which lets the routing IT
+   * send a {@code .platform()} job to one pool and a {@code .virtual()} job to the other. The job
+   * executor is the only thing redirected; the scheduled executor stays at the container default,
+   * because Ratchet uses it during CDI startup (node heartbeat) before an app-defined executor is
+   * bound on some containers (GlassFish). The virtual executor resolves lazily after deployment.
    */
   private static final class VirtualThreadOverrides implements RatchetConfigSource {
     @Override
     public Optional<String> get(String propertyName, String environmentVariable) {
       return switch (propertyName) {
-        case "ratchet.worker.use-virtual-threads" -> Optional.of("true");
-        case "ratchet.worker.job-executor-jndi" -> Optional.of(VIRTUAL_EXECUTOR);
+        case "ratchet.worker.default-threading-mode" -> Optional.of("virtual");
+        case "ratchet.worker.virtual-executor-jndi" -> Optional.of(VIRTUAL_EXECUTOR);
         default -> Optional.empty();
       };
     }
