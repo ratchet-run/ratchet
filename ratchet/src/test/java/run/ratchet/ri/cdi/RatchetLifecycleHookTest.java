@@ -30,6 +30,7 @@ import run.ratchet.ri.core.OrphanRecoveryTimer;
 import run.ratchet.ri.core.Poller;
 import run.ratchet.ri.core.PollerWakeupListener;
 import run.ratchet.ri.core.RecurringScheduler;
+import run.ratchet.spi.ClusterCoordinator;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.SchedulerLifecycleHook;
@@ -224,6 +225,7 @@ class RatchetLifecycleHookTest {
         mock(DrainController.class),
         quietOptions(),
         mock(JobExecutionCoordinator.class),
+        mock(ClusterCoordinator.class),
         hooks);
   }
 
@@ -241,7 +243,8 @@ class RatchetLifecycleHookTest {
         mock(NodeIdentityProvider.class),
         mock(DrainController.class),
         quietOptions(),
-        mock(JobExecutionCoordinator.class));
+        mock(JobExecutionCoordinator.class),
+        mock(ClusterCoordinator.class));
   }
 
   private ExecutorProvider executorProviderWithScheduler() {

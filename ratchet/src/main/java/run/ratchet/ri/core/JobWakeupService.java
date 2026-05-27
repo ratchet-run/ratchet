@@ -11,8 +11,10 @@ import javax.naming.InitialContext;
 import javax.naming.NamingException;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.NodeIdentity;
 import run.ratchet.spi.ClusterCoordinator;
 import run.ratchet.spi.MetricsCollector;
+import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.entity.JobExecutionType;
 
 /**
@@ -29,31 +31,39 @@ public class JobWakeupService {
   private final ClusterCoordinator clusterCoordinator;
   private final Instance<PollerScheduler> pollerSchedulerInstance;
   private final MetricsCollector metricsCollector;
+  private final NodeIdentityProvider nodeIdentityProvider;
 
   private volatile TransactionSynchronizationRegistry txRegistry;
+  // NodeIdentity is stable per NodeIdentityProvider contract; cache lazily so each publish path
+  // doesn't re-validate the provider string against NodeIdentity's pattern.
+  private volatile NodeIdentity cachedNodeIdentity;
 
   protected JobWakeupService() {
     this.clusterCoordinator = null;
     this.pollerSchedulerInstance = null;
     this.metricsCollector = null;
+    this.nodeIdentityProvider = null;
   }
 
   @Inject
   public JobWakeupService(
       ClusterCoordinator clusterCoordinator,
       Instance<PollerScheduler> pollerSchedulerInstance,
-      MetricsCollector metricsCollector) {
+      MetricsCollector metricsCollector,
+      NodeIdentityProvider nodeIdentityProvider) {
     this.clusterCoordinator = clusterCoordinator;
     this.pollerSchedulerInstance = pollerSchedulerInstance;
     this.metricsCollector = metricsCollector;
+    this.nodeIdentityProvider = nodeIdentityProvider;
   }
 
   JobWakeupService(
       ClusterCoordinator clusterCoordinator,
       Instance<PollerScheduler> pollerSchedulerInstance,
       MetricsCollector metricsCollector,
+      NodeIdentityProvider nodeIdentityProvider,
       TransactionSynchronizationRegistry txRegistry) {
-    this(clusterCoordinator, pollerSchedulerInstance, metricsCollector);
+    this(clusterCoordinator, pollerSchedulerInstance, metricsCollector, nodeIdentityProvider);
     this.txRegistry = txRegistry;
   }
 
@@ -158,11 +168,25 @@ public class JobWakeupService {
   private void publishNotificationNow(JobPriority priority) {
     wakeupLocalPoller();
     try {
-      clusterCoordinator.notifyNewWork(priority);
+      clusterCoordinator.notifyNewWork(priority, resolveNodeIdentity());
       log.debugf("Published wakeup notification: priority=%s", priority);
     } catch (Exception e) {
       log.warnf(e, "Wakeup notification error: %s", e.getMessage());
     }
+  }
+
+  private NodeIdentity resolveNodeIdentity() {
+    NodeIdentity local = cachedNodeIdentity;
+    if (local == null) {
+      synchronized (this) {
+        local = cachedNodeIdentity;
+        if (local == null) {
+          local = new NodeIdentity(nodeIdentityProvider.getNodeId());
+          cachedNodeIdentity = local;
+        }
+      }
+    }
+    return local;
   }
 
   private void wakeupLocalPoller() {

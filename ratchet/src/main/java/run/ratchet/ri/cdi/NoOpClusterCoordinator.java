@@ -1,16 +1,37 @@
 package run.ratchet.ri.cdi;
 
+import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
+import java.util.function.BiConsumer;
+import org.jboss.logging.Logger;
 import run.ratchet.api.JobPriority;
+import run.ratchet.api.NodeIdentity;
 import run.ratchet.spi.ClusterCoordinator;
 
 /** Default no-op {@link ClusterCoordinator} for deployments that do not need cross-node wakeups. */
 @ApplicationScoped
 public class NoOpClusterCoordinator implements ClusterCoordinator {
 
-  @Override
-  public void notifyNewWork(JobPriority priority) {}
+  private static final Logger log = Logger.getLogger(NoOpClusterCoordinator.class);
+
+  /**
+   * One INFO line at startup so an operator can confirm cluster coordination is opt-out — without
+   * this, a misconfigured deployment that should have had a coordinator silently uses NoOp and
+   * loses cross-node wakeups with no visible signal.
+   */
+  @PostConstruct
+  void announce() {
+    log.info(
+        "Ratchet cluster coordination: NoOp (no cross-node wakeups). Add a ratchet-coordinator-*"
+            + " module to enable push-based wakeups.");
+  }
 
   @Override
-  public void registerWakeupListener(Runnable listener) {}
+  public void notifyNewWork(JobPriority priority, NodeIdentity source) {}
+
+  @Override
+  public void registerWakeupListener(BiConsumer<JobPriority, NodeIdentity> listener) {}
+
+  @Override
+  public void close() {}
 }

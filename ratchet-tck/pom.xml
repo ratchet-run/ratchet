@@ -20,5 +20,6 @@
         <module>store</module>
         <module>api</module>
         <module>jakarta</module>
+        <module>coordinator</module>
     </modules>
 </project>
