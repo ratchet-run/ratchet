@@ -3,6 +3,7 @@ package run.ratchet.ri.core;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -32,6 +33,7 @@ import run.ratchet.store.spi.JobBatchStatusStore;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobTerminalStore;
+import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.TagStore;
 import run.ratchet.store.spi.WorkflowConditionStore;
@@ -86,7 +88,9 @@ class DefaultJobCreationServiceExecutionTargetTest {
             null,
             Clock.fixed(Instant.parse("2026-05-27T12:00:00Z"), ZoneOffset.UTC));
 
-    when(jobCrudStore.create(any(JobEntity.class))).thenAnswer(invocation -> persist(invocation));
+    lenient()
+        .when(jobCrudStore.create(any(JobEntity.class)))
+        .thenAnswer(invocation -> persist(invocation));
   }
 
   @Test
@@ -164,6 +168,27 @@ class DefaultJobCreationServiceExecutionTargetTest {
     ArgumentCaptor<JobEntity> jobCaptor = ArgumentCaptor.forClass(JobEntity.class);
     verify(jobCrudStore, times(2)).create(jobCaptor.capture());
     assertExecutionTarget(jobCaptor.getAllValues(), ExecutorTargets.PLATFORM);
+  }
+
+  @Test
+  void recurringSubmit_persistsExecutionTargetOnMasterDefinition() {
+    when(recurringJobStore.createRecurring(any(RecurringJobDefinition.class)))
+        .thenAnswer(invocation -> invocation.<RecurringJobDefinition>getArgument(0).id());
+
+    DefaultRecurringJobBuilder builder =
+        new DefaultRecurringJobBuilder(
+            "0 0 12 * * ?",
+            ZoneOffset.UTC,
+            DefaultJobCreationServiceExecutionTargetTest::noopTask,
+            service);
+    builder.virtual();
+
+    service.submit(builder);
+
+    ArgumentCaptor<RecurringJobDefinition> definitionCaptor =
+        ArgumentCaptor.forClass(RecurringJobDefinition.class);
+    verify(recurringJobStore).createRecurring(definitionCaptor.capture());
+    assertEquals(ExecutorTargets.VIRTUAL, definitionCaptor.getValue().executionTarget());
   }
 
   private static JobEntity persist(org.mockito.invocation.InvocationOnMock invocation) {

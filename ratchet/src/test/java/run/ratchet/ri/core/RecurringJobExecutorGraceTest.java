@@ -23,6 +23,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.BackoffPolicy;
+import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.internal.RecurringRegistrationState;
@@ -90,6 +91,24 @@ class RecurringJobExecutorGraceTest {
     verify(jobBulkStore).bulkInsert(childrenCaptor.capture());
     assertEquals(FIXED_NOW.plusSeconds(60), childrenCaptor.getValue().get(0).getScheduledTime());
     verify(recurringJobStore).advanceNextFire(eq(known.id()), any(Instant.class));
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void childOccurrenceInheritsExecutionTargetFromMaster() {
+    state.markRegistrationComplete(Set.of("known-key"));
+
+    RecurringJobDefinition known =
+        recurringMasterWithExecutionTarget(17L, "known-key", ExecutorTargets.VIRTUAL);
+    when(recurringJobStore.claimDueRecurring(anyInt(), anyString(), any()))
+        .thenReturn(List.of(known));
+
+    int fired = executor.process(10, "node-A");
+
+    assertEquals(1, fired);
+    ArgumentCaptor<List<JobEntity>> childrenCaptor = ArgumentCaptor.forClass(List.class);
+    verify(jobBulkStore).bulkInsert(childrenCaptor.capture());
+    assertEquals(ExecutorTargets.VIRTUAL, childrenCaptor.getValue().get(0).getExecutionTarget());
   }
 
   @Test
@@ -219,8 +238,19 @@ class RecurringJobExecutorGraceTest {
     return recurringMasterWithFire(id, businessKey, cron, FIXED_NOW.plusSeconds(60));
   }
 
+  private static RecurringJobDefinition recurringMasterWithExecutionTarget(
+      long id, String businessKey, String executionTarget) {
+    return recurringMasterWithFire(
+        id, businessKey, "0 0 12 * * ?", FIXED_NOW.plusSeconds(60), executionTarget);
+  }
+
   private static RecurringJobDefinition recurringMasterWithFire(
       long id, String businessKey, String cron, Instant nextFire) {
+    return recurringMasterWithFire(id, businessKey, cron, nextFire, null);
+  }
+
+  private static RecurringJobDefinition recurringMasterWithFire(
+      long id, String businessKey, String cron, Instant nextFire, String executionTarget) {
     return new RecurringJobDefinition(
         new UUID(0L, id),
         cron,
@@ -238,6 +268,7 @@ class RecurringJobExecutorGraceTest {
         null,
         businessKey,
         null,
+        executionTarget,
         FIXED_NOW,
         null);
   }

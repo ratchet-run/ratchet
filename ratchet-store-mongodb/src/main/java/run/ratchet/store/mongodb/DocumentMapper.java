@@ -27,6 +27,7 @@ import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.ResourcePermitEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
+import run.ratchet.store.spi.RecurringJobDefinition;
 
 /** Bidirectional mapping between Ratchet store-core entities and MongoDB BSON documents. */
 public final class DocumentMapper {
@@ -187,6 +188,64 @@ public final class DocumentMapper {
         doc.getInteger("attempts", DEFAULT_COUNT),
         doc.getInteger("max_retries", DEFAULT_COUNT),
         doc.getString("execution_target"));
+  }
+
+  public static Document toRecurringDocument(RecurringJobDefinition definition) {
+    Document doc = new Document();
+    doc.append("_id", definition.id());
+    doc.append("priority", definition.priority());
+    doc.append("max_retries", definition.maxRetries());
+    doc.append(
+        "backoff_policy",
+        definition.backoffPolicy() != null ? definition.backoffPolicy().name() : "NONE");
+    doc.append("backoff_param_ms", definition.backoffParamMs());
+    doc.append("timeout_sec", definition.timeoutSec());
+    doc.append("cron_expr", definition.cronExpr());
+    doc.append("zone_id", stringOrDefault(definition.zoneId(), DEFAULT_ZONE_ID));
+    doc.append("next_fire", toDate(definition.nextFire()));
+    doc.append("is_paused", definition.paused());
+    doc.append("paused_at", toDate(definition.pausedAt()));
+    doc.append("payload", payloadToStoredValue(definition.payload()));
+    doc.append("on_success_payload", payloadToStoredValue(definition.onSuccessPayload()));
+    doc.append("on_failure_payload", payloadToStoredValue(definition.onFailurePayload()));
+    doc.append("business_key", definition.businessKey());
+    doc.append("resource_name", definition.resourceName());
+    doc.append("execution_target", definition.executionTarget());
+    doc.append(
+        "created_at",
+        toDate(definition.createdAt() != null ? definition.createdAt() : Instant.now()));
+    doc.append("caller_principal", definition.callerPrincipal());
+    return doc;
+  }
+
+  public static RecurringJobDefinition toRecurringJobDefinition(Document doc) {
+    Number priority = (Number) doc.get("priority");
+    Number maxRetries = (Number) doc.get("max_retries");
+    Number backoffParamMs = (Number) doc.get("backoff_param_ms");
+    Number timeoutSec = (Number) doc.get("timeout_sec");
+    BackoffPolicy backoffPolicy =
+        BackoffPolicy.valueOf(
+            doc.getString("backoff_policy") != null ? doc.getString("backoff_policy") : "NONE");
+    return new RecurringJobDefinition(
+        doc.get("_id", UUID.class),
+        doc.getString("cron_expr"),
+        doc.getString("zone_id"),
+        toInstant(doc.getDate("next_fire")),
+        doc.getBoolean("is_paused", false),
+        toInstant(doc.getDate("paused_at")),
+        priority != null ? priority.intValue() : DEFAULT_JOB_PRIORITY.ordinal(),
+        maxRetries != null ? maxRetries.intValue() : DEFAULT_COUNT,
+        backoffPolicy,
+        backoffParamMs != null ? backoffParamMs.intValue() : DEFAULT_COUNT,
+        timeoutSec != null ? timeoutSec.intValue() : DEFAULT_COUNT,
+        storedValueToPayload(doc.get("payload")),
+        storedValueToPayload(doc.get("on_success_payload")),
+        storedValueToPayload(doc.get("on_failure_payload")),
+        doc.getString("business_key"),
+        doc.getString("resource_name"),
+        doc.getString("execution_target"),
+        toInstant(doc.getDate("created_at")),
+        doc.getString("caller_principal"));
   }
 
   public static Document toDocument(BatchEntity batch) {

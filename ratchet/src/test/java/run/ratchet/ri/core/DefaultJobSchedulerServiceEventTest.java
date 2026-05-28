@@ -368,6 +368,7 @@ class DefaultJobSchedulerServiceEventTest {
         null,
         "business-90",
         null,
+        null,
         FIXED_NOW,
         null);
   }

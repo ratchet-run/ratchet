@@ -415,6 +415,7 @@ class DefaultJobCreationService
     gate.setCronExpr(builder.cronExpr());
     gate.setZoneId(builder.zone().getId());
     gate.setNextFire(nextFire);
+    gate.setExecutionTarget(builder.executionTarget());
     gate.setCallerPrincipal(callerPrincipal);
     applyOptions(gate, options);
     checkCreateAuthorization(gate);
@@ -437,6 +438,7 @@ class DefaultJobCreationService
             /* onFailurePayload */ null,
             builder.businessKey(),
             /* resourceName */ null,
+            builder.executionTarget(),
             base,
             callerPrincipal);
 
