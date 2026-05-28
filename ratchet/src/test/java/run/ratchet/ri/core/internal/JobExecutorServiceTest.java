@@ -1,6 +1,8 @@
 package run.ratchet.ri.core.internal;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -126,6 +128,27 @@ class JobExecutorServiceTest {
 
     assertTrue(result.isRejected());
     verify(pool, never()).getExecutor();
+    verify(jobExecutor, never()).execute(any(Runnable.class));
+  }
+
+  @Test
+  void executorLookupFailureRejectsAndClearsActiveFuture() throws Exception {
+    IllegalStateException lookupFailure = new IllegalStateException("virtual executor missing");
+    when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
+    when(poolRegistry.pool(any())).thenReturn(pool);
+    when(pool.getExecutor()).thenThrow(lookupFailure);
+    when(timeoutHandler.scheduleTimeoutMonitoring(
+            eq(JOB_ID), anyInt(), any(Future.class), eq(scheduledExecutor), any(Instant.class)))
+        .thenReturn(new JobTimeoutHandler.TimeoutHandles(softTimeout, hardTimeout));
+
+    ExecutionResult result = invokeExecute(() -> null, new AtomicReference<>());
+
+    assertTrue(result.isRejected());
+    assertInstanceOf(RejectedExecutionException.class, result.exception());
+    assertSame(lookupFailure, result.exception().getCause());
+    assertTrue(service.awaitIdle(Duration.ZERO));
+    verify(softTimeout).cancel(false);
+    verify(hardTimeout).cancel(false);
     verify(jobExecutor, never()).execute(any(Runnable.class));
   }
 

@@ -331,15 +331,18 @@ public class DefaultJobExecutorService implements JobExecutorService {
     if (task.isCancelled()) {
       throw new RejectedExecutionException("Job execution was canceled before submission");
     }
-    ExecutorService executor = poolRegistry.pool(poolName).getExecutor();
     try {
+      ExecutorService executor = poolRegistry.pool(poolName).getExecutor();
       executor.execute(task);
       if (task.isCancelled()) {
         throw new RejectedExecutionException("Job execution was canceled during submission");
       }
-    } catch (RejectedExecutionException e) {
+    } catch (RuntimeException e) {
       activeFutures.remove(task);
-      throw e;
+      if (e instanceof RejectedExecutionException rejected) {
+        throw rejected;
+      }
+      throw new RejectedExecutionException("Job executor could not accept task", e);
     }
   }
 
