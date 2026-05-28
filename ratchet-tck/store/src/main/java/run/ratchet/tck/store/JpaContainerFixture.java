@@ -171,8 +171,13 @@ public abstract class JpaContainerFixture implements JobStoreContractFixture {
   /** Instantiate the concrete store with a plain EM and a no-op metrics collector. */
   protected abstract JobStore createStore(EntityManager em, MetricsCollector metrics);
 
-  /** Run a unit of work inside a JPA transaction on the calling thread's EM. */
-  protected final void runInTransaction(Runnable work) {
+  /**
+   * Run a unit of work inside a JPA transaction on the calling thread's EM. Public so that
+   * concurrency contracts living in concrete store-test modules (different package than this
+   * fixture) can hold a transaction open across a barrier — see {@link
+   * AbstractJpaRecurringClaimConcurrencyContract}.
+   */
+  public final void runInTransaction(Runnable work) {
     EntityManager em = threadEm.get();
     EntityTransaction tx = em.getTransaction();
     boolean owner = !tx.isActive();
