@@ -57,8 +57,8 @@ class MongoRecurringJobStoreContractTest extends AbstractRecurringJobStoreContra
    * claim_expires_at} lease, so two workers calling {@code claimDueRecurring} in parallel observe
    * each due master exactly once regardless of thread interleaving. This is the stateful-claim
    * flavor of the contract; the SQL flavor (which requires explicit transaction overlap to
-   * demonstrate {@code FOR UPDATE SKIP LOCKED}) lives in
-   * {@code AbstractJpaRecurringClaimConcurrencyContract}.
+   * demonstrate {@code FOR UPDATE SKIP LOCKED}) lives in {@code
+   * AbstractJpaRecurringClaimConcurrencyContract}.
    */
   @Test
   void claimDueRecurring_parallelClaimersDoNotDoubleObserve() throws Exception {
@@ -89,8 +89,7 @@ class MongoRecurringJobStoreContractTest extends AbstractRecurringJobStoreContra
       Set<UUID> overlap = new HashSet<>(idsA);
       overlap.retainAll(idsB);
       assertTrue(
-          overlap.isEmpty(),
-          () -> "two claimers must not share any master id; overlap=" + overlap);
+          overlap.isEmpty(), () -> "two claimers must not share any master id; overlap=" + overlap);
       assertEquals(
           masterCount,
           idsA.size() + idsB.size(),
