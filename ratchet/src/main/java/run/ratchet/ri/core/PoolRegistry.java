@@ -42,9 +42,10 @@ public class PoolRegistry {
   }
 
   /**
-   * Returns the largest per-type capacity across all pools. Used to size a poll batch: claiming up
-   * to this many never over-claims a single pool, since every job of a type lands in exactly one
-   * pool. Summing instead could over-claim one pool when a batch skews toward its target.
+   * Returns the largest per-type capacity across all pools. Poll and retry-buffer claim queries are
+   * not target-aware yet, so this is a coarse budget for a mixed-target batch rather than a precise
+   * per-pool reservation. A target-skewed claim can still exceed one pool's available permits; that
+   * over-claim is bounded by normal retry-buffer handoff.
    */
   public int maxAvailableCapacity(JobExecutionType jobType) {
     int max = 0;
