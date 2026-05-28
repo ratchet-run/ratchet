@@ -1,7 +1,9 @@
 package run.ratchet.ri.core;
 
+import java.util.Collections;
 import java.util.EnumMap;
 import java.util.Map;
+import java.util.TreeMap;
 import run.ratchet.ri.core.ThreadPoolManager.ThreadPoolHealth;
 import run.ratchet.store.entity.JobExecutionType;
 
@@ -10,9 +12,8 @@ import run.ratchet.store.entity.JobExecutionType;
  * when configured, virtual); arbitrary named pools can be added later without changing this seam.
  *
  * <p>Per-pool operations ({@link #pool(String)}) drive permit acquire and release once the router
- * has resolved the effective pool for a job. Aggregate views sum or take the maximum across pools
- * for the poller and retry-buffer drainer, which size claim batches before any job's target is
- * known.
+ * has resolved the effective pool for a job. Target-aware capacity views let claim paths size work
+ * against each concrete pool, while aggregate health remains available for load reporting.
  */
 public class PoolRegistry {
 
@@ -42,10 +43,9 @@ public class PoolRegistry {
   }
 
   /**
-   * Returns the largest per-type capacity across all pools. Poll and retry-buffer claim queries are
-   * not target-aware yet, so this is a coarse budget for a mixed-target batch rather than a precise
-   * per-pool reservation. A target-skewed claim can still exceed one pool's available permits; that
-   * over-claim is bounded by normal retry-buffer handoff.
+   * Returns the largest per-type capacity across all pools. This is a legacy aggregate view for
+   * callers that only need to know whether any pool can accept work; target-aware claim paths
+   * should use {@link #availableCapacitiesByPool(JobExecutionType)}.
    */
   public int maxAvailableCapacity(JobExecutionType jobType) {
     int max = 0;
@@ -55,9 +55,28 @@ public class PoolRegistry {
     return max;
   }
 
+  /** Returns current per-pool capacity for {@code jobType}, ordered by pool name. */
+  public Map<String, Integer> availableCapacitiesByPool(JobExecutionType jobType) {
+    Map<String, Integer> capacities = new TreeMap<>();
+    for (Map.Entry<String, ThreadPoolManager> entry : pools.entrySet()) {
+      capacities.put(entry.getKey(), entry.getValue().getAvailableCapacity(jobType));
+    }
+    return Collections.unmodifiableMap(capacities);
+  }
+
+  /** Returns current capacity for {@code jobType} in the named pool. */
+  public int availableCapacity(JobExecutionType jobType, String poolName) {
+    return pool(poolName).getAvailableCapacity(jobType);
+  }
+
   /** Returns true when any pool has capacity for {@code jobType}. */
   public boolean canAcceptWork(JobExecutionType jobType) {
     return maxAvailableCapacity(jobType) > 0;
+  }
+
+  /** Returns true when the named pool has capacity for {@code jobType}. */
+  public boolean canAcceptWork(JobExecutionType jobType, String poolName) {
+    return pool(poolName).canAcceptWork(jobType);
   }
 
   /** Per-type health summed across pools. A type is virtual only when every pool reports it so. */

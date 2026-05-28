@@ -18,6 +18,7 @@ final class MongoFieldNames {
   static final String PRIORITY = "priority";
   static final String ATTEMPTS = "attempts";
   static final String MAX_RETRIES = "max_retries";
+  static final String EXECUTION_TARGET = "execution_target";
   static final String LAST_ERROR = "last_error";
   static final String VERSION = "version";
   static final String CREATED_AT = "created_at";

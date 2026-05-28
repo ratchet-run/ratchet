@@ -23,6 +23,7 @@ import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.ExecutionTargetFilter;
 import run.ratchet.store.spi.JobBatchStatusStore;
 
 /**
@@ -134,18 +135,31 @@ class RetryBufferManager {
   }
 
   public List<BufferedClaim> pollBatchFromBuffer(JobExecutionType jobType, int limit) {
+    return pollBatchFromBuffer(jobType, ExecutionTargetFilter.any(), limit);
+  }
+
+  public List<BufferedClaim> pollBatchFromBuffer(
+      JobExecutionType jobType, ExecutionTargetFilter executionTargetFilter, int limit) {
     Queue<BufferedClaim> buffer = retryBuffers.get(jobType);
     ReentrantLock lock = bufferLocks.get(jobType);
     lock.lock();
     try {
       List<BufferedClaim> jobs = new ArrayList<>(Math.max(limit, 0));
+      List<BufferedClaim> skipped = new ArrayList<>();
       for (int i = 0; i < limit; i++) {
         BufferedClaim buffered = buffer.poll();
         if (buffered == null) {
           break;
         }
-        jobs.add(buffered);
+        if (executionTargetFilter == null
+            || executionTargetFilter.matches(buffered.executionTarget())) {
+          jobs.add(buffered);
+        } else {
+          skipped.add(buffered);
+          i--;
+        }
       }
+      buffer.addAll(skipped);
       return jobs;
     } finally {
       lock.unlock();

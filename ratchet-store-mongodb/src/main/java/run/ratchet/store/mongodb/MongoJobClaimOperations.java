@@ -5,6 +5,7 @@ import static com.mongodb.client.model.Filters.eq;
 import static com.mongodb.client.model.Updates.combine;
 import static com.mongodb.client.model.Updates.inc;
 import static com.mongodb.client.model.Updates.set;
+import static run.ratchet.store.mongodb.MongoFieldNames.EXECUTION_TARGET;
 import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.JOB_TYPE;
 import static run.ratchet.store.mongodb.MongoFieldNames.NEXT_FIRE;
@@ -39,6 +40,7 @@ import run.ratchet.api.NodeTagFilter;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.ExecutionTargetFilter;
 
 /**
  * Claim pipeline: candidate planning via {@code $match → $project → $sort → $limit} with index
@@ -58,23 +60,36 @@ final class MongoJobClaimOperations {
   List<JobEntity> claimNextBatch(int limit, String nodeId, NodeTagFilter tagFilter) {
     List<UUID> candidateIds =
         findCandidatesByBoostedPriority(
-            MongoStoreContext.EXECUTABLE_JOB_TYPES, SCHEDULED_TIME, limit, tagFilter);
+            MongoStoreContext.EXECUTABLE_JOB_TYPES,
+            SCHEDULED_TIME,
+            limit,
+            tagFilter,
+            ExecutionTargetFilter.any());
     return claimByIds(candidateIds, nodeId, DocumentMapper::toJobEntity);
   }
 
   List<JobClaimDto> claimNextBatchOptimized(
-      JobExecutionType jobType, int limit, String nodeId, NodeTagFilter tagFilter) {
+      JobExecutionType jobType,
+      int limit,
+      String nodeId,
+      NodeTagFilter tagFilter,
+      ExecutionTargetFilter executionTargetFilter) {
     if (limit <= 0 || !MongoStoreContext.isPollerExecutable(jobType)) {
       return List.of();
     }
     List<UUID> candidateIds =
-        findCandidatesByBoostedPriority(List.of(jobType.name()), SCHEDULED_TIME, limit, tagFilter);
+        findCandidatesByBoostedPriority(
+            List.of(jobType.name()), SCHEDULED_TIME, limit, tagFilter, executionTargetFilter);
     return claimByIds(candidateIds, nodeId, DocumentMapper::toJobClaimDto);
   }
 
   /** Finds candidate job IDs sorted by effective priority (raw priority + age-based boost). */
   private List<UUID> findCandidatesByBoostedPriority(
-      List<String> jobTypes, String timeColumn, int limit, NodeTagFilter tagFilter) {
+      List<String> jobTypes,
+      String timeColumn,
+      int limit,
+      NodeTagFilter tagFilter,
+      ExecutionTargetFilter executionTargetFilter) {
     if (limit <= 0 || jobTypes.isEmpty()) {
       return List.of();
     }
@@ -91,6 +106,10 @@ final class MongoJobClaimOperations {
               new Document(STATUS, "PENDING")
                   .append(JOB_TYPE, new Document("$in", jobTypes))
                   .append(timeColumn, new Document("$lte", now)));
+          Bson executionTargetCondition = executionTargetCondition(executionTargetFilter);
+          if (executionTargetCondition != null) {
+            conditions.add(executionTargetCondition);
+          }
           if (!tagFilter.requireTags().isEmpty()) {
             conditions.add(new Document(TAGS, new Document("$in", tagFilter.requireTags())));
           }
@@ -129,6 +148,40 @@ final class MongoJobClaimOperations {
           return ids;
         },
         ids -> ids.isEmpty() ? "empty" : "hit");
+  }
+
+  private Bson executionTargetCondition(ExecutionTargetFilter filter) {
+    if (filter == null || filter.isAny()) {
+      return null;
+    }
+    if (filter.matchesNothing()) {
+      return new Document(ID, new Document("$exists", false));
+    }
+    if (filter.isExclusion()) {
+      if (filter.excludedTargets().isEmpty()) {
+        return filter.includeNull()
+            ? null
+            : new Document(EXECUTION_TARGET, new Document("$ne", null));
+      }
+      Document notExcluded =
+          new Document(EXECUTION_TARGET, new Document("$nin", filter.excludedTargets()));
+      if (filter.includeNull()) {
+        return notExcluded;
+      }
+      return new Document(
+          "$and", List.of(notExcluded, new Document(EXECUTION_TARGET, new Document("$ne", null))));
+    }
+    List<Bson> targetConditions = new ArrayList<>();
+    if (!filter.explicitTargets().isEmpty()) {
+      targetConditions.add(
+          new Document(EXECUTION_TARGET, new Document("$in", filter.explicitTargets())));
+    }
+    if (filter.includeNull()) {
+      targetConditions.add(new Document(EXECUTION_TARGET, null));
+    }
+    return targetConditions.size() == 1
+        ? targetConditions.get(0)
+        : new Document("$or", targetConditions);
   }
 
   private Object effectivePriorityExpression(String timeColumn, Date now) {

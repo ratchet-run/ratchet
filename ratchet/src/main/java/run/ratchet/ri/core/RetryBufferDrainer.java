@@ -30,6 +30,7 @@ public class RetryBufferDrainer {
   private final RetryBufferManager retryBufferManager;
   private final JobSubmissionService jobSubmissionService;
   private final PoolRegistry poolRegistry;
+  private final ExecutionTargetClaimPlanner claimPlanner;
   private final DrainController drainController;
   private final long drainIntervalMs;
 
@@ -41,6 +42,7 @@ public class RetryBufferDrainer {
     this.retryBufferManager = null;
     this.jobSubmissionService = null;
     this.poolRegistry = null;
+    this.claimPlanner = null;
     this.drainController = null;
     this.drainIntervalMs = 1000L;
   }
@@ -57,6 +59,7 @@ public class RetryBufferDrainer {
     this.retryBufferManager = retryBufferManager;
     this.jobSubmissionService = jobSubmissionService;
     this.poolRegistry = poolRegistry;
+    this.claimPlanner = new ExecutionTargetClaimPlanner(poolRegistry, options);
     this.drainController = drainController;
     this.drainIntervalMs = Math.max(50L, options.retryBuffer().drainIntervalMs());
   }
@@ -104,36 +107,44 @@ public class RetryBufferDrainer {
     }
 
     for (JobExecutionType jobType : JobExecutionType.values()) {
-      while (!drainController.isDraining()) {
-        int capacity = poolRegistry.maxAvailableCapacity(jobType);
-        if (capacity <= 0) {
-          break;
-        }
+      for (ExecutionTargetClaimPlanner.PoolClaimBudget budget : claimPlanner.budgets(jobType)) {
+        drainRetryBufferForPool(jobType, budget);
+      }
+    }
+  }
 
-        List<BufferedClaim> bufferedJobs =
-            retryBufferManager.pollBatchFromBuffer(jobType, capacity);
-        if (bufferedJobs.isEmpty()) {
-          break;
-        }
+  private void drainRetryBufferForPool(
+      JobExecutionType jobType, ExecutionTargetClaimPlanner.PoolClaimBudget budget) {
+    while (!drainController.isDraining()) {
+      int capacity = poolRegistry.availableCapacity(jobType, budget.poolName());
+      if (capacity <= 0) {
+        break;
+      }
 
-        boolean stopDrainingType = false;
-        for (int i = 0; i < bufferedJobs.size(); i++) {
-          BufferedClaim buffered = bufferedJobs.get(i);
-          if (drainController.isDraining() || !poolRegistry.canAcceptWork(jobType)) {
-            requeueRemaining(bufferedJobs, i);
-            stopDrainingType = true;
-            break;
-          }
-          try {
-            jobSubmissionService.submitBuffered(buffered.toClaimDto());
-          } catch (Exception e) {
-            requeueRemaining(bufferedJobs, i);
-            throw e;
-          }
-        }
-        if (stopDrainingType) {
+      List<BufferedClaim> bufferedJobs =
+          retryBufferManager.pollBatchFromBuffer(jobType, budget.executionTargetFilter(), capacity);
+      if (bufferedJobs.isEmpty()) {
+        break;
+      }
+
+      boolean stopDrainingPool = false;
+      for (int i = 0; i < bufferedJobs.size(); i++) {
+        BufferedClaim buffered = bufferedJobs.get(i);
+        if (drainController.isDraining()
+            || !poolRegistry.canAcceptWork(jobType, budget.poolName())) {
+          requeueRemaining(bufferedJobs, i);
+          stopDrainingPool = true;
           break;
         }
+        try {
+          jobSubmissionService.submitBuffered(buffered.toClaimDto());
+        } catch (Exception e) {
+          requeueRemaining(bufferedJobs, i);
+          throw e;
+        }
+      }
+      if (stopDrainingPool) {
+        break;
       }
     }
   }

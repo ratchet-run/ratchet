@@ -30,11 +30,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobPriority;
 import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.ExecutionTargetFilter;
 import run.ratchet.store.spi.JobBatchStatusStore;
 
 @ExtendWith(MockitoExtension.class)
@@ -138,6 +140,65 @@ class RetryBufferManagerTest {
     assertEquals(new UUID(0L, 3L), claims.get(0).jobId());
     assertEquals(new UUID(0L, 2L), claims.get(1).jobId());
     assertEquals(1, manager.totalSize());
+  }
+
+  @Test
+  void pollBatchFromBuffer_withExecutionTargetFilterSkipsAndKeepsUnmatchedClaims() {
+    Instant now = Instant.parse("2025-01-01T00:00:00Z");
+    JobEntity platform = job(1L, JobExecutionType.SINGLE, JobPriority.HIGH, now);
+    platform.setExecutionTarget(ExecutorTargets.PLATFORM);
+    JobEntity virtual = job(2L, JobExecutionType.SINGLE, JobPriority.NORMAL, now.plusSeconds(10));
+    virtual.setExecutionTarget(ExecutorTargets.VIRTUAL);
+    JobEntity inherited = job(3L, JobExecutionType.SINGLE, JobPriority.LOW, now.plusSeconds(20));
+
+    manager.offer(platform);
+    manager.offer(virtual);
+    manager.offer(inherited);
+
+    List<RetryBufferManager.BufferedClaim> claims =
+        manager.pollBatchFromBuffer(
+            JobExecutionType.SINGLE,
+            ExecutionTargetFilter.matching(List.of(ExecutorTargets.VIRTUAL), true),
+            2);
+
+    assertEquals(2, claims.size());
+    assertEquals(new UUID(0L, 2L), claims.get(0).jobId());
+    assertEquals(new UUID(0L, 3L), claims.get(1).jobId());
+    assertEquals(1, manager.totalSize());
+    assertEquals(
+        new UUID(0L, 1L),
+        manager.pollFromBuffer(JobExecutionType.SINGLE).jobId(),
+        "unmatched platform claim should remain buffered");
+  }
+
+  @Test
+  void pollBatchFromBuffer_withExclusionFilterKeepsRegisteredPoolClaims() {
+    Instant now = Instant.parse("2025-01-01T00:00:00Z");
+    JobEntity virtual = job(1L, JobExecutionType.SINGLE, JobPriority.HIGH, now);
+    virtual.setExecutionTarget(ExecutorTargets.VIRTUAL);
+    JobEntity platform = job(2L, JobExecutionType.SINGLE, JobPriority.NORMAL, now.plusSeconds(10));
+    platform.setExecutionTarget(ExecutorTargets.PLATFORM);
+    JobEntity unknown = job(3L, JobExecutionType.SINGLE, JobPriority.NORMAL, now.plusSeconds(20));
+    unknown.setExecutionTarget("unknown");
+
+    manager.offer(virtual);
+    manager.offer(platform);
+    manager.offer(unknown);
+
+    List<RetryBufferManager.BufferedClaim> claims =
+        manager.pollBatchFromBuffer(
+            JobExecutionType.SINGLE,
+            ExecutionTargetFilter.excluding(List.of(ExecutorTargets.VIRTUAL), false),
+            2);
+
+    assertEquals(2, claims.size());
+    assertEquals(new UUID(0L, 2L), claims.get(0).jobId());
+    assertEquals(new UUID(0L, 3L), claims.get(1).jobId());
+    assertEquals(1, manager.totalSize());
+    assertEquals(
+        new UUID(0L, 1L),
+        manager.pollFromBuffer(JobExecutionType.SINGLE).jobId(),
+        "virtual claim should remain buffered for the virtual pool");
   }
 
   @Test

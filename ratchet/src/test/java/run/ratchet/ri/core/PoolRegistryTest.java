@@ -44,6 +44,16 @@ class PoolRegistryTest {
   }
 
   @Test
+  void availableCapacitiesByPool_reportsEachPoolSeparately() {
+    PoolRegistry registry = twoPools(2, 5);
+
+    Map<String, Integer> capacities = registry.availableCapacitiesByPool(JobExecutionType.SINGLE);
+
+    assertEquals(2, capacities.get(ExecutorTargets.PLATFORM));
+    assertEquals(5, capacities.get(ExecutorTargets.VIRTUAL));
+  }
+
+  @Test
   void canAcceptWork_trueWhenAnyPoolHasCapacity() {
     PoolRegistry registry =
         new PoolRegistry(
@@ -53,6 +63,7 @@ class PoolRegistryTest {
 
     registry.pool(ExecutorTargets.PLATFORM).tryAcquirePermit(JobExecutionType.SINGLE);
     assertFalse(registry.canAcceptWork(JobExecutionType.SINGLE));
+    assertFalse(registry.canAcceptWork(JobExecutionType.SINGLE, ExecutorTargets.PLATFORM));
   }
 
   @Test

@@ -48,6 +48,7 @@ public class Poller {
   private final JobExecutionCoordinator jobExecutionCoordinator;
   private final NodeIdentityProvider nodeIdProvider;
   private final PoolRegistry poolRegistry;
+  private final ExecutionTargetClaimPlanner claimPlanner;
   private final DrainController drainController;
   private final PollerScheduler pollerScheduler;
   private final RatchetOptions options;
@@ -69,6 +70,7 @@ public class Poller {
     this.jobExecutionCoordinator = null;
     this.nodeIdProvider = null;
     this.poolRegistry = null;
+    this.claimPlanner = null;
     this.drainController = null;
     this.pollerScheduler = null;
     this.options = null;
@@ -136,6 +138,7 @@ public class Poller {
     this.jobExecutionCoordinator = jobExecutionCoordinator;
     this.nodeIdProvider = nodeIdProvider;
     this.poolRegistry = poolRegistry;
+    this.claimPlanner = new ExecutionTargetClaimPlanner(poolRegistry, options);
     this.drainController = drainController;
     this.pollerScheduler = pollerScheduler;
     this.options = options;
@@ -275,7 +278,7 @@ public class Poller {
 
   private boolean hasAvailableCapacity() {
     for (JobExecutionType jobType : POLLER_EXECUTABLE_TYPES) {
-      if (poolRegistry.maxAvailableCapacity(jobType) > 0) {
+      if (!claimPlanner.budgets(jobType).isEmpty()) {
         return true;
       }
     }
@@ -288,23 +291,22 @@ public class Poller {
     List<JobClaimDto> claims = new ArrayList<>();
     String nodeId = nodeIdProvider.getNodeId();
     for (JobExecutionType jobType : POLLER_EXECUTABLE_TYPES) {
-      int availableCapacity = poolRegistry.maxAvailableCapacity(jobType);
-      if (availableCapacity <= 0) {
-        continue;
-      }
-      int claimLimit = computeClaimLimit(availableCapacity);
-      try {
-        List<JobClaimDto> claimed =
-            jobClaimStore.claimNextBatchOptimized(jobType, claimLimit, nodeId, tagFilter);
-        if (metricsCollector != null && !claimed.isEmpty()) {
-          metricsCollector.jobsClaimed(jobType.name(), claimed.size());
+      for (ExecutionTargetClaimPlanner.PoolClaimBudget budget : claimPlanner.budgets(jobType)) {
+        int claimLimit = computeClaimLimit(budget.availableCapacity());
+        try {
+          List<JobClaimDto> claimed =
+              jobClaimStore.claimNextBatchOptimized(
+                  jobType, claimLimit, nodeId, tagFilter, budget.executionTargetFilter());
+          if (metricsCollector != null && !claimed.isEmpty()) {
+            metricsCollector.jobsClaimed(jobType.name(), claimed.size());
+          }
+          claims.addAll(claimed);
+        } catch (RatchetTransientStoreException e) {
+          if (metricsCollector != null) {
+            metricsCollector.claimTransientFailure(jobType.name());
+          }
+          throw e;
         }
-        claims.addAll(claimed);
-      } catch (RatchetTransientStoreException e) {
-        if (metricsCollector != null) {
-          metricsCollector.claimTransientFailure(jobType.name());
-        }
-        throw e;
       }
     }
     return claims;

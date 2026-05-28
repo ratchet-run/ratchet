@@ -31,6 +31,7 @@ import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
+import run.ratchet.store.spi.ExecutionTargetFilter;
 import run.ratchet.store.spi.RatchetEntityManagerProvider;
 import run.ratchet.store.util.IsolationCheck;
 
@@ -279,8 +280,12 @@ class MysqlJobStoreImpl implements MysqlJobStore {
 
   @Override
   public List<JobClaimDto> claimNextBatchOptimized(
-      JobExecutionType jobType, int limit, String nodeId, NodeTagFilter tagFilter) {
-    return claims.claimNextBatchOptimized(jobType, limit, nodeId, tagFilter);
+      JobExecutionType jobType,
+      int limit,
+      String nodeId,
+      NodeTagFilter tagFilter,
+      ExecutionTargetFilter executionTargetFilter) {
+    return claims.claimNextBatchOptimized(jobType, limit, nodeId, tagFilter, executionTargetFilter);
   }
 
   @Override

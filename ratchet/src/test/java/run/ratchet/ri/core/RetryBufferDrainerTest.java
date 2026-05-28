@@ -3,16 +3,19 @@ package run.ratchet.ri.core;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -26,12 +29,14 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.internal.ThreadPoolManager;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.ExecutionTargetFilter;
 
 @ExtendWith(MockitoExtension.class)
 class RetryBufferDrainerTest {
@@ -59,10 +64,15 @@ class RetryBufferDrainerTest {
     Runnable task = startAndCaptureTask();
 
     when(drainController.isDraining()).thenReturn(false);
-    when(poolRegistry.maxAvailableCapacity(JobExecutionType.SINGLE)).thenReturn(2);
-    when(retryBufferManager.pollBatchFromBuffer(JobExecutionType.SINGLE, 2))
+    when(poolRegistry.availableCapacitiesByPool(JobExecutionType.SINGLE))
+        .thenReturn(platformCapacity(2));
+    when(poolRegistry.availableCapacity(JobExecutionType.SINGLE, ExecutorTargets.PLATFORM))
+        .thenReturn(2);
+    when(retryBufferManager.pollBatchFromBuffer(
+            eq(JobExecutionType.SINGLE), any(ExecutionTargetFilter.class), eq(2)))
         .thenReturn(List.of(first, second));
-    when(poolRegistry.canAcceptWork(JobExecutionType.SINGLE)).thenReturn(true);
+    when(poolRegistry.canAcceptWork(JobExecutionType.SINGLE, ExecutorTargets.PLATFORM))
+        .thenReturn(true);
     doThrow(new RuntimeException("submit failed"))
         .when(jobSubmissionService)
         .submitBuffered(first.toClaimDto());
@@ -80,16 +90,111 @@ class RetryBufferDrainerTest {
     Runnable task = startAndCaptureTask();
 
     when(drainController.isDraining()).thenReturn(false);
-    when(poolRegistry.maxAvailableCapacity(JobExecutionType.SINGLE)).thenReturn(2);
-    when(retryBufferManager.pollBatchFromBuffer(JobExecutionType.SINGLE, 2))
+    when(poolRegistry.availableCapacitiesByPool(JobExecutionType.SINGLE))
+        .thenReturn(platformCapacity(2));
+    when(poolRegistry.availableCapacity(JobExecutionType.SINGLE, ExecutorTargets.PLATFORM))
+        .thenReturn(2);
+    when(retryBufferManager.pollBatchFromBuffer(
+            eq(JobExecutionType.SINGLE), any(ExecutionTargetFilter.class), eq(2)))
         .thenReturn(List.of(first, second));
-    when(poolRegistry.canAcceptWork(JobExecutionType.SINGLE)).thenReturn(false, true);
+    when(poolRegistry.canAcceptWork(JobExecutionType.SINGLE, ExecutorTargets.PLATFORM))
+        .thenReturn(false, true);
 
     assertDoesNotThrow(task::run);
 
     verify(retryBufferManager).forceOffer(first.toClaimDto());
     verify(retryBufferManager).forceOffer(second.toClaimDto());
     verify(jobSubmissionService, never()).submitBuffered(any(JobClaimDto.class));
+  }
+
+  @Test
+  void drain_mixedRoutingUsesEachPoolsCapacityAndFilter() {
+    RetryBufferManager.BufferedClaim platformClaim = bufferedClaim(10L, ExecutorTargets.PLATFORM);
+    RetryBufferManager.BufferedClaim virtualClaim = bufferedClaim(11L, ExecutorTargets.VIRTUAL);
+    RetryBufferManager.BufferedClaim fallbackClaim = bufferedClaim(12L, "unknown");
+    Runnable task = startAndCaptureTask();
+
+    when(drainController.isDraining()).thenReturn(false);
+    when(poolRegistry.hasPool(ExecutorTargets.PLATFORM)).thenReturn(true);
+    when(poolRegistry.availableCapacitiesByPool(JobExecutionType.SINGLE))
+        .thenReturn(capacities(2, 2));
+    when(poolRegistry.availableCapacity(JobExecutionType.SINGLE, ExecutorTargets.PLATFORM))
+        .thenReturn(2, 0);
+    when(poolRegistry.availableCapacity(JobExecutionType.SINGLE, ExecutorTargets.VIRTUAL))
+        .thenReturn(2, 0);
+    when(poolRegistry.canAcceptWork(JobExecutionType.SINGLE, ExecutorTargets.PLATFORM))
+        .thenReturn(true);
+    when(poolRegistry.canAcceptWork(JobExecutionType.SINGLE, ExecutorTargets.VIRTUAL))
+        .thenReturn(true);
+    ExecutionTargetFilter platformFilter =
+        ExecutionTargetFilter.excluding(List.of(ExecutorTargets.VIRTUAL), true);
+    ExecutionTargetFilter virtualFilter =
+        ExecutionTargetFilter.matching(List.of(ExecutorTargets.VIRTUAL), false);
+    when(retryBufferManager.pollBatchFromBuffer(JobExecutionType.SINGLE, platformFilter, 2))
+        .thenReturn(List.of(platformClaim, fallbackClaim));
+    when(retryBufferManager.pollBatchFromBuffer(JobExecutionType.SINGLE, virtualFilter, 2))
+        .thenReturn(List.of(virtualClaim));
+
+    task.run();
+
+    verify(jobSubmissionService).submitBuffered(platformClaim.toClaimDto());
+    verify(jobSubmissionService).submitBuffered(fallbackClaim.toClaimDto());
+    verify(jobSubmissionService).submitBuffered(virtualClaim.toClaimDto());
+  }
+
+  @Test
+  void drain_singleTargetWorkloadPollsOnlyPoolWithCapacity() {
+    RetryBufferManager.BufferedClaim virtualClaim = bufferedClaim(12L, ExecutorTargets.VIRTUAL);
+    Runnable task = startAndCaptureTask();
+
+    when(drainController.isDraining()).thenReturn(false);
+    when(poolRegistry.availableCapacitiesByPool(JobExecutionType.SINGLE))
+        .thenReturn(capacities(0, 2));
+    when(poolRegistry.availableCapacity(JobExecutionType.SINGLE, ExecutorTargets.VIRTUAL))
+        .thenReturn(2, 0);
+    when(poolRegistry.canAcceptWork(JobExecutionType.SINGLE, ExecutorTargets.VIRTUAL))
+        .thenReturn(true);
+    ExecutionTargetFilter platformFilter =
+        ExecutionTargetFilter.excluding(List.of(ExecutorTargets.VIRTUAL), true);
+    ExecutionTargetFilter virtualFilter =
+        ExecutionTargetFilter.matching(List.of(ExecutorTargets.VIRTUAL), false);
+    when(retryBufferManager.pollBatchFromBuffer(JobExecutionType.SINGLE, virtualFilter, 2))
+        .thenReturn(List.of(virtualClaim));
+
+    task.run();
+
+    verify(retryBufferManager, never())
+        .pollBatchFromBuffer(eq(JobExecutionType.SINGLE), eq(platformFilter), anyInt());
+    verify(jobSubmissionService).submitBuffered(virtualClaim.toClaimDto());
+  }
+
+  @Test
+  void drain_nullTargetsUseDefaultPoolFilter() {
+    RetryBufferManager.BufferedClaim defaultClaim = bufferedClaim(13L, null);
+    Runnable task =
+        startAndCaptureTask(
+            RatchetOptions.builder()
+                .execution(
+                    execution ->
+                        execution.defaultThreadingMode(RatchetOptions.ThreadingMode.VIRTUAL))
+                .build());
+
+    when(drainController.isDraining()).thenReturn(false);
+    when(poolRegistry.hasPool(ExecutorTargets.VIRTUAL)).thenReturn(true);
+    when(poolRegistry.availableCapacitiesByPool(JobExecutionType.SINGLE))
+        .thenReturn(capacities(0, 2));
+    when(poolRegistry.availableCapacity(JobExecutionType.SINGLE, ExecutorTargets.VIRTUAL))
+        .thenReturn(2, 0);
+    when(poolRegistry.canAcceptWork(JobExecutionType.SINGLE, ExecutorTargets.VIRTUAL))
+        .thenReturn(true);
+    ExecutionTargetFilter virtualDefaultFilter =
+        ExecutionTargetFilter.matching(List.of(ExecutorTargets.VIRTUAL), true);
+    when(retryBufferManager.pollBatchFromBuffer(JobExecutionType.SINGLE, virtualDefaultFilter, 2))
+        .thenReturn(List.of(defaultClaim));
+
+    task.run();
+
+    verify(jobSubmissionService).submitBuffered(defaultClaim.toClaimDto());
   }
 
   @Test
@@ -133,7 +238,13 @@ class RetryBufferDrainerTest {
   }
 
   private Runnable startAndCaptureTask() {
+    return startAndCaptureTask(RatchetOptions.defaults());
+  }
+
+  private Runnable startAndCaptureTask(RatchetOptions options) {
     ArgumentCaptor<Runnable> taskCaptor = ArgumentCaptor.forClass(Runnable.class);
+    lenient().when(poolRegistry.availableCapacitiesByPool(any())).thenReturn(Map.of());
+    lenient().when(poolRegistry.hasPool(ExecutorTargets.PLATFORM)).thenReturn(true);
     when(executorProvider.getScheduledExecutor()).thenReturn(scheduledExecutor);
     doReturn(scheduledFuture)
         .when(scheduledExecutor)
@@ -146,12 +257,16 @@ class RetryBufferDrainerTest {
             jobSubmissionService,
             poolRegistry,
             drainController,
-            RatchetOptions.defaults());
+            options);
     drainer.start();
     return taskCaptor.getValue();
   }
 
   private static RetryBufferManager.BufferedClaim bufferedClaim(long id) {
+    return bufferedClaim(id, null);
+  }
+
+  private static RetryBufferManager.BufferedClaim bufferedClaim(long id, String executionTarget) {
     return new RetryBufferManager.BufferedClaim(
         new UUID(0L, id),
         JobExecutionType.SINGLE,
@@ -163,6 +278,15 @@ class RetryBufferDrainerTest {
         null,
         0,
         3,
-        null);
+        executionTarget);
+  }
+
+  private static Map<String, Integer> platformCapacity(int platformCapacity) {
+    return Map.of(ExecutorTargets.PLATFORM, platformCapacity);
+  }
+
+  private static Map<String, Integer> capacities(int platformCapacity, int virtualCapacity) {
+    return Map.of(
+        ExecutorTargets.PLATFORM, platformCapacity, ExecutorTargets.VIRTUAL, virtualCapacity);
   }
 }

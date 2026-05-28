@@ -16,6 +16,7 @@ import run.ratchet.api.NodeTagFilter;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.ExecutionTargetFilter;
 import run.ratchet.store.spi.JobClaimStore;
 import run.ratchet.store.util.JobClaimSqlSupport;
 
@@ -50,12 +51,14 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
    * established here is preserved through that UPDATE because the caller iterates the SELECT rows
    * directly. {@code UPDATE…RETURNING} from a CTE would emit rows in heap order instead.
    *
-   * <p>Placeholder order: typeFilter params → tagFilter params → boostInterval (if &gt; 0) → limit.
+   * <p>Placeholder order: typeFilter params → executionTargetFilter params → tagFilter params →
+   * boostInterval (if &gt; 0) → limit.
    */
   // language=PostgreSQL
   private static String buildQueueSelectSql(
       String selectColumns,
       String typeFilter,
+      String executionTargetFilterSql,
       String tagFilterSql,
       String timeColumn,
       int boostInterval) {
@@ -64,7 +67,7 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
         FROM scheduler_job_queue
         WHERE status = 'PENDING'
           AND %s <= statement_timestamp()
-          AND %s%s
+          AND %s%s%s
         ORDER BY %s
         LIMIT ?
         FOR UPDATE SKIP LOCKED
@@ -73,6 +76,7 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
             selectColumns,
             timeColumn,
             typeFilter,
+            executionTargetFilterSql,
             tagFilterSql,
             buildBoostOrderBy(timeColumn, boostInterval));
   }
@@ -171,24 +175,35 @@ final class PostgresqlJobClaimOperations implements JobClaimStore {
   @Override
   @SuppressWarnings("SqlSourceToSinkFlow")
   public List<JobClaimDto> claimNextBatchOptimized(
-      JobExecutionType jobType, int limit, String nodeId, NodeTagFilter tagFilter) {
+      JobExecutionType jobType,
+      int limit,
+      String nodeId,
+      NodeTagFilter tagFilter,
+      ExecutionTargetFilter executionTargetFilter) {
     if (limit <= 0 || !PostgresqlStoreContext.isPollerExecutable(jobType)) {
       return List.of();
     }
     try {
       int boostInterval = ctx.priorityBoostIntervalMinutes();
       String tagSql = JobClaimSqlSupport.buildTagFilterSql(tagFilter, "scheduler_job_queue");
+      String executionTargetSql =
+          JobClaimSqlSupport.buildExecutionTargetFilterSql(
+              executionTargetFilter, "execution_target");
       Query selectQuery =
           ctx.em()
               .createNativeQuery(
                   buildQueueSelectSql(
                       CLAIM_SELECT_COLUMNS,
                       "job_type = ?",
+                      executionTargetSql,
                       tagSql,
                       "scheduled_time",
                       boostInterval));
       int parameter = 1;
       selectQuery.setParameter(parameter++, jobType.name());
+      parameter =
+          JobClaimSqlSupport.bindExecutionTargetFilter(
+              selectQuery, executionTargetFilter, parameter);
       parameter = JobClaimSqlSupport.bindTagFilter(selectQuery, tagFilter, parameter);
       if (boostInterval > 0) {
         selectQuery.setParameter(parameter++, boostInterval);

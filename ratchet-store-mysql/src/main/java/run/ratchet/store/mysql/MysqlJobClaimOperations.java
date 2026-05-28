@@ -21,6 +21,7 @@ import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
+import run.ratchet.store.spi.ExecutionTargetFilter;
 import run.ratchet.store.spi.JobClaimStore;
 import run.ratchet.store.util.JobClaimSqlSupport;
 
@@ -43,6 +44,7 @@ final class MysqlJobClaimOperations implements JobClaimStore {
   private static String buildClaimSql(
       String selectClause,
       String typeFilter,
+      String executionTargetFilterSql,
       String tagFilterSql,
       String timeColumn,
       int boostInterval) {
@@ -50,7 +52,7 @@ final class MysqlJobClaimOperations implements JobClaimStore {
         SELECT %s FROM scheduler_job_queue FORCE INDEX (idx_claim_executable)
         WHERE status = 'PENDING'
           AND %s <= NOW(3)
-          AND %s%s
+          AND %s%s%s
         ORDER BY %s
         LIMIT ?
         FOR UPDATE SKIP LOCKED"""
@@ -58,6 +60,7 @@ final class MysqlJobClaimOperations implements JobClaimStore {
             selectClause,
             timeColumn,
             typeFilter,
+            executionTargetFilterSql,
             tagFilterSql,
             buildMysqlBoostedOrderBy(timeColumn, boostInterval));
   }
@@ -114,6 +117,7 @@ final class MysqlJobClaimOperations implements JobClaimStore {
                 buildClaimSql(
                     CLAIM_SELECT_COLUMNS,
                     EXECUTABLE_JOB_TYPE_FILTER,
+                    "",
                     tagSql,
                     "scheduled_time",
                     boostInterval));
@@ -131,7 +135,11 @@ final class MysqlJobClaimOperations implements JobClaimStore {
   @Override
   @SuppressWarnings({"unchecked", "SqlSourceToSinkFlow"})
   public List<JobClaimDto> claimNextBatchOptimized(
-      JobExecutionType jobType, int limit, String nodeId, NodeTagFilter tagFilter) {
+      JobExecutionType jobType,
+      int limit,
+      String nodeId,
+      NodeTagFilter tagFilter,
+      ExecutionTargetFilter executionTargetFilter) {
     if (limit <= 0 || !MysqlJobRowMapper.isPollerExecutable(jobType)) {
       return List.of();
     }
@@ -139,17 +147,23 @@ final class MysqlJobClaimOperations implements JobClaimStore {
     try {
       int boostInterval = ctx.priorityBoostIntervalMinutes();
       String tagSql = JobClaimSqlSupport.buildTagFilterSql(tagFilter, "scheduler_job_queue");
+      String executionTargetSql =
+          JobClaimSqlSupport.buildExecutionTargetFilterSql(
+              executionTargetFilter, "execution_target");
       var query =
           ctx.em()
               .createNativeQuery(
                   buildClaimSql(
                       CLAIM_SELECT_COLUMNS,
                       "job_type = ?",
+                      executionTargetSql,
                       tagSql,
                       "scheduled_time",
                       boostInterval));
       int parameter = 1;
       query.setParameter(parameter++, jobType.name());
+      parameter =
+          JobClaimSqlSupport.bindExecutionTargetFilter(query, executionTargetFilter, parameter);
       parameter = JobClaimSqlSupport.bindTagFilter(query, tagFilter, parameter);
       if (boostInterval > 0) {
         query.setParameter(parameter++, boostInterval);
