@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.mysql.cj.exceptions.CommunicationsException;
+import com.mysql.cj.exceptions.CJCommunicationsException;
 import java.sql.SQLException;
 import org.junit.jupiter.api.Test;
 
@@ -118,7 +118,7 @@ class MysqlConstraintDetectorTest {
 
   @Test
   void detectsCommunicationsExceptionByClassNameThroughWrappers() {
-    Exception wrapped = new RuntimeException("hibernate", new CommunicationsException("reset"));
+    Exception wrapped = new RuntimeException("hibernate", new CJCommunicationsException("reset"));
 
     assertTrue(detector.isTransientConnectionFailure(wrapped));
   }
