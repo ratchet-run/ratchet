@@ -2,14 +2,18 @@ package run.ratchet.ri.cdi;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.lang.reflect.Method;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.ExecutorTargets;
 
 class StandaloneExecutorProviderTest {
 
@@ -55,6 +59,24 @@ class StandaloneExecutorProviderTest {
   }
 
   @Test
+  void getJobExecutorByTargetResolvesVirtualExecutor() throws Exception {
+    StandaloneExecutorProvider provider = new StandaloneExecutorProvider();
+    ExecutorService virtualExecutor = null;
+
+    try {
+      virtualExecutor = provider.getJobExecutor(ExecutorTargets.VIRTUAL).orElseThrow();
+      Future<Boolean> isVirtual = virtualExecutor.submit(StandaloneExecutorProviderTest::isVirtual);
+
+      assertNotSame(provider.getJobExecutor(), virtualExecutor);
+      assertTrue(isVirtual.get(1, TimeUnit.SECONDS));
+    } finally {
+      provider.shutdown();
+    }
+
+    assertTrue(virtualExecutor.isShutdown());
+  }
+
+  @Test
   void shutdownNowInterruptsWorkThatDoesNotFinishWithinGracePeriod() throws Exception {
     StandaloneExecutorProvider provider = new StandaloneExecutorProvider();
     CountDownLatch started = new CountDownLatch(1);
@@ -79,5 +101,14 @@ class StandaloneExecutorProviderTest {
     ExecutionException thrown =
         assertThrows(ExecutionException.class, () -> work.get(1, TimeUnit.SECONDS));
     assertInstanceOf(AssertionError.class, thrown.getCause());
+  }
+
+  private static boolean isVirtual() {
+    try {
+      Method isVirtual = Thread.class.getMethod("isVirtual");
+      return (Boolean) isVirtual.invoke(Thread.currentThread());
+    } catch (ReflectiveOperationException e) {
+      throw new AssertionError("Java 21+ is required for virtual thread assertions", e);
+    }
   }
 }
