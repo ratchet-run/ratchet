@@ -29,6 +29,7 @@ class DataSourceStrategyFactoryTest {
   @Test
   void mapsKnownManagedServersToStrategies() {
     assertStrategy("wildfly-managed", WildflyDataSourceStrategy.class);
+    assertStrategy("wildfly-ee11-managed", WildflyDataSourceStrategy.class);
     assertStrategy("payara-managed", PayaraDataSourceStrategy.class);
     assertStrategy("glassfish-managed", GlassFishDataSourceStrategy.class);
     assertStrategy("openliberty-managed", OpenLibertyDataSourceStrategy.class);

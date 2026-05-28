@@ -63,7 +63,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        server: [wildfly-managed, payara-managed, openliberty-managed]
+        server: [wildfly-managed, wildfly-ee11-managed, payara-managed, openliberty-managed]
         database: [mysql, postgresql, mongodb]
         include:
           - server: glassfish-managed

@@ -76,7 +76,7 @@ public class OrdersRatchetEntityManagerProvider implements RatchetEntityManagerP
 | `polling.maxDelayMs(10000)` | `10000` | Maximum adaptive poll interval |
 | `execution.maxConcurrency("SINGLE", 20)` | `20` | Worker concurrency for one-off jobs |
 | `execution.maxConcurrency("BATCH_CHILD", 30)` | `30` | Worker concurrency for batch children |
-| `execution.useVirtualThreads(false)` | `false` | Switch to Java virtual-thread execution |
+| `execution.useVirtualThreads(false)` | `false` | Use counter-based backpressure instead of semaphores (pair with a virtual-thread executor JNDI) |
 | `node.heartbeatIntervalSeconds(10)` | `10` | Node heartbeat interval |
 | `node.orphanGraceSeconds(60)` | `60` | Grace period before reclaiming orphaned work |
 | `maintenance.jobRetentionDays(90)` | `90` | Completed-job retention before archiving |
