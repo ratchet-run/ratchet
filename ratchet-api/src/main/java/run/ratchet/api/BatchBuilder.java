@@ -49,8 +49,8 @@ public interface BatchBuilder {
    * Routes this batch and its child jobs to the platform executor pool ({@link
    * ExecutorTargets#PLATFORM}).
    *
-   * <p>Mutually exclusive with {@link #virtual()}; last call wins. Calling neither leaves the
-   * batch on the deployment's default threading mode.
+   * <p>Mutually exclusive with {@link #virtual()}; last call wins. Calling neither leaves the batch
+   * on the deployment's default threading mode.
    */
   @Incubating
   BatchBuilder platform();

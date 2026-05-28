@@ -56,8 +56,7 @@ public class StandaloneExecutorProvider implements ExecutorProvider {
       Method factory = Executors.class.getMethod("newVirtualThreadPerTaskExecutor");
       return (ExecutorService) factory.invoke(null);
     } catch (ReflectiveOperationException e) {
-      throw new IllegalStateException(
-          "Standalone virtual executor requires Java 21 or newer", e);
+      throw new IllegalStateException("Standalone virtual executor requires Java 21 or newer", e);
     }
   }
 
