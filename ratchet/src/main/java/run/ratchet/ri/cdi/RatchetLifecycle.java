@@ -28,6 +28,7 @@ import run.ratchet.ri.core.Poller;
 import run.ratchet.ri.core.PollerWakeupListener;
 import run.ratchet.ri.core.RecurringScheduler;
 import run.ratchet.ri.payload.JobPayloadFactory;
+import run.ratchet.spi.ClusterCoordinator;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.SchedulerLifecycleHook;
@@ -52,6 +53,7 @@ public class RatchetLifecycle {
   private final DrainController drainController;
   private final RatchetOptions options;
   private final JobExecutionCoordinator jobExecutionCoordinator;
+  private final ClusterCoordinator clusterCoordinator;
   private final Instance<SchedulerLifecycleHook> lifecycleHooks;
   private volatile List<SchedulerLifecycleHook> resolvedHooks;
   private volatile List<SchedulerLifecycleHook> startedHooks = List.of();
@@ -75,6 +77,7 @@ public class RatchetLifecycle {
     this.drainController = null;
     this.options = null;
     this.jobExecutionCoordinator = null;
+    this.clusterCoordinator = null;
     this.lifecycleHooks = null;
   }
 
@@ -91,7 +94,8 @@ public class RatchetLifecycle {
       NodeIdentityProvider nodeIdentityProvider,
       DrainController drainController,
       RatchetOptions options,
-      JobExecutionCoordinator jobExecutionCoordinator) {
+      JobExecutionCoordinator jobExecutionCoordinator,
+      ClusterCoordinator clusterCoordinator) {
     this(
         poller,
         recurringScheduler,
@@ -106,6 +110,7 @@ public class RatchetLifecycle {
         drainController,
         options,
         jobExecutionCoordinator,
+        clusterCoordinator,
         null);
   }
 
@@ -124,6 +129,7 @@ public class RatchetLifecycle {
       DrainController drainController,
       RatchetOptions options,
       JobExecutionCoordinator jobExecutionCoordinator,
+      ClusterCoordinator clusterCoordinator,
       Instance<SchedulerLifecycleHook> lifecycleHooks) {
     this.poller = poller;
     this.recurringScheduler = recurringScheduler;
@@ -138,6 +144,7 @@ public class RatchetLifecycle {
     this.drainController = drainController;
     this.options = options;
     this.jobExecutionCoordinator = jobExecutionCoordinator;
+    this.clusterCoordinator = clusterCoordinator;
     this.lifecycleHooks = lifecycleHooks;
   }
 
@@ -217,6 +224,17 @@ public class RatchetLifecycle {
     stopService("log purge timer", logPurgeTimer::stop);
     // Stop background resubmission before resetting RUNNING jobs to PENDING.
     stopService("job execution coordinator", jobExecutionCoordinator::shutdown);
+    // Release transport resources after no further notifyNewWork callers can submit.
+    // First-party coordinators implement SchedulerLifecycleHook and close themselves via
+    // afterStop (invoked below in the hook chain). The direct fallback only fires for
+    // coordinators that don't participate in the hook chain — preserves backwards-compat for
+    // third-party implementations while routing the first-party coordinator close through one
+    // consistent path. Coordinator close() is idempotent per SPI, so a hook implementation that
+    // races a direct call is safe.
+    if (clusterCoordinator != null
+        && (lifecycleHooks == null || !(clusterCoordinator instanceof SchedulerLifecycleHook))) {
+      stopService("cluster coordinator", clusterCoordinator::close);
+    }
 
     JobTask.clearCaches();
     JobPayloadFactory.clearCaches();

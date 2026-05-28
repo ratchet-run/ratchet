@@ -3,6 +3,8 @@ package run.ratchet.ri.core;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.NodeIdentity;
 import run.ratchet.spi.ClusterCoordinator;
 import run.ratchet.spi.MetricsCollector;
 
@@ -10,6 +12,10 @@ import run.ratchet.spi.MetricsCollector;
  * Registers with {@link ClusterCoordinator} to receive wakeup notifications and forwards them to
  * {@link PollerScheduler#wakeup()} for immediate polling. Notifications are an optimization; the
  * poller continues with adaptive polling if registration or delivery fails.
+ *
+ * <p>The listener intentionally ignores both the priority and source-node arguments: the local
+ * poller wakes unconditionally on any cross-node hint. Per-source self-suppression lives in the
+ * coordinator implementation, which is the only layer with full transport visibility.
  *
  * @see JobWakeupService
  */
@@ -49,7 +55,9 @@ public class PollerWakeupListener {
     }
   }
 
-  private void onWakeup() {
+  private void onWakeup(JobPriority priority, NodeIdentity source) {
+    // priority and source are intentionally ignored — the local poller wakes unconditionally
+    // on any cross-node hint; per-source self-suppression is the coordinator's job.
     try {
       log.debug("Wakeup notification received");
       if (metricsCollector != null) {

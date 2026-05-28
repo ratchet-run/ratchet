@@ -9,10 +9,13 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiConsumer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.api.JobPriority;
+import run.ratchet.api.NodeIdentity;
 import run.ratchet.spi.ClusterCoordinator;
 import run.ratchet.spi.MetricsCollector;
 
@@ -25,7 +28,7 @@ class PollerWakeupListenerTest {
 
   @Test
   void init_registersListenerThatWakesPollerAndRecordsMetric() {
-    AtomicReference<Runnable> listenerRef = new AtomicReference<>();
+    AtomicReference<BiConsumer<JobPriority, NodeIdentity>> listenerRef = new AtomicReference<>();
     doAnswer(
             invocation -> {
               listenerRef.set(invocation.getArgument(0));
@@ -38,7 +41,7 @@ class PollerWakeupListenerTest {
         new PollerWakeupListener(clusterCoordinator, pollerScheduler, metricsCollector);
 
     listener.init();
-    listenerRef.get().run();
+    listenerRef.get().accept(JobPriority.NORMAL, new NodeIdentity("node-1"));
 
     verify(metricsCollector).localWakeup("cluster_listener");
     verify(pollerScheduler).wakeup();
@@ -60,7 +63,7 @@ class PollerWakeupListenerTest {
 
   @Test
   void registeredListener_wakeupFailureDoesNotPropagate() {
-    AtomicReference<Runnable> listenerRef = new AtomicReference<>();
+    AtomicReference<BiConsumer<JobPriority, NodeIdentity>> listenerRef = new AtomicReference<>();
     doAnswer(
             invocation -> {
               listenerRef.set(invocation.getArgument(0));
@@ -74,7 +77,8 @@ class PollerWakeupListenerTest {
 
     listener.init();
     assertNotNull(listenerRef.get());
-    assertDoesNotThrow(() -> listenerRef.get().run());
+    assertDoesNotThrow(
+        () -> listenerRef.get().accept(JobPriority.HIGH, new NodeIdentity("node-2")));
 
     verify(metricsCollector).localWakeup("cluster_listener");
     verify(pollerScheduler).wakeup();

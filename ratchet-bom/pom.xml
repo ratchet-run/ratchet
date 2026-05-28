@@ -49,6 +49,31 @@
             </dependency>
             <dependency>
                 <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-coordinator-common</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-coordinator-postgresql</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-coordinator-jms</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-coordinator-infinispan</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-coordinator-hazelcast</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>run.ratchet</groupId>
                 <artifactId>ratchet-micrometer</artifactId>
                 <version>${project.version}</version>
             </dependency>
@@ -74,6 +99,11 @@
             <dependency>
                 <groupId>run.ratchet</groupId>
                 <artifactId>ratchet-tck-jakarta</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>run.ratchet</groupId>
+                <artifactId>ratchet-tck-coordinator</artifactId>
                 <version>${project.version}</version>
             </dependency>
         </dependencies>
