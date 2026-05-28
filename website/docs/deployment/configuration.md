@@ -89,7 +89,7 @@ public class OrdersRatchetEntityManagerProvider implements RatchetEntityManagerP
 
 ## Per-job execution target
 
-A job picks its pool with `.virtual()` or `.platform()` on the builder; calling neither inherits `default-threading-mode`. The label selects a configured executor, not a guaranteed thread type. Set `ratchet.worker.virtual-executor-jndi` to a second managed executor to enable the virtual pool. When it is unset, a `.virtual()` job runs on platform instead, recorded with a one-time log warning and the `ratchet.execution.target.fallback` metric.
+A job picks its pool with `.virtual()` or `.platform()` on the builder; calling neither inherits `default-threading-mode`. The label selects a configured executor, not a guaranteed thread type. Set `ratchet.worker.virtual-executor-jndi` to a second managed executor to enable the virtual pool. When it is unset, a `.virtual()` job runs on platform instead, recorded with a one-time log warning and the `ratchet.execution.target.fallback` metric. The metric increments for each affected job occurrence; the warning is emitted once per distinct requested target.
 
 Whether the virtual pool's threads are actually virtual is the container's decision. Pointing `virtual-executor-jndi` at an `@ManagedExecutorDefinition(virtual = true)` is a request the runtime may ignore: GlassFish 8 honors it, while WildFly 40 binds the executor but still runs jobs on platform threads. Jakarta exposes no API to check this at runtime, so Ratchet can neither warn about it nor guarantee it — confirm against your container's documentation.
 
