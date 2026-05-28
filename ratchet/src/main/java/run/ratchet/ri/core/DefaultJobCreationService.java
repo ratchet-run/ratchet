@@ -233,12 +233,12 @@ class DefaultJobCreationService
 
     List<SerializableCheckedRunnable> chainTasks = state.chainTasks();
     if (!chainTasks.isEmpty()) {
-      createChainSteps(jobId, chainTasks, opts);
+      createChainSteps(jobId, chainTasks, opts, builder.executionTarget());
     }
 
     List<WorkflowBranch> branches = builder.workflowBranches();
     if (!branches.isEmpty()) {
-      createWorkflowBranches(jobId, branches);
+      createWorkflowBranches(jobId, branches, builder.executionTarget());
     }
 
     boolean shouldWakeup =
@@ -259,6 +259,7 @@ class DefaultJobCreationService
   @Transactional
   public JobHandle submit(DefaultBatchBuilder builder) {
     JobEntity parent = newBatchParent();
+    parent.setExecutionTarget(builder.executionTarget());
     checkCreateAuthorization(parent);
     JobEntity savedParent = jobCrudStore.create(parent);
     UUID parentId = savedParent.getId();
@@ -291,6 +292,7 @@ class DefaultJobCreationService
       childJob.setPayload(validate(child.payload()));
       childJob.setIdempotencyKey(UUID.randomUUID().toString());
       childJob.setDependsOn(parentId);
+      childJob.setExecutionTarget(builder.executionTarget());
       stampCallerPrincipal(childJob);
       checkCreateAuthorization(childJob);
       childJobs.add(childJob);
@@ -298,7 +300,7 @@ class DefaultJobCreationService
     bulkStore().bulkInsert(childJobs);
 
     for (WorkflowBranch branch : builder.workflowBranches()) {
-      createWorkflowBranch(parentId, branch);
+      createWorkflowBranch(parentId, branch, builder.executionTarget());
     }
 
     wakeupService.notifyIfNeeded(JobExecutionType.BATCH_PARENT, JobPriority.NORMAL, Duration.ZERO);
@@ -319,6 +321,7 @@ class DefaultJobCreationService
     builder.validateReady();
 
     JobEntity parent = newBatchParent();
+    parent.setExecutionTarget(builder.executionTarget());
     checkCreateAuthorization(parent);
     JobEntity savedParent = jobCrudStore.create(parent);
     UUID parentId = savedParent.getId();
@@ -359,7 +362,7 @@ class DefaultJobCreationService
     batchStore.updateBatchTotalItems(parentId, totalItems);
 
     for (WorkflowBranch branch : builder.workflowBranches()) {
-      createWorkflowBranch(parentId, branch);
+      createWorkflowBranch(parentId, branch, builder.executionTarget());
     }
 
     wakeupService.notifyIfNeeded(JobExecutionType.BATCH_PARENT, JobPriority.NORMAL, Duration.ZERO);
@@ -485,7 +488,10 @@ class DefaultJobCreationService
   }
 
   private void createChainSteps(
-      UUID predecessorId, List<SerializableCheckedRunnable> chainTasks, JobOptions opts) {
+      UUID predecessorId,
+      List<SerializableCheckedRunnable> chainTasks,
+      JobOptions opts,
+      String executionTarget) {
     UUID prevId = predecessorId;
     for (SerializableCheckedRunnable chainTask : chainTasks) {
       JobEntity step = new JobEntity();
@@ -496,6 +502,7 @@ class DefaultJobCreationService
       step.setPayload(payload(chainTask));
       step.setIdempotencyKey(UUID.randomUUID().toString());
       step.setDependsOn(prevId);
+      step.setExecutionTarget(executionTarget);
       applyOptions(step, opts);
       stampCallerPrincipal(step);
       captureTraceContext(step);
@@ -518,6 +525,7 @@ class DefaultJobCreationService
       child.setPayload(payload(builder.action(), List.of(item)));
       child.setIdempotencyKey(UUID.randomUUID().toString());
       child.setDependsOn(parentId);
+      child.setExecutionTarget(builder.executionTarget());
       stampCallerPrincipal(child);
       checkCreateAuthorization(child);
       children.add(child);
@@ -535,13 +543,14 @@ class DefaultJobCreationService
     return jobBulkStore;
   }
 
-  private void createWorkflowBranches(UUID parentId, List<WorkflowBranch> branches) {
+  private void createWorkflowBranches(
+      UUID parentId, List<WorkflowBranch> branches, String executionTarget) {
     for (WorkflowBranch branch : branches) {
-      createWorkflowBranch(parentId, branch);
+      createWorkflowBranch(parentId, branch, executionTarget);
     }
   }
 
-  private void createWorkflowBranch(UUID parentId, WorkflowBranch branch) {
+  private void createWorkflowBranch(UUID parentId, WorkflowBranch branch, String executionTarget) {
     JobEntity branchJob = new JobEntity();
     branchJob.setJobType(JobExecutionType.WORKFLOW_BRANCH);
     branchJob.setStatus(JobStatus.PENDING);
@@ -550,6 +559,7 @@ class DefaultJobCreationService
     branchJob.setPayload(payload(branch.task()));
     branchJob.setIdempotencyKey(UUID.randomUUID().toString());
     branchJob.setDependsOn(parentId);
+    branchJob.setExecutionTarget(executionTarget);
     stampCallerPrincipal(branchJob);
     checkCreateAuthorization(branchJob);
     JobEntity savedBranch = jobCrudStore.create(branchJob);

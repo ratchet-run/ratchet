@@ -51,6 +51,26 @@ public interface StreamingBatchBuilder<T extends Serializable> {
   StreamingBatchBuilder<T> onBatchProgress(SerializableConsumer<BatchContext> hook);
 
   /**
+   * Routes this streaming batch and its child jobs to the virtual executor pool ({@link
+   * ExecutorTargets#VIRTUAL}).
+   *
+   * <p>Mutually exclusive with {@link #platform()}; last call wins. Calling neither leaves the
+   * batch on the deployment's default threading mode.
+   */
+  @Incubating
+  StreamingBatchBuilder<T> virtual();
+
+  /**
+   * Routes this streaming batch and its child jobs to the platform executor pool ({@link
+   * ExecutorTargets#PLATFORM}).
+   *
+   * <p>Mutually exclusive with {@link #virtual()}; last call wins. Calling neither leaves the batch
+   * on the deployment's default threading mode.
+   */
+  @Incubating
+  StreamingBatchBuilder<T> platform();
+
+  /**
    * Submits the configured streaming batch for execution.
    *
    * @return a {@link JobHandle} for the submitted batch job; never {@code null}

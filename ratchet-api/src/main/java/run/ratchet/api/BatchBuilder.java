@@ -36,6 +36,26 @@ public interface BatchBuilder {
   BatchBuilder onProgress(SerializableConsumer<BatchContext> hook);
 
   /**
+   * Routes this batch and its child jobs to the virtual executor pool ({@link
+   * ExecutorTargets#VIRTUAL}).
+   *
+   * <p>Mutually exclusive with {@link #platform()}; last call wins. Calling neither leaves the
+   * batch on the deployment's default threading mode.
+   */
+  @Incubating
+  BatchBuilder virtual();
+
+  /**
+   * Routes this batch and its child jobs to the platform executor pool ({@link
+   * ExecutorTargets#PLATFORM}).
+   *
+   * <p>Mutually exclusive with {@link #virtual()}; last call wins. Calling neither leaves the
+   * batch on the deployment's default threading mode.
+   */
+  @Incubating
+  BatchBuilder platform();
+
+  /**
    * Persists the batch job and returns a handle to it.
    *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}. Non-terminal builder methods are in-memory

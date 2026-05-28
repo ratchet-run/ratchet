@@ -9,6 +9,7 @@ import java.util.function.Consumer;
 import java.util.stream.Stream;
 import org.jboss.logging.Logger;
 import run.ratchet.api.BatchContext;
+import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.SerializableCheckedConsumer;
 import run.ratchet.api.SerializableCheckedRunnable;
@@ -35,6 +36,7 @@ class DefaultStreamingBatchBuilder<T extends Serializable> implements StreamingB
   private int chunkSize = DEFAULT_CHUNK_SIZE;
   private Consumer<StreamingBatchContext> localProgressHook;
   private SerializableConsumer<BatchContext> batchProgressHook;
+  private String executionTarget;
 
   DefaultStreamingBatchBuilder(String name, StreamingBatchSubmitter submitter) {
     this.name = name;
@@ -71,6 +73,18 @@ class DefaultStreamingBatchBuilder<T extends Serializable> implements StreamingB
   @Override
   public StreamingBatchBuilder<T> onBatchProgress(SerializableConsumer<BatchContext> hook) {
     this.batchProgressHook = hook;
+    return this;
+  }
+
+  @Override
+  public StreamingBatchBuilder<T> virtual() {
+    this.executionTarget = ExecutorTargets.VIRTUAL;
+    return this;
+  }
+
+  @Override
+  public StreamingBatchBuilder<T> platform() {
+    this.executionTarget = ExecutorTargets.PLATFORM;
     return this;
   }
 
@@ -156,6 +170,10 @@ class DefaultStreamingBatchBuilder<T extends Serializable> implements StreamingB
 
   SerializableConsumer<BatchContext> batchProgressHook() {
     return batchProgressHook;
+  }
+
+  String executionTarget() {
+    return executionTarget;
   }
 
   List<WorkflowBranch> workflowBranches() {
