@@ -63,6 +63,7 @@
     <module>ratchet-otel</module>
     <module>ratchet-bom</module>
     <module>ratchet-coverage</module>
+    <module>ratchet-arch-tests</module>
   </modules>
 
   <properties>
@@ -444,6 +445,11 @@
         <artifactId>ratchet-testsuite</artifactId>
         <version>${project.version}</version>
         <type>war</type>
+      </dependency>
+      <dependency>
+        <groupId>run.ratchet</groupId>
+        <artifactId>ratchet-arch-tests</artifactId>
+        <version>${project.version}</version>
       </dependency>
       <!-- Testcontainers BOM -->
       <dependency>
