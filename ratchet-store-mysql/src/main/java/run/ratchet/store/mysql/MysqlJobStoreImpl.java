@@ -484,21 +484,25 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   }
 
   @Override
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
   public boolean tryLock(String name, Duration ttl, String nodeId) {
     return nodeLocks.tryLock(name, ttl, nodeId);
   }
 
   @Override
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
   public void unlock(String name, String nodeId) {
     nodeLocks.unlock(name, nodeId);
   }
 
   @Override
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
   public boolean renewLock(String name, Duration extension, String nodeId) {
     return nodeLocks.renewLock(name, extension, nodeId);
   }
 
   @Override
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
   public void upsertHeartbeat(String nodeId, Instant ts) {
     nodeLocks.upsertHeartbeat(nodeId, ts);
   }
@@ -514,11 +518,13 @@ class MysqlJobStoreImpl implements MysqlJobStore {
   }
 
   @Override
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
   public int deleteInactiveNodesSince(Instant cutoff) {
     return nodeLocks.deleteInactiveNodesSince(cutoff);
   }
 
   @Override
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
   public int deleteInactiveNodesByIds(java.util.Collection<String> nodeIds) {
     return nodeLocks.deleteInactiveNodesByIds(nodeIds);
   }

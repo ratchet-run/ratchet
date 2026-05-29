@@ -499,6 +499,7 @@ class PostgresqlJobStoreImpl implements PostgresqlJobStore {
   }
 
   @Override
+  @Transactional(Transactional.TxType.REQUIRES_NEW)
   public boolean renewLock(String name, Duration extension, String nodeId) {
     return nodeLocks.renewLock(name, extension, nodeId);
   }
