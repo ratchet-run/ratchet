@@ -201,7 +201,7 @@ class DefaultJobCreationService
     job.setIdempotencyKey(idempotencyKey);
     job.setBusinessKey(businessKey);
     job.setResourceName(builder.resourceName());
-    job.setExecutionTarget(builder.executionTarget());
+    job.setExecutionTarget(state.executionTarget());
     if (builder.onSuccess() != null) {
       job.setOnSuccessPayload(payload(builder.onSuccess()));
     }
@@ -233,12 +233,12 @@ class DefaultJobCreationService
 
     List<SerializableCheckedRunnable> chainTasks = state.chainTasks();
     if (!chainTasks.isEmpty()) {
-      createChainSteps(jobId, chainTasks, opts, builder.executionTarget());
+      createChainSteps(jobId, chainTasks, opts, state.executionTarget());
     }
 
     List<WorkflowBranch> branches = builder.workflowBranches();
     if (!branches.isEmpty()) {
-      createWorkflowBranches(jobId, branches, builder.executionTarget());
+      createWorkflowBranches(jobId, branches, state.executionTarget());
     }
 
     boolean shouldWakeup =

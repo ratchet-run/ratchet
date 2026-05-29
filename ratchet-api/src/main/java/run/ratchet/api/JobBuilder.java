@@ -335,15 +335,6 @@ public interface JobBuilder {
   String resourceName();
 
   /**
-   * Returns the execution target ({@link ExecutorTargets#PLATFORM} or {@link
-   * ExecutorTargets#VIRTUAL}), or {@code null} to inherit the deployment's default threading mode.
-   *
-   * @return the configured execution target, or {@code null}
-   */
-  @Incubating
-  String executionTarget();
-
-  /**
    * Returns {@code true} when this job should wake the poller immediately after persistence.
    *
    * @return {@code true} when immediate poller wakeup is requested

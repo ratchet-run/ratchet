@@ -78,4 +78,13 @@ public interface JobBuilderState {
    * @return the failure callback, or {@code null}
    */
   SerializableBiConsumer<JobContext, Throwable> onFailure();
+
+  /**
+   * Returns the execution-target label set via {@link JobBuilder#virtual()}, {@link
+   * JobBuilder#platform()}, or {@code null} when the job inherits the deployment's default
+   * threading mode.
+   *
+   * @return the execution target, or {@code null} when no explicit target was set
+   */
+  String executionTarget();
 }
