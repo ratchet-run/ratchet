@@ -13,7 +13,7 @@ import run.ratchet.spi.BeanResolver;
  * manage.
  */
 @ApplicationScoped
-class CdiBeanResolver implements BeanResolver {
+public class CdiBeanResolver implements BeanResolver {
 
   private final Instance<Object> allBeans;
 

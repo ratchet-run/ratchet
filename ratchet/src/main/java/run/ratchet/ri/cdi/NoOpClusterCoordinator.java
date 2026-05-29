@@ -10,7 +10,7 @@ import run.ratchet.spi.ClusterCoordinator;
 
 /** Default no-op {@link ClusterCoordinator} for deployments that do not need cross-node wakeups. */
 @ApplicationScoped
-class NoOpClusterCoordinator implements ClusterCoordinator {
+public class NoOpClusterCoordinator implements ClusterCoordinator {
 
   private static final Logger log = Logger.getLogger(NoOpClusterCoordinator.class);
 

@@ -15,7 +15,7 @@ import run.ratchet.spi.ClassPolicy;
 
 /** Invokes @Recurring methods on their CDI beans. */
 @ApplicationScoped
-class RecurringMethodInvoker {
+public class RecurringMethodInvoker {
 
   private final ConcurrentMap<MethodCacheKey, Method> methodCache = new ConcurrentHashMap<>();
   private final Instance<Object> allBeans;
@@ -27,7 +27,7 @@ class RecurringMethodInvoker {
   }
 
   @Inject
-  RecurringMethodInvoker(@Any Instance<Object> allBeans, ClassPolicy classPolicy) {
+  public RecurringMethodInvoker(@Any Instance<Object> allBeans, ClassPolicy classPolicy) {
     this.allBeans = allBeans;
     this.classPolicy = classPolicy;
   }

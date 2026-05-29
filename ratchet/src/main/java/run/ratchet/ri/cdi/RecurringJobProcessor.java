@@ -50,7 +50,7 @@ import run.ratchet.store.spi.JobBatchStatusStore;
  * @see RecurringMethodInvoker
  */
 @ApplicationScoped
-class RecurringJobProcessor {
+public class RecurringJobProcessor {
 
   private static final Logger log = Logger.getLogger(RecurringJobProcessor.class);
   private static final String ORPHAN_CLEANUP_ACTION = "recurring-annotation-orphan-cleanup";
@@ -107,7 +107,7 @@ class RecurringJobProcessor {
   }
 
   @Inject
-  RecurringJobProcessor(
+  public RecurringJobProcessor(
       JobSchedulerService schedulerService,
       JobBatchStatusStore jobBatchStatusStore,
       RecurringAnnotationMaintenanceService recurringAnnotationMaintenanceService,

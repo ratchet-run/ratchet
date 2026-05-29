@@ -13,7 +13,7 @@ import run.ratchet.spi.RetryPolicy;
  * {@link #shouldRetry(int, Throwable)}.
  */
 @ApplicationScoped
-class DefaultRetryPolicy implements RetryPolicy {
+public class DefaultRetryPolicy implements RetryPolicy {
 
   @Override
   public boolean shouldRetry(int attempt, Throwable cause) {

@@ -69,7 +69,7 @@ import run.ratchet.store.spi.SignalStore;
  * constructors require primitive configuration parameters.
  */
 @ApplicationScoped
-class RatchetProducer {
+public class RatchetProducer {
 
   private static final Logger log = Logger.getLogger(RatchetProducer.class);
 

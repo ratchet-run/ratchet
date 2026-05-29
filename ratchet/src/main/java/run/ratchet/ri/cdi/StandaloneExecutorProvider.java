@@ -19,7 +19,7 @@ import run.ratchet.spi.ExecutorProvider;
  */
 @Alternative
 @ApplicationScoped
-class StandaloneExecutorProvider implements ExecutorProvider {
+public class StandaloneExecutorProvider implements ExecutorProvider {
 
   private final ExecutorService jobExecutor =
       Executors.newCachedThreadPool(namedThreadFactory("ratchet-standalone-job"));
