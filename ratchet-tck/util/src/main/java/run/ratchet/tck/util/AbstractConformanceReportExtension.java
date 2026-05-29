@@ -86,7 +86,18 @@ public abstract class AbstractConformanceReportExtension implements TestExecutio
     return findContractSimpleName(className, index::containsKey, getClass());
   }
 
-  protected static String findContractSimpleName(
+  /**
+   * Walks the superclass chain of {@code className} (loaded via the context ClassLoader, falling
+   * back to {@code fallbackClass}'s loader) and returns the simple name of the first ancestor
+   * matching {@code isContractName}, or {@code null} if no contract ancestor is found or the class
+   * cannot be loaded.
+   *
+   * <p>Kept {@code protected static} (not package-private) so cross-package subclasses such as
+   * {@code run.ratchet.tck.store.ConformanceReportExtension} can delegate to it from their own
+   * tier-specific static helpers. {@code final} locks the implementation: subclasses must not
+   * override the chain-walking semantics, only call it with their own contract predicate.
+   */
+  protected static final String findContractSimpleName(
       String className, Predicate<String> isContractName, Class<?> fallbackClass) {
     try {
       ClassLoader cl = Thread.currentThread().getContextClassLoader();
@@ -187,12 +198,12 @@ public abstract class AbstractConformanceReportExtension implements TestExecutio
   public record ContractGroup(String label, String description, List<String> contracts) {}
 
   /** Result accumulator for a single abstract contract class. */
-  public static final class ContractResult {
-    public int passed;
-    public int failed;
-    public int aborted;
+  static final class ContractResult {
+    int passed;
+    int failed;
+    int aborted;
 
-    public void record(TestExecutionResult.Status status) {
+    void record(TestExecutionResult.Status status) {
       switch (status) {
         case SUCCESSFUL -> passed++;
         case FAILED -> failed++;
@@ -200,7 +211,7 @@ public abstract class AbstractConformanceReportExtension implements TestExecutio
       }
     }
 
-    public int total() {
+    int total() {
       return passed + failed + aborted;
     }
   }
