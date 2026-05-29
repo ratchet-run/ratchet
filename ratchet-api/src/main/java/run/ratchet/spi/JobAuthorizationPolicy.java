@@ -8,9 +8,12 @@ import run.ratchet.api.exception.JobAuthorizationException;
 /**
  * SPI for authorizing job operations.
  *
- * <p>The reference implementation ({@code PermitAllJobAuthorizationPolicy}) allows every operation.
- * Integrators replace it with a CDI {@code @Alternative @Priority(APPLICATION)} bean to enforce
- * site-specific rules.
+ * <p>This SPI is fully wired into the reference implementation and is called at every mutation
+ * entry point ({@link #checkCreate}, {@link #checkCancel}, {@link #checkPause}, {@link
+ * #checkResume}, {@link #checkRetry}, {@link #checkDeliverSignal}) and at read entry points ({@link
+ * #checkRead}, {@link #filterForPrincipal}). The default reference implementation ({@code
+ * PermitAllJobAuthorizationPolicy}) allows every operation. Integrators replace it with a CDI
+ * {@code @Alternative @Priority(APPLICATION)} bean to enforce site-specific rules.
  *
  * <h2>Thread-safety</h2>
  *

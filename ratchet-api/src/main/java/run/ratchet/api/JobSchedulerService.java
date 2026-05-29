@@ -260,7 +260,7 @@ public interface JobSchedulerService {
    * @return 1 if the job was unblocked, 0 if the job was not found, not in WAITING state, or signal
    *     support is not configured
    */
-  int deliverSignal(UUID jobId, Serializable payload);
+  int deliverSignal(UUID jobId, @Nullable Serializable payload);
 
   /**
    * Delivers a structured approval/rejection decision to the specific WAITING job identified by
@@ -304,7 +304,7 @@ public interface JobSchedulerService {
    * @return the number of jobs transitioned from WAITING to PENDING, or 0 if no jobs were waiting
    *     or signal support is not configured
    */
-  int deliverSignal(String signalKey, Serializable payload);
+  int deliverSignal(String signalKey, @Nullable Serializable payload);
 
   /**
    * Delivers a structured approval/rejection decision to all WAITING jobs whose {@code signalKey}

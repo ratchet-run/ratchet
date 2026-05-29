@@ -25,6 +25,7 @@ import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.ri.core.PollerScheduler;
+import run.ratchet.ri.core.internal.DefaultPollerScheduler;
 import run.ratchet.store.spi.JobClaimStore;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.testsuite.app.PerformanceMetricsCollector;
@@ -192,7 +193,7 @@ public abstract class BasePerformanceIT extends BaseRatchetIT {
 
   private static <T> T readField(Object target, String name, Class<T> type) {
     try {
-      Field field = target.getClass().getDeclaredField(name);
+      Field field = DefaultPollerScheduler.class.getDeclaredField(name);
       field.setAccessible(true);
       return type.cast(field.get(target));
     } catch (ReflectiveOperationException e) {

@@ -38,6 +38,8 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import run.ratchet.api.event.JobSignalWaitingEvent;
 import run.ratchet.api.exception.JobAuthorizationException;
+import run.ratchet.ri.core.internal.InternalEventPublisher;
+import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.ri.security.JobPayloadInputValidator;
@@ -137,22 +139,35 @@ class DefaultJobCreationServiceAuthorizationTest {
         principalProvider,
         tracingCollector,
         authorizationPolicy,
+        null,
         eventPublisher,
         metricsCollector,
         clock);
   }
 
   private DefaultJobCreationService serviceWithoutAuthorizationPolicy() {
+    // null jobBulkStore reproduces the legacy convenience-ctor behaviour where the bulk store was
+    // omitted; batch submissions on this service exercise the "no bulk store" fallback path.
     return new DefaultJobCreationService(
         jobBatchStatusStore,
         jobTerminalStore,
         jobCrudStore,
+        null,
         batchStore,
         tagStore,
         workflowConditionStore,
         recurringJobStore,
         wakeupService,
-        recurringScheduler);
+        recurringScheduler,
+        new DefaultJobInvocationResolver(),
+        new JobPayloadInputValidator(),
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        Clock.systemUTC());
   }
 
   @BeforeEach

@@ -17,18 +17,6 @@ import run.ratchet.store.entity.JobEntity;
 public interface SignalStore {
 
   /**
-   * Returns all WAITING jobs whose {@code signalTimeout} is at or before {@code now}.
-   *
-   * <p><b>Test/tooling convenience only.</b> This overload passes {@link Integer#MAX_VALUE} as the
-   * limit and will return an unbounded result set if a large number of jobs have timed out.
-   * Production callers (e.g. the timeout scanner) MUST use {@link #findTimedOutSignalJobs(Instant,
-   * int)} with a reasonable batch ceiling (e.g. 1000) to bound memory and transaction size.
-   */
-  default List<JobEntity> findTimedOutSignalJobs(Instant now) {
-    return findTimedOutSignalJobs(now, Integer.MAX_VALUE);
-  }
-
-  /**
    * Returns at most {@code limit} WAITING jobs whose {@code signalTimeout} is at or before {@code
    * now}. Implementations should return a deterministic oldest-first slice when the store can order
    * efficiently.

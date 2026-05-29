@@ -35,6 +35,8 @@ import run.ratchet.api.JobType;
 import run.ratchet.api.event.BatchCompletedEvent;
 import run.ratchet.api.event.BatchCompletingEvent;
 import run.ratchet.api.event.JobCompletedEvent;
+import run.ratchet.ri.core.internal.InternalEventPublisher;
+import run.ratchet.ri.core.internal.WorkflowScheduler;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.MetricsCollector;

@@ -20,8 +20,7 @@ import run.ratchet.api.WorkflowBranch;
 import run.ratchet.api.WorkflowCondition;
 
 /** {@inheritDoc} */
-public class DefaultStreamingBatchBuilder<T extends Serializable>
-    implements StreamingBatchBuilder<T> {
+class DefaultStreamingBatchBuilder<T extends Serializable> implements StreamingBatchBuilder<T> {
 
   private static final Logger log = Logger.getLogger(DefaultStreamingBatchBuilder.class);
   private static final int MIN_CHUNK_SIZE = 1;

@@ -3,6 +3,7 @@ package run.ratchet.store.spi;
 import java.util.List;
 import java.util.UUID;
 import run.ratchet.api.Incubating;
+import run.ratchet.api.Nullable;
 import run.ratchet.api.WorkflowCondition;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 
@@ -16,11 +17,14 @@ public interface WorkflowConditionStore {
   /**
    * Finds a single workflow condition by id.
    *
+   * @apiNote This method intentionally returns a bare reference rather than {@link
+   *     java.util.Optional} to keep the row-mapper path allocation-free. Callers must null-check
+   *     the result; the {@link Nullable} annotation reflects this contract for static analysers.
    * @param id condition id
    * @return the condition, or {@code null} when no condition exists for the id
    *     <p>Transaction attribute: {@code SUPPORTS}.
    */
-  WorkflowConditionEntity findConditionById(UUID id);
+  @Nullable WorkflowConditionEntity findConditionById(UUID id);
 
   /**
    * Returns every condition for the parent job, ordered by store-defined workflow priority.

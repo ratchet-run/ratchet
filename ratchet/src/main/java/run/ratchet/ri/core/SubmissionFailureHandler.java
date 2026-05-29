@@ -3,6 +3,7 @@ package run.ratchet.ri.core;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
+import run.ratchet.ri.core.internal.ThreadPoolManager;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
@@ -10,7 +11,7 @@ import run.ratchet.store.entity.JobExecutionType;
 
 /** Handles submission failures by buffering for retry or resetting to PENDING. */
 @ApplicationScoped
-public class SubmissionFailureHandler {
+class SubmissionFailureHandler {
 
   private static final Logger log = Logger.getLogger(SubmissionFailureHandler.class);
 

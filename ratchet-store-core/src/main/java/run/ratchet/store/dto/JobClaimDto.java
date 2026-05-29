@@ -6,6 +6,7 @@ import java.util.UUID;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
+import run.ratchet.api.Nullable;
 import run.ratchet.store.entity.JobExecutionType;
 
 /**
@@ -13,6 +14,21 @@ import run.ratchet.store.entity.JobExecutionType;
  *
  * <p>Contains only the metadata fields needed during the claim phase. Large fields (payload,
  * params, jobResult, lastError) are NOT included to reduce data transfer during polling.
+ *
+ * @param id job primary key; never {@code null}
+ * @param status current job status; never {@code null}
+ * @param jobType internal execution type; never {@code null}
+ * @param priority job priority; never {@code null}
+ * @param scheduledTime time at which the job becomes eligible for pickup
+ * @param version optimistic lock version
+ * @param timeoutSec timeout for execution, in seconds
+ * @param pickedBy node id that currently owns the claim, or {@code null} when the job has not been
+ *     picked up
+ * @param pickedAt timestamp at which the claim was acquired, or {@code null} when the job has not
+ *     been picked up
+ * @param businessKey caller-supplied business key, or {@code null} when none was provided
+ * @param attempts retry attempts consumed so far
+ * @param maxRetries maximum retry attempts permitted
  */
 public record JobClaimDto(
     UUID id,
@@ -22,9 +38,9 @@ public record JobClaimDto(
     Instant scheduledTime,
     Integer version,
     int timeoutSec,
-    String pickedBy,
-    Instant pickedAt,
-    String businessKey,
+    @Nullable String pickedBy,
+    @Nullable Instant pickedAt,
+    @Nullable String businessKey,
     int attempts,
     int maxRetries)
     implements Serializable {

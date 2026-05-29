@@ -7,6 +7,6 @@ import java.util.UUID;
 import run.ratchet.store.entity.JobLogEntity.LogLevel;
 
 /** Log entry produced during job execution. Carries the MDC snapshot for diagnostic context. */
-public record JobLogLine(
+record JobLogLine(
     UUID jobId, Instant timestamp, LogLevel level, String message, Map<String, Object> mdc)
     implements Serializable {}

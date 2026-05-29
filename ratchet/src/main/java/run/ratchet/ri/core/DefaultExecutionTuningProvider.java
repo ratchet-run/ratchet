@@ -8,7 +8,7 @@ import run.ratchet.spi.ExecutionTuningProvider;
 
 /** Default execution tuning backed by CDI-provided Ratchet options. */
 @ApplicationScoped
-public class DefaultExecutionTuningProvider implements ExecutionTuningProvider {
+class DefaultExecutionTuningProvider implements ExecutionTuningProvider {
 
   private final RatchetOptions options;
 

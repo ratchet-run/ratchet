@@ -35,8 +35,8 @@ import run.ratchet.api.JobSchedulerService;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.Recurring;
 import run.ratchet.api.RecurringJobBuilder;
-import run.ratchet.ri.core.RecurringAnnotationMaintenanceService;
-import run.ratchet.ri.core.RecurringRegistrationState;
+import run.ratchet.ri.core.internal.RecurringAnnotationMaintenanceService;
+import run.ratchet.ri.core.internal.RecurringRegistrationState;
 import run.ratchet.spi.StartupCoordinator;
 import run.ratchet.store.spi.JobBatchStatusStore;
 
@@ -50,7 +50,7 @@ import run.ratchet.store.spi.JobBatchStatusStore;
  * @see RecurringMethodInvoker
  */
 @ApplicationScoped
-public class RecurringJobProcessor {
+class RecurringJobProcessor {
 
   private static final Logger log = Logger.getLogger(RecurringJobProcessor.class);
   private static final String ORPHAN_CLEANUP_ACTION = "recurring-annotation-orphan-cleanup";
@@ -85,7 +85,7 @@ public class RecurringJobProcessor {
     this.clock = null;
   }
 
-  public RecurringJobProcessor(
+  RecurringJobProcessor(
       JobSchedulerService schedulerService,
       JobBatchStatusStore jobBatchStatusStore,
       RecurringAnnotationMaintenanceService recurringAnnotationMaintenanceService,
@@ -107,7 +107,7 @@ public class RecurringJobProcessor {
   }
 
   @Inject
-  public RecurringJobProcessor(
+  RecurringJobProcessor(
       JobSchedulerService schedulerService,
       JobBatchStatusStore jobBatchStatusStore,
       RecurringAnnotationMaintenanceService recurringAnnotationMaintenanceService,
@@ -176,7 +176,7 @@ public class RecurringJobProcessor {
     this.clock = clock;
   }
 
-  public RecurringJobProcessor(
+  RecurringJobProcessor(
       JobSchedulerService schedulerService,
       JobBatchStatusStore jobBatchStatusStore,
       RecurringAnnotationMaintenanceService recurringAnnotationMaintenanceService,

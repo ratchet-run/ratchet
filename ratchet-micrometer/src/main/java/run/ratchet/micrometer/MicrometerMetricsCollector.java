@@ -49,6 +49,13 @@ import run.ratchet.spi.MetricsCollector;
  *       closed/unknown, {@code 1} for half-open, and {@code 2} for open
  *   <li>{@code ratchet.store.operation} — timer, tagged by store, operation, and outcome
  * </ul>
+ *
+ * @apiNote The no-arg constructor on this class is a CDI proxying artefact (Weld / OWB require a
+ *     non-final, no-arg-constructable concrete class to generate the normal-scope client proxy) and
+ *     is NOT a supported public extension point. It is package-private to keep it out of the public
+ *     API surface. Direct subclassing is not part of the public API contract; deployments that need
+ *     custom behaviour SHOULD install an {@code @Alternative} bean implementing {@link
+ *     MetricsCollector} rather than extending this class.
  */
 @Alternative
 @Priority(1000)
@@ -71,7 +78,7 @@ public class MicrometerMetricsCollector implements MetricsCollector {
   // Required by CDI proxy. The CDI proxy never invokes business methods on this instance —
   // every real call goes to the @Inject constructor below. We still guard the field below
   // so a misconfigured deployment doesn't NPE on first use; instead it logs and no-ops.
-  protected MicrometerMetricsCollector() {
+  MicrometerMetricsCollector() {
     this.registry = null;
     this.tagPolicy = DEFAULT_TAG_POLICY;
   }

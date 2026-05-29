@@ -22,6 +22,18 @@ public interface JobTerminalStore {
   /**
    * Marks a job as succeeded with a stored result.
    *
+   * @param id job id to transition; must be a currently-RUNNING job
+   * @param resultJson serialized result payload to persist, or {@code null} to omit
+   * @param resultType fully-qualified Java type name of the result, or {@code null} when {@code
+   *     resultJson} is {@code null}
+   * @param start execution start instant captured by the worker; never {@code null}
+   * @param end execution end instant captured by the worker; never {@code null}
+   * @param durationMs total execution duration in ms (typically {@code end - start}), or {@code
+   *     null} when the worker did not record it
+   * @param queueWaitMs queue-wait latency in ms (scheduled-time → claim-time), or {@code null} when
+   *     the store cannot compute it
+   * @return {@code true} when the live row transitioned to SUCCEEDED, {@code false} when no
+   *     matching RUNNING row was found
    * @throws RatchetTransientStoreException if the backing store cannot complete the transition
    *     <p>Transaction attribute: {@code REQUIRED}.
    */
@@ -37,6 +49,13 @@ public interface JobTerminalStore {
   /**
    * Marks a job as succeeded without a stored result.
    *
+   * @param id job id to transition; must be a currently-RUNNING job
+   * @param start execution start instant captured by the worker; never {@code null}
+   * @param end execution end instant captured by the worker; never {@code null}
+   * @param durationMs total execution duration in ms, or {@code null} when not recorded
+   * @param queueWaitMs queue-wait latency in ms, or {@code null} when not computed
+   * @return {@code true} when the live row transitioned to SUCCEEDED, {@code false} when no
+   *     matching RUNNING row was found
    * @throws RatchetTransientStoreException if the backing store cannot complete the transition
    *     <p>Transaction attribute: {@code REQUIRED}.
    */
@@ -49,6 +68,18 @@ public interface JobTerminalStore {
    * <p>The child terminal transition and parent counter update must happen in the same transaction;
    * implementations must not commit the counter in an inner {@code REQUIRES_NEW} transaction.
    *
+   * @param jobId batch-child job id to transition; must be a currently-RUNNING child
+   * @param resultJson serialized result payload to persist, or {@code null} to omit
+   * @param resultType fully-qualified Java type name of the result, or {@code null} when {@code
+   *     resultJson} is {@code null}
+   * @param start execution start instant captured by the worker; never {@code null}
+   * @param end execution end instant captured by the worker; never {@code null}
+   * @param durationMs total execution duration in ms, or {@code null} when not recorded
+   * @param queueWaitMs queue-wait latency in ms, or {@code null} when not computed
+   * @param batchId batch parent id whose counters are advanced in the same transaction; never
+   *     {@code null}
+   * @return {@code true} when both the child transition and the parent counter update succeeded,
+   *     {@code false} when no matching RUNNING child row was found
    * @throws RatchetTransientStoreException if either update cannot complete
    *     <p>Transaction attribute: {@code REQUIRED}.
    */
@@ -74,6 +105,11 @@ public interface JobTerminalStore {
    * (e.g. on signal timeout), use {@code compareAndSwapStatus} with an expected status of {@code
    * WAITING}, which dispatches to the matching {@code WAITING}-aware path internally.
    *
+   * @param id job id to transition; must be a currently-RUNNING job
+   * @param terminalError final error message to persist, or {@code null} when none is available
+   * @param totalAttempts total attempts the worker recorded across all retries
+   * @return {@code true} when the live row transitioned to FAILED, {@code false} for any other
+   *     status (silent no-op for non-RUNNING rows)
    * @throws RatchetTransientStoreException if the backing store cannot complete the transition
    *     <p>Transaction attribute: {@code REQUIRED}.
    */
@@ -85,6 +121,9 @@ public interface JobTerminalStore {
    * terminal CANCELED. Single-table store implementations may treat this as an UPDATE to CANCELED.
    * Returns true iff the job transitioned to CANCELED.
    *
+   * @param id job id to cancel
+   * @return {@code true} when the job transitioned to CANCELED, {@code false} when the job did not
+   *     exist or was already terminal
    * @throws RatchetTransientStoreException if the backing store cannot complete the transition
    *     <p>Transaction attribute: {@code REQUIRED}.
    */

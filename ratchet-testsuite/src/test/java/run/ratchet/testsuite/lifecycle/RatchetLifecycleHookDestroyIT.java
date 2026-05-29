@@ -18,7 +18,7 @@ import run.ratchet.testsuite.util.BaseRatchetIT;
 import run.ratchet.testsuite.util.RatchetArchiveBuilder;
 
 /**
- * Verifies that {@link RatchetLifecycle} releases each resolved {@link SchedulerLifecycleHook} via
+ * Verifies that the Ratchet lifecycle releases each resolved {@link SchedulerLifecycleHook} via
  * {@code Instance.destroy()} on shutdown — required for {@code @Dependent}-scoped hooks to have
  * their {@code @PreDestroy} methods invoked. Exercises the real CDI container (Weld in WildFly).
  *

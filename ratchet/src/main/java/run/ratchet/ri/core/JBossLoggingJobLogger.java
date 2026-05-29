@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.UUID;
 import org.jboss.logging.Logger;
 import org.jboss.logging.MDC;
+import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.spi.JobLogger;
 import run.ratchet.store.entity.JobLogEntity.LogLevel;
 

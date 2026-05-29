@@ -22,6 +22,12 @@ import run.ratchet.api.Recurring;
  * This avoids the static-singleton pattern that breaks when multiple CDI containers share a JVM
  * (e.g., multiple WildFly deployments), where a second {@code BeforeBeanDiscovery} event would
  * overwrite a shared static field and lose the first deployment's discovered classes.
+ *
+ * @apiNote Internal RI implementation. The class is public because the CDI {@code
+ *     jakarta.enterprise.inject.spi.Extension} ServiceLoader mechanism requires it, and {@link
+ *     #getRecurringBeanClasses()} is public because it is called reflectively from {@link
+ *     RecurringJobProcessor} after {@code BeanManager.getExtension()} returns this instance.
+ *     Applications must not reference this class directly. Not part of the supported API surface.
  */
 public class RecurringMethodDiscoveryExtension implements Extension {
 

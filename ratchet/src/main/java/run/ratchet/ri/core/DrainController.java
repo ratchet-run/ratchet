@@ -1,24 +1,15 @@
 package run.ratchet.ri.core;
 
-import jakarta.enterprise.context.ApplicationScoped;
-import java.util.concurrent.atomic.AtomicBoolean;
-import org.jboss.logging.Logger;
+/**
+ * SPI for graceful-shutdown drain control. Default implementation: {@link
+ * run.ratchet.ri.core.internal.DefaultDrainController}.
+ *
+ * @apiNote Framework SPI consumed by ri.cdi.RatchetLifecycle and by ratchet-testsuite integration
+ *     tests. Applications must not implement this interface.
+ */
+public interface DrainController {
 
-/** Controls drain mode for graceful shutdown. */
-@ApplicationScoped
-public class DrainController {
+  boolean isDraining();
 
-  private static final Logger log = Logger.getLogger(DrainController.class);
-
-  private final AtomicBoolean draining = new AtomicBoolean(false);
-
-  public boolean isDraining() {
-    return draining.get();
-  }
-
-  public void setDraining(boolean value) {
-    if (draining.compareAndSet(!value, value)) {
-      log.info(value ? "Node set to DRAIN mode" : "Node resumed");
-    }
-  }
+  void setDraining(boolean value);
 }

@@ -13,7 +13,16 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.id.UuidV7Factory;
 
-/** Shared setup for dialect-specific explain-plan integration tests. */
+/**
+ * Shared setup for dialect-specific explain-plan integration tests.
+ *
+ * @apiNote <b>Internal.</b> This is a test-fixture utility consumed only by the SQL store modules'
+ *     own dialect-specific {@code *ExplainPlanCaptureIT} tests, not part of any conformance
+ *     contract. It is published as public solely so cross-module test sources (e.g. {@code
+ *     ratchet-store-mysql/src/test}, {@code ratchet-store-postgresql/src/test}) can use it.
+ *     External consumers MUST NOT depend on it; the API and seeded-data shape may change between
+ *     releases without notice.
+ */
 public final class ExplainPlanTestSupport {
 
   public static final int DEFAULT_SEED_JOBS = 600;

@@ -12,13 +12,22 @@ import org.jboss.logging.Logger;
 /**
  * Resolves the current caller principal from {@link SecurityContext} when one is available in the
  * container, and returns an empty Optional otherwise. Stamped onto {@code
- * JobEntity.callerPrincipal} at job creation for audit; no authorization enforcement is performed.
+ * JobEntity.callerPrincipal} at job creation for audit.
+ *
+ * <p>The captured principal is also passed to the pluggable {@link
+ * run.ratchet.spi.JobAuthorizationPolicy} SPI at every mutation point ({@code checkCreate}, {@code
+ * checkCancel}, {@code checkPause}, {@code checkResume}, {@code checkRetry}, {@code
+ * checkDeliverSignal}) and at read points ({@code checkRead}, {@code filterForPrincipal}). The
+ * default implementation, {@code PermitAllJobAuthorizationPolicy}, permits all operations;
+ * applications override it with a CDI {@code @Alternative @Priority(APPLICATION)} bean to enforce
+ * site-specific authorization.
  *
  * <p>In plain-CDI / Weld SE test environments no {@code SecurityContext} implementation is
  * resolvable — the provider silently returns empty rather than failing. This keeps the RI usable
  * outside a full EE profile.
  *
  * @see run.ratchet.api.JobSchedulerService for the normative capture contract
+ * @see run.ratchet.spi.JobAuthorizationPolicy for the enforcement SPI
  */
 @ApplicationScoped
 public class CallerPrincipalProvider {

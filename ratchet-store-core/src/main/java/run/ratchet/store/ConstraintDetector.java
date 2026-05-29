@@ -1,16 +1,42 @@
 package run.ratchet.store;
 
+import run.ratchet.api.Incubating;
+import run.ratchet.api.Nullable;
+
 /**
  * Detects database constraint violations in a vendor-neutral way.
  *
  * <p>Implementations parse database-specific error messages or codes to identify the type of
  * constraint violation that occurred. This enables the scheduler to handle constraint violations
  * (such as duplicate keys from idempotency checks) without coupling to a specific database vendor.
+ *
+ * @apiNote This is a store-implementor SPI, not an application-facing API. Application code must
+ *     never invoke these methods directly; consume them via the {@link
+ *     run.ratchet.store.spi.JobStore} composition. Implementations MUST be thread-safe (the
+ *     scheduler invokes them from multiple worker threads). Implementations MUST NOT throw from any
+ *     method on this interface; on an unrecognized exception, return {@code false} (for boolean
+ *     predicates) or {@code null} (for {@link #constraintName(Exception)}). Implementations MUST be
+ *     side-effect free.
  */
+@Incubating
 public interface ConstraintDetector {
 
-  String constraintName(Exception e);
+  /**
+   * Extracts the database-reported constraint name from a vendor exception.
+   *
+   * @param e exception thrown by the JDBC / JPA layer; never {@code null}
+   * @return the constraint name parsed from the vendor error, or {@code null} when the exception
+   *     does not encode a recognizable constraint name
+   */
+  @Nullable String constraintName(Exception e);
 
+  /**
+   * Reports whether the exception was raised by a duplicate-key (unique-constraint) violation.
+   *
+   * @param e exception thrown by the JDBC / JPA layer; never {@code null}
+   * @return {@code true} when the exception encodes a duplicate-key violation, {@code false}
+   *     otherwise (including unrecognized exceptions)
+   */
   boolean isDuplicateKey(Exception e);
 
   /**
@@ -21,6 +47,10 @@ public interface ConstraintDetector {
    * for active business keys. The vendor-specific detectors still provide duplicate-key and
    * constraint-name parsing because those signals differ by database, but this composed
    * business-key check is shared.
+   *
+   * @param e exception thrown by the JDBC / JPA layer; never {@code null}
+   * @return {@code true} when the exception encodes a duplicate-key violation whose constraint name
+   *     targets the business-key reservation table, {@code false} otherwise
    */
   default boolean isDuplicateBusinessKey(Exception e) {
     if (!isDuplicateKey(e)) {
@@ -30,7 +60,22 @@ public interface ConstraintDetector {
     return name != null && name.contains("scheduler_business_key_reservation");
   }
 
+  /**
+   * Reports whether the exception was raised by a deadlock detected by the database engine.
+   *
+   * @param e exception thrown by the JDBC / JPA layer; never {@code null}
+   * @return {@code true} when the exception encodes a deadlock-victim signal, {@code false}
+   *     otherwise (including unrecognized exceptions)
+   */
   boolean isDeadlock(Exception e);
 
+  /**
+   * Reports whether the exception is a transient connection failure (network blip, broken socket,
+   * connection-pool exhaustion) that is safe for the caller to retry after a backoff.
+   *
+   * @param e exception thrown by the JDBC / JPA layer; never {@code null}
+   * @return {@code true} when the exception encodes a transient connection-level failure, {@code
+   *     false} otherwise (including unrecognized exceptions)
+   */
   boolean isTransientConnectionFailure(Exception e);
 }

@@ -5,4 +5,4 @@ import run.ratchet.spi.TracingCollector;
 
 /** Default no-op {@link TracingCollector} for deployments without a tracing integration. */
 @ApplicationScoped
-public class NoOpTracingCollector implements TracingCollector {}
+class NoOpTracingCollector implements TracingCollector {}

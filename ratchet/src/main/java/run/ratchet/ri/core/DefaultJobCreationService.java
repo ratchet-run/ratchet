@@ -28,10 +28,14 @@ import run.ratchet.api.SerializableFunction;
 import run.ratchet.api.SerializablePredicate;
 import run.ratchet.api.WorkflowBranch;
 import run.ratchet.api.event.JobSignalWaitingEvent;
-import run.ratchet.ri.payload.DefaultJobInvocationResolver;
+import run.ratchet.api.internal.JobBuilderState;
+import run.ratchet.ri.core.internal.ChainScheduler;
+import run.ratchet.ri.core.internal.InternalEventPublisher;
+import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.payload.JobPayloadFactory;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.ri.security.JobPayloadInputValidator;
+import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobInvocationResolver;
 import run.ratchet.spi.MetricsCollector;
@@ -55,7 +59,7 @@ import run.ratchet.store.spi.WorkflowConditionStore;
 
 /** CDI-managed persistence boundary for scheduler builders. */
 @ApplicationScoped
-public class DefaultJobCreationService
+class DefaultJobCreationService
     implements JobSubmitter, BatchSubmitter, StreamingBatchSubmitter, RecurringJobSubmitter {
 
   private static final Logger log = Logger.getLogger(DefaultJobCreationService.class);
@@ -75,6 +79,7 @@ public class DefaultJobCreationService
   private final CallerPrincipalProvider callerPrincipalProvider;
   private final TracingCollector tracingCollector;
   private final JobAuthorizationPolicy authorizationPolicy;
+  private final ClassPolicy classPolicy;
   private final InternalEventPublisher eventPublisher;
   private final MetricsCollector metricsCollector;
   private final Clock clock;
@@ -97,40 +102,10 @@ public class DefaultJobCreationService
     this.callerPrincipalProvider = null;
     this.tracingCollector = null;
     this.authorizationPolicy = null;
+    this.classPolicy = null;
     this.eventPublisher = null;
     this.metricsCollector = null;
     this.clock = null;
-  }
-
-  public DefaultJobCreationService(
-      JobBatchStatusStore jobBatchStatusStore,
-      JobTerminalStore jobTerminalStore,
-      JobCrudStore jobCrudStore,
-      BatchStore batchStore,
-      TagStore tagStore,
-      WorkflowConditionStore workflowConditionStore,
-      RecurringJobStore recurringJobStore,
-      JobWakeupService wakeupService,
-      RecurringScheduler recurringScheduler) {
-    this(
-        jobBatchStatusStore,
-        jobTerminalStore,
-        jobCrudStore,
-        jobCrudStore instanceof JobBulkStore bulkStore ? bulkStore : null,
-        batchStore,
-        tagStore,
-        workflowConditionStore,
-        recurringJobStore,
-        wakeupService,
-        recurringScheduler,
-        new DefaultJobInvocationResolver(),
-        new JobPayloadInputValidator(),
-        null,
-        null,
-        null,
-        null,
-        null,
-        Clock.systemUTC());
   }
 
   @Inject
@@ -150,6 +125,7 @@ public class DefaultJobCreationService
       CallerPrincipalProvider callerPrincipalProvider,
       TracingCollector tracingCollector,
       JobAuthorizationPolicy authorizationPolicy,
+      ClassPolicy classPolicy,
       InternalEventPublisher eventPublisher,
       MetricsCollector metricsCollector,
       Clock clock) {
@@ -168,6 +144,7 @@ public class DefaultJobCreationService
     this.callerPrincipalProvider = callerPrincipalProvider;
     this.tracingCollector = tracingCollector;
     this.authorizationPolicy = authorizationPolicy;
+    this.classPolicy = classPolicy;
     this.eventPublisher = eventPublisher;
     this.metricsCollector = metricsCollector;
     this.clock = clock;
@@ -180,7 +157,8 @@ public class DefaultJobCreationService
   @Override
   @Transactional
   public JobHandle submit(JobBuilder builder) {
-    String idempotencyKey = builder.idempotencyKey();
+    JobBuilderState state = (JobBuilderState) builder;
+    String idempotencyKey = state.idempotencyKey();
     Optional<JobEntity> existingByKey = jobCrudStore.findByIdempotencyKey(idempotencyKey);
     if (existingByKey.isPresent()) {
       UUID existingId = existingByKey.get().getId();
@@ -189,7 +167,7 @@ public class DefaultJobCreationService
       return () -> existingId;
     }
 
-    String businessKey = builder.businessKey();
+    String businessKey = state.businessKey();
     if (businessKey != null) {
       Optional<JobEntity> activeByBk = jobCrudStore.findActiveByBusinessKey(businessKey);
       if (activeByBk.isPresent()) {
@@ -204,9 +182,9 @@ public class DefaultJobCreationService
 
     JobPayload payload = payload(builder.task());
 
-    String signalKey = builder.awaitSignalKey();
+    String signalKey = state.awaitSignalKey();
     boolean isSignalWaiting = signalKey != null;
-    Duration signalTimeout = isSignalWaiting ? builder.awaitSignalTimeout() : null;
+    Duration signalTimeout = isSignalWaiting ? state.awaitSignalTimeout() : null;
     Instant now = effective().instant();
 
     JobOptions opts = builder.opts();
@@ -214,7 +192,7 @@ public class DefaultJobCreationService
     job.setJobType(JobExecutionType.SINGLE);
     job.setStatus(isSignalWaiting ? JobStatus.WAITING : JobStatus.PENDING);
     job.setPriority(opts.priority());
-    job.setScheduledTime(now.plus(builder.delay()));
+    job.setScheduledTime(now.plus(state.delay()));
     job.setPayload(payload);
     if (isSignalWaiting) {
       job.setSignalKey(signalKey);
@@ -226,8 +204,8 @@ public class DefaultJobCreationService
     if (builder.onSuccess() != null) {
       job.setOnSuccessPayload(payload(builder.onSuccess()));
     }
-    if (builder.onFailure() != null) {
-      job.setOnFailurePayload(payload(builder.onFailure()));
+    if (state.onFailure() != null) {
+      job.setOnFailurePayload(payload(state.onFailure()));
     }
     stampCallerPrincipal(job);
     captureTraceContext(job);
@@ -252,7 +230,7 @@ public class DefaultJobCreationService
       tagStore.insertTags(jobId, tags);
     }
 
-    List<SerializableCheckedRunnable> chainTasks = builder.chainTasks();
+    List<SerializableCheckedRunnable> chainTasks = state.chainTasks();
     if (!chainTasks.isEmpty()) {
       createChainSteps(jobId, chainTasks, opts);
     }
@@ -263,14 +241,12 @@ public class DefaultJobCreationService
     }
 
     boolean shouldWakeup =
-        builder.isImmediate()
-            || opts.priority() == JobPriority.CRITICAL
-            || builder.delay().isZero();
+        builder.isImmediate() || opts.priority() == JobPriority.CRITICAL || state.delay().isZero();
     if (shouldWakeup) {
       wakeupService.notify(opts.priority(), true);
     }
 
-    log.debugf("Job submitted (id=%s, type=SINGLE, delay=%s)", jobId, builder.delay());
+    log.debugf("Job submitted (id=%s, type=SINGLE, delay=%s)", jobId, state.delay());
     return () -> jobId;
   }
 
@@ -606,6 +582,17 @@ public class DefaultJobCreationService
 
   private JobPayload validate(JobPayload payload) {
     payloadValidator.validateAtCreation(payload);
+    // Persist-time ClassPolicy gate: mirrors WorkflowConditionEvaluator and JobSecurityValidator
+    // at execution time. Closes the TOCTOU window between persistence and execution — a malicious
+    // lambda's target class is rejected before reaching the database, not after a worker dequeues
+    // it.
+    if (classPolicy != null
+        && payload != null
+        && payload.target() != null
+        && !classPolicy.isAllowed(payload.target())) {
+      throw new SecurityException(
+          "Class " + payload.target() + " is not allowed for job execution.");
+    }
     return payload;
   }
 

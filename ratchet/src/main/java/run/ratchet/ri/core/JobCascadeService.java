@@ -19,6 +19,8 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.event.JobPausedEvent;
 import run.ratchet.api.event.JobResumedEvent;
+import run.ratchet.ri.core.internal.InternalEventPublisher;
+import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.JobPauseStore;
@@ -32,7 +34,7 @@ import run.ratchet.store.spi.JobPauseStore;
  */
 @ApplicationScoped
 @Transactional
-public class JobCascadeService {
+class JobCascadeService {
 
   private static final int DEPENDANT_PAGE_SIZE = JobCrudStore.DEFAULT_PAGE_LIMIT;
   private static final Logger log = Logger.getLogger(JobCascadeService.class);

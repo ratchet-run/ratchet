@@ -16,6 +16,13 @@ import java.util.concurrent.atomic.AtomicReference;
  *
  * <p>Seeded from {@link Clock#systemUTC()} at construction; thereafter only moves forward via
  * {@link #advance(Duration)} or {@link #advanceTo(Instant)}.
+ *
+ * @apiNote <b>Internal.</b> This clock is published from the TCK so RI tests (notably {@code
+ *     DefaultJobCreationService}'s alternative wiring) can inject it directly. It is a test-only
+ *     fixture and is NOT a general-purpose {@link Clock}: {@link #withZone(ZoneId)} deliberately
+ *     returns {@code this} rather than a zone-adjusted view (see the {@link #withZone(ZoneId)}
+ *     {@code @implNote}), which violates the {@link Clock} contract. Production code MUST NOT
+ *     depend on this class.
  */
 public final class SteppingTestClock extends Clock implements TestClock {
 
@@ -44,6 +51,14 @@ public final class SteppingTestClock extends Clock implements TestClock {
     return ZoneOffset.UTC;
   }
 
+  /**
+   * {@inheritDoc}
+   *
+   * @implNote This clock is always UTC; the zone argument is ignored and {@code this} is returned.
+   *     Zone-sensitive formatting should call {@code clock.instant().atZone(zone)} instead. This
+   *     intentional deviation from the {@link Clock} contract keeps the fixture's {@link
+   *     AtomicReference} tick state shared across callers.
+   */
   @Override
   public Clock withZone(ZoneId zone) {
     return this;

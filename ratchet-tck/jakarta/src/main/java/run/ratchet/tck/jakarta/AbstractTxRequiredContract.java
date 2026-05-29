@@ -108,6 +108,12 @@ public abstract class AbstractTxRequiredContract {
     return Duration.ofMillis(750);
   }
 
+  /**
+   * @apiNote Intentionally {@code protected} so runtime-specific TCK subclasses (e.g. the RI
+   *     test-suite under {@code ratchet-testsuite}) can override this test to attach
+   *     deployment-specific annotations such as {@code @DisabledIfSystemProperty}. Overriders MUST
+   *     delegate to {@code super}; replacing the body silently suppresses the contract.
+   */
   @Test
   protected void pauseJob_rollback_doesNotSuppressExecution() throws Exception {
     assumeTrue(

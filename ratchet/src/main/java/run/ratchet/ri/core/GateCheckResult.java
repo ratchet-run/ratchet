@@ -7,18 +7,18 @@ import run.ratchet.store.entity.JobExecutionType;
  * Outcome of checking drain, rate-limit, and permit gates before job submission. A CLEAR result
  * means a permit was acquired and must be released through execution or explicit release.
  */
-public record GateCheckResult(GateStatus status, String reason) {
+record GateCheckResult(GateStatus status, String reason) {
 
-  public static GateCheckResult clear() {
+  static GateCheckResult clear() {
     return new GateCheckResult(GateStatus.CLEAR, null);
   }
 
-  public static GateCheckResult draining(UUID jobId) {
+  static GateCheckResult draining(UUID jobId) {
     return new GateCheckResult(
         GateStatus.DRAINING, "Node draining - returning job " + jobId + " to PENDING");
   }
 
-  public static GateCheckResult noPermits(JobExecutionType jobType, UUID jobId) {
+  static GateCheckResult noPermits(JobExecutionType jobType, UUID jobId) {
     return new GateCheckResult(
         GateStatus.NO_PERMITS,
         String.format(
@@ -26,7 +26,7 @@ public record GateCheckResult(GateStatus status, String reason) {
             jobType, jobId));
   }
 
-  public static GateCheckResult rateLimited(
+  static GateCheckResult rateLimited(
       JobExecutionType jobType, UUID jobId, int currentCount, int limit) {
     return new GateCheckResult(
         GateStatus.RATE_LIMITED,
@@ -36,15 +36,15 @@ public record GateCheckResult(GateStatus status, String reason) {
             jobType, currentCount, limit, jobId));
   }
 
-  public boolean isClear() {
+  boolean isClear() {
     return status == GateStatus.CLEAR;
   }
 
-  public boolean isBlocked() {
+  boolean isBlocked() {
     return status != GateStatus.CLEAR;
   }
 
-  public enum GateStatus {
+  enum GateStatus {
     CLEAR,
     DRAINING,
     RATE_LIMITED,

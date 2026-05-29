@@ -3,6 +3,7 @@ package run.ratchet.ri.core;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.UUID;
+import run.ratchet.ri.core.internal.ThreadPoolManager;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -15,7 +16,7 @@ import run.ratchet.store.entity.JobExecutionType;
  * SubmissionFailureHandler} for release on rejection/failure before execution starts.
  */
 @ApplicationScoped
-public class SubmissionGateChecker {
+class SubmissionGateChecker {
 
   private final DrainController drainController;
   private final JobTypeRateLimiter rateLimiter;

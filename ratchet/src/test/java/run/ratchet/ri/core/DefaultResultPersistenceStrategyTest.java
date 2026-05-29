@@ -8,7 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.RatchetOptions;
-import run.ratchet.ri.cdi.JsonbPayloadSerializer;
+import run.ratchet.ri.testutil.JsonbTestPayloadSerializer;
 import run.ratchet.spi.PayloadSerializer;
 import run.ratchet.spi.SerializedJobResult;
 
@@ -19,7 +19,7 @@ class DefaultResultPersistenceStrategyTest {
     RatchetOptions options =
         RatchetOptions.builder().payload(payload -> payload.maxResultBytes(5)).build();
     DefaultResultPersistenceStrategy strategy =
-        new DefaultResultPersistenceStrategy(options, new JsonbPayloadSerializer());
+        new DefaultResultPersistenceStrategy(options, new JsonbTestPayloadSerializer());
 
     SerializedJobResult result = strategy.serialize(new UUID(0L, 42L), "\u00e9\u00e9");
 
@@ -33,7 +33,7 @@ class DefaultResultPersistenceStrategyTest {
     RatchetOptions options =
         RatchetOptions.builder().payload(payload -> payload.maxResultBytes(6)).build();
     DefaultResultPersistenceStrategy strategy =
-        new DefaultResultPersistenceStrategy(options, new JsonbPayloadSerializer());
+        new DefaultResultPersistenceStrategy(options, new JsonbTestPayloadSerializer());
 
     SerializedJobResult result = strategy.serialize(new UUID(0L, 41L), "\u00e9\u00e9");
 
@@ -46,7 +46,7 @@ class DefaultResultPersistenceStrategyTest {
     RatchetOptions options =
         RatchetOptions.builder().payload(payload -> payload.maxResultBytes(0)).build();
     DefaultResultPersistenceStrategy strategy =
-        new DefaultResultPersistenceStrategy(options, new JsonbPayloadSerializer());
+        new DefaultResultPersistenceStrategy(options, new JsonbTestPayloadSerializer());
 
     SerializedJobResult result = strategy.serialize(new UUID(0L, 45L), "larger than five bytes");
 
@@ -57,7 +57,7 @@ class DefaultResultPersistenceStrategyTest {
   @Test
   void nullResultPersistsAsEmptyResult() {
     DefaultResultPersistenceStrategy strategy =
-        new DefaultResultPersistenceStrategy(defaultOptions(), new JsonbPayloadSerializer());
+        new DefaultResultPersistenceStrategy(defaultOptions(), new JsonbTestPayloadSerializer());
 
     SerializedJobResult result = strategy.serialize(new UUID(0L, 43L), null);
 

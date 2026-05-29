@@ -15,12 +15,45 @@ import run.ratchet.store.spi.JobStore;
  */
 public interface JobStoreContractFixture {
 
+  /**
+   * Returns the {@link JobStore} under test.
+   *
+   * @return non-null store instance.
+   * @apiNote The returned store MUST be wrapped in the implementor's transactional boundary so
+   *     mutations performed inside contract methods are persisted and visible to subsequent {@link
+   *     #cleanupStore()} calls. Each invocation MAY return the same instance — contracts do not
+   *     assume per-call fresh stores.
+   */
   JobStore store();
 
+  /**
+   * Builds a new {@link JobEntity} in {@code PENDING} status, ready to {@link #persist(JobEntity)}.
+   *
+   * @return non-null transient {@link JobEntity}.
+   * @apiNote Implementations MUST populate every NOT-NULL column required by the target database
+   *     schema (typically: id, status, attempts, scheduled time, payload, priority, job type,
+   *     created/updated timestamps). The contract suite relies on the returned entity being
+   *     immediately persistable without further mutation.
+   */
   JobEntity newPendingJob();
 
+  /**
+   * Builds a new batch-parent {@link JobEntity} ready for {@link #persist(JobEntity)}.
+   *
+   * @return non-null transient batch-parent {@link JobEntity}.
+   * @apiNote Same field-population obligations as {@link #newPendingJob()}, plus the batch metadata
+   *     (batch id, expected child count, completion fields) that the batch-store contracts require.
+   */
   JobEntity newBatchParentJob();
 
+  /**
+   * Removes all rows the contract tests may have created so the next test starts on a clean store.
+   *
+   * @apiNote Cleanup MUST cover every persistence surface touched by the suite — at minimum the job
+   *     queue, batch metadata, terminal/archive tables, lock state, and any signal-delivery
+   *     records. Failing to truncate all surfaces produces leaky tests where prior runs surface as
+   *     phantom rows.
+   */
   void cleanupStore();
 
   default JobEntity newPendingJob(String... tags) {

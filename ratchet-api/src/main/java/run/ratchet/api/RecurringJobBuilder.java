@@ -5,6 +5,10 @@ import java.util.List;
 /**
  * Fluent builder for configuring and submitting recurring jobs.
  *
+ * @apiNote Unlike {@link JobBuilder}, this builder is intentionally submit-only and does not expose
+ *     read-back accessors for the configured options, tags, or business key. Tooling that needs to
+ *     inspect a recurring schedule after submission should query {@link JobQueryService} using the
+ *     returned {@link JobHandle}.
  * @see JobOptions
  * @see JobHandle
  */

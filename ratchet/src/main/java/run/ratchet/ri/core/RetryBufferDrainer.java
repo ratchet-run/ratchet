@@ -9,6 +9,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.jboss.logging.Logger;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.RetryBufferManager.BufferedClaim;
+import run.ratchet.ri.core.internal.ThreadPoolManager;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.store.entity.JobExecutionType;
 
@@ -60,7 +61,7 @@ public class RetryBufferDrainer {
     this.drainIntervalMs = Math.max(50L, options.retryBuffer().drainIntervalMs());
   }
 
-  void start() {
+  public void start() {
     synchronized (lifecycleLock) {
       if (!started.compareAndSet(false, true)) {
         return;
@@ -77,7 +78,7 @@ public class RetryBufferDrainer {
     }
   }
 
-  void shutdown() {
+  public void shutdown() {
     synchronized (lifecycleLock) {
       started.set(false);
       ScheduledFuture<?> task = drainerTask;

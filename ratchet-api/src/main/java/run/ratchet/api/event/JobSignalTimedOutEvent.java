@@ -57,10 +57,7 @@ public class JobSignalTimedOutEvent extends AbstractJobSchedulerEvent {
     return signalKey;
   }
 
-  /**
-   * Returns the configured maximum wait duration that elapsed, or {@code null} when the timeout was
-   * not available on the job snapshot.
-   */
+  /** Returns the configured maximum wait duration that elapsed. Never {@code null}. */
   public Duration getSignalTimeout() {
     return signalTimeout;
   }

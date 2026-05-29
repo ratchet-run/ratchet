@@ -22,6 +22,7 @@ import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.id.UuidV7Factory;
+import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.tck.util.ConcurrentTestRunner;
 
@@ -212,7 +213,7 @@ public abstract class AbstractJobCrudStoreContract implements JobStoreContractFi
     child2.setDependsOn(parent.getId());
     persist(child2);
 
-    var dependants = store().findDependants(parent.getId());
+    var dependants = store().findDependants(parent.getId(), JobCrudStore.DEFAULT_PAGE_LIMIT, 0);
 
     assertEquals(2, dependants.size(), "findDependants should return both dependent jobs");
   }

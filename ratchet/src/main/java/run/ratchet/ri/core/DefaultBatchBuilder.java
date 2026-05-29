@@ -24,7 +24,7 @@ public class DefaultBatchBuilder implements BatchBuilder {
    * Synthetic picker recorded on the BATCH_PARENT hot row when the empty-batch shortcut
    * skip-executes the parent into terminal SUCCEEDED. No real worker ever owns this id.
    */
-  static final String BATCH_LIFECYCLE_NODE_ID = "ratchet:batch-lifecycle";
+  public static final String BATCH_LIFECYCLE_NODE_ID = "ratchet:batch-lifecycle";
 
   private final String name;
   private final BatchSubmitter submitter;

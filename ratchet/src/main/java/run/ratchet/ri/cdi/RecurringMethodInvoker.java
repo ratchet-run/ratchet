@@ -15,7 +15,7 @@ import run.ratchet.spi.ClassPolicy;
 
 /** Invokes @Recurring methods on their CDI beans. */
 @ApplicationScoped
-public class RecurringMethodInvoker {
+class RecurringMethodInvoker {
 
   private final ConcurrentMap<MethodCacheKey, Method> methodCache = new ConcurrentHashMap<>();
   private final Instance<Object> allBeans;
@@ -27,13 +27,13 @@ public class RecurringMethodInvoker {
   }
 
   @Inject
-  public RecurringMethodInvoker(@Any Instance<Object> allBeans, ClassPolicy classPolicy) {
+  RecurringMethodInvoker(@Any Instance<Object> allBeans, ClassPolicy classPolicy) {
     this.allBeans = allBeans;
     this.classPolicy = classPolicy;
   }
 
   @SuppressWarnings("java:S112")
-  public void invoke(String beanClassName, String methodName, boolean hasJobContextParam)
+  void invoke(String beanClassName, String methodName, boolean hasJobContextParam)
       throws Exception {
     if (!classPolicy.isAllowed(beanClassName)) {
       throw new SecurityException(
@@ -65,7 +65,7 @@ public class RecurringMethodInvoker {
     }
   }
 
-  public void validateBeanResolvable(Class<?> beanClass) {
+  void validateBeanResolvable(Class<?> beanClass) {
     if (!classPolicy.isAllowed(beanClass.getName())) {
       throw new SecurityException(
           "Class " + beanClass.getName() + " is not allowed for recurring job execution.");

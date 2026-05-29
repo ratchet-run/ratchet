@@ -9,6 +9,7 @@ import java.util.UUID;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.Nullable;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 
@@ -53,10 +54,13 @@ public interface JobCrudStore {
    *
    * <p>Transaction attribute: {@code SUPPORTS}.
    *
+   * @apiNote This method intentionally returns a bare reference rather than {@link Optional} so the
+   *     hot status-check path avoids one allocation per call. Callers must null-check the result;
+   *     the {@link Nullable} annotation reflects this contract for static analysers.
    * @param id job id to inspect
    * @return current status, or {@code null} when no job exists for {@code id}
    */
-  JobStatus getJobStatus(UUID id);
+  @Nullable JobStatus getJobStatus(UUID id);
 
   /**
    * Batch-loads jobs by primary key for hot-path recovery and draining flows.
@@ -74,20 +78,6 @@ public interface JobCrudStore {
 
   /** Finds a job by idempotency key. Transaction attribute: {@code SUPPORTS}. */
   Optional<JobEntity> findByIdempotencyKey(String idempotencyKey);
-
-  /**
-   * Returns the first page of direct dependant jobs whose {@code dependsOn} points at the supplied
-   * parent.
-   *
-   * <p>Transaction attribute: {@code SUPPORTS}.
-   *
-   * @deprecated use {@link #findDependants(UUID, int, int)} when callers need to walk more than the
-   *     default page.
-   */
-  @Deprecated(since = "0.1.0", forRemoval = false)
-  default List<JobEntity> findDependants(UUID parentJobId) {
-    return findDependants(parentJobId, DEFAULT_PAGE_LIMIT, 0);
-  }
 
   /**
    * Returns a page of direct dependant jobs whose {@code dependsOn} points at the supplied parent.

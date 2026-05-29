@@ -40,6 +40,12 @@ public interface RecurringJobStore {
    * Claims up to {@code limit} due recurring masters (unpaused, {@code next_fire <= now}) with row
    * locking semantics equivalent to {@code FOR UPDATE SKIP LOCKED}. Mongo uses single-document
    * atomicity via {@code findOneAndUpdate}. Transaction attribute: {@code REQUIRED}.
+   *
+   * @param limit maximum number of masters to claim in this batch; must be positive
+   * @param nodeId stable identity of the claiming node; never {@code null} or blank
+   * @param tagFilter node-tag affinity filter applied during claim; never {@code null} (use {@link
+   *     NodeTagFilter#NONE} to disable)
+   * @return claimed definitions, never {@code null}; may be empty when nothing is due
    */
   List<RecurringJobDefinition> claimDueRecurring(int limit, String nodeId, NodeTagFilter tagFilter);
 
@@ -53,6 +59,9 @@ public interface RecurringJobStore {
    * per fire after the child job is enqueued. Implementations that hold a claim lease alongside
    * {@code next_fire} must clear the lease in the same write so the row becomes claimable again.
    * Transaction attribute: {@code REQUIRED}.
+   *
+   * @param id recurring master id to advance; never {@code null}
+   * @param nextFire next fire instant to persist; never {@code null}
    */
   void advanceNextFire(UUID id, Instant nextFire);
 
@@ -95,6 +104,11 @@ public interface RecurringJobStore {
    * scheduler_recurring_job_archive} in a single transaction. Also deletes the associated bkres row
    * when present. Returns {@code true} iff the live row was deleted. Idempotent: returns {@code
    * false} when the id is unknown. Transaction attribute: {@code REQUIRED}.
+   *
+   * @param id recurring master id to cancel; never {@code null}
+   * @param reason archive reason recorded on the snapshot row; never {@code null}
+   * @return {@code true} when the live row was deleted and snapshotted, {@code false} when no row
+   *     matched {@code id}
    */
   boolean cancelRecurringAndArchive(UUID id, ArchiveReason reason);
 
@@ -104,6 +118,13 @@ public interface RecurringJobStore {
    * set AND was created before {@code nodeStartTime}. Used to retire {@code @Recurring} annotation
    * jobs whose backing method has been removed or renamed. Returns the number of masters canceled.
    * Transaction attribute: {@code REQUIRED}.
+   *
+   * @param knownBusinessKeys business keys of currently-registered {@code @Recurring} methods;
+   *     masters whose business key is NOT in this set are candidates. Never {@code null}.
+   * @param nodeStartTime upper bound on creation time; only masters created strictly before this
+   *     instant are eligible for cleanup (protects masters registered after the current node
+   *     started). Never {@code null}.
+   * @return number of masters canceled
    */
   int cancelOrphanedRecurringAnnotationJobs(Set<String> knownBusinessKeys, Instant nodeStartTime);
 
@@ -136,6 +157,11 @@ public interface RecurringJobStore {
    * Updates an existing recurring definition (cron, zone, template fields, etc.). The id of {@code
    * definition} identifies the target row. Returns {@code true} iff a row was updated. Transaction
    * attribute: {@code REQUIRED}.
+   *
+   * @param id recurring master id to update; never {@code null}
+   * @param definition new field values to persist (id field must equal {@code id}); never {@code
+   *     null}
+   * @return {@code true} when the row was updated, {@code false} when no row matched {@code id}
    */
   boolean updateRecurring(UUID id, RecurringJobDefinition definition);
 

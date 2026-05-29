@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.jboss.logging.Logger;
+import run.ratchet.ri.core.internal.SingletonLeaseService;
 import run.ratchet.store.spi.LockStore;
 
 /** Handle for an acquired cluster-wide singleton lease. */
@@ -16,7 +17,7 @@ public final class SingletonLease implements AutoCloseable {
   private final String ownerNode;
   private final AtomicBoolean closed = new AtomicBoolean();
 
-  SingletonLease(LockStore lockStore, String name, String ownerNode) {
+  public SingletonLease(LockStore lockStore, String name, String ownerNode) {
     this.lockStore = Objects.requireNonNull(lockStore, "lockStore must not be null");
     this.name = Objects.requireNonNull(name, "name must not be null");
     this.ownerNode = Objects.requireNonNull(ownerNode, "ownerNode must not be null");

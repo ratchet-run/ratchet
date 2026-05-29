@@ -48,7 +48,8 @@ public class MicrometerTracingCollector implements TracingCollector {
   private final Tracer tracer;
   private final Propagator propagator;
 
-  protected MicrometerTracingCollector() {
+  // Package-private CDI proxy constructor — not for direct use.
+  MicrometerTracingCollector() {
     this.tracer = null;
     this.propagator = null;
   }

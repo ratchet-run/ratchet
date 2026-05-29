@@ -4,13 +4,14 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.time.Clock;
 import java.util.Objects;
+import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.spi.JobLogger;
 import run.ratchet.spi.JobLoggerContext;
 import run.ratchet.spi.JobLoggerFactory;
 
 /** Default per-job logger factory backed by JBoss Logging and Ratchet log events. */
 @ApplicationScoped
-public class DefaultJobLoggerFactory implements JobLoggerFactory {
+class DefaultJobLoggerFactory implements JobLoggerFactory {
 
   private final InternalEventPublisher eventPublisher;
   private final Clock clock;

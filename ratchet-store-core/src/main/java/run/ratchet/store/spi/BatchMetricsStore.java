@@ -17,16 +17,29 @@ import run.ratchet.store.entity.BatchMetricsEntity;
 @Incubating
 public interface BatchMetricsStore {
 
-  /** Persists batch metrics. Transaction attribute: {@code REQUIRED}. */
+  /**
+   * Persists batch metrics. Transaction attribute: {@code REQUIRED}.
+   *
+   * @param metrics metrics row to persist; never {@code null}
+   * @return persisted metrics (with generated identifiers populated); never {@code null}
+   */
   BatchMetricsEntity saveBatchMetrics(BatchMetricsEntity metrics);
 
-  /** Finds metrics for one batch. Transaction attribute: {@code SUPPORTS}. */
+  /**
+   * Finds metrics for one batch. Transaction attribute: {@code SUPPORTS}.
+   *
+   * @param batchId batch parent job id; never {@code null}
+   * @return matching metrics row, or {@link Optional#empty()} when the batch has no metrics row
+   */
   Optional<BatchMetricsEntity> findBatchMetrics(UUID batchId);
 
   /**
    * Adds one successful child execution duration and increments the success count.
    *
    * <p>Unknown batch ids are ignored. Transaction attribute: {@code REQUIRED}.
+   *
+   * @param batchId batch parent job id whose metrics are being updated; never {@code null}
+   * @param durationMs child execution duration in milliseconds; must be non-negative
    */
   void addChildExecutionTime(UUID batchId, long durationMs);
 
@@ -35,9 +48,16 @@ public interface BatchMetricsStore {
    *
    * <p>Unknown batch ids are ignored. Repeated calls after {@code completedAt} is set must not
    * recalculate completion time, duration, or overhead. Transaction attribute: {@code REQUIRED}.
+   *
+   * @param batchId batch parent job id to finalize; never {@code null}
    */
   void finalizeBatchMetrics(UUID batchId);
 
-  /** Updates the expected child count. Transaction attribute: {@code REQUIRED}. */
+  /**
+   * Updates the expected child count. Transaction attribute: {@code REQUIRED}.
+   *
+   * @param batchId batch parent job id; never {@code null}
+   * @param childCount expected child count to persist; must be non-negative
+   */
   void updateBatchMetricsChildCount(UUID batchId, int childCount);
 }

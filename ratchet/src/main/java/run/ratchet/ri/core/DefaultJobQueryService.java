@@ -35,7 +35,7 @@ import run.ratchet.store.spi.RecurringJobStore;
 
 /** Default {@link JobQueryService} implementation backed by the store SPI. */
 @ApplicationScoped
-public class DefaultJobQueryService implements JobQueryService {
+class DefaultJobQueryService implements JobQueryService {
 
   private final JobQueryStore queryStore;
   private final JobCrudStore crudStore;
@@ -207,6 +207,15 @@ public class DefaultJobQueryService implements JobQueryService {
   @Override
   public JobPage<ExecutionHistorySummary> getExecutionHistory(UUID jobId, int limit, int offset) {
     validatePageRequest(limit, offset);
+    if (authPolicy != null) {
+      try {
+        authPolicy.checkRead(jobId, currentPrincipal());
+      } catch (JobAuthorizationException ex) {
+        // Empty-on-denial — same contract as getJobDetail. Returning an exception would leak
+        // existence; an empty page is indistinguishable from a job with no execution history.
+        return new JobPage<>(List.of(), 0L, limit, offset, false, null);
+      }
+    }
     List<ExecutionHistorySummary> items =
         executionStore.findExecutionsByJobId(jobId, limit, offset).stream()
             .map(JobEntityMapper::toExecutionSummary)

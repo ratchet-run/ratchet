@@ -14,6 +14,8 @@ import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.internal.DefaultRatchetConfig;
+import run.ratchet.api.internal.EnvironmentRatchetConfigSource;
 import run.ratchet.spi.RatchetConfig;
 import run.ratchet.spi.RatchetConfigKey;
 

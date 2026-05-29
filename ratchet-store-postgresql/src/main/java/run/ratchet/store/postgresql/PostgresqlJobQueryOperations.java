@@ -228,6 +228,16 @@ final class PostgresqlJobQueryOperations {
     };
   }
 
+  /**
+   * Decides whether the archive UNION should be appended to the live-row query.
+   *
+   * <p>The archive UNION is intentionally skipped when {@code callerPrincipal} is non-null because
+   * principal-scoped queries do not span archived rows: the archive table does not carry the
+   * principal column, so appending the UNION would silently return archived rows belonging to other
+   * principals. Callers that need both principal scoping and archive inclusion must handle that at
+   * the policy or service layer; see {@code JobAuthorizationPolicy.filterForPrincipal} for the
+   * rationale.
+   */
   private static boolean useArchive(JobFilter filter) {
     return filter != null
         && filter.includeArchived()

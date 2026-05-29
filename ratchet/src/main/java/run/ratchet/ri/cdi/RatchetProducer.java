@@ -16,28 +16,26 @@ import java.util.EnumMap;
 import java.util.Map;
 import org.jboss.logging.Logger;
 import run.ratchet.api.RatchetOptions;
-import run.ratchet.ri.core.DefaultNodeIdentityProvider;
-import run.ratchet.ri.core.DefaultNodeTagAffinityProvider;
 import run.ratchet.ri.core.DrainController;
-import run.ratchet.ri.core.DynamicHeartbeatCalculator;
-import run.ratchet.ri.core.ExecutionObserver;
-import run.ratchet.ri.core.InternalEventPublisher;
-import run.ratchet.ri.core.JobExecutionCoordinator;
-import run.ratchet.ri.core.JobTimeoutHandler;
-import run.ratchet.ri.core.JobWakeupService;
-import run.ratchet.ri.core.OrphanRecoveryTimer;
-import run.ratchet.ri.core.Poller;
 import run.ratchet.ri.core.PollerScheduler;
-import run.ratchet.ri.core.PostExecutionHandler;
-import run.ratchet.ri.core.PreExecutionValidator;
 import run.ratchet.ri.core.ResourcePermitService;
-import run.ratchet.ri.core.SingletonLeaseService;
-import run.ratchet.ri.core.ThreadPoolManager;
-import run.ratchet.ri.core.WorkflowScheduler;
+import run.ratchet.ri.core.internal.DefaultNodeIdentityProvider;
+import run.ratchet.ri.core.internal.DefaultNodeTagAffinityProvider;
+import run.ratchet.ri.core.internal.DynamicHeartbeatCalculator;
+import run.ratchet.ri.core.internal.ExecutionObserver;
+import run.ratchet.ri.core.internal.InternalEventPublisher;
+import run.ratchet.ri.core.internal.JobExecutionCoordinator;
+import run.ratchet.ri.core.internal.JobTimeoutHandler;
+import run.ratchet.ri.core.internal.JobWakeupService;
+import run.ratchet.ri.core.internal.OrphanRecoveryTimer;
+import run.ratchet.ri.core.internal.Poller;
+import run.ratchet.ri.core.internal.PostExecutionHandler;
+import run.ratchet.ri.core.internal.SingletonLeaseService;
+import run.ratchet.ri.core.internal.ThreadPoolManager;
+import run.ratchet.ri.core.internal.WorkflowScheduler;
 import run.ratchet.ri.resilience.CircuitBreakerRegistry;
 import run.ratchet.ri.resilience.DefaultResilienceStrategy;
 import run.ratchet.ri.security.DefaultErrorSanitizer;
-import run.ratchet.ri.security.JobSecurityValidator;
 import run.ratchet.ri.security.PackagePrefixClassPolicy;
 import run.ratchet.spi.CircuitBreakerConfigProvider;
 import run.ratchet.spi.ClassPolicy;
@@ -71,7 +69,7 @@ import run.ratchet.store.spi.SignalStore;
  * constructors require primitive configuration parameters.
  */
 @ApplicationScoped
-public class RatchetProducer {
+class RatchetProducer {
 
   private static final Logger log = Logger.getLogger(RatchetProducer.class);
 
@@ -269,20 +267,6 @@ public class RatchetProducer {
 
   @Produces
   @ApplicationScoped
-  public PreExecutionValidator.SecurityValidator securityValidator(
-      JobSecurityValidator jobSecurityValidator) {
-    return jobSecurityValidator::validate;
-  }
-
-  @Produces
-  @ApplicationScoped
-  public PreExecutionValidator.DoNotRetryPolicy doNotRetryPolicy(
-      run.ratchet.ri.core.DoNotRetryPolicy policy) {
-    return policy::shouldNotRetry;
-  }
-
-  @Produces
-  @ApplicationScoped
   public OrphanRecoveryTimer orphanRecoveryTimer(
       JobBulkStore jobBulkStore,
       ResourcePermitService resourcePermitService,
@@ -379,7 +363,7 @@ public class RatchetProducer {
    * user has installed an {@code @Alternative PayloadSerializer}, this observer picks it up
    * automatically via CDI resolution.
    */
-  public void registerPayloadSerializer(
+  void registerPayloadSerializer(
       @Observes @Initialized(ApplicationScoped.class) Object init,
       Instance<PayloadSerializer> payloadSerializers) {
     if (payloadSerializers.isResolvable()) {

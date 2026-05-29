@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import run.ratchet.ri.core.internal.DefaultResourcePermitService;
 import run.ratchet.store.spi.ResourcePermitStore;
 
 @ExtendWith(MockitoExtension.class)
@@ -19,7 +20,8 @@ class ResourcePermitServiceTest {
 
   @Test
   void release_wakesPollerWhenStoreReleaseFails() {
-    ResourcePermitService service = new ResourcePermitService(resourcePermitStore, pollerScheduler);
+    DefaultResourcePermitService service =
+        new DefaultResourcePermitService(resourcePermitStore, pollerScheduler);
     UUID jobId = new UUID(0L, 1L);
     doThrow(new RuntimeException("store unavailable"))
         .when(resourcePermitStore)
@@ -32,7 +34,8 @@ class ResourcePermitServiceTest {
 
   @Test
   void releaseAll_wakesPollerWhenStoreReleaseFails() {
-    ResourcePermitService service = new ResourcePermitService(resourcePermitStore, pollerScheduler);
+    DefaultResourcePermitService service =
+        new DefaultResourcePermitService(resourcePermitStore, pollerScheduler);
     UUID jobId = new UUID(0L, 2L);
     doThrow(new RuntimeException("store unavailable"))
         .when(resourcePermitStore)

@@ -18,6 +18,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
+import run.ratchet.ri.core.internal.DeadLetterService;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
@@ -29,7 +30,7 @@ import run.ratchet.store.spi.JobBatchStatusStore;
  * buffer per {@link JobExecutionType}, drained by {@link RetryBufferDrainer}.
  */
 @ApplicationScoped
-public class RetryBufferManager {
+class RetryBufferManager {
 
   static final int MAX_BUFFER_SIZE_PER_TYPE = 1000;
 
