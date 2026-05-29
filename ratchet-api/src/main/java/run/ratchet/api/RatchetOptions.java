@@ -340,11 +340,11 @@ public class RatchetOptions {
    * @param jobExecutorJndi JNDI name of the {@code ManagedExecutorService} that runs jobs
    * @param scheduledExecutorJndi JNDI name of the {@code ManagedScheduledExecutorService} used for
    *     scheduled work
-   * @param virtualExecutorJndi JNDI name of an additional {@code ManagedExecutorService} backing the
-   *     virtual pool; absent (null or blank) means virtual-targeted jobs fall back to platform
-   * @param virtualCounterAccounting {@code true} to use lock-free counter accounting for the virtual
-   *     pool instead of the default semaphore bound; only safe when the executor is genuinely
-   *     virtual-thread backed
+   * @param virtualExecutorJndi JNDI name of an additional {@code ManagedExecutorService} backing
+   *     the virtual pool; absent (null or blank) means virtual-targeted jobs fall back to platform
+   * @param virtualCounterAccounting {@code true} to use lock-free counter accounting for the
+   *     virtual pool instead of the default semaphore bound; only safe when the executor is
+   *     genuinely virtual-thread backed
    */
   @Incubating
   public record ExecutionOptions(
@@ -873,8 +873,8 @@ public class RatchetOptions {
     }
 
     /**
-     * @param burstDelayMs delay in milliseconds between consecutive busy ticks; must be
-     *     {@code >= 0}
+     * @param burstDelayMs delay in milliseconds between consecutive busy ticks; must be {@code >=
+     *     0}
      * @return this builder
      * @throws IllegalArgumentException if {@code burstDelayMs < 0}
      */
@@ -884,8 +884,8 @@ public class RatchetOptions {
     }
 
     /**
-     * @param minDelayMs minimum idle backoff delay in milliseconds; must be {@code >= 0} and
-     *     {@code <= maxDelayMs} (enforced when the section is built)
+     * @param minDelayMs minimum idle backoff delay in milliseconds; must be {@code >= 0} and {@code
+     *     <= maxDelayMs} (enforced when the section is built)
      * @return this builder
      * @throws IllegalArgumentException if {@code minDelayMs < 0}
      */
@@ -895,8 +895,8 @@ public class RatchetOptions {
     }
 
     /**
-     * @param maxDelayMs maximum idle backoff delay in milliseconds; must be {@code >= 1} and
-     *     {@code >= minDelayMs} (enforced when the section is built)
+     * @param maxDelayMs maximum idle backoff delay in milliseconds; must be {@code >= 1} and {@code
+     *     >= minDelayMs} (enforced when the section is built)
      * @return this builder
      * @throws IllegalArgumentException if {@code maxDelayMs < 1}
      */
@@ -938,8 +938,8 @@ public class RatchetOptions {
     }
 
     /**
-     * @param claimHeadroomFactor headroom multiplier for free-slot calculations; must be
-     *     {@code >= 0} ({@code 0} disables the adjustment)
+     * @param claimHeadroomFactor headroom multiplier for free-slot calculations; must be {@code >=
+     *     0} ({@code 0} disables the adjustment)
      * @return this builder
      * @throws IllegalArgumentException if {@code claimHeadroomFactor < 0}
      */
@@ -1036,8 +1036,8 @@ public class RatchetOptions {
     }
 
     /**
-     * @param queueSize bounded queue length for the in-process fallback executor; must be
-     *     {@code >= 0}
+     * @param queueSize bounded queue length for the in-process fallback executor; must be {@code >=
+     *     0}
      * @return this builder
      * @throws IllegalArgumentException if {@code queueSize < 0}
      */
@@ -1228,8 +1228,8 @@ public class RatchetOptions {
     }
 
     /**
-     * @param pollMs nominal poll interval in milliseconds; must be {@code >= 1} and
-     *     {@code <= maxPollMs} (enforced when the section is built)
+     * @param pollMs nominal poll interval in milliseconds; must be {@code >= 1} and {@code <=
+     *     maxPollMs} (enforced when the section is built)
      * @return this builder
      * @throws IllegalArgumentException if {@code pollMs < 1}
      */
@@ -1239,8 +1239,8 @@ public class RatchetOptions {
     }
 
     /**
-     * @param maxPollMs maximum poll interval in milliseconds when no work is due; must be
-     *     {@code >= 1} and {@code >= pollMs} (enforced when the section is built)
+     * @param maxPollMs maximum poll interval in milliseconds when no work is due; must be {@code >=
+     *     1} and {@code >= pollMs} (enforced when the section is built)
      * @return this builder
      * @throws IllegalArgumentException if {@code maxPollMs < 1}
      */

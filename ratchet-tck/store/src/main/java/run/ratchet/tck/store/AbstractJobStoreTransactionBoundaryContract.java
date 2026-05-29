@@ -10,8 +10,8 @@ import java.util.Collection;
 import org.junit.jupiter.api.Test;
 
 /**
- * Contract for JPA-backed {@code JobStore} implementations that express their lock and node-liveness
- * transaction boundaries through Jakarta Transactions.
+ * Contract for JPA-backed {@code JobStore} implementations that express their lock and
+ * node-liveness transaction boundaries through Jakarta Transactions.
  *
  * <p>Lock acquisition and release, lease renewal, heartbeat upserts, and inactive-node cleanup must
  * commit in a transaction independent of any caller transaction. That way a distributed lock or a
