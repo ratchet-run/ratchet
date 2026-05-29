@@ -46,6 +46,28 @@ public interface RecurringJobBuilder {
   RecurringJobBuilder withBusinessKey(String key);
 
   /**
+   * Routes occurrences created from this recurring job to the virtual executor pool ({@link
+   * ExecutorTargets#VIRTUAL}).
+   *
+   * <p>Mutually exclusive with {@link #platform()}; last call wins. Calling neither leaves
+   * occurrences on the deployment's default threading mode. If no virtual executor is configured,
+   * each occurrence falls back to the platform pool (observed via a metric and a one-time warning)
+   * - the target selects a configured pool, not a guaranteed thread type.
+   */
+  @Incubating
+  RecurringJobBuilder virtual();
+
+  /**
+   * Routes occurrences created from this recurring job to the platform executor pool ({@link
+   * ExecutorTargets#PLATFORM}).
+   *
+   * <p>Mutually exclusive with {@link #virtual()}; last call wins. Calling neither leaves
+   * occurrences on the deployment's default threading mode. The platform pool is always present.
+   */
+  @Incubating
+  RecurringJobBuilder platform();
+
+  /**
    * Persists the recurring job and returns a handle to it.
    *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}. Non-terminal builder methods are in-memory

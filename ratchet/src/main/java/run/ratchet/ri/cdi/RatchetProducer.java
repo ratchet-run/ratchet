@@ -13,8 +13,10 @@ import jakarta.inject.Inject;
 import jakarta.transaction.TransactionSynchronizationRegistry;
 import java.time.Clock;
 import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import org.jboss.logging.Logger;
+import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.PollerScheduler;
@@ -29,6 +31,7 @@ import run.ratchet.ri.core.internal.JobTimeoutHandler;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.core.internal.OrphanRecoveryTimer;
 import run.ratchet.ri.core.internal.Poller;
+import run.ratchet.ri.core.internal.PoolRegistry;
 import run.ratchet.ri.core.internal.PostExecutionHandler;
 import run.ratchet.ri.core.internal.SingletonLeaseService;
 import run.ratchet.ri.core.internal.ThreadPoolManager;
@@ -72,6 +75,9 @@ import run.ratchet.store.spi.SignalStore;
 public class RatchetProducer {
 
   private static final Logger log = Logger.getLogger(RatchetProducer.class);
+
+  /** Per-type default limit for the virtual pool when no explicit limit is configured. */
+  private static final int DEFAULT_VIRTUAL_LIMIT = 1000;
 
   private final ExecutorProvider executorProvider;
   private final MetricsCollector metricsCollector;
@@ -134,21 +140,44 @@ public class RatchetProducer {
 
   @Produces
   @ApplicationScoped
-  public ThreadPoolManager threadPoolManager() {
-    boolean useVirtualThreads = executionTuningProvider.useVirtualThreads();
+  public PoolRegistry poolRegistry() {
+    Map<String, ThreadPoolManager> pools = new LinkedHashMap<>();
 
-    Map<JobExecutionType, Integer> maxConcurrencyMap = new EnumMap<>(JobExecutionType.class);
+    Map<JobExecutionType, Integer> platformLimits = new EnumMap<>(JobExecutionType.class);
     for (JobExecutionType type : JobExecutionType.values()) {
-      maxConcurrencyMap.put(
+      platformLimits.put(
           type, executionTuningProvider.maxConcurrency(type.name(), configuredConcurrency(type)));
     }
+    pools.put(
+        ExecutorTargets.PLATFORM,
+        new ThreadPoolManager(
+            ExecutorTargets.PLATFORM,
+            executorProvider,
+            metricsCollector,
+            ThreadPoolManager.AccountingMode.SEMAPHORE,
+            platformLimits));
 
-    return new ThreadPoolManager(
-        executorProvider,
-        metricsCollector,
-        useVirtualThreads,
-        maxConcurrencyMap,
-        executionTuningProvider);
+    if (options.execution().hasVirtualExecutor()) {
+      Map<JobExecutionType, Integer> virtualLimits = new EnumMap<>(JobExecutionType.class);
+      for (JobExecutionType type : JobExecutionType.values()) {
+        virtualLimits.put(
+            type, executionTuningProvider.virtualThreadLimit(type.name(), DEFAULT_VIRTUAL_LIMIT));
+      }
+      ThreadPoolManager.AccountingMode accountingMode =
+          options.execution().virtualCounterAccounting()
+              ? ThreadPoolManager.AccountingMode.COUNTER
+              : ThreadPoolManager.AccountingMode.SEMAPHORE;
+      pools.put(
+          ExecutorTargets.VIRTUAL,
+          new ThreadPoolManager(
+              ExecutorTargets.VIRTUAL,
+              executorProvider,
+              metricsCollector,
+              accountingMode,
+              virtualLimits));
+    }
+
+    return new PoolRegistry(pools);
   }
 
   @Produces
@@ -232,7 +261,7 @@ public class RatchetProducer {
       JobClaimStore jobClaimStore,
       JobExecutionCoordinator jobExecutionCoordinator,
       NodeIdentityProvider nodeIdProvider,
-      ThreadPoolManager threadPoolManager,
+      PoolRegistry poolRegistry,
       DrainController drainController,
       PollerScheduler pollerScheduler,
       CircuitBreakerRegistry circuitBreakerRegistry,
@@ -243,7 +272,7 @@ public class RatchetProducer {
         jobClaimStore,
         jobExecutionCoordinator,
         nodeIdProvider,
-        threadPoolManager,
+        poolRegistry,
         drainController,
         pollerScheduler,
         options,

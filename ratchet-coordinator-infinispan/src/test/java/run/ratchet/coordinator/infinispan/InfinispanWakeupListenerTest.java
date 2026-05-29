@@ -80,7 +80,7 @@ class InfinispanWakeupListenerTest {
         new InfinispanWakeupListener(
             codec, 16_384, p -> dispatched.incrementAndGet(), parseFailures::incrementAndGet);
 
-    listener.onEntryCreated(eventWithValue("{\"v\":2,\"node\":\"x\",\"prio\":\"HIGH\"}"));
+    listener.onEntryCreated(eventWithValue("{\"v\":99,\"node\":\"x\",\"prio\":\"HIGH\"}"));
 
     assertEquals(0, dispatched.get());
     assertEquals(1, parseFailures.get());

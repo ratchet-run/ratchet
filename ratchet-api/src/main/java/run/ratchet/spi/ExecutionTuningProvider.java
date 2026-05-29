@@ -1,17 +1,18 @@
 package run.ratchet.spi;
 
 import run.ratchet.api.Incubating;
+import run.ratchet.api.RatchetOptions;
 
 /** Supplies execution limits without exposing RI-only execution type enums to API consumers. */
 @Incubating
 public interface ExecutionTuningProvider {
 
   /**
-   * Returns whether the executor should prefer virtual threads.
+   * Returns the pool a job runs on when it specifies no target of its own.
    *
-   * @return {@code true} to use virtual threads when the runtime supports them
+   * @return the default threading mode; never {@code null}
    */
-  boolean useVirtualThreads();
+  RatchetOptions.ThreadingMode defaultThreadingMode();
 
   /**
    * Returns the maximum platform-thread concurrency for an execution type.

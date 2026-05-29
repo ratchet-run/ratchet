@@ -169,6 +169,10 @@ public class RatchetOptions {
     return value;
   }
 
+  private static String blankToNull(String value) {
+    return (value == null || value.isBlank()) ? null : value.trim();
+  }
+
   private static long atLeast(String name, long value, long minInclusive) {
     if (value < minInclusive) {
       throw new IllegalArgumentException(name + " must be at least " + minInclusive);
@@ -260,6 +264,27 @@ public class RatchetOptions {
   }
 
   /**
+   * Selects which configured executor pool a job runs on by default when the job itself specifies
+   * no target. {@link #PLATFORM} is always available; {@link #VIRTUAL} requires a configured
+   * virtual executor and otherwise falls back to platform.
+   */
+  public enum ThreadingMode {
+    PLATFORM(ExecutorTargets.PLATFORM),
+    VIRTUAL(ExecutorTargets.VIRTUAL);
+
+    private final String target;
+
+    ThreadingMode(String target) {
+      this.target = target;
+    }
+
+    /** Returns the reserved execution-target name this mode resolves to. */
+    public String target() {
+      return target;
+    }
+  }
+
+  /**
    * Poller cadence and claim-loop tuning.
    *
    * @param batchSize maximum number of jobs claimed per poller tick
@@ -303,13 +328,15 @@ public class RatchetOptions {
    *     scheduled work
    */
   public record ExecutionOptions(
-      boolean useVirtualThreads,
+      ThreadingMode defaultThreadingMode,
       int queueSize,
       Map<String, Integer> maxConcurrency,
       Map<String, Integer> virtualThreadLimits,
       Map<String, Integer> rateLimitsPerMinute,
       String jobExecutorJndi,
-      String scheduledExecutorJndi) {
+      String scheduledExecutorJndi,
+      String virtualExecutorJndi,
+      boolean virtualCounterAccounting) {
 
     public ExecutionOptions {
       maxConcurrency = Map.copyOf(maxConcurrency);
@@ -317,6 +344,17 @@ public class RatchetOptions {
       rateLimitsPerMinute = Map.copyOf(rateLimitsPerMinute);
       jobExecutorJndi = requireNonBlank("jobExecutorJndi", jobExecutorJndi);
       scheduledExecutorJndi = requireNonBlank("scheduledExecutorJndi", scheduledExecutorJndi);
+      defaultThreadingMode =
+          defaultThreadingMode == null ? ThreadingMode.PLATFORM : defaultThreadingMode;
+      virtualExecutorJndi = blankToNull(virtualExecutorJndi);
+    }
+
+    /**
+     * Returns true when a virtual executor pool is configured. A virtual-targeted job falls back to
+     * the platform pool when this is false.
+     */
+    public boolean hasVirtualExecutor() {
+      return virtualExecutorJndi != null;
     }
 
     public int maxConcurrency(String executionTypeName, int defaultValue) {
@@ -718,15 +756,45 @@ public class RatchetOptions {
     private final Map<String, Integer> maxConcurrency = defaultConcurrency();
     private final Map<String, Integer> virtualThreadLimits = new HashMap<>();
     private final Map<String, Integer> rateLimitsPerMinute = new HashMap<>();
-    private boolean useVirtualThreads;
+    private ThreadingMode defaultThreadingMode = ThreadingMode.PLATFORM;
     private int queueSize = 100;
     private String jobExecutorJndi = "java:comp/DefaultManagedExecutorService";
     private String scheduledExecutorJndi = "java:comp/DefaultManagedScheduledExecutorService";
+    private String virtualExecutorJndi;
+    private boolean virtualCounterAccounting;
 
     private ExecutionBuilder() {}
 
-    public ExecutionBuilder useVirtualThreads(boolean useVirtualThreads) {
-      this.useVirtualThreads = useVirtualThreads;
+    /**
+     * Sets the pool a job runs on when it specifies no target of its own. Defaults to {@link
+     * ThreadingMode#PLATFORM}. Selecting {@link ThreadingMode#VIRTUAL} with no virtual executor
+     * configured falls back to platform.
+     */
+    public ExecutionBuilder defaultThreadingMode(ThreadingMode defaultThreadingMode) {
+      this.defaultThreadingMode =
+          defaultThreadingMode == null ? ThreadingMode.PLATFORM : defaultThreadingMode;
+      return this;
+    }
+
+    /**
+     * Sets the JNDI name of an additional {@code ManagedExecutorService} that backs the virtual
+     * pool. Absent (null or blank) means no virtual pool exists and virtual-targeted jobs fall back
+     * to platform. As with {@link #jobExecutorJndi(String)}, whether the executor actually runs on
+     * virtual threads is the container's decision.
+     */
+    public ExecutionBuilder virtualExecutorJndi(String virtualExecutorJndi) {
+      this.virtualExecutorJndi = virtualExecutorJndi;
+      return this;
+    }
+
+    /**
+     * Opts the virtual pool into lock-free counter accounting instead of the default semaphore
+     * bound. Only safe when the deployer has verified the executor is genuinely virtual-thread
+     * backed; on a container that backs it with a small platform pool, counter accounting admits
+     * far more work than the executor can run. Defaults to semaphore accounting.
+     */
+    public ExecutionBuilder virtualCounterAccounting(boolean virtualCounterAccounting) {
+      this.virtualCounterAccounting = virtualCounterAccounting;
       return this;
     }
 
@@ -778,13 +846,15 @@ public class RatchetOptions {
 
     private ExecutionOptions build() {
       return new ExecutionOptions(
-          useVirtualThreads,
+          defaultThreadingMode,
           queueSize,
           maxConcurrency,
           virtualThreadLimits,
           rateLimitsPerMinute,
           jobExecutorJndi,
-          scheduledExecutorJndi);
+          scheduledExecutorJndi,
+          virtualExecutorJndi,
+          virtualCounterAccounting);
     }
   }
 

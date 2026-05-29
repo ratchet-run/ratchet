@@ -128,6 +128,7 @@ class DefaultJobQueryServiceTest {
             null,
             "bk-rec",
             null,
+            null,
             Instant.parse("2026-05-19T00:00:00Z"),
             "alice");
     when(recurringJobStore.listAll()).thenReturn(new java.util.ArrayList<>(List.of(def)));
@@ -626,6 +627,7 @@ class DefaultJobQueryServiceTest {
         null,
         null,
         null,
+        null,
         Instant.parse("2026-05-19T00:00:00Z"),
         null);
   }
@@ -646,6 +648,7 @@ class DefaultJobQueryServiceTest {
         0,
         new run.ratchet.store.entity.JobPayload(
             "com.example.Recurring", "tick", "()V", true, List.of()),
+        null,
         null,
         null,
         null,
@@ -673,6 +676,7 @@ class DefaultJobQueryServiceTest {
         null,
         null,
         businessKey,
+        null,
         null,
         Instant.parse("2026-05-19T00:00:00Z"),
         null);

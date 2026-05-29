@@ -13,9 +13,9 @@ import run.ratchet.store.entity.JobEntity;
  */
 public interface JobExecutorService {
 
-  ExecutionResult execute(JobEntity job);
+  ExecutionResult execute(JobEntity job, String poolName);
 
-  ExecutionResult execute(JobClaimDto claim);
+  ExecutionResult execute(JobClaimDto claim, String poolName);
 
   /**
    * Non-destructive drain: blocks until all currently-executing jobs reach a terminal state, or

@@ -25,14 +25,15 @@ final class PostgresqlJobWriteOperations {
         job_id, job_type, priority, max_retries, backoff_policy, backoff_param_ms,
         timeout_sec, cron_expr, zone_id, payload, params, idempotency_key,
         business_key, resource_name, on_success_payload, on_failure_payload, depends_on,
-        superseded_by, created_at, caller_principal, trace_context, recurring_master_id)
+        superseded_by, created_at, caller_principal, trace_context, recurring_master_id,
+        execution_target)
       VALUES
       """;
 
   private static final String COLD_INSERT_VALUES =
       """
       (?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), CAST(? AS jsonb), ?, ?, ?,
-              CAST(? AS jsonb), CAST(? AS jsonb), ?, ?, ?, ?, CAST(? AS jsonb), ?)
+              CAST(? AS jsonb), CAST(? AS jsonb), ?, ?, ?, ?, CAST(? AS jsonb), ?, ?)
       """;
 
   private static final String COLD_INSERT_SQL = COLD_INSERT_PREFIX + COLD_INSERT_VALUES;
@@ -45,12 +46,12 @@ final class PostgresqlJobWriteOperations {
         max_retries, attempts, picked_by, picked_at, paused_from_status, last_error,
         version, updated_at, signal_key, signal_timeout, signal_payload, signal_payload_type,
         signal_outcome, signal_rejection_reason, signal_delivered_at, signal_delivered_by,
-        signal_delivery_id)
+        signal_delivery_id, execution_target)
       VALUES
       """;
 
   private static final String HOT_INSERT_VALUES =
-      "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+      "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
   private static final String HOT_INSERT_SQL = HOT_INSERT_PREFIX + HOT_INSERT_VALUES;
 
@@ -251,7 +252,8 @@ final class PostgresqlJobWriteOperations {
     q.setParameter(i++, job.getCreatedAt() != null ? Timestamp.from(job.getCreatedAt()) : nowTs);
     q.setParameter(i++, job.getCallerPrincipal());
     q.setParameter(i++, PostgresqlJobRowMapper.traceContextToJson(job));
-    q.setParameter(i, job.getRecurringMasterId());
+    q.setParameter(i++, job.getRecurringMasterId());
+    q.setParameter(i, job.getExecutionTarget());
     return i + 1;
   }
 
@@ -289,7 +291,8 @@ final class PostgresqlJobWriteOperations {
         i++,
         job.getSignalDeliveredAt() != null ? Timestamp.from(job.getSignalDeliveredAt()) : null);
     q.setParameter(i++, job.getSignalDeliveredBy());
-    q.setParameter(i, job.getSignalDeliveryId());
+    q.setParameter(i++, job.getSignalDeliveryId());
+    q.setParameter(i, job.getExecutionTarget());
     return i + 1;
   }
 

@@ -17,6 +17,12 @@ class ApiIncubatingContractTest {
   }
 
   @Test
+  void recurringExecutionTargetMethodsAreIncubating() throws NoSuchMethodException {
+    assertIncubating(RecurringJobBuilder.class.getMethod("virtual"));
+    assertIncubating(RecurringJobBuilder.class.getMethod("platform"));
+  }
+
+  @Test
   void streamingBatchBuilderIsIncubating() {
     assertIncubating(StreamingBatchBuilder.class);
   }

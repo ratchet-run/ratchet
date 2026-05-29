@@ -26,13 +26,14 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.NodeIdentity;
 import run.ratchet.coordinator.common.NotifyPayload;
 import run.ratchet.coordinator.common.internal.NotifyPayloadCodec;
 import run.ratchet.spi.ClusterCoordinator;
+import run.ratchet.spi.JobWakeupHint;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.SchedulerLifecycleHook;
@@ -73,7 +74,7 @@ public class HazelcastClusterCoordinator implements ClusterCoordinator, Schedule
   @Inject MetricsCollector metrics;
 
   private final NotifyPayloadCodec codec = new NotifyPayloadCodec();
-  private final CopyOnWriteArrayList<BiConsumer<JobPriority, NodeIdentity>> listeners =
+  private final CopyOnWriteArrayList<Consumer<JobWakeupHint>> listeners =
       new CopyOnWriteArrayList<>();
   private final BlockingQueue<NotifyPayload> preRegistrationBuffer =
       new ArrayBlockingQueue<>(PRE_REGISTRATION_BUFFER_CAPACITY);
@@ -128,14 +129,14 @@ public class HazelcastClusterCoordinator implements ClusterCoordinator, Schedule
   }
 
   @Override
-  public void notifyNewWork(JobPriority priority, NodeIdentity source) {
+  public void notifyNewWork(JobPriority priority, NodeIdentity source, String executionTarget) {
     Objects.requireNonNull(priority, "priority");
     Objects.requireNonNull(source, "source");
     if (closed.get()) {
       return;
     }
     try {
-      String body = codec.encode(NotifyPayload.current(source, priority));
+      String body = codec.encode(NotifyPayload.current(source, priority, executionTarget));
       CompletionStage<Void> stage = topic.publishAsync(body);
       stage.whenCompleteAsync(
           (v, throwable) -> {
@@ -159,7 +160,7 @@ public class HazelcastClusterCoordinator implements ClusterCoordinator, Schedule
   }
 
   @Override
-  public void registerWakeupListener(BiConsumer<JobPriority, NodeIdentity> listener) {
+  public void registerWakeupListener(Consumer<JobWakeupHint> listener) {
     Objects.requireNonNull(listener, "listener");
     if (closed.get()) {
       return;
@@ -240,12 +241,13 @@ public class HazelcastClusterCoordinator implements ClusterCoordinator, Schedule
   }
 
   private void dispatchToListeners(NotifyPayload msg) {
-    for (BiConsumer<JobPriority, NodeIdentity> listener : listeners) {
+    JobWakeupHint hint = new JobWakeupHint(msg.priority(), msg.node(), msg.executionTarget());
+    for (Consumer<JobWakeupHint> listener : listeners) {
       try {
         listenerExecutor.execute(
             () -> {
               try {
-                listener.accept(msg.priority(), msg.node());
+                listener.accept(hint);
               } catch (RuntimeException listenerEx) {
                 clusterWakeupReceived("listener_failure");
                 log.warnf(

@@ -14,8 +14,8 @@ import run.ratchet.store.entity.JobPayload;
  * JobPayload} is a store-core type. Other SPI sub-interfaces follow the same convention.
  *
  * <p>{@code onSuccessPayload}, {@code onFailurePayload}, {@code businessKey}, {@code resourceName},
- * and {@code callerPrincipal} are nullable. {@code pausedAt} is nullable and must be {@code null}
- * iff {@code paused} is {@code false}.
+ * {@code executionTarget}, and {@code callerPrincipal} are nullable. {@code pausedAt} is nullable
+ * and must be {@code null} iff {@code paused} is {@code false}.
  *
  * @param id recurring-master primary key; never {@code null}
  * @param cronExpr cron expression that drives {@code nextFire}; never {@code null} or blank
@@ -36,6 +36,8 @@ import run.ratchet.store.entity.JobPayload;
  *     configured
  * @param resourceName resource permit name required by fired child jobs, or {@code null} when no
  *     resource gate applies
+ * @param executionTarget execution-target label copied to fired child jobs, or {@code null} to
+ *     inherit the deployment default
  * @param createdAt instant the master was registered; never {@code null}
  * @param callerPrincipal caller principal captured at registration, or {@code null} when no
  *     security context was present
@@ -58,5 +60,6 @@ public record RecurringJobDefinition(
     JobPayload onFailurePayload,
     String businessKey,
     String resourceName,
+    String executionTarget,
     Instant createdAt,
     String callerPrincipal) {}

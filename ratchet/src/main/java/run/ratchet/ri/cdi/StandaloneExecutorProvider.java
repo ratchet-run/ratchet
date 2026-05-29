@@ -3,12 +3,15 @@ package run.ratchet.ri.cdi;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Alternative;
+import java.lang.reflect.Method;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import run.ratchet.api.ExecutorTargets;
 import run.ratchet.spi.ExecutorProvider;
 
 /**
@@ -25,6 +28,7 @@ public class StandaloneExecutorProvider implements ExecutorProvider {
       Executors.newCachedThreadPool(namedThreadFactory("ratchet-standalone-job"));
   private final ScheduledExecutorService scheduledExecutor =
       Executors.newScheduledThreadPool(2, namedThreadFactory("ratchet-standalone-scheduler"));
+  private volatile ExecutorService virtualJobExecutor;
 
   private static void shutdown(ExecutorService executor) {
     executor.shutdown();
@@ -47,9 +51,44 @@ public class StandaloneExecutorProvider implements ExecutorProvider {
     };
   }
 
+  @SuppressWarnings("JavaReflectionMemberAccess")
+  private static ExecutorService newVirtualThreadExecutor() {
+    try {
+      Method factory = Executors.class.getMethod("newVirtualThreadPerTaskExecutor");
+      return (ExecutorService) factory.invoke(null);
+    } catch (ReflectiveOperationException e) {
+      throw new IllegalStateException("Standalone virtual executor requires Java 21 or newer", e);
+    }
+  }
+
   @Override
   public ExecutorService getJobExecutor() {
     return jobExecutor;
+  }
+
+  @Override
+  public Optional<ExecutorService> getJobExecutor(String target) {
+    if (ExecutorTargets.PLATFORM.equals(target)) {
+      return Optional.of(getJobExecutor());
+    }
+    if (ExecutorTargets.VIRTUAL.equals(target)) {
+      return Optional.of(virtualJobExecutor());
+    }
+    return Optional.empty();
+  }
+
+  private ExecutorService virtualJobExecutor() {
+    ExecutorService executor = virtualJobExecutor;
+    if (executor == null) {
+      synchronized (this) {
+        executor = virtualJobExecutor;
+        if (executor == null) {
+          executor = newVirtualThreadExecutor();
+          virtualJobExecutor = executor;
+        }
+      }
+    }
+    return executor;
   }
 
   @Override
@@ -60,6 +99,10 @@ public class StandaloneExecutorProvider implements ExecutorProvider {
   @PreDestroy
   void shutdown() {
     shutdown(jobExecutor);
+    ExecutorService virtualExecutor = virtualJobExecutor;
+    if (virtualExecutor != null) {
+      shutdown(virtualExecutor);
+    }
     shutdown(scheduledExecutor);
   }
 }

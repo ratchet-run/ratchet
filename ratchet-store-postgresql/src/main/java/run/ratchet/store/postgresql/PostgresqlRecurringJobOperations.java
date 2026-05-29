@@ -33,7 +33,7 @@ final class PostgresqlRecurringJobOperations implements RecurringJobStore {
       "id, priority, max_retries, backoff_policy, backoff_param_ms, timeout_sec, cron_expr,"
           + " zone_id, next_fire, is_paused, paused_at, payload::text,"
           + " on_success_payload::text, on_failure_payload::text, business_key, resource_name,"
-          + " created_at, caller_principal";
+          + " execution_target, created_at, caller_principal";
 
   private final PostgresqlStoreContext ctx;
   private final PostgresqlBusinessKeyReservations reservations;
@@ -199,10 +199,10 @@ final class PostgresqlRecurringJobOperations implements RecurringJobStore {
         "INSERT INTO scheduler_recurring_job ("
             + "id, priority, max_retries, backoff_policy, backoff_param_ms, timeout_sec,"
             + " cron_expr, zone_id, next_fire, is_paused, paused_at, payload,"
-            + " on_success_payload, on_failure_payload, business_key, resource_name, created_at,"
-            + " caller_principal)"
+            + " on_success_payload, on_failure_payload, business_key, resource_name,"
+            + " execution_target, created_at, caller_principal)"
             + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS JSONB),"
-            + " CAST(? AS JSONB), CAST(? AS JSONB), ?, ?, ?, ?)";
+            + " CAST(? AS JSONB), CAST(? AS JSONB), ?, ?, ?, ?, ?)";
     Instant created = d.createdAt() != null ? d.createdAt() : Instant.now();
     Query q = ctx.em().createNativeQuery(sql);
     int i = 1;
@@ -222,6 +222,7 @@ final class PostgresqlRecurringJobOperations implements RecurringJobStore {
     q.setParameter(i++, PAYLOAD_CONVERTER.convertToDatabaseColumn(d.onFailurePayload()));
     q.setParameter(i++, d.businessKey());
     q.setParameter(i++, d.resourceName());
+    q.setParameter(i++, d.executionTarget());
     q.setParameter(i++, Timestamp.from(created));
     q.setParameter(i, d.callerPrincipal());
     try {
@@ -249,7 +250,7 @@ final class PostgresqlRecurringJobOperations implements RecurringJobStore {
             + " timeout_sec = ?, cron_expr = ?, zone_id = ?, next_fire = ?,"
             + " payload = CAST(? AS JSONB),"
             + " on_success_payload = CAST(? AS JSONB), on_failure_payload = CAST(? AS JSONB),"
-            + " resource_name = ?"
+            + " resource_name = ?, execution_target = ?"
             + " WHERE id = ?";
     Query q = ctx.em().createNativeQuery(sql);
     int i = 1;
@@ -265,6 +266,7 @@ final class PostgresqlRecurringJobOperations implements RecurringJobStore {
     q.setParameter(i++, PAYLOAD_CONVERTER.convertToDatabaseColumn(d.onSuccessPayload()));
     q.setParameter(i++, PAYLOAD_CONVERTER.convertToDatabaseColumn(d.onFailurePayload()));
     q.setParameter(i++, d.resourceName());
+    q.setParameter(i++, d.executionTarget());
     q.setParameter(i, id);
     return q.executeUpdate() > 0;
   }
@@ -330,9 +332,10 @@ final class PostgresqlRecurringJobOperations implements RecurringJobStore {
     String archiveSql =
         "INSERT INTO scheduler_recurring_job_archive ("
             + "id, cron_expr, zone_id, payload, on_success_payload, on_failure_payload,"
-            + " business_key, created_at, caller_principal, archived_at, archive_reason)"
+            + " business_key, execution_target, created_at, caller_principal, archived_at,"
+            + " archive_reason)"
             + " SELECT id, cron_expr, zone_id, payload, on_success_payload,"
-            + " on_failure_payload, business_key, created_at, caller_principal,"
+            + " on_failure_payload, business_key, execution_target, created_at, caller_principal,"
             + " statement_timestamp(), ?"
             + " FROM scheduler_recurring_job WHERE id IN ("
             + placeholders
@@ -398,8 +401,9 @@ final class PostgresqlRecurringJobOperations implements RecurringJobStore {
     JobPayload onFailure = PAYLOAD_CONVERTER.convertToEntityAttribute((String) row[13]);
     String businessKey = (String) row[14];
     String resourceName = (String) row[15];
-    Instant createdAt = toInstant(row[16]);
-    String callerPrincipal = (String) row[17];
+    String executionTarget = (String) row[16];
+    Instant createdAt = toInstant(row[17]);
+    String callerPrincipal = (String) row[18];
 
     return new RecurringJobDefinition(
         id,
@@ -418,6 +422,7 @@ final class PostgresqlRecurringJobOperations implements RecurringJobStore {
         onFailure,
         businessKey,
         resourceName,
+        executionTarget,
         createdAt,
         callerPrincipal);
   }

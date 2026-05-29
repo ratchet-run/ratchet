@@ -47,7 +47,8 @@ public class Poller {
   private final JobClaimStore jobClaimStore;
   private final JobExecutionCoordinator jobExecutionCoordinator;
   private final NodeIdentityProvider nodeIdProvider;
-  private final ThreadPoolManager threadPoolManager;
+  private final PoolRegistry poolRegistry;
+  private final ExecutionTargetClaimPlanner claimPlanner;
   private final DrainController drainController;
   private final PollerScheduler pollerScheduler;
   private final RatchetOptions options;
@@ -68,7 +69,8 @@ public class Poller {
     this.jobClaimStore = null;
     this.jobExecutionCoordinator = null;
     this.nodeIdProvider = null;
-    this.threadPoolManager = null;
+    this.poolRegistry = null;
+    this.claimPlanner = null;
     this.drainController = null;
     this.pollerScheduler = null;
     this.options = null;
@@ -86,7 +88,7 @@ public class Poller {
       JobClaimStore jobClaimStore,
       JobExecutionCoordinator jobExecutionCoordinator,
       NodeIdentityProvider nodeIdProvider,
-      ThreadPoolManager threadPoolManager,
+      PoolRegistry poolRegistry,
       DrainController drainController,
       PollerScheduler pollerScheduler,
       RatchetOptions options,
@@ -101,7 +103,7 @@ public class Poller {
         jobClaimStore,
         jobExecutionCoordinator,
         nodeIdProvider,
-        threadPoolManager,
+        poolRegistry,
         drainController,
         pollerScheduler,
         options,
@@ -119,7 +121,7 @@ public class Poller {
       JobClaimStore jobClaimStore,
       JobExecutionCoordinator jobExecutionCoordinator,
       NodeIdentityProvider nodeIdProvider,
-      ThreadPoolManager threadPoolManager,
+      PoolRegistry poolRegistry,
       DrainController drainController,
       PollerScheduler pollerScheduler,
       RatchetOptions options,
@@ -135,7 +137,8 @@ public class Poller {
     this.jobClaimStore = jobClaimStore;
     this.jobExecutionCoordinator = jobExecutionCoordinator;
     this.nodeIdProvider = nodeIdProvider;
-    this.threadPoolManager = threadPoolManager;
+    this.poolRegistry = poolRegistry;
+    this.claimPlanner = new ExecutionTargetClaimPlanner(poolRegistry, options);
     this.drainController = drainController;
     this.pollerScheduler = pollerScheduler;
     this.options = options;
@@ -275,7 +278,7 @@ public class Poller {
 
   private boolean hasAvailableCapacity() {
     for (JobExecutionType jobType : POLLER_EXECUTABLE_TYPES) {
-      if (threadPoolManager.getAvailableCapacity(jobType) > 0) {
+      if (!claimPlanner.budgets(jobType).isEmpty()) {
         return true;
       }
     }
@@ -288,23 +291,22 @@ public class Poller {
     List<JobClaimDto> claims = new ArrayList<>();
     String nodeId = nodeIdProvider.getNodeId();
     for (JobExecutionType jobType : POLLER_EXECUTABLE_TYPES) {
-      int availableCapacity = threadPoolManager.getAvailableCapacity(jobType);
-      if (availableCapacity <= 0) {
-        continue;
-      }
-      int claimLimit = computeClaimLimit(availableCapacity);
-      try {
-        List<JobClaimDto> claimed =
-            jobClaimStore.claimNextBatchOptimized(jobType, claimLimit, nodeId, tagFilter);
-        if (metricsCollector != null && !claimed.isEmpty()) {
-          metricsCollector.jobsClaimed(jobType.name(), claimed.size());
+      for (ExecutionTargetClaimPlanner.PoolClaimBudget budget : claimPlanner.budgets(jobType)) {
+        int claimLimit = computeClaimLimit(budget.availableCapacity());
+        try {
+          List<JobClaimDto> claimed =
+              jobClaimStore.claimNextBatchOptimized(
+                  jobType, claimLimit, nodeId, tagFilter, budget.executionTargetFilter());
+          if (metricsCollector != null && !claimed.isEmpty()) {
+            metricsCollector.jobsClaimed(jobType.name(), claimed.size());
+          }
+          claims.addAll(claimed);
+        } catch (RatchetTransientStoreException e) {
+          if (metricsCollector != null) {
+            metricsCollector.claimTransientFailure(jobType.name());
+          }
+          throw e;
         }
-        claims.addAll(claimed);
-      } catch (RatchetTransientStoreException e) {
-        if (metricsCollector != null) {
-          metricsCollector.claimTransientFailure(jobType.name());
-        }
-        throw e;
       }
     }
     return claims;
@@ -359,7 +361,7 @@ public class Poller {
     double totalUtilization = 0;
     int poolCount = 0;
 
-    var healthMap = threadPoolManager.getThreadPoolHealth();
+    var healthMap = poolRegistry.getThreadPoolHealth();
     for (var health : healthMap.values()) {
       if (!health.isVirtual()) {
         totalUtilization += health.getUtilizationPercent();

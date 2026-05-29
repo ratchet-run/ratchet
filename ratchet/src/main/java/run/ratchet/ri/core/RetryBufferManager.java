@@ -23,6 +23,7 @@ import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.ExecutionTargetFilter;
 import run.ratchet.store.spi.JobBatchStatusStore;
 
 /**
@@ -134,18 +135,31 @@ class RetryBufferManager {
   }
 
   public List<BufferedClaim> pollBatchFromBuffer(JobExecutionType jobType, int limit) {
+    return pollBatchFromBuffer(jobType, ExecutionTargetFilter.any(), limit);
+  }
+
+  public List<BufferedClaim> pollBatchFromBuffer(
+      JobExecutionType jobType, ExecutionTargetFilter executionTargetFilter, int limit) {
     Queue<BufferedClaim> buffer = retryBuffers.get(jobType);
     ReentrantLock lock = bufferLocks.get(jobType);
     lock.lock();
     try {
       List<BufferedClaim> jobs = new ArrayList<>(Math.max(limit, 0));
+      List<BufferedClaim> skipped = new ArrayList<>();
       for (int i = 0; i < limit; i++) {
         BufferedClaim buffered = buffer.poll();
         if (buffered == null) {
           break;
         }
-        jobs.add(buffered);
+        if (executionTargetFilter == null
+            || executionTargetFilter.matches(buffered.executionTarget())) {
+          jobs.add(buffered);
+        } else {
+          skipped.add(buffered);
+          i--;
+        }
       }
+      buffer.addAll(skipped);
       return jobs;
     } finally {
       lock.unlock();
@@ -303,7 +317,8 @@ class RetryBufferManager {
       Instant pickedAt,
       String businessKey,
       int attempts,
-      int maxRetries) {
+      int maxRetries,
+      String executionTarget) {
 
     static BufferedClaim from(JobEntity job) {
       return new BufferedClaim(
@@ -316,7 +331,8 @@ class RetryBufferManager {
           job.getPickedAt(),
           job.getBusinessKey(),
           job.getAttempts(),
-          job.getMaxRetries());
+          job.getMaxRetries(),
+          job.getExecutionTarget());
     }
 
     static BufferedClaim from(JobClaimDto claim) {
@@ -330,7 +346,8 @@ class RetryBufferManager {
           claim.pickedAt(),
           claim.businessKey(),
           claim.attempts(),
-          claim.maxRetries());
+          claim.maxRetries(),
+          claim.executionTarget());
     }
 
     JobClaimDto toClaimDto() {
@@ -346,7 +363,8 @@ class RetryBufferManager {
           pickedAt,
           businessKey,
           attempts,
-          maxRetries);
+          maxRetries,
+          executionTarget);
     }
   }
 }

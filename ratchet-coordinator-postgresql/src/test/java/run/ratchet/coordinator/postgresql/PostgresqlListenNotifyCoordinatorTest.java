@@ -71,10 +71,10 @@ class PostgresqlListenNotifyCoordinatorTest {
     PostgresqlListenNotifyCoordinator c = newCoordinator(lifecycle);
     try {
       List<NodeIdentity> seen = new ArrayList<>();
-      c.registerWakeupListener((p, s) -> seen.add(s));
+      c.registerWakeupListener(hint -> seen.add(hint.source()));
 
       // Simulate inbound payload from ourselves
-      c.dispatchInbound(new NotifyPayload(1, new NodeIdentity("nodeA"), JobPriority.HIGH));
+      c.dispatchInbound(new NotifyPayload(1, new NodeIdentity("nodeA"), JobPriority.HIGH, null));
 
       // Wait briefly to ensure no async dispatch happens
       sleep(50);
@@ -94,12 +94,13 @@ class PostgresqlListenNotifyCoordinatorTest {
       CountDownLatch latch = new CountDownLatch(1);
       List<NotifyPayload> seen = new ArrayList<>();
       c.registerWakeupListener(
-          (p, s) -> {
-            seen.add(new NotifyPayload(1, s, p));
+          hint -> {
+            seen.add(new NotifyPayload(1, hint.source(), hint.priority(), hint.executionTarget()));
             latch.countDown();
           });
 
-      c.dispatchInbound(new NotifyPayload(1, new NodeIdentity("nodeB"), JobPriority.CRITICAL));
+      c.dispatchInbound(
+          new NotifyPayload(1, new NodeIdentity("nodeB"), JobPriority.CRITICAL, null));
 
       assertTrue(latch.await(2, TimeUnit.SECONDS), "listener never fired");
       assertEquals(1, seen.size());
@@ -118,13 +119,14 @@ class PostgresqlListenNotifyCoordinatorTest {
     PostgresqlListenNotifyCoordinator c = newCoordinator(lifecycle);
     try {
       for (int i = 0; i < 5; i++) {
-        c.dispatchInbound(new NotifyPayload(1, new NodeIdentity("nodeB"), JobPriority.NORMAL));
+        c.dispatchInbound(
+            new NotifyPayload(1, new NodeIdentity("nodeB"), JobPriority.NORMAL, null));
       }
 
       CountDownLatch latch = new CountDownLatch(5);
       AtomicInteger count = new AtomicInteger();
       c.registerWakeupListener(
-          (p, s) -> {
+          hint -> {
             count.incrementAndGet();
             latch.countDown();
           });
@@ -144,10 +146,10 @@ class PostgresqlListenNotifyCoordinatorTest {
     try {
       // Capacity is 256. Push 260 without a listener; expect the oldest to be dropped.
       for (int i = 0; i < 260; i++) {
-        c.dispatchInbound(new NotifyPayload(1, new NodeIdentity("nodeB"), JobPriority.LOW));
+        c.dispatchInbound(new NotifyPayload(1, new NodeIdentity("nodeB"), JobPriority.LOW, null));
       }
       AtomicInteger received = new AtomicInteger();
-      c.registerWakeupListener((p, s) -> received.incrementAndGet());
+      c.registerWakeupListener(hint -> received.incrementAndGet());
 
       sleep(200);
       assertTrue(received.get() <= 256, "drained more than the buffer capacity: " + received.get());
@@ -178,7 +180,7 @@ class PostgresqlListenNotifyCoordinatorTest {
         new PostgresqlListenNotifyCoordinator(localProvider, config, lifecycle, () -> raw, metrics);
     c.init();
     try {
-      assertDoesNotThrow(() -> c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA")));
+      assertDoesNotThrow(() -> c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA"), null));
       assertEquals(1, metrics.published("failure"));
     } finally {
       c.close();
@@ -202,7 +204,7 @@ class PostgresqlListenNotifyCoordinatorTest {
             metrics);
     c.init();
     try {
-      assertDoesNotThrow(() -> c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA")));
+      assertDoesNotThrow(() -> c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA"), null));
       assertEquals(1, metrics.published("failure"));
     } finally {
       c.close();
@@ -228,7 +230,7 @@ class PostgresqlListenNotifyCoordinatorTest {
         new PostgresqlListenNotifyCoordinator(localProvider, config, lifecycle, () -> raw, metrics);
     c.init();
     try {
-      c.notifyNewWork(JobPriority.NORMAL, new NodeIdentity("nodeA"));
+      c.notifyNewWork(JobPriority.NORMAL, new NodeIdentity("nodeA"), null);
 
       verify(raw).prepareStatement("SELECT pg_notify(?, ?)");
       verify(notifyStmt).setString(eq(1), eq("ratchet_wakeup"));
@@ -261,7 +263,7 @@ class PostgresqlListenNotifyCoordinatorTest {
     c.close();
 
     long before = metrics.published("failure") + metrics.published("success");
-    c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA"));
+    c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA"), null);
     long after = metrics.published("failure") + metrics.published("success");
 
     assertEquals(before, after, "post-close notify must not emit metrics");
@@ -273,7 +275,7 @@ class PostgresqlListenNotifyCoordinatorTest {
         new PostgresqlConnectionLifecycle(() -> stubPgConnection(), config, ms -> {});
     PostgresqlListenNotifyCoordinator c = newCoordinator(lifecycle);
     c.close();
-    assertDoesNotThrow(() -> c.registerWakeupListener((p, s) -> {}));
+    assertDoesNotThrow(() -> c.registerWakeupListener(hint -> {}));
   }
 
   @Test
@@ -285,17 +287,17 @@ class PostgresqlListenNotifyCoordinatorTest {
       AtomicInteger goodCount = new AtomicInteger();
       CountDownLatch latch = new CountDownLatch(100);
       c.registerWakeupListener(
-          (p, s) -> {
+          hint -> {
             throw new RuntimeException("boom");
           });
       c.registerWakeupListener(
-          (p, s) -> {
+          hint -> {
             goodCount.incrementAndGet();
             latch.countDown();
           });
 
       for (int i = 0; i < 100; i++) {
-        c.dispatchInbound(new NotifyPayload(1, new NodeIdentity("nodeB"), JobPriority.HIGH));
+        c.dispatchInbound(new NotifyPayload(1, new NodeIdentity("nodeB"), JobPriority.HIGH, null));
       }
 
       assertTrue(latch.await(5, TimeUnit.SECONDS), "good listener missed deliveries");

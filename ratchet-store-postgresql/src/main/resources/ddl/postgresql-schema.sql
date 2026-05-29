@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS scheduler_recurring_job
     on_failure_payload    JSONB,
     business_key          TEXT,
     resource_name         VARCHAR(100),
+    execution_target      VARCHAR(64),
     target_class          TEXT GENERATED ALWAYS AS (payload ->> 'target') STORED,
     method_name           TEXT GENERATED ALWAYS AS (payload ->> 'method') STORED,
     created_at            TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -96,6 +97,7 @@ CREATE TABLE IF NOT EXISTS scheduler_recurring_job_archive
     on_success_payload    JSONB,
     on_failure_payload    JSONB,
     business_key          TEXT,
+    execution_target      VARCHAR(64),
     created_at            TIMESTAMPTZ(6) NOT NULL,
     caller_principal      VARCHAR(255),
     archived_at           TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -139,6 +141,10 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     -- scheduler_business_key_reservation (not a UNIQUE KEY here anymore).
     business_key          TEXT,
     resource_name         VARCHAR(100),
+    -- Immutable routing label: which configured executor pool runs the job. NULL = inherit the
+    -- deployment default. Denormalized onto scheduler_job_queue for the claim projection. Reserved
+    -- values 'platform'/'virtual' today; stored as a string so future named pools need no migration.
+    execution_target      VARCHAR(64),
     on_success_payload    JSONB,
     on_failure_payload    JSONB,
     depends_on            uuid,
@@ -209,6 +215,8 @@ CREATE TABLE IF NOT EXISTS scheduler_job_queue
     signal_delivered_at     TIMESTAMPTZ,
     signal_delivered_by     VARCHAR(255),
     signal_delivery_id      VARCHAR(36),
+    -- Denormalized from scheduler_job: claim-time routing label read into JobClaimDto.
+    execution_target        VARCHAR(64),
     CONSTRAINT pk_scheduler_job_queue PRIMARY KEY (job_id),
     CONSTRAINT chk_queue_status CHECK (status IN ('PENDING', 'RUNNING', 'PAUSED', 'WAITING')),
     CONSTRAINT chk_queue_job_type CHECK (job_type IN

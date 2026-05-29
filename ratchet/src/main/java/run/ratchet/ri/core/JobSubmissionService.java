@@ -32,8 +32,8 @@ public class JobSubmissionService {
         }
 
         @Override
-        public ExecutionResult execute(JobEntity job) {
-          return executorService.execute(job);
+        public ExecutionResult execute(JobEntity job, String poolName) {
+          return executorService.execute(job, poolName);
         }
 
         @Override
@@ -44,14 +44,19 @@ public class JobSubmissionService {
 
         @Override
         public void handleRejection(
-            JobEntity job, JobExecutionType jobType, boolean isFirstAttempt) {
-          failureHandler.handleRejection(job, jobType, isFirstAttempt);
+            JobEntity job, JobExecutionType jobType, String poolName, boolean isFirstAttempt) {
+          failureHandler.handleRejection(job, jobType, poolName, isFirstAttempt);
         }
 
         @Override
         public void handleUnexpectedException(
-            JobEntity job, JobExecutionType jobType, boolean isFirstAttempt, Exception exception) {
-          failureHandler.handleUnexpectedException(job, jobType, isFirstAttempt, exception);
+            JobEntity job,
+            JobExecutionType jobType,
+            String poolName,
+            boolean isFirstAttempt,
+            Exception exception) {
+          failureHandler.handleUnexpectedException(
+              job, jobType, poolName, isFirstAttempt, exception);
         }
       };
   private final SubmissionOperations<JobClaimDto> claimSubmissionOperations =
@@ -67,8 +72,8 @@ public class JobSubmissionService {
         }
 
         @Override
-        public ExecutionResult execute(JobClaimDto claim) {
-          return executorService.execute(claim);
+        public ExecutionResult execute(JobClaimDto claim, String poolName) {
+          return executorService.execute(claim, poolName);
         }
 
         @Override
@@ -79,17 +84,18 @@ public class JobSubmissionService {
 
         @Override
         public void handleRejection(
-            JobClaimDto claim, JobExecutionType jobType, boolean isFirstAttempt) {
-          failureHandler.handleRejection(claim, jobType);
+            JobClaimDto claim, JobExecutionType jobType, String poolName, boolean isFirstAttempt) {
+          failureHandler.handleRejection(claim, jobType, poolName);
         }
 
         @Override
         public void handleUnexpectedException(
             JobClaimDto claim,
             JobExecutionType jobType,
+            String poolName,
             boolean isFirstAttempt,
             Exception exception) {
-          failureHandler.handleUnexpectedException(claim, jobType, exception);
+          failureHandler.handleUnexpectedException(claim, jobType, poolName, exception);
         }
       };
 
@@ -100,7 +106,7 @@ public class JobSubmissionService {
   }
 
   @Inject
-  public JobSubmissionService(
+  JobSubmissionService(
       SubmissionGateChecker gateChecker,
       JobExecutorService executorService,
       SubmissionFailureHandler failureHandler) {
@@ -139,14 +145,17 @@ public class JobSubmissionService {
       return;
     }
 
+    // The gate resolved the effective pool once and acquired the permit there; carry that pool
+    // through execution and every release path so acquire and release never disagree.
+    String poolName = gateResult.resolvedPoolName();
     try {
-      ExecutionResult execResult = operations.execute(submission);
+      ExecutionResult execResult = operations.execute(submission, poolName);
 
       if (execResult.isRejected()) {
-        operations.handleRejection(submission, jobType, isFirstAttempt);
+        operations.handleRejection(submission, jobType, poolName, isFirstAttempt);
       }
     } catch (Exception e) {
-      operations.handleUnexpectedException(submission, jobType, isFirstAttempt, e);
+      operations.handleUnexpectedException(submission, jobType, poolName, isFirstAttempt, e);
     }
   }
 
@@ -155,13 +164,18 @@ public class JobSubmissionService {
 
     GateCheckResult checkGate(T submission, boolean isFirstAttempt);
 
-    ExecutionResult execute(T submission);
+    ExecutionResult execute(T submission, String poolName);
 
     void handleGateFailure(T submission, GateCheckResult gateResult, boolean isFirstAttempt);
 
-    void handleRejection(T submission, JobExecutionType jobType, boolean isFirstAttempt);
+    void handleRejection(
+        T submission, JobExecutionType jobType, String poolName, boolean isFirstAttempt);
 
     void handleUnexpectedException(
-        T submission, JobExecutionType jobType, boolean isFirstAttempt, Exception exception);
+        T submission,
+        JobExecutionType jobType,
+        String poolName,
+        boolean isFirstAttempt,
+        Exception exception);
   }
 }

@@ -2,6 +2,7 @@ package run.ratchet.tck.store;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
@@ -14,6 +15,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
@@ -21,6 +23,7 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.ExecutionTargetFilter;
 import run.ratchet.tck.util.ConcurrentTestRunner;
 
 /** Base contract tests for {@code JobClaimStore}. */
@@ -292,5 +295,96 @@ public abstract class AbstractJobClaimStoreContract implements JobStoreContractF
     List<JobEntity> claimed = store().claimNextBatch(10, "node-nb-req", filter);
 
     assertEquals(1, claimed.size(), "claimNextBatch requireTags should only claim matching job");
+  }
+
+  @Test
+  void claimNextBatchOptimized_roundTripsExecutionTarget() {
+    JobEntity targeted = newPendingJob();
+    targeted.setExecutionTarget(ExecutorTargets.VIRTUAL);
+    persist(targeted);
+
+    List<JobClaimDto> claims =
+        store().claimNextBatchOptimized(JobExecutionType.SINGLE, 10, "node-1");
+
+    assertEquals(1, claims.size());
+    assertEquals(
+        ExecutorTargets.VIRTUAL,
+        claims.get(0).executionTarget(),
+        "claim projection should carry the persisted execution_target");
+  }
+
+  @Test
+  void claimNextBatchOptimized_withExecutionTargetFilter_claimsExplicitTargetsAndNulls() {
+    JobEntity platform = newPendingJob();
+    platform.setExecutionTarget(ExecutorTargets.PLATFORM);
+    UUID platformId = persist(platform).getId();
+
+    JobEntity virtual = newPendingJob();
+    virtual.setExecutionTarget(ExecutorTargets.VIRTUAL);
+    virtual = persist(virtual);
+
+    JobEntity inherited = persist(newPendingJob());
+
+    List<JobClaimDto> claims =
+        store()
+            .claimNextBatchOptimized(
+                JobExecutionType.SINGLE,
+                10,
+                "node-target",
+                NodeTagFilter.NONE,
+                ExecutionTargetFilter.matching(List.of(ExecutorTargets.VIRTUAL), true));
+
+    Set<UUID> claimedIds =
+        claims.stream().map(JobClaimDto::id).collect(java.util.stream.Collectors.toSet());
+    assertEquals(Set.of(virtual.getId(), inherited.getId()), claimedIds);
+    assertTrue(
+        claims.stream().noneMatch(claim -> platformId.equals(claim.id())),
+        "platform-targeted job should remain unclaimed by virtual/default filter");
+  }
+
+  @Test
+  void claimNextBatchOptimized_withExecutionTargetExclusionFilter_claimsFallbackTargets() {
+    JobEntity platform = newPendingJob();
+    platform.setExecutionTarget(ExecutorTargets.PLATFORM);
+    platform = persist(platform);
+
+    JobEntity virtual = newPendingJob();
+    virtual.setExecutionTarget(ExecutorTargets.VIRTUAL);
+    UUID virtualId = persist(virtual).getId();
+
+    JobEntity unknown = newPendingJob();
+    unknown.setExecutionTarget("unknown");
+    unknown = persist(unknown);
+
+    JobEntity inherited = persist(newPendingJob());
+
+    List<JobClaimDto> claims =
+        store()
+            .claimNextBatchOptimized(
+                JobExecutionType.SINGLE,
+                10,
+                "node-target",
+                NodeTagFilter.NONE,
+                ExecutionTargetFilter.excluding(List.of(ExecutorTargets.VIRTUAL), true));
+
+    Set<UUID> claimedIds =
+        claims.stream().map(JobClaimDto::id).collect(java.util.stream.Collectors.toSet());
+    assertEquals(Set.of(platform.getId(), unknown.getId(), inherited.getId()), claimedIds);
+    assertTrue(
+        claims.stream().noneMatch(claim -> virtualId.equals(claim.id())),
+        "virtual-targeted job should remain unclaimed by platform/fallback filter");
+  }
+
+  @Test
+  void claimNextBatchOptimized_nullExecutionTarget_claimsBackAsNull() {
+    persist(newPendingJob());
+
+    List<JobClaimDto> claims =
+        store().claimNextBatchOptimized(JobExecutionType.SINGLE, 10, "node-1");
+
+    assertEquals(1, claims.size());
+    assertNull(
+        claims.get(0).executionTarget(),
+        "a job with no execution target should claim back as null (inherit)");
   }
 }

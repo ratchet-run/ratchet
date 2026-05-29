@@ -3,10 +3,9 @@ package run.ratchet.ri.core.internal;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
-import run.ratchet.api.JobPriority;
-import run.ratchet.api.NodeIdentity;
 import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.spi.ClusterCoordinator;
+import run.ratchet.spi.JobWakeupHint;
 import run.ratchet.spi.MetricsCollector;
 
 /**
@@ -14,9 +13,10 @@ import run.ratchet.spi.MetricsCollector;
  * {@link PollerScheduler#wakeup()} for immediate polling. Notifications are an optimization; the
  * poller continues with adaptive polling if registration or delivery fails.
  *
- * <p>The listener intentionally ignores both the priority and source-node arguments: the local
- * poller wakes unconditionally on any cross-node hint. Per-source self-suppression lives in the
- * coordinator implementation, which is the only layer with full transport visibility.
+ * <p>The listener intentionally ignores the hint payload: the local poller wakes unconditionally on
+ * any cross-node hint and the claim-side filter decides which pool actually drains. Per-source
+ * self-suppression lives in the coordinator implementation, which is the only layer with full
+ * transport visibility.
  *
  * @see JobWakeupService
  */
@@ -56,9 +56,10 @@ public class PollerWakeupListener {
     }
   }
 
-  private void onWakeup(JobPriority priority, NodeIdentity source) {
-    // priority and source are intentionally ignored — the local poller wakes unconditionally
-    // on any cross-node hint; per-source self-suppression is the coordinator's job.
+  private void onWakeup(JobWakeupHint hint) {
+    // hint contents are intentionally ignored — the local poller wakes unconditionally on any
+    // cross-node hint; per-source self-suppression is the coordinator's job and target-aware
+    // routing is the claim filter's job.
     try {
       log.debug("Wakeup notification received");
       if (metricsCollector != null) {

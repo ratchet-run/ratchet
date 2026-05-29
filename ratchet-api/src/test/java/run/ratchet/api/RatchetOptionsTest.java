@@ -16,7 +16,8 @@ class RatchetOptionsTest {
     assertEquals(50, options.polling().batchSize());
     assertEquals(20, options.execution().maxConcurrency("SINGLE", -1));
     assertEquals(5, options.execution().maxConcurrency("RECURRING", -1));
-    assertFalse(options.execution().useVirtualThreads());
+    assertEquals(RatchetOptions.ThreadingMode.PLATFORM, options.execution().defaultThreadingMode());
+    assertFalse(options.execution().hasVirtualExecutor());
     assertEquals("java:comp/DefaultManagedExecutorService", options.execution().jobExecutorJndi());
     assertEquals(
         "java:comp/DefaultManagedScheduledExecutorService",
@@ -35,7 +36,7 @@ class RatchetOptionsTest {
             .execution(
                 execution ->
                     execution
-                        .useVirtualThreads(true)
+                        .defaultThreadingMode(RatchetOptions.ThreadingMode.VIRTUAL)
                         .maxConcurrency("dlq-alert", 4)
                         .virtualThreadLimit("workflow-join", 19)
                         .rateLimitPerMinute("single", 50))
@@ -51,7 +52,7 @@ class RatchetOptionsTest {
 
     assertEquals(100, options.polling().batchSize());
     assertEquals(2, options.polling().claimHeadroomFactor());
-    assertTrue(options.execution().useVirtualThreads());
+    assertEquals(RatchetOptions.ThreadingMode.VIRTUAL, options.execution().defaultThreadingMode());
     assertEquals(4, options.execution().maxConcurrency("DLQ_ALERT", -1));
     assertEquals(19, options.execution().virtualThreadLimit("WORKFLOW_JOIN", -1));
     assertEquals(50, options.execution().rateLimitPerMinute("SINGLE"));

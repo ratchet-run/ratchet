@@ -16,6 +16,7 @@ import static org.mockito.Mockito.when;
 import java.time.Instant;
 import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,6 +25,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.CircuitBreakerProfile;
+import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
@@ -40,6 +42,7 @@ import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.PollingDelayStrategy;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobExecutionType;
+import run.ratchet.store.spi.ExecutionTargetFilter;
 import run.ratchet.store.spi.JobClaimStore;
 
 @ExtendWith(MockitoExtension.class)
@@ -48,7 +51,7 @@ class PollerTest {
   @Mock private JobClaimStore jobClaimStore;
   @Mock private JobExecutionCoordinator jobExecutionCoordinator;
   @Mock private NodeIdentityProvider nodeIdProvider;
-  @Mock private ThreadPoolManager threadPoolManager;
+  @Mock private PoolRegistry poolRegistry;
   @Mock private DrainController drainController;
   @Mock private PollerScheduler pollerScheduler;
   @Mock private MetricsCollector metricsCollector;
@@ -74,8 +77,10 @@ class PollerTest {
                         .idleThreshold(5))
             .build();
     lenient()
-        .when(threadPoolManager.getThreadPoolHealth())
+        .when(poolRegistry.getThreadPoolHealth())
         .thenReturn(new EnumMap<>(JobExecutionType.class));
+    lenient().when(poolRegistry.availableCapacitiesByPool(any())).thenReturn(Map.of());
+    lenient().when(poolRegistry.hasPool(ExecutorTargets.PLATFORM)).thenReturn(true);
     lenient().when(nodeIdProvider.getNodeId()).thenReturn("node-1");
     when(drainController.isDraining()).thenReturn(false);
     claimCircuitBreaker =
@@ -94,40 +99,73 @@ class PollerTest {
 
     long nextDelay = poller.tick();
 
-    verify(jobClaimStore, never()).claimNextBatchOptimized(any(), anyInt(), anyString(), any());
+    verify(jobClaimStore, never())
+        .claimNextBatchOptimized(
+            any(JobExecutionType.class),
+            anyInt(),
+            anyString(),
+            any(NodeTagFilter.class),
+            any(ExecutionTargetFilter.class));
     verify(jobExecutionCoordinator, never()).submit(any(JobClaimDto.class));
-    verify(threadPoolManager, never()).getAvailableCapacity(any());
+    verify(poolRegistry, never()).availableCapacitiesByPool(any());
     assertEquals(2000L, nextDelay);
   }
 
   @Test
   void tick_claimsPerExecutionTypeCapacity() {
-    when(threadPoolManager.getAvailableCapacity(JobExecutionType.SINGLE)).thenReturn(2);
-    when(threadPoolManager.getAvailableCapacity(JobExecutionType.BATCH_CHILD)).thenReturn(1);
-    when(threadPoolManager.getAvailableCapacity(JobExecutionType.CHAIN_STEP)).thenReturn(0);
-    when(threadPoolManager.getAvailableCapacity(JobExecutionType.WORKFLOW_BRANCH)).thenReturn(0);
+    when(poolRegistry.availableCapacitiesByPool(JobExecutionType.SINGLE))
+        .thenReturn(platformCapacity(2));
+    when(poolRegistry.availableCapacitiesByPool(JobExecutionType.BATCH_CHILD))
+        .thenReturn(platformCapacity(1));
 
     JobClaimDto singleClaim = claim(1L, JobExecutionType.SINGLE, "single");
     JobClaimDto batchClaim = claim(2L, JobExecutionType.BATCH_CHILD, "batch");
 
     when(jobClaimStore.claimNextBatchOptimized(
-            eq(JobExecutionType.SINGLE), eq(2), eq("node-1"), any()))
+            eq(JobExecutionType.SINGLE),
+            eq(2),
+            eq("node-1"),
+            any(NodeTagFilter.class),
+            any(ExecutionTargetFilter.class)))
         .thenReturn(List.of(singleClaim));
     when(jobClaimStore.claimNextBatchOptimized(
-            eq(JobExecutionType.BATCH_CHILD), eq(1), eq("node-1"), any()))
+            eq(JobExecutionType.BATCH_CHILD),
+            eq(1),
+            eq("node-1"),
+            any(NodeTagFilter.class),
+            any(ExecutionTargetFilter.class)))
         .thenReturn(List.of(batchClaim));
 
     long nextDelay = poller.tick();
 
     verify(jobClaimStore)
-        .claimNextBatchOptimized(eq(JobExecutionType.SINGLE), eq(2), eq("node-1"), any());
+        .claimNextBatchOptimized(
+            eq(JobExecutionType.SINGLE),
+            eq(2),
+            eq("node-1"),
+            any(NodeTagFilter.class),
+            any(ExecutionTargetFilter.class));
     verify(jobClaimStore)
-        .claimNextBatchOptimized(eq(JobExecutionType.BATCH_CHILD), eq(1), eq("node-1"), any());
-    verify(jobClaimStore, never())
-        .claimNextBatchOptimized(eq(JobExecutionType.CHAIN_STEP), anyInt(), anyString(), any());
+        .claimNextBatchOptimized(
+            eq(JobExecutionType.BATCH_CHILD),
+            eq(1),
+            eq("node-1"),
+            any(NodeTagFilter.class),
+            any(ExecutionTargetFilter.class));
     verify(jobClaimStore, never())
         .claimNextBatchOptimized(
-            eq(JobExecutionType.WORKFLOW_BRANCH), anyInt(), anyString(), any());
+            eq(JobExecutionType.CHAIN_STEP),
+            anyInt(),
+            anyString(),
+            any(NodeTagFilter.class),
+            any(ExecutionTargetFilter.class));
+    verify(jobClaimStore, never())
+        .claimNextBatchOptimized(
+            eq(JobExecutionType.WORKFLOW_BRANCH),
+            anyInt(),
+            anyString(),
+            any(NodeTagFilter.class),
+            any(ExecutionTargetFilter.class));
     verify(jobExecutionCoordinator).submit(singleClaim);
     verify(jobExecutionCoordinator).submit(batchClaim);
     verify(metricsCollector).jobsClaimed(JobExecutionType.SINGLE.name(), 1);
@@ -138,9 +176,14 @@ class PollerTest {
 
   @Test
   void tick_transientClaimFailureBacksOff() {
-    when(threadPoolManager.getAvailableCapacity(JobExecutionType.SINGLE)).thenReturn(1);
+    when(poolRegistry.availableCapacitiesByPool(JobExecutionType.SINGLE))
+        .thenReturn(platformCapacity(1));
     when(jobClaimStore.claimNextBatchOptimized(
-            eq(JobExecutionType.SINGLE), eq(1), eq("node-1"), any()))
+            eq(JobExecutionType.SINGLE),
+            eq(1),
+            eq("node-1"),
+            any(NodeTagFilter.class),
+            any(ExecutionTargetFilter.class)))
         .thenThrow(new RatchetTransientStoreException("deadlock"));
 
     long nextDelay = poller.tick();
@@ -154,9 +197,14 @@ class PollerTest {
 
   @Test
   void tick_consecutiveTransientFailuresTripBreakerAndSkipSubsequentClaim() {
-    when(threadPoolManager.getAvailableCapacity(JobExecutionType.SINGLE)).thenReturn(1);
+    when(poolRegistry.availableCapacitiesByPool(JobExecutionType.SINGLE))
+        .thenReturn(platformCapacity(1));
     when(jobClaimStore.claimNextBatchOptimized(
-            eq(JobExecutionType.SINGLE), eq(1), eq("node-1"), any()))
+            eq(JobExecutionType.SINGLE),
+            eq(1),
+            eq("node-1"),
+            any(NodeTagFilter.class),
+            any(ExecutionTargetFilter.class)))
         .thenThrow(new RatchetTransientStoreException("deadlock"));
 
     poller.tick();
@@ -164,7 +212,12 @@ class PollerTest {
     long nextDelay = poller.tick();
 
     verify(jobClaimStore, times(2))
-        .claimNextBatchOptimized(eq(JobExecutionType.SINGLE), eq(1), eq("node-1"), any());
+        .claimNextBatchOptimized(
+            eq(JobExecutionType.SINGLE),
+            eq(1),
+            eq("node-1"),
+            any(NodeTagFilter.class),
+            any(ExecutionTargetFilter.class));
     verify(metricsCollector, times(2)).pollerBreakerState("store.claim", "OPEN");
     assertEquals(CircuitBreaker.State.OPEN, claimCircuitBreaker.getState());
     assertTrue(nextDelay >= 5_000L);
@@ -173,19 +226,151 @@ class PollerTest {
 
   @Test
   void tick_emptyClaimBatchUpdatesLoadAndDoesNotSubmitJobs() {
-    when(threadPoolManager.getAvailableCapacity(JobExecutionType.SINGLE)).thenReturn(1);
+    when(poolRegistry.availableCapacitiesByPool(JobExecutionType.SINGLE))
+        .thenReturn(platformCapacity(1));
     when(jobClaimStore.claimNextBatchOptimized(
-            eq(JobExecutionType.SINGLE), eq(1), eq("node-1"), any()))
+            eq(JobExecutionType.SINGLE),
+            eq(1),
+            eq("node-1"),
+            any(NodeTagFilter.class),
+            any(ExecutionTargetFilter.class)))
         .thenReturn(List.of());
 
     long nextDelay = poller.tick();
 
     verify(jobClaimStore)
-        .claimNextBatchOptimized(eq(JobExecutionType.SINGLE), eq(1), eq("node-1"), any());
+        .claimNextBatchOptimized(
+            eq(JobExecutionType.SINGLE),
+            eq(1),
+            eq("node-1"),
+            any(NodeTagFilter.class),
+            any(ExecutionTargetFilter.class));
     verify(jobExecutionCoordinator, never()).submit(any(JobClaimDto.class));
     verify(metricsCollector, never()).jobsClaimed(anyString(), anyInt());
-    verify(threadPoolManager).getThreadPoolHealth();
+    verify(poolRegistry).getThreadPoolHealth();
     assertEquals(2000L, nextDelay);
+  }
+
+  @Test
+  void tick_claimsPerPoolWhenTargetsAreMixed() {
+    when(poolRegistry.availableCapacitiesByPool(JobExecutionType.SINGLE))
+        .thenReturn(capacities(2, 4));
+    ExecutionTargetFilter platformFilter =
+        ExecutionTargetFilter.excluding(List.of(ExecutorTargets.VIRTUAL), true);
+    ExecutionTargetFilter virtualFilter =
+        ExecutionTargetFilter.matching(List.of(ExecutorTargets.VIRTUAL), false);
+    JobClaimDto platformClaim =
+        claim(10L, JobExecutionType.SINGLE, "platform", ExecutorTargets.PLATFORM);
+    JobClaimDto virtualClaim =
+        claim(11L, JobExecutionType.SINGLE, "virtual", ExecutorTargets.VIRTUAL);
+    JobClaimDto fallbackClaim = claim(12L, JobExecutionType.SINGLE, "fallback", "unknown");
+
+    when(jobClaimStore.claimNextBatchOptimized(
+            eq(JobExecutionType.SINGLE),
+            eq(2),
+            eq("node-1"),
+            any(NodeTagFilter.class),
+            eq(platformFilter)))
+        .thenReturn(List.of(platformClaim, fallbackClaim));
+    when(jobClaimStore.claimNextBatchOptimized(
+            eq(JobExecutionType.SINGLE),
+            eq(4),
+            eq("node-1"),
+            any(NodeTagFilter.class),
+            eq(virtualFilter)))
+        .thenReturn(List.of(virtualClaim));
+
+    poller.tick();
+
+    verify(jobClaimStore)
+        .claimNextBatchOptimized(
+            eq(JobExecutionType.SINGLE),
+            eq(2),
+            eq("node-1"),
+            any(NodeTagFilter.class),
+            eq(platformFilter));
+    verify(jobClaimStore)
+        .claimNextBatchOptimized(
+            eq(JobExecutionType.SINGLE),
+            eq(4),
+            eq("node-1"),
+            any(NodeTagFilter.class),
+            eq(virtualFilter));
+    verify(jobExecutionCoordinator).submit(platformClaim);
+    verify(jobExecutionCoordinator).submit(fallbackClaim);
+    verify(jobExecutionCoordinator).submit(virtualClaim);
+  }
+
+  @Test
+  void tick_singleTargetWorkloadClaimsOnlyPoolWithCapacity() {
+    when(poolRegistry.availableCapacitiesByPool(JobExecutionType.SINGLE))
+        .thenReturn(capacities(0, 3));
+    ExecutionTargetFilter platformFilter =
+        ExecutionTargetFilter.excluding(List.of(ExecutorTargets.VIRTUAL), true);
+    ExecutionTargetFilter virtualFilter =
+        ExecutionTargetFilter.matching(List.of(ExecutorTargets.VIRTUAL), false);
+    JobClaimDto virtualClaim =
+        claim(12L, JobExecutionType.SINGLE, "virtual", ExecutorTargets.VIRTUAL);
+
+    when(jobClaimStore.claimNextBatchOptimized(
+            eq(JobExecutionType.SINGLE),
+            eq(3),
+            eq("node-1"),
+            any(NodeTagFilter.class),
+            eq(virtualFilter)))
+        .thenReturn(List.of(virtualClaim));
+
+    poller.tick();
+
+    verify(jobClaimStore, never())
+        .claimNextBatchOptimized(
+            eq(JobExecutionType.SINGLE),
+            anyInt(),
+            anyString(),
+            any(NodeTagFilter.class),
+            eq(platformFilter));
+    verify(jobClaimStore)
+        .claimNextBatchOptimized(
+            eq(JobExecutionType.SINGLE),
+            eq(3),
+            eq("node-1"),
+            any(NodeTagFilter.class),
+            eq(virtualFilter));
+    verify(jobExecutionCoordinator).submit(virtualClaim);
+  }
+
+  @Test
+  void tick_nullTargetsClaimAgainstDefaultPool() {
+    options = testOptions(RatchetOptions.ThreadingMode.VIRTUAL);
+    poller = newPoller(true);
+    poller.init();
+    clearInvocations(metricsCollector);
+
+    when(poolRegistry.hasPool(ExecutorTargets.VIRTUAL)).thenReturn(true);
+    when(poolRegistry.availableCapacitiesByPool(JobExecutionType.SINGLE))
+        .thenReturn(capacities(0, 2));
+    ExecutionTargetFilter virtualDefaultFilter =
+        ExecutionTargetFilter.matching(List.of(ExecutorTargets.VIRTUAL), true);
+    JobClaimDto defaultClaim = claim(13L, JobExecutionType.SINGLE, "default", null);
+
+    when(jobClaimStore.claimNextBatchOptimized(
+            eq(JobExecutionType.SINGLE),
+            eq(2),
+            eq("node-1"),
+            any(NodeTagFilter.class),
+            eq(virtualDefaultFilter)))
+        .thenReturn(List.of(defaultClaim));
+
+    poller.tick();
+
+    verify(jobClaimStore)
+        .claimNextBatchOptimized(
+            eq(JobExecutionType.SINGLE),
+            eq(2),
+            eq("node-1"),
+            any(NodeTagFilter.class),
+            eq(virtualDefaultFilter));
+    verify(jobExecutionCoordinator).submit(defaultClaim);
   }
 
   @Test
@@ -197,7 +382,7 @@ class PollerTest {
             jobClaimStore,
             jobExecutionCoordinator,
             nodeIdProvider,
-            threadPoolManager,
+            poolRegistry,
             drainController,
             pollerScheduler,
             options,
@@ -225,9 +410,14 @@ class PollerTest {
     poller = newPoller(true);
     poller.init();
 
-    when(threadPoolManager.getAvailableCapacity(JobExecutionType.SINGLE)).thenReturn(1);
+    when(poolRegistry.availableCapacitiesByPool(JobExecutionType.SINGLE))
+        .thenReturn(platformCapacity(1));
     when(jobClaimStore.claimNextBatchOptimized(
-            eq(JobExecutionType.SINGLE), eq(1), eq("node-1"), any()))
+            eq(JobExecutionType.SINGLE),
+            eq(1),
+            eq("node-1"),
+            any(NodeTagFilter.class),
+            any(ExecutionTargetFilter.class)))
         .thenThrow(new RatchetTransientStoreException("deadlock"))
         .thenThrow(new RatchetTransientStoreException("deadlock"))
         .thenReturn(List.of(claim(3L, JobExecutionType.SINGLE, "recovered")));
@@ -237,7 +427,12 @@ class PollerTest {
     long nextDelay = poller.tick();
 
     verify(jobClaimStore, times(3))
-        .claimNextBatchOptimized(eq(JobExecutionType.SINGLE), eq(1), eq("node-1"), any());
+        .claimNextBatchOptimized(
+            eq(JobExecutionType.SINGLE),
+            eq(1),
+            eq("node-1"),
+            any(NodeTagFilter.class),
+            any(ExecutionTargetFilter.class));
     verify(jobExecutionCoordinator).submit(any(JobClaimDto.class));
     verify(metricsCollector).pollerBreakerState("store.claim", "HALF_OPEN");
     verify(metricsCollector, times(3)).pollerBreakerState("store.claim", "CLOSED");
@@ -250,7 +445,7 @@ class PollerTest {
         jobClaimStore,
         jobExecutionCoordinator,
         nodeIdProvider,
-        threadPoolManager,
+        poolRegistry,
         drainController,
         pollerScheduler,
         options,
@@ -263,7 +458,37 @@ class PollerTest {
         null);
   }
 
+  private static RatchetOptions testOptions(RatchetOptions.ThreadingMode defaultThreadingMode) {
+    return RatchetOptions.builder()
+        .polling(
+            polling ->
+                polling
+                    .batchSize(5)
+                    .burstDelayMs(500L)
+                    .minDelayMs(2000L)
+                    .maxDelayMs(30000L)
+                    .deepIdleDelayMs(60000L)
+                    .deepIdleThresholdMs(300000L)
+                    .idleThreshold(5))
+        .execution(execution -> execution.defaultThreadingMode(defaultThreadingMode))
+        .build();
+  }
+
+  private static Map<String, Integer> platformCapacity(int platformCapacity) {
+    return Map.of(ExecutorTargets.PLATFORM, platformCapacity);
+  }
+
+  private static Map<String, Integer> capacities(int platformCapacity, int virtualCapacity) {
+    return Map.of(
+        ExecutorTargets.PLATFORM, platformCapacity, ExecutorTargets.VIRTUAL, virtualCapacity);
+  }
+
   private JobClaimDto claim(long jobId, JobExecutionType jobType, String type) {
+    return claim(jobId, jobType, type, null);
+  }
+
+  private JobClaimDto claim(
+      long jobId, JobExecutionType jobType, String type, String executionTarget) {
     return new JobClaimDto(
         new UUID(0L, jobId),
         JobStatus.RUNNING,
@@ -276,7 +501,8 @@ class PollerTest {
         Instant.now(),
         type,
         0,
-        0);
+        0,
+        executionTarget);
   }
 
   private static final class RecordingDelayStrategy implements PollingDelayStrategy {

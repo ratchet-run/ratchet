@@ -146,6 +146,13 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
   @Column(name = "resource_name", length = 100)
   private String resourceName;
 
+  // Immutable routing label set at enqueue: which configured executor pool runs the job.
+  // null = inherit the deployment default. Denormalized onto scheduler_job_queue so the claim
+  // projection can route without loading the full row. Reserved values "platform"/"virtual"
+  // today; stored as a string so future named pools need no migration.
+  @Column(name = "execution_target", length = 64)
+  private String executionTarget;
+
   @Convert(converter = JobPayloadConverter.class)
   @Column(name = "on_success_payload")
   private JobPayload onSuccessPayload;
@@ -424,6 +431,14 @@ public class JobEntity implements UuidV7EntityListener.UuidV7Assignable {
 
   public void setResourceName(String resourceName) {
     this.resourceName = resourceName;
+  }
+
+  public String getExecutionTarget() {
+    return executionTarget;
+  }
+
+  public void setExecutionTarget(String executionTarget) {
+    this.executionTarget = executionTarget;
   }
 
   public JobPayload getOnSuccessPayload() {

@@ -19,9 +19,10 @@ import run.ratchet.tck.store.schema.DeprecatedArtifact.DroppedIndex;
  * catalog is the source of truth for the cross-store schema-conformance contract — any conforming
  * store must satisfy every PK, FK, column type, and index declared here for every table.
  *
- * <p>Generated columns ({@code target_class}, {@code method_name} on {@code scheduler_job}) are
- * intentionally omitted because their MySQL {@code STORED} vs PostgreSQL {@code STORED} expressions
- * are introspection-asymmetric and not part of the conformance contract.
+ * <p>Generated columns ({@code target_class}, {@code method_name} on {@code scheduler_job} and
+ * {@code scheduler_recurring_job}) are intentionally omitted because their MySQL {@code STORED} vs
+ * PostgreSQL {@code STORED} expressions are introspection-asymmetric and not part of the
+ * conformance contract.
  *
  * <p>Three columns are intentionally omitted because their physical types diverge across stores
  * with no single satisfying {@link LogicalType}: {@code scheduler_batch.progress_hook} (MySQL JSON
@@ -31,7 +32,7 @@ import run.ratchet.tck.store.schema.DeprecatedArtifact.DroppedIndex;
  */
 public final class RatchetSchemaCatalog {
 
-  public static final int CURRENT_VERSION = 6;
+  public static final int CURRENT_VERSION = 8;
 
   public static final SchemaSpec CURRENT =
       new SchemaSpec(
@@ -42,6 +43,8 @@ public final class RatchetSchemaCatalog {
               schedulerNode(),
               schedulerLock(),
               schedulerResourceLimit(),
+              schedulerRecurringJob(),
+              schedulerRecurringJobArchive(),
               schedulerBusinessKeyReservation(),
               schedulerJobTag(),
               schedulerBatch(),
@@ -72,6 +75,7 @@ public final class RatchetSchemaCatalog {
         .column(required("idempotency_key", TEXT))
         .column(nullable("business_key", TEXT))
         .column(nullable("resource_name", TEXT))
+        .column(nullable("execution_target", TEXT))
         .column(nullable("on_success_payload", JSON))
         .column(nullable("on_failure_payload", JSON))
         .column(nullable("depends_on", UUID))
@@ -125,6 +129,7 @@ public final class RatchetSchemaCatalog {
         .column(nullable("signal_delivered_at", TIMESTAMP_TZ))
         .column(nullable("signal_delivered_by", TEXT))
         .column(nullable("signal_delivery_id", TEXT))
+        .column(nullable("execution_target", TEXT))
         .primaryKey("job_id")
         .foreignKey(
             new ForeignKey(
@@ -170,6 +175,52 @@ public final class RatchetSchemaCatalog {
         .column(required("created_at", TIMESTAMP_TZ))
         .column(required("updated_at", TIMESTAMP_TZ))
         .primaryKey("resource_name")
+        .build();
+  }
+
+  private static Table schedulerRecurringJob() {
+    return Table.builder("scheduler_recurring_job")
+        .column(required("id", UUID))
+        .column(required("priority", INT32))
+        .column(required("max_retries", INT32))
+        .column(required("backoff_policy", TEXT))
+        .column(required("backoff_param_ms", INT32))
+        .column(required("timeout_sec", INT32))
+        .column(required("cron_expr", TEXT))
+        .column(required("zone_id", TEXT))
+        .column(required("next_fire", TIMESTAMP_TZ))
+        .column(required("is_paused", BOOLEAN))
+        .column(nullable("paused_at", TIMESTAMP_TZ))
+        .column(required("payload", JSON))
+        .column(nullable("on_success_payload", JSON))
+        .column(nullable("on_failure_payload", JSON))
+        .column(nullable("business_key", TEXT))
+        .column(nullable("resource_name", TEXT))
+        .column(nullable("execution_target", TEXT))
+        .column(required("created_at", TIMESTAMP_TZ))
+        .column(nullable("caller_principal", TEXT))
+        .primaryKey("id")
+        .index(Index.of("idx_rec_business_key", "business_key"))
+        .build();
+  }
+
+  private static Table schedulerRecurringJobArchive() {
+    return Table.builder("scheduler_recurring_job_archive")
+        .column(required("id", UUID))
+        .column(required("cron_expr", TEXT))
+        .column(required("zone_id", TEXT))
+        .column(required("payload", JSON))
+        .column(nullable("on_success_payload", JSON))
+        .column(nullable("on_failure_payload", JSON))
+        .column(nullable("business_key", TEXT))
+        .column(nullable("execution_target", TEXT))
+        .column(required("created_at", TIMESTAMP_TZ))
+        .column(nullable("caller_principal", TEXT))
+        .column(required("archived_at", TIMESTAMP_TZ))
+        .column(required("archive_reason", TEXT))
+        .primaryKey("id")
+        .index(Index.of("idx_archive_rec_business_key", "business_key"))
+        .index(Index.of("idx_archive_rec_archived_at", "archived_at"))
         .build();
   }
 

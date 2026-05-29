@@ -272,7 +272,8 @@ class DefaultJobSchedulerServiceEventTest {
     assertEquals("boom", event.getErrorMessage());
     assertEquals(1, event.getRetryAttempt());
     assertEquals(FIXED_NOW, event.getScheduledTime());
-    verify(wakeupService).notifyIfNeeded(JobExecutionType.SINGLE, JobPriority.HIGH, Duration.ZERO);
+    verify(wakeupService)
+        .notifyIfNeeded(JobExecutionType.SINGLE, JobPriority.HIGH, Duration.ZERO, null);
   }
 
   @Test
@@ -367,6 +368,7 @@ class DefaultJobSchedulerServiceEventTest {
         null,
         null,
         "business-90",
+        null,
         null,
         FIXED_NOW,
         null);

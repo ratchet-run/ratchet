@@ -7,6 +7,7 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobOptions;
 
 class DefaultRecurringJobBuilderTest {
@@ -38,6 +39,17 @@ class DefaultRecurringJobBuilderTest {
     builder.withTags(null);
 
     assertEquals(List.of(), builder.tags());
+  }
+
+  @Test
+  void platformAndVirtualUseLastCallWinsSemantics() {
+    DefaultRecurringJobBuilder builder = newBuilder();
+
+    builder.virtual().platform();
+    assertEquals(ExecutorTargets.PLATFORM, builder.executionTarget());
+
+    builder.virtual();
+    assertEquals(ExecutorTargets.VIRTUAL, builder.executionTarget());
   }
 
   private static DefaultRecurringJobBuilder newBuilder() {

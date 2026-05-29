@@ -3,6 +3,7 @@ package run.ratchet.store.mysql;
 import java.sql.SQLException;
 import java.sql.SQLRecoverableException;
 import java.sql.SQLTransientException;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import run.ratchet.store.ConstraintDetector;
@@ -17,8 +18,11 @@ class MysqlConstraintDetector implements ConstraintDetector {
   private static final int CONNECTION_FAILED_ERROR_CODE = 2003;
   private static final int SERVER_GONE_AWAY_ERROR_CODE = 2006;
   private static final int LOST_CONNECTION_ERROR_CODE = 2013;
-  private static final String COMMUNICATIONS_EXCEPTION =
-      "com.mysql.cj.exceptions.CommunicationsException";
+  private static final Set<String> COMMUNICATIONS_EXCEPTIONS =
+      Set.of(
+          "com.mysql.cj.exceptions.CommunicationsException",
+          "com.mysql.cj.exceptions.CJCommunicationsException",
+          "com.mysql.cj.jdbc.exceptions.CommunicationsException");
 
   @Override
   public String constraintName(Exception e) {
@@ -75,7 +79,7 @@ class MysqlConstraintDetector implements ConstraintDetector {
       if (current instanceof SQLTransientException || current instanceof SQLRecoverableException) {
         return true;
       }
-      if (COMMUNICATIONS_EXCEPTION.equals(current.getClass().getName())) {
+      if (COMMUNICATIONS_EXCEPTIONS.contains(current.getClass().getName())) {
         return true;
       }
       if (current instanceof SQLException sql) {

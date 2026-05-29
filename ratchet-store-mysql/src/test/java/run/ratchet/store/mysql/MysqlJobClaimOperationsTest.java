@@ -25,7 +25,8 @@ class MysqlJobClaimOperationsTest {
             "picked_at",
             "business_key",
             "attempts",
-            "max_retries"),
+            "max_retries",
+            "execution_target"),
         columns);
     assertEquals(
         Map.ofEntries(
@@ -40,7 +41,8 @@ class MysqlJobClaimOperationsTest {
             Map.entry("picked_at", 8),
             Map.entry("business_key", 9),
             Map.entry("attempts", 10),
-            Map.entry("max_retries", 11)),
+            Map.entry("max_retries", 11),
+            Map.entry("execution_target", 12)),
         MysqlJobClaimOperations.claimSelectColumnIndexes());
   }
 }

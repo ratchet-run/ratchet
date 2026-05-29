@@ -33,7 +33,11 @@ public interface JobClaimStore {
    * @return claim DTOs (metadata-only, no payload), never {@code null}; may be empty
    */
   List<JobClaimDto> claimNextBatchOptimized(
-      JobExecutionType jobType, int limit, String nodeId, NodeTagFilter tagFilter);
+      JobExecutionType jobType,
+      int limit,
+      String nodeId,
+      NodeTagFilter tagFilter,
+      ExecutionTargetFilter executionTargetFilter);
 
   /** Backward-compatible overload that disables tag-affinity filtering. */
   default List<JobEntity> claimNextBatch(int limit, String nodeId) {
@@ -41,6 +45,11 @@ public interface JobClaimStore {
   }
 
   /** Backward-compatible overload that disables tag-affinity filtering. */
+  default List<JobClaimDto> claimNextBatchOptimized(
+      JobExecutionType jobType, int limit, String nodeId, NodeTagFilter tagFilter) {
+    return claimNextBatchOptimized(jobType, limit, nodeId, tagFilter, ExecutionTargetFilter.any());
+  }
+
   default List<JobClaimDto> claimNextBatchOptimized(
       JobExecutionType jobType, int limit, String nodeId) {
     return claimNextBatchOptimized(jobType, limit, nodeId, NodeTagFilter.NONE);

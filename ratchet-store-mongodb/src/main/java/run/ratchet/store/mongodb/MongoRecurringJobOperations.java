@@ -20,6 +20,7 @@ import static run.ratchet.store.mongodb.MongoFieldNames.CLAIM_EXPIRES_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.CLAIM_TOKEN;
 import static run.ratchet.store.mongodb.MongoFieldNames.CREATED_AT;
 import static run.ratchet.store.mongodb.MongoFieldNames.CRON_EXPR;
+import static run.ratchet.store.mongodb.MongoFieldNames.EXECUTION_TARGET;
 import static run.ratchet.store.mongodb.MongoFieldNames.ID;
 import static run.ratchet.store.mongodb.MongoFieldNames.IS_PAUSED;
 import static run.ratchet.store.mongodb.MongoFieldNames.MAX_RETRIES_FIELD;
@@ -47,10 +48,8 @@ import java.util.Set;
 import java.util.UUID;
 import org.bson.Document;
 import org.bson.conversions.Bson;
-import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.exception.RatchetTransientStoreException;
-import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
 
@@ -270,7 +269,8 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
                     set(
                         ON_FAILURE_PAYLOAD,
                         DocumentMapper.payloadToStoredValue(d.onFailurePayload())),
-                    set(RESOURCE_NAME, d.resourceName())),
+                    set(RESOURCE_NAME, d.resourceName()),
+                    set(EXECUTION_TARGET, d.executionTarget())),
                 new UpdateOptions().upsert(false));
     return r.getModifiedCount() > 0;
   }
@@ -342,6 +342,7 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
     archive.put(ON_SUCCESS_PAYLOAD, live.get(ON_SUCCESS_PAYLOAD));
     archive.put(ON_FAILURE_PAYLOAD, live.get(ON_FAILURE_PAYLOAD));
     archive.put(BUSINESS_KEY, live.get(BUSINESS_KEY));
+    archive.put(EXECUTION_TARGET, live.get(EXECUTION_TARGET));
     archive.put(CREATED_AT, live.get(CREATED_AT));
     archive.put(CALLER_PRINCIPAL, live.get(CALLER_PRINCIPAL));
     archive.put(ARCHIVED_AT, new Date());
@@ -350,66 +351,13 @@ final class MongoRecurringJobOperations implements RecurringJobStore {
   }
 
   private static Document toDocument(RecurringJobDefinition d) {
-    Document doc = new Document();
-    doc.put(ID, d.id());
-    doc.put(PRIORITY_FIELD, d.priority());
-    doc.put(MAX_RETRIES_FIELD, d.maxRetries());
-    doc.put(BACKOFF_POLICY, d.backoffPolicy() != null ? d.backoffPolicy().name() : "NONE");
-    doc.put(BACKOFF_PARAM_MS, d.backoffParamMs());
-    doc.put(TIMEOUT_SEC, d.timeoutSec());
-    doc.put(CRON_EXPR, d.cronExpr());
-    doc.put(ZONE_ID, d.zoneId() != null ? d.zoneId() : "UTC");
-    doc.put(NEXT_FIRE, Date.from(d.nextFire()));
+    Document doc = DocumentMapper.toRecurringDocument(d);
     doc.put(CLAIM_TOKEN, null);
     doc.put(CLAIM_EXPIRES_AT, UNCLAIMED);
-    doc.put(IS_PAUSED, d.paused());
-    doc.put(PAUSED_AT, d.pausedAt() != null ? Date.from(d.pausedAt()) : null);
-    doc.put(PAYLOAD, DocumentMapper.payloadToStoredValue(d.payload()));
-    doc.put(ON_SUCCESS_PAYLOAD, DocumentMapper.payloadToStoredValue(d.onSuccessPayload()));
-    doc.put(ON_FAILURE_PAYLOAD, DocumentMapper.payloadToStoredValue(d.onFailurePayload()));
-    doc.put(BUSINESS_KEY, d.businessKey());
-    doc.put(RESOURCE_NAME, d.resourceName());
-    doc.put(CREATED_AT, Date.from(d.createdAt() != null ? d.createdAt() : Instant.now()));
-    doc.put(CALLER_PRINCIPAL, d.callerPrincipal());
     return doc;
   }
 
   private static RecurringJobDefinition hydrate(Document doc) {
-    UUID id = doc.get(ID, UUID.class);
-    Number priority = (Number) doc.get(PRIORITY_FIELD);
-    Number maxRetries = (Number) doc.get(MAX_RETRIES_FIELD);
-    BackoffPolicy backoffPolicy =
-        BackoffPolicy.valueOf(
-            doc.getString(BACKOFF_POLICY) != null ? doc.getString(BACKOFF_POLICY) : "NONE");
-    Number backoffParamMs = (Number) doc.get(BACKOFF_PARAM_MS);
-    Number timeoutSec = (Number) doc.get(TIMEOUT_SEC);
-    Instant nextFire = doc.getDate(NEXT_FIRE) != null ? doc.getDate(NEXT_FIRE).toInstant() : null;
-    boolean isPaused = doc.getBoolean(IS_PAUSED, false);
-    Instant pausedAt = doc.getDate(PAUSED_AT) != null ? doc.getDate(PAUSED_AT).toInstant() : null;
-    JobPayload payload = DocumentMapper.storedValueToPayload(doc.get(PAYLOAD));
-    JobPayload onSuccess = DocumentMapper.storedValueToPayload(doc.get(ON_SUCCESS_PAYLOAD));
-    JobPayload onFailure = DocumentMapper.storedValueToPayload(doc.get(ON_FAILURE_PAYLOAD));
-    Instant createdAt =
-        doc.getDate(CREATED_AT) != null ? doc.getDate(CREATED_AT).toInstant() : null;
-
-    return new RecurringJobDefinition(
-        id,
-        doc.getString(CRON_EXPR),
-        doc.getString(ZONE_ID),
-        nextFire,
-        isPaused,
-        pausedAt,
-        priority != null ? priority.intValue() : 2,
-        maxRetries != null ? maxRetries.intValue() : 0,
-        backoffPolicy,
-        backoffParamMs != null ? backoffParamMs.intValue() : 0,
-        timeoutSec != null ? timeoutSec.intValue() : 0,
-        payload,
-        onSuccess,
-        onFailure,
-        doc.getString(BUSINESS_KEY),
-        doc.getString(RESOURCE_NAME),
-        createdAt,
-        doc.getString(CALLER_PRINCIPAL));
+    return DocumentMapper.toRecurringJobDefinition(doc);
   }
 }

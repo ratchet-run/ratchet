@@ -3,7 +3,7 @@ package run.ratchet.ri.core;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
-import run.ratchet.ri.core.internal.ThreadPoolManager;
+import run.ratchet.ri.core.internal.PoolRegistry;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;
@@ -17,14 +17,14 @@ class SubmissionFailureHandler {
 
   private final JobStateManager jobStateManager;
   private final RetryBufferManager retryBufferManager;
-  private final ThreadPoolManager threadPoolManager;
+  private final PoolRegistry poolRegistry;
   private final PollerScheduler pollerScheduler;
   private final MetricsCollector metricsCollector;
 
   protected SubmissionFailureHandler() {
     this.jobStateManager = null;
     this.retryBufferManager = null;
-    this.threadPoolManager = null;
+    this.poolRegistry = null;
     this.pollerScheduler = null;
     this.metricsCollector = null;
   }
@@ -33,12 +33,12 @@ class SubmissionFailureHandler {
   public SubmissionFailureHandler(
       JobStateManager jobStateManager,
       RetryBufferManager retryBufferManager,
-      ThreadPoolManager threadPoolManager,
+      PoolRegistry poolRegistry,
       PollerScheduler pollerScheduler,
       MetricsCollector metricsCollector) {
     this.jobStateManager = jobStateManager;
     this.retryBufferManager = retryBufferManager;
-    this.threadPoolManager = threadPoolManager;
+    this.poolRegistry = poolRegistry;
     this.pollerScheduler = pollerScheduler;
     this.metricsCollector = metricsCollector;
   }
@@ -69,8 +69,9 @@ class SubmissionFailureHandler {
     log.info(result.reason());
   }
 
-  public void handleRejection(JobEntity job, JobExecutionType jobType, boolean isFirstAttempt) {
-    releaseSubmissionPermit(jobType);
+  public void handleRejection(
+      JobEntity job, JobExecutionType jobType, String poolName, boolean isFirstAttempt) {
+    releaseSubmissionPermit(jobType, poolName);
 
     if (isFirstAttempt) {
       resetToPendingOrBuffer(job);
@@ -86,8 +87,8 @@ class SubmissionFailureHandler {
     }
   }
 
-  public void handleRejection(JobClaimDto claim, JobExecutionType jobType) {
-    releaseSubmissionPermit(jobType);
+  public void handleRejection(JobClaimDto claim, JobExecutionType jobType, String poolName) {
+    releaseSubmissionPermit(jobType, poolName);
 
     if (bufferClaim(claim)) {
       log.warnf("Executor for %s rejected job %s - buffered locally", jobType, claim.id());
@@ -103,8 +104,12 @@ class SubmissionFailureHandler {
   }
 
   public void handleUnexpectedException(
-      JobEntity job, JobExecutionType jobType, boolean isFirstAttempt, Exception exception) {
-    releaseSubmissionPermit(jobType);
+      JobEntity job,
+      JobExecutionType jobType,
+      String poolName,
+      boolean isFirstAttempt,
+      Exception exception) {
+    releaseSubmissionPermit(jobType, poolName);
     log.errorf(exception, "Unexpected exception submitting job %s - permit released", job.getId());
 
     if (isFirstAttempt || !retryBufferManager.offer(job)) {
@@ -113,8 +118,8 @@ class SubmissionFailureHandler {
   }
 
   public void handleUnexpectedException(
-      JobClaimDto claim, JobExecutionType jobType, Exception exception) {
-    releaseSubmissionPermit(jobType);
+      JobClaimDto claim, JobExecutionType jobType, String poolName, Exception exception) {
+    releaseSubmissionPermit(jobType, poolName);
     log.errorf(exception, "Unexpected exception submitting job %s - permit released", claim.id());
 
     if (bufferClaim(claim)) {
@@ -149,8 +154,8 @@ class SubmissionFailureHandler {
     }
   }
 
-  private void releaseSubmissionPermit(JobExecutionType jobType) {
-    threadPoolManager.releasePermit(jobType);
+  private void releaseSubmissionPermit(JobExecutionType jobType, String poolName) {
+    poolRegistry.pool(poolName).releasePermit(jobType);
     pollerScheduler.wakeup();
   }
 

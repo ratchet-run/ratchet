@@ -3,6 +3,7 @@ package run.ratchet.ri.core;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Objects;
+import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobOptions;
 import run.ratchet.api.RecurringJobBuilder;
@@ -19,6 +20,7 @@ class DefaultRecurringJobBuilder implements RecurringJobBuilder {
   private JobOptions options = JobOptions.defaults();
   private List<String> tags = List.of();
   private String businessKey;
+  private String executionTarget;
 
   DefaultRecurringJobBuilder(
       String cronExpr,
@@ -50,6 +52,18 @@ class DefaultRecurringJobBuilder implements RecurringJobBuilder {
   }
 
   @Override
+  public RecurringJobBuilder virtual() {
+    this.executionTarget = ExecutorTargets.VIRTUAL;
+    return this;
+  }
+
+  @Override
+  public RecurringJobBuilder platform() {
+    this.executionTarget = ExecutorTargets.PLATFORM;
+    return this;
+  }
+
+  @Override
   public JobHandle submit() {
     return submitter.submit(this);
   }
@@ -76,5 +90,9 @@ class DefaultRecurringJobBuilder implements RecurringJobBuilder {
 
   String businessKey() {
     return businessKey;
+  }
+
+  String executionTarget() {
+    return executionTarget;
   }
 }

@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import run.ratchet.api.BackoffPolicy;
+import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobBuilder;
 import run.ratchet.api.JobContext;
 import run.ratchet.api.JobHandle;
@@ -41,6 +42,7 @@ final class DefaultJobBuilder implements JobBuilder, JobBuilderState {
   private String idempotencyKey;
   private String businessKey;
   private String resourceName;
+  private String executionTarget;
   private String awaitSignalKey;
   private Duration awaitSignalTimeout;
 
@@ -188,6 +190,18 @@ final class DefaultJobBuilder implements JobBuilder, JobBuilderState {
   }
 
   @Override
+  public JobBuilder virtual() {
+    this.executionTarget = ExecutorTargets.VIRTUAL;
+    return this;
+  }
+
+  @Override
+  public JobBuilder platform() {
+    this.executionTarget = ExecutorTargets.PLATFORM;
+    return this;
+  }
+
+  @Override
   public JobBuilder withBackoff(BackoffPolicy policy, Duration param) {
     options = options.withBackoff(policy, param);
     return this;
@@ -292,5 +306,10 @@ final class DefaultJobBuilder implements JobBuilder, JobBuilderState {
   @Override
   public String resourceName() {
     return resourceName;
+  }
+
+  @Override
+  public String executionTarget() {
+    return executionTarget;
   }
 }

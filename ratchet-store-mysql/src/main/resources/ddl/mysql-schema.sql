@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS scheduler_recurring_job
     on_failure_payload    JSON                                                              NULL,
     business_key          VARCHAR(255)                                                      NULL,
     resource_name         VARCHAR(100)                                                      NULL,
+    execution_target      VARCHAR(64)                                                       NULL,
     target_class          VARCHAR(255) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(payload, '$.target'))) STORED,
     method_name           VARCHAR(128) GENERATED ALWAYS AS (JSON_UNQUOTE(JSON_EXTRACT(payload, '$.method'))) STORED,
     created_at            DATETIME(6)                                                       NOT NULL,
@@ -103,6 +104,7 @@ CREATE TABLE IF NOT EXISTS scheduler_recurring_job_archive
     on_success_payload    JSON                                  NULL,
     on_failure_payload    JSON                                  NULL,
     business_key          VARCHAR(255)                          NULL,
+    execution_target      VARCHAR(64)                           NULL,
     created_at            DATETIME(6)                           NOT NULL,
     caller_principal      VARCHAR(255)                          NULL,
     archived_at           DATETIME(6)                           NOT NULL,
@@ -147,6 +149,10 @@ CREATE TABLE IF NOT EXISTS scheduler_job
     -- scheduler_business_key_reservation (not a UNIQUE KEY here anymore).
     business_key          VARCHAR(255)                                                                                                        NULL,
     resource_name         VARCHAR(100)                                                                                                        NULL,
+    -- Immutable routing label: which configured executor pool runs the job. NULL = inherit the
+    -- deployment default. Denormalized onto scheduler_job_queue for the claim projection. Reserved
+    -- values 'platform'/'virtual' today; stored as a string so future named pools need no migration.
+    execution_target      VARCHAR(64)                                                                                                         NULL,
     on_success_payload    JSON                                                                                                                NULL,
     on_failure_payload    JSON                                                                                                                NULL,
     depends_on            BINARY(16)                                                                                                          NULL,
@@ -230,6 +236,8 @@ CREATE TABLE IF NOT EXISTS scheduler_job_queue
     signal_delivered_at     DATETIME(3)                                                                                                    NULL,
     signal_delivered_by     VARCHAR(255)                                                                                                   NULL,
     signal_delivery_id      VARCHAR(36)                                                                                                    NULL,
+    -- Denormalized from scheduler_job: claim-time routing label read into JobClaimDto.
+    execution_target        VARCHAR(64)                                                                                                    NULL,
     PRIMARY KEY (job_id),
     CONSTRAINT chk_queue_priority CHECK (priority BETWEEN 0 AND 4),
     CONSTRAINT chk_queue_paused_from_status CHECK (paused_from_status IS NULL OR paused_from_status IN ('PENDING','RUNNING','PAUSED')),

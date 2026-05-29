@@ -50,7 +50,7 @@ import run.ratchet.store.spi.JobStore;
 public class DefaultJobExecutorService implements JobExecutorService {
 
   private static final Logger log = Logger.getLogger(DefaultJobExecutorService.class);
-  private final ThreadPoolManager threadPoolManager;
+  private final PoolRegistry poolRegistry;
   private final JobTimeoutHandler timeoutHandler;
   private final ExecutorProvider executorProvider;
   private final JobStore jobStore;
@@ -75,7 +75,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
   private final Set<TrackingFutureTask> activeFutures = ConcurrentHashMap.newKeySet();
 
   protected DefaultJobExecutorService() {
-    this.threadPoolManager = null;
+    this.poolRegistry = null;
     this.timeoutHandler = null;
     this.executorProvider = null;
     this.jobStore = null;
@@ -99,7 +99,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
 
   @Inject
   public DefaultJobExecutorService(
-      ThreadPoolManager threadPoolManager,
+      PoolRegistry poolRegistry,
       JobTimeoutHandler timeoutHandler,
       ExecutorProvider executorProvider,
       JobStore jobStore,
@@ -119,7 +119,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
       JobAuthorizationPolicy authorizationPolicy,
       PayloadSerializer payloadSerializer,
       Clock clock) {
-    this.threadPoolManager = threadPoolManager;
+    this.poolRegistry = poolRegistry;
     this.timeoutHandler = timeoutHandler;
     this.executorProvider = executorProvider;
     this.jobStore = jobStore;
@@ -150,27 +150,29 @@ public class DefaultJobExecutorService implements JobExecutorService {
   }
 
   @Override
-  public ExecutionResult execute(JobEntity job) {
+  public ExecutionResult execute(JobEntity job, String poolName) {
     JobExecutionType jobType = job.getJobType();
     AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef = new AtomicReference<>();
-    Callable<Void> callable = createPermitAwareRunner(jobType, handlesRef, task -> task.init(job));
-    return execute(job.getId(), job.getTimeoutSec(), callable, handlesRef);
+    Callable<Void> callable =
+        createPermitAwareRunner(jobType, poolName, handlesRef, task -> task.init(job));
+    return execute(job.getId(), job.getTimeoutSec(), callable, handlesRef, poolName);
   }
 
   @Override
-  public ExecutionResult execute(JobClaimDto claim) {
+  public ExecutionResult execute(JobClaimDto claim, String poolName) {
     JobExecutionType jobType = claim.jobType();
     AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef = new AtomicReference<>();
     Callable<Void> callable =
-        createPermitAwareRunner(jobType, handlesRef, task -> task.initFromClaim(claim));
-    return execute(claim.id(), claim.timeoutSec(), callable, handlesRef);
+        createPermitAwareRunner(jobType, poolName, handlesRef, task -> task.initFromClaim(claim));
+    return execute(claim.id(), claim.timeoutSec(), callable, handlesRef, poolName);
   }
 
   private ExecutionResult execute(
       UUID jobId,
       int timeoutSec,
       Callable<Void> callable,
-      AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef) {
+      AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef,
+      String poolName) {
     Instant executionStartTime = effective().instant();
     TrackingFutureTask task;
     try {
@@ -183,7 +185,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
       JobTimeoutHandler.TimeoutHandles handles =
           scheduleWatchdog(jobId, timeoutSec, task, executionStartTime);
       handlesRef.set(handles);
-      submitToExecutor(task);
+      submitToExecutor(task, poolName);
       if (task.isDone()) {
         cancelTimeoutHandles(handlesRef);
       }
@@ -263,6 +265,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
 
   private Callable<Void> createPermitAwareRunner(
       JobExecutionType jobType,
+      String poolName,
       AtomicReference<JobTimeoutHandler.TimeoutHandles> handlesRef,
       Consumer<JobTask> initializer) {
     JobTask task = createTask();
@@ -272,7 +275,7 @@ public class DefaultJobExecutorService implements JobExecutorService {
       try {
         return task.call();
       } finally {
-        threadPoolManager.releasePermit(jobType);
+        poolRegistry.pool(poolName).releasePermit(jobType);
         if (pollerScheduler != null) {
           pollerScheduler.wakeup();
         }
@@ -323,19 +326,22 @@ public class DefaultJobExecutorService implements JobExecutorService {
     }
   }
 
-  private void submitToExecutor(TrackingFutureTask task) {
+  private void submitToExecutor(TrackingFutureTask task, String poolName) {
     if (task.isCancelled()) {
       throw new RejectedExecutionException("Job execution was canceled before submission");
     }
-    ExecutorService executor = executorProvider.getJobExecutor();
     try {
+      ExecutorService executor = poolRegistry.pool(poolName).getExecutor();
       executor.execute(task);
       if (task.isCancelled()) {
         throw new RejectedExecutionException("Job execution was canceled during submission");
       }
-    } catch (RejectedExecutionException e) {
+    } catch (RuntimeException e) {
       activeFutures.remove(task);
-      throw e;
+      if (e instanceof RejectedExecutionException rejected) {
+        throw rejected;
+      }
+      throw new RejectedExecutionException("Job executor could not accept task", e);
     }
   }
 

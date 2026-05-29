@@ -23,7 +23,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import javax.sql.DataSource;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobPriority;
@@ -31,6 +31,7 @@ import run.ratchet.api.NodeIdentity;
 import run.ratchet.coordinator.common.NotifyPayload;
 import run.ratchet.coordinator.common.internal.NotifyPayloadCodec;
 import run.ratchet.spi.ClusterCoordinator;
+import run.ratchet.spi.JobWakeupHint;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.SchedulerLifecycleHook;
@@ -76,7 +77,7 @@ public class PostgresqlListenNotifyCoordinator
   @Inject MetricsCollector metrics;
 
   private final NotifyPayloadCodec codec = new NotifyPayloadCodec();
-  private final CopyOnWriteArrayList<BiConsumer<JobPriority, NodeIdentity>> listeners =
+  private final CopyOnWriteArrayList<Consumer<JobWakeupHint>> listeners =
       new CopyOnWriteArrayList<>();
   private final BlockingQueue<NotifyPayload> preRegistrationBuffer =
       new ArrayBlockingQueue<>(PRE_REGISTRATION_BUFFER_CAPACITY);
@@ -162,14 +163,14 @@ public class PostgresqlListenNotifyCoordinator
   }
 
   @Override
-  public void notifyNewWork(JobPriority priority, NodeIdentity source) {
+  public void notifyNewWork(JobPriority priority, NodeIdentity source, String executionTarget) {
     Objects.requireNonNull(priority, "priority");
     Objects.requireNonNull(source, "source");
     if (closed.get()) {
       return;
     }
     try {
-      String payload = codec.encode(NotifyPayload.current(source, priority));
+      String payload = codec.encode(NotifyPayload.current(source, priority, executionTarget));
       try (Connection raw = publishConnectionAcquirer.acquire();
           PreparedStatement ps = raw.prepareStatement("SELECT pg_notify(?, ?)")) {
         ps.setString(1, config.effectiveChannel());
@@ -195,7 +196,7 @@ public class PostgresqlListenNotifyCoordinator
   }
 
   @Override
-  public void registerWakeupListener(BiConsumer<JobPriority, NodeIdentity> listener) {
+  public void registerWakeupListener(Consumer<JobWakeupHint> listener) {
     Objects.requireNonNull(listener, "listener");
     if (closed.get()) {
       return;
@@ -280,12 +281,13 @@ public class PostgresqlListenNotifyCoordinator
   }
 
   private void dispatchToListeners(NotifyPayload msg) {
-    for (BiConsumer<JobPriority, NodeIdentity> listener : listeners) {
+    JobWakeupHint hint = new JobWakeupHint(msg.priority(), msg.node(), msg.executionTarget());
+    for (Consumer<JobWakeupHint> listener : listeners) {
       try {
         listenerExecutor.execute(
             () -> {
               try {
-                listener.accept(msg.priority(), msg.node());
+                listener.accept(hint);
               } catch (RuntimeException listenerEx) {
                 clusterWakeupReceived("listener_failure");
                 log.warnf(

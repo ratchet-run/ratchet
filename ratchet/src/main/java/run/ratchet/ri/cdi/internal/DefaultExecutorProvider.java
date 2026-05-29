@@ -3,11 +3,13 @@ package run.ratchet.ri.cdi.internal;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import javax.naming.InitialContext;
 import javax.naming.NamingException;
 import org.jboss.logging.Logger;
+import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.spi.ExecutorProvider;
 
@@ -57,20 +59,24 @@ public class DefaultExecutorProvider implements ExecutorProvider {
 
   private final String jobExecutorJndi;
   private final String scheduledExecutorJndi;
+  private final String virtualExecutorJndi;
 
   private volatile ExecutorService resolvedJobExecutor;
   private volatile ScheduledExecutorService resolvedScheduledExecutor;
+  private volatile ExecutorService resolvedVirtualExecutor;
 
   /** Direct-construction path (tests, plain-SE): uses the well-known container JNDI names. */
   protected DefaultExecutorProvider() {
     this.jobExecutorJndi = JOB_EXECUTOR_JNDI;
     this.scheduledExecutorJndi = SCHEDULED_EXECUTOR_JNDI;
+    this.virtualExecutorJndi = null;
   }
 
   @Inject
   public DefaultExecutorProvider(RatchetOptions options) {
     this.jobExecutorJndi = options.execution().jobExecutorJndi();
     this.scheduledExecutorJndi = options.execution().scheduledExecutorJndi();
+    this.virtualExecutorJndi = options.execution().virtualExecutorJndi();
   }
 
   @PostConstruct
@@ -150,6 +156,33 @@ public class DefaultExecutorProvider implements ExecutorProvider {
         if (executor == null) {
           executor = lookup(jobExecutorJndi, ExecutorService.class);
           resolvedJobExecutor = executor;
+        }
+      }
+    }
+    return executor;
+  }
+
+  @Override
+  public Optional<ExecutorService> getJobExecutor(String target) {
+    if (ExecutorTargets.PLATFORM.equals(target)) {
+      return Optional.of(getJobExecutor());
+    }
+    if (ExecutorTargets.VIRTUAL.equals(target) && virtualExecutorJndi != null) {
+      return Optional.of(virtualExecutor());
+    }
+    return Optional.empty();
+  }
+
+  private ExecutorService virtualExecutor() {
+    ExecutorService executor = resolvedVirtualExecutor;
+    if (executor == null) {
+      synchronized (this) {
+        executor = resolvedVirtualExecutor;
+        if (executor == null) {
+          // Resolved lazily on first use: a deployment-defined virtual executor may not be bound
+          // when CDI beans initialize (notably on GlassFish), so eager resolution is skipped.
+          executor = lookup(virtualExecutorJndi, ExecutorService.class);
+          resolvedVirtualExecutor = executor;
         }
       }
     }

@@ -73,10 +73,10 @@ class JmsClusterCoordinatorIT {
     JmsClusterCoordinator c = newCoordinator("nodeA", config, metrics);
     try {
       CopyOnWriteArrayList<NodeIdentity> seen = new CopyOnWriteArrayList<>();
-      c.registerWakeupListener((p, s) -> seen.add(s));
+      c.registerWakeupListener(hint -> seen.add(hint.source()));
       awaitReady(c);
 
-      c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA"));
+      c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA"), null);
 
       // Allow time for the broker to filter (and for any inbound to arrive on the rare buggy path).
       sleep(750);
@@ -99,10 +99,10 @@ class JmsClusterCoordinatorIT {
     JmsClusterCoordinator c = newCoordinator("nodeA", config, metrics);
     try {
       CopyOnWriteArrayList<NodeIdentity> seen = new CopyOnWriteArrayList<>();
-      c.registerWakeupListener((p, s) -> seen.add(s));
+      c.registerWakeupListener(hint -> seen.add(hint.source()));
       awaitReady(c);
 
-      c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA"));
+      c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA"), null);
 
       await()
           .atMost(Duration.ofSeconds(5))

@@ -196,6 +196,20 @@ public class MicrometerMetricsCollector implements MetricsCollector {
   }
 
   @Override
+  public void executionTargetFallback(String requested, String effective) {
+    if (registry == null) {
+      return;
+    }
+    counter(
+            "ratchet.execution.target.fallback",
+            "requested_target",
+            tag("requested_target", requested),
+            "effective_target",
+            tag("effective_target", effective))
+        .increment();
+  }
+
+  @Override
   public void clusterWakeupPublished(String transport, String outcome) {
     if (registry == null) {
       return;

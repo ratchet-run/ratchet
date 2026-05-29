@@ -14,6 +14,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.BackoffPolicy;
+import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.id.UuidV7Factory;
@@ -273,6 +274,24 @@ public abstract class AbstractRecurringJobStoreContract {
   }
 
   /**
+   * TCK 7b — occurrence routing inheritance (master half): execution_target must round-trip on the
+   * recurring master so the executor can stamp the same target on each child occurrence.
+   */
+  @Test
+  void getRecurring_returnsExecutionTargetForOccurrenceInheritance() {
+    UUID id = UuidV7Factory.create();
+    recurringStore()
+        .createRecurring(
+            definitionWithExecutionTarget(
+                id, "0 * * * * ?", Instant.now().plusSeconds(60), ExecutorTargets.VIRTUAL));
+
+    Optional<RecurringJobDefinition> def = recurringStore().getRecurring(id);
+
+    assertTrue(def.isPresent());
+    assertEquals(ExecutorTargets.VIRTUAL, def.get().executionTarget());
+  }
+
+  /**
    * Business-key uniqueness: two concurrent {@code createRecurring} calls with the same business
    * key must not both succeed. SQL stores enforce via {@code scheduler_business_key_reservation};
    * MongoDB enforces via a unique partial index on {@code scheduler_recurring_job.business_key}.
@@ -369,6 +388,11 @@ public abstract class AbstractRecurringJobStoreContract {
   }
 
   private RecurringJobDefinition definition(UUID id, String cron, Instant nextFire) {
+    return definitionWithExecutionTarget(id, cron, nextFire, null);
+  }
+
+  private RecurringJobDefinition definitionWithExecutionTarget(
+      UUID id, String cron, Instant nextFire, String executionTarget) {
     return new RecurringJobDefinition(
         id,
         cron,
@@ -386,6 +410,7 @@ public abstract class AbstractRecurringJobStoreContract {
         null,
         null,
         null,
+        executionTarget,
         Instant.now(),
         null);
   }
@@ -408,6 +433,7 @@ public abstract class AbstractRecurringJobStoreContract {
         null,
         null,
         businessKey,
+        null,
         null,
         Instant.now(),
         null);

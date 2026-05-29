@@ -21,6 +21,7 @@ import run.ratchet.store.entity.JobExecutionEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.WorkflowConditionEntity;
 import run.ratchet.store.id.UuidV7Factory;
+import run.ratchet.store.spi.ExecutionTargetFilter;
 
 /**
  * Single-threaded in-memory {@link run.ratchet.store.spi.JobStore} implementation that supports the
@@ -167,6 +168,16 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
   @Override
   public synchronized List<JobClaimDto> claimNextBatchOptimized(
       JobExecutionType jobType, int limit, String nodeId, NodeTagFilter tagFilter) {
+    return claimNextBatchOptimized(jobType, limit, nodeId, tagFilter, ExecutionTargetFilter.any());
+  }
+
+  @Override
+  public synchronized List<JobClaimDto> claimNextBatchOptimized(
+      JobExecutionType jobType,
+      int limit,
+      String nodeId,
+      NodeTagFilter tagFilter,
+      ExecutionTargetFilter executionTargetFilter) {
     var now = clock.instant();
     List<JobClaimDto> claimed = new ArrayList<>();
     for (JobEntity job : jobs.values()) {
@@ -183,6 +194,9 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
         continue;
       }
       if (!matchesTagFilter(job, tagFilter)) {
+        continue;
+      }
+      if (!executionTargetFilter.matches(job.getExecutionTarget())) {
         continue;
       }
       job.setStatus(JobStatus.RUNNING);
@@ -202,7 +216,8 @@ public class InMemoryJobStore extends ThrowingJobStoreBase {
               job.getPickedAt(),
               job.getBusinessKey(),
               job.getAttempts(),
-              job.getMaxRetries()));
+              job.getMaxRetries(),
+              job.getExecutionTarget()));
     }
     return claimed;
   }

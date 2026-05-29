@@ -67,7 +67,7 @@ class JmsClusterCoordinatorTest {
   void notifyNewWorkSendsTextMessageWithProperties() throws Exception {
     JmsClusterCoordinator c = newCoordinator();
     c.init();
-    c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA"));
+    c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA"), null);
 
     verify(lifecycle).sendTextMessage(anyString(), eq("nodeA"), eq("HIGH"));
     assertEquals(1, metrics.published("success"));
@@ -80,7 +80,7 @@ class JmsClusterCoordinatorTest {
     JmsClusterCoordinator c = newCoordinator();
     c.init();
 
-    assertDoesNotThrow(() -> c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA")));
+    assertDoesNotThrow(() -> c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA"), null));
     assertEquals(1, metrics.published("failure"));
     verify(lifecycle).triggerReconnect();
   }
@@ -93,7 +93,7 @@ class JmsClusterCoordinatorTest {
     JmsClusterCoordinator c = newCoordinator();
     c.init();
 
-    assertDoesNotThrow(() -> c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA")));
+    assertDoesNotThrow(() -> c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA"), null));
     assertEquals(1, metrics.published("failure"));
   }
 
@@ -103,7 +103,7 @@ class JmsClusterCoordinatorTest {
     JmsClusterCoordinator c = newCoordinator();
     c.init();
 
-    assertDoesNotThrow(() -> c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA")));
+    assertDoesNotThrow(() -> c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA"), null));
     assertEquals(1, metrics.published("failure"));
   }
 
@@ -112,7 +112,7 @@ class JmsClusterCoordinatorTest {
     JmsClusterCoordinator c = newCoordinator();
     c.init();
     c.close();
-    assertDoesNotThrow(() -> c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA")));
+    assertDoesNotThrow(() -> c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA"), null));
     verify(lifecycle, never()).sendTextMessage(anyString(), anyString(), anyString());
   }
 
@@ -121,7 +121,7 @@ class JmsClusterCoordinatorTest {
     JmsClusterCoordinator c = newCoordinator();
     c.init();
     CopyOnWriteArrayList<NodeIdentity> received = new CopyOnWriteArrayList<>();
-    c.registerWakeupListener((p, src) -> received.add(src));
+    c.registerWakeupListener(hint -> received.add(hint.source()));
 
     TextMessage selfMsg = mock(TextMessage.class);
     when(selfMsg.getText())
@@ -139,7 +139,7 @@ class JmsClusterCoordinatorTest {
     JmsClusterCoordinator c = newCoordinator();
     c.init();
     CopyOnWriteArrayList<NodeIdentity> received = new CopyOnWriteArrayList<>();
-    c.registerWakeupListener((p, src) -> received.add(src));
+    c.registerWakeupListener(hint -> received.add(hint.source()));
 
     TextMessage remote = mock(TextMessage.class);
     when(remote.getText())
@@ -197,7 +197,7 @@ class JmsClusterCoordinatorTest {
 
     // Now register and the buffered message must drain.
     CopyOnWriteArrayList<JobPriority> got = new CopyOnWriteArrayList<>();
-    c.registerWakeupListener((p, src) -> got.add(p));
+    c.registerWakeupListener(hint -> got.add(hint.priority()));
     Thread.sleep(100);
     assertEquals(1, got.size());
     assertEquals(JobPriority.LOW, got.get(0));
@@ -209,8 +209,8 @@ class JmsClusterCoordinatorTest {
     c.init();
     CopyOnWriteArrayList<String> got1 = new CopyOnWriteArrayList<>();
     CopyOnWriteArrayList<String> got2 = new CopyOnWriteArrayList<>();
-    c.registerWakeupListener((p, src) -> got1.add(src.value()));
-    c.registerWakeupListener((p, src) -> got2.add(src.value()));
+    c.registerWakeupListener(hint -> got1.add(hint.source().value()));
+    c.registerWakeupListener(hint -> got2.add(hint.source().value()));
 
     TextMessage remote = mock(TextMessage.class);
     when(remote.getText())
@@ -229,10 +229,10 @@ class JmsClusterCoordinatorTest {
     c.init();
     CopyOnWriteArrayList<JobPriority> good = new CopyOnWriteArrayList<>();
     c.registerWakeupListener(
-        (p, src) -> {
+        hint -> {
           throw new RuntimeException("boom");
         });
-    c.registerWakeupListener((p, src) -> good.add(p));
+    c.registerWakeupListener(hint -> good.add(hint.priority()));
 
     TextMessage remote = mock(TextMessage.class);
     when(remote.getText())

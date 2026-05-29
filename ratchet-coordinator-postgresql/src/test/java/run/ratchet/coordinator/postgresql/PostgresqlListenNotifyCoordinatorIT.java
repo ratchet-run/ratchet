@@ -93,7 +93,8 @@ class PostgresqlListenNotifyCoordinatorIT {
   @Test
   void malformedNonJsonPayloadIsSwallowed() throws Exception {
     List<DeliveredEvent> deliveredToB = new CopyOnWriteArrayList<>();
-    nodeB.coordinator.registerWakeupListener((p, s) -> deliveredToB.add(new DeliveredEvent(p, s)));
+    nodeB.coordinator.registerWakeupListener(
+        hint -> deliveredToB.add(new DeliveredEvent(hint.priority(), hint.source())));
     awaitConnected(nodeB);
 
     // Send a deliberately non-JSON payload from an external connection. The TCK exercises the
@@ -112,12 +113,13 @@ class PostgresqlListenNotifyCoordinatorIT {
   @Test
   void reconnectAfterServerSideDropRestoresDelivery() throws Exception {
     List<DeliveredEvent> delivered = new CopyOnWriteArrayList<>();
-    nodeB.coordinator.registerWakeupListener((p, s) -> delivered.add(new DeliveredEvent(p, s)));
+    nodeB.coordinator.registerWakeupListener(
+        hint -> delivered.add(new DeliveredEvent(hint.priority(), hint.source())));
     awaitConnected(nodeA);
     awaitConnected(nodeB);
 
     // Sanity check that the round-trip works before we drop the connection.
-    nodeA.coordinator.notifyNewWork(JobPriority.NORMAL, nodeA.identity);
+    nodeA.coordinator.notifyNewWork(JobPriority.NORMAL, nodeA.identity, null);
     await().atMost(Duration.ofSeconds(5)).until(() -> delivered.size() >= 1);
     int baseline = delivered.size();
 
@@ -131,7 +133,7 @@ class PostgresqlListenNotifyCoordinatorIT {
         .pollInterval(Duration.ofMillis(200))
         .untilAsserted(
             () -> {
-              nodeA.coordinator.notifyNewWork(JobPriority.NORMAL, nodeA.identity);
+              nodeA.coordinator.notifyNewWork(JobPriority.NORMAL, nodeA.identity, null);
               assertTrue(
                   delivered.size() > baseline,
                   "no delivery observed yet (baseline="

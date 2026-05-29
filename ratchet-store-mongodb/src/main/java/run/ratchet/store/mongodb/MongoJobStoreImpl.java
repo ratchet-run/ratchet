@@ -36,6 +36,7 @@ import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobLogEntity;
 import run.ratchet.store.entity.NodeEntity;
 import run.ratchet.store.entity.WorkflowConditionEntity;
+import run.ratchet.store.spi.ExecutionTargetFilter;
 
 /**
  * MongoDB implementation of the {@link MongoJobStore} API.
@@ -252,8 +253,12 @@ class MongoJobStoreImpl implements MongoJobStore {
 
   @Override
   public List<JobClaimDto> claimNextBatchOptimized(
-      JobExecutionType jobType, int limit, String nodeId, NodeTagFilter tagFilter) {
-    return claims.claimNextBatchOptimized(jobType, limit, nodeId, tagFilter);
+      JobExecutionType jobType,
+      int limit,
+      String nodeId,
+      NodeTagFilter tagFilter,
+      ExecutionTargetFilter executionTargetFilter) {
+    return claims.claimNextBatchOptimized(jobType, limit, nodeId, tagFilter, executionTargetFilter);
   }
 
   @Override

@@ -6,6 +6,7 @@ import java.util.Collection;
 import java.util.List;
 import run.ratchet.api.BatchBuilder;
 import run.ratchet.api.BatchContext;
+import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.SerializableCheckedRunnable;
 import run.ratchet.api.SerializableConsumer;
@@ -33,6 +34,7 @@ public class DefaultBatchBuilder implements BatchBuilder {
   private final List<ChildSpec> children = new ArrayList<>();
   private final List<WorkflowBranch> workflowBranches = new ArrayList<>();
   private SerializableConsumer<BatchContext> progressHook;
+  private String executionTarget;
 
   DefaultBatchBuilder(String name, BatchSubmitter submitter) {
     this(name, submitter, new DefaultJobInvocationResolver());
@@ -57,6 +59,18 @@ public class DefaultBatchBuilder implements BatchBuilder {
   @Override
   public BatchBuilder onProgress(SerializableConsumer<BatchContext> hook) {
     this.progressHook = hook;
+    return this;
+  }
+
+  @Override
+  public BatchBuilder virtual() {
+    this.executionTarget = ExecutorTargets.VIRTUAL;
+    return this;
+  }
+
+  @Override
+  public BatchBuilder platform() {
+    this.executionTarget = ExecutorTargets.PLATFORM;
     return this;
   }
 
@@ -117,6 +131,10 @@ public class DefaultBatchBuilder implements BatchBuilder {
 
   SerializableConsumer<BatchContext> progressHook() {
     return progressHook;
+  }
+
+  String executionTarget() {
+    return executionTarget;
   }
 
   private JobPayload payload(Serializable callback) {

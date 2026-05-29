@@ -67,6 +67,8 @@ public final class MicrometerMetricTagPolicy {
             "schedule_retry",
             "update_status")
         .allowValue("breaker", "store.claim")
+        .allowValues("requested_target", "platform", "virtual")
+        .allowValues("effective_target", "platform")
         .build();
   }
 

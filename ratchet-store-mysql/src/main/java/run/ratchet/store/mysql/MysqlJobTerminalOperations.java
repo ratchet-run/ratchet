@@ -352,7 +352,8 @@ final class MysqlJobTerminalOperations {
     // language=MySQL
     String selectSql =
         """
-        SELECT terminal_status, job_type, priority, business_key, timeout_sec, max_retries
+        SELECT terminal_status, job_type, priority, business_key, timeout_sec, max_retries,
+               execution_target
         FROM scheduler_job
         WHERE job_id = ?
         FOR UPDATE
@@ -376,6 +377,7 @@ final class MysqlJobTerminalOperations {
     String businessKey = (String) row[3];
     int timeoutSec = ((Number) row[4]).intValue();
     int maxRetries = ((Number) row[5]).intValue();
+    String executionTarget = (String) row[6];
 
     // language=MySQL
     String clearTerminalSql =
@@ -398,8 +400,8 @@ final class MysqlJobTerminalOperations {
         """
         INSERT INTO scheduler_job_queue
           (job_id, status, job_type, priority, scheduled_time, business_key,
-           timeout_sec, max_retries, attempts, version, updated_at)
-        VALUES (?, 'PENDING', ?, ?, NOW(3), ?, ?, ?, 0, 0, NOW(3))
+           timeout_sec, max_retries, attempts, version, updated_at, execution_target)
+        VALUES (?, 'PENDING', ?, ?, NOW(3), ?, ?, ?, 0, 0, NOW(3), ?)
         """;
     ctx.em()
         .createNativeQuery(insertHotSql)
@@ -409,6 +411,7 @@ final class MysqlJobTerminalOperations {
         .setParameter(4, businessKey)
         .setParameter(5, timeoutSec)
         .setParameter(6, maxRetries)
+        .setParameter(7, executionTarget)
         .executeUpdate();
 
     if (businessKey != null) {

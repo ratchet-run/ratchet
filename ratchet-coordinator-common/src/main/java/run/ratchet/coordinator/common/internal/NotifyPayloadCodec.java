@@ -19,14 +19,15 @@ import run.ratchet.coordinator.common.NotifyPayload;
 /**
  * JSON-P encoder/decoder for the wakeup envelope shared by every Ratchet cluster coordinator.
  *
- * <p>Envelope shape (version 1):
+ * <p>Envelope shape (version 2):
  *
  * <pre>{@code
- * {"v":1,"node":"<NodeIdentity.value>","prio":"HIGH|NORMAL|LOW|LOWEST|CRITICAL"}
+ * {"v":2,"node":"<NodeIdentity.value>","prio":"HIGH|NORMAL|LOW|LOWEST|CRITICAL","target":"platform"}
  * }</pre>
  *
- * <p>Unknown fields are ignored for forward compatibility. Removing or repurposing fields bumps
- * {@code v}; unsupported versions fail decode.
+ * <p>The {@code target} field is optional: it carries the originating job's execution target when
+ * the wakeup is target-scoped, and is omitted otherwise. Unknown fields are ignored for forward
+ * compatibility. Removing or repurposing fields bumps {@code v}; unsupported versions fail decode.
  *
  * @apiNote Framework-internal. This codec defines the wire format used by Ratchet's bundled
  *     coordinator transports; it is not part of the public coordinator SPI and the envelope schema
@@ -34,7 +35,7 @@ import run.ratchet.coordinator.common.NotifyPayload;
  */
 public final class NotifyPayloadCodec {
 
-  public static final int CURRENT_VERSION = 1;
+  public static final int CURRENT_VERSION = 2;
 
   public String encode(NotifyPayload payload) {
     Objects.requireNonNull(payload, "payload");
@@ -43,6 +44,9 @@ public final class NotifyPayloadCodec {
             .add("v", payload.version())
             .add("node", payload.node().value())
             .add("prio", payload.priority().name());
+    if (payload.executionTarget() != null) {
+      builder.add("target", payload.executionTarget());
+    }
     JsonObject obj = builder.build();
     StringWriter sw = new StringWriter(96);
     try (JsonWriter writer = Json.createWriter(sw)) {
@@ -91,7 +95,20 @@ public final class NotifyPayloadCodec {
     } catch (RuntimeException e) {
       throw new DecodeException("invalid NodeIdentity '" + node + "' in notify payload", e);
     }
-    return new NotifyPayload(version, identity, priority);
+    String executionTarget = readOptionalString(obj, "target");
+    return new NotifyPayload(version, identity, priority, executionTarget);
+  }
+
+  private static String readOptionalString(JsonObject obj, String field) {
+    JsonValue v = obj.get(field);
+    if (v == null || v.getValueType() == JsonValue.ValueType.NULL) {
+      return null;
+    }
+    if (v.getValueType() != JsonValue.ValueType.STRING) {
+      throw new DecodeException(
+          "notify payload field '" + field + "' is not a string: " + v.getValueType());
+    }
+    return ((JsonString) v).getString();
   }
 
   private static int readVersion(JsonObject obj) {

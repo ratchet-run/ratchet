@@ -42,7 +42,8 @@ public record JobClaimDto(
     @Nullable Instant pickedAt,
     @Nullable String businessKey,
     int attempts,
-    int maxRetries)
+    int maxRetries,
+    String executionTarget)
     implements Serializable {
 
   /** Returns true if id, status, and jobType are all non-null. */

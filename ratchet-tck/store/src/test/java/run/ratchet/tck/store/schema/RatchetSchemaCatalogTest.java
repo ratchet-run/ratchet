@@ -32,6 +32,22 @@ class RatchetSchemaCatalogTest {
         "catalog version should advance when signal queue metadata is added");
   }
 
+  @Test
+  void schedulerRecurringJobIncludesExecutionTarget() {
+    Table recurring = table("scheduler_recurring_job");
+    Table archive = table("scheduler_recurring_job_archive");
+
+    assertTrue(
+        recurring.columns().stream().map(Column::name).toList().contains("execution_target"),
+        "scheduler_recurring_job should persist execution_target for occurrence inheritance");
+    assertTrue(
+        archive.columns().stream().map(Column::name).toList().contains("execution_target"),
+        "scheduler_recurring_job_archive should snapshot execution_target");
+    assertTrue(
+        RatchetSchemaCatalog.CURRENT_VERSION > 7,
+        "catalog version should advance when recurring execution_target is added");
+  }
+
   private static List<String> signalColumns() {
     return List.of(
         "signal_key",

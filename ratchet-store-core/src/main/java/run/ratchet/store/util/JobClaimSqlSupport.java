@@ -8,6 +8,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
 import run.ratchet.api.NodeTagFilter;
+import run.ratchet.store.spi.ExecutionTargetFilter;
 
 /** Shared SQL helpers for JDBC/JPA job-claim implementations. */
 public final class JobClaimSqlSupport {
@@ -69,6 +70,65 @@ public final class JobClaimSqlSupport {
     }
     for (String tag : filter.excludeTags()) {
       query.setParameter(p++, tag);
+    }
+    return p;
+  }
+
+  /**
+   * Builds a SQL fragment (empty string or starting with newline+AND) for execution-target claim
+   * filtering.
+   */
+  public static String buildExecutionTargetFilterSql(
+      ExecutionTargetFilter filter, String columnName) {
+    requireSafeSqlFragment(columnName, "columnName");
+    if (filter == null || filter.isAny()) {
+      return "";
+    }
+    if (filter.matchesNothing()) {
+      return "\n  AND 1 = 0";
+    }
+    if (filter.isExclusion()) {
+      String excludedSql = "";
+      if (!filter.excludedTargets().isEmpty()) {
+        String placeholders = "?,".repeat(filter.excludedTargets().size());
+        excludedSql =
+            columnName + " NOT IN (" + placeholders.substring(0, placeholders.length() - 1) + ")";
+      }
+      if (filter.includeNull() && excludedSql.isEmpty()) {
+        return "";
+      }
+      if (filter.includeNull()) {
+        return "\n  AND (" + excludedSql + " OR " + columnName + " IS NULL)";
+      }
+      if (excludedSql.isEmpty()) {
+        return "\n  AND " + columnName + " IS NOT NULL";
+      }
+      return "\n  AND " + excludedSql;
+    }
+    String explicitSql = "";
+    if (!filter.explicitTargets().isEmpty()) {
+      String placeholders = "?,".repeat(filter.explicitTargets().size());
+      explicitSql =
+          columnName + " IN (" + placeholders.substring(0, placeholders.length() - 1) + ")";
+    }
+    if (filter.includeNull() && !explicitSql.isEmpty()) {
+      return "\n  AND (" + explicitSql + " OR " + columnName + " IS NULL)";
+    }
+    if (filter.includeNull()) {
+      return "\n  AND " + columnName + " IS NULL";
+    }
+    return "\n  AND " + explicitSql;
+  }
+
+  public static int bindExecutionTargetFilter(
+      Query query, ExecutionTargetFilter filter, int startParam) {
+    int p = startParam;
+    if (filter != null && !filter.isAny()) {
+      List<String> targets =
+          filter.isExclusion() ? filter.excludedTargets() : filter.explicitTargets();
+      for (String target : targets) {
+        query.setParameter(p++, target);
+      }
     }
     return p;
   }
