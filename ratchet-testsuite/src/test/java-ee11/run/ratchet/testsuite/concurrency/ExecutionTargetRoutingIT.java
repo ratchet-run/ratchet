@@ -29,6 +29,11 @@ import run.ratchet.testsuite.util.RatchetArchiveBuilder;
  * executors. WildFly 40 does not — confirmed with the WildFly team — so on WildFly the IT only
  * exercises the {@code @ManagedExecutorDefinition} JNDI routing path, without the {@code
  * isVirtual()} distinction.
+ *
+ * <p>Storage is parameterized via the {@code ratchet.test.db.type} system property and the matching
+ * Maven profile, so the same IT runs against MySQL (default), PostgreSQL, and MongoDB. Pick the
+ * store with {@code -P mysql|postgresql|mongodb} on the {@code verify} invocation; the deployment
+ * builder wires the corresponding store module into the WAR automatically.
  */
 class ExecutionTargetRoutingIT extends BaseRatchetIT {
 
