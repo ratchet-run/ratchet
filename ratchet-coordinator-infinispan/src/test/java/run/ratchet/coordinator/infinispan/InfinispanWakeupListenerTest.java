@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.NodeIdentity;
 import run.ratchet.coordinator.common.NotifyPayload;
-import run.ratchet.coordinator.common.NotifyPayloadCodec;
+import run.ratchet.coordinator.common.internal.NotifyPayloadCodec;
 
 class InfinispanWakeupListenerTest {
 

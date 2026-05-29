@@ -8,7 +8,7 @@ import org.infinispan.notifications.cachelistener.annotation.CacheEntryCreated;
 import org.infinispan.notifications.cachelistener.event.CacheEntryCreatedEvent;
 import org.jboss.logging.Logger;
 import run.ratchet.coordinator.common.NotifyPayload;
-import run.ratchet.coordinator.common.NotifyPayloadCodec;
+import run.ratchet.coordinator.common.internal.NotifyPayloadCodec;
 
 /**
  * Clustered Infinispan listener that decodes each created entry's value and forwards to the
@@ -24,8 +24,13 @@ import run.ratchet.coordinator.common.NotifyPayloadCodec;
  *       dispatch thread, which can terminate the listener registration silently on Infinispan 14+.
  * </ul>
  */
+// Package-private: Infinispan's @Listener annotation processor operates on the registered instance
+// via reflection (addListenerAsync), NOT on the class's public modifier, so package-private is
+// safe on Infinispan 14+. The class is an internal dispatch helper, not an extension point. The
+// onEntryCreated method MUST remain public — Infinispan's annotation scan still requires public
+// event-handler methods.
 @Listener(clustered = true, includeCurrentState = false)
-public final class InfinispanWakeupListener {
+final class InfinispanWakeupListener {
 
   private static final Logger log = Logger.getLogger(InfinispanWakeupListener.class);
 

@@ -1,6 +1,6 @@
 package run.ratchet.coordinator.hazelcast;
 
-import static run.ratchet.coordinator.common.JsonProviders.requireJsonProvider;
+import static run.ratchet.coordinator.common.internal.JsonProviders.requireJsonProvider;
 
 import com.hazelcast.core.HazelcastInstance;
 import com.hazelcast.topic.ITopic;
@@ -31,7 +31,7 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.NodeIdentity;
 import run.ratchet.coordinator.common.NotifyPayload;
-import run.ratchet.coordinator.common.NotifyPayloadCodec;
+import run.ratchet.coordinator.common.internal.NotifyPayloadCodec;
 import run.ratchet.spi.ClusterCoordinator;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
@@ -84,8 +84,8 @@ public class HazelcastClusterCoordinator implements ClusterCoordinator, Schedule
   private ExecutorService listenerExecutor;
   private final AtomicBoolean closed = new AtomicBoolean(false);
 
-  protected HazelcastClusterCoordinator() {
-    // CDI proxy constructor.
+  HazelcastClusterCoordinator() {
+    // CDI proxy constructor — package-private to keep it out of the public API surface.
   }
 
   /** Test/non-CDI constructor with a directly-supplied {@link HazelcastInstance}. */

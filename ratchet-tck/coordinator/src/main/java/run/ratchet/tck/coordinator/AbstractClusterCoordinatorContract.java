@@ -32,7 +32,18 @@ import run.ratchet.api.JobPriority;
  */
 public abstract class AbstractClusterCoordinatorContract {
 
-  /** Supplies a fresh harness per test. Implementations create a per-test transport setup. */
+  /**
+   * Supplies a fresh harness per test. Implementations create a per-test transport setup.
+   *
+   * @return a freshly initialised {@link CoordinatorTestHarness}; MUST NOT return {@code null};
+   *     each invocation MUST return a new instance (no caching across tests).
+   * @apiNote The contract harness lifecycle is owned by the {@code setUp()} method on the contract
+   *     base class: the returned harness is started in {@code setUp()} and closed in {@code
+   *     tearDown()}. Implementations MUST NOT close, share, or reuse the harness across invocations
+   *     — each {@code @Test} method gets its own. Implementations MAY throw a {@link
+   *     RuntimeException} from this method to fail the test if the transport cannot be stood up;
+   *     the contract treats that as a setup failure.
+   */
   protected abstract CoordinatorTestHarness harness();
 
   private CoordinatorTestHarness harness;

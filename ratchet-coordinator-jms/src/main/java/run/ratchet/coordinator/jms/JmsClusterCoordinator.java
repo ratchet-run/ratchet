@@ -1,6 +1,6 @@
 package run.ratchet.coordinator.jms;
 
-import static run.ratchet.coordinator.common.JsonProviders.requireJsonProvider;
+import static run.ratchet.coordinator.common.internal.JsonProviders.requireJsonProvider;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Priority;
@@ -32,7 +32,7 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.NodeIdentity;
 import run.ratchet.coordinator.common.DecodeException;
 import run.ratchet.coordinator.common.NotifyPayload;
-import run.ratchet.coordinator.common.NotifyPayloadCodec;
+import run.ratchet.coordinator.common.internal.NotifyPayloadCodec;
 import run.ratchet.spi.ClusterCoordinator;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;

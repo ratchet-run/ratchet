@@ -74,7 +74,7 @@ class PostgresqlListenNotifyCoordinatorTest {
       c.registerWakeupListener((p, s) -> seen.add(s));
 
       // Simulate inbound payload from ourselves
-      c.onInboundNotification(new NotifyPayload(1, new NodeIdentity("nodeA"), JobPriority.HIGH));
+      c.dispatchInbound(new NotifyPayload(1, new NodeIdentity("nodeA"), JobPriority.HIGH));
 
       // Wait briefly to ensure no async dispatch happens
       sleep(50);
@@ -99,8 +99,7 @@ class PostgresqlListenNotifyCoordinatorTest {
             latch.countDown();
           });
 
-      c.onInboundNotification(
-          new NotifyPayload(1, new NodeIdentity("nodeB"), JobPriority.CRITICAL));
+      c.dispatchInbound(new NotifyPayload(1, new NodeIdentity("nodeB"), JobPriority.CRITICAL));
 
       assertTrue(latch.await(2, TimeUnit.SECONDS), "listener never fired");
       assertEquals(1, seen.size());
@@ -119,8 +118,7 @@ class PostgresqlListenNotifyCoordinatorTest {
     PostgresqlListenNotifyCoordinator c = newCoordinator(lifecycle);
     try {
       for (int i = 0; i < 5; i++) {
-        c.onInboundNotification(
-            new NotifyPayload(1, new NodeIdentity("nodeB"), JobPriority.NORMAL));
+        c.dispatchInbound(new NotifyPayload(1, new NodeIdentity("nodeB"), JobPriority.NORMAL));
       }
 
       CountDownLatch latch = new CountDownLatch(5);
@@ -146,7 +144,7 @@ class PostgresqlListenNotifyCoordinatorTest {
     try {
       // Capacity is 256. Push 260 without a listener; expect the oldest to be dropped.
       for (int i = 0; i < 260; i++) {
-        c.onInboundNotification(new NotifyPayload(1, new NodeIdentity("nodeB"), JobPriority.LOW));
+        c.dispatchInbound(new NotifyPayload(1, new NodeIdentity("nodeB"), JobPriority.LOW));
       }
       AtomicInteger received = new AtomicInteger();
       c.registerWakeupListener((p, s) -> received.incrementAndGet());
@@ -297,7 +295,7 @@ class PostgresqlListenNotifyCoordinatorTest {
           });
 
       for (int i = 0; i < 100; i++) {
-        c.onInboundNotification(new NotifyPayload(1, new NodeIdentity("nodeB"), JobPriority.HIGH));
+        c.dispatchInbound(new NotifyPayload(1, new NodeIdentity("nodeB"), JobPriority.HIGH));
       }
 
       assertTrue(latch.await(5, TimeUnit.SECONDS), "good listener missed deliveries");

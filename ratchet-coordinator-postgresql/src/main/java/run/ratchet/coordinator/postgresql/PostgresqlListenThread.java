@@ -9,7 +9,7 @@ import org.postgresql.PGConnection;
 import org.postgresql.PGNotification;
 import run.ratchet.coordinator.common.DecodeException;
 import run.ratchet.coordinator.common.NotifyPayload;
-import run.ratchet.coordinator.common.NotifyPayloadCodec;
+import run.ratchet.coordinator.common.internal.NotifyPayloadCodec;
 
 /**
  * Single background daemon thread that pulls PostgreSQL {@code NOTIFY} messages off the dedicated
