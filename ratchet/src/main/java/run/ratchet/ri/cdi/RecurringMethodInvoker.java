@@ -33,7 +33,7 @@ public class RecurringMethodInvoker {
   }
 
   @SuppressWarnings("java:S112")
-  void invoke(String beanClassName, String methodName, boolean hasJobContextParam)
+  public void invoke(String beanClassName, String methodName, boolean hasJobContextParam)
       throws Exception {
     if (!classPolicy.isAllowed(beanClassName)) {
       throw new SecurityException(
@@ -65,7 +65,7 @@ public class RecurringMethodInvoker {
     }
   }
 
-  void validateBeanResolvable(Class<?> beanClass) {
+  public void validateBeanResolvable(Class<?> beanClass) {
     if (!classPolicy.isAllowed(beanClass.getName())) {
       throw new SecurityException(
           "Class " + beanClass.getName() + " is not allowed for recurring job execution.");
