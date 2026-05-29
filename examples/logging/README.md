@@ -75,7 +75,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
-public class OrderJob implements SerializableRunnable {
+public class OrderJob implements SerializableCheckedRunnable {
 
   private static final Logger log = LoggerFactory.getLogger(OrderJob.class);
 
@@ -98,6 +98,23 @@ public class OrderJob implements SerializableRunnable {
     }
   }
 }
+```
+
+### Enqueuing the job
+
+Inject `JobSchedulerService` and submit the job through the fluent builder:
+
+```java
+@Inject JobSchedulerService scheduler;
+
+scheduler.enqueue(new OrderJob(12345, "req-7c3f")).submit();
+```
+
+The lambda form is equivalent when the work is a single method call on a CDI
+bean:
+
+```java
+scheduler.enqueue(() -> orderProcessor.process(12345, "req-7c3f")).submit();
 ```
 
 When this job runs, every log line emitted via `log.info(...)`
