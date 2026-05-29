@@ -8,6 +8,7 @@ import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.NodeIdentity;
+import run.ratchet.spi.JobWakeupHint;
 
 class RecordingWakeupListenerTest {
 
@@ -16,8 +17,8 @@ class RecordingWakeupListenerTest {
   @Test
   void awaitCount_passesOnExactMatch() {
     RecordingWakeupListener listener = new RecordingWakeupListener();
-    listener.accept(JobPriority.NORMAL, SRC);
-    listener.accept(JobPriority.HIGH, SRC);
+    listener.accept(new JobWakeupHint(JobPriority.NORMAL, SRC, null));
+    listener.accept(new JobWakeupHint(JobPriority.HIGH, SRC, null));
 
     assertDoesNotThrow(() -> listener.awaitCount(2, Duration.ofSeconds(1)));
   }
@@ -25,7 +26,7 @@ class RecordingWakeupListenerTest {
   @Test
   void awaitCount_failsOnUndershoot() {
     RecordingWakeupListener listener = new RecordingWakeupListener();
-    listener.accept(JobPriority.NORMAL, SRC);
+    listener.accept(new JobWakeupHint(JobPriority.NORMAL, SRC, null));
 
     AssertionError err =
         assertThrows(AssertionError.class, () -> listener.awaitCount(3, Duration.ofMillis(50)));
@@ -39,9 +40,9 @@ class RecordingWakeupListenerTest {
     // Reproduces a double-delivery bug: the coordinator emitted 3 events when the test asked for
     // exactly 2. The settle window must catch the trailing duplicate.
     RecordingWakeupListener listener = new RecordingWakeupListener();
-    listener.accept(JobPriority.NORMAL, SRC);
-    listener.accept(JobPriority.HIGH, SRC);
-    listener.accept(JobPriority.HIGH, SRC);
+    listener.accept(new JobWakeupHint(JobPriority.NORMAL, SRC, null));
+    listener.accept(new JobWakeupHint(JobPriority.HIGH, SRC, null));
+    listener.accept(new JobWakeupHint(JobPriority.HIGH, SRC, null));
 
     AssertionError err =
         assertThrows(AssertionError.class, () -> listener.awaitCount(2, Duration.ofSeconds(1)));
@@ -57,9 +58,9 @@ class RecordingWakeupListenerTest {
   void awaitAtLeast_passesOnOvershoot() {
     // awaitAtLeast must NOT enforce exactness — that's awaitCount's job.
     RecordingWakeupListener listener = new RecordingWakeupListener();
-    listener.accept(JobPriority.NORMAL, SRC);
-    listener.accept(JobPriority.HIGH, SRC);
-    listener.accept(JobPriority.HIGH, SRC);
+    listener.accept(new JobWakeupHint(JobPriority.NORMAL, SRC, null));
+    listener.accept(new JobWakeupHint(JobPriority.HIGH, SRC, null));
+    listener.accept(new JobWakeupHint(JobPriority.HIGH, SRC, null));
 
     assertDoesNotThrow(() -> listener.awaitAtLeast(2, Duration.ofSeconds(1)));
   }

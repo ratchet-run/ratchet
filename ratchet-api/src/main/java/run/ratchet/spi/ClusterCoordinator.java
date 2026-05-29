@@ -1,6 +1,6 @@
 package run.ratchet.spi;
 
-import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.NodeIdentity;
@@ -27,6 +27,11 @@ public interface ClusterCoordinator extends AutoCloseable {
    * delivered back over a broadcast transport and so listener-side metrics can label notifications
    * by origin.
    *
+   * <p>The {@code executionTarget} carries the routing label of the job that triggered the wakeup
+   * (e.g. {@code "platform"} or {@code "virtual"}). It is informational only: receiving listeners
+   * wake the local poller unconditionally and the claim-side filter on each node decides which pool
+   * actually drains. A {@code null} value means the wakeup is not target-scoped.
+   *
    * <p>Callers must not invoke this method before the coordinator's {@link
    * SchedulerLifecycleHook#afterStart()} hook has run. The default CDI lifecycle guarantees this
    * ordering — application code that opens its own coordinator (tests, non-CDI integrations) must
@@ -34,8 +39,10 @@ public interface ClusterCoordinator extends AutoCloseable {
    *
    * @param priority priority of the newly available work; never {@code null}
    * @param source identity of the node submitting this notification; never {@code null}
+   * @param executionTarget execution-target label of the originating job, or {@code null} when the
+   *     wakeup is not target-scoped
    */
-  void notifyNewWork(JobPriority priority, NodeIdentity source);
+  void notifyNewWork(JobPriority priority, NodeIdentity source, String executionTarget);
 
   /**
    * Registers a local listener for cross-node wakeup notifications.
@@ -49,12 +56,13 @@ public interface ClusterCoordinator extends AutoCloseable {
    * <p>The SPI has no unregister method. Callers that need shutdown behavior should register a
    * wrapper that checks local lifecycle state before dispatching.
    *
-   * <p>Listeners receive the priority of the newly available work and the {@link NodeIdentity} of
-   * the sending node so they can label metrics and (when appropriate) suppress self-wakeups.
+   * <p>Listeners receive a {@link JobWakeupHint} carrying priority, origin {@link NodeIdentity},
+   * and optional execution target so they can label metrics, suppress self-wakeups, and decide how
+   * to react to a target-scoped notification.
    *
    * @param listener callback to invoke when another node reports available work; never {@code null}
    */
-  void registerWakeupListener(BiConsumer<JobPriority, NodeIdentity> listener);
+  void registerWakeupListener(Consumer<JobWakeupHint> listener);
 
   /**
    * Releases transport resources held by this coordinator. Must be idempotent: a second invocation

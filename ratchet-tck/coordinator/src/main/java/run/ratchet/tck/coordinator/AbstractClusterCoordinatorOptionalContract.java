@@ -73,7 +73,7 @@ public abstract class AbstractClusterCoordinatorOptionalContract {
   @Test
   void messageBeforeListenerRegistrationDeliversToLateListener() {
     // Send before any listener on nodeB is registered. The receiver must buffer.
-    fixture.nodeA().notifyNewWork(JobPriority.HIGH, fixture.identityA());
+    fixture.nodeA().notifyNewWork(JobPriority.HIGH, fixture.identityA(), null);
 
     sleep(harness.maxExpectedLatency().toMillis()); // ensure the message has reached the buffer
 
@@ -91,7 +91,7 @@ public abstract class AbstractClusterCoordinatorOptionalContract {
   void preRegistrationBufferOverflowDropsOldestAndIncrementsMetric() {
     int over = EXPECTED_BUFFER_CAPACITY + 50;
     for (int i = 0; i < over; i++) {
-      fixture.nodeA().notifyNewWork(JobPriority.NORMAL, fixture.identityA());
+      fixture.nodeA().notifyNewWork(JobPriority.NORMAL, fixture.identityA(), null);
     }
 
     sleep(harness.maxExpectedLatency().toMillis()); // ensure all messages buffered or dropped

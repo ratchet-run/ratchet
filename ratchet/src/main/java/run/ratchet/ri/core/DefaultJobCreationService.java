@@ -244,7 +244,7 @@ class DefaultJobCreationService
     boolean shouldWakeup =
         builder.isImmediate() || opts.priority() == JobPriority.CRITICAL || state.delay().isZero();
     if (shouldWakeup) {
-      wakeupService.notify(opts.priority(), true);
+      wakeupService.notify(opts.priority(), true, state.executionTarget());
     }
 
     log.debugf("Job submitted (id=%s, type=SINGLE, delay=%s)", jobId, state.delay());
@@ -303,7 +303,11 @@ class DefaultJobCreationService
       createWorkflowBranch(parentId, branch, builder.executionTarget());
     }
 
-    wakeupService.notifyIfNeeded(JobExecutionType.BATCH_PARENT, JobPriority.NORMAL, Duration.ZERO);
+    wakeupService.notifyIfNeeded(
+        JobExecutionType.BATCH_PARENT,
+        JobPriority.NORMAL,
+        Duration.ZERO,
+        builder.executionTarget());
 
     log.infof(
         "Batch '%s' submitted with %s children (id=%s)",
@@ -365,7 +369,11 @@ class DefaultJobCreationService
       createWorkflowBranch(parentId, branch, builder.executionTarget());
     }
 
-    wakeupService.notifyIfNeeded(JobExecutionType.BATCH_PARENT, JobPriority.NORMAL, Duration.ZERO);
+    wakeupService.notifyIfNeeded(
+        JobExecutionType.BATCH_PARENT,
+        JobPriority.NORMAL,
+        Duration.ZERO,
+        builder.executionTarget());
 
     log.infof(
         "Streaming batch '%s' submitted with %s items (id=%s)",

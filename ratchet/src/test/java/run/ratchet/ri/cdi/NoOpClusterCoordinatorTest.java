@@ -38,8 +38,8 @@ class NoOpClusterCoordinatorTest {
   void noOpMethodsAreSafe() {
     NoOpClusterCoordinator coordinator = new NoOpClusterCoordinator();
     assertDoesNotThrow(
-        () -> coordinator.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA")));
-    assertDoesNotThrow(() -> coordinator.registerWakeupListener((p, s) -> {}));
+        () -> coordinator.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA"), null));
+    assertDoesNotThrow(() -> coordinator.registerWakeupListener(hint -> {}));
     assertDoesNotThrow(coordinator::close);
   }
 }

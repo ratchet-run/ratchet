@@ -4,9 +4,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.NodeIdentity;
+import run.ratchet.spi.JobWakeupHint;
 
 /**
  * Wakeup listener that records every callback for later assertion and supports signal-driven
@@ -17,17 +18,18 @@ import run.ratchet.api.NodeIdentity;
  * deliveries arrives; a missed condition raises {@link AssertionError} so the failing test stops at
  * the unmet expectation rather than a downstream consequence.
  */
-public final class RecordingWakeupListener implements BiConsumer<JobPriority, NodeIdentity> {
+public final class RecordingWakeupListener implements Consumer<JobWakeupHint> {
 
   private final List<Record> received = new CopyOnWriteArrayList<>();
   private final Object signal = new Object();
 
   /** A single recorded delivery. */
-  public record Record(JobPriority priority, NodeIdentity source, Instant at) {}
+  public record Record(
+      JobPriority priority, NodeIdentity source, String executionTarget, Instant at) {}
 
   @Override
-  public void accept(JobPriority priority, NodeIdentity source) {
-    received.add(new Record(priority, source, Instant.now()));
+  public void accept(JobWakeupHint hint) {
+    received.add(new Record(hint.priority(), hint.source(), hint.executionTarget(), Instant.now()));
     synchronized (signal) {
       signal.notifyAll();
     }

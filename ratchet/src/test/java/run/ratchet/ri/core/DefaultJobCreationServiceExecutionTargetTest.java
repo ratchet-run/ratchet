@@ -60,10 +60,11 @@ class DefaultJobCreationServiceExecutionTargetTest {
 
   private static class NoopJobWakeupService extends JobWakeupService {
     @Override
-    public void notify(JobPriority priority, boolean immediate) {}
+    public void notify(JobPriority priority, boolean immediate, String executionTarget) {}
 
     @Override
-    public void notifyIfNeeded(JobExecutionType jobType, JobPriority priority, Duration delay) {}
+    public void notifyIfNeeded(
+        JobExecutionType jobType, JobPriority priority, Duration delay, String executionTarget) {}
   }
 
   @BeforeEach

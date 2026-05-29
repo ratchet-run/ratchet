@@ -90,7 +90,7 @@ public abstract class AbstractClusterCoordinatorContract {
     RecordingWakeupListener listenerB = new RecordingWakeupListener();
     fixture.nodeB().registerWakeupListener(listenerB);
 
-    fixture.nodeA().notifyNewWork(JobPriority.HIGH, fixture.identityA());
+    fixture.nodeA().notifyNewWork(JobPriority.HIGH, fixture.identityA(), null);
 
     listenerB.awaitOne(harness.maxExpectedLatency());
     assertEquals(1, listenerB.received().size(), "exactly one delivery expected");
@@ -106,7 +106,7 @@ public abstract class AbstractClusterCoordinatorContract {
 
     JobPriority[] all = JobPriority.values();
     for (JobPriority p : all) {
-      fixture.nodeA().notifyNewWork(p, fixture.identityA());
+      fixture.nodeA().notifyNewWork(p, fixture.identityA(), null);
     }
 
     listenerB.awaitCount(all.length, harness.maxExpectedLatency());
@@ -127,7 +127,7 @@ public abstract class AbstractClusterCoordinatorContract {
     RecordingWakeupListener listenerA = new RecordingWakeupListener();
     fixture.nodeA().registerWakeupListener(listenerA);
 
-    fixture.nodeA().notifyNewWork(JobPriority.HIGH, fixture.identityA());
+    fixture.nodeA().notifyNewWork(JobPriority.HIGH, fixture.identityA(), null);
 
     sleepPastLatencyWindow();
     assertTrue(
@@ -145,7 +145,7 @@ public abstract class AbstractClusterCoordinatorContract {
     RecordingWakeupListener listenerA = new RecordingWakeupListener();
     fixture.nodeA().registerWakeupListener(listenerA);
 
-    fixture.nodeA().notifyNewWork(JobPriority.HIGH, fixture.identityA());
+    fixture.nodeA().notifyNewWork(JobPriority.HIGH, fixture.identityA(), null);
 
     sleepPastLatencyWindow();
     assertTrue(listenerA.received().isEmpty(), "self-notification must not fire local listener");
@@ -161,14 +161,14 @@ public abstract class AbstractClusterCoordinatorContract {
     fixture
         .nodeB()
         .registerWakeupListener(
-            (p, s) -> {
+            hint -> {
               throw new RuntimeException("boom");
             });
-    fixture.nodeB().registerWakeupListener((p, s) -> goodCount.incrementAndGet());
+    fixture.nodeB().registerWakeupListener(hint -> goodCount.incrementAndGet());
 
     int iterations = 50;
     for (int i = 0; i < iterations; i++) {
-      fixture.nodeA().notifyNewWork(JobPriority.HIGH, fixture.identityA());
+      fixture.nodeA().notifyNewWork(JobPriority.HIGH, fixture.identityA(), null);
     }
 
     awaitUntil(() -> goodCount.get() >= iterations, harness.maxExpectedLatency().multipliedBy(4));
@@ -192,7 +192,7 @@ public abstract class AbstractClusterCoordinatorContract {
     fixture.nodeB().registerWakeupListener(listener2);
     fixture.nodeB().registerWakeupListener(listener3);
 
-    fixture.nodeA().notifyNewWork(JobPriority.NORMAL, fixture.identityA());
+    fixture.nodeA().notifyNewWork(JobPriority.NORMAL, fixture.identityA(), null);
 
     listener1.awaitOne(harness.maxExpectedLatency());
     listener2.awaitOne(harness.maxExpectedLatency());
@@ -205,7 +205,7 @@ public abstract class AbstractClusterCoordinatorContract {
   void notifyNewWorkDoesNotThrowOnTransportFailure() throws Exception {
     harness.forceTransportFailure();
     assertDoesNotThrow(
-        () -> fixture.nodeA().notifyNewWork(JobPriority.HIGH, fixture.identityA()),
+        () -> fixture.nodeA().notifyNewWork(JobPriority.HIGH, fixture.identityA(), null),
         "notifyNewWork must never throw out — SPI contract");
   }
 
@@ -220,7 +220,7 @@ public abstract class AbstractClusterCoordinatorContract {
 
     harness.forceTransportFailure();
     // The notify during the failure window may or may not deliver — implementations differ.
-    fixture.nodeA().notifyNewWork(JobPriority.HIGH, fixture.identityA());
+    fixture.nodeA().notifyNewWork(JobPriority.HIGH, fixture.identityA(), null);
 
     harness.recoverTransport();
 
@@ -239,7 +239,7 @@ public abstract class AbstractClusterCoordinatorContract {
                 + " after recoverTransport(); before="
                 + before);
       }
-      fixture.nodeA().notifyNewWork(JobPriority.HIGH, fixture.identityA());
+      fixture.nodeA().notifyNewWork(JobPriority.HIGH, fixture.identityA(), null);
       sleep(200);
     }
     // Reaching here means the while loop exited normally, so size() > before is already true.
@@ -259,7 +259,7 @@ public abstract class AbstractClusterCoordinatorContract {
     fixture.nodeB().registerWakeupListener(listenerB);
     fixture.nodeB().close();
 
-    fixture.nodeA().notifyNewWork(JobPriority.HIGH, fixture.identityA());
+    fixture.nodeA().notifyNewWork(JobPriority.HIGH, fixture.identityA(), null);
 
     sleepPastLatencyWindow();
     assertTrue(
@@ -273,7 +273,7 @@ public abstract class AbstractClusterCoordinatorContract {
     // Metrics may or may not increment after close — implementation choice. The contract is
     // "no throw."
     assertDoesNotThrow(
-        () -> fixture.nodeA().notifyNewWork(JobPriority.HIGH, fixture.identityA()),
+        () -> fixture.nodeA().notifyNewWork(JobPriority.HIGH, fixture.identityA(), null),
         "notifyNewWork on a closed coordinator must be a no-op, never throw");
   }
 
@@ -306,7 +306,7 @@ public abstract class AbstractClusterCoordinatorContract {
     RecordingWakeupListener listenerB = new RecordingWakeupListener();
     fixture.nodeB().registerWakeupListener(listenerB);
 
-    fixture.nodeA().notifyNewWork(JobPriority.LOW, fixture.identityA());
+    fixture.nodeA().notifyNewWork(JobPriority.LOW, fixture.identityA(), null);
 
     listenerB.awaitOne(harness.maxExpectedLatency());
     var record = listenerB.received().get(0);
@@ -324,7 +324,7 @@ public abstract class AbstractClusterCoordinatorContract {
     long before = fixture.metricsA().sent();
     int n = 10;
     for (int i = 0; i < n; i++) {
-      fixture.nodeA().notifyNewWork(JobPriority.NORMAL, fixture.identityA());
+      fixture.nodeA().notifyNewWork(JobPriority.NORMAL, fixture.identityA(), null);
     }
     awaitUntil(() -> fixture.metricsA().sent() - before >= n, harness.maxExpectedLatency());
     assertEquals(
@@ -335,11 +335,11 @@ public abstract class AbstractClusterCoordinatorContract {
 
   @Test
   void receivedMetricIncrementsOnEachInbound() {
-    fixture.nodeB().registerWakeupListener((p, s) -> {});
+    fixture.nodeB().registerWakeupListener(hint -> {});
     long before = fixture.metricsB().received();
     int n = 10;
     for (int i = 0; i < n; i++) {
-      fixture.nodeA().notifyNewWork(JobPriority.NORMAL, fixture.identityA());
+      fixture.nodeA().notifyNewWork(JobPriority.NORMAL, fixture.identityA(), null);
     }
     Duration window = harness.maxExpectedLatency().multipliedBy(2);
     awaitUntil(() -> fixture.metricsB().received() - before >= n, window);

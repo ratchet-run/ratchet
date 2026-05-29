@@ -9,7 +9,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -18,6 +18,7 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.api.NodeIdentity;
 import run.ratchet.ri.core.PollerScheduler;
 import run.ratchet.spi.ClusterCoordinator;
+import run.ratchet.spi.JobWakeupHint;
 import run.ratchet.spi.MetricsCollector;
 
 @ExtendWith(MockitoExtension.class)
@@ -29,7 +30,7 @@ class PollerWakeupListenerTest {
 
   @Test
   void init_registersListenerThatWakesPollerAndRecordsMetric() {
-    AtomicReference<BiConsumer<JobPriority, NodeIdentity>> listenerRef = new AtomicReference<>();
+    AtomicReference<Consumer<JobWakeupHint>> listenerRef = new AtomicReference<>();
     doAnswer(
             invocation -> {
               listenerRef.set(invocation.getArgument(0));
@@ -42,7 +43,9 @@ class PollerWakeupListenerTest {
         new PollerWakeupListener(clusterCoordinator, pollerScheduler, metricsCollector);
 
     listener.init();
-    listenerRef.get().accept(JobPriority.NORMAL, new NodeIdentity("node-1"));
+    listenerRef
+        .get()
+        .accept(new JobWakeupHint(JobPriority.NORMAL, new NodeIdentity("node-1"), null));
 
     verify(metricsCollector).localWakeup("cluster_listener");
     verify(pollerScheduler).wakeup();
@@ -64,7 +67,7 @@ class PollerWakeupListenerTest {
 
   @Test
   void registeredListener_wakeupFailureDoesNotPropagate() {
-    AtomicReference<BiConsumer<JobPriority, NodeIdentity>> listenerRef = new AtomicReference<>();
+    AtomicReference<Consumer<JobWakeupHint>> listenerRef = new AtomicReference<>();
     doAnswer(
             invocation -> {
               listenerRef.set(invocation.getArgument(0));
@@ -79,7 +82,10 @@ class PollerWakeupListenerTest {
     listener.init();
     assertNotNull(listenerRef.get());
     assertDoesNotThrow(
-        () -> listenerRef.get().accept(JobPriority.HIGH, new NodeIdentity("node-2")));
+        () ->
+            listenerRef
+                .get()
+                .accept(new JobWakeupHint(JobPriority.HIGH, new NodeIdentity("node-2"), null)));
 
     verify(metricsCollector).localWakeup("cluster_listener");
     verify(pollerScheduler).wakeup();

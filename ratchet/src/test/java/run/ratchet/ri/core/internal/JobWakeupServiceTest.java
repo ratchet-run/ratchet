@@ -58,11 +58,11 @@ class JobWakeupServiceTest {
     when(pollerSchedulerInstance.isResolvable()).thenReturn(true);
     when(pollerSchedulerInstance.get()).thenReturn(pollerScheduler);
 
-    wakeupService.notify(JobPriority.NORMAL, true);
+    wakeupService.notify(JobPriority.NORMAL, true, null);
 
     verify(metricsCollector).localWakeup("job_submit");
     verify(pollerScheduler).wakeup();
-    verify(clusterCoordinator).notifyNewWork(JobPriority.NORMAL, NODE_IDENTITY);
+    verify(clusterCoordinator).notifyNewWork(JobPriority.NORMAL, NODE_IDENTITY, null);
   }
 
   @Test
@@ -88,24 +88,24 @@ class JobWakeupServiceTest {
             nodeIdentityProvider,
             txRegistry);
 
-    wakeupService.notify(JobPriority.CRITICAL, true);
+    wakeupService.notify(JobPriority.CRITICAL, true, null);
 
     verify(pollerScheduler, never()).wakeup();
-    verify(clusterCoordinator, never()).notifyNewWork(eq(JobPriority.CRITICAL), any());
+    verify(clusterCoordinator, never()).notifyNewWork(eq(JobPriority.CRITICAL), any(), any());
 
     synchronization.get().afterCompletion(Status.STATUS_COMMITTED);
 
     verify(metricsCollector).localWakeup("job_submit");
     verify(pollerScheduler).wakeup();
-    verify(clusterCoordinator).notifyNewWork(JobPriority.CRITICAL, NODE_IDENTITY);
+    verify(clusterCoordinator).notifyNewWork(JobPriority.CRITICAL, NODE_IDENTITY, null);
   }
 
   @Test
   void notify_doesNothingWhenImmediateFlagIsFalse() {
-    wakeupService.notify(JobPriority.NORMAL, false);
+    wakeupService.notify(JobPriority.NORMAL, false, null);
 
     verify(pollerScheduler, never()).wakeup();
-    verify(clusterCoordinator, never()).notifyNewWork(eq(JobPriority.NORMAL), any());
+    verify(clusterCoordinator, never()).notifyNewWork(eq(JobPriority.NORMAL), any(), any());
   }
 
   @Test
@@ -126,11 +126,11 @@ class JobWakeupServiceTest {
             nodeIdentityProvider,
             txRegistry);
 
-    wakeupService.notify(JobPriority.HIGH, true);
+    wakeupService.notify(JobPriority.HIGH, true, null);
 
     verify(metricsCollector).localWakeup("job_submit");
     verify(pollerScheduler).wakeup();
-    verify(clusterCoordinator).notifyNewWork(JobPriority.HIGH, NODE_IDENTITY);
+    verify(clusterCoordinator).notifyNewWork(JobPriority.HIGH, NODE_IDENTITY, null);
   }
 
   @Test
@@ -140,11 +140,11 @@ class JobWakeupServiceTest {
     when(pollerSchedulerInstance.get()).thenReturn(pollerScheduler);
 
     wakeupService.notifyIfNeeded(
-        JobExecutionType.BATCH_CHILD, JobPriority.CRITICAL, Duration.ofMinutes(5));
+        JobExecutionType.BATCH_CHILD, JobPriority.CRITICAL, Duration.ofMinutes(5), null);
 
     verify(metricsCollector).localWakeup("job_submit");
     verify(pollerScheduler).wakeup();
-    verify(clusterCoordinator).notifyNewWork(JobPriority.CRITICAL, NODE_IDENTITY);
+    verify(clusterCoordinator).notifyNewWork(JobPriority.CRITICAL, NODE_IDENTITY, null);
   }
 
   @Test
@@ -153,13 +153,13 @@ class JobWakeupServiceTest {
     when(pollerSchedulerInstance.isResolvable()).thenReturn(true);
     when(pollerSchedulerInstance.get()).thenReturn(pollerScheduler);
 
-    wakeupService.notifyIfNeeded(JobExecutionType.SINGLE, JobPriority.NORMAL, Duration.ZERO);
-    wakeupService.notifyIfNeeded(JobExecutionType.SINGLE, JobPriority.LOW, null);
+    wakeupService.notifyIfNeeded(JobExecutionType.SINGLE, JobPriority.NORMAL, Duration.ZERO, null);
+    wakeupService.notifyIfNeeded(JobExecutionType.SINGLE, JobPriority.LOW, null, null);
 
     verify(metricsCollector, times(2)).localWakeup("job_submit");
     verify(pollerScheduler, times(2)).wakeup();
-    verify(clusterCoordinator).notifyNewWork(JobPriority.NORMAL, NODE_IDENTITY);
-    verify(clusterCoordinator).notifyNewWork(JobPriority.LOW, NODE_IDENTITY);
+    verify(clusterCoordinator).notifyNewWork(JobPriority.NORMAL, NODE_IDENTITY, null);
+    verify(clusterCoordinator).notifyNewWork(JobPriority.LOW, NODE_IDENTITY, null);
   }
 
   @Test
@@ -169,17 +169,19 @@ class JobWakeupServiceTest {
     when(pollerSchedulerInstance.get()).thenReturn(pollerScheduler);
 
     wakeupService.notifyIfNeeded(
-        JobExecutionType.BATCH_PARENT, JobPriority.LOWEST, Duration.ofHours(1));
+        JobExecutionType.BATCH_PARENT, JobPriority.LOWEST, Duration.ofHours(1), null);
 
     verify(metricsCollector).localWakeup("job_submit");
     verify(pollerScheduler).wakeup();
-    verify(clusterCoordinator).notifyNewWork(JobPriority.LOWEST, NODE_IDENTITY);
+    verify(clusterCoordinator).notifyNewWork(JobPriority.LOWEST, NODE_IDENTITY, null);
   }
 
   @Test
   void notifyIfNeeded_skipsDelayedSingleAndBatchChildWhenNotCritical() {
-    wakeupService.notifyIfNeeded(JobExecutionType.SINGLE, JobPriority.NORMAL, Duration.ofMillis(1));
-    wakeupService.notifyIfNeeded(JobExecutionType.BATCH_CHILD, JobPriority.HIGH, Duration.ZERO);
+    wakeupService.notifyIfNeeded(
+        JobExecutionType.SINGLE, JobPriority.NORMAL, Duration.ofMillis(1), null);
+    wakeupService.notifyIfNeeded(
+        JobExecutionType.BATCH_CHILD, JobPriority.HIGH, Duration.ZERO, null);
 
     verifyNoInteractions(
         clusterCoordinator, pollerSchedulerInstance, pollerScheduler, metricsCollector);
@@ -192,12 +194,12 @@ class JobWakeupServiceTest {
     when(pollerSchedulerInstance.get()).thenReturn(pollerScheduler);
 
     for (int i = 0; i < 5; i++) {
-      wakeupService.notify(JobPriority.NORMAL, true);
+      wakeupService.notify(JobPriority.NORMAL, true, null);
     }
 
     // NodeIdentityProvider is stable per JVM lifetime by SPI contract; the cache must collapse
     // the 5 provider lookups + 5 NodeIdentity validations into one.
     verify(nodeIdentityProvider, times(1)).getNodeId();
-    verify(clusterCoordinator, times(5)).notifyNewWork(JobPriority.NORMAL, NODE_IDENTITY);
+    verify(clusterCoordinator, times(5)).notifyNewWork(JobPriority.NORMAL, NODE_IDENTITY, null);
   }
 }

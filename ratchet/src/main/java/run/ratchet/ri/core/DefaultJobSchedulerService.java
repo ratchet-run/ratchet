@@ -747,9 +747,10 @@ public class DefaultJobSchedulerService
       return;
     }
     if (job == null) {
-      wakeupService.notify(JobPriority.NORMAL, true);
+      wakeupService.notify(JobPriority.NORMAL, true, null);
     } else {
-      wakeupService.notifyIfNeeded(job.getJobType(), job.getPriority(), Duration.ZERO);
+      wakeupService.notifyIfNeeded(
+          job.getJobType(), job.getPriority(), Duration.ZERO, job.getExecutionTarget());
     }
   }
 

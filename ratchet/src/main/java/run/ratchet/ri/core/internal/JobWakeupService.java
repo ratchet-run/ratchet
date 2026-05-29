@@ -68,15 +68,16 @@ public class JobWakeupService {
     this.txRegistry = txRegistry;
   }
 
-  public void notify(JobPriority priority, boolean immediate) {
+  public void notify(JobPriority priority, boolean immediate, String executionTarget) {
     if (immediate) {
-      publishNotification(priority);
+      publishNotification(priority, executionTarget);
     }
   }
 
-  public void notifyIfNeeded(JobExecutionType jobType, JobPriority priority, Duration delay) {
+  public void notifyIfNeeded(
+      JobExecutionType jobType, JobPriority priority, Duration delay, String executionTarget) {
     if (shouldNotify(jobType, priority, delay)) {
-      publishNotification(priority);
+      publishNotification(priority, executionTarget);
     }
   }
 
@@ -96,11 +97,11 @@ public class JobWakeupService {
     return jobType == JobExecutionType.BATCH_PARENT;
   }
 
-  private void publishNotification(JobPriority priority) {
-    if (registerAfterCommit(() -> publishNotificationNow(priority))) {
+  private void publishNotification(JobPriority priority, String executionTarget) {
+    if (registerAfterCommit(() -> publishNotificationNow(priority, executionTarget))) {
       return;
     }
-    publishNotificationNow(priority);
+    publishNotificationNow(priority, executionTarget);
   }
 
   private boolean registerAfterCommit(Runnable action) {
@@ -166,11 +167,12 @@ public class JobWakeupService {
     }
   }
 
-  private void publishNotificationNow(JobPriority priority) {
+  private void publishNotificationNow(JobPriority priority, String executionTarget) {
     wakeupLocalPoller();
     try {
-      clusterCoordinator.notifyNewWork(priority, resolveNodeIdentity());
-      log.debugf("Published wakeup notification: priority=%s", priority);
+      clusterCoordinator.notifyNewWork(priority, resolveNodeIdentity(), executionTarget);
+      log.debugf(
+          "Published wakeup notification: priority=%s, target=%s", priority, executionTarget);
     } catch (Exception e) {
       log.warnf(e, "Wakeup notification error: %s", e.getMessage());
     }

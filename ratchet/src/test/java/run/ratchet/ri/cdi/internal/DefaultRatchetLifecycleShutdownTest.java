@@ -15,7 +15,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
@@ -34,6 +34,7 @@ import run.ratchet.ri.core.internal.Poller;
 import run.ratchet.ri.core.internal.PollerWakeupListener;
 import run.ratchet.spi.ClusterCoordinator;
 import run.ratchet.spi.ExecutorProvider;
+import run.ratchet.spi.JobWakeupHint;
 import run.ratchet.spi.NodeIdentityProvider;
 import run.ratchet.spi.SchedulerLifecycleHook;
 
@@ -246,10 +247,10 @@ class DefaultRatchetLifecycleShutdownTest {
     final AtomicInteger closes = new AtomicInteger();
 
     @Override
-    public void notifyNewWork(JobPriority priority, NodeIdentity source) {}
+    public void notifyNewWork(JobPriority priority, NodeIdentity source, String executionTarget) {}
 
     @Override
-    public void registerWakeupListener(BiConsumer<JobPriority, NodeIdentity> listener) {}
+    public void registerWakeupListener(Consumer<JobWakeupHint> listener) {}
 
     @Override
     public void close() {

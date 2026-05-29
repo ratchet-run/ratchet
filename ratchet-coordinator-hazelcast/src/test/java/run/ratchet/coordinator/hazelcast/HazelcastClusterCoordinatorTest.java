@@ -58,7 +58,7 @@ class HazelcastClusterCoordinatorTest {
   void notifyNewWorkPublishesEncodedEnvelope() {
     HazelcastClusterCoordinator c = newCoordinator();
     c.init();
-    c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA"));
+    c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA"), null);
 
     verify(topic).publishAsync(anyString());
     awaitUntil(() -> metrics.published("success") == 1);
@@ -70,7 +70,7 @@ class HazelcastClusterCoordinatorTest {
     HazelcastClusterCoordinator c = newCoordinator();
     c.init();
 
-    assertDoesNotThrow(() -> c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA")));
+    assertDoesNotThrow(() -> c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA"), null));
     assertEquals(1, metrics.published("failure"));
   }
 
@@ -82,7 +82,7 @@ class HazelcastClusterCoordinatorTest {
     HazelcastClusterCoordinator c = newCoordinator();
     c.init();
 
-    c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA"));
+    c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA"), null);
 
     assertEquals(
         0,
@@ -99,7 +99,7 @@ class HazelcastClusterCoordinatorTest {
     HazelcastClusterCoordinator c = newCoordinator();
     c.init();
 
-    c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA"));
+    c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA"), null);
 
     assertEquals(
         0,
@@ -117,7 +117,7 @@ class HazelcastClusterCoordinatorTest {
     c.init();
     c.afterStart();
     c.close();
-    assertDoesNotThrow(() -> c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA")));
+    assertDoesNotThrow(() -> c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA"), null));
     verify(topic, times(0)).publishAsync(anyString());
   }
 
@@ -144,7 +144,7 @@ class HazelcastClusterCoordinatorTest {
     HazelcastClusterCoordinator c = newCoordinator();
     c.init();
     CopyOnWriteArrayList<NodeIdentity> received = new CopyOnWriteArrayList<>();
-    c.registerWakeupListener((p, src) -> received.add(src));
+    c.registerWakeupListener(hint -> received.add(hint.source()));
 
     c.onTopicMessage(
         codec.encode(NotifyPayload.current(new NodeIdentity("nodeA"), JobPriority.HIGH)));
@@ -159,7 +159,7 @@ class HazelcastClusterCoordinatorTest {
     HazelcastClusterCoordinator c = newCoordinator();
     c.init();
     CopyOnWriteArrayList<NodeIdentity> received = new CopyOnWriteArrayList<>();
-    c.registerWakeupListener((p, src) -> received.add(src));
+    c.registerWakeupListener(hint -> received.add(hint.source()));
 
     c.onTopicMessage(
         codec.encode(NotifyPayload.current(new NodeIdentity("nodeB"), JobPriority.LOW)));
@@ -183,7 +183,7 @@ class HazelcastClusterCoordinatorTest {
     HazelcastClusterCoordinator c = newCoordinator();
     c.init();
     AtomicLong listenerCalls = new AtomicLong();
-    c.registerWakeupListener((p, src) -> listenerCalls.incrementAndGet());
+    c.registerWakeupListener(hint -> listenerCalls.incrementAndGet());
 
     c.onTopicMessage("x".repeat(config.maxInboundPayloadChars() + 1));
 
@@ -199,7 +199,7 @@ class HazelcastClusterCoordinatorTest {
     c.onTopicMessage(
         codec.encode(NotifyPayload.current(new NodeIdentity("nodeB"), JobPriority.LOW)));
     CopyOnWriteArrayList<JobPriority> got = new CopyOnWriteArrayList<>();
-    c.registerWakeupListener((p, src) -> got.add(p));
+    c.registerWakeupListener(hint -> got.add(hint.priority()));
 
     Thread.sleep(100);
     assertEquals(1, got.size());
@@ -212,8 +212,8 @@ class HazelcastClusterCoordinatorTest {
     c.init();
     CopyOnWriteArrayList<String> got1 = new CopyOnWriteArrayList<>();
     CopyOnWriteArrayList<String> got2 = new CopyOnWriteArrayList<>();
-    c.registerWakeupListener((p, src) -> got1.add(src.value()));
-    c.registerWakeupListener((p, src) -> got2.add(src.value()));
+    c.registerWakeupListener(hint -> got1.add(hint.source().value()));
+    c.registerWakeupListener(hint -> got2.add(hint.source().value()));
 
     c.onTopicMessage(
         codec.encode(NotifyPayload.current(new NodeIdentity("nodeB"), JobPriority.HIGH)));
@@ -229,10 +229,10 @@ class HazelcastClusterCoordinatorTest {
     c.init();
     CopyOnWriteArrayList<JobPriority> good = new CopyOnWriteArrayList<>();
     c.registerWakeupListener(
-        (p, src) -> {
+        hint -> {
           throw new RuntimeException("boom");
         });
-    c.registerWakeupListener((p, src) -> good.add(p));
+    c.registerWakeupListener(hint -> good.add(hint.priority()));
 
     c.onTopicMessage(
         codec.encode(NotifyPayload.current(new NodeIdentity("nodeB"), JobPriority.LOWEST)));

@@ -58,8 +58,8 @@ class InfinispanClusterCoordinatorTest {
   void notifyNewWorkPublishesEncodedEnvelopeWithUniqueKeyAndTtl() {
     InfinispanClusterCoordinator c = newCoordinator();
     c.init();
-    c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA"));
-    c.notifyNewWork(JobPriority.NORMAL, new NodeIdentity("nodeA"));
+    c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA"), null);
+    c.notifyNewWork(JobPriority.NORMAL, new NodeIdentity("nodeA"), null);
 
     verify(cache).putAsync(eq("nodeA:1"), anyString(), eq(60L), eq(TimeUnit.SECONDS));
     verify(cache).putAsync(eq("nodeA:2"), anyString(), eq(60L), eq(TimeUnit.SECONDS));
@@ -73,7 +73,7 @@ class InfinispanClusterCoordinatorTest {
     InfinispanClusterCoordinator c = newCoordinator();
     c.init();
 
-    assertDoesNotThrow(() -> c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA")));
+    assertDoesNotThrow(() -> c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA"), null));
     assertEquals(1, metrics.published("failure"));
   }
 
@@ -83,7 +83,7 @@ class InfinispanClusterCoordinatorTest {
     c.init();
     c.afterStart();
     c.close();
-    assertDoesNotThrow(() -> c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA")));
+    assertDoesNotThrow(() -> c.notifyNewWork(JobPriority.HIGH, new NodeIdentity("nodeA"), null));
     verify(cache, times(0)).putAsync(anyString(), anyString(), anyLong(), any(TimeUnit.class));
   }
 
@@ -111,7 +111,7 @@ class InfinispanClusterCoordinatorTest {
     InfinispanClusterCoordinator c = newCoordinator();
     c.init();
     CopyOnWriteArrayList<NodeIdentity> received = new CopyOnWriteArrayList<>();
-    c.registerWakeupListener((p, src) -> received.add(src));
+    c.registerWakeupListener(hint -> received.add(hint.source()));
 
     c.onInboundNotification(NotifyPayload.current(new NodeIdentity("nodeA"), JobPriority.HIGH));
 
@@ -125,7 +125,7 @@ class InfinispanClusterCoordinatorTest {
     InfinispanClusterCoordinator c = newCoordinator();
     c.init();
     CopyOnWriteArrayList<NodeIdentity> received = new CopyOnWriteArrayList<>();
-    c.registerWakeupListener((p, src) -> received.add(src));
+    c.registerWakeupListener(hint -> received.add(hint.source()));
 
     c.onInboundNotification(NotifyPayload.current(new NodeIdentity("nodeB"), JobPriority.LOW));
 
@@ -142,7 +142,7 @@ class InfinispanClusterCoordinatorTest {
 
     c.onInboundNotification(NotifyPayload.current(new NodeIdentity("nodeB"), JobPriority.LOW));
     CopyOnWriteArrayList<JobPriority> got = new CopyOnWriteArrayList<>();
-    c.registerWakeupListener((p, src) -> got.add(p));
+    c.registerWakeupListener(hint -> got.add(hint.priority()));
 
     Thread.sleep(100);
     assertEquals(1, got.size());
@@ -155,8 +155,8 @@ class InfinispanClusterCoordinatorTest {
     c.init();
     CopyOnWriteArrayList<String> got1 = new CopyOnWriteArrayList<>();
     CopyOnWriteArrayList<String> got2 = new CopyOnWriteArrayList<>();
-    c.registerWakeupListener((p, src) -> got1.add(src.value()));
-    c.registerWakeupListener((p, src) -> got2.add(src.value()));
+    c.registerWakeupListener(hint -> got1.add(hint.source().value()));
+    c.registerWakeupListener(hint -> got2.add(hint.source().value()));
 
     c.onInboundNotification(NotifyPayload.current(new NodeIdentity("nodeB"), JobPriority.HIGH));
 
@@ -171,10 +171,10 @@ class InfinispanClusterCoordinatorTest {
     c.init();
     CopyOnWriteArrayList<JobPriority> good = new CopyOnWriteArrayList<>();
     c.registerWakeupListener(
-        (p, src) -> {
+        hint -> {
           throw new RuntimeException("boom");
         });
-    c.registerWakeupListener((p, src) -> good.add(p));
+    c.registerWakeupListener(hint -> good.add(hint.priority()));
 
     c.onInboundNotification(NotifyPayload.current(new NodeIdentity("nodeB"), JobPriority.LOWEST));
 
