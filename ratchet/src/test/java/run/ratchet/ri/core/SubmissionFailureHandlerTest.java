@@ -18,6 +18,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobStatus;
+import run.ratchet.ri.core.internal.PoolRegistry;
 import run.ratchet.ri.core.internal.ThreadPoolManager;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;

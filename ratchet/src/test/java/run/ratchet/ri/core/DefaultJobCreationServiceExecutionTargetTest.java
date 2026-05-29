@@ -24,6 +24,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobPriority;
+import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.security.JobPayloadInputValidator;
 import run.ratchet.store.entity.JobEntity;
@@ -81,6 +82,7 @@ class DefaultJobCreationServiceExecutionTargetTest {
             recurringScheduler,
             new DefaultJobInvocationResolver(),
             new JobPayloadInputValidator(),
+            null,
             null,
             null,
             null,

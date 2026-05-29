@@ -1,4 +1,4 @@
-package run.ratchet.ri.core;
+package run.ratchet.ri.core.internal;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;

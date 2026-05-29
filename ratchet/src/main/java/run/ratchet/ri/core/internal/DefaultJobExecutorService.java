@@ -24,7 +24,6 @@ import run.ratchet.ri.core.DrainController;
 import run.ratchet.ri.core.ExecutionResult;
 import run.ratchet.ri.core.JobExecutorService;
 import run.ratchet.ri.core.PollerScheduler;
-import run.ratchet.ri.core.PoolRegistry;
 import run.ratchet.ri.core.ResourcePermitService;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;

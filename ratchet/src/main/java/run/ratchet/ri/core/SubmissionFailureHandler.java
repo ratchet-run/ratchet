@@ -3,7 +3,7 @@ package run.ratchet.ri.core;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
-import run.ratchet.ri.core.internal.ThreadPoolManager;
+import run.ratchet.ri.core.internal.PoolRegistry;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;

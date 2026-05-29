@@ -1,4 +1,4 @@
-package run.ratchet.ri.core;
+package run.ratchet.ri.core.internal;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;

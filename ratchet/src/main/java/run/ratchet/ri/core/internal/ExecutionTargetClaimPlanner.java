@@ -1,4 +1,4 @@
-package run.ratchet.ri.core;
+package run.ratchet.ri.core.internal;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -10,17 +10,17 @@ import run.ratchet.api.RatchetOptions;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.ExecutionTargetFilter;
 
-final class ExecutionTargetClaimPlanner {
+public final class ExecutionTargetClaimPlanner {
 
   private final PoolRegistry poolRegistry;
   private final RatchetOptions options;
 
-  ExecutionTargetClaimPlanner(PoolRegistry poolRegistry, RatchetOptions options) {
+  public ExecutionTargetClaimPlanner(PoolRegistry poolRegistry, RatchetOptions options) {
     this.poolRegistry = poolRegistry;
     this.options = options;
   }
 
-  List<PoolClaimBudget> budgets(JobExecutionType jobType) {
+  public List<PoolClaimBudget> budgets(JobExecutionType jobType) {
     Map<String, Integer> capacities = poolRegistry.availableCapacitiesByPool(jobType);
     List<PoolClaimBudget> budgets = new ArrayList<>(capacities.size());
     for (Map.Entry<String, Integer> entry : capacities.entrySet()) {
@@ -54,6 +54,6 @@ final class ExecutionTargetClaimPlanner {
     return poolRegistry.hasPool(defaultTarget) ? defaultTarget : ExecutorTargets.PLATFORM;
   }
 
-  record PoolClaimBudget(
+  public record PoolClaimBudget(
       String poolName, int availableCapacity, ExecutionTargetFilter executionTargetFilter) {}
 }

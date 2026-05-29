@@ -3,6 +3,8 @@ package run.ratchet.ri.core;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.UUID;
+import run.ratchet.ri.core.internal.ExecutionTargetRouter;
+import run.ratchet.ri.core.internal.PoolRegistry;
 import run.ratchet.ri.core.internal.ThreadPoolManager;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobEntity;

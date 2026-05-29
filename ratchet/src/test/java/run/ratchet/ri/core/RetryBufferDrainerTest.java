@@ -32,7 +32,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.ExecutorTargets;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.RatchetOptions;
-import run.ratchet.ri.core.internal.ThreadPoolManager;
+import run.ratchet.ri.core.internal.PoolRegistry;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.store.dto.JobClaimDto;
 import run.ratchet.store.entity.JobExecutionType;

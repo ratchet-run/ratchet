@@ -1,10 +1,10 @@
-package run.ratchet.ri.core;
+package run.ratchet.ri.core.internal;
 
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.TreeMap;
-import run.ratchet.ri.core.ThreadPoolManager.ThreadPoolHealth;
+import run.ratchet.ri.core.internal.ThreadPoolManager.ThreadPoolHealth;
 import run.ratchet.store.entity.JobExecutionType;
 
 /**

@@ -196,12 +196,7 @@ class JobExecutorServiceTest {
       throws Exception {
     Method method =
         DefaultJobExecutorService.class.getDeclaredMethod(
-            "execute",
-            UUID.class,
-            int.class,
-            Callable.class,
-            AtomicReference.class,
-            String.class);
+            "execute", UUID.class, int.class, Callable.class, AtomicReference.class, String.class);
     method.setAccessible(true);
     return (ExecutionResult) method.invoke(service, JOB_ID, 30, callable, handlesRef, "platform");
   }

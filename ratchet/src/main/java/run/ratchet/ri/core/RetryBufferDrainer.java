@@ -9,7 +9,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.jboss.logging.Logger;
 import run.ratchet.api.RatchetOptions;
 import run.ratchet.ri.core.RetryBufferManager.BufferedClaim;
-import run.ratchet.ri.core.internal.ThreadPoolManager;
+import run.ratchet.ri.core.internal.ExecutionTargetClaimPlanner;
+import run.ratchet.ri.core.internal.PoolRegistry;
 import run.ratchet.spi.ExecutorProvider;
 import run.ratchet.store.entity.JobExecutionType;
 
