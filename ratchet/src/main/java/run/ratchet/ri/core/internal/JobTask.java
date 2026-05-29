@@ -97,7 +97,12 @@ public class JobTask implements Callable<Void> {
   private JobExecutionEntity currentExecution;
   private TracingCollector.ExecutionScope currentScope =
       TracingCollector.NoOpExecutionScope.INSTANCE;
-  private boolean permitAcquired;
+  // volatile: this instance is single-use today (allocated fresh per submission
+  // in DefaultJobExecutorService.createTask()), but the field outlives no thread
+  // hop only by that invariant. Marking it volatile makes the flag correct under
+  // any future task reuse and clears SpotBugs AT_STALE_THREAD_WRITE_OF_PRIMITIVE
+  // at zero behavioral cost.
+  private volatile boolean permitAcquired;
 
   protected JobTask() {
     this.jobStore = null;
