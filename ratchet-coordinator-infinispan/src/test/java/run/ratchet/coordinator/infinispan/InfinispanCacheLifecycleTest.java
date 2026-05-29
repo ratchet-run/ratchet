@@ -15,7 +15,7 @@ import java.util.concurrent.TimeUnit;
 import org.infinispan.Cache;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import run.ratchet.coordinator.common.NotifyPayloadCodec;
+import run.ratchet.coordinator.common.internal.NotifyPayloadCodec;
 
 class InfinispanCacheLifecycleTest {
 

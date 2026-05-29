@@ -3,6 +3,7 @@ package run.ratchet.coordinator.common;
 import java.util.Objects;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.NodeIdentity;
+import run.ratchet.coordinator.common.internal.NotifyPayloadCodec;
 
 /** Versioned wakeup envelope shared by every coordinator transport. */
 public record NotifyPayload(int version, NodeIdentity node, JobPriority priority) {

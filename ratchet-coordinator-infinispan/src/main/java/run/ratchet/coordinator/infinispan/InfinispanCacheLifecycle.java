@@ -10,7 +10,7 @@ import java.util.function.Consumer;
 import org.infinispan.Cache;
 import org.jboss.logging.Logger;
 import run.ratchet.coordinator.common.NotifyPayload;
-import run.ratchet.coordinator.common.NotifyPayloadCodec;
+import run.ratchet.coordinator.common.internal.NotifyPayloadCodec;
 
 /**
  * Owns the cache reference and the {@link InfinispanWakeupListener} registration for one

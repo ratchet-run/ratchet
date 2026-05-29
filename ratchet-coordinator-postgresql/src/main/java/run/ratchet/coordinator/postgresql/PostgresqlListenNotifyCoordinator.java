@@ -1,6 +1,6 @@
 package run.ratchet.coordinator.postgresql;
 
-import static run.ratchet.coordinator.common.JsonProviders.requireJsonProvider;
+import static run.ratchet.coordinator.common.internal.JsonProviders.requireJsonProvider;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Priority;
@@ -21,6 +21,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
 import javax.sql.DataSource;
@@ -28,7 +29,7 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.NodeIdentity;
 import run.ratchet.coordinator.common.NotifyPayload;
-import run.ratchet.coordinator.common.NotifyPayloadCodec;
+import run.ratchet.coordinator.common.internal.NotifyPayloadCodec;
 import run.ratchet.spi.ClusterCoordinator;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
@@ -67,7 +68,7 @@ public class PostgresqlListenNotifyCoordinator
   /** Bounded buffer holding inbound messages that arrive before any listener registers. */
   private static final int PRE_REGISTRATION_BUFFER_CAPACITY = 256;
 
-  static final String COORDINATOR_KIND = "postgresql";
+  private static final String COORDINATOR_KIND = "postgresql";
 
   @Inject NodeIdentityProvider identityProvider;
   @Inject PostgresqlCoordinatorConfig config;
@@ -84,8 +85,10 @@ public class PostgresqlListenNotifyCoordinator
   private PostgresqlConnectionLifecycle.ConnectionAcquirer publishConnectionAcquirer;
   private PostgresqlListenThread listenThread;
   private ExecutorService listenerExecutor;
-  private volatile boolean closed;
+  private final AtomicBoolean closed = new AtomicBoolean(false);
 
+  /** CDI proxy constructor — not for direct use. */
+  @SuppressWarnings("unused")
   protected PostgresqlListenNotifyCoordinator() {
     // CDI proxy constructor.
   }
@@ -147,7 +150,7 @@ public class PostgresqlListenNotifyCoordinator
   /** {@inheritDoc} */
   @Override
   public void afterStart() {
-    if (closed) {
+    if (closed.get()) {
       return;
     }
     if (listenThread == null) {
@@ -162,7 +165,7 @@ public class PostgresqlListenNotifyCoordinator
   public void notifyNewWork(JobPriority priority, NodeIdentity source) {
     Objects.requireNonNull(priority, "priority");
     Objects.requireNonNull(source, "source");
-    if (closed) {
+    if (closed.get()) {
       return;
     }
     try {
@@ -194,7 +197,7 @@ public class PostgresqlListenNotifyCoordinator
   @Override
   public void registerWakeupListener(BiConsumer<JobPriority, NodeIdentity> listener) {
     Objects.requireNonNull(listener, "listener");
-    if (closed) {
+    if (closed.get()) {
       return;
     }
     listeners.add(listener);
@@ -212,10 +215,9 @@ public class PostgresqlListenNotifyCoordinator
 
   @Override
   public void close() {
-    if (closed) {
+    if (!closed.compareAndSet(false, true)) {
       return;
     }
-    closed = true;
     PostgresqlListenThread thread = this.listenThread;
     if (thread != null) {
       thread.shutdown();
@@ -244,8 +246,19 @@ public class PostgresqlListenNotifyCoordinator
     }
   }
 
+  /**
+   * Package-private test seam: synthesizes the same dispatch a real PostgreSQL {@code NOTIFY} would
+   * trigger, without standing up a live LISTEN connection. Unit tests in this package use this hook
+   * to drive {@link #onInboundNotification(NotifyPayload)} without going through Testcontainers.
+   *
+   * @apiNote Framework-internal test driver. Not part of the public SPI.
+   */
+  void dispatchInbound(NotifyPayload msg) {
+    onInboundNotification(msg);
+  }
+
   /** Dispatch path from the listen thread. Self-suppresses then routes to listeners. */
-  void onInboundNotification(NotifyPayload msg) {
+  private void onInboundNotification(NotifyPayload msg) {
     NodeIdentity local;
     try {
       local = new NodeIdentity(identityProvider.getNodeId());

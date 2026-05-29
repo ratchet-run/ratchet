@@ -1,9 +1,14 @@
-package run.ratchet.coordinator.common;
+package run.ratchet.coordinator.common.internal;
 
 import jakarta.json.JsonException;
 import jakarta.json.spi.JsonProvider;
 
-/** JSON-P provider probe shared by coordinator transports. */
+/**
+ * JSON-P provider probe shared by coordinator transports.
+ *
+ * @apiNote Framework-internal. This class is consumed only by Ratchet's bundled coordinator
+ *     transports; it is not part of the public coordinator SPI and may change without notice.
+ */
 public final class JsonProviders {
 
   private JsonProviders() {}

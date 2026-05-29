@@ -29,7 +29,7 @@ import run.ratchet.api.JobType;
 import run.ratchet.api.NodeIdentity;
 import run.ratchet.api.SignalDecision;
 import run.ratchet.coordinator.common.NotifyPayload;
-import run.ratchet.coordinator.common.NotifyPayloadCodec;
+import run.ratchet.coordinator.common.internal.NotifyPayloadCodec;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.spi.NodeIdentityProvider;
 

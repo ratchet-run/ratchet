@@ -1,4 +1,4 @@
-package run.ratchet.coordinator.common;
+package run.ratchet.coordinator.common.internal;
 
 import jakarta.json.Json;
 import jakarta.json.JsonObject;
@@ -13,6 +13,8 @@ import java.io.StringWriter;
 import java.util.Objects;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.NodeIdentity;
+import run.ratchet.coordinator.common.DecodeException;
+import run.ratchet.coordinator.common.NotifyPayload;
 
 /**
  * JSON-P encoder/decoder for the wakeup envelope shared by every Ratchet cluster coordinator.
@@ -25,6 +27,10 @@ import run.ratchet.api.NodeIdentity;
  *
  * <p>Unknown fields are ignored for forward compatibility. Removing or repurposing fields bumps
  * {@code v}; unsupported versions fail decode.
+ *
+ * @apiNote Framework-internal. This codec defines the wire format used by Ratchet's bundled
+ *     coordinator transports; it is not part of the public coordinator SPI and the envelope schema
+ *     (including {@link #CURRENT_VERSION}) may change without notice.
  */
 public final class NotifyPayloadCodec {
 
