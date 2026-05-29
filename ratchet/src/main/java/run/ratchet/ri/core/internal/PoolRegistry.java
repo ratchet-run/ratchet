@@ -19,6 +19,10 @@ public class PoolRegistry {
 
   private final Map<String, ThreadPoolManager> pools;
 
+  protected PoolRegistry() {
+    this.pools = Map.of();
+  }
+
   public PoolRegistry(Map<String, ThreadPoolManager> pools) {
     this.pools = Map.copyOf(pools);
   }
