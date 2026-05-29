@@ -18,7 +18,7 @@ When a job fails, the engine evaluates retry eligibility through a pipeline:
 
 3. **Max retries check** -- If the job has exhausted its configured `maxRetries`, it moves to the dead letter flow.
 
-4. **Delay calculation** -- The delay before the next attempt is the *maximum* of the job's backoff policy delay and the `RetryPolicy.getDelay()` value.
+4. **Delay calculation** -- The `RetryPolicy.getDelay()` value takes precedence. If it returns a non-zero `Duration`, that value is used directly as the delay before the next attempt. Only when it returns `Duration.ZERO` does the engine fall back to the job's backoff policy delay.
 
 ## RetryPolicy SPI Interface
 
@@ -78,10 +78,12 @@ The job-level `BackoffPolicy` enum controls the delay pattern between retries:
 | `FIXED` | Constant delay | 1s, 1s, 1s, ... |
 | `EXPONENTIAL` | Doubling delay with 24-hour cap | 1s, 2s, 4s, 8s, ... |
 
-When a custom `RetryPolicy` returns a non-zero delay from `getDelay()`, the engine uses the **maximum** of the backoff policy delay and the SPI delay. This means your custom policy can impose a minimum wait time without overriding the backoff escalation:
+When a custom `RetryPolicy` returns a non-zero delay from `getDelay()`, the engine uses **that value directly** and ignores the job's backoff policy. The backoff policy is consulted only when the SPI returns `Duration.ZERO`. This means a custom policy that returns a non-zero delay takes full control of the wait time and overrides the backoff escalation:
 
 ```
-Final delay = max(BackoffPolicyHandler.computeDelay(policy, baseMs, attempt), retryPolicy.getDelay(attempt))
+Final delay = retryPolicy.getDelay(attempt).isZero()
+    ? BackoffPolicyHandler.computeDelay(policy, baseMs, attempt)
+    : retryPolicy.getDelay(attempt)
 ```
 
 ## @DoNotRetry Annotation

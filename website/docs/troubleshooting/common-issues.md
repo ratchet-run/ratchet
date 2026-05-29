@@ -162,15 +162,21 @@ Do not add broad prefixes like `java.` or `javax.` to your allowed packages. The
 
 **Symptom:** The same recurring job runs multiple times per scheduled interval.
 
-Recurring jobs use a **business key** for active-uniqueness. The database enforces a partial unique index:
+Recurring jobs use a **business key** for active-uniqueness. The database enforces this through a dedicated reservation table whose primary key is the business key, so only one active owner can hold a given key at a time:
 
 ```sql
--- PostgreSQL: only one active job per business key
-CREATE UNIQUE INDEX idx_job_active_business_key
-    ON scheduler_job (business_key)
-    WHERE status IN ('PENDING', 'RUNNING', 'PAUSED')
-      AND business_key IS NOT NULL;
+-- Active business-key uniqueness lives in scheduler_business_key_reservation,
+-- not in an index on scheduler_job. The primary key serializes ownership.
+CREATE TABLE scheduler_business_key_reservation (
+    business_key TEXT        NOT NULL,
+    owner_job_id uuid        NOT NULL,
+    owner_table  TEXT        NOT NULL,
+    reserved_at  TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT pk_scheduler_business_key_reservation PRIMARY KEY (business_key)
+);
 ```
+
+The `scheduler_job.business_key` column remains for observability and archive/search projections; it is not the uniqueness mechanism. Cancel paths delete the reservation row to release the key.
 
 Duplicates happen when:
 
@@ -245,17 +251,17 @@ The circuit breaker transitions:
 ERROR: duplicate key value violates unique constraint "uk_idempotency_key"
 ```
 
-Each job gets a unique idempotency key (UUID). This error means you are submitting the same job twice. Ratchet includes retry logic for idempotency conflicts (configurable via `RATCHET_IDEMPOTENCY_RETRY_MAX_ATTEMPTS`, default 3).
+Each job gets a unique idempotency key (UUID). On submission Ratchet first looks up the key (`findByIdempotencyKey`) and, if a job with that key already exists, returns a handle to the existing job instead of inserting a duplicate. This constraint violation therefore only surfaces on a concurrent race -- two submissions with the same idempotency key both pass the pre-insert lookup, and the second insert hits the `uk_idempotency_key` unique constraint.
 
-If you see persistent failures, check if your code is double-submitting in a retry loop.
+If you see persistent failures, check if your code is double-submitting in a retry loop, or reusing the same explicit idempotency key across concurrent submissions.
 
 ### Active Business Key Violation
 
 ```
-ERROR: duplicate key value violates unique constraint "idx_job_active_business_key"
+ERROR: duplicate key value violates unique constraint "pk_scheduler_business_key_reservation"
 ```
 
-Two active jobs (PENDING, RUNNING, or PAUSED) share the same business key. This is expected behavior -- the constraint prevents duplicate scheduling. The job that violated the constraint was correctly rejected.
+Two active jobs share the same business key. This is expected behavior -- the `scheduler_business_key_reservation` primary key prevents duplicate scheduling. The job that violated the constraint was correctly rejected.
 
 If this is unexpected, query for the existing active job:
 

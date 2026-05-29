@@ -265,11 +265,13 @@ Verify that the polling query uses indexes:
 ```sql
 -- PostgreSQL
 EXPLAIN ANALYZE
-SELECT * FROM scheduler_job
+SELECT * FROM scheduler_job_queue
 WHERE status = 'PENDING'
-  AND scheduled_time <= NOW()
-ORDER BY priority + FLOOR(GREATEST(0, EXTRACT(EPOCH FROM (statement_timestamp() - scheduled_time)) / 60) / 15) DESC,
-         scheduled_time ASC
+  AND scheduled_time <= statement_timestamp()
+  AND job_type = 'SINGLE'
+ORDER BY (priority + FLOOR(GREATEST(0, EXTRACT(EPOCH FROM (statement_timestamp() - scheduled_time))) / (60.0 * 15))) DESC,
+         scheduled_time ASC,
+         job_id ASC
 LIMIT 100
 FOR UPDATE SKIP LOCKED;
 
@@ -279,20 +281,21 @@ SELECT * FROM scheduler_job_queue FORCE INDEX (idx_claim_executable)
 WHERE status = 'PENDING'
   AND job_type = 'SINGLE'
   AND scheduled_time <= NOW()
-ORDER BY priority + FLOOR(GREATEST(0, TIMESTAMPDIFF(MINUTE, scheduled_time, NOW(3))) / 15) DESC,
-         scheduled_time ASC
+ORDER BY (priority + FLOOR(GREATEST(0, TIMESTAMPDIFF(MINUTE, scheduled_time, NOW(3))) / 15)) DESC,
+         scheduled_time ASC,
+         job_id ASC
 LIMIT 100
 FOR UPDATE SKIP LOCKED;
 ```
 
-The query should use `idx_job_claim_cover` on PostgreSQL or `idx_claim_executable` on MySQL. A sort on computed effective priority is expected; a full scan of the pending queue is not. If you see a sequential scan, check that statistics are up to date:
+The query should use `idx_claim_executable` on `scheduler_job_queue` on both PostgreSQL and MySQL — it is the hot-path claim index, partial on `status = 'PENDING'`. A sort on computed effective priority is expected; a full scan of the pending queue is not. If you see a sequential scan, check that statistics are up to date:
 
 ```sql
 -- PostgreSQL
-ANALYZE scheduler_job;
+ANALYZE scheduler_job_queue;
 
 -- MySQL
-ANALYZE TABLE scheduler_job;
+ANALYZE TABLE scheduler_job_queue;
 ```
 
 ## Job Retention and Archiving

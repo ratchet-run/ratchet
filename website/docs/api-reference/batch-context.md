@@ -153,31 +153,7 @@ public record StreamingBatchContext(
 | `processedItems` | `int` | Cumulative number of items read from the stream |
 | `chunksInserted` | `int` | Number of bulk insert operations performed |
 
-### Convenience Methods
-
-#### itemsStreamed
-
-```java
-public int itemsStreamed()
-```
-
-Alias for `processedItems()`. Returns the number of items read from the stream so far.
-
-```java
-int streamed = ctx.itemsStreamed(); // same as ctx.processedItems()
-```
-
-#### insertOperations
-
-```java
-public int insertOperations()
-```
-
-Alias for `chunksInserted()`. Returns the number of bulk insert operations performed.
-
-```java
-int ops = ctx.insertOperations(); // same as ctx.chunksInserted()
-```
+`StreamingBatchContext` is a bare record. Read its progress values directly through the canonical accessors `processedItems()` and `chunksInserted()`.
 
 ### Usage
 

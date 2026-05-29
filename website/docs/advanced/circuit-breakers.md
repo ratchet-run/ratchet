@@ -115,7 +115,6 @@ General-purpose profile for internal services.
 | Failure rate threshold | 50% |
 | Sliding window size | 100 calls |
 | Wait duration (OPEN) | 30 seconds |
-| Slow call threshold | 10 seconds |
 | Permitted calls in HALF_OPEN | 3 |
 | Minimum calls before evaluation | 5 |
 
@@ -128,7 +127,6 @@ Aggressive failure detection for latency-sensitive paths.
 | Failure rate threshold | 50% |
 | Sliding window size | 20 calls |
 | Wait duration (OPEN) | 10 seconds |
-| Slow call threshold | 2 seconds |
 | Permitted calls in HALF_OPEN | 2 |
 | Minimum calls before evaluation | 3 |
 
@@ -141,7 +139,6 @@ Conservative profile for high-availability services where false positives are co
 | Failure rate threshold | 75% |
 | Sliding window size | 200 calls |
 | Wait duration (OPEN) | 60 seconds |
-| Slow call threshold | 30 seconds |
 | Permitted calls in HALF_OPEN | 5 |
 | Minimum calls before evaluation | 10 |
 
@@ -154,7 +151,6 @@ Tuned for third-party integrations with higher latency tolerance and longer reco
 | Failure rate threshold | 60% |
 | Sliding window size | 50 calls |
 | Wait duration (OPEN) | 60 seconds |
-| Slow call threshold | 5 seconds |
 | Permitted calls in HALF_OPEN | 3 |
 | Minimum calls before evaluation | 5 |
 
@@ -167,7 +163,6 @@ Internal profile used by the poller when claiming work from the store. It trips 
 | Failure rate threshold | 50% |
 | Sliding window size | 20 calls |
 | Wait duration (OPEN) | 5 seconds |
-| Slow call threshold | 2 seconds |
 | Permitted calls in HALF_OPEN | 1 |
 | Minimum calls before evaluation | 5 |
 
@@ -182,7 +177,6 @@ RatchetOptions.builder()
             .failureRateThreshold(60)
             .slidingWindowSize(50)
             .waitDurationMs(20_000)
-            .slowCallThresholdMs(5_000)
             .permittedCallsInHalfOpen(5)
             .minimumCalls(10))
         .profile(CircuitBreakerProfile.EXTERNAL_API, p -> p
@@ -238,7 +232,7 @@ CircuitBreaker breaker = registry.getBreaker("my-service");
 // Get or create with a specific profile
 CircuitBreaker breaker = registry.getBreaker("my-service", CircuitBreakerProfile.FAST);
 
-// Check current state (returns null if breaker not yet created)
+// Check current state (lazily creates the breaker if absent, returning CLOSED)
 CircuitBreaker.State state = registry.getBreakerState("my-service");
 
 // Manually open a circuit (e.g., during maintenance)
@@ -252,7 +246,6 @@ registry.registerConfig("custom", new CircuitBreakerConfiguration(
     40.0f,   // failureRateThreshold
     30,      // slidingWindowSize
     45_000L, // waitDurationMs
-    8_000L,  // slowCallThresholdMs
     4,       // permittedCallsInHalfOpen
     8        // minimumCalls
 ));

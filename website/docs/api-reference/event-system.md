@@ -162,24 +162,6 @@ public void onRetrying(@Observes JobRetryingEvent event) {
 }
 ```
 
-### JobCancellingEvent
-
-Fired when a job cancellation is initiated (before the state transition completes).
-
-```java
-public class JobCancellingEvent extends AbstractJobCancellationEvent
-```
-
-```java
-public String getPreviousStatus()
-public Long getExecutionTimeMs()
-```
-
-| Method | Return Type | Description |
-|---|---|---|
-| `getPreviousStatus()` | `String` | Status before cancellation |
-| `getExecutionTimeMs()` | `Long` | Execution duration in milliseconds when known |
-
 ### JobCancelledEvent
 
 Fired when a job cancellation is confirmed.
@@ -201,6 +183,32 @@ public Long getExecutionTimeMs()
 ```java
 public void onCancelled(@Observes JobCancelledEvent event) {
     log.info("Job {} canceled", event.getJobId());
+}
+```
+
+### JobsBulkCancelledEvent
+
+Fired exactly once per successful bulk cancel-by-tag operation, when at least one job was cancelled. Produced by [`cancelJobsByTag()`](./job-scheduler-service) and [`cancelRecurringJobsByTag()`](./job-scheduler-service).
+
+Bulk cancellation does not carry a single job id, business key, or priority, so this event does **not** extend `AbstractJobSchedulerEvent`.
+
+```java
+public class JobsBulkCancelledEvent implements Serializable {
+    public String getTag()
+    public int getCount()
+    public Instant getCancelledAt()
+}
+```
+
+| Method | Return Type | Description |
+|---|---|---|
+| `getTag()` | `String` | Tag used to select jobs for cancellation |
+| `getCount()` | `int` | Number of jobs successfully cancelled |
+| `getCancelledAt()` | `Instant` | When the bulk operation completed |
+
+```java
+public void onBulkCancelled(@Observes JobsBulkCancelledEvent event) {
+    log.info("Cancelled {} jobs tagged {}", event.getCount(), event.getTag());
 }
 ```
 
@@ -244,6 +252,34 @@ public class JobDlqEvent extends AbstractJobSchedulerEvent {
 public void onDlq(@Observes JobDlqEvent event) {
     alertService.sendDlqAlert(event.getJobId(), event.getErrorMessage());
     metrics.counter("jobs.dlq").increment();
+}
+```
+
+### JobCallbackFailedEvent
+
+Fired when a lifecycle callback (`onSuccess` / `onFailure`) throws an exception. The callback failure does not affect the job's recorded outcome.
+
+```java
+public class JobCallbackFailedEvent extends AbstractJobSchedulerEvent {
+    public CallbackType getCallbackType()
+    public String getErrorMessage()
+    public String getCauseClassName()
+    public int getCallbackAttempt()
+}
+```
+
+| Method | Return Type | Description |
+|---|---|---|
+| `getCallbackType()` | `CallbackType` | Which callback failed: `ON_SUCCESS` or `ON_FAILURE` |
+| `getErrorMessage()` | `String` | Message from the thrown callback exception (may be null) |
+| `getCauseClassName()` | `String` | Class name of the thrown callback exception |
+| `getCallbackAttempt()` | `int` | 1-based callback invocation attempt |
+
+```java
+public void onCallbackFailed(@Observes JobCallbackFailedEvent event) {
+    log.warn("Job {} {} callback failed: {} ({})",
+        event.getJobId(), event.getCallbackType(),
+        event.getErrorMessage(), event.getCauseClassName());
 }
 ```
 
@@ -347,7 +383,7 @@ public void onChainFailed(@Observes ChainFailedEvent event) {
 }
 ```
 
-## Workflow and Observability Events
+## Workflow Events
 
 ### WorkflowBranchTriggeredEvent
 
@@ -367,43 +403,89 @@ public UUID getNextJobId()
 | `getBranchCondition()` | `String` | Description of the branch condition that matched |
 | `getNextJobId()` | `UUID` | Child job ID scheduled for the branch |
 
-### PerformanceMetricsEvent
+## Signal Events
 
-System-level performance metrics snapshot. Unlike other events, this does **not** extend `AbstractJobSchedulerEvent` because it represents aggregate system metrics, not a per-job event.
+These events accompany the [signal-waiting job](./job-scheduler-service) lifecycle (`WAITING` status and `deliverSignal()`).
 
-```java
-public record PerformanceMetricsEvent(
-    Map<String, Object> performanceData
-) implements Serializable
-```
+### JobSignalWaitingEvent
 
-The `performanceData` map is defensively copied and immutable after construction. Keys and values must be non-null and serializable by your event transport.
-
-The `performanceData` map typically contains:
-
-| Key | Type | Description |
-|---|---|---|
-| `queueDepth` | Number | Pending jobs in the queue |
-| `readyJobs` | Number | Jobs ready for immediate execution |
-| `oldestJobAge` | Number | Age of oldest pending job (seconds) |
-| `processingRate` | Number | Jobs processed per minute |
-| `successRate` | Number | Percentage of successful completions |
-| `avgDuration` | Number | Average execution duration (ms) |
-| `threadUtilization` | Number | Thread pool utilization percentage |
-| `activeThreads` | Number | Currently active worker threads |
-| `queuedTasks` | Number | Tasks waiting in thread pool queue |
-| `cpuUsage` | Number | CPU utilization |
-| `memoryUsage` | Number | Memory usage (bytes) |
-| `memoryPercent` | Number | Memory as percentage of available |
+Fired when a job has been created in `WAITING` state, blocked on a named signal.
 
 ```java
-public void onMetrics(@Observes PerformanceMetricsEvent event) {
-    Map<String, Object> data = event.performanceData();
-    dashboard.update("queue_depth", data.get("queueDepth"));
-    dashboard.update("processing_rate", data.get("processingRate"));
-    dashboard.update("success_rate", data.get("successRate"));
+public class JobSignalWaitingEvent extends AbstractJobSchedulerEvent {
+    public String getSignalKey()
+    public Duration getSignalTimeout()
 }
 ```
+
+| Method | Return Type | Description |
+|---|---|---|
+| `getSignalKey()` | `String` | Signal key the job is waiting on |
+| `getSignalTimeout()` | `Duration` | Maximum wait duration, or null for no timeout |
+
+### JobSignaledEvent
+
+Fired after a signal is successfully delivered to a `WAITING` job, transitioning it to `PENDING`. Published only on a successful delivery; a delivery that finds the job already terminal or non-`WAITING` produces no event.
+
+```java
+public class JobSignaledEvent extends AbstractJobSchedulerEvent {
+    public String getSignalKey()
+    public String getSignalDeliveredBy()
+    public SignalDecision.Outcome getOutcome()
+    public String getRejectionReason()
+}
+```
+
+| Method | Return Type | Description |
+|---|---|---|
+| `getSignalKey()` | `String` | Signal key delivered to the waiting job |
+| `getSignalDeliveredBy()` | `String` | Principal or component that delivered the signal |
+| `getOutcome()` | `SignalDecision.Outcome` | Approval/rejection outcome |
+| `getRejectionReason()` | `String` | Rejection reason, or null when approved |
+
+### JobsBulkSignaledEvent
+
+Fired exactly once per successful key-based signal delivery when at least one `WAITING` job is unblocked. Like [`JobsBulkCancelledEvent`](#jobsbulkcancelledevent), a key-based delivery can unblock many jobs, so this event does **not** extend `AbstractJobSchedulerEvent`.
+
+```java
+public class JobsBulkSignaledEvent implements Serializable {
+    public String getSignalKey()
+    public int getCount()
+    public String getSignalDeliveredBy()
+    public SignalDecision.Outcome getOutcome()
+    public String getRejectionReason()
+    public Instant getSignaledAt()
+}
+```
+
+| Method | Return Type | Description |
+|---|---|---|
+| `getSignalKey()` | `String` | Signal key that was delivered |
+| `getCount()` | `int` | Number of WAITING jobs unblocked |
+| `getSignalDeliveredBy()` | `String` | Principal or component that delivered the signal |
+| `getOutcome()` | `SignalDecision.Outcome` | Approval/rejection outcome |
+| `getRejectionReason()` | `String` | Rejection reason, or null when approved |
+| `getSignaledAt()` | `Instant` | When the signal was delivered |
+
+### JobSignalTimedOutEvent
+
+Fired when a `WAITING` job's signal timeout elapses and it is transitioned to `FAILED`.
+
+```java
+public class JobSignalTimedOutEvent extends AbstractJobSchedulerEvent {
+    public String getSignalKey()
+    public Duration getSignalTimeout()
+}
+```
+
+| Method | Return Type | Description |
+|---|---|---|
+| `getSignalKey()` | `String` | Signal key the job was waiting on |
+| `getSignalTimeout()` | `Duration` | Configured maximum wait duration that elapsed (never null) |
+
+## System Metrics
+
+Ratchet does not publish aggregate system-metrics through the event listener API. For per-job metrics (start, completion, failure, retry timings), implement the [`MetricsCollector`](./spi-interfaces#metricscollector) SPI and wire it to your monitoring backend (Micrometer, StatsD, Prometheus, etc.).
 
 ## Example: Comprehensive Monitoring
 
@@ -443,12 +525,9 @@ public class SchedulerMonitoring {
             (double) e.getCompletedItems() / Math.max(e.getTotalItems(), 1));
     }
 
-    public void onMetrics(@Observes PerformanceMetricsEvent e) {
-        e.performanceData().forEach((key, value) -> {
-            if (value instanceof Number num) {
-                metrics.gauge("scheduler." + key, num.doubleValue());
-            }
-        });
+    public void onBulkCancelled(@Observes JobsBulkCancelledEvent e) {
+        metrics.counter("jobs.cancelled.bulk", "tag", e.getTag())
+            .increment(e.getCount());
     }
 }
 ```

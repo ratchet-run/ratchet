@@ -34,14 +34,13 @@ Please include:
 
 Ratchet currently enforces these runtime boundaries:
 
-- Job payload deserialization is guarded by `ClassPolicy` and an
-  `ObjectInputFilter`; the default package allowlist is empty and the RI
-  fails fast until the application provides a real policy.
+- Job target and result-type class names are guarded by `ClassPolicy`: a
+  hardcoded denylist of RCE-gadget classes is rejected first, then the name
+  must match a configured package allowlist. The default allowlist is empty
+  and the RI fails fast until the application provides a real policy.
 - Payload validation defers class initialization while resolving job target
   classes, so policy checks happen before user-controlled static initializers
   can run.
-- Archive writes route through `PayloadMasker` to reduce accidental exposure
-  of secrets in operational audit data.
 - Job creation captures the Jakarta Security caller principal when one is
   available and stores it with the job for audit. Authorization enforcement is
   not part of the current surface; a future `JobAuthorizationPolicy` SPI is

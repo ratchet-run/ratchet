@@ -40,10 +40,10 @@ The `MicrometerMetricsCollector` is annotated `@Alternative @Priority(1000)`, so
 |--------|------|------|-------------|
 | `ratchet.jobs.started` | Counter | `type`, `priority` | Jobs that began execution |
 | `ratchet.jobs.completed` | Counter | `type` | Jobs that finished successfully |
-| `ratchet.jobs.failed` | Counter | `type`, `exception` | Jobs that failed (exception class name as tag) |
+| `ratchet.jobs.failed` | Counter | `type`, `family` | Jobs that failed (exception-family classification as tag) |
 | `ratchet.jobs.duration` | Timer | `type` | Execution time in milliseconds |
 
-The `type` tag corresponds to `JobType` (e.g., `SINGLE`, `RECURRING`, `BATCH_CHILD`). The `priority` tag corresponds to `JobPriority` (e.g., `NORMAL`, `HIGH`, `CRITICAL`).
+The `type` tag corresponds to `JobType` (`SINGLE`, `RECURRING`, `BATCH`, `CHAIN`, `WORKFLOW`, `SYSTEM`). The `priority` tag corresponds to `JobPriority` (`LOWEST`, `LOW`, `NORMAL`, `HIGH`, `CRITICAL`). The `family` tag corresponds to `ExceptionFamily` — a coarse classification of the failure cause rather than the raw exception class name.
 
 ### Grafana Dashboard Queries
 
@@ -63,20 +63,27 @@ rate(ratchet_jobs_failed_total[5m])
 histogram_quantile(0.95, rate(ratchet_jobs_duration_seconds_bucket[5m]))
 ```
 
-**Failures by exception type:**
+**Failures by exception family:**
 ```promql
-topk(5, sum by (exception) (rate(ratchet_jobs_failed_total[5m])))
+topk(5, sum by (family) (rate(ratchet_jobs_failed_total[5m])))
 ```
 
 ### Custom MetricsCollector
 
-If you need different metric names, additional tags, or a non-Micrometer backend, implement the `MetricsCollector` SPI directly:
+If you need different metric names, additional tags, or a non-Micrometer backend, implement the `MetricsCollector` SPI. The SPI declares several callbacks beyond the three core job-lifecycle hooks (`jobStarted`, `jobCompleted`, `jobFailed`) — including `successFinalizationRetried`/`successFinalizationMinimal`/`successFinalizationStuck`, `claimTransientFailure`, `jobsClaimed`, `gateRejected`, and `localWakeup`, plus default no-op hooks for cluster wakeup, callback failures, signal events, store operations, and poller circuit-breaker state. The simplest approach is to extend `NoOpMetricsCollector` and override only the callbacks you emit:
 
 ```java
-public interface MetricsCollector {
-    void jobStarted(UUID jobId, JobType type, JobPriority priority);
-    void jobCompleted(UUID jobId, JobType type, long executionTimeMs);
-    void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt);
+public class MyMetricsCollector extends NoOpMetricsCollector {
+
+    @Override
+    public void jobStarted(UUID jobId, JobType type, JobPriority priority) {
+        // record your metric
+    }
+
+    @Override
+    public void jobFailed(UUID jobId, JobType type, Throwable cause, int attempt) {
+        // record your metric
+    }
 }
 ```
 
@@ -124,12 +131,14 @@ For dynamic registration (useful in frameworks or libraries that can't use CDI o
 
 ```java
 scheduler.addEventListener(event -> {
-    if (event instanceof PerformanceMetricsEvent perf) {
-        log.info("Poll cycle: claimed={}, executed={}, duration={}ms",
-            perf.getClaimedCount(), perf.getExecutedCount(), perf.getDurationMs());
+    if (event instanceof JobFailedEvent failed) {
+        log.error("Job {} failed (attempt {}): {}",
+            failed.getJobId(), failed.getRetryAttempt(), failed.getErrorMessage());
     }
 });
 ```
+
+For aggregate poll-cycle and throughput metrics, use the `MetricsCollector` SPI (or the Micrometer module) rather than the event system — events carry per-job context, not cycle-level summaries.
 
 ### Event Types
 
@@ -144,7 +153,6 @@ scheduler.addEventListener(event -> {
 | `BatchCompletingEvent` | All children in a batch have finished |
 | `ChainStartedEvent` | A chained job was triggered by its parent |
 | `WorkflowBranchTriggeredEvent` | A conditional branch was activated |
-| `PerformanceMetricsEvent` | End-of-cycle summary from the poller |
 
 ## Health Checks
 
@@ -153,10 +161,10 @@ scheduler.addEventListener(event -> {
 Query the `scheduler_node` table to verify all expected nodes are alive:
 
 ```sql
-SELECT node_id, last_heartbeat,
-       TIMESTAMPDIFF(SECOND, last_heartbeat, NOW()) AS seconds_stale
+SELECT node_id, heartbeat_ts,
+       TIMESTAMPDIFF(SECOND, heartbeat_ts, NOW()) AS seconds_stale
 FROM scheduler_node
-WHERE last_heartbeat < NOW() - INTERVAL 2 MINUTE;
+WHERE heartbeat_ts < NOW() - INTERVAL 2 MINUTE;
 ```
 
 Any rows returned indicate stale nodes. For programmatic health checks:
@@ -193,7 +201,7 @@ Alert if `CRITICAL` or `HIGH` jobs have been pending for more than a few seconds
 Jobs in the dead-letter queue need human attention:
 
 ```sql
-SELECT COUNT(*) FROM scheduler_job WHERE status = 'DEAD_LETTER';
+SELECT COUNT(*) FROM scheduler_dlq_alerts;
 ```
 
 Wire this into your alerting system — a non-zero DLQ count means something failed permanently.

@@ -21,8 +21,8 @@ Every job has:
 
 | Property | Description |
 |----------|-------------|
-| **ID** | Auto-assigned numeric identifier |
-| **Status** | Current lifecycle state (`PENDING`, `RUNNING`, `COMPLETED`, `FAILED`, `CANCELLED`, `PAUSED`) |
+| **ID** | Auto-assigned UUIDv7 identifier |
+| **Status** | Current lifecycle state (`PENDING`, `RUNNING`, `SUCCEEDED`, `FAILED`, `CANCELED`, `PAUSED`, `WAITING`) |
 | **Priority** | Execution ordering — `LOWEST`, `LOW`, `NORMAL`, `HIGH`, `CRITICAL` |
 | **Payload** | The serialized lambda or method reference |
 | **Parameters** | Key-value pairs available at execution time via `JobContext` |

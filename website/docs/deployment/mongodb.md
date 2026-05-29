@@ -62,11 +62,9 @@ The initializer creates these indexes for query performance:
 | Index | Fields | Notes |
 |-------|--------|-------|
 | `idx_job_claim_exec` | `status`, `job_type`, `priority` DESC, `scheduled_time`, `_id` | Executable claim candidate filtering |
-| `idx_job_claim_recurring` | `status`, `job_type`, `priority` DESC, `next_fire`, `_id` | Recurring claim candidate filtering |
 | `idx_job_poll_composite` | `status`, `priority` DESC, `scheduled_time` | General due-job lookup |
-| `idx_job_recurring_composite` | `job_type`, `status`, `next_fire` | Recurring due-time lookup |
 | `idx_job_idempotency_key` | `idempotency_key` | **Unique** — global dedup |
-| `idx_job_active_business_key` | `business_key` | **Unique partial** — only for PENDING/RUNNING/PAUSED |
+| `idx_job_active_business_key` | `business_key` | **Unique partial** — only for PENDING/RUNNING/PAUSED/WAITING |
 | `idx_job_tags` | `tags` | Multikey index for tag-based queries |
 | `idx_job_picked_by` | `picked_by` | Find jobs claimed by a specific node |
 

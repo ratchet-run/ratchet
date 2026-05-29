@@ -67,7 +67,6 @@ Classes and interfaces you use directly when scheduling jobs, building workflows
 | [`JobCompletedEvent`](./event-system#jobcompletedevent) | Job completes successfully |
 | [`JobFailedEvent`](./event-system#jobfailedevent) | Job fails after final attempt |
 | [`JobRetryingEvent`](./event-system#jobretryingevent) | Job is being retried |
-| [`JobCancellingEvent`](./event-system#jobcancellingevent) | Job cancellation initiated |
 | [`JobCancelledEvent`](./event-system#jobcancelledevent) | Job cancellation confirmed |
 | [`JobPausedEvent`](./event-system#jobpausedevent) | Job paused |
 | [`JobResumedEvent`](./event-system#jobresumedevent) | Job resumed |
@@ -81,7 +80,6 @@ Classes and interfaces you use directly when scheduling jobs, building workflows
 | [`ChainCompletedEvent`](./event-system#chainevent-types) | Workflow chain succeeds |
 | [`ChainFailedEvent`](./event-system#chainevent-types) | Workflow chain fails |
 | [`WorkflowBranchTriggeredEvent`](./event-system#workflowbranchtriggeredevent) | A workflow condition matches |
-| [`PerformanceMetricsEvent`](./event-system#performancemetricsevent) | System metrics snapshot available |
 
 ### `run.ratchet.spi` — Extension Points
 

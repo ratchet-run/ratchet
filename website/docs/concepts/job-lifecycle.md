@@ -64,7 +64,7 @@ Every job in Ratchet follows a well-defined state machine from creation to termi
       <small>Automatic retry with backoff, or manual `retryJob()` reset.</small>
     </div>
     <div className="docs-diagram-card">
-      <strong>PENDING/FAILED -> PAUSED</strong>
+      <strong>PENDING -> PAUSED</strong>
       <small>`pauseJob()` records `paused_from_status` for accurate resume.</small>
     </div>
     <div className="docs-diagram-card">
@@ -108,14 +108,15 @@ The job threw an exception during execution. A FAILED job may or may not have re
 
 Transitions:
 - **Back to PENDING:** Automatic retry (retries remain) or manual `retryJob()` call
-- **To PAUSED:** Via `pauseJob()` (records `pausedFromStatus = FAILED`)
+
+A FAILED job cannot be paused -- it is terminal, so `pauseJob()` returns `false`.
 
 ### PAUSED
 
 The job is temporarily suspended and invisible to the Poller. The `paused_from_status` column records the state the job had before pausing, so it can be accurately restored.
 
 - **Visible to Poller:** No
-- **Transitions to:** Previous state via `resumeJob()` -- restores PENDING or FAILED
+- **Transitions to:** Previous state via `resumeJob()` -- restores PENDING
 - **Idempotent:** Pausing an already-paused job returns `true` without error
 
 ### WAITING
@@ -214,15 +215,14 @@ When retries are exhausted or `@DoNotRetry` applies:
 Pausing suspends a job without losing its state:
 
 ```java
-scheduler.pauseJob(jobId);   // PENDING or FAILED -> PAUSED
+scheduler.pauseJob(jobId);   // PENDING -> PAUSED
 scheduler.resumeJob(jobId);  // PAUSED -> original state
 ```
 
 The `paused_from_status` field preserves context:
 - A paused PENDING job resumes to PENDING (eligible for polling again)
-- A paused FAILED job resumes to FAILED (can then be manually retried)
 
-Only PENDING and FAILED jobs can be paused. RUNNING jobs cannot be paused -- cancel them instead.
+Only PENDING jobs can be paused. FAILED is terminal, so `pauseJob()` returns `false` for it; RUNNING jobs cannot be paused -- cancel them instead.
 
 ### Manual Retry
 

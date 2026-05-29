@@ -52,10 +52,10 @@ public void enableDiagnostics() {
             log.error("Job {} failed: {}", failed.getJobId(), failed.getErrorMessage());
         } else if (event instanceof JobRetryingEvent retrying) {
             log.warn("Job {} retrying (attempt {}), next at: {}",
-                retrying.getJobId(), retrying.getAttempt(), retrying.getNextScheduledTime());
+                retrying.getJobId(), retrying.getRetryAttempt(), retrying.getScheduledTime());
         } else if (event instanceof JobDlqEvent dlq) {
             log.error("Job {} moved to DLQ after {} attempts: {}",
-                dlq.getJobId(), dlq.getAttempt(), dlq.getErrorMessage());
+                dlq.getJobId(), dlq.getRetryAttempt(), dlq.getErrorMessage());
         }
     });
 }

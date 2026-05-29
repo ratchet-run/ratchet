@@ -422,7 +422,7 @@ public class VirtualThreadExecutorProvider implements ExecutorProvider {
 
 ## BeanResolver
 
-Resolves bean instances by type, abstracting the dependency injection mechanism. The CDI implementation delegates to `CDI.current().select(type).get()`. The default RI implementation uses reflection.
+Resolves bean instances by type, abstracting the dependency injection mechanism. The default RI implementation, `CdiBeanResolver`, delegates to a CDI `Instance<Object>` (`select(type).get()`).
 
 :::info
 This interface is marked `@Incubating` and may change.

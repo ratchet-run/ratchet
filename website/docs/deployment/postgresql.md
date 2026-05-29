@@ -136,18 +136,22 @@ FOR UPDATE SKIP LOCKED;
 
 This allows multiple Ratchet nodes to safely claim different jobs simultaneously without blocking each other.
 
-### Partial Indexes
+### Active Business-Key Uniqueness
 
-The schema uses partial indexes for performance. Instead of indexing all rows, partial indexes only cover the rows that matter for active queries:
+Active-key uniqueness is enforced by a dedicated `scheduler_business_key_reservation` table, not by an index on `scheduler_job`. The reservation table holds one row per active business key, with `business_key` as its primary key:
 
 ```sql
--- Unique business key only for active jobs (PENDING, RUNNING, PAUSED)
-CREATE UNIQUE INDEX idx_job_active_business_key
-ON scheduler_job (business_key)
-WHERE status IN ('PENDING', 'RUNNING', 'PAUSED') AND business_key IS NOT NULL;
+CREATE TABLE IF NOT EXISTS scheduler_business_key_reservation
+(
+    business_key TEXT NOT NULL,
+    owner_table  TEXT NOT NULL,
+    owner_job_id uuid NOT NULL,
+    CONSTRAINT pk_scheduler_business_key_reservation PRIMARY KEY (business_key),
+    CONSTRAINT chk_bk_owner_table CHECK (owner_table IN ('QUEUE', 'RECURRING'))
+);
 ```
 
-This approach replaces MySQL's generated `active_business_key` column with a more space-efficient partial unique index.
+A duplicate active business key fails against `pk_scheduler_business_key_reservation`. The `business_key` column on `scheduler_job` is observability-only and carries a plain (non-unique) `idx_job_business_key` index.
 
 ### Generated Columns
 
@@ -160,12 +164,16 @@ method_name  TEXT GENERATED ALWAYS AS (payload::jsonb ->> 'method') STORED
 
 ### CHECK Constraints
 
-PostgreSQL uses `CHECK` constraints for data validation instead of MySQL's `ENUM` types:
+PostgreSQL uses `CHECK` constraints for data validation instead of MySQL's `ENUM` types. Live status is tracked on `scheduler_job_queue` (`chk_queue_status`), while `scheduler_job` records only the terminal status (`chk_terminal_status`):
 
 ```sql
-CONSTRAINT chk_job_status CHECK (status IN ('PENDING', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELED', 'PAUSED'))
+-- scheduler_job (cold metadata + terminal fields)
+CONSTRAINT chk_terminal_status CHECK (terminal_status IS NULL OR terminal_status IN ('SUCCEEDED', 'FAILED', 'CANCELED'))
 CONSTRAINT chk_job_type CHECK (job_type IN ('SINGLE', 'RECURRING', 'BATCH_PARENT', 'BATCH_CHILD', ...))
 CONSTRAINT chk_job_priority CHECK (priority BETWEEN 0 AND 4)
+
+-- scheduler_job_queue (live claim path)
+CONSTRAINT chk_queue_status CHECK (status IN ('PENDING', 'RUNNING', 'PAUSED', 'WAITING'))
 ```
 
 ## Performance Tuning
