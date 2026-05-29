@@ -43,3 +43,8 @@ website/build/
 website/.docusaurus/
 website/static/javadoc/
 /docs/
+
+# Qodana local runs
+qodana.sarif.json
+.qodana/
+.env
