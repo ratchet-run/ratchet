@@ -1,0 +1,39 @@
+name: Mutation Testing (PIT)
+
+# On-demand only: mutation analysis reruns the test suite once per mutant, so it
+# is far too slow to gate every push. Trigger it manually from the Actions tab,
+# plus a weekly run for drift. It is non-gating — it produces a surviving-mutant
+# report you read; it never fails CI.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 5 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  pit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+      - uses: actions/cache@v5
+        with:
+          path: ~/.m2/repository
+          key: m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: m2-
+      # Scoped to the RI core (run.ratchet.ri.core.*) via the pit profile. -am
+      # builds upstream modules so the targets resolve in a single reactor pass.
+      - name: Run PIT mutation analysis (run.ratchet.ri.core.*)
+        run: mvn -B -ntp -P pit -pl ratchet -am test-compile org.pitest:pitest-maven:mutationCoverage
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: pit-mutation-report
+          path: ratchet/target/pit-reports/
+          if-no-files-found: warn

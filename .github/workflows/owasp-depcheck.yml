@@ -3,6 +3,9 @@ name: OWASP Dependency Check
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
+  merge_group:
   schedule:
     - cron: '0 6 * * 1'
   workflow_dispatch:
@@ -36,7 +39,10 @@ jobs:
         run: mvn -B -DskipTests install
 
       - name: Run OWASP Dependency-Check
-        uses: dependency-check/Dependency-Check_Action@main
+        # Pinned to the main HEAD SHA: upstream only tags 1.0.0/1.1.0 (2021),
+        # which predate the SARIF support this workflow relies on. main is the
+        # maintained line. Bump the SHA + comment when upstream advances.
+        uses: dependency-check/Dependency-Check_Action@1e54355a8b4c8abaa8cc7d0b70aa655a3bb15a6c # main @ 2025-12-10
         env:
           JAVA_HOME: /opt/jdk
         with:
@@ -69,9 +75,12 @@ jobs:
             **/target/dependency-check-report.sarif
           if-no-files-found: ignore
 
-#      - name: Upload SARIF to GitHub code scanning
-#        if: always()
-#        uses: github/codeql-action/upload-sarif@v4
-#        with:
-#          sarif_file: target/dependency-check-report.sarif
-#        continue-on-error: true
+      - name: Upload SARIF to GitHub code scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: target/dependency-check-report.sarif
+          # Distinct category so these results don't overwrite CodeQL's in the
+          # Security tab — each SARIF category is a separate analysis stream.
+          category: owasp-dependency-check
+        continue-on-error: true

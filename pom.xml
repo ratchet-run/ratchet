@@ -158,6 +158,9 @@
     <license-maven-plugin.version>2.7.1</license-maven-plugin.version>
     <maven-enforcer-plugin.version>3.5.0</maven-enforcer-plugin.version>
     <spotbugs-maven-plugin.version>4.9.3.0</spotbugs-maven-plugin.version>
+    <asm.version>9.8</asm.version>
+    <pitest-maven-plugin.version>1.19.1</pitest-maven-plugin.version>
+    <pitest-junit5-plugin.version>1.2.2</pitest-junit5-plugin.version>
     <argLine></argLine>
   </properties>
 
@@ -523,6 +526,68 @@
 
   <profiles>
     <!--
+      PIT mutation-testing profile. Opt-in and never bound to a default
+      lifecycle phase: mutation analysis reruns the test suite once per
+      mutant, so it is far too slow for `mvn verify`. It is a diagnostic you
+      invoke explicitly to find weakly-asserted code that line coverage hides.
+
+      Scoped by default to the RI core (run.ratchet.ri.core.*), the
+      correctness-critical claim/lease/retry engine where mutation signal is
+      most valuable. No mutationThreshold is set, so it never fails a build —
+      it produces a surviving-mutant report you read.
+
+      Usage (single module, recommended):
+        mvn -P pit -pl ratchet -am test-compile org.pitest:pitest-maven:mutationCoverage
+      Report lands at ratchet/target/pit-reports/ (HTML + XML).
+    -->
+    <profile>
+      <id>pit</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.pitest</groupId>
+            <artifactId>pitest-maven</artifactId>
+            <version>${pitest-maven-plugin.version}</version>
+            <dependencies>
+              <dependency>
+                <groupId>org.pitest</groupId>
+                <artifactId>pitest-junit5-plugin</artifactId>
+                <version>${pitest-junit5-plugin.version}</version>
+              </dependency>
+            </dependencies>
+            <configuration>
+              <targetClasses>
+                <param>run.ratchet.ri.core.*</param>
+              </targetClasses>
+              <targetTests>
+                <param>run.ratchet.*</param>
+              </targetTests>
+              <!--
+                Modules outside the target package (every module but ratchet)
+                contribute no matching classes; without this they would fail
+                the goal with "no mutations found".
+              -->
+              <failWhenNoMutations>false</failWhenNoMutations>
+              <outputFormats>
+                <param>HTML</param>
+                <param>XML</param>
+              </outputFormats>
+              <timestampedReports>false</timestampedReports>
+              <!--
+                Timing-sensitive tests (sleep/await-based) can hang or time
+                out under a mutant that perturbs scheduling, producing noise
+                rather than signal. Add such tests here after the first run
+                if they prove flaky under mutation, e.g.:
+                  <param>run.ratchet.ri.resilience.CircuitBreakerTest</param>
+              -->
+              <excludedTestClasses/>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <!--
       Jakarta EE 11 API verification profile. Retargets every individual
       Jakarta API version property to its EE 11 release (CDI 4.1,
       persistence 3.2, security 4.0, annotation 3.0, interceptor 2.2, etc.)
@@ -855,15 +920,61 @@
           <version>${maven-enforcer-plugin.version}</version>
         </plugin>
         <!--
-          SpotBugs static-analysis plugin. Declared in pluginManagement only
-          (no <executions> binding) so it is resolvable for ad-hoc invocation
-          via `mvn spotbugs:check` / `mvn spotbugs:gui` / `mvn spotbugs:spotbugs`
-          without forcing analysis into the normal verify cycle.
+          SpotBugs static-analysis plugin, adopted for its multithreaded-
+          correctness detectors (the MT_CORRECTNESS family) on this scheduler's
+          concurrency-heavy code — a class of bug CodeQL and Qodana underweight.
+
+          Effort is Max for the deepest dataflow analysis. The include filter
+          (spotbugs-include.xml) narrows reporting to the high-signal categories
+          (concurrency + definite correctness) so the gate stays low-noise. That
+          scoping IS the baseline — there is no instance-suppression file because
+          the findings present at adoption were fixed, not suppressed, so the gate
+          runs clean and any NEW concurrency/correctness finding fails the build.
         -->
         <plugin>
           <groupId>com.github.spotbugs</groupId>
           <artifactId>spotbugs-maven-plugin</artifactId>
           <version>${spotbugs-maven-plugin.version}</version>
+          <!--
+            SpotBugs 4.9.3 pins ASM 9.7.1, whose ClassReader rejects Java 25
+            bytecode (class file major version 69). The analyzer parses the
+            *running* JDK's runtime classes, so on a JDK 25 toolchain it fails
+            with "Unsupported class file major version 69" before analyzing a
+            single project class. Override the full ASM family to a build that
+            understands Java 25. ASM is unshaded here, so this override takes.
+          -->
+          <dependencies>
+            <dependency>
+              <groupId>org.ow2.asm</groupId>
+              <artifactId>asm</artifactId>
+              <version>${asm.version}</version>
+            </dependency>
+            <dependency>
+              <groupId>org.ow2.asm</groupId>
+              <artifactId>asm-analysis</artifactId>
+              <version>${asm.version}</version>
+            </dependency>
+            <dependency>
+              <groupId>org.ow2.asm</groupId>
+              <artifactId>asm-commons</artifactId>
+              <version>${asm.version}</version>
+            </dependency>
+            <dependency>
+              <groupId>org.ow2.asm</groupId>
+              <artifactId>asm-tree</artifactId>
+              <version>${asm.version}</version>
+            </dependency>
+            <dependency>
+              <groupId>org.ow2.asm</groupId>
+              <artifactId>asm-util</artifactId>
+              <version>${asm.version}</version>
+            </dependency>
+          </dependencies>
+          <configuration>
+            <effort>Max</effort>
+            <threshold>Low</threshold>
+            <includeFilterFile>${maven.multiModuleProjectDirectory}/spotbugs-include.xml</includeFilterFile>
+          </configuration>
         </plugin>
       </plugins>
     </pluginManagement>
@@ -937,6 +1048,26 @@
               <goal>check</goal>
             </goals>
             <phase>verify</phase>
+          </execution>
+        </executions>
+      </plugin>
+      <!--
+        SpotBugs concurrency/correctness gate, bound to verify so `mvn verify`
+        fails on any new MT_CORRECTNESS or CORRECTNESS finding. Analysis config,
+        the include filter, and the Java-25 ASM override are inherited from
+        pluginManagement. CI runs this once in a dedicated job; the integration
+        matrix passes -Dspotbugs.skip=true to avoid re-analyzing 15× per build.
+      -->
+      <plugin>
+        <groupId>com.github.spotbugs</groupId>
+        <artifactId>spotbugs-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>spotbugs-check</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>check</goal>
+            </goals>
           </execution>
         </executions>
       </plugin>

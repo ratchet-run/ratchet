@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SpotBugs report scope for the Ratchet build gate.
+
+  SpotBugs at effort=Max/threshold=Low reports ~366 findings across the reactor,
+  the overwhelming majority being low-value BAD_PRACTICE / MALICIOUS_CODE noise
+  (documenting RuntimeException in throws clauses, \n vs %n, "returns mutable
+  reference"). Gating on all of that would red-wall every build.
+
+  Instead the gate reports only the two categories worth blocking a build over:
+
+    MT_CORRECTNESS — multithreaded-correctness defects (the reason SpotBugs was
+                     adopted: visibility, lost-wakeup, atomicity bugs in this
+                     scheduler's concurrency-heavy code that CodeQL/Qodana miss).
+    CORRECTNESS    — definite bugs (null-deref on all paths, impossible casts,
+                     format-string arg mismatches, etc.).
+
+  SECURITY is intentionally NOT gated here: its current findings are dynamic SQL
+  in PostgreSQL LISTEN/UNLISTEN (channel names quoted via quoteIdentifier()) and
+  DDL migration statements, and CodeQL's taint analysis covers injection more
+  thoroughly. Keeping it out avoids a third overlapping suppression surface.
+
+  This category scoping IS the baseline: there is no instance-suppression file
+  because the two real findings were fixed rather than suppressed. To accept a
+  future finding without fixing it, generate a SpotBugs result XML and reference
+  it via <excludeBugsFile> (hash-based, so it never masks a NEW bug in the same
+  method) — do not add broad method/class Match excludes here.
+-->
+<FindBugsFilter>
+  <Match>
+    <Bug category="MT_CORRECTNESS"/>
+  </Match>
+  <Match>
+    <Bug category="CORRECTNESS"/>
+  </Match>
+</FindBugsFilter>

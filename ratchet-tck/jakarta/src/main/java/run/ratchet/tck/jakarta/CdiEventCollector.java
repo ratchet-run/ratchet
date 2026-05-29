@@ -65,12 +65,16 @@ public class CdiEventCollector {
 
   private boolean awaitObserved(Set<UUID> observedIds, UUID jobId, Duration timeout) {
     long deadlineNanos = System.nanoTime() + timeout.toNanos();
-    while (!observedIds.contains(jobId)) {
-      long remainingNanos = deadlineNanos - System.nanoTime();
-      if (remainingNanos <= 0) {
-        return false;
-      }
-      synchronized (lock) {
+    // Guarded wait: the condition is re-checked while holding the monitor before
+    // each wait(), so a notifyAll() landing between the check and the wait cannot
+    // be lost. Re-checking outside the lock (the previous form) let a notify slip
+    // through that window and forced a full-timeout sleep on every such race.
+    synchronized (lock) {
+      while (!observedIds.contains(jobId)) {
+        long remainingNanos = deadlineNanos - System.nanoTime();
+        if (remainingNanos <= 0) {
+          return false;
+        }
         try {
           lock.wait(Math.max(1L, TimeUnit.NANOSECONDS.toMillis(remainingNanos)));
         } catch (InterruptedException ie) {
@@ -78,7 +82,7 @@ public class CdiEventCollector {
           return false;
         }
       }
+      return true;
     }
-    return true;
   }
 }
