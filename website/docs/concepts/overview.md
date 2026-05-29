@@ -269,7 +269,7 @@ Ratchet uses a **pull model** where worker threads poll the database for availab
 
 ### Store as the Queue
 
-Unlike message-broker-based schedulers, Ratchet uses your selected store backend as the job queue. SQL stores keep jobs in the `scheduler_job` table and claim with `SELECT ... FOR UPDATE SKIP LOCKED`; MongoDB keeps jobs in the `scheduler_job` collection and claims with atomic document updates. This gives you:
+Unlike message-broker-based schedulers, Ratchet uses your selected store backend as the job queue. SQL stores split storage across a cold `scheduler_job` metadata table and a hot `scheduler_job_queue` table that holds live state and is claimed with `SELECT ... FOR UPDATE SKIP LOCKED`; MongoDB keeps jobs in the `scheduler_job` collection and claims with atomic document updates. This gives you:
 
 - **Transactional enqueueing** -- SQL job creation participates in your existing transaction; MongoDB uses store-level atomic writes
 - **Durability** -- jobs survive application restarts

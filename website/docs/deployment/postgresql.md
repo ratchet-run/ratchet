@@ -125,7 +125,7 @@ jdbc:postgresql://localhost:5432/ratchet
 Ratchet uses PostgreSQL's `SKIP LOCKED` clause for lock-free job claiming:
 
 ```sql
-SELECT * FROM scheduler_job
+SELECT * FROM scheduler_job_queue
 WHERE status = 'PENDING'
   AND scheduled_time <= NOW()
 ORDER BY priority + FLOOR(GREATEST(0, EXTRACT(EPOCH FROM (statement_timestamp() - scheduled_time)) / 60) / 15) DESC,
@@ -219,10 +219,10 @@ SELECT pg_reload_conf();
 
 ### Autovacuum Tuning
 
-Ratchet performs frequent updates to `scheduler_job`. Tune autovacuum to keep up:
+Ratchet performs frequent updates and deletes on the hot `scheduler_job_queue` table. Tune autovacuum to keep up:
 
 ```sql
-ALTER TABLE scheduler_job SET (
+ALTER TABLE scheduler_job_queue SET (
   autovacuum_vacuum_scale_factor = 0.05,
   autovacuum_analyze_scale_factor = 0.02
 );
@@ -233,12 +233,19 @@ ALTER TABLE scheduler_job SET (
 ### Monitor Job Queue
 
 ```sql
+-- Live statuses (PENDING/RUNNING) are on scheduler_job_queue; FAILED is terminal and
+-- survives as terminal_status on the cold scheduler_job row after the queue row is
+-- deleted. UNION the two to count both in one pass.
 SELECT
   COUNT(*) AS total,
   COUNT(CASE WHEN status = 'PENDING' THEN 1 END) AS pending,
   COUNT(CASE WHEN status = 'RUNNING' THEN 1 END) AS running,
   COUNT(CASE WHEN status = 'FAILED' THEN 1 END) AS failed
-FROM scheduler_job;
+FROM (
+  SELECT status FROM scheduler_job_queue
+  UNION ALL
+  SELECT terminal_status AS status FROM scheduler_job WHERE terminal_status IS NOT NULL
+) all_jobs;
 ```
 
 ### Query Performance

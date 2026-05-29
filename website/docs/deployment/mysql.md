@@ -227,8 +227,9 @@ transaction_isolation = READ-COMMITTED
 ### Monitor Job Queue Depth
 
 ```sql
+-- PENDING is live state on scheduler_job_queue (the row is deleted at terminal).
 SELECT COUNT(*) AS pending_jobs
-FROM scheduler_job
+FROM scheduler_job_queue
 WHERE status = 'PENDING';
 ```
 

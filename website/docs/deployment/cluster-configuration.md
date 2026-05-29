@@ -272,8 +272,9 @@ ORDER BY started_at;
 ### Jobs Per Node
 
 ```sql
+-- picked_by / RUNNING are live state on scheduler_job_queue.
 SELECT picked_by AS node, COUNT(*) AS running_jobs
-FROM scheduler_job
+FROM scheduler_job_queue
 WHERE status = 'RUNNING'
 GROUP BY picked_by;
 ```

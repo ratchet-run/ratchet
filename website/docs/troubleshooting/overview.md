@@ -12,7 +12,7 @@ When something goes wrong with your Ratchet jobs, there are several layers of ob
 
 Follow this general strategy when troubleshooting Ratchet issues:
 
-1. **Check the job status in the database** -- most issues are visible in the `scheduler_job` table
+1. **Check the job status in the database** -- live state (`PENDING`/`RUNNING`/`PAUSED`/`WAITING`) is on the `scheduler_job_queue` table; terminal outcome lives on `scheduler_job`
 2. **Review the logs** -- Ratchet uses `java.util.logging` (JUL) with detailed lifecycle messages
 3. **Listen to events** -- the event system provides real-time visibility into job state transitions
 4. **Inspect execution history** -- the `scheduler_job_execution` table records every attempt
@@ -22,8 +22,15 @@ Follow this general strategy when troubleshooting Ratchet issues:
 Run this query to get a snapshot of your scheduler's current state:
 
 ```sql
+-- Live status (PENDING/RUNNING/PAUSED/WAITING) is on scheduler_job_queue; the row
+-- is deleted at the terminal transition. Terminal outcome (SUCCEEDED/FAILED/CANCELED)
+-- survives on scheduler_job.terminal_status. UNION the two for a full snapshot.
 SELECT status, COUNT(*) as count
-FROM scheduler_job
+FROM (
+    SELECT status FROM scheduler_job_queue
+    UNION ALL
+    SELECT terminal_status AS status FROM scheduler_job WHERE terminal_status IS NOT NULL
+) all_jobs
 GROUP BY status
 ORDER BY count DESC;
 ```
@@ -197,6 +204,6 @@ If you cannot resolve an issue using these guides:
    - Ratchet version and Jakarta EE runtime (WildFly, Payara, GlassFish, etc.)
    - Database vendor and version
    - Relevant log output (with `run.ratchet` set to `FINE`)
-   - The SQL output of `SELECT status, COUNT(*) FROM scheduler_job GROUP BY status`
+   - The SQL output of `SELECT status, COUNT(*) FROM (SELECT status FROM scheduler_job_queue UNION ALL SELECT terminal_status FROM scheduler_job WHERE terminal_status IS NOT NULL) j GROUP BY status`
    - Steps to reproduce the issue
 3. **Check the [Common Issues](./common-issues) page** for known problems and their solutions

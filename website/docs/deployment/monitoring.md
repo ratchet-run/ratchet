@@ -188,8 +188,9 @@ public class RatchetHealthCheck {
 Monitor the number of pending jobs to detect backlog:
 
 ```sql
+-- PENDING is live state on scheduler_job_queue (priority is denormalized there).
 SELECT priority, COUNT(*) as pending_count
-FROM scheduler_job
+FROM scheduler_job_queue
 WHERE status = 'PENDING'
 GROUP BY priority;
 ```
