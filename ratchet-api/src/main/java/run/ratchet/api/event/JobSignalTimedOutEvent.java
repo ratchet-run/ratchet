@@ -4,10 +4,12 @@ import java.io.Serial;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
+import run.ratchet.api.Incubating;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 
 /** Fired when a WAITING job's signal timeout elapses and it is transitioned to FAILED. */
+@Incubating
 public class JobSignalTimedOutEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = 3876540291834670029L;

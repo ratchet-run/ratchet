@@ -3,10 +3,12 @@ package run.ratchet.api.event;
 import java.io.Serial;
 import java.time.Instant;
 import java.util.UUID;
+import run.ratchet.api.Incubating;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 
 /** Fired after Ratchet moves a permanently failed job to the dead letter queue. */
+@Incubating
 public class JobDlqEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = -2578972098474327757L;

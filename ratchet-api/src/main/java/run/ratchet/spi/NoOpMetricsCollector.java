@@ -3,10 +3,12 @@ package run.ratchet.spi;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Default;
 import java.util.UUID;
+import run.ratchet.api.Incubating;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 
 /** Default no-op {@link MetricsCollector} for deployments without a monitoring integration. */
+@Incubating
 @ApplicationScoped
 @Default
 public class NoOpMetricsCollector implements MetricsCollector {

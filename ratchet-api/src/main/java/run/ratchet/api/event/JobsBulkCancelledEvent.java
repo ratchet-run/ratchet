@@ -3,6 +3,7 @@ package run.ratchet.api.event;
 import java.io.Serial;
 import java.io.Serializable;
 import java.time.Instant;
+import run.ratchet.api.Incubating;
 
 /**
  * Fired exactly once per successful bulk cancel-by-tag operation when at least one job was
@@ -16,6 +17,7 @@ import java.time.Instant;
  * @see run.ratchet.api.JobSchedulerService#cancelJobsByTag(String)
  * @see run.ratchet.api.JobSchedulerService#cancelRecurringJobsByTag(String)
  */
+@Incubating
 public class JobsBulkCancelledEvent implements Serializable {
 
   @Serial private static final long serialVersionUID = 1L;

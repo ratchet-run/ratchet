@@ -3,6 +3,7 @@ package run.ratchet.api.event;
 import java.io.Serial;
 import java.time.Instant;
 import java.util.UUID;
+import run.ratchet.api.Incubating;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 
@@ -12,6 +13,7 @@ import run.ratchet.api.JobType;
  * <p>{@code branchCondition} is the persisted condition description or expression that matched.
  * {@code nextJobId} identifies the job scheduled for the triggered branch.
  */
+@Incubating
 public class WorkflowBranchTriggeredEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = 1721949020293115008L;

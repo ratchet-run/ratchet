@@ -3,6 +3,7 @@ package run.ratchet.api.event;
 import java.io.Serial;
 import java.time.Instant;
 import java.util.UUID;
+import run.ratchet.api.Incubating;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 
@@ -13,6 +14,7 @@ import run.ratchet.api.JobType;
  * JobRetryingEvent}; they do not publish this event unless the failed attempt exhausts retry
  * handling and terminalizes the job.
  */
+@Incubating
 public class JobFailedEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = -8745178784765705117L;

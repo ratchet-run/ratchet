@@ -3,10 +3,12 @@ package run.ratchet.api.event;
 import java.io.Serial;
 import java.time.Instant;
 import java.util.UUID;
+import run.ratchet.api.Incubating;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 
 /** Base class for job cancellation lifecycle events. */
+@Incubating
 public abstract class AbstractJobCancellationEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = 6253413059723522683L;

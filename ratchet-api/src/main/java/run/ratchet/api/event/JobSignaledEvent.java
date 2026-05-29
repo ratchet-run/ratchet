@@ -3,6 +3,7 @@ package run.ratchet.api.event;
 import java.io.Serial;
 import java.time.Instant;
 import java.util.UUID;
+import run.ratchet.api.Incubating;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 import run.ratchet.api.SignalDecision;
@@ -16,6 +17,7 @@ import run.ratchet.api.SignalDecision;
  * system component that delivered it, {@code outcome} records approval/rejection metadata, and
  * {@code rejectionReason} is present only for rejected decisions.
  */
+@Incubating
 public class JobSignaledEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = -2918473650123490087L;

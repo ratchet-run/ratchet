@@ -17,6 +17,7 @@ import java.util.function.Consumer;
  * bean. Instances are still immutable — all fields are {@code final} and set only through {@link
  * Builder}. Use {@link #builder()} or {@link #defaults()} to construct.
  */
+@Incubating
 @SuppressWarnings("ClassCanBeRecord")
 public class RatchetOptions {
 
@@ -89,10 +90,20 @@ public class RatchetOptions {
     this.circuitBreaker = Objects.requireNonNull(circuitBreaker, "circuitBreaker must not be null");
   }
 
+  /**
+   * Returns an options instance with every section set to its built-in default.
+   *
+   * @return a fully-defaulted options instance
+   */
   public static RatchetOptions defaults() {
     return builder().build();
   }
 
+  /**
+   * Returns a new builder seeded with the built-in defaults for every section.
+   *
+   * @return a new builder
+   */
   public static Builder builder() {
     return new Builder();
   }
@@ -257,6 +268,7 @@ public class RatchetOptions {
     return circuitBreaker;
   }
 
+  @Incubating
   public enum IsolationCheckMode {
     WARN,
     FAIL,
@@ -300,6 +312,7 @@ public class RatchetOptions {
    * @param claimHeadroomFactor headroom multiplier applied to free-slot calculations; {@code 0}
    *     disables the headroom adjustment
    */
+  @Incubating
   public record PollingOptions(
       int batchSize,
       long burstDelayMs,
@@ -314,8 +327,9 @@ public class RatchetOptions {
    * Execution-pool wiring: target executor JNDI names, queue size, and per-execution-type
    * concurrency / virtual-thread / rate caps.
    *
-   * @param useVirtualThreads {@code true} to request virtual-thread execution where supported by
-   *     the chosen executor (the container ultimately decides)
+   * @param defaultThreadingMode pool a job runs on when it specifies no target of its own; defaults
+   *     to {@link ThreadingMode#PLATFORM}, and {@link ThreadingMode#VIRTUAL} falls back to platform
+   *     when no virtual executor is configured
    * @param queueSize bounded queue length used by the in-process fallback executor
    * @param maxConcurrency map of execution-type name to maximum concurrent executions; missing keys
    *     fall back to the per-type defaults
@@ -326,7 +340,13 @@ public class RatchetOptions {
    * @param jobExecutorJndi JNDI name of the {@code ManagedExecutorService} that runs jobs
    * @param scheduledExecutorJndi JNDI name of the {@code ManagedScheduledExecutorService} used for
    *     scheduled work
+   * @param virtualExecutorJndi JNDI name of an additional {@code ManagedExecutorService} backing the
+   *     virtual pool; absent (null or blank) means virtual-targeted jobs fall back to platform
+   * @param virtualCounterAccounting {@code true} to use lock-free counter accounting for the virtual
+   *     pool instead of the default semaphore bound; only safe when the executor is genuinely
+   *     virtual-thread backed
    */
+  @Incubating
   public record ExecutionOptions(
       ThreadingMode defaultThreadingMode,
       int queueSize,
@@ -357,14 +377,40 @@ public class RatchetOptions {
       return virtualExecutorJndi != null;
     }
 
+    /**
+     * Returns the configured max-concurrency for an execution type.
+     *
+     * @param executionTypeName execution-type name (normalized to upper case with {@code -}
+     *     replaced by {@code _})
+     * @param defaultValue value returned when no entry is configured for the type
+     * @return the configured limit, or {@code defaultValue} if none is set
+     * @throws IllegalArgumentException if {@code executionTypeName} is blank
+     */
     public int maxConcurrency(String executionTypeName, int defaultValue) {
       return maxConcurrency.getOrDefault(normalizeKey(executionTypeName), defaultValue);
     }
 
+    /**
+     * Returns the configured virtual-thread limit for an execution type.
+     *
+     * @param executionTypeName execution-type name (normalized to upper case with {@code -}
+     *     replaced by {@code _})
+     * @param defaultValue value returned when no entry is configured for the type
+     * @return the configured limit, or {@code defaultValue} if none is set
+     * @throws IllegalArgumentException if {@code executionTypeName} is blank
+     */
     public int virtualThreadLimit(String executionTypeName, int defaultValue) {
       return virtualThreadLimits.getOrDefault(normalizeKey(executionTypeName), defaultValue);
     }
 
+    /**
+     * Returns the configured per-minute rate limit for an execution type.
+     *
+     * @param executionTypeName execution-type name (normalized to upper case with {@code -}
+     *     replaced by {@code _})
+     * @return the configured limit, or {@code 0} (no limit) if none is set
+     * @throws IllegalArgumentException if {@code executionTypeName} is blank
+     */
     public int rateLimitPerMinute(String executionTypeName) {
       return rateLimitsPerMinute.getOrDefault(normalizeKey(executionTypeName), 0);
     }
@@ -384,6 +430,7 @@ public class RatchetOptions {
    *     empty list disables the require-list constraint
    * @param excludeTags job tags that, when present on a job, exclude that job from this node
    */
+  @Incubating
   public record NodeOptions(
       String nodeId,
       long heartbeatIntervalSeconds,
@@ -398,10 +445,21 @@ public class RatchetOptions {
       excludeTags = List.copyOf(excludeTags == null ? List.of() : excludeTags);
     }
 
+    /**
+     * Returns the explicit node id when one was configured.
+     *
+     * @return the explicit node id, or an empty optional when none was set (an id is generated at
+     *     startup)
+     */
     public Optional<String> explicitNodeId() {
       return nodeId == null || nodeId.isBlank() ? Optional.empty() : Optional.of(nodeId);
     }
 
+    /**
+     * Returns the tag filter built from the require/exclude tag lists.
+     *
+     * @return a node tag filter for this configuration
+     */
     public NodeTagFilter tagFilter() {
       return new NodeTagFilter(requireTags, excludeTags);
     }
@@ -419,6 +477,7 @@ public class RatchetOptions {
    * @param convergenceWindowSeconds rolling window in seconds during which competing recurring
    *     registrations are reconciled; {@code 0} disables convergence reconciliation
    */
+  @Incubating
   public record RecurringOptions(
       int batchLimit,
       long pollMs,
@@ -431,6 +490,7 @@ public class RatchetOptions {
    *
    * @param drainIntervalMs interval in milliseconds between buffer drains to the store
    */
+  @Incubating
   public record RetryBufferOptions(long drainIntervalMs) {}
 
   /**
@@ -442,6 +502,7 @@ public class RatchetOptions {
    *     their own
    * @param signalTimeoutBatchSize maximum number of WAITING jobs scanned per signal-timeout tick
    */
+  @Incubating
   public record TimeoutOptions(
       int softTimeoutPercent, long defaultSlaSeconds, int signalTimeoutBatchSize) {}
 
@@ -459,6 +520,7 @@ public class RatchetOptions {
    * @param logPurgeCron cron expression controlling the log-purge cadence
    * @param logRetentionDays age in days at which execution-log rows become eligible for purge
    */
+  @Incubating
   public record MaintenanceOptions(
       boolean dlqPurgeEnabled,
       String dlqPurgeCron,
@@ -479,6 +541,7 @@ public class RatchetOptions {
    * @param dlqAlertChannel channel identifier for DLQ alerts
    * @param timeoutAlertChannel channel identifier for timeout alerts
    */
+  @Incubating
   public record NotificationOptions(
       boolean enabled, String dlqAlertChannel, String timeoutAlertChannel) {}
 
@@ -492,6 +555,7 @@ public class RatchetOptions {
    * @param migrationPrefix classpath prefix under which dialect-specific migration scripts are
    *     resolved
    */
+  @Incubating
   public record SchemaOptions(
       boolean autoMigrate, String migrationDialect, String migrationPrefix) {}
 
@@ -501,6 +565,7 @@ public class RatchetOptions {
    * @param maxPayloadKb maximum job payload size in kilobytes
    * @param maxResultBytes maximum persisted job-result size in bytes
    */
+  @Incubating
   public record PayloadOptions(int maxPayloadKb, long maxResultBytes) {}
 
   /**
@@ -509,6 +574,7 @@ public class RatchetOptions {
    * @param clustering clustering-strategy identifier passed to the metrics collector (for example
    *     {@code none}); values are lowercased
    */
+  @Incubating
   public record MetricsOptions(String clustering) {}
 
   /**
@@ -518,6 +584,7 @@ public class RatchetOptions {
    *     ClassPolicy}; {@code false} (default) fails fast at startup when no policy is bound
    * @param redactEmails {@code true} to redact email-shaped strings from observability output
    */
+  @Incubating
   public record SecurityOptions(boolean allowEmptyClassPolicy, boolean redactEmails) {}
 
   /**
@@ -528,6 +595,7 @@ public class RatchetOptions {
    * @param priorityBoostIntervalMinutes interval in minutes at which long-waiting pending jobs are
    *     promoted to a higher effective priority; {@code 0} disables the boost
    */
+  @Incubating
   public record StoreOptions(
       IsolationCheckMode isolationCheckMode, int priorityBoostIntervalMinutes) {}
 
@@ -578,6 +646,11 @@ public class RatchetOptions {
       int permittedCallsInHalfOpen,
       int minimumCalls) {}
 
+  /**
+   * Mutable builder for {@link RatchetOptions}; each section is customized through a nested
+   * builder.
+   */
+  @Incubating
   public static final class Builder {
     private final PollingBuilder polling = new PollingBuilder();
     private final ExecutionBuilder execution = new ExecutionBuilder();
@@ -596,77 +669,166 @@ public class RatchetOptions {
 
     private Builder() {}
 
+    /**
+     * Customizes the polling section.
+     *
+     * @param customizer receives the section builder
+     * @return this builder
+     */
     public Builder polling(Consumer<PollingBuilder> customizer) {
       customizer.accept(polling);
       return this;
     }
 
+    /**
+     * Customizes the execution section.
+     *
+     * @param customizer receives the section builder
+     * @return this builder
+     */
     public Builder execution(Consumer<ExecutionBuilder> customizer) {
       customizer.accept(execution);
       return this;
     }
 
+    /**
+     * Customizes the node section.
+     *
+     * @param customizer receives the section builder
+     * @return this builder
+     */
     public Builder node(Consumer<NodeBuilder> customizer) {
       customizer.accept(node);
       return this;
     }
 
+    /**
+     * Customizes the recurring-job section.
+     *
+     * @param customizer receives the section builder
+     * @return this builder
+     */
     public Builder recurring(Consumer<RecurringBuilder> customizer) {
       customizer.accept(recurring);
       return this;
     }
 
+    /**
+     * Customizes the retry-buffer section.
+     *
+     * @param customizer receives the section builder
+     * @return this builder
+     */
     public Builder retryBuffer(Consumer<RetryBufferBuilder> customizer) {
       customizer.accept(retryBuffer);
       return this;
     }
 
+    /**
+     * Customizes the timeout section.
+     *
+     * @param customizer receives the section builder
+     * @return this builder
+     */
     public Builder timeout(Consumer<TimeoutBuilder> customizer) {
       customizer.accept(timeout);
       return this;
     }
 
+    /**
+     * Customizes the maintenance section.
+     *
+     * @param customizer receives the section builder
+     * @return this builder
+     */
     public Builder maintenance(Consumer<MaintenanceBuilder> customizer) {
       customizer.accept(maintenance);
       return this;
     }
 
+    /**
+     * Customizes the notification section.
+     *
+     * @param customizer receives the section builder
+     * @return this builder
+     */
     public Builder notifications(Consumer<NotificationBuilder> customizer) {
       customizer.accept(notifications);
       return this;
     }
 
+    /**
+     * Customizes the schema-migration section.
+     *
+     * @param customizer receives the section builder
+     * @return this builder
+     */
     public Builder schema(Consumer<SchemaBuilder> customizer) {
       customizer.accept(schema);
       return this;
     }
 
+    /**
+     * Customizes the payload section.
+     *
+     * @param customizer receives the section builder
+     * @return this builder
+     */
     public Builder payload(Consumer<PayloadBuilder> customizer) {
       customizer.accept(payload);
       return this;
     }
 
+    /**
+     * Customizes the metrics section.
+     *
+     * @param customizer receives the section builder
+     * @return this builder
+     */
     public Builder metrics(Consumer<MetricsBuilder> customizer) {
       customizer.accept(metrics);
       return this;
     }
 
+    /**
+     * Customizes the security section.
+     *
+     * @param customizer receives the section builder
+     * @return this builder
+     */
     public Builder security(Consumer<SecurityBuilder> customizer) {
       customizer.accept(security);
       return this;
     }
 
+    /**
+     * Customizes the store section.
+     *
+     * @param customizer receives the section builder
+     * @return this builder
+     */
     public Builder store(Consumer<StoreBuilder> customizer) {
       customizer.accept(store);
       return this;
     }
 
+    /**
+     * Customizes the circuit-breaker section.
+     *
+     * @param customizer receives the section builder
+     * @return this builder
+     */
     @Incubating
     public Builder circuitBreaker(Consumer<CircuitBreakerBuilder> customizer) {
       customizer.accept(circuitBreaker);
       return this;
     }
 
+    /**
+     * Builds the immutable options instance from the current section state.
+     *
+     * @return the built options
+     */
     public RatchetOptions build() {
       return new RatchetOptions(
           polling.build(),
@@ -686,6 +848,8 @@ public class RatchetOptions {
     }
   }
 
+  /** Builder for {@link PollingOptions}. */
+  @Incubating
   public static final class PollingBuilder {
     private int batchSize = 50;
     private long burstDelayMs = 500L;
@@ -698,41 +862,87 @@ public class RatchetOptions {
 
     private PollingBuilder() {}
 
+    /**
+     * @param batchSize maximum jobs claimed per tick; must be {@code >= 1}
+     * @return this builder
+     * @throws IllegalArgumentException if {@code batchSize < 1}
+     */
     public PollingBuilder batchSize(int batchSize) {
       this.batchSize = atLeast("batchSize", batchSize, 1);
       return this;
     }
 
+    /**
+     * @param burstDelayMs delay in milliseconds between consecutive busy ticks; must be
+     *     {@code >= 0}
+     * @return this builder
+     * @throws IllegalArgumentException if {@code burstDelayMs < 0}
+     */
     public PollingBuilder burstDelayMs(long burstDelayMs) {
       this.burstDelayMs = atLeast("burstDelayMs", burstDelayMs, 0L);
       return this;
     }
 
+    /**
+     * @param minDelayMs minimum idle backoff delay in milliseconds; must be {@code >= 0} and
+     *     {@code <= maxDelayMs} (enforced when the section is built)
+     * @return this builder
+     * @throws IllegalArgumentException if {@code minDelayMs < 0}
+     */
     public PollingBuilder minDelayMs(long minDelayMs) {
       this.minDelayMs = atLeast("minDelayMs", minDelayMs, 0L);
       return this;
     }
 
+    /**
+     * @param maxDelayMs maximum idle backoff delay in milliseconds; must be {@code >= 1} and
+     *     {@code >= minDelayMs} (enforced when the section is built)
+     * @return this builder
+     * @throws IllegalArgumentException if {@code maxDelayMs < 1}
+     */
     public PollingBuilder maxDelayMs(long maxDelayMs) {
       this.maxDelayMs = atLeast("maxDelayMs", maxDelayMs, 1L);
       return this;
     }
 
+    /**
+     * @param deepIdleDelayMs delay in milliseconds applied once deep idle is reached; must be
+     *     {@code >= 0}
+     * @return this builder
+     * @throws IllegalArgumentException if {@code deepIdleDelayMs < 0}
+     */
     public PollingBuilder deepIdleDelayMs(long deepIdleDelayMs) {
       this.deepIdleDelayMs = atLeast("deepIdleDelayMs", deepIdleDelayMs, 0L);
       return this;
     }
 
+    /**
+     * @param deepIdleThresholdMs idle duration in milliseconds after which deep-idle backoff
+     *     applies; must be {@code >= 0}
+     * @return this builder
+     * @throws IllegalArgumentException if {@code deepIdleThresholdMs < 0}
+     */
     public PollingBuilder deepIdleThresholdMs(long deepIdleThresholdMs) {
       this.deepIdleThresholdMs = atLeast("deepIdleThresholdMs", deepIdleThresholdMs, 0L);
       return this;
     }
 
+    /**
+     * @param idleThreshold consecutive empty ticks before backoff ramps; must be {@code >= 0}
+     * @return this builder
+     * @throws IllegalArgumentException if {@code idleThreshold < 0}
+     */
     public PollingBuilder idleThreshold(int idleThreshold) {
       this.idleThreshold = atLeast("idleThreshold", idleThreshold, 0);
       return this;
     }
 
+    /**
+     * @param claimHeadroomFactor headroom multiplier for free-slot calculations; must be
+     *     {@code >= 0} ({@code 0} disables the adjustment)
+     * @return this builder
+     * @throws IllegalArgumentException if {@code claimHeadroomFactor < 0}
+     */
     public PollingBuilder claimHeadroomFactor(int claimHeadroomFactor) {
       this.claimHeadroomFactor = atLeast("claimHeadroomFactor", claimHeadroomFactor, 0);
       return this;
@@ -752,6 +962,8 @@ public class RatchetOptions {
     }
   }
 
+  /** Builder for {@link ExecutionOptions}. */
+  @Incubating
   public static final class ExecutionBuilder {
     private final Map<String, Integer> maxConcurrency = defaultConcurrency();
     private final Map<String, Integer> virtualThreadLimits = new HashMap<>();
@@ -823,22 +1035,49 @@ public class RatchetOptions {
       return this;
     }
 
+    /**
+     * @param queueSize bounded queue length for the in-process fallback executor; must be
+     *     {@code >= 0}
+     * @return this builder
+     * @throws IllegalArgumentException if {@code queueSize < 0}
+     */
     public ExecutionBuilder queueSize(int queueSize) {
       this.queueSize = atLeast("queueSize", queueSize, 0);
       return this;
     }
 
+    /**
+     * @param executionTypeName execution-type name; normalized to upper case with {@code -}
+     *     replaced by {@code _}, and must not be blank
+     * @param maxConcurrency maximum concurrent executions for the type; must be {@code >= 0}
+     * @return this builder
+     * @throws IllegalArgumentException if the name is blank or {@code maxConcurrency < 0}
+     */
     public ExecutionBuilder maxConcurrency(String executionTypeName, int maxConcurrency) {
       this.maxConcurrency.put(
           normalizeKey(executionTypeName), atLeast("maxConcurrency", maxConcurrency, 0));
       return this;
     }
 
+    /**
+     * @param executionTypeName execution-type name; normalized to upper case with {@code -}
+     *     replaced by {@code _}, and must not be blank
+     * @param limit virtual-thread cap for the type; must be {@code >= 0}
+     * @return this builder
+     * @throws IllegalArgumentException if the name is blank or {@code limit < 0}
+     */
     public ExecutionBuilder virtualThreadLimit(String executionTypeName, int limit) {
       this.virtualThreadLimits.put(normalizeKey(executionTypeName), atLeast("limit", limit, 0));
       return this;
     }
 
+    /**
+     * @param executionTypeName execution-type name; normalized to upper case with {@code -}
+     *     replaced by {@code _}, and must not be blank
+     * @param limit per-minute rate limit for the type; must be {@code >= 0}
+     * @return this builder
+     * @throws IllegalArgumentException if the name is blank or {@code limit < 0}
+     */
     public ExecutionBuilder rateLimitPerMinute(String executionTypeName, int limit) {
       this.rateLimitsPerMinute.put(normalizeKey(executionTypeName), atLeast("limit", limit, 0));
       return this;
@@ -858,6 +1097,8 @@ public class RatchetOptions {
     }
   }
 
+  /** Builder for {@link NodeOptions}. */
+  @Incubating
   public static final class NodeBuilder {
     private String nodeId;
     private long heartbeatIntervalSeconds = 10L;
@@ -869,43 +1110,85 @@ public class RatchetOptions {
 
     private NodeBuilder() {}
 
+    /**
+     * @param nodeId explicit node id; must not be blank
+     * @return this builder
+     * @throws IllegalArgumentException if {@code nodeId} is blank
+     */
     public NodeBuilder nodeId(String nodeId) {
       this.nodeId = requireText("nodeId", nodeId);
       return this;
     }
 
+    /**
+     * Clears any explicit node id so an id is generated at startup.
+     *
+     * @return this builder
+     */
     public NodeBuilder clearNodeId() {
       this.nodeId = null;
       return this;
     }
 
+    /**
+     * @param heartbeatIntervalSeconds liveness-report interval in seconds; must be {@code >= 1}
+     * @return this builder
+     * @throws IllegalArgumentException if {@code heartbeatIntervalSeconds < 1}
+     */
     public NodeBuilder heartbeatIntervalSeconds(long heartbeatIntervalSeconds) {
       this.heartbeatIntervalSeconds =
           atLeast("heartbeatIntervalSeconds", heartbeatIntervalSeconds, 1L);
       return this;
     }
 
+    /**
+     * @param orphanGraceSeconds grace period in seconds before a missed-heartbeat node is
+     *     reclaimed; must be {@code >= 0}
+     * @return this builder
+     * @throws IllegalArgumentException if {@code orphanGraceSeconds < 0}
+     */
     public NodeBuilder orphanGraceSeconds(long orphanGraceSeconds) {
       this.orphanGraceSeconds = atLeast("orphanGraceSeconds", orphanGraceSeconds, 0L);
       return this;
     }
 
+    /**
+     * @param orphanScanIntervalMinutes interval in minutes between orphan-reclaim scans; must be
+     *     {@code >= 1}
+     * @return this builder
+     * @throws IllegalArgumentException if {@code orphanScanIntervalMinutes < 1}
+     */
     public NodeBuilder orphanScanIntervalMinutes(long orphanScanIntervalMinutes) {
       this.orphanScanIntervalMinutes =
           atLeast("orphanScanIntervalMinutes", orphanScanIntervalMinutes, 1L);
       return this;
     }
 
+    /**
+     * @param dynamicHeartbeatEnabled {@code true} to let the heartbeat interval adapt to cluster
+     *     activity
+     * @return this builder
+     */
     public NodeBuilder dynamicHeartbeatEnabled(boolean dynamicHeartbeatEnabled) {
       this.dynamicHeartbeatEnabled = dynamicHeartbeatEnabled;
       return this;
     }
 
+    /**
+     * @param tags job tags that must be present on the node for a job to be claimed here; replaces
+     *     any previously-set require list
+     * @return this builder
+     */
     public NodeBuilder requireTags(String... tags) {
       this.requireTags = List.of(tags);
       return this;
     }
 
+    /**
+     * @param tags job tags that exclude a job from this node; replaces any previously-set exclude
+     *     list
+     * @return this builder
+     */
     public NodeBuilder excludeTags(String... tags) {
       this.excludeTags = List.of(tags);
       return this;
@@ -923,6 +1206,8 @@ public class RatchetOptions {
     }
   }
 
+  /** Builder for {@link RecurringOptions}. */
+  @Incubating
   public static final class RecurringBuilder {
     private int batchLimit = 20;
     private long pollMs = 1000L;
@@ -932,26 +1217,55 @@ public class RatchetOptions {
 
     private RecurringBuilder() {}
 
+    /**
+     * @param batchLimit maximum recurring jobs materialized per tick; must be {@code >= 1}
+     * @return this builder
+     * @throws IllegalArgumentException if {@code batchLimit < 1}
+     */
     public RecurringBuilder batchLimit(int batchLimit) {
       this.batchLimit = atLeast("batchLimit", batchLimit, 1);
       return this;
     }
 
+    /**
+     * @param pollMs nominal poll interval in milliseconds; must be {@code >= 1} and
+     *     {@code <= maxPollMs} (enforced when the section is built)
+     * @return this builder
+     * @throws IllegalArgumentException if {@code pollMs < 1}
+     */
     public RecurringBuilder pollMs(long pollMs) {
       this.pollMs = atLeast("pollMs", pollMs, 1L);
       return this;
     }
 
+    /**
+     * @param maxPollMs maximum poll interval in milliseconds when no work is due; must be
+     *     {@code >= 1} and {@code >= pollMs} (enforced when the section is built)
+     * @return this builder
+     * @throws IllegalArgumentException if {@code maxPollMs < 1}
+     */
     public RecurringBuilder maxPollMs(long maxPollMs) {
       this.maxPollMs = atLeast("maxPollMs", maxPollMs, 1L);
       return this;
     }
 
+    /**
+     * @param startupGraceSeconds delay in seconds before the first materialization run; must be
+     *     {@code >= 0}
+     * @return this builder
+     * @throws IllegalArgumentException if {@code startupGraceSeconds < 0}
+     */
     public RecurringBuilder startupGraceSeconds(long startupGraceSeconds) {
       this.startupGraceSeconds = atLeast("startupGraceSeconds", startupGraceSeconds, 0L);
       return this;
     }
 
+    /**
+     * @param convergenceWindowSeconds reconciliation window in seconds; must be {@code >= 0}
+     *     ({@code 0} disables reconciliation)
+     * @return this builder
+     * @throws IllegalArgumentException if {@code convergenceWindowSeconds < 0}
+     */
     public RecurringBuilder convergenceWindowSeconds(long convergenceWindowSeconds) {
       this.convergenceWindowSeconds =
           atLeast("convergenceWindowSeconds", convergenceWindowSeconds, 0L);
@@ -965,11 +1279,18 @@ public class RatchetOptions {
     }
   }
 
+  /** Builder for {@link RetryBufferOptions}. */
+  @Incubating
   public static final class RetryBufferBuilder {
     private long drainIntervalMs = 1000L;
 
     private RetryBufferBuilder() {}
 
+    /**
+     * @param drainIntervalMs interval in milliseconds between buffer drains; must be {@code >= 50}
+     * @return this builder
+     * @throws IllegalArgumentException if {@code drainIntervalMs < 50}
+     */
     public RetryBufferBuilder drainIntervalMs(long drainIntervalMs) {
       this.drainIntervalMs = atLeast("drainIntervalMs", drainIntervalMs, 50L);
       return this;
@@ -980,6 +1301,8 @@ public class RatchetOptions {
     }
   }
 
+  /** Builder for {@link TimeoutOptions}. */
+  @Incubating
   public static final class TimeoutBuilder {
     private int softTimeoutPercent = 80;
     private long defaultSlaSeconds = 1800L;
@@ -987,6 +1310,12 @@ public class RatchetOptions {
 
     private TimeoutBuilder() {}
 
+    /**
+     * @param softTimeoutPercent percentage of the SLA at which a soft-timeout warning is emitted;
+     *     must be between 1 and 99 inclusive
+     * @return this builder
+     * @throws IllegalArgumentException if {@code softTimeoutPercent} is not in {@code 1..99}
+     */
     public TimeoutBuilder softTimeoutPercent(int softTimeoutPercent) {
       if (softTimeoutPercent <= 0 || softTimeoutPercent >= 100) {
         throw new IllegalArgumentException("softTimeoutPercent must be between 1 and 99");
@@ -995,11 +1324,22 @@ public class RatchetOptions {
       return this;
     }
 
+    /**
+     * @param defaultSlaSeconds default execution SLA in seconds; must be {@code >= 1}
+     * @return this builder
+     * @throws IllegalArgumentException if {@code defaultSlaSeconds < 1}
+     */
     public TimeoutBuilder defaultSlaSeconds(long defaultSlaSeconds) {
       this.defaultSlaSeconds = atLeast("defaultSlaSeconds", defaultSlaSeconds, 1L);
       return this;
     }
 
+    /**
+     * @param signalTimeoutBatchSize maximum WAITING jobs scanned per signal-timeout tick; must be
+     *     {@code >= 1}
+     * @return this builder
+     * @throws IllegalArgumentException if {@code signalTimeoutBatchSize < 1}
+     */
     public TimeoutBuilder signalTimeoutBatchSize(int signalTimeoutBatchSize) {
       this.signalTimeoutBatchSize = atLeast("signalTimeoutBatchSize", signalTimeoutBatchSize, 1);
       return this;
@@ -1010,6 +1350,8 @@ public class RatchetOptions {
     }
   }
 
+  /** Builder for {@link MaintenanceOptions}. */
+  @Incubating
   public static final class MaintenanceBuilder {
     private boolean dlqPurgeEnabled = true;
     private String dlqPurgeCron = "0 0 2 * * ?";
@@ -1024,51 +1366,101 @@ public class RatchetOptions {
 
     private MaintenanceBuilder() {}
 
+    /**
+     * @param dlqPurgeEnabled {@code true} to run the DLQ purge job
+     * @return this builder
+     */
     public MaintenanceBuilder dlqPurgeEnabled(boolean dlqPurgeEnabled) {
       this.dlqPurgeEnabled = dlqPurgeEnabled;
       return this;
     }
 
+    /**
+     * @param dlqPurgeCron cron expression for the DLQ purge cadence; must not be blank
+     * @return this builder
+     * @throws IllegalArgumentException if {@code dlqPurgeCron} is blank
+     */
     public MaintenanceBuilder dlqPurgeCron(String dlqPurgeCron) {
       this.dlqPurgeCron = requireText("dlqPurgeCron", dlqPurgeCron);
       return this;
     }
 
+    /**
+     * @param dlqPurgeDays age in days at which DLQ entries become eligible for purge; must be
+     *     {@code >= 0}
+     * @return this builder
+     * @throws IllegalArgumentException if {@code dlqPurgeDays < 0}
+     */
     public MaintenanceBuilder dlqPurgeDays(long dlqPurgeDays) {
       this.dlqPurgeDays = atLeast("dlqPurgeDays", dlqPurgeDays, 0L);
       return this;
     }
 
+    /**
+     * @param jobArchiveEnabled {@code true} to run the job-archive job
+     * @return this builder
+     */
     public MaintenanceBuilder jobArchiveEnabled(boolean jobArchiveEnabled) {
       this.jobArchiveEnabled = jobArchiveEnabled;
       return this;
     }
 
+    /**
+     * @param jobArchiveCron cron expression for the job-archive cadence; must not be blank
+     * @return this builder
+     * @throws IllegalArgumentException if {@code jobArchiveCron} is blank
+     */
     public MaintenanceBuilder jobArchiveCron(String jobArchiveCron) {
       this.jobArchiveCron = requireText("jobArchiveCron", jobArchiveCron);
       return this;
     }
 
+    /**
+     * @param jobRetentionDays age in days at which terminal jobs become eligible for archive; must
+     *     be {@code >= 0}
+     * @return this builder
+     * @throws IllegalArgumentException if {@code jobRetentionDays < 0}
+     */
     public MaintenanceBuilder jobRetentionDays(long jobRetentionDays) {
       this.jobRetentionDays = atLeast("jobRetentionDays", jobRetentionDays, 0L);
       return this;
     }
 
+    /**
+     * @param jobArchiveBatchSize maximum jobs archived per archive pass; must be {@code >= 1}
+     * @return this builder
+     * @throws IllegalArgumentException if {@code jobArchiveBatchSize < 1}
+     */
     public MaintenanceBuilder jobArchiveBatchSize(int jobArchiveBatchSize) {
       this.jobArchiveBatchSize = atLeast("jobArchiveBatchSize", jobArchiveBatchSize, 1);
       return this;
     }
 
+    /**
+     * @param logPurgeEnabled {@code true} to run the execution-log purge job
+     * @return this builder
+     */
     public MaintenanceBuilder logPurgeEnabled(boolean logPurgeEnabled) {
       this.logPurgeEnabled = logPurgeEnabled;
       return this;
     }
 
+    /**
+     * @param logPurgeCron cron expression for the log-purge cadence; must not be blank
+     * @return this builder
+     * @throws IllegalArgumentException if {@code logPurgeCron} is blank
+     */
     public MaintenanceBuilder logPurgeCron(String logPurgeCron) {
       this.logPurgeCron = requireText("logPurgeCron", logPurgeCron);
       return this;
     }
 
+    /**
+     * @param logRetentionDays age in days at which execution-log rows become eligible for purge;
+     *     must be {@code >= 0}
+     * @return this builder
+     * @throws IllegalArgumentException if {@code logRetentionDays < 0}
+     */
     public MaintenanceBuilder logRetentionDays(long logRetentionDays) {
       this.logRetentionDays = atLeast("logRetentionDays", logRetentionDays, 0L);
       return this;
@@ -1089,6 +1481,8 @@ public class RatchetOptions {
     }
   }
 
+  /** Builder for {@link NotificationOptions}. */
+  @Incubating
   public static final class NotificationBuilder {
     private boolean enabled = true;
     private String dlqAlertChannel = "#job-scheduler-dlq";
@@ -1096,16 +1490,30 @@ public class RatchetOptions {
 
     private NotificationBuilder() {}
 
+    /**
+     * @param enabled {@code true} to publish notifications
+     * @return this builder
+     */
     public NotificationBuilder enabled(boolean enabled) {
       this.enabled = enabled;
       return this;
     }
 
+    /**
+     * @param dlqAlertChannel channel identifier for DLQ alerts; must not be blank
+     * @return this builder
+     * @throws IllegalArgumentException if {@code dlqAlertChannel} is blank
+     */
     public NotificationBuilder dlqAlertChannel(String dlqAlertChannel) {
       this.dlqAlertChannel = requireText("dlqAlertChannel", dlqAlertChannel);
       return this;
     }
 
+    /**
+     * @param timeoutAlertChannel channel identifier for timeout alerts; must not be blank
+     * @return this builder
+     * @throws IllegalArgumentException if {@code timeoutAlertChannel} is blank
+     */
     public NotificationBuilder timeoutAlertChannel(String timeoutAlertChannel) {
       this.timeoutAlertChannel = requireText("timeoutAlertChannel", timeoutAlertChannel);
       return this;
@@ -1116,6 +1524,8 @@ public class RatchetOptions {
     }
   }
 
+  /** Builder for {@link SchemaOptions}. */
+  @Incubating
   public static final class SchemaBuilder {
     private boolean autoMigrate;
     private String migrationDialect = "";
@@ -1123,16 +1533,31 @@ public class RatchetOptions {
 
     private SchemaBuilder() {}
 
+    /**
+     * @param autoMigrate {@code true} to run the migrator from the schema-migration lifecycle hook
+     * @return this builder
+     */
     public SchemaBuilder autoMigrate(boolean autoMigrate) {
       this.autoMigrate = autoMigrate;
       return this;
     }
 
+    /**
+     * @param migrationDialect explicit dialect identifier; {@code null} or blank asks the store to
+     *     autodetect
+     * @return this builder
+     */
     public SchemaBuilder migrationDialect(String migrationDialect) {
       this.migrationDialect = migrationDialect == null ? "" : migrationDialect.trim();
       return this;
     }
 
+    /**
+     * @param migrationPrefix classpath prefix for dialect-specific migration scripts; must not be
+     *     blank
+     * @return this builder
+     * @throws IllegalArgumentException if {@code migrationPrefix} is blank
+     */
     public SchemaBuilder migrationPrefix(String migrationPrefix) {
       this.migrationPrefix = requireText("migrationPrefix", migrationPrefix);
       return this;
@@ -1143,17 +1568,29 @@ public class RatchetOptions {
     }
   }
 
+  /** Builder for {@link PayloadOptions}. */
+  @Incubating
   public static final class PayloadBuilder {
     private int maxPayloadKb = 100;
     private long maxResultBytes = 65536L;
 
     private PayloadBuilder() {}
 
+    /**
+     * @param maxPayloadKb maximum job payload size in kilobytes; must be {@code >= 1}
+     * @return this builder
+     * @throws IllegalArgumentException if {@code maxPayloadKb < 1}
+     */
     public PayloadBuilder maxPayloadKb(int maxPayloadKb) {
       this.maxPayloadKb = atLeast("maxPayloadKb", maxPayloadKb, 1);
       return this;
     }
 
+    /**
+     * @param maxResultBytes maximum persisted job-result size in bytes; must be {@code >= 0}
+     * @return this builder
+     * @throws IllegalArgumentException if {@code maxResultBytes < 0}
+     */
     public PayloadBuilder maxResultBytes(long maxResultBytes) {
       this.maxResultBytes = atLeast("maxResultBytes", maxResultBytes, 0L);
       return this;
@@ -1164,11 +1601,18 @@ public class RatchetOptions {
     }
   }
 
+  /** Builder for {@link MetricsOptions}. */
+  @Incubating
   public static final class MetricsBuilder {
     private String clustering = "none";
 
     private MetricsBuilder() {}
 
+    /**
+     * @param clustering clustering-strategy identifier; must not be blank and is lowercased
+     * @return this builder
+     * @throws IllegalArgumentException if {@code clustering} is blank
+     */
     public MetricsBuilder clustering(String clustering) {
       this.clustering = requireText("clustering", clustering).toLowerCase(Locale.ROOT);
       return this;
@@ -1179,17 +1623,28 @@ public class RatchetOptions {
     }
   }
 
+  /** Builder for {@link SecurityOptions}. */
+  @Incubating
   public static final class SecurityBuilder {
     private boolean allowEmptyClassPolicy;
     private boolean redactEmails = true;
 
     private SecurityBuilder() {}
 
+    /**
+     * @param allowEmptyClassPolicy {@code true} to permit running without a configured class
+     *     policy; {@code false} fails fast at startup when none is bound
+     * @return this builder
+     */
     public SecurityBuilder allowEmptyClassPolicy(boolean allowEmptyClassPolicy) {
       this.allowEmptyClassPolicy = allowEmptyClassPolicy;
       return this;
     }
 
+    /**
+     * @param redactEmails {@code true} to redact email-shaped strings from observability output
+     * @return this builder
+     */
     public SecurityBuilder redactEmails(boolean redactEmails) {
       this.redactEmails = redactEmails;
       return this;
@@ -1200,18 +1655,31 @@ public class RatchetOptions {
     }
   }
 
+  /** Builder for {@link StoreOptions}. */
+  @Incubating
   public static final class StoreBuilder {
     private IsolationCheckMode isolationCheckMode = IsolationCheckMode.FAIL;
     private int priorityBoostIntervalMinutes = 15;
 
     private StoreBuilder() {}
 
+    /**
+     * @param isolationCheckMode action taken on an isolation-level mismatch; must not be null
+     * @return this builder
+     * @throws NullPointerException if {@code isolationCheckMode} is null
+     */
     public StoreBuilder isolationCheckMode(IsolationCheckMode isolationCheckMode) {
       this.isolationCheckMode =
           Objects.requireNonNull(isolationCheckMode, "isolationCheckMode must not be null");
       return this;
     }
 
+    /**
+     * @param priorityBoostIntervalMinutes interval in minutes at which long-waiting pending jobs
+     *     are promoted; must be {@code >= 0} ({@code 0} disables the boost)
+     * @return this builder
+     * @throws IllegalArgumentException if {@code priorityBoostIntervalMinutes < 0}
+     */
     public StoreBuilder priorityBoostIntervalMinutes(int priorityBoostIntervalMinutes) {
       this.priorityBoostIntervalMinutes =
           atLeast("priorityBoostIntervalMinutes", priorityBoostIntervalMinutes, 0);
@@ -1231,11 +1699,24 @@ public class RatchetOptions {
 
     private CircuitBreakerBuilder() {}
 
+    /**
+     * @param enabled {@code true} to enable circuit-breaker enforcement; when {@code false} all
+     *     calls pass through unmonitored
+     * @return this builder
+     */
     public CircuitBreakerBuilder enabled(boolean enabled) {
       this.enabled = enabled;
       return this;
     }
 
+    /**
+     * Customizes the thresholds for a single profile, creating the profile if absent.
+     *
+     * @param profile profile to customize; must not be null
+     * @param customizer receives the profile builder
+     * @return this builder
+     * @throws NullPointerException if {@code profile} is null
+     */
     public CircuitBreakerBuilder profile(
         CircuitBreakerProfile profile, Consumer<CircuitBreakerProfileBuilder> customizer) {
       CircuitBreakerProfileBuilder builder =
@@ -1267,6 +1748,13 @@ public class RatchetOptions {
 
     private CircuitBreakerProfileBuilder() {}
 
+    /**
+     * @param failureRateThreshold failure-rate percentage at which the breaker opens; must be a
+     *     finite value between 0 and 100 inclusive
+     * @return this builder
+     * @throws IllegalArgumentException if {@code failureRateThreshold} is non-finite or outside
+     *     {@code 0..100}
+     */
     public CircuitBreakerProfileBuilder failureRateThreshold(float failureRateThreshold) {
       if (!Float.isFinite(failureRateThreshold)
           || failureRateThreshold < 0.0f
@@ -1278,22 +1766,46 @@ public class RatchetOptions {
       return this;
     }
 
+    /**
+     * @param slidingWindowSize size of the sliding window used to compute the failure rate; must be
+     *     {@code >= 1}
+     * @return this builder
+     * @throws IllegalArgumentException if {@code slidingWindowSize < 1}
+     */
     public CircuitBreakerProfileBuilder slidingWindowSize(int slidingWindowSize) {
       this.slidingWindowSize = atLeast("slidingWindowSize", slidingWindowSize, 1);
       return this;
     }
 
+    /**
+     * @param waitDurationMs duration in milliseconds the breaker stays OPEN before transitioning to
+     *     HALF_OPEN; must be {@code >= 0}
+     * @return this builder
+     * @throws IllegalArgumentException if {@code waitDurationMs < 0}
+     */
     public CircuitBreakerProfileBuilder waitDurationMs(long waitDurationMs) {
       this.waitDurationMs = atLeast("waitDurationMs", waitDurationMs, 0L);
       return this;
     }
 
+    /**
+     * @param permittedCallsInHalfOpen number of trial calls allowed while in HALF_OPEN; must be
+     *     {@code >= 1}
+     * @return this builder
+     * @throws IllegalArgumentException if {@code permittedCallsInHalfOpen < 1}
+     */
     public CircuitBreakerProfileBuilder permittedCallsInHalfOpen(int permittedCallsInHalfOpen) {
       this.permittedCallsInHalfOpen =
           atLeast("permittedCallsInHalfOpen", permittedCallsInHalfOpen, 1);
       return this;
     }
 
+    /**
+     * @param minimumCalls minimum recorded calls before the failure rate is evaluated; must be
+     *     {@code >= 1}
+     * @return this builder
+     * @throws IllegalArgumentException if {@code minimumCalls < 1}
+     */
     public CircuitBreakerProfileBuilder minimumCalls(int minimumCalls) {
       this.minimumCalls = atLeast("minimumCalls", minimumCalls, 1);
       return this;

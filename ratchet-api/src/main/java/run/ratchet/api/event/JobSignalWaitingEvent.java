@@ -4,6 +4,7 @@ import java.io.Serial;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
+import run.ratchet.api.Incubating;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 
@@ -13,6 +14,7 @@ import run.ratchet.api.JobType;
  * <p>{@code signalTimeout} is the maximum time the job may wait before timing out. A {@code null}
  * timeout means the job waits until a matching signal is delivered or the job is canceled.
  */
+@Incubating
 public class JobSignalWaitingEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = 7412309856012374810L;

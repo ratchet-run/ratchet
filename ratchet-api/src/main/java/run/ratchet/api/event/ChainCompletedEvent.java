@@ -3,6 +3,7 @@ package run.ratchet.api.event;
 import java.io.Serial;
 import java.time.Instant;
 import java.util.UUID;
+import run.ratchet.api.Incubating;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 
@@ -12,6 +13,7 @@ import run.ratchet.api.JobType;
  * <p>{@code jobId} identifies the step whose completion closed the chain. {@code parentJobId}
  * identifies the root job that initiated the chain.
  */
+@Incubating
 public class ChainCompletedEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = -8140882369003276835L;
