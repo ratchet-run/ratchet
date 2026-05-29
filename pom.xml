@@ -126,6 +126,7 @@
     <opentelemetry.version>1.62.0</opentelemetry.version>
     <mockito.version>5.23.0</mockito.version>
     <awaitility.version>4.3.0</awaitility.version>
+    <archunit.version>1.3.0</archunit.version>
     <shrinkwrap-resolver.version>3.3.6</shrinkwrap-resolver.version>
     <wildfly.version>39.0.1.Final</wildfly.version>
     <wildfly-arquillian.version>5.1.0.Final</wildfly-arquillian.version>
@@ -458,6 +459,14 @@
         <groupId>org.awaitility</groupId>
         <artifactId>awaitility</artifactId>
         <version>${awaitility.version}</version>
+        <scope>test</scope>
+      </dependency>
+
+      <!-- ArchUnit -->
+      <dependency>
+        <groupId>com.tngtech.archunit</groupId>
+        <artifactId>archunit-junit5</artifactId>
+        <version>${archunit.version}</version>
         <scope>test</scope>
       </dependency>
 
