@@ -20,12 +20,21 @@ public final class TwoNodeHazelcastCluster implements AutoCloseable {
 
   public TwoNodeHazelcastCluster() {
     this.clusterName = "ratchet-tck-" + Long.toHexString(System.nanoTime());
-    int portA = 25700 + (int) (System.nanoTime() & 0x7F);
-    int portB = portA + 1;
+    // Spread the base port across a wide window to avoid collisions/TIME_WAIT between tests, and
+    // keep auto-increment on so a bound port falls back to the next free one instead of failing
+    // hard. The TcpIp member list covers the whole auto-increment window so discovery still works.
+    int portA = 25700 + (int) (Long.remainderUnsigned(System.nanoTime(), PORT_RANGE)) * PORT_COUNT;
+    int portB = portA + PORT_COUNT;
     this.memberA = Hazelcast.newHazelcastInstance(memberConfig("memberA", portA, portA, portB));
     this.memberB = Hazelcast.newHazelcastInstance(memberConfig("memberB", portB, portA, portB));
     awaitClusterFormed();
   }
+
+  /** Number of ports auto-increment may walk through from each base port. */
+  private static final int PORT_COUNT = 20;
+
+  /** Number of distinct base-port pairs the cluster spreads across. */
+  private static final int PORT_RANGE = 1000;
 
   public HazelcastInstance memberA() {
     return memberA;
@@ -61,13 +70,19 @@ public final class TwoNodeHazelcastCluster implements AutoCloseable {
     c.setInstanceName(name + "-" + Long.toHexString(System.nanoTime()));
     c.setClusterName(clusterName);
     NetworkConfig net = c.getNetworkConfig();
-    net.setPort(port).setPortAutoIncrement(false);
+    net.setPort(port).setPortAutoIncrement(true).setPortCount(PORT_COUNT);
     JoinConfig join = net.getJoin();
     join.getMulticastConfig().setEnabled(false);
     join.getAutoDetectionConfig().setEnabled(false);
     TcpIpConfig tcp = join.getTcpIpConfig();
     tcp.setEnabled(true);
-    tcp.addMember("127.0.0.1:" + portA).addMember("127.0.0.1:" + portB);
+    // List every port the two members might auto-increment onto so discovery survives a fallback.
+    for (int p = portA; p < portA + PORT_COUNT; p++) {
+      tcp.addMember("127.0.0.1:" + p);
+    }
+    for (int p = portB; p < portB + PORT_COUNT; p++) {
+      tcp.addMember("127.0.0.1:" + p);
+    }
     // Silence the verbose Hazelcast banner & metrics noise on the test JVM.
     c.setProperty("hazelcast.logging.type", "none");
     c.setProperty("hazelcast.shutdownhook.enabled", "false");
