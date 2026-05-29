@@ -15,10 +15,11 @@ exclude:
       # ExecutorService is used as a test resource
       - ratchet-tck/util/src/main/java/run/ratchet/tck/util/ConcurrentTestRunner.java
       # Jsonb is held as an application-scoped serializer and closed in @PreDestroy.
-      - ratchet/src/main/java/run/ratchet/ri/cdi/JsonbPayloadSerializer.java
+      - ratchet/src/main/java/run/ratchet/ri/cdi/internal/JsonbPayloadSerializer.java
       # Coordinator callers fetch a held resource from the connection lifecycle and use it
       # inline; ownership stays with the lifecycle (or the framework, for EmbeddedCacheManager).
       - ratchet-coordinator-jms/src/main/java/run/ratchet/coordinator/jms/JmsClusterCoordinator.java
+      - ratchet-coordinator-jms/src/main/java/run/ratchet/coordinator/jms/JmsConnectionLifecycle.java
       - ratchet-coordinator-postgresql/src/main/java/run/ratchet/coordinator/postgresql/PostgresqlListenNotifyCoordinator.java
       - ratchet-coordinator-infinispan/src/main/java/run/ratchet/coordinator/infinispan/InfinispanClusterCoordinator.java
 

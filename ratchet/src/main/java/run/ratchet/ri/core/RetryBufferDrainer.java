@@ -49,7 +49,7 @@ public class RetryBufferDrainer {
   }
 
   @Inject
-  public RetryBufferDrainer(
+  RetryBufferDrainer(
       ExecutorProvider executorProvider,
       RetryBufferManager retryBufferManager,
       JobSubmissionService jobSubmissionService,

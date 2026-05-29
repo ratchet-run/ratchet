@@ -115,7 +115,7 @@ public class DefaultJobSchedulerService
     this.clock = null;
   }
 
-  public DefaultJobSchedulerService(
+  DefaultJobSchedulerService(
       InternalEventPublisher eventPublisher,
       JobBatchStatusStore jobBatchStatusStore,
       JobPauseStore jobPauseStore,
@@ -157,7 +157,7 @@ public class DefaultJobSchedulerService
         Clock.systemUTC());
   }
 
-  public DefaultJobSchedulerService(
+  DefaultJobSchedulerService(
       InternalEventPublisher eventPublisher,
       JobBatchStatusStore jobBatchStatusStore,
       JobPauseStore jobPauseStore,
@@ -201,7 +201,7 @@ public class DefaultJobSchedulerService
   }
 
   @Inject
-  public DefaultJobSchedulerService(
+  DefaultJobSchedulerService(
       InternalEventPublisher eventPublisher,
       JobBatchStatusStore jobBatchStatusStore,
       JobPauseStore jobPauseStore,

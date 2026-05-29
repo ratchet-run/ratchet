@@ -51,6 +51,7 @@ public class StandaloneExecutorProvider implements ExecutorProvider {
     };
   }
 
+  @SuppressWarnings("JavaReflectionMemberAccess")
   private static ExecutorService newVirtualThreadExecutor() {
     try {
       Method factory = Executors.class.getMethod("newVirtualThreadPerTaskExecutor");
