@@ -11,6 +11,9 @@
 
   <name>Ratchet</name>
   <description>Portable, CDI-based job scheduler for Jakarta EE 10+</description>
+  <url>https://github.com/ratchet-run/ratchet</url>
+  <inceptionYear>2026</inceptionYear>
+
   <licenses>
     <license>
       <name>Apache License, Version 2.0</name>
@@ -18,6 +21,27 @@
       <distribution>repo</distribution>
     </license>
   </licenses>
+
+  <developers>
+    <developer>
+      <id>jcputney</id>
+      <name>Jonathan Putney</name>
+      <email>jputney@noverant.com</email>
+      <url>https://github.com/jcputney</url>
+    </developer>
+  </developers>
+
+  <scm>
+    <connection>scm:git:https://github.com/ratchet-run/ratchet.git</connection>
+    <developerConnection>scm:git:git@github.com:ratchet-run/ratchet.git</developerConnection>
+    <url>https://github.com/ratchet-run/ratchet</url>
+    <tag>HEAD</tag>
+  </scm>
+
+  <issueManagement>
+    <system>GitHub Issues</system>
+    <url>https://github.com/ratchet-run/ratchet/issues</url>
+  </issueManagement>
 
   <modules>
     <module>ratchet-api</module>
@@ -131,6 +155,9 @@
     <jacoco-maven-plugin.version>0.8.14</jacoco-maven-plugin.version>
     <flatten-maven-plugin.version>1.7.3</flatten-maven-plugin.version>
     <cyclonedx-maven-plugin.version>2.9.1</cyclonedx-maven-plugin.version>
+    <license-maven-plugin.version>2.7.1</license-maven-plugin.version>
+    <maven-enforcer-plugin.version>3.5.0</maven-enforcer-plugin.version>
+    <spotbugs-maven-plugin.version>4.9.3.0</spotbugs-maven-plugin.version>
     <argLine></argLine>
   </properties>
 
@@ -799,9 +826,81 @@
             </execution>
           </executions>
         </plugin>
+        <!--
+          License header management. Declared in pluginManagement only (no
+          <executions> binding) so it is available for ad-hoc use via
+          `mvn license:format` / `mvn license:check` without stamping every
+          source file as part of the normal build.
+        -->
+        <plugin>
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>license-maven-plugin</artifactId>
+          <version>${license-maven-plugin.version}</version>
+          <configuration>
+            <licenseName>apache_v2</licenseName>
+            <projectName>Ratchet</projectName>
+            <organizationName>Ratchet Contributors</organizationName>
+            <inceptionYear>${project.inceptionYear}</inceptionYear>
+            <canUpdateCopyright>true</canUpdateCopyright>
+            <canUpdateDescription>true</canUpdateDescription>
+            <roots>
+              <root>src/main/java</root>
+              <root>src/test/java</root>
+            </roots>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-enforcer-plugin</artifactId>
+          <version>${maven-enforcer-plugin.version}</version>
+        </plugin>
+        <!--
+          SpotBugs static-analysis plugin. Declared in pluginManagement only
+          (no <executions> binding) so it is resolvable for ad-hoc invocation
+          via `mvn spotbugs:check` / `mvn spotbugs:gui` / `mvn spotbugs:spotbugs`
+          without forcing analysis into the normal verify cycle.
+        -->
+        <plugin>
+          <groupId>com.github.spotbugs</groupId>
+          <artifactId>spotbugs-maven-plugin</artifactId>
+          <version>${spotbugs-maven-plugin.version}</version>
+        </plugin>
       </plugins>
     </pluginManagement>
     <plugins>
+      <!--
+        Baseline environment guardrails. Enforces the Java 17 minimum the
+        compiler is already configured for and a Maven 3.8.x floor (Maven
+        3.8.1+ is required for many modern plugins, including spotbugs 4.9.x).
+        Bound to validate so misconfigured local environments fail fast,
+        before the reactor pulls in module sources.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <configuration>
+          <rules>
+            <requireJavaVersion>
+              <version>[17,)</version>
+              <message>Ratchet requires JDK 17 or higher to build.</message>
+            </requireJavaVersion>
+            <requireMavenVersion>
+              <version>[3.8.1,)</version>
+              <message>Ratchet requires Maven 3.8.1 or higher.</message>
+            </requireMavenVersion>
+          </rules>
+          <fail>true</fail>
+        </configuration>
+        <executions>
+          <execution>
+            <id>enforce-baseline</id>
+            <phase>validate</phase>
+            <goals>
+              <goal>enforce</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
