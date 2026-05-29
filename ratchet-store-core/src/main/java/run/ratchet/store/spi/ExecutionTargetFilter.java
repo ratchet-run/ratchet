@@ -7,7 +7,29 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 
-/** Predicate for claim queries that need to scope rows to an effective executor pool. */
+/**
+ * Predicate passed to claim queries to scope returned rows to an effective executor pool.
+ *
+ * <p>The caller-side router decides which pool a node intends to drain on a given tick, then asks
+ * the claim store for rows matching that pool. The filter has three shapes:
+ *
+ * <ul>
+ *   <li>{@link #any()} matches every row regardless of {@code execution_target} — used when the
+ *       caller is the default pool and the deployment has only one configured pool.
+ *   <li>{@link #matching(Collection, boolean)} is an allowlist for explicit named targets, with an
+ *       option to also include rows whose target is {@code null} (the "inherit default" bucket).
+ *   <li>{@link #excluding(Collection, boolean)} is a denylist that returns rows whose target is
+ *       <em>not</em> in the supplied set, plus optionally the null bucket. Useful for the platform
+ *       pool when it acts as the catch-all for unrecognized or fallback-eligible targets.
+ * </ul>
+ *
+ * <p>Store implementations translate the filter into transport-native predicates (SQL {@code
+ * EXISTS}/{@code NOT EXISTS} subqueries, Mongo {@code $in}/{@code $nin}, etc.). A filter that
+ * cannot match any row — for example, an allowlist with no targets and {@code includeNull} false —
+ * is detectable via {@link #matchesNothing()}, letting callers skip the round trip entirely.
+ *
+ * <p>Filters are immutable and safe to share across threads.
+ */
 public final class ExecutionTargetFilter {
 
   private static final ExecutionTargetFilter ANY =
