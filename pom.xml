@@ -145,7 +145,10 @@
     <protobuf-java.version>3.25.9</protobuf-java.version>
     <postgresql-driver.version>42.7.11</postgresql-driver.version>
     <jakarta.jms-api.version>3.1.0</jakarta.jms-api.version>
-    <artemis.version>2.44.0</artemis.version>
+    <artemis.version>2.54.0</artemis.version>
+    <netty.version>4.1.133.Final</netty.version>
+    <commons-configuration2.version>2.15.0</commons-configuration2.version>
+    <jackson-core.version>2.18.6</jackson-core.version>
     <infinispan.version>15.1.7.Final</infinispan.version>
     <hazelcast.version>5.5.0</hazelcast.version>
     <mongodb-driver.version>5.7.0</mongodb-driver.version>
@@ -228,12 +231,12 @@
         <scope>provided</scope>
       </dependency>
       <dependency>
-        <groupId>org.apache.activemq</groupId>
+        <groupId>org.apache.artemis</groupId>
         <artifactId>artemis-jakarta-server</artifactId>
         <version>${artemis.version}</version>
       </dependency>
       <dependency>
-        <groupId>org.apache.activemq</groupId>
+        <groupId>org.apache.artemis</groupId>
         <artifactId>artemis-jakarta-client</artifactId>
         <version>${artemis.version}</version>
       </dependency>
@@ -246,6 +249,32 @@
         <groupId>com.hazelcast</groupId>
         <artifactId>hazelcast</artifactId>
         <version>${hazelcast.version}</version>
+      </dependency>
+
+      <!--
+        Security pins for vulnerable dependencies pulled in transitively by the
+        coordinator modules. These coordinates are not declared directly by any
+        module, so they are overridden here to keep the resolved graph patched:
+          * io.netty:*               (test scope, via the embedded Artemis broker)
+          * commons-configuration2   (test scope, via the embedded Artemis broker)
+          * jackson-core             (compile scope, via infinispan-core)
+      -->
+      <dependency>
+        <groupId>io.netty</groupId>
+        <artifactId>netty-bom</artifactId>
+        <version>${netty.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.commons</groupId>
+        <artifactId>commons-configuration2</artifactId>
+        <version>${commons-configuration2.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-core</artifactId>
+        <version>${jackson-core.version}</version>
       </dependency>
       <dependency>
         <groupId>jakarta.security.enterprise</groupId>

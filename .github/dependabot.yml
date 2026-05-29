@@ -28,6 +28,11 @@ updates:
       - /ratchet-store-mysql
       - /ratchet-store-postgresql
       - /ratchet-store-mongodb
+      - /ratchet-coordinator-common
+      - /ratchet-coordinator-postgresql
+      - /ratchet-coordinator-jms
+      - /ratchet-coordinator-infinispan
+      - /ratchet-coordinator-hazelcast
       - /ratchet-tck
       - /ratchet-tck/util
       - /ratchet-tck/store
@@ -37,6 +42,7 @@ updates:
       - /ratchet-testsuite-jpms
       - /ratchet-loadtest
       - /ratchet-micrometer
+      - /ratchet-otel
       - /ratchet-bom
       - /ratchet-coverage
     schedule:
