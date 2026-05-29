@@ -320,7 +320,13 @@ flowchart TD
 | `ratchet-store-mysql` | MySQL store implementation with optimized DDL | ratchet-store-core |
 | `ratchet-store-postgresql` | PostgreSQL store with partial indexes and JSONB | ratchet-store-core |
 | `ratchet-store-mongodb` | MongoDB document store implementation | ratchet-store-core |
+| `ratchet-coordinator-common` | Shared abstractions for pluggable `ClusterCoordinator` implementations | ratchet-api |
+| `ratchet-coordinator-postgresql` | PostgreSQL `LISTEN`/`NOTIFY`-backed cross-node wakeups for low-latency CRITICAL/immediate jobs | ratchet-coordinator-common, PostgreSQL JDBC driver |
+| `ratchet-coordinator-jms` | JMS-topic-backed cross-node wakeups for deployments that already run a JMS broker | ratchet-coordinator-common, Jakarta Messaging API (provided) |
+| `ratchet-coordinator-infinispan` | Infinispan-clustered-cache wakeup notifications for WildFly / Quarkus deployments | ratchet-coordinator-common, Infinispan API (provided) |
+| `ratchet-coordinator-hazelcast` | Hazelcast topic-backed wakeup notifications for Hazelcast clusters | ratchet-coordinator-common, Hazelcast client (provided) |
 | `ratchet-micrometer` | Micrometer metrics adapter | ratchet-api, Micrometer |
+| `ratchet-otel` | OpenTelemetry-based `TracingCollector` implementation (incubating; not yet in the BOM) | ratchet-api, OpenTelemetry API |
 | `ratchet-tck` | Aggregator (pom-packaging) for the four TCK submodules below | — |
 | `ratchet-tck-util` | JUnit-only helpers shared across TCK modules | JUnit 5 |
 | `ratchet-tck-store` | Store SPI conformance — CRUD, claiming, status transitions, archiving, batches, locks | ratchet-store-core, ratchet-tck-util, JUnit 5 |
@@ -347,7 +353,7 @@ Ratchet is designed to be extended. Provide a CDI `@Alternative @Priority(APPLIC
 | `JobLoggerFactory` | Per-job job-scoped logging | JBoss Logging-backed logger |
 | `CircuitBreakerConfigProvider` | Built-in breaker enablement and thresholds | Config-backed profile settings |
 | `SchedulerLifecycleHook` | Scheduler startup/shutdown hooks | No hooks |
-| `ClusterCoordinator` | Distributed wakeup notifications | `NoOpClusterCoordinator` |
+| `ClusterCoordinator` | Distributed wakeup notifications | `NoOpClusterCoordinator`; pluggable PostgreSQL / JMS / Infinispan / Hazelcast implementations ship in the BOM under `ratchet-coordinator-*` |
 | `StartupCoordinator` | Destructive startup work gated by store-backed leases | `StoreBackedStartupCoordinator` |
 | `MetricsCollector` | Metrics sink (counters, gauges, timers) | No-op |
 | `BeanResolver` | Bean instantiation strategy | CDI `Instance<T>` |
