@@ -16,6 +16,12 @@ import run.ratchet.spi.ClassPolicy;
  * package boundaries: configuring {@code "com.foo"} matches {@code com.foo.Bar} but NOT {@code
  * com.foobar.Gadget}. This mirrors the {@link #DENIED_PREFIXES} invariant.
  *
+ * <p><strong>Defense-in-depth:</strong> {@link #DENIED_EXACT} and {@link #DENIED_PREFIXES} are a
+ * safety net for misconfiguration — the primary control is the allowlist. Applications must
+ * configure a narrow allowlist that excludes container-internal namespaces (e.g. {@code javax.},
+ * {@code jakarta.}, {@code org.apache.}); the hardcoded denylist catches only well-known gadget
+ * classes that should never be reachable from a job payload.
+ *
  * @see JobSecurityValidator
  */
 public class PackagePrefixClassPolicy implements ClassPolicy {
@@ -36,7 +42,9 @@ public class PackagePrefixClassPolicy implements ClassPolicy {
           "java.io.FileOutputStream",
           "java.io.FileInputStream",
           "java.io.ObjectInputStream",
-          "java.io.ObjectOutputStream");
+          "java.io.ObjectOutputStream",
+          "javax.naming.InitialContext",
+          "javax.el.ELProcessor");
 
   /**
    * Package prefixes whose contents are NEVER allowed. Entries must end with a {@code .} so the
@@ -54,6 +62,7 @@ public class PackagePrefixClassPolicy implements ClassPolicy {
           "jdk.internal.",
           "org.codehaus.groovy.runtime.",
           "org.apache.commons.collections.functors.",
+          "org.apache.xalan.",
           "org.springframework.context.support.");
 
   /**

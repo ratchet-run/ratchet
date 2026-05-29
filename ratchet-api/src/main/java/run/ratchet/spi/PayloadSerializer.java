@@ -22,6 +22,15 @@ import run.ratchet.api.Incubating;
  * JSON to name arbitrary classes for deserialization (the classic Jackson "default typing"
  * gadget-chain vulnerability).
  *
+ * <p><b>Security note — no runtime guard:</b> the framework provides no automated detection of a
+ * non-compliant implementation. A custom CDI {@code @Alternative} that re-enables provider-specific
+ * polymorphic deserialization (e.g. Jackson's {@code DEFAULT_TYPING}, Gson's {@code
+ * RuntimeTypeAdapterFactory} with an open type registry) will silently replace the default
+ * serializer at startup with no warning logged. Security teams that deploy a custom {@code
+ * PayloadSerializer} are responsible for auditing the implementation against this contract and for
+ * verifying that no untrusted JSON payload can cause the deserializer to instantiate a class
+ * outside the deployment's expected payload types.
+ *
  * <p><b>Thread-safety:</b> implementations MUST be thread-safe. The framework holds a single
  * instance per deployment and invokes {@link #serialize(Object)} and {@link #deserialize(String,
  * Class)} concurrently from poller worker threads, JPA attribute converters, and result persistence

@@ -9,7 +9,7 @@ import run.ratchet.api.RecurringJobBuilder;
 import run.ratchet.api.SerializableCheckedRunnable;
 
 /** {@inheritDoc} */
-public class DefaultRecurringJobBuilder implements RecurringJobBuilder {
+class DefaultRecurringJobBuilder implements RecurringJobBuilder {
 
   private final String cronExpr;
   private final ZoneId zone;

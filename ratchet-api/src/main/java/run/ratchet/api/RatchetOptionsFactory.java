@@ -2,6 +2,10 @@ package run.ratchet.api;
 
 import java.util.ArrayList;
 import java.util.List;
+import run.ratchet.api.internal.DefaultRatchetConfig;
+import run.ratchet.api.internal.EnvironmentRatchetConfigSource;
+import run.ratchet.api.internal.MicroProfileRatchetConfigSource;
+import run.ratchet.api.internal.RatchetConfigKeys;
 import run.ratchet.spi.RatchetConfigKey;
 import run.ratchet.spi.RatchetConfigSource;
 

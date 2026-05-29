@@ -6,13 +6,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.lang.reflect.Field;
 import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.Test;
-import run.ratchet.ri.core.PollerScheduler;
+import run.ratchet.ri.core.internal.DefaultPollerScheduler;
 
 class BasePerformanceITTest {
 
   @Test
   void pollerSchedulerStoppedReturnsFalseDuringPollCycle() throws Exception {
-    PollerScheduler scheduler = new PollerScheduler(null, null);
+    DefaultPollerScheduler scheduler = new DefaultPollerScheduler(null, null);
     setField(scheduler, "cycleRunning", true);
 
     assertFalse(BasePerformanceIT.pollerSchedulerStopped(scheduler));
@@ -20,7 +20,7 @@ class BasePerformanceITTest {
 
   @Test
   void pollerSchedulerStoppedReturnsFalseForScheduledHandle() throws Exception {
-    PollerScheduler scheduler = new PollerScheduler(null, null);
+    DefaultPollerScheduler scheduler = new DefaultPollerScheduler(null, null);
     setField(scheduler, "handle", new CompletableFuture<>());
 
     assertFalse(BasePerformanceIT.pollerSchedulerStopped(scheduler));
@@ -28,7 +28,7 @@ class BasePerformanceITTest {
 
   @Test
   void pollerSchedulerStoppedReturnsTrueWhenIdle() {
-    PollerScheduler scheduler = new PollerScheduler(null, null);
+    DefaultPollerScheduler scheduler = new DefaultPollerScheduler(null, null);
 
     assertTrue(BasePerformanceIT.pollerSchedulerStopped(scheduler));
   }

@@ -3,6 +3,7 @@ package run.ratchet.store.spi;
 import java.util.UUID;
 import run.ratchet.api.Incubating;
 import run.ratchet.api.JobStatus;
+import run.ratchet.api.Nullable;
 
 /**
  * Pause / resume transitions for executable jobs.
@@ -31,11 +32,15 @@ public interface JobPauseStore {
    * Atomically transitions from PAUSED to the stored paused-from status, reading the target from
    * the database row in the same operation to avoid TOCTOU races.
    *
+   * @apiNote This method intentionally returns a bare reference rather than {@link
+   *     java.util.Optional} so the resume hot path avoids an allocation on every retry. Callers
+   *     must null-check the result; the {@link Nullable} annotation reflects this contract for
+   *     static analysers.
    * @param id job id to resume
    * @return the status restored from the paused row, or {@code null} when no row is currently
    *     PAUSED. Callers should treat {@code null} as a lost race or missing job and re-read before
    *     deciding whether to retry.
    *     <p>Transaction attribute: {@code REQUIRED}.
    */
-  JobStatus transitionFromPausedAtomic(UUID id);
+  @Nullable JobStatus transitionFromPausedAtomic(UUID id);
 }

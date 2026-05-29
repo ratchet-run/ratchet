@@ -11,26 +11,57 @@ import run.ratchet.store.entity.NodeEntity;
 @Incubating
 public interface NodeStore {
 
-  /** Inserts or updates a node heartbeat. Transaction attribute: {@code REQUIRED}. */
+  /**
+   * Inserts or updates a node heartbeat. Transaction attribute: {@code REQUIRED}.
+   *
+   * @param nodeId stable identity of the heartbeating node; never {@code null} or blank
+   * @param ts heartbeat timestamp recorded against the row; never {@code null}
+   */
   void upsertHeartbeat(String nodeId, Instant ts);
 
-  /** Finds a node by id. Transaction attribute: {@code SUPPORTS}. */
+  /**
+   * Finds a node by id. Transaction attribute: {@code SUPPORTS}.
+   *
+   * @param nodeId stable identity of the node to look up
+   * @return matching node, or {@link Optional#empty()} when no row exists for {@code nodeId}
+   */
   Optional<NodeEntity> findNodeById(String nodeId);
 
-  /** Finds inactive nodes. Transaction attribute: {@code SUPPORTS}. */
+  /**
+   * Finds inactive nodes. Transaction attribute: {@code SUPPORTS}.
+   *
+   * @param cutoff nodes whose last heartbeat is strictly before this instant are considered
+   *     inactive; never {@code null}
+   * @return inactive node rows, never {@code null}
+   */
   List<NodeEntity> findInactiveNodesSince(Instant cutoff);
 
-  /** Deletes inactive node rows. Transaction attribute: {@code REQUIRED}. */
+  /**
+   * Deletes inactive node rows. Transaction attribute: {@code REQUIRED}.
+   *
+   * @param cutoff nodes whose last heartbeat is strictly before this instant are deleted; never
+   *     {@code null}
+   * @return number of node rows deleted
+   */
   int deleteInactiveNodesSince(Instant cutoff);
 
-  /** Deletes the resolved inactive node rows by id. Transaction attribute: {@code REQUIRED}. */
-  default int deleteInactiveNodesByIds(Collection<String> nodeIds) {
-    throw new UnsupportedOperationException("deleteInactiveNodesByIds is not implemented");
-  }
+  /**
+   * Deletes the resolved inactive node rows by id. Transaction attribute: {@code REQUIRED}.
+   *
+   * <p>Implementors MUST override this method; it is abstract precisely because a silent {@code
+   * UnsupportedOperationException} default would defer the failure from compile time to
+   * orphan-recovery runtime.
+   *
+   * @param nodeIds resolved inactive node identities to delete; never {@code null}, may be empty
+   * @return number of node rows deleted (zero when {@code nodeIds} is empty)
+   */
+  int deleteInactiveNodesByIds(Collection<String> nodeIds);
 
   /**
    * Returns the current database server time for clock skew detection. Transaction attribute:
    * {@code SUPPORTS}.
+   *
+   * @return database server time at the moment of the call; never {@code null}
    */
   Instant getDatabaseTime();
 }

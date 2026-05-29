@@ -39,6 +39,18 @@ public interface JobBulkStore {
    * <p>If {@code cutoff} is in the future (e.g. due to clock skew between nodes), the computed
    * grace duration is negative. In that case this method returns {@code 0} immediately — a future
    * cutoff means no jobs are old enough to be orphaned yet.
+   *
+   * <p><b>Clock source.</b> The default implementation derives the grace duration from {@link
+   * Instant#now()} on the caller's JVM, NOT the database server clock that {@link
+   * run.ratchet.store.spi.LockStore} mandates for lease-correctness. Orphan detection is inherently
+   * approximate (heartbeats are coalesced, recovery rounds are spaced, late lease-expiry produces
+   * the same outcome as early reset), so client-side clock use is intentional here. Implementations
+   * that need stricter server-clock semantics should override this default and re-derive the cutoff
+   * from {@link NodeStore#getDatabaseTime()}.
+   *
+   * @param cutoff orphan-detection cutoff; jobs whose claim timestamp is strictly before this
+   *     instant are eligible for reset. Never {@code null}.
+   * @return number of rows reset to PENDING
    */
   default int resetOrphanJobsBefore(Instant cutoff) {
     Duration grace = Duration.between(cutoff, Instant.now());

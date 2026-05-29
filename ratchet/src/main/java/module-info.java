@@ -19,7 +19,9 @@ module run.ratchet.ri {
       run.ratchet.ri.cdi.RecurringMethodDiscoveryExtension;
 
   opens run.ratchet.ri.cdi;
+  opens run.ratchet.ri.cdi.internal;
   opens run.ratchet.ri.core;
+  opens run.ratchet.ri.core.internal;
   opens run.ratchet.ri.payload;
   opens run.ratchet.ri.resilience;
   opens run.ratchet.ri.security;

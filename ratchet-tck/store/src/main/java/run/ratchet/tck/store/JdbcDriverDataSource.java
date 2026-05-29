@@ -11,6 +11,12 @@ import javax.sql.DataSource;
  * Pool-less {@link DataSource} that delegates every {@code getConnection} call to {@link
  * DriverManager}. Intended for tests and low-frequency tooling (schema migration, conformance
  * fixtures); never use in production paths.
+ *
+ * @apiNote <b>Internal.</b> This is a test-fixture helper consumed only by the SQL store modules'
+ *     own {@code *SchemaMigratorIT} suites; not part of any public conformance contract. It is
+ *     published as public solely so cross-module test sources can instantiate it. External
+ *     consumers MUST NOT depend on it; the constructor signature and lifecycle may change between
+ *     releases without notice.
  */
 public final class JdbcDriverDataSource implements DataSource {
 

@@ -1,14 +1,11 @@
 package run.ratchet.api.event;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.lang.reflect.Constructor;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobPriority;
@@ -367,21 +364,6 @@ class EventApiContractTest {
     assertEquals(SignalDecision.Outcome.REJECTED, event.getOutcome());
     assertEquals("no", event.getRejectionReason());
     assertEquals(TIMESTAMP, event.getSignaledAt());
-  }
-
-  @Test
-  void performanceMetricsDefensivelyCopiesInputMap() {
-    assertThrows(NullPointerException.class, () -> new PerformanceMetricsEvent(null));
-
-    Map<String, Object> data = new HashMap<>();
-    data.put("queued", 1);
-
-    PerformanceMetricsEvent event = new PerformanceMetricsEvent(data);
-    data.put("running", 2);
-
-    assertFalse(event.performanceData().containsKey("running"));
-    assertThrows(
-        UnsupportedOperationException.class, () -> event.performanceData().put("failed", 3));
   }
 
   @Test

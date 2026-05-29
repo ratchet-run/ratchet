@@ -15,6 +15,9 @@ public interface ResourcePermitStore {
    * one active transaction so the capacity check and permit insert observe the same locked resource
    * row.
    *
+   * @param resource configured resource name to acquire against; never {@code null}
+   * @param jobId job id the permit is being acquired for; never {@code null}
+   * @param nodeId stable identity of the acquiring node; never {@code null} or blank
    * @return {@code true} when a permit was acquired, {@code false} when the resource exists but is
    *     already at capacity
    * @throws IllegalArgumentException when {@code resource} has not been configured
@@ -25,6 +28,8 @@ public interface ResourcePermitStore {
   /**
    * Releases one permit. Missing permits are a no-op.
    *
+   * @param resource configured resource name to release against; never {@code null}
+   * @param jobId job id that owns the permit; never {@code null}
    * @throws run.ratchet.api.exception.RatchetTransientStoreException if the backing store cannot
    *     complete the release
    *     <p>Transaction attribute: {@code REQUIRED}.
@@ -34,6 +39,7 @@ public interface ResourcePermitStore {
   /**
    * Releases all permits for one job. Unknown jobs are a no-op.
    *
+   * @param jobId job id whose permits should be released; never {@code null}
    * @throws run.ratchet.api.exception.RatchetTransientStoreException if the backing store cannot
    *     complete the release
    *     <p>Transaction attribute: {@code REQUIRED}.
@@ -43,14 +49,29 @@ public interface ResourcePermitStore {
   /**
    * Reads the retry delay for a resource.
    *
+   * @param resource configured resource name to query
    * @return the configured delay, or the store default delay when {@code resource} is unknown
    *     <p>Transaction attribute: {@code SUPPORTS}.
    */
   int getPermitRetryDelay(String resource);
 
-  /** Creates or updates a resource limit. Transaction attribute: {@code REQUIRED}. */
+  /**
+   * Creates or updates a resource limit. Transaction attribute: {@code REQUIRED}.
+   *
+   * @param name resource name (primary key); never {@code null} or blank
+   * @param maxConcurrent maximum concurrent permits allowed for the resource; must be positive
+   * @param retryDelayMs delay in milliseconds before a caller may retry after a permit miss; must
+   *     be non-negative
+   * @param description free-form description for operator dashboards, or {@code null} to omit
+   */
   void configureResource(String name, int maxConcurrent, int retryDelayMs, String description);
 
-  /** Cleans permits owned by stale nodes. Transaction attribute: {@code REQUIRED}. */
+  /**
+   * Cleans permits owned by stale nodes. Transaction attribute: {@code REQUIRED}.
+   *
+   * @param staleNodeIds node ids whose permits should be released; never {@code null}, may be empty
+   *     (no-op when empty)
+   * @return number of permit rows released
+   */
   int cleanupOrphanedPermits(List<String> staleNodeIds);
 }

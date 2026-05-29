@@ -24,6 +24,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.exception.JobAuthorizationException;
+import run.ratchet.ri.core.internal.InternalEventPublisher;
+import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobInvocationResolver;

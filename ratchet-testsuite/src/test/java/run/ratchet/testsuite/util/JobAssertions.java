@@ -102,7 +102,7 @@ public final class JobAssertions {
           .pollInterval(POLL_INTERVAL)
           .untilAsserted(
               () -> {
-                var dependants = store.findDependants(parentId);
+                var dependants = store.findDependants(parentId, JobCrudStore.DEFAULT_PAGE_LIMIT, 0);
                 if (dependants.isEmpty()) {
                   throw new AssertionError(
                       "Expected dependant for step " + step + " (job " + parentId + ") not found");
@@ -114,7 +114,7 @@ public final class JobAssertions {
                 }
               });
 
-      var dependants = store.findDependants(currentId);
+      var dependants = store.findDependants(currentId, JobCrudStore.DEFAULT_PAGE_LIMIT, 0);
       assertNotNull(dependants);
       assertEquals(1, dependants.size(), "Expected exactly one dependant at step " + stepsVerified);
       currentId = dependants.get(0).getId();

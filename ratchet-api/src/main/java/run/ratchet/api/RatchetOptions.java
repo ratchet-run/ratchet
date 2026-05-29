@@ -259,6 +259,22 @@ public class RatchetOptions {
     DISABLE
   }
 
+  /**
+   * Poller cadence and claim-loop tuning.
+   *
+   * @param batchSize maximum number of jobs claimed per poller tick
+   * @param burstDelayMs delay in milliseconds between consecutive ticks while work was available on
+   *     the previous tick
+   * @param minDelayMs minimum idle delay in milliseconds applied by the backoff scheduler
+   * @param maxDelayMs maximum idle delay in milliseconds applied by the backoff scheduler; must be
+   *     {@code >= minDelayMs}
+   * @param deepIdleDelayMs delay in milliseconds applied once the deep-idle threshold is reached
+   * @param deepIdleThresholdMs idle duration in milliseconds after which {@code deepIdleDelayMs}
+   *     replaces the normal backoff
+   * @param idleThreshold number of consecutive empty ticks before backoff begins ramping
+   * @param claimHeadroomFactor headroom multiplier applied to free-slot calculations; {@code 0}
+   *     disables the headroom adjustment
+   */
   public record PollingOptions(
       int batchSize,
       long burstDelayMs,
@@ -269,6 +285,23 @@ public class RatchetOptions {
       int idleThreshold,
       int claimHeadroomFactor) {}
 
+  /**
+   * Execution-pool wiring: target executor JNDI names, queue size, and per-execution-type
+   * concurrency / virtual-thread / rate caps.
+   *
+   * @param useVirtualThreads {@code true} to request virtual-thread execution where supported by
+   *     the chosen executor (the container ultimately decides)
+   * @param queueSize bounded queue length used by the in-process fallback executor
+   * @param maxConcurrency map of execution-type name to maximum concurrent executions; missing keys
+   *     fall back to the per-type defaults
+   * @param virtualThreadLimits map of execution-type name to virtual-thread cap; missing keys mean
+   *     no virtual-thread cap is applied
+   * @param rateLimitsPerMinute map of execution-type name to per-minute rate limit; missing keys
+   *     mean no rate limit is applied
+   * @param jobExecutorJndi JNDI name of the {@code ManagedExecutorService} that runs jobs
+   * @param scheduledExecutorJndi JNDI name of the {@code ManagedScheduledExecutorService} used for
+   *     scheduled work
+   */
   public record ExecutionOptions(
       boolean useVirtualThreads,
       int queueSize,
@@ -299,6 +332,20 @@ public class RatchetOptions {
     }
   }
 
+  /**
+   * Node identity, heartbeat cadence, and tag-affinity selection for this scheduler instance.
+   *
+   * @param nodeId explicit node id; when {@code null} or blank an id is generated at startup
+   * @param heartbeatIntervalSeconds interval at which the node reports liveness to the store
+   * @param orphanGraceSeconds grace period in seconds before a missed-heartbeat node is considered
+   *     dead and its in-flight jobs become eligible for reclaim
+   * @param orphanScanIntervalMinutes interval in minutes between orphan-reclaim scans
+   * @param dynamicHeartbeatEnabled {@code true} to allow the heartbeat interval to adapt to
+   *     observed cluster activity
+   * @param requireTags job tags that must be present on the node for a job to be claimed here;
+   *     empty list disables the require-list constraint
+   * @param excludeTags job tags that, when present on a job, exclude that job from this node
+   */
   public record NodeOptions(
       String nodeId,
       long heartbeatIntervalSeconds,
@@ -322,6 +369,18 @@ public class RatchetOptions {
     }
   }
 
+  /**
+   * Tuning for the recurring-job materializer.
+   *
+   * @param batchLimit maximum number of recurring jobs materialized per scheduler tick
+   * @param pollMs nominal poll interval in milliseconds between materialization runs
+   * @param maxPollMs maximum poll interval in milliseconds when no recurring work is due; must be
+   *     {@code >= pollMs}
+   * @param startupGraceSeconds delay in seconds before the materializer begins its first run after
+   *     startup, giving the cluster time to converge on recurring registrations
+   * @param convergenceWindowSeconds rolling window in seconds during which competing recurring
+   *     registrations are reconciled; {@code 0} disables convergence reconciliation
+   */
   public record RecurringOptions(
       int batchLimit,
       long pollMs,
@@ -329,11 +388,39 @@ public class RatchetOptions {
       long startupGraceSeconds,
       long convergenceWindowSeconds) {}
 
+  /**
+   * Tuning for the in-memory retry buffer that batches failed-job retry inserts.
+   *
+   * @param drainIntervalMs interval in milliseconds between buffer drains to the store
+   */
   public record RetryBufferOptions(long drainIntervalMs) {}
 
+  /**
+   * Job-execution timeout tuning.
+   *
+   * @param softTimeoutPercent percentage (1..99) of the configured SLA at which a soft-timeout
+   *     warning is emitted
+   * @param defaultSlaSeconds default execution SLA in seconds applied to jobs that do not declare
+   *     their own
+   * @param signalTimeoutBatchSize maximum number of WAITING jobs scanned per signal-timeout tick
+   */
   public record TimeoutOptions(
       int softTimeoutPercent, long defaultSlaSeconds, int signalTimeoutBatchSize) {}
 
+  /**
+   * Background-maintenance schedules: DLQ purge, job archive, log purge.
+   *
+   * @param dlqPurgeEnabled {@code true} to run the DLQ purge job
+   * @param dlqPurgeCron cron expression controlling the DLQ purge cadence
+   * @param dlqPurgeDays age in days at which DLQ entries become eligible for purge
+   * @param jobArchiveEnabled {@code true} to run the job-archive job
+   * @param jobArchiveCron cron expression controlling the job-archive cadence
+   * @param jobRetentionDays age in days at which terminal jobs become eligible for archive
+   * @param jobArchiveBatchSize maximum number of jobs archived per archive pass
+   * @param logPurgeEnabled {@code true} to run the execution-log purge job
+   * @param logPurgeCron cron expression controlling the log-purge cadence
+   * @param logRetentionDays age in days at which execution-log rows become eligible for purge
+   */
   public record MaintenanceOptions(
       boolean dlqPurgeEnabled,
       String dlqPurgeCron,
@@ -346,21 +433,74 @@ public class RatchetOptions {
       String logPurgeCron,
       long logRetentionDays) {}
 
+  /**
+   * Notification-channel routing for DLQ and timeout alerts. Channel strings are interpreted by the
+   * application's notification adapter (Slack-style channels are the convention).
+   *
+   * @param enabled {@code true} to publish notifications at all
+   * @param dlqAlertChannel channel identifier for DLQ alerts
+   * @param timeoutAlertChannel channel identifier for timeout alerts
+   */
   public record NotificationOptions(
       boolean enabled, String dlqAlertChannel, String timeoutAlertChannel) {}
 
+  /**
+   * Schema-migration configuration for SQL stores. See {@code SchemaMigrator} for behavior; this
+   * record controls whether migration runs and where the dialect-specific scripts are loaded from.
+   *
+   * @param autoMigrate {@code true} to run the migrator from the schema-migration lifecycle hook
+   * @param migrationDialect explicit dialect identifier (for example {@code mysql} or {@code
+   *     postgresql}); empty string asks the store to autodetect
+   * @param migrationPrefix classpath prefix under which dialect-specific migration scripts are
+   *     resolved
+   */
   public record SchemaOptions(
       boolean autoMigrate, String migrationDialect, String migrationPrefix) {}
 
+  /**
+   * Limits on job payload and persisted result sizes.
+   *
+   * @param maxPayloadKb maximum job payload size in kilobytes
+   * @param maxResultBytes maximum persisted job-result size in bytes
+   */
   public record PayloadOptions(int maxPayloadKb, long maxResultBytes) {}
 
+  /**
+   * Metrics emission configuration.
+   *
+   * @param clustering clustering-strategy identifier passed to the metrics collector (for example
+   *     {@code none}); values are lowercased
+   */
   public record MetricsOptions(String clustering) {}
 
+  /**
+   * Security toggles for the scheduler runtime.
+   *
+   * @param allowEmptyClassPolicy {@code true} to permit running without a configured {@code
+   *     ClassPolicy}; {@code false} (default) fails fast at startup when no policy is bound
+   * @param redactEmails {@code true} to redact email-shaped strings from observability output
+   */
   public record SecurityOptions(boolean allowEmptyClassPolicy, boolean redactEmails) {}
 
+  /**
+   * Store-layer tuning.
+   *
+   * @param isolationCheckMode action taken when the configured transaction isolation level differs
+   *     from the store's recommended level
+   * @param priorityBoostIntervalMinutes interval in minutes at which long-waiting pending jobs are
+   *     promoted to a higher effective priority; {@code 0} disables the boost
+   */
   public record StoreOptions(
       IsolationCheckMode isolationCheckMode, int priorityBoostIntervalMinutes) {}
 
+  /**
+   * Circuit-breaker configuration container; holds the per-profile thresholds keyed by {@link
+   * CircuitBreakerProfile}.
+   *
+   * @param enabled {@code true} to enable circuit-breaker enforcement; when {@code false} all calls
+   *     pass through unmonitored
+   * @param profiles per-profile thresholds; defensively copied at construction
+   */
   @Incubating
   public record CircuitBreakerOptions(
       boolean enabled, Map<CircuitBreakerProfile, CircuitBreakerProfileOptions> profiles) {
@@ -380,6 +520,18 @@ public class RatchetOptions {
     }
   }
 
+  /**
+   * Thresholds for a single circuit-breaker profile.
+   *
+   * @param failureRateThreshold failure-rate percentage (0.0..100.0) at which the breaker
+   *     transitions from CLOSED to OPEN
+   * @param slidingWindowSize size of the sliding window used to compute the failure rate
+   * @param waitDurationMs duration in milliseconds the breaker stays OPEN before transitioning to
+   *     HALF_OPEN
+   * @param permittedCallsInHalfOpen number of trial calls allowed while in HALF_OPEN
+   * @param minimumCalls minimum number of recorded calls required before the failure rate is
+   *     evaluated
+   */
   @Incubating
   public record CircuitBreakerProfileOptions(
       float failureRateThreshold,

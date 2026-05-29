@@ -28,6 +28,13 @@ public final class MicrometerMetricTagPolicy {
     this.allowedValues = Map.copyOf(copy);
   }
 
+  /**
+   * Returns the framework-shipped baseline allowlist. Covers every tag value the bundled {@link
+   * MicrometerMetricsCollector} emits internally; deployments that need additional values compose
+   * against this via {@link #and(MicrometerMetricTagPolicy)}.
+   *
+   * @return a freshly built immutable policy containing the framework defaults; never {@code null}
+   */
   public static MicrometerMetricTagPolicy defaultPolicy() {
     return builder()
         .allowValues(
@@ -63,10 +70,24 @@ public final class MicrometerMetricTagPolicy {
         .build();
   }
 
+  /**
+   * Starts a fresh {@link Builder} with no pre-allowed values. Use {@link #defaultPolicy()} when
+   * the framework defaults should be retained.
+   *
+   * @return a new empty builder; never {@code null}
+   */
   public static Builder builder() {
     return new Builder();
   }
 
+  /**
+   * Returns a new policy whose allowlist is the union of this policy's values and {@code
+   * additionalPolicy}'s values, tag-by-tag.
+   *
+   * @param additionalPolicy policy whose entries are merged into this one; must not be {@code null}
+   * @return a freshly built immutable composite policy; never {@code null}
+   * @throws NullPointerException if {@code additionalPolicy} is {@code null}
+   */
   public MicrometerMetricTagPolicy and(MicrometerMetricTagPolicy additionalPolicy) {
     Objects.requireNonNull(additionalPolicy, "additionalPolicy must not be null");
     Map<String, Set<String>> merged = new HashMap<>();
@@ -76,6 +97,16 @@ public final class MicrometerMetricTagPolicy {
     return new MicrometerMetricTagPolicy(merged);
   }
 
+  /**
+   * Resolves a raw tag value into the value that should actually be emitted on the meter.
+   *
+   * @param tagName Micrometer tag name (case-insensitive); must not be {@code null}
+   * @param rawValue raw tag value supplied by the caller; {@code null} or blank values resolve to
+   *     {@link #UNKNOWN}
+   * @return {@code rawValue} when the tag's allowlist contains it; {@link #UNKNOWN} when {@code
+   *     rawValue} is {@code null} or blank; {@link #OTHER} for any other unrecognised value
+   * @throws NullPointerException if {@code tagName} is {@code null}
+   */
   public String metricTagValue(String tagName, String rawValue) {
     if (rawValue == null || rawValue.isBlank()) {
       return UNKNOWN;
@@ -98,14 +129,38 @@ public final class MicrometerMetricTagPolicy {
 
     private Builder() {}
 
+    /**
+     * Allows a single value for the given tag.
+     *
+     * @param tagName tag name (case-insensitive); must not be {@code null}
+     * @param value allowed value; must not be {@code null} or blank
+     * @return this builder
+     * @throws IllegalArgumentException if {@code value} is {@code null} or blank
+     */
     public Builder allowValue(String tagName, String value) {
       return allowValues(tagName, Set.of(value));
     }
 
+    /**
+     * Allows the supplied values for the given tag.
+     *
+     * @param tagName tag name (case-insensitive); must not be {@code null}
+     * @param values allowed values; none may be {@code null} or blank
+     * @return this builder
+     * @throws IllegalArgumentException if any value is {@code null} or blank
+     */
     public Builder allowValues(String tagName, String... values) {
       return allowValues(tagName, Set.of(values));
     }
 
+    /**
+     * Allows the supplied values for the given tag.
+     *
+     * @param tagName tag name (case-insensitive); must not be {@code null}
+     * @param values allowed values; none may be {@code null} or blank
+     * @return this builder
+     * @throws IllegalArgumentException if any value is {@code null} or blank
+     */
     public Builder allowValues(String tagName, Collection<String> values) {
       String normalizedTag = normalizeTagName(tagName);
       Set<String> tagValues =
@@ -119,6 +174,11 @@ public final class MicrometerMetricTagPolicy {
       return this;
     }
 
+    /**
+     * Materialises the configured allowlist into a freshly built immutable policy.
+     *
+     * @return a new immutable policy reflecting the builder's current state; never {@code null}
+     */
     public MicrometerMetricTagPolicy build() {
       return new MicrometerMetricTagPolicy(allowedValues);
     }

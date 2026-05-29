@@ -8,6 +8,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import run.ratchet.store.entity.JobExecutionEntity;
+import run.ratchet.store.spi.ExecutionStore;
 
 /** Base contract tests for {@code ExecutionStore}. */
 public abstract class AbstractExecutionStoreContract implements JobStoreContractFixture {
@@ -25,7 +26,8 @@ public abstract class AbstractExecutionStoreContract implements JobStoreContract
     var exec = JobExecutionEntity.start(job.getId(), 1, "node-1");
     store().saveExecution(exec);
 
-    var executions = store().findExecutionsByJobId(job.getId());
+    var executions =
+        store().findExecutionsByJobId(job.getId(), ExecutionStore.DEFAULT_PAGE_LIMIT, 0);
 
     assertEquals(1, executions.size(), "findExecutionsByJobId should return the saved execution");
     assertEquals(job.getId(), executions.get(0).getJobId());
@@ -87,7 +89,10 @@ public abstract class AbstractExecutionStoreContract implements JobStoreContract
 
   @Test
   void findExecutionsByJobId_unknownJob_returnsEmpty() {
-    var executions = store().findExecutionsByJobId(new UUID(0L, Long.MAX_VALUE));
+    var executions =
+        store()
+            .findExecutionsByJobId(
+                new UUID(0L, Long.MAX_VALUE), ExecutionStore.DEFAULT_PAGE_LIMIT, 0);
 
     assertTrue(executions.isEmpty(), "findExecutionsByJobId for unknown job should return empty");
   }
@@ -118,8 +123,12 @@ public abstract class AbstractExecutionStoreContract implements JobStoreContract
     store().saveExecution(JobExecutionEntity.start(jobB.getId(), 1, "node-1"));
 
     assertEquals(
-        2, store().findExecutionsByJobId(jobA.getId()).size(), "Job A should have 2 executions");
+        2,
+        store().findExecutionsByJobId(jobA.getId(), ExecutionStore.DEFAULT_PAGE_LIMIT, 0).size(),
+        "Job A should have 2 executions");
     assertEquals(
-        1, store().findExecutionsByJobId(jobB.getId()).size(), "Job B should have 1 execution");
+        1,
+        store().findExecutionsByJobId(jobB.getId(), ExecutionStore.DEFAULT_PAGE_LIMIT, 0).size(),
+        "Job B should have 1 execution");
   }
 }

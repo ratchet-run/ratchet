@@ -32,6 +32,11 @@ module run.ratchet.api {
   exports run.ratchet.api;
   exports run.ratchet.api.event;
   exports run.ratchet.api.exception;
+  // run.ratchet.api.internal is framework-internal. The qualified export limits visibility to
+  // the Ratchet reference implementation, which needs to read JobBuilder state and bootstrap
+  // the typed configuration chain. Applications must not depend on these types.
+  exports run.ratchet.api.internal to
+      run.ratchet.ri;
   // run.ratchet.spi is open to all module-path consumers. Every type in this package carries
   // @Incubating, which is the stability contract — method signatures and contracts may change
   // between minor releases without a semver major bump. The qualified allowlist was removed

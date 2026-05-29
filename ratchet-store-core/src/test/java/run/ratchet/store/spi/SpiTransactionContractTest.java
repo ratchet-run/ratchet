@@ -17,7 +17,7 @@ class SpiTransactionContractTest {
     assertDocumentsTransactionAttribute("BatchMetricsStore.java");
     assertDocumentsTransactionAttribute("BatchStore.java");
     assertDocumentsTransactionAttribute("DlqAlertStore.java");
-    assertDocumentsTransactionAttributes("ExecutionStore.java", 5);
+    assertDocumentsTransactionAttributes("ExecutionStore.java", 4);
     assertDocumentsTransactionAttribute("JobBatchStatusStore.java");
     assertDocumentsTransactionAttribute("JobBulkStore.java");
     assertDocumentsTransactionAttribute("JobClaimStore.java");

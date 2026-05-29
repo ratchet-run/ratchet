@@ -43,7 +43,13 @@ import java.util.UUID;
  * @param sortField field used for result ordering; defaults to {@link JobQuerySortField#CREATED_AT}
  * @param sortAscending true for ascending order, false for descending order
  * @param skipCount true to skip the total-count query and return {@code -1} as total count
- * @param includeArchived true to include archived jobs when the backing store supports archives
+ * @param includeArchived true to include archived jobs when the backing store supports archives.
+ *     Stores silently skip the archive branch when {@code callerPrincipal} is non-null, because
+ *     archive tables typically do not carry the {@code caller_principal} column needed for
+ *     principal-scoped filtering. A caller that needs both principal-scoping AND archive results
+ *     must resolve this at the {@link run.ratchet.spi.JobAuthorizationPolicy#filterForPrincipal}
+ *     layer (for example by widening the policy to omit the principal filter when archive
+ *     visibility is required, or by running two queries).
  * @param cursor opaque keyset-pagination cursor, or null to use offset-based pagination
  * @since 0.1
  */

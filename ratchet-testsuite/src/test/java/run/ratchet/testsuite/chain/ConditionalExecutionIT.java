@@ -142,7 +142,7 @@ class ConditionalExecutionIT extends BaseRatchetIT {
   }
 
   private JobEntity onlyDependant(JobHandle handle) {
-    var dependants = jobCrudStore.findDependants(handle.id());
+    var dependants = jobCrudStore.findDependants(handle.id(), JobCrudStore.DEFAULT_PAGE_LIMIT, 0);
     assertEquals(1, dependants.size(), "Expected exactly one conditional branch child");
     return dependants.get(0);
   }

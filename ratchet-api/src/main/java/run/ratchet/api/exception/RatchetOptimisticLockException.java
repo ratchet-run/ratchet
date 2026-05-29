@@ -2,7 +2,23 @@ package run.ratchet.api.exception;
 
 import java.io.Serial;
 
-/** Thrown on concurrent version mismatch. Not a PersistenceException to avoid JTA auto-rollback. */
+/**
+ * Thrown on concurrent version mismatch (optimistic-lock conflict) detected by a {@code JobStore}
+ * mutation. Typical sources are claim, status-transition, heartbeat, and update-attempts operations
+ * that compare the stored row version against the value held by the caller.
+ *
+ * <p>This is intentionally a {@link RuntimeException} rather than a {@link
+ * jakarta.persistence.PersistenceException} so that it does NOT mark the surrounding JTA
+ * transaction for rollback. Callers may inspect the error and react without losing other work in
+ * the same transaction.
+ *
+ * <p>Distinct from {@link RatchetTransientStoreException}: a transient store failure is a retry-
+ * worthy infrastructure error (connection blip, deadlock loser) where the same logical operation is
+ * expected to succeed on retry. An optimistic-lock conflict means another actor changed the row;
+ * the correct response is usually to re-read the current state and decide whether to retry, skip,
+ * or surface the conflict. Internal RI code only retries an optimistic-lock failure on
+ * non-state-changing paths (such as the heartbeat refresh).
+ */
 public class RatchetOptimisticLockException extends RuntimeException {
 
   @Serial private static final long serialVersionUID = 1L;

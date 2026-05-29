@@ -13,19 +13,34 @@ public interface JobClaimStore {
 
   /**
    * Claims due one-shot jobs with SKIP LOCKED semantics. Transaction attribute: {@code REQUIRED}.
+   *
+   * @param limit maximum number of jobs to claim in this batch; must be positive
+   * @param nodeId stable identity of the claiming node; never {@code null} or blank
+   * @param tagFilter node-tag affinity filter to apply during claim; never {@code null} (use {@link
+   *     NodeTagFilter#NONE} to disable filtering)
+   * @return claimed job entities, never {@code null}; may be empty when nothing is due
    */
   List<JobEntity> claimNextBatch(int limit, String nodeId, NodeTagFilter tagFilter);
 
   /**
    * Claims due jobs and returns lightweight claim rows. Transaction attribute: {@code REQUIRED}.
+   *
+   * @param jobType internal execution type to restrict the claim to; never {@code null}
+   * @param limit maximum number of jobs to claim in this batch; must be positive
+   * @param nodeId stable identity of the claiming node; never {@code null} or blank
+   * @param tagFilter node-tag affinity filter to apply during claim; never {@code null} (use {@link
+   *     NodeTagFilter#NONE} to disable filtering)
+   * @return claim DTOs (metadata-only, no payload), never {@code null}; may be empty
    */
   List<JobClaimDto> claimNextBatchOptimized(
       JobExecutionType jobType, int limit, String nodeId, NodeTagFilter tagFilter);
 
+  /** Backward-compatible overload that disables tag-affinity filtering. */
   default List<JobEntity> claimNextBatch(int limit, String nodeId) {
     return claimNextBatch(limit, nodeId, NodeTagFilter.NONE);
   }
 
+  /** Backward-compatible overload that disables tag-affinity filtering. */
   default List<JobClaimDto> claimNextBatchOptimized(
       JobExecutionType jobType, int limit, String nodeId) {
     return claimNextBatchOptimized(jobType, limit, nodeId, NodeTagFilter.NONE);

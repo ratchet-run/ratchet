@@ -32,6 +32,8 @@ import run.ratchet.api.event.JobCancelledEvent;
 import run.ratchet.api.event.JobPausedEvent;
 import run.ratchet.api.event.JobResumedEvent;
 import run.ratchet.api.event.JobRetryingEvent;
+import run.ratchet.ri.core.internal.InternalEventPublisher;
+import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.spi.MetricsCollector;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;

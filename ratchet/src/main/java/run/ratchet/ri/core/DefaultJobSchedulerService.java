@@ -34,7 +34,9 @@ import run.ratchet.api.event.JobRetryingEvent;
 import run.ratchet.api.event.JobSignaledEvent;
 import run.ratchet.api.event.JobsBulkCancelledEvent;
 import run.ratchet.api.event.JobsBulkSignaledEvent;
-import run.ratchet.ri.payload.DefaultJobInvocationResolver;
+import run.ratchet.ri.core.internal.InternalEventPublisher;
+import run.ratchet.ri.core.internal.JobWakeupService;
+import run.ratchet.ri.core.internal.RecurringAnnotationMaintenanceService;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.spi.JobInvocationResolver;
@@ -59,7 +61,7 @@ import run.ratchet.store.spi.WorkflowConditionStore;
 public class DefaultJobSchedulerService
     implements JobSchedulerService, RecurringAnnotationMaintenanceService {
 
-  static final String SIGNAL_PAYLOAD_TYPE_DECISION = "DECISION";
+  public static final String SIGNAL_PAYLOAD_TYPE_DECISION = "DECISION";
   static final String SIGNAL_PAYLOAD_TYPE_RAW = "RAW";
   // Used when the caller principal can't be resolved (e.g. no Elytron context in tests).
   // JobSignaledEvent's contract requires non-null signalDeliveredBy.
@@ -111,51 +113,6 @@ public class DefaultJobSchedulerService
     this.payloadSerializer = null;
     this.metricsCollector = null;
     this.clock = null;
-  }
-
-  public DefaultJobSchedulerService(
-      InternalEventPublisher eventPublisher,
-      JobBatchStatusStore jobBatchStatusStore,
-      JobPauseStore jobPauseStore,
-      JobRetryStore jobRetryStore,
-      JobTerminalStore jobTerminalStore,
-      JobCrudStore jobCrudStore,
-      BatchStore batchStore,
-      TagStore tagStore,
-      WorkflowConditionStore workflowConditionStore,
-      RecurringJobStore recurringJobStore,
-      JobWakeupService wakeupService,
-      RecurringScheduler recurringScheduler) {
-    this(
-        eventPublisher,
-        jobBatchStatusStore,
-        jobPauseStore,
-        jobRetryStore,
-        jobTerminalStore,
-        jobCrudStore,
-        batchStore,
-        tagStore,
-        workflowConditionStore,
-        recurringJobStore,
-        wakeupService,
-        recurringScheduler,
-        new DefaultJobInvocationResolver(),
-        new DefaultJobCreationService(
-            jobBatchStatusStore,
-            jobTerminalStore,
-            jobCrudStore,
-            batchStore,
-            tagStore,
-            workflowConditionStore,
-            recurringJobStore,
-            wakeupService,
-            recurringScheduler),
-        null,
-        null,
-        null,
-        null,
-        null,
-        Clock.systemUTC());
   }
 
   public DefaultJobSchedulerService(

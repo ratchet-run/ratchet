@@ -16,6 +16,7 @@ import java.util.UUID;
 import org.jboss.logging.Logger;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.NodeTagFilter;
+import run.ratchet.ri.core.internal.RecurringRegistrationState;
 import run.ratchet.spi.NodeTagAffinityProvider;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
@@ -82,7 +83,7 @@ public class RecurringJobExecutor {
    *
    * <p>Runs with the class-level Jakarta Transactions {@code REQUIRED} behavior.
    */
-  int process(int batchLimit, String nodeId) {
+  public int process(int batchLimit, String nodeId) {
     NodeTagFilter tagFilter =
         tagAffinityProvider != null ? tagAffinityProvider.tagFilter() : NodeTagFilter.NONE;
     List<RecurringJobDefinition> masters =

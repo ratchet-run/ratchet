@@ -183,7 +183,7 @@ public abstract class AbstractSignalContractTest implements JobStoreContractFixt
     JobEntity expired = persist(newWaitingJob("expired-key", pastDeadline));
     persist(newWaitingJob("future-key", futureDeadline));
 
-    List<JobEntity> timedOut = store().findTimedOutSignalJobs(Instant.now());
+    List<JobEntity> timedOut = store().findTimedOutSignalJobs(Instant.now(), Integer.MAX_VALUE);
 
     assertTrue(
         timedOut.stream().anyMatch(j -> j.getId().equals(expired.getId())),
@@ -212,7 +212,7 @@ public abstract class AbstractSignalContractTest implements JobStoreContractFixt
     JobEntity saved = persist(expired);
 
     JobEntity timedOut =
-        store().findTimedOutSignalJobs(Instant.now()).stream()
+        store().findTimedOutSignalJobs(Instant.now(), Integer.MAX_VALUE).stream()
             .filter(j -> j.getId().equals(saved.getId()))
             .findFirst()
             .orElseThrow();
@@ -226,7 +226,7 @@ public abstract class AbstractSignalContractTest implements JobStoreContractFixt
     Instant futureDeadline = Instant.now().plusSeconds(3600);
     persist(newWaitingJob("future", futureDeadline));
 
-    List<JobEntity> timedOut = store().findTimedOutSignalJobs(Instant.now());
+    List<JobEntity> timedOut = store().findTimedOutSignalJobs(Instant.now(), Integer.MAX_VALUE);
 
     assertFalse(
         timedOut.stream().anyMatch(j -> "future".equals(j.getSignalKey())),
@@ -239,7 +239,7 @@ public abstract class AbstractSignalContractTest implements JobStoreContractFixt
     JobEntity job = persist(newWaitingJob("delivered", pastDeadline));
     deliverSignalById(job.getId(), null, null, Instant.now());
 
-    List<JobEntity> timedOut = store().findTimedOutSignalJobs(Instant.now());
+    List<JobEntity> timedOut = store().findTimedOutSignalJobs(Instant.now(), Integer.MAX_VALUE);
 
     assertFalse(
         timedOut.stream().anyMatch(j -> j.getId().equals(job.getId())),
@@ -260,6 +260,7 @@ public abstract class AbstractSignalContractTest implements JobStoreContractFixt
   @Test
   void compareAndSwapStatus_waitingToFailedSucceeds() {
     JobEntity job = persist(newWaitingJob("fail-waiting", Instant.now().plusSeconds(600)));
+    assertEquals(1, store().incrementRetryAttempt(job.getId()));
 
     boolean failed =
         store().compareAndSwapStatus(job.getId(), JobStatus.WAITING, JobStatus.FAILED, "timeout");
@@ -268,6 +269,7 @@ public abstract class AbstractSignalContractTest implements JobStoreContractFixt
     JobEntity reloaded = store().findById(job.getId()).orElseThrow();
     assertEquals(JobStatus.FAILED, reloaded.getStatus());
     assertEquals("timeout", reloaded.getLastError());
+    assertEquals(1, reloaded.getAttempts(), "Terminal row must preserve hot-row attempts");
   }
 
   private JobEntity newWaitingJob(String signalKey, Instant signalTimeout) {

@@ -39,7 +39,7 @@ public record SignalDecision(Outcome outcome, Serializable payload, String rejec
    * @param payload optional serializable payload exposed to the unblocked job
    * @return an approved signal decision with no rejection reason
    */
-  public static SignalDecision approved(Serializable payload) {
+  public static SignalDecision approved(@Nullable Serializable payload) {
     return new SignalDecision(Outcome.APPROVED, payload, null);
   }
 
@@ -52,7 +52,7 @@ public record SignalDecision(Outcome outcome, Serializable payload, String rejec
    * @return a rejected signal decision
    * @throws IllegalArgumentException if {@code rejectionReason} is null or blank
    */
-  public static SignalDecision rejected(Serializable payload, String rejectionReason) {
+  public static SignalDecision rejected(@Nullable Serializable payload, String rejectionReason) {
     return new SignalDecision(Outcome.REJECTED, payload, rejectionReason);
   }
 

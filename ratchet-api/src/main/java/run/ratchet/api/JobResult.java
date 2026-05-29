@@ -105,26 +105,57 @@ public class JobResult<T> implements Serializable {
     return safe;
   }
 
+  /**
+   * Returns the value returned by the job, if any.
+   *
+   * @return the returned value, or {@code null} for failures or void-returning jobs
+   */
   public T getValue() {
     return value;
   }
 
+  /**
+   * Returns the sanitized error message associated with a failure.
+   *
+   * @return the error message, or {@code null} when the result is a success
+   */
   public String getError() {
     return error;
   }
 
+  /**
+   * Returns the exception that caused the failure.
+   *
+   * @return the causing exception, or {@code null} when the result is a success or no exception was
+   *     captured
+   */
   public Throwable getException() {
     return exception;
   }
 
+  /**
+   * Returns the recorded execution duration in milliseconds.
+   *
+   * @return execution duration in milliseconds, or {@code null} when timing was not captured
+   */
   public Long getExecutionTimeMs() {
     return executionTimeMs;
   }
 
+  /**
+   * Returns the execution start time.
+   *
+   * @return start time, or {@code null} when timing was not captured
+   */
   public Instant getStartTime() {
     return startTime;
   }
 
+  /**
+   * Returns the execution end time.
+   *
+   * @return end time, or {@code null} when timing was not captured
+   */
   public Instant getEndTime() {
     return endTime;
   }
@@ -137,6 +168,13 @@ public class JobResult<T> implements Serializable {
     return metadata;
   }
 
+  /**
+   * Returns the recorded execution duration in milliseconds, or {@code 0L} when timing was not
+   * captured. Convenience wrapper around {@link #getExecutionTimeMs()} for callers that prefer a
+   * primitive value.
+   *
+   * @return execution duration in milliseconds, or {@code 0L} when no timing was recorded
+   */
   public long getExecutionTimeMsOrZero() {
     return executionTimeMs != null ? executionTimeMs : 0L;
   }
@@ -184,10 +222,20 @@ public class JobResult<T> implements Serializable {
     return value != null;
   }
 
+  /**
+   * Returns whether the job completed as a failure.
+   *
+   * @return {@code true} when the result represents a failure outcome
+   */
   public boolean isFailure() {
     return !success;
   }
 
+  /**
+   * Returns whether the job completed successfully.
+   *
+   * @return {@code true} when the result represents a successful outcome
+   */
   public boolean isSuccess() {
     return success;
   }

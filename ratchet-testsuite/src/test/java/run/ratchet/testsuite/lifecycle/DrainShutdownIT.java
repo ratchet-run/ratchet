@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobHandle;
 import run.ratchet.api.JobStatus;
 import run.ratchet.ri.core.DrainController;
-import run.ratchet.ri.core.Poller;
+import run.ratchet.ri.core.internal.Poller;
 import run.ratchet.store.spi.JobCrudStore;
 import run.ratchet.testsuite.app.SimpleJob;
 import run.ratchet.testsuite.app.TestJobService;

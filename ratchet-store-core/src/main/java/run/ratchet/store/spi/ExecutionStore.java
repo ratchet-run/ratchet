@@ -16,19 +16,6 @@ public interface ExecutionStore {
   JobExecutionEntity saveExecution(JobExecutionEntity execution);
 
   /**
-   * Returns the first page of execution records for a job, ordered by attempt ascending.
-   *
-   * <p>Transaction attribute: {@code SUPPORTS}.
-   *
-   * @deprecated use {@link #findExecutionsByJobId(UUID, int, int)} when callers need to walk more
-   *     than the default page.
-   */
-  @Deprecated(since = "0.1.0", forRemoval = false)
-  default List<JobExecutionEntity> findExecutionsByJobId(UUID jobId) {
-    return findExecutionsByJobId(jobId, DEFAULT_PAGE_LIMIT, 0);
-  }
-
-  /**
    * Returns a page of execution records for a job, ordered by attempt ascending.
    *
    * @param limit maximum number of rows to return; {@code 0} returns an empty page

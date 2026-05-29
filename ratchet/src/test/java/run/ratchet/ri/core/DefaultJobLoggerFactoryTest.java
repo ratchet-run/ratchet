@@ -12,6 +12,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
+import run.ratchet.ri.core.internal.InternalEventPublisher;
 import run.ratchet.spi.JobLoggerContext;
 
 @ExtendWith(MockitoExtension.class)

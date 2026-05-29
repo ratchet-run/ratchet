@@ -25,6 +25,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.RatchetOptions;
+import run.ratchet.ri.core.internal.RecurringRegistrationState;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobBulkStore;
 import run.ratchet.store.spi.RecurringJobDefinition;

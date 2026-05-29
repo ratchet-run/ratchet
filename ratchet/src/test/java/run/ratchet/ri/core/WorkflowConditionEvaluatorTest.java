@@ -21,8 +21,8 @@ import run.ratchet.api.JobResult;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.SerializablePredicate;
 import run.ratchet.api.WorkflowCondition;
-import run.ratchet.ri.cdi.JsonbPayloadSerializer;
 import run.ratchet.ri.payload.JobPayloadFactory;
+import run.ratchet.ri.testutil.JsonbTestPayloadSerializer;
 import run.ratchet.spi.BeanResolver;
 import run.ratchet.spi.ClassPolicy;
 import run.ratchet.spi.PayloadSerializer;
@@ -62,7 +62,7 @@ class WorkflowConditionEvaluatorTest {
   }
 
   private final ClassPolicy classPolicy = className -> true;
-  private final PayloadSerializer payloadSerializer = new JsonbPayloadSerializer();
+  private final PayloadSerializer payloadSerializer = new JsonbTestPayloadSerializer();
   @Mock private BatchStore batchStore;
   @Mock private BeanResolver beanResolver;
   private WorkflowConditionEvaluator evaluator;

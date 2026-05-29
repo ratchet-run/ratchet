@@ -53,7 +53,8 @@ public class OtelTracingCollector implements TracingCollector {
 
   private final OpenTelemetry openTelemetry;
 
-  protected OtelTracingCollector() {
+  /** CDI proxy constructor — package-private to keep it out of the public API surface. */
+  OtelTracingCollector() {
     this.openTelemetry = null;
   }
 
@@ -92,6 +93,26 @@ public class OtelTracingCollector implements TracingCollector {
   @Override
   public ExecutionScope jobExecutionStarted(
       UUID jobId, JobType type, JobPriority priority, Map<String, String> parentContextMap) {
+    return jobExecutionStarted(jobId, type, priority, parentContextMap, Map.of());
+  }
+
+  /**
+   * {@inheritDoc}
+   *
+   * <p>Entries in {@code attributes} are attached to the span as additional OTel attributes
+   * verbatim. The RI publishes scheduler-side metadata keys here — notably {@code ratchet.node}
+   * (originating node identity), {@code ratchet.tag.affinity} (worker-tag affinity match), and
+   * {@code ratchet.queue.depth} (queue depth at dispatch time). Unknown keys are passed through
+   * unchanged so the framework can extend the published metadata without requiring a collector
+   * change.
+   */
+  @Override
+  public ExecutionScope jobExecutionStarted(
+      UUID jobId,
+      JobType type,
+      JobPriority priority,
+      Map<String, String> parentContextMap,
+      Map<String, String> attributes) {
     if (openTelemetry == null) {
       return NoOpExecutionScope.INSTANCE;
     }
@@ -101,15 +122,18 @@ public class OtelTracingCollector implements TracingCollector {
             ? Context.current()
             : propagator.extract(Context.current(), parentContextMap, MapGetter.INSTANCE);
 
-    Span span =
+    var spanBuilder =
         openTelemetry
             .getTracer("ratchet")
             .spanBuilder("ratchet.job")
             .setParent(otelParent)
             .setAttribute("ratchet.job.id", jobId.toString())
             .setAttribute("ratchet.job.type", type.name())
-            .setAttribute("ratchet.job.priority", priority.name())
-            .startSpan();
+            .setAttribute("ratchet.job.priority", priority.name());
+    if (attributes != null) {
+      attributes.forEach(spanBuilder::setAttribute);
+    }
+    Span span = spanBuilder.startSpan();
 
     return new OtelExecutionScope(span, span.makeCurrent());
   }

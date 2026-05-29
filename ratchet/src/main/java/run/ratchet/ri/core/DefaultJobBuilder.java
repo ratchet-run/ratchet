@@ -22,9 +22,10 @@ import run.ratchet.api.SerializableFunction;
 import run.ratchet.api.SerializablePredicate;
 import run.ratchet.api.WorkflowBranch;
 import run.ratchet.api.WorkflowCondition;
+import run.ratchet.api.internal.JobBuilderState;
 
 /** Default {@link JobBuilder} implementation. */
-public final class DefaultJobBuilder implements JobBuilder {
+final class DefaultJobBuilder implements JobBuilder, JobBuilderState {
 
   private final JobSubmitter submitter;
   private final SerializableCheckedRunnable task;
@@ -53,7 +54,7 @@ public final class DefaultJobBuilder implements JobBuilder {
   }
 
   /** A UUID idempotency key is auto-generated at creation time. */
-  public static JobBuilder create(
+  static JobBuilder create(
       JobSubmitter submitter, SerializableCheckedRunnable task, Duration delay) {
     return new DefaultJobBuilder(submitter, task, delay);
   }

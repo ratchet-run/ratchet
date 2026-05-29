@@ -44,20 +44,20 @@ public interface JobBuilder {
    *
    * @param signalKey the named signal this job waits for; used for broadcast delivery
    * @param timeout maximum wait duration before the job fails; must be positive
+   * @return this builder
    * @throws IllegalArgumentException if {@code signalKey} is blank or {@code timeout} is null or
    *     non-positive
    */
   JobBuilder awaitSignal(String signalKey, Duration timeout);
 
-  /** Returns the signal key set via {@link #awaitSignal}, or null if not configured. */
-  String awaitSignalKey();
-
   /**
-   * Returns the signal timeout duration set via {@link #awaitSignal}, or null if not configured.
+   * Adds a workflow branch with a human-readable description for monitoring.
+   *
+   * @param condition predicate evaluated against the parent job result
+   * @param next task scheduled when {@code condition} is satisfied
+   * @param description human-readable label surfaced in monitoring views
+   * @return this builder
    */
-  Duration awaitSignalTimeout();
-
-  /** Adds a workflow branch with a human-readable description for monitoring. */
   @Incubating
   JobBuilder branch(
       WorkflowCondition condition, SerializableCheckedRunnable next, String description);
@@ -66,6 +66,8 @@ public interface JobBuilder {
    * Marks this job for immediate execution notification, bypassing the adaptive polling delay.
    *
    * <p>Jobs with CRITICAL priority or zero delay are treated as immediate automatically.
+   *
+   * @return this builder
    */
   JobBuilder immediate();
 
@@ -90,21 +92,45 @@ public interface JobBuilder {
    *
    * <p><b>Transaction attribute:</b> {@code REQUIRED}. Non-terminal builder methods are in-memory
    * only and do not participate in a transaction.
+   *
+   * @return a handle to the persisted job
    */
   JobHandle submit();
 
-  /** Appends a task to the execution chain. */
+  /**
+   * Appends a task to the execution chain.
+   *
+   * @param next the next task to run after this job's task completes successfully
+   * @return this builder
+   */
   JobBuilder then(SerializableCheckedRunnable next);
 
-  /** Schedules a separate job to run if this job fails. */
+  /**
+   * Schedules a separate job to run if this job fails.
+   *
+   * @param next the task to schedule on failure
+   * @return this builder
+   */
   @Incubating
   JobBuilder thenOnFailure(SerializableCheckedRunnable next);
 
-  /** Schedules a separate job to run if this job succeeds. */
+  /**
+   * Schedules a separate job to run if this job succeeds.
+   *
+   * @param next the task to schedule on success
+   * @return this builder
+   */
   @Incubating
   JobBuilder thenOnSuccess(SerializableCheckedRunnable next);
 
-  /** Schedules a job when a predicate on {@link JobResult} is true. */
+  /**
+   * Schedules a job when a predicate on {@link JobResult} is true.
+   *
+   * @param <T> the result type expected by {@code condition}
+   * @param condition predicate evaluated against the parent job result
+   * @param next task scheduled when {@code condition} is satisfied
+   * @return this builder
+   */
   @Incubating
   <T> JobBuilder when(
       SerializablePredicate<JobResult<T>> condition, SerializableCheckedRunnable next);
@@ -112,7 +138,11 @@ public interface JobBuilder {
   /**
    * Schedules a job when a predicate on {@link JobResult} is true.
    *
+   * @param <T> the result type expected by {@code condition}
+   * @param condition predicate evaluated against the parent job result
+   * @param next task scheduled when {@code condition} is satisfied
    * @param priority evaluation order when multiple conditions overlap (lower = first)
+   * @return this builder
    */
   @Incubating
   <T> JobBuilder when(
@@ -120,7 +150,14 @@ public interface JobBuilder {
       SerializableCheckedRunnable next,
       int priority);
 
-  /** Schedules a job based on the job's return value. */
+  /**
+   * Schedules a job based on the job's return value.
+   *
+   * @param <T> the return value type expected by {@code condition}
+   * @param condition predicate evaluated against the parent job's return value
+   * @param next task scheduled when {@code condition} returns {@code true}
+   * @return this builder
+   */
   @Incubating
   <T> JobBuilder whenResult(
       SerializableFunction<T, Boolean> condition, SerializableCheckedRunnable next);
@@ -128,7 +165,11 @@ public interface JobBuilder {
   /**
    * Schedules a job based on the job's return value.
    *
+   * @param <T> the return value type expected by {@code condition}
+   * @param condition predicate evaluated against the parent job's return value
+   * @param next task scheduled when {@code condition} returns {@code true}
    * @param priority evaluation order when multiple conditions overlap (lower = first)
+   * @return this builder
    */
   @Incubating
   <T> JobBuilder whenResult(
@@ -142,6 +183,7 @@ public interface JobBuilder {
    * {@link #withBusinessKey(String)}, once consumed this key is never reusable.
    *
    * @param key if null or blank, the auto-generated UUID is kept
+   * @return this builder
    */
   JobBuilder withIdempotencyKey(String key);
 
@@ -152,6 +194,7 @@ public interface JobBuilder {
    * only active (PENDING/RUNNING) jobs are blocked.
    *
    * @param key if null or blank, no concurrent execution blocking is performed
+   * @return this builder
    */
   JobBuilder withBusinessKey(String key);
 
@@ -159,72 +202,114 @@ public interface JobBuilder {
    * Acquires a permit from the named resource pool before execution; reschedules if at capacity.
    *
    * @param resourceName if null or blank, no resource limiting is applied
+   * @return this builder
    */
   JobBuilder withResource(String resourceName);
 
-  /** Sets the backoff policy and base delay for retries. */
+  /**
+   * Sets the backoff policy and base delay for retries.
+   *
+   * @param policy the backoff strategy applied between retry attempts
+   * @param param policy-specific base delay (e.g. initial delay for {@code EXPONENTIAL})
+   * @return this builder
+   */
   JobBuilder withBackoff(BackoffPolicy policy, Duration param);
 
-  /** Sets the maximum number of retry attempts (must be &gt;= 0). */
+  /**
+   * Sets the maximum number of retry attempts (must be &gt;= 0).
+   *
+   * @param retries the maximum number of retry attempts; {@code 0} disables retries
+   * @return this builder
+   */
   JobBuilder withMaxRetries(int retries);
 
-  /** Adds a string parameter accessible via {@link JobContext#param}. */
+  /**
+   * Adds a string parameter accessible via {@link JobContext#param}.
+   *
+   * @param key parameter name; ignored when null or blank
+   * @param value parameter value; ignored when null
+   * @return this builder
+   */
   JobBuilder withParam(String key, String value);
 
-  /** Sets the job execution priority. */
+  /**
+   * Sets the job execution priority.
+   *
+   * @param priority execution priority for this job
+   * @return this builder
+   */
   JobBuilder withPriority(JobPriority priority);
 
-  /** Adds tags to the job. Tags are trimmed and lowercased; null/blank values are ignored. */
+  /**
+   * Adds tags to the job. Tags are trimmed and lowercased; null/blank values are ignored.
+   *
+   * @param tags tags to associate with the job
+   * @return this builder
+   */
   JobBuilder withTags(String... tags);
 
-  /** Sets the maximum execution duration before the job is timed out and marked failed. */
+  /**
+   * Sets the maximum execution duration before the job is timed out and marked failed.
+   *
+   * @param timeout maximum execution duration; null clears the per-job timeout
+   * @return this builder
+   */
   JobBuilder withTimeout(Duration timeout);
 
-  /** Returns the chain tasks in addition order. The list is unmodifiable. */
-  List<SerializableCheckedRunnable> chainTasks();
-
   /**
-   * Returns the delay duration; never null (may be {@link Duration#ZERO}).
+   * Returns the success callback, or {@code null} if not configured.
    *
-   * <p>The delay is fixed when this builder is created by a {@link JobSubmitter} enqueue overload;
-   * this fluent builder does not expose a delay mutator.
+   * @return the configured success callback, or {@code null}
    */
-  Duration delay();
-
-  /**
-   * Returns the idempotency key; never null (auto-generated UUID if not overridden via {@link
-   * #withIdempotencyKey(String)}).
-   */
-  String idempotencyKey();
-
-  /** Returns the business key, or null if not configured. */
-  String businessKey();
-
-  /** Returns the failure callback, or null if not configured. */
-  SerializableBiConsumer<JobContext, Throwable> onFailure();
-
-  /** Returns the success callback, or null if not configured. */
   SerializableConsumer<JobContext> onSuccess();
 
-  /** Returns the immutable job options for this builder. */
+  /**
+   * Returns the immutable job options for this builder.
+   *
+   * @return the current immutable {@link JobOptions} snapshot
+   */
   JobOptions opts();
 
-  /** Returns the job parameters. The map is unmodifiable. */
+  /**
+   * Returns the job parameters. The map is unmodifiable.
+   *
+   * @return an unmodifiable view of the configured parameter map
+   */
   Map<String, String> params();
 
-  /** Returns the normalized job tags. The list is unmodifiable. */
+  /**
+   * Returns the normalized job tags. The list is unmodifiable.
+   *
+   * @return an unmodifiable view of the configured tags
+   */
   List<String> tags();
 
-  /** Returns the task payload configured for this builder. */
+  /**
+   * Returns the task payload configured for this builder.
+   *
+   * @return the configured task
+   */
   SerializableCheckedRunnable task();
 
-  /** Returns conditional workflow branches. The list is unmodifiable. */
+  /**
+   * Returns conditional workflow branches. The list is unmodifiable.
+   *
+   * @return an unmodifiable view of the configured workflow branches
+   */
   @Incubating
   List<WorkflowBranch> workflowBranches();
 
-  /** Returns the resource name, or null if no resource permit is required. */
+  /**
+   * Returns the resource name, or {@code null} if no resource permit is required.
+   *
+   * @return the configured resource name, or {@code null}
+   */
   String resourceName();
 
-  /** Returns true when this job should wake the poller immediately after persistence. */
+  /**
+   * Returns {@code true} when this job should wake the poller immediately after persistence.
+   *
+   * @return {@code true} when immediate poller wakeup is requested
+   */
   boolean isImmediate();
 }

@@ -21,6 +21,11 @@ import run.ratchet.spi.CircuitBreakerConfigProvider;
  * fails immediately with a {@link run.ratchet.api.exception.CircuitBreakerOpenException}.
  *
  * <p>Service name defaults to {@code ClassName.methodName} if not specified in the annotation.
+ *
+ * @apiNote Internal RI implementation. The class is public because the CDI interceptor SPI requires
+ *     it, but applications must not reference this type directly. Use {@link
+ *     CircuitBreakerProtected} to opt methods or classes into the interception. Not part of the
+ *     supported API surface.
  */
 @Interceptor
 @CircuitBreakerProtected

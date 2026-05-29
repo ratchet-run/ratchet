@@ -79,7 +79,8 @@ class LinearChainIT extends BaseRatchetIT {
         .pollInterval(Duration.ofMillis(500))
         .untilAsserted(
             () -> {
-              List<JobEntity> dependants = jobCrudStore.findDependants(handle.id());
+              List<JobEntity> dependants =
+                  jobCrudStore.findDependants(handle.id(), JobCrudStore.DEFAULT_PAGE_LIMIT, 0);
               assertEquals(1, dependants.size(), "First chain step should have one dependant");
               JobEntity stepB = dependants.get(0);
               assertEquals(JobStatus.FAILED, stepB.getStatus(), "Failing chain step should fail");
@@ -91,7 +92,9 @@ class LinearChainIT extends BaseRatchetIT {
         .pollInterval(Duration.ofMillis(500))
         .untilAsserted(
             () -> {
-              List<JobEntity> dependants = jobCrudStore.findDependants(failedStep.get().getId());
+              List<JobEntity> dependants =
+                  jobCrudStore.findDependants(
+                      failedStep.get().getId(), JobCrudStore.DEFAULT_PAGE_LIMIT, 0);
               assertEquals(1, dependants.size(), "Failed chain step should have one dependant");
               assertEquals(
                   JobStatus.CANCELED,

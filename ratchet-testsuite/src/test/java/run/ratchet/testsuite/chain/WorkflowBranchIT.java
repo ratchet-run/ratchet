@@ -106,7 +106,9 @@ class WorkflowBranchIT extends BaseRatchetIT {
         .atMost(BRANCH_TIMEOUT)
         .untilAsserted(
             () -> {
-              List<JobEntity> branches = jobCrudStore.findDependants(parentHandle.id());
+              List<JobEntity> branches =
+                  jobCrudStore.findDependants(
+                      parentHandle.id(), JobCrudStore.DEFAULT_PAGE_LIMIT, 0);
               JobEntity branch =
                   branches.stream()
                       .filter(job -> branchMethodName.equals(job.getMethodName()))
