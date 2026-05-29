@@ -62,6 +62,28 @@ class MongoJobStoreImpl implements MongoJobStore {
   private final MongoSignalOperations signals;
   private final MongoRecurringJobOperations recurringJobs;
 
+  /**
+   * Package-private no-arg constructor required for Weld client-proxy generation (CDI 4.0 §3.15).
+   * Without it, deploying the Mongo store as an {@code @ApplicationScoped} bean fails at bootstrap
+   * with WELD-001435. Not intended for direct use — application code calls the {@code @Inject}
+   * constructor.
+   */
+  MongoJobStoreImpl() {
+    this.database = null;
+    this.ctx = null;
+    this.tags = null;
+    this.crud = null;
+    this.batches = null;
+    this.claims = null;
+    this.lifecycle = null;
+    this.nodeLocks = null;
+    this.archives = null;
+    this.auxiliary = null;
+    this.query = null;
+    this.signals = null;
+    this.recurringJobs = null;
+  }
+
   MongoJobStoreImpl(MongoClient client, MongoDatabase database, RatchetOptions options) {
     this(client, database, options, MongoStoreContext.noopMetricsCollector());
   }
