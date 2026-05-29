@@ -202,10 +202,10 @@ public class MicrometerMetricsCollector implements MetricsCollector {
     }
     counter(
             "ratchet.execution.target.fallback",
-            "requested",
-            tag("requested", requested),
-            "effective",
-            tag("effective", effective))
+            "requested_target",
+            tag("requested_target", requested),
+            "effective_target",
+            tag("effective_target", effective))
         .increment();
   }
 
