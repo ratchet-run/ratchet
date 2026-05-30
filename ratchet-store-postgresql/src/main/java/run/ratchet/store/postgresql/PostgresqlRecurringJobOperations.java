@@ -9,15 +9,14 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.converter.JobPayloadConverter;
-import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.RecurringJobStore.ArchiveReason;
 import run.ratchet.store.util.JobClaimSqlSupport;
+import run.ratchet.store.util.RecurringJobRows;
 
 /**
  * PostgreSQL implementation of {@link RecurringJobStore} against the dedicated {@code
@@ -385,68 +384,6 @@ final class PostgresqlRecurringJobOperations implements RecurringJobStore {
   }
 
   private static RecurringJobDefinition hydrate(Object[] row) {
-    UUID id = toUuid(row[0]);
-    int priority = ((Number) row[1]).intValue();
-    int maxRetries = ((Number) row[2]).intValue();
-    BackoffPolicy backoffPolicy = BackoffPolicy.valueOf((String) row[3]);
-    int backoffParamMs = ((Number) row[4]).intValue();
-    int timeoutSec = ((Number) row[5]).intValue();
-    String cronExpr = (String) row[6];
-    String zoneId = (String) row[7];
-    Instant nextFire = toInstant(row[8]);
-    boolean isPaused = (Boolean) row[9];
-    Instant pausedAt = toInstant(row[10]);
-    JobPayload payload = PAYLOAD_CONVERTER.convertToEntityAttribute((String) row[11]);
-    JobPayload onSuccess = PAYLOAD_CONVERTER.convertToEntityAttribute((String) row[12]);
-    JobPayload onFailure = PAYLOAD_CONVERTER.convertToEntityAttribute((String) row[13]);
-    String businessKey = (String) row[14];
-    String resourceName = (String) row[15];
-    String executionTarget = (String) row[16];
-    Instant createdAt = toInstant(row[17]);
-    String callerPrincipal = (String) row[18];
-
-    return new RecurringJobDefinition(
-        id,
-        cronExpr,
-        zoneId,
-        nextFire,
-        isPaused,
-        pausedAt,
-        priority,
-        maxRetries,
-        backoffPolicy,
-        backoffParamMs,
-        timeoutSec,
-        payload,
-        onSuccess,
-        onFailure,
-        businessKey,
-        resourceName,
-        executionTarget,
-        createdAt,
-        callerPrincipal);
-  }
-
-  private static UUID toUuid(Object val) {
-    if (val == null) {
-      return null;
-    }
-    if (val instanceof UUID u) {
-      return u;
-    }
-    return UUID.fromString(val.toString());
-  }
-
-  private static Instant toInstant(Object val) {
-    if (val == null) {
-      return null;
-    }
-    if (val instanceof Timestamp ts) {
-      return ts.toInstant();
-    }
-    if (val instanceof Instant inst) {
-      return inst;
-    }
-    return null;
+    return RecurringJobRows.hydrate(row);
   }
 }

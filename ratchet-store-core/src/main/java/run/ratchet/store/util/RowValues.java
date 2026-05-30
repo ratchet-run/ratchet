@@ -1,5 +1,11 @@
 package run.ratchet.store.util;
 
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.util.Date;
 import java.util.UUID;
 import run.ratchet.api.JobPriority;
 
@@ -16,6 +22,51 @@ public final class RowValues {
 
   public static Long longOrNull(Object value) {
     return value == null ? null : ((Number) value).longValue();
+  }
+
+  /**
+   * Coerces a JDBC temporal column value to an {@link Instant}, accepting every type the supported
+   * drivers may return ({@link Instant}, {@link Timestamp}, {@link LocalDateTime}, {@link
+   * OffsetDateTime}, {@link Date}). {@code LocalDateTime} is interpreted as UTC. Returns {@code
+   * null} for {@code null} or an unrecognized type.
+   */
+  public static Instant instantOrNull(Object value) {
+    if (value == null) {
+      return null;
+    }
+    if (value instanceof Instant instant) {
+      return instant;
+    }
+    if (value instanceof Timestamp timestamp) {
+      return timestamp.toInstant();
+    }
+    if (value instanceof OffsetDateTime offsetDateTime) {
+      return offsetDateTime.toInstant();
+    }
+    if (value instanceof LocalDateTime localDateTime) {
+      return localDateTime.toInstant(ZoneOffset.UTC);
+    }
+    if (value instanceof Date date) {
+      return date.toInstant();
+    }
+    return null;
+  }
+
+  /**
+   * Coerces a JDBC boolean column value to a primitive boolean, accepting {@link Boolean}, numeric
+   * (non-zero is {@code true}), or string representations. Returns {@code false} for {@code null}.
+   */
+  public static boolean booleanOrFalse(Object value) {
+    if (value == null) {
+      return false;
+    }
+    if (value instanceof Boolean bool) {
+      return bool;
+    }
+    if (value instanceof Number number) {
+      return number.intValue() != 0;
+    }
+    return Boolean.parseBoolean(value.toString());
   }
 
   public static JobPriority safeJobPriority(int ordinal) {
