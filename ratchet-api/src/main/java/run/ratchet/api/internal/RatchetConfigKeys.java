@@ -202,6 +202,8 @@ public final class RatchetConfigKeys {
       boolKey("ratchet.allow-empty-class-policy", "RATCHET_ALLOW_EMPTY_CLASS_POLICY", false);
   public static final RatchetConfigKey<Boolean> REDACT_EMAILS =
       boolKey("ratchet.security.redact-emails", "RATCHET_REDACT_EMAILS", true);
+  public static final RatchetConfigKey<Boolean> MASK_PAYLOADS =
+      boolKey("ratchet.security.mask-payloads", "RATCHET_MASK_PAYLOADS", false);
   public static final RatchetConfigKey<RatchetOptions.IsolationCheckMode> ISOLATION_CHECK_MODE =
       new RatchetConfigKey<>(
           "ratchet.isolation-check",

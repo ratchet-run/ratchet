@@ -1,8 +1,10 @@
 package run.ratchet.ri.security;
 
 /**
- * Masks sensitive fields (passwords, tokens, PII) in job payload JSON before API/log exposure. The
- * original payload in the database is never modified.
+ * Public entry point for masking sensitive fields (passwords, tokens, PII) in job payload JSON
+ * before it is rendered into a log line or other output. Which fields are sensitive is decided by
+ * the active {@link run.ratchet.spi.PayloadMaskingPolicy}; deployers can override the default field
+ * set by producing their own policy. The original payload in the database is never modified.
  */
 public final class PayloadMasker {
 

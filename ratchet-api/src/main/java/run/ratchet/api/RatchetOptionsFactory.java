@@ -109,7 +109,8 @@ public final class RatchetOptionsFactory {
             security ->
                 security
                     .allowEmptyClassPolicy(config.get(RatchetConfigKeys.ALLOW_EMPTY_CLASS_POLICY))
-                    .redactEmails(config.get(RatchetConfigKeys.REDACT_EMAILS)))
+                    .redactEmails(config.get(RatchetConfigKeys.REDACT_EMAILS))
+                    .maskPayloads(config.get(RatchetConfigKeys.MASK_PAYLOADS)))
         .store(
             store ->
                 store

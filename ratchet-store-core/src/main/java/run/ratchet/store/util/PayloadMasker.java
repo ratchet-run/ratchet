@@ -8,49 +8,18 @@ import jakarta.json.JsonObjectBuilder;
 import jakarta.json.JsonReader;
 import jakarta.json.JsonValue;
 import java.io.StringReader;
-import java.util.Locale;
-import java.util.Set;
 import org.jboss.logging.Logger;
 import run.ratchet.store.converter.PayloadSerializerHolder;
 
-/** Utility for masking sensitive fields in serialized payload JSON. */
+/**
+ * Utility for masking sensitive fields in serialized payload JSON before it is rendered into a log
+ * line. Which fields count as sensitive is decided by the active {@link
+ * run.ratchet.spi.PayloadMaskingPolicy}, resolved through {@link PayloadMaskingPolicyHolder}.
+ */
 public final class PayloadMasker {
 
   private static final Logger log = Logger.getLogger(PayloadMasker.class);
   private static final String MASKED_VALUE = "***REDACTED***";
-
-  private static final Set<String> SENSITIVE_FIELDS =
-      Set.of(
-          "password",
-          "passwd",
-          "pwd",
-          "secret",
-          "token",
-          "apikey",
-          "api_key",
-          "apisecret",
-          "api_secret",
-          "accesskey",
-          "access_key",
-          "accesstoken",
-          "access_token",
-          "refreshtoken",
-          "refresh_token",
-          "auth",
-          "authorization",
-          "credential",
-          "credentials",
-          "privatekey",
-          "private_key",
-          "ssn",
-          "socialsecuritynumber",
-          "social_security_number",
-          "creditcard",
-          "credit_card",
-          "cardnumber",
-          "card_number",
-          "cvv",
-          "pin");
 
   private PayloadMasker() {}
 
@@ -91,40 +60,8 @@ public final class PayloadMasker {
     }
   }
 
-  // Short markers that are common English substrings (e.g. "pin" inside "spinner")
-  // and so must match only on word boundaries; everything else uses plain substring.
-  private static final Set<String> SHORT_BOUNDARY_MARKERS = Set.of("pin", "cvv", "ssn");
-
   private static boolean isSensitiveField(String fieldName) {
-    if (fieldName == null) {
-      return false;
-    }
-    String lower = fieldName.toLowerCase(Locale.ROOT);
-    for (String marker : SENSITIVE_FIELDS) {
-      if (SHORT_BOUNDARY_MARKERS.contains(marker)) {
-        if (containsAsWord(lower, marker)) {
-          return true;
-        }
-      } else if (lower.contains(marker)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  private static boolean containsAsWord(String haystack, String needle) {
-    int idx = haystack.indexOf(needle);
-    while (idx >= 0) {
-      boolean leftOk = idx == 0 || !Character.isLetterOrDigit(haystack.charAt(idx - 1));
-      int after = idx + needle.length();
-      boolean rightOk =
-          after == haystack.length() || !Character.isLetterOrDigit(haystack.charAt(after));
-      if (leftOk && rightOk) {
-        return true;
-      }
-      idx = haystack.indexOf(needle, idx + 1);
-    }
-    return false;
+    return PayloadMaskingPolicyHolder.get().isSensitiveField(fieldName);
   }
 
   private static JsonObjectBuilder maskObject(JsonObject object) {
