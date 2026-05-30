@@ -272,114 +272,122 @@ public class JobTask implements Callable<Void> {
         jobType != null ? jobType.name() : null,
         deserializedSignalPayload);
 
-    if (jobEntity.getCallerPrincipal() != null) {
-      log.debugf("Job %s created by user (present)", jobId);
-    } else {
-      log.debugf("Job %s created by system (no user context)", jobId);
-    }
-
-    observabilityFacade.recordJobStart(jobEntity);
-
-    int attemptNumber = jobEntity.getAttempts() + 1;
-    currentExecution =
-        observabilityFacade.startExecution(jobId, attemptNumber, nodeIdProvider.getNodeId());
-
-    Instant start = effective().instant();
-    observabilityFacade.publishEvent(
-        new JobStartedEvent(
-            jobEntity.getId(),
-            jobEntity.getBusinessKey(),
-            jobEntity.getPublicJobType(),
-            jobEntity.getPriority(),
-            jobEntity.getPickedBy(),
-            start));
-
-    if (log.isInfoEnabled()) {
-      log.infov(
-          "Job {0} starting execution [type={1}, priority={2}, attempt={3}/{4}, payload={5}.{6}]",
-          jobId,
-          jobEntity.getJobType(),
-          jobEntity.getPriority(),
-          jobEntity.getAttempts() + 1,
-          jobEntity.getMaxRetries() + 1,
-          jobEntity.getPayload().target(),
-          jobEntity.getPayload().method());
-    }
-
-    Object jobResult;
-    permitAcquired = false;
-    String resilienceServiceName = resolveResilienceServiceName(jobEntity.getPayload());
+    // The JobContext/MDC bound above must be cleared on every exit. Open the clearing try right
+    // after the bind so a throw from the startup observability calls (metrics, execution recording)
+    // cannot leak this job's identity onto the pooled worker thread. The inner try owns
+    // execution-failure handling; this outer try only guarantees the bound context is cleared.
     try {
-      currentScope = observabilityFacade.startExecutionScope(jobEntity);
-      if (wasJobCanceledDuringExecution()) {
-        handleCanceledDuringExecution(start);
-        return null;
-      }
-
-      if (!resilienceStrategy.isServiceAvailable(resilienceServiceName)) {
-        log.infof(
-            "Job %s skipped - circuit breaker OPEN for service: %s", jobId, resilienceServiceName);
-        rescheduleForCircuitBreaker(jobEntity, resilienceServiceName);
-        return null;
-      }
-
-      if (!tryAcquireResourcePermit()) {
-        return null;
-      }
-
-      // Authorization check before breaker scope — denial must not trip the circuit breaker
-      if (authorizationPolicy != null) {
-        authorizationPolicy.checkExecute(jobEntity.getId(), jobEntity.getCallerPrincipal());
-      }
-      // Validate before breaker scope — config errors must not trip the circuit breaker
-      validationFacade.validateSecurity(jobEntity.getPayload());
-
-      jobResult =
-          resilienceStrategy.execute(
-              resilienceServiceName, () -> runPayload(jobEntity.getPayload()));
-
-      if (wasJobCanceledDuringExecution()) {
-        handleCanceledDuringExecution(start);
+      if (jobEntity.getCallerPrincipal() != null) {
+        log.debugf("Job %s created by user (present)", jobId);
       } else {
-        handleSuccess(start, jobResult);
+        log.debugf("Job %s created by system (no user context)", jobId);
       }
-    } catch (CircuitBreakerOpenException e) {
-      log.infof(
-          "Job %s rescheduled - circuit breaker OPEN for service: %s",
-          jobId, resilienceServiceName);
-      rescheduleForCircuitBreaker(jobEntity, resilienceServiceName, e);
-    } catch (Throwable t) {
+
+      observabilityFacade.recordJobStart(jobEntity);
+
+      int attemptNumber = jobEntity.getAttempts() + 1;
+      currentExecution =
+          observabilityFacade.startExecution(jobId, attemptNumber, nodeIdProvider.getNodeId());
+
+      Instant start = effective().instant();
+      observabilityFacade.publishEvent(
+          new JobStartedEvent(
+              jobEntity.getId(),
+              jobEntity.getBusinessKey(),
+              jobEntity.getPublicJobType(),
+              jobEntity.getPriority(),
+              jobEntity.getPickedBy(),
+              start));
+
+      if (log.isInfoEnabled()) {
+        log.infov(
+            "Job {0} starting execution [type={1}, priority={2}, attempt={3}/{4}, payload={5}.{6}]",
+            jobId,
+            jobEntity.getJobType(),
+            jobEntity.getPriority(),
+            jobEntity.getAttempts() + 1,
+            jobEntity.getMaxRetries() + 1,
+            jobEntity.getPayload().target(),
+            jobEntity.getPayload().method());
+      }
+
+      Object jobResult;
+      permitAcquired = false;
+      String resilienceServiceName = resolveResilienceServiceName(jobEntity.getPayload());
       try {
-        handleFailure(t);
-      } catch (Throwable failureHandlingError) {
-        log.errorf(
-            failureHandlingError,
-            "Job %s failure handling itself failed, forcing FAILED status",
-            job.getId());
-        String safeError;
-        try {
-          safeError = errorSanitizer.sanitize(t);
-        } catch (Throwable sanitizerError) {
-          safeError = t.getClass().getName();
+        currentScope = observabilityFacade.startExecutionScope(jobEntity);
+        if (wasJobCanceledDuringExecution()) {
+          handleCanceledDuringExecution(start);
+          return null;
         }
+
+        if (!resilienceStrategy.isServiceAvailable(resilienceServiceName)) {
+          log.infof(
+              "Job %s skipped - circuit breaker OPEN for service: %s",
+              jobId, resilienceServiceName);
+          rescheduleForCircuitBreaker(jobEntity, resilienceServiceName);
+          return null;
+        }
+
+        if (!tryAcquireResourcePermit()) {
+          return null;
+        }
+
+        // Authorization check before breaker scope — denial must not trip the circuit breaker
+        if (authorizationPolicy != null) {
+          authorizationPolicy.checkExecute(jobEntity.getId(), jobEntity.getCallerPrincipal());
+        }
+        // Validate before breaker scope — config errors must not trip the circuit breaker
+        validationFacade.validateSecurity(jobEntity.getPayload());
+
+        jobResult =
+            resilienceStrategy.execute(
+                resilienceServiceName, () -> runPayload(jobEntity.getPayload()));
+
+        if (wasJobCanceledDuringExecution()) {
+          handleCanceledDuringExecution(start);
+        } else {
+          handleSuccess(start, jobResult);
+        }
+      } catch (CircuitBreakerOpenException e) {
+        log.infof(
+            "Job %s rescheduled - circuit breaker OPEN for service: %s",
+            jobId, resilienceServiceName);
+        rescheduleForCircuitBreaker(jobEntity, resilienceServiceName, e);
+      } catch (Throwable t) {
         try {
-          if (jobStore.compareAndSwapStatus(
-              job.getId(), JobStatus.RUNNING, JobStatus.FAILED, safeError)) {
-            publishForcedTerminalFailure(t, safeError);
-          }
-        } catch (Throwable lastResort) {
+          handleFailure(t);
+        } catch (Throwable failureHandlingError) {
           log.errorf(
-              lastResort,
-              "Job %s could not be transitioned to FAILED — will require orphan recovery",
+              failureHandlingError,
+              "Job %s failure handling itself failed, forcing FAILED status",
               job.getId());
+          String safeError;
+          try {
+            safeError = errorSanitizer.sanitize(t);
+          } catch (Throwable sanitizerError) {
+            safeError = t.getClass().getName();
+          }
+          try {
+            if (jobStore.compareAndSwapStatus(
+                job.getId(), JobStatus.RUNNING, JobStatus.FAILED, safeError)) {
+              publishForcedTerminalFailure(t, safeError);
+            }
+          } catch (Throwable lastResort) {
+            log.errorf(
+                lastResort,
+                "Job %s could not be transitioned to FAILED — will require orphan recovery",
+                job.getId());
+          }
         }
+      } finally {
+        if (permitAcquired) {
+          releaseResourcePermit();
+        }
+        log.infof("Job %s execution complete - cleaning up context", jobId);
+        currentScope.close();
       }
     } finally {
-      if (permitAcquired) {
-        releaseResourcePermit();
-      }
-      log.infof("Job %s execution complete - cleaning up context", jobId);
-      currentScope.close();
       // Must be Throwable, not Exception — Error must still clear MDC. See
       // JobMdcContextThrowableTest
       JobMdcContext.clear();

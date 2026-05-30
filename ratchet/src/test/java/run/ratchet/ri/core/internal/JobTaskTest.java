@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import org.jboss.logging.MDC;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -185,6 +186,30 @@ class JobTaskTest {
 
     verify(resilienceStrategy)
         .execute(eq(JobTaskTest.class.getSimpleName() + ".testJobMethod"), any(Callable.class));
+  }
+
+  @Test
+  void call_clearsBoundContextWhenStartupObservabilityThrows() {
+    // JobContext/MDC are bound before the per-execution try/finally that clears them. A throw from
+    // the startup observability calls must not leave this job's identity on the pooled worker.
+    JobMdcContext.clear();
+    JobEntity job = createTestJob();
+    jobTask.init(job);
+    when(nodeIdProvider.getNodeId()).thenReturn("node-1");
+    doThrow(new RuntimeException("metrics collector down"))
+        .when(observabilityFacade)
+        .recordJobStart(any(JobEntity.class));
+
+    // The startup failure propagates: the payload never ran, so orphan recovery retries the job.
+    Assertions.assertThrows(RuntimeException.class, () -> jobTask.call());
+
+    Assertions.assertNull(
+        MDC.get(JobMdcContext.MDC_JOB_ID),
+        "MDC job id must be cleared after a startup failure, not leaked to the next job");
+    Assertions.assertThrows(
+        IllegalStateException.class,
+        JobContext::current,
+        "JobContext must be unbound after a startup failure, not leaked to the next job");
   }
 
   @Test
