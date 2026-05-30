@@ -134,4 +134,90 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!--
+          Deploys the JMS coordinator into a managed WildFly (standalone-full, so the
+          messaging-activemq subsystem is present) to prove it starts and round-trips
+          wakeups on a strict Jakarta EE JMS provider — the §12.3 container check the
+          SE-mode embedded-Artemis ITs cannot make. The container IT lives in its own
+          source root so the default build never compiles it (no Arquillian on the
+          normal test classpath). Run with: mvn verify -P wildfly-jms -pl
+          ratchet-coordinator-jms -am
+        -->
+        <profile>
+            <id>wildfly-jms</id>
+            <dependencies>
+                <dependency>
+                    <groupId>org.jboss.arquillian.junit5</groupId>
+                    <artifactId>arquillian-junit5-container</artifactId>
+                    <scope>test</scope>
+                </dependency>
+                <dependency>
+                    <groupId>org.wildfly.arquillian</groupId>
+                    <artifactId>wildfly-arquillian-container-managed</artifactId>
+                    <scope>test</scope>
+                </dependency>
+            </dependencies>
+            <build>
+                <!--
+                  Filter arquillian.xml so ${project.build.directory} and
+                  ${wildfly.version} resolve to the unpacked jbossHome at copy
+                  time (Arquillian does not interpolate Maven properties itself).
+                -->
+                <testResources>
+                    <testResource>
+                        <directory>src/test/resources</directory>
+                        <filtering>true</filtering>
+                    </testResource>
+                </testResources>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>build-helper-maven-plugin</artifactId>
+                        <version>${build-helper-maven-plugin.version}</version>
+                        <executions>
+                            <execution>
+                                <id>add-wildfly-it-source</id>
+                                <phase>generate-test-sources</phase>
+                                <goals>
+                                    <goal>add-test-source</goal>
+                                </goals>
+                                <configuration>
+                                    <sources>
+                                        <source>src/test/java-wildfly</source>
+                                    </sources>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-dependency-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>unpack-wildfly</id>
+                                <phase>pre-integration-test</phase>
+                                <goals>
+                                    <goal>unpack</goal>
+                                </goals>
+                                <configuration>
+                                    <artifactItems>
+                                        <artifactItem>
+                                            <groupId>org.wildfly</groupId>
+                                            <artifactId>wildfly-dist</artifactId>
+                                            <version>${wildfly.version}</version>
+                                            <type>zip</type>
+                                            <overWrite>false</overWrite>
+                                            <outputDirectory>${project.build.directory}</outputDirectory>
+                                        </artifactItem>
+                                    </artifactItems>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

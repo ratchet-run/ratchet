@@ -92,6 +92,22 @@ class JmsConnectionLifecycleTest {
   }
 
   @Test
+  void publishUsesSynchronousSendNotAsyncCompletionListener() throws Exception {
+    TextMessage outbound = mock(TextMessage.class);
+    when(ctx.createTextMessage(anyString())).thenReturn(outbound);
+    JmsConnectionLifecycle lifecycle = newLifecycle();
+    lifecycle.start(identity("nodeA"));
+
+    assertTrue(lifecycle.sendTextMessage("body", "nodeA", "NORMAL"));
+
+    // §12.3 forbids asynchronous send (a CompletionListener) from a container-created producer just
+    // as it forbids async receive. Publish must take the blocking send overload and never enable
+    // async delivery on the producer.
+    verify(producer).send(any(Topic.class), any(Message.class));
+    verify(producer, never()).setAsync(any());
+  }
+
+  @Test
   void startCreatesProducerAndConsumer() {
     newLifecycle().start(identity("nodeA"));
     verify(ctx).createProducer();
