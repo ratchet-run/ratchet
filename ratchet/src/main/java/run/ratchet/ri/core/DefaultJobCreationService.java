@@ -606,10 +606,13 @@ class DefaultJobCreationService
     // Persist-time ClassPolicy gate: mirrors WorkflowConditionEvaluator and JobSecurityValidator
     // at execution time. Closes the TOCTOU window between persistence and execution — a malicious
     // lambda's target class is rejected before reaching the database, not after a worker dequeues
-    // it.
+    // it. Framework coordination payloads (the batch-parent noop) target an internal placeholder,
+    // never run user code, and so are not subject to the application allowlist — gating them would
+    // break batch submission for any app that allowlists only its own packages.
     if (classPolicy != null
         && payload != null
         && payload.target() != null
+        && !JobPayloadFactory.isCoordinationPlaceholder(payload)
         && !classPolicy.isAllowed(payload.target())) {
       throw new SecurityException(
           "Class " + payload.target() + " is not allowed for job execution.");

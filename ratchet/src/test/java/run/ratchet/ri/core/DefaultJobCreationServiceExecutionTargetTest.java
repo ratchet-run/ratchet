@@ -1,5 +1,6 @@
 package run.ratchet.ri.core;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -27,6 +28,7 @@ import run.ratchet.api.JobPriority;
 import run.ratchet.ri.core.internal.JobWakeupService;
 import run.ratchet.ri.payload.DefaultJobInvocationResolver;
 import run.ratchet.ri.security.JobPayloadInputValidator;
+import run.ratchet.spi.ClassPolicy;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.spi.BatchStore;
@@ -113,6 +115,43 @@ class DefaultJobCreationServiceExecutionTargetTest {
     ArgumentCaptor<List<JobEntity>> childrenCaptor = ArgumentCaptor.forClass(List.class);
     verify(jobBulkStore).bulkInsert(childrenCaptor.capture());
     assertExecutionTarget(childrenCaptor.getValue(), ExecutorTargets.VIRTUAL);
+  }
+
+  @Test
+  void batchSubmit_doesNotGateFrameworkCoordinationPayloadThroughClassPolicy() {
+    // An application allowlists only its own packages, which do not cover the framework's
+    // coordination class. The batch-parent noop targets that framework class, so gating it would
+    // reject every batch submission. This policy allows the child target's package but not
+    // run.ratchet.ri.util (JobPlaceholders), isolating the parent-noop path.
+    ClassPolicy appPolicy =
+        className -> className != null && className.startsWith("run.ratchet.ri.core.");
+    DefaultJobCreationService gated =
+        new DefaultJobCreationService(
+            jobBatchStatusStore,
+            jobTerminalStore,
+            jobCrudStore,
+            jobBulkStore,
+            batchStore,
+            tagStore,
+            workflowConditionStore,
+            recurringJobStore,
+            new NoopJobWakeupService(),
+            recurringScheduler,
+            new DefaultJobInvocationResolver(),
+            new JobPayloadInputValidator(),
+            null,
+            null,
+            null,
+            appPolicy,
+            null,
+            null,
+            Clock.fixed(Instant.parse("2026-05-27T12:00:00Z"), ZoneOffset.UTC));
+
+    DefaultBatchBuilder builder = new DefaultBatchBuilder("batch", gated);
+    builder.forEach(
+        List.of("one", "two"), DefaultJobCreationServiceExecutionTargetTest::consumeString);
+
+    assertDoesNotThrow(() -> gated.submit(builder));
   }
 
   @Test
