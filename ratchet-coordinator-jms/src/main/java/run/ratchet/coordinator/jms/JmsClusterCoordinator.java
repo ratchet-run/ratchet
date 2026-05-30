@@ -79,9 +79,19 @@ public class JmsClusterCoordinator implements ClusterCoordinator, SchedulerLifec
   static final String COORDINATOR_KIND = "jms";
 
   @Inject NodeIdentityProvider identityProvider;
-  @Inject JmsCoordinatorConfig config;
+
+  /**
+   * Resolved lazily in {@link #init()}. The config record has a {@code defaults()} factory but is
+   * not a managed bean, so it is injected as an {@link Instance} with a defaults() fallback; a
+   * direct {@code @Inject JmsCoordinatorConfig} would be an unsatisfied dependency that fails
+   * deployment validation out of the box.
+   */
+  @Inject Instance<JmsCoordinatorConfig> configInstance;
+
   @Inject @Any Instance<JmsConnectionFactoryProvider> providerInstance;
   @Inject MetricsCollector metrics;
+
+  private JmsCoordinatorConfig config;
 
   private final NotifyPayloadCodec codec = new NotifyPayloadCodec();
   private final CopyOnWriteArrayList<Consumer<JobWakeupHint>> listeners =
@@ -137,6 +147,12 @@ public class JmsClusterCoordinator implements ClusterCoordinator, SchedulerLifec
 
   @PostConstruct
   void init() {
+    if (config == null) {
+      config =
+          configInstance != null && configInstance.isResolvable()
+              ? configInstance.get()
+              : JmsCoordinatorConfig.defaults();
+    }
     Objects.requireNonNull(config, "config");
     Objects.requireNonNull(identityProvider, "identityProvider");
     requireJsonProvider();
