@@ -24,6 +24,7 @@ import run.ratchet.api.JobQuerySortField;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.query.JobQueryCursor;
 
 /**
  * Base contract tests for {@link run.ratchet.store.spi.JobQueryStore} — dashboard-oriented search
@@ -565,6 +566,57 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
         archivedNewer,
         mine.get(0).getId(),
         "CREATED_AT-desc sort must place the newer archived job first");
+  }
+
+  @Test
+  void searchIncludeArchived_cursorPaginationOverArchiveVisitsEveryRowOnce() {
+    // Give every archived row the same priority so the keyset tiebreaker — not the primary sort —
+    // decides ordering. That is the slot where an archive cursor seeking the wrong id field drops
+    // or repeats rows at the page boundary.
+    int total = 7;
+    Set<UUID> archivedIds = new HashSet<>();
+    for (int i = 0; i < total; i++) {
+      JobEntity job = newPendingJob();
+      job.setPriority(JobPriority.NORMAL);
+      archivedIds.add(archiveOnly(job));
+    }
+
+    int pageSize = 2;
+    List<UUID> seen = new ArrayList<>();
+    String cursor = null;
+    for (int guard = 0; guard <= total; guard++) {
+      var builder =
+          JobFilter.builder()
+              .includeArchived(true)
+              .sortField(JobQuerySortField.PRIORITY)
+              .sortAscending(false);
+      if (cursor != null) {
+        builder.cursor(cursor);
+      }
+      List<JobEntity> pageRows = store().searchJobs(builder.build(), pageSize, 0);
+      if (pageRows.isEmpty()) {
+        break;
+      }
+      pageRows.forEach(r -> seen.add(r.getId()));
+      JobEntity last = pageRows.get(pageRows.size() - 1);
+      cursor =
+          new JobQueryCursor(
+                  JobQuerySortField.PRIORITY,
+                  Integer.toString(last.getPriority().ordinal()),
+                  last.getId())
+              .encode();
+      if (pageRows.size() < pageSize) {
+        break;
+      }
+    }
+
+    Set<UUID> distinct = new HashSet<>(seen);
+    assertEquals(
+        seen.size(), distinct.size(), "Cursor pages over the archive must not repeat a row");
+    assertEquals(
+        archivedIds,
+        distinct,
+        "Cursor pages over the archive must visit every archived row exactly once");
   }
 
   /**
