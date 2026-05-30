@@ -53,6 +53,9 @@ public abstract class AbstractConformanceReportExtension implements TestExecutio
       for (String name : group.contracts()) {
         contractIndex.put(name, group.label());
       }
+      for (String name : group.optionalContracts()) {
+        contractIndex.put(name, group.label());
+      }
     }
   }
 
@@ -140,9 +143,10 @@ public abstract class AbstractConformanceReportExtension implements TestExecutio
     pw.println();
 
     // Per-group summary counts: [required, passed]
+    // Per-group summary counts: [required, required-passed, optional-failed]
     Map<String, int[]> summary = new LinkedHashMap<>();
     for (ContractGroup group : contractGroups()) {
-      summary.put(group.label(), new int[] {0, 0});
+      summary.put(group.label(), new int[] {0, 0, 0});
     }
 
     for (ContractGroup group : contractGroups()) {
@@ -160,8 +164,29 @@ public abstract class AbstractConformanceReportExtension implements TestExecutio
         if (r == null) {
           pw.printf("| `%s` | — | — | — | — | ✗ MISSING |%n", contractName);
         } else {
-          boolean passed = r.failed == 0 && r.aborted == 0;
+          // Aborted tests are JUnit assumption-skips (a contract may skip a case a fixture cannot
+          // surface, e.g. optimistic-lock failures on a standalone document store). They are
+          // neutral, not failures. A contract conforms when at least one case verified and none
+          // failed; an all-skipped contract still does not pass.
+          boolean passed = r.failed == 0 && r.passed > 0;
           if (passed) counts[1]++;
+          pw.printf(
+              "| `%s` | %d | %d | %d | %d | %s |%n",
+              contractName, r.total(), r.passed, r.failed, r.aborted, passed ? "✓ PASS" : "✗ FAIL");
+        }
+      }
+      for (String contractName : group.optionalContracts()) {
+        ContractResult r = results.get(contractName);
+        if (r == null) {
+          // Optional contract not run: applies only to runtimes that support the capability.
+          pw.printf("| `%s` | — | — | — | — | ⚪ N/A |%n", contractName);
+        } else {
+          // Aborted tests are JUnit assumption-skips (a contract may skip a case a fixture cannot
+          // surface, e.g. optimistic-lock failures on a standalone document store). They are
+          // neutral, not failures. A contract conforms when at least one case verified and none
+          // failed; an all-skipped contract still does not pass.
+          boolean passed = r.failed == 0 && r.passed > 0;
+          if (!passed) counts[2]++;
           pw.printf(
               "| `%s` | %d | %d | %d | %d | %s |%n",
               contractName, r.total(), r.passed, r.failed, r.aborted, passed ? "✓ PASS" : "✗ FAIL");
@@ -177,7 +202,7 @@ public abstract class AbstractConformanceReportExtension implements TestExecutio
     boolean allPassed = true;
     for (ContractGroup group : contractGroups()) {
       int[] counts = summary.get(group.label());
-      boolean groupPassed = counts[0] == counts[1];
+      boolean groupPassed = counts[0] == counts[1] && counts[2] == 0;
       if (!groupPassed) allPassed = false;
       pw.printf(
           "| %s | %d | %d | %s |%n",
@@ -194,8 +219,21 @@ public abstract class AbstractConformanceReportExtension implements TestExecutio
   /**
    * A named group of related contracts within a tier (e.g., "Core", "Behavioral"). Tiers with few
    * contracts may use a single group.
+   *
+   * <p>{@code contracts} are required of every runtime in the tier: a runtime that does not run one
+   * is reported {@code MISSING} and fails the claim. {@code optionalContracts} apply only to
+   * runtimes that support the capability (e.g. schema-migration and JTA-transaction-boundary
+   * contracts apply to SQL stores but not a document store): a runtime that runs one is held to
+   * PASS/FAIL, while one that does not is reported {@code N/A} without failing the claim.
    */
-  public record ContractGroup(String label, String description, List<String> contracts) {}
+  public record ContractGroup(
+      String label, String description, List<String> contracts, List<String> optionalContracts) {
+
+    /** Convenience constructor for a group whose contracts are all required. */
+    public ContractGroup(String label, String description, List<String> contracts) {
+      this(label, description, contracts, List.of());
+    }
+  }
 
   /** Result accumulator for a single abstract contract class. */
   static final class ContractResult {
