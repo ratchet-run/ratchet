@@ -14,10 +14,9 @@ import org.jboss.logging.Logger;
 import run.ratchet.store.converter.PayloadSerializerHolder;
 
 /**
- * Utility for masking sensitive fields in payload data before it leaves the framework — whether
- * rendered into a log line or returned from a read API. Which fields count as sensitive is decided
- * by the active {@link run.ratchet.spi.PayloadMaskingPolicy}, resolved through {@link
- * PayloadMaskingPolicyHolder}.
+ * Utility for masking sensitive fields in payload data before it is returned from a read API. Which
+ * fields count as sensitive is decided by the active {@link run.ratchet.spi.PayloadMaskingPolicy},
+ * resolved through {@link PayloadMaskingPolicyHolder}.
  */
 public final class PayloadMasker {
 

@@ -517,10 +517,11 @@ public class RatchetOptions {
    * @param allowEmptyClassPolicy {@code true} to permit running without a configured {@code
    *     ClassPolicy}; {@code false} (default) fails fast at startup when no policy is bound
    * @param redactEmails {@code true} to redact email-shaped strings from observability output
-   * @param maskPayloads {@code true} to mask sensitive payload fields wherever a payload would be
-   *     exposed — rendered into a log line or returned from a read API such as the {@code params}
-   *     on a job detail; {@code false} (default) leaves exposed payloads unmasked. The durable
-   *     store payload is never affected.
+   * @param maskPayloads {@code true} to mask sensitive fields in structured payloads returned from
+   *     a read API — the {@code params} map and trace context on a job detail, plus the serialized
+   *     job result; {@code false} (default) leaves them unmasked. Map masking is key-based and
+   *     result masking walks the serialized JSON; free-text fields such as {@code lastError} are
+   *     not masked. The durable store payload is never affected.
    */
   public record SecurityOptions(
       boolean allowEmptyClassPolicy, boolean redactEmails, boolean maskPayloads) {}
@@ -1202,10 +1203,11 @@ public class RatchetOptions {
     }
 
     /**
-     * Masks sensitive payload fields wherever a payload would be exposed — rendered into a log line
-     * or returned from a read API such as the {@code params} on a job detail — when {@code true};
-     * {@code false} (default) leaves exposed payloads unmasked. The durable store payload is never
-     * affected.
+     * Masks sensitive fields in structured payloads returned from a read API — the {@code params}
+     * map and trace context on a job detail, plus the serialized job result — when {@code true};
+     * {@code false} (default) leaves them unmasked. Map masking is key-based and result masking
+     * walks the serialized JSON; free-text fields such as {@code lastError} are not masked. The
+     * durable store payload is never affected.
      */
     public SecurityBuilder maskPayloads(boolean maskPayloads) {
       this.maskPayloads = maskPayloads;

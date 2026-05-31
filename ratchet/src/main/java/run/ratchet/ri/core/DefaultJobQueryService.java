@@ -213,18 +213,26 @@ class DefaultJobQueryService implements JobQueryService {
             .map(JobEntity::getId)
             .collect(Collectors.toList());
 
-    // Read-projection masking: getJobDetail is the only read that returns raw caller-supplied
-    // params, so when mask-payloads is enabled we redact sensitive keys here before they reach
-    // the caller. The durable row is untouched; target#method (the summary) stays unmasked.
+    // Read-projection masking: getJobDetail exposes the raw caller-supplied params, the trace
+    // context carrier (whose baggage entries can hold caller data), and the serialized job result.
+    // When mask-payloads is enabled we redact sensitive entries here before they reach the caller;
+    // the durable row is untouched and the summary's target#method stays unmasked. Map masking is
+    // key-based and result masking walks the serialized JSON object (a non-object result passes
+    // through). Free-text fields such as lastError are out of scope — see
+    // RatchetOptions.SecurityOptions#maskPayloads.
     Map<String, String> params =
         maskPayloads ? PayloadMasker.maskParams(e.getParams()) : e.getParams();
+    Map<String, String> traceContext =
+        maskPayloads ? PayloadMasker.maskParams(e.getTraceContext()) : e.getTraceContext();
+    String jobResult =
+        maskPayloads ? PayloadMasker.maskPayload(e.getJobResult()) : e.getJobResult();
 
     JobDetail detail =
         new JobDetail(
             JobEntityMapper.toSummary(e),
             params,
-            e.getTraceContext(),
-            e.getJobResult(),
+            traceContext,
+            jobResult,
             e.getResultType(),
             e.getExecutionStartTime(),
             e.getExecutionEndTime(),
