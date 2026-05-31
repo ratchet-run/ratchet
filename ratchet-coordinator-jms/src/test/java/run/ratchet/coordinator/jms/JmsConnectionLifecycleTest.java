@@ -66,7 +66,8 @@ class JmsConnectionLifecycleTest {
   private Topic topic;
   private JmsCoordinatorConfig config;
 
-  private JMSContext ctx;
+  private JMSContext ctx; // consumer (receive) context
+  private JMSContext senderCtx; // dedicated sender context
   private JMSProducer producer;
   private JMSConsumer consumer;
 
@@ -76,12 +77,18 @@ class JmsConnectionLifecycleTest {
     topic = mock(Topic.class);
     config = newConfig(true);
     ctx = mock(JMSContext.class);
+    senderCtx = mock(JMSContext.class);
     producer = mock(JMSProducer.class);
     consumer = mock(JMSConsumer.class);
-    when(cf.createContext(anyInt())).thenReturn(ctx);
-    when(ctx.createProducer()).thenReturn(producer);
+    // connectOnce creates the consumer context first, then the dedicated sender context. Alternate
+    // so a reconnect generation also gets (consumer ctx, sender ctx). Tests that need distinct
+    // reconnect contexts re-stub this.
+    AtomicInteger contextCalls = new AtomicInteger();
+    when(cf.createContext(anyInt()))
+        .thenAnswer(inv -> contextCalls.getAndIncrement() % 2 == 0 ? ctx : senderCtx);
     when(ctx.createConsumer(any(Topic.class))).thenReturn(consumer);
     when(ctx.createConsumer(any(Topic.class), anyString())).thenReturn(consumer);
+    when(senderCtx.createProducer()).thenReturn(producer);
     // Default: a quiet topic. The receive loop blocks briefly and returns nothing, so it polls
     // without busy-spinning. Tests that need an inbound message or a fault override this.
     when(consumer.receive(anyLong())).thenAnswer(blockingQuietReceive());
@@ -97,7 +104,8 @@ class JmsConnectionLifecycleTest {
   @Test
   void startCreatesContextWithAutoAcknowledge() {
     newLifecycle().start(identity("nodeA"));
-    verify(cf).createContext(JMSContext.AUTO_ACKNOWLEDGE);
+    // Two contexts per connect: one for receiving, one dedicated to sending.
+    verify(cf, times(2)).createContext(JMSContext.AUTO_ACKNOWLEDGE);
   }
 
   @Test
@@ -112,7 +120,7 @@ class JmsConnectionLifecycleTest {
   @Test
   void publishUsesSynchronousSendNotAsyncCompletionListener() throws Exception {
     TextMessage outbound = mock(TextMessage.class);
-    when(ctx.createTextMessage(anyString())).thenReturn(outbound);
+    when(senderCtx.createTextMessage(anyString())).thenReturn(outbound);
     JmsConnectionLifecycle lifecycle = newLifecycle();
     lifecycle.start(identity("nodeA"));
 
@@ -126,9 +134,80 @@ class JmsConnectionLifecycleTest {
   }
 
   @Test
+  void concurrentSendsAreSerializedOnTheSenderContext() throws Exception {
+    when(senderCtx.createTextMessage(anyString())).thenReturn(mock(TextMessage.class));
+    AtomicInteger inFlight = new AtomicInteger();
+    AtomicInteger maxObserved = new AtomicInteger();
+    // Record the peak number of threads simultaneously inside the producer send. With the per-send
+    // lock and a dedicated sender context, only one thread may touch the context at a time, so the
+    // peak must be 1; an unsynchronized send would overlap and push it above 1.
+    doAnswer(
+            inv -> {
+              int now = inFlight.incrementAndGet();
+              maxObserved.accumulateAndGet(now, Math::max);
+              Thread.sleep(10); // widen the window so an unsynchronized send would overlap
+              inFlight.decrementAndGet();
+              return null;
+            })
+        .when(producer)
+        .send(any(Topic.class), any(Message.class));
+
+    JmsConnectionLifecycle lifecycle = newLifecycle();
+    lifecycle.start(identity("nodeA"));
+
+    int threads = 8;
+    CountDownLatch ready = new CountDownLatch(threads);
+    CountDownLatch go = new CountDownLatch(1);
+    AtomicInteger successes = new AtomicInteger();
+    List<Thread> workers = new ArrayList<>();
+    for (int i = 0; i < threads; i++) {
+      Thread t =
+          new Thread(
+              () -> {
+                ready.countDown();
+                try {
+                  go.await();
+                  if (lifecycle.sendTextMessage("body", "nodeA", "NORMAL")) {
+                    successes.incrementAndGet();
+                  }
+                } catch (Exception ignored) {
+                  // counted as a non-success
+                }
+              });
+      t.start();
+      workers.add(t);
+    }
+    assertTrue(ready.await(2, TimeUnit.SECONDS), "all senders must be ready");
+    go.countDown();
+    for (Thread t : workers) {
+      t.join(Duration.ofSeconds(5).toMillis());
+    }
+
+    assertEquals(threads, successes.get(), "every concurrent send must succeed");
+    assertEquals(1, maxObserved.get(), "concurrent sends must not overlap on the sender context");
+  }
+
+  @Test
+  void connectClosesConsumerContextWhenConsumerCreationFails() {
+    // If createConsumer throws mid-connect, the already-created consumer context must be closed
+    // rather than leaked — it may hold a broker-side subscription. Pin a single context so every
+    // retry consistently reaches the throwing createConsumer.
+    when(cf.createContext(anyInt())).thenReturn(ctx);
+    when(ctx.createConsumer(any(Topic.class), anyString()))
+        .thenThrow(new JMSRuntimeException("consumer create failed"));
+    JmsConnectionLifecycle lifecycle = newLifecycle();
+
+    assertDoesNotThrow(() -> lifecycle.start(identity("nodeA")));
+    lifecycle.close(); // stop the async reconnect retries before verifying
+
+    verify(ctx, atLeastOnce()).close();
+    assertNull(lifecycle.currentContext());
+  }
+
+  @Test
   void startCreatesProducerAndConsumer() {
     newLifecycle().start(identity("nodeA"));
-    verify(ctx).createProducer();
+    verify(senderCtx).createProducer();
     verify(ctx, atLeastOnce()).createConsumer(any(Topic.class), anyString());
   }
 
@@ -217,17 +296,18 @@ class JmsConnectionLifecycleTest {
 
   @Test
   void reconnectRecoversAfterTransientReceiveFault() {
-    JMSContext freshCtx = mock(JMSContext.class);
+    JMSContext freshConsumerCtx = mock(JMSContext.class);
+    JMSContext freshSenderCtx = mock(JMSContext.class);
     JMSProducer freshProducer = mock(JMSProducer.class);
     JMSConsumer freshConsumer = mock(JMSConsumer.class);
-    when(freshCtx.createProducer()).thenReturn(freshProducer);
-    when(freshCtx.createConsumer(any(Topic.class), anyString())).thenReturn(freshConsumer);
+    when(freshConsumerCtx.createConsumer(any(Topic.class), anyString())).thenReturn(freshConsumer);
+    when(freshSenderCtx.createProducer()).thenReturn(freshProducer);
     when(freshConsumer.receive(anyLong())).thenAnswer(blockingQuietReceive());
-    // First context's receive() faults; the reconnect cycle then yields a fresh context.
+    // First generation's receive() faults; the reconnect cycle then yields a fresh generation.
     when(consumer.receive(anyLong())).thenThrow(new JMSRuntimeException("connection lost"));
-    AtomicInteger calls = new AtomicInteger();
-    when(cf.createContext(anyInt()))
-        .thenAnswer(inv -> calls.incrementAndGet() == 1 ? ctx : freshCtx);
+    // Each connect creates two contexts (consumer then sender): connect 1 -> ctx, senderCtx;
+    // reconnect -> freshConsumerCtx, freshSenderCtx.
+    when(cf.createContext(anyInt())).thenReturn(ctx, senderCtx, freshConsumerCtx, freshSenderCtx);
 
     JmsConnectionLifecycle lifecycle = newLifecycle();
     lifecycle.start(identity("nodeA"));
@@ -237,9 +317,9 @@ class JmsConnectionLifecycleTest {
         .untilAsserted(
             () ->
                 assertEquals(
-                    freshCtx,
+                    freshConsumerCtx,
                     lifecycle.currentContext(),
-                    "reconnect must publish a fresh context after a receive fault"));
+                    "reconnect must publish a fresh consumer context after a receive fault"));
     assertEquals(freshProducer, lifecycle.currentProducer());
   }
 
@@ -251,6 +331,7 @@ class JmsConnectionLifecycleTest {
     lifecycle.start(identity("nodeA"));
     lifecycle.close();
     verify(ctx, times(1)).close();
+    verify(senderCtx, times(1)).close();
   }
 
   @Test
@@ -260,6 +341,7 @@ class JmsConnectionLifecycleTest {
     lifecycle.close();
     assertDoesNotThrow(lifecycle::close);
     verify(ctx, times(1)).close();
+    verify(senderCtx, times(1)).close();
   }
 
   @Test

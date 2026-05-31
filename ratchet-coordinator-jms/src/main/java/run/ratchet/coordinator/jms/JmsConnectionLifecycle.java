@@ -91,6 +91,10 @@ final class JmsConnectionLifecycle {
   private final Runnable onTransportFailure;
 
   private final AtomicReference<Pair> connectionRef = new AtomicReference<>();
+  // Serializes concurrent sends so only one thread ever touches the sender JMSContext at a time.
+  // Jakarta Messaging 3.0 §6.1.1 limits a session (and its JMSContext) to a single thread of
+  // control; sends arrive from arbitrary job-submission threads and JTA afterCompletion callbacks.
+  private final Object sendLock = new Object();
   private final AtomicBoolean closed = new AtomicBoolean(false);
   private final AtomicBoolean reconnectInFlight = new AtomicBoolean(false);
   private final AtomicLong consecutiveFailures = new AtomicLong();
@@ -129,25 +133,34 @@ final class JmsConnectionLifecycle {
     return pair == null ? null : pair.producer();
   }
 
-  /** Current context, or null if reconnect is in flight or the lifecycle is closed. */
+  /**
+   * Current consumer (receive) context, or null if reconnect is in flight or the lifecycle is
+   * closed.
+   */
   JMSContext currentContext() {
     Pair pair = connectionRef.get();
-    return pair == null ? null : pair.context();
+    return pair == null ? null : pair.consumerContext();
   }
 
   /**
-   * Send a text message on the current coherent context/producer pair. Returns false when reconnect
-   * is in flight or the initial connect has not yet succeeded.
+   * Send a text message on the current generation's dedicated sender context/producer. Returns
+   * false when reconnect is in flight or the initial connect has not yet succeeded.
+   *
+   * <p>Held under {@link #sendLock} so concurrent senders are serialized — a JMSContext is
+   * single-thread-of-control, and the sender context is distinct from the receive context so this
+   * never contends with the blocking {@code receive()}.
    */
   boolean sendTextMessage(String body, String node, String priority) throws JMSException {
     Pair pair = connectionRef.get();
     if (pair == null) {
       return false;
     }
-    TextMessage msg = pair.context().createTextMessage(body);
-    msg.setStringProperty("node", node);
-    msg.setStringProperty("prio", priority);
-    pair.producer().send(topic, msg);
+    synchronized (sendLock) {
+      TextMessage msg = pair.senderContext().createTextMessage(body);
+      msg.setStringProperty("node", node);
+      msg.setStringProperty("prio", priority);
+      pair.producer().send(topic, msg);
+    }
     return true;
   }
 
@@ -216,39 +229,55 @@ final class JmsConnectionLifecycle {
     if (closed.get()) {
       return false;
     }
+    // Tracked so the finally can close any context created but not handed off to connectionRef.
+    // Nulled the moment ownership transfers, so the finally is a no-op on the success paths.
+    JMSContext consumerCtx = null;
+    JMSContext senderCtx = null;
     try {
-      JMSContext ctx = connectionFactory.createContext(JMSContext.AUTO_ACKNOWLEDGE);
-      JMSProducer p = ctx.createProducer();
+      consumerCtx = connectionFactory.createContext(JMSContext.AUTO_ACKNOWLEDGE);
       String selector =
           config.brokerSideSelfFilter()
               ? "node <> '" + escapeSelector(localIdentity.value()) + "'"
               : null;
       JMSConsumer consumer =
-          selector == null ? ctx.createConsumer(topic) : ctx.createConsumer(topic, selector);
+          selector == null
+              ? consumerCtx.createConsumer(topic)
+              : consumerCtx.createConsumer(topic, selector);
+      // Dedicated sender context: sends run under sendLock on this context, never on the consumer
+      // context that the receive thread blocks in. Created after the consumer so the receive side
+      // is the first generation member published.
+      senderCtx = connectionFactory.createContext(JMSContext.AUTO_ACKNOWLEDGE);
+      JMSProducer p = senderCtx.createProducer();
 
-      // Close-during-reconnect race: if close() flipped `closed` after our guard above but
-      // before we got here, the freshly-built context would leak — close() has already drained
-      // contextRef and would not see this new one. Re-check and clean up if so.
+      // Close-during-reconnect race: if close() flipped `closed` after our guard above but before
+      // we got here, the freshly-built contexts would leak — close() has already drained
+      // connectionRef and would not see them. The finally closes them on this early return.
       if (closed.get()) {
-        closeQuietly(ctx);
         return false;
       }
-      Pair pair = new Pair(ctx, p, consumer);
+      Pair pair = new Pair(consumerCtx, consumer, senderCtx, p);
       Pair stale = connectionRef.getAndSet(pair);
       if (stale != null) {
-        closeQuietly(stale.context());
+        closeQuietly(stale.consumerContext());
+        closeQuietly(stale.senderContext());
       }
       // close() may have flipped `closed` and drained the ref between the guard above and this
-      // swap. If so, retract the pair we just published and tear it down rather than start a
-      // receive thread that close() has already finished waiting for.
+      // swap. If so, retract the pair we just published and tear it down (via the finally) rather
+      // than start a receive thread that close() has already finished waiting for.
       if (closed.get()) {
-        if (connectionRef.compareAndSet(pair, null)) {
-          closeQuietly(ctx);
+        if (!connectionRef.compareAndSet(pair, null)) {
+          // close() already took ownership of the pair and will close both contexts; the finally
+          // must not double-close them.
+          consumerCtx = null;
+          senderCtx = null;
         }
         return false;
       }
       consecutiveFailures.set(0);
       startReceiveThread(pair);
+      // Published: connectionRef and the receive thread now own both contexts.
+      consumerCtx = null;
+      senderCtx = null;
       return true;
     } catch (RuntimeException ex) {
       long consecutive = consecutiveFailures.incrementAndGet();
@@ -262,6 +291,12 @@ final class JmsConnectionLifecycle {
       // Leave the ref null so notifyNewWork degrades to no-op; metric was already recorded.
       connectionRef.set(null);
       return false;
+    } finally {
+      // Close any context created but not handed off to connectionRef. No-op on the success and
+      // close()-won-the-retract paths (locals nulled); on every throw or close-during-connect
+      // return it stops a context (and its broker-side subscription) from leaking.
+      closeQuietly(consumerCtx);
+      closeQuietly(senderCtx);
     }
   }
 
@@ -295,7 +330,8 @@ final class JmsConnectionLifecycle {
         onTransportFailure.run();
         log.warnf("JMS coordinator receive failed, scheduling reconnect: %s", fault.getMessage());
         if (connectionRef.compareAndSet(pair, null)) {
-          closeQuietly(pair.context());
+          closeQuietly(pair.consumerContext());
+          closeQuietly(pair.senderContext());
         }
         triggerReconnect();
         return;
@@ -348,13 +384,27 @@ final class JmsConnectionLifecycle {
   private void closeContextRef() {
     Pair pair = connectionRef.getAndSet(null);
     if (pair != null) {
-      closeQuietly(pair.context());
+      closeQuietly(pair.consumerContext());
+      closeQuietly(pair.senderContext());
     }
   }
 
-  private record Pair(JMSContext context, JMSProducer producer, JMSConsumer consumer) {}
+  /**
+   * A coherent connection generation: a dedicated consumer context (touched only by the receive
+   * thread) and a separate sender context (touched only under {@link #sendLock}). Keeping send and
+   * receive on distinct contexts satisfies the single-thread-of-control rule without making sends
+   * wait on the blocking {@code receive()}.
+   */
+  private record Pair(
+      JMSContext consumerContext,
+      JMSConsumer consumer,
+      JMSContext senderContext,
+      JMSProducer producer) {}
 
   private static void closeQuietly(JMSContext ctx) {
+    if (ctx == null) {
+      return;
+    }
     try {
       ctx.close();
     } catch (Exception ignored) {
