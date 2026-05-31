@@ -288,9 +288,11 @@ public abstract class AbstractClusterCoordinatorContract {
     fixture.nodeB().registerWakeupListener(listenerB);
 
     long before = fixture.metricsB().transportFailure();
+    // A version far above any the codec will ever support. Hardcoding the then-current+1 (e.g. 2)
+    // silently became a *valid* envelope once the wire version was bumped, so pin it well clear.
     harness.injectRawMessage(
         fixture.nodeB(),
-        "{\"v\":2,\"node\":\"" + fixture.identityA().value() + "\",\"prio\":\"HIGH\"}");
+        "{\"v\":999,\"node\":\"" + fixture.identityA().value() + "\",\"prio\":\"HIGH\"}");
 
     sleepPastLatencyWindow();
     assertTrue(

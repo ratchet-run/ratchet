@@ -35,8 +35,10 @@ If you do not see it, the `RatchetLifecycle` CDI bean may not be initializing. E
 ### Check 2: Are Jobs Stuck in PENDING?
 
 ```sql
+-- Live queue state lives on scheduler_job_queue (the row is deleted at the terminal
+-- transition); PENDING is a live status, so query the queue, not cold scheduler_job.
 SELECT job_id, status, scheduled_time, job_type, attempts, last_error
-FROM scheduler_job
+FROM scheduler_job_queue
 WHERE status = 'PENDING'
   AND scheduled_time <= NOW()
 ORDER BY scheduled_time ASC
@@ -144,11 +146,13 @@ The `PackagePrefixClassPolicy` checks if the target class name starts with any o
 **Diagnosis:**
 
 ```sql
--- Find which classes are being rejected
-SELECT DISTINCT payload::jsonb ->> 'target' as target_class, last_error
+-- Find which classes are being rejected. A FAILED job is terminal: its hot queue row
+-- has been deleted and last_error was copied to terminal_error on the cold scheduler_job
+-- row, so filter on terminal_status / terminal_error here.
+SELECT DISTINCT payload::jsonb ->> 'target' as target_class, terminal_error
 FROM scheduler_job
-WHERE status = 'FAILED'
-  AND last_error LIKE '%not allowed%'
+WHERE terminal_status = 'FAILED'
+  AND terminal_error LIKE '%not allowed%'
 ORDER BY target_class;
 ```
 
@@ -162,15 +166,21 @@ Do not add broad prefixes like `java.` or `javax.` to your allowed packages. The
 
 **Symptom:** The same recurring job runs multiple times per scheduled interval.
 
-Recurring jobs use a **business key** for active-uniqueness. The database enforces a partial unique index:
+Recurring jobs use a **business key** for active-uniqueness. The database enforces this through a dedicated reservation table whose primary key is the business key, so only one active owner can hold a given key at a time:
 
 ```sql
--- PostgreSQL: only one active job per business key
-CREATE UNIQUE INDEX idx_job_active_business_key
-    ON scheduler_job (business_key)
-    WHERE status IN ('PENDING', 'RUNNING', 'PAUSED')
-      AND business_key IS NOT NULL;
+-- Active business-key uniqueness lives in scheduler_business_key_reservation,
+-- not in an index on scheduler_job. The primary key serializes ownership.
+CREATE TABLE scheduler_business_key_reservation (
+    business_key TEXT        NOT NULL,
+    owner_job_id uuid        NOT NULL,
+    owner_table  TEXT        NOT NULL,
+    reserved_at  TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT pk_scheduler_business_key_reservation PRIMARY KEY (business_key)
+);
 ```
+
+The `scheduler_job.business_key` column remains for observability and archive/search projections; it is not the uniqueness mechanism. Cancel paths delete the reservation row to release the key.
 
 Duplicates happen when:
 
@@ -181,9 +191,10 @@ Duplicates happen when:
 **Diagnosis:**
 
 ```sql
--- Check for duplicate active recurring jobs
+-- Check for duplicate active recurring jobs. Live status lives on scheduler_job_queue
+-- (job_type and business_key are denormalized there for the claim path).
 SELECT business_key, COUNT(*) as active_count
-FROM scheduler_job
+FROM scheduler_job_queue
 WHERE job_type = 'RECURRING'
   AND status IN ('PENDING', 'RUNNING', 'PAUSED')
   AND business_key IS NOT NULL
@@ -245,25 +256,28 @@ The circuit breaker transitions:
 ERROR: duplicate key value violates unique constraint "uk_idempotency_key"
 ```
 
-Each job gets a unique idempotency key (UUID). This error means you are submitting the same job twice. Ratchet includes retry logic for idempotency conflicts (configurable via `RATCHET_IDEMPOTENCY_RETRY_MAX_ATTEMPTS`, default 3).
+Each job gets a unique idempotency key (UUID). On submission Ratchet first looks up the key (`findByIdempotencyKey`) and, if a job with that key already exists, returns a handle to the existing job instead of inserting a duplicate. This constraint violation therefore only surfaces on a concurrent race -- two submissions with the same idempotency key both pass the pre-insert lookup, and the second insert hits the `uk_idempotency_key` unique constraint.
 
-If you see persistent failures, check if your code is double-submitting in a retry loop.
+If you see persistent failures, check if your code is double-submitting in a retry loop, or reusing the same explicit idempotency key across concurrent submissions.
 
 ### Active Business Key Violation
 
 ```
-ERROR: duplicate key value violates unique constraint "idx_job_active_business_key"
+ERROR: duplicate key value violates unique constraint "pk_scheduler_business_key_reservation"
 ```
 
-Two active jobs (PENDING, RUNNING, or PAUSED) share the same business key. This is expected behavior -- the constraint prevents duplicate scheduling. The job that violated the constraint was correctly rejected.
+Two active jobs share the same business key. This is expected behavior -- the `scheduler_business_key_reservation` primary key prevents duplicate scheduling. The job that violated the constraint was correctly rejected.
 
 If this is unexpected, query for the existing active job:
 
 ```sql
-SELECT job_id, status, scheduled_time, created_at
-FROM scheduler_job
-WHERE business_key = 'your-business-key'
-  AND status IN ('PENDING', 'RUNNING', 'PAUSED');
+-- Live status / scheduled_time are on scheduler_job_queue; created_at is cold metadata
+-- on scheduler_job. Join the two to see the active job holding the key.
+SELECT q.job_id, q.status, q.scheduled_time, c.created_at
+FROM scheduler_job_queue q
+JOIN scheduler_job c ON c.job_id = q.job_id
+WHERE q.business_key = 'your-business-key'
+  AND q.status IN ('PENDING', 'RUNNING', 'PAUSED');
 ```
 
 ## Timeout Behavior
@@ -313,9 +327,10 @@ ThreadPoolManager initialized with managed executors with semaphore-based limiti
 **Diagnosis:**
 
 ```sql
--- Check how many jobs are currently RUNNING per type
+-- Check how many jobs are currently RUNNING per type. RUNNING is live state on
+-- scheduler_job_queue (job_type is denormalized there).
 SELECT job_type, COUNT(*) as running
-FROM scheduler_job
+FROM scheduler_job_queue
 WHERE status = 'RUNNING'
 GROUP BY job_type
 ORDER BY running DESC;
@@ -333,9 +348,10 @@ If the running count equals the pool size for a type, the pool is saturated.
    Virtual threads still have configurable concurrency limits (default 1000 per type) to prevent unbounded growth.
 3. **Check for stuck jobs** -- long-running jobs hold their thread slot until they complete or timeout:
    ```sql
+   -- RUNNING / picked_at are live state on scheduler_job_queue.
    SELECT job_id, job_type, picked_at,
           EXTRACT(EPOCH FROM (NOW() - picked_at)) / 60 as running_minutes
-   FROM scheduler_job
+   FROM scheduler_job_queue
    WHERE status = 'RUNNING'
    ORDER BY picked_at ASC
    LIMIT 10;

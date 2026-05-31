@@ -6,6 +6,7 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.UUID;
 import java.util.function.Consumer;
+import run.ratchet.api.exception.JobAuthorizationException;
 
 /**
  * Primary entry point for scheduling background jobs.
@@ -126,12 +127,19 @@ public interface JobSchedulerService {
    * Authorization is checked against the old job using the same per-job cancellation policy as
    * {@link #cancelJob(UUID)} before the replacement is submitted.
    *
+   * <p>Unlike {@link #cancelJob(UUID)}, which returns {@code false} for a missing or terminal job,
+   * this method fails loud: replacing a job that does not exist throws rather than returning a
+   * no-op handle.
+   *
    * @param jobId UUIDv7 job id of the job to replace
    * @param delay delay before the replacement job becomes eligible to run
    * @param newTask task to execute for the replacement job
    * @param opts optional job options to apply to the replacement; {@code null} uses implementation
    *     defaults
    * @return handle for the newly submitted replacement job
+   * @throws IllegalArgumentException if no job exists for {@code jobId}
+   * @throws JobAuthorizationException if the caller is not permitted to cancel the job being
+   *     replaced under the per-job cancellation policy
    */
   JobHandle replace(
       UUID jobId, Duration delay, SerializableCheckedRunnable newTask, JobOptions opts);

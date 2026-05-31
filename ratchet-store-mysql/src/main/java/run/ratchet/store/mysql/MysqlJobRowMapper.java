@@ -17,6 +17,7 @@ import run.ratchet.store.converter.JsonMapConverter;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobExecutionType;
 import run.ratchet.store.entity.JobPayload;
+import run.ratchet.store.util.JobHydrationSupport;
 import run.ratchet.store.util.RowValues;
 import run.ratchet.store.util.StatusClassifier;
 
@@ -44,6 +45,7 @@ final class MysqlJobRowMapper {
   private static final Logger log = Logger.getLogger(MysqlJobRowMapper.class);
   private static final JobPayloadConverter JOB_PAYLOAD_CONVERTER = new JobPayloadConverter();
   private static final JsonMapConverter JSON_MAP_CONVERTER = new JsonMapConverter();
+  private static final JobHydrationSupport HYDRATION = new JobHydrationSupport("MySQL");
   private static final int IDX_JOB_ID = 0;
   private static final int IDX_JOB_TYPE = 1;
   private static final int IDX_PRIORITY = 2;
@@ -279,74 +281,19 @@ final class MysqlJobRowMapper {
 
   private static <E extends Enum<E>> E enumValue(
       Object[] row, int index, String column, Class<E> enumType) {
-    String raw = stringOrNull(row[index]);
-    if (raw == null) {
-      throw hydrationFailure(row, index, column, null, null);
-    }
-    try {
-      return Enum.valueOf(enumType, raw);
-    } catch (IllegalArgumentException e) {
-      throw hydrationFailure(row, index, column, raw, e);
-    }
+    return HYDRATION.enumValue(row, index, column, enumType);
   }
 
   private static <E extends Enum<E>> E enumValueOrNull(
       Object[] row, int index, String column, Class<E> enumType) {
-    String raw = stringOrNull(row[index]);
-    if (raw == null) {
-      return null;
-    }
-    try {
-      return Enum.valueOf(enumType, raw);
-    } catch (IllegalArgumentException e) {
-      throw hydrationFailure(row, index, column, raw, e);
-    }
+    return HYDRATION.enumValueOrNull(row, index, column, enumType);
   }
 
   private static Number requiredNumber(Object[] row, int index, String column) {
-    Number number = numberOrNull(row, index, column);
-    if (number == null) {
-      throw hydrationFailure(row, index, column, null, null);
-    }
-    return number;
+    return HYDRATION.requiredNumber(row, index, column);
   }
 
   private static Number numberOrNull(Object[] row, int index, String column) {
-    Object value = row[index];
-    if (value == null) {
-      return null;
-    }
-    if (value instanceof Number number) {
-      return number;
-    }
-    throw hydrationFailure(row, index, column, value, null);
-  }
-
-  private static JobHydrationException hydrationFailure(
-      Object[] row, int index, String column, Object value, Throwable cause) {
-    return new JobHydrationException(
-        "Failed to hydrate MySQL job "
-            + safeJobId(row)
-            + ": column "
-            + column
-            + " at index "
-            + index
-            + " has value "
-            + value,
-        cause);
-  }
-
-  private static UUID safeJobId(Object[] row) {
-    try {
-      return uuidOrNull(row[IDX_JOB_ID]);
-    } catch (RuntimeException ignored) {
-      return null;
-    }
-  }
-
-  static final class JobHydrationException extends IllegalStateException {
-    JobHydrationException(String message, Throwable cause) {
-      super(message, cause);
-    }
+    return HYDRATION.numberOrNull(row, index, column);
   }
 }

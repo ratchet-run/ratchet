@@ -35,8 +35,16 @@ public final class JobPayloadFactory {
 
   private static final Logger log = Logger.getLogger(JobPayloadFactory.class);
 
+  /**
+   * Fully-qualified name of the framework's coordination-only placeholder target ({@code
+   * run.ratchet.ri.util.JobPlaceholders}). Payloads pointing here are constructed internally (e.g.
+   * batch-parent rows), never invoke user code, and so are not subject to the application {@code
+   * ClassPolicy}.
+   */
+  static final String COORDINATION_PLACEHOLDER_TARGET = "run.ratchet.ri.util.JobPlaceholders";
+
   private static final JobPayload NOOP =
-      new JobPayload("run.ratchet.ri.util.JobPlaceholders", "noop", "()V", true, List.of());
+      new JobPayload(COORDINATION_PLACEHOLDER_TARGET, "noop", "()V", true, List.of());
 
   private static final int REFLECTION_CACHE_MAX_ENTRIES = 512;
 
@@ -123,6 +131,15 @@ public final class JobPayloadFactory {
 
   public static JobPayload noop() {
     return NOOP;
+  }
+
+  /**
+   * Returns true if {@code payload} targets the framework's internal coordination placeholder. Such
+   * payloads — the batch-parent {@link #noop()} — are framework-constructed and never invoke user
+   * code, so the persist-time {@code ClassPolicy} gate does not apply to them.
+   */
+  public static boolean isCoordinationPlaceholder(JobPayload payload) {
+    return payload != null && COORDINATION_PLACEHOLDER_TARGET.equals(payload.target());
   }
 
   private static String singleInvocationError(Serializable lambda, int stepCount) {

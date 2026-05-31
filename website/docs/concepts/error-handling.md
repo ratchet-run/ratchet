@@ -205,7 +205,7 @@ The failure callback is invoked **only on permanent failure** (DLQ entry), not o
 |-------|------|------------|
 | `JobRetryingEvent` | Each retry attempt | `jobId`, `errorMessage`, `attemptCount`, `nextScheduledTime` |
 | `JobDlqEvent` | Permanent failure (DLQ entry) | `jobId`, `errorMessage`, `attemptCount` |
-| `JobFailedEvent` | Any failure (retry or permanent) | `jobId`, `errorMessage` |
+| `JobFailedEvent` | Terminal failure only (job reaches FAILED state) -- not fired on retryable attempts | `jobId`, `errorMessage`, `retryAttempt` |
 
 ## Circuit Breaker Integration
 

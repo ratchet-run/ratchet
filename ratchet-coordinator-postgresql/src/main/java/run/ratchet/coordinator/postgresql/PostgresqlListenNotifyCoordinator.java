@@ -72,9 +72,20 @@ public class PostgresqlListenNotifyCoordinator
   private static final String COORDINATOR_KIND = "postgresql";
 
   @Inject NodeIdentityProvider identityProvider;
-  @Inject PostgresqlCoordinatorConfig config;
+
+  /**
+   * Resolved lazily in {@link #init()}. The config record is a plain value type with a {@code
+   * defaults()} factory, not a managed bean, so it is injected as an {@link Instance} and the
+   * coordinator falls back to {@link PostgresqlCoordinatorConfig#defaults()} when no application
+   * producer is present. A direct {@code @Inject PostgresqlCoordinatorConfig} would be an
+   * unsatisfied dependency and fail deployment validation out of the box.
+   */
+  @Inject Instance<PostgresqlCoordinatorConfig> configInstance;
+
   @Inject @Any Instance<DataSource> dataSourceInstance;
   @Inject MetricsCollector metrics;
+
+  private PostgresqlCoordinatorConfig config;
 
   private final NotifyPayloadCodec codec = new NotifyPayloadCodec();
   private final CopyOnWriteArrayList<Consumer<JobWakeupHint>> listeners =
@@ -123,6 +134,12 @@ public class PostgresqlListenNotifyCoordinator
 
   @PostConstruct
   void init() {
+    if (config == null) {
+      config =
+          configInstance != null && configInstance.isResolvable()
+              ? configInstance.get()
+              : PostgresqlCoordinatorConfig.defaults();
+    }
     Objects.requireNonNull(config, "config");
     Objects.requireNonNull(identityProvider, "identityProvider");
     requireJsonProvider();

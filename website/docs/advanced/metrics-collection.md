@@ -133,7 +133,7 @@ The Micrometer adapter publishes the following metrics:
 |-------------|------|-------------|
 | `ratchet.jobs.started` | `type`, `priority` | Incremented each time a job begins execution |
 | `ratchet.jobs.completed` | `type` | Incremented each time a job completes successfully |
-| `ratchet.jobs.failed` | `type`, `exception` | Incremented each time a job fails. The `exception` tag contains the simple class name of the causing exception. |
+| `ratchet.jobs.failed` | `type`, `family` | Incremented each time a job fails. The `family` tag contains the `ExceptionFamily` classification of the causing exception (`TRANSIENT`, `TIMEOUT`, `VALIDATION`, `BUSINESS`, or `UNKNOWN`). |
 
 #### Timers
 
@@ -145,14 +145,14 @@ The Micrometer adapter publishes the following metrics:
 
 The `type` tag corresponds to `JobType` enum values:
 
-- `SINGLE` -- One-time fire-and-forget jobs
+- `SINGLE` -- One-shot background task executed once and not rescheduled
 - `RECURRING` -- Cron-scheduled or interval-based jobs
-- `BATCH_CHILD` -- Individual items within a batch
-- `BATCH_PARENT` -- Batch parent coordination jobs
-- `CHAIN_STEP` -- Steps in a job chain
-- `WORKFLOW_BRANCH` -- Branches in a workflow
+- `BATCH` -- Batch-processing job comprising multiple child items
+- `CHAIN` -- A sequenced chain of tasks executed in order
+- `WORKFLOW` -- Workflow-driven execution with conditional branches or join semantics
+- `SYSTEM` -- Scheduler-managed system work, not user-creatable
 
-The `priority` tag corresponds to `JobPriority` enum values (`LOW`, `NORMAL`, `HIGH`, `CRITICAL`).
+The `priority` tag corresponds to `JobPriority` enum values (`LOWEST`, `LOW`, `NORMAL`, `HIGH`, `CRITICAL`).
 
 ### Prometheus Scrape Endpoint Example
 
@@ -191,8 +191,8 @@ rate(ratchet_jobs_started_total[5m])
 rate(ratchet_jobs_completed_total[5m])
   / rate(ratchet_jobs_started_total[5m])
 
-# Failure rate by exception type
-rate(ratchet_jobs_failed_total[5m])
+# Failure rate by exception family
+sum by (family) (rate(ratchet_jobs_failed_total[5m]))
 
 # P95 execution time
 histogram_quantile(0.95, rate(ratchet_jobs_duration_seconds_bucket[5m]))
@@ -317,13 +317,13 @@ Use the metrics to set up alerts for common operational issues:
 | Failure rate > 50% over 5 minutes | Critical: job processing is degraded |
 | P95 execution time > 2x baseline | Warning: job execution slowdown |
 | No jobs started in 15 minutes (when expected) | Critical: scheduler may be stalled |
-| `ratchet.jobs.failed` with specific `exception` tag spikes | Investigate the failing exception type |
+| `ratchet.jobs.failed` with a specific `family` tag spikes | Investigate the failing exception family |
 
 ## Best Practices
 
 **Use tags for dimensionality, not metric names.** Prefer `ratchet.jobs.started{type=SINGLE}` over `ratchet.single_jobs.started`. Tags enable flexible aggregation and filtering in dashboards.
 
-**Keep exception tags bounded.** The Micrometer adapter uses the exception's simple class name as a tag. If your application throws many dynamically-generated exception types, this could create high-cardinality metrics. Consider normalizing exception names in a custom collector.
+**Keep exception tags bounded.** The Micrometer adapter classifies failures into the bounded `ExceptionFamily` enum (`TRANSIENT`, `TIMEOUT`, `VALIDATION`, `BUSINESS`, `UNKNOWN`) for the `family` tag, so its cardinality stays fixed. If a custom collector instead tags by the exception's class name and your application throws many dynamically-generated exception types, this could create high-cardinality metrics. Consider normalizing exception names in that case.
 
 **Monitor attempt counts.** A spike in `attempt > 1` failures indicates that retries are being consumed. Pair this with retry policy metrics to understand whether jobs are eventually succeeding or exhausting retries.
 

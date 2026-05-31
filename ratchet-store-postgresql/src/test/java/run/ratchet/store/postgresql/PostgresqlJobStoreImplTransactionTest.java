@@ -1,47 +1,17 @@
 package run.ratchet.store.postgresql;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 import jakarta.transaction.Transactional;
-import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobFilter;
+import run.ratchet.tck.store.AbstractJobStoreTransactionBoundaryContract;
 
-class PostgresqlJobStoreImplTransactionTest {
+class PostgresqlJobStoreImplTransactionTest extends AbstractJobStoreTransactionBoundaryContract {
 
-  @Test
-  void unlockUsesIndependentTransactionBoundary() throws NoSuchMethodException {
-    Transactional transactional =
-        PostgresqlJobStoreImpl.class
-            .getMethod("unlock", String.class, String.class)
-            .getAnnotation(Transactional.class);
-
-    assertNotNull(transactional);
-    assertEquals(Transactional.TxType.REQUIRES_NEW, transactional.value());
-  }
-
-  @Test
-  void tryLockUsesIndependentTransactionBoundary() throws NoSuchMethodException {
-    Transactional transactional =
-        PostgresqlJobStoreImpl.class
-            .getMethod("tryLock", String.class, Duration.class, String.class)
-            .getAnnotation(Transactional.class);
-
-    assertNotNull(transactional);
-    assertEquals(Transactional.TxType.REQUIRES_NEW, transactional.value());
-  }
-
-  @Test
-  void classLevelTransactionalDefaultsToRequired() {
-    // The class-level @Transactional gives every method a default REQUIRED tx boundary unless a
-    // method declares its own. Lock the contract here: if the class-level annotation ever gets
-    // removed, read methods would silently fall into a no-tx code path on JTA-managed
-    // EclipseLink containers and re-introduce the connection leak this test is guarding against.
-    Transactional classLevel = PostgresqlJobStoreImpl.class.getAnnotation(Transactional.class);
-    assertNotNull(classLevel);
-    assertEquals(Transactional.TxType.REQUIRED, classLevel.value());
+  @Override
+  protected Class<?> jobStoreImplClass() {
+    return PostgresqlJobStoreImpl.class;
   }
 
   @Test
@@ -53,7 +23,7 @@ class PostgresqlJobStoreImplTransactionTest {
     // @Transactional default (REQUIRED) makes each read have a clean tx boundary that commits
     // before returning the connection to the pool.
     //
-    // getDatabaseTime is the specific read that triggered the original hang — it runs during
+    // getDatabaseTime is the specific read that triggered the original hang -- it runs during
     // startup via DefaultNodeIdentityProvider.checkClockSkew before any outer JTA tx exists.
     assertNoMethodLevelTransactional("getDatabaseTime");
     assertNoMethodLevelTransactional("searchJobs", JobFilter.class, int.class, int.class);

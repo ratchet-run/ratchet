@@ -221,9 +221,9 @@ ALTER SYSTEM SET work_mem = '256MB';
 ALTER SYSTEM SET effective_cache_size = '12GB';
 ```
 
-**Autovacuum** — Ratchet performs frequent updates. Tune autovacuum to keep up:
+**Autovacuum** — Ratchet performs frequent updates and deletes on the hot queue table. Tune autovacuum to keep up:
 ```sql
-ALTER TABLE scheduler_job SET (
+ALTER TABLE scheduler_job_queue SET (
   autovacuum_vacuum_scale_factor = 0.05,  -- vacuum after 5% of rows change
   autovacuum_analyze_scale_factor = 0.02  -- analyze after 2% of rows change
 );
@@ -265,11 +265,13 @@ Verify that the polling query uses indexes:
 ```sql
 -- PostgreSQL
 EXPLAIN ANALYZE
-SELECT * FROM scheduler_job
+SELECT * FROM scheduler_job_queue
 WHERE status = 'PENDING'
-  AND scheduled_time <= NOW()
-ORDER BY priority + FLOOR(GREATEST(0, EXTRACT(EPOCH FROM (statement_timestamp() - scheduled_time)) / 60) / 15) DESC,
-         scheduled_time ASC
+  AND scheduled_time <= statement_timestamp()
+  AND job_type = 'SINGLE'
+ORDER BY (priority + FLOOR(GREATEST(0, EXTRACT(EPOCH FROM (statement_timestamp() - scheduled_time))) / (60.0 * 15))) DESC,
+         scheduled_time ASC,
+         job_id ASC
 LIMIT 100
 FOR UPDATE SKIP LOCKED;
 
@@ -279,20 +281,21 @@ SELECT * FROM scheduler_job_queue FORCE INDEX (idx_claim_executable)
 WHERE status = 'PENDING'
   AND job_type = 'SINGLE'
   AND scheduled_time <= NOW()
-ORDER BY priority + FLOOR(GREATEST(0, TIMESTAMPDIFF(MINUTE, scheduled_time, NOW(3))) / 15) DESC,
-         scheduled_time ASC
+ORDER BY (priority + FLOOR(GREATEST(0, TIMESTAMPDIFF(MINUTE, scheduled_time, NOW(3))) / 15)) DESC,
+         scheduled_time ASC,
+         job_id ASC
 LIMIT 100
 FOR UPDATE SKIP LOCKED;
 ```
 
-The query should use `idx_job_claim_cover` on PostgreSQL or `idx_claim_executable` on MySQL. A sort on computed effective priority is expected; a full scan of the pending queue is not. If you see a sequential scan, check that statistics are up to date:
+The query should use `idx_claim_executable` on `scheduler_job_queue` on both PostgreSQL and MySQL — it is the hot-path claim index, partial on `status = 'PENDING'`. A sort on computed effective priority is expected; a full scan of the pending queue is not. If you see a sequential scan, check that statistics are up to date:
 
 ```sql
 -- PostgreSQL
-ANALYZE scheduler_job;
+ANALYZE scheduler_job_queue;
 
 -- MySQL
-ANALYZE TABLE scheduler_job;
+ANALYZE TABLE scheduler_job_queue;
 ```
 
 ## Job Retention and Archiving
@@ -312,17 +315,19 @@ The `scheduler_job_archive` table stores historical data for completed and faile
 ### Manual Cleanup
 
 ```sql
--- PostgreSQL: archive old completed jobs
+-- PostgreSQL: archive old completed jobs. Terminated jobs are cold rows on
+-- scheduler_job (the hot scheduler_job_queue row is deleted at the terminal
+-- transition), so filter on terminal_status / terminated_at.
 INSERT INTO scheduler_job_archive (archive_id, original_job_id, final_status, ...)
 SELECT ...
 FROM scheduler_job
-WHERE status IN ('SUCCEEDED', 'FAILED', 'CANCELED')
-  AND updated_at < NOW() - INTERVAL '30 days';
+WHERE terminal_status IN ('SUCCEEDED', 'FAILED', 'CANCELED')
+  AND terminated_at < NOW() - INTERVAL '30 days';
 
--- Then delete from the active table
+-- Then delete the cold rows
 DELETE FROM scheduler_job
-WHERE status IN ('SUCCEEDED', 'FAILED', 'CANCELED')
-  AND updated_at < NOW() - INTERVAL '30 days';
+WHERE terminal_status IN ('SUCCEEDED', 'FAILED', 'CANCELED')
+  AND terminated_at < NOW() - INTERVAL '30 days';
 ```
 
 ## Monitoring Performance
@@ -384,19 +389,21 @@ public class MicrometerCollector implements MetricsCollector {
 SELECT AVG(duration_ms) FROM scheduler_job_execution
 WHERE started_at > NOW() - INTERVAL '1 hour';
 
--- Jobs processed per minute
+-- Jobs processed per minute. SUCCEEDED is terminal: status survives as
+-- terminal_status on the cold scheduler_job row, alongside execution_end_time.
 SELECT
   date_trunc('minute', execution_end_time) AS minute,
   COUNT(*) AS completed
 FROM scheduler_job
-WHERE status = 'SUCCEEDED'
+WHERE terminal_status = 'SUCCEEDED'
   AND execution_end_time > NOW() - INTERVAL '1 hour'
 GROUP BY minute
 ORDER BY minute;
 
--- Thread pool pressure (jobs waiting for execution)
+-- Thread pool pressure (jobs waiting for execution). PENDING is live state on
+-- scheduler_job_queue.
 SELECT COUNT(*) AS queued_jobs
-FROM scheduler_job
+FROM scheduler_job_queue
 WHERE status = 'PENDING'
   AND scheduled_time <= NOW();
 ```

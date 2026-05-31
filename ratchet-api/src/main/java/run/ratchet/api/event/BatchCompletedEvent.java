@@ -3,6 +3,7 @@ package run.ratchet.api.event;
 import java.io.Serial;
 import java.time.Instant;
 import java.util.UUID;
+import run.ratchet.api.Incubating;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 
@@ -13,6 +14,7 @@ import run.ratchet.api.JobType;
  * ended in a failed state. The event is still emitted when one or more children failed, after the
  * batch has no remaining pending/running children.
  */
+@Incubating
 public class BatchCompletedEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = 843735174177646423L;

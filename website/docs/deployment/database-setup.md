@@ -138,8 +138,8 @@ create-jdbc-resource --connectionpoolid=RatchetPool java:/RatchetDS
 
 - Ratchet uses `SKIP LOCKED` for lock-free job claiming across multiple nodes
 - Generated columns extract `target_class` and `method_name` from the JSON payload
-- A partial unique index enforces business key uniqueness for active jobs only (`PENDING`, `RUNNING`, `PAUSED`)
-- JSONB is not used for the payload column (it uses TEXT), but you can query parameters via casting: `payload::jsonb ->> 'target'`
+- Business key uniqueness for active jobs is enforced by the `scheduler_business_key_reservation` table, not by an index on `scheduler_job`
+- The payload column uses `JSONB`, so you can query parameters directly: `payload ->> 'target'`
 
 ## MySQL
 
@@ -221,7 +221,7 @@ MySQL defaults to `REPEATABLE READ`, which acquires gap locks on `SELECT ... FOR
 - Uses `ENUM` types for status, job type, and backoff policy columns
 - Uses `JSON` column type for payload, params, and result data
 - `GENERATED ALWAYS AS ... STORED` columns extract `target_class` and `method_name` from payload JSON
-- `active_business_key` is a generated column that enforces uniqueness only for active jobs
+- Business key uniqueness for active jobs is enforced by the `scheduler_business_key_reservation` table, not by a column on `scheduler_job`
 - All tables use `InnoDB` engine with `utf8mb4_unicode_ci` collation
 
 ## MongoDB
@@ -273,7 +273,7 @@ db.scheduler_job.createIndex(
     name: "idx_job_active_business_key",
     unique: true,
     partialFilterExpression: {
-      status: { $in: ["PENDING", "RUNNING", "PAUSED"] },
+      status: { $in: ["PENDING", "RUNNING", "PAUSED", "WAITING"] },
       business_key: { $type: "string" }
     }
   }

@@ -52,6 +52,11 @@ final class PostgresqlJobQueryOperations {
   /**
    * Archive rows projected to match {@link PostgresqlJobRowMapper#hydrationSelect()} column
    * positions. NULL placeholders occupy columns not present in the archive.
+   *
+   * <p>This projection MUST emit exactly the same number of columns as {@code hydrationSelect()}.
+   * The two SELECTs are combined with {@code UNION ALL}; a column-count mismatch is rejected by
+   * PostgreSQL before any row is returned, breaking every archive-inclusive search. The leading two
+   * NULLs cover {@code payload}/{@code params}, which the archive does not retain.
    */
   // language=PostgreSQL
   private static final String ARCHIVE_PROJECTION =
@@ -65,7 +70,6 @@ final class PostgresqlJobQueryOperations {
       a.timeout_sec,
       a.cron_expr,
       a.zone_id,
-      NULL,
       NULL,
       NULL,
       a.target_class,
@@ -121,10 +125,10 @@ final class PostgresqlJobQueryOperations {
    */
   private static final int POS_JOB_ID = 1;
   private static final int POS_PRIORITY = 3;
-  private static final int POS_CREATED_AT = 22;
-  private static final int POS_TERMINAL_STATUS = 24;
-  private static final int POS_Q_SCHEDULED_TIME = 37;
-  private static final int POS_Q_UPDATED_AT = 44;
+  private static final int POS_CREATED_AT = 21;
+  private static final int POS_TERMINAL_STATUS = 23;
+  private static final int POS_Q_SCHEDULED_TIME = 36;
+  private static final int POS_Q_UPDATED_AT = 43;
 
   private final PostgresqlStoreContext ctx;
   private final PostgresqlTagOperations tags;
@@ -149,6 +153,11 @@ final class PostgresqlJobQueryOperations {
     }
     try {
       JobQueryCursor cursor = JobQueryCursor.decode(filter.cursor());
+      if (!cursor.matchesFilterSort(filter)) {
+        // Cursor was minted for a different sort field/direction; seeking on it while ORDER BY
+        // uses the live sort would skip or repeat rows. Fall back to offset pagination instead.
+        return null;
+      }
       return new ParsedCursor(cursor, parseSortValue(cursor));
     } catch (IllegalArgumentException | DateTimeParseException ignored) {
       return null;

@@ -4,7 +4,7 @@ package run.ratchet.api;
  * Functional interface for submitting a configured job for execution.
  *
  * <p>This decouples {@link JobBuilder} from the concrete scheduler service. The reference
- * implementation passes {@code this::persistJob} as the submitter.
+ * implementation implements {@code JobSubmitter} on its job-creation service.
  */
 @FunctionalInterface
 public interface JobSubmitter {

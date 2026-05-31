@@ -9,9 +9,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,6 +24,7 @@ import run.ratchet.api.JobQuerySortField;
 import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobType;
 import run.ratchet.store.entity.JobEntity;
+import run.ratchet.store.query.JobQueryCursor;
 
 /**
  * Base contract tests for {@link run.ratchet.store.spi.JobQueryStore} — dashboard-oriented search
@@ -452,6 +455,253 @@ public abstract class AbstractJobQueryStoreContract implements JobStoreContractF
 
     assertEquals(1, results.size(), "parentJobId filter should return only direct dependants");
     assertEquals(child.getId(), results.get(0).getId(), "Returned job should be the child job");
+  }
+
+  // ── Archive-inclusive search (UNION over live + archive tables) ─────────
+
+  @Test
+  void searchIncludeArchived_returnsLiveAndArchivedRowsOnce() {
+    JobEntity live = persist(newPendingJob());
+    UUID archivedId = archiveOnly(newPendingJob());
+
+    List<JobEntity> results =
+        store().searchJobs(JobFilter.builder().includeArchived(true).build(), 100, 0);
+
+    List<UUID> ids = results.stream().map(JobEntity::getId).toList();
+    assertTrue(ids.contains(live.getId()), "includeArchived search must still return live jobs");
+    assertTrue(ids.contains(archivedId), "includeArchived search must return archived jobs");
+    assertEquals(
+        ids.size(),
+        new HashSet<>(ids).size(),
+        "An archived job must appear once, not duplicated across the live/archive UNION");
+  }
+
+  @Test
+  void searchIncludeArchived_hydratesArchivedColumnsToCorrectFields() {
+    JobEntity pending = newPendingJob();
+    pending.setBusinessKey("bk-archived-search");
+    UUID archivedId = archiveOnly(pending);
+
+    List<JobEntity> results =
+        store().searchJobs(JobFilter.builder().includeArchived(true).build(), 100, 0);
+
+    JobEntity archived =
+        results.stream()
+            .filter(j -> archivedId.equals(j.getId()))
+            .findFirst()
+            .orElseThrow(
+                () -> new AssertionError("archived job missing from includeArchived search"));
+    assertEquals(
+        "bk-archived-search",
+        archived.getBusinessKey(),
+        "archive business_key must hydrate at the correct projection column");
+    assertEquals(
+        "com.example.TestJob",
+        archived.getTargetClass(),
+        "archive target_class must hydrate at the correct projection column");
+    assertEquals(
+        JobStatus.SUCCEEDED,
+        archived.getStatus(),
+        "archive final_status must hydrate as the job status");
+    assertNotNull(archived.getCreatedAt(), "archive original_created_at must hydrate as createdAt");
+  }
+
+  @Test
+  void searchIncludeArchived_sortsByPriorityDescendingAcrossBoundary() {
+    JobEntity low = newPendingJob();
+    low.setPriority(JobPriority.LOW);
+    UUID liveLow = persist(low).getId();
+
+    JobEntity high = newPendingJob();
+    high.setPriority(JobPriority.HIGH);
+    UUID archivedHigh = archiveOnly(high);
+
+    List<JobEntity> results =
+        store()
+            .searchJobs(
+                JobFilter.builder()
+                    .includeArchived(true)
+                    .sortField(JobQuerySortField.PRIORITY)
+                    .sortAscending(false)
+                    .build(),
+                100,
+                0);
+
+    List<UUID> ids =
+        results.stream().map(JobEntity::getId).filter(idsOf(liveLow, archivedHigh)).toList();
+    assertEquals(
+        List.of(archivedHigh, liveLow),
+        ids,
+        "PRIORITY-desc sort must place the archived HIGH job ahead of the live LOW job");
+  }
+
+  @Test
+  void searchIncludeArchived_sortsByCreatedAtDescendingAcrossBoundary() {
+    // Persist the live job first, then the archived job, so the archived job is the newest. With
+    // both caller_principal values NULL, an ORDER BY that points at the wrong column collapses to
+    // the job_id tiebreaker, which (UuidV7 being time-ordered) yields creation order — the reverse
+    // of a correct created_at-descending sort.
+    UUID liveOlder = persist(newPendingJob()).getId();
+    spaceCreationTimestamps();
+    UUID archivedNewer = archiveOnly(newPendingJob());
+
+    List<JobEntity> results =
+        store()
+            .searchJobs(
+                JobFilter.builder()
+                    .includeArchived(true)
+                    .sortField(JobQuerySortField.CREATED_AT)
+                    .sortAscending(false)
+                    .build(),
+                100,
+                0);
+
+    List<JobEntity> mine =
+        results.stream().filter(j -> idsOf(liveOlder, archivedNewer).test(j.getId())).toList();
+    assertEquals(2, mine.size(), "Both the live and archived job must appear in the search");
+    for (int i = 1; i < mine.size(); i++) {
+      assertDefaultCreatedAtOrder(mine.get(i - 1), mine.get(i));
+    }
+    assertEquals(
+        archivedNewer,
+        mine.get(0).getId(),
+        "CREATED_AT-desc sort must place the newer archived job first");
+  }
+
+  @Test
+  void searchIncludeArchived_cursorPaginationOverArchiveVisitsEveryRowOnce() {
+    // Give every archived row the same priority so the keyset tiebreaker — not the primary sort —
+    // decides ordering. That is the slot where an archive cursor seeking the wrong id field drops
+    // or repeats rows at the page boundary.
+    int total = 7;
+    Set<UUID> archivedIds = new HashSet<>();
+    for (int i = 0; i < total; i++) {
+      JobEntity job = newPendingJob();
+      job.setPriority(JobPriority.NORMAL);
+      archivedIds.add(archiveOnly(job));
+    }
+
+    int pageSize = 2;
+    List<UUID> seen = new ArrayList<>();
+    String cursor = null;
+    for (int guard = 0; guard <= total; guard++) {
+      var builder =
+          JobFilter.builder()
+              .includeArchived(true)
+              .sortField(JobQuerySortField.PRIORITY)
+              .sortAscending(false);
+      if (cursor != null) {
+        builder.cursor(cursor);
+      }
+      List<JobEntity> pageRows = store().searchJobs(builder.build(), pageSize, 0);
+      if (pageRows.isEmpty()) {
+        break;
+      }
+      pageRows.forEach(r -> seen.add(r.getId()));
+      JobEntity last = pageRows.get(pageRows.size() - 1);
+      cursor =
+          new JobQueryCursor(
+                  JobQuerySortField.PRIORITY,
+                  /* sortAscending= */ false,
+                  Integer.toString(last.getPriority().ordinal()),
+                  last.getId())
+              .encode();
+      if (pageRows.size() < pageSize) {
+        break;
+      }
+    }
+
+    Set<UUID> distinct = new HashSet<>(seen);
+    assertEquals(
+        seen.size(), distinct.size(), "Cursor pages over the archive must not repeat a row");
+    assertEquals(
+        archivedIds,
+        distinct,
+        "Cursor pages over the archive must visit every archived row exactly once");
+  }
+
+  @Test
+  void searchJobs_cursorMintedForADifferentSortIsIgnored() {
+    // A keyset cursor records the sort it was produced under. The seek predicate filters on the
+    // cursor's sort field while the ORDER BY comes from the live filter, so reusing a cursor after
+    // changing the sort would seek on one axis while the query orders by another — silently
+    // dropping or repeating rows. Page once under CREATED_AT, then reuse that cursor on a query
+    // sorted by PRIORITY: the store must ignore the mismatched cursor and fall back to offset
+    // paging, so the PRIORITY query returns the same rows with or without the stale cursor.
+    List<JobEntity> persisted = new ArrayList<>();
+    for (int i = 0; i < 5; i++) {
+      persisted.add(persist(newPendingJob()));
+      spaceCreationTimestamps();
+    }
+    Set<UUID> mine =
+        persisted.stream().map(JobEntity::getId).collect(java.util.stream.Collectors.toSet());
+    JobEntity anchor = persisted.get(2);
+
+    String staleCursor =
+        new JobQueryCursor(
+                JobQuerySortField.CREATED_AT,
+                /* sortAscending= */ true,
+                anchor.getCreatedAt().toString(),
+                anchor.getId())
+            .encode();
+
+    JobFilter priorityNoCursor =
+        JobFilter.builder().sortField(JobQuerySortField.PRIORITY).sortAscending(false).build();
+    JobFilter priorityStaleCursor =
+        JobFilter.builder()
+            .sortField(JobQuerySortField.PRIORITY)
+            .sortAscending(false)
+            .cursor(staleCursor)
+            .build();
+
+    List<UUID> baseline =
+        store().searchJobs(priorityNoCursor, 100, 0).stream()
+            .map(JobEntity::getId)
+            .filter(mine::contains)
+            .toList();
+    List<UUID> withStaleCursor =
+        store().searchJobs(priorityStaleCursor, 100, 0).stream()
+            .map(JobEntity::getId)
+            .filter(mine::contains)
+            .toList();
+
+    assertEquals(
+        baseline,
+        withStaleCursor,
+        "A cursor minted for a different sort must be ignored, not applied as a seek");
+  }
+
+  /**
+   * Creates a terminal job, archives it, and deletes the live cold row so the job exists only in
+   * the archive table — the state an archive-inclusive search must surface from the archive branch.
+   */
+  private UUID archiveOnly(JobEntity pending) {
+    JobEntity saved = persist(pending);
+    UUID id = saved.getId();
+    store().compareAndSwapStatus(id, JobStatus.PENDING, JobStatus.RUNNING, null);
+    store()
+        .markJobSucceeded(id, null, null, Instant.EPOCH, Instant.EPOCH.plusSeconds(1), 100L, 50L);
+    JobEntity completed = store().findById(id).orElseThrow();
+    store().archiveJob(completed, "tck-archive-search", "tck");
+    store().deleteJobsByIds(List.of(id));
+    return id;
+  }
+
+  private static java.util.function.Predicate<UUID> idsOf(UUID... ids) {
+    Set<UUID> set = new HashSet<>(Arrays.asList(ids));
+    return set::contains;
+  }
+
+  private static void spaceCreationTimestamps() {
+    // The store stamps created_at server-side at insert (a caller-set createdAt is ignored), so two
+    // jobs persisted back-to-back can land in the same millisecond. A short pause guarantees a
+    // distinct, ordered created_at for the cross-boundary sort assertion.
+    try {
+      Thread.sleep(50);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException("interrupted while spacing creation timestamps", e);
+    }
   }
 
   private static void assertDefaultCreatedAtOrder(JobEntity previous, JobEntity current) {

@@ -234,13 +234,10 @@ Obtained from [`JobSchedulerService.streamingBatch()`](./job-scheduler-service#s
 ### fromStream
 
 ```java
-<U extends Serializable> StreamingBatchBuilder<U> fromStream(Stream<U> stream)
+StreamingBatchBuilder<T> fromStream(Stream<T> stream)
 ```
 
-Sets the input data source for the batch.
-
-**Type Parameters:**
-- `U` -- the type of items; must implement `Serializable`.
+Sets the input data source for the batch. The stream item type `T` is fixed when the builder is created via [`streamingBatch()`](./job-scheduler-service#streamingbatch) and must implement `Serializable`.
 
 **Parameters:**
 - `stream` -- the stream of items to process.

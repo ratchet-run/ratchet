@@ -47,7 +47,7 @@ public record LambdaDescriptor(
         methodName(),
         methodDescriptor(),
         isStatic(),
-        Arrays.hashCode(capturedArgs()));
+        Arrays.deepHashCode(capturedArgs()));
   }
 
   @Override

@@ -3,6 +3,7 @@ package run.ratchet.api.event;
 import java.io.Serial;
 import java.io.Serializable;
 import java.time.Instant;
+import run.ratchet.api.Incubating;
 import run.ratchet.api.SignalDecision;
 
 /**
@@ -16,6 +17,7 @@ import run.ratchet.api.SignalDecision;
  * @see run.ratchet.api.JobSchedulerService#deliverSignal(String, Serializable)
  * @see run.ratchet.api.JobSchedulerService#deliverSignal(String, SignalDecision)
  */
+@Incubating
 public class JobsBulkSignaledEvent implements Serializable {
 
   @Serial private static final long serialVersionUID = 1L;

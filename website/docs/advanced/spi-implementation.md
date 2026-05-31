@@ -646,7 +646,8 @@ public interface JobStore
             BatchMetricsStore,   // Batch-level metrics
             DlqAlertStore,       // Dead letter queue alerting
             ResourcePermitStore, // Resource permit management
-            SignalStore          // Signal-waiting delivery and timeout operations
+            SignalStore,         // Signal-waiting delivery and timeout operations
+            RecurringJobStore    // Recurring-master persistence (claim, advance, cancel/archive)
 { }
 ```
 
@@ -676,6 +677,7 @@ Ratchet ships with MySQL, PostgreSQL, and MongoDB implementations. To implement 
 | `DlqAlertStore` | DLQ alerting | `saveDlqAlert()`, `existsRecentDlqAlert()` |
 | `ResourcePermitStore` | Resource permits | `tryAcquirePermit()`, `releasePermit()` |
 | `SignalStore` | Signal-waiting jobs | `deliverSignalById()`, `deliverSignalByKey()`, `findTimedOutSignalJobs()` |
+| `RecurringJobStore` | Recurring-master persistence | `claimDueRecurring()`, `advanceNextFire()`, `cancelRecurringAndArchive()` |
 
 ### Implementing a Custom Store
 

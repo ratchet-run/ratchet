@@ -1,5 +1,6 @@
 package run.ratchet.coordinator.jms;
 
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -8,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
@@ -21,22 +23,29 @@ import jakarta.jms.ConnectionFactory;
 import jakarta.jms.ExceptionListener;
 import jakarta.jms.JMSConsumer;
 import jakarta.jms.JMSContext;
-import jakarta.jms.JMSException;
 import jakarta.jms.JMSProducer;
 import jakarta.jms.JMSRuntimeException;
 import jakarta.jms.Message;
 import jakarta.jms.MessageListener;
 import jakarta.jms.TextMessage;
 import jakarta.jms.Topic;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import run.ratchet.api.NodeIdentity;
 
 class JmsConnectionLifecycleTest {
+
+  private final List<JmsConnectionLifecycle> created = new ArrayList<>();
 
   private ConnectionFactory cf;
   private Topic topic;
@@ -58,6 +67,14 @@ class JmsConnectionLifecycleTest {
     when(ctx.createProducer()).thenReturn(producer);
     when(ctx.createConsumer(any(Topic.class))).thenReturn(consumer);
     when(ctx.createConsumer(any(Topic.class), anyString())).thenReturn(consumer);
+    // Default: a quiet topic. The receive loop blocks briefly and returns nothing, so it polls
+    // without busy-spinning. Tests that need an inbound message or a fault override this.
+    when(consumer.receive(anyLong())).thenAnswer(blockingQuietReceive());
+  }
+
+  @AfterEach
+  void tearDown() {
+    created.forEach(JmsConnectionLifecycle::close);
   }
 
   // ─── start() ─────────────────────────────────────────────────────────────────
@@ -69,9 +86,28 @@ class JmsConnectionLifecycleTest {
   }
 
   @Test
-  void startInstallsExceptionListener() {
+  void startDoesNotRegisterAsyncDelivery() {
     newLifecycle().start(identity("nodeA"));
-    verify(ctx).setExceptionListener(any(ExceptionListener.class));
+    // Jakarta Messaging 3.0 §12.3 forbids setExceptionListener / setMessageListener on an
+    // application-created context in a web or EJB container. Inbound delivery is synchronous.
+    verify(ctx, never()).setExceptionListener(any(ExceptionListener.class));
+    verify(consumer, never()).setMessageListener(any(MessageListener.class));
+  }
+
+  @Test
+  void publishUsesSynchronousSendNotAsyncCompletionListener() throws Exception {
+    TextMessage outbound = mock(TextMessage.class);
+    when(ctx.createTextMessage(anyString())).thenReturn(outbound);
+    JmsConnectionLifecycle lifecycle = newLifecycle();
+    lifecycle.start(identity("nodeA"));
+
+    assertTrue(lifecycle.sendTextMessage("body", "nodeA", "NORMAL"));
+
+    // §12.3 forbids asynchronous send (a CompletionListener) from a container-created producer just
+    // as it forbids async receive. Publish must take the blocking send overload and never enable
+    // async delivery on the producer.
+    verify(producer).send(any(Topic.class), any(Message.class));
+    verify(producer, never()).setAsync(any());
   }
 
   @Test
@@ -84,9 +120,8 @@ class JmsConnectionLifecycleTest {
   @Test
   void startInstallsBrokerSideSelfFilterSelectorWhenEnabled() {
     newLifecycle().start(identity("nodeA"));
-    ArgumentCaptor<String> selector = ArgumentCaptor.forClass(String.class);
-    verify(ctx).createConsumer(any(Topic.class), selector.capture());
-    assertEquals("node <> 'nodeA'", selector.getValue());
+    verify(ctx)
+        .createConsumer(any(Topic.class), org.mockito.ArgumentMatchers.eq("node <> 'nodeA'"));
   }
 
   @Test
@@ -99,21 +134,16 @@ class JmsConnectionLifecycleTest {
 
   @Test
   void startBuildsSelectorFromNodeIdentity() {
-    // NodeIdentity rejects single-quote / backslash at construction, so escapeSelector's escape
-    // logic is exercised in isolation (see escapeSelectorDoublesSingleQuotes etc); this test
-    // pins the rendered selector format for an unremarkable identity.
     newLifecycle().start(identity("nodeA"));
-    ArgumentCaptor<String> selector = ArgumentCaptor.forClass(String.class);
-    verify(ctx, atLeastOnce()).createConsumer(any(Topic.class), selector.capture());
-    assertEquals("node <> 'nodeA'", selector.getValue());
+    verify(ctx, atLeastOnce())
+        .createConsumer(any(Topic.class), org.mockito.ArgumentMatchers.eq("node <> 'nodeA'"));
   }
 
   @Test
   void startWithFailingContextFactoryLeavesRefsNullAndDoesNotThrow() {
     when(cf.createContext(anyInt())).thenThrow(new JMSRuntimeException("boom"));
     AtomicInteger transportFailures = new AtomicInteger();
-    JmsConnectionLifecycle lifecycle =
-        new JmsConnectionLifecycle(cf, topic, config, m -> {}, transportFailures::incrementAndGet);
+    JmsConnectionLifecycle lifecycle = newLifecycle(m -> {}, transportFailures::incrementAndGet);
     assertDoesNotThrow(() -> lifecycle.start(identity("nodeA")));
     assertNull(lifecycle.currentContext());
     assertNull(lifecycle.currentProducer());
@@ -127,36 +157,32 @@ class JmsConnectionLifecycleTest {
     assertNotNull(lifecycle.currentProducer());
   }
 
-  // ─── exception-listener-driven reconnect ─────────────────────────────────────
+  // ─── receive-fault-driven reconnect ──────────────────────────────────────────
 
   @Test
-  void exceptionListenerFiringNullsRefsAndCallsTransportFailure() throws Exception {
+  void receiveFaultNullsRefsAndCallsTransportFailure() {
+    when(consumer.receive(anyLong())).thenThrow(new JMSRuntimeException("transport down"));
     AtomicInteger transportFailures = new AtomicInteger();
-    JmsConnectionLifecycle lifecycle =
-        new JmsConnectionLifecycle(cf, topic, config, m -> {}, transportFailures::incrementAndGet);
-    ArgumentCaptor<ExceptionListener> listenerCaptor =
-        ArgumentCaptor.forClass(ExceptionListener.class);
+    JmsConnectionLifecycle lifecycle = newLifecycle(m -> {}, transportFailures::incrementAndGet);
+
     lifecycle.start(identity("nodeA"));
-    verify(ctx).setExceptionListener(listenerCaptor.capture());
 
-    // Fire the listener with a JMSException.
-    listenerCaptor.getValue().onException(new JMSException("transport down"));
-
-    // Allow reconnect thread to attempt at least once before we assert.
-    Thread.sleep(150);
-    assertTrue(transportFailures.get() >= 1, "transport_failure must increment on disconnect");
+    await()
+        .atMost(Duration.ofSeconds(2))
+        .untilAsserted(
+            () ->
+                assertTrue(
+                    transportFailures.get() >= 1,
+                    "transport_failure must increment when receive() faults"));
   }
 
   @Test
-  void exceptionListenerClosesStaleContext() {
+  void receiveFaultClosesStaleContext() {
+    when(consumer.receive(anyLong())).thenThrow(new JMSRuntimeException("transport down"));
     JmsConnectionLifecycle lifecycle = newLifecycle();
-    ArgumentCaptor<ExceptionListener> listenerCaptor =
-        ArgumentCaptor.forClass(ExceptionListener.class);
     lifecycle.start(identity("nodeA"));
-    verify(ctx).setExceptionListener(listenerCaptor.capture());
 
-    listenerCaptor.getValue().onException(new JMSException("transport down"));
-    verify(ctx, atLeastOnce()).close();
+    await().atMost(Duration.ofSeconds(2)).untilAsserted(() -> verify(ctx, atLeastOnce()).close());
   }
 
   @Test
@@ -175,39 +201,30 @@ class JmsConnectionLifecycleTest {
   }
 
   @Test
-  void reconnectRecoversAfterTransientFailure() throws Exception {
+  void reconnectRecoversAfterTransientReceiveFault() {
     JMSContext freshCtx = mock(JMSContext.class);
     JMSProducer freshProducer = mock(JMSProducer.class);
     JMSConsumer freshConsumer = mock(JMSConsumer.class);
     when(freshCtx.createProducer()).thenReturn(freshProducer);
     when(freshCtx.createConsumer(any(Topic.class), anyString())).thenReturn(freshConsumer);
+    when(freshConsumer.receive(anyLong())).thenAnswer(blockingQuietReceive());
+    // First context's receive() faults; the reconnect cycle then yields a fresh context.
+    when(consumer.receive(anyLong())).thenThrow(new JMSRuntimeException("connection lost"));
     AtomicInteger calls = new AtomicInteger();
     when(cf.createContext(anyInt()))
-        .thenAnswer(
-            inv -> {
-              int n = calls.incrementAndGet();
-              if (n == 1) {
-                return ctx;
-              }
-              if (n == 2) {
-                throw new JMSRuntimeException("still down");
-              }
-              return freshCtx;
-            });
+        .thenAnswer(inv -> calls.incrementAndGet() == 1 ? ctx : freshCtx);
 
     JmsConnectionLifecycle lifecycle = newLifecycle();
-    ArgumentCaptor<ExceptionListener> listenerCaptor =
-        ArgumentCaptor.forClass(ExceptionListener.class);
     lifecycle.start(identity("nodeA"));
-    verify(ctx).setExceptionListener(listenerCaptor.capture());
 
-    listenerCaptor.getValue().onException(new JMSException("connection lost"));
-
-    long deadline = System.currentTimeMillis() + 2_000L;
-    while (lifecycle.currentContext() != freshCtx && System.currentTimeMillis() < deadline) {
-      Thread.sleep(20);
-    }
-    assertEquals(freshCtx, lifecycle.currentContext(), "reconnect must publish fresh context");
+    await()
+        .atMost(Duration.ofSeconds(2))
+        .untilAsserted(
+            () ->
+                assertEquals(
+                    freshCtx,
+                    lifecycle.currentContext(),
+                    "reconnect must publish a fresh context after a receive fault"));
     assertEquals(freshProducer, lifecycle.currentProducer());
   }
 
@@ -227,7 +244,6 @@ class JmsConnectionLifecycleTest {
     lifecycle.start(identity("nodeA"));
     lifecycle.close();
     assertDoesNotThrow(lifecycle::close);
-    // Second close must not call ctx.close again.
     verify(ctx, times(1)).close();
   }
 
@@ -247,24 +263,6 @@ class JmsConnectionLifecycleTest {
     assertFalse(lifecycle.isClosed());
     lifecycle.close();
     assertTrue(lifecycle.isClosed());
-  }
-
-  @Test
-  void exceptionListenerAfterCloseIsNoOp() throws Exception {
-    AtomicInteger transportFailures = new AtomicInteger();
-    JmsConnectionLifecycle lifecycle =
-        new JmsConnectionLifecycle(cf, topic, config, m -> {}, transportFailures::incrementAndGet);
-    ArgumentCaptor<ExceptionListener> listenerCaptor =
-        ArgumentCaptor.forClass(ExceptionListener.class);
-    lifecycle.start(identity("nodeA"));
-    verify(ctx).setExceptionListener(listenerCaptor.capture());
-
-    lifecycle.close();
-    listenerCaptor.getValue().onException(new JMSException("post-close fault"));
-
-    // No reconnect attempt, no new transport-failure tick.
-    Thread.sleep(50);
-    assertEquals(0, transportFailures.get());
   }
 
   @Test
@@ -291,36 +289,93 @@ class JmsConnectionLifecycleTest {
   // ─── inbound dispatch ────────────────────────────────────────────────────────
 
   @Test
-  void inboundHandlerIsInvokedWhenMessageListenerFires() throws Exception {
-    AtomicReference<Message> received = new AtomicReference<>();
-    JmsConnectionLifecycle lifecycle =
-        new JmsConnectionLifecycle(cf, topic, config, received::set, () -> {});
-    ArgumentCaptor<MessageListener> listenerCaptor = ArgumentCaptor.forClass(MessageListener.class);
-    lifecycle.start(identity("nodeA"));
-    verify(consumer).setMessageListener(listenerCaptor.capture());
-
+  void inboundHandlerIsInvokedForReceivedMessage() {
     TextMessage tm = mock(TextMessage.class);
-    listenerCaptor.getValue().onMessage(tm);
+    when(consumer.receive(anyLong())).thenReturn(tm).thenAnswer(blockingQuietReceive());
+    AtomicReference<Message> received = new AtomicReference<>();
+    JmsConnectionLifecycle lifecycle = newLifecycle(received::set, () -> {});
 
-    assertEquals(tm, received.get());
+    lifecycle.start(identity("nodeA"));
+
+    await()
+        .atMost(Duration.ofSeconds(2))
+        .untilAsserted(
+            () -> assertEquals(tm, received.get(), "received message must reach handler"));
   }
 
   @Test
-  void inboundHandlerExceptionsAreSwallowed() throws Exception {
+  void inboundHandlerExceptionsDoNotKillReceiveLoop() {
+    TextMessage first = mock(TextMessage.class);
+    TextMessage second = mock(TextMessage.class);
+    when(consumer.receive(anyLong()))
+        .thenReturn(first)
+        .thenReturn(second)
+        .thenAnswer(blockingQuietReceive());
+    List<Message> seen = new java.util.concurrent.CopyOnWriteArrayList<>();
     JmsConnectionLifecycle lifecycle =
-        new JmsConnectionLifecycle(
-            cf,
-            topic,
-            config,
+        newLifecycle(
             m -> {
+              seen.add(m);
               throw new RuntimeException("handler blew up");
             },
             () -> {});
-    ArgumentCaptor<MessageListener> listenerCaptor = ArgumentCaptor.forClass(MessageListener.class);
-    lifecycle.start(identity("nodeA"));
-    verify(consumer).setMessageListener(listenerCaptor.capture());
 
-    assertDoesNotThrow(() -> listenerCaptor.getValue().onMessage(mock(TextMessage.class)));
+    lifecycle.start(identity("nodeA"));
+
+    // A throwing handler on the first message must not stop the second from being delivered.
+    await()
+        .atMost(Duration.ofSeconds(2))
+        .untilAsserted(
+            () -> assertTrue(seen.contains(second), "receive loop must survive a throw"));
+  }
+
+  @Test
+  void closeWaitsForInFlightDispatchToFinish() throws InterruptedException {
+    TextMessage tm = mock(TextMessage.class);
+    when(consumer.receive(anyLong())).thenReturn(tm).thenAnswer(blockingQuietReceive());
+
+    CountDownLatch handlerEntered = new CountDownLatch(1);
+    CountDownLatch releaseHandler = new CountDownLatch(1);
+    AtomicBoolean handlerFinished = new AtomicBoolean(false);
+    JmsConnectionLifecycle lifecycle =
+        newLifecycle(
+            m -> {
+              handlerEntered.countDown();
+              // Wait through interruption: close() interrupts the receive thread, but a real
+              // handler doing synchronous work (e.g. a metrics call) would not unwind on it. This
+              // models that so the test exercises close()'s join, not the interrupt.
+              boolean released = false;
+              while (!released) {
+                try {
+                  released = releaseHandler.await(2, TimeUnit.SECONDS);
+                } catch (InterruptedException ignored) {
+                  // keep waiting
+                }
+              }
+              handlerFinished.set(true);
+            },
+            () -> {});
+
+    lifecycle.start(identity("nodeA"));
+    assertTrue(handlerEntered.await(2, TimeUnit.SECONDS), "handler must be entered before close()");
+
+    AtomicBoolean closeReturned = new AtomicBoolean(false);
+    Thread closer =
+        new Thread(
+            () -> {
+              lifecycle.close();
+              closeReturned.set(true);
+            });
+    closer.start();
+
+    // close() must block in join() while the dispatch is still inside the handler.
+    Thread.sleep(150);
+    assertFalse(closeReturned.get(), "close() must not return while a dispatch is in flight");
+
+    releaseHandler.countDown();
+    closer.join(Duration.ofSeconds(3).toMillis());
+    assertTrue(closeReturned.get(), "close() must return once the in-flight dispatch completes");
+    assertTrue(handlerFinished.get(), "the in-flight handler must finish before close() returns");
   }
 
   // ─── selector escaping helper ────────────────────────────────────────────────
@@ -339,7 +394,6 @@ class JmsConnectionLifecycleTest {
 
   @Test
   void escapeSelectorEscapesBackslashBeforeSingleQuote() {
-    // Backslash must double first; otherwise a value of \' would become \''  → broken literal.
     assertEquals("\\\\''", JmsConnectionLifecycle.escapeSelector("\\'"));
   }
 
@@ -352,8 +406,23 @@ class JmsConnectionLifecycleTest {
 
   // ─── helpers ─────────────────────────────────────────────────────────────────
 
+  private static org.mockito.stubbing.Answer<Message> blockingQuietReceive() {
+    return inv -> {
+      Thread.sleep(20);
+      return null;
+    };
+  }
+
   private JmsConnectionLifecycle newLifecycle() {
-    return new JmsConnectionLifecycle(cf, topic, config, m -> {}, () -> {});
+    return newLifecycle(m -> {}, () -> {});
+  }
+
+  private JmsConnectionLifecycle newLifecycle(
+      java.util.function.Consumer<Message> inboundHandler, Runnable onTransportFailure) {
+    JmsConnectionLifecycle lifecycle =
+        new JmsConnectionLifecycle(cf, topic, config, inboundHandler, onTransportFailure);
+    created.add(lifecycle);
+    return lifecycle;
   }
 
   private static JmsCoordinatorConfig newConfig(boolean brokerSideSelfFilter) {

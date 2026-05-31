@@ -4,6 +4,7 @@ import java.io.Serial;
 import java.io.Serializable;
 import java.time.Instant;
 import java.util.UUID;
+import run.ratchet.api.Incubating;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 
@@ -14,6 +15,7 @@ import run.ratchet.api.JobType;
  * such as {@code businessKey}, {@code jobType}, {@code priority}, and {@code nodeId} may be {@code
  * null} when Ratchet can no longer load the job row after a successful state transition.
  */
+@Incubating
 public abstract class AbstractJobSchedulerEvent implements Serializable {
 
   @Serial private static final long serialVersionUID = 6853988277084004625L;

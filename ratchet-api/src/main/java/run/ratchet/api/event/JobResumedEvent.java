@@ -3,10 +3,12 @@ package run.ratchet.api.event;
 import java.io.Serial;
 import java.time.Instant;
 import java.util.UUID;
+import run.ratchet.api.Incubating;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 
 /** Fired when a paused job is resumed. */
+@Incubating
 public class JobResumedEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = -5969069800791733733L;

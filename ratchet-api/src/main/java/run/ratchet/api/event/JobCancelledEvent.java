@@ -3,6 +3,7 @@ package run.ratchet.api.event;
 import java.io.Serial;
 import java.time.Instant;
 import java.util.UUID;
+import run.ratchet.api.Incubating;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 
@@ -11,6 +12,7 @@ import run.ratchet.api.JobType;
  *
  * <p>Fired after the job record reaches CANCELED state.
  */
+@Incubating
 public class JobCancelledEvent extends AbstractJobCancellationEvent {
 
   @Serial private static final long serialVersionUID = -3714116971496582534L;

@@ -3,6 +3,7 @@ package run.ratchet.api.event;
 import java.io.Serial;
 import java.time.Instant;
 import java.util.UUID;
+import run.ratchet.api.Incubating;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 
@@ -13,6 +14,7 @@ import run.ratchet.api.JobType;
  * Inherited fields identify the job, business key, type, priority, executor node, and event
  * timestamp.
  */
+@Incubating
 public class JobStartedEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = -1805923320335775574L;

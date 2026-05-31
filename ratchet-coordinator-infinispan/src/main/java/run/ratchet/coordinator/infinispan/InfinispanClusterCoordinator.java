@@ -65,9 +65,19 @@ public class InfinispanClusterCoordinator implements ClusterCoordinator, Schedul
   static final String COORDINATOR_KIND = "infinispan";
 
   @Inject NodeIdentityProvider identityProvider;
-  @Inject InfinispanCoordinatorConfig config;
+
+  /**
+   * Resolved lazily in {@link #init()}. The config record has a {@code defaults()} factory but is
+   * not a managed bean, so it is injected as an {@link Instance} with a defaults() fallback; a
+   * direct {@code @Inject InfinispanCoordinatorConfig} would be an unsatisfied dependency that
+   * fails deployment validation out of the box.
+   */
+  @Inject Instance<InfinispanCoordinatorConfig> configInstance;
+
   @Inject @Any Instance<InfinispanCacheManagerProvider> providerInstance;
   @Inject MetricsCollector metrics;
+
+  private InfinispanCoordinatorConfig config;
 
   private final NotifyPayloadCodec codec = new NotifyPayloadCodec();
   private final AtomicLong sendSequence = new AtomicLong();
@@ -99,6 +109,12 @@ public class InfinispanClusterCoordinator implements ClusterCoordinator, Schedul
 
   @PostConstruct
   void init() {
+    if (config == null) {
+      config =
+          configInstance != null && configInstance.isResolvable()
+              ? configInstance.get()
+              : InfinispanCoordinatorConfig.defaults();
+    }
     Objects.requireNonNull(config, "config");
     Objects.requireNonNull(identityProvider, "identityProvider");
     requireJsonProvider();

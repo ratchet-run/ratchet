@@ -73,7 +73,7 @@ Ratchet provides two claim paths:
 | Method | Returns | Use case |
 |--------|---------|----------|
 | `claimNextBatch(limit, nodeId)` | Full `JobEntity` with payload | When you need the complete job immediately |
-| `claimNextBatchOptimized(limit, nodeId)` | Lightweight `JobClaimDto` | When you want to claim fast and load payloads lazily |
+| `claimNextBatchOptimized(jobType, limit, nodeId)` | Lightweight `JobClaimDto` | When you want to claim fast and load payloads lazily |
 
 The optimized path skips deserializing large payload blobs during the claim query, reducing lock hold time in high-throughput clusters.
 
@@ -125,9 +125,10 @@ The `NodeStore.getDatabaseTime()` method returns the database server's current t
 By default, each node polls on its own interval. For time-sensitive jobs (CRITICAL priority, immediate submissions), Ratchet supports cross-node wakeup via the `ClusterCoordinator` SPI:
 
 ```java
-public interface ClusterCoordinator {
-    void notifyNewWork(JobPriority priority);
-    void registerWakeupListener(Runnable listener);
+public interface ClusterCoordinator extends AutoCloseable {
+    void notifyNewWork(JobPriority priority, NodeIdentity source);
+    void registerWakeupListener(BiConsumer<JobPriority, NodeIdentity> listener);
+    void close();
 }
 ```
 
@@ -161,7 +162,8 @@ Out of the box, Ratchet uses `NoOpClusterCoordinator`. That is fine for any depl
 public class JGroupsClusterCoordinator implements ClusterCoordinator {
 
     private JChannel channel;
-    private final List<Runnable> listeners = new CopyOnWriteArrayList<>();
+    private final List<BiConsumer<JobPriority, NodeIdentity>> listeners =
+        new CopyOnWriteArrayList<>();
 
     @PostConstruct
     void init() throws Exception {
@@ -169,14 +171,15 @@ public class JGroupsClusterCoordinator implements ClusterCoordinator {
         channel.setReceiver(new ReceiverAdapter() {
             @Override
             public void receive(Message msg) {
-                listeners.forEach(Runnable::run);
+                NodeIdentity sender = new NodeIdentity(msg.getSrc().toString());
+                listeners.forEach(l -> l.accept(JobPriority.CRITICAL, sender));
             }
         });
         channel.connect("ratchet-cluster");
     }
 
     @Override
-    public void notifyNewWork(JobPriority priority) {
+    public void notifyNewWork(JobPriority priority, NodeIdentity source) {
         try {
             channel.send(new ObjectMessage(null, "WAKEUP"));
         } catch (Exception e) {
@@ -185,8 +188,15 @@ public class JGroupsClusterCoordinator implements ClusterCoordinator {
     }
 
     @Override
-    public void registerWakeupListener(Runnable listener) {
+    public void registerWakeupListener(BiConsumer<JobPriority, NodeIdentity> listener) {
         listeners.add(listener);
+    }
+
+    @Override
+    public void close() {
+        if (channel != null) {
+            channel.close();
+        }
     }
 }
 ```

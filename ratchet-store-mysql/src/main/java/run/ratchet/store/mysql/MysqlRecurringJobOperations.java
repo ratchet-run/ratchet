@@ -9,16 +9,15 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import run.ratchet.api.BackoffPolicy;
 import run.ratchet.api.NodeTagFilter;
 import run.ratchet.api.exception.RatchetTransientStoreException;
 import run.ratchet.store.converter.JobPayloadConverter;
-import run.ratchet.store.entity.JobPayload;
 import run.ratchet.store.mysql.converter.UuidByteArrayConverter;
 import run.ratchet.store.spi.RecurringJobDefinition;
 import run.ratchet.store.spi.RecurringJobStore;
 import run.ratchet.store.spi.RecurringJobStore.ArchiveReason;
 import run.ratchet.store.util.JobClaimSqlSupport;
+import run.ratchet.store.util.RecurringJobRows;
 
 /**
  * MySQL implementation of {@link RecurringJobStore} against the dedicated {@code
@@ -395,61 +394,6 @@ final class MysqlRecurringJobOperations implements RecurringJobStore {
   }
 
   private static RecurringJobDefinition hydrate(Object[] row) {
-    UUID id = MysqlJobRowMapper.uuidOrNull(row[0]);
-    int priority = ((Number) row[1]).intValue();
-    int maxRetries = ((Number) row[2]).intValue();
-    BackoffPolicy backoffPolicy = BackoffPolicy.valueOf((String) row[3]);
-    int backoffParamMs = ((Number) row[4]).intValue();
-    int timeoutSec = ((Number) row[5]).intValue();
-    String cronExpr = (String) row[6];
-    String zoneId = (String) row[7];
-    Instant nextFire = MysqlJobRowMapper.toInstant(row[8]);
-    boolean isPaused = toBoolean(row[9]);
-    Instant pausedAt = MysqlJobRowMapper.toInstant(row[10]);
-    JobPayload payload =
-        PAYLOAD_CONVERTER.convertToEntityAttribute(MysqlJobRowMapper.stringOrNull(row[11]));
-    JobPayload onSuccess =
-        PAYLOAD_CONVERTER.convertToEntityAttribute(MysqlJobRowMapper.stringOrNull(row[12]));
-    JobPayload onFailure =
-        PAYLOAD_CONVERTER.convertToEntityAttribute(MysqlJobRowMapper.stringOrNull(row[13]));
-    String businessKey = (String) row[14];
-    String resourceName = (String) row[15];
-    String executionTarget = (String) row[16];
-    Instant createdAt = MysqlJobRowMapper.toInstant(row[17]);
-    String callerPrincipal = (String) row[18];
-
-    return new RecurringJobDefinition(
-        id,
-        cronExpr,
-        zoneId,
-        nextFire,
-        isPaused,
-        pausedAt,
-        priority,
-        maxRetries,
-        backoffPolicy,
-        backoffParamMs,
-        timeoutSec,
-        payload,
-        onSuccess,
-        onFailure,
-        businessKey,
-        resourceName,
-        executionTarget,
-        createdAt,
-        callerPrincipal);
-  }
-
-  private static boolean toBoolean(Object val) {
-    if (val == null) {
-      return false;
-    }
-    if (val instanceof Boolean b) {
-      return b;
-    }
-    if (val instanceof Number n) {
-      return n.intValue() != 0;
-    }
-    return Boolean.parseBoolean(val.toString());
+    return RecurringJobRows.hydrate(row);
   }
 }

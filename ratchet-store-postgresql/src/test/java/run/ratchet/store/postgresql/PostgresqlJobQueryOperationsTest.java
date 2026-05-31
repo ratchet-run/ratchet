@@ -22,6 +22,7 @@ class PostgresqlJobQueryOperationsTest {
     String cursor =
         new JobQueryCursor(
                 JobQuerySortField.CREATED_AT,
+                false,
                 "not-an-instant",
                 UUID.fromString("019ae3d1-3f82-7e18-9f09-a9f000000465"))
             .encode();
@@ -38,10 +39,39 @@ class PostgresqlJobQueryOperationsTest {
   }
 
   @Test
+  void searchJobsIgnoresCursorMintedForADifferentSort() {
+    // Cursor was produced for PRIORITY ascending, but this query sorts by the default
+    // CREATED_AT descending. Applying it would seek on priority while ORDER BY uses created_at,
+    // so the seek must be dropped and offset pagination kept.
+    String cursor =
+        new JobQueryCursor(
+                JobQuerySortField.PRIORITY,
+                true,
+                "3",
+                UUID.fromString("019ae3d1-3f82-7e18-9f09-a9f000000465"))
+            .encode();
+    NativeSqlRecorder recorder = new NativeSqlRecorder();
+    PostgresqlStoreContext ctx = new PostgresqlStoreContext(recorder.entityManager());
+    PostgresqlJobQueryOperations operations =
+        new PostgresqlJobQueryOperations(ctx, new PostgresqlTagOperations(ctx));
+
+    operations.searchJobs(JobFilter.builder().cursor(cursor).build(), 10, 7);
+
+    String sql = recorder.lastSql();
+    assertTrue(
+        sql.contains("OFFSET 7"),
+        "A cursor minted for a different sort must fall back to offset pagination");
+    assertFalse(
+        sql.contains("c.priority >") || sql.contains("c.priority <"),
+        "A mismatched cursor must not contribute a keyset seek predicate");
+  }
+
+  @Test
   void searchJobsWithArchiveCursorFiltersBothUnionBranches() {
     String cursor =
         new JobQueryCursor(
                 JobQuerySortField.CREATED_AT,
+                false,
                 "2026-01-01T00:00:00Z",
                 UUID.fromString("019ae3d1-3f82-7e18-9f09-a9f000000465"))
             .encode();

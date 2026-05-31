@@ -21,8 +21,10 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobSummary;
 import run.ratchet.api.JobType;
 import run.ratchet.api.QueueHealthSnapshot;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.ri.security.CallerPrincipalProvider;
+import run.ratchet.ri.security.PayloadMasker;
 import run.ratchet.spi.JobAuthorizationPolicy;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.entity.JobPayload;
@@ -44,6 +46,7 @@ class DefaultJobQueryService implements JobQueryService {
   private final JobAuthorizationPolicy authPolicy;
   private final CallerPrincipalProvider principalProvider;
   private final Clock clock;
+  private final boolean maskPayloads;
 
   protected DefaultJobQueryService() {
     this.queryStore = null;
@@ -53,6 +56,7 @@ class DefaultJobQueryService implements JobQueryService {
     this.authPolicy = null;
     this.principalProvider = null;
     this.clock = null;
+    this.maskPayloads = false;
   }
 
   public DefaultJobQueryService(
@@ -72,7 +76,6 @@ class DefaultJobQueryService implements JobQueryService {
         Clock.systemUTC());
   }
 
-  @Inject
   public DefaultJobQueryService(
       JobQueryStore queryStore,
       JobCrudStore crudStore,
@@ -81,6 +84,27 @@ class DefaultJobQueryService implements JobQueryService {
       JobAuthorizationPolicy authPolicy,
       CallerPrincipalProvider principalProvider,
       Clock clock) {
+    this(
+        queryStore,
+        crudStore,
+        executionStore,
+        recurringJobStore,
+        authPolicy,
+        principalProvider,
+        clock,
+        null);
+  }
+
+  @Inject
+  public DefaultJobQueryService(
+      JobQueryStore queryStore,
+      JobCrudStore crudStore,
+      ExecutionStore executionStore,
+      RecurringJobStore recurringJobStore,
+      JobAuthorizationPolicy authPolicy,
+      CallerPrincipalProvider principalProvider,
+      Clock clock,
+      RatchetOptions options) {
     this.queryStore = queryStore;
     this.crudStore = crudStore;
     this.executionStore = executionStore;
@@ -88,6 +112,7 @@ class DefaultJobQueryService implements JobQueryService {
     this.authPolicy = authPolicy;
     this.principalProvider = principalProvider;
     this.clock = clock;
+    this.maskPayloads = options != null && options.security().maskPayloads();
   }
 
   private static String extractSortValue(JobEntity last, JobQuerySortField field) {
@@ -157,7 +182,12 @@ class DefaultJobQueryService implements JobQueryService {
       JobQuerySortField sortField =
           scoped.sortField() != null ? scoped.sortField() : JobQuerySortField.CREATED_AT;
       nextCursor =
-          new JobQueryCursor(sortField, extractSortValue(last, sortField), last.getId()).encode();
+          new JobQueryCursor(
+                  sortField,
+                  scoped.sortAscending(),
+                  extractSortValue(last, sortField),
+                  last.getId())
+              .encode();
     }
 
     return new JobPage<>(items, total, limit, offset, hasMore, nextCursor);
@@ -188,12 +218,26 @@ class DefaultJobQueryService implements JobQueryService {
             .map(JobEntity::getId)
             .collect(Collectors.toList());
 
+    // Read-projection masking: getJobDetail exposes the raw caller-supplied params, the trace
+    // context carrier (whose baggage entries can hold caller data), and the serialized job result.
+    // When mask-payloads is enabled we redact sensitive entries here before they reach the caller;
+    // the durable row is untouched and the summary's target#method stays unmasked. Map masking is
+    // key-based and result masking walks the serialized JSON object (a non-object result passes
+    // through). Free-text fields such as lastError are out of scope — see
+    // RatchetOptions.SecurityOptions#maskPayloads.
+    Map<String, String> params =
+        maskPayloads ? PayloadMasker.maskParams(e.getParams()) : e.getParams();
+    Map<String, String> traceContext =
+        maskPayloads ? PayloadMasker.maskParams(e.getTraceContext()) : e.getTraceContext();
+    String jobResult =
+        maskPayloads ? PayloadMasker.maskPayload(e.getJobResult()) : e.getJobResult();
+
     JobDetail detail =
         new JobDetail(
             JobEntityMapper.toSummary(e),
-            e.getParams(),
-            e.getTraceContext(),
-            e.getJobResult(),
+            params,
+            traceContext,
+            jobResult,
             e.getResultType(),
             e.getExecutionStartTime(),
             e.getExecutionEndTime(),

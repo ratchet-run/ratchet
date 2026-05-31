@@ -3,12 +3,14 @@ package run.ratchet.api.event;
 import java.io.Serial;
 import java.time.Instant;
 import java.util.UUID;
+import run.ratchet.api.Incubating;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 
 /**
  * Fired after all batch children are terminal and before the batch completion event is published.
  */
+@Incubating
 public class BatchCompletingEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = 2629383623872540166L;

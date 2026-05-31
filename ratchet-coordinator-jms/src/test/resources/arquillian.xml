@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<arquillian xmlns="http://jboss.org/schema/arquillian"
+            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+            xsi:schemaLocation="http://jboss.org/schema/arquillian
+                http://jboss.org/schema/arquillian/arquillian_1_0.xsd">
+
+  <defaultProtocol type="Servlet 5.0"/>
+
+  <engine>
+    <property name="deploymentExportPath">target/deployments</property>
+  </engine>
+
+  <!--
+    Single managed WildFly for the JMS coordinator container test. Booted with
+    standalone-full.xml so the messaging-activemq subsystem is present and the
+    platform default java:comp/DefaultJMSConnectionFactory is bound — the store
+    matrix's standalone.xml has no JMS subsystem. A distinct port offset keeps
+    this run from colliding with a store-matrix WildFly on the same machine.
+  -->
+  <container qualifier="wildfly-jms" default="true">
+    <configuration>
+      <property name="jbossHome">${project.build.directory}/wildfly-${wildfly.version}</property>
+      <property name="serverConfig">standalone-full.xml</property>
+      <property name="javaVmArguments">
+        -Xms256m -Xmx768m
+        -Djboss.socket.binding.port-offset=25000
+      </property>
+      <property name="managementPort">34990</property>
+      <property name="allowConnectingToRunningServer">false</property>
+    </configuration>
+  </container>
+
+</arquillian>

@@ -68,10 +68,11 @@ scheduler.enqueueBatch("invoices")
     .submit();
 
 // Streaming batch: chunked iteration over a large dataset
-scheduler.enqueueStreamingBatch("monthly-report")
-    .chunked(invoiceRepository::findUnprocessed, 1000)
+scheduler.streamingBatch("monthly-report")
+    .fromStream(invoiceRepository.streamUnprocessed())
     .process(this::generateReportEntry)
-    .submit();
+    .withChunkSize(1000)
+    .start();
 ```
 
 For a lot of real "process a big dataset" work, these are enough on their own. Chunked iteration, parallel execution across worker JVMs (every item is a persisted child job that any worker can claim), progress tracking, per-item retries, automatic recovery from worker crashes via the `OrphanRecoveryTimer`, persisted state so you can see what's been processed. Don't undersell that. The streaming batch primitive will handle millions of rows of straightforward "read, transform, write" without breaking a sweat.

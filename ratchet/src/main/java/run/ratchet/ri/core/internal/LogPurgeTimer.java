@@ -37,6 +37,7 @@ public class LogPurgeTimer {
   private Cron cron;
   private ZoneId zone;
   private volatile boolean initialized;
+  private volatile boolean stopped = false;
 
   protected LogPurgeTimer() {
     this.jobLogStore = null;
@@ -80,7 +81,7 @@ public class LogPurgeTimer {
   }
 
   public void stop() {
-    // Cron-based scheduling uses one-shot delays; nothing to cancel between runs
+    stopped = true;
   }
 
   void run() {
@@ -117,7 +118,7 @@ public class LogPurgeTimer {
   }
 
   private void scheduleNext() {
-    if (!initialized) {
+    if (!initialized || stopped) {
       return;
     }
 

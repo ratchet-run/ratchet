@@ -49,10 +49,16 @@ ORDER BY ts ASC;
 ```
 
 ```sql
--- Find jobs that logged errors in the last hour
-SELECT DISTINCT jl.job_id, j.status, j.last_error, jl.message
+-- Find jobs that logged errors in the last hour. A job may already have terminated
+-- (its scheduler_job_queue row deleted), so LEFT JOIN the queue and fall back to the
+-- cold scheduler_job terminal columns for status/error.
+SELECT DISTINCT jl.job_id,
+       COALESCE(q.status, j.terminal_status) AS status,
+       COALESCE(q.last_error, j.terminal_error) AS last_error,
+       jl.message
 FROM scheduler_job_log jl
 JOIN scheduler_job j ON j.job_id = jl.job_id
+LEFT JOIN scheduler_job_queue q ON q.job_id = jl.job_id
 WHERE jl.level = 'ERROR'
   AND jl.ts >= NOW() - INTERVAL '1 hour'
 ORDER BY jl.ts DESC;
@@ -73,10 +79,14 @@ scheduler.enqueue(importService::importData)
 These parameters are accessible via `JobContext.current().param("key")` and stored in the `params` column of `scheduler_job`:
 
 ```sql
--- Find jobs by parameter values
-SELECT job_id, status, params::jsonb ->> 'source' as source
-FROM scheduler_job
-WHERE params::jsonb ->> 'source' = 'quarterly-report';
+-- Find jobs by parameter values. params lives on the cold scheduler_job row;
+-- status is live state on scheduler_job_queue (NULL once the job terminates), so
+-- LEFT JOIN and fall back to terminal_status.
+SELECT j.job_id, COALESCE(q.status, j.terminal_status) AS status,
+       j.params::jsonb ->> 'source' as source
+FROM scheduler_job j
+LEFT JOIN scheduler_job_queue q ON q.job_id = j.job_id
+WHERE j.params::jsonb ->> 'source' = 'quarterly-report';
 ```
 
 ## Event Listeners for Tracing Job Lifecycle
@@ -186,30 +196,39 @@ public class SchedulerMonitor {
 ### Find a Specific Job
 
 ```sql
--- Full job details by ID
-SELECT job_id, status, job_type, priority,
-       attempts, max_retries, backoff_policy,
-       scheduled_time, picked_by, picked_at,
-       execution_start_time, execution_end_time, execution_duration_ms,
-       last_error, business_key, resource_name,
-       payload::jsonb ->> 'target' as target_class,
-       payload::jsonb ->> 'method' as method_name
-FROM scheduler_job
-WHERE job_id = '01902c4e-c4f3-7b8a-9d3e-fedcba987654';
+-- Full job details by ID.
+-- Live state (status, attempts, scheduled_time, picked_by, picked_at, last_error)
+-- lives on scheduler_job_queue while the job is live; the queue row is deleted at
+-- the terminal transition. The cold scheduler_job row keeps immutable shape plus
+-- terminal_status/terminal_error/total_attempts. LEFT JOIN so a terminated job
+-- (no queue row) still returns its cold details.
+SELECT c.job_id, q.status, c.terminal_status, c.job_type, c.priority,
+       q.attempts, c.total_attempts, c.max_retries, c.backoff_policy,
+       q.scheduled_time, q.picked_by, q.picked_at,
+       c.execution_start_time, c.execution_end_time, c.execution_duration_ms,
+       q.last_error, c.terminal_error, c.business_key, c.resource_name,
+       c.payload::jsonb ->> 'target' as target_class,
+       c.payload::jsonb ->> 'method' as method_name
+FROM scheduler_job c
+LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id
+WHERE c.job_id = '01902c4e-c4f3-7b8a-9d3e-fedcba987654';
 ```
 
 ### Find Failed Jobs by Error Pattern
 
 ```sql
--- Find jobs that failed with a specific exception type
-SELECT job_id, status, attempts, max_retries, last_error,
+-- Find jobs that failed with a specific exception type.
+-- A FAILED job is terminal: its hot queue row has been deleted and lifecycle has
+-- copied last_error -> terminal_error on the cold scheduler_job row, so query
+-- terminal_status / terminal_error here (not the queue).
+SELECT job_id, terminal_status, total_attempts, max_retries, terminal_error,
        payload::jsonb ->> 'target' as target_class,
        payload::jsonb ->> 'method' as method_name,
-       created_at, updated_at
+       created_at, terminated_at
 FROM scheduler_job
-WHERE status = 'FAILED'
-  AND last_error LIKE '%ConnectionTimeout%'
-ORDER BY updated_at DESC
+WHERE terminal_status = 'FAILED'
+  AND terminal_error LIKE '%ConnectionTimeout%'
+ORDER BY terminated_at DESC
 LIMIT 20;
 ```
 
@@ -235,7 +254,7 @@ SELECT date_trunc('hour', execution_end_time) as hour,
        AVG(execution_duration_ms) as avg_ms,
        MAX(execution_duration_ms) as max_ms
 FROM scheduler_job
-WHERE status = 'SUCCEEDED'
+WHERE terminal_status = 'SUCCEEDED'
   AND execution_end_time >= NOW() - INTERVAL '24 hours'
 GROUP BY hour
 ORDER BY hour DESC;
@@ -256,29 +275,34 @@ A `seconds_since_heartbeat` greater than the orphan grace period (default 60s) i
 ### Inspect Batch Progress
 
 ```sql
--- Batch completion status
-SELECT b.batch_id, j.status as parent_status, j.business_key,
+-- Batch completion status. The parent's live status is on scheduler_job_queue;
+-- joining the queue also restricts the result to still-live batches (the queue
+-- row is deleted once the parent terminates).
+SELECT b.batch_id, q.status as parent_status, j.business_key,
        b.total_items, b.completed_items, b.failed_items,
        b.completion_processed,
        ROUND(100.0 * (b.completed_items + b.failed_items) / GREATEST(b.total_items, 1), 1) as pct_done
 FROM scheduler_batch b
 JOIN scheduler_job j ON j.job_id = b.batch_id
-WHERE j.status IN ('PENDING', 'RUNNING')
+JOIN scheduler_job_queue q ON q.job_id = b.batch_id
+WHERE q.status IN ('PENDING', 'RUNNING')
 ORDER BY b.batch_id DESC;
 ```
 
 ### Find Orphaned Jobs
 
 ```sql
--- Jobs stuck in RUNNING on nodes that have gone stale
-SELECT j.job_id, j.picked_by, j.picked_at,
-       EXTRACT(EPOCH FROM (NOW() - j.picked_at)) / 60 as stuck_minutes,
+-- Jobs stuck in RUNNING on nodes that have gone stale. RUNNING is live state, so
+-- status / picked_by / picked_at are read from scheduler_job_queue (this matches
+-- the idx_queue_orphan scan the OrphanRecoveryTimer uses).
+SELECT q.job_id, q.picked_by, q.picked_at,
+       EXTRACT(EPOCH FROM (NOW() - q.picked_at)) / 60 as stuck_minutes,
        n.heartbeat_ts
-FROM scheduler_job j
-LEFT JOIN scheduler_node n ON n.node_id = j.picked_by
-WHERE j.status = 'RUNNING'
+FROM scheduler_job_queue q
+LEFT JOIN scheduler_node n ON n.node_id = q.picked_by
+WHERE q.status = 'RUNNING'
   AND (n.node_id IS NULL OR n.heartbeat_ts < NOW() - INTERVAL '60 seconds')
-ORDER BY j.picked_at ASC;
+ORDER BY q.picked_at ASC;
 ```
 
 ## Enabling Debug Logging
@@ -349,7 +373,7 @@ SEVERE JobTask - Job 12345 moved to DLQ after 4 attempts
 
 When a job is not behaving as expected, work through this checklist:
 
-1. **Check the job status:** `SELECT status, last_error FROM scheduler_job WHERE job_id = ?`
+1. **Check the job status:** `SELECT COALESCE(q.status, c.terminal_status) AS status, COALESCE(q.last_error, c.terminal_error) AS last_error FROM scheduler_job c LEFT JOIN scheduler_job_queue q ON q.job_id = c.job_id WHERE c.job_id = ?`
 2. **Check execution history:** `SELECT * FROM scheduler_job_execution WHERE job_id = ? ORDER BY attempt`
 3. **Check per-job logs (if enabled):** `SELECT * FROM scheduler_job_log WHERE job_id = ? ORDER BY ts`
 4. **Check if the node is alive:** `SELECT * FROM scheduler_node WHERE node_id = ?`

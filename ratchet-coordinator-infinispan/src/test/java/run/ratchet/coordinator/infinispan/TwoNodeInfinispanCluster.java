@@ -21,9 +21,11 @@ public final class TwoNodeInfinispanCluster implements AutoCloseable {
   private final EmbeddedCacheManager managerA;
   private final EmbeddedCacheManager managerB;
   private final String cacheName;
+  private final String clusterName;
 
   public TwoNodeInfinispanCluster(String cacheName) throws IOException {
     this.cacheName = cacheName;
+    this.clusterName = "ratchet-tck-" + Long.toHexString(System.nanoTime());
     Configuration cacheConfig = newCacheConfig();
     this.managerA = new DefaultCacheManager(newGlobalConfig());
     this.managerA.defineConfiguration(cacheName, cacheConfig);
@@ -92,17 +94,15 @@ public final class TwoNodeInfinispanCluster implements AutoCloseable {
     throw new IllegalStateException("cluster did not form 2 members within 10s");
   }
 
-  private static GlobalConfiguration newGlobalConfig() {
+  private GlobalConfiguration newGlobalConfig() {
     GlobalConfigurationBuilder builder = GlobalConfigurationBuilder.defaultClusteredBuilder();
     builder
         .transport()
-        .clusterName(CLUSTER_NAME)
+        .clusterName(clusterName)
         .nodeName("node-" + Long.toHexString(System.nanoTime()))
         .addProperty("jgroups.bind.address", "127.0.0.1");
     return builder.build();
   }
-
-  private static final String CLUSTER_NAME = "ratchet-tck-" + Long.toHexString(System.nanoTime());
 
   private static Configuration newCacheConfig() {
     return new ConfigurationBuilder()

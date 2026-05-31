@@ -39,6 +39,7 @@ import run.ratchet.api.JobStatus;
 import run.ratchet.api.JobSummary;
 import run.ratchet.api.JobType;
 import run.ratchet.api.QueueHealthSnapshot;
+import run.ratchet.api.RatchetOptions;
 import run.ratchet.api.exception.JobAuthorizationException;
 import run.ratchet.ri.security.CallerPrincipalProvider;
 import run.ratchet.spi.JobAuthorizationPolicy;
@@ -357,6 +358,7 @@ class DefaultJobQueryServiceTest {
 
     JobQueryCursor cursor = JobQueryCursor.decode(page.nextCursor());
     assertEquals(JobQuerySortField.CREATED_AT, cursor.sortField());
+    assertFalse(cursor.sortAscending(), "default filter sort is descending, so must round-trip");
     assertEquals(secondCreated.toString(), cursor.sortValue());
     assertEquals(secondId, cursor.jobId());
   }
@@ -446,6 +448,121 @@ class DefaultJobQueryServiceTest {
     assertTrue(result.isPresent());
     assertEquals(jobId, result.get().summary().id());
     verify(authPolicy, never()).checkRead(any(), any());
+  }
+
+  @Test
+  void getJobDetail_masksSensitiveParams_whenMaskPayloadsEnabled() {
+    UUID jobId = UUID.randomUUID();
+    JobEntity entity = minimalJobWithId(jobId);
+    entity.setParams(Map.of("password", "hunter2", "host", "db"));
+    when(crudStore.findById(jobId)).thenReturn(Optional.of(entity));
+    when(executionStore.findExecutionsByJobId(eq(jobId), anyInt(), anyInt()))
+        .thenReturn(Collections.emptyList());
+    when(crudStore.findDependants(eq(jobId), anyInt(), anyInt()))
+        .thenReturn(Collections.emptyList());
+
+    DefaultJobQueryService masking =
+        new DefaultJobQueryService(
+            queryStore,
+            crudStore,
+            executionStore,
+            recurringJobStore,
+            authPolicy,
+            principalProvider,
+            FIXED_CLOCK,
+            RatchetOptions.builder().security(s -> s.maskPayloads(true)).build());
+
+    Map<String, String> params = masking.getJobDetail(jobId).orElseThrow().params();
+
+    assertEquals(
+        "***REDACTED***",
+        params.get("password"),
+        "sensitive key must be redacted when masking is on");
+    assertEquals("db", params.get("host"), "non-sensitive key must survive masking unchanged");
+  }
+
+  @Test
+  void getJobDetail_masksResultAndTraceContext_whenMaskPayloadsEnabled() {
+    UUID jobId = UUID.randomUUID();
+    JobEntity entity = minimalJobWithId(jobId);
+    entity.setTraceContext(Map.of("token", "abc123", "traceparent", "00-trace-span-01"));
+    entity.setJobResult("{\"password\":\"hunter2\",\"status\":\"OK\"}");
+    when(crudStore.findById(jobId)).thenReturn(Optional.of(entity));
+    when(executionStore.findExecutionsByJobId(eq(jobId), anyInt(), anyInt()))
+        .thenReturn(Collections.emptyList());
+    when(crudStore.findDependants(eq(jobId), anyInt(), anyInt()))
+        .thenReturn(Collections.emptyList());
+
+    DefaultJobQueryService masking =
+        new DefaultJobQueryService(
+            queryStore,
+            crudStore,
+            executionStore,
+            recurringJobStore,
+            authPolicy,
+            principalProvider,
+            FIXED_CLOCK,
+            RatchetOptions.builder().security(s -> s.maskPayloads(true)).build());
+
+    JobDetail detail = masking.getJobDetail(jobId).orElseThrow();
+
+    assertEquals(
+        "***REDACTED***",
+        detail.traceContext().get("token"),
+        "sensitive trace-context key must be redacted when masking is on");
+    assertEquals(
+        "00-trace-span-01",
+        detail.traceContext().get("traceparent"),
+        "standard trace headers must survive masking unchanged");
+    assertTrue(
+        detail.jobResult().contains("***REDACTED***"),
+        "sensitive field in the serialized result must be redacted");
+    assertFalse(
+        detail.jobResult().contains("hunter2"),
+        "raw sensitive value must not survive in the masked result");
+    assertTrue(detail.jobResult().contains("OK"), "non-sensitive result fields must survive");
+  }
+
+  @Test
+  void getJobDetail_leavesResultAndTraceContextRaw_whenMaskPayloadsDisabled() {
+    UUID jobId = UUID.randomUUID();
+    JobEntity entity = minimalJobWithId(jobId);
+    entity.setTraceContext(Map.of("token", "abc123"));
+    entity.setJobResult("{\"password\":\"hunter2\"}");
+    when(crudStore.findById(jobId)).thenReturn(Optional.of(entity));
+    when(executionStore.findExecutionsByJobId(eq(jobId), anyInt(), anyInt()))
+        .thenReturn(Collections.emptyList());
+    when(crudStore.findDependants(eq(jobId), anyInt(), anyInt()))
+        .thenReturn(Collections.emptyList());
+
+    // `service` (from setUp) is built with default options, so masking is off.
+    JobDetail detail = service.getJobDetail(jobId).orElseThrow();
+
+    assertEquals(
+        "abc123", detail.traceContext().get("token"), "trace context must be raw when masking off");
+    assertEquals(
+        "{\"password\":\"hunter2\"}",
+        detail.jobResult(),
+        "result must be raw when masking off (default)");
+  }
+
+  @Test
+  void getJobDetail_leavesParamsRaw_whenMaskPayloadsDisabled() {
+    UUID jobId = UUID.randomUUID();
+    JobEntity entity = minimalJobWithId(jobId);
+    entity.setParams(Map.of("password", "hunter2", "host", "db"));
+    when(crudStore.findById(jobId)).thenReturn(Optional.of(entity));
+    when(executionStore.findExecutionsByJobId(eq(jobId), anyInt(), anyInt()))
+        .thenReturn(Collections.emptyList());
+    when(crudStore.findDependants(eq(jobId), anyInt(), anyInt()))
+        .thenReturn(Collections.emptyList());
+
+    // `service` (from setUp) is built with default options, so masking is off.
+    Map<String, String> params = service.getJobDetail(jobId).orElseThrow().params();
+
+    assertEquals(
+        "hunter2", params.get("password"), "params must be raw when masking is off (default)");
+    assertEquals("db", params.get("host"));
   }
 
   @Test

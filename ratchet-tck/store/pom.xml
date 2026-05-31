@@ -34,6 +34,16 @@
             <scope>provided</scope>
         </dependency>
         <!--
+          jakarta.transaction-api lets the transaction-boundary contract assert the @Transactional
+          attribute JPA stores declare on their lock/heartbeat operations. Provided scope: the store
+          under test already supplies it.
+        -->
+        <dependency>
+            <groupId>jakarta.transaction</groupId>
+            <artifactId>jakarta.transaction-api</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <!--
           jakarta.enterprise.cdi-api is required because ratchet-api's module descriptor declares
           `requires transitive jakarta.cdi;` (driven by @CircuitBreakerProtected). Provided scope:
           consumers' container supplies the implementation. Not present in plan v2 — added when the

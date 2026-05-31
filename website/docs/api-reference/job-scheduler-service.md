@@ -229,9 +229,9 @@ boolean pauseJob(UUID jobId)
 
 Pauses a job, preventing it from being picked up for execution.
 
-- Only **PENDING** or **FAILED** jobs can be paused.
+- Only **PENDING** jobs can be paused.
 - The job's previous status is recorded so it can be restored on resume.
-- **RUNNING** jobs cannot be paused (cancel them instead).
+- Jobs in **RUNNING**, **WAITING**, or terminal states cannot be paused.
 - **Idempotent:** pausing an already-PAUSED job returns `true` without error.
 
 **Parameters:**
@@ -255,7 +255,6 @@ Resumes a paused job, making it eligible for execution again.
 
 - The job returns to the status it had before being paused.
 - Resuming a previously **PENDING** job makes it eligible for polling again.
-- Resuming a previously **FAILED** job restores it to FAILED without retrying.
 - **Idempotent:** resuming a non-paused job returns `false` without error.
 
 **Parameters:**

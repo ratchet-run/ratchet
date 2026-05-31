@@ -59,6 +59,12 @@ final class MysqlJobQueryOperations {
   /**
    * Archive rows projected to match {@link MysqlJobRowMapper#HYDRATION_SELECT} column positions.
    * NULL placeholders occupy positions whose data is unavailable in the archive.
+   *
+   * <p>This projection MUST emit exactly the same number of columns as {@code HYDRATION_SELECT}
+   * ({@link MysqlJobRowMapper#HYDRATION_COL_COUNT}). The two SELECTs are combined with {@code UNION
+   * ALL}; a column-count mismatch is rejected by MySQL before any row is returned, breaking every
+   * archive-inclusive search. The leading two NULLs cover {@code payload}/{@code params}, which the
+   * archive does not retain.
    */
   // language=MySQL
   private static final String ARCHIVE_PROJECTION =
@@ -72,7 +78,6 @@ final class MysqlJobQueryOperations {
       a.timeout_sec,
       a.cron_expr,
       a.zone_id,
-      NULL,
       NULL,
       NULL,
       a.target_class,
@@ -120,13 +125,15 @@ final class MysqlJobQueryOperations {
 
   private static final int MAX_IN_CLAUSE = 1000;
 
-  // Positional column numbers (1-indexed) in the hydration SELECT for UNION ORDER BY
+  // Positional column numbers (1-indexed) in the hydration SELECT for UNION ORDER BY. Each is the
+  // matching row-mapper IDX_* constant plus one; they must track
+  // HYDRATION_SELECT/ARCHIVE_PROJECTION.
   private static final int POS_JOB_ID = 1;
   private static final int POS_PRIORITY = 3;
-  private static final int POS_CREATED_AT = 22;
-  private static final int POS_TERMINAL_STATUS = 24;
-  private static final int POS_Q_SCHEDULED_TIME = 37;
-  private static final int POS_Q_UPDATED_AT = 44;
+  private static final int POS_CREATED_AT = 21;
+  private static final int POS_TERMINAL_STATUS = 23;
+  private static final int POS_Q_SCHEDULED_TIME = 36;
+  private static final int POS_Q_UPDATED_AT = 43;
 
   private final MysqlStoreContext ctx;
   private final MysqlJobRowMapper mapper;
@@ -583,6 +590,11 @@ final class MysqlJobQueryOperations {
     }
     try {
       JobQueryCursor c = JobQueryCursor.decode(filter.cursor());
+      if (!c.matchesFilterSort(filter)) {
+        // Cursor was minted for a different sort field/direction; seeking on it while ORDER BY
+        // uses the live sort would skip or repeat rows. Fall back to offset pagination instead.
+        return;
+      }
       String sortCol = sortColumn(c.sortField());
       String op = filter.sortAscending() ? ">" : "<";
       and(where, "(" + sortCol + " " + op + " ? OR (" + sortCol + " = ? AND c.job_id > ?))");
@@ -602,6 +614,11 @@ final class MysqlJobQueryOperations {
     }
     try {
       JobQueryCursor c = JobQueryCursor.decode(filter.cursor());
+      if (!c.matchesFilterSort(filter)) {
+        // Cursor was minted for a different sort field/direction; seeking on it while ORDER BY
+        // uses the live sort would skip or repeat rows. Fall back to offset pagination instead.
+        return;
+      }
       String sortCol = archiveSortColumn(c.sortField());
       String op = filter.sortAscending() ? ">" : "<";
       and(

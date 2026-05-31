@@ -36,8 +36,8 @@ SQL stores ship plain SQL files, not migrations. Apply them however your project
 ```sql
 -- PostgreSQL
 EXPLAIN ANALYZE
-SELECT * FROM scheduler_job
-WHERE status = 'PENDING' AND scheduled_time <= NOW()
+SELECT * FROM scheduler_job_queue
+WHERE status = 'PENDING' AND job_type = 'SINGLE' AND scheduled_time <= NOW()
 ORDER BY priority + FLOOR(GREATEST(0, EXTRACT(EPOCH FROM (statement_timestamp() - scheduled_time)) / 60) / 15) DESC,
          scheduled_time ASC
 FOR UPDATE SKIP LOCKED LIMIT 10;
@@ -48,8 +48,8 @@ If you see a sequential scan instead of an index scan, the composite index is mi
 **Fix:** Re-apply the DDL or create the index manually:
 ```sql
 -- PostgreSQL
-CREATE INDEX IF NOT EXISTS idx_job_claim_cover
-ON scheduler_job (job_type, scheduled_time ASC, priority DESC, job_id ASC)
+CREATE INDEX IF NOT EXISTS idx_claim_executable
+ON scheduler_job_queue (job_type, scheduled_time ASC, priority DESC, job_id ASC)
 WHERE status = 'PENDING';
 ```
 
@@ -142,7 +142,7 @@ nodeStore.deleteInactiveNodesSince(Instant.now().minus(Duration.ofHours(1)));
 
 ### Jobs stuck in RUNNING
 
-**Symptom:** Jobs have `status = 'RUNNING'` and `picked_by` set to a node that's no longer alive.
+**Symptom:** Rows in `scheduler_job_queue` have `status = 'RUNNING'` and `picked_by` set to a node that's no longer alive.
 
 **Cause:** The node crashed mid-execution. The job's timeout hasn't expired yet, or there's no timeout set.
 
@@ -151,7 +151,7 @@ nodeStore.deleteInactiveNodesSince(Instant.now().minus(Duration.ofHours(1)));
 2. **Recover:** After the timeout expires, the poller will automatically reclaim the job. To force recovery:
 
 ```sql
-UPDATE scheduler_job
+UPDATE scheduler_job_queue
 SET status = 'PENDING', picked_by = NULL, picked_at = NULL
 WHERE status = 'RUNNING'
   AND picked_at < NOW() - INTERVAL '30 minutes';
@@ -171,8 +171,8 @@ Only reset jobs if you're certain the claiming node is truly dead. Resetting a j
 
 ```sql
 EXPLAIN ANALYZE
-SELECT * FROM scheduler_job
-WHERE status = 'PENDING' AND scheduled_time <= NOW()
+SELECT * FROM scheduler_job_queue
+WHERE status = 'PENDING' AND job_type = 'SINGLE' AND scheduled_time <= NOW()
 ORDER BY priority + FLOOR(GREATEST(0, EXTRACT(EPOCH FROM (statement_timestamp() - scheduled_time)) / 60) / 15) DESC,
          scheduled_time ASC
 FOR UPDATE SKIP LOCKED LIMIT 10;
@@ -194,11 +194,11 @@ FOR UPDATE SKIP LOCKED LIMIT 10;
 
 **Diagnosis:**
 ```sql
-SELECT status, COUNT(*) FROM scheduler_job
+SELECT status, COUNT(*) FROM scheduler_job_queue
 GROUP BY status ORDER BY status;
 
 -- Check future-scheduled jobs
-SELECT COUNT(*) FROM scheduler_job
+SELECT COUNT(*) FROM scheduler_job_queue
 WHERE status = 'PENDING' AND scheduled_time > NOW();
 ```
 

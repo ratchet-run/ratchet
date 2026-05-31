@@ -57,8 +57,7 @@ When a job fails, Ratchet follows this decision path:
 ```java
 scheduler.enqueue(paymentService::processRefund)
     .withMaxRetries(3)
-    .withBackoffPolicy(BackoffPolicy.EXPONENTIAL)
-    .withBackoffParam(1000)  // 1 second base
+    .withBackoff(BackoffPolicy.EXPONENTIAL, Duration.ofSeconds(1))  // 1 second base
     .submit();
 // Retry delays: 1s, 2s, 4s (then DLQ)
 ```

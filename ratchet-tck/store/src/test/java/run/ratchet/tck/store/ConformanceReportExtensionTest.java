@@ -89,9 +89,11 @@ class ConformanceReportExtensionTest {
 
   @Test
   void conformanceLevel_allAbstractContractsAreRegistered() throws Exception {
-    String packagePath = ConformanceLevel.class.getPackageName().replace('.', '/');
-    var resource = Thread.currentThread().getContextClassLoader().getResource(packagePath);
-    var packageDir = Paths.get(resource.toURI());
+    // Anchor the scan on a class that lives beside the contracts in main output. Resolving the
+    // package via the context classloader returned the test-classes copy of the directory, which
+    // holds no Abstract*Contract.class, so the scan saw nothing and passed vacuously.
+    var resource = ConformanceLevel.class.getResource("ConformanceLevel.class");
+    var packageDir = Paths.get(resource.toURI()).getParent();
 
     List<String> unregisteredContracts;
     try (var classes = Files.list(packageDir)) {

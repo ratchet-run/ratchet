@@ -137,7 +137,7 @@ That's the entire integration. Let's break down what happens when `placeOrder` i
 When you call `scheduler.enqueueNow(() -> processOrder(orderId))`, Ratchet:
 
 1. **Serializes the lambda** -- The method reference `processOrder(orderId)` is analyzed via ASM bytecode analysis, capturing the target class, method name, and argument values.
-2. **Persists the job** -- A new row is inserted into the `scheduler_job` table with status `PENDING`, the serialized payload, and an auto-generated idempotency key.
+2. **Persists the job** -- A new row is inserted into the `scheduler_job` table with the serialized payload and an auto-generated idempotency key, alongside a matching `scheduler_job_queue` row that holds the live status `PENDING`. (Live queue state lives on `scheduler_job_queue`; `scheduler_job` keeps the cold metadata and terminal fields.)
 3. **Returns immediately** -- `enqueueNow` returns a `JobHandle` with the job's UUIDv7 database ID. Your calling code doesn't block.
 4. **Poller picks it up** -- The Ratchet poller (started automatically at application startup by `RatchetLifecycle`) claims the job and submits it to a worker thread.
 5. **Worker executes** -- The worker thread deserializes the payload, resolves `OrderService` via CDI, and calls `processOrder(orderId)`.
@@ -166,16 +166,27 @@ INFO [com.example.app.OrderService] Processing order 42 in background...
 
 ### Check the Database
 
-You can also verify by querying the `scheduler_job` table directly:
+You can also verify by querying the tables directly. While a job is live, its
+status sits on `scheduler_job_queue`:
 
 ```sql
-SELECT job_id, status, created_at, execution_start_time, execution_end_time
+SELECT job_id, status, scheduled_time
+FROM scheduler_job_queue
+ORDER BY job_id DESC
+LIMIT 5;
+```
+
+When a job reaches a terminal state, the queue row is removed and the outcome is
+recorded on `scheduler_job` via `terminal_status` and the timing columns:
+
+```sql
+SELECT job_id, terminal_status, created_at, execution_start_time, execution_end_time
 FROM scheduler_job
 ORDER BY job_id DESC
 LIMIT 5;
 ```
 
-A completed job will show status `SUCCEEDED` with populated timing columns.
+A completed job will show `terminal_status` `SUCCEEDED` with populated timing columns.
 
 ## The Fire-and-Forget Pattern
 

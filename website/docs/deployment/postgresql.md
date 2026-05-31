@@ -125,7 +125,7 @@ jdbc:postgresql://localhost:5432/ratchet
 Ratchet uses PostgreSQL's `SKIP LOCKED` clause for lock-free job claiming:
 
 ```sql
-SELECT * FROM scheduler_job
+SELECT * FROM scheduler_job_queue
 WHERE status = 'PENDING'
   AND scheduled_time <= NOW()
 ORDER BY priority + FLOOR(GREATEST(0, EXTRACT(EPOCH FROM (statement_timestamp() - scheduled_time)) / 60) / 15) DESC,
@@ -136,18 +136,22 @@ FOR UPDATE SKIP LOCKED;
 
 This allows multiple Ratchet nodes to safely claim different jobs simultaneously without blocking each other.
 
-### Partial Indexes
+### Active Business-Key Uniqueness
 
-The schema uses partial indexes for performance. Instead of indexing all rows, partial indexes only cover the rows that matter for active queries:
+Active-key uniqueness is enforced by a dedicated `scheduler_business_key_reservation` table, not by an index on `scheduler_job`. The reservation table holds one row per active business key, with `business_key` as its primary key:
 
 ```sql
--- Unique business key only for active jobs (PENDING, RUNNING, PAUSED)
-CREATE UNIQUE INDEX idx_job_active_business_key
-ON scheduler_job (business_key)
-WHERE status IN ('PENDING', 'RUNNING', 'PAUSED') AND business_key IS NOT NULL;
+CREATE TABLE IF NOT EXISTS scheduler_business_key_reservation
+(
+    business_key TEXT NOT NULL,
+    owner_table  TEXT NOT NULL,
+    owner_job_id uuid NOT NULL,
+    CONSTRAINT pk_scheduler_business_key_reservation PRIMARY KEY (business_key),
+    CONSTRAINT chk_bk_owner_table CHECK (owner_table IN ('QUEUE', 'RECURRING'))
+);
 ```
 
-This approach replaces MySQL's generated `active_business_key` column with a more space-efficient partial unique index.
+A duplicate active business key fails against `pk_scheduler_business_key_reservation`. The `business_key` column on `scheduler_job` is observability-only and carries a plain (non-unique) `idx_job_business_key` index.
 
 ### Generated Columns
 
@@ -160,12 +164,16 @@ method_name  TEXT GENERATED ALWAYS AS (payload::jsonb ->> 'method') STORED
 
 ### CHECK Constraints
 
-PostgreSQL uses `CHECK` constraints for data validation instead of MySQL's `ENUM` types:
+PostgreSQL uses `CHECK` constraints for data validation instead of MySQL's `ENUM` types. Live status is tracked on `scheduler_job_queue` (`chk_queue_status`), while `scheduler_job` records only the terminal status (`chk_terminal_status`):
 
 ```sql
-CONSTRAINT chk_job_status CHECK (status IN ('PENDING', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELED', 'PAUSED'))
+-- scheduler_job (cold metadata + terminal fields)
+CONSTRAINT chk_terminal_status CHECK (terminal_status IS NULL OR terminal_status IN ('SUCCEEDED', 'FAILED', 'CANCELED'))
 CONSTRAINT chk_job_type CHECK (job_type IN ('SINGLE', 'RECURRING', 'BATCH_PARENT', 'BATCH_CHILD', ...))
 CONSTRAINT chk_job_priority CHECK (priority BETWEEN 0 AND 4)
+
+-- scheduler_job_queue (live claim path)
+CONSTRAINT chk_queue_status CHECK (status IN ('PENDING', 'RUNNING', 'PAUSED', 'WAITING'))
 ```
 
 ## Performance Tuning
@@ -211,10 +219,10 @@ SELECT pg_reload_conf();
 
 ### Autovacuum Tuning
 
-Ratchet performs frequent updates to `scheduler_job`. Tune autovacuum to keep up:
+Ratchet performs frequent updates and deletes on the hot `scheduler_job_queue` table. Tune autovacuum to keep up:
 
 ```sql
-ALTER TABLE scheduler_job SET (
+ALTER TABLE scheduler_job_queue SET (
   autovacuum_vacuum_scale_factor = 0.05,
   autovacuum_analyze_scale_factor = 0.02
 );
@@ -225,12 +233,19 @@ ALTER TABLE scheduler_job SET (
 ### Monitor Job Queue
 
 ```sql
+-- Live statuses (PENDING/RUNNING) are on scheduler_job_queue; FAILED is terminal and
+-- survives as terminal_status on the cold scheduler_job row after the queue row is
+-- deleted. UNION the two to count both in one pass.
 SELECT
   COUNT(*) AS total,
   COUNT(CASE WHEN status = 'PENDING' THEN 1 END) AS pending,
   COUNT(CASE WHEN status = 'RUNNING' THEN 1 END) AS running,
   COUNT(CASE WHEN status = 'FAILED' THEN 1 END) AS failed
-FROM scheduler_job;
+FROM (
+  SELECT status FROM scheduler_job_queue
+  UNION ALL
+  SELECT terminal_status AS status FROM scheduler_job WHERE terminal_status IS NOT NULL
+) all_jobs;
 ```
 
 ### Query Performance

@@ -165,15 +165,22 @@ final class MongoJobQueryOperations {
     }
     try {
       JobQueryCursor c = JobQueryCursor.decode(filter.cursor());
+      if (!c.matchesFilterSort(filter)) {
+        // Cursor was minted for a different sort field/direction; seeking on it while the sort
+        // uses the live ordering would skip or repeat rows. Fall back to offset pagination.
+        return;
+      }
       String field = archive ? archiveSortField(c.sortField()) : sortField(c.sortField());
+      // The keyset tiebreaker must seek the same id the cursor records and the sort orders by. An
+      // archived row carries its original job id as its JobEntity id, so the archive path seeks
+      // original_job_id rather than the archive document's own _id.
+      String tieField = archive ? MongoFieldNames.ORIGINAL_JOB_ID : MongoFieldNames.ID;
       Object sortVal = parseSortValue(c);
-      // (field < sortVal) OR (field == sortVal AND _id > jobId)
+      // (field < sortVal) OR (field == sortVal AND tieField > jobId)
       if (filter.sortAscending()) {
-        conditions.add(
-            or(gt(field, sortVal), and(eq(field, sortVal), gt(MongoFieldNames.ID, c.jobId()))));
+        conditions.add(or(gt(field, sortVal), and(eq(field, sortVal), gt(tieField, c.jobId()))));
       } else {
-        conditions.add(
-            or(lt(field, sortVal), and(eq(field, sortVal), gt(MongoFieldNames.ID, c.jobId()))));
+        conditions.add(or(lt(field, sortVal), and(eq(field, sortVal), gt(tieField, c.jobId()))));
       }
     } catch (IllegalArgumentException e) {
       // Malformed cursors are treated as absent so callers fall back to offset-based pagination.
@@ -204,15 +211,19 @@ final class MongoJobQueryOperations {
   }
 
   private static Bson buildArchiveSort(JobFilter filter) {
+    // Tiebreak on original_job_id, not the archive document's own _id: that is the id an archived
+    // row exposes as its JobEntity id and the value a keyset cursor records, so sort and seek stay
+    // in lock-step across page boundaries (mirrors the SQL stores' archive ORDER BY).
     if (filter == null) {
       return orderBy(
-          descending(MongoFieldNames.ORIGINAL_CREATED_AT), ascending(MongoFieldNames.ID));
+          descending(MongoFieldNames.ORIGINAL_CREATED_AT),
+          ascending(MongoFieldNames.ORIGINAL_JOB_ID));
     }
     JobQuerySortField field =
         filter.sortField() != null ? filter.sortField() : JobQuerySortField.CREATED_AT;
     String col = archiveSortField(field);
     Bson primary = filter.sortAscending() ? ascending(col) : descending(col);
-    return orderBy(primary, ascending(MongoFieldNames.ID));
+    return orderBy(primary, ascending(MongoFieldNames.ORIGINAL_JOB_ID));
   }
 
   private static String sortField(JobQuerySortField field) {

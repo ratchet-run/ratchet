@@ -19,7 +19,13 @@ public class ConformanceReportExtension extends AbstractConformanceReportExtensi
 
   private static final List<ContractGroup> GROUPS =
       Arrays.stream(ConformanceLevel.values())
-          .map(l -> new ContractGroup(l.getLabel(), l.getDescription(), l.getRequiredContracts()))
+          .map(
+              l ->
+                  new ContractGroup(
+                      l.getLabel(),
+                      l.getDescription(),
+                      l.getRequiredContracts(),
+                      l.getOptionalContracts()))
           .toList();
 
   /**

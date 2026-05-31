@@ -5,8 +5,8 @@ import jakarta.jms.JMSConsumer;
 import jakarta.jms.JMSContext;
 import jakarta.jms.JMSException;
 import jakarta.jms.JMSProducer;
+import jakarta.jms.JMSRuntimeException;
 import jakarta.jms.Message;
-import jakarta.jms.MessageListener;
 import jakarta.jms.TextMessage;
 import jakarta.jms.Topic;
 import java.util.Objects;
@@ -19,21 +19,24 @@ import org.jboss.logging.Logger;
 import run.ratchet.api.NodeIdentity;
 
 /**
- * Owns the {@link JMSContext} and {@link JMSProducer} for one JMS coordinator instance. The {@code
- * JMSConsumer} the lifecycle creates is registered with the context via {@code setMessageListener}
- * and lives for the lifetime of that context — closing the context cascades to the consumer per the
- * JMS spec, so we do not hold a separate reference. Reads-after-write atomicity is preserved by
- * holding context and producer in a single {@link AtomicReference}: a reconnect path swaps both in
- * one publish, and {@link JmsClusterCoordinator#notifyNewWork} never observes a mixed pair.
+ * Owns the {@link JMSContext}, {@link JMSProducer}, and {@link JMSConsumer} for one JMS coordinator
+ * instance, and runs a dedicated thread that pulls inbound messages with synchronous {@link
+ * JMSConsumer#receive(long)}.
+ *
+ * <p>Inbound delivery is synchronous on purpose. Jakarta Messaging 3.0 §12.3 forbids an
+ * application-created {@code JMSContext}/{@code JMSConsumer} in a web or EJB container from
+ * registering asynchronous delivery — {@code setMessageListener} and {@code setExceptionListener}
+ * must throw — so the async model only works in Java SE or against lenient brokers. A blocking
+ * {@code receive(timeout)} on a dedicated thread is permitted everywhere and mirrors the PostgreSQL
+ * coordinator's listen thread.
  *
  * <p>Reconnect is driven by two paths:
  *
  * <ol>
- *   <li>JMS provider's {@code ExceptionListener} firing on a connection-level fault (the primary
- *       failure indicator the spec requires).
- *   <li>An active background retry loop started when reconnect first fails — the {@code
- *       ExceptionListener} only fires once per real fault, so an outage that outlives the first
- *       backoff window needs a self-paced retry source to recover.
+ *   <li>The receive thread observing a {@link JMSRuntimeException} from {@code receive()} on a
+ *       connection-level fault (replacing the spec-illegal {@code ExceptionListener}).
+ *   <li>An active background retry loop started when reconnect first fails — a fault surfaces once,
+ *       so an outage that outlives the first backoff window needs a self-paced retry source.
  * </ol>
  *
  * <p>{@link #close()} is idempotent and releases the context the lifecycle owns. The {@link
@@ -50,6 +53,22 @@ final class JmsConnectionLifecycle {
    */
   static final int CONSECUTIVE_FAILURES_ERROR_THRESHOLD = 10;
 
+  /**
+   * Upper bound on a single {@code receive()} wait. It only bounds how quickly the receive thread
+   * notices {@link #close()} / a pair swap on a quiet topic; real wakeups arrive as soon as the
+   * broker pushes a message. Kept local because {@link JmsCoordinatorConfig} carries no receive
+   * timeout (the PostgreSQL coordinator's default is the same 1s).
+   */
+  private static final long RECEIVE_TIMEOUT_MS = 1_000L;
+
+  /**
+   * Bound on how long {@link #close()} waits for the reconnect and receive threads to exit after
+   * interrupting them. Long enough to cover a {@code receive()} poll plus an in-flight {@code
+   * dispatch()} so the inbound handler stops touching CDI-managed beans before the context is
+   * destroyed; short enough that a wedged handler cannot stall container shutdown.
+   */
+  private static final long SHUTDOWN_JOIN_TIMEOUT_MS = 2_000L;
+
   private final ConnectionFactory connectionFactory;
   private final Topic topic;
   private final JmsCoordinatorConfig config;
@@ -63,6 +82,7 @@ final class JmsConnectionLifecycle {
 
   private volatile NodeIdentity localIdentity;
   private volatile Thread reconnectThread;
+  private volatile Thread receiveThread;
 
   JmsConnectionLifecycle(
       ConnectionFactory connectionFactory,
@@ -146,16 +166,33 @@ final class JmsConnectionLifecycle {
     t.start();
   }
 
-  /** Release the context the lifecycle owns. Idempotent. */
+  /**
+   * Release the context the lifecycle owns and wait for the worker threads to exit. Idempotent.
+   *
+   * <p>The join matters: an in-flight {@link #dispatch(Message)} calls into the inbound handler,
+   * which touches CDI-managed beans (the metrics collector among them). The caller is {@code
+   * RatchetLifecycle#afterStop}, which lets the CDI context be destroyed once {@code close()}
+   * returns. Returning while a receive thread is still inside the handler is what produces a {@code
+   * WELD-000229} at container shutdown, so we drain the threads instead of only signalling them.
+   * Joins are bounded so a wedged handler cannot stall shutdown.
+   */
   void close() {
     if (!closed.compareAndSet(false, true)) {
       return;
     }
-    Thread t = this.reconnectThread;
-    if (t != null) {
-      t.interrupt();
-    }
     closeContextRef();
+    // Drain the reconnect thread first: an in-flight connectOnce may still be spawning a receive
+    // thread, so settle it before reading and joining the receive thread itself.
+    Thread reconnect = this.reconnectThread;
+    if (reconnect != null) {
+      reconnect.interrupt();
+      joinQuietly(reconnect);
+    }
+    Thread receive = this.receiveThread;
+    if (receive != null) {
+      receive.interrupt();
+      joinQuietly(receive);
+    }
   }
 
   // ---- internals ----------------------------------------------------------
@@ -166,7 +203,6 @@ final class JmsConnectionLifecycle {
     }
     try {
       JMSContext ctx = connectionFactory.createContext(JMSContext.AUTO_ACKNOWLEDGE);
-      ctx.setExceptionListener(this::onConnectionException);
       JMSProducer p = ctx.createProducer();
       String selector =
           config.brokerSideSelfFilter()
@@ -174,7 +210,6 @@ final class JmsConnectionLifecycle {
               : null;
       JMSConsumer consumer =
           selector == null ? ctx.createConsumer(topic) : ctx.createConsumer(topic, selector);
-      consumer.setMessageListener(new InboundListener(inboundHandler));
 
       // Close-during-reconnect race: if close() flipped `closed` after our guard above but
       // before we got here, the freshly-built context would leak — close() has already drained
@@ -183,11 +218,22 @@ final class JmsConnectionLifecycle {
         closeQuietly(ctx);
         return false;
       }
-      Pair stale = connectionRef.getAndSet(new Pair(ctx, p));
-      consecutiveFailures.set(0);
+      Pair pair = new Pair(ctx, p, consumer);
+      Pair stale = connectionRef.getAndSet(pair);
       if (stale != null) {
         closeQuietly(stale.context());
       }
+      // close() may have flipped `closed` and drained the ref between the guard above and this
+      // swap. If so, retract the pair we just published and tear it down rather than start a
+      // receive thread that close() has already finished waiting for.
+      if (closed.get()) {
+        if (connectionRef.compareAndSet(pair, null)) {
+          closeQuietly(ctx);
+        }
+        return false;
+      }
+      consecutiveFailures.set(0);
+      startReceiveThread(pair);
       return true;
     } catch (RuntimeException ex) {
       long consecutive = consecutiveFailures.incrementAndGet();
@@ -204,17 +250,60 @@ final class JmsConnectionLifecycle {
     }
   }
 
-  private void onConnectionException(JMSException ex) {
+  private void startReceiveThread(Pair pair) {
+    Thread t = new Thread(() -> receiveLoop(pair), "ratchet-coordinator-jms-receive");
+    t.setDaemon(true);
+    this.receiveThread = t;
+    t.start();
+  }
+
+  /**
+   * Pulls inbound messages for {@code pair} until the lifecycle closes, the pair is swapped out by
+   * a reconnect, or {@code receive()} reports a connection fault. A fault on the still-current pair
+   * nulls the ref and kicks off reconnect — the synchronous-receive equivalent of the {@code
+   * ExceptionListener} the EE spec forbids.
+   */
+  private void receiveLoop(Pair pair) {
+    JMSConsumer consumer = pair.consumer();
+    while (!closed.get() && connectionRef.get() == pair) {
+      try {
+        Message message = consumer.receive(RECEIVE_TIMEOUT_MS);
+        if (message != null) {
+          dispatch(message);
+        }
+      } catch (JMSRuntimeException fault) {
+        // A context closed by close() or a reconnect swap also surfaces here; only a fault on the
+        // pair that is still current is a real transport failure worth reconnecting.
+        if (closed.get() || connectionRef.get() != pair) {
+          return;
+        }
+        onTransportFailure.run();
+        log.warnf("JMS coordinator receive failed, scheduling reconnect: %s", fault.getMessage());
+        if (connectionRef.compareAndSet(pair, null)) {
+          closeQuietly(pair.context());
+        }
+        triggerReconnect();
+        return;
+      }
+    }
+  }
+
+  /**
+   * Hands one inbound message to the coordinator. Swallows every handler exception so a misbehaving
+   * handler cannot kill the receive thread.
+   */
+  private void dispatch(Message message) {
+    // A message can arrive in the window between close() flipping `closed` and the receive loop
+    // re-checking it. Skip delivery once closed so the handler never touches a CDI context the
+    // caller is about to destroy.
     if (closed.get()) {
       return;
     }
-    onTransportFailure.run();
-    log.warnf("JMS coordinator connection exception, scheduling reconnect: %s", ex.getMessage());
-    Pair stale = connectionRef.getAndSet(null);
-    if (stale != null) {
-      closeQuietly(stale.context());
+    try {
+      inboundHandler.accept(message);
+    } catch (RuntimeException ignored) {
+      // The handler already recorded any transport_failure metric; swallow to keep receiving.
     }
-    triggerReconnect();
   }
 
   private void reconnectLoop() {
@@ -248,13 +337,21 @@ final class JmsConnectionLifecycle {
     }
   }
 
-  private record Pair(JMSContext context, JMSProducer producer) {}
+  private record Pair(JMSContext context, JMSProducer producer, JMSConsumer consumer) {}
 
   private static void closeQuietly(JMSContext ctx) {
     try {
       ctx.close();
     } catch (Exception ignored) {
       // best-effort; the context may already be in a half-broken state
+    }
+  }
+
+  private static void joinQuietly(Thread thread) {
+    try {
+      thread.join(SHUTDOWN_JOIN_TIMEOUT_MS);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
     }
   }
 
@@ -266,28 +363,5 @@ final class JmsConnectionLifecycle {
    */
   static String escapeSelector(String value) {
     return value.replace("\\", "\\\\").replace("'", "''");
-  }
-
-  /**
-   * Adapter so the {@code MessageListener} signature can call a {@link Consumer} the coordinator
-   * supplies. Catches every exception inside {@code onMessage} so a misbehaving handler does not
-   * trigger the JMS provider's "close the connection on listener exception" behaviour.
-   */
-  static final class InboundListener implements MessageListener {
-    private final Consumer<Message> handler;
-
-    InboundListener(Consumer<Message> handler) {
-      this.handler = handler;
-    }
-
-    @Override
-    public void onMessage(Message message) {
-      try {
-        handler.accept(message);
-      } catch (RuntimeException ignored) {
-        // The handler already recorded any transport_failure metric. Swallow to avoid the
-        // provider tearing down the connection on listener-throws.
-      }
-    }
   }
 }

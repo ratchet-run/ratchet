@@ -3,10 +3,12 @@ package run.ratchet.api.event;
 import java.io.Serial;
 import java.time.Instant;
 import java.util.UUID;
+import run.ratchet.api.Incubating;
 import run.ratchet.api.JobPriority;
 import run.ratchet.api.JobType;
 
 /** Fired when a job chain fails. */
+@Incubating
 public class ChainFailedEvent extends AbstractJobSchedulerEvent {
 
   @Serial private static final long serialVersionUID = 5542623623918947230L;

@@ -69,9 +69,19 @@ public class HazelcastClusterCoordinator implements ClusterCoordinator, Schedule
   static final String COORDINATOR_KIND = "hazelcast";
 
   @Inject NodeIdentityProvider identityProvider;
-  @Inject HazelcastCoordinatorConfig config;
+
+  /**
+   * Resolved lazily in {@link #init()}. The config record has a {@code defaults()} factory but is
+   * not a managed bean, so it is injected as an {@link Instance} with a defaults() fallback; a
+   * direct {@code @Inject HazelcastCoordinatorConfig} would be an unsatisfied dependency that fails
+   * deployment validation out of the box.
+   */
+  @Inject Instance<HazelcastCoordinatorConfig> configInstance;
+
   @Inject @Any Instance<HazelcastInstanceProvider> providerInstance;
   @Inject MetricsCollector metrics;
+
+  private HazelcastCoordinatorConfig config;
 
   private final NotifyPayloadCodec codec = new NotifyPayloadCodec();
   private final CopyOnWriteArrayList<Consumer<JobWakeupHint>> listeners =
@@ -103,6 +113,12 @@ public class HazelcastClusterCoordinator implements ClusterCoordinator, Schedule
 
   @PostConstruct
   void init() {
+    if (config == null) {
+      config =
+          configInstance != null && configInstance.isResolvable()
+              ? configInstance.get()
+              : HazelcastCoordinatorConfig.defaults();
+    }
     Objects.requireNonNull(config, "config");
     Objects.requireNonNull(identityProvider, "identityProvider");
     requireJsonProvider();
