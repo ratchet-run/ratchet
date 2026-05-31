@@ -92,8 +92,9 @@ public class JmsClusterCoordinatorWildflyContainerIT {
   @AfterEach
   void stopCoordinator() {
     // This bare WAR has no RatchetLifecycle to drive afterStop(), so close the coordinator here.
-    // Without it the synchronous receive thread outlives the CDI context at container shutdown and
-    // logs a WELD-000229 when it next touches the MetricsCollector. close() is idempotent.
+    // close() drains the synchronous receive thread before returning, so it does not outlive the
+    // CDI context and touch the MetricsCollector after teardown (the WELD-000229 it used to leave).
+    // close() is idempotent.
     coordinator.close();
   }
 

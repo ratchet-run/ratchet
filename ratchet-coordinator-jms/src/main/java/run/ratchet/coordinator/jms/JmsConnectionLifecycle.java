@@ -61,6 +61,14 @@ final class JmsConnectionLifecycle {
    */
   private static final long RECEIVE_TIMEOUT_MS = 1_000L;
 
+  /**
+   * Bound on how long {@link #close()} waits for the reconnect and receive threads to exit after
+   * interrupting them. Long enough to cover a {@code receive()} poll plus an in-flight {@code
+   * dispatch()} so the inbound handler stops touching CDI-managed beans before the context is
+   * destroyed; short enough that a wedged handler cannot stall container shutdown.
+   */
+  private static final long SHUTDOWN_JOIN_TIMEOUT_MS = 2_000L;
+
   private final ConnectionFactory connectionFactory;
   private final Topic topic;
   private final JmsCoordinatorConfig config;
@@ -158,20 +166,33 @@ final class JmsConnectionLifecycle {
     t.start();
   }
 
-  /** Release the context the lifecycle owns. Idempotent. */
+  /**
+   * Release the context the lifecycle owns and wait for the worker threads to exit. Idempotent.
+   *
+   * <p>The join matters: an in-flight {@link #dispatch(Message)} calls into the inbound handler,
+   * which touches CDI-managed beans (the metrics collector among them). The caller is {@code
+   * RatchetLifecycle#afterStop}, which lets the CDI context be destroyed once {@code close()}
+   * returns. Returning while a receive thread is still inside the handler is what produces a {@code
+   * WELD-000229} at container shutdown, so we drain the threads instead of only signalling them.
+   * Joins are bounded so a wedged handler cannot stall shutdown.
+   */
   void close() {
     if (!closed.compareAndSet(false, true)) {
       return;
     }
+    closeContextRef();
+    // Drain the reconnect thread first: an in-flight connectOnce may still be spawning a receive
+    // thread, so settle it before reading and joining the receive thread itself.
     Thread reconnect = this.reconnectThread;
     if (reconnect != null) {
       reconnect.interrupt();
+      joinQuietly(reconnect);
     }
     Thread receive = this.receiveThread;
     if (receive != null) {
       receive.interrupt();
+      joinQuietly(receive);
     }
-    closeContextRef();
   }
 
   // ---- internals ----------------------------------------------------------
@@ -199,10 +220,19 @@ final class JmsConnectionLifecycle {
       }
       Pair pair = new Pair(ctx, p, consumer);
       Pair stale = connectionRef.getAndSet(pair);
-      consecutiveFailures.set(0);
       if (stale != null) {
         closeQuietly(stale.context());
       }
+      // close() may have flipped `closed` and drained the ref between the guard above and this
+      // swap. If so, retract the pair we just published and tear it down rather than start a
+      // receive thread that close() has already finished waiting for.
+      if (closed.get()) {
+        if (connectionRef.compareAndSet(pair, null)) {
+          closeQuietly(ctx);
+        }
+        return false;
+      }
+      consecutiveFailures.set(0);
       startReceiveThread(pair);
       return true;
     } catch (RuntimeException ex) {
@@ -263,6 +293,12 @@ final class JmsConnectionLifecycle {
    * handler cannot kill the receive thread.
    */
   private void dispatch(Message message) {
+    // A message can arrive in the window between close() flipping `closed` and the receive loop
+    // re-checking it. Skip delivery once closed so the handler never touches a CDI context the
+    // caller is about to destroy.
+    if (closed.get()) {
+      return;
+    }
     try {
       inboundHandler.accept(message);
     } catch (RuntimeException ignored) {
@@ -308,6 +344,14 @@ final class JmsConnectionLifecycle {
       ctx.close();
     } catch (Exception ignored) {
       // best-effort; the context may already be in a half-broken state
+    }
+  }
+
+  private static void joinQuietly(Thread thread) {
+    try {
+      thread.join(SHUTDOWN_JOIN_TIMEOUT_MS);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
     }
   }
 

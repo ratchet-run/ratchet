@@ -33,6 +33,9 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
@@ -324,6 +327,55 @@ class JmsConnectionLifecycleTest {
         .atMost(Duration.ofSeconds(2))
         .untilAsserted(
             () -> assertTrue(seen.contains(second), "receive loop must survive a throw"));
+  }
+
+  @Test
+  void closeWaitsForInFlightDispatchToFinish() throws InterruptedException {
+    TextMessage tm = mock(TextMessage.class);
+    when(consumer.receive(anyLong())).thenReturn(tm).thenAnswer(blockingQuietReceive());
+
+    CountDownLatch handlerEntered = new CountDownLatch(1);
+    CountDownLatch releaseHandler = new CountDownLatch(1);
+    AtomicBoolean handlerFinished = new AtomicBoolean(false);
+    JmsConnectionLifecycle lifecycle =
+        newLifecycle(
+            m -> {
+              handlerEntered.countDown();
+              // Wait through interruption: close() interrupts the receive thread, but a real
+              // handler doing synchronous work (e.g. a metrics call) would not unwind on it. This
+              // models that so the test exercises close()'s join, not the interrupt.
+              boolean released = false;
+              while (!released) {
+                try {
+                  released = releaseHandler.await(2, TimeUnit.SECONDS);
+                } catch (InterruptedException ignored) {
+                  // keep waiting
+                }
+              }
+              handlerFinished.set(true);
+            },
+            () -> {});
+
+    lifecycle.start(identity("nodeA"));
+    assertTrue(handlerEntered.await(2, TimeUnit.SECONDS), "handler must be entered before close()");
+
+    AtomicBoolean closeReturned = new AtomicBoolean(false);
+    Thread closer =
+        new Thread(
+            () -> {
+              lifecycle.close();
+              closeReturned.set(true);
+            });
+    closer.start();
+
+    // close() must block in join() while the dispatch is still inside the handler.
+    Thread.sleep(150);
+    assertFalse(closeReturned.get(), "close() must not return while a dispatch is in flight");
+
+    releaseHandler.countDown();
+    closer.join(Duration.ofSeconds(3).toMillis());
+    assertTrue(closeReturned.get(), "close() must return once the in-flight dispatch completes");
+    assertTrue(handlerFinished.get(), "the in-flight handler must finish before close() returns");
   }
 
   // ─── selector escaping helper ────────────────────────────────────────────────
