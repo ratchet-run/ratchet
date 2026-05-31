@@ -47,7 +47,7 @@ import run.ratchet.tck.store.schema.DeprecatedArtifact.DroppedIndex;
  */
 public final class RatchetSchemaCatalog {
 
-  public static final int CURRENT_VERSION = 8;
+  public static final int CURRENT_VERSION = 10;
 
   public static final SchemaSpec CURRENT =
       new SchemaSpec(
@@ -97,6 +97,8 @@ public final class RatchetSchemaCatalog {
         .column(nullable("superseded_by", UUID))
         .column(required("created_at", TIMESTAMP_TZ))
         .column(nullable("caller_principal", TEXT))
+        .column(nullable("recurring_master_id", UUID))
+        .column(nullable("trace_context", JSON))
         // V005 cold survivors / additions.
         .column(nullable("terminal_status", TEXT))
         .column(nullable("terminal_error", TEXT))
@@ -109,12 +111,20 @@ public final class RatchetSchemaCatalog {
         .column(nullable("job_result", JSON))
         .column(nullable("result_type", TEXT))
         .primaryKey("job_id")
+        .foreignKey(
+            new ForeignKey(
+                "fk_job_recurring_master",
+                "recurring_master_id",
+                "scheduler_recurring_job",
+                "id",
+                OnDeleteAction.SET_NULL))
         .index(Index.unique("uk_idempotency_key", "idempotency_key"))
         .index(Index.of("idx_job_depends_on", "depends_on"))
         .index(Index.of("idx_job_superseded_by", "superseded_by"))
         .index(Index.of("idx_job_business_key", "business_key"))
         .index(Index.of("idx_job_created_at", "created_at"))
         .index(Index.of("idx_job_terminal", "terminal_status", "terminated_at"))
+        .index(Index.of("idx_job_recurring_master_id", "recurring_master_id"))
         .build();
   }
 

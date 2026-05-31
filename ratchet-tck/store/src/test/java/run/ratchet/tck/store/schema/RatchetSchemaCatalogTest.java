@@ -63,6 +63,47 @@ class RatchetSchemaCatalogTest {
         "catalog version should advance when recurring execution_target is added");
   }
 
+  @Test
+  void schedulerJobDeclaresRecurringMasterAndTraceContext() {
+    Table job = table("scheduler_job");
+    List<String> columns = job.columns().stream().map(Column::name).toList();
+
+    assertTrue(
+        columns.contains("recurring_master_id"),
+        "scheduler_job should declare recurring_master_id (DDL v010)");
+    assertTrue(
+        columns.contains("trace_context"),
+        "scheduler_job should declare trace_context (W3C TraceContext captured at enqueue)");
+
+    ForeignKey fk =
+        job.foreignKeys().stream()
+            .filter(f -> f.name().equals("fk_job_recurring_master"))
+            .findFirst()
+            .orElseThrow();
+    assertEquals("recurring_master_id", fk.column());
+    assertEquals("scheduler_recurring_job", fk.refTable());
+    assertEquals("id", fk.refColumn());
+    assertEquals(
+        OnDeleteAction.SET_NULL,
+        fk.onDelete(),
+        "recurring-master FK must be ON DELETE SET NULL to match the DDL");
+
+    assertEquals(
+        List.of("recurring_master_id"),
+        index(job, "idx_job_recurring_master_id").columns(),
+        "recurring master index should match DDL");
+  }
+
+  @Test
+  void currentVersionMatchesMaxDdlSchemaVersionInsert() {
+    assertEquals(
+        10,
+        RatchetSchemaCatalog.CURRENT_VERSION,
+        "CURRENT_VERSION must match the highest ratchet_schema_version insert in the shipped DDL"
+            + " (currently '010'); bump both together when the schema advances so the catalog never"
+            + " lags the DDL again");
+  }
+
   private static List<String> signalColumns() {
     return List.of(
         "signal_key",
