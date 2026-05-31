@@ -23,9 +23,9 @@ import org.junit.jupiter.api.Test;
 import run.ratchet.api.JobStatus;
 import run.ratchet.store.entity.JobEntity;
 import run.ratchet.store.spi.JobStore;
-import run.ratchet.tck.store.AbstractSignalContractTest;
+import run.ratchet.tck.store.AbstractSignalStoreContract;
 
-class MongoSignalStoreContractTest extends AbstractSignalContractTest {
+class MongoSignalStoreContractTest extends AbstractSignalStoreContract {
 
   private static final MongoTestFixture fixture = new MongoTestFixture();
 

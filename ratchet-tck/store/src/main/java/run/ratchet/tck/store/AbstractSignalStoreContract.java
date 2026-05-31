@@ -37,7 +37,7 @@ import run.ratchet.store.entity.JobEntity;
  * <p>Contracts are store-layer only — no RI or CDI involvement. The RI timeout scanner and event
  * publication are tested separately in ratchet unit tests.
  */
-public abstract class AbstractSignalContractTest implements JobStoreContractFixture {
+public abstract class AbstractSignalStoreContract implements JobStoreContractFixture {
 
   @BeforeEach
   @AfterEach

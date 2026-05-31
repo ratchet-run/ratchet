@@ -46,8 +46,8 @@ public enum ConformanceLevel {
 
   BEHAVIORAL(
       "Behavioral",
-      "Job lifecycle operations: execution tracking, retry, pause/resume, recurring scheduling, and"
-          + " batch orchestration.",
+      "Job lifecycle operations: execution tracking, retry, pause/resume, recurring scheduling,"
+          + " batch orchestration, and signal delivery.",
       List.of(
           "AbstractExecutionStoreContract",
           "AbstractJobLogStoreContract",
@@ -59,7 +59,8 @@ public enum ConformanceLevel {
           "AbstractWorkflowConditionStoreContract",
           "AbstractJobBatchStatusStoreContract",
           "AbstractBatchMetricsStoreContract",
-          "AbstractJobQueryStoreContract"),
+          "AbstractJobQueryStoreContract",
+          "AbstractSignalStoreContract"),
       List.of()),
 
   ADVANCED(
