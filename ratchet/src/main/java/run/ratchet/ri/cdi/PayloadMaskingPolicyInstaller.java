@@ -28,6 +28,14 @@ public class PayloadMaskingPolicyInstaller {
 
   private final Instance<PayloadMaskingPolicy> policy;
 
+  /**
+   * No-arg constructor so Weld can instantiate the client-proxy subclass (CDI 4.0 §3.15); never
+   * used for a real instance, so the policy is left unset.
+   */
+  protected PayloadMaskingPolicyInstaller() {
+    this.policy = null;
+  }
+
   @Inject
   public PayloadMaskingPolicyInstaller(Instance<PayloadMaskingPolicy> policy) {
     this.policy = policy;
